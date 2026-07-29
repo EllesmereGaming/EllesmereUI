@@ -201,42 +201,72 @@ end
 local DASH_H = [[Interface\AddOns\EllesmereUI\media\glow-dash-h.tga]]
 local DASH_V = [[Interface\AddOns\EllesmereUI\media\glow-dash-v.tga]]
 
+-- Resolve the wrapper's pixel-snapped size and precompute the per-edge phase
+-- endpoints (invariant until the next resize). Returns false while the size is
+-- still 0, the scale chain is degenerate, or the pixel grid is unusable, so the
+-- caller retries on a later tick. Shared by the animated (_AntsOnUpdate) and
+-- static (_AntsStaticSettle) paths.
+local function _AntsResolveSize(self, d)
+    local w, h = self:GetSize()
+    -- Taint-strip (reparented frames can return secret-number sizes).
+    w = tonumber(tostring(w)) or 0
+    h = tonumber(tostring(h)) or 0
+    if w * h == 0 and d.fallbackW and d.fallbackW > 0 then
+        w = d.fallbackW; h = d.fallbackH or d.fallbackW
+    end
+    if w * h == 0 then return false end
+    -- Snap dimensions AND thickness to physical pixels so every edge renders
+    -- the same whole-pixel thickness (unsnapped SetHeight/SetWidth lets some
+    -- sides round thicker than others at fractional effective scale).
+    local PP = EllesmereUI.PP
+    -- A degenerate scale chain (0 while layout is unresolved, or the
+    -- SetScale(0.001) hide path) makes onePixel enormous, which collapses the
+    -- snap below to w = h = 0 and turns the k divide into N/0. Every phase
+    -- endpoint then goes non-finite and SetTexCoord rejects it on every driver
+    -- tick. Stay unresolved instead and retry once the scale is real.
+    local es = self:GetEffectiveScale()
+    -- Same subtree class the GetSize taint-strip above exists for: a secret
+    -- effective scale would hard-error on the comparison below, so take the
+    -- retry path instead. No-op for normal values.
+    if not es or (issecretvalue and issecretvalue(es)) or es < 0.1 then return false end
+    local onePixel = PP.perfect / es
+    w = floor(w / onePixel + 0.5) * onePixel
+    h = floor(h / onePixel + 0.5) * onePixel
+    -- A genuinely sub-pixel wrapper passes the size test above but snaps to 0;
+    -- floor both dimensions at one pixel so (w + h) is always a real divisor.
+    if w < onePixel then w = onePixel end
+    if h < onePixel then h = onePixel end
+    -- Total sanity gate before anything is cached. An infinite onePixel (a
+    -- bogus PP.physicalHeight makes PP.perfect infinite) snaps w and h to NaN,
+    -- which slips past every comparison above and then poisons the k divide
+    -- below. NaN and inf both fail this test, so the phase endpoints are always
+    -- real numbers and SetTexCoord can never be handed a value it rejects.
+    if not (w > 0 and h > 0 and w + h < math.huge) then return false end
+    local sTh = floor(d.th / onePixel + 0.5) * onePixel
+    if sTh < onePixel then sTh = onePixel end
+    d.top:SetHeight(sTh); d.bottom:SetHeight(sTh)
+    d.left:SetWidth(sTh); d.right:SetWidth(sTh)
+    d.w = w; d.h = h
+    -- Precompute the per-edge phase endpoints; they are invariant until the
+    -- next resize/restart, so only the scroll offset o changes per tick.
+    -- ph(P) = P * N / perim is the perimeter position in dash-period units;
+    -- the four edges share it so dashes stay continuous around every corner.
+    local k = d.N / (2 * (w + h))
+    d.wk   = w * k
+    d.whk  = (w + h) * k
+    d.wwhk = (2 * w + h) * k
+    return true
+end
+
 local function _AntsOnUpdate(self, elapsed)
     local d = self._euiScrollData
     if not d then return end
     d.timer = d.timer + elapsed
     if d.timer >= d.period then d.timer = d.timer - d.period end
-    local w, h = d.w, d.h
-    if w * h == 0 then
-        w, h = self:GetSize()
-        -- Same taint-strip as the ants engine (reparented frames can return
-        -- secret-number sizes).
-        w = tonumber(tostring(w)) or 0
-        h = tonumber(tostring(h)) or 0
-        if w * h == 0 and d.fallbackW and d.fallbackW > 0 then
-            w = d.fallbackW; h = d.fallbackH or d.fallbackW
-        end
-        if w * h == 0 then return end
-        -- Snap dimensions AND thickness to physical pixels so every edge renders
-        -- the same whole-pixel thickness (unsnapped SetHeight/SetWidth lets some
-        -- sides round thicker than others at fractional effective scale).
-        local PP = EllesmereUI.PP
-        local onePixel = PP.perfect / self:GetEffectiveScale()
-        w = floor(w / onePixel + 0.5) * onePixel
-        h = floor(h / onePixel + 0.5) * onePixel
-        local sTh = floor(d.th / onePixel + 0.5) * onePixel
-        if sTh < onePixel then sTh = onePixel end
-        d.top:SetHeight(sTh); d.bottom:SetHeight(sTh)
-        d.left:SetWidth(sTh); d.right:SetWidth(sTh)
-        d.w = w; d.h = h
-        -- Precompute the per-edge phase endpoints; they are invariant until the
-        -- next resize/restart, so only the scroll offset o changes per tick.
-        -- ph(P) = P * N / perim is the perimeter position in dash-period units;
-        -- the four edges share it so dashes stay continuous around every corner.
-        local k = d.N / (2 * (w + h))
-        d.wk   = w * k
-        d.whk  = (w + h) * k
-        d.wwhk = (2 * w + h) * k
+    -- Positive-test rather than == 0 so a non-finite cached size fails it too
+    -- and re-resolves, instead of feeding bad texcoords in forever.
+    if not (d.w > 0 and d.h > 0) then
+        if not _AntsResolveSize(self, d) then return end
     end
     local N = d.N
     local o = (d.timer / d.period) * N   -- scroll offset (N integer -> seamless wrap)
@@ -248,9 +278,34 @@ local function _AntsOnUpdate(self, elapsed)
     d.left:SetTexCoord(0, 1, N - o, wwhk - o)
 end
 
+-- Static (non-marching) dashes: draw once at the frozen base phase (scroll
+-- offset 0). These are exactly the animated coords evaluated at o = 0, so the
+-- dashes stay corner-continuous -- a dashed border rather than marching ants.
+local function _AntsDrawStatic(self, d)
+    local N = d.N
+    local wk, whk, wwhk = d.wk, d.whk, d.wwhk
+    d.top:SetTexCoord(0, wk, 0, 1)
+    d.right:SetTexCoord(0, 1, wk, whk)
+    d.bottom:SetTexCoord(wwhk, whk, 0, 1)
+    d.left:SetTexCoord(0, 1, N, wwhk)
+end
+
+-- One-shot settler for static mode when the size was not resolved at Start time
+-- (SetAllPoints wrappers can read 0 before layout resolves). Resolves, draws
+-- once, then unregisters so a static border costs nothing per frame thereafter.
+local function _AntsStaticSettle(self, elapsed)
+    local d = self._euiScrollData
+    if not d then _Unregister(self, "ants"); return end
+    if not (d.w > 0 and d.h > 0) then
+        if not _AntsResolveSize(self, d) then return end
+    end
+    _AntsDrawStatic(self, d)
+    _Unregister(self, "ants")
+end
+
 -- lineLen is accepted for call-signature compatibility but unused: the dash
 -- length is the texture's duty cycle, not a runtime segment length.
-local function StartProceduralAnts(wrapper, N, th, period, lineLen, cr, cg, cb, szOrW, szH, bgR, bgG, bgB, bgA)
+local function StartProceduralAnts(wrapper, N, th, period, lineLen, cr, cg, cb, szOrW, szH, bgR, bgG, bgB, bgA, static)
     if not wrapper._euiScrollData then
         local function mk(p1, p1f, p2, p2f)
             local t = wrapper:CreateTexture(nil, "OVERLAY", nil, 7)
@@ -307,7 +362,19 @@ local function StartProceduralAnts(wrapper, N, th, period, lineLen, cr, cg, cb, 
     d.bottom:SetVertexColor(cr, cg, cb, 1); d.bottom:Show()
     d.left:SetVertexColor(cr, cg, cb, 1);   d.left:Show()
     d.right:SetVertexColor(cr, cg, cb, 1);  d.right:Show()
-    _Register(wrapper, _AntsOnUpdate, "ants")
+    if static then
+        -- Frozen dashes: draw once now (size permitting) and stay off the
+        -- animation driver. If layout has not resolved yet, a one-shot settler
+        -- draws on the first tick that reads a real size, then unregisters.
+        if _AntsResolveSize(wrapper, d) then
+            _AntsDrawStatic(wrapper, d)
+            _Unregister(wrapper, "ants")   -- clear any prior animated registration
+        else
+            _Register(wrapper, _AntsStaticSettle, "ants")
+        end
+    else
+        _Register(wrapper, _AntsOnUpdate, "ants")
+    end
 end
 
 local function StopProceduralAnts(wrapper)
@@ -317,6 +384,19 @@ local function StopProceduralAnts(wrapper)
         d.top:Hide(); d.bottom:Hide(); d.left:Hide(); d.right:Hide()
         if d.bgTop then d.bgTop:Hide(); d.bgBottom:Hide(); d.bgLeft:Hide(); d.bgRight:Hide() end
     end
+end
+
+-- Recolor active dashes in place. Secret-safe: r,g,b,a flow straight into
+-- SetVertexColor with no arithmetic, so a secret (restricted) color is fine.
+-- Used by the Raid Frames Frame-Border threshold recolor.
+local function SetProceduralAntsColor(wrapper, r, g, b, a)
+    local d = wrapper._euiScrollData
+    if not d then return end
+    a = a or 1
+    d.top:SetVertexColor(r, g, b, a)
+    d.bottom:SetVertexColor(r, g, b, a)
+    d.left:SetVertexColor(r, g, b, a)
+    d.right:SetVertexColor(r, g, b, a)
 end
 
 -------------------------------------------------------------------------------
@@ -631,8 +711,14 @@ local function StartFlipBookGlow(wrapper, szOrW, entry, cr, cg, cb, szH)
     elseif entry.texture then
         d.tex:SetTexture(entry.texture)
     end
-    d.tex:SetDesaturated(true)
-    d.tex:SetVertexColor(cr, cg, cb)
+    if cr then
+        d.tex:SetDesaturated(true)
+        d.tex:SetVertexColor(cr, cg, cb)
+    else
+        -- no color requested - just show atlas untinted
+        d.tex:SetDesaturated(false)
+        d.tex:SetVertexColor(1, 1, 1)
+    end
     d.tex:Show()
     d.anim:SetFlipBookRows(entry.rows or 6)
     d.anim:SetFlipBookColumns(entry.columns or 5)
@@ -765,6 +851,104 @@ local function StopGlow(wrapper)
 end
 
 -------------------------------------------------------------------------------
+--  Animation-driven glow (engine aura buttons)
+--  The 12.1 slot-button subtree is forbidden to addon code outside its
+--  creation window, so the driver-ticked engines above (Lua OnUpdate)
+--  freeze there. This variant reproduces the Pixel Glow march with C-side
+--  AnimationGroups: created and started once in the creation window, it
+--  animates forever with zero per-frame Lua -- identically in and out of
+--  secret contexts.
+-------------------------------------------------------------------------------
+local ANIM_MASK_TEX = [[Interface\Buttons\WHITE8X8]]
+
+-- Marching dashes: per edge, a dash strip one pattern-cycle longer than the
+-- edge slides by exactly one cycle and loops; a rect mask clips it to the
+-- edge, so the snap-back is invisible and the march is seamless. Strip
+-- texcoords carry the cumulative perimeter phase, keeping dashes
+-- corner-continuous exactly like the driver-ticked ants (phase matters
+-- modulo one cycle, so the one-cycle anchor offsets cancel out).
+local function StartAnimatedAnts(wrapper, N, th, period, cr, cg, cb, w, h)
+    N = (N and N > 0) and N or 8
+    th = th or 2
+    period = period or 4
+    w = w or 36; h = h or w
+    local perim = 2 * (w + h)
+    local P = perim / N              -- pixels per dash cycle
+    local step = period / N          -- seconds per dash cycle
+    local d = wrapper._euiAnimAnts
+    if not d then
+        d = { strips = {}, masks = {}, groups = {}, trs = {} }
+        wrapper._euiAnimAnts = d
+        for i = 1, 4 do
+            local mask = wrapper:CreateMaskTexture()
+            mask:SetTexture(ANIM_MASK_TEX, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+            local strip = wrapper:CreateTexture(nil, "OVERLAY", nil, 7)
+            strip:AddMaskTexture(mask)
+            local ag = strip:CreateAnimationGroup()
+            ag:SetLooping("REPEAT")
+            local tr = ag:CreateAnimation("Translation")
+            tr:SetSmoothing("NONE")
+            d.masks[i], d.strips[i], d.groups[i], d.trs[i] = mask, strip, ag, tr
+        end
+    end
+    -- Edge order (clockwise): 1 top scrolls right, 2 right scrolls down,
+    -- 3 bottom scrolls left, 4 left scrolls up. base = cumulative
+    -- perimeter phase in cycles at the edge's visual start.
+    local edges = {
+        { tex = DASH_H, len = w, dx = P,  dy = 0,  vert = false, base = 0 },
+        { tex = DASH_V, len = h, dx = 0,  dy = -P, vert = true,  base = w / P },
+        { tex = DASH_H, len = w, dx = -P, dy = 0,  vert = false, base = (w + h) / P },
+        { tex = DASH_V, len = h, dx = 0,  dy = P,  vert = true,  base = (w + h + w) / P },
+    }
+    for i = 1, 4 do
+        local e = edges[i]
+        local mask, strip, ag, tr = d.masks[i], d.strips[i], d.groups[i], d.trs[i]
+        ag:Stop()
+        strip:SetTexture(e.tex, "REPEAT", "REPEAT")
+        strip:SetVertexColor(cr or 1, cg or 1, cb or 1, 1)
+        mask:ClearAllPoints()
+        strip:ClearAllPoints()
+        local cyc = (e.len + P) / P
+        if not e.vert then
+            mask:SetSize(e.len, th)
+            strip:SetSize(e.len + P, th)
+            if i == 1 then
+                mask:SetPoint("TOPLEFT", wrapper, "TOPLEFT", 0, 0)
+                strip:SetPoint("TOPLEFT", wrapper, "TOPLEFT", -P, 0)
+            else
+                mask:SetPoint("BOTTOMLEFT", wrapper, "BOTTOMLEFT", 0, 0)
+                strip:SetPoint("BOTTOMLEFT", wrapper, "BOTTOMLEFT", 0, 0)
+            end
+            strip:SetTexCoord(e.base, e.base + cyc, 0, 1)
+        else
+            mask:SetSize(th, e.len)
+            strip:SetSize(th, e.len + P)
+            if i == 2 then
+                mask:SetPoint("TOPRIGHT", wrapper, "TOPRIGHT", 0, 0)
+                strip:SetPoint("TOPRIGHT", wrapper, "TOPRIGHT", 0, P)
+            else
+                mask:SetPoint("BOTTOMLEFT", wrapper, "BOTTOMLEFT", 0, 0)
+                strip:SetPoint("BOTTOMLEFT", wrapper, "BOTTOMLEFT", 0, -P)
+            end
+            strip:SetTexCoord(0, 1, e.base, e.base + cyc)
+        end
+        strip:Show()
+        tr:SetOffset(e.dx, e.dy)
+        tr:SetDuration(step)
+        ag:Play()
+    end
+end
+
+local function StopAnimatedAnts(wrapper)
+    local d = wrapper._euiAnimAnts
+    if not d then return end
+    for i = 1, 4 do
+        d.groups[i]:Stop()
+        d.strips[i]:Hide()
+    end
+end
+
+-------------------------------------------------------------------------------
 --  Public API — attached to EllesmereUI.Glows
 -------------------------------------------------------------------------------
 -- Styles that render through C-side FlipBook AnimationGroups (GCD, Modern
@@ -795,10 +979,13 @@ EllesmereUI.Glows = {
     -- Low-level engines (for addons that need direct control)
     StartProceduralAnts = StartProceduralAnts,
     StopProceduralAnts  = StopProceduralAnts,
+    SetProceduralAntsColor = SetProceduralAntsColor,
     StartButtonGlow     = StartButtonGlow,
     StopButtonGlow      = StopButtonGlow,
     StartAutoCastShine  = StartAutoCastShine,
     StopAutoCastShine   = StopAutoCastShine,
+    StartAnimatedAnts   = StartAnimatedAnts,
+    StopAnimatedAnts    = StopAnimatedAnts,
     StartShapeGlow      = StartShapeGlow,
     StopShapeGlow       = StopShapeGlow,
     StartFlipBookGlow   = StartFlipBookGlow,

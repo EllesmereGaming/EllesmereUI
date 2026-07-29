@@ -37,7 +37,6 @@ local QT_DEFAULTS = {
 
             -- Skin toggles
             skinHeaders          = true,
-            accentHeaders        = true,
             -- Show Blizzard's native quest type icons/buttons (right side)
             -- instead of our custom classified icons. Off = our icons. Reload-gated.
             showQuestIcons       = false,
@@ -45,6 +44,7 @@ local QT_DEFAULTS = {
             -- Font sizes (single source of truth used by skin code)
             titleFontSize        = 12,
             objectiveFontSize    = 10,
+            headerFontSize       = 13,
 
             -- Background (rendered behind ObjectiveTrackerFrame, our own frame)
             bgR                  = 0.035,
@@ -62,6 +62,7 @@ local QT_DEFAULTS = {
             -- QoL
             autoAccept           = false,
             autoAcceptPreventMulti = true,
+            autoAcceptShiftSkip  = true,
             autoTurnIn           = false,
             autoTurnInShiftSkip  = true,
             questItemHotkey      = nil,

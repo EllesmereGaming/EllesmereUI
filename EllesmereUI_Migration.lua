@@ -177,11 +177,68 @@ end
 -- Public: run all registered migrations. Called once from the parent
 -- ADDON_LOADED handler (the legacy beta-wipe that used to precede it is gone).
 function EllesmereUI.RunRegisteredMigrations()
-    if not EllesmereUIDB then return end
+    if not EllesmereUIDB then
+        -- Truly fresh install: SavedVariables do not exist yet, so there is
+        -- nothing to migrate. Do NOT just skip: leaving the catalog unstamped
+        -- means the ENTIRE chain runs its first pass at the NEXT load, over
+        -- whatever exists by then -- e.g. a profile imported during this
+        -- first session -- treating current-format data as legacy (the CDM
+        -- consolidate/detach pair rebuilt an imported spell store, the
+        -- pixel-rounding pass floored imported positions/sizes, the colors
+        -- seed replaced imported palettes). A fresh install is current-format
+        -- by definition: create the store and stamp every global migration
+        -- as already done. Profile-scoped stamps live inside each profile
+        -- (and ride exports), so they need no genesis pass.
+        EllesmereUIDB = {}
+        local flags = GetFlagTable(EllesmereUIDB)
+        for _, spec in ipairs(_migrations) do
+            if spec.scope == "global" then
+                flags[spec.id] = true
+            end
+        end
+        return
+    end
     for _, spec in ipairs(_migrations) do
         RunMigration(spec)
     end
 end
+
+--------------------------------------------------------------------------------
+--  Registered migrations
+--------------------------------------------------------------------------------
+
+-- Hovercast macro bindings ignored their own Friendly/Enemy toggles: the
+-- friend/harm filter was only ever applied when building a spell binding, so a
+-- macro fired on whatever was under the cursor regardless of what the two
+-- toggles said. Now that the filter is honored, a stored binding left at the
+-- creation defaults (hoverFriendly = true, hoverEnemy = false) would suddenly
+-- stop working on enemies -- a silent regression on data the user never touched,
+-- e.g. every mouseover focus macro. Seed both flags so existing bindings keep
+-- the unfiltered behavior they have actually had, and let the toggles take
+-- effect from here on.
+EllesmereUI.RegisterMigration({
+    id          = "clickcast_macro_hover_reaction_v1",
+    scope       = "profile",
+    description = "Keep existing hovercast macro bindings unfiltered now that Friendly/Enemy applies to them",
+    body        = function(ctx)
+        local rf = ctx.profile.addons and ctx.profile.addons.EllesmereUIRaidFrames
+        local cc = rf and rf.clickCast
+        if type(cc) ~= "table" then return end
+        local function seed(list)
+            if type(list) ~= "table" then return end
+            for _, b in ipairs(list) do
+                if type(b) == "table" and b.type == "macro" and b.hovercast then
+                    b.hoverFriendly = true
+                    b.hoverEnemy    = true
+                end
+            end
+        end
+        seed(cc.globals)
+        if type(cc.specs) == "table" then
+            for _, list in pairs(cc.specs) do seed(list) end
+        end
+    end,
+})
 
 -- Inspection helper for the slash command.
 function EllesmereUI.GetMigrationStatus()
@@ -527,6 +584,51 @@ EllesmereUI.RegisterMigration({
         end
         sweep(prof.specOverrides)
         sweep(prof.condOverrides)
+    end,
+})
+
+-- The Skyriding HUD's sub-DB registers its own folder
+-- (EllesmereUIDragonRiding), dodging the BlizzardSkin capture blacklist, so
+-- a width-match engine write to its width key could be auto-captured into an
+-- unrelated override entry (field case: riding a CDM Icon Scale capture).
+-- Applying such an entry touches a folder with no targeted refresher, and
+-- the unmapped-folder fallback escalates every apply into a full
+-- RefreshAllAddons -- under spec-changed event traffic that meant minutes of
+-- continuous full-suite refresh after combat. The folder is now
+-- capture-and-apply blacklisted; strip already-banked keys from both stores.
+-- Only the foreign keys are removed -- the entry's own settings survive; an
+-- entry left with an empty default map is dropped whole.
+EllesmereUI.RegisterMigration({
+    id          = "specov_strip_dragonriding_fkeys_v1",
+    scope       = "profile",
+    description = "Strip stowaway Dragon Riding fkeys from spec/conditional override stores (unmapped-folder RefreshAllAddons storm).",
+    body        = function(ctx)
+        local prof = ctx.profile
+        if not prof then return end
+        local PREFIX = "EllesmereUIDragonRiding\31"
+        local function strip(store)
+            if type(store) ~= "table" then return end
+            for i = #store, 1, -1 do
+                local e = store[i]
+                local vals = type(e) == "table" and e.values
+                if type(vals) == "table" then
+                    for _, m in pairs(vals) do
+                        if type(m) == "table" then
+                            for fkey in pairs(m) do
+                                if type(fkey) == "string" and fkey:sub(1, #PREFIX) == PREFIX then
+                                    m[fkey] = nil
+                                end
+                            end
+                        end
+                    end
+                    if type(vals.default) ~= "table" or next(vals.default) == nil then
+                        table.remove(store, i)
+                    end
+                end
+            end
+        end
+        strip(prof.specOverrides)
+        strip(prof.condOverrides)
     end,
 })
 
@@ -2161,6 +2263,29 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
+EllesmereUI.RegisterMigration({
+    id          = "uf_absorb_style_boolean_sweep_v1",
+    scope       = "profile",
+    description = "Normalise any remaining boolean showPlayerAbsorb to a style string. uf_absorb_style_dropdown_v1 walked a fixed unit list and stamps per profile, so a profile that arrived AFTER it ran -- an import or a preset, both of which inherit the recipient's migration flags -- kept the legacy boolean.",
+    body = function(ctx)
+        -- Walk every table in the UF blob rather than a unit list: the earlier
+        -- pass missed whichever units were not named in it, and the crash this
+        -- fixes does not care which unit carried the bad value.
+        local uf = ctx.profile.addons and ctx.profile.addons.EllesmereUIUnitFrames
+        if type(uf) ~= "table" then return end
+        for _, unitCfg in pairs(uf) do
+            if type(unitCfg) == "table" then
+                local v = unitCfg.showPlayerAbsorb
+                if v == true then
+                    unitCfg.showPlayerAbsorb = "striped"   -- v1's mapping for true
+                elseif v ~= nil and type(v) ~= "string" then
+                    unitCfg.showPlayerAbsorb = "none"
+                end
+            end
+        end
+    end,
+})
+
 -- Remove ghost buff bar: buff visibility is now managed by Blizzard CDM
 -- settings. Clean up the bar entry from all profiles and spell data from
 -- all spec profiles. One-time migration.
@@ -2536,6 +2661,33 @@ EllesmereUI.RegisterMigration({
             elseif ge then
                 -- Incomplete growEdge, just remove it
                 pos.growEdge = nil
+            end
+        end
+    end,
+})
+
+-------------------------------------------------------------------------------
+-- Replace the CDM "Anchor First Row" boolean with the rowGrowDirection enum.
+--
+-- anchorFirstRow pinned the leading perpendicular edge (TOP on horizontal
+-- bars, LEFT on vertical bars), i.e. extra rows grew downward/rightward.
+-- The equivalent enum values are "DOWN" (horizontal) / "RIGHT" (vertical);
+-- unset stays unset (centered growth, the default for both models).
+-------------------------------------------------------------------------------
+EllesmereUI.RegisterMigration({
+    id          = "cdm_row_grow_direction_v1",
+    scope       = "profile",
+    description = "Migrate CDM anchorFirstRow booleans to the rowGrowDirection enum.",
+    body = function(ctx)
+        local cdm = ctx.profile.addons and ctx.profile.addons.EllesmereUICooldownManager
+        local bars = cdm and cdm.cdmBars and cdm.cdmBars.bars
+        if not bars then return end
+        for _, bar in ipairs(bars) do
+            if bar.anchorFirstRow then
+                if bar.rowGrowDirection == nil then
+                    bar.rowGrowDirection = bar.verticalOrientation and "RIGHT" or "DOWN"
+                end
+                bar.anchorFirstRow = nil
             end
         end
     end,
@@ -3591,6 +3743,96 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
+EllesmereUI.RegisterMigration({
+    id          = "uf_clear_stale_attached_power_border_v1",
+    scope       = "profile",
+    description = "Zero stale powerBorderSize on attached power bars so the new attached divider does not appear uninvited for users who set a border size while detached and later reattached.",
+    body = function(ctx)
+        -- Before attached dividers existed, the Border Size slider was
+        -- disabled while the bar was attached, so a stored size > 0 with an
+        -- attached position is always a leftover from a detached phase --
+        -- never a divider the user asked for. Clearing it back to the
+        -- default (0 = off) keeps frames looking identical across the
+        -- update; opting into the divider is one slider drag.
+        -- Positions other than above/below are untouched: detached keeps
+        -- its full border, and "none" renders nothing either way.
+        local uf = ctx.profile.addons and ctx.profile.addons.EllesmereUIUnitFrames
+        if type(uf) ~= "table" then return end
+        -- Units whose powerPosition DEFAULT is attached ("below"); for them a
+        -- missing powerPosition key still means attached. The mini frames
+        -- default to "none", so a missing key there renders no border.
+        local attachedDefault = { player = true, target = true, focus = true, boss = true }
+        for unitKey, s in pairs(uf) do
+            if type(s) == "table"
+                and type(s.powerBorderSize) == "number" and s.powerBorderSize > 0 then
+                local pos = s.powerPosition
+                if pos == nil and attachedDefault[unitKey] then pos = "below" end
+                if pos == "above" or pos == "below" then
+                    s.powerBorderSize = nil
+                end
+            end
+        end
+    end,
+})
+
+-- Shared body: convert collided-buff cooldownID claims (bs.assignedBuffCdIDs,
+-- a side-table with no order) into cd-claim markers stored inside
+-- assignedSpells. Naturally idempotent: assignedBuffCdIDs is cleared after
+-- migrating, so a second run finds nothing per bar. Also called at
+-- profile-import time (EllesmereUI_Profiles.lua) so old export strings
+-- carrying the side-table keep their claims.
+--
+-- Mirrors ns.CD_CLAIM_MARKER_BASE / ns.CdClaimMarker in
+-- EllesmereUICooldownManager.lua (-(3000000000 + cooldownID)). Inlined
+-- rather than called: the CDM child addon loads AFTER the login migration
+-- runs, so its ns table isn't available yet.
+function EllesmereUI.MigrateCdmBuffCdClaims(specProf)
+    local CD_CLAIM_MARKER_BASE = 3000000000
+    local barSpells = type(specProf) == "table" and specProf.barSpells
+    if type(barSpells) ~= "table" then return end
+    for _, bs in pairs(barSpells) do
+        if type(bs) == "table" and type(bs.assignedBuffCdIDs) == "table"
+           and next(bs.assignedBuffCdIDs) then
+            if not bs.assignedSpells then bs.assignedSpells = {} end
+            -- Dedup against any marker already present (e.g. a prior
+            -- partial run interrupted by an error).
+            local present = {}
+            for _, id in ipairs(bs.assignedSpells) do
+                if type(id) == "number" and id <= -CD_CLAIM_MARKER_BASE then
+                    present[-id - CD_CLAIM_MARKER_BASE] = true
+                end
+            end
+            for cdID in pairs(bs.assignedBuffCdIDs) do
+                if type(cdID) == "number" and not present[cdID] then
+                    bs.assignedSpells[#bs.assignedSpells + 1] = -(CD_CLAIM_MARKER_BASE + cdID)
+                end
+            end
+            bs.assignedBuffCdIDs = nil
+        end
+    end
+end
+
+EllesmereUI.RegisterMigration({
+    id          = "cdm_buff_cd_claim_markers",
+    scope       = "specProfile",
+    description = "Convert collided-buff cooldownID claims (bs.assignedBuffCdIDs, a side-table with no order) into cd-claim markers stored inside assignedSpells, so a claimed slot gets a real position and can be drag-reordered like any other tracked buff.",
+    body = function(ctx)
+        EllesmereUI.MigrateCdmBuffCdClaims(ctx.specProfile)
+    end,
+})
+
+EllesmereUI.RegisterMigration({
+    id          = "qol_movement_alert_precision_normalize_v2",
+    scope       = "profile",
+    description = "Normalize Movement Alert precision to a clean 0 or 1. A legacy numeric-input control could leave a non-binary value -- the string \"1\", or a stored -0 -- that the Show Decimal toggle mishandled and that built an invalid \"%.-0f\" format string. Normalized unconditionally (no type guard) because -0 is a number, so the earlier number-only guard skipped it. Positive -> 1 (decimals on); zero/negative/garbage -> 0 (off).",
+    body = function(ctx)
+        local qol = ctx.profile.addons and ctx.profile.addons.EllesmereUIQoL
+        local ma = qol and qol.movementAlert
+        if type(ma) ~= "table" or ma.precision == nil then return end
+        ma.precision = (tonumber(ma.precision) or 1) > 0 and 1 or 0
+    end,
+})
+
 local migrationFrame = CreateFrame("Frame")
 migrationFrame:RegisterEvent("ADDON_LOADED")
 migrationFrame:SetScript("OnEvent", function(self, event, addonName)
@@ -4086,3 +4328,41 @@ end
 -- RB addon loads. RB's OnInitialize exports EllesmereUI._RBSectionDefaults
 -- and then invokes MigrateRBAdvancedProfile for every stored profile; the
 -- profile import paths call it directly for imported data.
+
+-- Per-character data leaked through shared profiles: DataBars kept its
+-- cross-character gold ledger at profile scope (addons.EllesmereUIDataBars
+-- .characters) and the QoL upgrade calculator kept per-character scan state
+-- there too (addons.EllesmereUIQoL.chars), so exported profiles carried the
+-- sharer's character names, realms and gold. Both stores are account-wide now
+-- (EllesmereUIDB.dataBarsGold / EllesmereUIDB.qolUpgradeCalcChars) and the
+-- module init paths drop the keys from the ACTIVE profile; this sweep drops
+-- them from every stored profile so no stale copy lingers on disk or rides a
+-- later export. The string paths strip the keys as well, so this is cleanup,
+-- not the safety line.
+--
+-- Deliberately DROP rather than merge into the account stores: any profile
+-- may be an imported one and nothing durably records that, so a merge could
+-- copy a stranger's characters into permanent account-wide storage. Nothing
+-- of value is lost -- each character re-records itself on login / next scan.
+--
+-- The folder literals contain "EllesmereUI", which the standalone packager
+-- renames to the build token, so they match each build's stored profile keys.
+EllesmereUI.RegisterMigration({
+    id          = "per_character_data_account_wide_v1",
+    scope       = "global",
+    description = "Drop leaked per-character data (DataBars gold ledger, QoL upgrade-calc state) from every stored profile; both are account-wide now.",
+    body        = function(ctx)
+        local db = ctx.db
+        if not db or type(db.profiles) ~= "table" then return end
+        for _, pd in pairs(db.profiles) do
+            local addons = type(pd) == "table" and type(pd.addons) == "table"
+                and pd.addons or nil
+            if addons then
+                local dbars = addons["EllesmereUIDataBars"]
+                if type(dbars) == "table" then dbars.characters = nil end
+                local qol = addons["EllesmereUIQoL"]
+                if type(qol) == "table" then qol.chars = nil end
+            end
+        end
+    end,
+})

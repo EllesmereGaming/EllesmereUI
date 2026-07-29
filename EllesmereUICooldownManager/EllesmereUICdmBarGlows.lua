@@ -76,6 +76,23 @@ function ns.GetBarGlows()
             assignments = {},
         }
     end
+    -- Live migration: colorMode replaced classColor + "glowColor set" nil check
+    if not prof.barGlows._colorModeMigrated then
+        prof.barGlows._colorModeMigrated = true
+        for _, buffList in pairs(prof.barGlows.assignments) do
+            for _, entry in ipairs(buffList) do
+                if not entry.colorMode then
+                    if entry.classColor then
+                        entry.colorMode = "class"
+                    elseif entry.glowColor then
+                        entry.colorMode = "custom"
+                    else
+                        entry.colorMode = "default"
+                    end
+                end
+            end
+        end
+    end
     return prof.barGlows
 end
 
@@ -270,17 +287,14 @@ local function UpdateOverlayVisuals()
                     if shapeName and shapeName ~= "square" and shapeName ~= "csquare" and shapeName ~= "none" then
                         style = 2
                     end
-                    local cr, cg, cb = 1, 0.82, 0.1
-                    if entry.classColor then
-                        local _, ct = UnitClass("player")
-                        if ct then
-                            local cc = RAID_CLASS_COLORS[ct]
-                            if cc then cr, cg, cb = cc.r, cc.g, cc.b end
-                        end
-                    elseif entry.glowColor then
+                    local cr, cg, cb
+                    if entry.colorMode == "class" then
+                        local cc = EllesmereUI.GetClassColor(EllesmereUI._playerClass)
+                        cr, cg, cb = cc.r, cc.g, cc.b
+                    elseif entry.colorMode == "custom" and entry.glowColor then
                         cr = entry.glowColor.r or 1
-                        cg = entry.glowColor.g or 0.82
-                        cb = entry.glowColor.b or 0.1
+                        cg = entry.glowColor.g or 0.788
+                        cb = entry.glowColor.b or 0.137
                     end
                     StartNativeGlow(overlay, style, cr, cg, cb)
                 else
@@ -381,6 +395,21 @@ SlashCmdList.EUIBGDEBUG = function(msg)
                     -- THE aura flags our cache keys off:
                     print(("    AURA: wasSetFromAura=%s auraInstanceID=%s  shown=%s"):format(
                         _safe(frame.wasSetFromAura), _safe(frame.auraInstanceID), tostring(frame:IsShown())))
+                    -- THE signal the per-spell Active State Glow keys off: a
+                    -- non-zero red channel on Blizzard's swipe colour IS the
+                    -- active state. r=0 means Blizzard never entered it, so no
+                    -- amount of EUI logic can light the glow. Printed with our
+                    -- own live glow state so a stuck flag is visible too.
+                    local sc = frame.cooldownSwipeColor
+                    local scR = "<none>"
+                    if sc and type(sc) ~= "number" and sc.GetRGBA then
+                        scR = _safe(sc:GetRGBA())
+                    end
+                    local fdA = ns._hookFrameData and ns._hookFrameData[frame]
+                    print(("    ACTIVE-GLOW: swipeR=%s activeGlowOn=%s glowRunning=%s gate=%s"):format(
+                        scR, tostring(fdA and fdA._activeGlowOn or false),
+                        tostring(fdA and fdA.glowOverlay and fdA.glowOverlay._glowActive or false),
+                        tostring(ns._cdmAnyActiveGlow or false)))
                     -- COOLDOWN/duration: pet-summons may show "active" only via this.
                     if frame.Cooldown and frame.Cooldown.GetCooldownTimes then
                         local ok, s, d = pcall(frame.Cooldown.GetCooldownTimes, frame.Cooldown)

@@ -4,12 +4,16 @@
 --    * Quality of Life -- general QoL features (built by parent general options)
 --    * Cursor          -- cursor skin (built by EUI_QoL_Cursor_Options.lua)
 -------------------------------------------------------------------------------
-local PAGE_QOL      = "Quality of Life"
+-- Page names are DEEP-LINK IDENTIFIERS, not just tab labels: every
+-- NavigateToElementSettings tuple (_ELEMENT_SETTINGS_MAP, What's New nav)
+-- and every GetActivePage() comparison carries them as strings and fails
+-- SILENTLY on a mismatch. Renaming one means updating every consumer.
+local PAGE_QOL      = "QoL"
 local PAGE_CURSOR   = "Cursor"
-local PAGE_BREZ     = "BattleRes"
-local PAGE_AUTOLOG  = "Keys, Logs & Brez"
-local PAGE_UPGCALC  = "Upgrade Calc"
+local PAGE_UPGCALC  = "Upgrader"
 local PAGE_SHIFTER  = "Shifter"
+local PAGE_MOVEMENT = "MoveAlert"
+local PAGE_RAIDTOOLS = "Raid Tools"
 
 -------------------------------------------------------------------------------
 --  Hide Item Transforms picker popup
@@ -440,6 +444,15 @@ initFrame:SetScript("OnEvent", function(self)
                           if not EllesmereUIDB then EllesmereUIDB = {} end
                           EllesmereUIDB.autoRepairGuild = v
                       end },
+                    -- Off (default) = short text "12o 34a"; on = coin icons.
+                    { type="toggle", label="Coin Icons",
+                      get=function()
+                          return EllesmereUIDB and EllesmereUIDB.repairCoinIcons == true
+                      end,
+                      set=function(v)
+                          if not EllesmereUIDB then EllesmereUIDB = {} end
+                          EllesmereUIDB.repairCoinIcons = v
+                      end },
                 },
             })
 
@@ -798,7 +811,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                     { type="colorpicker", label="Enter Color",
                       disabled=enterClassOn,
-                      disabledTooltip="Disable Class Color to pick a custom color.",
+                      disabledTooltip="Disable Class Color to pick a custom color.", rawTooltip=true,
                       get=function()
                         local c = (EllesmereUIDB and EllesmereUIDB.combatAlertEnterColor) or { r=1.00, g=1.00, b=1.00 }
                         return c.r, c.g, c.b
@@ -826,7 +839,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                     { type="colorpicker", label="Leave Color",
                       disabled=leaveClassOn,
-                      disabledTooltip="Disable Class Color to pick a custom color.",
+                      disabledTooltip="Disable Class Color to pick a custom color.", rawTooltip=true,
                       get=function()
                         local c = (EllesmereUIDB and EllesmereUIDB.combatAlertLeaveColor) or { r=1.00, g=1.00, b=1.00 }
                         return c.r, c.g, c.b
@@ -880,6 +893,8 @@ initFrame:SetScript("OnEvent", function(self)
             caCogBtn:SetAlpha(caInitOff and 0.15 or 0.4)
             if caInitOff then caCogBlock:Show() else caCogBlock:Hide() end
         end
+
+        -- (Target Distance Text moved to the EXTRAS section, Row 4 right slot.)
 
         -- Inline picker cog on Hide Item Transforms (right slot of the death
         -- row): opens the item checklist popup. Dimmed and inert while the
@@ -1612,7 +1627,17 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 EllesmereUI:RefreshPage()
               end },
-            { type="label", text="" }
+            { type="toggle", text="Target Distance Text",
+              tooltip="Shows the approximate distance to your current target as movable on-screen text (default 30-35). Use the cog for format, alignment, and text size; use Unlock Mode to position or Anchor to your Player Frame.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.targetDistanceEnabled or false
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.targetDistanceEnabled = v
+                  if EllesmereUI._applyTargetDistance then EllesmereUI._applyTargetDistance() end
+                  EllesmereUI:RefreshPage()
+              end }
         );  y = y - h
 
         -- Inline cog on Rested Indicator (left region) for X/Y offsets
@@ -1679,6 +1704,101 @@ initFrame:SetScript("OnEvent", function(self)
             end
             EllesmereUI.RegisterWidgetRefresh(UpdateRestCogState)
             UpdateRestCogState()
+        end
+
+        -- Target Distance settings cog (right slot of the Rested row)
+        do
+            local rgn = restedRow._rightRegion
+            local function tdOff()
+                return not (EllesmereUIDB and EllesmereUIDB.targetDistanceEnabled)
+            end
+
+            local tdFormatValues = {
+                range = "Range (30-35)",
+                plus  = "Lower Bound (30+)",
+                min   = "Minimum (30)",
+            }
+            local tdFormatOrder = { "range", "plus", "min" }
+            local tdAlignValues = {
+                LEFT   = "Left",
+                CENTER = "Center",
+                RIGHT  = "Right",
+            }
+            local tdAlignOrder = { "LEFT", "CENTER", "RIGHT" }
+
+            local _, targetDistCogShow = EllesmereUI.BuildCogPopup({
+                title = "Target Distance Settings",
+                minWidth = 280,
+                rows = {
+                    { type="dropdown", label="Format",
+                      values=tdFormatValues, order=tdFormatOrder,
+                      get=function()
+                        local f = EllesmereUIDB and EllesmereUIDB.targetDistanceFormat
+                        if f == "plus" or f == "min" or f == "range" then return f end
+                        return "range"
+                      end,
+                      set=function(v)
+                        if not EllesmereUIDB then EllesmereUIDB = {} end
+                        EllesmereUIDB.targetDistanceFormat = v
+                        if EllesmereUI._applyTargetDistanceFrame then EllesmereUI._applyTargetDistanceFrame() end
+                      end },
+                    { type="dropdown", label="Text Align",
+                      values=tdAlignValues, order=tdAlignOrder,
+                      get=function()
+                        local a = EllesmereUIDB and EllesmereUIDB.targetDistanceAlign
+                        if a == "LEFT" or a == "CENTER" or a == "RIGHT" then return a end
+                        return "CENTER"
+                      end,
+                      set=function(v)
+                        if not EllesmereUIDB then EllesmereUIDB = {} end
+                        EllesmereUIDB.targetDistanceAlign = v
+                        if EllesmereUI._applyTargetDistanceFrame then EllesmereUI._applyTargetDistanceFrame() end
+                      end },
+                    { type="slider", label="Text Size",
+                      min=10, max=48, step=1,
+                      get=function()
+                        return (EllesmereUIDB and EllesmereUIDB.targetDistanceTextSize) or 18
+                      end,
+                      set=function(v)
+                        if not EllesmereUIDB then EllesmereUIDB = {} end
+                        EllesmereUIDB.targetDistanceTextSize = v
+                        if EllesmereUI._applyTargetDistanceFrame then EllesmereUI._applyTargetDistanceFrame() end
+                      end },
+                },
+                footer = { unlockKey = "EUI_TargetDistance" },
+            })
+            local tdCogBtn = CreateFrame("Button", nil, rgn)
+            tdCogBtn:SetSize(26, 26)
+            tdCogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -9, 0)
+            rgn._lastInline = tdCogBtn
+            tdCogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            tdCogBtn:SetAlpha(tdOff() and 0.15 or 0.4)
+            local tdCogTex = tdCogBtn:CreateTexture(nil, "OVERLAY")
+            tdCogTex:SetAllPoints()
+            tdCogTex:SetTexture(EllesmereUI.COGS_ICON or EllesmereUI.DIRECTIONS_ICON)
+            tdCogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+            tdCogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+            tdCogBtn:SetScript("OnClick", function(self) targetDistCogShow(self) end)
+
+            local tdCogBlock = CreateFrame("Frame", nil, tdCogBtn)
+            tdCogBlock:SetAllPoints()
+            tdCogBlock:SetFrameLevel(tdCogBtn:GetFrameLevel() + 10)
+            tdCogBlock:EnableMouse(true)
+            tdCogBlock:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(tdCogBtn, EllesmereUI.DisabledTooltip("Target Distance Text"))
+            end)
+            tdCogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            EllesmereUI.RegisterWidgetRefresh(function()
+                if tdOff() then
+                    tdCogBtn:SetAlpha(0.15); tdCogBlock:Show()
+                else
+                    tdCogBtn:SetAlpha(0.4); tdCogBlock:Hide()
+                end
+            end)
+            local tdInitOff = tdOff()
+            tdCogBtn:SetAlpha(tdInitOff and 0.15 or 0.4)
+            if tdInitOff then tdCogBlock:Show() else tdCogBlock:Hide() end
         end
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
@@ -1917,13 +2037,13 @@ initFrame:SetScript("OnEvent", function(self)
             end
 
             local chCogRows = {
-                    { type="slider", label="H Length", min=1, max=100, step=1,
+                    { type="slider", label="H Length", min=1, max=500, step=1,
                       get=function() return cget("crosshairHLength") or 40 end,
                       set=function(v) dbset("crosshairHLength", v) end },
                     { type="slider", label="H Width", min=1, max=20, step=1,
                       get=function() return cget("crosshairHWidth") or presetThick() end,
                       set=function(v) dbset("crosshairHWidth", v); refreshSizeLabel() end },
-                    { type="slider", label="V Length", min=1, max=100, step=1,
+                    { type="slider", label="V Length", min=1, max=500, step=1,
                       get=function() return cget("crosshairVLength") or 40 end,
                       set=function(v) dbset("crosshairVLength", v) end },
                     { type="slider", label="V Width", min=1, max=20, step=1,
@@ -2236,29 +2356,58 @@ initFrame:SetScript("OnEvent", function(self)
             if autoOpenContainerOff() then autoOpenContainerCogBlock:Show() else autoOpenContainerCogBlock:Hide() end
         end
 
+        -- Keys, Logs & Brez sections live at the bottom of this page (the
+        -- separate tab was retired to keep the tab bar at five pages).
+        if _G._EUI_BuildAutoLoggingPage then
+            _, h = W:Spacer(parent, y, 16);  y = y - h
+            local alH = _G._EUI_BuildAutoLoggingPage(pageName, parent, y)
+            if alH then y = y - alH end
+        end
+
         return math.abs(y)
     end
 
     EllesmereUI:RegisterModule("EllesmereUIQoL", {
         title       = "Quality of Life",
         description = "Quality of life features and custom cursor.",
-        pages       = { PAGE_QOL, PAGE_CURSOR, PAGE_AUTOLOG, PAGE_UPGCALC, PAGE_SHIFTER },
-        searchTerms = { "brez", "bres", "battle res", "combat res", "cursor", "macro", "fps", "logging", "combat log", "warcraft logs", "upgrade", "ilvl", "item level", "crest", "upgrade calculator", "shifter", "move", "drag", "position", "demodal", "drift", "combat alert", "enter combat", "leave combat", "in combat", "combat text", "combat notification", "transform", "transforms", "costume", "disguise", "chef's hat", "noggenfogger" },
+        pages       = { PAGE_QOL, PAGE_RAIDTOOLS, PAGE_CURSOR, PAGE_SHIFTER, PAGE_MOVEMENT, PAGE_UPGCALC },
+        searchTerms = { "brez", "bres", "battle res", "combat res", "cursor", "macro", "fps", "logging", "combat log", "warcraft logs", "upgrade", "ilvl", "item level", "crest", "upgrade calculator", "shifter", "move", "drag", "position", "demodal", "drift", "combat alert", "enter combat", "leave combat", "in combat", "combat text", "combat notification", "transform", "transforms", "costume", "disguise", "chef's hat", "noggenfogger", "target distance", "distance to target", "range text", "yard", "yards", "movement", "mobility", "gap closer", "blink", "gateway", "warlock gateway", "control shard", "time spiral", "free movement", "raid tools", "raid", "pull timer", "pull", "ready check", "role check", "raid marker", "target marker", "world marker", "flare", "disband", "convert to raid", "countdown" },
         buildPage   = function(pageName, parent, yOffset)
+            -- The Raid Tools settings preview ends when any OTHER QoL page
+            -- builds (the CDM tracking-bars placeholder arrangement); window
+            -- close and module switches are handled in the Raid Tools options
+            -- file. Global Search's hidden pre-build never touches it.
+            if pageName ~= PAGE_RAIDTOOLS and not EllesmereUI._prebuilding
+               and _G._EUI_RaidTools_Preview then
+                _G._EUI_RaidTools_Preview(false)
+            end
             if pageName == PAGE_QOL then
                 return BuildQoLPage(pageName, parent, yOffset)
             end
             if pageName == PAGE_CURSOR and _G._EBS_BuildCursorPage then
                 return _G._EBS_BuildCursorPage(pageName, parent, yOffset)
             end
-            if pageName == PAGE_AUTOLOG and _G._EUI_BuildAutoLoggingPage then
-                return _G._EUI_BuildAutoLoggingPage(pageName, parent, yOffset)
-            end
             if pageName == PAGE_UPGCALC and _G._EUI_BuildUpgradeCalcPage then
                 return _G._EUI_BuildUpgradeCalcPage(pageName, parent, yOffset)
             end
             if pageName == PAGE_SHIFTER and _G._EUI_BuildShifterPage then
                 return _G._EUI_BuildShifterPage(pageName, parent, yOffset)
+            end
+            if pageName == PAGE_MOVEMENT and _G._EUI_BuildMovementAlertPage then
+                return _G._EUI_BuildMovementAlertPage(pageName, parent, yOffset)
+            end
+            if pageName == PAGE_RAIDTOOLS and _G._EUI_BuildRaidToolsPage then
+                return _G._EUI_BuildRaidToolsPage(pageName, parent, yOffset)
+            end
+        end,
+        -- Cached pages are restored WITHOUT a rebuild, so buildPage never runs
+        -- on the warm path -- reopening the window onto Raid Tools would leave
+        -- its settings preview off without this (the CDM tracking-bars
+        -- arrangement: mirror the flag on BOTH paths).
+        onPageCacheRestore = function(pageName)
+            if EllesmereUI._prebuilding then return end
+            if _G._EUI_RaidTools_Preview then
+                _G._EUI_RaidTools_Preview(pageName == PAGE_RAIDTOOLS)
             end
         end,
         onReset = function()
@@ -2304,6 +2453,17 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.combatAlertLeaveColor = nil
                 EllesmereUIDB.combatAlertEnterUseClassColor = nil
                 EllesmereUIDB.combatAlertLeaveUseClassColor = nil
+                EllesmereUIDB.targetDistanceEnabled = false
+                EllesmereUIDB.targetDistanceFormat = nil
+                EllesmereUIDB.targetDistanceAlign = nil
+                EllesmereUIDB.targetDistanceAttach = nil
+                EllesmereUIDB.targetDistanceOffsetX = nil
+                EllesmereUIDB.targetDistanceOffsetY = nil
+                EllesmereUIDB.targetDistanceTextSize = nil
+                EllesmereUIDB.targetDistancePos = nil
+                if EllesmereUIDB.unlockAnchors then
+                    EllesmereUIDB.unlockAnchors.EUI_TargetDistance = nil
+                end
                 EllesmereUIDB.hideTransforms = false
                 EllesmereUIDB.hideTransformItems = nil
             end
@@ -2314,6 +2474,7 @@ initFrame:SetScript("OnEvent", function(self)
             if EllesmereUI._applyHideErrorMessages then EllesmereUI._applyHideErrorMessages() end
             if EllesmereUI._applyAnnounceGroupDeaths then EllesmereUI._applyAnnounceGroupDeaths() end
             if EllesmereUI._applyCombatAlert then EllesmereUI._applyCombatAlert() end
+            if EllesmereUI._applyTargetDistance then EllesmereUI._applyTargetDistance() end
             if EllesmereUI._applyHideTransforms then EllesmereUI._applyHideTransforms() end
             if EllesmereUI._applyQuickSignup then EllesmereUI._applyQuickSignup() end
             if EllesmereUI._applyPersistSignupNote then EllesmereUI._applyPersistSignupNote() end

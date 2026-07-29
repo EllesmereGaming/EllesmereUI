@@ -218,12 +218,12 @@ end
 local function CreateIcon(btn, raid)
     local icon = CreateFrame("Frame", nil, btn)
     icon._tsRaid = raid or false
-    -- Keep the icon AND its border (bdr, at icon +1) BELOW the name/health text
-    -- carrier (button/preview-frame +12) so the health %/name stays readable
-    -- when the icon is positioned over the center of the frame, while the border
-    -- still sits above the icon's own texture. Stays above the frame's base
-    -- border (+8) so the icon still renders over it.
-    icon:SetFrameLevel(btn:GetFrameLevel() + 10)
+    -- Ride the aura band (ns.LVL_AURA, same as regular aura icons) so the
+    -- targeted-spell icon sorts WITH auras instead of under them; its border
+    -- (bdr, at icon +1) still sits above the icon's own texture. Above the
+    -- base border (+8), the hover/target raise (+10) and the name/health
+    -- text band (+12), like every other aura icon.
+    icon:SetFrameLevel(btn:GetFrameLevel() + (ns.LVL_AURA or 13))
     icon:Hide()
 
     local tex = icon:CreateTexture(nil, "ARTWORK")

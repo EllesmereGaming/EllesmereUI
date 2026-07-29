@@ -32,7 +32,6 @@ local SATED_DEBUFFS = {
     160455,  -- Fatigued (Netherwinds)
     264689,  -- Fatigued (Primal Rage)
     390435,  -- Exhaustion (Fury of the Aspects)
-    428628,  -- Exhaustion (variant)
 }
 
 local SHAPE_MEDIA = "Interface\\AddOns\\EllesmereUI\\media\\portraits\\"

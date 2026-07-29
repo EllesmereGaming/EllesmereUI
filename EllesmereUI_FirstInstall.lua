@@ -592,6 +592,11 @@ loader:SetScript("OnEvent", function(self, event, addonName)
         if not _showPopupOnLogin then return end
         C_Timer.After(0.5, function()
             if EllesmereUIDB and EllesmereUIDB.firstInstallPopupShown then return end
+            -- A registered external installer owns the first-run experience:
+            -- keep the picker silent (the pending handshake stays armed; the
+            -- installer's import stamps first-install state, and a session
+            -- with no registration brings the picker back).
+            if EllesmereUI._externalInstaller then return end
             ShowFirstInstallPopup()
         end)
     end

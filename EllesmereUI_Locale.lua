@@ -1,7 +1,9 @@
 --------------------------------------------------------------------------------
 --  EllesmereUI_Locale.lua
 --  Central multi-language engine for the EllesmereUI options panel, unlock mode,
---  and custom popups/tooltips. In-game gameplay text is intentionally NOT in scope.
+--  and custom popups/tooltips. Short in-game STATUS text is also in scope where a
+--  locale provides it (raid frame DEAD/OFFLINE/AFK, nameplate "Interrupted",
+--  auto-repair chat feedback) -- untranslated keys fall back to English silently.
 --
 --  Design: "translate the pixels, never the data." Translation is applied at the
 --  render boundary (the :SetText call) inside the shared widget builders, so the
@@ -128,7 +130,12 @@ local function Activate()
             -- Resolve the "= true" keep-English sentinel and build the reverse map.
             for k, v in pairs(src) do
                 if v == true then src[k] = k; v = k end
-                if type(v) == "string" then reverse[v] = k end
+                -- Prefer all-uppercase keys when two keys share a translation
+                -- in some locales, so EnKey() resolves section headers correctly.
+                if type(v) == "string" and type(k) == "string"
+                    and (not reverse[v] or (k == k:upper() and reverse[v] ~= reverse[v]:upper())) then
+                    reverse[v] = k
+                end
             end
         end
         activeCatalog = src   -- nil if no locale file shipped for this code

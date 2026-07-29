@@ -41,7 +41,7 @@ local FALLBACK_FONT = "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.
 
 local SATED_DEBUFFS = {
     [57723] = true, [57724] = true, [80354] = true, [95809] = true,
-    [160455] = true, [264689] = true, [390435] = true, [428628] = true,
+    [160455] = true, [264689] = true, [390435] = true,
 }
 local ALWAYS_HIDE_DEBUFFS = {
     [1254550] = true, -- Arcane Empowerment
@@ -65,6 +65,12 @@ local TOKEN_CLASSES = {
     { key = "bigdef",      token = "BIG_DEFENSIVE",           skey = "BigDefensive" },
     { key = "extdef",      token = "EXTERNAL_DEFENSIVE",      skey = "ExternalDefensive" },
     { key = "cancel",      token = "CANCELABLE",              skey = "Cancelable", buffOnly = true },
+    -- Player-frame only: everything not applied by you (the negated PLAYER
+    -- token). Sits LAST so every other enabled class owns its overlap; its
+    -- negation for later (candidate) links is the bare PLAYER token, which
+    -- hands them exactly the player-applied leftovers.
+    { key = "nonplayer",   token = "!PLAYER",                 skey = "NonPlayer",
+      neg = "PLAYER", debuffOnly = true, playerUnitOnly = true },
 }
 local CANDIDATE_CLASSES = {
     { key = "bossaura", cand = "isBossAura",     skey = "BossAura",     debuffOnly = true },
@@ -73,28 +79,31 @@ local CANDIDATE_CLASSES = {
     { key = "steal",    cand = "isStealable",    skey = "Stealable",    buffOnly = true },
 }
 
-local function ClassEnabled(class, isBuff, s)
+local function ClassEnabled(class, isBuff, s, unit)
     if class.buffOnly and not isBuff then return false end
     if class.debuffOnly and isBuff then return false end
+    -- Player-frame-only classes: offered nowhere else in the UI, and a
+    -- stale key on another unit's settings must have no effect.
+    if class.playerUnitOnly and unit ~= "player" then return false end
     local prefix = "debuff"
     if isBuff then prefix = "buff" end
     return s[prefix .. class.skey] == true
 end
 
-local function BuildChain(base, isBuff, s)
+local function BuildChain(base, isBuff, s, unit)
     local chain, negations = {}, {}
     for i = 1, #TOKEN_CLASSES do
         local class = TOKEN_CLASSES[i]
-        if ClassEnabled(class, isBuff, s) then
+        if ClassEnabled(class, isBuff, s, unit) then
             local tokens = { base, class.token }
             for n = 1, #negations do tokens[#tokens + 1] = negations[n] end
             chain[#chain + 1] = { key = class.key, tokens = tokens }
-            negations[#negations + 1] = "!" .. class.token
+            negations[#negations + 1] = class.neg or ("!" .. class.token)
         end
     end
     for i = 1, #CANDIDATE_CLASSES do
         local class = CANDIDATE_CLASSES[i]
-        if ClassEnabled(class, isBuff, s) then
+        if ClassEnabled(class, isBuff, s, unit) then
             local tokens = { base }
             for n = 1, #negations do tokens[#tokens + 1] = negations[n] end
             chain[#chain + 1] = { key = class.key, tokens = tokens, cand = class.cand }
@@ -109,39 +118,15 @@ local function ChainSignature(chain)
     return table.concat(sig, ",")
 end
 
-local registry = {} -- [unitKey] = { frame, buffs, debuffs, dispel, sig = {buffs=,debuffs=}, pendingSwap }
-local CreateElementContainer -- forward-declared; defined after the style builders
+-- [unitKey] = { frame, buffs, debuffs, dispel, sig = {buffs=,debuffs=} }.
+-- Entries carry `building = true` while the deferred stepper is still
+-- constructing them; every reload/refresh path skips building entries (the
+-- stepper's final stage clears the flag and runs the first real reload).
+local registry = {}
 
--- Shell stash: bare container shells for every migrated unit, born
--- SYNCHRONOUSLY at PLAYER_LOGIN -- the early load window where combat
--- lockdown is never engaged even on an in-combat /reload (the suite's
--- positioning trick). Bare shells skip the eager group button batches, so
--- this is cheap; it makes the deferred per-unit builds combat-legal
--- (group/slot adds on EXISTING containers -- probe T1/T1b/T2). Shells
--- parent to a hidden holder and are adopted by the real frame at build.
-local shellStash = {}
-do
-    local stashBoot = CreateFrame("Frame")
-    stashBoot:RegisterEvent("PLAYER_LOGIN")
-    stashBoot:SetScript("OnEvent", function(self)
-        self:UnregisterEvent("PLAYER_LOGIN")
-        AK = AK or EllesmereUI.AuraKit
-        if not (AK and AK.CreateContainerShell) then return end
-        local holder = CreateFrame("Frame", nil, UIParent)
-        holder:Hide()
-        holder:SetSize(1, 1)
-        holder:SetPoint("CENTER", UIParent, "BOTTOMLEFT", -200, -200)
-        -- Shared spec table is safe: point is only unpacked at creation.
-        local spec = { point = { "CENTER", holder, "CENTER" } }
-        for unit in pairs(ns.UF_ContainerUnits) do
-            shellStash[unit] = {
-                buffs = AK.CreateContainerShell(holder, spec),
-                debuffs = AK.CreateContainerShell(holder, spec),
-            }
-        end
-        shellStash.dispel = AK.CreateContainerShell(holder, spec)
-    end)
-end
+-- The PLAYER_LOGIN shell stash lived here until 68914 made container
+-- creation combat-legal (/euit3 field PASS): builds now birth their own
+-- shells inline wherever the job runs, combat included.
 
 local function SettingsFor(unit)
     if ns.UF_GetSettings then return ns.UF_GetSettings(unit) end
@@ -319,13 +304,19 @@ end
 
 -- Fingerprint of a BUILT style table (BuildStyle is a pure function of the
 -- settings, so hashing its scalar output covers every input, including the
--- boss-simple sizing and scale). Constant fields (border, cooldown flags,
--- cancelButtons) are omitted.
+-- boss-simple sizing and scale). Constant cooldown/cancel fields are omitted;
+-- every user-configurable border scalar must participate so layer-only edits
+-- schedule an immediate AuraKit restyle.
 local function StyleTableFP(st, font)
     local tc = st.texCoord
+    local b = st.border
     return FP(font, st.width, st.height, tc[1], tc[2], tc[3], tc[4],
         st.hideDurationText, st.cdTextSize, CK(st.cdTextColor), st.cdOffX, st.cdOffY,
-        st.stackSize, CK(st.stackColor), st.stackPos, st.stackOffX, st.stackOffY)
+        st.stackSize, CK(st.stackColor), st.stackPos, st.stackOffX, st.stackOffY,
+        b and b.texture, b and b.size, b and b[1], b and b[2], b and b[3], b and b[4],
+        b and b.offsetX, b and b.offsetY, b and b.shiftX, b and b.shiftY,
+        b and b.behind, b and b.behindUnitFrame, b and b.unitFrameLevel,
+        st.noTooltips)
 end
 
 -- Effective engine group key: own-only variants are SEPARATE groups
@@ -392,7 +383,7 @@ local function ElementSize(unit, base, s)
     return size, h, cropped
 end
 
-local function BuildStyle(unit, base, s)
+local function BuildStyle(unit, base, s, unitFrame)
     local isBuff = (base == "HELPFUL")
     local size, h, cropped = ElementSize(unit, base, s)
     local p = Pick(isBuff, "buff", "debuff")
@@ -411,7 +402,18 @@ local function BuildStyle(unit, base, s)
         width = size,
         height = h,
         texCoord = CropCoords(cropped, size, h, Pick(isBuff, s.buffIconZoom, s.debuffIconZoom)),
-        border = { 0, 0, 0, 1 },
+        border = {
+            s.auraBorderR or 0, s.auraBorderG or 0, s.auraBorderB or 0, s.auraBorderA or 1,
+            size = s.auraBorderSize or 1,
+            texture = s.auraBorderTexture or "solid",
+            offsetX = s.auraBorderTextureOffset,
+            offsetY = s.auraBorderTextureOffsetY,
+            shiftX = s.auraBorderTextureShiftX,
+            shiftY = s.auraBorderTextureShiftY,
+            behind = s.auraBorderBehind,
+            behindUnitFrame = s.auraBorderBehindUnitFrame,
+            unitFrameLevel = unitFrame and unitFrame:GetFrameLevel() or 1,
+        },
         cooldownReverse = true,
         cooldownDrawEdge = false,
         noDefaultFonts = true,
@@ -426,6 +428,9 @@ local function BuildStyle(unit, base, s)
         stackOffX = s[p .. "StackTextOffsetX"] or 0,
         stackOffY = s[p .. "StackTextOffsetY"] or 0,
         cancelButtons = (unit == "player" and isBuff) and "RightButtonUp" or nil,
+        -- Show Tooltip For -> Buffs & Debuffs (per-unit, default on). Motion
+        -- goes off with the tooltips; clicks (player buff cancel) unaffected.
+        noTooltips = (s.showAuraTooltips == false) or nil,
         -- Dispel-type border recolor (per-unit debuffDispelBorder): the engine
         -- shows the ring only on typed (dispellable) debuffs and picks the
         -- dispel color itself -- the user palette cannot apply under secrecy
@@ -437,7 +442,9 @@ end
 
 -- Container anchoring: mirrors the legacy element's SetPoint(ia, frame, fp,
 -- ox + userX, oy + castbarPush + userY) with gap = 1.
-local function AnchorContainer(container, frame, unit, base, s)
+-- buffContainer (HARMFUL calls only): the unit's buff container, needed by
+-- the Anchor Buffs with Debuffs mode below.
+local function AnchorContainer(container, frame, unit, base, s, buffContainer)
     local isBuff = (base == "HELPFUL")
 
     -- Boss simple side display: forced side anchoring flush with the frame
@@ -454,18 +461,33 @@ local function AnchorContainer(container, frame, unit, base, s)
         end
         container:ClearAllPoints()
         container:SetPoint(ia, frame, fp, offX or 0, offY or 0)
-        container:SetAuraLayoutAnchorPoint(ia)
+        AK.SetContainerAnchor(container, ia)
         local gX = "LEFT"
         if simpleMode == "right" then gX = "RIGHT" end
-        container:SetAuraLayoutGrowthDirection(FlowDir(gX), FlowDir("DOWN"))
+        AK.SetContainerGrowth(container, FlowDir(gX), FlowDir("DOWN"))
         return simpleMode
     end
 
     local anchor = Pick(isBuff, s.buffAnchor, s.debuffAnchor)
     if anchor == nil then anchor = Pick(isBuff, "topleft", "none") end
+
+    -- Anchor Buffs with Debuffs (per-unit debuffAnchorBuffs, non-boss):
+    -- buffs adopt the debuff anchor/growth/offsets and become the stack's
+    -- first rows; the debuff container then rides the BUFF CONTAINER's
+    -- leading edge. The engine re-sizes that container to its rows every
+    -- layout pass, so the push is engine-driven -- full rows only, and no
+    -- aura reads (secret-safe in combat).
+    -- The merge OWNS buff visibility: it renders buffs even with Buff
+    -- Display at None (showBuffs false), which is the state the options
+    -- auto-select on enable.
+    local merged = s.debuffAnchorBuffs == true and not unit:match("^boss")
+        and (s.debuffAnchor or "none") ~= "none"
+    local mergedBuff = merged and isBuff
+    if mergedBuff then anchor = s.debuffAnchor end
     if anchor == "none" then return anchor end
 
     local growth = Pick(isBuff, s.buffGrowth, s.debuffGrowth)
+    if mergedBuff then growth = s.debuffGrowth end
     local ia, fp, ox, oy, gX, gY = ResolveLayout(anchor, growth)
 
     local cbOff = 0
@@ -482,11 +504,33 @@ local function AnchorContainer(container, frame, unit, base, s)
 
     local offX = Pick(isBuff, s.buffOffsetX, s.debuffOffsetX) or 0
     local offY = Pick(isBuff, s.buffOffsetY, s.debuffOffsetY) or 0
+    if mergedBuff then
+        offX = s.debuffOffsetX or 0
+        offY = s.debuffOffsetY or 0
+    end
 
     container:ClearAllPoints()
-    container:SetPoint(ia, frame, fp, ox + offX, oy + cbOff + offY)
-    container:SetAuraLayoutAnchorPoint(ia)
-    container:SetAuraLayoutGrowthDirection(FlowDir(gX), FlowDir(gY))
+    if merged and not isBuff and buffContainer then
+        -- Ride the buff container: horizontal side from the layout anchor,
+        -- vertical side from the wrap direction, one debuff line-gap
+        -- between the blocks. Debuffs never share a row with buffs.
+        local PP = EllesmereUI.PP
+        local horiz = ""
+        if ia:find("LEFT") then horiz = "LEFT" elseif ia:find("RIGHT") then horiz = "RIGHT" end
+        local vert, relVert, gapSign
+        if gY == "UP" then
+            vert, relVert, gapSign = "BOTTOM", "TOP", 1
+        else
+            vert, relVert, gapSign = "TOP", "BOTTOM", -1
+        end
+        local gap = PP.FromPixels(s.debuffSpacingY or 1)
+        container:SetPoint(vert .. horiz, buffContainer, relVert .. horiz, 0, gap * gapSign)
+        AK.SetContainerAnchor(container, vert .. horiz)
+    else
+        container:SetPoint(ia, frame, fp, ox + offX, oy + cbOff + offY)
+        AK.SetContainerAnchor(container, ia)
+    end
+    AK.SetContainerGrowth(container, FlowDir(gX), FlowDir(gY))
 
     return anchor
 end
@@ -498,9 +542,15 @@ local function ApplyGroupConfig(container, unit, base, s, chain, own, declared)
 
     local simpleOn = BossSimple(unit, base, s)
 
+    -- Anchor Buffs with Debuffs: the merge owns buff visibility (Buff
+    -- Display reads None while the stack renders the buffs), and the buff
+    -- groups wrap like the debuff stack they join.
+    local mergedAB = s.debuffAnchorBuffs == true and not unit:match("^boss")
+        and (s.debuffAnchor or "none") ~= "none"
+
     local shown
     if isBuff then
-        shown = (s.showBuffs ~= false) or simpleOn
+        shown = (s.showBuffs ~= false) or simpleOn or mergedAB
     else
         shown = ((s.debuffAnchor or "none") ~= "none") or simpleOn
     end
@@ -526,13 +576,14 @@ local function ApplyGroupConfig(container, unit, base, s, chain, own, declared)
 
     local growth = Pick(isBuff, s.buffGrowth, s.debuffGrowth)
     if simpleOn then growth = "auto" end
+    if mergedAB and isBuff then growth = s.debuffGrowth end
     local maxPerRow = Pick(isBuff, s.buffMaxPerRow, s.debuffMaxPerRow)
     local cols = ResolveColumns(growth, num > 0 and num or 1, maxPerRow)
     local rowWidth = nil
     if cols then
         rowWidth = cols * size + (cols - 1) * spX + 0.4
     end
-    container:SetAuraLayoutRowWidth(rowWidth)
+    AK.SetContainerRowWidth(container, rowWidth)
 
     -- Candidate filters: (debuffs) the sated/always-hide excludes. Own Only
     -- lives in the group filter strings (see EffectiveOwnOnly), not here.
@@ -547,7 +598,7 @@ local function ApplyGroupConfig(container, unit, base, s, chain, own, declared)
         cand.excludeSpellIDs = ex
     end
 
-    local layout = { elementWidth = size, elementHeight = h, elementSpacingX = spX, elementSpacingY = spY }
+    local layout = { elementWidth = size, elementHeight = h, elementSpacing = spX, lineSpacing = spY }
 
     -- Active set = the CURRENT own-variant of "all" (when no classes are
     -- enabled) or of each enabled class. Every other declared group --
@@ -616,11 +667,20 @@ local function CfgFP(unit, base, s)
     else
         showCb, cbH = s.showCastbar, s.castbarHeight
     end
+    -- Anchor Buffs with Debuffs inputs ride BOTH elements' fingerprints,
+    -- but ONLY while the toggle is on: the buff element reads the debuff
+    -- anchor set while merged, and the debuff element re-anchors when the
+    -- merge flag or buff visibility flips. Off (the default), the extra
+    -- slots are constant nils so no existing fingerprint ever moves.
+    local mAB = s.debuffAnchorBuffs == true
     return FP(size, h, spX, spY, simpleOn, simpleMode, sOffX, sOffY,
         Pick(isBuff, s.buffAnchor, s.debuffAnchor), Pick(isBuff, s.buffGrowth, s.debuffGrowth),
         Pick(isBuff, s.buffOffsetX, s.debuffOffsetX), Pick(isBuff, s.buffOffsetY, s.debuffOffsetY),
         showCb, cbH, Pick(isBuff, s.maxBuffs, s.maxDebuffs),
-        Pick(isBuff, s.buffMaxPerRow, s.debuffMaxPerRow), s.showBuffs, s.showLustDebuff)
+        Pick(isBuff, s.buffMaxPerRow, s.debuffMaxPerRow), s.showBuffs, s.showLustDebuff,
+        mAB, mAB and s.debuffAnchor or nil, mAB and s.debuffGrowth or nil,
+        mAB and s.debuffOffsetX or nil, mAB and s.debuffOffsetY or nil,
+        mAB and s.debuffSpacingY or nil)
 end
 
 ------------------------------------------------------------------------------
@@ -736,19 +796,19 @@ end
 local function CreateDispelSlots(frame, entry)
     local mode = BuildDispelStyles(frame)
 
-    local container = shellStash.dispel
-    if container then
-        -- Adopt the pre-born shell (combat-safe: parent/point on our frame).
-        shellStash.dispel = nil
-        container:SetParent(frame)
-        container:ClearAllPoints()
-        container:SetPoint("CENTER", frame, "CENTER")
-    else
+    local container = entry.dispel
+    if not container then
         container = AK.CreateContainerShell(frame, {
             point = { "CENTER", frame, "CENTER" },
         })
+        -- Stashed BEFORE the slot adds so a watchdog-killed build resumes on
+        -- the same container instead of birthing a second one.
+        entry.dispel = container
     end
 
+    -- `dispelAdds` counts completed slot declarations: a resumed build skips
+    -- what already landed instead of re-declaring existing slot keys.
+    local n = 0
     for i = 1, #DISPEL_SLOTS do
         local slot = DISPEL_SLOTS[i]
         local function ParkSlot(slotButton)
@@ -760,27 +820,34 @@ local function CreateDispelSlots(frame, entry)
             -- in-instance reloads.
             slotButton:SetPoint("CENTER", frame.Health or frame, "CENTER")
         end
-        AK.AddSlotToContainer(container, {
-            key = slot.key,
-            filter = { "HARMFUL" },
-            candidateFilters = { includeDispelTypes = { [DISPEL_TYPE_TOKENS[slot.key]] = true } },
-            style = DispelStyleKey(slot.key),
-            extraInit = ParkSlot,
-        })
+        n = n + 1
+        if n > (entry.dispelAdds or 0) then
+            AK.AddSlotToContainer(container, {
+                key = slot.key,
+                filter = { "HARMFUL" },
+                candidateFilters = { includeDispelTypes = { [DISPEL_TYPE_TOKENS[slot.key]] = true } },
+                style = DispelStyleKey(slot.key),
+                extraInit = ParkSlot,
+            })
+            entry.dispelAdds = n
+        end
         -- "Only Dispellable by You" variant: identical slot with the engine
         -- by-me filter token added. Declared upfront -- slot filters cannot
         -- change after declaration -- and mutually exclusive with the plain
         -- slot via style opacity (BuildDispelStyles zeroes the inactive one).
-        AK.AddSlotToContainer(container, {
-            key = slot.key .. "_byme",
-            filter = { "HARMFUL", "RAID_PLAYER_DISPELLABLE" },
-            candidateFilters = { includeDispelTypes = { [DISPEL_TYPE_TOKENS[slot.key]] = true } },
-            style = DispelStyleKey(slot.key .. "_byme"),
-            extraInit = ParkSlot,
-        })
+        n = n + 1
+        if n > (entry.dispelAdds or 0) then
+            AK.AddSlotToContainer(container, {
+                key = slot.key .. "_byme",
+                filter = { "HARMFUL", "RAID_PLAYER_DISPELLABLE" },
+                candidateFilters = { includeDispelTypes = { [DISPEL_TYPE_TOKENS[slot.key]] = true } },
+                style = DispelStyleKey(slot.key .. "_byme"),
+                extraInit = ParkSlot,
+            })
+            entry.dispelAdds = n
+        end
     end
     AK.FinishContainer(container, "player")
-    entry.dispel = container
 
     container:SetShown(mode ~= "none")
     ns.UF_DispelOverlayDisabled = true
@@ -813,7 +880,7 @@ end
 -- edits apply without waiting for a full container pass.
 function ns.UF_ReloadPlayerDispelSlots()
     local entry = registry.player
-    if entry and entry.frame then
+    if entry and entry.frame and not entry.building then
         ReloadDispelSlots(entry.frame, entry)
     end
 end
@@ -837,6 +904,9 @@ function ns.UF_ReloadAuraContainers(frame, unit)
     local s = SettingsFor(unit)
     local entry = registry[unit]
     if not s or not entry then return end
+    -- Still under construction by the deferred stepper: its final stage
+    -- runs this reload once the containers are complete.
+    if entry.building then return end
 
     if unit:match("^boss") and ns._bossPreviewActive then
         if entry.buffs then entry.buffs:Hide() end
@@ -858,7 +928,7 @@ function ns.UF_ReloadAuraContainers(frame, unit)
 
         -- Restyle only when the built style actually differs; the deferred
         -- time-sliced restyler spreads the button decoration work out.
-        local style = BuildStyle(unit, base, s)
+        local style = BuildStyle(unit, base, s, entry.frame)
         local styleV = StyleTableFP(style, font)
         if st.style ~= styleV then
             st.style = styleV
@@ -873,7 +943,7 @@ function ns.UF_ReloadAuraContainers(frame, unit)
         -- path permanently leaked a 10-button batch per group per toggle
         -- (engine frames are never freed).
         local own = EffectiveOwnOnly(unit, base, s)
-        local chain = BuildChain(base, base == "HELPFUL", s)
+        local chain = BuildChain(base, base == "HELPFUL", s, unit)
         local sig = ChainSignature(chain) .. (own and "|own" or "")
         local force = forceCfg
         local container = entry[field]
@@ -898,7 +968,7 @@ function ns.UF_ReloadAuraContainers(frame, unit)
             local cfgV = CfgFP(unit, base, s)
             if force or st.cfg ~= cfgV then
                 st.cfg = cfgV
-                AnchorContainer(container, frame, unit, base, s) -- self-skips on anchor "none"
+                AnchorContainer(container, frame, unit, base, s, entry.buffs) -- self-skips on anchor "none"
                 ApplyGroupConfig(container, unit, base, s, chain, own, declared)
             end
         end
@@ -915,42 +985,23 @@ end
 -- container exposes UpdateAllAuras for exactly this; poke it on unit changes.
 local function RefreshUnit(unitKey)
     local entry = registry[unitKey]
-    if not entry then return end
+    if not entry or entry.building then return end
     if entry.buffs then entry.buffs:UpdateAllAuras() end
     if entry.debuffs then entry.debuffs:UpdateAllAuras() end
     if entry.dispel then entry.dispel:UpdateAllAuras() end
 end
 
--- TEMPORARY 12.1 workaround: contextual pings on any addon unit frame hit a
--- forbidden SendUnitPing (Blizzard's PingableType_UnitFrameMixin reads the
--- insecurely-set frame.unit, so the derived GUID is tainted). Stripping the
--- ping-receiver attribute makes the ping hit-test skip our frames entirely,
--- so pings fall through to a world ping instead of erroring. No oUF edits.
--- REMOVE when upstream is fixed (tracked in MIDNIGHT_AURA_MIGRATION.md).
-local EXTRA_PING_FRAMES = {
-    "EllesmereUIUnitFrames_Pet", "EllesmereUIUnitFrames_TargetTarget", "EllesmereUIUnitFrames_FocusTarget",
-}
-
-local function StripPingReceiver(frame)
-    if frame and not InCombatLockdown() then
-        frame:SetAttribute("ping-receiver", nil)
-    end
-end
+-- The 12.1 ping-receiver strip workaround lived here until build 68914
+-- fixed SendUnitPing upstream (PingManager securecopys the receiver info at
+-- the secure boundary); contextual pings on our frames are legal again.
 
 local unitWatcher = CreateFrame("Frame")
 unitWatcher:RegisterEvent("PLAYER_TARGET_CHANGED")
 unitWatcher:RegisterEvent("PLAYER_FOCUS_CHANGED")
 unitWatcher:RegisterEvent("INSTANCE_ENCOUNTER_ENGAGE_UNIT")
 unitWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
-unitWatcher:RegisterEvent("PLAYER_ENTERING_WORLD")
 unitWatcher:SetScript("OnEvent", function(_, event)
-    if event == "PLAYER_ENTERING_WORLD" then
-        -- One-shot sweep for the oUF frames without containers (pet/ToT/FoT).
-        unitWatcher:UnregisterEvent("PLAYER_ENTERING_WORLD")
-        for i = 1, #EXTRA_PING_FRAMES do
-            StripPingReceiver(_G[EXTRA_PING_FRAMES[i]])
-        end
-    elseif event == "PLAYER_TARGET_CHANGED" then
+    if event == "PLAYER_TARGET_CHANGED" then
         RefreshUnit("target")
     elseif event == "PLAYER_FOCUS_CHANGED" then
         RefreshUnit("focus")
@@ -978,102 +1029,113 @@ function ns.UF_ReloadAllAuraContainers()
     end
 end
 
--- Builds one element container carrying the "all" group plus the given class
--- chain, recording every declared group in `declared`. Own Only appends the
--- PLAYER token to every group's filter string (via the variant key).
-function CreateElementContainer(frame, unit, base, chain, own, declared)
-    local styleKey = StyleKey(unit, base)
-    local field = "debuffs"
-    if base == "HELPFUL" then field = "buffs" end
-    local stash = shellStash[unit]
-    local container = stash and stash[field]
-    if container then
-        -- Adopt the pre-born shell (combat-safe: parent/point on our frame).
-        stash[field] = nil
-        container:SetParent(frame)
-        container:ClearAllPoints()
-        container:SetPoint("CENTER", frame, "CENTER") -- provisional; reload anchors properly
-    else
-        container = AK.CreateContainerShell(frame, {
-            point = { "CENTER", frame, "CENTER" }, -- provisional; reload anchors properly
-        })
-    end
-    DeclareElementGroup(container, declared, styleKey, base, "all", { base }, nil, own)
-    for i = 1, #chain do
-        local c = chain[i]
-        DeclareElementGroup(container, declared, styleKey, base, c.key, c.tokens, c.cand, own)
-    end
-    AK.FinishContainer(container, unit)
-    return container
+-- One element shell, born directly on our frame (combat-legal since 68914).
+local function AdoptShell(frame, unit, field)
+    return AK.CreateContainerShell(frame, {
+        point = { "CENTER", frame, "CENTER" }, -- provisional; reload anchors properly
+    })
 end
 
--- Builds one unit's containers. Runs from the time-sliced worker below,
--- never synchronously from frame spawn: every group declaration eagerly
--- creates a 10-button engine batch through AuraKit's full region
--- initializer (parent-addon billed), and the spawn-time builds for all
--- eight units stacked ~300 engine buttons into the login frames.
+local ELEMENT_ORDER = { { "HELPFUL", "buffs" }, { "HARMFUL", "debuffs" } }
+
+-- Builds one unit's containers as a RESUMABLE STEPPER: each invocation does
+-- one bounded atom of work and returns "again" until done. The expensive
+-- atom is a single group declaration (an eager 10-button engine batch
+-- through AuraKit's full region initializer); running them one per
+-- invocation lets the shared worker's per-frame budget apply between atoms,
+-- where the old whole-unit job could balloon past the client watchdog under
+-- login contention ("script ran too long" -- and the killed job left the
+-- unit half-built). Every stage is existence-guarded, so a watchdog-killed
+-- invocation resumes cleanly: an aborted engine declare never stamps its
+-- declared/progress mark and simply re-runs.
 local function BuildUnitContainers(frame, unit)
     local s = SettingsFor(unit)
     if not (AK and s) then return end
-    if registry[unit] then return end
+    local entry = registry[unit]
+    if entry and not entry.building then return end
 
-    -- Container FRAMES cannot be born in combat (probe T3 zombie). With the
-    -- PLAYER_LOGIN stash intact this build is pure adds on existing shells
-    -- (combat-legal); if any needed shell is missing while locked down,
-    -- hold the whole unit until regen rather than half-building it.
-    if InCombatLockdown() then
-        local stash = shellStash[unit]
-        if not (stash and stash.buffs and stash.debuffs)
-            or (unit == "player" and not shellStash.dispel) then
-            return "hold"
+    -- Stage 1: entry + both element shells (cheap; no engine batches;
+    -- combat-legal since 68914).
+    if not entry then
+        -- Styles must exist before group declaration: initializeFrame
+        -- consumes them for the pre-created button batches. Prime their
+        -- fingerprints too: the final-stage reload would otherwise queue a
+        -- restyle of buttons that were decorated from these exact tables.
+        local font = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("unitFrames")) or ""
+        for _, base in ipairs({ "HELPFUL", "HARMFUL" }) do
+            local key = StyleKey(unit, base)
+            local style = BuildStyle(unit, base, s, frame)
+            AK.styles[key] = style
+            ufFP[key] = { style = StyleTableFP(style, font) }
+        end
+
+        entry = { frame = frame, building = true, sig = {}, groups = { buffs = {}, debuffs = {} } }
+        entry.buffs = AdoptShell(frame, unit, "buffs")
+        entry.debuffs = AdoptShell(frame, unit, "debuffs")
+        registry[unit] = entry
+        return "again"
+    end
+
+    -- Stage 2: one missing group declaration per invocation (the expensive
+    -- atom). Own Only appends the PLAYER token via the variant key.
+    for e = 1, 2 do
+        local base, field = ELEMENT_ORDER[e][1], ELEMENT_ORDER[e][2]
+        local own = EffectiveOwnOnly(unit, base, s)
+        local chain = BuildChain(base, base == "HELPFUL", s, unit)
+        local declared = entry.groups[field]
+        local styleKey = StyleKey(unit, base)
+        if not declared[EffKey("all", own)] then
+            DeclareElementGroup(entry[field], declared, styleKey, base, "all", { base }, nil, own)
+            return "again"
+        end
+        for i = 1, #chain do
+            local c = chain[i]
+            if not declared[EffKey(c.key, own)] then
+                DeclareElementGroup(entry[field], declared, styleKey, base, c.key, c.tokens, c.cand, own)
+                return "again"
+            end
         end
     end
 
-    -- Styles must exist before group declaration: initializeFrame consumes
-    -- them for the pre-created button batch. Prime their fingerprints too:
-    -- the creation-tail reload just below would otherwise queue a restyle
-    -- of buttons that were decorated from these exact tables.
-    local font = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("unitFrames")) or ""
-    for _, base in ipairs({ "HELPFUL", "HARMFUL" }) do
-        local key = StyleKey(unit, base)
-        local style = BuildStyle(unit, base, s)
-        AK.styles[key] = style
-        ufFP[key] = { style = StyleTableFP(style, font) }
+    -- Stage 3: finish both containers (SetUnit + full refresh). Stamped
+    -- after the calls; re-finishing on a resumed run is harmless.
+    if not entry.finished then
+        AK.FinishContainer(entry.buffs, unit)
+        AK.FinishContainer(entry.debuffs, unit)
+        entry.finished = true
+        return "again"
     end
 
-    local entry = { frame = frame, sig = {}, groups = { buffs = {}, debuffs = {} } }
-    registry[unit] = entry
-
-    for base, field in pairs({ HELPFUL = "buffs", HARMFUL = "debuffs" }) do
-        local own = EffectiveOwnOnly(unit, base, s)
-        local chain = BuildChain(base, base == "HELPFUL", s)
-        entry[field] = CreateElementContainer(frame, unit, base, chain, own, entry.groups[field])
-        entry.sig[field] = ChainSignature(chain) .. (own and "|own" or "")
-    end
-
-    if unit == "player" then
+    -- Stage 4: player dispel slots (batch-1 slot adds; internally resumable
+    -- via entry.dispel / entry.dispelAdds).
+    if unit == "player" and not entry.dispelDone then
         CreateDispelSlots(frame, entry)
+        entry.dispelDone = true
         -- Prime the dispel fingerprint: creation just applied these exact
-        -- settings, so the creation-tail reload below must not queue a
-        -- redundant restyle (harmless noise OOC, but denied button writes
-        -- when built under restriction -- the in-instance /reload case).
+        -- settings, so the final-stage reload must not queue a redundant
+        -- restyle (harmless noise OOC, but denied button writes when built
+        -- under restriction -- the in-instance /reload case).
         local p = ns.UF_GetProfile and ns.UF_GetProfile()
         if p then ufFP.dispel = DispelFP(p) end
+        return "again"
     end
 
+    -- Final stage: the first real reload declares nothing new (entry.sig is
+    -- still unset, so its additive path walks the declared sets as no-ops,
+    -- stamps the signatures, and force-applies anchor/config/visibility).
+    entry.building = nil
     ns.UF_ReloadAuraContainers(frame, unit)
 end
 
 -- Deferred through the shared AuraKit build scheduler (budgeted per frame,
 -- never ticks during loading screens; combat-runnable via the stash
--- shells). One job per unit is fine-grained enough here: an element
--- container carries only the enabled filter classes (typically 1-2
--- groups), so a unit's whole build is a couple of 10-button engine
--- batches. The return propagates BuildUnitContainers' "hold" verdict.
+-- shells). One QUEUED job per unit, but the job is a stepper: it returns
+-- "again" after each bounded atom (one engine group batch) so the worker's
+-- budget check runs between atoms -- the return propagates
+-- BuildUnitContainers' verdict.
 function ns.UF_CreateAuraContainers(frame, unit)
     AK = AK or EllesmereUI.AuraKit
     if not (AK and AK.QueueBuildJob) then return end
-    StripPingReceiver(frame) -- temporary 12.1 ping workaround (see above)
     if registry[unit] then return end
     AK.QueueBuildJob(function()
         return BuildUnitContainers(frame, unit)

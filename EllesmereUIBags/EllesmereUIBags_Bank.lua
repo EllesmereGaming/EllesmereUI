@@ -21,7 +21,6 @@ end
 --  Constants
 -------------------------------------------------------------------------------
 local SLOT_SIZE, SPACING = 34, 4
-local _canUseCache = {}  -- [itemID] = true (usable) | false (unusable), via tooltip red-text scan
 local HEADER_H    = 35
 local FOOTER_H    = 32
 local SIDEBAR_W   = 160
@@ -1190,6 +1189,49 @@ function EUI_Bank:IsWarbandView()
     return false
 end
 
+-------------------------------------------------------------------------------
+--  TradeSkillMaster compatibility
+-------------------------------------------------------------------------------
+-- TSM decides whether its Banking UI targets the character bank or the
+-- warband bank by watching Blizzard's BankPanel, which EUI reparents to a
+-- hidden frame, so TSM never sees bank/warbank switches made in the EUI
+-- sidebar. TSM supports addon-provided bank frames through two globals
+-- (TSM Core/Service/Banking/Core.lua): it calls Addon_GetBankType() to
+-- read the active bank type, and hooksecurefunc's Addon_SetBankType at
+-- init so it can re-check whenever the view changes. Both globals must
+-- exist before TSM initializes; EUI loads first alphabetically. Cost when
+-- TSM is absent is one comparison per RefreshBank. Guarded so another bag
+-- addon that already implements the contract wins.
+
+local _lastTSMBankType = nil
+
+if not _G.Addon_GetBankType then
+    _G.Addon_GetBankType = function()
+        if EUI_Bank:IsVisible() then
+            return EUI_Bank:IsWarbandView() and Enum.BankType.Account
+                or Enum.BankType.Character
+        end
+        if BankFrame and BankFrame.GetActiveBankType then
+            return BankFrame:GetActiveBankType()
+        end
+        return Enum.BankType.Character
+    end
+end
+
+if not _G.Addon_SetBankType then
+    -- Intentionally empty: TSM reacts to the call itself via hooksecurefunc.
+    _G.Addon_SetBankType = function() end
+end
+
+local function NotifyBankTypeForTSM()
+    local bankType = _G.Addon_GetBankType()
+    if bankType ~= _lastTSMBankType then
+        _lastTSMBankType = bankType
+        -- Dynamic lookup so the call goes through TSM's hooked wrapper.
+        _G.Addon_SetBankType(bankType)
+    end
+end
+
 --- Find the first empty slot in a specific bank bag and deposit the cursor
 --- item into it. If no empty slot, try stacking with an existing partial stack.
 --- Returns true if placement was attempted, false if no space found.
@@ -1547,6 +1589,7 @@ end
 -------------------------------------------------------------------------------
 function EUI_Bank:RefreshBank()
     if not EUI_Bank:IsVisible() then return end
+    NotifyBankTypeForTSM()
 
     -- Re-discover tabs if empty (data may not be ready on the same frame as
     -- BANKFRAME_OPENED; BAG_UPDATE fires shortly after with real slot counts).
@@ -1831,37 +1874,9 @@ function EUI_Bank:RefreshBank()
                 else btn.IconOverlay:SetAlpha(0) end
             end
             if btn.icon and info and info.itemID then
-                local id = info.itemID
-                local canUse = _canUseCache[id]
-                if canUse == nil then
-                    canUse = true
-                    if IsEquippableItem(id) or C_Item.GetItemSpell(id) then
-                        local tip = C_TooltipInfo.GetItemByID(id)
-                        if tip and tip.lines then
-                            for _, row in ipairs(tip.lines) do
-                                local lc = row.leftColor
-                                if lc and lc.r == 1 and lc.g < 0.2 and lc.b < 0.2
-                                   and row.leftText ~= ITEM_SCRAPABLE_NOT
-                                   and row.leftText ~= CANNOT_UNEQUIP_COMBAT
-                                   and row.leftText ~= ITEM_DISENCHANT_NOT_DISENCHANTABLE then
-                                    canUse = false
-                                    break
-                                end
-                                local rc = row.rightColor
-                                if rc and rc.r == 1 and rc.g < 0.2 and rc.b < 0.2 then
-                                    canUse = false
-                                    break
-                                end
-                            end
-                        end
-                    end
-                    _canUseCache[id] = canUse
-                end
-                if canUse == false then
-                    btn.icon:SetVertexColor(1, 0.1, 0.1)
-                else
-                    btn.icon:SetVertexColor(1, 1, 1)
-                end
+                local unusable = EUI._BagsItemUnusable
+                    and EUI._BagsItemUnusable(bagID, slot, info.hyperlink, info.itemID)
+                btn.icon:SetVertexColor(1, unusable and 0.1 or 1, unusable and 0.1 or 1)
             end
             if btn.IconOverlay2 then
                 if btn.IconOverlay2:IsShown() then
@@ -2381,6 +2396,7 @@ eventFrame:SetScript("OnEvent", function(_, event)
 
     elseif event == "BANKFRAME_CLOSED" then
         _warbandOnly = false
+        _lastTSMBankType = nil
         WipeTransferState()
         -- Clear search on close
         if EUI_Bank._searchBox then

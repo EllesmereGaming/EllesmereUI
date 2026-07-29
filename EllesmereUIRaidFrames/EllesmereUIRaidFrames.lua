@@ -488,6 +488,7 @@ local defaults = {
         -- Uniform Icon Anchoring: icons/text anchor as if no power bar existed,
         -- so frames with and without a per-role power bar line up identically.
         powerUniformAnchors = false,
+        extendHealthBehindPower = false,  -- health spans full frame; power bar overlays it
 
         -- Top Name Bar (reserves height from the TOP of the frame, the way the
         -- power bar reserves from the bottom; shows the unit name in a dedicated
@@ -829,7 +830,7 @@ local defaults = {
         partyShowSelfFirst = true,
         partySelfLast      = false,
         partyHorizontal   = false,
-        partyFlipGrowth   = false,  -- DOWN->UP / RIGHT->LEFT growth flip
+        partyFlipGrowth   = false,  -- false=default growth, true=DOWN->UP / RIGHT->LEFT flip, "centered"=stack centered in the 5-slot container
         partyHideSelf     = false,
         partyUnlockPos    = nil,
         -- Party Tracked Buffs (Buff Manager) auto-resize. Defaults ON (matching
@@ -878,10 +879,11 @@ ns._ResolveTooltipMode = function(s)
     return "outOfCombat"
 end
 
--- Whether raid-frame hover tooltips are allowed right now, per the "Show Raid
--- Frames Tooltip" mode + current combat state. Shared by the unit tooltip and
--- the buff/debuff aura-icon tooltips so one setting governs every raid-frame
--- tip (an aura tip is still gated by its own "Hide Tooltips" toggle on top).
+-- Whether the raid/party frame's UNIT tooltip is allowed right now, per the
+-- "Show Raid Frames Tooltip" mode + current combat state. Scope is the unit tip
+-- only: the buff/debuff aura-icon tips are governed solely by their own section's
+-- "Hide Tooltips" toggle, so turning the unit tooltip off never silently
+-- overrides an aura tooltip the user enabled elsewhere.
 function ns.RaidFrameTooltipAllowed(button)
     local fd = button and ns.GetFFD and ns.GetFFD(button)
     local s = (fd and (fd._isParty and ns._scaledPartyProxy
@@ -1240,6 +1242,17 @@ function ns.RF_AnchorHost(health, s)
     return health
 end
 
+-- "Extend Health Bar Behind Power": the health-height inset every layout site
+-- subtracts for the power bar. Returns 0 when the option is on -- the health
+-- bar then spans the full frame and the power bar (higher frame level, own
+-- bg) draws over its bottom strip. Additive by construction: default off
+-- returns the passed powerH untouched, so every site computes the exact
+-- legacy value.
+function ns.RF_HealthPowerInset(s, powerH)
+    if s and s.extendHealthBehindPower then return 0 end
+    return powerH
+end
+
 -- Live-render convenience: resolves the button's settings source (party/extra
 -- proxies) before delegating to ns.RF_AnchorHost.
 function ns.RF_AnchorHostFor(d)
@@ -1586,6 +1599,19 @@ local function ResolveDisplayName(unit, applyCap)
             display = dn
         end
     end
+    -- RakGaming Aliases (consulted last). Gated on ns._rgaNick, maintained
+    -- by RegisterRGALIASNicknames and RGA's module callbacks: true only while
+    -- RGA is present AND its "ellesmereui" module is enabled. Everyone
+    -- without the addon pays exactly one flag read here; the RGA settings
+    -- shape is never dereferenced in this hot path. dn ~= name keeps the
+    -- Ambiguate short-realm path for units RGA has no alias for.
+    if not display and ns._rgaNick then
+        local ok, dn = pcall(RG_UnitName, unit)
+        if ok and type(dn) == "string"
+           and not (issecretvalue and issecretvalue(dn)) and dn ~= "" and dn ~= name then
+            display = dn
+        end
+    end
     if not display then
         if Ambiguate then name = Ambiguate(name, "short") end
         display = name
@@ -1664,7 +1690,7 @@ local function LayoutTopNameBar(s, baseH, powerH, healthBar, tnb, tnbBg, tnbText
         healthBar:ClearAllPoints()
         healthBar:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -topBarH)
         healthBar:SetPoint("TOPRIGHT", parent, "TOPRIGHT", 0, -topBarH)
-        healthBar:SetHeight(PixelSnap(baseH - powerH - topBarH))
+        healthBar:SetHeight(PixelSnap(baseH - ns.RF_HealthPowerInset(s, powerH) - topBarH))
     end
     if not tnb then return topBarH end
     if not enabled then
@@ -3505,8 +3531,11 @@ local function StyleButton(button)
                 fd._hovered = true
                 if fd.ApplyBorderColor then fd.ApplyBorderColor() end
             end
-            -- Aura tooltip honors the same combat-visibility mode as the unit tip.
-            if not ns.RaidFrameTooltipAllowed(b) then return end
+            -- Governed ONLY by the Debuff Display "Hide Tooltips" toggle (the
+            -- icon is mouse-transparent while that is on, so reaching here means
+            -- the user asked for this tip). The "Show Raid Frames Tooltip" mode
+            -- covers the UNIT tooltip and must not veto an aura tip the user
+            -- explicitly enabled in a different section.
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             if GameTooltip.SetUnitAuraByAuraInstanceID then
                 GameTooltip:SetUnitAuraByAuraInstanceID(u, iid)
@@ -3911,23 +3940,18 @@ local function StyleButton(button)
                 if mf ~= self and mf._tipIID ~= nil then return end
             end
         end
-        -- Read through the party-aware proxy (like every other render path), not
-        -- raw db.profile -- otherwise party_<key> overrides written by a custom
-        -- party "Range & Tooltip" section are never seen and the tooltip mode
-        -- dropdown appears to do nothing on party frames.
-        local s = fd._isParty and ns._scaledPartyProxy or (fd._isExtra and ns._scaledExtraProxy) or ns._scaledProfile
-        -- Raid/party frame tooltips are governed by the "Show Raid Frames
+        -- Raid/party frame UNIT tooltips are governed by the "Show Raid Frames
         -- Tooltip" mode, and ONLY these frames -- no other unit tooltips are
-        -- touched. never = no tooltip; outOfCombat = hidden in any combat;
-        -- outOfBossCombat = hidden during an encounter; always = always shown.
-        -- The peek modifier (Blizz UI Enhanced) lifts the mode while held so a
-        -- hidden tip can be read on hover, in step with the global tooltips.
-        if not (EllesmereUI._tooltipPeekHeld and EllesmereUI._tooltipPeekHeld()) then
-            local ttMode = ns._ResolveTooltipMode(s)
-            if ttMode == "never" then return end
-            if ttMode == "outOfCombat" and inCombat then return end
-            if ttMode == "outOfBossCombat" and ns._inBossCombat then return end
-        end
+        -- touched, and the aura-icon tips have their own toggles. never = no
+        -- tooltip; outOfCombat = hidden in any combat; outOfBossCombat = hidden
+        -- during an encounter; always = always shown. The peek modifier (Blizz
+        -- UI Enhanced) lifts the mode while held so a hidden tip can be read on
+        -- hover, in step with the global tooltips. The helper reads through the
+        -- party-aware proxy (like every other render path), not raw db.profile
+        -- -- otherwise party_<key> overrides written by a custom party "Range &
+        -- Tooltip" section are never seen and the dropdown appears to do
+        -- nothing on party frames.
+        if not ns.RaidFrameTooltipAllowed(self) then return end
         local u = self:GetAttribute("unit")
         if u and UnitExists(u) then
             GameTooltip_SetDefaultAnchor(GameTooltip, self)
@@ -4296,7 +4320,7 @@ local function UpdateButton(button)
             -- Restore health bar height with power bar space (and Top Name Bar)
             local powerH = PixelSnap(s.powerHeight or 4)
             if d.health then
-                d.health:SetHeight(PixelSnap(frameH - powerH - tnbH))
+                d.health:SetHeight(PixelSnap(frameH - ns.RF_HealthPowerInset(s, powerH) - tnbH))
             end
             -- Was the bar already visible before this update? Smooth
             -- interpolation only animates correctly on a bar that was already
@@ -4393,6 +4417,18 @@ local function UpdateButton(button)
             local pct = GetSafeHealthPercent(unit)
             local numStr = (curr and AbbreviateNumbers) and AbbreviateNumbers(curr) or tostring(curr or 0)
             d.healthText:SetFormattedText("%.0f%% | %s", pct, numStr)
+            local htr, htg, htb = GetHealthTextColor(unit, s)
+            d.healthText:SetTextColor(htr, htg, htb, 0.9)
+        elseif mode == "missing" then
+            local curr = UnitHealthMissing(unit, true)
+            d.healthText:SetText(C_StringUtil.TruncateWhenZero(curr))
+            if d.healthText:GetText() then
+                if curr and AbbreviateNumbers then
+                    d.healthText:SetText(AbbreviateNumbers(curr))
+                elseif curr then
+                    d.healthText:SetFormattedText("%s", curr)
+                end
+            end
             local htr, htg, htb = GetHealthTextColor(unit, s)
             d.healthText:SetTextColor(htr, htg, htb, 0.9)
         else
@@ -4531,7 +4567,6 @@ local SATED_DEBUFFS = {
     [160455] = true,  -- Fatigued (Netherwinds)
     [264689] = true,  -- Fatigued (Primal Rage)
     [390435] = true,  -- Exhaustion (Fury of the Aspects)
-    [428628] = true,  -- Exhaustion (variant)
 }
 
 -- Debuff filter check based on user setting
@@ -5237,13 +5272,25 @@ local function HideDispelVisuals(d)
     if d.dispelIcon then d.dispelIcon:Hide() end
 end
 
-local function ApplyDispelOverlay(d, dc, s)
+local function ApplyDispelOverlay(d, dc, s, olA)
     local olTex = d.dispelOLTex
     if not olTex then return end
     local mode = s.dispelOverlay or "fill"
     if mode == "none" then olTex:Hide(); return end
 
-    local alpha = (s.dispelOverlayOpacity or 100) / 100
+    -- Combined overlay alpha (user opacity x per-type opt-out alpha). The
+    -- curve path hands in olA already combined at curve-build time -- it may
+    -- be SECRET, which setters accept but arithmetic and boolean tests do
+    -- not, so it is never touched here. Only the plain fallback combines.
+    local alpha = olA
+    if type(alpha) == "nil" then
+        local dcA = dc.a
+        if issecretvalue and issecretvalue(dcA) then
+            alpha = dcA
+        else
+            alpha = ((s.dispelOverlayOpacity or 100) / 100) * (dcA or 1)
+        end
+    end
     local health = d.dispelOLHealth or d.health
 
     olTex:ClearAllPoints()
@@ -5661,12 +5708,15 @@ ns._dispelScratchDark = ns._dispelScratchDark or {}
 -- (not file locals) to respect the 200-local main-chunk cap.
 function ns._RebuildDispelCurves()
     if not (C_CurveUtil and C_CurveUtil.CreateColorCurve) then return end
-    local function build(profile, mult)
+    local function build(profile, mult, alphaMult)
         local c = C_CurveUtil.CreateColorCurve()
         c:SetType(Enum.LuaCurveType.Step)
         local function add(idx, key, dr, dg, db)
             local col = profile and profile[key]
-            c:AddPoint(idx, CreateColor((col and col.r or dr) * mult, (col and col.g or dg) * mult, (col and col.b or db) * mult))
+            -- Per-type alpha rides the curve too (0 = user opted this type
+            -- out of the dispel border/overlay). Never darkened by mult.
+            c:AddPoint(idx, CreateColor((col and col.r or dr) * mult, (col and col.g or dg) * mult,
+                (col and col.b or db) * mult, ((col and col.a) or 1) * (alphaMult or 1)))
         end
         add(0,  "dispelColorMagic",   0.349, 0.475, 1.0)   -- none: harmless default
         add(1,  "dispelColorMagic",   0.349, 0.475, 1.0)
@@ -5684,6 +5734,14 @@ function ns._RebuildDispelCurves()
     ns._dispelCurveParty     = build(ns._scaledPartyProxy, 1)
     ns._dispelCurveDark      = build(ns._scaledProfile,    0.5)
     ns._dispelCurveDarkParty = build(ns._scaledPartyProxy, 0.5)
+    -- Overlay curves: per-type alpha premultiplied by the user's overlay
+    -- opacity HERE, on plain saved numbers. The evaluated per-frame alpha is
+    -- SECRET, and arithmetic on it is a hard error -- it may only ever flow
+    -- straight into setters.
+    local rOp = ((ns._scaledProfile    and ns._scaledProfile.dispelOverlayOpacity)    or 100) / 100
+    local pOp = ((ns._scaledPartyProxy and ns._scaledPartyProxy.dispelOverlayOpacity) or 100) / 100
+    ns._dispelCurveOL      = build(ns._scaledProfile,    1, rOp)
+    ns._dispelCurveOLParty = build(ns._scaledPartyProxy, 1, pOp)
 end
 
 -- Per-type visibility curves for the dispel-type icons. Each curve is white at
@@ -5749,16 +5807,23 @@ local function UpdateDispelBorder(button, unit, updateInfo)
     end
 
     -- Apply the dispel visuals (border/overlay/icon) for a chosen aura.
-    local function ShowDispelFor(auraData, dc)
+    -- olA: overlay alpha from the opacity-premultiplied curve (may be SECRET;
+    -- nil on the plain fallback path, where ApplyDispelOverlay combines).
+    local function ShowDispelFor(auraData, dc, olA)
         d.dispelInstanceID = auraData.auraInstanceID
+        -- Per-type alpha (0 = user opted this type out). May be a SECRET
+        -- value from the curve path: only nil-heal when readably nil, and
+        -- feed it straight into setters otherwise.
+        local dcA = dc.a
+        if not issecretvalue(dcA) and dcA == nil then dcA = 1 end
         if wantBorder and d.dispelFrame and PP then
-            PP.UpdateBorder(d.dispelFrame, borderSize, dc.r, dc.g, dc.b, 1)
+            PP.UpdateBorder(d.dispelFrame, borderSize, dc.r, dc.g, dc.b, dcA)
             d.dispelFrame:Show()
         elseif d.dispelFrame then
             d.dispelFrame:Hide()
         end
         if wantOverlay then
-            ApplyDispelOverlay(d, dc, s)
+            ApplyDispelOverlay(d, dc, s, olA)
         elseif d.dispelOLTex then
             d.dispelOLTex:Hide()
         end
@@ -5796,17 +5861,34 @@ local function UpdateDispelBorder(button, unit, updateInfo)
             -- handled the same way (per-type alpha curves) inside ShowDispelFor.
             local iid = auraData.auraInstanceID
             local curve = d._isParty and ns._dispelCurveParty or ns._dispelCurve
-            local dc
+            local dc, olA
             if curve and C_UnitAuras.GetAuraDispelTypeColor then
                 local col = C_UnitAuras.GetAuraDispelTypeColor(unit, iid, curve)
                 if col then
                     local sc = ns._dispelScratch
-                    sc.r, sc.g, sc.b = col:GetRGB()
+                    -- Alpha carries the per-type opt-out (may be SECRET --
+                    -- it flows only into setters, never boolean tests).
+                    if col.GetRGBA then
+                        sc.r, sc.g, sc.b, sc.a = col:GetRGBA()
+                    else
+                        sc.r, sc.g, sc.b = col:GetRGB()
+                        sc.a = 1
+                    end
                     dc = sc
+                    -- Overlay alpha via the opacity-premultiplied curve, so
+                    -- the (secret) result needs no arithmetic downstream.
+                    if wantOverlay then
+                        local olCurve = d._isParty and ns._dispelCurveOLParty or ns._dispelCurveOL
+                        local ocol = olCurve and C_UnitAuras.GetAuraDispelTypeColor(unit, iid, olCurve)
+                        if ocol and ocol.GetRGBA then
+                            local _, _, _, oa = ocol:GetRGBA()
+                            olA = oa
+                        end
+                    end
                 end
             end
             if not dc then dc = GetDispelColor("Magic", s) end
-            ShowDispelFor(auraData, dc)
+            ShowDispelFor(auraData, dc, olA)
             return
         end
     end
@@ -5960,8 +6042,9 @@ end
 
 function ERF:UpdateAllFrames()
     UpdateAllButtons()
-    -- Party / Extra / Boss frames are NOT in `allButtons`, so UpdateAllButtons
-    -- misses them. Repaint their health (fill + background) too, so colour and
+    -- Party and Boss frames are NOT in `allButtons` (Extra frames ARE, see
+    -- XF.EnsureBuilt), so UpdateAllButtons misses them. Repaint their health
+    -- (fill + background) too, so colour and
     -- Dark Mode changes pushed through ApplyColorsToOUF reach every frame type,
     -- not just raid. _UpdateButtonHealth is lightweight + combat-safe and self-
     -- guards on unstyled / non-existent units.
@@ -6187,6 +6270,18 @@ ns._UpdateButtonHealth = function(button)
             local curr = UnitHealth(unit, true)
             local numStr = (curr and AbbreviateNumbers) and AbbreviateNumbers(curr) or tostring(curr or 0)
             d.healthText:SetFormattedText("%.0f%% | %s", pct, numStr)
+            local htr, htg, htb = GetHealthTextColor(unit, s)
+            d.healthText:SetTextColor(htr, htg, htb, 0.9)
+        elseif mode == "missing" then
+            local curr = UnitHealthMissing(unit, true)
+            d.healthText:SetText(C_StringUtil.TruncateWhenZero(curr))
+            if d.healthText:GetText() then
+                if curr and AbbreviateNumbers then
+                    d.healthText:SetText(AbbreviateNumbers(curr))
+                elseif curr then
+                    d.healthText:SetFormattedText("%s", curr)
+                end
+            end
             local htr, htg, htb = GetHealthTextColor(unit, s)
             d.healthText:SetTextColor(htr, htg, htb, 0.9)
         else
@@ -6476,6 +6571,18 @@ FB.Update = function(b)
             local curr = UnitHealth(unit, true)
             local numStr = (curr and AbbreviateNumbers) and AbbreviateNumbers(curr) or tostring(curr or 0)
             b._healthText:SetFormattedText("%.0f%% | %s", pct, numStr)
+        elseif mode == "missing" then
+            local curr = UnitHealthMissing(unit, true)
+            b._healthText:SetText(C_StringUtil.TruncateWhenZero(curr))
+            if b._healthText:GetText() then
+                if curr and AbbreviateNumbers then
+                    b._healthText:SetText(AbbreviateNumbers(curr))
+                elseif curr then
+                    b._healthText:SetFormattedText("%s", curr)
+                end
+            end
+            local htr, htg, htb = GetHealthTextColor(unit, s)
+            b._healthText:SetTextColor(htr, htg, htb, 0.9)
         else
             b._healthText:SetText("")
         end
@@ -7302,7 +7409,7 @@ XF.Layout = function()
         -- correct the height/width-derived pieces for the offset size.
         local d = GetFFD(b)
         if d.health then
-            d.health:SetHeight(((d.power and d.power:IsShown()) and PixelSnap(h - powerH) or h) - topBarH)
+            d.health:SetHeight(((d.power and d.power:IsShown()) and PixelSnap(h - ns.RF_HealthPowerInset(s, powerH)) or h) - topBarH)
         end
 
         -- Scaled visual pass: re-apply every ratio-affected element through
@@ -8701,7 +8808,7 @@ ns._ResizeButtons = function(w, h)
     local bh = PixelSnap(h)
     local s = db.profile
     local powerH = IsPowerBarEnabled(s) and PixelSnap(s.powerHeight or 4) or 0
-    local healthH = PixelSnap(bh - powerH)
+    local healthH = PixelSnap(bh - ns.RF_HealthPowerInset(s, powerH))
     local topBarH = (s.topNameBarEnabled and PixelSnap(s.topNameBarHeight or 20)) or 0
     local xfset = s.extraFrames
     for _, btn in ipairs(allButtons) do
@@ -8713,7 +8820,7 @@ ns._ResizeButtons = function(w, h)
             if d._isExtra and xfset then
                 xbw = PixelSnap(math.max(10, w + (xfset.extraWidth or 0)))
                 xbh = PixelSnap(math.max(10, h + (xfset.extraHeight or 0)))
-                xhealthH = PixelSnap(xbh - powerH)
+                xhealthH = PixelSnap(xbh - ns.RF_HealthPowerInset(s, powerH))
             end
             btn:SetSize(xbw, xbh)
             -- Full height when the power bar is hidden for this button's role
@@ -8746,7 +8853,7 @@ ns._ResizePartyButtons = function(w, h)
     local bh = PixelSnap(h)
     local s = db.profile
     local powerH = IsPowerBarEnabled(s) and PixelSnap(s.powerHeight or 4) or 0
-    local healthH = PixelSnap(bh - powerH)
+    local healthH = PixelSnap(bh - ns.RF_HealthPowerInset(s, powerH))
     local topBarH = (s.topNameBarEnabled and PixelSnap(s.topNameBarHeight or 20)) or 0
     -- Auto Resize scale depends on frame size; recompute on this lightweight
     -- width/height slider path (which skips the full reload).
@@ -8823,8 +8930,9 @@ ns._ResizePartyButtons = function(w, h)
     -- anchor tracking -- no secure re-process, no blink.
     if ns._PositionPartySlots then
         local cs2 = PixelSnap(s.partyCellSpacing or s.cellSpacing or 2)
-        local growth2 = s.partyHorizontal and (s.partyFlipGrowth and "LEFT" or "RIGHT")
-            or (s.partyFlipGrowth and "UP" or "DOWN")
+        -- Explicit true only: "centered" keeps the default direction.
+        local growth2 = s.partyHorizontal and (s.partyFlipGrowth == true and "LEFT" or "RIGHT")
+            or (s.partyFlipGrowth == true and "UP" or "DOWN")
         ns._PositionPartySlots(bw, bh, cs2, growth2)
     end
 end
@@ -9010,6 +9118,30 @@ ns._NormalizeTierOffsetAnchors = function()
     if not s then return end
     local ov = s.raidSizeOverrides
     if not ov then return end
+    -- Heal string-keyed numeric tiers ("25" beside 25): planted by the spec
+    -- override system's container fabrication before it learned to use the
+    -- numeric form. The module reads tiers numerically, so a phantom never
+    -- renders yet captures every override read/write for its tier. With a
+    -- numeric twin the phantom is dropped (the twin is the rendered truth;
+    -- override values re-apply from their store at the next boundary);
+    -- without one it becomes the numeric tier it was meant to be. Must run
+    -- BEFORE the markers early-return below: converted profiles are the
+    -- common carriers.
+    local phantoms
+    for k, v in pairs(ov) do
+        if type(k) == "string" and tonumber(k) ~= nil and type(v) == "table" then
+            phantoms = phantoms or {}
+            phantoms[#phantoms + 1] = k
+        end
+    end
+    if phantoms then
+        for i = 1, #phantoms do
+            local k = phantoms[i]
+            local n = tonumber(k)
+            if ov[n] == nil then ov[n] = ov[k] end
+            ov[k] = nil
+        end
+    end
     if ov._topLeftAnchored and ov._cornerAnchored then return end
     local cs = PixelSnap(s.cellSpacing or 2)
     local gs = PixelSnap(s.groupSpacing or 8)
@@ -9472,6 +9604,9 @@ local function UpdateVisibility()
     end
     local wasVisible = framesVisible
     framesVisible = visible
+    -- Raid frames coming or going is the one change a tracker cannot learn from
+    -- its own roster events (mirrors the party call in _UpdatePartyVisibility).
+    if ns._NotifyTrackerProviders then ns._NotifyTrackerProviders() end
 
     -- Update showSolo attribute on all headers, but ONLY when it actually
     -- differs from the header's current value. Re-setting a SecureGroupHeader
@@ -10147,7 +10282,7 @@ do
             "showPowerBar", "powerHeight", "powerBgDarkness", "powerBgColor", "powerBgPowerColored",
             "powerBorderStyle", "powerBorderSize", "powerBorderColor", "powerBorderAlpha",
             "powerShowForHealer", "powerShowForTank", "powerShowForDPS", "smoothPowerBars",
-            "powerUniformAnchors",
+            "powerUniformAnchors", "extendHealthBehindPower",
         },
         textDisplay = {
             "nameSize", "nameColorMode", "nameCustomColor",
@@ -10555,6 +10690,25 @@ ns._PositionPartySlots = function(bw, bh, cs, unitGrowth)
         slotStepY = -(bh + cs)
     end
 
+    -- Centered growth shifts the whole stack (self button + header) so the
+    -- shown frames sit centered in the always-5-slot container: (5 - shown)/2
+    -- slots along the growth axis. Solo is the shown=1 case of the same math,
+    -- and the Center When Solo cog forces it while solo regardless of the
+    -- growth mode.
+    local centerShift = 0
+    local centered = (s.partyFlipGrowth == "centered")
+    if not IsInGroup() then
+        if centered or s.partyCenterWhenSolo then centerShift = 2 end
+    elseif centered then
+        local shown = GetNumGroupMembers() or 0
+        if shown > 5 then shown = 5 end
+        if hideSelf then shown = shown - 1 end
+        if shown < 1 then shown = 1 end
+        centerShift = (5 - shown) / 2
+    end
+    local cShiftX = PixelSnap(slotStepX * centerShift)
+    local cShiftY = PixelSnap(slotStepY * centerShift)
+
     local sb = ns._partySelfButton
     if useSelf then
         local selfSlot, hdrSlot = 0, 1
@@ -10566,24 +10720,15 @@ ns._PositionPartySlots = function(bw, bh, cs, unitGrowth)
         if sb then
             sb:SetSize(bw, bh)
             sb:ClearAllPoints()
-            sb:SetPoint(basePoint, ns._partyContainerFrame, basePoint, PixelSnap(slotStepX * selfSlot), PixelSnap(slotStepY * selfSlot))
+            sb:SetPoint(basePoint, ns._partyContainerFrame, basePoint, PixelSnap(slotStepX * selfSlot) + cShiftX, PixelSnap(slotStepY * selfSlot) + cShiftY)
             if not InCombatLockdown() then sb:Show() end
         end
         ns._partyHeader:ClearAllPoints()
-        ns._partyHeader:SetPoint(basePoint, ns._partyContainerFrame, basePoint, PixelSnap(slotStepX * hdrSlot), PixelSnap(slotStepY * hdrSlot))
+        ns._partyHeader:SetPoint(basePoint, ns._partyContainerFrame, basePoint, PixelSnap(slotStepX * hdrSlot) + cShiftX, PixelSnap(slotStepY * hdrSlot) + cShiftY)
     else
         if sb and not InCombatLockdown() then sb:Hide() end
         ns._partyHeader:ClearAllPoints()
-        -- Center When Solo: when not in a group, center the lone player frame in
-        -- the container by offsetting the header 2 slots along the growth axis
-        -- ((5-1)/2 = 2). The container is always sized for 5 slots, so a single
-        -- frame at slot 2 sits centered.
-        local cOffX, cOffY = 0, 0
-        if s.partyCenterWhenSolo and not IsInGroup() then
-            cOffX = slotStepX * 2
-            cOffY = slotStepY * 2
-        end
-        ns._partyHeader:SetPoint(basePoint, ns._partyContainerFrame, basePoint, PixelSnap(cOffX), PixelSnap(cOffY))
+        ns._partyHeader:SetPoint(basePoint, ns._partyContainerFrame, basePoint, cShiftX, cShiftY)
     end
     return useSelf
 end
@@ -10597,8 +10742,9 @@ ns._LayoutPartyFrames = function()
     local bw = PixelSnap(s.partyFrameWidth or s.frameWidth or 125)
     local bh = PixelSnap(s.partyFrameHeight or s.frameHeight or 60)
     local cs = PixelSnap(s.partyCellSpacing or s.cellSpacing or 2)
-    local unitGrowth = s.partyHorizontal and (s.partyFlipGrowth and "LEFT" or "RIGHT")
-        or (s.partyFlipGrowth and "UP" or "DOWN")
+    -- Explicit true only: "centered" keeps the default direction.
+    local unitGrowth = s.partyHorizontal and (s.partyFlipGrowth == true and "LEFT" or "RIGHT")
+        or (s.partyFlipGrowth == true and "UP" or "DOWN")
 
     local hdrPoint, hdrXOff, hdrYOff
     if unitGrowth == "DOWN" then
@@ -10992,6 +11138,11 @@ ns.ReloadPartyFrames = function()
     -- Re-layout header
     ns._LayoutPartyFrames()
     ns._RebuildPartyUnitMap()
+    -- Re-sync UNIT_POWER_UPDATE registration: a Power Bar section sync/unsync
+    -- (or a party-side role-flag edit) changes the party's effective power
+    -- gating, same reasoning as UpdateCombatEventRegistration above. Must run
+    -- after the temp-swap restore so raid reads see raid values.
+    if ns.UpdatePowerEventRegistration then ns.UpdatePowerEventRegistration() end
     ns._UpdateAllPartyButtons()
 
     -- Re-register private aura anchors
@@ -11900,13 +12051,21 @@ local function GetConfiguredBuffSpells()
     -- Resolve the player's spec via the shared, locale-independent helper (matches
     -- by spec ID, not the localized spec name) so indicators show on every client.
     local specKey = ns.BM_CurrentSpecKey and ns.BM_CurrentSpecKey()
+    -- Untracked spec: preview only the class-fallback indicators flagged
+    -- Show Own on All Specs (the ones that actually render live there).
+    local flaggedOnly = false
+    if not specKey then
+        specKey = ns.BM_ClassFallbackSpecKey and ns.BM_ClassFallbackSpecKey()
+        flaggedOnly = true
+    end
     if not specKey then return {} end
     local indicators = db.profile.bmIndicators[specKey]
     if not indicators then return {} end
     local spells = {}
     local seen = {}
     for _, ind in ipairs(indicators) do
-        if ind.enabled and ind.spells and (ind.type == "icon" or ind.type == "square") then
+        if ind.enabled and ind.spells and (not flaggedOnly or ind.showOwnAllSpecs)
+           and (ind.type == "icon" or ind.type == "square") then
             for _, sid in ipairs(ind.spells) do
                 if not seen[sid] then
                     seen[sid] = true
@@ -12263,7 +12422,7 @@ local function CreatePreviewFrame(index)
     local w = PixelSnap(s.frameWidth or 72)
     local h = PixelSnap(s.frameHeight or 46)
     local powerH = IsPowerBarEnabled(s) and PixelSnap(s.powerHeight or 4) or 0
-    local healthH = PixelSnap(h - powerH)
+    local healthH = PixelSnap(h - ns.RF_HealthPowerInset(s, powerH))
 
     local f = CreateFrame("Frame", nil, previewContainer or containerFrame)
     f:SetSize(w, h)
@@ -13035,7 +13194,7 @@ local function ApplyPreviewData(f, index)
     local w = PixelSnap(s.frameWidth or 72)
     local h = PixelSnap(s.frameHeight or 46)
     local powerH = IsPowerBarEnabled(s) and PixelSnap(s.powerHeight or 4) or 0
-    local healthH = PixelSnap(h - powerH)
+    local healthH = PixelSnap(h - ns.RF_HealthPowerInset(s, powerH))
     local topBarH = (s.topNameBarEnabled and PixelSnap(s.topNameBarHeight or 20)) or 0
 
     f:SetSize(w, h)
@@ -13567,10 +13726,12 @@ local function ApplyPreviewData(f, index)
     local dispelType = dispelMap and dispelMap[index]
     local dispelDC = dispelType and GetDispelColor(dispelType, s)
     if dispVis and dispelDC then
+        -- Per-type alpha (plain saved value in the preview path)
+        local dcA = dispelDC.a or 1
         -- Dispel border (PP.UpdateBorder handles physical pixel sizing internally)
         local dbs = s.dispelBorderSize or 2
         if f._dispelBdrFrame and PP and dbs > 0 then
-            PP.UpdateBorder(f._dispelBdrFrame, dbs, dispelDC.r, dispelDC.g, dispelDC.b, 1)
+            PP.UpdateBorder(f._dispelBdrFrame, dbs, dispelDC.r, dispelDC.g, dispelDC.b, dcA)
             f._dispelBdrFrame:Show()
         elseif f._dispelBdrFrame then
             f._dispelBdrFrame:Hide()
@@ -13578,7 +13739,7 @@ local function ApplyPreviewData(f, index)
         -- Dispel overlay
         local olMode = s.dispelOverlay or "fill"
         if olMode ~= "none" and f._dispelOLTex and f._health then
-            local olAlpha = (s.dispelOverlayOpacity or 100) / 100
+            local olAlpha = (s.dispelOverlayOpacity or 100) / 100 * dcA
             local olTex = f._dispelOLTex
             olTex:ClearAllPoints()
             -- Reset any prior vertex tint so fill/full render their explicit color cleanly.
@@ -13992,6 +14153,15 @@ local function ApplyPreviewData(f, index)
             local fakeHP = healthPct * 12000
             local numStr = AbbreviateNumbers and AbbreviateNumbers(fakeHP) or tostring(fakeHP)
             f._healthText:SetFormattedText("%d%% | %s", healthPct, numStr)
+            f._healthText:SetTextColor(htr, htg, htb, 0.9)
+        elseif mode == "missing" then
+            local fakeHP = (100 - healthPct) * 12000
+            f._healthText:SetText(C_StringUtil.TruncateWhenZero(fakeHP))
+            if f._healthText:GetText() then
+                if AbbreviateNumbers then
+                    f._healthText:SetText(AbbreviateNumbers(fakeHP))
+                end
+            end
             f._healthText:SetTextColor(htr, htg, htb, 0.9)
         else
             f._healthText:SetText("")
@@ -15332,8 +15502,9 @@ local function RefreshPartyPreview()
     local isOverlay = (mode == "overlay")
     local anchorPad = isOverlay and 10 or 0
     local topExtra = isOverlay and 25 or 0   -- top space for the centered "Preview" title
-    local unitGrowth = s.partyHorizontal and (s.partyFlipGrowth and "LEFT" or "RIGHT")
-        or (s.partyFlipGrowth and "UP" or "DOWN")
+    -- Explicit true only: "centered" keeps the default direction.
+    local unitGrowth = s.partyHorizontal and (s.partyFlipGrowth == true and "LEFT" or "RIGHT")
+        or (s.partyFlipGrowth == true and "UP" or "DOWN")
     local isVert = (unitGrowth == "DOWN" or unitGrowth == "UP")
     local totalW, totalH
     if isVert then
@@ -15600,18 +15771,35 @@ end
 -- from a public provider API. EUI frames are custom, so where a provider API
 -- exists we hand it our buttons. The unit lives on the secure "unit" attribute
 -- (read via GetAttribute), so no plain field on the button is required.
+--
+-- Name-scanning trackers (anything on LibGetFrame) need nothing from us: our
+-- raid, party, boss and unit-frame name patterns are in that library's default
+-- priority list upstream, so they resolve our frames on their own.
 
--- Currently-visible EUI party unit buttons that have a unit assigned. Party
--- only by design -- raid frames are intentionally not exposed to trackers.
+-- Currently-visible EUI unit buttons that have a unit assigned -- party AND
+-- raid. Both sets are pre-created once (the startingIndex -4 / Show / 1 trick)
+-- and never destroyed or recycled: the secure header only reassigns the "unit"
+-- attribute and shows or hides. So a collected list is exactly as stable for
+-- raid as it is for party, and the IsVisible + unit test is what keeps a button
+-- the header has parked out of the result.
+--
+-- Extra frames are skipped. They are deliberate DUPLICATES of units already
+-- shown on a real raid button, so handing a tracker both leaves it choosing
+-- between two frames claiming one unit. Boss frames never join allButtons and
+-- stay out for the same reason: they are not party/raid unit frames.
 ns._CollectTrackerFrames = function()
     local out = {}
-    if ns._partyAllButtons then
-        for _, btn in ipairs(ns._partyAllButtons) do
-            if btn:IsVisible() and btn:GetAttribute("unit") then
+    local function Collect(list)
+        if not list then return end
+        for _, btn in ipairs(list) do
+            if btn:IsVisible() and btn:GetAttribute("unit")
+               and not GetFFD(btn)._isExtra then
                 out[#out + 1] = btn
             end
         end
     end
+    Collect(ns._partyAllButtons)
+    Collect(allButtons)
     return out
 end
 
@@ -15912,18 +16100,33 @@ function ERF:OnEnable()
 
     -- Dynamically register/unregister UNIT_POWER_UPDATE per unit based on
     -- role and power display settings. Called after roster changes and
-    -- when the user changes power bar role filters.
+    -- when the user changes power bar role filters. The trackers are shared
+    -- by raid AND party frames: player/party1-4 tokens also drive the party
+    -- buttons, whose Power Bar section can be unsynced from raid -- those
+    -- must consult the party proxy too, or raid-off/party-on would strip
+    -- their events and freeze the party power bars mid-combat.
     local function UpdatePowerEventRegistration()
-        local s = db.profile
-        local anyPower = IsPowerBarEnabled(s)
+        local rs = db.profile
+        local ps = ns._partyProxy
+        local function wantsPower(s, role)
+            return (role == "HEALER" and s.powerShowForHealer)
+                or (role == "TANK" and s.powerShowForTank)
+                or (role == "DAMAGER" and s.powerShowForDPS)
+                or (role == "NONE" and s.powerShowForDPS)
+        end
         for unit, tracker in pairs(unitTrackers) do
             local wantPower = false
-            if anyPower and UnitExists(unit) then
+            if UnitExists(unit) then
                 local role = ns._ResolvePowerRole(unit)
-                wantPower = (role == "HEALER" and s.powerShowForHealer)
-                    or (role == "TANK" and s.powerShowForTank)
-                    or (role == "DAMAGER" and s.powerShowForDPS)
-                    or (role == "NONE" and s.powerShowForDPS)
+                wantPower = IsPowerBarEnabled(rs) and wantsPower(rs, role)
+                -- player/party tokens always count as party-displayable; the
+                -- routing-map check additionally covers arena, where the party
+                -- header binds raid1-5.
+                if not wantPower and IsPowerBarEnabled(ps)
+                    and (unit == "player" or unit:match("^party%d$")
+                        or (ns._partyUnitToButton and ns._partyUnitToButton[unit])) then
+                    wantPower = wantsPower(ps, role)
+                end
             end
             if wantPower then
                 tracker:RegisterUnitEvent("UNIT_POWER_UPDATE", unit)
@@ -15989,17 +16192,51 @@ function ERF:OnEnable()
         end
         return false
     end
+    local function RegisterRGALIASNicknames()
+        if ns._rgaliasNickHooked then return true end
+        local RGA = _G.RG_ALIAS
+        if RGA and RGA.RegisterCallback and _G.RG_UnitName then
+            -- ns._rgaNick gates the ResolveDisplayName consult. The settings
+            -- shape is nil-guarded and only read here and in callbacks, never
+            -- per name resolve; a fresh RGA install with no settings table
+            -- yet simply reads as module-off.
+            local function SyncRGAFlag()
+                local s = RG_ALTS_SETTINGS and RG_ALTS_SETTINGS.settings
+                ns._rgaNick = (s and s["ellesmereui"]) and true or nil
+                if ns.RefreshAllNames then ns.RefreshAllNames() end
+            end
+            -- pcall: RGA owns its RegisterCallback signature; a mismatch or
+            -- future change must not error our OnEnable. If registration
+            -- fails, the flag is still seeded once below -- module toggles
+            -- then need a /reload to be noticed (degraded, never broken).
+            pcall(RGA.RegisterCallback, "DbUpdated", SyncRGAFlag)
+            pcall(RGA.RegisterCallback, "ModuleEnabled", function(event, moduleName)
+                if moduleName == "ellesmereui" then SyncRGAFlag() end
+            end)
+            pcall(RGA.RegisterCallback, "ModuleDisabled", function(event, moduleName)
+                if moduleName == "ellesmereui" then SyncRGAFlag() end
+            end)
+            local s = RG_ALTS_SETTINGS and RG_ALTS_SETTINGS.settings
+            ns._rgaNick = (s and s["ellesmereui"]) and true or nil
+            ns._rgaliasNickHooked = true
+            return true
+        end
+        return false
+    end
+
     local nsrtHooked = RegisterNSRTNicknames()
     local trHooked = RegisterTRNicknames()
-    if not (nsrtHooked and trHooked) then
+    local rgaliasHooked = RegisterRGALIASNicknames()
+    if not (nsrtHooked and trHooked and rgaliasHooked) then
         local nickFrame = CreateFrame("Frame")
         nickFrame:RegisterEvent("PLAYER_LOGIN")
         nickFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
         nickFrame:SetScript("OnEvent", function(self, event)
             local a = RegisterNSRTNicknames()
             local b = RegisterTRNicknames()
+            local c = RegisterRGALIASNicknames()
             -- Anything not loaded by first PLAYER_ENTERING_WORLD is not coming.
-            if (a and b) or event == "PLAYER_ENTERING_WORLD" then self:UnregisterAllEvents() end
+            if (a and b and c) or event == "PLAYER_ENTERING_WORLD" then self:UnregisterAllEvents() end
         end)
     end
 

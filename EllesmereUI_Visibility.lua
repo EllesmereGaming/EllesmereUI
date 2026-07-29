@@ -230,13 +230,14 @@ EUI.VIS_AXES = {
     dragon = { "show_dragonriding", "show_not_dragonriding" },
 }
 
--- Shared caps table for the modules whose legacy "In Party" means
--- party-or-raid (Action Bars, CDM, Unit Frames, Resource Bars). Kept on the
--- namespace so files at the Lua 5.1 200-local cap don't need a new local.
-EUI.VIS_CAPS_INCLUSIVE = { partyIncludesRaid = true }
+-- Shared caps table for Action Bars, CDM, Unit Frames, and Resource Bars.
+-- In Party and In Raid Group are disjoint here, same as every other module --
+-- checking one does not implicitly check the other. Kept on the namespace so
+-- files at the Lua 5.1 200-local cap don't need a new local.
+EUI.VIS_CAPS_DEFAULT = { partyIncludesRaid = false }
 
 -- Copy-target caps for elements that cannot express group modes (Pet Bar).
-EUI.VIS_CAPS_NO_GROUP = { partyIncludesRaid = true, noGroupModes = true }
+EUI.VIS_CAPS_NO_GROUP = { partyIncludesRaid = false, noGroupModes = true }
 
 -- Canonical priority order for the representative scalar: the single legacy
 -- mode written alongside a multi-selection so older addon versions and every
@@ -306,6 +307,21 @@ function EUI.GetActiveVisibilityModes(store, legacyKey)
     return ActiveModes(store, legacyKey)
 end
 
+-- True when the selection can flip purely because combat started or ended.
+-- Consumers whose Show()/Hide() is protected need this: those transitions are
+-- delivered inside combat lockdown (PLAYER_REGEN_DISABLED already reports
+-- InCombatLockdown), so a protected updater has to switch to an unprotected
+-- mechanism for them rather than skip the update.
+function EUI.VisDependsOnCombat(store, legacyKey)
+    if not store then return false end
+    local vm = ActiveModes(store, legacyKey)
+    if vm then
+        return (vm.in_combat or vm.out_of_combat) and true or false
+    end
+    local scalar = store[legacyKey]
+    return scalar == "in_combat" or scalar == "out_of_combat"
+end
+
 -- Read view: the current selection as a set (always freshly allocated).
 -- Second return is true when a multi-selection is active.
 function EUI.GetVisibilitySelection(store, legacyKey)
@@ -369,8 +385,10 @@ end
 
 -- Pure axis evaluation. state = { inCombat, inRaid, inParty } with inParty
 -- meaning party-exclusive-of-raid (the disjoint pair, as CDM computes it).
--- caps.partyIncludesRaid widens the in_party item to also match raids,
--- mirroring what "In Party" already means in each module's legacy evaluator.
+-- caps.partyIncludesRaid, when a caller opts in, would widen the in_party
+-- item to also match raids; no current caller sets it -- In Party and In
+-- Raid Group are disjoint everywhere, so unchecking In Raid Group actually
+-- excludes raid.
 function EUI.EvalVisibilityModes(selection, state, caps)
     local incRaid = caps and caps.partyIncludesRaid
 
@@ -505,8 +523,9 @@ end
 -- Compiles the driver tail appended after `prefix` (caller-supplied leading
 -- hide gates: unit existence, pet battle, vehicle, option clauses...).
 -- Group-axis disjuncts distribute into separate bracket groups, each
--- carrying the shared AND terms -- the same grammar the legacy in_party
--- driver string already uses ([group:party] show; [group:raid] show).
+-- carrying the shared AND terms. in_raid and in_party are disjoint --
+-- checking In Party alone does not also show in a raid group; In Raid
+-- Group must be checked separately for that.
 function EUI.BuildVisibilityDriverString(prefix, vm)
     local conj, negGate = EUI.BuildVisModeConjuncts(vm)
     prefix = prefix .. negGate
@@ -521,7 +540,10 @@ function EUI.BuildVisibilityDriverString(prefix, vm)
             out = out .. "[" .. conj .. tok .. "] show; "
         end
         if g1 then emit("group:raid") end
-        if g2 then emit("group:party"); emit("group:raid") end
+        -- [group:party] alone is TRUE inside a raid; nogroup:raid narrows the
+        -- party disjunct to a real party (a separate group:raid clause, when
+        -- In Raid Group is also checked, still shows there).
+        if g2 then emit("group:party,nogroup:raid") end
         if g3 then emit("nogroup") end
         return out .. "hide"
     end

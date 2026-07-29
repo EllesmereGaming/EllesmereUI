@@ -34,6 +34,30 @@ local initQueue = {}       -- addons waiting for OnInitialize
 local enableQueue = {}     -- addons waiting for OnEnable
 local statuses = {}        -- name -> true if enabled
 
+-- Per-addon event frame. Defined ABOVE NewAddon because NewAddon creates it
+-- EAGERLY, and that timing is load-bearing for CPU attribution: the engine
+-- bills an event handler's entire call tree to the addon whose execution
+-- context called CreateFrame for the frame (probe-verified 2026-07-26; see
+-- EllesmereUI_Ticker.lua). NewAddon runs in the child's MAIN CHUNK, so the
+-- frame is stamped to the child and its event work bills that addon. The old
+-- lazy creation happened at first RegisterEvent -- usually inside
+-- OnInitialize/OnEnable, which run under the parent's lifecycle dispatch --
+-- so every mixin event frame in the suite was parent-stamped and the whole
+-- suite's event handling was billed to the parent addon.
+local function GetOrCreateEventFrame(addon)
+    if addon._eventFrame then return addon._eventFrame end
+    local f = CreateFrame("Frame")
+    f._handlers = {}
+    f:SetScript("OnEvent", function(self, event, ...)
+        local handler = self._handlers[event]
+        if handler then
+            handler(addon, event, ...)
+        end
+    end)
+    addon._eventFrame = f
+    return f
+end
+
 --- Create a new addon object. Replaces AceAddon:NewAddon().
 -- Returns a table with :RegisterEvent / :UnregisterEvent mixed in.
 function EUILite.NewAddon(name)
@@ -43,6 +67,9 @@ function EUILite.NewAddon(name)
     local addon = { name = name, enabledState = true }
     addons[name] = addon
     tinsert(initQueue, addon)
+
+    -- Eager, on purpose -- see the attribution note on GetOrCreateEventFrame.
+    GetOrCreateEventFrame(addon)
 
     -- Mix in event methods
     addon.RegisterEvent   = EUILite._RegisterEvent
@@ -68,19 +95,8 @@ end
 -- OnEvent script. No securecallfunction dispatch loop, no registry tables.
 --------------------------------------------------------------------------------
 
-local function GetOrCreateEventFrame(addon)
-    if addon._eventFrame then return addon._eventFrame end
-    local f = CreateFrame("Frame")
-    f._handlers = {}
-    f:SetScript("OnEvent", function(self, event, ...)
-        local handler = self._handlers[event]
-        if handler then
-            handler(addon, event, ...)
-        end
-    end)
-    addon._eventFrame = f
-    return f
-end
+-- (GetOrCreateEventFrame lives above NewAddon -- creation is eager at
+-- NewAddon time for CPU-attribution reasons documented there.)
 
 --- Register for a Blizzard event. Compatible with AceEvent calling conventions:
 --   addon:RegisterEvent("EVENT_NAME", function(self, event, ...) end)
@@ -90,7 +106,13 @@ function EUILite._RegisterEvent(self, eventname, callback)
     local f = GetOrCreateEventFrame(self)
     local handler
     if type(callback) == "function" then
-        handler = function(addon, event, ...) callback(addon, event, ...) end
+        -- Stored directly. The dispatcher calls handler(addon, event, ...),
+        -- which is already the callback's own signature, so wrapping it only
+        -- added a second function call to every event the suite receives --
+        -- and put an anonymous frame between the callback and any traceback.
+        -- The string and no-callback forms below still need a closure, because
+        -- they resolve the method on the addon at dispatch time.
+        handler = callback
     elseif type(callback) == "string" then
         handler = function(addon, event, ...)
             if addon[callback] then addon[callback](addon, event, ...) end
@@ -178,6 +200,24 @@ local dbRegistry = {}  -- all db objects, for logout cleanup
 -- Expose so the profile system can update db.profile in-place after injection
 EUILite._dbRegistry = dbRegistry
 
+-- Pre-SavedVariables db tracking. A NewDB call at FILE SCOPE in the addon
+-- that OWNS the central store runs before WoW loads that addon's
+-- SavedVariables: it builds its profile inside a fresh table, and the real
+-- saved table then replaces the global right after, orphaning the db --
+-- session writes go to the orphan and are never serialized (settings
+-- silently stop saving). In the suite this can't happen (children's files
+-- execute long after the parent's SVs loaded), but in a STANDALONE build
+-- everything is one addon, so a file-scope NewDB (Bags) hit exactly this.
+-- Any db created before the owning addon's ADDON_LOADED is recorded here
+-- and re-rooted in place against the real loaded store at that moment.
+-- STANDALONE-GATED: the suite has no pre-SV NewDB callers (children init
+-- after the parent's SVs load), so the queue is provably empty there; the
+-- gate makes that a hard guarantee instead of a convention. The folder-name
+-- test is rename-immune (the standalone build never renames "Standalone").
+local IS_STANDALONE = type(ADDON_NAME) == "string" and ADDON_NAME:find("Standalone") ~= nil
+local _svLoaded = false   -- true once ADDON_NAME's SavedVariables are live
+local _preSVDBs = {}      -- dbs created before that, awaiting re-root
+
 --- Create or open a database backed by the central EllesmereUIDB store.
 -- Returns a db object with .profile pointing to the active profile table
 -- inside EllesmereUIDB.profiles[name].addons[folder].
@@ -264,6 +304,13 @@ function EUILite.NewDB(svName, defaults, defaultToCharKey)
     -- Register for logout cleanup
     tinsert(dbRegistry, db)
 
+    -- Created before the owning addon's SavedVariables loaded: the real
+    -- saved table will replace EllesmereUIDB momentarily, so queue this db
+    -- for the in-place re-root at ADDON_LOADED (see _preSVDBs above).
+    if IS_STANDALONE and not _svLoaded then
+        tinsert(_preSVDBs, db)
+    end
+
     return db
 end
 
@@ -338,6 +385,69 @@ end)
 local _parentDBRef           -- the table the parent's own SV file produced
 local _dbGuardArmed = true   -- true from load until PLAYER_LOGIN
 
+-- Re-root dbs created before the owning addon's SavedVariables loaded (see
+-- _preSVDBs above): resolve the profile inside the REAL loaded central store,
+-- merge defaults, and update the db object IN PLACE so every closure holding
+-- it reads and writes the table WoW will serialize at logout. The vestigial
+-- child SV global is re-wiped in place (its saved copy loaded after NewDB's
+-- file-scope wipe and would otherwise persist junk).
+local function RerootPreSVDBs()
+    if #_preSVDBs == 0 then return end
+    local profileName = (EllesmereUIDB and EllesmereUIDB.activeProfile) or "Default"
+    if not EllesmereUIDB then EllesmereUIDB = {} end
+    if type(EllesmereUIDB.profiles) ~= "table" then EllesmereUIDB.profiles = {} end
+    if type(EllesmereUIDB.profiles[profileName]) ~= "table" then
+        EllesmereUIDB.profiles[profileName] = {}
+    end
+    local profileData = EllesmereUIDB.profiles[profileName]
+    if not profileData.addons then profileData.addons = {} end
+    for _, db in ipairs(_preSVDBs) do
+        if type(profileData.addons[db.folder]) ~= "table" then
+            profileData.addons[db.folder] = {}
+        end
+        local profile = profileData.addons[db.folder]
+        if db._profileDefaults then
+            DeepMergeDefaults(profile, db._profileDefaults)
+        end
+        db.sv = EllesmereUIDB
+        db._profileName = profileName
+        db.profile = profile
+        if _G[db.svName] and type(_G[db.svName]) == "table" then
+            wipe(_G[db.svName])
+        else
+            _G[db.svName] = {}
+        end
+    end
+    wipe(_preSVDBs)
+end
+
+-- Drain the OnEnable queue. The pre-steps (PP.mult refresh, spec-profile
+-- pre-seed) run once, before any OnEnable body. The dispatch site decides
+-- whether to call this synchronously or one tick deferred -- see the big
+-- comment there for why the triggering event makes that choice.
+local function FlushEnableQueue()
+    -- Ensure PP.mult is current before any addon's OnEnable runs. PP is
+    -- defined in EllesmereUI.lua (loaded after this file) so it exists by the
+    -- time PLAYER_LOGIN fires.
+    if EllesmereUI and EllesmereUI.PP and EllesmereUI.PP.UpdateMult then
+        EllesmereUI.PP.UpdateMult()
+    end
+    -- Apply spec-assigned profile data into each child SV before any OnEnable
+    -- runs. The spec API is available here (after OnInitialize, before
+    -- OnEnable) so we can resolve the current spec and inject the correct
+    -- profile snapshot. ADDON_LOADED is too early (spec API not ready yet).
+    if EllesmereUI and EllesmereUI.PreSeedSpecProfile then
+        EllesmereUI.PreSeedSpecProfile()
+    end
+    while #enableQueue > 0 do
+        local addon = tremove(enableQueue, 1)
+        if addon.enabledState then
+            statuses[addon.name] = true
+            safecall(addon.OnEnable, addon)
+        end
+    end
+end
+
 local lifecycleFrame = CreateFrame("Frame")
 lifecycleFrame:RegisterEvent("ADDON_LOADED")
 lifecycleFrame:RegisterEvent("PLAYER_LOGIN")
@@ -345,6 +455,10 @@ lifecycleFrame:SetScript("OnEvent", function(self, event, arg1)
     if event == "ADDON_LOADED" then
         if arg1 == ADDON_NAME then
             _parentDBRef = EllesmereUIDB
+            if IS_STANDALONE then
+                _svLoaded = true
+                RerootPreSVDBs()
+            end
         elseif _dbGuardArmed and _parentDBRef and EllesmereUIDB ~= _parentDBRef then
             -- A stale SavedVariables copy from a child's WTF file replaced
             -- the central DB. Restore the real table; the stale copy purges
@@ -363,28 +477,39 @@ lifecycleFrame:SetScript("OnEvent", function(self, event, arg1)
         tinsert(enableQueue, addon)
     end
 
-    -- Process enable queue once logged in
-    if IsLoggedIn() then
-        -- Ensure PP.mult is current before any addon's OnEnable runs.
-        -- PP is defined in EllesmereUI.lua (loaded after this file) so it
-        -- exists by the time PLAYER_LOGIN fires.
-        if EllesmereUI and EllesmereUI.PP and EllesmereUI.PP.UpdateMult then
-            EllesmereUI.PP.UpdateMult()
-        end
-        -- Apply spec-assigned profile data into each child SV before any
-        -- OnEnable runs. The spec API is available here (after OnInitialize,
-        -- before OnEnable) so we can resolve the current spec and inject the
-        -- correct profile snapshot. This is the earliest safe point to do
-        -- this -- ADDON_LOADED is too early (spec API not ready yet).
-        if EllesmereUI and EllesmereUI.PreSeedSpecProfile then
-            EllesmereUI.PreSeedSpecProfile()
-        end
-        while #enableQueue > 0 do
-            local addon = tremove(enableQueue, 1)
-            if addon.enabledState then
-                statuses[addon.name] = true
-                safecall(addon.OnEnable, addon)
-            end
+    -- Process the enable (OnEnable) queue once logged in. WHEN we run it
+    -- depends on which event delivered us here, and both cases matter:
+    --
+    --   * PLAYER_LOGIN -> run SYNCHRONOUSLY, right now. PLAYER_LOGIN is a
+    --     top-level game event, never dispatched from inside a secure chain,
+    --     so the mid-secure-chain taint hazard below does not apply. Running
+    --     here also keeps every OnEnable (and the secure setup each performs:
+    --     RegisterStateDriver, WrapScript, protected SetCVar, EditMode Hide)
+    --     inside the login/reload LOADING-SCREEN window -- the only window in
+    --     which those secure operations are permitted while the player is in
+    --     combat. C_Timer callbacks do NOT run during the loading screen, so
+    --     deferring here would always miss the window on a /reload in combat
+    --     and every child addon's secure setup would be blocked
+    --     (ADDON_ACTION_BLOCKED storm).
+    --
+    --   * ADDON_LOADED (post-login demand-loads) -> DEFER one tick. These can
+    --     be dispatched from inside Blizzard's own SECURE executions (e.g.
+    --     UIParent demand-loading Blizzard_CombatLog), and running OnEnable
+    --     bodies synchronously there stamps every value they write with addon
+    --     taint born mid-secure-chain -- fields Edit Mode's enter/exit passes
+    --     later read, erroring on 12.x secret values. A timer callback is a
+    --     fresh, purely addon-owned execution. Such loads happen after the
+    --     loading screen anyway, so there is no in-combat secure window to
+    --     preserve for them.
+    if IsLoggedIn() and #enableQueue > 0 then
+        if event == "PLAYER_LOGIN" then
+            FlushEnableQueue()
+        elseif not lifecycleFrame._enableFlushQueued then
+            lifecycleFrame._enableFlushQueued = true
+            C_Timer.After(0, function()
+                lifecycleFrame._enableFlushQueued = false
+                FlushEnableQueue()
+            end)
         end
     end
 end)

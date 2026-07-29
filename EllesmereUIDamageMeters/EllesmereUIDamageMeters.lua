@@ -211,7 +211,18 @@ local DM_DEFAULTS = {
             rightFontSize   = 11,
             rightTextUseClassColor = false,
             rightTextColor  = { r = 1, g = 1, b = 1 },
+            leftTextOffsetX = 0,
+            leftTextOffsetY = 0,
+            rightTextOffsetX = 0,
+            rightTextOffsetY = 0,
             bgR = 0, bgG = 0, bgB = 0, bgAlpha = 0.75,
+            windowBorderTexture = "solid",
+            windowBorderSize = 0,
+            windowBorderOffsetX = 0,
+            windowBorderOffsetY = 0,
+            windowBorderColor = { r = 0, g = 0, b = 0, a = 1 },
+            windowBorderIncludeHeader = true,
+            windowBorderBehind = false,
             barBgR = 0, barBgG = 0, barBgB = 0, barBgAlpha = 0,
             barBgUseClassColor = false,
             standaloneTimer       = false,
@@ -220,10 +231,14 @@ local DM_DEFAULTS = {
             standaloneTimerColor  = { r = 1, g = 1, b = 1 },
             standaloneTimerPos    = nil,
             standaloneTimerAnchor = "free",
+            standaloneTimerShowOOC  = false,
+            standaloneTimerDesatOOC = false,
             refreshRate = 1,
             hideResetButton = false, -- display the "reset data" button on the damage meter header
             hdrBgColor      = { r = 0x1B/255, g = 0x1B/255, b = 0x1B/255 },
             hdrBgAlpha      = 1,
+            hdrBottomBorderSize = 0,
+            hdrBottomBorderColor = { r = 0, g = 0, b = 0, a = 1 },
             hdrHeight       = 22,
             hdrFontSize     = 11,
             hdrTextOffX     = 0,
@@ -579,11 +594,20 @@ ns.RegisterDMUnlock = function()
             end,
         })
     end
+    -- Standalone combat timer rides the master toggle (the factory is
+    -- defined in the timer section, resolved via ns at call time)
+    if DB().standaloneTimer and ns.MakeSATimerUnlockElement then
+        elements[#elements + 1] = ns.MakeSATimerUnlockElement(MK)
+    end
     EUI:RegisterUnlockElements(elements, "EllesmereUIDamageMeters")
-    -- Drop registrations for window slots beyond the live count
+    -- Drop registrations for window slots beyond the live count, and for the
+    -- timer while it is disabled (kept symmetric across profile swaps)
     if EUI.UnregisterUnlockElement then
         for i = #_windows + 1, MAX_WINDOWS do
             EUI:UnregisterUnlockElement("EDM_Win" .. i)
+        end
+        if not DB().standaloneTimer then
+            EUI:UnregisterUnlockElement("EDM_CombatTimer")
         end
     end
 end
@@ -1495,8 +1519,31 @@ local _activeRow = nil
 
 local TT_HDR_H = 20
 
+local function BlizzardSkinBordersAvailable()
+    return C_AddOns and C_AddOns.IsAddOnLoaded
+        and C_AddOns.IsAddOnLoaded("EllesmereUIBlizzardSkin")
+        and EUI and EUI._applyBlizzardConfiguredBorder
+end
+
+local function ApplyInheritedBlizzardBorder(frame, prefix)
+    if not frame or not BlizzardSkinBordersAvailable() then return false end
+    if prefix == "tooltip" and frame._bg and EUI.GetTooltipBg then
+        frame._bg:SetColorTexture(EUI.GetTooltipBg())
+    end
+    local ok = pcall(EUI._applyBlizzardConfiguredBorder, frame, prefix, 1)
+    if ok and frame._legacyBorder and frame._legacyBorder._frame then
+        frame._legacyBorder._frame:Hide()
+    elseif not ok and frame._legacyBorder and frame._legacyBorder._frame then
+        frame._legacyBorder._frame:Show()
+    end
+    return ok
+end
+
 local function EnsureTooltipFrame()
-    if _ttFrame then return end
+    if _ttFrame then
+        ApplyInheritedBlizzardBorder(_ttFrame, "tooltip")
+        return
+    end
     _ttFrame = CreateFrame("Frame", nil, UIParent)
     _ttFrame:SetFrameStrata("TOOLTIP")
     _ttFrame:SetSize(TT_WIDTH, 10)
@@ -1504,7 +1551,8 @@ local function EnsureTooltipFrame()
     _ttFrame._bg = _ttFrame:CreateTexture(nil, "BACKGROUND")
     _ttFrame._bg:SetAllPoints()
     _ttFrame._bg:SetColorTexture(0, 0, 0, 0.95)
-    if EUI.MakeBorder then EUI.MakeBorder(_ttFrame, 0, 0, 0, 1) end
+    if EUI.MakeBorder then _ttFrame._legacyBorder = EUI.MakeBorder(_ttFrame, 0, 0, 0, 1) end
+    ApplyInheritedBlizzardBorder(_ttFrame, "tooltip")
 
     -- Header bar
     _ttFrame._hdr = CreateFrame("Frame", nil, _ttFrame)
@@ -1932,6 +1980,7 @@ local function MakeMenuPanel(level)
     bg:SetColorTexture(RS.BG_R or 0.067, RS.BG_G or 0.067, RS.BG_B or 0.067, RS.CTX_ALPHA or 0.95)
     local PP_L = EUI.PP
     if PP_L and PP_L.CreateBorder then PP_L.CreateBorder(f, 1, 1, 1, RS.BRD_ALPHA or 0.18, 1) end
+    ApplyInheritedBlizzardBorder(f, "popupMenu")
     f._pool = {}; f:Hide()
     f:RegisterEvent("PLAYER_REGEN_DISABLED")
     f:SetScript("OnEvent", function(self) self:Hide() end)
@@ -1960,6 +2009,7 @@ local function EnsureMenuRow(menu, idx)
 end
 
 local function LayoutMenu(menu, items, onDismiss, isChild)
+    ApplyInheritedBlizzardBorder(menu, "popupMenu")
     local fontPath = (EUI.GetFontPath and EUI.GetFontPath("damageMeters")) or "Fonts\\FRIZQT__.TTF"
     local outline = (EUI.GetFontOutlineFlag and EUI.GetFontOutlineFlag("damageMeters")) or ""
     local EG = EUI.ELLESMERE_GREEN
@@ -2185,8 +2235,57 @@ local function CreateDMWindow(winIdx)
             local sz = c.borderSize or 0
             if sz <= 0 then
                 if bar._borderFrame then bar._borderFrame:Hide() end
+                if bar._fillBorder then bar._fillBorder:Hide() end
                 return
             end
+            -- Follow-fill mode: the filled extent is SECRET geometry (fill
+            -- values are secret damage numbers), so nothing here may measure
+            -- it -- Blizzard's Backdrop/NineSlice styles crash on GetWidth of
+            -- a frame anchored to it. Render four plain color strips stretched
+            -- purely by engine anchors instead: left edge on plain geometry,
+            -- right edge riding the fill texture. Always solid, whatever the
+            -- Border Style dropdown says; the styled path stays full-row only.
+            if c.borderFollowFill then
+                if bar._borderFrame then bar._borderFrame:Hide() end
+                local fb = bar._fillBorder
+                if not fb then
+                    fb = CreateFrame("Frame", nil, bar.row)
+                    fb:SetFrameLevel(bar.row:GetFrameLevel() + 3)
+                    fb:SetPoint("TOPLEFT", bar.row, "TOPLEFT")
+                    fb:SetSize(1, 1)  -- inert; the strips carry the shape
+                    fb.top = fb:CreateTexture(nil, "OVERLAY")
+                    fb.bottom = fb:CreateTexture(nil, "OVERLAY")
+                    fb.left = fb:CreateTexture(nil, "OVERLAY")
+                    fb.right = fb:CreateTexture(nil, "OVERLAY")
+                    bar._fillBorder = fb
+                end
+                local ft = bar.fill:GetStatusBarTexture()
+                local anchorL = c.borderFollowFillIcon and bar.row or bar.fill
+                local r, g, b, a = c.borderR or 0, c.borderG or 0, c.borderB or 0, c.borderA or 1
+                fb.top:SetColorTexture(r, g, b, a)
+                fb.bottom:SetColorTexture(r, g, b, a)
+                fb.left:SetColorTexture(r, g, b, a)
+                fb.right:SetColorTexture(r, g, b, a)
+                fb.top:ClearAllPoints()
+                fb.top:SetPoint("TOPLEFT", anchorL, "TOPLEFT", 0, 0)
+                fb.top:SetPoint("TOPRIGHT", ft, "TOPRIGHT", 0, 0)
+                fb.top:SetHeight(sz)
+                fb.bottom:ClearAllPoints()
+                fb.bottom:SetPoint("BOTTOMLEFT", anchorL, "BOTTOMLEFT", 0, 0)
+                fb.bottom:SetPoint("BOTTOMRIGHT", ft, "BOTTOMRIGHT", 0, 0)
+                fb.bottom:SetHeight(sz)
+                fb.left:ClearAllPoints()
+                fb.left:SetPoint("TOPLEFT", anchorL, "TOPLEFT", 0, -sz)
+                fb.left:SetPoint("BOTTOMLEFT", anchorL, "BOTTOMLEFT", 0, sz)
+                fb.left:SetWidth(sz)
+                fb.right:ClearAllPoints()
+                fb.right:SetPoint("TOPRIGHT", ft, "TOPRIGHT", 0, -sz)
+                fb.right:SetPoint("BOTTOMRIGHT", ft, "BOTTOMRIGHT", 0, sz)
+                fb.right:SetWidth(sz)
+                fb:Show()
+                return
+            end
+            if bar._fillBorder then bar._fillBorder:Hide() end
             if not bar._borderFrame then
                 bar._borderFrame = CreateFrame("Frame", nil, bar.row)
                 bar._borderFrame:SetAllPoints(bar.row)
@@ -2254,6 +2353,18 @@ local function CreateDMWindow(winIdx)
         bar.label = tf:CreateFontString(nil, "OVERLAY"); bar.label:SetPoint("LEFT", bar.pos, "RIGHT", 2, 0); bar.label:SetPoint("RIGHT", tf, "RIGHT", -70, 0); bar.label:SetJustifyH("LEFT"); SetDMFont(bar.label, 11)
         bar.label:SetWordWrap(false)
         bar.amount = tf:CreateFontString(nil, "OVERLAY"); bar.amount:SetPoint("RIGHT", tf, "RIGHT", -3, 0); bar.amount:SetJustifyH("RIGHT"); SetDMFont(bar.amount, 11)
+        -- Bar Text X/Y offsets (Bar Text size cogs). Re-applies the creation
+        -- anchors above with the profile offsets added. The label's Y rides its
+        -- RIGHT point; its LEFT already follows bar.pos on both axes.
+        bar.ApplyTextOffsets = function()
+            local c2 = DB()
+            local lx, ly = c2.leftTextOffsetX or 0, c2.leftTextOffsetY or 0
+            local rx, ry = c2.rightTextOffsetX or 0, c2.rightTextOffsetY or 0
+            bar.pos:SetPoint("LEFT", tf, "LEFT", 3 + lx, ly)
+            bar.label:SetPoint("RIGHT", tf, "RIGHT", -70, ly)
+            bar.amount:SetPoint("RIGHT", tf, "RIGHT", -3 + rx, ry)
+        end
+        bar.ApplyTextOffsets()
         bar.row:SetScript("OnClick", function(_, button)
             if button == "LeftButton" then
                 if InCombatLockdown() then return end
@@ -2418,8 +2529,25 @@ local function CreateDMWindow(winIdx)
     header:SetFrameLevel(frame:GetFrameLevel() + 5)
     W.header = header
 
+    -- Independent overlay target so the frame border can start either at the
+    -- window top or exactly below the header without affecting window layout.
+    local windowBorderTarget = CreateFrame("Frame", nil, frame)
+    windowBorderTarget:EnableMouse(false)
+    windowBorderTarget:SetFrameLevel(header:GetFrameLevel() + 4)
+    W.windowBorderTarget = windowBorderTarget
+
     do local hc = cfg.hdrBgColor; local hR = hc and hc.r or 0x1B/255; local hG = hc and hc.g or 0x1B/255; local hB = hc and hc.b or 0x1B/255
     header._hdrBg = header:CreateTexture(nil, "BACKGROUND"); header._hdrBg:SetAllPoints(); header._hdrBg:SetColorTexture(hR, hG, hB, cfg.hdrBgAlpha or 1) end
+    header._bottomBorder = header:CreateTexture(nil, "OVERLAY", nil, 7)
+    header._bottomBorder:SetPoint("BOTTOMLEFT", header, "BOTTOMLEFT", 0, 0)
+    header._bottomBorder:SetPoint("BOTTOMRIGHT", header, "BOTTOMRIGHT", 0, 0)
+    do
+        local size = cfg.hdrBottomBorderSize or 0
+        local color = cfg.hdrBottomBorderColor or {}
+        header._bottomBorder:SetHeight(PhysicalPixels(size))
+        header._bottomBorder:SetColorTexture(color.r or 0, color.g or 0, color.b or 0, color.a or 1)
+        header._bottomBorder:SetShown(size > 0)
+    end
 
     local hdrFS = cfg.hdrFontSize or 11
     local txOX, txOY = cfg.hdrTextOffX or 0, cfg.hdrTextOffY or 0
@@ -2676,6 +2804,7 @@ local function CreateDMWindow(winIdx)
             nwdb.position = { x = srcLeft2, y = newTop2 }
             local nw = CreateDMWindow(newIdx2)
             _windows[newIdx2] = nw
+            if ns.ApplyWindowBorder then ns.ApplyWindowBorder() end
             -- Persist count
             local c = DB(); c.windowCount = newIdx2
             ns.RegisterDMUnlock()
@@ -4394,12 +4523,54 @@ ns.ApplyBarBg = function()
     end
 end
 
+ns.ApplyBarTextOffsets = function()
+    for _, w in ipairs(_windows) do
+        if w.rowPool then
+            for _, bar in ipairs(w.rowPool) do
+                if bar.ApplyTextOffsets then bar.ApplyTextOffsets() end
+            end
+        end
+        if w.stickyPlayer and w.stickyPlayer.ApplyTextOffsets then
+            w.stickyPlayer.ApplyTextOffsets()
+        end
+    end
+end
+
 ns.ApplyBackground = function()
     local cfg = DB()
     local r, g, b, a = cfg.bgR or 0, cfg.bgG or 0, cfg.bgB or 0, cfg.bgAlpha or 0.75
     for _, w in ipairs(_windows) do
         if w.frame and w.frame._bg then w.frame._bg:SetColorTexture(r, g, b, a) end
         if w.sourceFrame and w.sourceFrame._bg then w.sourceFrame._bg:SetColorTexture(r, g, b, a) end
+    end
+end
+
+ns.ApplyWindowBorder = function()
+    local cfg = DB()
+    local size = tonumber(cfg.windowBorderSize) or 0
+    local texture = cfg.windowBorderTexture or "solid"
+    local color = cfg.windowBorderColor or {}
+    local r, g, b, a = color.r or 0, color.g or 0, color.b or 0, color.a or 1
+    local includeHeader = cfg.windowBorderIncludeHeader ~= false
+    local offsetX = texture ~= "solid" and (tonumber(cfg.windowBorderOffsetX) or 0) or 0
+    local offsetY = texture ~= "solid" and (tonumber(cfg.windowBorderOffsetY) or 0) or 0
+
+    for _, w in ipairs(_windows) do
+        local target = w.windowBorderTarget
+        if target and w.frame and w.header then
+            local frameLevel = w.frame:GetFrameLevel()
+            target:SetFrameLevel(cfg.windowBorderBehind and math.max(0, frameLevel - 1) or (w.header:GetFrameLevel() + 4))
+            target:ClearAllPoints()
+            if includeHeader then
+                target:SetPoint("TOPLEFT", w.frame, "TOPLEFT", -offsetX, offsetY)
+            else
+                target:SetPoint("TOPLEFT", w.header, "BOTTOMLEFT", -offsetX, offsetY)
+            end
+            target:SetPoint("BOTTOMRIGHT", w.frame, "BOTTOMRIGHT", offsetX, -offsetY)
+            -- Offsets are represented by the target geometry itself, which also
+            -- makes them work for the solid four-strip border implementation.
+            EUI.ApplyBorderStyle(target, size, r, g, b, a, texture)
+        end
     end
 end
 
@@ -4417,6 +4588,13 @@ ns.ApplyHeader = function()
         if w.header then
             w.header:SetHeight(hdrH)
             if w.header._hdrBg then w.header._hdrBg:SetColorTexture(hR, hG, hB, hA) end
+            if w.header._bottomBorder then
+                local size = cfg.hdrBottomBorderSize or 0
+                local color = cfg.hdrBottomBorderColor or {}
+                w.header._bottomBorder:SetHeight(PhysicalPixels(size))
+                w.header._bottomBorder:SetColorTexture(color.r or 0, color.g or 0, color.b or 0, color.a or 1)
+                w.header._bottomBorder:SetShown(size > 0)
+            end
         end
         if w.frame and w.frame._bg then
             w.frame._bg:ClearAllPoints()
@@ -4445,6 +4623,7 @@ ns.ApplyHeader = function()
         ApplyHeaderButtonsHoverVisibility(w, cfg)
         if w.FitTitle then w.FitTitle() end
     end
+    ns.ApplyWindowBorder()
 end
 
 ns.ApplyIconColor = function()
@@ -4492,6 +4671,7 @@ end
 local _saTimer  -- frame reference
 local _saTimerFS -- fontstring
 local _saTimerPreview = false
+local _saTimerLive = false  -- last live/idle state seen (drives OOC desaturation)
 
 local function GetSATimerColor()
     local cfg = DB()
@@ -4500,12 +4680,23 @@ local function GetSATimerColor()
     return c and c.r or 1, c and c.g or 1, c and c.b or 1
 end
 
+local function ApplySATimerColor()
+    if not _saTimerFS then return end
+    local cfg = DB()
+    local r, g, b = GetSATimerColor()
+    if cfg.standaloneTimerDesatOOC and not (_inCombat or _needsFinalRefresh) then
+        -- Luminance gray: desaturation keeps the configured color's brightness
+        local l = 0.299 * r + 0.587 * g + 0.114 * b
+        r, g, b = l, l, l
+    end
+    _saTimerFS:SetTextColor(r, g, b, 1)
+end
+
 local function ApplySATimerStyle()
     if not _saTimer or not _saTimerFS then return end
     local cfg = DB()
     SetDMFont(_saTimerFS, cfg.standaloneTimerSize or 14)
-    local r, g, b = GetSATimerColor()
-    _saTimerFS:SetTextColor(r, g, b, 1)
+    ApplySATimerColor()
     _saTimerFS:ClearAllPoints()
     local anchor = cfg.standaloneTimerAnchor or "free"
     local alignLeft
@@ -4528,22 +4719,35 @@ UpdateSATimerText = function()
     local cfg = DB()
     if not cfg.standaloneTimer then return end
     -- Same source as the window's Current timer so the two can never disagree.
-    -- Visible while combat is live (or while polling a group fight we are not in),
-    -- hidden out of combat.
-    if _inCombat or _needsFinalRefresh then
+    -- Visible while combat is live (or while polling a group fight we are not in);
+    -- out of combat it hides unless Show Out of Combat keeps it up (showing the
+    -- last fight's frozen duration).
+    local live = _inCombat or _needsFinalRefresh
+    if live or cfg.standaloneTimerShowOOC then
         if not _saTimer:IsShown() and not _saTimerPreview then _saTimer:Show() end
-        _saTimerFS:SetText(FormatTimer(GetCurrentViewDuration()))
+        if live or not _saTimerPreview then
+            _saTimerFS:SetText(FormatTimer(GetCurrentViewDuration()))
+        end
     else
         if not _saTimerPreview then
             if _saTimer:IsShown() then _saTimer:Hide() end
             _saTimerFS:SetText("")
         end
     end
+    if _saTimerLive ~= live then
+        _saTimerLive = live
+        ApplySATimerColor()
+    end
 end
 
 local function RepositionSATimer()
     if not _saTimer then return end
     local cfg = DB()
+    -- While the timer has a live unlock anchor link, the anchor system owns
+    -- its position -- do not fight it.
+    if EUI.IsUnlockAnchored and EUI.IsUnlockAnchored("EDM_CombatTimer") then
+        return
+    end
     local anchor = cfg.standaloneTimerAnchor or "free"
 
     _saTimer:ClearAllPoints()
@@ -4552,7 +4756,10 @@ local function RepositionSATimer()
         _saTimer:SetMovable(true)
         _saTimer:EnableMouse(true)
         local pos = cfg.standaloneTimerPos
-        if pos and pos.x and pos.y then
+        if pos and pos.point then
+            _saTimer:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
+        elseif pos and pos.x and pos.y then
+            -- Legacy drag format: TOPLEFT offset from UIParent's BOTTOMLEFT
             _saTimer:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", pos.x, pos.y)
         else
             local W1 = _windows[1]
@@ -4644,6 +4851,7 @@ local function CreateSATimer()
     RepositionSATimer()
 
     _saTimer:Hide()  -- starts hidden; combat state controls visibility
+    UpdateSATimerText()  -- Show Out of Combat can bring it straight back up
 end
 
 ns.ApplySATimer = function()
@@ -4672,25 +4880,85 @@ end
 ns.ShowSATimerPreview = function()
     if not _saTimer then CreateSATimer() end
     if not _saTimer then return end
+    -- Show Out of Combat already keeps real data on screen (last segment
+    -- duration, or 0:00) -- never clobber it with the preview value.
+    if DB().standaloneTimerShowOOC then
+        UpdateSATimerText()
+        return
+    end
     _saTimerPreview = true
     _saTimerFS:SetText("11:37")
     _saTimer:Show()
 end
 ns.HideSATimerPreview = function()
+    local wasPreview = _saTimerPreview
     _saTimerPreview = false
     if not _saTimer then return end
+    local cfg = DB()
+    if cfg.standaloneTimer and cfg.standaloneTimerShowOOC then
+        -- Show Out of Combat was enabled during this preview session: swap
+        -- the preview value for the real one (last segment, or 0:00 when no
+        -- segment exists yet).
+        if wasPreview then UpdateSATimerText() end
+        return
+    end
     if not _inCombat then _saTimer:Hide() end
 end
 
 -- Accent color callback for standalone timer
 if EUI.RegAccent then
-    EUI.RegAccent({ type = "callback", fn = function(r, g, b)
+    EUI.RegAccent({ type = "callback", fn = function()
         if not _saTimer or not _saTimerFS then return end
         local cfg = DB()
         if cfg.standaloneTimerUseAccent then
-            _saTimerFS:SetTextColor(r, g, b, 1)
+            ApplySATimerColor()
         end
     end })
+end
+
+-- Unlock-mode element for the standalone timer, built on demand by
+-- ns.RegisterDMUnlock (lives here because the closures need the _saTimer
+-- upvalues declared above). The frame sizes itself to its text and would
+-- shift any children, so it may anchor TO elements but never serve as an
+-- anchor target.
+ns.MakeSATimerUnlockElement = function(MK)
+    return MK({
+        key   = "EDM_CombatTimer",
+        label = "Combat Timer",
+        group = "Damage Meters",
+        order = 650 + MAX_WINDOWS + 1,
+        noResize = true,
+        noAnchorTarget = true,
+        getFrame = function() return _saTimer end,
+        getSize = function()
+            if _saTimer then return _saTimer:GetWidth(), _saTimer:GetHeight() end
+            return 60, 20
+        end,
+        isHidden = function() return not DB().standaloneTimer end,
+        savePos = function(_, point, relPoint, x, y)
+            local cfg = DB()
+            cfg.standaloneTimerPos = { point = point, relPoint = relPoint or point, x = x, y = y }
+            -- A manual unlock-mode move implies free placement: un-snap the
+            -- window-anchor mode or RepositionSATimer would fight the drag.
+            if (cfg.standaloneTimerAnchor or "free") ~= "free" then
+                cfg.standaloneTimerAnchor = "free"
+            end
+        end,
+        loadPos = function()
+            local pos = DB().standaloneTimerPos
+            if not pos then return nil end
+            if pos.point then
+                return { point = pos.point, relPoint = pos.relPoint, x = pos.x, y = pos.y }
+            end
+            if pos.x and pos.y then
+                -- Legacy drag format: TOPLEFT offset from UIParent's BOTTOMLEFT
+                return { point = "TOPLEFT", relPoint = "BOTTOMLEFT", x = pos.x, y = pos.y }
+            end
+            return nil
+        end,
+        clearPos = function() DB().standaloneTimerPos = nil end,
+        applyPos = function() RepositionSATimer() end,
+    })
 end
 
 -------------------------------------------------------------------------------
@@ -5023,6 +5291,7 @@ initFrame:SetScript("OnEvent", function(self)
             return
         end
         _windows[winIdx] = CreateDMWindow(winIdx)
+        ns.ApplyWindowBorder()
         C_Timer.After(0, CreateNextWindow)
     end
     C_Timer.After(0, CreateNextWindow)
@@ -5059,6 +5328,7 @@ initFrame:SetScript("OnEvent", function(self)
         for i = wc + 1, MAX_WINDOWS do c.windows[i] = nil end
         for i = 1, wc do
             _windows[i] = CreateDMWindow(i)
+            ns.ApplyWindowBorder()
         end
         -- Refresh unlock registrations for the new profile's window count
         ns.RegisterDMUnlock()

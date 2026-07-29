@@ -4,13 +4,14 @@
 ## Group: EllesmereUI
 ## Notes: Custom Resource Bars with thresholds, hash lines and more.
 ## Author: Ellesmere
-## Version: 8.4.9
+## Version: 8.6.6
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIResourceBarsDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 
 # Main Luas
 EllesmereUIResourceBars.lua
+EUI_ResourceBars_EbonMight121.lua
 
 # Options
 EUI_ResourceBars_Helpers.lua

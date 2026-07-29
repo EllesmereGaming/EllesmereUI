@@ -972,14 +972,16 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
                 iLbl:SetTextColor(1, 1, 1, 1)
                 if iNote then iNote:SetTextColor(1, 1, 1, 1) end
                 iHl:SetAlpha(DD_ITEM_HL_A)
-                if _moOnItemHover then _moOnItemHover(key) end
+                -- Second arg (the item frame) is additive: existing handlers
+                -- take (key) and ignore it; new ones can anchor tooltips.
+                if _moOnItemHover then _moOnItemHover(key, item) end
             end)
             item:SetScript("OnLeave", function()
                 if disabledValuesFn and disabledValuesFn(key) then HideWidgetTooltip(); return end
                 iLbl:SetTextColor(TEXT_DIM_R, TEXT_DIM_G, TEXT_DIM_B, TEXT_DIM_A)
                 if iNote then iNote:SetTextColor(TEXT_DIM_R, TEXT_DIM_G, TEXT_DIM_B, TEXT_DIM_A) end
                 iHl:SetAlpha((item._key == getValue()) and DD_ITEM_SEL_A or 0)
-                if _moOnItemLeave then _moOnItemLeave(key) end
+                if _moOnItemLeave then _moOnItemLeave(key, item) end
             end)
             item:SetScript("OnClick", function()
                 if disabledValuesFn and disabledValuesFn(key) then return end
@@ -1605,6 +1607,49 @@ local function BuildSliderCore(parent, trackW, trackH, thumbSz, inputW, inputH, 
 end
 
 -------------------------------------------------------------------------------
+--  Pixel-unit sliders  (cfg.pixel = true)
+--
+--  The saved value stays in WoW coordinate units (profile format unchanged);
+--  the slider displays and edits whole physical screen pixels, so "1" is one
+--  on-screen pixel at any resolution/UI scale. min/max are declared in
+--  coordinate units and converted at build time, keeping the physical range
+--  identical to the pre-pixel slider. At a pixel-perfect UI scale
+--  (PP.mult == 1) every conversion is the identity and nothing changes.
+--  Supports both accessor conventions: getValue/setValue (row configs) and
+--  get/set (cog popup rows). Returns the cfg untouched when the flag is off,
+--  so callers can pass every slider cfg through unconditionally.
+-------------------------------------------------------------------------------
+local function PixelizeSliderCfg(cfg)
+    -- Conversions run against the GAME screen grid (EllesmereUI.PP), not this
+    -- file's panel-scale PP (PanelPP) -- the saved values live in UIParent
+    -- coordinate units.
+    local gamePP = EllesmereUI.PP
+    if not (cfg and cfg.pixel and gamePP) then return cfg end
+    local px = {}
+    for k, v in pairs(cfg) do px[k] = v end
+    px.min, px.max = gamePP.ToPixels(cfg.min or 0), gamePP.ToPixels(cfg.max or 0)
+    -- A declared step of 1 means "finest available", not "one coordinate
+    -- unit": the pixel unit exists to reach single pixels, so it must stay
+    -- 1 px. Converting it like min/max rounds 1 coord to 2 px whenever
+    -- mult <= 2/3 (e.g. 4K at 0.71 uiScale), which snaps a typed 1 to 2 and
+    -- makes every odd pixel value unreachable. Only genuinely coarse steps
+    -- (> 1 coordinate unit) convert, keeping their physical coarseness.
+    local st = cfg.step or 1
+    px.step = st > 1 and math.max(1, math.floor(st / (gamePP.mult or 1) + 0.5)) or 1
+    local get, set = cfg.getValue or cfg.get, cfg.setValue or cfg.set
+    local pxGet = get and function()
+        local v = get()
+        return v and gamePP.ToPixels(v)
+    end
+    local pxSet = set and function(v) return set(gamePP.FromPixels(v)) end
+    if cfg.getValue then px.getValue = pxGet end
+    if cfg.get then px.get = pxGet end
+    if cfg.setValue then px.setValue = pxSet end
+    if cfg.set then px.set = pxSet end
+    return px
+end
+
+-------------------------------------------------------------------------------
 --  Shared Tooltip  (single frame, lazily created, reused by all widgets)
 -------------------------------------------------------------------------------
 local tooltipFrame
@@ -1631,6 +1676,25 @@ local function GetTooltipFrame()
     -- change shows on the next tooltip. Border stays fixed (not customizable).
     tooltipFrame.bg:SetColorTexture(EllesmereUI.GetTooltipBg())
     return tooltipFrame
+end
+
+-- Panel-family check: true when the anchor lives in the options panel or one
+-- of its registered popups (cog/confirm), so its tooltip should ride the
+-- user's panel-scale slider. In-game anchors (bags, minimap, meters) stay 1.
+local function IsPanelFamilyAnchor(region)
+    local mf = EllesmereUI._mainFrame
+    local pops = EllesmereUI._popupFrames
+    local node = region
+    while node do
+        if node == mf then return true end
+        if pops then
+            for i = 1, #pops do
+                if pops[i].popup == node then return true end
+            end
+        end
+        node = node:GetParent()
+    end
+    return false
 end
 
 -- opts (optional table): { color = {r,g,b}, width = number } to override text color or force width
@@ -1668,6 +1732,17 @@ ShowWidgetTooltip = function(label, text, opts)
         tt.text:SetJustifyH("CENTER")
     end
     tt.text:SetText(EllesmereUI.L(text))
+    -- Scale must be set before anchoring: the cursor branch below divides by
+    -- the tooltip's effective scale. Reset to 1 in HideWidgetTooltip.
+    local ttScaleMult = opts and opts.scale
+    if not ttScaleMult then
+        ttScaleMult = 1
+        local us = EllesmereUIDB and EllesmereUIDB.panelScale
+        if us and us ~= 1 and label and label.GetParent and IsPanelFamilyAnchor(label) then
+            ttScaleMult = us
+        end
+    end
+    tt:SetScale(ttScaleMult)
     tt:ClearAllPoints()
     if opts and opts.anchorPoint then
         -- Custom anchor: opts.anchorPoint on tooltip -> opts.anchorTo on label
@@ -1685,8 +1760,6 @@ ShowWidgetTooltip = function(label, text, opts)
     else
         tt:SetPoint("BOTTOM", label, "TOP", 0, 4)
     end
-    -- Apply scale override (reset in HideWidgetTooltip)
-    tt:SetScale(opts and opts.scale or 1)
     -- Show at alpha 0 BEFORE measuring so WoW computes font geometry
     -- on a visible frame (GetStringHeight returns wrong values on hidden frames).
     tt:SetAlpha(0)
@@ -2296,7 +2369,7 @@ function WidgetFactory:Toggle(parent, text, yOffset, getValue, setValue, tooltip
 end
 
 -- Slider with teal fill bar
-function WidgetFactory:Slider(parent, text, yOffset, minVal, maxVal, step, getValue, setValue, tooltip)
+function WidgetFactory:Slider(parent, text, yOffset, minVal, maxVal, step, getValue, setValue, tooltip, pixel)
     local ROW_H = 50
     local frame = CreateFrame("Frame", nil, parent)
     PP.Size(frame, parent:GetWidth() - CONTENT_PAD * 2, ROW_H)
@@ -2306,7 +2379,8 @@ function WidgetFactory:Slider(parent, text, yOffset, minVal, maxVal, step, getVa
     local label = MakeFont(frame, 14, nil, TEXT_WHITE_R, TEXT_WHITE_G, TEXT_WHITE_B)
     PP.Point(label, "LEFT", frame, "LEFT", 20, 0)
     label:SetText(EllesmereUI.L(text))
-    local trackFrame, valBox = BuildSliderCore(frame, 320, 4, 14, 40, 26, 13, SL.INPUT_A, minVal, maxVal, step, getValue, setValue)
+    local scfg = PixelizeSliderCfg({ pixel = pixel, min = minVal, max = maxVal, step = step, getValue = getValue, setValue = setValue })
+    local trackFrame, valBox = BuildSliderCore(frame, 320, 4, 14, 40, 26, 13, SL.INPUT_A, scfg.min, scfg.max, scfg.step, scfg.getValue, scfg.setValue)
     PP.Point(valBox, "RIGHT", frame, "RIGHT", -20, 0)
     PP.Point(trackFrame, "RIGHT", valBox, "LEFT", -16, 0)
     AttachLabelHover(frame, label, (ClampRowLabel(label, trackFrame, "LEFT", 12, text, tooltip)))
@@ -2929,6 +3003,8 @@ local function BuildColorPickerPopup()
     local _confirmed = false
     MakeStyledButton(okBtn, "OK", 10, RB_COLOURS, function()
         RecordRecentColor(HSVtoRGB(currentH, currentS, currentV))
+        -- fire callback when "ok" is clicked, even if no color was changed as to confirm selection
+        FireCallbacks()
         _confirmed = true; popup:Hide()
     end)
 
@@ -3226,6 +3302,101 @@ local function BuildColorSwatch(parentFrame, baseLevel, getValue, setValue, hasA
     return swatch, UpdateSwatch
 end
 
+-- default/custom/class color swatch widget
+-- callers track a mode string ("default"/"custom"/"class")
+-- opts:
+--   getMode()           -> "default" | "custom" | "class"
+--   setMode(mode)       -> store the new mode
+--   getCustomRGB()      -> r, g, b of the custom color
+--   setCustomRGB(r,g,b) -> store the picked color
+--   onChange()          -> optional, called after any swatch click
+--   disabled()          -> optional, true to disable all swatches
+--   disabledAlpha       -> optional alpha while disabled (default 0.3)
+--   hasAlpha, overrideSize -> forwarded to BuildColorSwatch
+-- Returns customSwatch, defaultSwatch, classSwatch, Update.
+local DEFAULT_UNTINTED_R, DEFAULT_UNTINTED_G, DEFAULT_UNTINTED_B = 1.0, 0.788, 0.137
+local function BuildTrioColorSwatch(parentFrame, baseLevel, opts)
+    local customSwatch, updateCustom = BuildColorSwatch(parentFrame, baseLevel,
+        function()
+            local r, g, b = opts.getCustomRGB()
+            return r, g, b, 1
+        end,
+        function(r, g, b)
+            opts.setCustomRGB(r, g, b)
+            opts.setMode("custom")
+            if opts.onChange then opts.onChange() end
+        end,
+        opts.hasAlpha, opts.overrideSize)
+    customSwatch:HookScript("OnEnter", function()
+        ShowWidgetTooltip(customSwatch, "Custom Color")
+    end)
+    customSwatch:HookScript("OnLeave", function() HideWidgetTooltip() end)
+    -- House multiSwatch convention: clicking an INACTIVE custom swatch only
+    -- selects custom mode; the picker opens on a second click while custom
+    -- is already active (matches every mode-swatch row suite-wide).
+    customSwatch._eabOrigClick = customSwatch:GetScript("OnClick")
+    customSwatch:SetScript("OnClick", function(self)
+        if opts.getMode() ~= "custom" then
+            opts.setMode("custom")
+            if opts.onChange then opts.onChange() end
+            return
+        end
+        if self._eabOrigClick then self._eabOrigClick(self) end
+    end)
+
+    local defaultSwatch = BuildColorSwatch(parentFrame, baseLevel,
+        function() return DEFAULT_UNTINTED_R, DEFAULT_UNTINTED_G, DEFAULT_UNTINTED_B, 1 end,
+        function() end,
+        opts.hasAlpha, opts.overrideSize)
+    defaultSwatch:SetScript("OnClick", function()
+        opts.setMode("default")
+        if opts.onChange then opts.onChange() end
+    end)
+    defaultSwatch:SetScript("OnEnter", function()
+        ShowWidgetTooltip(defaultSwatch, "Default")
+    end)
+    defaultSwatch:SetScript("OnLeave", function() HideWidgetTooltip() end)
+
+    local classSwatch
+    if opts.hasClassColor then
+        classSwatch = BuildColorSwatch(parentFrame, baseLevel,
+            function()
+                local cc = EllesmereUI.GetClassColor(EllesmereUI._playerClass)
+                return cc.r, cc.g, cc.b, 1
+            end,
+            function() end,
+            opts.hasAlpha, opts.overrideSize)
+        classSwatch:SetScript("OnClick", function()
+            opts.setMode("class")
+            if opts.onChange then opts.onChange() end
+        end)
+        classSwatch:SetScript("OnEnter", function()
+            ShowWidgetTooltip(classSwatch, "Class Colored")
+        end)
+        classSwatch:SetScript("OnLeave", function() HideWidgetTooltip() end)
+    end
+
+    local function Update()
+        local disabled = opts.disabled and opts.disabled()
+        local mode = opts.getMode()
+        if disabled then
+            local a = opts.disabledAlpha or 0.3
+            customSwatch:SetAlpha(a)
+            defaultSwatch:SetAlpha(a)
+            if classSwatch then classSwatch:SetAlpha(a) end
+        else
+            customSwatch:SetAlpha(mode == "custom" and 1 or 0.3)
+            defaultSwatch:SetAlpha(mode == "default" and 1 or 0.3)
+            if classSwatch then classSwatch:SetAlpha(mode == "class" and 1 or 0.3) end
+        end
+        updateCustom()
+    end
+    Update()
+    RegisterWidgetRefresh(Update)
+
+    return customSwatch, defaultSwatch, classSwatch, Update
+end
+
 -- Color Picker  (swatch that opens Blizzard's ColorPickerFrame)
 function WidgetFactory:ColorPicker(parent, text, yOffset, getValue, setValue, hasAlpha)
     local ROW_H = 50
@@ -3435,8 +3606,9 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
 
         if t == "slider" then
             local defaultTrackW = isRussian and 120 or 160
+            local scfg = PixelizeSliderCfg(cfg)
             local trackFrame, valBox, _, slThumb = BuildSliderCore(region, cfg.trackWidth or defaultTrackW, 4, 14, 40, 26, 13, SL.INPUT_A,
-                cfg.min, cfg.max, cfg.step, cfg.getValue, cfg.setValue, true, cfg.snapPoints)
+                scfg.min, scfg.max, scfg.step, scfg.getValue, scfg.setValue, true, cfg.snapPoints)
             PP.Point(valBox, "RIGHT", region, "RIGHT", -SIDE_PAD, 0)
             PP.Point(trackFrame, "RIGHT", valBox, "LEFT", -12, 0)
             controlFrame = nil  -- slider handles its own disabled state; don't let generic handler disable mouse
@@ -3857,8 +4029,9 @@ function WidgetFactory:TripleRow(parent, yOffset, leftCfg, midCfg, rightCfg, spl
 
         if t == "slider" then
             local defaultTrackW = isRussian and 100 or 130
+            local scfg = PixelizeSliderCfg(cfg)
             local trackFrame, valBox, _, slThumb = BuildSliderCore(region, cfg.trackWidth or defaultTrackW, 4, 14, 40, 26, 13, SL.INPUT_A,
-                cfg.min, cfg.max, cfg.step, cfg.getValue, cfg.setValue, true, cfg.snapPoints)
+                scfg.min, scfg.max, scfg.step, scfg.getValue, scfg.setValue, true, cfg.snapPoints)
             PP.Point(valBox, "RIGHT", region, "RIGHT", -SIDE_PAD, 0)
             PP.Point(trackFrame, "RIGHT", valBox, "LEFT", -12, 0)
             RegisterWidgetRefresh(function()
@@ -4625,12 +4798,30 @@ local function BuildCogPopup(opts)
             if i > 1 then curY = curY - GAP end
 
             if row.type == "slider" then
+                local srow = PixelizeSliderCfg(row)
                 local lbl = MakeFont(pf, 11, nil, 1, 1, 1); lbl:SetAlpha(0.6)
                 lbl:SetText(EllesmereUI.L(row.label))
                 lbl:SetPoint("LEFT", pf, "TOPLEFT", SIDE_PAD, curY - ROW_H / 2 - 1)
 
+                -- Tooltip on label hover
+                if row.tooltip then
+                    local hitFrame = CreateFrame("Frame", nil, pf)
+                    hitFrame:SetPoint("TOPLEFT", lbl, "TOPLEFT", -2, 2)
+                    hitFrame:SetPoint("BOTTOMRIGHT", lbl, "BOTTOMRIGHT", 2, -2)
+                    hitFrame:SetFrameLevel(pf:GetFrameLevel() + 3)
+                    hitFrame:EnableMouse(true)
+                    hitFrame:SetScript("OnEnter", function()
+                        if EllesmereUI.ShowWidgetTooltip then
+                            EllesmereUI.ShowWidgetTooltip(lbl, row.tooltip)
+                        end
+                    end)
+                    hitFrame:SetScript("OnLeave", function()
+                        if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
+                    end)
+                end
+
                 local track, valBox, updateVisual = BuildSliderCore(pf, SLIDER_W, 4, 12, INPUT_W, ROW_H, 11, POPUP_INPUT_A,
-                    row.min, row.max, row.step, row.get, row.set, true)
+                    srow.min, srow.max, srow.step, srow.get, srow.set, true)
                 track:SetPoint("LEFT", pf, "TOPLEFT", SLIDER_LEFT, curY - ROW_H / 2)
                 valBox:ClearAllPoints()
                 valBox:SetPoint("RIGHT", pf, "TOPRIGHT", -SIDE_PAD, curY - ROW_H / 2)
@@ -4655,7 +4846,7 @@ local function BuildCogPopup(opts)
                     sliderDis:SetScript("OnLeave", function() if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end end)
                 end
 
-                rowWidgets[#rowWidgets + 1] = { type = "slider", updateVisual = updateVisual, get = row.get, disOverlay = sliderDis, disCheck = row.disabled }
+                rowWidgets[#rowWidgets + 1] = { type = "slider", updateVisual = updateVisual, get = srow.get, disOverlay = sliderDis, disCheck = row.disabled }
                 curY = curY - ROW_H
 
             elseif row.type == "toggle" then
@@ -4960,28 +5151,40 @@ local function BuildCogPopup(opts)
                 local SAVE_W = 34
                 local SAVE_GAP = 4
 
-                -- Save button (always visible, right of input)
-                local EG = ELLESMERE_GREEN
-                local saveBtn = CreateFrame("Button", nil, pf)
-                saveBtn:SetSize(SAVE_W, ROW_H - 4)
-                saveBtn:SetPoint("RIGHT", pf, "TOPRIGHT", -SIDE_PAD, curY - ROW_H / 2)
-                saveBtn:SetFrameLevel(pf:GetFrameLevel() + 3)
-                local saveBg = SolidTex(saveBtn, "BACKGROUND", EG.r, EG.g, EG.b, 0.85)
-                saveBg:SetAllPoints()
-                local saveLbl = MakeFont(saveBtn, 10, nil, 1, 1, 1)
-                saveLbl:SetAlpha(0.9)
-                saveLbl:SetText(EllesmereUI.L("Save"))
-                saveLbl:SetPoint("CENTER")
-                saveBtn:SetScript("OnEnter", function()
-                    saveBg:SetColorTexture(EG.r + (1 - EG.r) * 0.25, EG.g + (1 - EG.g) * 0.25, EG.b + (1 - EG.b) * 0.25, 0.95)
-                    saveLbl:SetAlpha(1)
-                end)
-                saveBtn:SetScript("OnLeave", function() saveBg:SetColorTexture(EG.r, EG.g, EG.b, 0.85); saveLbl:SetAlpha(0.9) end)
+                -- commitOnBlur mode: no Save button; commit on Enter and on focus
+                -- loss (matches the threshold EditBoxes). Otherwise the classic
+                -- explicit Save button.
+                local commitOnBlur = row.commitOnBlur
 
-                -- Input box (left of save button)
+                -- Save button (right of input) -- omitted in commitOnBlur mode.
+                local EG = ELLESMERE_GREEN
+                local saveBtn, saveBg, saveLbl
+                if not commitOnBlur then
+                    saveBtn = CreateFrame("Button", nil, pf)
+                    saveBtn:SetSize(SAVE_W, ROW_H - 4)
+                    saveBtn:SetPoint("RIGHT", pf, "TOPRIGHT", -SIDE_PAD, curY - ROW_H / 2)
+                    saveBtn:SetFrameLevel(pf:GetFrameLevel() + 3)
+                    saveBg = SolidTex(saveBtn, "BACKGROUND", EG.r, EG.g, EG.b, 0.85)
+                    saveBg:SetAllPoints()
+                    saveLbl = MakeFont(saveBtn, 10, nil, 1, 1, 1)
+                    saveLbl:SetAlpha(0.9)
+                    saveLbl:SetText(EllesmereUI.L("Save"))
+                    saveLbl:SetPoint("CENTER")
+                    saveBtn:SetScript("OnEnter", function()
+                        saveBg:SetColorTexture(EG.r + (1 - EG.r) * 0.25, EG.g + (1 - EG.g) * 0.25, EG.b + (1 - EG.b) * 0.25, 0.95)
+                        saveLbl:SetAlpha(1)
+                    end)
+                    saveBtn:SetScript("OnLeave", function() saveBg:SetColorTexture(EG.r, EG.g, EG.b, 0.85); saveLbl:SetAlpha(0.9) end)
+                end
+
+                -- Input box (left of save button, or flush right in commitOnBlur mode)
                 local box = CreateFrame("EditBox", nil, pf)
                 box:SetSize(inputW, ROW_H - 4)
-                box:SetPoint("RIGHT", saveBtn, "LEFT", -SAVE_GAP, 0)
+                if commitOnBlur then
+                    box:SetPoint("RIGHT", pf, "TOPRIGHT", -SIDE_PAD, curY - ROW_H / 2)
+                else
+                    box:SetPoint("RIGHT", saveBtn, "LEFT", -SAVE_GAP, 0)
+                end
                 box:SetAutoFocus(false)
                 box:SetFont(EXPRESSWAY or "Fonts\\FRIZQT__.TTF", 11, "")
                 box:SetTextColor(1, 1, 1, POPUP_INPUT_A)
@@ -4990,25 +5193,40 @@ local function BuildCogPopup(opts)
                 boxBg:SetAllPoints()
                 box:SetText(row.get and row.get() or "")
 
+                local _committing = false  -- guard ClearFocus -> OnEditFocusLost reentry
                 local function ApplyInput()
+                    if _committing then return end
+                    _committing = true
                     box:ClearFocus()
                     if row.set then row.set(box:GetText()) end
                     if pf._refresh then pf._refresh() end
                     -- Brief white flash on save button as confirmation
-                    saveBg:SetColorTexture(1, 1, 1, 0.9)
-                    saveLbl:SetText(EllesmereUI.L("Saved"))
-                    C_Timer.After(0.4, function()
-                        saveBg:SetColorTexture(EG.r, EG.g, EG.b, 0.85)
-                        saveLbl:SetText(EllesmereUI.L("Save"))
-                    end)
+                    if saveBg then
+                        saveBg:SetColorTexture(1, 1, 1, 0.9)
+                        saveLbl:SetText(EllesmereUI.L("Saved"))
+                        C_Timer.After(0.4, function()
+                            saveBg:SetColorTexture(EG.r, EG.g, EG.b, 0.85)
+                            saveLbl:SetText(EllesmereUI.L("Save"))
+                        end)
+                    end
+                    _committing = false
                 end
 
                 box:SetScript("OnEnterPressed", function(self) ApplyInput() end)
                 box:SetScript("OnEscapePressed", function(self)
-                    self:ClearFocus()
+                    -- Cancel: guard + restore BEFORE ClearFocus -- in
+                    -- commitOnBlur mode ClearFocus fires OnEditFocusLost,
+                    -- which would otherwise SAVE the discarded text.
+                    _committing = true
                     self:SetText(row.get and row.get() or "")
+                    self:ClearFocus()
+                    _committing = false
                 end)
-                saveBtn:SetScript("OnClick", function() ApplyInput() end)
+                if commitOnBlur then
+                    box:SetScript("OnEditFocusLost", function() ApplyInput() end)
+                else
+                    saveBtn:SetScript("OnClick", function() ApplyInput() end)
+                end
 
                 -- Disabled overlay for input
                 local inputDis
@@ -6573,9 +6791,279 @@ local function BuildInlineToggle(opts)
     return toggle
 end
 
+-------------------------------------------------------------------------------
+--  Less-Common Settings Expander
+--
+--  Centralized collapse link for rarely-customized option rows. Page builders
+--  wrap those rows in:
+--
+--      local expanded
+--      expanded, y = EllesmereUI.BuildLessCommonExpander(parent, y,
+--          "rfIndicators", "Show Less Common Indicator Options")
+--      if expanded then
+--          ... build the less-common rows ...
+--      end
+--      y = EllesmereUI.FinishLessCommonExpander(parent, y,
+--          "rfIndicators", "Show Less Common Indicator Options")
+--
+--  Expansion is session-only per sectionKey (never saved). The global "Auto
+--  Expand Less Common Settings" toggle (EllesmereUIDB.autoExpandLessCommon,
+--  Global Settings -> General -> Display) renders everything expanded and
+--  suppresses the links entirely. Clicking the link must re-run the page
+--  builder, so it forces RefreshPage(true) -- the no-arg fast path only
+--  re-reads values and would never reveal the collapsed rows.
+-------------------------------------------------------------------------------
+local LESS_COMMON_ARROW_DOWN = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-down3.png"
+local LESS_COMMON_ARROW_UP   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-up3.png"
+
+-- Shared link renderer for both expander states. The link always sits at the
+-- BOTTOM of its section: collapsed it renders where the hidden rows would
+-- start (via BuildLessCommonExpander), expanded it renders below the revealed
+-- rows (via FinishLessCommonExpander). Expanded state flips it into the
+-- collapse form: up arrows and a "Hide ..." label -- the Hide key is derived
+-- from the ENGLISH label before localization so both variants are proper L()
+-- lookup keys.
+local function BuildLessCommonLink(parent, y, sectionKey, label, expanded)
+    local ARROW_SZ, ARROW_GAP = 12, 6
+    local btn = CreateFrame("Button", nil, parent)
+    btn:SetHeight(22)
+    btn:SetPoint("TOP", parent, "TOP", 0, y - 12)
+    btn:SetFrameLevel(parent:GetFrameLevel() + 5)
+    btn:RegisterForClicks("LeftButtonUp", "MiddleButtonUp")
+
+    local arrowTex = expanded and LESS_COMMON_ARROW_UP or LESS_COMMON_ARROW_DOWN
+    local text = expanded and (label:gsub("^Show", "Hide", 1)) or label
+
+    local fs = EllesmereUI.MakeFont(btn, 13, nil, 1, 1, 1)
+    fs:SetPoint("LEFT", btn, "LEFT", ARROW_SZ + ARROW_GAP, 0)
+    fs:SetText(EllesmereUI.L(text))
+    fs:SetAlpha(0.7)
+
+    local leftArrow = btn:CreateTexture(nil, "OVERLAY")
+    leftArrow:SetSize(ARROW_SZ, ARROW_SZ)
+    leftArrow:SetTexture(arrowTex)
+    leftArrow:SetPoint("RIGHT", fs, "LEFT", -ARROW_GAP, 0)
+    leftArrow:SetAlpha(0.7)
+
+    local rightArrow = btn:CreateTexture(nil, "OVERLAY")
+    rightArrow:SetSize(ARROW_SZ, ARROW_SZ)
+    rightArrow:SetTexture(arrowTex)
+    rightArrow:SetPoint("LEFT", fs, "RIGHT", ARROW_GAP, 0)
+    rightArrow:SetAlpha(0.7)
+
+    btn:SetWidth(math.max((fs:GetStringWidth() or 0) + 2 * (ARROW_SZ + ARROW_GAP) + 8, 120))
+
+    local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
+    btn:SetScript("OnEnter", function(self)
+        fs:SetTextColor(EG.r, EG.g, EG.b); fs:SetAlpha(1)
+        leftArrow:SetVertexColor(EG.r, EG.g, EG.b); leftArrow:SetAlpha(1)
+        rightArrow:SetVertexColor(EG.r, EG.g, EG.b); rightArrow:SetAlpha(1)
+        ShowWidgetTooltip(self, "Shift+Middle Click to always show all settings")
+    end)
+    btn:SetScript("OnLeave", function()
+        fs:SetTextColor(1, 1, 1); fs:SetAlpha(0.7)
+        leftArrow:SetVertexColor(1, 1, 1); leftArrow:SetAlpha(0.7)
+        rightArrow:SetVertexColor(1, 1, 1); rightArrow:SetAlpha(0.7)
+        HideWidgetTooltip()
+    end)
+    btn:SetScript("OnClick", function(_, button)
+        if button == "MiddleButton" then
+            -- Shift+Middle Click = enable the global Auto Expand Less Common
+            -- Settings toggle (Global Settings -> General -> Display). Cached
+            -- pages were built collapsed, so drop them all before rebuilding.
+            if not IsShiftKeyDown() then return end
+            if not EllesmereUIDB then EllesmereUIDB = {} end
+            EllesmereUIDB.autoExpandLessCommon = true
+            HideWidgetTooltip()
+            EllesmereUI:InvalidatePageCache()
+            EllesmereUI:RefreshPage(true)
+            return
+        end
+        local sess = EllesmereUI._lessCommonExpanded
+        if not sess then sess = {}; EllesmereUI._lessCommonExpanded = sess end
+        sess[sectionKey] = (not expanded) and true or nil
+        EllesmereUI:RefreshPage(true)
+    end)
+
+    return y - 40
+end
+
+local function BuildLessCommonExpander(parent, y, sectionKey, label)
+    -- Hidden search pre-build: always build the wrapped rows so they register
+    -- in the global search index; no link (the page is never shown).
+    if EllesmereUI._prebuilding then return true, y end
+    if EllesmereUIDB and EllesmereUIDB.autoExpandLessCommon then return true, y end
+    -- Active search (either box): sections render force-expanded with NO link
+    -- line at all; clearing the search collapses them back. Transient flag --
+    -- the session Show/Hide state below is untouched and restores afterwards
+    -- (see SetLessCommonSearchActive).
+    if EllesmereUI._lessCommonSearchActive then return true, y end
+    local sess = EllesmereUI._lessCommonExpanded
+    if not sess then sess = {}; EllesmereUI._lessCommonExpanded = sess end
+    -- Expanded: render nothing here -- the caller builds the rows, then
+    -- FinishLessCommonExpander places the "Hide ..." link below them.
+    if sess[sectionKey] then return true, y end
+    return false, BuildLessCommonLink(parent, y, sectionKey, label, false)
+end
+
+-- Call after the wrapped rows (safe to call unconditionally: no-ops while the
+-- section is collapsed, during the search pre-build, during an active search,
+-- or when the global auto-expand toggle is on).
+local function FinishLessCommonExpander(parent, y, sectionKey, label)
+    if EllesmereUI._prebuilding then return y end
+    if EllesmereUIDB and EllesmereUIDB.autoExpandLessCommon then return y end
+    if EllesmereUI._lessCommonSearchActive then return y end
+    local sess = EllesmereUI._lessCommonExpanded
+    if not (sess and sess[sectionKey]) then return y end
+    return BuildLessCommonLink(parent, y, sectionKey, label, true)
+end
+
+-- Search-driven expansion (both the sidebar global box and the top-bar module
+-- box call this with query ~= ""). While active, every less-common section
+-- renders expanded with no link; on clear, sections fall back to their
+-- session Show/Hide state. Idempotent -- only transitions rebuild. Cached
+-- pages were built under the old state, so transitions drop every cache and
+-- rebuild the active page in place.
+local function SetLessCommonSearchActive(active)
+    active = active and true or false
+    if (EllesmereUI._lessCommonSearchActive or false) == active then return end
+    EllesmereUI._lessCommonSearchActive = active
+    -- With the global auto-expand toggle on, links never render and sections
+    -- are always expanded: track the flag but skip the rebuild churn.
+    if EllesmereUIDB and EllesmereUIDB.autoExpandLessCommon then return end
+    EllesmereUI:InvalidatePageCache()
+    EllesmereUI:RefreshPage(true)
+end
+
+-------------------------------------------------------------------------------
+--  BuildInlineSwatches(region, swatches, opts)
+--
+--  Inline form of the multiSwatch half: builds the same swatch list (tooltip,
+--  hasAlpha, getValue/setValue, onClick override, per-swatch disabled +
+--  disabledTooltip, refreshAlpha) to the LEFT of the region's control, so a
+--  slider (or any control half) can host its color swatches on the same row.
+--  Chains region._lastInline, so a cog button built afterwards lands left of
+--  the swatches. opts.disabled/opts.disabledTooltip mirror the row-level
+--  disabled state of the multiSwatch form.
+-------------------------------------------------------------------------------
+local function BuildInlineSwatches(region, swatches, opts)
+    opts = opts or {}
+    local level = region:GetFrameLevel() + 3
+    local anchorTo = region._lastInline or region._control
+    for i = #swatches, 1, -1 do
+        local sc = swatches[i]
+        local swatch, updateSwatch = BuildColorSwatch(region, level, sc.getValue, sc.setValue, sc.hasAlpha)
+        PP.Point(swatch, "RIGHT", anchorTo, "LEFT", -8, 0)
+        anchorTo = swatch
+        region._lastInline = swatch
+        if sc.onClick then
+            swatch._eabOrigClick = swatch:GetScript("OnClick")
+            swatch:SetScript("OnClick", sc.onClick)
+        end
+        local function SwatchEffectiveDisabled()
+            if opts.disabled and opts.disabled() then return true end
+            if sc.disabled ~= nil then
+                if type(sc.disabled) == "function" then return sc.disabled() end
+                return sc.disabled
+            end
+            return false
+        end
+        if opts.disabled or sc.disabled then
+            local swatchBlock = CreateFrame("Frame", nil, swatch)
+            swatchBlock:SetAllPoints()
+            swatchBlock:SetFrameLevel(swatch:GetFrameLevel() + 10)
+            swatchBlock:EnableMouse(true)
+            swatchBlock:SetScript("OnEnter", function()
+                local src = (sc.disabledTooltip ~= nil) and sc or opts
+                local tip = ResolveDisabledTip(src)
+                if tip then ShowWidgetTooltip(swatch, tip) end
+            end)
+            swatchBlock:SetScript("OnLeave", function() HideWidgetTooltip() end)
+            local function UpdateSwatchDisabled()
+                if SwatchEffectiveDisabled() then
+                    swatch:SetAlpha(0.3)
+                    swatchBlock:Show()
+                else
+                    swatch:SetAlpha(1)
+                    swatchBlock:Hide()
+                end
+            end
+            UpdateSwatchDisabled()
+            RegisterWidgetRefresh(UpdateSwatchDisabled)
+        end
+        if sc.tooltip then
+            swatch:HookScript("OnEnter", function() ShowWidgetTooltip(swatch, sc.tooltip) end)
+            swatch:HookScript("OnLeave", function() HideWidgetTooltip() end)
+        end
+        if sc.refreshAlpha then
+            local _sw, _ra = swatch, sc.refreshAlpha
+            local function UpdateAlpha()
+                if SwatchEffectiveDisabled() then return end
+                _sw:SetAlpha(_ra())
+            end
+            UpdateAlpha()
+            RegisterWidgetRefresh(UpdateAlpha)
+        end
+        RegisterWidgetRefresh(function() updateSwatch() end)
+    end
+end
+EllesmereUI.BuildInlineSwatches = BuildInlineSwatches
+
+-------------------------------------------------------------------------------
+--  Hidden-While-Disabled Section Gate
+--
+--  For sections whose master toggle HIDES the dependent rows instead of
+--  graying them: the page builder simply skips building those rows while the
+--  toggle is off, and the toggle's setValue is wrapped with this so flipping
+--  it re-runs the page builder to reveal/hide them:
+--
+--      { type="toggle", text="Enable Top Name Bar",
+--        getValue=...,
+--        setValue=EllesmereUI.SectionToggleSetValue(function(v)
+--            SSet("tnbEnabled", v); ApplyAll()
+--        end) }
+-------------------------------------------------------------------------------
+local function SectionToggleSetValue(fn)
+    return function(v)
+        fn(v)
+        EllesmereUI:RefreshPage(true)
+    end
+end
+
+-------------------------------------------------------------------------------
+--  Dependent-Row Visibility
+--
+--  Row-level version of the section gate: one setting's value hides entire
+--  dependent rows instead of graying them. The builder skips the dependent
+--  rows behind a plain predicate check, and the TRIGGER setting's setValue is
+--  wrapped with this so the page rebuilds only when the predicate actually
+--  flips -- ordinary value changes keep whatever refresh the inner setValue
+--  already does, with no rebuild flash:
+--
+--      -- trigger dropdown:
+--      setValue = EllesmereUI.DependentSetValue(
+--          function() return SVal("healAbsorbTextMode", "none") ~= "none" end,
+--          function(v) SSet("healAbsorbTextMode", v); EllesmereUI:RefreshPage() end),
+--
+--      -- dependent row below (skip building while hidden):
+--      if SVal("healAbsorbTextMode", "none") ~= "none" then
+--          ... build the dependent row(s) ...
+--      end
+-------------------------------------------------------------------------------
+local function DependentSetValue(pred, fn)
+    return function(v)
+        local before = pred() and true or false
+        fn(v)
+        if (pred() and true or false) ~= before then
+            EllesmereUI:RefreshPage(true)
+        end
+    end
+end
+
 EllesmereUI.BuildSliderCore     = BuildSliderCore
 EllesmereUI.BuildDropdownControl = BuildDropdownControl
 EllesmereUI.BuildColorSwatch    = BuildColorSwatch
+EllesmereUI.BuildTrioColorSwatch = BuildTrioColorSwatch
 EllesmereUI.BuildToggleControl   = BuildToggleControl
 EllesmereUI.BuildInlineToggle    = BuildInlineToggle
 EllesmereUI.BuildCheckboxControl = BuildCheckboxControl
@@ -6586,6 +7074,11 @@ EllesmereUI.ShowWidgetTooltip   = ShowWidgetTooltip
 EllesmereUI.HideWidgetTooltip   = HideWidgetTooltip
 EllesmereUI.DisabledTooltip     = DisabledTooltip
 EllesmereUI.BuildSegmentedControl = BuildSegmentedControl
+EllesmereUI.BuildLessCommonExpander   = BuildLessCommonExpander
+EllesmereUI.FinishLessCommonExpander  = FinishLessCommonExpander
+EllesmereUI.SetLessCommonSearchActive = SetLessCommonSearchActive
+EllesmereUI.SectionToggleSetValue     = SectionToggleSetValue
+EllesmereUI.DependentSetValue         = DependentSetValue
 
 -------------------------------------------------------------------------------
 --  ShowContextMenu(anchor, items)
@@ -6790,7 +7283,7 @@ local function BuildCursorAnchorRow(opts)
               if opts.disabledFn and opts.disabledFn() then return true end
               return getData().anchorTo ~= "mouse"
           end,
-          disabledTooltip = DisabledTooltip("Anchor to Cursor"),
+          disabledTooltip = "Anchor to Cursor",
           getValue = function() return getData().anchorPosition or "right" end,
           setValue = function(v)
               getData().anchorPosition = v
@@ -6870,6 +7363,14 @@ end  -- end deferred init
 -------------------------------------------------------------------------------
 function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, getFn, setFn, onChanged, maxVisibleItems, searchable, closeButton, onMenuClosed)
     local PP = EllesmereUI.PP or EllesmereUI.PanelPP
+    -- Opt-in dynamic items: pass a FUNCTION returning the items array and
+    -- it re-evaluates on every menu OPEN (the menu rebuilds), so lists
+    -- that depend on other settings never go stale. A table stays static.
+    local itemsFn
+    if type(items) == "function" then
+        itemsFn = items
+        items = itemsFn() or {}
+    end
     local ddBtn = CreateFrame("Button", nil, parentFrame)
     PP.Size(ddBtn, ddW, 30)
     ddBtn:SetFrameLevel(fLevel)
@@ -6893,7 +7394,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
         local names = {}
         local total = 0
         for _, item in ipairs(items) do
-            if not item.isHeader then
+            if not item.isHeader and not item.isTopAction then
                 total = total + 1
                 if getFn(item.key) then names[#names + 1] = EllesmereUI.L(item.label) end
             end
@@ -6911,10 +7412,21 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
         if menu then return end
         local ITEM_H = 28
         local HDR_H = 22
+        -- Opt-in top-action rows (item.isTopAction with label + onClick):
+        -- accent clickable entries pinned ABOVE the search box with a
+        -- divider under the group -- the "Custom Spell ID at the top"
+        -- pattern from the CDM spell pickers. Excluded from the scroll
+        -- list, the checkable count, and the summary label.
+        local topActions = {}
+        for _, item in ipairs(items) do
+            if item.isTopAction then topActions[#topActions + 1] = item end
+        end
+        local TOP_H = (#topActions > 0) and (#topActions * ITEM_H + 7) or 0
         local checkableCount = 0
         local contentH = 8
         for _, item in ipairs(items) do
-            if item.isHeader then contentH = contentH + HDR_H
+            if item.isTopAction then -- rendered above the search box
+            elseif item.isHeader then contentH = contentH + HDR_H
             else contentH = contentH + ITEM_H; checkableCount = checkableCount + 1 end
         end
         local SEARCH_H = searchable and 26 or 0
@@ -6922,7 +7434,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
         contentH = contentH + CLOSE_BTN_H
         local needsScroll = maxVisibleItems and checkableCount > maxVisibleItems
         -- +2 accounts for scroll frame 1px top + 1px bottom insets so non-scrolling menus don't scroll
-        local menuH = (needsScroll and (4 + maxVisibleItems * ITEM_H + 4 + CLOSE_BTN_H) or (contentH + 4)) + SEARCH_H
+        local menuH = (needsScroll and (4 + maxVisibleItems * ITEM_H + 4 + CLOSE_BTN_H) or (contentH + 4)) + SEARCH_H + TOP_H
         menu = CreateFrame("Frame", nil, UIParent)
         menu:SetFrameStrata("FULLSCREEN_DIALOG")
         menu:SetFrameLevel(200)
@@ -6938,12 +7450,49 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
         local ppScale = EllesmereUI.GetPopupScale and EllesmereUI.GetPopupScale() or 1
         menu:SetScale(ppScale)
 
+        -- Top-action rows above the search box, divider under the group.
+        if #topActions > 0 then
+            local ay = -4
+            for i = 1, #topActions do
+                local item = topActions[i]
+                local row = CreateFrame("Button", nil, menu)
+                row:SetHeight(ITEM_H)
+                row:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, ay)
+                row:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -1, ay)
+                row:SetFrameLevel(menu:GetFrameLevel() + 2)
+                local lbl = row:CreateFontString(nil, "OVERLAY")
+                lbl:SetFont(fontPath, 13, "")
+                lbl:SetTextColor(EllesmereUI.ELLESMERE_GREEN.r, EllesmereUI.ELLESMERE_GREEN.g, EllesmereUI.ELLESMERE_GREEN.b, 0.8)
+                lbl:SetPoint("LEFT", row, "LEFT", 10, 0)
+                lbl:SetPoint("RIGHT", row, "RIGHT", -10, 0)
+                lbl:SetJustifyH("LEFT")
+                lbl:SetWordWrap(false)
+                lbl:SetMaxLines(1)
+                lbl:SetText(EllesmereUI.L(item.label))
+                local hl = row:CreateTexture(nil, "ARTWORK")
+                hl:SetAllPoints()
+                hl:SetColorTexture(1, 1, 1, 0)
+                row:SetScript("OnEnter", function() hl:SetColorTexture(1, 1, 1, 0.06) end)
+                row:SetScript("OnLeave", function() hl:SetColorTexture(1, 1, 1, 0) end)
+                row:SetScript("OnClick", function()
+                    menu:Hide()
+                    if item.onClick then item.onClick() end
+                end)
+                ay = ay - ITEM_H
+            end
+            local divider = menu:CreateTexture(nil, "ARTWORK")
+            divider:SetHeight(1)
+            divider:SetPoint("TOPLEFT", menu, "TOPLEFT", 10, ay - 3)
+            divider:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -10, ay - 3)
+            divider:SetColorTexture(0.3, 0.3, 0.3, 0.5)
+        end
+
         -- Search box (optional)
         local searchEdit, searchPlaceholder
         if searchable then
             searchEdit = CreateFrame("EditBox", nil, menu)
             searchEdit:SetSize(ddW - 16, SEARCH_H)
-            searchEdit:SetPoint("TOP", menu, "TOP", 0, -4)
+            searchEdit:SetPoint("TOP", menu, "TOP", 0, -4 - TOP_H)
             searchEdit:SetFrameLevel(menu:GetFrameLevel() + 3)
             searchEdit:SetFont(fontPath, 11, "")
             searchEdit:SetTextColor(1, 1, 1, 0.9)
@@ -6964,7 +7513,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
 
         -- Scroll frame for items
         local sf = CreateFrame("ScrollFrame", nil, menu)
-        local sfTop = -(SEARCH_H > 0 and (SEARCH_H + 8) or 1)
+        local sfTop = -((SEARCH_H > 0 and (SEARCH_H + 8) or 1) + TOP_H)
         sf:SetPoint("TOPLEFT", 1, sfTop)
         sf:SetPoint("BOTTOMRIGHT", -1, 1)
         sf:EnableMouseWheel(true)
@@ -7051,8 +7600,10 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
         local yOff = -4
         local _allRows = {}  -- { frame, isHeader, label(string), height }
         for _, item in ipairs(items) do
+            -- Top-action items render above the search box, never here.
+            if item.isTopAction then -- luacheck: ignore (intentional empty)
             -- Header/divider items: non-interactive label
-            if item.isHeader then
+            elseif item.isHeader then
                 local hdrH = 22
                 local hdr = CreateFrame("Frame", nil, itemParent)
                 hdr:SetHeight(hdrH)
@@ -7139,24 +7690,35 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
             row:SetPoint("TOPLEFT", child, "TOPLEFT", 1, yOff)
             row:SetPoint("TOPRIGHT", child, "TOPRIGHT", -1, yOff)
             row:SetFrameLevel(menu:GetFrameLevel() + 2)
-            local box = CreateFrame("Frame", nil, row)
-            box:SetSize(16, 16)
-            box:SetPoint("LEFT", row, "LEFT", 10, 0)
-            local boxBg = box:CreateTexture(nil, "BACKGROUND")
-            boxBg:SetAllPoints()
-            boxBg:SetColorTexture(0.12, 0.12, 0.14, 1)
-            local boxBrd = EllesmereUI.MakeBorder(box, 0.4, 0.4, 0.4, 0.6, PP)
-            local chk = box:CreateTexture(nil, "ARTWORK")
-            PP.SetInside(chk, box, 2, 2)
-            chk:SetColorTexture(EllesmereUI.ELLESMERE_GREEN.r, EllesmereUI.ELLESMERE_GREEN.g, EllesmereUI.ELLESMERE_GREEN.b, 1)
-            chk:SetSnapToPixelGrid(false)
+            -- Opt-in plain rows (item.noCheck): the identical row minus the
+            -- checkbox -- the regular-dropdown look for select-style pickers.
+            -- Click still routes setFn(key, not getFn(key)), so a picker
+            -- whose getFn is constant-false always selects with true.
+            local box, boxBrd, chk
+            if not item.noCheck then
+                box = CreateFrame("Frame", nil, row)
+                box:SetSize(16, 16)
+                box:SetPoint("LEFT", row, "LEFT", 10, 0)
+                local boxBg = box:CreateTexture(nil, "BACKGROUND")
+                boxBg:SetAllPoints()
+                boxBg:SetColorTexture(0.12, 0.12, 0.14, 1)
+                boxBrd = EllesmereUI.MakeBorder(box, 0.4, 0.4, 0.4, 0.6, PP)
+                chk = box:CreateTexture(nil, "ARTWORK")
+                PP.SetInside(chk, box, 2, 2)
+                chk:SetColorTexture(EllesmereUI.ELLESMERE_GREEN.r, EllesmereUI.ELLESMERE_GREEN.g, EllesmereUI.ELLESMERE_GREEN.b, 1)
+                chk:SetSnapToPixelGrid(false)
+            end
             -- Optional icon (spell icon etc.) between checkbox and label
             local lblAnchor = box
             if item.icon then
                 local icoSz = item.iconSize or (ITEM_H - 6)
                 local ico = row:CreateTexture(nil, "ARTWORK")
                 ico:SetSize(icoSz, icoSz)
-                ico:SetPoint("LEFT", box, "RIGHT", 6, 0)
+                if box then
+                    ico:SetPoint("LEFT", box, "RIGHT", 6, 0)
+                else
+                    ico:SetPoint("LEFT", row, "LEFT", 10, 0)
+                end
                 ico:SetTexture(item.icon)
                 ico:SetTexCoord(0.08, 0.92, 0.08, 0.92)
                 lblAnchor = ico
@@ -7164,7 +7726,11 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
             local lbl = row:CreateFontString(nil, "OVERLAY")
             lbl:SetFont(fontPath, 13, "")
             lbl:SetTextColor(0.75, 0.75, 0.75, 1)
-            lbl:SetPoint("LEFT", lblAnchor, "RIGHT", item.icon and 6 or 8, 0)
+            if lblAnchor then
+                lbl:SetPoint("LEFT", lblAnchor, "RIGHT", item.icon and 6 or 8, 0)
+            else
+                lbl:SetPoint("LEFT", row, "LEFT", 10, 0)
+            end
             lbl:SetPoint("RIGHT", row, "RIGHT", -10, 0)
             lbl:SetJustifyH("LEFT")
             lbl:SetWordWrap(false)
@@ -7174,6 +7740,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
             hl:SetAllPoints()
             hl:SetColorTexture(1, 1, 1, 0)
             local function UpdateCheck()
+                if not chk then return end -- noCheck rows have no box to paint
                 if getFn(item.key) then
                     chk:Show()
                     boxBrd:SetColor(EllesmereUI.ELLESMERE_GREEN.r, EllesmereUI.ELLESMERE_GREEN.g, EllesmereUI.ELLESMERE_GREEN.b, 0.8)
@@ -7381,6 +7948,18 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
     end)
 
     local function ShowMenu()
+        -- Dynamic items: re-evaluate and rebuild the menu on every open
+        -- (only when about to show -- a toggle-close never rebuilds).
+        if itemsFn and not (menu and menu:IsShown()) then
+            items = itemsFn() or {}
+            if menu then
+                menu:Hide()
+                menu:SetParent(nil)
+                menu = nil
+                ddBtn._ddMenu = nil
+            end
+            UpdateLabel()
+        end
         EnsureMenu()
         if menu:IsShown() then
             menu:Hide()

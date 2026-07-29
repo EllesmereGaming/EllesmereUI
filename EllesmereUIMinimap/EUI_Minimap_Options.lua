@@ -763,7 +763,7 @@ initFrame:SetScript("OnEvent", function(self)
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Button Row Settings",
                 rows = {
-                    { type = "slider", label = "Icon Spacing", min = -20, max = 40, step = 1,
+                    { type = "slider", pixel = true, label = "Icon Spacing", min = -20, max = 40, step = 1,
                       get = function() local m = MinimapDB(); return m and m.btnRowSpacing or 0 end,
                       set = function(v)
                           local m = MinimapDB(); if not m then return end
@@ -1037,7 +1037,7 @@ initFrame:SetScript("OnEvent", function(self)
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Element Row Spacing",
                 rows = {
-                    { type = "slider", label = "Icon Spacing", min = -20, max = 40, step = 1,
+                    { type = "slider", pixel = true, label = "Icon Spacing", min = -20, max = 40, step = 1,
                       get = function() local m = MinimapDB(); return m and m.elementRowSpacing or 0 end,
                       set = function(v)
                           local m = MinimapDB(); if not m then return end

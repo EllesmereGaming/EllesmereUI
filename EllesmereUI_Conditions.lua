@@ -9,10 +9,14 @@
 --  Resolution ladder (user-approved):
 --    1. keybind  -- any group whose keybind toggle is ON (creation order
 --                   breaks ties). Explicit user action outranks ambient state.
---    2. instance -- dungeon / raid / arena / battleground. Naturally mutually
+--    2. darkmode -- the MAIN Dark Mode master reads on (UF+RF; the Class
+--                   Resource Bar master is a separate toggle and excluded).
+--                   Location-independent, so it applies inside AND outside
+--                   instances; below keybind (explicit action still wins).
+--    3. instance -- dungeon / raid / arena / battleground. Naturally mutually
 --                   exclusive (the client reports one instance type). First
 --                   group in creation order that checks the current type.
---    3. solo     -- not in any group. Lowest priority.
+--    4. solo     -- not in any group. Lowest priority.
 --  Exactly one conditional group is active at a time, or none.
 --
 --  Condition flips NEVER happen in combat: flips are recomputed fresh at
@@ -26,8 +30,26 @@ local L = function(s) return EllesmereUI.L and EllesmereUI.L(s) or s end
 --  Condition definitions (ordered display list for the picker UI).
 --  comingSoon entries render disabled in the picker and never match.
 -------------------------------------------------------------------------------
+-- The Dark Mode condition tracks the MAIN "Dark Mode" master checkbox in
+-- Fonts & Colors (Unit Frames + Raid Frames), NOT the separate "Dark Mode
+-- (Class Resource Bar)" master: users commonly dark one without the other,
+-- and the checkbox users read as "Dark Mode" is the main one. This filter
+-- mirrors that checkbox's own read (_dmNotRB in EUI__General_Options.lua).
+local function _dmMainFilter(p) return p.id ~= "resourceBars" end
+local function DarkModeMasterOn()
+    return (EllesmereUI.IsDarkModeAllOn and EllesmereUI.IsDarkModeAllOn(_dmMainFilter)) or false
+end
+
 EllesmereUI.CONDITIONS = {
     { id = "keybind",      label = "Keybind (out of combat)" },
+    -- requires: pickable in the condition picker only while it returns true
+    -- (newly checking is refused and the row renders dimmed with the hint;
+    -- UNchecking is always allowed so an existing group can never be
+    -- trapped). Same predicate the resolver reads, so the picker never
+    -- offers a condition that cannot currently hold.
+    { id = "darkmode",     label = "Dark Mode",
+      requires = DarkModeMasterOn,
+      requiresHint = "Enable Dark Mode (Global Settings, Fonts & Colors) to use this condition" },
     { id = "dungeon",      label = "Dungeon" },
     { id = "raid",         label = "Raid" },
     { id = "arena",        label = "Arena" },
@@ -107,7 +129,15 @@ function EllesmereUI.Conditions_ActiveGroup()
     for _, g in ipairs(groups) do
         if g.conds and g.conds.keybind and g.keyOn then return g end
     end
-    -- Tier 2: instance type (client reports exactly one).
+    -- Tier 2: the MAIN Dark Mode master (UF+RF; the Class Resource Bar
+    -- master is deliberately excluded -- see DarkModeMasterOn above).
+    -- Location-independent, so it is checked BEFORE the instance early-outs.
+    if DarkModeMasterOn() then
+        for _, g in ipairs(groups) do
+            if g.conds and g.conds.darkmode then return g end
+        end
+    end
+    -- Tier 3: instance type (client reports exactly one).
     local _, instanceType = IsInInstance()
     local cond = instanceType and INSTANCE_COND[instanceType]
     if cond then
@@ -116,7 +146,7 @@ function EllesmereUI.Conditions_ActiveGroup()
         end
         return nil  -- in an instance: solo never applies
     end
-    -- Tier 3: solo.
+    -- Tier 4: solo.
     if not IsInGroup() then
         for _, g in ipairs(groups) do
             if g.conds and g.conds.solo then return g end
@@ -223,6 +253,35 @@ function EllesmereUI.Conditions_Recheck()
     -- success -- the next signal then converges values and pointer.
     local est = _establish
     _establish = false
+    -- The options panel's Default Editing Mode is not a reason to defer, only
+    -- one to step out of: the Dark Mode condition's inputs are all options
+    -- widgets, so its flips are ALWAYS raised with that view up, and a
+    -- deferred flip left the outgoing conditional applied (and reporting
+    -- itself applied) until an unrelated event or a /reload -- silently
+    -- filing the user's baseline edits into the override's maps in between.
+    -- Establish transitions never harvest, so they run in place; only real
+    -- flips need the roundtrip.
+    local resumeView = false
+    if not est and EllesmereUI.SpecOverrides_SuspendDefaultView then
+        resumeView = EllesmereUI.SpecOverrides_SuspendDefaultView()
+    end
+    if resumeView then
+        -- Leaving the view restores the spec's values and runs the touched
+        -- modules' refreshers, and an unmapped module falls back to a full
+        -- RefreshAllAddons -- whose tail re-enters this resolver and can
+        -- converge the flip on its own. Re-read both ends so the handler
+        -- never harvests live against an outgoing group it no longer holds.
+        g = EllesmereUI.Conditions_ActiveGroup()
+        gid = g and g.id or nil
+        applied = EllesmereUI.Conditions_AppliedGid()
+        if gid == applied then
+            _appliedGid = applied
+            if EllesmereUI.SpecOverrides_ResumeDefaultView then
+                EllesmereUI.SpecOverrides_ResumeDefaultView()
+            end
+            return
+        end
+    end
     if handler(applied, gid, est) then
         _appliedGid = gid
         PersistAppliedGid(gid)
@@ -231,6 +290,11 @@ function EllesmereUI.Conditions_Recheck()
         -- the request and retry on the next signal.
         _establish = est or _establish
         _flipPending = true
+    end
+    -- Strictly AFTER the pointer advances: re-entering the view harvests
+    -- through HarvestCurrent, which banks against the APPLIED gid.
+    if resumeView and EllesmereUI.SpecOverrides_ResumeDefaultView then
+        EllesmereUI.SpecOverrides_ResumeDefaultView()
     end
 end
 

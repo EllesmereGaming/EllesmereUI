@@ -4201,10 +4201,25 @@ local function ApplyMinimap()
         local host = GetFFD(minimap).borderHost
         if not host then
             host = CreateFrame("Frame", nil, minimap)
-            host:SetAllPoints(minimap)
             host:EnableMouse(false)
             GetFFD(minimap).borderHost = host
         end
+        -- Re-anchor on EVERY apply, not just on the create branch. This pass
+        -- queues the Minimap's reparent to UIParent a frame out (see above),
+        -- and a host anchored across that reparent keeps its stored points
+        -- while the engine never resolves them: GetPoint still reports
+        -- TOPLEFT/BOTTOMRIGHT against a valid Minimap, but the host comes out
+        -- 0x0 with IsRectValid false, so it -- and the backdrop anchored to
+        -- it -- draws nothing. Every other property (shown, visible, alpha,
+        -- parent, backdrop table, texture path) reads healthy in that state,
+        -- which is why it presented as a border setting that would not survive
+        -- a reload even though the stored value was never lost. Anchoring only
+        -- at creation made it permanent for the session, and whether it
+        -- happened came down to how much else was loading at login -- so it
+        -- tracked unrelated modules being enabled. Re-setting the points
+        -- forces the layout to recompute and is a no-op when they are fine.
+        host:ClearAllPoints()
+        host:SetAllPoints(minimap)
         -- Same level as the minimap keeps the border under all child buttons
         -- (matching the old strips-on-minimap rendering); Show Behind drops it
         -- under the map surface for the Shadow style.
@@ -5066,12 +5081,76 @@ end
 -------------------------------------------------------------------------------
 --  Visibility (registered with the shared EllesmereUI visibility dispatcher)
 -------------------------------------------------------------------------------
+-- Currently registered secure driver string, nil when none is registered.
+local _mmDriverStr
+
+-- Compile the profile's selection into macro-conditional grammar for the
+-- secure driver, or nil when it cannot be expressed as one.
+local function MinimapDriverString(p, vm)
+    if vm then
+        return EllesmereUI.BuildVisibilityDriverString
+            and EllesmereUI.BuildVisibilityDriverString("", vm)
+    end
+    local mode = p.visibility
+    if mode == "in_combat" then return "[combat] show; hide" end
+    if mode == "out_of_combat" then return "[nocombat] show; hide" end
+    return nil
+end
+
 local function UpdateMinimapVisibility()
     local p = EBS.db and EBS.db.profile and EBS.db.profile.minimap
-    if not p or not p.enabled then return end
-    local vis = EllesmereUI.EvalVisibility(p)
     local minimap = Minimap
     if not minimap then return end
+    if not p or not p.enabled then
+        -- Module switched off: hand visibility back to Blizzard rather than
+        -- leaving a driver bolted to its frame.
+        if _mmDriverStr and not InCombatLockdown() then
+            UnregisterStateDriver(minimap, "visibility")
+            _mmDriverStr = nil
+        end
+        return
+    end
+
+    -- Minimap:Show()/Hide() is protected during lockdown (#639), so this used
+    -- to skip the update entirely -- but the combat transitions are delivered
+    -- inside lockdown (PLAYER_REGEN_DISABLED already reports InCombatLockdown),
+    -- which left "Out of Combat" permanently visible and "In Combat"
+    -- permanently hidden. Alpha is not a stand-in either: the map surface and
+    -- its blips are engine-drawn and ignore frame alpha, so an alpha-0 minimap
+    -- still renders in full. A secure state driver is the only mechanism that
+    -- can legally hide this frame mid-combat, so combat-dependent selections
+    -- are handed to one. Everything else keeps plain Show()/Hide(), which
+    -- leaves the Blizzard-owned frame undriven whenever combat is not involved.
+    local vm = EllesmereUI.GetActiveVisibilityModes
+        and EllesmereUI.GetActiveVisibilityModes(p, "visibility")
+    -- Mouseover cannot be expressed as a macro conditional, and the poll's own
+    -- Show()/Hide() would fight a driver, so those selections stay on Lua.
+    local want = EllesmereUI.VisDependsOnCombat
+        and EllesmereUI.VisDependsOnCombat(p, "visibility")
+        and not (vm and vm.mouseover)
+        and MinimapDriverString(p, vm)
+        or nil
+    if want ~= _mmDriverStr and not InCombatLockdown() then
+        -- Registering evaluates immediately, which Show()s or Hide()s the
+        -- frame, so only ever swap drivers out of combat. The dispatcher
+        -- re-fires on PLAYER_REGEN_ENABLED and completes a deferred swap.
+        if want then
+            RegisterStateDriver(minimap, "visibility", want)
+        else
+            UnregisterStateDriver(minimap, "visibility")
+        end
+        _mmDriverStr = want
+    end
+    if _mmDriverStr then
+        -- The driver owns Show()/Hide() from here. Alpha stays ours and has to
+        -- be full: a transparent state left over from mouseover would keep the
+        -- frame invisible while the driver believes it is showing.
+        minimap:SetAlpha(1)
+        return
+    end
+
+    if InCombatLockdown() then return end
+    local vis = EllesmereUI.EvalVisibility(p)
     if vis == "mouseover" then
         minimap:SetAlpha(0)
         minimap:Show()
@@ -5377,6 +5456,14 @@ function EBS:OnInitialize()
     end
     if EllesmereUI.RegisterMouseoverTarget and Minimap then
         EllesmereUI.RegisterMouseoverTarget(Minimap, function()
+            -- Minimap is the one mouseover target that is a raw protected
+            -- Blizzard frame (every other module registers an addon-owned
+            -- proxy). The shared poll calls frame:Show()/Hide() when active,
+            -- which is blocked in combat lockdown -- the second trigger of
+            -- issue #639. Report inactive during combat: the poll then only
+            -- resets its bookkeeping (no Show/Hide), and the visibility
+            -- dispatcher re-applies the correct state on PLAYER_REGEN_ENABLED.
+            if InCombatLockdown() then return false end
             local p = EBS.db and EBS.db.profile and EBS.db.profile.minimap
             if not (p and p.enabled) then return false end
             -- Hover-gated sets only reveal while their conditions pass;
