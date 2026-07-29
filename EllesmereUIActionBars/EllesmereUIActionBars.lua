@@ -8064,6 +8064,12 @@ local LOOP_GLOW_TYPES = {
     { name = "Modern WoW Glow",      atlas = "UI-HUD-ActionBar-Proc-Loop-Flipbook", texPadding = 1.4 },
     { name = "Classic WoW Glow",     texture = "Interface\\SpellActivationOverlay\\IconAlertAnts",
       rows = 5, columns = 5, frames = 25, duration = 0.3, frameW = 48, frameH = 48, texPadding = 1.25 },
+    -- Suppress the glow entirely. Note this is NOT the same as the dropdown's
+    -- "None" (procGlowType 0), which means "do not customise" and therefore
+    -- leaves Blizzard's own gold glow in place. Appended last on purpose:
+    -- procGlowType is stored by INDEX, so inserting anywhere else would
+    -- silently reassign every existing player's chosen style.
+    { name = "Hide",                 hide = true },
 }
 ns.LOOP_GLOW_TYPES = LOOP_GLOW_TYPES
 
@@ -8181,6 +8187,24 @@ local function UpdateFlipbook(btn)
 
     local loopIdx = p.procGlowType or 1
     if loopIdx < 1 or loopIdx > #LOOP_GLOW_TYPES then loopIdx = 1 end
+    -- "Hide": suppress BOTH surfaces and stop. Checked before the custom-shape
+    -- force below, because that force decides HOW a glow is drawn and must not
+    -- resurrect one the player asked not to see.
+    -- Only the visual is suppressed: _procState.active still tracks the button,
+    -- so the assisted-highlight and glow-rescan paths that read proc state stay
+    -- correct. Alpha 0 as well as Hide(), because Blizzard re-Shows its own
+    -- region on the next proc and alpha survives that.
+    if LOOP_GLOW_TYPES[loopIdx] and LOOP_GLOW_TYPES[loopIdx].hide then
+        local gw = fd.glowWrapper
+        if gw then
+            _G_Glows.StopAllGlows(gw)
+            gw:SetAlpha(0)
+            gw:Hide()
+        end
+        if region then region:SetAlpha(0); region:Hide() end
+        fd.customizedFlipbook = true
+        return
+    end
     -- Force Shape Glow for custom shapes regardless of user selection
     if fd.shapeMask and fd.shapeApplied then
         for si, entry in ipairs(LOOP_GLOW_TYPES) do
