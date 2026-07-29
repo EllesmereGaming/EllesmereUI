@@ -375,7 +375,10 @@ do
                     end
                 end
                 if durLabel then
-                    suffix:SetPoint("LEFT", durLabel, "RIGHT", 5, 0)
+                    -- Anchor to the END OF THE TEXT, not the region's right
+                    -- edge: ClampRowLabel stretches full-width row labels to
+                    -- the slider track, so "RIGHT" sits at the track edge.
+                    suffix:SetPoint("LEFT", durLabel, "LEFT", durLabel:GetStringWidth() + 5, 0)
                 else
                     suffix:SetPoint("LEFT", durFrame, "LEFT", 250, 0)
                 end
@@ -471,7 +474,8 @@ do
                     end
                 end
                 if cdLabel then
-                    suffix:SetPoint("LEFT", cdLabel, "RIGHT", 5, 0)
+                    -- Same text-end anchoring as the duration suffix above.
+                    suffix:SetPoint("LEFT", cdLabel, "LEFT", cdLabel:GetStringWidth() + 5, 0)
                 else
                     suffix:SetPoint("LEFT", cdFrame, "LEFT", 350, 0)
                 end

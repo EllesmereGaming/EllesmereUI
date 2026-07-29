@@ -266,42 +266,42 @@ do
             sub:SetWordWrap(true)
             popup._subtitle = sub
 
-            -- Check All / Uncheck All links
+            -- Check All | Check Tanks | Check Healers | Check DPS | Uncheck All
             local LINK_Y = -103
             local LINK_GAP = 20
 
-            local checkAllBtn = CreateFrame("Button", nil, popup)
-            checkAllBtn:SetFrameLevel(popup:GetFrameLevel() + 2)
-            local checkAllLbl = checkAllBtn:CreateFontString(nil, "OVERLAY")
-            checkAllLbl:SetFont(FONT, 14, "")
-            checkAllLbl:SetText(EllesmereUI.L("Check All"))
-            checkAllLbl:SetTextColor(1, 1, 1, 0.45)
-            checkAllLbl:SetPoint("CENTER")
-            checkAllBtn:SetSize(checkAllLbl:GetStringWidth() + 4, 20)
-            PP.Point(checkAllBtn, "TOPLEFT", popup, "TOPLEFT", CONTENT_LEFT, LINK_Y)
-            checkAllBtn:SetScript("OnEnter", function() checkAllLbl:SetTextColor(1, 1, 1, 0.80) end)
-            checkAllBtn:SetScript("OnLeave", function() checkAllLbl:SetTextColor(1, 1, 1, 0.45) end)
-            popup._checkAll = checkAllBtn
+            local prevLink
+            local function MakeLink(text)
+                local btn = CreateFrame("Button", nil, popup)
+                btn:SetFrameLevel(popup:GetFrameLevel() + 2)
+                local lbl = btn:CreateFontString(nil, "OVERLAY")
+                lbl:SetFont(FONT, 14, "")
+                lbl:SetText(EllesmereUI.L(text))
+                lbl:SetTextColor(1, 1, 1, 0.45)
+                lbl:SetPoint("CENTER")
+                btn:SetSize(lbl:GetStringWidth() + 4, 20)
+                if prevLink then
+                    local div = popup:CreateTexture(nil, "OVERLAY", nil, 7)
+                    div:SetColorTexture(1, 1, 1, 0.18)
+                    if div.SetSnapToPixelGrid then div:SetSnapToPixelGrid(false); div:SetTexelSnappingBias(0) end
+                    PP.Point(div, "LEFT", prevLink, "RIGHT", LINK_GAP / 2, 0)
+                    div:SetWidth(1)
+                    div:SetHeight(12)
+                    PP.Point(btn, "LEFT", prevLink, "RIGHT", LINK_GAP, 0)
+                else
+                    PP.Point(btn, "TOPLEFT", popup, "TOPLEFT", CONTENT_LEFT, LINK_Y)
+                end
+                btn:SetScript("OnEnter", function() lbl:SetTextColor(1, 1, 1, 0.80) end)
+                btn:SetScript("OnLeave", function() lbl:SetTextColor(1, 1, 1, 0.45) end)
+                prevLink = btn
+                return btn
+            end
 
-            local linkDivider = popup:CreateTexture(nil, "OVERLAY", nil, 7)
-            linkDivider:SetColorTexture(1, 1, 1, 0.18)
-            if linkDivider.SetSnapToPixelGrid then linkDivider:SetSnapToPixelGrid(false); linkDivider:SetTexelSnappingBias(0) end
-            PP.Point(linkDivider, "LEFT", checkAllBtn, "RIGHT", LINK_GAP / 2, 0)
-            linkDivider:SetWidth(1)
-            linkDivider:SetHeight(12)
-
-            local uncheckAllBtn = CreateFrame("Button", nil, popup)
-            uncheckAllBtn:SetFrameLevel(popup:GetFrameLevel() + 2)
-            local uncheckAllLbl = uncheckAllBtn:CreateFontString(nil, "OVERLAY")
-            uncheckAllLbl:SetFont(FONT, 14, "")
-            uncheckAllLbl:SetText(EllesmereUI.L("Uncheck All"))
-            uncheckAllLbl:SetTextColor(1, 1, 1, 0.45)
-            uncheckAllLbl:SetPoint("CENTER")
-            uncheckAllBtn:SetSize(uncheckAllLbl:GetStringWidth() + 4, 20)
-            PP.Point(uncheckAllBtn, "LEFT", checkAllBtn, "RIGHT", LINK_GAP, 0)
-            uncheckAllBtn:SetScript("OnEnter", function() uncheckAllLbl:SetTextColor(1, 1, 1, 0.80) end)
-            uncheckAllBtn:SetScript("OnLeave", function() uncheckAllLbl:SetTextColor(1, 1, 1, 0.45) end)
-            popup._uncheckAll = uncheckAllBtn
+            popup._checkAll      = MakeLink("Check All")
+            popup._checkTanks    = MakeLink("Check Tanks")
+            popup._checkHealers  = MakeLink("Check Healers")
+            popup._checkDPS      = MakeLink("Check DPS")
+            popup._uncheckAll    = MakeLink("Uncheck All")
 
             -- Column container frames
             popup._columns = {}
@@ -820,6 +820,26 @@ do
                 end
             end
         end)
+
+        -- Role shortcuts: additively check every spec of one role, so roles
+        -- can be combined (Tanks + Healers) without unchecking the rest.
+        local function CheckRole(role)
+            local EG2 = ELLESMERE_GREEN
+            for _, row in ipairs(allCheckboxes) do
+                if not row._locked and not row._disabled and not row._lockedOn and row._specID then
+                    local _, _, _, _, specRole = GetSpecializationInfoByID(row._specID)
+                    if specRole == role then
+                        row._checked = true
+                        assignments[row._specID] = true
+                        row._check:Show()
+                        row._boxBorder:SetColor(EG2.r, EG2.g, EG2.b, CB_ACT_BRD_A)
+                    end
+                end
+            end
+        end
+        specPopup._checkTanks:SetScript("OnClick", function() CheckRole("TANK") end)
+        specPopup._checkHealers:SetScript("OnClick", function() CheckRole("HEALER") end)
+        specPopup._checkDPS:SetScript("OnClick", function() CheckRole("DAMAGER") end)
 
         -- Default Profile dropdown (populate phase)
         local selectedDefaultKey = defaultKey and db[defaultKey] or nil

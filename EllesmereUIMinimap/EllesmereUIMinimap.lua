@@ -78,9 +78,11 @@ local defaults = {
             -- false -> hover/topLeft.
             coordsMode     = "always",
             coordsPosition = "topLeft",
+            coordsScale    = 1.0,
             -- FPS/MS readout (Text section); options mirror the QoL FPS counter
             showFPS           = false,
             fpsTextSize       = 12,
+            fpsScale          = 1.0,
             fpsShowLocalMS    = true,
             fpsShowWorldMS    = false,
             fpsUseAccent      = false,  -- description text: accent vs custom fpsColor
@@ -1786,14 +1788,13 @@ end
 -------------------------------------------------------------------------------
 -- M+ Portal button. Identical flyout as Chat sidebar but anchored to minimap.
 -------------------------------------------------------------------------------
-local PORTAL_SPELLS = {
-    1254400, 1254572, 1254563, 1254559,
-    159898,  1254555, 1254551, 393273,
-}
-local PORTAL_SHORT = {
-    [1254400] = "WRS", [1254572] = "MT",  [1254563] = "NPX", [1254559] = "MC",
-    [159898]  = "SR",  [1254555] = "PoS", [1254551] = "SoT", [393273]  = "AA",
-}
+-- Built from the shared season list (EllesmereUI.SEASON_PORTALS) -- one
+-- place to update per season.
+local PORTAL_SPELLS, PORTAL_SHORT = {}, {}
+for _, e in ipairs(EllesmereUI.SEASON_PORTALS) do
+    PORTAL_SPELLS[#PORTAL_SPELLS + 1] = e.spellID
+    PORTAL_SHORT[e.spellID] = e.short
+end
 
 local _portalBtn = nil
 local _portalFlyout, _portalFlyoutBtns
@@ -4092,7 +4093,27 @@ local function ApplyMinimap()
         if minimap.SetFixedFrameStrata then minimap:SetFixedFrameStrata(true) end
         if minimap.SetFixedFrameLevel then minimap:SetFixedFrameLevel(true) end
     end
-    minimap:Show()
+    -- Visibility-aware terminal: an unconditional Show() here force-showed
+    -- the minimap for a frame on EVERY rebuild (visible blink for users with
+    -- visibility "never"/mouseover -- e.g. settings-override transitions run
+    -- this as the module refresher), with the corrective Hide only arriving
+    -- via the deferred visibility sweep. Render the profile's visibility
+    -- directly instead.
+    do
+        local vis = EllesmereUI.EvalVisibility and p and EllesmereUI.EvalVisibility(p)
+        if not EllesmereUI.EvalVisibility or vis == true then
+            minimap:SetAlpha(1)
+            minimap:Show()
+        elseif vis == "mouseover" then
+            minimap:SetAlpha(0)
+            minimap:Show()
+        elseif vis then
+            minimap:SetAlpha(1)
+            minimap:Show()
+        else
+            minimap:Hide()
+        end
+    end
 
     -- Middle-click interceptor: prevent minimap ping on middle-click,
     -- route middle-click to our micro menu instead.
@@ -4180,10 +4201,25 @@ local function ApplyMinimap()
         local host = GetFFD(minimap).borderHost
         if not host then
             host = CreateFrame("Frame", nil, minimap)
-            host:SetAllPoints(minimap)
             host:EnableMouse(false)
             GetFFD(minimap).borderHost = host
         end
+        -- Re-anchor on EVERY apply, not just on the create branch. This pass
+        -- queues the Minimap's reparent to UIParent a frame out (see above),
+        -- and a host anchored across that reparent keeps its stored points
+        -- while the engine never resolves them: GetPoint still reports
+        -- TOPLEFT/BOTTOMRIGHT against a valid Minimap, but the host comes out
+        -- 0x0 with IsRectValid false, so it -- and the backdrop anchored to
+        -- it -- draws nothing. Every other property (shown, visible, alpha,
+        -- parent, backdrop table, texture path) reads healthy in that state,
+        -- which is why it presented as a border setting that would not survive
+        -- a reload even though the stored value was never lost. Anchoring only
+        -- at creation made it permanent for the session, and whether it
+        -- happened came down to how much else was loading at login -- so it
+        -- tracked unrelated modules being enabled. Re-setting the points
+        -- forces the layout to recompute and is a no-op when they are fine.
+        host:ClearAllPoints()
+        host:SetAllPoints(minimap)
         -- Same level as the minimap keeps the border under all child buttons
         -- (matching the old strips-on-minimap rendering); Show Behind drops it
         -- under the map surface for the Shadow style.
@@ -4707,6 +4743,8 @@ local function ApplyMinimap()
     local cpy = p and p.coordsBelowOffsetY or 0
     coordFrame:ClearAllPoints()
     coordFrame:SetPoint(cpAnchor[1], minimap, cpAnchor[2], cpAnchor[3] + cpx, cpAnchor[4] + cpy)
+    coordFrame:SetScale(p and p.coordsScale or 1.0)
+    _G._EBS_CoordFrame = coordFrame
     if not coordTicker then
         coordTicker = CreateFrame("Frame")  -- kept for Show/Hide API
         coordTicker._ticker = nil
@@ -4869,6 +4907,8 @@ local function ApplyMinimap()
         fpsBg:ClearAllPoints()
         fpsBg:SetPoint(fAnchor[1], minimap, fAnchor[2],
             fAnchor[3] + (p.fpsOffsetX or 0), fAnchor[4] + (p.fpsOffsetY or 0))
+        fpsBg:SetScale(p.fpsScale or 1.0)
+        _G._EBS_FpsBg = fpsBg
         -- Mouse only while a hover tooltip is assigned, so the readout never
         -- blocks map clicks otherwise
         fpsBg:EnableMouse((p.fpsHoverTooltip or "none") ~= "none")
@@ -5041,12 +5081,76 @@ end
 -------------------------------------------------------------------------------
 --  Visibility (registered with the shared EllesmereUI visibility dispatcher)
 -------------------------------------------------------------------------------
+-- Currently registered secure driver string, nil when none is registered.
+local _mmDriverStr
+
+-- Compile the profile's selection into macro-conditional grammar for the
+-- secure driver, or nil when it cannot be expressed as one.
+local function MinimapDriverString(p, vm)
+    if vm then
+        return EllesmereUI.BuildVisibilityDriverString
+            and EllesmereUI.BuildVisibilityDriverString("", vm)
+    end
+    local mode = p.visibility
+    if mode == "in_combat" then return "[combat] show; hide" end
+    if mode == "out_of_combat" then return "[nocombat] show; hide" end
+    return nil
+end
+
 local function UpdateMinimapVisibility()
     local p = EBS.db and EBS.db.profile and EBS.db.profile.minimap
-    if not p or not p.enabled then return end
-    local vis = EllesmereUI.EvalVisibility(p)
     local minimap = Minimap
     if not minimap then return end
+    if not p or not p.enabled then
+        -- Module switched off: hand visibility back to Blizzard rather than
+        -- leaving a driver bolted to its frame.
+        if _mmDriverStr and not InCombatLockdown() then
+            UnregisterStateDriver(minimap, "visibility")
+            _mmDriverStr = nil
+        end
+        return
+    end
+
+    -- Minimap:Show()/Hide() is protected during lockdown (#639), so this used
+    -- to skip the update entirely -- but the combat transitions are delivered
+    -- inside lockdown (PLAYER_REGEN_DISABLED already reports InCombatLockdown),
+    -- which left "Out of Combat" permanently visible and "In Combat"
+    -- permanently hidden. Alpha is not a stand-in either: the map surface and
+    -- its blips are engine-drawn and ignore frame alpha, so an alpha-0 minimap
+    -- still renders in full. A secure state driver is the only mechanism that
+    -- can legally hide this frame mid-combat, so combat-dependent selections
+    -- are handed to one. Everything else keeps plain Show()/Hide(), which
+    -- leaves the Blizzard-owned frame undriven whenever combat is not involved.
+    local vm = EllesmereUI.GetActiveVisibilityModes
+        and EllesmereUI.GetActiveVisibilityModes(p, "visibility")
+    -- Mouseover cannot be expressed as a macro conditional, and the poll's own
+    -- Show()/Hide() would fight a driver, so those selections stay on Lua.
+    local want = EllesmereUI.VisDependsOnCombat
+        and EllesmereUI.VisDependsOnCombat(p, "visibility")
+        and not (vm and vm.mouseover)
+        and MinimapDriverString(p, vm)
+        or nil
+    if want ~= _mmDriverStr and not InCombatLockdown() then
+        -- Registering evaluates immediately, which Show()s or Hide()s the
+        -- frame, so only ever swap drivers out of combat. The dispatcher
+        -- re-fires on PLAYER_REGEN_ENABLED and completes a deferred swap.
+        if want then
+            RegisterStateDriver(minimap, "visibility", want)
+        else
+            UnregisterStateDriver(minimap, "visibility")
+        end
+        _mmDriverStr = want
+    end
+    if _mmDriverStr then
+        -- The driver owns Show()/Hide() from here. Alpha stays ours and has to
+        -- be full: a transparent state left over from mouseover would keep the
+        -- frame invisible while the driver believes it is showing.
+        minimap:SetAlpha(1)
+        return
+    end
+
+    if InCombatLockdown() then return end
+    local vis = EllesmereUI.EvalVisibility(p)
     if vis == "mouseover" then
         minimap:SetAlpha(0)
         minimap:Show()
@@ -5184,26 +5288,38 @@ do
                 btn:SetPoint("TOPRIGHT", menuFrame, "TOPRIGHT", -1, y)
                 btn:SetHeight(BUTTON_H)
 
+                -- 12.1: "/click <name>" macro transport (the 12.1 "click"
+                -- secure action crashes on a Blizzard typo, SecureTemplates
+                -- :564; MicroButtons are globally named so the macro reaches
+                -- them directly). 12.0 keeps the proven click transport.
+                local secureType = EllesmereUI.IS_121 and "macro" or "click"
                 if microRef then
-                    btn:SetAttribute("*clickbutton1", microRef)
+                    if EllesmereUI.IS_121 then
+                        btn:SetAttribute("*macrotext1", "/click " .. item.microButton)
+                    else
+                        btn:SetAttribute("*clickbutton1", microRef)
+                    end
                 end
                 btn:SetAttribute("useOnKeyDown", false)
-                btn:SetAttribute("*type1", "click")
+                btn:SetAttribute("*type1", secureType)
                 btn:EnableMouse(true)
                 btn:RegisterForClicks("AnyUp")
 
                 -- Activate secure click from the restricted secure environment.
                 -- Without this, addon-set attributes are not trusted.
+                -- The restore branch MUST match the transport set above --
+                -- restoring a mismatched type silently reverts the 12.1
+                -- macro transport on the first combat exit.
                 RegisterStateDriver(btn, "combatlock", "[combat] combat; nocombat")
-                btn:SetAttribute("_onstate-combatlock", [[
+                btn:SetAttribute("_onstate-combatlock", ([[
                     if newstate == 'combat' then
                         self:SetAttribute('*type1', nil)
                         self:EnableMouse(false)
                     else
-                        self:SetAttribute('*type1', 'click')
+                        self:SetAttribute('*type1', '%s')
                         self:EnableMouse(true)
                     end
-                ]])
+                ]]):format(secureType))
 
                 local hl = btn:CreateTexture(nil, "HIGHLIGHT")
                 hl:SetAllPoints()
@@ -5321,7 +5437,12 @@ function EBS:OnInitialize()
     -- Called when toggling btnBackgrounds or ungrouping a button.
     local function FullRebuildMinimap()
         wipe(flyoutSavedRegions)
-        ApplyMinimap()
+        -- ApplyAll, not bare ApplyMinimap: visibility runs through the shared
+        -- EllesmereUI visibility dispatcher and only re-evaluates on request.
+        -- Without it, a visibility change applied programmatically (settings
+        -- override transitions use this as the module refresher) updates the
+        -- stored setting but the minimap never actually hides/shows.
+        ApplyAll()
     end
 
     -- Global bridge for options <-> main communication
@@ -5335,8 +5456,19 @@ function EBS:OnInitialize()
     end
     if EllesmereUI.RegisterMouseoverTarget and Minimap then
         EllesmereUI.RegisterMouseoverTarget(Minimap, function()
+            -- Minimap is the one mouseover target that is a raw protected
+            -- Blizzard frame (every other module registers an addon-owned
+            -- proxy). The shared poll calls frame:Show()/Hide() when active,
+            -- which is blocked in combat lockdown -- the second trigger of
+            -- issue #639. Report inactive during combat: the poll then only
+            -- resets its bookkeeping (no Show/Hide), and the visibility
+            -- dispatcher re-applies the correct state on PLAYER_REGEN_ENABLED.
+            if InCombatLockdown() then return false end
             local p = EBS.db and EBS.db.profile and EBS.db.profile.minimap
-            return p and p.enabled and p.visibility == "mouseover"
+            if not (p and p.enabled) then return false end
+            -- Hover-gated sets only reveal while their conditions pass;
+            -- a legacy single "mouseover" behaves exactly as before.
+            return EllesmereUI.VisWantsMouseover(p, "visibility")
         end)
     end
 end

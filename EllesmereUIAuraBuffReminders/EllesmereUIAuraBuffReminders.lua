@@ -26,6 +26,54 @@ local AURA_SCAN_LIMIT = 255  -- Midnight supports more than the legacy 40 buff l
 local DEFAULT_GLOW_COLOR = {r=1, g=0.776, b=0.376}
 local DEFAULT_TEXT_COLOR = {r=1, g=1, b=1}
 
+-- Per-profile display fixups. Runs at the read path (not only OnInitialize)
+-- because profile swaps repoint db.profile without re-running init.
+--   (1) Scale heal: the Scale slider only reaches [0.5, 3.0]; a stored value
+--       outside that band cannot have come from the UI, so it is corruption
+--       and is reset to the default. Runs every call; in-range values are left
+--       untouched. (Kept in this existing function to avoid adding a new
+--       file-scope local -- this file is near the Lua 200-local cap.)
+--   (2) glowColorMode migration: once per profile, never touches the color.
+local function EnsureGlowModeMigrated(p)
+    if not p then return end
+    local s = p.scale
+    if type(s) == "number" and (s < 0.5 or s > 3.0) then
+        p.scale = 1.0
+    end
+    if p.glowColorMode then return end
+    local c = p.glowColor
+    if c and not (c.r == 1 and c.g == 0.776 and c.b == 0.376) then
+        p.glowColorMode = "custom"
+    else
+        p.glowColorMode = "default"
+    end
+end
+
+local function ResolveGlowTint(p)
+    if not p then return nil end
+    EnsureGlowModeMigrated(p)
+    if p.glowColorMode == "class" then
+        local cc = EllesmereUI.GetClassColor(EllesmereUI._playerClass)
+        return cc.r, cc.g, cc.b
+    end
+    if p.glowColorMode ~= "custom" then return nil end
+    local c = p.glowColor
+    if not c then return nil end
+    return c.r or 1, c.g or 0.776, c.b or 0.376
+end
+
+local TEXT_ANCHOR_POINTS = {
+    BOTTOM = { "TOP",    "BOTTOM" },
+    TOP    = { "BOTTOM", "TOP"    },
+    CENTER = { "CENTER", "CENTER" },
+    LEFT   = { "RIGHT",  "LEFT"   },
+    RIGHT  = { "LEFT",   "RIGHT"  },
+}
+local function GetTextAnchorPoints(p)
+    local m = TEXT_ANCHOR_POINTS[(p and p.textAnchor) or "BOTTOM"] or TEXT_ANCHOR_POINTS.BOTTOM
+    return m[1], m[2]
+end
+
 -------------------------------------------------------------------------------
 --  Profiler: zero cost when off, /eabrprof to toggle. debugprofilestop for
 --  per-label timing + C_AddOnProfiler for whole-addon avg/peak. Mirrors the
@@ -341,6 +389,10 @@ local function SnapshotPlayerAuras()
     end
     -- Also snapshot non-whitelisted auras (e.g. Devotion Aura) that become
     -- secret when a party member enters combat before the local player does.
+    -- 12.1: the index scan hard-errors under aura restrictions (M+/raid,
+    -- even out of combat); the whitelisted lookups above still work and the
+    -- extras are simply skipped there.
+    if EllesmereUI.AuraKit and EllesmereUI.AuraKit.AurasRestricted() then return end
     for i = 1, AURA_SCAN_LIMIT do
         local aura = C_UnitAuras.GetAuraDataByIndex("player", i, "HELPFUL")
         if not aura then break end
@@ -383,6 +435,8 @@ function _AC.ensureNames()
     _AC.nameScanned = true
     wipe(_AC.byName)
     if InCombat() then return end
+    -- 12.1: index scans hard-error under restrictions even out of combat.
+    if EllesmereUI.AuraKit and EllesmereUI.AuraKit.AurasRestricted() then return end
     for i = 1, AURA_SCAN_LIMIT do
         local aura = C_UnitAuras.GetAuraDataByIndex("player", i, "HELPFUL")
         if not aura then break end
@@ -444,8 +498,13 @@ local function PlayerHasAuraByID(spellIDs)
             -- secret values, but non-nil means the aura exists)
             local ok, result = pcall(C_UnitAuras.GetPlayerAuraBySpellID, id)
             if ok and result ~= nil then
-                if IsUnderDuration(result.duration, result.expirationTime) then
-                    return false
+                -- 12.1: fields can be secret in restricted content even OOC;
+                -- math on secrets errors, so presence alone counts then.
+                local dur, exp = result.duration, result.expirationTime
+                if dur ~= nil and exp ~= nil and not isSecret(dur) and not isSecret(exp) then
+                    if IsUnderDuration(dur, exp) then
+                        return false
+                    end
                 end
                 return true
             end
@@ -469,6 +528,11 @@ local function GetStanceState(stanceSpellID)
     end
     return false, false
 end
+
+-- 12.1: aura restrictions apply in M+/raids even OUT of combat, and index
+-- scans HARD-ERROR there (not just secret results). Every "OOC only" scan
+-- also checks EllesmereUI.AuraKit.AurasRestricted() inline (no file-scope
+-- helper: this chunk sits at the Lua 5.1 200-local cap).
 
 -- Shared helpers for group aura scanning (hoisted to avoid per-call closure allocation)
 local function _unitOk(u) return UnitExists(u) and UnitIsConnected(u) and not UnitIsDeadOrGhost(u) end
@@ -501,9 +565,11 @@ local function _unitHasBuff(u, spellIDs)
             end
         end
     end
-    -- Iterate auras for non-whitelisted IDs (only works out of combat)
+    -- Iterate auras for non-whitelisted IDs (only works out of combat AND
+    -- outside restricted content -- the scan errors under restriction)
     -- Skip iteration for player (GetPlayerAuraBySpellID above covers all IDs)
-    if not inCombat and not UnitIsUnit(u, "player") then
+    if not inCombat and not UnitIsUnit(u, "player")
+        and not (EllesmereUI.AuraKit and EllesmereUI.AuraKit.AurasRestricted()) then
         for i = 1, AURA_SCAN_LIMIT do
             local aura = C_UnitAuras.GetAuraDataByIndex(u, i, "HELPFUL")
             if not aura then break end
@@ -541,7 +607,7 @@ local function _unitHasBuffFromPlayer(u, spellIDs)
                 end
             end
         end
-        if not inCombat then
+        if not inCombat and not (EllesmereUI.AuraKit and EllesmereUI.AuraKit.AurasRestricted()) then
             for i = 1, AURA_SCAN_LIMIT do
                 local aura = C_UnitAuras.GetAuraDataByIndex("player", i, "HELPFUL")
                 if not aura then break end
@@ -577,6 +643,8 @@ local function _unitHasBuffFromPlayer(u, spellIDs)
         end
     end
     if not needScan then return false end
+    -- Scan errors under restriction; skip (caller falls back to snapshot).
+    if EllesmereUI.AuraKit and EllesmereUI.AuraKit.AurasRestricted() then return false end
     -- Fallback: full scan for non-whitelisted IDs only
     for i = 1, AURA_SCAN_LIMIT do
         local aura = C_UnitAuras.GetAuraDataByIndex(u, i, "HELPFUL")
@@ -804,6 +872,24 @@ local BUFF_BENEFICIARIES = {
 _G._EABR_SpellName = function(spellID, fallback)
     local n = spellID and C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(spellID)
     return n or fallback
+end
+
+-- Weapon enchant summary in the legacy GetWeaponEnchantInfo tuple shape:
+-- hasMH, mhExpireMs, mhCharges, mhEnchantID, hasOH, ohExpireMs, ohCharges,
+-- ohEnchantID. Prefers C_PaperDollInfo.GetTemporaryEnchantmentInfo where it
+-- exists (12.1: GetWeaponEnchantInfo is a deprecation-CVar shim there);
+-- remainingTimeMs matches the legacy ms expiration values one to one.
+-- Stored on EABR, not a file local (this file runs at the 200-local cap).
+EABR.WeaponEnchants = function()
+    if C_PaperDollInfo and C_PaperDollInfo.GetTemporaryEnchantmentInfo then
+        local mh = C_PaperDollInfo.GetTemporaryEnchantmentInfo(INVSLOT_MAINHAND)
+        local oh = C_PaperDollInfo.GetTemporaryEnchantmentInfo(INVSLOT_OFFHAND)
+        return (mh and true or false), mh and mh.remainingTimeMs,
+            mh and mh.chargesRemaining, mh and mh.enchantID,
+            (oh and true or false), oh and oh.remainingTimeMs,
+            oh and oh.chargesRemaining, oh and oh.enchantID
+    end
+    return GetWeaponEnchantInfo()
 end
 
 local RAID_BUFFS = {
@@ -1124,6 +1210,10 @@ local INKY_BLACK_BUFF = 185394  -- "Inky Blackness" buff (icon 136122); detected
 --  Helpers: Well Fed / Flask buff detection (by name, not spell ID secret)
 -------------------------------------------------------------------------------
 local function PlayerHasBuffByName(buffName)
+    -- 12.1: name scans are impossible under aura restrictions (the index
+    -- API errors; names are secret anyway). Cannot verify -> treat as
+    -- present so the reminder never false-fires in restricted content.
+    if EllesmereUI.AuraKit and EllesmereUI.AuraKit.AurasRestricted() then return true end
     if _AC.valid then
         _AC.ensureNames()
         return _AC.byName[buffName] or false
@@ -1141,6 +1231,8 @@ local function PlayerHasWellFed()
     if InCombat() then return true end  -- never show food reminder in combat
     if InMythicPlusKey() then return true end  -- can't act on it during M+, suppress
     if InPvPInstance() then return true end  -- food not trackable in PvP, suppress
+    -- 12.1: any other restricted content (raid instances OOC) -- suppress.
+    if EllesmereUI.AuraKit and EllesmereUI.AuraKit.AurasRestricted() then return true end
     for i = 1, AURA_SCAN_LIMIT do
         local aura = C_UnitAuras.GetAuraDataByIndex("player", i, "HELPFUL")
         if not aura then break end
@@ -1159,6 +1251,9 @@ local function PlayerHasFlaskBuff()
     -- Aura API is restricted in PvP and M+ keystones; suppress since player can't act on it.
     if InPvPInstance() then return true end
     if InMythicPlusKey() then return true end
+    -- 12.1: any other restricted content -- the name fallback below cannot
+    -- populate there, so suppress instead of false-reminding.
+    if EllesmereUI.AuraKit and EllesmereUI.AuraKit.AurasRestricted() then return true end
     -- Direct ID lookup for known flask buff IDs (zero allocation)
     for id in pairs(FLASK_BUFF_ID_SET) do
         local ok, result = pcall(C_UnitAuras.GetPlayerAuraBySpellID, id)
@@ -1184,6 +1279,7 @@ local function PlayerHasInkyBlackness()
     -- can't be read there and the player can't act on it mid-key (mirrors flask/food).
     if InPvPInstance() then return true end
     if InMythicPlusKey() then return true end
+    if EllesmereUI.AuraKit and EllesmereUI.AuraKit.AurasRestricted() then return true end
     for i = 1, AURA_SCAN_LIMIT do
         local aura = C_UnitAuras.GetAuraDataByIndex("player", i, "HELPFUL")
         if not aura then break end
@@ -1492,7 +1588,6 @@ local defaults = {
         display = {
             remindersEnabled = true,
             glowType = 0,
-            glowColor = {r=1, g=0.776, b=0.376},
             scale = 1.0,
             xOffset = 0,
             yOffset = 200,
@@ -1502,6 +1597,7 @@ local defaults = {
             textFont = "Expressway",
             textXOffset = 0,
             textYOffset = -5,
+            textAnchor = "BOTTOM",
             iconSpacing = 14,
             opacity = 1.0,
             frameStrata = "MEDIUM",
@@ -1637,7 +1733,8 @@ local function ShowCombatIcon(iconIdx, spellID, texture, label)
         local yOff = p.textYOffset or -2
         SetABRFont(f._text, fontPath, textSize)
         f._text:ClearAllPoints()
-        f._text:SetPoint("TOP", f, "BOTTOM", xOff, yOff)
+        local tp, ip = GetTextAnchorPoints(p)
+        f._text:SetPoint(tp, f, ip, xOff, yOff)
         f._text:SetTextColor(tc.r, tc.g, tc.b, 1)
         f._text:SetText(label or "")
         f._text:Show()
@@ -1656,12 +1753,17 @@ local function LayoutCombatIcons()
     local baseScale = p.scale or 1.0
     local sz = floor(ICON_SIZE * baseScale + 0.5)
     local totalW = (count * sz) + ((count-1) * spacing)
+    local textH = 0
+    if p.showText then textH = (p.textSize or 11) + abs(p.textYOffset or -2) end
+    -- Match the live row's vertical placement (icon in the top of the
+    -- icon+text box) so nothing jumps when combat swaps the secure buttons
+    -- for this non-secure pool.
     local startX = -(totalW/2) + (sz/2)
     for i, f in ipairs(combatActiveIcons) do
         f:SetSize(sz, sz)
         f:SetAlpha(p.opacity or 1.0)
         f:ClearAllPoints()
-        f:SetPoint("CENTER", combatAnchor, "CENTER", startX + (i-1)*(sz+spacing), 0)
+        f:SetPoint("CENTER", combatAnchor, "CENTER", startX + (i-1)*(sz+spacing), textH/2)
     end
 end
 
@@ -1714,7 +1816,8 @@ local function ShowCursorIcon(iconIdx, spellID, texture, label)
         local yOff = p.textYOffset or -2
         SetABRFont(f._text, fontPath, textSize)
         f._text:ClearAllPoints()
-        f._text:SetPoint("TOP", f, "BOTTOM", xOff, yOff)
+        local tp, ip = GetTextAnchorPoints(p)
+        f._text:SetPoint(tp, f, ip, xOff, yOff)
         f._text:SetTextColor(tc.r, tc.g, tc.b, 1)
         f._text:SetText(label or "")
         f._text:Show()
@@ -1764,6 +1867,9 @@ end
 local function ApplyGlow(btn, glowType, cr, cg, cb, overrideSz)
     if glowType == 0 then return end
     local entry = GLOW_TYPES[glowType]; if not entry then return end
+    if cr == nil and (entry.procedural or entry.buttonGlow or entry.autocast) then
+        cr, cg, cb = 1.0, 0.788, 0.137
+    end
     if not btn._eabrGlowWrapper then
         local w = CreateFrame("Frame", nil, btn); w:SetAllPoints(btn); w:SetFrameLevel(btn:GetFrameLevel()+4)
         btn._eabrGlowWrapper = w
@@ -1966,15 +2072,23 @@ local function LayoutIcons()
     local baseScale = p.scale or 1.0
     local sz = floor(ICON_SIZE * baseScale + 0.5)
     local totalW = (count * sz) + ((count-1) * spacing)
+    local textH = 0
+    if p.showText then textH = (p.textSize or 11) + abs(p.textYOffset or -2) end
+    -- Center-grow: icons are pinned to the anchor's CENTER and spread
+    -- symmetrically, so the row's center stays fixed as icons are added or
+    -- removed, and resizing the anchor (the unlock overlay) can never shift
+    -- them. The +textH/2 vertical offset keeps the icon row in the top of the
+    -- icon+text box, matching the combat pool. This reproduces the previous
+    -- per-icon positions exactly while decoupling them from the anchor's live
+    -- size.
+    local startX = -(totalW / 2) + (sz / 2)
     for i, btn in ipairs(allIcons) do
         btn:SetSize(sz, sz)
         btn:SetAlpha(p.opacity or 1.0)
         btn:ClearAllPoints()
-        btn:SetPoint("TOPLEFT", iconAnchor, "TOPLEFT", (i-1)*(sz+spacing), 0)
+        btn:SetPoint("CENTER", iconAnchor, "CENTER", startX + (i-1)*(sz+spacing), textH/2)
     end
-    -- Size the anchor to the grid so the unlock mode mover covers it correctly
-    local textH = 0
-    if p.showText then textH = (p.textSize or 11) + abs(p.textYOffset or -2) end
+    -- Size the anchor to the row so the unlock mode overlay covers it.
     ResizeAnchorCentered(totalW, sz + textH)
 end
 
@@ -1984,11 +2098,11 @@ local function ShowIcon(iconIdx, m)
     ApplySetup(btn, m)
     local p = db.profile.display
     local glowType = p.glowType or 0
-    local gc = p.glowColor or DEFAULT_GLOW_COLOR
+    local gr, gg, gb = ResolveGlowTint(p)
     local baseScale = p.scale or 1.0
     local sz = floor(ICON_SIZE * baseScale + 0.5)
     RemoveGlow(btn)
-    ApplyGlow(btn, glowType, gc.r, gc.g, gc.b, sz)
+    ApplyGlow(btn, glowType, gr, gg, gb, sz)
     if p.showText then
         local tc = p.textColor or DEFAULT_TEXT_COLOR
         local fontPath = ResolveFontPath(p.textFont)
@@ -1997,7 +2111,8 @@ local function ShowIcon(iconIdx, m)
         local yOff = p.textYOffset or -2
         SetABRFont(btn._text, fontPath, textSize)
         btn._text:ClearAllPoints()
-        btn._text:SetPoint("TOP", btn, "BOTTOM", xOff, yOff)
+        local tp, ip = GetTextAnchorPoints(p)
+        btn._text:SetPoint(tp, btn, ip, xOff, yOff)
         btn._text:SetTextColor(tc.r, tc.g, tc.b, 1)
         btn._text:Show()
     else
@@ -2171,7 +2286,8 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
                         local isLethal = (poison.cat == "lethal")
                         if isLethal then knownL = knownL + 1 else knownNL = knownNL + 1 end
                         local aura = C_UnitAuras.GetPlayerAuraBySpellID(poison.castSpell)
-                        if aura then
+                        local active = aura and not IsUnderDuration(aura.duration, aura.expirationTime)
+                        if active then
                             if isLethal then activeL = activeL + 1 else activeNL = activeNL + 1 end
                         elseif co.enabled[poison.key] then
                             if isLethal and not missingL then missingL = poison
@@ -2204,7 +2320,7 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
             if playerClass == "PALADIN" then
                 for _, rite in ipairs(PALADIN_RITES) do
                     if co.enabled[rite.key] and Known(rite.castSpell) then
-                        local hasMH, mhExpire = GetWeaponEnchantInfo()
+                        local hasMH, mhExpire = EABR.WeaponEnchants()
                         local show = false
                         if not hasMH then
                             show = true
@@ -2225,10 +2341,10 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
             end
 
             -- Shaman Imbues: match each imbue by its wepEnchID against
-            -- both weapon slots. GetWeaponEnchantInfo returns the specific
+            -- both weapon slots. The enchant summary carries the specific
             -- enchant ID on each hand (4th and 8th return values).
             if playerClass == "SHAMAN" then
-                local hasMH, mhExpire, _, mhEnchID, hasOH, ohExpire, _, ohEnchID = GetWeaponEnchantInfo()
+                local hasMH, mhExpire, _, mhEnchID, hasOH, ohExpire, _, ohEnchID = EABR.WeaponEnchants()
                 for _, imbue in ipairs(SHAMAN_IMBUES) do
                     if co.enabled[imbue.key] and Known(imbue.castSpell) then
                         local found = false
@@ -2326,13 +2442,13 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
         -- Weapon Enchants (temp weapon enchant items)
         -- Skip if the player knows any imbue spell (Shaman imbues, Paladin rites).
         -- Rogues and DKs are NOT excluded: rogue poisons are temp enchants
-        -- (detected by GetWeaponEnchantInfo), and DKs can use oils alongside runeforges.
+        -- (visible in the enchant summary), and DKs can use oils alongside runeforges.
         local _hasImbueSpell = false
         for _, sid in ipairs(_IMBUE_EXCLUDE_SPELLS) do
             if IsSpellKnown(sid) then _hasImbueSpell = true; break end
         end
         if co.enabled.weapon_enchant and not _hasImbueSpell then
-            local hasMH, mhExpire, _, _, hasOH, ohExpire = GetWeaponEnchantInfo()
+            local hasMH, mhExpire, _, _, hasOH, ohExpire = EABR.WeaponEnchants()
 
             -- Check each weapon slot independently (both can show at once).
             -- Remind if: no enchant, OR enchant is under the duration threshold.
@@ -2549,6 +2665,16 @@ local function Refresh()
     _cachedOutline = nil
     EABR._nextDurationRefreshTime = nil
     if not db then return end
+    -- The pooled reminder buttons are children of iconAnchor, which is built in
+    -- OnEnable (PLAYER_LOGIN). Several of mainFrame's file-scope events
+    -- (SPELLS_CHANGED, PLAYER_TALENT_UPDATE, TRAIT_CONFIG_UPDATED, ...) can fire
+    -- DURING loading, before OnEnable runs. If a reminder is missing at that
+    -- moment, GetOrCreateIcon would CreateFrame the button with a nil parent --
+    -- it then never inherits the pixel-perfect UIParent scale and renders
+    -- oversized (ES 1.0 instead of the UI scale) for the rest of the session,
+    -- because pooled buttons are only ever re-sized/re-pointed, never
+    -- re-parented. Wait until the anchor exists; OnEnable fires its own refresh.
+    if not iconAnchor then return end
     if euiPanelOpen then HideCombatIcons(); HideAllIcons(); return end
 
     -- Hide all reminders while skyriding (mounted + flying) or in a vehicle.
@@ -2772,10 +2898,10 @@ local function Refresh()
                         if f then
                             RemoveGlow(f)
                             local p = db.profile.display
-                            local gc = p.glowColor or DEFAULT_GLOW_COLOR
+                            local gr, gg, gb = ResolveGlowTint(p)
                             local baseScale = p.scale or 1.0
                             local sz = floor(ICON_SIZE * baseScale + 0.5)
-                            ApplyGlow(f, p.glowType or 0, gc.r, gc.g, gc.b, sz)
+                            ApplyGlow(f, p.glowType or 0, gr, gg, gb, sz)
                         end
                     end
                 end
@@ -2813,10 +2939,10 @@ local function Refresh()
                     if f then
                         RemoveGlow(f)
                         local p = db.profile.display
-                        local gc = p.glowColor or DEFAULT_GLOW_COLOR
+                        local gr, gg, gb = ResolveGlowTint(p)
                         local baseScale = p.scale or 1.0
                         local sz = floor(ICON_SIZE * baseScale + 0.5)
-                        ApplyGlow(f, p.glowType or 0, gc.r, gc.g, gc.b, sz)
+                        ApplyGlow(f, p.glowType or 0, gr, gg, gb, sz)
                     end
                 else
                     iconIdx = iconIdx + 1
@@ -2939,25 +3065,16 @@ local function ApplyUnlockPos()
         iconAnchor:ClearAllPoints()
         iconAnchor:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, px, py)
     else
-        -- Convert legacy CENTER offset to TOPLEFT
+        -- No saved position: center the row on screen (plus any configured
+        -- offset). A CENTER anchor keeps the row's center fixed as the icon
+        -- count changes, exactly like the saved-position branch above; the row
+        -- itself is centered on this anchor by LayoutIcons. This is the same
+        -- box center the old TOPLEFT math produced, so nothing moves for
+        -- existing users -- the anchor's size is now owned by LayoutIcons /
+        -- getSize and no longer needs computing here.
         local d = db.profile.display
-        local baseScale = d.scale or 1.0
-        local sz = floor(ICON_SIZE * baseScale + 0.5)
-        local spacing = d.iconSpacing or 8
-        local count = max(#activeIcons, 2)
-        local w = count * sz + (count - 1) * spacing
-        local textH = 0
-        if d.showText then
-            textH = (d.textSize or 11) + abs(d.textYOffset or -2)
-        end
-        local h = sz + textH
-        iconAnchor:SetSize(w, h)
-        local uiW = UIParent:GetWidth()
-        local uiH = UIParent:GetHeight()
-        local cx = uiW * 0.5 + (d.xOffset or 0)
-        local cy = uiH * 0.5 + (d.yOffset or 0)
         iconAnchor:ClearAllPoints()
-        iconAnchor:SetPoint("TOPLEFT", UIParent, "TOPLEFT", cx - w * 0.5, cy - uiH + h * 0.5)
+        iconAnchor:SetPoint("CENTER", UIParent, "CENTER", d.xOffset or 0, d.yOffset or 0)
     end
 end
 
@@ -2971,45 +3088,40 @@ local function RegisterUnlockElements()
             group = "AuraBuff Reminders",
             order = 600,
             noAnchorTarget = true,  -- icon count changes dynamically with auras
+            -- Icon size is driven solely by the Scale slider (db.profile.display.scale).
+            -- No drag-resize: the row width is count-dependent, so reconstructing
+            -- scale from a stored width restore (spec-override / unlock layer) under a
+            -- different visible-icon count corrupts the persisted scale. Matches the
+            -- External Defensives dynamic-count icon row.
+            noResize = true,
             getFrame = function() return iconAnchor end,
             getSize = function()
                 local p = db.profile.display
                 local baseScale = p.scale or 1.0
                 local sz = floor(ICON_SIZE * baseScale + 0.5)
                 local spacing = p.iconSpacing or 8
-                local count = max(#activeIcons, 2)
+                -- Fit all active icons (same set LayoutIcons places: active
+                -- reminders + merged beacon icons unless they route to the
+                -- cursor); fall back to a 2-wide grabbable box when nothing is
+                -- showing so the mover overlay is still draggable.
+                local count = #activeIcons
+                local beaconsOnCursor = p.cursorAttach and cursorAnchor
+                if _B.icons and not beaconsOnCursor then
+                    for _, id in ipairs(_B.ALL or {}) do
+                        if _B.iconState and _B.iconState[id] and _B.icons[id] then count = count + 1 end
+                    end
+                end
+                if count < 1 then count = 2 end
                 local w = count * sz + (count - 1) * spacing
                 local textH = 0
                 if p.showText then
                     textH = (p.textSize or 11) + abs(p.textYOffset or -2)
                 end
                 local h = sz + textH
-                -- Keep iconAnchor sized correctly so Sync() never sees it as a tiny anchor
+                -- Resize the anchor for the overlay. iconAnchor is CENTER-anchored
+                -- and the icons hang off its CENTER, so this never moves them.
                 if iconAnchor then ResizeAnchorCentered(w, h) end
                 return w, h
-            end,
-            linkedDimensions = true,
-            setWidth = function(_, newW)
-                if not EllesmereUI._unlockActive then return end
-                local p = db.profile.display
-                local spacing = p.iconSpacing or 8
-                local count = max(#activeIcons, 2)
-                local sz = (newW - (count - 1) * spacing) / count
-                if sz < 8 then sz = 8 end
-                p.scale = sz / ICON_SIZE
-                if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
-            end,
-            setHeight = function(_, newH)
-                if not EllesmereUI._unlockActive then return end
-                local p = db.profile.display
-                local textH = 0
-                if p.showText then
-                    textH = (p.textSize or 11) + abs(p.textYOffset or -2)
-                end
-                local sz = newH - textH
-                if sz < 8 then sz = 8 end
-                p.scale = sz / ICON_SIZE
-                if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
             end,
             savePos = function(key, point, relPoint, x, y)
                 db.profile.unlockPos = {point=point, relPoint=relPoint, x=x, y=y}
@@ -3173,10 +3285,10 @@ local function BeaconApplyGlow(f, show)
         local p = db and db.profile.display
         local glowType = p and p.glowType or 0
         if glowType > 0 then
-            local gc = p and p.glowColor or DEFAULT_GLOW_COLOR
+            local gr, gg, gb = ResolveGlowTint(p)
             local baseScale = p and p.scale or 1.0
             local sz = floor(ICON_SIZE * baseScale + 0.5)
-            ApplyGlow(f, glowType, gc.r, gc.g, gc.b, sz)
+            ApplyGlow(f, glowType, gr, gg, gb, sz)
         end
         _B.glowState[f._spellID] = true
     else
@@ -3197,7 +3309,8 @@ local function BeaconApplyText(f)
         local yOff = p.textYOffset or -2
         SetABRFont(f._text, fontPath, textSize)
         f._text:ClearAllPoints()
-        f._text:SetPoint("TOP", f, "BOTTOM", xOff, yOff)
+        local tp, ip = GetTextAnchorPoints(p)
+        f._text:SetPoint(tp, f, ip, xOff, yOff)
         f._text:SetTextColor(tc.r, tc.g, tc.b, 1)
         f._text:SetText(ShortLabel(f._spellID == _B.BOL and "Beacon of Light" or "Beacon of Faith"))
         f._text:Show()
@@ -3367,6 +3480,10 @@ end
 -------------------------------------------------------------------------------
 function EABR:OnInitialize()
     db = EllesmereUI.Lite.NewDB("EllesmereUIAuraBuffRemindersDB", defaults, true)
+
+    -- Migrate the login-active profile eagerly; profiles activated later are
+    -- covered by the read-path call in ResolveGlowTint.
+    EnsureGlowModeMigrated(db.profile.display)
 end
 
 -------------------------------------------------------------------------------
@@ -3389,6 +3506,8 @@ function EABR:OnEnable()
     _G._EABR_StartAutoCastShine = StartAutoCastShine
     _G._EABR_StartFlipBookGlow = StartFlipBookGlow
     _G._EABR_StopAllGlows = StopAllGlows
+    _G._EABR_ResolveGlowTint = ResolveGlowTint
+    _G._EABR_EnsureGlowModeMigrated = EnsureGlowModeMigrated
     _G._EABR_RegisterUnlock = RegisterUnlockElements
     _G._EABR_ApplyUnlockPos = ApplyUnlockPos
     _G._EABR_RAID_BUFFS = RAID_BUFFS
@@ -3872,8 +3991,33 @@ mainFrame:RegisterEvent("PET_BAR_UPDATE")
 --  in a raid group and the player is a healer with < 80% mana.
 --  Out-of-combat only.
 -------------------------------------------------------------------------------
-do
+local SetupReadyCheckManaWarning = function()
     local warnFrame, warnFS, warnTimer, warnCurve
+
+    -- Helpers hang on EABR, NOT block locals: this file's main chunk sits at
+    -- Lua 5.1's 200-local cap, so new file-scope locals here fail to load.
+    -- Settings slice = db.profile.consumables (options: "Ready Check Mana
+    -- Warning" row), fetched inline per helper for the same reason.
+
+    -- Default ON: the warning predates its toggle, so a missing key = enabled.
+    function EABR.RCWEnabled()
+        local p = db and db.profile
+        local c = p and p.consumables
+        return not c or c.rcManaWarn ~= false
+    end
+
+    -- Custom swatch color, or the brightened mana color (the original look).
+    function EABR.RCWColor()
+        local p = db and db.profile
+        local c = p and p.consumables
+        local col = c and c.rcManaWarnColor
+        if col and col.r then return col.r, col.g, col.b end
+        local mc = EllesmereUI.GetPowerColor and EllesmereUI.GetPowerColor("MANA")
+        if mc then
+            return math.min(mc.r * 1.5, 1), math.min(mc.g * 1.5, 1), math.min(mc.b * 1.5, 1)
+        end
+        return 0, 0.825, 1
+    end
 
     local function HideWarning()
         if warnFrame then
@@ -3883,21 +4027,51 @@ do
         if warnTimer then warnTimer:Cancel(); warnTimer = nil end
     end
 
+    -- Push position/size/color settings onto the built frame. The color curve
+    -- is rebuilt here because its colors are baked in at AddPoint time; an
+    -- already-visible warning/preview is re-tinted so edits show live.
+    function EABR.RCWApplySettings()
+        if not warnFrame then return end
+        local p = db and db.profile
+        local c = p and p.consumables
+        warnFrame:ClearAllPoints()
+        warnFrame:SetPoint("CENTER", UIParent, "CENTER",
+            (c and c.rcManaWarnX) or 0, 75 + ((c and c.rcManaWarnY) or 0))
+        local font = ResolveFontPath()
+        local outline = GetABROutline()
+        if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(warnFS, outline == "" and GetABRUseShadow()) end
+        warnFS:SetFont(font, (c and c.rcManaWarnSize) or 48, outline)
+        -- Explicit white instance color. This string is tinted purely via
+        -- SetVertexColor (curve result), and with no instance color set the
+        -- string inherits the primed shadow FontObject's color -- which
+        -- resolves BLACK on 12.0.7, rendering the warning black. White base
+        -- restores the pre-12.0.7 default so the vertex tint shows true.
+        warnFS:SetTextColor(1, 1, 1, 1)
+        local r, g, b = EABR.RCWColor()
+        -- Curve: alpha 1 at/below 80%, alpha 0 above.
+        -- The curve colors the FontString directly via SetVertexColor,
+        -- using alpha to control visibility -- no secret value reads.
+        if C_CurveUtil and C_CurveUtil.CreateColorCurve then
+            warnCurve = C_CurveUtil.CreateColorCurve()
+            warnCurve:AddPoint(0.0,    CreateColor(r, g, b, 1))
+            warnCurve:AddPoint(0.80,   CreateColor(r, g, b, 1))
+            warnCurve:AddPoint(0.8001, CreateColor(r, g, b, 0))
+            warnCurve:AddPoint(1.0,    CreateColor(r, g, b, 0))
+        end
+        if warnFrame:IsShown() then
+            warnFS:SetVertexColor(r, g, b, 1)
+        end
+    end
+
     local function BuildWarnFrame()
         if warnFrame then return end
         warnFrame = CreateFrame("Frame", nil, UIParent)
         warnFrame:SetSize(600, 60)
-        warnFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 75)
         warnFrame:SetFrameStrata("FULLSCREEN")
         warnFrame:SetFrameLevel(100)
         warnFrame:Hide()
         warnFS = warnFrame:CreateFontString(nil, "OVERLAY")
-        local font = ResolveFontPath()
-        local outline = GetABROutline()
-        if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(warnFS, outline == "" and GetABRUseShadow()) end
-        warnFS:SetFont(font, 48, outline)
         warnFS:SetPoint("CENTER")
-        warnFS:SetText("LOW MANA")
         -- Breathe animation: fade between 60% and 100% alpha
         local ag = warnFrame:CreateAnimationGroup()
         local fadeOut = ag:CreateAnimation("Alpha")
@@ -3914,20 +4088,8 @@ do
         fadeIn:SetSmoothing("IN_OUT")
         ag:SetLooping("REPEAT")
         warnFrame._breathe = ag
-        -- Curve: alpha 1 at/below 80%, alpha 0 above.
-        -- The curve colors the FontString directly via SetVertexColor,
-        -- using alpha to control visibility -- no secret value reads.
-        if C_CurveUtil and C_CurveUtil.CreateColorCurve then
-            warnCurve = C_CurveUtil.CreateColorCurve()
-            local mc = EllesmereUI.GetPowerColor("MANA")
-            local r = math.min(mc.r * 1.5, 1)
-            local g = math.min(mc.g * 1.5, 1)
-            local b = math.min(mc.b * 1.5, 1)
-            warnCurve:AddPoint(0.0,    CreateColor(r, g, b, 1))
-            warnCurve:AddPoint(0.80,   CreateColor(r, g, b, 1))
-            warnCurve:AddPoint(0.8001, CreateColor(r, g, b, 0))
-            warnCurve:AddPoint(1.0,    CreateColor(r, g, b, 0))
-        end
+        EABR.RCWApplySettings()
+        warnFS:SetText("LOW MANA")
     end
 
     -- Only listen for READY_CHECK when out of combat AND in a raid.
@@ -3937,7 +4099,7 @@ do
     local _inRaid = false
 
     local function UpdateReadyCheckRegistration()
-        local shouldListen = _inRaid and not InCombatLockdown()
+        local shouldListen = _inRaid and not InCombatLockdown() and EABR.RCWEnabled()
         if shouldListen then
             rcFrame:RegisterEvent("READY_CHECK")
         else
@@ -3963,12 +4125,14 @@ do
             return
         end
         -- READY_CHECK (only fires when out of combat AND in raid)
+        if not EABR.RCWEnabled() then return end
         local spec = GetSpecialization and GetSpecialization()
         if not spec then return end
         local role = GetSpecializationRole(spec)
         if role ~= "HEALER" then return end
         if not UnitPowerPercent then return end
         BuildWarnFrame()
+        EABR.RCWApplySettings()
         if not warnCurve then return end
         -- Let WoW's C side evaluate mana % against the curve.
         -- Result: mana color at full alpha if below 80%, zero alpha if above.
@@ -3983,5 +4147,27 @@ do
         if warnTimer then warnTimer:Cancel() end
         warnTimer = C_Timer.NewTimer(10, HideWarning)
     end)
+
+    -- Options hooks (Consumables -> Ready Check Mana Warning row).
+    _G._EABR_RCWarnApply = function()
+        BuildWarnFrame()
+        EABR.RCWApplySettings()
+    end
+    -- Preview bypasses the curve: it must be visible at any mana level, so it
+    -- tints with the plain configured color (readable constants, no secrets).
+    _G._EABR_RCWarnPreview = function()
+        BuildWarnFrame()
+        EABR.RCWApplySettings()
+        if warnTimer then warnTimer:Cancel(); warnTimer = nil end
+        local r, g, b = EABR.RCWColor()
+        warnFS:SetVertexColor(r, g, b, 1)
+        warnFrame:Show()
+        if warnFrame._breathe and not warnFrame._breathe:IsPlaying() then
+            warnFrame._breathe:Play()
+        end
+    end
+    _G._EABR_RCWarnHidePreview = HideWarning
+    _G._EABR_RCWarnUpdateReg = UpdateReadyCheckRegistration
 end
+SetupReadyCheckManaWarning()
 

@@ -169,8 +169,12 @@ local SPEED_CONV = {
 }
 
 -- Map the character-sheet stat names to their conversion curve + bracket set.
+-- Keys MUST match the stat.name strings in the CharacterSheet stat table
+-- verbatim (the tooltip calls GetStatDR(stat.name, ...)): a display rename
+-- there without a key update here silently drops the DR breakdown ("Crit"
+-- -> "Critical Strike", 8.4.8).
 local STAT_INFO = {
-    Crit        = { conv = CRIT_CONV,  brackets = SECONDARY_BRACKETS },
+    ["Critical Strike"] = { conv = CRIT_CONV, brackets = SECONDARY_BRACKETS },
     Haste       = { conv = HASTE_CONV, brackets = SECONDARY_BRACKETS },
     Mastery     = { conv = CRIT_CONV,  brackets = SECONDARY_BRACKETS },
     Versatility = { conv = VERS_CONV,  brackets = SECONDARY_BRACKETS },

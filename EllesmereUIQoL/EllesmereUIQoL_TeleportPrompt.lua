@@ -62,6 +62,7 @@ local pendingHide          -- hide requested in combat; hide on PLAYER_REGEN_ENA
 
 -- Forward declarations (closures reference each other)
 local BuildPopup, ShowPrompt, HidePrompt, ClearPending
+local ApplyTeleportPrompt  -- live enable/disable entry point (defined in the events section)
 local UpdateButtonVisuals, ResolveDungeon
 local SavePosition, ApplySavedPosition, ApplyDisableVisibility
 
@@ -246,8 +247,7 @@ BuildPopup = function()
     disableBtn:SetScript("OnLeave", function() disableLbl:SetTextColor(0.6, 0.6, 0.6, 1) end)
     disableBtn:SetScript("OnClick", function()
         TeleCfg().enabled = false
-        ClearPending()
-        HidePrompt()
+        ApplyTeleportPrompt()
     end)
     popup._disableBtn = disableBtn
 
@@ -379,21 +379,69 @@ end
 --  only registered when the feature is enabled (zero cost when disabled).
 -------------------------------------------------------------------------------
 local ev = CreateFrame("Frame")
+
+-- Feature events are registered only while enabled and unregistered on
+-- disable, so a disabled reminder costs nothing on roster/zone/combat events.
+-- PLAYER_REGEN_ENABLED outlives a mid-combat disable while a combat-blocked
+-- hide or secure attribute write is pending; its handler re-syncs afterwards.
+local function SyncEvents()
+    if IsEnabled() then
+        ev:RegisterEvent("LFG_LIST_JOINED_GROUP")
+        ev:RegisterEvent("GROUP_ROSTER_UPDATE")
+        ev:RegisterEvent("PLAYER_ENTERING_WORLD")
+        ev:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+        ev:RegisterEvent("PLAYER_REGEN_DISABLED")
+        ev:RegisterEvent("PLAYER_REGEN_ENABLED")
+    else
+        ev:UnregisterEvent("LFG_LIST_JOINED_GROUP")
+        ev:UnregisterEvent("GROUP_ROSTER_UPDATE")
+        ev:UnregisterEvent("PLAYER_ENTERING_WORLD")
+        ev:UnregisterEvent("ZONE_CHANGED_NEW_AREA")
+        ev:UnregisterEvent("PLAYER_REGEN_DISABLED")
+        if not (pendingHide or pendingAttrSpellID) then
+            ev:UnregisterEvent("PLAYER_REGEN_ENABLED")
+        end
+    end
+end
+
+-- Live enable/disable (options toggle and the in-popup Disable Feature text):
+-- takes effect immediately in both directions, no reload. The popup parents a
+-- secure button, so a mid-combat first enable defers the build to combat end.
+local pendingBuild
+ApplyTeleportPrompt = function()
+    if IsEnabled() then
+        if not popup and InCombatLockdown() then
+            pendingBuild = true
+            ev:RegisterEvent("PLAYER_REGEN_ENABLED")
+            return
+        end
+        pendingBuild = nil
+        BuildPopup()
+        SyncEvents()
+    else
+        pendingBuild = nil
+        ClearPending()
+        HidePrompt()
+        SyncEvents()
+    end
+end
+_G._EUI_ApplyTeleportPrompt = ApplyTeleportPrompt
+
 ev:RegisterEvent("PLAYER_LOGIN")
 ev:SetScript("OnEvent", function(self, event, arg1, arg2)
     if event == "PLAYER_LOGIN" then
         -- Login is always out of combat: safe to create the secure button now.
         if IsEnabled() then
             BuildPopup()
-            self:RegisterEvent("LFG_LIST_JOINED_GROUP")
-            self:RegisterEvent("GROUP_ROSTER_UPDATE")
-            self:RegisterEvent("PLAYER_ENTERING_WORLD")
-            self:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-            self:RegisterEvent("PLAYER_REGEN_DISABLED")
-            self:RegisterEvent("PLAYER_REGEN_ENABLED")
+            SyncEvents()
         end
         return
     elseif event == "PLAYER_REGEN_ENABLED" then
+        -- Finish a mid-combat enable: safe to build the secure button now.
+        if pendingBuild then
+            pendingBuild = nil
+            if IsEnabled() then BuildPopup() end
+        end
         -- Flush a secure attribute write that was blocked during combat.
         if pendingAttrSpellID and secureBtn then
             secureBtn:SetAttribute("spell", pendingAttrSpellID)
@@ -410,14 +458,16 @@ ev:SetScript("OnEvent", function(self, event, arg1, arg2)
             pendingHide = nil
             if popup and popup:IsShown() then popup:Hide() end
         end
+        -- Drop any event that only stayed registered for the flushes above.
+        SyncEvents()
         return
     elseif event == "PLAYER_REGEN_DISABLED" then
         HidePrompt()  -- combat-start guard (teleports cannot be cast in combat)
         return
     end
 
-    -- If the user toggled the feature off this session but chose "Later", the
-    -- events are still registered; bail and tidy up.
+    -- Defense in depth: feature events unregister on disable, but bail if one
+    -- lands mid-transition.
     if not IsEnabled() then
         ClearPending(); HidePrompt(); return
     end

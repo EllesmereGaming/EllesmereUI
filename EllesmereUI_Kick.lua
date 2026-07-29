@@ -86,6 +86,13 @@ EllesmereUI.ComputeCastBarTint = ComputeCastBarTint
 -- AttachSecureUnitMenu(frame) on any unit button that needs a right-click menu
 -- instead of setting *type2 = "togglemenu".
 local menuProxies = setmetatable({}, { __mode = "k" })
+-- 12.1: proxies are GLOBALLY NAMED so bindings can reach them via "/click
+-- <name>" (macro transport). 12.1 broke the "click" secure action outright
+-- (a typo: SecureTemplates.lua:564 calls HasAnyForbiddenAspects on the
+-- mouse-button STRING instead of the delegate); /click hits
+-- SecureActionButton_OnClick directly and is unaffected. On 12.0 the click
+-- transport works and proxies stay anonymous.
+local proxyCounter = 0
 
 -- Create (once) and return the hidden SecureActionButton proxy for a unit button.
 -- Use this when wiring a SPECIFIC click/key binding to the menu -- it does NOT
@@ -94,7 +101,12 @@ function EllesmereUI.GetSecureMenuProxy(frame)
     if not frame then return end
     local proxy = menuProxies[frame]
     if not proxy then
-        proxy = CreateFrame("Button", nil, frame, "SecureActionButtonTemplate")
+        local proxyName
+        if EllesmereUI.IS_121 then
+            proxyCounter = proxyCounter + 1
+            proxyName = "EUISecureMenuProxy" .. proxyCounter
+        end
+        proxy = CreateFrame("Button", proxyName, frame, "SecureActionButtonTemplate")
         proxy:SetSize(1, 1)
         proxy:SetAlpha(0)
         proxy:EnableMouse(false)          -- never catches real mouse; only the secure click delegate reaches it
@@ -124,7 +136,12 @@ function EllesmereUI.GetSecureTargetProxy(frame)
     if not frame then return end
     local proxy = targetProxies[frame]
     if not proxy then
-        proxy = CreateFrame("Button", nil, frame, "SecureActionButtonTemplate")
+        local proxyName
+        if EllesmereUI.IS_121 then
+            proxyCounter = proxyCounter + 1
+            proxyName = "EUISecureTargetProxy" .. proxyCounter
+        end
+        proxy = CreateFrame("Button", proxyName, frame, "SecureActionButtonTemplate")
         proxy:SetSize(1, 1)
         proxy:SetAlpha(0)
         proxy:EnableMouse(false)          -- never catches real mouse; only the secure click delegate reaches it
@@ -147,8 +164,16 @@ function EllesmereUI.AttachSecureUnitMenu(frame)
     if not frame then return end
     local proxy = EllesmereUI.GetSecureMenuProxy(frame)
     frame:SetAttribute("type2", nil)
-    frame:SetAttribute("*type2", "click")
-    frame:SetAttribute("*clickbutton2", proxy)
+    if EllesmereUI.IS_121 then
+        -- Macro transport ("/click <proxy>") instead of the "click" action:
+        -- the 12.1 click action crashes on a Blizzard typo (see above).
+        frame:SetAttribute("*type2", "macro")
+        frame:SetAttribute("*macrotext2", "/click " .. proxy:GetName())
+        frame:SetAttribute("*clickbutton2", nil)
+    else
+        frame:SetAttribute("*type2", "click")
+        frame:SetAttribute("*clickbutton2", proxy)
+    end
     return proxy
 end
 

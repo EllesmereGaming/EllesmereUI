@@ -144,7 +144,7 @@ local function Register(frame, keep)
 end
 WSkin.Register = Register
 
-local PROTECT_KEYS = { "bg", "bgOverlay", "modernBg", "hover", "selBar", "rightShade", "fill", "x", "topBar", "arrow", "caret" }
+local PROTECT_KEYS = { "bg", "bgOverlay", "modernBg", "hover", "selBar", "rightShade", "fill", "x", "topBar", "bottomBar", "arrow", "caret" }
 local function Restrip()
     for frame, keep in pairs(_restrip) do
         if frame and not frame:IsForbidden() then
@@ -274,12 +274,31 @@ function WSkin.Shell(winKey, frame, opts)
 
         -- Black top bar behind the window title. Sits above both style
         -- backdrops (-8/-7/-6) and below all content and the border overlay.
-        local topBar = frame:CreateTexture(nil, "BACKGROUND", nil, -5)
-        topBar:SetColorTexture(0, 0, 0, 0.5)
-        topBar:SetPoint("TOPLEFT")
-        topBar:SetPoint("TOPRIGHT")
-        topBar:SetHeight(25)
-        d.topBar = topBar
+        -- opts.noTopBar skips it for shells with no title row of their own
+        -- (loot toasts and other small popups), where a 25px bar would just be
+        -- a dark stripe across the top.
+        if not (opts and opts.noTopBar) then
+            local topBar = frame:CreateTexture(nil, "BACKGROUND", nil, -5)
+            topBar:SetColorTexture(0, 0, 0, 0.5)
+            topBar:SetPoint("TOPLEFT")
+            topBar:SetPoint("TOPRIGHT")
+            topBar:SetHeight(25)
+            d.topBar = topBar
+        end
+        -- Matching bar along the BOTTOM, opt-in via opts.bottomBar (pass a
+        -- number for a height other than the top bar's 25). For windows that
+        -- carry a footer strip -- a currency row, a total, an action bar --
+        -- so it reads as a deliberate band rather than content floating on
+        -- the backdrop. Same layer and color as the top bar, so the two match.
+        local bb = opts and opts.bottomBar
+        if bb then
+            local bottomBar = frame:CreateTexture(nil, "BACKGROUND", nil, -5)
+            bottomBar:SetColorTexture(0, 0, 0, 0.5)
+            bottomBar:SetPoint("BOTTOMLEFT")
+            bottomBar:SetPoint("BOTTOMRIGHT")
+            bottomBar:SetHeight(type(bb) == "number" and bb or 25)
+            d.bottomBar = bottomBar
+        end
     end
     if not (opts and opts.noBorder) then WSkin.AtlasBorder(frame) end
     WSkin.AdoptShell(winKey, frame)
@@ -642,7 +661,7 @@ function WSkin.ScrollBarsIn(frame, depth)
     if not frame or depth > 7 or frame:IsForbidden() then return end
     for i = 1, select("#", frame:GetChildren()) do
         local child = select(i, frame:GetChildren())
-        if child then
+        if child and not WSkin.IsForeignFrame(child, frame) then
             if child.Track and (child.Back or child.Forward) then WSkin.ScrollBar(child) end
             WSkin.ScrollBarsIn(child, depth + 1)
         end
@@ -721,6 +740,7 @@ end
 function WSkin.PagingIn(frame, depth)
     depth = depth or 0
     if not frame or depth > 8 or not frame.GetChildren or frame:IsForbidden() then return end
+    if depth > 0 and WSkin.IsForeignFrame(frame) then return end
     if frame.PrevPageButton then WSkin.PageButton(frame.PrevPageButton, "<") end
     if frame.NextPageButton then WSkin.PageButton(frame.NextPageButton, ">") end
     for i = 1, select("#", frame:GetChildren()) do
@@ -936,11 +956,21 @@ function WSkin.NormalizeTabRow(tabs)
     -- pixels and rounds inconsistently. PP.perfect (= 1 physical pixel at
     -- scale 1) divided by the tab's effective scale is exact at any scale.
     local PP = EUI and EUI.PP
+    -- Shave a few px off every skinned tab's height, ONCE per tab (guarded in
+    -- the WSkin FFD so repeated re-skins never shrink it cumulatively). Applied
+    -- here so every window's bottom tab row gets the same shorter profile.
+    local TAB_TRIM_H = 2
     local prev
     for i = 1, #tabs do
         local t = tabs[i]
         if t and t.IsForbidden and not t:IsForbidden()
            and (not t.IsShown or t:IsShown()) then
+            local d = GetFFD(t)
+            if not d.heightTrimmed and t.SetHeight and t.GetHeight then
+                d.heightTrimmed = true
+                local h = t:GetHeight() or 0
+                if h > TAB_TRIM_H then t:SetHeight(h - TAB_TRIM_H) end
+            end
             if prev then
                 local gap = (PP and PP.mult) or 1
                 local es = t.GetEffectiveScale and t:GetEffectiveScale()
@@ -1092,6 +1122,46 @@ function WSkin.IsArtExempt(frame)
     return d and d.artExempt or false
 end
 
+-- Frame provenance: is this frame Blizzard's, or was it parented into the
+-- window by another addon? Every recursive DISCOVERY sweep (art fades, button
+-- flattening, control/scrollbar/paging finds) skips foreign frames and their
+-- whole subtree, so third-party panels riding a Blizzard window keep their own
+-- look. Explicit primitive calls (WSkin.Button(frame), Panel, ...) stay
+-- ungated: naming a frame is opting in.
+--
+-- The signal: Blizzard's secure code leaves SECURE references behind -- a
+-- named frame's global, or the parentKey slot on its parent -- while frames
+-- created by any addon leave tainted ones. issecurevariable reads taint
+-- without spreading it, so the whole check is side-effect free. Frames with
+-- no name and no reference on their parent (pooled list rows) stay treated as
+-- Blizzard's; only confirmed-foreign verdicts cache (a frame could gain its
+-- addon-written reference key after we first see it).
+local _foreign = setmetatable({}, { __mode = "k" })
+
+function WSkin.IsForeignFrame(frame, parent)
+    if _foreign[frame] then return true end
+    local name = frame.GetName and frame:GetName()
+    if name and _G[name] == frame then
+        if issecurevariable(name) then return false end
+        _foreign[frame] = true
+        return true
+    end
+    parent = parent or (frame.GetParent and frame:GetParent())
+    if not parent then return false end
+    local insecureRef = false
+    for k, v in pairs(parent) do
+        if type(k) == "string" and not issecretvalue(v) and v == frame then
+            if issecurevariable(parent, k) then return false end
+            insecureRef = true
+        end
+    end
+    if insecureRef then
+        _foreign[frame] = true
+        return true
+    end
+    return false
+end
+
 local BG_ART_KEYS = {
     "CustomBG", "InfoBackground", "BackgroundTexture", "DungeonBackground",
     "Background", "background", "Bg", "bg", "WaterMark", "Watermark",
@@ -1105,6 +1175,7 @@ function WSkin.FadeKeyedArt(frame, depth)
     depth = depth or 0
     if not frame or depth > 6 or frame:IsForbidden() then return end
     if WSkin.IsArtExempt(frame) then return end
+    if depth > 0 and WSkin.IsForeignFrame(frame) then return end
     for _, key in ipairs(BG_ART_KEYS) do
         local t = frame[key]
         if t and t.IsObjectType and t:IsObjectType("Texture") then t:SetAlpha(0) end
@@ -1140,6 +1211,7 @@ function WSkin.FadeArtIn(frame, depth)
     depth = depth or 0
     if not frame or depth > 9 or not frame.GetRegions or frame:IsForbidden() then return end
     if WSkin.IsArtExempt(frame) then return end
+    if depth > 0 and WSkin.IsForeignFrame(frame) then return end
     local mybg = FFD[frame] and FFD[frame].bg
     for i = 1, select("#", frame:GetRegions()) do
         local r = select(i, frame:GetRegions())
@@ -1164,12 +1236,14 @@ function WSkin.ButtonsIn(frame, depth)
     if not frame or depth > 9 or not frame.GetChildren or frame:IsForbidden() then return end
     for i = 1, select("#", frame:GetChildren()) do
         local child = select(i, frame:GetChildren())
-        if child and child.GetObjectType and child:GetObjectType() == "Button"
-           and not GetFFD(child).skinned and not GetFFD(child).x
-           and child.Left and child.Middle and child.Right then
-            WSkin.Button(child)
+        if child and not WSkin.IsForeignFrame(child, frame) then
+            if child.GetObjectType and child:GetObjectType() == "Button"
+               and not GetFFD(child).skinned and not GetFFD(child).x
+               and child.Left and child.Middle and child.Right then
+                WSkin.Button(child)
+            end
+            WSkin.ButtonsIn(child, depth + 1)
         end
-        WSkin.ButtonsIn(child, depth + 1)
     end
 end
 
@@ -1183,6 +1257,7 @@ local CONTROL_KEYS = {
 function WSkin.ControlsIn(frame, depth)
     depth = depth or 0
     if not frame or depth > 9 or not frame.GetChildren or frame:IsForbidden() then return end
+    if depth > 0 and WSkin.IsForeignFrame(frame) then return end
     for _, key in ipairs(CONTROL_KEYS) do
         local el = frame[key]
         if el and el.IsObjectType and el.GetObjectType then
@@ -1198,6 +1273,13 @@ end
 -- page nav, scroll bars.
 function WSkin.CommonChrome(frame, prefix)
     if frame.CloseButton then WSkin.CloseButton(frame.CloseButton) end
+    -- Newer templates hang the X off the title bar (or name it ClosePanelButton)
+    -- instead of putting it on the frame -- the loot window is one of them, and
+    -- it kept Blizzard's red X until these two paths were added.
+    if frame.TitleContainer and frame.TitleContainer.CloseButton then
+        WSkin.CloseButton(frame.TitleContainer.CloseButton)
+    end
+    if frame.ClosePanelButton then WSkin.CloseButton(frame.ClosePanelButton) end
     if prefix then
         local cb = _G[prefix .. "CloseButton"]
         if cb then WSkin.CloseButton(cb) end

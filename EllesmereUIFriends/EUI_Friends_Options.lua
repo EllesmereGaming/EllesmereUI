@@ -75,20 +75,12 @@ initFrame:SetScript("OnEvent", function(self)
     ---------------------------------------------------------------------------
     local PP = EllesmereUI.PP
     local function BuildVisibilityRow(W, parent, y, getCfg, refreshFn)
-        local visRow, visH = W:DualRow(parent, y,
-            { type="dropdown", text="Visibility",
-              values = EllesmereUI.VIS_VALUES,
-              order  = EllesmereUI.VIS_ORDER,
-              getValue=function()
-                  local c = getCfg(); if not c then return "always" end
-                  return c.visibility or "always"
-              end,
-              setValue=function(v)
-                  local c = getCfg(); if not c then return end
-                  c.visibility = v
+        local visRow, visH = EllesmereUI.BuildVisibilityModeRow(W, parent, y,
+            { getStore = getCfg, legacyKey = "visibility",
+              caps = { partyIncludesRaid = false, luaDragonriding = true },
+              onChanged = function()
                   if refreshFn then refreshFn() end
                   if _G._EBS_UpdateVisibility then _G._EBS_UpdateVisibility() end
-                  EllesmereUI:RefreshPage()
               end },
             { type="dropdown", text="Visibility Options",
               values={ __placeholder = "..." }, order={ "__placeholder" },
@@ -411,6 +403,7 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI:InvalidatePageCache()
             if _G._EFR_ApplyFriends then _G._EFR_ApplyFriends() end
             if _G._EFR_ProcessFriendButtons then _G._EFR_ProcessFriendButtons() end
+            if _G._EFR_RepaintTiles then _G._EFR_RepaintTiles() end
         end,
     })
 

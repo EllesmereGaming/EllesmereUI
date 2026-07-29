@@ -52,10 +52,39 @@ local INDICATOR_TYPE_VALUES = {}
 local INDICATOR_TYPE_ORDER = {}
 for _, t in ipairs(INDICATOR_TYPES) do
     INDICATOR_TYPE_VALUES[t.key] = t.name
-    INDICATOR_TYPE_ORDER[#INDICATOR_TYPE_ORDER + 1] = t.key
+    -- 12.1 only: Frame Border indicators cannot be created there (no
+    -- aura-container equivalent); existing ones stay listed with a removal
+    -- notice. On 12.0 the type remains fully creatable.
+    if not (EllesmereUI.IS_121 and t.key == "border") then
+        INDICATOR_TYPE_ORDER[#INDICATOR_TYPE_ORDER + 1] = t.key
+    end
 end
 -- Insert divider after "bar"
 tinsert(INDICATOR_TYPE_ORDER, 4, "---")
+
+-- 12.1 PTR: gray blocking overlay with a red removal notice, for settings
+-- whose backing machinery has no aura-container equivalent (styled after
+-- the party-tab sync overlays). UI-only; the runtime side of these
+-- settings is inert elsewhere. Callers anchor the returned frame.
+local function BuildPTROverlay(parentFrame, label, fontSize)
+    local ov = CreateFrame("Frame", nil, parentFrame)
+    ov._searchIgnore = true -- inline search must never re-anchor/collapse it
+    ov:SetFrameLevel(parentFrame:GetFrameLevel() + 60)
+    ov:EnableMouse(true)
+    local bg = ov:CreateTexture(nil, "OVERLAY")
+    bg:SetAllPoints()
+    bg:SetColorTexture(0.10, 0.10, 0.12, 0.95)
+    local fs = ov:CreateFontString(nil, "OVERLAY")
+    local fp = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("raidFrames")) or "Fonts\\FRIZQT__.TTF"
+    fs:SetFont(fp, fontSize or 12, "")
+    fs:SetPoint("LEFT", ov, "LEFT", 8, 0)
+    fs:SetPoint("RIGHT", ov, "RIGHT", -8, 0)
+    fs:SetJustifyH("CENTER")
+    fs:SetTextColor(0.86, 0.24, 0.24, 0.95)
+    fs:SetText(EllesmereUI.Lf("%1$s Removed in 12.1 Unless API Changes", EllesmereUI.L(label)))
+    ov._msg = fs
+    return ov
+end
 
 -- 9-position grid
 local POSITION_VALUES = {
@@ -482,7 +511,7 @@ end
 
 -- Fallback icon textures for secret auras (icon field is also secret)
 local SECRET_SPELL_ICONS = {
-    [102342] = 136097,   -- Ironbark
+    [102342] = 572025,   -- Ironbark
     [33206]  = 135936,   -- Pain Suppression
     [10060]  = 135939,   -- Power Infusion
     [47788]  = 237542,   -- Guardian Spirit
@@ -573,7 +602,9 @@ local function NewIndicator(indType, spells)
         ind.ownOnly          = true
         local _ac = EllesmereUI and EllesmereUI.ACCENT_COLOR
         ind.color       = _ac and { r = _ac.r, g = _ac.g, b = _ac.b } or { r = 0.05, g = 0.82, b = 0.62 }
+        ind.borderStyle = "solid"
         ind.borderWidth = 2
+        ind.borderDashCount = 8
         ind.borderOpacity = 100
         ind.showWhen    = "present"
     elseif indType == "framealpha" then
@@ -659,6 +690,19 @@ end
 --  Assignment helpers
 -------------------------------------------------------------------------------
 local function GetSpecIndicators(db, specKey)
+    -- Buff Manager v2 (12.1, flag-gated): storage moves to the p.bm2 spec
+    -- tables (spell -> filter -> indicator model). The v2 indicator tables
+    -- are legacy-shaped plus a `filters` assignment map, so this ENTIRE
+    -- editor (tiles, creation, per-type settings, deletes) operates on
+    -- them unchanged through this one accessor. The v2 store is keyed by
+    -- the CURRENT player spec (class:index) -- the legacy healer specKey
+    -- argument is ignored while v2 is active.
+    if ns.BM2_Enabled and ns.BM2_SpecInds then
+        -- The passed key routes: a healer spec key edits that spec's set,
+        -- "nonhealer" edits the shared bucket, nil = the active key.
+        local inds = ns.BM2_SpecInds(specKey)
+        if inds then return inds end
+    end
     if not db or not db.profile then return {} end
     if not db.profile.bmIndicators then db.profile.bmIndicators = {} end
     if not db.profile.bmIndicators[specKey] then
@@ -666,6 +710,57 @@ local function GetSpecIndicators(db, specKey)
         PopulateDefaults(db.profile.bmIndicators[specKey], specKey)
     end
     return db.profile.bmIndicators[specKey]
+end
+-- 12.1 aura containers read the indicator config to build slots.
+ns.BM_GetSpecIndicators = GetSpecIndicators
+ns.BM_PrimaryByAlt = PRIMARY_BY_ALT
+
+-- Borrow specs (Enh/Ele -> Resto, Prot/Ret -> Holy) only track the spells
+-- they can cast; the container slots apply the same restriction.
+function ns.BM_BorrowSpellFilter()
+    if activeBorrow_BM then return activeBorrow_BM.spells end
+    return nil
+end
+
+-- "Show Own on All Specs" (Simple Setup > Buff Display): lifts the
+-- tracked-spec restriction for the SIMPLE grid only.
+local function SimpleShowOwnAllSpecs()
+    local p = ns.db and ns.db.profile
+    local bs = p and p.bmSimple
+    return (bs and bs.showOwnAllSpecs) == true
+end
+
+-- First tracked spec of the player's class, or nil for untracked classes.
+-- The all-specs fallbacks (simple grid toggle, per-indicator flag) resolve
+-- their configuration through this.
+local function ClassFallbackSpecKey()
+    local _, classToken = UnitClass("player")
+    if classToken then
+        for _, spec in ipairs(HEALER_SPECS) do
+            if spec.classToken == classToken then return spec.key end
+        end
+    end
+    return nil
+end
+ns.BM_ClassFallbackSpecKey = ClassFallbackSpecKey
+
+-- The spec key the SIMPLE grid tracks. Normally the player's resolved spec;
+-- with Show Own on All Specs enabled, untracked specs fall back to the
+-- class's first tracked spec so the player still sees their own class buffs.
+-- Secret-aura fingerprints stay gated on the REAL resolved spec
+-- (activeSpecKey_BM), so on fallback specs only plain non-secret spells can
+-- match -- deliberate scope limit, not a bug.
+local function SimpleSpecKey()
+    if activeSpecKey_BM then return activeSpecKey_BM end
+    if not SimpleShowOwnAllSpecs() then return nil end
+    return ClassFallbackSpecKey()
+end
+ns.BM_SimpleSpecKey = SimpleSpecKey
+
+-- Simple Setup whitelist for the container grid (rebuilt by RebuildLookup;
+-- read-only for consumers -- the engine copies candidate tables on set).
+function ns.BM_SimpleTrackedSpellIDs()
+    return simpleTrackedSpellIDs
 end
 
 local function CountSpecIndicators(db, specKey)
@@ -688,19 +783,33 @@ local function RebuildLookup(db)
         GetSpecIndicators(db, spec.key)
     end
 
-    -- Only load indicators for the player's active spec.
+    -- Only load indicators for the player's active spec. With no resolved
+    -- spec (untracked class spec), indicators flagged Show Own on All Specs
+    -- still load from the class-fallback spec so the player's own casts keep
+    -- their indicators (non-secret spells only there: MatchSecretAura stays
+    -- gated on activeSpecKey_BM).
     DetectActiveSpecKey()
-    if activeSpecKey_BM then
-        local specData = db.profile.bmIndicators[activeSpecKey_BM]
+    local loadKey = activeSpecKey_BM
+    local flaggedOnly = false
+    if not loadKey then
+        loadKey = ClassFallbackSpecKey()
+        flaggedOnly = true
+    end
+    if loadKey then
+        local specData = db.profile.bmIndicators[loadKey]
         if specData and type(specData) == "table" then
             for _, ind in ipairs(specData) do
-                if ind.enabled and ind.spells then
+                if ind.enabled and ind.spells
+                   and (not flaggedOnly or ind.showOwnAllSpecs) then
                     allActiveIndicators[#allActiveIndicators + 1] = ind
                     for _, sid in ipairs(ind.spells) do
                         -- Borrow specs (Enh/Ele) only track the spells they can
                         -- cast; the borrowed spec's other indicators stay inert
-                        -- (never match an aura) so nothing else shows.
-                        if (not activeBorrow_BM) or activeBorrow_BM.spells[sid] then
+                        -- (never match an aura) so nothing else shows. An
+                        -- indicator flagged Show Own on All Specs opts out of
+                        -- that restriction.
+                        if (not activeBorrow_BM) or ind.showOwnAllSpecs
+                           or activeBorrow_BM.spells[sid] then
                             trackedSpellIDs[sid] = true
                             if not spellToIndicators[sid] then
                                 spellToIndicators[sid] = {}
@@ -723,14 +832,17 @@ local function RebuildLookup(db)
 
     -- Simple Setup whitelist: every non-hidden spell of the active spec,
     -- regardless of indicators (hidden entries are alternate IDs resolved via
-    -- PRIMARY_BY_ALT during the scan). Borrow specs show only the borrowed spells.
+    -- PRIMARY_BY_ALT during the scan). Borrow specs show only the borrowed
+    -- spells. Show Own on All Specs lifts both restrictions: borrow specs get
+    -- the source spec's full list, untracked specs get the class fallback.
     wipe(simpleTrackedSpellIDs)
-    if activeBorrow_BM then
+    if activeBorrow_BM and not SimpleShowOwnAllSpecs() then
         for sid in pairs(activeBorrow_BM.spells) do
             simpleTrackedSpellIDs[sid] = true
         end
-    elseif activeSpecKey_BM then
-        local spec = SPEC_BY_KEY[activeSpecKey_BM]
+    else
+        local simpleKey = SimpleSpecKey()
+        local spec = simpleKey and SPEC_BY_KEY[simpleKey]
         if spec then
             for _, spell in ipairs(spec.spells) do
                 if not spell.hide then
@@ -775,6 +887,64 @@ local ICON_POOL_SIZE = 8   -- max placed indicators visible per button
 local DD_SPELL_ICON_SIZE = 17  -- icon size in ability/own-only dropdown menus
 local BAR_POOL_SIZE  = 4
 local BMSIMPLE_CAP   = 10  -- max buffs the Simple Setup grid can show per button
+
+-- Hover tooltips for BuffManager aura icons/bars. Mirrors the Debuff Display
+-- tooltip pattern (see EllesmereUIRaidFrames StyleButton): OnEnter renders the
+-- aura by its instance ID, which is secret-safe -- it works for fingerprinted
+-- secret auras too (Blizzard renders the real name we can't read). Mouse is
+-- enabled only when the buff "Hide Tooltips" setting is off; motion and clicks
+-- propagate to the parent button so click-casting keeps working underneath.
+local function BM_TooltipOnEnter(self)
+    local u, iid = self._tipUnit, self._tipIID
+    if not u or not iid or issecretvalue(iid) then return end
+    -- Governed ONLY by the buff "Hide Tooltips" toggle (BM_SetTipTarget leaves
+    -- the frame mouse-transparent while that is on). The "Show Raid Frames
+    -- Tooltip" mode covers the UNIT tooltip and must not veto an aura tip the
+    -- user explicitly enabled in a different section.
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    if GameTooltip.SetUnitAuraByAuraInstanceID then
+        GameTooltip:SetUnitAuraByAuraInstanceID(u, iid)
+    elseif GameTooltip.SetUnitBuffByAuraInstanceID then
+        GameTooltip:SetUnitBuffByAuraInstanceID(u, iid)
+    end
+    GameTooltip:Show()
+end
+
+local function BM_TooltipOnLeave()
+    GameTooltip:Hide()
+end
+
+-- Wire a pooled aura frame for hover tooltips once, at creation. Mouse starts
+-- disabled (transparent); BM_SetTipTarget toggles it live per the setting.
+local function BM_WireTooltip(f, button)
+    f._ownerButton = button
+    f:EnableMouse(false)
+    if f.SetPropagateMouseMotion then f:SetPropagateMouseMotion(true) end
+    if f.SetPropagateMouseClicks then f:SetPropagateMouseClicks(true) end
+    f:SetScript("OnEnter", BM_TooltipOnEnter)
+    f:SetScript("OnLeave", BM_TooltipOnLeave)
+end
+
+-- Stash the hover target (unit + aura instance) as a frame is assigned an aura,
+-- and toggle mouse interactivity to match the buff "Hide Tooltips" setting. Read
+-- live so a combat-time toggle applies on the next aura event. The default is
+-- HIDDEN (buffHideTooltips = true in the defaults table), so the frame stays
+-- mouse-transparent until the user opts in -- which is what makes the tooltip
+-- handler's own gate the only one it needs. The `not prof` fallback only covers
+-- a profile-less early call. A missing/secret instance id disables the hover.
+local function BM_SetTipTarget(f, unit, iid)
+    f._tipUnit = unit
+    f._tipIID  = iid
+    -- db is a per-call parameter elsewhere in this file, not a file upvalue;
+    -- read the profile off the addon namespace so this file-scope helper is safe.
+    local prof = ns.db and ns.db.profile
+    local wantMouse = (not prof or prof.buffHideTooltips ~= true)
+        and iid ~= nil and not issecretvalue(iid)
+    if f._tipMouse ~= wantMouse then
+        f:EnableMouse(wantMouse)
+        f._tipMouse = wantMouse
+    end
+end
 
 function ns.BM_CreateIndicators(button, health, d, PP)
     if not health then return end
@@ -832,6 +1002,7 @@ function ns.BM_CreateIndicators(button, health, d, PP)
         durFS:Hide()
         f._durText = durFS
 
+        BM_WireTooltip(f, button)
         iconPool[i] = f
     end
 
@@ -848,6 +1019,7 @@ function ns.BM_CreateIndicators(button, health, d, PP)
         barBg:SetColorTexture(0, 0, 0, 0.5)
         bar._bg = barBg
 
+        BM_WireTooltip(bar, button)
         barPool[i] = bar
     end
 
@@ -910,6 +1082,20 @@ function ns.BM_CreateIndicators(button, health, d, PP)
             f._borderFrame = bdr
         end
 
+        -- Carrier frame above the cooldown swipe/border for the stack count
+        -- (mirrors the custom-indicator pool's _textCarrier/_count above).
+        local textCarrier = CreateFrame("Frame", nil, f)
+        textCarrier:SetAllPoints()
+        textCarrier:SetFrameLevel(f:GetFrameLevel() + 5)
+        f._textCarrier = textCarrier
+
+        local countFS = textCarrier:CreateFontString(nil, "OVERLAY")
+        countFS:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", 1, -1)
+        EllesmereUI.ApplyIconTextFont(countFS, fontPathS, 8, "raidFrames")
+        countFS:SetTextColor(1, 1, 1)
+        f._count = countFS
+
+        BM_WireTooltip(f, button)
         simplePool[i] = f
     end
     d.bmSimpleIcons = simplePool
@@ -920,14 +1106,17 @@ end
 -------------------------------------------------------------------------------
 function ns.BM_AnchorIndicators(d, health, s)
     -- Re-anchor health color overlay to the current fill texture (may change
-    -- when user swaps health bar texture in settings)
-    if d.bmHCOverlay and health then
-        local ft = health:GetStatusBarTexture()
+    -- when user swaps health bar texture in settings). Always hugs the REAL
+    -- bar: `health` may be the Uniform Icon Anchoring reference (a plain
+    -- Frame with no fill texture), so resolve through its back-pointer.
+    local hcBar = health and (health._euiHealth or health)
+    if d.bmHCOverlay and hcBar then
+        local ft = hcBar.GetStatusBarTexture and hcBar:GetStatusBarTexture()
         d.bmHCOverlay:ClearAllPoints()
         if ft then
             d.bmHCOverlay:SetAllPoints(ft)
         else
-            d.bmHCOverlay:SetAllPoints(health)
+            d.bmHCOverlay:SetAllPoints(hcBar)
         end
     end
 
@@ -1061,9 +1250,13 @@ local function BM_PlaceBar(bar, health, ind, iscale)
     else
         fullW, fullH = ind.barFullWidth, ind.barFullHeight
     end
+    -- Full Width/Height pins span the health bar itself, so they keep the real
+    -- bar even when Uniform Icon Anchoring passed the full-height reference in
+    -- (the reference carries a back-pointer to the bar it was stamped on).
+    local hugBar = health._euiHealth or health
     if fullW and fullH then
         -- Exact overlay of the health bar.
-        bar:SetAllPoints(health)
+        bar:SetAllPoints(hugBar)
     elseif fullW then
         -- Span the health bar's full width; thickness from the cross-axis
         -- slider; vertical placement follows the indicator's vertical edge.
@@ -1081,8 +1274,8 @@ local function BM_PlaceBar(bar, health, ind, iscale)
         local hEdge = (pos:find("RIGHT", 1, true) and "RIGHT")
             or (pos:find("LEFT", 1, true) and "LEFT") or ""
         local ox = (ind.offsetX or 0) * iscale
-        bar:SetPoint("TOP" .. hEdge, health, "TOP" .. hEdge, ox, 0)
-        bar:SetPoint("BOTTOM" .. hEdge, health, "BOTTOM" .. hEdge, ox, 0)
+        bar:SetPoint("TOP" .. hEdge, hugBar, "TOP" .. hEdge, ox, 0)
+        bar:SetPoint("BOTTOM" .. hEdge, hugBar, "BOTTOM" .. hEdge, ox, 0)
         bar:SetWidth(isVert and h or w)
     else
         if isVert then bar:SetSize(h, w) else bar:SetSize(w, h) end
@@ -1111,6 +1304,225 @@ end
 local function BM_ApplyBarLevel(bar, ind, baseLvl)
     bar:SetFrameLevel(baseLvl + (FRAMELVL_BASE[ind.frameLevel or "behindBorders"] or FRAMELVL_BASE.behindBorders))
 end
+
+-------------------------------------------------------------------------------
+--  "Sweep" frame border (Sweep CW / Sweep CCW styles). The border is drawn as
+--  4 edge StatusBars whose FILL is driven by the aura's remaining PERCENT via
+--  a per-edge Linear window curve, so the lit arc retracts around the frame
+--  edge like a cooldown swipe. Between 0.15s Lua ticks the fill animates
+--  C-side (ExponentialEaseOut), so motion is smooth at render framerate for
+--  ~4 curve evals per border per tick. Fully secret-value-safe: the (possibly
+--  secret) evaluated percent only ever flows into SetValue (SecretArguments =
+--  AllowedWhenTainted, BarValue aspect); threshold colors only into
+--  SetStatusBarColor. Mirrors the Icon-Glow gate below.
+-------------------------------------------------------------------------------
+local SWEEP_TEX = "Interface\\Buttons\\WHITE8X8"
+
+-- Linear reveal curve for an edge occupying perimeter span [flo,fhi] in [0,1]:
+-- (0,0)(flo,0)(fhi,1)(1,1). Evaluated at remaining%, it yields that edge's
+-- fill fraction. Cached (shared across frames with the same span).
+local _sweepCurves = {}
+local function GetSweepSegCurve(flo, fhi)
+    if not (C_CurveUtil and C_CurveUtil.CreateCurve and Enum and Enum.LuaCurveType) then return nil end
+    local key = string.format("%.4f|%.4f", flo, fhi)
+    local c = _sweepCurves[key]
+    if c then return c end
+    c = C_CurveUtil.CreateCurve()
+    c:SetType(Enum.LuaCurveType.Linear)
+    c:AddPoint(0, 0)
+    if flo > 0 then c:AddPoint(flo, 0) end
+    c:AddPoint(fhi, 1)
+    if fhi < 1 then c:AddPoint(1, 1) end
+    _sweepCurves[key] = c
+    return c
+end
+
+-- Build/reuse the 4 edge StatusBars on borderFrame at width bw. Corners belong
+-- to the top/bottom bars (bars butt edge-to-edge -- no overlap, so corners
+-- never double-draw at partial opacity). Reveal order runs clockwise from
+-- TOPLEFT (top L->R, right T->B, bottom R->L, left B->T); ccw mirrors both
+-- each edge's curve span AND its in-edge grow end (reverse fill). Returns the
+-- sweep data table, or nil if size isn't ready.
+local function BM_BuildSweep(borderFrame, bw, ccw)
+    local w, h = borderFrame:GetWidth(), borderFrame:GetHeight()
+    if not w or not h or w < 2 or h < 2 then return nil end
+    local sd = borderFrame._euiSweep
+    if sd and sd.w==w and sd.h==h and sd.bw==bw and sd.ccw==ccw then return sd end
+    if not sd then sd = { bars = {}, curves = {}, flo = {}, fhi = {}, cr = 1, cg = 1, cb = 1, ca = 1 }; borderFrame._euiSweep = sd end
+
+    local sideH = h - 2 * bw
+    if sideH < 1 then sideH = 1 end
+    local P = 2 * w + 2 * sideH   -- visible perimeter (corner px counted once)
+
+    -- point/ox/oy/sw/sh: geometry. horiz/rev: fill axis + which end fills
+    -- first (cw). d0/d1: this edge's slice of the perimeter walk.
+    local edges = {
+        { point="TOPLEFT",     ox=0, oy=0,   sw=w,  sh=bw,    horiz=true,  rev=false, d0=0,         d1=w },
+        { point="TOPRIGHT",    ox=0, oy=-bw, sw=bw, sh=sideH, horiz=false, rev=true,  d0=w,         d1=w+sideH },
+        { point="BOTTOMRIGHT", ox=0, oy=0,   sw=w,  sh=bw,    horiz=true,  rev=true,  d0=w+sideH,   d1=2*w+sideH },
+        { point="BOTTOMLEFT",  ox=0, oy=bw,  sw=bw, sh=sideH, horiz=false, rev=false, d0=2*w+sideH, d1=P },
+    }
+    for i, e in ipairs(edges) do
+        local bar = sd.bars[i]
+        if not bar then
+            bar = CreateFrame("StatusBar", nil, borderFrame)
+            bar:SetStatusBarTexture(SWEEP_TEX)
+            bar:SetMinMaxValues(0, 1)
+            bar:SetValue(1)
+            sd.bars[i] = bar
+        end
+        bar:ClearAllPoints()
+        bar:SetPoint(e.point, borderFrame, e.point, e.ox, e.oy)
+        bar:SetSize(e.sw, e.sh)
+        bar:SetOrientation(e.horiz and "HORIZONTAL" or "VERTICAL")
+        local revFill = e.rev
+        if ccw then revFill = not revFill end
+        bar:SetReverseFill(revFill)
+        local flo, fhi = e.d0 / P, e.d1 / P
+        if ccw then flo, fhi = 1 - (e.d1 / P), 1 - (e.d0 / P) end
+        sd.flo[i], sd.fhi[i] = flo, fhi
+        sd.curves[i] = GetSweepSegCurve(flo, fhi)
+    end
+    sd.n = #edges
+    sd.w, sd.h, sd.bw, sd.ccw = w, h, bw, ccw
+    return sd
+end
+
+local function BM_SetSweepColor(borderFrame, r, g, b, a)
+    local sd = borderFrame._euiSweep
+    if not sd then return end
+    a = a or 1
+    sd.cr, sd.cg, sd.cb, sd.ca = r, g, b, a
+    if sd.bars then
+        for i = 1, sd.n do local bar = sd.bars[i]; if bar then bar:SetStatusBarColor(r, g, b, a) end end
+    end
+end
+
+local function BM_ShowSweep(borderFrame)
+    local sd = borderFrame._euiSweep
+    if not sd or not sd.bars then return end
+    for i = 1, sd.n do if sd.bars[i] then sd.bars[i]:Show() end end
+end
+
+local function BM_HideSweep(borderFrame)
+    local sd = borderFrame._euiSweep
+    if not sd or not sd.bars then return end
+    for i = 1, #sd.bars do if sd.bars[i] then sd.bars[i]:Hide() end end
+end
+
+-- Reset the reveal to fully lit. Used when a sweep border is shown with no
+-- aura to drive it (showWhen missing/allPresent/anyMissing) so it can't sit
+-- frozen at a stale partial fill left by an earlier drive. Plain constants.
+local function BM_ResetSweepFill(borderFrame)
+    local sd = borderFrame._euiSweep
+    if not sd or not sd.bars then return end
+    for i = 1, sd.n do if sd.bars[i] then sd.bars[i]:SetValue(1) end end
+end
+
+-- Static preview fill: no aura/ticker -- set each bar's fill from a fixed
+-- fraction using plain-Lua constant math (non-secret; preview only).
+local function BM_PreviewSweep(borderFrame, frac)
+    local sd = borderFrame._euiSweep
+    if not sd or not sd.bars then return end
+    for i = 1, sd.n do
+        local bar = sd.bars[i]
+        if bar then
+            local flo, fhi = sd.flo[i], sd.fhi[i]
+            local v
+            if frac >= fhi then v = 1
+            elseif frac <= flo then v = 0
+            else v = (frac - flo) / (fhi - flo) end
+            bar:SetValue(v)
+        end
+    end
+end
+
+-- Fill ticker (mirrors glowTicker). Secret-safe: per-edge fill from
+-- EvaluateRemainingPercent, gated to 0 when the aura is at zero. Ticks ease
+-- toward the target C-side; snap=true (register/rebuild) jumps immediately so
+-- a fresh ring never animates up from empty or a stale fill.
+local sweepRegistry = {}   -- [borderFrame] = { unit, iid }
+local sweepTicker = CreateFrame("Frame")
+sweepTicker:Hide()
+local sweepElapsed = 0
+local function EvalSweep(borderFrame, e, snap)
+    if not (C_UnitAuras_GetAuraDuration and C_CurveUtil and C_CurveUtil.EvaluateColorValueFromBoolean) then return end
+    local sd = borderFrame._euiSweep
+    if not sd or not sd.bars then return end
+    local durObj = C_UnitAuras_GetAuraDuration(e.unit, e.iid)
+    if not (durObj and durObj.EvaluateRemainingPercent and durObj.IsZero) then return end
+    local okz, isZero = pcall(durObj.IsZero, durObj)
+    if not okz then return end
+    local interp = Enum and Enum.StatusBarInterpolation
+        and (snap and Enum.StatusBarInterpolation.Immediate or Enum.StatusBarInterpolation.ExponentialEaseOut)
+    for i = 1, sd.n do
+        local bar = sd.bars[i]
+        local curve = sd.curves[i]
+        if bar and curve then
+            -- method form + pcall: a recycled duration object can throw.
+            local ok, val = pcall(durObj.EvaluateRemainingPercent, durObj, curve)
+            if ok then
+                -- Single writer: color (may be secret, from threshold) + fill, paired.
+                bar:SetStatusBarColor(sd.cr, sd.cg, sd.cb, sd.ca)
+                if interp then
+                    bar:SetValue(C_CurveUtil.EvaluateColorValueFromBoolean(isZero, 0, val), interp)
+                else
+                    bar:SetValue(C_CurveUtil.EvaluateColorValueFromBoolean(isZero, 0, val))
+                end
+            end
+        end
+    end
+end
+sweepTicker:SetScript("OnUpdate", function(_, dt)
+    sweepElapsed = sweepElapsed + dt
+    if sweepElapsed < 0.15 then return end
+    sweepElapsed = 0
+    local any = false
+    for borderFrame, e in pairs(sweepRegistry) do
+        if borderFrame.IsShown and not borderFrame:IsShown() then
+            sweepRegistry[borderFrame] = nil   -- self-prune hidden / recycled frames
+        else
+            any = true
+            EvalSweep(borderFrame, e)
+        end
+    end
+    if not any then sweepTicker:Hide() end
+end)
+local function RegisterSweep(borderFrame, unit, iid)
+    local e = sweepRegistry[borderFrame]
+    if not e then e = {}; sweepRegistry[borderFrame] = e end
+    e.unit, e.iid = unit, iid
+    sweepTicker:Show()
+    EvalSweep(borderFrame, e, true)   -- immediate snap so we never flash a full border for a tick
+end
+local function UnregisterSweep(borderFrame)
+    sweepRegistry[borderFrame] = nil
+end
+
+-- Options-page preview: no real aura, so loop a fake fraction 1->0 and drive
+-- the same edge fill. Plain-Lua constant math (non-secret). Mirrors how the
+-- duration-swipe preview animates a fake cooldown.
+local previewSweepReg = {}
+local previewSweepTicker = CreateFrame("Frame")
+previewSweepTicker:Hide()
+local previewSweepClock = 0
+previewSweepTicker:SetScript("OnUpdate", function(_, dt)
+    previewSweepClock = previewSweepClock + dt
+    local period = 4
+    local frac = 1 - ((previewSweepClock % period) / period)   -- 1 -> 0, loop
+    local any = false
+    for bf in pairs(previewSweepReg) do
+        if bf.IsShown and not bf:IsShown() then
+            previewSweepReg[bf] = nil
+        else
+            any = true
+            BM_PreviewSweep(bf, frac)
+        end
+    end
+    if not any then previewSweepTicker:Hide() end
+end)
+local function RegisterPreviewSweep(bf) previewSweepReg[bf] = true; previewSweepTicker:Show() end
+local function UnregisterPreviewSweep(bf) previewSweepReg[bf] = nil end
 
 -------------------------------------------------------------------------------
 --  Threshold "expiring soon" recolor -- secret-value-safe via C_CurveUtil.
@@ -1154,19 +1566,118 @@ local function GetThresholdAlphaCurve(thresholdSec)
     return curve
 end
 
--- [element] = { unit, iid, curve, apply }; apply(element, colorResult)
+-- Threshold sound cue -- rides the same ticker as the recolor, but unlike the
+-- visual path it needs a plain Lua comparison, so it reads the aura timing
+-- directly and skips silently whenever that timing is secret (private auras).
+-- The cue therefore only fires for auras with readable timing. 12.0 only for
+-- now; the 12.1 threshold section is inert pending engine bindings.
+local THRESHOLD_SOUND_DIR = "Interface\\AddOns\\EllesmereUI\\media\\sounds\\"
+local _thresholdSoundPaths, _thresholdSoundNames, _thresholdSoundOrder
+-- Built lazily so SharedMedia sounds registered by other addons at login are
+-- included; shared by the ticker (playback) and the options page (dropdown).
+local function GetThresholdSoundTables()
+    if _thresholdSoundPaths then
+        return _thresholdSoundPaths, _thresholdSoundNames, _thresholdSoundOrder
+    end
+    _thresholdSoundPaths = {
+        ["airhorn"]   = THRESHOLD_SOUND_DIR .. "AirHorn.ogg",
+        ["banana"]    = THRESHOLD_SOUND_DIR .. "BananaPeelSlip.ogg",
+        ["bikehorn"]  = THRESHOLD_SOUND_DIR .. "BikeHorn.ogg",
+        ["bite"]      = THRESHOLD_SOUND_DIR .. "Bite.ogg",
+        ["boxing"]    = THRESHOLD_SOUND_DIR .. "BoxingArenaSound.ogg",
+        ["catmeow"]   = THRESHOLD_SOUND_DIR .. "CatMeow.ogg",
+        ["catmeow2"]  = THRESHOLD_SOUND_DIR .. "CatMeow2.ogg",
+        ["gunshot"]   = THRESHOLD_SOUND_DIR .. "FrontalsGunshot.wav",
+        ["glass"]     = THRESHOLD_SOUND_DIR .. "Glass.mp3",
+        ["kaching"]   = THRESHOLD_SOUND_DIR .. "Kaching.ogg",
+        ["phone"]     = THRESHOLD_SOUND_DIR .. "Phone.ogg",
+        ["robotblip"] = THRESHOLD_SOUND_DIR .. "RobotBlip.ogg",
+        ["sonar"]     = THRESHOLD_SOUND_DIR .. "Sonar.ogg",
+        ["siren"]     = THRESHOLD_SOUND_DIR .. "WarningSiren.ogg",
+        ["water"]     = THRESHOLD_SOUND_DIR .. "WaterDrop.ogg",
+        ["wilhelm"]   = THRESHOLD_SOUND_DIR .. "Wilhelm.ogg",
+    }
+    _thresholdSoundNames = {
+        ["none"]      = "None",
+        ["airhorn"]   = "Air Horn",
+        ["banana"]    = "Banana Peel Slip",
+        ["bikehorn"]  = "Bike Horn",
+        ["bite"]      = "Bite",
+        ["boxing"]    = "Boxing Arena",
+        ["catmeow"]   = "Cat Meow",
+        ["catmeow2"]  = "Cat Meow 2",
+        ["gunshot"]   = "Frontals Gunshot",
+        ["glass"]     = "Glass",
+        ["kaching"]   = "Kaching",
+        ["phone"]     = "Phone",
+        ["robotblip"] = "Robot Blip",
+        ["sonar"]     = "Sonar",
+        ["siren"]     = "Warning Siren",
+        ["water"]     = "Water Drop",
+        ["wilhelm"]   = "Wilhelm",
+    }
+    _thresholdSoundOrder = {
+        "none", "airhorn", "banana", "bikehorn", "bite", "boxing", "catmeow",
+        "catmeow2", "gunshot", "glass", "kaching", "phone", "robotblip", "sonar",
+        "siren", "water", "wilhelm",
+    }
+    if EllesmereUI.AppendSharedMediaSounds then
+        EllesmereUI.AppendSharedMediaSounds(
+            _thresholdSoundPaths, _thresholdSoundNames, _thresholdSoundOrder)
+    end
+    return _thresholdSoundPaths, _thresholdSoundNames, _thresholdSoundOrder
+end
+
+-- One shared throttle so a raid-wide expiry wave plays a single cue, not one
+-- sound per frame that crossed the threshold in the same wave.
+local _thresholdSoundLast = 0
+local function PlayThresholdSound(key)
+    local now = GetTime()
+    if (now - _thresholdSoundLast) < 2 then return end
+    local paths = GetThresholdSoundTables()
+    local path = paths[key]
+    if path then
+        _thresholdSoundLast = now
+        PlaySoundFile(path, "Master")
+    end
+end
+
+-- [element] = { unit, iid, curve, apply, ind }; apply(element, colorResult)
 local thresholdRegistry = {}
 local thresholdTicker = CreateFrame("Frame")
 thresholdTicker:Hide()
 local thresholdElapsed = 0
 local function EvalThreshold(element, e)
-    if not C_UnitAuras_GetAuraDuration then return end
-    local durObj = C_UnitAuras_GetAuraDuration(e.unit, e.iid)
-    if durObj and durObj.EvaluateRemainingDuration then
-        -- pcall: the API can throw on a stale/invalid duration object mid-recycle.
-        local ok, result = pcall(durObj.EvaluateRemainingDuration, durObj, e.curve)
-        if ok and result and result.GetRGBA then
-            e.apply(element, result)   -- result channels may be secret; never read here
+    -- Visual recolor: skipped for sound-only registrations (no curve/apply).
+    if C_UnitAuras_GetAuraDuration and e.curve and e.apply then
+        local durObj = C_UnitAuras_GetAuraDuration(e.unit, e.iid)
+        if durObj and durObj.EvaluateRemainingDuration then
+            -- pcall: the API can throw on a stale/invalid duration object mid-recycle.
+            local ok, result = pcall(durObj.EvaluateRemainingDuration, durObj, e.curve)
+            if ok and result and result.GetRGBA then
+                e.apply(element, result)   -- result channels may be secret; never read here
+            end
+        end
+    end
+    -- Sound cue: plain-Lua edge detect, guarded so a secret value never enters
+    -- a comparison -- if the timing is secret this whole block is a silent skip
+    -- (visuals above keep working; they never needed the value). Rising-edge
+    -- flag per element so each crossing fires once; refresh above the threshold
+    -- re-arms it.
+    local ind = e.ind
+    local sKey = ind and ind.thresholdSound
+    if sKey and sKey ~= "none" and not EllesmereUI.IS_121 then
+        local aura = C_UnitAuras.GetAuraDataByAuraInstanceID(e.unit, e.iid)
+        local exp = aura and aura.expirationTime
+        if exp and not issecretvalue(exp) then
+            if (exp - GetTime()) <= (ind.threshold or 3) then
+                if not e.soundFired then
+                    e.soundFired = true
+                    PlayThresholdSound(sKey)
+                end
+            else
+                e.soundFired = nil
+            end
         end
     end
 end
@@ -1186,16 +1697,50 @@ thresholdTicker:SetScript("OnUpdate", function(_, dt)
     if not any then thresholdTicker:Hide() end
 end)
 
-local function RegisterThreshold(element, unit, iid, curve, apply)
+local function RegisterThreshold(element, unit, iid, curve, apply, ind)
     local e = thresholdRegistry[element]
     if not e then e = {}; thresholdRegistry[element] = e end
-    e.unit, e.iid, e.curve, e.apply = unit, iid, curve, apply
+    -- New aura instance -> re-arm the sound edge flag (a reapplied buff is a
+    -- fresh crossing); same instance keeps it so re-registers never double-fire.
+    if e.iid ~= iid then e.soundFired = nil end
+    e.unit, e.iid, e.curve, e.apply, e.ind = unit, iid, curve, apply, ind
     thresholdTicker:Show()
     EvalThreshold(element, e)   -- immediate, so we never flash the normal color for a tick
 end
 
 local function UnregisterThreshold(element)
     thresholdRegistry[element] = nil
+end
+
+-- Temporary diagnostic for the threshold sound: /rfthsdbg snapshots every
+-- registered threshold element's sound-decision inputs as of right now.
+SLASH_RFTHSDBG1 = "/rfthsdbg"
+SlashCmdList.RFTHSDBG = function()
+    local now = GetTime()
+    local n = 0
+    for element, e in pairs(thresholdRegistry) do
+        n = n + 1
+        local ind = e.ind
+        local sKey = (ind and (ind.thresholdSound or "unset")) or "NIL-IND"
+        local expInfo, remInfo = "no-aura", "?"
+        local aura = C_UnitAuras.GetAuraDataByAuraInstanceID(e.unit, e.iid)
+        if aura then
+            local exp = aura.expirationTime
+            if exp == nil then expInfo = "nil-exp"
+            elseif issecretvalue(exp) then expInfo = "SECRET"
+            else
+                expInfo = "ok"
+                remInfo = string.format("%.1f", exp - now)
+            end
+        end
+        print(("|cff0cd29f[THSND]|r unit=%s iid=%s key=%s exp=%s rem=%s thr=%s fired=%s shown=%s"):format(
+            tostring(e.unit), tostring(e.iid), tostring(sKey), expInfo, remInfo,
+            tostring(ind and (ind.threshold or 3) or "?"), tostring(e.soundFired or false),
+            tostring(element.IsShown and element:IsShown() or false)))
+    end
+    print(("|cff0cd29f[THSND]|r entries=%d IS_121=%s tickerShown=%s throttleAgo=%.1f"):format(
+        n, tostring(EllesmereUI.IS_121 or false), tostring(thresholdTicker:IsShown()),
+        now - _thresholdSoundLast))
 end
 
 -- Per-type apply helpers. All push the (possibly secret) curve color straight
@@ -1219,11 +1764,78 @@ end
 local function ApplyOverlayThresholdColor(overlay, colorResult)
     overlay:SetVertexColor(colorResult:GetRGBA())
 end
--- Frame-border effect: PP.SetBorderColor only forwards to SetVertexColor on the
--- border textures (no arithmetic), so a secret color is safe.
+-- Frame-border threshold recolor. Every style recolors via SetVertexColor with
+-- no arithmetic on the channels (dashed -> the ants textures; solid/textured ->
+-- PP or BackdropTemplate, both routed through SetBorderStyleColor), so a secret
+-- (12.1-restricted) color stays safe. The active style is stamped on the frame
+-- by ApplyEffectBorder.
 local function ApplyBorderThresholdColor(borderFrame, colorResult)
-    local PP2 = EllesmereUI.PanelPP or EllesmereUI.PP
-    if PP2 and PP2.SetBorderColor then PP2.SetBorderColor(borderFrame, colorResult:GetRGBA()) end
+    if borderFrame._euiBorderStyle == "sweep" then
+        local sd = borderFrame._euiSweep
+        if sd then sd.cr, sd.cg, sd.cb, sd.ca = colorResult:GetRGBA() end
+        return
+    end
+    if borderFrame._euiBorderStyle == "dashed" then
+        local Glows = EllesmereUI.Glows
+        if Glows and Glows.SetProceduralAntsColor then
+            Glows.SetProceduralAntsColor(borderFrame, colorResult:GetRGBA())
+        end
+        return
+    end
+    if EllesmereUI.SetBorderStyleColor then
+        EllesmereUI.SetBorderStyleColor(borderFrame, colorResult:GetRGBA())
+    end
+end
+
+-- Apply the Frame-Border effect in the configured style. "dashed" draws a static
+-- (non-marching) procedural-ants border from the shared glow engine; every other
+-- style ("solid" plus the textured styles glow/shadow/blizz/lightspark/dialog and
+-- LibSharedMedia borders) is drawn by EllesmereUI.ApplyBorderStyle, which manages
+-- the PP-vs-BackdropTemplate swap internally. Only one renderer is shown at a
+-- time; the active style is stamped on the frame so ApplyBorderThresholdColor
+-- recolors the right texture set. r,g,b,a are the normal (non-secret) configured
+-- color/opacity; the frame is Show()n by callers.
+local function ApplyEffectBorder(borderFrame, ind, r, g, b, a)
+    local style = ind.borderStyle or "solid"
+    local bw = ind.borderWidth or 2
+    local Glows = EllesmereUI.Glows
+    local parent = borderFrame:GetParent()
+    local baseLvl = (parent and parent:GetFrameLevel()) or borderFrame:GetFrameLevel()
+    if style == "sweepcw" or style == "sweepccw" then
+        if Glows and Glows.StopProceduralAnts then Glows.StopProceduralAnts(borderFrame) end
+        if EllesmereUI.HideBorderStyle then EllesmereUI.HideBorderStyle(borderFrame) end
+        local sd = BM_BuildSweep(borderFrame, bw, style == "sweepccw")
+        if sd then
+            -- Buff icons render at parent+ns.LVL_AURA (13); the border is created
+            -- at parent+11. Lift the sweep ring above the icons so its progress
+            -- readout is never occluded. Restored to +11 on any static style below.
+            borderFrame:SetFrameLevel(baseLvl + 14)
+            BM_SetSweepColor(borderFrame, r, g, b, a)
+            BM_ShowSweep(borderFrame)
+            borderFrame._euiBorderStyle = "sweep"
+            return
+        end
+        style = "solid"   -- size not ready this pass; fall back to a plain border
+    end
+    BM_HideSweep(borderFrame)
+    borderFrame:SetFrameLevel(baseLvl + 11)   -- default border level (matches creation)
+    if style == "dashed" and Glows and Glows.StartProceduralAnts then
+        if EllesmereUI.HideBorderStyle then EllesmereUI.HideBorderStyle(borderFrame) end
+        Glows.StartProceduralAnts(borderFrame, ind.borderDashCount or 8, bw, nil, nil,
+            r, g, b, nil, nil, nil, nil, nil, nil, true)
+        Glows.SetProceduralAntsColor(borderFrame, r, g, b, a)
+        borderFrame._euiBorderStyle = "dashed"
+    else
+        if Glows and Glows.StopProceduralAnts then Glows.StopProceduralAnts(borderFrame) end
+        if EllesmereUI.ApplyBorderStyle then
+            -- Solid takes the width as literal pixels (any value); textured
+            -- styles index the engine's edge-size map, which only defines steps
+            -- 1-4, so cap those to avoid the width>4 thin-fallback.
+            local sz = (style == "solid") and bw or math.min(bw, 4)
+            EllesmereUI.ApplyBorderStyle(borderFrame, sz, r, g, b, a, style)
+        end
+        borderFrame._euiBorderStyle = style
+    end
 end
 
 -------------------------------------------------------------------------------
@@ -1452,7 +2064,7 @@ function ns.BM_UpdateSimpleGrid(button, unit, db, updateInfo)
     if not GetFFD then return end
     local d = GetFFD(button)
     if not d.bmSimpleIcons then return end
-    local health = d.health
+    local health = ns.RF_AnchorHostFor and ns.RF_AnchorHostFor(d) or d.health
     if not health then return end
 
     local bs = db and db.profile and db.profile.bmSimple
@@ -1512,6 +2124,8 @@ function ns.BM_UpdateSimpleGrid(button, unit, db, updateInfo)
     local seen = d._bmSimpleSeen
     if not seen then seen = {}; d._bmSimpleSeen = seen else wipe(seen) end
 
+    local ownOnly = bs.ownOnly ~= false
+
     local shown = 0
     local idx = 1
     while true do
@@ -1528,8 +2142,16 @@ function ns.BM_UpdateSimpleGrid(button, unit, db, updateInfo)
             if not issecretvalue(sid) then
                 local psid = PRIMARY_BY_ALT[sid] or sid
                 if simpleTrackedSpellIDs[psid] and not seen[psid] then
-                    matched = true
-                    seen[psid] = true
+                    -- Own Only: same PLAYER filter the custom path uses; secret
+                    -- auras below are always player-cast so they skip this check.
+                    local pass = true
+                    if ownOnly and C_UnitAuras_IsAuraFilteredOutByInstanceID then
+                        pass = not C_UnitAuras_IsAuraFilteredOutByInstanceID(unit, iid, "PLAYER|HELPFUL")
+                    end
+                    if pass then
+                        matched = true
+                        seen[psid] = true
+                    end
                 end
             else
                 local matchedSid = MatchSecretAuraSimple(unit, iid)
@@ -1545,6 +2167,7 @@ function ns.BM_UpdateSimpleGrid(button, unit, db, updateInfo)
             shown = shown + 1
             d.bmSimpleActiveIDs[iid] = true
             local icon = d.bmSimpleIcons[shown]
+            BM_SetTipTarget(icon, unit, iid)
             icon:SetSize(sz, sz)
             icon._tex:SetTexture(tex or 136243)
             local _z = bs.iconZoom or 0.08
@@ -1603,6 +2226,27 @@ function ns.BM_UpdateSimpleGrid(button, unit, db, updateInfo)
                 end
             end
 
+            -- Stack count (secret-safe via Blizzard API; mirrors the custom-
+            -- indicator system's stack text).
+            if icon._count then
+                if bs.showStacks and C_UnitAuras.GetAuraApplicationDisplayCount and iid then
+                    local stackText = C_UnitAuras.GetAuraApplicationDisplayCount(unit, iid, 2, 99)
+                    if stackText then
+                        local sc = bs.stacksTextColor or { r = 1, g = 1, b = 1 }
+                        EllesmereUI.ApplyIconTextFont(icon._count, fp, bs.stacksTextSize or 8, "raidFrames")
+                        icon._count:SetTextColor(sc.r, sc.g, sc.b)
+                        icon._count:ClearAllPoints()
+                        icon._count:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT",
+                            bs.stacksOffsetX or -1, bs.stacksOffsetY or 2)
+                        icon._count:SetText(stackText)
+                    else
+                        icon._count:SetText("")
+                    end
+                else
+                    icon._count:SetText("")
+                end
+            end
+
             icon:Show()
         end
     end
@@ -1617,10 +2261,35 @@ function ns.BM_UpdateSimpleGrid(button, unit, db, updateInfo)
 end
 
 function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
+    -- 12.1 migration scaffolding: skip silently while auras are secret so the
+    -- restriction error cannot abort shared handler chains. Removed when the
+    -- BuffManager migrates to container slots.
+    if ns.RFC_LegacyAuraGuard and ns.RFC_LegacyAuraGuard() then return end
     local GetFFD = ns.GetFFD
     if not GetFFD then return end
     local d = GetFFD(button)
     if not d.bmIconPool then return end
+
+    -- 12.1: BOTH display modes render via aura containers now (custom mode
+    -- as slots/chains, Simple Setup as a grid group). Hide any lingering
+    -- legacy visuals from either mode and hand off entirely.
+    if ns.RFC_OwnsBM then
+        for _, f in ipairs(d.bmIconPool) do f:Hide() end
+        if d.bmBarPool then for _, b in ipairs(d.bmBarPool) do ClearBarDrain(b); b:Hide() end end
+        if d.bmHCOverlay then d.bmHCOverlay:Hide() end
+        if d.bmEffectBorder then d.bmEffectBorder:Hide() end
+        d.bmActiveInstanceIDs = nil
+        button._bmSavedAlpha = nil
+        if d.rangeAlpha then button:SetAlpha(d.rangeAlpha) end
+        if d.bmSimpleIcons and d.bmSimpleActiveIDs then
+            for _, f in ipairs(d.bmSimpleIcons) do
+                if f._cooldown then f._cooldown:Hide() end
+                f:Hide()
+            end
+            d.bmSimpleActiveIDs = nil
+        end
+        return
+    end
 
     -- Simple Setup mode takes over entirely: hide every custom-indicator visual
     -- and render the isolated buff grid instead. The two systems never coexist.
@@ -1673,7 +2342,7 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
         return
     end
 
-    local health = d.health
+    local health = ns.RF_AnchorHostFor and ns.RF_AnchorHostFor(d) or d.health
     if not health then return end
     local PP = EllesmereUI.PanelPP or EllesmereUI.PP
 
@@ -1820,6 +2489,7 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
                     barPoolIdx = barPoolIdx + 1
                     local bar = d.bmBarPool[barPoolIdx]
                     if bar then
+                        BM_SetTipTarget(bar, unit, aura.auraInstanceID)
                         BM_ApplyBarLevel(bar, ind, buttonLvl)
                         bar:SetReverseFill(ind.reverseFill or false)
                         local c = ind.color or { r=0, g=1, b=0 }
@@ -1851,7 +2521,7 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
                                 c.r, c.g, c.b, (ind.barColorOpacity or 100) / 100,
                                 tc.r, tc.g, tc.b, (ind.thresholdColorOpacity or 100) / 100)
                             if curve then
-                                RegisterThreshold(bar, unit, iid, curve, ApplyBarThresholdColor)
+                                RegisterThreshold(bar, unit, iid, curve, ApplyBarThresholdColor, ind)
                             else
                                 UnregisterThreshold(bar)
                             end
@@ -1893,6 +2563,7 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
                         iconPoolIdx = iconPoolIdx + 1
                         local f = d.bmIconPool[iconPoolIdx]
                         if f then
+                            BM_SetTipTarget(f, unit, aura.auraInstanceID)
                             BM_ApplyIconLevel(f, ind, buttonLvl)
                             -- Per-spell size offset (right-click in preview): base
                             -- size + this spell's offset, clamped to >= 1px.
@@ -1979,16 +2650,27 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
                             do
                                 local tiid = aura.auraInstanceID
                                 if textThresholdMode then
-                                    -- Clear any prior texture registration; the text block
-                                    -- below re-registers against the duration text.
-                                    UnregisterThreshold(f)
+                                    -- Icon type: the expiring recolor targets the duration
+                                    -- text, registered in the text block below -- but ONLY
+                                    -- when duration text is shown. Seed a sound-only
+                                    -- registration (no curve/apply) here so the threshold
+                                    -- sound also works for glow-only / no-text setups; the
+                                    -- text block upgrades this entry with the recolor curve
+                                    -- when it runs. Registering fresh either way clears any
+                                    -- stale prior curve, matching the old Unregister.
+                                    if ind.thresholdEnabled and tiid and not issecretvalue(tiid)
+                                       and ind.thresholdSound and ind.thresholdSound ~= "none" then
+                                        RegisterThreshold(f, unit, tiid, nil, nil, ind)
+                                    else
+                                        UnregisterThreshold(f)
+                                    end
                                 elseif ind.thresholdEnabled and tiid and not issecretvalue(tiid) then
                                     local tc = ind.thresholdColor or { r=1, g=0.2, b=0.2 }
                                     local curve = GetThresholdColorCurve(
                                         ind.threshold or 3, ncR, ncG, ncB, ncA,
                                         tc.r, tc.g, tc.b, (ind.thresholdColorOpacity or 100) / 100)
                                     if curve then
-                                        RegisterThreshold(f, unit, tiid, curve, ApplyTexThresholdColor)
+                                        RegisterThreshold(f, unit, tiid, curve, ApplyTexThresholdColor, ind)
                                     else
                                         UnregisterThreshold(f)
                                     end
@@ -2151,7 +2833,7 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
                                                         ind.threshold or 3, tc.r, tc.g, tc.b, 1,
                                                         thc.r, thc.g, thc.b, (ind.thresholdColorOpacity or 100) / 100)
                                                     if curve then
-                                                        RegisterThreshold(f, unit, tiid, curve, ApplyDurTextThresholdColor)
+                                                        RegisterThreshold(f, unit, tiid, curve, ApplyDurTextThresholdColor, ind)
                                                     end
                                                 end
                                             end
@@ -2207,23 +2889,32 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
                             curve = GetThresholdColorCurve(ind.threshold or 3,
                                 c.r, c.g, c.b, op, tc.r, tc.g, tc.b, (ind.thresholdColorOpacity or 100) / 100)
                         end
-                        if curve then RegisterThreshold(d.bmHCOverlay, unit, presentIid, curve, ApplyOverlayThresholdColor)
+                        if curve then RegisterThreshold(d.bmHCOverlay, unit, presentIid, curve, ApplyOverlayThresholdColor, ind)
                         else UnregisterThreshold(d.bmHCOverlay) end
                     end
                 elseif indType == "border" then
                     if d.bmEffectBorder and PP then
                         local c = ind.color or { r=0, g=1, b=0 }
                         local op = (ind.borderOpacity or 100) / 100
-                        local bw = ind.borderWidth or 2
-                        PP.UpdateBorder(d.bmEffectBorder, bw, c.r, c.g, c.b, op)
+                        ApplyEffectBorder(d.bmEffectBorder, ind, c.r, c.g, c.b, op)
                         d.bmEffectBorder:Show()
+                        if d.bmEffectBorder._euiBorderStyle == "sweep" and presentIid then
+                            RegisterSweep(d.bmEffectBorder, unit, presentIid)
+                        else
+                            UnregisterSweep(d.bmEffectBorder)
+                            -- No aura drives the reveal (missing/allPresent/anyMissing
+                            -- modes): show the ring fully lit, not a stale partial arc.
+                            if d.bmEffectBorder._euiBorderStyle == "sweep" then
+                                BM_ResetSweepFill(d.bmEffectBorder)
+                            end
+                        end
                         local curve
                         if threshOK then
                             local tc = ind.thresholdColor or { r=1, g=0.2, b=0.2 }
                             curve = GetThresholdColorCurve(ind.threshold or 3,
                                 c.r, c.g, c.b, op, tc.r, tc.g, tc.b, (ind.thresholdColorOpacity or 100) / 100)
                         end
-                        if curve then RegisterThreshold(d.bmEffectBorder, unit, presentIid, curve, ApplyBorderThresholdColor)
+                        if curve then RegisterThreshold(d.bmEffectBorder, unit, presentIid, curve, ApplyBorderThresholdColor, ind)
                         else UnregisterThreshold(d.bmEffectBorder) end
                     end
                 elseif indType == "framealpha" then
@@ -2277,6 +2968,19 @@ end
 -- Resolve the indicator table for a preview frame's stored indicator id.
 local function BM_FindIndicatorById(indId)
     local specKey = ns._bmSelectedSpecKey
+    -- v2: resolve against the REAL store indicators for the edited bucket
+    -- (the legacy table would be stale or absent, and preview frames stamp
+    -- ids from v2 copies -- selecting must land on the storage object so
+    -- the settings pane edits stick).
+    if ns.BM2_Enabled and ns.BM2_SpecInds then
+        local inds = ns.BM2_SpecInds(specKey)
+        if inds then
+            for _, ind in ipairs(inds) do
+                if ind.id == indId then return ind end
+            end
+        end
+        return nil
+    end
     if not specKey or not ns.db or not ns.db.profile then return nil end
     local specData = ns.db.profile.bmIndicators and ns.db.profile.bmIndicators[specKey]
     if not specData then return nil end
@@ -2371,7 +3075,11 @@ function ns.BM_CreatePreviewIndicators(f, health, PP)
     if not health then return end
 
     local iconPool = {}
-    for i = 1, ICON_POOL_SIZE do
+    -- 12.1: the preview pool is larger than the live per-button pool --
+    -- with the v2 per-group caps every group must still get its icons even
+    -- on specs with many indicator groups (non-selected groups dim, they
+    -- never vanish). Retail keeps the original size.
+    for i = 1, ICON_POOL_SIZE + (EllesmereUI.IS_121 and 8 or 0) do
         local fr = CreateFrame("Frame", nil, health)
         fr:SetFrameLevel(f:GetFrameLevel() + ns.LVL_AURA)
         fr:SetSize(12, 12)
@@ -2516,8 +3224,11 @@ function ns.BM_ApplyPreviewIndicators(f, index, s)
     if index ~= 1 then return end
 
     local db = ns.db
-    if not db or not db.profile or not db.profile.bmIndicators then return end
-    local health = f._health
+    if not db or not db.profile then return end
+    -- v2 sources from the bm2 store (below); only the legacy path needs
+    -- the legacy table to exist.
+    if not ns.BM2_Enabled and not db.profile.bmIndicators then return end
+    local health = ns.RF_AnchorHost and ns.RF_AnchorHost(f._health, s) or f._health
     if not health then return end
     local PP = EllesmereUI.PanelPP or EllesmereUI.PP
     -- Base level for the Frame Level setting (mirrors the live render).
@@ -2528,8 +3239,83 @@ function ns.BM_ApplyPreviewIndicators(f, index, s)
     local bPoolIdx = 0
 
     local activeSpecKey = ns._bmSelectedSpecKey
-    local specList = activeSpecKey and db.profile.bmIndicators[activeSpecKey]
-    for _, specData in pairs(specList and { specList } or db.profile.bmIndicators) do
+    local specList = activeSpecKey and db.profile.bmIndicators
+        and db.profile.bmIndicators[activeSpecKey]
+    -- v2: preview the SELECTED v2 bucket with RESOLVED spell unions (the
+    -- legacy read above would show stale pre-v2 data or nothing).
+    if ns.BM2_Enabled and ns.BM2_SpecInds then
+        -- Edited bucket's class: OWN-ONLY entries preview only this class's
+        -- spells (a Holy Paladin editing Core Healing Buffs should not see
+        -- Druid HoTs -- those can never be their own casts). Untagged ids
+        -- (customs) and ALL-class entries always pass; show-anyone's
+        -- entries are never class-filtered.
+        local edClass
+        for i = 1, #HEALER_SPECS do
+            if HEALER_SPECS[i].key == activeSpecKey then
+                edClass = HEALER_SPECS[i].classToken
+                break
+            end
+        end
+        if not edClass then
+            local _, cf = UnitClass("player")
+            edClass = cf
+        end
+        local spellClass = ns.BM2_SpellClass
+        local inds = ns.BM2_SpecInds(activeSpecKey)
+        local out = {}
+        if inds then
+            for i = 1, #inds do
+                local ind = inds[i]
+                local resolved, own
+                if ns.BM2_ResolveSpellsOwn then
+                    resolved, own = ns.BM2_ResolveSpellsOwn(ind)
+                end
+                if resolved and #resolved > 0 then
+                    local kept = {}
+                    for j = 1, #resolved do
+                        local sid = resolved[j]
+                        local c = spellClass and spellClass[sid]
+                        if not (own and own[sid]) or c == nil or c == "ALL"
+                            or c == edClass then
+                            kept[#kept + 1] = sid
+                        end
+                    end
+                    if #kept > 0 then
+                        local v = {}
+                        for k, val in pairs(ind) do v[k] = val end
+                        -- Healing-preset groups preview stacked icons (HoTs
+                        -- coexist); every other group previews ONE icon --
+                        -- the render loop reads this flag for its cap.
+                        local multi = false
+                        if ind.filters and ns.BM2_GetFilter then
+                            for fid in pairs(ind.filters) do
+                                local pf = ns.BM2_GetFilter(fid)
+                                if pf and (pf.preset == "coreheals"
+                                    or pf.preset == "lesserheals") then
+                                    multi = true
+                                    break
+                                end
+                            end
+                        end
+                        v._pvMulti = multi
+                        -- Lead with an edited-class spell when one exists,
+                        -- so the single-icon preview shows something the
+                        -- edited spec could actually cast or receive.
+                        for j = 2, #kept do
+                            if spellClass and spellClass[kept[j]] == edClass then
+                                kept[1], kept[j] = kept[j], kept[1]
+                                break
+                            end
+                        end
+                        v.spells = kept
+                        out[#out + 1] = v
+                    end
+                end
+            end
+        end
+        specList = out
+    end
+    for _, specData in pairs(specList and { specList } or db.profile.bmIndicators or {}) do
         if type(specData) == "table" then
             for _, ind in ipairs(specData) do
                 if ind.enabled and ind.spells and #ind.spells > 0 then
@@ -2547,9 +3333,13 @@ function ns.BM_ApplyPreviewIndicators(f, index, s)
                                 f._bmHCOverlay:Show()
                             elseif indType == "border" and f._bmEffectBorder and PP then
                                 local c = ind.color or { r=0, g=1, b=0 }
-                                local bw = ind.borderWidth or 2
-                                PP.UpdateBorder(f._bmEffectBorder, bw, c.r, c.g, c.b, (ind.borderOpacity or 100) / 100)
+                                ApplyEffectBorder(f._bmEffectBorder, ind, c.r, c.g, c.b, (ind.borderOpacity or 100) / 100)
                                 f._bmEffectBorder:Show()
+                                if f._bmEffectBorder._euiBorderStyle == "sweep" then
+                                    RegisterPreviewSweep(f._bmEffectBorder)
+                                else
+                                    UnregisterPreviewSweep(f._bmEffectBorder)
+                                end
                             elseif indType == "framealpha" then
                                 f:SetAlpha(ind.alpha or 0.4)
                             end
@@ -2576,6 +3366,12 @@ function ns.BM_ApplyPreviewIndicators(f, index, s)
                                     bar:SetValue(1)
                                 end
                                 BM_PlaceBar(bar, health, ind, iscale)
+                                -- v2 only: non-selected groups dim to match
+                                -- icons (legacy preview never dimmed bars).
+                                if ns.BM2_Enabled then
+                                    local barSel = ns._bmSelectedIndId and ind.id == ns._bmSelectedIndId
+                                    bar:SetAlpha((barSel or ns._bmAllIndicatorsVisible) and 1 or 0.5)
+                                end
                                 bar._bmIndId = ind.id
                                 bar:Show()
                             end
@@ -2585,22 +3381,85 @@ function ns.BM_ApplyPreviewIndicators(f, index, s)
                             local snap = ns.PixelSnap or function(v) return v end
                             local gap = snap((ind.spacing or 1) * iscale)
                             local isSelected = ns._bmSelectedIndId and ind.id == ns._bmSelectedIndId
-                            local maxShow = (isSelected or ns._bmAllIndicatorsVisible) and #ind.spells or 2
+                            local maxShow
+                            if ind._pvMulti ~= nil then
+                                -- v2 (flag stamped by the v2 branch above):
+                                -- healing-preset groups cap at 4 selected /
+                                -- 2 unselected (uncapped unions drain the
+                                -- icon pool and hide the other groups);
+                                -- every other group previews ONE icon.
+                                if ind._pvMulti then
+                                    maxShow = (isSelected or ns._bmAllIndicatorsVisible) and 4 or 2
+                                else
+                                    maxShow = 1
+                                end
+                            else
+                                maxShow = (isSelected or ns._bmAllIndicatorsVisible) and #ind.spells or 2
+                            end
+                            -- Grid preview (12.1): mirror the live wrap/cap.
+                            -- Per-spell size offsets force slot mode live
+                            -- (linear), so the preview stays linear there.
+                            local per, wrapUp, wrapLeft = 0, false, false
+                            if EllesmereUI.IS_121 then
+                                per = tonumber(ind.iconsPerRow) or 0
+                                if per > 0 and ind.sizeOffsets then
+                                    for _, soff in pairs(ind.sizeOffsets) do
+                                        if soff and soff ~= 0 then per = 0; break end
+                                    end
+                                end
+                                local pu = string.upper(ind.position or "TOPLEFT")
+                                wrapUp = pu:find("BOTTOM", 1, true) ~= nil
+                                wrapLeft = pu:find("RIGHT", 1, true) ~= nil
+                                local maxI = tonumber(ind.maxIcons) or 0
+                                if maxI > 0 and maxI < maxShow then maxShow = maxI end
+                            end
                             local previewTotal = math.min(maxShow, #ind.spells)
                             -- Running cursor (matches live render): each icon advances
                             -- the next by its own size so size offsets reflow neighbors.
                             local cursor = 0
+                            local pvSelfPoint = ind.position or "TOPLEFT"
                             if growDir == "CENTER" then
-                                local totalW = 0
-                                for si2 = 1, previewTotal do
+                                -- A wrapped run centers by its first LINE
+                                -- (the engine left-aligns continuation rows
+                                -- inside the centered container).
+                                local lineCap = previewTotal
+                                if per > 0 and per < lineCap then lineCap = per end
+                                local totalW, firstSz = 0, nil
+                                for si2 = 1, lineCap do
                                     local so2 = ind.sizeOffsets and ind.sizeOffsets[ind.spells[si2]] or 0
                                     local s2 = sz + so2 * iscale
                                     if s2 < 1 then s2 = 1 end
+                                    if not firstSz then firstSz = s2 end
                                     totalW = totalW + s2
                                 end
-                                if previewTotal > 1 then totalW = totalW + gap * (previewTotal - 1) end
+                                if lineCap > 1 then totalW = totalW + gap * (lineCap - 1) end
                                 cursor = -totalW / 2
+                                if EllesmereUI.IS_121 then
+                                    -- 12.1 live parity: the container renderers
+                                    -- x-center the run ON the position point
+                                    -- (chains pin the container's x-center there,
+                                    -- slot mode uses symmetric offsets) while
+                                    -- keeping the legacy vertical seat. Anchoring
+                                    -- by the pos corner with the -totalW/2 start
+                                    -- skews the run by the corner's x-alignment
+                                    -- (half an icon at center-x positions), so on
+                                    -- 12.1 icons anchor by the pos's vertical
+                                    -- part + horizontal CENTER with a symmetric
+                                    -- start. The 12.0 branch below stays: the
+                                    -- legacy live renderer uses the pos-corner
+                                    -- math, and the preview must match it there.
+                                    local posU = string.upper(pvSelfPoint)
+                                    if posU:find("TOP", 1, true) then
+                                        pvSelfPoint = "TOP"
+                                    elseif posU:find("BOTTOM", 1, true) then
+                                        pvSelfPoint = "BOTTOM"
+                                    else
+                                        pvSelfPoint = "CENTER"
+                                    end
+                                    cursor = -totalW / 2 + (firstSz or sz) / 2
+                                end
                             end
+                            local lineStart = cursor
                             for si, sid in ipairs(ind.spells) do
                                 if si > maxShow then break end
                                 iPoolIdx = iPoolIdx + 1
@@ -2617,17 +3476,29 @@ function ns.BM_ApplyPreviewIndicators(f, index, s)
                                     -- Matches BM_UpdateIndicators: place at accumulated
                                     -- previous sizes, then advance by own size (LEFT/UP
                                     -- negate the axis; no first-icon guard needed).
+                                    -- Grid preview: reset the cursor at each line break
+                                    -- and shift whole lines along the cross axis, away
+                                    -- from the anchored edge (live wrap convention).
+                                    local lineOff = 0
+                                    if per > 0 then
+                                        if si > 1 and (si - 1) % per == 0 then cursor = lineStart end
+                                        lineOff = math.floor((si - 1) / per) * (iconSz + gap)
+                                    end
                                     local gx, gy = 0, 0
                                     if growDir == "RIGHT" or growDir == "CENTER" then
                                         gx = cursor; cursor = cursor + iconSz + gap
+                                        gy = wrapUp and lineOff or -lineOff
                                     elseif growDir == "DOWN" then
                                         gy = -cursor; cursor = cursor + iconSz + gap
+                                        gx = wrapLeft and -lineOff or lineOff
                                     elseif growDir == "LEFT" then
                                         gx = -cursor; cursor = cursor + iconSz + gap
+                                        gy = wrapUp and lineOff or -lineOff
                                     elseif growDir == "UP" then
                                         gy = cursor; cursor = cursor + iconSz + gap
+                                        gx = wrapLeft and -lineOff or lineOff
                                     end
-                                    fr:SetPoint(ind.position or "TOPLEFT", health, ind.position or "TOPLEFT",
+                                    fr:SetPoint(pvSelfPoint, health, ind.position or "TOPLEFT",
                                                 (ind.offsetX or 0) * iscale + gx, (ind.offsetY or 0) * iscale + gy)
                                     -- "Hide Icons" (icon type only): keep the frame
                                     -- alpha (so the stack count still previews) but
@@ -2758,7 +3629,9 @@ local function AutoDetectSpec()
             end
         end
     end
-    return nil
+    -- Class has no tracked spec at all (e.g. Warrior): open on Holy Paladin
+    -- instead of a blank page.
+    return "PALADIN_HOLY"
 end
 
 -------------------------------------------------------------------------------
@@ -2768,7 +3641,10 @@ end
 --  so the two preview systems never interact.
 --  Returns: pvFrame, sectionH, RefreshFn
 -------------------------------------------------------------------------------
-function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY)
+-- noGrid (optional): build ONLY the health-bar replica -- no simple-grid
+-- icons and a no-op refresh. The Debuff Manager preview band uses this and
+-- draws its own content on the returned frame. Existing callers omit it.
+function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, noGrid)
     local PV_SCALE = 1.5
     local rawW = s.frameWidth or 72
     local rawH = s.frameHeight or 46
@@ -2808,6 +3684,15 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY)
     health:GetStatusBarTexture():SetHorizTile(false)
     health:SetMinMaxValues(0, 100)
     health:SetValue(85)
+
+    -- Full-height anchor reference (mirrors the live buttons' d.uniformRef so
+    -- Uniform Icon Anchoring previews identically; see ns.RF_AnchorHost).
+    local pvUniformRef = CreateFrame("Frame", nil, pvFrame)
+    pvUniformRef:SetFrameLevel(health:GetFrameLevel())
+    pvUniformRef:SetPoint("TOPLEFT", health, "TOPLEFT", 0, 0)
+    pvUniformRef:SetPoint("BOTTOMRIGHT", pvFrame, "BOTTOMRIGHT", 0, 0)
+    health._euiUniformRef = pvUniformRef
+    pvUniformRef._euiHealth = health
 
     -- Preview class color from the player's active spec (falls back to class)
     local previewClass
@@ -2868,8 +3753,9 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY)
         else power:SetStatusBarColor(0, 0.5, 1, 1) end
         local pwBg = power:CreateTexture(nil, "BACKGROUND")
         pwBg:SetAllPoints()
-        local pbc = s.powerBgColor or { r=0, g=0, b=0 }
-        pwBg:SetColorTexture(pbc.r, pbc.g, pbc.b, (s.powerBgDarkness or 70) / 100)
+        local pbc = (s.powerBgPowerColored and pInfo) or s.powerBgColor or { r=0, g=0, b=0 }
+        local pbF = (s.powerBgPowerColored and pInfo) and EllesmereUI.GetPowerBgDarkenFactor() or 1
+        pwBg:SetColorTexture(pbc.r * pbF, pbc.g * pbF, pbc.b * pbF, (s.powerBgDarkness or 70) / 100)
         if PP and s.powerBorderStyle and s.powerBorderStyle ~= "none" then
             local pbSize = s.powerBorderSize or 1
             if pbSize > 0 then
@@ -2902,8 +3788,12 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY)
         end
     end
 
-    -- Name text
-    local nameFS = health:CreateFontString(nil, "OVERLAY")
+    -- Name text. Hosted on a carrier in the live text band (ns.LVL_TEXT) so
+    -- the name draws above the +8 main border, exactly like real frames.
+    local nameCarrier = CreateFrame("Frame", nil, pvFrame)
+    nameCarrier:SetAllPoints(pvFrame)
+    nameCarrier:SetFrameLevel(pvFrame:GetFrameLevel() + (ns.LVL_TEXT or 12))
+    local nameFS = nameCarrier:CreateFontString(nil, "OVERLAY")
     local outline = (EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("raidFrames")) or ""
     if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(nameFS, outline == "" and (not EllesmereUI.GetFontUseShadow or EllesmereUI.GetFontUseShadow("raidFrames"))) end
     nameFS:SetFont(fontPath, s.nameSize or 10, outline)
@@ -3015,6 +3905,11 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY)
 
     pvFrame._health = health
 
+    -- Replica-only mode: the caller renders its own preview content.
+    if noGrid then
+        return pvFrame, sectionH, function() end
+    end
+
     -- Example buff icons for the simple grid preview (active spec's whitelist;
     -- falls back to the first healer spec so the preview is never empty).
     local exampleIcons = {}
@@ -3056,6 +3951,15 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY)
                     PP.CreateBorder(b, 0, 0, 0, 1, 1)
                     icon._borderFrame = b
                 end
+                -- Carrier frame above the cooldown swipe/border so the stack
+                -- count preview isn't hidden behind them (mirrors the live
+                -- grid's _textCarrier in ns.BM_CreateIndicators).
+                local textCarrier = CreateFrame("Frame", nil, icon)
+                textCarrier:SetAllPoints()
+                textCarrier:SetFrameLevel(icon:GetFrameLevel() + 5)
+                local countFS = textCarrier:CreateFontString(nil, "OVERLAY")
+                countFS:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", -1, 1)
+                icon._count = countFS
                 previewIcons[i] = icon
             end
             icon:SetSize(sz, sz)
@@ -3096,13 +4000,28 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY)
                     cd:Hide()
                 end
             end
+            -- Stack count preview (fake example count so the color/size/offset
+            -- controls have something visible to preview against).
+            if icon._count then
+                if bs.showStacks then
+                    local sc = bs.stacksTextColor or { r = 1, g = 1, b = 1 }
+                    EllesmereUI.ApplyIconTextFont(icon._count, fontPath, bs.stacksTextSize or 8, "raidFrames")
+                    icon._count:SetTextColor(sc.r, sc.g, sc.b)
+                    icon._count:ClearAllPoints()
+                    icon._count:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT",
+                        bs.stacksOffsetX or -1, bs.stacksOffsetY or 2)
+                    icon._count:SetText("3")
+                else
+                    icon._count:SetText("")
+                end
+            end
             icon:Show()
         end
         for i = count + 1, #previewIcons do
             if previewIcons[i]._cooldown then previewIcons[i]._cooldown:Hide() end
             previewIcons[i]:Hide()
         end
-        ns.BM_AnchorSimpleGrid(fakeD, health, bs, 1, count)
+        ns.BM_AnchorSimpleGrid(fakeD, ns.RF_AnchorHost(health, s), bs, 1, count)
     end
     RefreshSimplePreview()
 
@@ -3114,6 +4033,11 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
     if not W then return 0 end
     local db = ns.db
     if not db then return 0 end
+    -- Override-session gate: heals a stale Buff Manager layer FIRST (so the
+    -- page content below renders the edited group's fork) and reports the
+    -- full-page overlay to build at the end. nil = normal WYSIWYG page.
+    local bmOverlayState = EllesmereUI.SpecOverrides_BmPagePrelude
+        and EllesmereUI.SpecOverrides_BmPagePrelude() or nil
     local PP = EllesmereUI.PanelPP
 
     -- Auto-detect spec on first open
@@ -3141,24 +4065,79 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
         EllesmereUI:RefreshPage(true)
     end
 
+    -- Inline cog on each indicator's Own Only control: per-indicator
+    -- Show Own on All Specs (the indicator keeps rendering the player's own
+    -- casts on every spec of the class, bypassing the borrow restriction).
+    local function AttachOwnAllSpecsCog(rgn, ind)
+        -- v2: the spec-borrow restriction is retired, so the flag has no
+        -- consumer -- an inert cog would only mislead.
+        if ns.BM2_Enabled then return end
+        local _, cogShow = EllesmereUI.BuildCogPopup({
+            title = "Own Only",
+            rows = {
+                { type = "toggle", label = "Show Own on All Specs",
+                  tooltip = "Show this indicator's buffs on every spec of your class, not only this spec.",
+                  get = function() return ind.showOwnAllSpecs == true end,
+                  set = function(v)
+                      ind.showOwnAllSpecs = v and true or false
+                      ReloadAndUpdate()
+                  end },
+            },
+        })
+        local cogBtn = CreateFrame("Button", nil, rgn)
+        cogBtn:SetSize(26, 26)
+        cogBtn:SetPoint("RIGHT", rgn._control, "LEFT", -8, 0)
+        cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+        cogBtn:SetAlpha(0.4)
+        local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+        cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
+        cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+        cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+        cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
+        rgn._lastInline = cogBtn
+    end
+
     local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("raidFrames")) or "Fonts\\FRIZQT__.TTF"
     local _, h
     local PAD = 20  -- consistent left/right padding for creation bar + settings
     local s = db.profile
 
     -- Get current spec's indicators for the sidebar
+    -- v2: the editing dropdown stays functional (healer specs plus the
+    -- shared Non-Healer bucket); the first page open each session defaults
+    -- it to whatever the player currently is.
+    if ns.BM2_Enabled and ns.BM2_SpecKey and not ns._bm2SpecInited then
+        ns._bm2SpecInited = true
+        selectedSpecKey = ns.BM2_SpecKey()
+    end
     local specIndicators = selectedSpecKey and GetSpecIndicators(db, selectedSpecKey) or {}
 
-    -- Validate selected indicator
-    if not selectedIndicator and #specIndicators > 0 then
-        selectedIndicator = specIndicators[1]
+    -- 12.1 redesign: the Base Icons tile is a selectable sidebar entry;
+    -- while it is selected no indicator is highlighted and the left pane
+    -- shows the base (simple-grid) settings. Defaults to Base when the
+    -- spec has no indicators yet.
+    if ns.BM2_Enabled then
+        -- v2: no Base Icons concept (the simple grid is retired); the
+        -- seeded filter groups are ordinary tiles.
+        ns._bmBaseSel = false
+    elseif EllesmereUI.IS_121 and ns._bmBaseSel == nil then
+        ns._bmBaseSel = (#specIndicators == 0)
     end
-    if selectedIndicator then
-        local found = false
-        for _, ind in ipairs(specIndicators) do
-            if ind.id == selectedIndicator.id then found = true; break end
+
+    -- Validate selected indicator
+    if EllesmereUI.IS_121 and ns._bmBaseSel then
+        selectedIndicator = nil
+    else
+        if not selectedIndicator and #specIndicators > 0 then
+            selectedIndicator = specIndicators[1]
         end
-        if not found then selectedIndicator = specIndicators[1] or nil end
+        if selectedIndicator then
+            local found = false
+            for _, ind in ipairs(specIndicators) do
+                if ind.id == selectedIndicator.id then found = true; break end
+            end
+            if not found then selectedIndicator = specIndicators[1] or nil end
+        end
     end
 
     -- Expose selected spec + indicator ID for preview logic
@@ -3190,15 +4169,88 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
     if ns._addNewPopup then ns._addNewPopup:Hide() end
     ns._bmRoot = outerRoot
 
+    -- Override-session full-page overlay (state decided by the prelude at
+    -- the top). "activate" offers to fork a custom Buff Manager for the
+    -- edited override group; "info" explains why editing here is blocked
+    -- (edits would land in whatever layer is actually live and be banked
+    -- to the wrong owner at the next harvest). Built BEFORE the page
+    -- content on purpose: the Simple Setup branch returns early and must
+    -- still be covered. High frame level keeps it above everything built
+    -- below; child of outerRoot so every teardown path destroys it.
+    if bmOverlayState then
+        local st = bmOverlayState
+        local ov = CreateFrame("Frame", nil, outerRoot)
+        ov:SetAllPoints(outerRoot)
+        ov:SetFrameLevel(outerRoot:GetFrameLevel() + 60)
+        ov:EnableMouse(true)
+        ov._searchIgnore = true
+        local bg = ov:CreateTexture(nil, "OVERLAY")
+        bg:SetAllPoints()
+        bg:SetColorTexture(13/255, 17/255, 25/255, 0.98)
+        local title = ov:CreateFontString(nil, "OVERLAY")
+        title:SetFont(fontPath, 15, "")
+        title:SetPoint("CENTER", ov, "CENTER", 0, 60)
+        title:SetTextColor(1, 1, 1, 0.9)
+        title:SetText(EllesmereUI.L("Custom Buff Manager"))
+        local body = ov:CreateFontString(nil, "OVERLAY")
+        body:SetFont(fontPath, 13, "")
+        body:SetPoint("TOP", title, "BOTTOM", 0, -14)
+        body:SetWidth(floor(parentW * 0.7))
+        body:SetJustifyH("CENTER")
+        body:SetTextColor(1, 1, 1, 0.56)
+        body:SetText(st.text or "")
+        local sub
+        if st.sub then
+            sub = ov:CreateFontString(nil, "OVERLAY")
+            sub:SetFont(fontPath, 12, "")
+            sub:SetPoint("TOP", body, "BOTTOM", 0, -8)
+            sub:SetWidth(floor(parentW * 0.7))
+            sub:SetJustifyH("CENTER")
+            sub:SetTextColor(1, 1, 1, 0.45)
+            sub:SetText(st.sub)
+        end
+        if st.mode == "activate" then
+            local btn = CreateFrame("Button", nil, ov)
+            btn:SetSize(240, 28)
+            btn:SetPoint("TOP", sub or body, "BOTTOM", 0, -22)
+            EllesmereUI.SolidTex(btn, "BACKGROUND", 0.10, 0.10, 0.11, 0.9)
+            local brd = EllesmereUI.MakeBorder(btn, 1, 1, 1, 0.22)
+            local lbl = EllesmereUI.MakeFont(btn, 12, nil, 1, 1, 1, 0.85)
+            lbl:SetPoint("CENTER")
+            lbl:SetText(EllesmereUI.L("Activate Custom Buff Manager"))
+            local eg = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.83, b = 0.62 }
+            btn:SetScript("OnEnter", function()
+                if brd and brd.SetColor then brd:SetColor(eg.r, eg.g, eg.b, 0.9) end
+            end)
+            btn:SetScript("OnLeave", function()
+                if brd and brd.SetColor then brd:SetColor(1, 1, 1, 0.22) end
+            end)
+            btn:SetScript("OnClick", function()
+                if EllesmereUI.SpecOverrides_ActivateBm then
+                    EllesmereUI.SpecOverrides_ActivateBm(st.kind, st.gid)
+                end
+            end)
+        end
+    end
+
     -------------------------------------------------------------------
-    --  BUFF DISPLAY MODE HEADER (always visible)
+    --  BUFF DISPLAY MODE HEADER (12.0 only -- the v2 redesign has no
+    --  header bar at all; the page content starts at the top)
     --  Segmented toggle swaps between the full custom buff manager and a
     --  simpler setup page. The mode is stored per-profile; switching rebuilds
     --  the page (same RefreshPage model the rest of the page uses).
     -------------------------------------------------------------------
-    local HEADER_H = 80
+    local HEADER_H = EllesmereUI.IS_121 and 0 or 80
     local displayMode = (s.bmDisplayMode == "simple") and "simple" or "custom"
+    -- 12.1 redesign: the either/or display mode is gone -- the page always
+    -- uses the sidebar layout with the Base Icons tile pinned first (the
+    -- simple setup lives in that tile's detail pane). The legacy mode key
+    -- is never written; runtime state derives through the coexistence
+    -- accessors (BM_BaseActive/BM_CustomActive shims).
+    if EllesmereUI.IS_121 then displayMode = "custom" end
 
+    -- 12.1: no header bar; the card below is 12.0-only.
+    if not EllesmereUI.IS_121 then
     do
         local card = CreateFrame("Frame", nil, outerRoot)
         card:SetPoint("TOPLEFT", outerRoot, "TOPLEFT", 0, 0)
@@ -3213,16 +4265,20 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
         local title = card:CreateFontString(nil, "OVERLAY")
         title:SetFont(fontPath, 15, "")
         title:SetPoint("TOPLEFT", card, "TOPLEFT", 16, -16)
-        title:SetText(EllesmereUI.L("Buff Display Mode"))
+        title:SetText(EllesmereUI.L(EllesmereUI.IS_121 and "Buff Manager" or "Buff Display Mode"))
         title:SetTextColor(1, 1, 1, 0.95)
 
         local desc = card:CreateFontString(nil, "OVERLAY")
         desc:SetFont(fontPath, 12, "")
         desc:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -6)
-        desc:SetText(EllesmereUI.L("Choose how buffs are displayed on raid frames."))
+        desc:SetText(EllesmereUI.L(EllesmereUI.IS_121
+            and "Base icons plus your custom indicators. Select a tile on the right to edit it."
+            or "Choose how buffs are displayed on raid frames."))
         desc:SetTextColor(1, 1, 1, 0.5)
 
         -- Segmented two-button toggle (active = green, inactive = dark).
+        -- 12.1 redesign: no display mode -- the toggle is not built.
+        if not EllesmereUI.IS_121 then
         local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
         local BTN_W, BTN_H = 162, 31
         local toggleWrap = CreateFrame("Frame", nil, card)
@@ -3259,7 +4315,28 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 end)
             end
         end
+        end
+
+        -- Centered active-override indicator: everything on this page edits
+        -- THAT group's custom Buff Manager, not the default one.
+        local ovName = EllesmereUI.SpecOverrides_BmActiveInfo
+            and EllesmereUI.SpecOverrides_BmActiveInfo()
+        if ovName then
+            local ovTop = card:CreateFontString(nil, "OVERLAY")
+            ovTop:SetFont(fontPath, 11, "")
+            ovTop:SetPoint("CENTER", card, "CENTER", 0, 10)
+            ovTop:SetText(EllesmereUI.L("Override Active:"))
+            ovTop:SetTextColor(1, 1, 1, 0.6)
+            local ovBottom = card:CreateFontString(nil, "OVERLAY")
+            ovBottom:SetFont(fontPath, 13, "")
+            ovBottom:SetPoint("CENTER", card, "CENTER", 0, -7)
+            ovBottom:SetText(ovName)
+            local ar, ag, ab = 1, 0.82, 0.30
+            if EllesmereUI.GetAccentColor then ar, ag, ab = EllesmereUI.GetAccentColor() end
+            ovBottom:SetTextColor(ar, ag, ab, 1)
+        end
     end
+    end -- not IS_121 (header card)
 
     if displayMode == "simple" then
         -- The custom indicator preview frame is not used in simple mode.
@@ -3403,7 +4480,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
         -- Row 3: Spacing | Border Size (+ swatch)
         local row3
         row3, hh = W:DualRow(optsFrame, sy,
-            { type="slider", text="Spacing", min=-1, max=10, step=1,
+            { type="slider", pixel=true, text="Spacing", min=-1, max=10, step=1,
               disabled=BuffsOff, disabledTooltip="Show Buffs",
               getValue=function() return BVal("spacing", 1) end,
               setValue=function(v) BSet("spacing", v) end },
@@ -3463,6 +4540,71 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
         end
 
+        -- Row 5: Show Stacks (+ swatch + cog)
+        local row5
+        row5, hh = W:DualRow(optsFrame, sy,
+            { type="toggle", text="Show Stacks",
+              disabled=BuffsOff, disabledTooltip="Show Buffs",
+              getValue=function() return BVal("showStacks", true) end,
+              setValue=function(v) BSet("showStacks", v) end },
+            { type="toggle", text="Own Only", tooltip="Shows only the buffs you apply",
+              disabled=BuffsOff, disabledTooltip="Show Buffs",
+              getValue=function() return BVal("ownOnly", true) end,
+              setValue=function(v) BSet("ownOnly", v) end });  sy = sy - hh
+        do
+            local rgn = row5._leftRegion
+            local swatch = EllesmereUI.BuildColorSwatch(rgn, row5:GetFrameLevel() + 3,
+                function() local c = bs.stacksTextColor or { r=1, g=1, b=1 }; return c.r, c.g, c.b, 1 end,
+                function(r, g, b) bs.stacksTextColor = { r=r, g=g, b=b }; BApply() end, false, 20)
+            swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = swatch
+
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Stacks Text",
+                rows = {
+                    { type="slider", label="Text Size", min=6, max=26, step=1,
+                      get=function() return BVal("stacksTextSize", 8) end, set=function(v) BSet("stacksTextSize", v) end },
+                    { type="slider", label="Offset X", min=-20, max=20, step=1,
+                      get=function() return BVal("stacksOffsetX", -1) end, set=function(v) BSet("stacksOffsetX", v) end },
+                    { type="slider", label="Offset Y", min=-20, max=20, step=1,
+                      get=function() return BVal("stacksOffsetY", 2) end, set=function(v) BSet("stacksOffsetY", v) end },
+                },
+            })
+            local cogBtn = CreateFrame("Button", nil, rgn)
+            cogBtn:SetSize(26, 26)
+            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = cogBtn
+            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            cogBtn:SetAlpha(0.4)
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+            cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
+            local function UpdateStacksCog()
+                local off = BuffsOff() or not BVal("showStacks", true)
+                cogBtn:SetAlpha(off and 0.15 or 0.4)
+                cogBtn:EnableMouse(not off)
+            end
+            cogBtn:SetScript("OnEnter", function(self) if not (BuffsOff() or not BVal("showStacks", true)) then self:SetAlpha(0.7) end end)
+            cogBtn:SetScript("OnLeave", function(self) UpdateStacksCog() end)
+            cogBtn:SetScript("OnClick", function(self) if not (BuffsOff() or not BVal("showStacks", true)) then cogShow(self) end end)
+            UpdateStacksCog()
+            EllesmereUI.RegisterWidgetRefresh(UpdateStacksCog)
+        end
+
+        -- Row 6: Show Own on All Specs | (empty)
+        _, hh = W:DualRow(optsFrame, sy,
+            { type="toggle", text="Show Own on All Specs",
+              tooltip="Show your own class buffs on every spec, not only on the tracked healer spec.",
+              disabled=BuffsOff, disabledTooltip="Show Buffs",
+              getValue=function() return BVal("showOwnAllSpecs", false) end,
+              setValue=function(v)
+                  bs.showOwnAllSpecs = v and true or false
+                  -- The simple whitelist is spec-resolved inside the lookup
+                  -- build, so the toggle re-runs it before the re-render.
+                  if ns.BM_RebuildLookup then ns.BM_RebuildLookup(ns.db) end
+                  BApply()
+              end },
+            { type="label", text="" });  sy = sy - hh
+
         return 0
     end
 
@@ -3508,6 +4650,18 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
     local TILE_H = 66
     local ICON_SZ = 36
     local tileY = 0
+    -- 12.1 redesign: pinned, undeletable Base Icons tile leads the sidebar.
+    -- Retired under Buff Manager v2 (no simple grid there).
+    if EllesmereUI.IS_121 and not ns.BM2_Enabled and ns.BMP_BuildBaseTile then
+        tileY = tileY - ns.BMP_BuildBaseTile(sidebarFrame, sidebarW, tileY, {
+            fontPath = fontPath,
+            selected = ns._bmBaseSel and true or false,
+            onSelect = function()
+                ns._bmBaseSel = true
+                EllesmereUI:RefreshPage(true)
+            end,
+        })
+    end
     for _, ind in ipairs(specIndicators) do
         local tile = CreateFrame("Button", nil, sidebarFrame)
         tile:SetSize(sidebarW, TILE_H)
@@ -3539,11 +4693,22 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
         iconFrame:SetPoint("TOPLEFT", tile, "TOPLEFT", 8, -8)
         iconFrame:SetFrameLevel(tile:GetFrameLevel() + 1)
 
+        -- v2: tiles render the RESOLVED spell union (assigned filters plus
+        -- direct spells) -- the raw list is empty for filter-driven groups.
+        local tileSpells = ind.spells
+        if ns.BM2_Enabled and ns.BM2_ResolveSpells then
+            tileSpells = ns.BM2_ResolveSpells(ind)
+        end
+
         local iconTex = iconFrame:CreateTexture(nil, "ARTWORK")
         iconTex:SetAllPoints()
         iconTex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        if ind.spells and #ind.spells > 0 then
-            iconTex:SetTexture(GetSpellIcon(ind.spells[1]))
+        if tileSpells and #tileSpells > 0 then
+            -- v2: prefer a spell the current spec/class actually uses as
+            -- the tile's face (known spell > class-tagged > all-class).
+            local faceId = (ns.BM2_Enabled and ns.BM2_PreferredSpell
+                and ns.BM2_PreferredSpell(ind)) or tileSpells[1]
+            iconTex:SetTexture(GetSpellIcon(faceId))
         else
             iconTex:SetTexture(136243)
         end
@@ -3567,7 +4732,12 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
         titleFS:SetFont(fontPath, 13, "")
         titleFS:SetJustifyH("LEFT")
         titleFS:SetWordWrap(false)
-        titleFS:SetText(EllesmereUI.L(typeName))
+        -- v2: named indicators (the seeded filter groups) show their name.
+        if ns.BM2_Enabled and ind.name then
+            titleFS:SetText(ind.name)
+        else
+            titleFS:SetText(EllesmereUI.L(typeName))
+        end
         titleFS:SetTextColor(1, 1, 1)
 
         -- Position subtitle (smaller, grayer, inline after type name)
@@ -3591,10 +4761,12 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
         spellFS:SetFont(fontPath, 11, "")
         spellFS:SetJustifyH("LEFT")
         spellFS:SetWordWrap(false)
-        if ind.spells and #ind.spells > 0 then
+        if tileSpells and #tileSpells > 0 then
             local names = {}
-            for _, sid in ipairs(ind.spells) do
-                names[#names + 1] = SPELL_NAME_BY_ID[sid] or tostring(sid)
+            for _, sid in ipairs(tileSpells) do
+                names[#names + 1] = SPELL_NAME_BY_ID[sid]
+                    or (C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(sid))
+                    or tostring(sid)
             end
             spellFS:SetText(table.concat(names, ", "))
         else
@@ -3634,6 +4806,12 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
 
         toggleBtn:SetScript("OnClick", function()
             ind.enabled = not ind.enabled
+            -- 12.1 coexistence: interacting with an indicator adopts the
+            -- new keys (the shim default derived from the old mode is
+            -- replaced by explicit indicators-enabled state).
+            if EllesmereUI.IS_121 and db and db.profile then
+                db.profile.bmIndicatorsEnabled = true
+            end
             UpdateToggleVisual()
             RebuildLookup(db)
             if ns.ReloadFrames then ns.ReloadFrames() end
@@ -3679,6 +4857,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
 
         -- Click tile to select
         tile:SetScript("OnClick", function()
+            if EllesmereUI.IS_121 then ns._bmBaseSel = false end
             selectedIndicator = ind
             EllesmereUI:RefreshPage(true)
         end)
@@ -3697,6 +4876,15 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
         sep:SetPoint("BOTTOMLEFT", tile, "BOTTOMLEFT", 0, 0)
         sep:SetPoint("BOTTOMRIGHT", tile, "BOTTOMRIGHT", 0, 0)
         sep:SetColorTexture(1, 1, 1, 0.04)
+
+        -- 12.1: Frame Border indicators are removed; the notice covers the
+        -- tile body but leaves the right controls column usable so the
+        -- indicator can still be toggled off or deleted.
+        if EllesmereUI.IS_121 and ind.type == "border" then
+            local ov = BuildPTROverlay(tile, "Frame Border", 10)
+            ov:SetPoint("TOPLEFT", tile, "TOPLEFT", 0, 0)
+            ov:SetPoint("BOTTOMRIGHT", tile, "BOTTOMRIGHT", -52, 1)
+        end
 
         tileY = tileY - TILE_H
     end
@@ -3755,7 +4943,12 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 popup:SetFrameLevel(200)
                 local LBL_GAP = 4   -- label to dropdown
                 local DD_GAP = 11  -- dropdown to next label/button
-                popup:SetSize(POPUP_W, POPUP_PAD + LABEL_H + LBL_GAP + ROW_H + DD_GAP + LABEL_H + LBL_GAP + ROW_H + DD_GAP + ROW_H + POPUP_PAD)
+                -- v2 adds a third label+dropdown pair (Filters + Extra
+                -- Spells replace the legacy Abilities picker).
+                local popupPairs = ns.BM2_Enabled and 3 or 2
+                popup:SetSize(POPUP_W, POPUP_PAD
+                    + popupPairs * (LABEL_H + LBL_GAP + ROW_H + DD_GAP)
+                    + ROW_H + POPUP_PAD)
                 popup:EnableMouse(true)
                 popup:SetClampedToScreen(true)
 
@@ -3773,6 +4966,16 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                             if spDD and spDD._ddMenu and spDD._ddMenu:IsShown() and spDD._ddMenu:IsMouseOver() then return end
                             local indDD2 = m._indDD
                             if indDD2 and indDD2._ddMenu and indDD2._ddMenu:IsShown() and indDD2._ddMenu:IsMouseOver() then return end
+                            local fltDD2 = m._fltDD
+                            if fltDD2 and fltDD2._ddMenu and fltDD2._ddMenu:IsShown() and fltDD2._ddMenu:IsMouseOver() then return end
+                            local exDD2 = m._exDD
+                            if exDD2 and exDD2._ddMenu and exDD2._ddMenu:IsShown() and exDD2._ddMenu:IsMouseOver() then return end
+                            -- Modal children own the mouse: the Custom Spell
+                            -- ID input popup and the Filter Editor both open
+                            -- from these dropdowns.
+                            local ip = _G.EUIInputPopup
+                            if ip and ip:IsShown() then return end
+                            if ns._bm2FilterEditor then return end
                             if IsMouseButtonDown("LeftButton") or IsMouseButtonDown("RightButton") then
                                 m:Hide()
                             end
@@ -3783,12 +4986,161 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                     p:SetScript("OnUpdate", nil)
                     -- Clear spell selections so reopening starts fresh
                     wipe(selectedSpells)
+                    if p._v2Filters then wipe(p._v2Filters) end
+                    if p._v2Extras then wipe(p._v2Extras) end
                     -- Refresh the abilities dropdown label + checkboxes
                     if p._spellDDRefresh then p._spellDDRefresh() end
                 end)
 
                 local py = -POPUP_PAD
                 local ddW = POPUP_W - POPUP_PAD * 2
+
+                if ns.BM2_Enabled then
+                    -- v2 creation flow: Indicator type on top, then the SAME
+                    -- Filters and Extra Spells dropdowns as the Assigned
+                    -- Buffs settings section; the picks are applied to the
+                    -- new indicator when Create is clicked.
+                    popup._v2Filters = {}
+                    popup._v2Extras = {}
+
+                    local indLbl2 = popup:CreateFontString(nil, "OVERLAY")
+                    indLbl2:SetFont(fontPath, 11, "")
+                    indLbl2:SetPoint("TOPLEFT", popup, "TOPLEFT", POPUP_PAD, py)
+                    indLbl2:SetText(EllesmereUI.L("Indicator"))
+                    indLbl2:SetTextColor(1, 1, 1, 0.6)
+                    py = py - LABEL_H - LBL_GAP
+
+                    local indDD = EllesmereUI.BuildDropdownControl(
+                        popup, ddW, popup:GetFrameLevel() + 2,
+                        INDICATOR_TYPE_VALUES, INDICATOR_TYPE_ORDER,
+                        function() return selectedType end,
+                        function(v) selectedType = v end)
+                    indDD:SetPoint("TOPLEFT", popup, "TOPLEFT", POPUP_PAD, py)
+                    popup._indDD = indDD
+                    py = py - ROW_H - DD_GAP
+
+                    local fltLbl = popup:CreateFontString(nil, "OVERLAY")
+                    fltLbl:SetFont(fontPath, 11, "")
+                    fltLbl:SetPoint("TOPLEFT", popup, "TOPLEFT", POPUP_PAD, py)
+                    fltLbl:SetText(EllesmereUI.L("Filters"))
+                    fltLbl:SetTextColor(1, 1, 1, 0.6)
+                    py = py - LABEL_H - LBL_GAP
+                    local fltDDY = py
+                    py = py - ROW_H - DD_GAP
+
+                    local exLbl = popup:CreateFontString(nil, "OVERLAY")
+                    exLbl:SetFont(fontPath, 11, "")
+                    exLbl:SetPoint("TOPLEFT", popup, "TOPLEFT", POPUP_PAD, py)
+                    exLbl:SetText(EllesmereUI.L("Extra Spells"))
+                    exLbl:SetTextColor(1, 1, 1, 0.6)
+                    py = py - LABEL_H - LBL_GAP
+                    local exDDY = py
+                    py = py - ROW_H - DD_GAP
+
+                    -- Rebuilt per open (filter list / Selected grouping go
+                    -- stale); pending picks persist across rebuilds and are
+                    -- wiped on popup hide.
+                    local function BuildV2DDs()
+                        if popup._fltDD then popup._fltDD:Hide(); popup._fltDD:SetParent(nil) end
+                        if popup._exDD then popup._exDD:Hide(); popup._exDD:SetParent(nil) end
+                        popup._fltDD, popup._exDD = nil, nil
+
+                        -- Dynamic items: fresh on every menu open (editor
+                        -- adds/renames appear live).
+                        local function FItems()
+                            local filters = (ns.BM2_Filters and ns.BM2_Filters()) or {}
+                            local fItems = {
+                                { isTopAction = true, label = "Edit Filters", onClick = function()
+                                    if ns.BMP_ShowFilterEditor then ns.BMP_ShowFilterEditor() end
+                                end },
+                            }
+                            for i = 1, #filters do
+                                fItems[#fItems + 1] = { key = filters[i].id, label = filters[i].name }
+                            end
+                            return fItems
+                        end
+                        local fltDD = EllesmereUI.BuildVisOptsCBDropdown(
+                            popup, ddW, popup:GetFrameLevel() + 2,
+                            FItems,
+                            function(k) return popup._v2Filters[k] and true or false end,
+                            function(k, v) popup._v2Filters[k] = v and true or nil end,
+                            nil, 12)
+                        fltDD:SetSize(ddW, ROW_H)
+                        fltDD:SetPoint("TOPLEFT", popup, "TOPLEFT", POPUP_PAD, fltDDY)
+                        popup._fltDD = fltDD
+
+                        local function SpellEntry(id)
+                            local name = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id)
+                            return { key = id, label = (name or ("Spell " .. tostring(id))),
+                                icon = C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(id) }
+                        end
+                        -- Dynamic items: fresh on every menu open. Spells
+                        -- already provided by the CHECKED filters' enabled
+                        -- spells are excluded from Presets (redundant as
+                        -- extras); picked extras always show under Selected.
+                        local function ByLabel(a, b) return a.label < b.label end
+                        local function EItems()
+                            local covered = {}
+                            if ns.BM2_GetFilter then
+                                for fid in pairs(popup._v2Filters) do
+                                    local f = ns.BM2_GetFilter(fid)
+                                    if f then
+                                        for id, on in pairs(f.spells) do
+                                            if on then covered[id] = true end
+                                        end
+                                    end
+                                end
+                            end
+                            local universe = (ns.BM2_AllPresetSpells and ns.BM2_AllPresetSpells()) or {}
+                            local selList, rest = {}, {}
+                            local seen = {}
+                            for id in pairs(popup._v2Extras) do
+                                seen[id] = true
+                                selList[#selList + 1] = SpellEntry(id)
+                            end
+                            for i = 1, #universe do
+                                local id = universe[i]
+                                if not seen[id] and not covered[id] then rest[#rest + 1] = SpellEntry(id) end
+                            end
+                            table.sort(selList, ByLabel)
+                            table.sort(rest, ByLabel)
+                            local eItems = {
+                                { isTopAction = true, label = "Custom Spell ID", onClick = function()
+                                    EllesmereUI:ShowInputPopup({
+                                        title = EllesmereUI.L("Add Spell ID"),
+                                        message = EllesmereUI.L("Enter the spell ID to track on this indicator."),
+                                        confirmText = EllesmereUI.L("Add"),
+                                        cancelText = EllesmereUI.L("Cancel"),
+                                        onConfirm = function(text)
+                                            local id = tonumber(text or "")
+                                            if id and id > 0 and not popup._v2Extras[id] then
+                                                popup._v2Extras[id] = true
+                                            end
+                                        end,
+                                    })
+                                end },
+                            }
+                            if #selList > 0 then
+                                eItems[#eItems + 1] = { isHeader = true, label = "Selected" }
+                                for i = 1, #selList do eItems[#eItems + 1] = selList[i] end
+                            end
+                            eItems[#eItems + 1] = { isHeader = true, label = "Presets" }
+                            for i = 1, #rest do eItems[#eItems + 1] = rest[i] end
+                            return eItems
+                        end
+                        local exDD = EllesmereUI.BuildVisOptsCBDropdown(
+                            popup, ddW, popup:GetFrameLevel() + 2,
+                            EItems,
+                            function(k) return popup._v2Extras[k] and true or false end,
+                            function(k, v) popup._v2Extras[k] = v and true or nil end,
+                            nil, 10, true)
+                        exDD:SetSize(ddW, ROW_H)
+                        exDD:SetPoint("TOPLEFT", popup, "TOPLEFT", POPUP_PAD, exDDY)
+                        popup._exDD = exDD
+                    end
+                    BuildV2DDs()
+                    popup._rebuildSpells = BuildV2DDs
+                else
 
                 -- Abilities label + CB dropdown
                 local abLbl = popup:CreateFontString(nil, "OVERLAY")
@@ -3892,6 +5244,8 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 popup._indDD = indDD
                 py = py - ROW_H - DD_GAP
 
+                end -- v2 vs legacy creation rows
+
                 -- Create button
                 local cBtn = CreateFrame("Button", nil, popup)
                 cBtn:SetSize(ddW, ROW_H)
@@ -3910,6 +5264,37 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 cBtn:SetScript("OnClick", function()
                     if not selectedSpecKey then return end
                     if CountSpecIndicators(db, selectedSpecKey) >= MAX_PER_SPEC then return end
+                    -- v2: create through the v2 store (correct id namespace,
+                    -- edited bucket), then assign the picked filters / extra
+                    -- spells exactly like the Assigned Buffs section does --
+                    -- including the healing presets' own-only default.
+                    if ns.BM2_Enabled and ns.BM2_AddIndicator then
+                        local newInd = ns.BM2_AddIndicator(selectedType, selectedSpecKey)
+                        if newInd then
+                            for fid in pairs(popup._v2Filters or {}) do
+                                newInd.filters[fid] = true
+                                if ns.BM2_FilterDefaultOwn and ns.BM2_FilterDefaultOwn(fid) then
+                                    newInd.ownFilters[fid] = true
+                                end
+                            end
+                            local exList = {}
+                            for sid in pairs(popup._v2Extras or {}) do
+                                exList[#exList + 1] = sid
+                            end
+                            table.sort(exList)
+                            for i = 1, #exList do
+                                newInd.spells[#newInd.spells + 1] = exList[i]
+                            end
+                            selectedIndicator = newInd
+                        end
+                        ns._bmBaseSel = false
+                        if db and db.profile then db.profile.bmIndicatorsEnabled = true end
+                        RebuildLookup(db)
+                        if ns.ReloadFrames then ns.ReloadFrames() end
+                        popup:Hide()
+                        EllesmereUI:RefreshPage(true)
+                        return
+                    end
                     local spells = {}
                     for k, v in pairs(selectedSpells) do
                         if v then tinsert(spells, tonumber(k)) end
@@ -3933,6 +5318,13 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                         lastCreated = newInd
                     end
                     if lastCreated then selectedIndicator = lastCreated end
+                    -- 12.1 coexistence: creating an indicator adopts the
+                    -- explicit indicators-enabled key and selects the new
+                    -- tile over the Base Icons tile.
+                    if EllesmereUI.IS_121 then
+                        ns._bmBaseSel = false
+                        if db and db.profile then db.profile.bmIndicatorsEnabled = true end
+                    end
                     wipe(selectedSpells)
                     RebuildLookup(db)
                     if ns.ReloadFrames then ns.ReloadFrames() end
@@ -3957,6 +5349,14 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
     -------------------------------------------------------------------
     --  LEFT COLUMN (72%): Fixed top area + scrollable settings below
     -------------------------------------------------------------------
+    -- 12.1 redesign: while the Base Icons tile is selected the left column
+    -- shows the base (simple-grid) detail pane instead of the indicator
+    -- editor. The legacy column below is untouched for indicator tiles and
+    -- for 12.0 (where the base flag is never set).
+    if EllesmereUI.IS_121 and ns._bmBaseSel and ns.BMP_BuildBaseDetail then
+        ns._bmPreviewFrame = nil
+        ns.BMP_BuildBaseDetail(root, leftW, visibleH, s, fontPath, PP)
+    else
     -- Fixed top container (creation row + preview + title)
     local leftFixed = CreateFrame("Frame", nil, root)
     leftFixed:SetSize(leftW, 10)  -- height set after content
@@ -4041,9 +5441,18 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
         classIconBg:SetDesaturated(true)
         classIconBg:SetDesaturation(0.5)
         local selClass = selectedSpecKey and SPEC_CLASS_MAP[selectedSpecKey]
+        -- v2: the All Other Specs bucket wears the player's current class
+        -- icon (mirrors the dropdown's icon fallthrough). Without this the
+        -- texcoords stayed unset and the texture showed the raw sheet.
+        if not selClass and selectedSpecKey == "nonhealer" then
+            local _, cf = UnitClass("player")
+            selClass = cf
+        end
         local selCoords = selClass and CLASS_SPRITE_COORDS[selClass]
         if selCoords then
             classIconBg:SetTexCoord(selCoords[1], selCoords[2], selCoords[3], selCoords[4])
+        else
+            classIconBg:Hide()
         end
 
         -- Label + dropdown as a vertically centered group
@@ -4064,6 +5473,12 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             maxHeight = 300,
             icon = function(key)
                 local ct = SPEC_CLASS_MAP[key]
+                -- v2: the All Other Specs bucket wears the icon of whatever
+                -- class the player is currently on.
+                if not ct and key == "nonhealer" then
+                    local _, classFile = UnitClass("player")
+                    ct = classFile
+                end
                 local coords = ct and CLASS_SPRITE_COORDS[ct]
                 if coords then
                     return CLASS_SPRITE_TEX, coords[1], coords[2], coords[3], coords[4]
@@ -4071,10 +5486,21 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             end,
         }
 
+        -- v2: every spec NOT in the healer list shares one "All Other
+        -- Specs" config; it leads the list and edits like any other entry.
+        -- Local copy of the order (the shared table must never accumulate
+        -- inserted entries).
+        local specDDOrder = SPEC_DD_ORDER
+        if ns.BM2_Enabled then
+            specDDValues.nonhealer = EllesmereUI.L("All Other Specs")
+            specDDOrder = { "nonhealer" }
+            for i = 1, #SPEC_DD_ORDER do specDDOrder[#specDDOrder + 1] = SPEC_DD_ORDER[i] end
+        end
+
         local specDDW = specSplitW - PAD - 50
         local specDD = EllesmereUI.BuildDropdownControl(
             leftFixed, specDDW, leftFixed:GetFrameLevel() + 2,
-            specDDValues, SPEC_DD_ORDER,
+            specDDValues, specDDOrder,
             function() return selectedSpecKey or "" end,
             function(v)
                 selectedSpecKey = v
@@ -4174,8 +5600,9 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             end
             local pwBg = power:CreateTexture(nil, "BACKGROUND")
             pwBg:SetAllPoints()
-            local pbc = s.powerBgColor or { r=0, g=0, b=0 }
-            pwBg:SetColorTexture(pbc.r, pbc.g, pbc.b, (s.powerBgDarkness or 70) / 100)
+            local pbc = (s.powerBgPowerColored and pInfo) or s.powerBgColor or { r=0, g=0, b=0 }
+            local pbF = (s.powerBgPowerColored and pInfo) and EllesmereUI.GetPowerBgDarkenFactor() or 1
+            pwBg:SetColorTexture(pbc.r * pbF, pbc.g * pbF, pbc.b * pbF, (s.powerBgDarkness or 70) / 100)
 
             -- Power border
             if PP and s.powerBorderStyle and s.powerBorderStyle ~= "none" then
@@ -4210,8 +5637,13 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             end
         end
 
-        -- Name text (real sizes, SetScale handles the magnification)
-        local nameFS = health:CreateFontString(nil, "OVERLAY")
+        -- Name text (real sizes, SetScale handles the magnification).
+        -- Hosted on a carrier in the live text band (ns.LVL_TEXT) so the name
+        -- draws above the +8 main border, exactly like real frames.
+        local nameCarrier = CreateFrame("Frame", nil, pvFrame)
+        nameCarrier:SetAllPoints(pvFrame)
+        nameCarrier:SetFrameLevel(pvFrame:GetFrameLevel() + (ns.LVL_TEXT or 12))
+        local nameFS = nameCarrier:CreateFontString(nil, "OVERLAY")
         local outline = (EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("raidFrames")) or ""
         if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(nameFS, outline == "" and (not EllesmereUI.GetFontUseShadow or EllesmereUI.GetFontUseShadow("raidFrames"))) end
         nameFS:SetFont(fontPath, s.nameSize or 10, outline)
@@ -4564,6 +5996,13 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
         local indType = ind.type
         local typeInfo = INDICATOR_TYPE_MAP[indType]
 
+        -- v2: Assigned Filters section leads the settings (built by the
+        -- manager-pages file; returns the new y cursor). The rest of the
+        -- legacy per-type settings apply to the same v2 indicator table.
+        if ns.BM2_Enabled and ns.BMP_BuildAssignedFilters then
+            sy = ns.BMP_BuildAssignedFilters(leftFrame, sy, ind, fontPath)
+        end
+
         -- Build title: accent "Icon Indicator: " + white "Rejuvenation, Lifebloom"
         local typeName = INDICATOR_TYPE_MAP[indType] and INDICATOR_TYPE_MAP[indType].name or indType
         local ac2 = EllesmereUI.ELLESMERE_GREEN
@@ -4574,13 +6013,21 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
         end
         settingsTitle:SetText(EllesmereUI.L(typeName .. " Indicator"))
 
-        local spellNames = {}
-        if ind.spells then
-            for _, sid in ipairs(ind.spells) do
-                spellNames[#spellNames + 1] = SPELL_NAME_BY_ID[sid] or tostring(sid)
+        -- v2: named filter-driven groups head their settings with the group
+        -- name; spell-driven indicators keep the legacy name list.
+        if ns.BM2_Enabled and ind.name then
+            spellsTitle:SetText("(" .. ind.name .. ")")
+        else
+            local spellNames = {}
+            if ind.spells then
+                for _, sid in ipairs(ind.spells) do
+                    spellNames[#spellNames + 1] = SPELL_NAME_BY_ID[sid]
+                        or (C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(sid))
+                        or tostring(sid)
+                end
             end
+            spellsTitle:SetText(#spellNames > 0 and ("(" .. table.concat(spellNames, ", ") .. ")") or EllesmereUI.L("(no spells)"))
         end
-        spellsTitle:SetText(#spellNames > 0 and ("(" .. table.concat(spellNames, ", ") .. ")") or EllesmereUI.L("(no spells)"))
 
         -- Helper: build a DualRow inside leftFrame
         local function SettingsRow(leftCfg, rightCfg)
@@ -4590,18 +6037,54 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             return row
         end
 
+        -- 12.1 removal overlays (BuildPTROverlay): section variant spans a
+        -- y-range of leftFrame (header left visible, like the party sync
+        -- overlays); slot variant covers one DualRow region.
+        local function PTRSectionOverlay(label, startY, endY)
+            local ov = BuildPTROverlay(leftFrame, label, 12)
+            -- Match the DualRow insets: rows sit CONTENT_PAD in from each
+            -- side of leftFrame, so a full-width overlay would hang past
+            -- the section edges.
+            local pad = EllesmereUI.CONTENT_PAD or 0
+            ov:SetPoint("TOPLEFT", leftFrame, "TOPLEFT", pad, startY)
+            ov:SetPoint("TOPRIGHT", leftFrame, "TOPRIGHT", -pad, startY)
+            ov:SetHeight(math.abs(endY - startY))
+        end
+
+        local function PTRSlotOverlay(label, region)
+            if not region then return end
+            local ov = BuildPTROverlay(region, label, 11)
+            ov:SetAllPoints(region)
+        end
+
         -- Own Only checkbox dropdown (per-spell) builder
         local function BuildOwnOnlyRow()
-            if not ind.spells or #ind.spells == 0 then return end
-            local ownItems = {}
-            for _, sid in ipairs(ind.spells) do
-                ownItems[#ownItems + 1] = {
-                    key = tostring(sid),
-                    label = SPELL_NAME_BY_ID[sid] or tostring(sid),
-                    icon = GetSpellIcon(sid), iconSize = DD_SPELL_ICON_SIZE,
-                }
+            local ownItems
+            if ns.BM2_Enabled and ns.BM2_OwnSourceItems then
+                -- v2: one row per assigned filter / extra spell (grouped +
+                -- pre-ordered; re-sorting would scatter the headers).
+                ownItems = ns.BM2_OwnSourceItems(ind)
+            else
+                if not ind.spells or #ind.spells == 0 then return end
+                ownItems = {}
+                for _, sid in ipairs(ind.spells) do
+                    ownItems[#ownItems + 1] = {
+                        key = tostring(sid),
+                        label = SPELL_NAME_BY_ID[sid] or tostring(sid),
+                        icon = GetSpellIcon(sid), iconSize = DD_SPELL_ICON_SIZE,
+                    }
+                end
+                table.sort(ownItems, function(a, b) return a.label < b.label end)
             end
-            table.sort(ownItems, function(a, b) return a.label < b.label end)
+            -- v2: dynamic items -- re-evaluated on every menu open, so
+            -- newly assigned filters / extra spells appear without a page
+            -- refresh (and the row builds even while empty).
+            local ownItemsArg = ownItems
+            if ns.BM2_Enabled and ns.BM2_OwnSourceItems then
+                ownItemsArg = function() return ns.BM2_OwnSourceItems(ind) end
+            elseif #ownItems == 0 then
+                return
+            end
             -- Measure own items for dynamic width
             local ownMeasure = leftFrame:CreateFontString(nil, "OVERLAY")
             ownMeasure:SetFont(fontPath, 13, "")
@@ -4623,8 +6106,11 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             if rgn._control then rgn._control:Hide() end
             local cbDD = EllesmereUI.BuildVisOptsCBDropdown(
                 rgn, ownMenuW, rgn:GetFrameLevel() + 2,
-                ownItems,
+                ownItemsArg,
                 function(k)
+                    if ns.BM2_Enabled and ns.BM2_OwnGet then
+                        return ns.BM2_OwnGet(ind, k)
+                    end
                     local sid = tonumber(k)
                     if ind.ownOnlySpells and ind.ownOnlySpells[sid] ~= nil then
                         return ind.ownOnlySpells[sid]
@@ -4632,6 +6118,11 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                     return ind.ownOnly ~= false
                 end,
                 function(k, v)
+                    if ns.BM2_Enabled and ns.BM2_OwnSet then
+                        ns.BM2_OwnSet(ind, k, v)
+                        ReloadAndUpdate()
+                        return
+                    end
                     local sid = tonumber(k)
                     if not ind.ownOnlySpells then ind.ownOnlySpells = {} end
                     ind.ownOnlySpells[sid] = v
@@ -4640,6 +6131,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
             rgn._control = cbDD
             rgn._lastInline = nil
+            AttachOwnAllSpecsCog(rgn, ind)
         end
 
         -- Auto-default growth direction based on position
@@ -4659,6 +6151,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
         -- Frame Alpha (useAlpha) has no colour, so Row 2 is a single Alpha slider.
         local function BuildThresholdRow(useAlpha)
             _, h = W:SectionHeader(leftFrame, "THRESHOLD", sy); sy = sy - h
+            local thContentStart = sy -- overlay spans content below the header
 
             -- Sub-settings are interactive only while Enable Threshold is on.
             local thOff = function() return not ind.thresholdEnabled end
@@ -4701,6 +6194,43 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                       setValue=function(v) ind.thresholdColorOpacity = v; ReloadAndUpdate() end })
             end
 
+            -- Threshold Sound dropdown config (built once, placed below):
+            -- plays once when the buff crosses the threshold. Shallow-copy the
+            -- runtime name table so _menuOpts (preview icon) doesn't pollute
+            -- the shared tables. Icon indicators seat it beside Icon Glow
+            -- (row 3 slot 2); other types give it its own row.
+            local soundCfg
+            do
+                local sPaths, sNames, sOrder = GetThresholdSoundTables()
+                local soundValues = {}
+                for k, v in pairs(sNames) do soundValues[k] = v end
+                soundValues._menuOpts = {
+                    itemHeight = 26,
+                    maxTextWidthPct = 0.8,
+                    searchable = true,
+                    iconAtlas = function(key)
+                        if key == "none" then return nil end
+                        if not sPaths[key] then return nil end
+                        return "common-icon-sound"
+                    end,
+                    iconPressedAtlas = function(key)
+                        if key == "none" then return nil end
+                        return "common-icon-sound-pressed"
+                    end,
+                    iconOnClick = function(key)
+                        local path = sPaths[key]
+                        if path then PlaySoundFile(path, "Master") end
+                    end,
+                    iconTooltip = function() return "Preview Sound" end,
+                }
+                soundCfg = { type="dropdown", text="Threshold Sound",
+                    values=soundValues, order=sOrder,
+                    tooltip="Only works for Blizzard's whitelisted healer spell IDs (non-private auras).",
+                    disabled=thOff, disabledTooltip="Enable Threshold",
+                    getValue=function() return ind.thresholdSound or "none" end,
+                    setValue=function(v) ind.thresholdSound = v; ReloadAndUpdate() end }
+            end
+
             -- Icon Glow (icon indicator only): a glow that plays while the buff
             -- is within the threshold window. Replicates CDM's Buff Glow control
             -- (style dropdown + inline class/custom color swatches).
@@ -4722,7 +6252,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                       disabled=thOff, disabledTooltip="Enable Threshold",
                       getValue=function() return ind.iconGlowType or 0 end,
                       setValue=function(v) ind.iconGlowType = v; ReloadAndUpdate(); EllesmereUI:RefreshPage() end },
-                    { type="label", text="" })
+                    soundCfg)
                 -- Inline class + custom color swatches, left of the dropdown.
                 do
                     local PP = EllesmereUI.PanelPP or EllesmereUI.PP
@@ -4785,6 +6315,19 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                     UpdateGlowState()
                 end
             end
+
+            -- Non-icon types: Threshold Sound gets its own row (odd last item,
+            -- so the blank right slot is allowed).
+            if indType ~= "icon" then
+                SettingsRow(soundCfg, { type="label", text="" })
+            end
+
+            -- 12.1: no engine binding for threshold recolors/glows yet; the
+            -- whole section is inert there until the upstream APIs land.
+            -- Fully functional on 12.0.
+            if EllesmereUI.IS_121 then
+                PTRSectionOverlay("Threshold", thContentStart, sy)
+            end
         end
 
         -- Abilities CB dropdown builder (shared by icon/square, used in row 1)
@@ -4845,20 +6388,100 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             -----------------------------------------------------------
             _, h = W:SectionHeader(leftFrame, "CORE", sy); sy = sy - h
 
-            -- Row 1: Abilities | Own Only
-            local row1 = SettingsRow(
-                #abItems > 0 and
+            -- v2: the Abilities picker is retired here (spell assignment
+            -- lives in the ASSIGNED BUFFS section) -- rows are Growth
+            -- Direction | Position, then Own Only alone below. 12.0 keeps
+            -- the legacy layout untouched: Abilities | Own Only, then
+            -- Position | Growth Direction.
+            local abCfg = #abItems > 0 and
                 { type="dropdown", text="Abilities",
                   values={ __placeholder = "All Spells" }, order={ "__placeholder" },
                   getValue=function() return "__placeholder" end,
                   setValue=function() end }
-                or { type="label", text="" },
+                or { type="label", text="" }
+            local ownCfg =
                 { type="dropdown", text="Own Only",
                   values={ __placeholder = "All" }, order={ "__placeholder" },
                   getValue=function() return "__placeholder" end,
-                  setValue=function() end })
-            -- Replace left with abilities CB dropdown
-            if #abItems > 0 then
+                  setValue=function() end }
+            local posCfg =
+                { type="dropdown", text="Position", values=POSITION_VALUES, order=POSITION_ORDER,
+                  getValue=function() return ind.position or "TOPLEFT" end,
+                  setValue=function(v)
+                      ind.position = v
+                      ind.growDirection = GetDefaultGrow(v)
+                      ReloadAndUpdate()
+                      EllesmereUI:RefreshPage()
+                  end }
+            local growCfg =
+                { type="dropdown", text="Growth Direction", values=GROW_VALUES, order=GROW_ORDER,
+                  getValue=function() return ind.growDirection or "RIGHT" end,
+                  setValue=function(v) ind.growDirection = v; ReloadAndUpdate() end }
+            -- Grid wrap + cap: 12.1 container capability (chain groups wrap
+            -- natively); live indicators are always linear runs, so the
+            -- controls only build there. Icons Per Row rides row 2's right
+            -- slot (v2 keeps that slot blank otherwise); Max Icons lives on
+            -- an inline cog beside it.
+            local perRowCfg
+            if EllesmereUI.IS_121 then
+                perRowCfg =
+                    { type="slider", text="Icons Per Row", min=0, max=20, step=1, trackWidth=120,
+                      tooltip="Wraps into a new row (or column for vertical growth) after this many icons; 0 keeps one continuous run.",
+                      getValue=function() return ind.iconsPerRow or 0 end,
+                      setValue=function(v)
+                          ind.iconsPerRow = (v and v > 0) and v or nil
+                          ReloadAndUpdate()
+                      end }
+            end
+            local row1, posRow, perRgn
+            if ns.BM2_Enabled then
+                posRow = SettingsRow(posCfg, growCfg)
+                row1 = SettingsRow(ownCfg, perRowCfg or { type="label", text="" })
+                if perRowCfg then perRgn = row1._rightRegion end
+            else
+                row1 = SettingsRow(abCfg, ownCfg)
+                posRow = SettingsRow(posCfg, growCfg)
+                if perRowCfg then
+                    -- Legacy layout has no blank slot; the odd last slot
+                    -- carries the grid slider on its own row.
+                    local gridRow = SettingsRow(perRowCfg, { type="label", text="" })
+                    perRgn = gridRow._leftRegion
+                end
+            end
+            if perRgn then
+                local _, cogShow = EllesmereUI.BuildCogPopup({
+                    title = "Max Icons",
+                    rows = {
+                        { type="slider", label="Max Icons", min=0, max=40, step=1,
+                          get=function() return ind.maxIcons or 0 end,
+                          set=function(v)
+                              ind.maxIcons = (v and v > 0) and v or nil
+                              ReloadAndUpdate()
+                          end },
+                    },
+                })
+                local cogBtn = CreateFrame("Button", nil, perRgn)
+                cogBtn:SetSize(26, 26)
+                cogBtn:SetPoint("RIGHT", perRgn._lastInline or perRgn._control, "LEFT", -8, 0)
+                perRgn._lastInline = cogBtn
+                cogBtn:SetFrameLevel(perRgn:GetFrameLevel() + 5)
+                local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+                cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
+                cogBtn:SetAlpha(0.4)
+                cogBtn:SetScript("OnEnter", function(self)
+                    self:SetAlpha(0.7)
+                    EllesmereUI.ShowWidgetTooltip(self, "Max Icons")
+                end)
+                cogBtn:SetScript("OnLeave", function(self)
+                    self:SetAlpha(0.4)
+                    EllesmereUI.HideWidgetTooltip()
+                end)
+                cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
+            end
+            local ownRgn = ns.BM2_Enabled and row1._leftRegion or row1._rightRegion
+            -- Mount the abilities CB dropdown (12.0 only -- v2 has no
+            -- Abilities control)
+            if not ns.BM2_Enabled and #abItems > 0 then
                 local rgn = row1._leftRegion
                 if rgn._control then rgn._control:Hide() end
                 local cbDD = EllesmereUI.BuildVisOptsCBDropdown(
@@ -4931,10 +6554,14 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 rgn._control = cbDD
                 rgn._lastInline = nil
             end
-            -- Replace right with own only CB dropdown
+            -- Mount the own only CB dropdown in its slot
             do
                 local ownItems = {}
-                if ind.spells then
+                if ns.BM2_Enabled and ns.BM2_OwnSourceItems then
+                    -- v2: one row per assigned filter / extra spell (grouped
+                    -- + pre-ordered; re-sorting would scatter the headers).
+                    ownItems = ns.BM2_OwnSourceItems(ind)
+                elseif ind.spells then
                     for _, sid in ipairs(ind.spells) do
                         ownItems[#ownItems + 1] = {
                             key = tostring(sid),
@@ -4942,9 +6569,14 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                     icon = GetSpellIcon(sid), iconSize = DD_SPELL_ICON_SIZE,
                         }
                     end
+                    table.sort(ownItems, function(a, b) return a.label < b.label end)
                 end
-                table.sort(ownItems, function(a, b) return a.label < b.label end)
-                if #ownItems > 0 then
+                -- v2: dynamic items -- fresh on every menu open.
+                local ownItemsArg = ownItems
+                if ns.BM2_Enabled and ns.BM2_OwnSourceItems then
+                    ownItemsArg = function() return ns.BM2_OwnSourceItems(ind) end
+                end
+                if #ownItems > 0 or ns.BM2_Enabled then
                     local ownMeasure = leftFrame:CreateFontString(nil, "OVERLAY")
                     ownMeasure:SetFont(fontPath, 13, "")
                     local ownMaxW2 = 0
@@ -4955,12 +6587,15 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                     end
                     ownMeasure:Hide()
                     local ownMenuW2 = max(170, ownMaxW2 + 60)
-                    local rgn = row1._rightRegion
+                    local rgn = ownRgn
                     if rgn._control then rgn._control:Hide() end
                     local cbDD = EllesmereUI.BuildVisOptsCBDropdown(
                         rgn, ownMenuW2, rgn:GetFrameLevel() + 2,
-                        ownItems,
+                        ownItemsArg,
                         function(k)
+                            if ns.BM2_Enabled and ns.BM2_OwnGet then
+                                return ns.BM2_OwnGet(ind, k)
+                            end
                             local sid = tonumber(k)
                             if ind.ownOnlySpells and ind.ownOnlySpells[sid] ~= nil then
                                 return ind.ownOnlySpells[sid]
@@ -4968,6 +6603,11 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                             return ind.ownOnly ~= false
                         end,
                         function(k, v)
+                            if ns.BM2_Enabled and ns.BM2_OwnSet then
+                                ns.BM2_OwnSet(ind, k, v)
+                                ReloadAndUpdate()
+                                return
+                            end
                             local sid = tonumber(k)
                             if not ind.ownOnlySpells then ind.ownOnlySpells = {} end
                             ind.ownOnlySpells[sid] = v
@@ -4976,23 +6616,12 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                     PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
                     rgn._control = cbDD
                     rgn._lastInline = nil
+                    AttachOwnAllSpecsCog(rgn, ind)
                 end
             end
 
-            -- Row 2: Position (+ cog) | Growth Direction
-            local posRow = SettingsRow(
-                { type="dropdown", text="Position", values=POSITION_VALUES, order=POSITION_ORDER,
-                  getValue=function() return ind.position or "TOPLEFT" end,
-                  setValue=function(v)
-                      ind.position = v
-                      ind.growDirection = GetDefaultGrow(v)
-                      ReloadAndUpdate()
-                      EllesmereUI:RefreshPage()
-                  end },
-                { type="dropdown", text="Growth Direction", values=GROW_VALUES, order=GROW_ORDER,
-                  getValue=function() return ind.growDirection or "RIGHT" end,
-                  setValue=function(v) ind.growDirection = v; ReloadAndUpdate() end })
-            -- Cog for position offset X/Y
+            -- Cog for position offset X/Y (rides the Position slot --
+            -- LEFT in both modes)
             do
                 local rgn = posRow._leftRegion
                 local _, cogShow = EllesmereUI.BuildCogPopup({
@@ -5033,7 +6662,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 { type="slider", text="Size", min=4, max=40, step=1,
                   getValue=function() return ind.size or 12 end,
                   setValue=function(v) ind.size = v; ReloadAndUpdate() end },
-                { type="slider", text="Spacing", min=-1, max=10, step=1,
+                { type="slider", pixel=true, text="Spacing", min=-1, max=10, step=1,
                   getValue=function() return ind.spacing or 1 end,
                   setValue=function(v) ind.spacing = v; ReloadAndUpdate() end })
 
@@ -5247,6 +6876,27 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             -- Max Duration: rescale the cooldown swipe to a fixed baseline (input =
             -- seconds) so buffs applied at varying durations are comparable. Inline
             -- toggle enables it; off by default, and off until a number is entered.
+            -- v2: the display-level Icon Glow control seats in the blank right
+            -- slot -- same control as the threshold Icon Glow, but permanent:
+            -- every visible icon of the group glows while shown.
+            local dispGlowCfg
+            if ns.BM2_Enabled then
+                local GLOW_VALUES = { [0] = "None" }
+                local GLOW_ORDER = { 0 }
+                local Styles = EllesmereUI.Glows and EllesmereUI.Glows.STYLES
+                if Styles then
+                    for i, entry in ipairs(Styles) do
+                        if not entry.shapeGlow then
+                            GLOW_VALUES[i] = entry.name
+                            GLOW_ORDER[#GLOW_ORDER + 1] = i
+                        end
+                    end
+                end
+                dispGlowCfg = { type="dropdown", text="Icon Glow",
+                    values=GLOW_VALUES, order=GLOW_ORDER,
+                    getValue=function() return ind.displayGlowType or 0 end,
+                    setValue=function(v) ind.displayGlowType = v; ReloadAndUpdate(); EllesmereUI:RefreshPage() end }
+            end
             local mdRow = SettingsRow(
                 { type="input", text="Max Duration", inputWidth=56,
                   getValue=function() return ind.maxDuration and tostring(ind.maxDuration) or "" end,
@@ -5255,13 +6905,76 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                       ind.maxDuration = (n and n > 0) and n or nil
                       ReloadAndUpdate()
                   end },
-                { type="label", text="" })
+                dispGlowCfg or { type="label", text="" })
             EllesmereUI.BuildInlineToggle({
                 region = mdRow._leftRegion,
                 getValue = function() return ind.maxDurationEnabled == true end,
                 setValue = function(v) ind.maxDurationEnabled = v end,
                 onToggle = function() ReloadAndUpdate() end,
             })
+            -- 12.1: no baseline/cap option on the engine duration bindings.
+            if EllesmereUI.IS_121 then
+                PTRSlotOverlay("Max Duration", mdRow._leftRegion)
+            end
+            -- Inline class + custom color swatches, left of the glow dropdown
+            -- (1:1 with the threshold Icon Glow row, minus the threshold gate).
+            if dispGlowCfg then
+                local PPl = EllesmereUI.PanelPP or EllesmereUI.PP
+                local rightRgn = mdRow._rightRegion
+                local ctrl = rightRgn._control
+
+                local classSwatch, updateClassSwatch = EllesmereUI.BuildColorSwatch(
+                    rightRgn, mdRow:GetFrameLevel() + 3,
+                    function()
+                        local _, classFile = UnitClass("player")
+                        local cc = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
+                        if cc then return cc.r, cc.g, cc.b end
+                        return 1, 0.82, 0
+                    end,
+                    function() end,
+                    false, 20)
+                PPl.Point(classSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
+                classSwatch:SetScript("OnClick", function()
+                    ind.displayGlowClassColor = true; ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end)
+                classSwatch:SetScript("OnEnter", function()
+                    EllesmereUI.ShowWidgetTooltip(classSwatch, "Class Colored")
+                end)
+                classSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+                local glowSwatch, updateGlowSwatch = EllesmereUI.BuildColorSwatch(
+                    rightRgn, mdRow:GetFrameLevel() + 3,
+                    function() return ind.displayGlowR or 1.0, ind.displayGlowG or 0.776, ind.displayGlowB or 0.376 end,
+                    function(r, g, b)
+                        ind.displayGlowR, ind.displayGlowG, ind.displayGlowB = r, g, b
+                        ReloadAndUpdate()
+                    end,
+                    false, 20)
+                PPl.Point(glowSwatch, "RIGHT", classSwatch, "LEFT", -8, 0)
+                glowSwatch:SetScript("OnEnter", function()
+                    EllesmereUI.ShowWidgetTooltip(glowSwatch, "Custom Colored")
+                end)
+                glowSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                -- Click the dimmed custom swatch to switch back from class color.
+                local origGlowClick = glowSwatch:GetScript("OnClick")
+                glowSwatch:SetScript("OnClick", function(self, ...)
+                    if ind.displayGlowClassColor then
+                        ind.displayGlowClassColor = false; ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                        return
+                    end
+                    if (ind.displayGlowType or 0) == 0 then return end
+                    if origGlowClick then origGlowClick(self, ...) end
+                end)
+
+                local function UpdateDispGlowState()
+                    local noGlow = (ind.displayGlowType or 0) == 0
+                    local isClassColored = ind.displayGlowClassColor
+                    glowSwatch:SetAlpha((isClassColored or noGlow) and 0.3 or 1)
+                    classSwatch:SetAlpha((isClassColored and not noGlow) and 1 or 0.3)
+                end
+                EllesmereUI.RegisterWidgetRefresh(function() updateGlowSwatch(); updateClassSwatch(); UpdateDispGlowState() end)
+                UpdateDispGlowState()
+            end
 
             -- THRESHOLD section (Enable, seconds, color, opacity)
             BuildThresholdRow(false)
@@ -5289,7 +7002,12 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 -- Replace right with own only CB dropdown
                 do
                     local ownItems = {}
-                    if ind.spells then
+                    if ns.BM2_Enabled and ns.BM2_OwnSourceItems then
+                        -- v2: one row per assigned filter / extra spell
+                        -- (grouped + pre-ordered; re-sorting would scatter
+                        -- the headers).
+                        ownItems = ns.BM2_OwnSourceItems(ind)
+                    elseif ind.spells then
                         for _, sid in ipairs(ind.spells) do
                             ownItems[#ownItems + 1] = {
                                 key = tostring(sid),
@@ -5297,9 +7015,14 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                     icon = GetSpellIcon(sid), iconSize = DD_SPELL_ICON_SIZE,
                             }
                         end
+                        table.sort(ownItems, function(a, b) return a.label < b.label end)
                     end
-                    table.sort(ownItems, function(a, b) return a.label < b.label end)
-                    if #ownItems > 0 then
+                    -- v2: dynamic items -- fresh on every menu open.
+                    local ownItemsArg = ownItems
+                    if ns.BM2_Enabled and ns.BM2_OwnSourceItems then
+                        ownItemsArg = function() return ns.BM2_OwnSourceItems(ind) end
+                    end
+                    if #ownItems > 0 or ns.BM2_Enabled then
                         local ownMeasure = leftFrame:CreateFontString(nil, "OVERLAY")
                         ownMeasure:SetFont(fontPath, 13, "")
                         local ownMaxW3 = 0
@@ -5314,8 +7037,11 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                         if rgn._control then rgn._control:Hide() end
                         local cbDD = EllesmereUI.BuildVisOptsCBDropdown(
                             rgn, ownMenuW3, rgn:GetFrameLevel() + 2,
-                            ownItems,
+                            ownItemsArg,
                             function(k)
+                                if ns.BM2_Enabled and ns.BM2_OwnGet then
+                                    return ns.BM2_OwnGet(ind, k)
+                                end
                                 local sid = tonumber(k)
                                 if ind.ownOnlySpells and ind.ownOnlySpells[sid] ~= nil then
                                     return ind.ownOnlySpells[sid]
@@ -5323,6 +7049,11 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                                 return ind.ownOnly ~= false
                             end,
                             function(k, v)
+                                if ns.BM2_Enabled and ns.BM2_OwnSet then
+                                    ns.BM2_OwnSet(ind, k, v)
+                                    ReloadAndUpdate()
+                                    return
+                                end
                                 local sid = tonumber(k)
                                 if not ind.ownOnlySpells then ind.ownOnlySpells = {} end
                                 ind.ownOnlySpells[sid] = v
@@ -5331,6 +7062,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                         PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
                         rgn._control = cbDD
                         rgn._lastInline = nil
+                        AttachOwnAllSpecsCog(rgn, ind)
                     end
                 end
 
@@ -5466,6 +7198,10 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                     setValue = function(v) ind.maxDurationEnabled = v end,
                     onToggle = function() ReloadAndUpdate() end,
                 })
+                -- 12.1: no baseline/cap option on the engine duration bindings.
+                if EllesmereUI.IS_121 then
+                    PTRSlotOverlay("Max Duration", mdRow._leftRegion)
+                end
 
                 -- THRESHOLD section (Enable, seconds, color, opacity)
                 BuildThresholdRow(false)
@@ -5534,7 +7270,12 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 -- Replace right with own only CB dropdown
                 do
                     local ownItems = {}
-                    if ind.spells then
+                    if ns.BM2_Enabled and ns.BM2_OwnSourceItems then
+                        -- v2: one row per assigned filter / extra spell
+                        -- (grouped + pre-ordered; re-sorting would scatter
+                        -- the headers).
+                        ownItems = ns.BM2_OwnSourceItems(ind)
+                    elseif ind.spells then
                         for _, sid in ipairs(ind.spells) do
                             ownItems[#ownItems + 1] = {
                                 key = tostring(sid),
@@ -5542,9 +7283,14 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                     icon = GetSpellIcon(sid), iconSize = DD_SPELL_ICON_SIZE,
                             }
                         end
+                        table.sort(ownItems, function(a, b) return a.label < b.label end)
                     end
-                    table.sort(ownItems, function(a, b) return a.label < b.label end)
-                    if #ownItems > 0 then
+                    -- v2: dynamic items -- fresh on every menu open.
+                    local ownItemsArg = ownItems
+                    if ns.BM2_Enabled and ns.BM2_OwnSourceItems then
+                        ownItemsArg = function() return ns.BM2_OwnSourceItems(ind) end
+                    end
+                    if #ownItems > 0 or ns.BM2_Enabled then
                         local ownMeasure = leftFrame:CreateFontString(nil, "OVERLAY")
                         ownMeasure:SetFont(fontPath, 13, "")
                         local ownMaxW4 = 0
@@ -5559,8 +7305,11 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                         if rgn._control then rgn._control:Hide() end
                         local cbDD = EllesmereUI.BuildVisOptsCBDropdown(
                             rgn, ownMenuW4, rgn:GetFrameLevel() + 2,
-                            ownItems,
+                            ownItemsArg,
                             function(k)
+                                if ns.BM2_Enabled and ns.BM2_OwnGet then
+                                    return ns.BM2_OwnGet(ind, k)
+                                end
                                 local sid = tonumber(k)
                                 if ind.ownOnlySpells and ind.ownOnlySpells[sid] ~= nil then
                                     return ind.ownOnlySpells[sid]
@@ -5568,6 +7317,11 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                                 return ind.ownOnly ~= false
                             end,
                             function(k, v)
+                                if ns.BM2_Enabled and ns.BM2_OwnSet then
+                                    ns.BM2_OwnSet(ind, k, v)
+                                    ReloadAndUpdate()
+                                    return
+                                end
                                 local sid = tonumber(k)
                                 if not ind.ownOnlySpells then ind.ownOnlySpells = {} end
                                 ind.ownOnlySpells[sid] = v
@@ -5576,6 +7330,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                         PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
                         rgn._control = cbDD
                         rgn._lastInline = nil
+                        AttachOwnAllSpecsCog(rgn, ind)
                     end
                 end
 
@@ -5584,17 +7339,65 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 -----------------------------------------------------------
                 _, h = W:SectionHeader(leftFrame, "DISPLAY", sy); sy = sy - h
 
-                -- Row 1: Border Width | Color (opacity slider + inline swatch)
-                local ac = EllesmereUI.ACCENT_COLOR or { r = 0.05, g = 0.82, b = 0.62 }
-                local bdrColorRow = SettingsRow(
+                -- Offered styles: the shared border-texture set MINUS the two
+                -- built-ins that don't suit the small buff frames -- "shadow"
+                -- (renders identically to glow without behind/black handling) and
+                -- "lightspark" (oversized outward halo) -- with "Dashed" (the
+                -- static ants border) inserted right after Solid. LibSharedMedia
+                -- borders are kept; built per-render so newly registered ones
+                -- appear without a reload.
+                local EXCLUDED_BORDER_STYLES = { shadow = true, lightspark = true }
+                local allVals, allOrder = EllesmereUI.GetBorderTextureDropdown()
+                local bsVals, bsOrder = {}, {}
+                for _, k in ipairs(allOrder) do
+                    if not EXCLUDED_BORDER_STYLES[k] then
+                        bsVals[k] = allVals[k]
+                        bsOrder[#bsOrder + 1] = k
+                        if k == "solid" then
+                            bsVals.dashed = "Dashed"
+                            bsOrder[#bsOrder + 1] = "dashed"
+                            bsVals.sweepcw = "Sweep (CW)"
+                            bsOrder[#bsOrder + 1] = "sweepcw"
+                            bsVals.sweepccw = "Sweep (CCW)"
+                            bsOrder[#bsOrder + 1] = "sweepccw"
+                        end
+                    end
+                end
+
+                -- Row 1: Border Style | Border Width
+                SettingsRow(
+                    { type="dropdown", text="Border Style", values=bsVals, order=bsOrder,
+                      -- Fall back to Solid in the menu if the stored style is no
+                      -- longer offered (e.g. a removed style left over from testing).
+                      getValue=function()
+                          local s = ind.borderStyle or "solid"
+                          return bsVals[s] and s or "solid"
+                      end,
+                      setValue=function(v) ind.borderStyle = v; ReloadAndRebuild() end },
                     { type="slider", text="Border Width", min=1, max=6, step=1, trackWidth=120,
                       getValue=function() return ind.borderWidth or 2 end,
-                      setValue=function(v) ind.borderWidth = v; ReloadAndUpdate() end },
+                      setValue=function(v) ind.borderWidth = v; ReloadAndUpdate() end })
+
+                -- Row 2 (last of section): Color (opacity slider + inline swatch) |
+                -- Dashes. The Dashes count applies only to the dashed style, so its
+                -- slot is a blank label for every other style -- allowed because
+                -- this is the section's last row.
+                local ac = EllesmereUI.ACCENT_COLOR or { r = 0.05, g = 0.82, b = 0.62 }
+                local dashesSlot
+                if (ind.borderStyle or "solid") == "dashed" then
+                    dashesSlot = { type="slider", text="Dashes", min=4, max=16, step=1, trackWidth=120,
+                      getValue=function() return ind.borderDashCount or 8 end,
+                      setValue=function(v) ind.borderDashCount = v; ReloadAndUpdate() end }
+                else
+                    dashesSlot = { type="label", text="" }
+                end
+                local bdrColorRow = SettingsRow(
                     { type="slider", text="Color", min=0, max=100, step=1, trackWidth=120,
                       getValue=function() return ind.borderOpacity or 100 end,
-                      setValue=function(v) ind.borderOpacity = v; ReloadAndUpdate() end })
+                      setValue=function(v) ind.borderOpacity = v; ReloadAndUpdate() end },
+                    dashesSlot)
                 do
-                    local rgn = bdrColorRow._rightRegion
+                    local rgn = bdrColorRow._leftRegion
                     local colorSwatch = EllesmereUI.BuildColorSwatch(
                         rgn, bdrColorRow:GetFrameLevel() + 3,
                         function()
@@ -5630,7 +7433,12 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 -- Replace right with own only CB dropdown
                 do
                     local ownItems = {}
-                    if ind.spells then
+                    if ns.BM2_Enabled and ns.BM2_OwnSourceItems then
+                        -- v2: one row per assigned filter / extra spell
+                        -- (grouped + pre-ordered; re-sorting would scatter
+                        -- the headers).
+                        ownItems = ns.BM2_OwnSourceItems(ind)
+                    elseif ind.spells then
                         for _, sid in ipairs(ind.spells) do
                             ownItems[#ownItems + 1] = {
                                 key = tostring(sid),
@@ -5638,9 +7446,14 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                     icon = GetSpellIcon(sid), iconSize = DD_SPELL_ICON_SIZE,
                             }
                         end
+                        table.sort(ownItems, function(a, b) return a.label < b.label end)
                     end
-                    table.sort(ownItems, function(a, b) return a.label < b.label end)
-                    if #ownItems > 0 then
+                    -- v2: dynamic items -- fresh on every menu open.
+                    local ownItemsArg = ownItems
+                    if ns.BM2_Enabled and ns.BM2_OwnSourceItems then
+                        ownItemsArg = function() return ns.BM2_OwnSourceItems(ind) end
+                    end
+                    if #ownItems > 0 or ns.BM2_Enabled then
                         local ownMeasure = leftFrame:CreateFontString(nil, "OVERLAY")
                         ownMeasure:SetFont(fontPath, 13, "")
                         local ownMaxW5 = 0
@@ -5655,8 +7468,11 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                         if rgn._control then rgn._control:Hide() end
                         local cbDD = EllesmereUI.BuildVisOptsCBDropdown(
                             rgn, ownMenuW5, rgn:GetFrameLevel() + 2,
-                            ownItems,
+                            ownItemsArg,
                             function(k)
+                                if ns.BM2_Enabled and ns.BM2_OwnGet then
+                                    return ns.BM2_OwnGet(ind, k)
+                                end
                                 local sid = tonumber(k)
                                 if ind.ownOnlySpells and ind.ownOnlySpells[sid] ~= nil then
                                     return ind.ownOnlySpells[sid]
@@ -5664,6 +7480,11 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                                 return ind.ownOnly ~= false
                             end,
                             function(k, v)
+                                if ns.BM2_Enabled and ns.BM2_OwnSet then
+                                    ns.BM2_OwnSet(ind, k, v)
+                                    ReloadAndUpdate()
+                                    return
+                                end
                                 local sid = tonumber(k)
                                 if not ind.ownOnlySpells then ind.ownOnlySpells = {} end
                                 ind.ownOnlySpells[sid] = v
@@ -5672,6 +7493,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                         PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
                         rgn._control = cbDD
                         rgn._lastInline = nil
+                        AttachOwnAllSpecsCog(rgn, ind)
                     end
                 end
 
@@ -5717,7 +7539,12 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 -- Replace right with own only CB dropdown
                 do
                     local ownItems = {}
-                    if ind.spells then
+                    if ns.BM2_Enabled and ns.BM2_OwnSourceItems then
+                        -- v2: one row per assigned filter / extra spell
+                        -- (grouped + pre-ordered; re-sorting would scatter
+                        -- the headers).
+                        ownItems = ns.BM2_OwnSourceItems(ind)
+                    elseif ind.spells then
                         for _, sid in ipairs(ind.spells) do
                             ownItems[#ownItems + 1] = {
                                 key = tostring(sid),
@@ -5725,9 +7552,14 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                     icon = GetSpellIcon(sid), iconSize = DD_SPELL_ICON_SIZE,
                             }
                         end
+                        table.sort(ownItems, function(a, b) return a.label < b.label end)
                     end
-                    table.sort(ownItems, function(a, b) return a.label < b.label end)
-                    if #ownItems > 0 then
+                    -- v2: dynamic items -- fresh on every menu open.
+                    local ownItemsArg = ownItems
+                    if ns.BM2_Enabled and ns.BM2_OwnSourceItems then
+                        ownItemsArg = function() return ns.BM2_OwnSourceItems(ind) end
+                    end
+                    if #ownItems > 0 or ns.BM2_Enabled then
                         local ownMeasure = leftFrame:CreateFontString(nil, "OVERLAY")
                         ownMeasure:SetFont(fontPath, 13, "")
                         local ownMaxW6 = 0
@@ -5742,8 +7574,11 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                         if rgn._control then rgn._control:Hide() end
                         local cbDD = EllesmereUI.BuildVisOptsCBDropdown(
                             rgn, ownMenuW6, rgn:GetFrameLevel() + 2,
-                            ownItems,
+                            ownItemsArg,
                             function(k)
+                                if ns.BM2_Enabled and ns.BM2_OwnGet then
+                                    return ns.BM2_OwnGet(ind, k)
+                                end
                                 local sid = tonumber(k)
                                 if ind.ownOnlySpells and ind.ownOnlySpells[sid] ~= nil then
                                     return ind.ownOnlySpells[sid]
@@ -5751,6 +7586,11 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                                 return ind.ownOnly ~= false
                             end,
                             function(k, v)
+                                if ns.BM2_Enabled and ns.BM2_OwnSet then
+                                    ns.BM2_OwnSet(ind, k, v)
+                                    ReloadAndUpdate()
+                                    return
+                                end
                                 local sid = tonumber(k)
                                 if not ind.ownOnlySpells then ind.ownOnlySpells = {} end
                                 ind.ownOnlySpells[sid] = v
@@ -5759,6 +7599,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                         PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
                         rgn._control = cbDD
                         rgn._lastInline = nil
+                        AttachOwnAllSpecsCog(rgn, ind)
                     end
                 end
 
@@ -5790,6 +7631,8 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
     -- Size the settings scroll child to its built content + sync the scrollbar.
     settingsChild:SetHeight(max(viewportH, math.abs(sy) + 12))
     UpdateThumb()
+
+    end -- 12.1 Base Icons detail vs legacy left column
 
     -- Size the sidebar scroll child to its content (tiles + Add New button)
     local sidebarContentH = max(10, math.abs(tileY))

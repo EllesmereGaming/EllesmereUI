@@ -139,19 +139,36 @@ local function ApplyLoggingState()
     wasLogging = shouldLog
 end
 
-_G._EUI_AutoLogging_Check = ApplyLoggingState
-
 local events = {
     ZONE_CHANGED_NEW_AREA = function() C_Timer.After(2, ApplyLoggingState) end,
     CHALLENGE_MODE_START   = function() C_Timer.After(1, ApplyLoggingState) end,
 }
 
+-- Zone events are registered only while the feature is enabled, so a disabled
+-- feature costs nothing on zone changes. The options toggle calls
+-- _EUI_AutoLogging_Check, which re-syncs registration AND applies the logging
+-- state immediately (disabling mid-instance still stops an active log).
 local logFrame = CreateFrame("Frame")
+local _eventsRegistered = false
+local function SyncEventRegistration()
+    local want = Cfg().enabled and true or false
+    if want == _eventsRegistered then return end
+    _eventsRegistered = want
+    for ev in pairs(events) do
+        if want then logFrame:RegisterEvent(ev) else logFrame:UnregisterEvent(ev) end
+    end
+end
+
+_G._EUI_AutoLogging_Check = function()
+    SyncEventRegistration()
+    ApplyLoggingState()
+end
+
 logFrame:RegisterEvent("PLAYER_LOGIN")
 logFrame:SetScript("OnEvent", function(self, event)
     if event == "PLAYER_LOGIN" then
         self:UnregisterEvent("PLAYER_LOGIN")
-        for ev in pairs(events) do self:RegisterEvent(ev) end
+        SyncEventRegistration()
         C_Timer.After(2, ApplyLoggingState)
     elseif events[event] then
         events[event]()

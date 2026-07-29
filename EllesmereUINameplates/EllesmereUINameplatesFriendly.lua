@@ -697,16 +697,23 @@ local friendlyFrameCache = CreateFramePool("Frame", UIParent, nil, nil, false, f
     plate.name:SetWordWrap(false)
     plate.name:SetMaxLines(1)
 
+    -- Fully-anchored rects, NOT single point + size: inside the 12.1
+    -- restricted plate subtree, point+size regions render DISPLACED. The
+    -- name's LEFT/RIGHT relPoint supplies both the edge x and the vertical
+    -- center line; the symmetric +/-8 pair renders 16 tall, centered --
+    -- identical geometry to the old single-point form on live.
     local _aSt = ns.ResolveTargetArrowStyle(FP())
     plate.leftArrow = plate:CreateTexture(nil, "OVERLAY")
     plate.leftArrow:SetTexture(ns.TARGET_ARROW_DIR .. _aSt.l .. ".png")
-    plate.leftArrow:SetSize(_aSt.w, 16)
-    plate.leftArrow:SetPoint("RIGHT", plate.name, "LEFT", -2, 0)
+    plate.leftArrow:SetWidth(_aSt.w)
+    plate.leftArrow:SetPoint("TOP", plate.name, "LEFT", -(2 + _aSt.w / 2), 8)
+    plate.leftArrow:SetPoint("BOTTOM", plate.name, "LEFT", -(2 + _aSt.w / 2), -8)
     plate.leftArrow:Hide()
     plate.rightArrow = plate:CreateTexture(nil, "OVERLAY")
     plate.rightArrow:SetTexture(ns.TARGET_ARROW_DIR .. _aSt.r .. ".png")
-    plate.rightArrow:SetSize(_aSt.w, 16)
-    plate.rightArrow:SetPoint("LEFT", plate.name, "RIGHT", 2, 0)
+    plate.rightArrow:SetWidth(_aSt.w)
+    plate.rightArrow:SetPoint("TOP", plate.name, "RIGHT", 2 + _aSt.w / 2, 8)
+    plate.rightArrow:SetPoint("BOTTOM", plate.name, "RIGHT", 2 + _aSt.w / 2, -8)
     plate.rightArrow:Hide()
 
     plate.raidFrame = CreateFrame("Frame", nil, plate)
@@ -1117,6 +1124,52 @@ ns.UpdateFriendlyClickThrough = ApplyFriendlyClickThrough
 clickThroughRetry:SetScript("OnEvent", function() ApplyFriendlyClickThrough() end)
 
 -------------------------------------------------------------------------------
+--  Friendly player visibility CVars
+--
+--  nameplateShowFriends / nameplateShowFriendlyPlayers PERSIST across sessions
+--  on Blizzard's side, so re-asserting them on every login can only ever
+--  override the user -- anyone who deliberately hid friendly nameplates in
+--  Blizzard's own Nameplate settings got them back every session. EUI now
+--  forces them ON only at moments of explicit intent: the first install, and
+--  the two toggles that mean "I want friendly plates" (Show EUI Friendly
+--  Player Nameplates / Make Friendly Nameplates Name Only). Every other path
+--  reads the CVars and leaves them alone.
+-------------------------------------------------------------------------------
+local FRIENDLY_VIS_CVARS = { "nameplateShowFriendlyPlayers", "nameplateShowFriends" }
+
+--- Force friendly player plates visible. Also drops any pending follower
+--- dungeon capture: an explicit "show them" must not be undone later by a
+--- restore that was queued before the user changed their mind.
+function ns.ForceFriendlyPlayerCVarsOn()
+    if not SetCVar then return end
+    for i = 1, #FRIENDLY_VIS_CVARS do
+        pcall(SetCVar, FRIENDLY_VIS_CVARS[i], 1)
+    end
+    if EllesmereUIDB then EllesmereUIDB.friendlyPlateVisSaved = nil end
+end
+
+--- Follower dungeons force friendly plates off, so we have to remember what
+--- the user actually had and hand exactly that back on exit -- assuming "on"
+--- is what re-showed plates for people who had hidden them. Persisted rather
+--- than runtime-only because the player can log out inside the dungeon, and a
+--- lost capture would strand their preference off.
+local function CaptureFriendlyVis()
+    if not EllesmereUIDB or EllesmereUIDB.friendlyPlateVisSaved ~= nil then return end
+    local cur = GetCVar and GetCVar("nameplateShowFriends")
+    EllesmereUIDB.friendlyPlateVisSaved = (cur == "1" or cur == 1) and 1 or 0
+end
+
+local function RestoreFriendlyVis()
+    if not (EllesmereUIDB and SetCVar) then return end
+    local saved = EllesmereUIDB.friendlyPlateVisSaved
+    if saved == nil then return end   -- nothing of ours to undo: leave them alone
+    EllesmereUIDB.friendlyPlateVisSaved = nil
+    for i = 1, #FRIENDLY_VIS_CVARS do
+        pcall(SetCVar, FRIENDLY_VIS_CVARS[i], saved)
+    end
+end
+
+-------------------------------------------------------------------------------
 --  System enable / disable  (called from toggle setValue and on login)
 -------------------------------------------------------------------------------
 function ns.UpdateFriendlyNameplateSystem()
@@ -1139,6 +1192,7 @@ function ns.UpdateFriendlyNameplateSystem()
         local inInstance = (iType == "party" or iType == "raid" or iType == "scenario" or iType == "arena" or iType == "pvp")
         if IsInFollowerDungeon() then
             if euiManagesPlayers then
+                CaptureFriendlyVis()
                 pcall(SetCVar, "nameplateShowFriendlyPlayers", 0)
                 pcall(SetCVar, "nameplateShowFriends", 0)
             end
@@ -1156,8 +1210,9 @@ function ns.UpdateFriendlyNameplateSystem()
                 local showNPCs = (fp.showFriendlyNPCs == true)
                 if euiManagesPlayers then
                     local nameOnlyVal = (fp.friendlyNameOnly ~= false) and 1 or 0
-                    pcall(SetCVar, "nameplateShowFriendlyPlayers", 1)
-                    pcall(SetCVar, "nameplateShowFriends", 1)
+                    -- Hand back only what a follower dungeon took. Outside that
+                    -- case visibility is the user's to own, so nothing is written.
+                    RestoreFriendlyVis()
                     pcall(SetCVar, "nameplateShowOnlyNameForFriendlyPlayerUnits", nameOnlyVal)
                 end
                 pcall(SetCVar, "nameplateShowFriendlyNPCs", showNPCs and 1 or 0)

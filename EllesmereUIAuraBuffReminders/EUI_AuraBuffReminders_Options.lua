@@ -50,6 +50,18 @@ initFrame:SetScript("OnEvent", function(self)
         return db and db.profile
     end
     local function DDB()  local p = DB(); return p and p.display end
+
+    local PREVIEW_TEXT_ANCHORS = {
+        BOTTOM = { "TOP",    "BOTTOM" },
+        TOP    = { "BOTTOM", "TOP"    },
+        CENTER = { "CENTER", "CENTER" },
+        LEFT   = { "RIGHT",  "LEFT"   },
+        RIGHT  = { "LEFT",   "RIGHT"  },
+    }
+    local function GetPreviewTextAnchor(d)
+        local m = PREVIEW_TEXT_ANCHORS[(d and d.textAnchor) or "BOTTOM"] or PREVIEW_TEXT_ANCHORS.BOTTOM
+        return m[1], m[2]
+    end
     local function RDB()  local p = DB(); return p and p.raidBuffs end
     local function ADB()  local p = DB(); return p and p.auras end
     local function CDB()  local p = DB(); return p and p.consumables end
@@ -225,7 +237,13 @@ initFrame:SetScript("OnEvent", function(self)
         local sz = math.floor(ICON_SIZE * baseScale + 0.5)
         local spacing = d.iconSpacing or 8
         local glowType = d.glowType or 0
-        local gc = d.glowColor or {r=1, g=0.776, b=0.376}
+        local gr, gg, gb
+        if _G._EABR_ResolveGlowTint then
+            gr, gg, gb = _G._EABR_ResolveGlowTint(d)
+        else
+            local gc = d.glowColor or {r=1, g=0.776, b=0.376}
+            gr, gg, gb = gc.r, gc.g, gc.b
+        end
         local showText = d.showText
         local tc = d.textColor or {r=1, g=1, b=1}
         local opacity = d.opacity or 1.0
@@ -255,15 +273,17 @@ initFrame:SetScript("OnEvent", function(self)
             if glowType > 0 and GT then
                 local entry = GT[glowType]
                 if entry then
+                    local pr, pg, pb = gr, gg, gb
+                    if pr == nil then pr, pg, pb = 1.0, 0.788, 0.137 end
                     if entry.procedural and _G._EABR_StartPixelGlow then
-                        _G._EABR_StartPixelGlow(btn._glowWrapper, sz, gc.r, gc.g, gc.b)
+                        _G._EABR_StartPixelGlow(btn._glowWrapper, sz, pr, pg, pb)
                     elseif entry.buttonGlow and _G._EABR_StartButtonGlow then
-                        _G._EABR_StartButtonGlow(btn._glowWrapper, sz, gc.r, gc.g, gc.b, 1.36)
+                        _G._EABR_StartButtonGlow(btn._glowWrapper, sz, pr, pg, pb, 1.36)
                     elseif entry.autocast and _G._EABR_StartAutoCastShine then
-                        _G._EABR_StartAutoCastShine(btn._glowWrapper, sz, gc.r, gc.g, gc.b, 1.0)
+                        _G._EABR_StartAutoCastShine(btn._glowWrapper, sz, pr, pg, pb, 1.0)
                     elseif _G._EABR_StartFlipBookGlow then
                         -- FlipBook glow (GCD, Modern WoW, Classic WoW) use shared live function
-                        _G._EABR_StartFlipBookGlow(btn._glowWrapper, sz, entry, gc.r, gc.g, gc.b)
+                        _G._EABR_StartFlipBookGlow(btn._glowWrapper, sz, entry, gr, gg, gb)
                     end
                     btn._glowWrapper:Show()
                 end
@@ -279,7 +299,8 @@ initFrame:SetScript("OnEvent", function(self)
                 local textYOff = d and d.textYOffset or -2
                 SetPVFont(btn._text, fontPath, textSize)
                 btn._text:ClearAllPoints()
-                btn._text:SetPoint("TOP", btn, "BOTTOM", textXOff, textYOff)
+                local tp, ip = GetPreviewTextAnchor(d)
+                btn._text:SetPoint(tp, btn, ip, textXOff, textYOff)
                 btn._text:SetTextColor(tc.r, tc.g, tc.b, 1)
                 btn._text:Show()
             else
@@ -548,7 +569,10 @@ initFrame:SetScript("OnEvent", function(self)
             local textXOff = d and d.textXOffset or 0
             local textYOff = d and d.textYOffset or -2
             local text = btn:CreateFontString(nil, "OVERLAY")
-            text:SetPoint("TOP", btn, "BOTTOM", textXOff, textYOff)
+            do
+                local tp, ip = GetPreviewTextAnchor(d)
+                text:SetPoint(tp, btn, ip, textXOff, textYOff)
+            end
             SetPVFont(text, fontPath, textSize)
             text:SetTextColor(tc.r, tc.g, tc.b, 1)
             text:SetText(iconData.label or "")
@@ -871,42 +895,65 @@ initFrame:SetScript("OnEvent", function(self)
         -- Inline color swatch on Glow Type (right of row 3)
         do
             local rgn = row2._rightRegion
-            local swatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel()+5,
-                function()
-                    local d = DDB()
-                    local gc = d and d.glowColor or {r=1, g=0.776, b=0.376}
-                    return gc.r, gc.g, gc.b, 1
-                end,
-                function(r, g, b)
-                    local d = DDB(); if not d then return end
-                    d.glowColor = {r=r, g=g, b=b}
-                    RefreshAll(); UpdatePreviewHeader()
-                end, false, 20)
-            swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -12, 0)
-            rgn._lastInline = swatch
+            local isNone = function()
+                local d = DDB()
+                return not d or (d.glowType or 0) == 0
+            end
+            local swatch, defaultSwatch, classSwatch = EllesmereUI.BuildTrioColorSwatch(
+                rgn, rgn:GetFrameLevel()+5,
+                {
+                    getMode = function()
+                        local d = DDB()
+                        -- Read-path migration: a profile activated mid-session
+                        -- may not have a mode key yet; derive it from the
+                        -- stored color so the trio highlights correctly.
+                        if d and _G._EABR_EnsureGlowModeMigrated then _G._EABR_EnsureGlowModeMigrated(d) end
+                        return (d and d.glowColorMode) or "default"
+                    end,
+                    setMode = function(m)
+                        local d = DDB(); if not d then return end
+                        d.glowColorMode = m
+                    end,
+                    getCustomRGB = function()
+                        local d = DDB()
+                        local gc = d and d.glowColor or {r=1.0, g=0.788, b=0.137}
+                        return gc.r, gc.g, gc.b
+                    end,
+                    setCustomRGB = function(r, g, b)
+                        local d = DDB(); if not d then return end
+                        d.glowColor = {r=r, g=g, b=b}
+                    end,
+                    hasClassColor = true,
+                    onChange = function() RefreshAll(); UpdatePreviewHeader(); EllesmereUI:RefreshPage() end,
+                    disabled = isNone,
+                    overrideSize = 20,
+                })
+            classSwatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -12, 0)
+            swatch:SetPoint("RIGHT", classSwatch, "LEFT", -8, 0)
+            defaultSwatch:SetPoint("RIGHT", swatch, "LEFT", -8, 0)
+            rgn._lastInline = defaultSwatch
 
             -- Disabled overlay when glow type is None
-            local swatchBlock = CreateFrame("Frame", nil, swatch)
-            swatchBlock:SetAllPoints()
-            swatchBlock:SetFrameLevel(swatch:GetFrameLevel() + 10)
-            swatchBlock:EnableMouse(true)
-            swatchBlock:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(swatch, EllesmereUI.DisabledTooltip("This option requires a Glow Type other than None"))
-            end)
-            swatchBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            local function UpdateSwatchDisabled()
-                local d = DDB()
-                local isNone = not d or (d.glowType or 0) == 0
-                if isNone then
-                    swatch:SetAlpha(0.3)
-                    swatchBlock:Show()
-                else
-                    swatch:SetAlpha(1)
-                    swatchBlock:Hide()
+            local function MakeSwatchBlock(target)
+                local block = CreateFrame("Frame", nil, target)
+                block:SetAllPoints()
+                block:SetFrameLevel(target:GetFrameLevel() + 10)
+                block:EnableMouse(true)
+                block:SetScript("OnEnter", function()
+                    EllesmereUI.ShowWidgetTooltip(target, EllesmereUI.DisabledTooltip("This option requires a Glow Type other than None"))
+                end)
+                block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                return block
+            end
+            local swatchBlocks = { MakeSwatchBlock(swatch), MakeSwatchBlock(defaultSwatch), MakeSwatchBlock(classSwatch) }
+            local function UpdateSwatchBlock()
+                local none = isNone()
+                for _, block in ipairs(swatchBlocks) do
+                    if none then block:Show() else block:Hide() end
                 end
             end
-            UpdateSwatchDisabled()
-            EllesmereUI.RegisterWidgetRefresh(UpdateSwatchDisabled)
+            UpdateSwatchBlock()
+            EllesmereUI.RegisterWidgetRefresh(UpdateSwatchBlock)
         end
 
         -- Inline color swatch + cog on Show Text (left of row 2)
@@ -943,6 +990,14 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="slider", label="Text Size", min=6, max=30, step=1,
                       get=function() local d = DDB(); return d and d.textSize or 11 end,
                       set=function(v) local d = DDB(); if not d then return end; d.textSize = v; RefreshAll(); UpdatePreviewHeader() end },
+                    { type="dropdown", label="Anchor",
+                      values = {
+                          BOTTOM = "Below Icon", TOP = "Above Icon",
+                          CENTER = "On Icon", LEFT = "Left of Icon", RIGHT = "Right of Icon",
+                      },
+                      order = { "BOTTOM", "TOP", "CENTER", "LEFT", "RIGHT" },
+                      get=function() local d = DDB(); return d and d.textAnchor or "BOTTOM" end,
+                      set=function(v) local d = DDB(); if not d then return end; d.textAnchor = v; RefreshAll(); UpdatePreviewHeader() end },
                     { type="slider", label="X Offset", min=-50, max=50, step=1,
                       get=function() local d = DDB(); return d and d.textXOffset or 0 end,
                       set=function(v) local d = DDB(); if not d then return end; d.textXOffset = v; RefreshAll(); UpdatePreviewHeader() end },
@@ -986,7 +1041,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Row 4: Icon Spacing (+ directions cog) | Attach Important Buffs to Cursor
         local row3
         row3, h = W:DualRow(parent, y,
-            { type="slider", text="Icon Spacing", min=0, max=50, step=1,
+            { type="slider", pixel=true, text="Icon Spacing", min=0, max=50, step=1,
               getValue=function() local d = DDB(); return d and d.iconSpacing or 8 end,
               setValue=function(v)
                   local d = DDB(); if not d then return end; d.iconSpacing = v
@@ -1411,10 +1466,164 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(UpdateZoneBtnDisabled)
         end
 
-        -- Wire up click mappings for preview hit overlays
+        -- Ready Check Mana Warning toggle (eye | cog | swatch inline)
+        row, h = W:DualRow(parent, y,
+            { type="toggle", text="Ready Check Mana Warning",
+              tooltip="Flashes LOW MANA during an out-of-combat raid ready check while you are a healer under 80% mana.",
+              getValue=function() local c = CDB(); return not c or c.rcManaWarn ~= false end,
+              setValue=function(v)
+                  local c = CDB(); if c then c.rcManaWarn = v end
+                  if not v and _G._EABR_RCWarnHidePreview then _G._EABR_RCWarnHidePreview() end
+                  if _G._EABR_RCWarnUpdateReg then _G._EABR_RCWarnUpdateReg() end
+                  EllesmereUI:RefreshPage()
+              end },
+            { type="label", text="" }
+        );  y = y - h
+
+        -- Inline: eyeball | cog | color swatch on the mana warning toggle
+        do
+            local leftRgn = row._leftRegion
+            local function rcwOff()
+                local c = CDB()
+                return c ~= nil and c.rcManaWarn == false
+            end
+            local rcwPreviewShown = false
+            local RefreshRcwEye  -- assigned below; cog offset sliders flip the eye on
+
+            -- Color swatch (rightmost inline, closest to toggle). Default shows
+            -- the brightened mana color the warning uses when no custom is set.
+            local swatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5,
+                function()
+                    local c = CDB()
+                    local col = c and c.rcManaWarnColor
+                    if col then return col.r, col.g, col.b, 1 end
+                    local mc = EllesmereUI.GetPowerColor and EllesmereUI.GetPowerColor("MANA")
+                    if mc then
+                        return math.min(mc.r * 1.5, 1), math.min(mc.g * 1.5, 1), math.min(mc.b * 1.5, 1), 1
+                    end
+                    return 0, 0.825, 1, 1
+                end,
+                function(r, g, b)
+                    local c = CDB(); if not c then return end
+                    c.rcManaWarnColor = { r = r, g = g, b = b }
+                    if _G._EABR_RCWarnApply then _G._EABR_RCWarnApply() end
+                end, false, 20)
+            swatch:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -12, 0)
+            leftRgn._lastInline = swatch
+
+            local swatchBlock = CreateFrame("Frame", nil, swatch)
+            swatchBlock:SetAllPoints()
+            swatchBlock:SetFrameLevel(swatch:GetFrameLevel() + 10)
+            swatchBlock:EnableMouse(true)
+            swatchBlock:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(swatch, EllesmereUI.DisabledTooltip("Ready Check Mana Warning"))
+            end)
+            swatchBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            -- Cog: Text Size + X/Y Offset. Offset edits force the preview on
+            -- (and light the eye) so the warning is visible while moving it.
+            local function ShowPreviewFromCog()
+                rcwPreviewShown = true
+                if RefreshRcwEye then RefreshRcwEye() end
+                if _G._EABR_RCWarnPreview then _G._EABR_RCWarnPreview() end
+            end
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Mana Warning Settings",
+                rows = {
+                    { type="slider", label="Text Size", min=10, max=72, step=1,
+                      get=function() local c = CDB(); return c and c.rcManaWarnSize or 48 end,
+                      set=function(v) local c = CDB(); if not c then return end; c.rcManaWarnSize = v
+                          if _G._EABR_RCWarnApply then _G._EABR_RCWarnApply() end end },
+                    { type="slider", label="X Offset", min=-600, max=600, step=1,
+                      get=function() local c = CDB(); return c and c.rcManaWarnX or 0 end,
+                      set=function(v) local c = CDB(); if not c then return end; c.rcManaWarnX = v
+                          ShowPreviewFromCog() end },
+                    { type="slider", label="Y Offset", min=-600, max=600, step=1,
+                      get=function() local c = CDB(); return c and c.rcManaWarnY or 0 end,
+                      set=function(v) local c = CDB(); if not c then return end; c.rcManaWarnY = v
+                          ShowPreviewFromCog() end },
+                },
+            })
+            local cogBtn = MakeCogBtn(leftRgn, cogShow)
+
+            local cogBlock = CreateFrame("Frame", nil, cogBtn)
+            cogBlock:SetAllPoints()
+            cogBlock:SetFrameLevel(cogBtn:GetFrameLevel() + 10)
+            cogBlock:EnableMouse(true)
+            cogBlock:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip("Ready Check Mana Warning"))
+            end)
+            cogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            -- Eye icon toggles a live preview (left of cog)
+            local EYE_VISIBLE   = EllesmereUI.MEDIA_PATH .. "icons\\eui-visible.png"
+            local EYE_INVISIBLE = EllesmereUI.MEDIA_PATH .. "icons\\eui-invisible.png"
+            local eyeBtn = CreateFrame("Button", nil, leftRgn)
+            eyeBtn:SetSize(26, 26)
+            eyeBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
+            leftRgn._lastInline = eyeBtn
+            eyeBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
+            eyeBtn:SetAlpha(0.4)
+            local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+            eyeTex:SetAllPoints()
+            RefreshRcwEye = function()
+                eyeTex:SetTexture(rcwPreviewShown and EYE_INVISIBLE or EYE_VISIBLE)
+            end
+            RefreshRcwEye()
+            eyeBtn:SetScript("OnEnter", function(self)
+                self:SetAlpha(0.7)
+                EllesmereUI.ShowWidgetTooltip(self, "Preview mana warning")
+            end)
+            eyeBtn:SetScript("OnLeave", function(self)
+                EllesmereUI.HideWidgetTooltip()
+                self:SetAlpha(0.4)
+            end)
+            eyeBtn:SetScript("OnClick", function()
+                rcwPreviewShown = not rcwPreviewShown
+                RefreshRcwEye()
+                if rcwPreviewShown then
+                    if _G._EABR_RCWarnPreview then _G._EABR_RCWarnPreview() end
+                else
+                    if _G._EABR_RCWarnHidePreview then _G._EABR_RCWarnHidePreview() end
+                end
+            end)
+
+            local eyeBlock = CreateFrame("Frame", nil, eyeBtn)
+            eyeBlock:SetAllPoints()
+            eyeBlock:SetFrameLevel(eyeBtn:GetFrameLevel() + 10)
+            eyeBlock:EnableMouse(true)
+            eyeBlock:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(eyeBtn, EllesmereUI.DisabledTooltip("Ready Check Mana Warning"))
+            end)
+            eyeBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            -- Shared disabled-state refresh for all three inlines
+            local function UpdateRcwInlinesDisabled()
+                local off = rcwOff()
+                if off then
+                    rcwPreviewShown = false
+                    RefreshRcwEye()
+                    swatch:SetAlpha(0.3);  swatchBlock:Show()
+                    cogBtn:SetAlpha(0.15); cogBlock:Show()
+                    eyeBtn:SetAlpha(0.15); eyeBlock:Show()
+                else
+                    swatch:SetAlpha(1)
+                    swatchBlock:Hide()
+                    cogBtn:SetAlpha(0.4); cogBlock:Hide()
+                    eyeBtn:SetAlpha(0.4); eyeBlock:Hide()
+                end
+            end
+            UpdateRcwInlinesDisabled()
+            EllesmereUI.RegisterWidgetRefresh(UpdateRcwInlinesDisabled)
+        end
+
+        -- Wire up click mappings for preview hit overlays. Both display-level
+        -- targets are row2 -- the first DISPLAY row, which also hosts the Show
+        -- Text toggle. (These previously pointed at names that were never
+        -- assigned, so the nil-target guard silently swallowed the clicks.)
         wipe(_eabrClickMappings)
-        _eabrClickMappings.display = { section = displaySection, target = displayFirstRow }
-        _eabrClickMappings.showText = { section = displaySection, target = showTextRow }
+        _eabrClickMappings.display = { section = displaySection, target = row2 }
+        _eabrClickMappings.showText = { section = displaySection, target = row2 }
         _eabrClickMappings.raidbuff = { section = raidBufHdr, target = raidBufFirstRow }
         _eabrClickMappings.aura = { section = auraHdr, target = auraFirstRow }
         _eabrClickMappings.consumable = { section = consumHdr, target = consumFirstRow }

@@ -247,8 +247,20 @@ local function EnumerateCDMViewerSpells(includeBuffViewer)
             for frame in viewer.itemFramePool:EnumerateActive() do
                 if frame:IsShown() or frame.cooldownInfo then
                     local sid = GetCanonicalSpellIDForFrame(frame)
-                    if _IsUsableSID(sid) and not seen[sid] then
-                        seen[sid] = true
+                    -- Dedup identity. In the BUFF viewer each slot is a distinct
+                    -- cooldownID, and Blizzard can report the SAME canonical
+                    -- spellID for two DIFFERENT cooldownIDs (Diabolist: the
+                    -- Demonic Art slot reports Diabolic Ritual's id) -- deduping
+                    -- by sid there wrongly merges the two into one, so the user
+                    -- can't see or style them individually. Key on cooldownID so
+                    -- both survive. CD/util viewers keep sid-dedup to collapse a
+                    -- spell that shows up in two viewers. Non-colliding specs are
+                    -- unaffected: there a unique sid implies a unique cooldownID.
+                    local cd = frame.cooldownID
+                    local dkey = (includeBuffViewer and type(cd) == "number")
+                        and ("c" .. cd) or sid
+                    if _IsUsableSID(sid) and dkey ~= nil and not seen[dkey] then
+                        seen[dkey] = true
                         entries[#entries + 1] = {
                             sid          = sid,
                             cdID         = frame.cooldownID,
@@ -356,6 +368,19 @@ function ns.RemoveSpellFromBar(barKey, spellID)
     if sd.customSpellGroups then
         for variantID, primaryID in pairs(sd.customSpellGroups) do
             if primaryID == removed then sd.customSpellGroups[variantID] = nil end
+        end
+    end
+    -- Default buffs bar: scrub the removed custom buff's stable order key.
+    -- Absent keys are otherwise kept forever as gaps (the talent-swap feature),
+    -- but a user-removed custom buff never returns to fill its gap -- and the
+    -- accumulated orphans desync the preview's rendered slots from the array.
+    -- Blizzard-tracked buffs key as "c"..cooldownID and are unaffected.
+    if barKey == "buffs" and type(removed) == "number" and removed > 0
+       and type(sd.buffDisplayOrder) == "table" then
+        local t = sd.buffDisplayOrder
+        local skey = "s" .. removed
+        for i = #t, 1, -1 do
+            if t[i] == skey then table.remove(t, i) end
         end
     end
     -- Hosted-buff bookkeeping. Removing the MARKER (or a legacy plain entry
@@ -652,6 +677,16 @@ function ns.MigrateSpecToBarFilterModelV6()
 
     local prof = sp[specKey]
     if not prof or prof._barFilterModelV6 then return end
+    -- Never consume import ghosting in the session that performed the import.
+    -- This pass reads the LIVE Blizzard CDM tracked set, and an installer that
+    -- also rewrites Blizzard's own CDM layout leaves that set unlaundered until
+    -- a reload -- so ghosting computed here would be against the pre-import
+    -- tracked set, then stamped one-shot. Return WITHOUT stamping so the next
+    -- session runs it against settled state. Fail-open: until then the layout's
+    -- unplaced spells simply stay visible on the default bars.
+    if prof._importGhostMode and EllesmereUI and EllesmereUI._cdmImportGhostDeferred then
+        return
+    end
     if not prof.barSpells then prof._barFilterModelV6 = true; return end
 
     local p = ECME.db and ECME.db.profile
@@ -930,6 +965,345 @@ function ns.MoveTrackedSpell(barKey, fromIdx, toIdx)
     return true
 end
 
+--- Stable display-order key for a Blizzard-tracked buff (cooldownID) or custom.
+local function BuffDisplayStableKey(sid, cdID)
+    if type(cdID) == "number" then return "c" .. cdID end
+    if type(sid) == "number" and sid > 0 then return "s" .. sid end
+    return nil
+end
+ns.BuffDisplayStableKey = BuffDisplayStableKey
+
+--- Spell ids associated with a stored buffDisplayOrder key ("c"..cdID / "s"..sid).
+local function SpellIdsForBuffOrderKey(key)
+    if type(key) ~= "string" then return nil end
+    local pfx, num = string.sub(key, 1, 1), tonumber(string.sub(key, 2))
+    if not num or num <= 0 then return nil end
+    if pfx == "s" then return num end
+    if pfx == "c" and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
+        local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(num)
+        if not info then return nil end
+        if _IsUsableSID(info.overrideSpellID) then return info.overrideSpellID end
+        if _IsUsableSID(info.spellID) then return info.spellID end
+    end
+    return nil
+end
+
+--- True when a live buff entry matches a stored buffDisplayOrder key, including
+--- hero-talent / override variants (cooldownID can drift across talent swaps).
+local function BuffOrderKeyMatchesEntry(key, sid, cdID, frame)
+    if not key then return false end
+    local stable = BuffDisplayStableKey(sid, cdID)
+    if stable and stable == key then return true end
+    local storedSid = SpellIdsForBuffOrderKey(key)
+    if not storedSid then return false end
+    if sid and IsVariantOf(storedSid, sid) then return true end
+    if frame and ns.GetCanonicalSpellIDForFrame then
+        local canon = ns.GetCanonicalSpellIDForFrame(frame)
+        if canon and IsVariantOf(storedSid, canon) then return true end
+    end
+    if cdID and type(cdID) == "number" and ns._cdmCleanSidByCDID then
+        local clean = ns._cdmCleanSidByCDID[cdID]
+        if clean and IsVariantOf(storedSid, clean) then return true end
+    end
+    return false
+end
+
+--- Enumerate default-buffs-bar entries (viewer pool + this bar's customs/items),
+--- minus spells diverted to other buff-family or hosted CD/utility bars.
+function ns.CollectDefaultBuffTrackEntries()
+    local diverted = {}
+    local divertedCd = {}  -- cooldownID-level diversions (collided-buff slots)
+    local p = ECME and ECME.db and ECME.db.profile
+    if p and p.cdmBars and p.cdmBars.bars then
+        for _, otherBd in ipairs(p.cdmBars.bars) do
+            if otherBd.enabled and otherBd.key ~= "buffs" then
+                local otherSd = ns.GetBarSpellData(otherBd.key)
+                if otherBd.barType == "buffs" or otherBd.barType == "custom_buff" then
+                    if otherSd and otherSd.assignedSpells then
+                        for _, sid in ipairs(otherSd.assignedSpells) do
+                            if type(sid) == "number" and sid > 0 then diverted[sid] = true end
+                        end
+                    end
+                    local otherClaims = otherSd and ns.CollectCdClaimSet(otherSd)
+                    if otherClaims then
+                        for cdID in pairs(otherClaims) do divertedCd[cdID] = true end
+                    end
+                elseif otherSd and otherSd.hostedBuffSpellIDs then
+                    for sid in pairs(otherSd.hostedBuffSpellIDs) do
+                        if type(sid) == "number" and sid > 0 then diverted[sid] = true end
+                    end
+                end
+            end
+        end
+    end
+
+    local out = {}
+    local seen = {}
+    local entries = ns.EnumerateCDMViewerSpells and ns.EnumerateCDMViewerSpells(true) or {}
+    for _, e in ipairs(entries) do
+        -- Dedup on the stable (cooldownID-derived) key, not e.sid: two viewer
+        -- slots can share a canonical spellID but are distinct cooldownIDs
+        -- (Diabolist Demonic Art vs Diabolic Ritual). Keying on sid here would
+        -- re-merge what EnumerateCDMViewerSpells now keeps separate.
+        local key = BuffDisplayStableKey(e.sid, e.cdID)
+        if e.sid and not diverted[e.sid]
+           and not (e.cdID and divertedCd[e.cdID])
+           and key and not seen[key] then
+            seen[key] = true
+            out[#out + 1] = {
+                key         = key,
+                sid         = e.sid,
+                cdID        = e.cdID,
+                layoutIndex = e.layoutIndex or 0,
+            }
+        end
+    end
+
+    local sdSelf = ns.GetBarSpellData("buffs")
+    if sdSelf and sdSelf.assignedSpells then
+        local extra = 5000
+        if sdSelf.spellDurations then
+            for _, sid in ipairs(sdSelf.assignedSpells) do
+                if type(sid) == "number" and sid > 0 and (sdSelf.spellDurations[sid] or 0) > 0 then
+                    local key = BuffDisplayStableKey(sid, nil)
+                    if key and not seen[key] then
+                        seen[key] = true
+                        out[#out + 1] = { key = key, sid = sid, cdID = nil, layoutIndex = extra }
+                        extra = extra + 1
+                    end
+                end
+            end
+        end
+        extra = 6000
+        for _, sid in ipairs(sdSelf.assignedSpells) do
+            if type(sid) == "number" and sid <= -100 then
+                local key = BuffDisplayStableKey(sid, nil)
+                if key and not seen[key] then
+                    seen[key] = true
+                    out[#out + 1] = { key = key, sid = sid, cdID = nil, layoutIndex = extra }
+                    extra = extra + 1
+                end
+            end
+        end
+    end
+
+    table.sort(out, function(a, b)
+        if a.layoutIndex ~= b.layoutIndex then return a.layoutIndex < b.layoutIndex end
+        return (a.key or "") < (b.key or "")
+    end)
+    return out
+end
+
+-------------------------------------------------------------------------------
+--  Same-spellID buff disambiguation (Diabolist Demonic Art vs Diabolic Ritual)
+--
+--  Blizzard can report the SAME canonical spellID on two DIFFERENT buff-viewer
+--  slots (cooldownIDs). Per-icon buff settings are keyed by spellID, so those
+--  two collide onto one entry. We let a COLLIDED slot key its settings by
+--  "c"..cooldownID instead, giving each its own entry. Only collided slots do
+--  this: keying every buff by cooldownID would regress non-collided buffs,
+--  whose settings must survive talent swaps (cooldownID drifts; spellID does
+--  not). Collided slots trade that away -- their per-slot settings are
+--  session-stable but may not follow a talent-loadout swap, which is
+--  unavoidable when the two share every identity except the drifting id.
+-------------------------------------------------------------------------------
+
+--- Set of canonical spellIDs that map to 2+ distinct buff-viewer cooldownIDs.
+--- Cold path (settings popup); recomputed per call from the live viewer pool.
+function ns.CollidedBuffSids()
+    local counts, out = {}, {}
+    local entries = ns.EnumerateCDMViewerSpells and ns.EnumerateCDMViewerSpells(true) or {}
+    for _, e in ipairs(entries) do
+        if e.sid and type(e.cdID) == "number" then
+            counts[e.sid] = (counts[e.sid] or 0) + 1
+        end
+    end
+    for sid, n in pairs(counts) do if n > 1 then out[sid] = true end end
+    return out
+end
+
+function ns.IsCollidedBuffSid(sid)
+    if type(sid) ~= "number" or sid <= 0 then return false end
+    return ns.CollidedBuffSids()[sid] == true
+end
+
+-- Runtime hot-path gate: true only when the current spec's buffs store holds at
+-- least one "c"..cooldownID key. Cached by store-table identity, so a spec or
+-- profile swap (which hands back a different store table) recomputes for free
+-- without any explicit invalidation hook.
+local _cdKeyGate
+function ns.BuffFamHasCdKey(store)
+    -- The runtime resolver already holds the buffs store; accept it to skip a
+    -- second spec/profile lookup per buff-frame resolve.
+    store = store or (ns.GetSpellSettingsStore and ns.GetSpellSettingsStore("buffs"))
+    if not store then return false end
+    if _cdKeyGate and _cdKeyGate.store == store then return _cdKeyGate.has end
+    local hit = false
+    for k in pairs(store) do
+        if type(k) == "string" and string.byte(k, 1) == 99 then hit = true; break end  -- 'c'
+    end
+    _cdKeyGate = { store = store, has = hit }
+    return hit
+end
+
+--- Called when a "c"..cooldownID buff entry is first persisted, so the hot-path
+--- gate flips on without waiting for the store-identity cache to expire.
+function ns.MarkBuffFamHasCdKey()
+    local store = ns.GetSpellSettingsStore and ns.GetSpellSettingsStore("buffs")
+    _cdKeyGate = { store = store, has = true }
+end
+
+--- Reorder present keys to match Blizzard viewer order while absent keys (talent
+--- gaps, untalented catalog entries) keep their stored slots.
+local function SyncPresentBuffOrderToBlizzard(order, present, entries)
+    if not order or #order == 0 or not entries or #entries == 0 then return order end
+    local blizzRank = {}
+    for i, e in ipairs(entries) do
+        if blizzRank[e.key] == nil then blizzRank[e.key] = i end
+    end
+    local sortedPresent = {}
+    for _, key in ipairs(order) do
+        if present[key] then sortedPresent[#sortedPresent + 1] = key end
+    end
+    table.sort(sortedPresent, function(a, b)
+        return (blizzRank[a] or 99999) < (blizzRank[b] or 99999)
+    end)
+    local pi = 1
+    local synced = {}
+    for _, key in ipairs(order) do
+        if present[key] then
+            synced[#synced + 1] = sortedPresent[pi]
+            pi = pi + 1
+        else
+            synced[#synced + 1] = key
+        end
+    end
+    return synced
+end
+
+--- Dirty flag gating the reconcile in the hot reanchor path: the tracked
+--- CATALOG (viewer pool incl. inactive + diversions) only changes on rebuilds
+--- and repopulate, not when buffs merely appear/disappear -- so combat
+--- reanchors skip the full enumeration/sorts. Set true wherever composition
+--- can change (FullCDMRebuild wrapper, RepopulateFromBlizzard); an unreconciled
+--- newcomer still renders correctly via the layoutIndex spillover fallback
+--- until the next rebuild. Starts true for the login seed pass.
+ns._cdmBuffOrderDirty = true
+
+--- Keep stored buffDisplayOrder across talent/spec gaps, seed on first stable
+--- pass, and insert newly-tracked buffs by Blizzard layoutIndex (not at tail).
+function ns.ReconcileBuffDisplayOrder()
+    if ns._cdmSpecRebuildStale then return end
+    local sd = ns.GetBarSpellData("buffs")
+    if not sd then return end
+
+    local order = sd.buffDisplayOrder
+    if order and type(order[1]) == "number" then
+        sd.buffDisplayOrder = nil
+        order = nil
+    end
+
+    local entries = ns.CollectDefaultBuffTrackEntries()
+    if #entries == 0 then return end
+
+    local present = {}
+    for _, e in ipairs(entries) do
+        if present[e.key] == nil then
+            present[e.key] = { sid = e.sid, cdID = e.cdID, layoutIndex = e.layoutIndex or 0 }
+        end
+    end
+
+    if not order or #order == 0 then
+        local seeded = {}
+        for _, e in ipairs(entries) do seeded[#seeded + 1] = e.key end
+        sd.buffDisplayOrder = seeded
+        ns._spellOrderDirty = true
+        return
+    end
+
+    local newOrder, seen = {}, {}
+    for _, key in ipairs(order) do
+        if not seen[key] then
+            seen[key] = true
+            newOrder[#newOrder + 1] = key
+        end
+    end
+
+    local newcomers = {}
+    for _, e in ipairs(entries) do
+        if not seen[e.key] then
+            newcomers[#newcomers + 1] = e
+        end
+    end
+    if #newcomers > 0 then
+        table.sort(newcomers, function(a, b)
+            if a.layoutIndex ~= b.layoutIndex then return a.layoutIndex < b.layoutIndex end
+            return (a.key or "") < (b.key or "")
+        end)
+        local blizzRank = {}
+        for i, e in ipairs(entries) do blizzRank[e.key] = i end
+        for _, e in ipairs(newcomers) do
+            local insertAt = #newOrder + 1
+            for i, key in ipairs(newOrder) do
+                local rank = blizzRank[key]
+                if rank and rank > blizzRank[e.key] then
+                    insertAt = i
+                    break
+                end
+            end
+            table.insert(newOrder, insertAt, e.key)
+            seen[e.key] = true
+        end
+    end
+
+    if not sd._buffDisplayOrderUserModified then
+        newOrder = SyncPresentBuffOrderToBlizzard(newOrder, present, entries)
+    end
+
+    local changed = (#newOrder ~= #order)
+    if not changed then
+        for i = 1, #newOrder do
+            if newOrder[i] ~= order[i] then changed = true; break end
+        end
+    end
+    if changed then
+        sd.buffDisplayOrder = newOrder
+        ns._spellOrderDirty = true
+    end
+end
+
+--- Resolve a buff bar entry's sort index from buffDisplayOrder (variant-aware).
+function ns.ResolveBuffDisplaySortIndex(entry, buffOrder, isDefaultBuffs)
+    if not buffOrder or not entry then return nil end
+    if isDefaultBuffs then
+        local cd = entry.frame and entry.frame.cooldownID
+        local sid = entry.spellID
+        -- Steady state: the stable key matches directly -- O(1), zero
+        -- allocations. The variant scan below walks every stored key and can
+        -- call GetCooldownViewerCooldownInfo (allocates) per miss, so it is
+        -- reserved for genuine talent-gap frames whose cooldownID drifted.
+        local stable = BuffDisplayStableKey(sid, cd)
+        local direct = stable and buffOrder[stable]
+        if direct then return direct end
+        for key, idx in pairs(buffOrder) do
+            if BuffOrderKeyMatchesEntry(key, sid, cd, entry.frame) then return idx end
+        end
+        return nil
+    end
+    local ef = entry.frame
+    -- Collided-buff slot (cd-claim marker, see ns.CdClaimMarker): both
+    -- runtime frames of the pair share one spellID, so a spellID-keyed
+    -- lookup can't tell them apart and both would miss. cooldownID is
+    -- unique per slot -- check it first, same stable-key convention as the
+    -- default bar's isDefaultBuffs branch above.
+    local cdKey = ef and ef.cooldownID and BuffDisplayStableKey(nil, ef.cooldownID)
+    if cdKey and buffOrder[cdKey] then return buffOrder[cdKey] end
+    local canon = ef and ns.GetCanonicalSpellIDForFrame and ns.GetCanonicalSpellIDForFrame(ef)
+    return (canon and buffOrder[canon])
+        or (entry.spellID and buffOrder[entry.spellID])
+        or (entry.baseSpellID and buffOrder[entry.baseSpellID])
+end
+
 --- Default buffs bar DISPLAY-ORDER reorder helpers.
 ---
 --- The default "buffs" bar's assignedSpells is shared with routing + custom
@@ -939,36 +1313,56 @@ end
 --- array of STABLE keys ("c"..cooldownID for Blizzard buffs, "s"..spellID for
 --- customs) that only the sort + preview + drag read -- routing never touches it.
 --- cooldownID is used (not the canonical spellID) because a buff's canonical id
---- flips between ability/aura form across active<->inactive. The array is always
---- the full visible set (seeded + reconciled by the options preview build), so
---- reorders are plain index ops with no zero-padding and no route-map rebuild.
-function ns.SwapBuffDisplayOrder(idx1, idx2)
-    local sd = ns.GetBarSpellData("buffs")
-    local t = sd and sd.buffDisplayOrder
-    if not t then return false end
-    if idx1 < 1 or idx2 < 1 or idx1 > #t or idx2 > #t then return false end
-    t[idx1], t[idx2] = t[idx2], t[idx1]
+--- flips between ability/aura form across active<->inactive.
+---
+--- KEY-BASED, not index-based: the stored array keeps ABSENT keys in their
+--- slots (talent-gapped buffs reclaim their position on return), while the
+--- preview renders only PRESENT keys -- so a preview slot index does not map
+--- 1:1 onto the array whenever any gap precedes it. Callers pass the stable
+--- keys of the rendered slots (pf._buffSlotKeys); positions are resolved
+--- against the live array at call time.
+local function BuffOrderIndexOf(t, key)
+    for i = 1, #t do
+        if t[i] == key then return i end
+    end
+    return nil
+end
+
+local function FinishBuffOrderWrite(sd)
+    sd._buffDisplayOrderUserModified = true
     ns._spellOrderDirty = true
     local frame = cdmBarFrames["buffs"]
     if frame then frame._blizzCache = nil end
     if ns.QueueReanchor then ns.QueueReanchor() end
+end
+
+function ns.SwapBuffDisplayKeys(key1, key2)
+    if not key1 or not key2 or key1 == key2 then return false end
+    local sd = ns.GetBarSpellData("buffs")
+    local t = sd and sd.buffDisplayOrder
+    if not t then return false end
+    local i1, i2 = BuffOrderIndexOf(t, key1), BuffOrderIndexOf(t, key2)
+    if not i1 or not i2 then return false end
+    t[i1], t[i2] = t[i2], t[i1]
+    FinishBuffOrderWrite(sd)
     return true
 end
 
-function ns.MoveBuffDisplayOrder(fromIdx, toIdx)
-    if fromIdx == toIdx then return false end
+--- Move dragKey so it renders immediately before beforeKey; nil beforeKey
+--- appends after everything (drop past the last rendered slot).
+function ns.MoveBuffDisplayKey(dragKey, beforeKey)
+    if not dragKey or dragKey == beforeKey then return false end
     local sd = ns.GetBarSpellData("buffs")
     local t = sd and sd.buffDisplayOrder
     if not t then return false end
-    if fromIdx < 1 or fromIdx > #t then return false end
-    if toIdx < 1 then toIdx = 1 end
-    if toIdx > #t then toIdx = #t end
-    local val = table.remove(t, fromIdx)
-    table.insert(t, toIdx, val)
-    ns._spellOrderDirty = true
-    local frame = cdmBarFrames["buffs"]
-    if frame then frame._blizzCache = nil end
-    if ns.QueueReanchor then ns.QueueReanchor() end
+    local from = BuffOrderIndexOf(t, dragKey)
+    if not from then return false end
+    local val = table.remove(t, from)
+    local to
+    if beforeKey then to = BuffOrderIndexOf(t, beforeKey) end
+    if not to then to = #t + 1 end
+    table.insert(t, to, val)
+    FinishBuffOrderWrite(sd)
     return true
 end
 
@@ -1043,17 +1437,25 @@ local GetBarType = ResolveBarType
 -- action, never a "blocked because it's already on bar X" failure mode.)
 
 --- Same check but for TBB (Tracking Bars check other Tracking Bars only).
-function ns.SpellUsedOnAnyOtherTBB(spellID, excludeIdx)
+--- trackType scopes the check to one track family: nil/"buff" = buff bars,
+--- "cooldown" = cooldown-tracking bars. A bar of a different track type
+--- never blocks a pick (a buff bar and a cooldown bar for the same spell
+--- are distinct, legitimate picks).
+function ns.SpellUsedOnAnyOtherTBB(spellID, excludeIdx, trackType)
     local tbb = ns.GetTrackedBuffBars and ns.GetTrackedBuffBars()
     if not tbb or not tbb.bars then return nil end
     for i, cfg in ipairs(tbb.bars) do
         if i ~= excludeIdx then
-            if cfg.spellID and cfg.spellID == spellID then
-                return cfg.name or ("Tracking Bar " .. i)
-            end
-            if cfg.spellIDs then
-                for _, sid in ipairs(cfg.spellIDs) do
-                    if sid == spellID then return cfg.name or ("Tracking Bar " .. i) end
+            if (cfg.trackType or "buff") ~= (trackType or "buff") then
+                -- Different track type never blocks a pick.
+            else
+                if cfg.spellID and cfg.spellID == spellID then
+                    return cfg.name or ("Tracking Bar " .. i)
+                end
+                if cfg.spellIDs then
+                    for _, sid in ipairs(cfg.spellIDs) do
+                        if sid == spellID then return cfg.name or ("Tracking Bar " .. i) end
+                    end
                 end
             end
         end
@@ -1267,6 +1669,36 @@ function ns.AddTrackedSpell(barKey, id)
     return true
 end
 
+--- Track a single buff-viewer SLOT (cooldownID) on a buff-family bar.
+--- Collision escape hatch: two viewer slots can share one canonical spellID
+--- (Diabolist Demonic Art vs Diabolic Ritual), and AddTrackedSpell's own
+--- variant dedup would make the second slot un-addable by sid. Claiming it
+--- by a cd-claim MARKER (ns.CdClaimMarker) instead -- a distinct negative id
+--- per cooldownID -- sidesteps that dedup while reusing AddTrackedSpell's
+--- one-home-per-family sweep, insertion, and route/reanchor plumbing
+--- unchanged, and gives the claim a real assignedSpells index (so it drags,
+--- reorders and removes exactly like any other entry). Collision-gated by
+--- the caller: non-collided buffs keep the sid path, whose identity
+--- survives talent swaps (cooldownIDs drift -- the same accepted limitation
+--- as the per-cooldownID settings keys). Never valid on the default "buffs"
+--- bar: its preview enumerates the live viewer pool directly and never
+--- reads assignedSpells for buff content.
+function ns.AddTrackedBuffByCdID(barKey, cdID)
+    if type(cdID) ~= "number" or cdID <= 0 or barKey == "buffs" then return false end
+    return ns.AddTrackedSpell(barKey, ns.CdClaimMarker(cdID))
+end
+
+function ns.RemoveTrackedBuffCdID(barKey, cdID)
+    if type(cdID) ~= "number" then return false end
+    -- RemoveSpellFromBar does not itself trigger a route/reanchor pass --
+    -- every caller does, same as AddTrackedSpell does internally for adds.
+    local removed = ns.RemoveSpellFromBar(barKey, ns.CdClaimMarker(cdID))
+    if not removed then return false end
+    if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
+    if ns.QueueReanchor then ns.QueueReanchor() end
+    return true
+end
+
 --- Place a BUFF on a CD/utility bar. The buff is HOSTED: RebuildSpellRouteMap
 --- diverts its real Blizzard buff-viewer frame onto this bar, and the reanchor
 --- reparents that frame into the bar's layout when active / a placeholder when
@@ -1299,6 +1731,40 @@ function ns.AddBuffToCDUtilBar(barKey, spellID)
     -- frame still resolves regardless of its talent/override form.
     if not sd.hostedBuffSpellIDs then sd.hostedBuffSpellIDs = {} end
     sd.hostedBuffSpellIDs[spellID] = true
+    if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
+    if ns.QueueReanchor then ns.QueueReanchor() end
+    return true
+end
+
+--- Host a single collided-buff SLOT (cooldownID) on a CD/util bar. Same
+--- collision escape hatch as ns.AddTrackedBuffByCdID (buff-family bars): two
+--- viewer slots can share one canonical spellID (Diabolist Demonic Art vs
+--- Diabolic Ritual), so AddBuffToCDUtilBar's spellID-keyed idempotency guard
+--- would treat the second slot as "already hosted" and silently no-op it.
+--- Claiming by the cd-claim MARKER instead sidesteps that, reusing
+--- AddTrackedSpell's sweep/insertion/route/reanchor plumbing unchanged.
+--- Collision-gated by the caller: non-collided buffs keep AddBuffToCDUtilBar's
+--- sid path, whose identity survives talent swaps.
+function ns.AddHostedBuffByCdID(barKey, cdID)
+    if type(cdID) ~= "number" or cdID <= 0 then return false end
+    local sd = ns.GetBarSpellData(barKey)
+    if not sd then return false end
+    -- Empty-table sentinel: ResolveSpellSettings' hostedFrame gate
+    -- (EllesmereUICdmHooks.lua) short-circuits on this table being non-nil
+    -- to skip the (more expensive) frame-flag checks below it. A cd-claimed
+    -- hosted buff doesn't need a spellID key in it -- it resolves its own
+    -- "c"..cooldownID settings key independently -- just the table's
+    -- existence so that gate still fires for this bar.
+    sd.hostedBuffSpellIDs = sd.hostedBuffSpellIDs or {}
+    return ns.AddTrackedSpell(barKey, ns.CdClaimMarker(cdID))
+end
+
+function ns.RemoveHostedBuffByCdID(barKey, cdID)
+    if type(cdID) ~= "number" then return false end
+    -- RemoveSpellFromBar does not itself trigger a route/reanchor pass --
+    -- every caller does, same as AddTrackedSpell does internally for adds.
+    local removed = ns.RemoveSpellFromBar(barKey, ns.CdClaimMarker(cdID))
+    if not removed then return false end
     if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
     if ns.QueueReanchor then ns.QueueReanchor() end
     return true
@@ -1432,7 +1898,8 @@ function ns.AddCDMBar(barType, name, numRows)
         bgR = 0.08, bgG = 0.08, bgB = 0.08, bgA = 0.6,
         iconZoom = 0.08, iconShape = "none",
         verticalOrientation = false, barBgEnabled = false,        barBgR = 0, barBgG = 0, barBgB = 0,
-        showCooldownText = true, showItemCount = true, cooldownFontSize = 12,
+        showCooldownText = true, cooldownTextPosition = "center",
+        showItemCount = true, cooldownFontSize = 12,
         showCharges = true, chargeFontSize = 11,
         desaturateOnCD = true, swipeAlpha = 0.7,
         activeStateAnim = "blizzard",
@@ -1448,7 +1915,6 @@ function ns.AddCDMBar(barType, name, numRows)
         outOfRangeOverlay = false,
         pandemicGlow = true,
         pandemicGlowStyle = -1,
-        pandemicGlowColor = { r = 1, g = 1, b = 0 },
         pandemicGlowLines = 8,
         pandemicGlowThickness = 2,
         pandemicGlowSpeed = 4,
@@ -1482,6 +1948,18 @@ function ns.RemoveCDMBar(key)
             cdmBarIcons[key] = nil
             p.cdmBarPositions[key] = nil
             table.remove(p.cdmBars.bars, i)
+            -- Max Icons overflow: clear targets that pointed at the removed
+            -- bar (runtime already fail-safes on a dangling key; this is
+            -- config hygiene on the explicit delete).
+            for _, b in ipairs(p.cdmBars.bars) do
+                if b.overflowTarget == key then b.overflowTarget = nil end
+            end
+            -- Bar deletion shifts every later bar's array index: captured
+            -- override paths into cdmBars.bars would now point at the WRONG
+            -- bars. Drop them all (users re-capture) -- honest beats corrupt.
+            if EllesmereUI.SpecOverrides_OnCDMBarsRestructured then
+                EllesmereUI.SpecOverrides_OnCDMBarsRestructured()
+            end
 
             -- Custom bar deletion: free all spells (don't ghost them). Delete
             -- the bar's spell data from every spec of the ACTIVE profile only.

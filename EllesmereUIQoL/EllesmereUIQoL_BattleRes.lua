@@ -400,11 +400,13 @@ end
 -------------------------------------------------------------------------------
 --  Apply (settings entry point)
 -------------------------------------------------------------------------------
+local _syncEventRegistration  -- defined in the event section below
 local function Apply()
     if not addon.db then return end
     if not frame then CreateBrezFrame() end
     ApplyShape()
     ApplyPosition()
+    _syncEventRegistration()
     UpdateVisibility()
 end
 _G._EUI_BattleRes_Apply = Apply
@@ -449,18 +451,35 @@ local function OnEvent(_, event, encounterID, encounterName, difficultyID, group
     UpdateVisibility()
 end
 
-local function _registerEvents()
-    if _eventFrame then return end
-    _eventFrame = CreateFrame("Frame")
-    _eventFrame:RegisterEvent("ENCOUNTER_START")
-    _eventFrame:RegisterEvent("ENCOUNTER_END")
-    _eventFrame:RegisterEvent("CHALLENGE_MODE_START")
-    _eventFrame:RegisterEvent("CHALLENGE_MODE_COMPLETED")
-    _eventFrame:RegisterEvent("CHALLENGE_MODE_RESET")
-    _eventFrame:RegisterEvent("WORLD_STATE_TIMER_START")
-    _eventFrame:RegisterEvent("WORLD_STATE_TIMER_STOP")
-    _eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-    _eventFrame:SetScript("OnEvent", OnEvent)
+-- Events are registered only while the icon can ever show (enabled and
+-- visibility not NEVER) and unregistered when it cannot, so a disabled
+-- tracker costs nothing on boss pulls / key starts. On (re-)registration the
+-- encounter/keystone state is re-read directly, so enabling mid-fight or
+-- mid-key still catches up on events missed while unregistered.
+local _eventsRegistered = false
+_syncEventRegistration = function()
+    local p = P()
+    local want = (p and p.enabled and (p.visibility or "MPLUS_AND_RAID") ~= "NEVER") and true or false
+    if want == _eventsRegistered then return end
+    _eventsRegistered = want
+    if want then
+        if not _eventFrame then
+            _eventFrame = CreateFrame("Frame")
+            _eventFrame:SetScript("OnEvent", OnEvent)
+        end
+        _eventFrame:RegisterEvent("ENCOUNTER_START")
+        _eventFrame:RegisterEvent("ENCOUNTER_END")
+        _eventFrame:RegisterEvent("CHALLENGE_MODE_START")
+        _eventFrame:RegisterEvent("CHALLENGE_MODE_COMPLETED")
+        _eventFrame:RegisterEvent("CHALLENGE_MODE_RESET")
+        _eventFrame:RegisterEvent("WORLD_STATE_TIMER_START")
+        _eventFrame:RegisterEvent("WORLD_STATE_TIMER_STOP")
+        _eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+        _refreshEncounterState()
+        _refreshKeystoneState()
+    else
+        if _eventFrame then _eventFrame:UnregisterAllEvents() end
+    end
 end
 
 -------------------------------------------------------------------------------
@@ -549,9 +568,8 @@ boot:SetScript("OnEvent", function(self)
     addon.db = EllesmereUI.Lite.NewDB("EllesmereUIQoLDB", defaults, true)
     _G._EUI_BattleRes_DB = function() return addon.db end
     CreateBrezFrame()
-    _registerEvents()
-    _refreshEncounterState()
-    _refreshKeystoneState()
+    -- Apply registers events (gated on enabled + visibility) and refreshes
+    -- encounter/keystone state as part of _syncEventRegistration
     Apply()
     RegisterUnlock()
 end)

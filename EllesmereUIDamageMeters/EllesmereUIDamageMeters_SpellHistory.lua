@@ -32,6 +32,8 @@ local SH_DEFAULTS = {
     barEnabled      = false,
     growDirection   = "LEFT",
     iconSize        = 36,
+    iconZoom        = 0.08,
+    iconFadeTime    = 0,
     iconSpacing     = 1,
     iconCount       = 5,
     iconOpacity     = 1,
@@ -462,6 +464,99 @@ local _iconLayoutKey = ""     -- tracks settings that affect icon layout (skip r
 local ANIM_DUR = 0.5
 local ANIM_SLIDE_PX = 6
 
+-------------------------------------------------------------------------------
+--  Fade-out clock (iconFadeTime > 0): each icon expires individually once
+--  its cast is older than the configured time, fading to zero over FADE_DUR.
+--  Event-driven -- nothing runs while no icon is inside its fade window:
+--    * out of combat, ONE one-shot timer is armed for the moment the next
+--      icon begins fading; while an icon is actively fading, a throttled
+--      OnUpdate driver (hidden when idle) repaints the strip;
+--    * in combat everything is parked, so the history stays readable
+--      through a fight. PLAYER_REGEN_ENABLED credits each entry the time
+--      it spent in combat (per-entry base: icons cast mid-fight are
+--      credited only their own in-combat lifetime) and restarts the clock.
+-------------------------------------------------------------------------------
+local FADE_DUR = 1.5
+local _fadeTimer    -- one-shot C_Timer.NewTimer for the next fade start
+local _fadeDriver   -- throttled OnUpdate frame, shown only while fading
+local _fadeEvents   -- REGEN watcher, created on first use
+local _combatStart
+
+local function FadeBase(e)
+    return e._fadeBase or e.timestamp or 0
+end
+
+local function StopFadeClock()
+    if _fadeTimer then _fadeTimer:Cancel(); _fadeTimer = nil end
+    if _fadeDriver then _fadeDriver:Hide() end
+end
+
+-- Arms exactly one of: the fast driver (an icon is mid-fade) or a one-shot
+-- timer for the next fade start. Out-of-combat only; entries are newest
+-- first, so effective ages grow with the index and the scan can stop at
+-- the first fully-faded entry.
+local function ScheduleFade(fadeTime, maxIcons)
+    StopFadeClock()
+    local n = min(#_history, maxIcons)
+    if n == 0 then return end
+    local now = GetTime()
+    local fading = false
+    local nextIn
+    for i = 1, n do
+        local age = now - FadeBase(_history[i])
+        if age < fadeTime then
+            local d = fadeTime - age
+            if not nextIn or d < nextIn then nextIn = d end
+        elseif age < fadeTime + FADE_DUR then
+            fading = true
+            break
+        else
+            break
+        end
+    end
+    if fading then
+        if not _fadeDriver then
+            _fadeDriver = CreateFrame("Frame")
+            _fadeDriver:Hide()
+            local acc = 0
+            _fadeDriver:SetScript("OnUpdate", function(_, dt)
+                acc = acc + dt
+                if acc < 0.05 then return end
+                acc = 0
+                BuildIconStrip()
+            end)
+        end
+        _fadeDriver:Show()
+    elseif nextIn then
+        _fadeTimer = C_Timer.NewTimer(nextIn + 0.02, BuildIconStrip)
+    end
+end
+
+local function EnsureFadeEvents()
+    if _fadeEvents then return end
+    _fadeEvents = CreateFrame("Frame")
+    _fadeEvents:RegisterEvent("PLAYER_REGEN_DISABLED")
+    _fadeEvents:RegisterEvent("PLAYER_REGEN_ENABLED")
+    _fadeEvents:SetScript("OnEvent", function(_, event)
+        if event == "PLAYER_REGEN_DISABLED" then
+            _combatStart = GetTime()
+            StopFadeClock()
+        else
+            local cs = _combatStart
+            _combatStart = nil
+            if (DB().iconFadeTime or 0) <= 0 then return end
+            local now = GetTime()
+            cs = cs or now
+            for i = 1, #_history do
+                local e = _history[i]
+                local base = FadeBase(e)
+                e._fadeBase = base + (now - max(cs, base))
+            end
+            BuildIconStrip()
+        end
+    end)
+end
+
 -- Plays a one-shot intro animation on an icon frame.
 -- Uses dt-accumulated OnUpdate for smooth sub-frame interpolation.
 -- Only called on icon 1, which always rests at CENTER of _iconStrip.
@@ -557,7 +652,8 @@ local function MakeIcon(parent)
     ic.bg = bg
     ic.tex = ic.frame:CreateTexture(nil, "ARTWORK")
     ic.tex:SetAllPoints()
-    ic.tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    local z = DB().iconZoom or 0.08
+    ic.tex:SetTexCoord(z, 1 - z, z, 1 - z)
     ic.frame:Hide()
     return ic
 end
@@ -596,6 +692,7 @@ BuildIconStrip = function()
     local sh = DB()
     if not sh.iconEnabled or ShouldHide(sh.iconHideInDungeon, sh.iconHideInRaid, sh.iconHideOutOfInstance) then
         if _iconStrip then _iconStrip:Hide() end
+        StopFadeClock()
         return
     end
 
@@ -643,10 +740,42 @@ BuildIconStrip = function()
     local iconSz = PhysicalPixels(sh.iconSize or 24)
     local gap = PhysicalPixels(sh.iconSpacing or 1)
     local dir = sh.growDirection or "LEFT"
+    local iconZoom = sh.iconZoom or 0.08
 
     local maxIcons = sh.iconCount or 5
     local histCount = min(#_history, maxIcons)
+
+    -- Fade-out: out of combat, entries past fadeTime+FADE_DUR drop off the
+    -- strip (newest first, so the scan stops at the first faded one) and the
+    -- clock re-arms for whatever comes next. In combat nothing runs; the
+    -- REGEN watcher restarts the clock. fadeNow doubles as the "fade math
+    -- active" flag for the alpha pass in the icon loop below.
+    local fadeTime = sh.iconFadeTime or 0
+    local fadeNow
+    if fadeTime > 0 then
+        EnsureFadeEvents()
+        if not InCombatLockdown() then
+            fadeNow = GetTime()
+            if histCount > 0 then
+                local visible = 0
+                for i = 1, histCount do
+                    if fadeNow - FadeBase(_history[i]) < fadeTime + FADE_DUR then
+                        visible = i
+                    else
+                        break
+                    end
+                end
+                histCount = visible
+            end
+            ScheduleFade(fadeTime, maxIcons)
+        end
+    else
+        StopFadeClock()
+    end
+
+    -- Preview placeholders never backfill slots vacated by faded icons.
     local showPreview = ns._optionsOpen and histCount < maxIcons
+        and not (fadeTime > 0 and #_history > 0)
     local count = showPreview and maxIcons or histCount
 
     -- Nothing to show: hide the strip entirely
@@ -681,6 +810,10 @@ BuildIconStrip = function()
         local ic = _iconPool[i]
         if not ic then break end
         if i <= count then
+            if ic._cachedZoom ~= iconZoom then
+                ic._cachedZoom = iconZoom
+                ic.tex:SetTexCoord(iconZoom, 1 - iconZoom, iconZoom, 1 - iconZoom)
+            end
             if layoutChanged then
                 ic.frame:SetScript("OnUpdate", nil)
                 ic.frame:SetScale(1)
@@ -719,6 +852,21 @@ BuildIconStrip = function()
                         ic.tex:SetVertexColor(1, 1, 1, 1)
                     end
                     ic.tex:SetAlpha(1)
+                end
+                if fadeNow then
+                    local age = fadeNow - FadeBase(entry)
+                    if age > fadeTime then
+                        local k = 1 - (age - fadeTime) / FADE_DUR
+                        if k < 0 then k = 0 end
+                        ic.frame:SetAlpha(iconAlpha * k)
+                        ic._fading = true
+                    elseif ic._fading then
+                        ic.frame:SetAlpha(iconAlpha)
+                        ic._fading = nil
+                    end
+                elseif ic._fading then
+                    ic.frame:SetAlpha(iconAlpha)
+                    ic._fading = nil
                 end
             else
                 if not ic._isPreview then
@@ -777,7 +925,8 @@ local function MakeHistoryBar(parent)
     bar.icon = bar.row:CreateTexture(nil, "OVERLAY")
     bar.icon:SetSize(18, 18)
     bar.icon:SetPoint("LEFT", bar.row, "LEFT", 0, 0)
-    bar.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    local z = DB().iconZoom or 0.08
+    bar.icon:SetTexCoord(z, 1 - z, z, 1 - z)
 
     bar.fill = CreateFrame("StatusBar", nil, bar.row)
     bar.fill:SetPoint("TOPLEFT", bar.icon, "TOPRIGHT", 0, 0)
@@ -1064,6 +1213,7 @@ RefreshBarWindow = function()
 
     local total = min(#_history, sh.maxBars or 5)
     local loopEnd = max(visSlots, _lastBarVisible)
+    local barIconZoom = sh.iconZoom or 0.08
 
     -- Layout key: only rebuild positions/sizes when settings change
     local layoutKey = barH .. "|" .. barSp .. "|" .. texPath
@@ -1076,6 +1226,11 @@ RefreshBarWindow = function()
         local idx = _barScroll + i
         if i <= visSlots and idx <= total then
             local entry = _history[idx]
+
+            if bar._cachedZoom ~= barIconZoom then
+                bar._cachedZoom = barIconZoom
+                bar.icon:SetTexCoord(barIconZoom, 1 - barIconZoom, barIconZoom, 1 - barIconZoom)
+            end
 
             -- Layout: only on settings change or slot reuse
             if layoutChanged or bar._cachedSlot ~= i then

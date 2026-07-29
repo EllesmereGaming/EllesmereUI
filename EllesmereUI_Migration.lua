@@ -177,11 +177,68 @@ end
 -- Public: run all registered migrations. Called once from the parent
 -- ADDON_LOADED handler (the legacy beta-wipe that used to precede it is gone).
 function EllesmereUI.RunRegisteredMigrations()
-    if not EllesmereUIDB then return end
+    if not EllesmereUIDB then
+        -- Truly fresh install: SavedVariables do not exist yet, so there is
+        -- nothing to migrate. Do NOT just skip: leaving the catalog unstamped
+        -- means the ENTIRE chain runs its first pass at the NEXT load, over
+        -- whatever exists by then -- e.g. a profile imported during this
+        -- first session -- treating current-format data as legacy (the CDM
+        -- consolidate/detach pair rebuilt an imported spell store, the
+        -- pixel-rounding pass floored imported positions/sizes, the colors
+        -- seed replaced imported palettes). A fresh install is current-format
+        -- by definition: create the store and stamp every global migration
+        -- as already done. Profile-scoped stamps live inside each profile
+        -- (and ride exports), so they need no genesis pass.
+        EllesmereUIDB = {}
+        local flags = GetFlagTable(EllesmereUIDB)
+        for _, spec in ipairs(_migrations) do
+            if spec.scope == "global" then
+                flags[spec.id] = true
+            end
+        end
+        return
+    end
     for _, spec in ipairs(_migrations) do
         RunMigration(spec)
     end
 end
+
+--------------------------------------------------------------------------------
+--  Registered migrations
+--------------------------------------------------------------------------------
+
+-- Hovercast macro bindings ignored their own Friendly/Enemy toggles: the
+-- friend/harm filter was only ever applied when building a spell binding, so a
+-- macro fired on whatever was under the cursor regardless of what the two
+-- toggles said. Now that the filter is honored, a stored binding left at the
+-- creation defaults (hoverFriendly = true, hoverEnemy = false) would suddenly
+-- stop working on enemies -- a silent regression on data the user never touched,
+-- e.g. every mouseover focus macro. Seed both flags so existing bindings keep
+-- the unfiltered behavior they have actually had, and let the toggles take
+-- effect from here on.
+EllesmereUI.RegisterMigration({
+    id          = "clickcast_macro_hover_reaction_v1",
+    scope       = "profile",
+    description = "Keep existing hovercast macro bindings unfiltered now that Friendly/Enemy applies to them",
+    body        = function(ctx)
+        local rf = ctx.profile.addons and ctx.profile.addons.EllesmereUIRaidFrames
+        local cc = rf and rf.clickCast
+        if type(cc) ~= "table" then return end
+        local function seed(list)
+            if type(list) ~= "table" then return end
+            for _, b in ipairs(list) do
+                if type(b) == "table" and b.type == "macro" and b.hovercast then
+                    b.hoverFriendly = true
+                    b.hoverEnemy    = true
+                end
+            end
+        end
+        seed(cc.globals)
+        if type(cc.specs) == "table" then
+            for _, list in pairs(cc.specs) do seed(list) end
+        end
+    end,
+})
 
 -- Inspection helper for the slash command.
 function EllesmereUI.GetMigrationStatus()
@@ -420,6 +477,161 @@ end
 -- flat table is left in place as a dormant backup for one release; nothing
 -- reads it after seeding. NOTE: this is the spellAssignments.specProfiles store,
 -- NOT the unrelated EllesmereUIDB.specProfiles spec-to-profile auto-switch map.
+-- Spec Overrides fresh start (2026-07-11): the unlock override backend was
+-- rewritten from per-aspect diffs to whole-layout LAYERS, and the value/group
+-- stores accumulated tester-era data shaped for the old model. User-directed
+-- full wipe: groups, value entries, and unlock overrides all reset.
+--
+-- The RB Advanced migration's output lives in these same tables, so a
+-- profile that already ran it must be RE-ARMED before the wipe: the source
+-- data is restored from rb.advancedSpecsBackup and the run flag cleared, so
+-- Resource Bars' init re-creates its spec override cards into the clean
+-- store on this same login. Re-running MergeThresholds on the already-merged
+-- Simple list converges (first-run inserts serve only that spec, so the
+-- strip pass removes them before identical copies are re-inserted).
+do
+    local function RearmRBAdvancedMigration(prof)
+        local rb = prof and prof.addons and prof.addons.EllesmereUIResourceBars
+        if type(rb) ~= "table" or not rb._rbAdvMigrated then return end
+        local backup = rb.advancedSpecsBackup
+        if type(backup) == "table" then
+            rb.advancedSpecs = backup.advancedSpecs
+            if type(backup.disabledSpecs) == "table" then
+                for secKey, ds in pairs(backup.disabledSpecs) do
+                    if type(rb[secKey]) == "table" then
+                        rb[secKey].disabledSpecs = ds
+                    end
+                end
+            end
+            rb.advancedSpecsBackup = nil
+        end
+        rb._rbAdvMigrated = nil
+    end
+
+    EllesmereUI.RegisterMigration({
+        id          = "spec_overrides_fresh_start_v1",
+        scope       = "profile",
+        description = "Wipe all spec override data (groups, value entries, unlock overrides) for the layer-model fresh start.",
+        body        = function(ctx)
+            local prof = ctx.profile
+            if not prof then return end
+            RearmRBAdvancedMigration(prof)
+            prof.specOverrideGroups = nil
+            prof.specOverrides = nil
+            prof.specUnlockOverrides = nil
+        end,
+    })
+
+    -- Recovery for profiles that ran an early fresh-start build WITHOUT the
+    -- re-arm above: their RB-migrated cards were wiped, but the source data
+    -- still sits untouched in rb.advancedSpecsBackup. Re-arm those profiles
+    -- once so Resource Bars' init re-creates the cards. No-ops everywhere
+    -- else: on a first login where both migrations are pending, the fixed
+    -- fresh start has already cleared the RB flag before this runs (and the
+    -- reverse order would converge to the same state anyway).
+    --
+    -- Guard: a profile whose FIRST login with the RB migration happened on a
+    -- fresh-start build got its cards created AFTER the wipe (early runner
+    -- precedes RB init), so they still exist -- re-arming there would append
+    -- duplicates. Only re-arm when the store holds no RB-module entries.
+    EllesmereUI.RegisterMigration({
+        id          = "rb_adv_remigrate_after_wipe_v1",
+        scope       = "profile",
+        description = "Re-run the RB Advanced migration for profiles whose migrated spec override cards were wiped by the fresh start.",
+        body        = function(ctx)
+            local prof = ctx.profile
+            if not prof then return end
+            if type(prof.specOverrides) == "table" then
+                for _, e in ipairs(prof.specOverrides) do
+                    if type(e) == "table" and e.module == "EllesmereUIResourceBars" then
+                        return
+                    end
+                end
+            end
+            RearmRBAdvancedMigration(prof)
+        end,
+    })
+end
+
+-- CDM bar captures recorded before the numeric-segment path walkers existed
+-- banked NIL sentinels for every value (the reads missed the numeric bars[i]
+-- keys entirely); applying them through the FIXED walkers would null out
+-- live CDM bar settings on the next spec swap. The broken window was a
+-- tester build measured in hours -- drop every CDM-bars capture from both
+-- override stores; users re-capture with working walkers.
+EllesmereUI.RegisterMigration({
+    id          = "cdm_bars_capture_reset_v1",
+    scope       = "profile",
+    description = "Drop corrupt CDM bar captures recorded by the pre-numeric-walker override builds.",
+    body        = function(ctx)
+        local prof = ctx.profile
+        if not prof then return end
+        local PREFIX = "EllesmereUICooldownManager\31cdmBars\30bars\30"
+        local function sweep(store)
+            if type(store) ~= "table" then return end
+            for i = #store, 1, -1 do
+                local e = store[i]
+                local def = type(e) == "table" and e.values and e.values.default
+                if type(def) == "table" then
+                    for fkey in pairs(def) do
+                        if type(fkey) == "string" and fkey:sub(1, #PREFIX) == PREFIX then
+                            table.remove(store, i)
+                            break
+                        end
+                    end
+                end
+            end
+        end
+        sweep(prof.specOverrides)
+        sweep(prof.condOverrides)
+    end,
+})
+
+-- The Skyriding HUD's sub-DB registers its own folder
+-- (EllesmereUIDragonRiding), dodging the BlizzardSkin capture blacklist, so
+-- a width-match engine write to its width key could be auto-captured into an
+-- unrelated override entry (field case: riding a CDM Icon Scale capture).
+-- Applying such an entry touches a folder with no targeted refresher, and
+-- the unmapped-folder fallback escalates every apply into a full
+-- RefreshAllAddons -- under spec-changed event traffic that meant minutes of
+-- continuous full-suite refresh after combat. The folder is now
+-- capture-and-apply blacklisted; strip already-banked keys from both stores.
+-- Only the foreign keys are removed -- the entry's own settings survive; an
+-- entry left with an empty default map is dropped whole.
+EllesmereUI.RegisterMigration({
+    id          = "specov_strip_dragonriding_fkeys_v1",
+    scope       = "profile",
+    description = "Strip stowaway Dragon Riding fkeys from spec/conditional override stores (unmapped-folder RefreshAllAddons storm).",
+    body        = function(ctx)
+        local prof = ctx.profile
+        if not prof then return end
+        local PREFIX = "EllesmereUIDragonRiding\31"
+        local function strip(store)
+            if type(store) ~= "table" then return end
+            for i = #store, 1, -1 do
+                local e = store[i]
+                local vals = type(e) == "table" and e.values
+                if type(vals) == "table" then
+                    for _, m in pairs(vals) do
+                        if type(m) == "table" then
+                            for fkey in pairs(m) do
+                                if type(fkey) == "string" and fkey:sub(1, #PREFIX) == PREFIX then
+                                    m[fkey] = nil
+                                end
+                            end
+                        end
+                    end
+                    if type(vals.default) ~= "table" or next(vals.default) == nil then
+                        table.remove(store, i)
+                    end
+                end
+            end
+        end
+        strip(prof.specOverrides)
+        strip(prof.condOverrides)
+    end,
+})
+
 EllesmereUI.RegisterMigration({
     id          = "cdm_per_profile_spell_store_v1",
     scope       = "global",
@@ -2051,6 +2263,29 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
+EllesmereUI.RegisterMigration({
+    id          = "uf_absorb_style_boolean_sweep_v1",
+    scope       = "profile",
+    description = "Normalise any remaining boolean showPlayerAbsorb to a style string. uf_absorb_style_dropdown_v1 walked a fixed unit list and stamps per profile, so a profile that arrived AFTER it ran -- an import or a preset, both of which inherit the recipient's migration flags -- kept the legacy boolean.",
+    body = function(ctx)
+        -- Walk every table in the UF blob rather than a unit list: the earlier
+        -- pass missed whichever units were not named in it, and the crash this
+        -- fixes does not care which unit carried the bad value.
+        local uf = ctx.profile.addons and ctx.profile.addons.EllesmereUIUnitFrames
+        if type(uf) ~= "table" then return end
+        for _, unitCfg in pairs(uf) do
+            if type(unitCfg) == "table" then
+                local v = unitCfg.showPlayerAbsorb
+                if v == true then
+                    unitCfg.showPlayerAbsorb = "striped"   -- v1's mapping for true
+                elseif v ~= nil and type(v) ~= "string" then
+                    unitCfg.showPlayerAbsorb = "none"
+                end
+            end
+        end
+    end,
+})
+
 -- Remove ghost buff bar: buff visibility is now managed by Blizzard CDM
 -- settings. Clean up the bar entry from all profiles and spell data from
 -- all spec profiles. One-time migration.
@@ -2283,6 +2518,40 @@ EllesmereUI.RegisterMigration({
 })
 
 EllesmereUI.RegisterMigration({
+    id          = "uf_boss_simple_text_seed_v1",
+    scope       = "profile",
+    description = "Seed boss simple-display cooldown-text show/size from customized regular keys so old profiles keep their text settings under the default-on Simple Display.",
+    body = function(ctx)
+        local uf = ctx.profile.addons and ctx.profile.addons.EllesmereUIUnitFrames
+        local b = type(uf) == "table" and uf.boss
+        if type(b) ~= "table" then return end
+        -- Simple Debuff Display defaults ON ("left"), and while it is on the
+        -- renderer reads the simple* text keys -- which DeepMergeDefaults
+        -- fills with false/14 on a profile predating them. A customized
+        -- regular debuff/buff text size stays stored but is never read, so
+        -- the user sees hidden text (or 14) instead of their size. Seed the
+        -- simple keys from the regular ones BEFORE the merge masks them.
+        -- The regular defaults (10 / false) act as the "was it customized"
+        -- sentinels; StripDefaults nils default-equal values at logout, so a
+        -- stored value is always a genuine customization.
+        if b.simpleDebuffCooldownTextSize == nil
+            and type(b.debuffCooldownTextSize) == "number" and b.debuffCooldownTextSize ~= 10 then
+            b.simpleDebuffCooldownTextSize = b.debuffCooldownTextSize
+        end
+        if b.simpleDebuffShowCooldownText == nil and b.debuffShowCooldownText == true then
+            b.simpleDebuffShowCooldownText = true
+        end
+        if b.simpleBuffCooldownTextSize == nil
+            and type(b.buffCooldownTextSize) == "number" and b.buffCooldownTextSize ~= 10 then
+            b.simpleBuffCooldownTextSize = b.buffCooldownTextSize
+        end
+        if b.simpleBuffShowCooldownText == nil and b.buffShowCooldownText == true then
+            b.simpleBuffShowCooldownText = true
+        end
+    end,
+})
+
+EllesmereUI.RegisterMigration({
     id          = "charsheet_default_enabled_v1",
     scope       = "global",
     description = "Preserve disabled default for existing users when flipping themedCharacterSheet to default-on.",
@@ -2392,6 +2661,33 @@ EllesmereUI.RegisterMigration({
             elseif ge then
                 -- Incomplete growEdge, just remove it
                 pos.growEdge = nil
+            end
+        end
+    end,
+})
+
+-------------------------------------------------------------------------------
+-- Replace the CDM "Anchor First Row" boolean with the rowGrowDirection enum.
+--
+-- anchorFirstRow pinned the leading perpendicular edge (TOP on horizontal
+-- bars, LEFT on vertical bars), i.e. extra rows grew downward/rightward.
+-- The equivalent enum values are "DOWN" (horizontal) / "RIGHT" (vertical);
+-- unset stays unset (centered growth, the default for both models).
+-------------------------------------------------------------------------------
+EllesmereUI.RegisterMigration({
+    id          = "cdm_row_grow_direction_v1",
+    scope       = "profile",
+    description = "Migrate CDM anchorFirstRow booleans to the rowGrowDirection enum.",
+    body = function(ctx)
+        local cdm = ctx.profile.addons and ctx.profile.addons.EllesmereUICooldownManager
+        local bars = cdm and cdm.cdmBars and cdm.cdmBars.bars
+        if not bars then return end
+        for _, bar in ipairs(bars) do
+            if bar.anchorFirstRow then
+                if bar.rowGrowDirection == nil then
+                    bar.rowGrowDirection = bar.verticalOrientation and "RIGHT" or "DOWN"
+                end
+                bar.anchorFirstRow = nil
             end
         end
     end,
@@ -2518,6 +2814,12 @@ EllesmereUI.RegisterMigration({
     description = "Preserve autoOpenContainers for existing users after default changed from on to off.",
     body = function(ctx)
         local db = ctx.db
+        -- Existing users ONLY. On a fresh install (or right after a factory
+        -- reset) the DB has no profiles yet at early-migration time, and the
+        -- key is nil because the user is NEW -- not because they predate the
+        -- default flip. Without this gate the migration fired on first
+        -- install and enabled Auto Open Containers against the OFF default.
+        if not (db.profiles and next(db.profiles)) then return end
         if db.autoOpenContainers == nil then
             db.autoOpenContainers = true
         end
@@ -3248,6 +3550,168 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
+-- Convert the per-bar "Custom Active State Decimals" (bd.faDecimals*) into the
+-- per-spell Threshold Text settings that replaced it. The old bar toggle drove a
+-- 1-decimal countdown (+ optional color change) on custom/preset icons' hardcoded
+-- timers; the new model stores Threshold Seconds / Threshold Decimals / Threshold
+-- Color per spell. For every bar that had the toggle on, each custom spell/item
+-- member gets stamped so it renders exactly as before:
+--  * cd/utility bars: item presets and custom/racial spells stamp the
+--    profile-level customActiveStates entry (their menu + Fake-Active engine read
+--    that store). Trinket SLOT presets resolve their settings key by the EQUIPPED
+--    item at runtime; stamped here only when the inventory API already answers
+--    (best effort -- re-arming per trinket is one click).
+--  * buff-family bars: custom buffs (cast-timer entries / tagged custom ids)
+--    stamp the spec BUFF family store. Blizzard-tracked buffs were never covered
+--    by the old toggle, so they are not stamped.
+-- The old bd.faDecimals* keys are consumed (removed) in the same pass. Shared
+-- with profile import so old-format strings transform immediately.
+function EllesmereUI.MigrateCdmThresholdText(cdm, specProfiles)
+    local barsCfg = cdm and cdm.cdmBars and cdm.cdmBars.bars
+    if type(barsCfg) ~= "table" then return end
+    for _, bd in ipairs(barsCfg) do
+        if type(bd) == "table" then
+            local thr = tonumber(bd.faDecimalsThreshold) or 5
+            if thr > 59 then thr = 59 end
+            if bd.faDecimals == true and thr > 0 and bd.key then
+                local colorOn = bd.faDecimalsColorEnabled == true
+                local cr = bd.faDecimalsColorR or 1
+                local cg = bd.faDecimalsColorG or 0.2
+                local cb = bd.faDecimalsColorB or 0.2
+                local isBuffFam = (bd.barType == "buffs") or (bd.key == "buffs")
+                local function Stamp(e)
+                    if type(e) ~= "table" then return end
+                    e.thresholdSeconds = thr
+                    e.thresholdDecimals = true
+                    if colorOn then
+                        e.thresholdColorEnabled = true
+                        e.thresholdColorR = cr
+                        e.thresholdColorG = cg
+                        e.thresholdColorB = cb
+                    end
+                end
+                local function StampCas(key)
+                    if type(cdm.customActiveStates) ~= "table" then
+                        cdm.customActiveStates = {}
+                    end
+                    local e = cdm.customActiveStates[key]
+                    if type(e) ~= "table" then
+                        e = {}
+                        cdm.customActiveStates[key] = e
+                    end
+                    Stamp(e)
+                end
+                if type(specProfiles) == "table" then
+                    for _, specProf in pairs(specProfiles) do
+                        local bs = type(specProf) == "table"
+                            and type(specProf.barSpells) == "table"
+                            and specProf.barSpells[bd.key]
+                        local assigned = type(bs) == "table" and bs.assignedSpells
+                        if type(assigned) == "table" then
+                            for _, sid in ipairs(assigned) do
+                                if type(sid) == "number" then
+                                    if isBuffFam then
+                                        -- Custom buffs: cast-timer entries (stored
+                                        -- duration) and tagged custom ids.
+                                        if sid > 0 and ((type(bs.spellDurations) == "table"
+                                                and (tonumber(bs.spellDurations[sid]) or 0) > 0)
+                                            or (type(bs.customSpellIDs) == "table"
+                                                and bs.customSpellIDs[sid])) then
+                                            local st = specProf.spellSettingsBuff
+                                            if type(st) ~= "table" then
+                                                st = {}
+                                                specProf.spellSettingsBuff = st
+                                            end
+                                            local e = st[sid]
+                                            if type(e) ~= "table" then
+                                                e = {}
+                                                st[sid] = e
+                                            end
+                                            Stamp(e)
+                                        end
+                                    elseif sid <= -2000000000 then
+                                        -- Hosted-buff marker: a real Blizzard buff,
+                                        -- never covered by the old toggle.
+                                    elseif sid == -13 or sid == -14 then
+                                        local ok, itemID = pcall(GetInventoryItemID, "player", -sid)
+                                        if ok and itemID then StampCas(-itemID) end
+                                    elseif sid < 0 then
+                                        StampCas(sid)
+                                    elseif (type(bs.customSpellIDs) == "table" and bs.customSpellIDs[sid])
+                                        or (type(cdm.customActiveStates) == "table"
+                                            and type(cdm.customActiveStates[sid]) == "table"
+                                            and (tonumber(cdm.customActiveStates[sid].duration) or 0) > 0) then
+                                        -- Tagged custom spell ids, plus racials or
+                                        -- other injected spells that already carry a
+                                        -- user-defined active state.
+                                        StampCas(sid)
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            bd.faDecimals = nil
+            bd.faDecimalsThreshold = nil
+            bd.faDecimalsColorEnabled = nil
+            bd.faDecimalsColorR = nil
+            bd.faDecimalsColorG = nil
+            bd.faDecimalsColorB = nil
+        end
+    end
+end
+
+EllesmereUI.RegisterMigration({
+    id          = "cdm_threshold_text_v1",
+    scope       = "global",
+    description = "Replace the per-bar Custom Active State Decimals with per-spell Threshold Text: opted-in bars' custom spell/item members get per-spell Threshold Seconds/Decimals (+ Color) stamps, and the old bar keys are removed.",
+    body = function(ctx)
+        local db = ctx.db
+        if not db or type(db.profiles) ~= "table" then return end
+        local saProfiles = db.spellAssignments and db.spellAssignments.profiles
+        for profName, profData in pairs(db.profiles) do
+            local cdm = type(profData) == "table" and type(profData.addons) == "table"
+                and profData.addons.EllesmereUICooldownManager
+            if type(cdm) == "table" then
+                local bucket = type(saProfiles) == "table" and saProfiles[profName]
+                local sp = type(bucket) == "table" and bucket.specProfiles or nil
+                EllesmereUI.MigrateCdmThresholdText(cdm, sp)
+            end
+        end
+    end,
+})
+
+-- The default buffs bar's displayed order (sd.buffDisplayOrder) is auto-resynced
+-- to Blizzard's current viewer order by ReconcileBuffDisplayOrder unless
+-- sd._buffDisplayOrderUserModified is set. The flag arrived together with the
+-- live-path reconcile and is only ever written by the options drag-reorder --
+-- but before the flag existed, buffDisplayOrder itself was created exclusively
+-- by a manual drag, so every pre-existing stable-key array IS a user's
+-- hand-arranged order. Stamp the flag so the first live reconcile after
+-- updating preserves that order instead of re-sorting it to Blizzard order.
+-- Numeric-format legacy arrays are skipped: the reconcile (and the old options
+-- build before it) discards that format outright, so there is no order a stamp
+-- could preserve. Shared with profile import so orders exported from older
+-- builds keep their protection.
+function EllesmereUI.MigrateCdmBuffOrderUserFlag(specProf)
+    local bs = type(specProf) == "table" and type(specProf.barSpells) == "table"
+        and specProf.barSpells.buffs
+    if type(bs) ~= "table" then return end
+    if type(bs.buffDisplayOrder) == "table" and type(bs.buffDisplayOrder[1]) == "string" then
+        bs._buffDisplayOrderUserModified = true
+    end
+end
+
+EllesmereUI.RegisterMigration({
+    id          = "cdm_buff_order_user_flag_v1",
+    scope       = "specProfile",
+    description = "Protect pre-existing manually-arranged Tracked Buffs orders from the live-path Blizzard-order resync by stamping _buffDisplayOrderUserModified on every stable-key buffDisplayOrder.",
+    body = function(ctx)
+        EllesmereUI.MigrateCdmBuffOrderUserFlag(ctx.specProfile)
+    end,
+})
+
 -- The Mythic+ Timer's Enemy Forces bar historically shared one bar texture with
 -- the main timer bar (both read barTexture / barBgTexture). The Forces bar now
 -- has its own enemyBarTexture / enemyBarBgTexture so the two can be styled
@@ -3276,6 +3740,96 @@ EllesmereUI.RegisterMigration({
                 end
             end
         end
+    end,
+})
+
+EllesmereUI.RegisterMigration({
+    id          = "uf_clear_stale_attached_power_border_v1",
+    scope       = "profile",
+    description = "Zero stale powerBorderSize on attached power bars so the new attached divider does not appear uninvited for users who set a border size while detached and later reattached.",
+    body = function(ctx)
+        -- Before attached dividers existed, the Border Size slider was
+        -- disabled while the bar was attached, so a stored size > 0 with an
+        -- attached position is always a leftover from a detached phase --
+        -- never a divider the user asked for. Clearing it back to the
+        -- default (0 = off) keeps frames looking identical across the
+        -- update; opting into the divider is one slider drag.
+        -- Positions other than above/below are untouched: detached keeps
+        -- its full border, and "none" renders nothing either way.
+        local uf = ctx.profile.addons and ctx.profile.addons.EllesmereUIUnitFrames
+        if type(uf) ~= "table" then return end
+        -- Units whose powerPosition DEFAULT is attached ("below"); for them a
+        -- missing powerPosition key still means attached. The mini frames
+        -- default to "none", so a missing key there renders no border.
+        local attachedDefault = { player = true, target = true, focus = true, boss = true }
+        for unitKey, s in pairs(uf) do
+            if type(s) == "table"
+                and type(s.powerBorderSize) == "number" and s.powerBorderSize > 0 then
+                local pos = s.powerPosition
+                if pos == nil and attachedDefault[unitKey] then pos = "below" end
+                if pos == "above" or pos == "below" then
+                    s.powerBorderSize = nil
+                end
+            end
+        end
+    end,
+})
+
+-- Shared body: convert collided-buff cooldownID claims (bs.assignedBuffCdIDs,
+-- a side-table with no order) into cd-claim markers stored inside
+-- assignedSpells. Naturally idempotent: assignedBuffCdIDs is cleared after
+-- migrating, so a second run finds nothing per bar. Also called at
+-- profile-import time (EllesmereUI_Profiles.lua) so old export strings
+-- carrying the side-table keep their claims.
+--
+-- Mirrors ns.CD_CLAIM_MARKER_BASE / ns.CdClaimMarker in
+-- EllesmereUICooldownManager.lua (-(3000000000 + cooldownID)). Inlined
+-- rather than called: the CDM child addon loads AFTER the login migration
+-- runs, so its ns table isn't available yet.
+function EllesmereUI.MigrateCdmBuffCdClaims(specProf)
+    local CD_CLAIM_MARKER_BASE = 3000000000
+    local barSpells = type(specProf) == "table" and specProf.barSpells
+    if type(barSpells) ~= "table" then return end
+    for _, bs in pairs(barSpells) do
+        if type(bs) == "table" and type(bs.assignedBuffCdIDs) == "table"
+           and next(bs.assignedBuffCdIDs) then
+            if not bs.assignedSpells then bs.assignedSpells = {} end
+            -- Dedup against any marker already present (e.g. a prior
+            -- partial run interrupted by an error).
+            local present = {}
+            for _, id in ipairs(bs.assignedSpells) do
+                if type(id) == "number" and id <= -CD_CLAIM_MARKER_BASE then
+                    present[-id - CD_CLAIM_MARKER_BASE] = true
+                end
+            end
+            for cdID in pairs(bs.assignedBuffCdIDs) do
+                if type(cdID) == "number" and not present[cdID] then
+                    bs.assignedSpells[#bs.assignedSpells + 1] = -(CD_CLAIM_MARKER_BASE + cdID)
+                end
+            end
+            bs.assignedBuffCdIDs = nil
+        end
+    end
+end
+
+EllesmereUI.RegisterMigration({
+    id          = "cdm_buff_cd_claim_markers",
+    scope       = "specProfile",
+    description = "Convert collided-buff cooldownID claims (bs.assignedBuffCdIDs, a side-table with no order) into cd-claim markers stored inside assignedSpells, so a claimed slot gets a real position and can be drag-reordered like any other tracked buff.",
+    body = function(ctx)
+        EllesmereUI.MigrateCdmBuffCdClaims(ctx.specProfile)
+    end,
+})
+
+EllesmereUI.RegisterMigration({
+    id          = "qol_movement_alert_precision_normalize_v2",
+    scope       = "profile",
+    description = "Normalize Movement Alert precision to a clean 0 or 1. A legacy numeric-input control could leave a non-binary value -- the string \"1\", or a stored -0 -- that the Show Decimal toggle mishandled and that built an invalid \"%.-0f\" format string. Normalized unconditionally (no type guard) because -0 is a number, so the earlier number-only guard skipped it. Positive -> 1 (decimals on); zero/negative/garbage -> 0 (off).",
+    body = function(ctx)
+        local qol = ctx.profile.addons and ctx.profile.addons.EllesmereUIQoL
+        local ma = qol and qol.movementAlert
+        if type(ma) ~= "table" or ma.precision == nil then return end
+        ma.precision = (tonumber(ma.precision) or 1) > 0 and 1 or 0
     end,
 })
 
@@ -3340,3 +3894,475 @@ migrationFrame:SetScript("OnEvent", function(self, event, addonName)
     end
 
 end)
+
+--------------------------------------------------------------------------------
+--  RESOURCE BARS: Simple/Advanced -> Spec Overrides migration
+--
+--  Retires the Resource Bars Advanced per-spec mode (advancedSpecs copy-on-
+--  unsync sections) and the per-spec bar enables (health/primary/secondary
+--  .disabledSpecs) by converting them into Spec Overrides groups + entries:
+--    * one card per advanced spec (named after the spec, class icon), holding
+--      one entry per section whose copy DIFFERS from the Simple config --
+--      only differing leaf keys become overrides.
+--    * one card per per-spec enable ("Class Resource" / "Power Bar" /
+--      "Health Bar") for specs disabled via the Simple disabledSpecs picker.
+--  Threshold data (thresholdSpecs / tickValues / thresholdFormMode) is NEVER
+--  diffed into overrides. When an advanced copy carries threshold edits that
+--  differ from Simple, those spec-scoped entries are retargeted to the spec
+--  and merged into the Simple threshold list (the threshold system is
+--  natively per-spec via entry.specIDs), preserving resolution behavior.
+--  The raw advanced data survives in rb.advancedSpecsBackup for later cleanup.
+--
+--  CRITICAL BASIS: stored profile tables are SPARSE (Lite defaults are merged
+--  at NewDB time, not persisted) while unsync copies are FAT snapshots of the
+--  merged runtime table. All comparisons therefore run over DEFAULTS-MERGED
+--  effective values, and entries store effective scalars -- raw-table diffs
+--  mis-classify real edits as drift and strip runtime-injected defaults.
+--  This requires the RB DEFAULTS table, so the migration runs from Resource
+--  Bars' OnInitialize (which exports EllesmereUI._RBSectionDefaults and then
+--  walks every stored profile) AND directly on imported profile data (old
+--  export strings), self-guarded by a flag on the RB profile table so all
+--  paths are idempotent. With no defaults available (RB addon disabled) the
+--  migration is a no-op WITHOUT stamping the flag, so it runs when RB loads.
+--------------------------------------------------------------------------------
+do
+    local PS, FS = "\30", "\31"
+    local NIL_SENT = "__SPECOV_NIL__"
+    local RB_FOLDER = "EllesmereUIResourceBars"
+    local RB_PAGE = "Class, Power and Health Bars"
+
+    -- Static spec map: migration bodies must not call live game APIs.
+    local SPEC_INFO = {
+        [62]={"Arcane","MAGE"},[63]={"Fire","MAGE"},[64]={"Frost","MAGE"},
+        [65]={"Holy","PALADIN"},[66]={"Protection","PALADIN"},[70]={"Retribution","PALADIN"},
+        [71]={"Arms","WARRIOR"},[72]={"Fury","WARRIOR"},[73]={"Protection","WARRIOR"},
+        [102]={"Balance","DRUID"},[103]={"Feral","DRUID"},[104]={"Guardian","DRUID"},[105]={"Restoration","DRUID"},
+        [250]={"Blood","DEATHKNIGHT"},[251]={"Frost","DEATHKNIGHT"},[252]={"Unholy","DEATHKNIGHT"},
+        [253]={"Beast Mastery","HUNTER"},[254]={"Marksmanship","HUNTER"},[255]={"Survival","HUNTER"},
+        [256]={"Discipline","PRIEST"},[257]={"Holy","PRIEST"},[258]={"Shadow","PRIEST"},
+        [259]={"Assassination","ROGUE"},[260]={"Outlaw","ROGUE"},[261]={"Subtlety","ROGUE"},
+        [262]={"Elemental","SHAMAN"},[263]={"Enhancement","SHAMAN"},[264]={"Restoration","SHAMAN"},
+        [265]={"Affliction","WARLOCK"},[266]={"Demonology","WARLOCK"},[267]={"Destruction","WARLOCK"},
+        [268]={"Brewmaster","MONK"},[269]={"Windwalker","MONK"},[270]={"Mistweaver","MONK"},
+        [577]={"Havoc","DEMONHUNTER"},[581]={"Vengeance","DEMONHUNTER"},[1480]={"Devourer","DEMONHUNTER"},
+        [1467]={"Devastation","EVOKER"},[1468]={"Preservation","EVOKER"},[1473]={"Augmentation","EVOKER"},
+    }
+    local CLASS_TITLE = {
+        WARRIOR="Warrior", PALADIN="Paladin", HUNTER="Hunter", ROGUE="Rogue",
+        PRIEST="Priest", DEATHKNIGHT="Death Knight", SHAMAN="Shaman", MAGE="Mage",
+        WARLOCK="Warlock", MONK="Monk", DRUID="Druid", DEMONHUNTER="Demon Hunter",
+        EVOKER="Evoker",
+    }
+
+    local RB_SECTIONS = {
+        { key = "secondary", label = "Class Resource", enableLabel = "Show Class Resource" },
+        { key = "primary",   label = "Power Bar",      enableLabel = "Show Power Bar" },
+        -- health is OPT-IN at runtime (`hp.enabled and ...`; nil = hidden),
+        -- unlike power/secondary (`enabled ~= false`; nil = shown).
+        { key = "health",    label = "Health Bar",     enableLabel = "Show Health Bar", optIn = true },
+    }
+
+    -- Effective "is this section's bar shown" for a config table, matching
+    -- each section's runtime truthiness over the DEFAULTS-MERGED value, with
+    -- the per-spec disabledSpecs filter folded in when a spec is given.
+    local function SectionEff(sec, t, defs, specID)
+        local en = t.enabled
+        if en == nil then en = defs and defs.enabled end
+        local eff
+        if sec.optIn then
+            eff = en and true or false
+        else
+            eff = en ~= false
+        end
+        if eff and specID and type(t.disabledSpecs) == "table" and t.disabledSpecs[specID] then
+            eff = false
+        end
+        return eff
+    end
+
+    -- Threshold-system keys are never diffed into overrides; disabledSpecs
+    -- and enabled are folded into effective enables (SectionEff) instead.
+    local RB_SKIP_KEYS = {
+        thresholdSpecs = true, tickValues = true, thresholdFormMode = true,
+        disabledSpecs = true, enabled = true,
+    }
+
+    local function DeepCopyT(src)
+        if type(src) ~= "table" then return src end
+        local out = {}
+        for k, v in pairs(src) do out[k] = DeepCopyT(v) end
+        return out
+    end
+
+    local function DeepEq(a, b)
+        if a == b then return true end
+        if type(a) ~= "table" or type(b) ~= "table" then return false end
+        for k, v in pairs(a) do
+            if not DeepEq(v, b[k]) then return false end
+        end
+        for k in pairs(b) do
+            if a[k] == nil then return false end
+        end
+        return true
+    end
+
+    -- Walk a section table by a PS-joined relative path, falling back to the
+    -- defaults subtree wherever the table side runs out (effective value).
+    local function GetPathEff(t, defs, path)
+        for seg in string.gmatch(path, "[^\30]+") do
+            local tv = (type(t) == "table") and t[seg] or nil
+            local dv = (type(defs) == "table") and defs[seg] or nil
+            t, defs = tv, dv
+            if t == nil and defs == nil then return nil end
+        end
+        if t ~= nil then return t end
+        return defs
+    end
+
+    -- Union of differing leaf paths between a Simple section and an advanced
+    -- copy, compared over DEFAULTS-MERGED effective values on BOTH sides
+    -- (stored Simple is sparse; copies are fat merged snapshots -- raw
+    -- comparison mis-reads defaults as user edits and vice versa). Skips
+    -- threshold/disabledSpecs/enabled keys, numeric keys, and table shape
+    -- mismatches. Emitted leaves may involve nil ONLY when neither side nor
+    -- the defaults define the key's counterpart -- those keys are inline-
+    -- fallback keys the renderers already tolerate as absent.
+    local function DiffSection(simple, copy, defs, prefix, out)
+        simple = type(simple) == "table" and simple or {}
+        copy = type(copy) == "table" and copy or {}
+        defs = type(defs) == "table" and defs or {}
+        local keys = {}
+        for k in pairs(simple) do keys[k] = true end
+        for k in pairs(copy) do keys[k] = true end
+        for k in pairs(defs) do keys[k] = true end
+        for k in pairs(keys) do
+            if type(k) ~= "number" and not RB_SKIP_KEYS[k] then
+                local sv, cv, dv = simple[k], copy[k], defs[k]
+                local effS = (sv == nil) and dv or sv
+                local effC = (cv == nil) and dv or cv
+                local path = prefix and (prefix .. PS .. tostring(k)) or tostring(k)
+                if type(effS) == "table" and type(effC) == "table" then
+                    DiffSection(
+                        type(sv) == "table" and sv or nil,
+                        type(cv) == "table" and cv or nil,
+                        type(dv) == "table" and dv or nil,
+                        path, out)
+                elseif type(effS) ~= "table" and type(effC) ~= "table"
+                   and effS ~= effC then
+                    out[path] = true
+                end
+            end
+        end
+    end
+
+    -- Q1-A threshold merge: make the spec resolve in the SIMPLE list exactly
+    -- as it did in the advanced copy. The copy's entries matching the spec
+    -- (explicit or All-Specs) are retargeted to specIDs={spec} and inserted
+    -- at the FRONT of the Simple list in resolver tier order (spec+talent,
+    -- spec plain, all+talent, all plain); the spec is stripped from
+    -- pre-existing Simple entries so nothing else can match it.
+    local function MergeThresholds(simpleSec, copySec, specID, backup)
+        local cList = copySec.thresholdSpecs
+        if type(cList) ~= "table" or #cList == 0 then return end
+        if DeepEq(cList, simpleSec.thresholdSpecs) then return end
+        if copySec.thresholdFormMode or simpleSec.thresholdFormMode then
+            -- Form-mode thresholds resolve by druid form, not spec; a per-spec
+            -- retarget cannot represent them. Keep them in the backup only.
+            backup.thresholdFormMergeSkipped = true
+            return
+        end
+        local specTalent, specPlain, allTalent, allPlain = {}, {}, {}, {}
+        for _, entry in ipairs(cList) do
+            if type(entry) == "table" and type(entry.specIDs) == "table" then
+                local mSpec, mAll = false, false
+                for _, sid in ipairs(entry.specIDs) do
+                    if sid == specID then mSpec = true end
+                    if sid == 0 then mAll = true end
+                end
+                if mSpec or mAll then
+                    local cp = DeepCopyT(entry)
+                    cp.specIDs = { specID }
+                    local bucket
+                    if entry.talentSpellID then
+                        bucket = mSpec and specTalent or allTalent
+                    else
+                        bucket = mSpec and specPlain or allPlain
+                    end
+                    bucket[#bucket + 1] = cp
+                end
+            end
+        end
+        simpleSec.thresholdSpecs = simpleSec.thresholdSpecs or {}
+        local target = simpleSec.thresholdSpecs
+        -- Strip this spec from pre-existing Simple entries (drop entries that
+        -- only served this spec).
+        for i = #target, 1, -1 do
+            local entry = target[i]
+            if type(entry) == "table" and type(entry.specIDs) == "table" then
+                local changed = false
+                for j = #entry.specIDs, 1, -1 do
+                    if entry.specIDs[j] == specID then
+                        table.remove(entry.specIDs, j)
+                        changed = true
+                    end
+                end
+                if changed and #entry.specIDs == 0 then table.remove(target, i) end
+            end
+        end
+        -- Front-insert retargeted entries in tier order.
+        local merged = {}
+        for _, bucket in ipairs({ specTalent, specPlain, allTalent, allPlain }) do
+            for _, entry in ipairs(bucket) do merged[#merged + 1] = entry end
+        end
+        for i = #merged, 1, -1 do
+            table.insert(target, 1, merged[i])
+        end
+    end
+
+    --- Migrates one profile root table (EllesmereUIDB.profiles[name] shape:
+    --- .addons.EllesmereUIResourceBars + spec-override tables at root).
+    function EllesmereUI.MigrateRBAdvancedProfile(prof)
+        if type(prof) ~= "table" then return end
+        local rb = prof.addons and prof.addons.EllesmereUIResourceBars
+        if type(rb) ~= "table" then return end
+        if rb._rbAdvMigrated then return end
+        -- Defaults are mandatory for effective-value comparison; without them
+        -- (RB addon not loaded) do nothing and leave the flag unset so the
+        -- migration runs when RB initializes.
+        local DEFS = EllesmereUI._RBSectionDefaults
+        if type(DEFS) ~= "table" then return end
+        rb._rbAdvMigrated = true
+
+        local adv = rb.advancedSpecs
+        local activeAdv = {}
+        if type(adv) == "table" then
+            for _, e in ipairs(adv) do
+                if type(e) == "table" and type(e.specID) == "number" and e.enabled ~= false then
+                    activeAdv[#activeAdv + 1] = e
+                end
+            end
+        end
+        local hasDisabled = false
+        for _, sec in ipairs(RB_SECTIONS) do
+            local s = rb[sec.key]
+            if type(s) == "table" and type(s.disabledSpecs) == "table" and next(s.disabledSpecs) then
+                hasDisabled = true
+                break
+            end
+        end
+        if #activeAdv == 0 and not hasDisabled and not (type(adv) == "table" and #adv > 0) then
+            return   -- nothing to migrate
+        end
+
+        prof.specOverrides = prof.specOverrides or {}
+        prof.specOverrideGroups = prof.specOverrideGroups or {}
+        local store, groups = prof.specOverrides, prof.specOverrideGroups
+        local function nextId()
+            local id = (prof.specOverrideNextId or 0) + 1
+            prof.specOverrideNextId = id
+            return id
+        end
+
+        local backup = { advancedSpecs = adv, disabledSpecs = {} }
+
+        -- One card per advanced spec (created lazily).
+        local specCards = {}
+        local function SpecCard(specID)
+            local g = specCards[specID]
+            if not g then
+                local info = SPEC_INFO[specID]
+                local name
+                if info then
+                    name = info[1] .. " - " .. (CLASS_TITLE[info[2]] or info[2])
+                else
+                    name = "Spec " .. tostring(specID)
+                end
+                g = {
+                    id = nextId(),
+                    name = name,
+                    icon = info and { kind = "class", key = info[2] } or nil,
+                    specs = { specID },
+                }
+                specCards[specID] = g
+                groups[#groups + 1] = g
+            end
+            return g
+        end
+
+        for _, sec in ipairs(RB_SECTIONS) do
+            local simple = rb[sec.key]
+            if type(simple) == "table" then
+                local defs = type(DEFS[sec.key]) == "table" and DEFS[sec.key] or {}
+                local enabledFkey = RB_FOLDER .. FS .. sec.key .. PS .. "enabled"
+                local simpleEff = SectionEff(sec, simple, defs)
+
+                -- 1) Threshold merges + per-spec diffs (defaults-merged)
+                local union = {}
+                local copyBySpec = {}
+                local specsWithDiffs = {}
+                for _, e in ipairs(activeAdv) do
+                    local copy = e[sec.key]
+                    if type(copy) == "table" then
+                        MergeThresholds(simple, copy, e.specID, backup)
+                        copyBySpec[e.specID] = copy
+                        local out = {}
+                        DiffSection(simple, copy, defs, nil, out)
+                        for path in pairs(out) do
+                            union[path] = true
+                            specsWithDiffs[e.specID] = true
+                        end
+                    end
+                end
+
+                -- 2) Effective enables: advanced copies fold their own enabled
+                --    + disabledSpecs; Simple disabledSpecs cover non-copy specs.
+                local effEnable = {}
+                for specID, copy in pairs(copyBySpec) do
+                    local eff = SectionEff(sec, copy, defs, specID)
+                    if eff ~= simpleEff then
+                        effEnable[specID] = eff
+                        specsWithDiffs[specID] = true
+                    end
+                end
+                local dsSpecs = {}
+                local ds = simple.disabledSpecs
+                backup.disabledSpecs[sec.key] = ds
+                if type(ds) == "table" then
+                    for specID, on in pairs(ds) do
+                        if on and type(specID) == "number" and not copyBySpec[specID] and simpleEff then
+                            effEnable[specID] = false
+                            dsSpecs[#dsSpecs + 1] = specID
+                        end
+                    end
+                end
+                table.sort(dsSpecs)
+                if next(effEnable) then union["enabled"] = true end
+
+                -- 3) Spec-card entries: full union, values for EVERY copy-
+                --    holding spec (order-independent for shared keys), plus
+                --    partial enabled-only maps for enable-card specs.
+                if next(union) then
+                    local default = {}
+                    for path in pairs(union) do
+                        local v = GetPathEff(simple, defs, path)
+                        local fkey = RB_FOLDER .. FS .. sec.key .. PS .. path
+                        default[fkey] = (v == nil or type(v) == "table") and NIL_SENT or v
+                    end
+                    local valuesBySpec = {}
+                    for specID, copy in pairs(copyBySpec) do
+                        local m = {}
+                        for path in pairs(union) do
+                            local v = GetPathEff(copy, defs, path)
+                            local fkey = RB_FOLDER .. FS .. sec.key .. PS .. path
+                            m[fkey] = (v == nil or type(v) == "table") and NIL_SENT or v
+                        end
+                        if union["enabled"] then
+                            -- effective enable (section truthiness + the
+                            -- copy's own disabledSpecs folded in)
+                            m[enabledFkey] = SectionEff(sec, copy, defs, specID)
+                        end
+                        valuesBySpec[specID] = m
+                    end
+                    for _, specID in ipairs(dsSpecs) do
+                        valuesBySpec[specID] = { [enabledFkey] = false }
+                    end
+
+                    for specID in pairs(specsWithDiffs) do
+                        if copyBySpec[specID] then
+                            local g = SpecCard(specID)
+                            local entry = {
+                                label = sec.label,
+                                crumb = "Resource Bars  >  " .. RB_PAGE,
+                                module = RB_FOLDER,
+                                page = RB_PAGE,
+                                group = g.id,
+                                values = { default = DeepCopyT(default) },
+                            }
+                            for sID, m in pairs(valuesBySpec) do
+                                entry.values[sID] = DeepCopyT(m)
+                            end
+                            store[#store + 1] = entry
+                        end
+                    end
+
+                    -- 4) Enable card for Simple disabledSpecs specs.
+                    if #dsSpecs > 0 then
+                        local g = {
+                            id = nextId(),
+                            name = sec.label,
+                            icon = { kind = "multi" },
+                            specs = dsSpecs,
+                        }
+                        groups[#groups + 1] = g
+                        local entry = {
+                            label = sec.enableLabel,
+                            crumb = "Resource Bars  >  " .. RB_PAGE,
+                            module = RB_FOLDER,
+                            page = RB_PAGE,
+                            group = g.id,
+                            values = { default = { [enabledFkey] = default[enabledFkey] } },
+                        }
+                        -- every diverging spec gets its effective value so
+                        -- apply order over the shared key can never clobber
+                        for specID, eff in pairs(effEnable) do
+                            entry.values[specID] = { [enabledFkey] = eff }
+                        end
+                        store[#store + 1] = entry
+                    end
+                end
+
+                simple.disabledSpecs = nil
+            end
+        end
+
+        -- 5) Backup + strip the retired mechanisms.
+        rb.advancedSpecsBackup = backup
+        rb.advancedSpecs = nil
+        rb.advancedSelectedSpec = nil
+        rb.barDisplayMode = nil
+    end
+end
+
+-- NOTE: deliberately NOT registered with the early migration runner -- the
+-- comparison needs Resource Bars' DEFAULTS table, which only exists once the
+-- RB addon loads. RB's OnInitialize exports EllesmereUI._RBSectionDefaults
+-- and then invokes MigrateRBAdvancedProfile for every stored profile; the
+-- profile import paths call it directly for imported data.
+
+-- Per-character data leaked through shared profiles: DataBars kept its
+-- cross-character gold ledger at profile scope (addons.EllesmereUIDataBars
+-- .characters) and the QoL upgrade calculator kept per-character scan state
+-- there too (addons.EllesmereUIQoL.chars), so exported profiles carried the
+-- sharer's character names, realms and gold. Both stores are account-wide now
+-- (EllesmereUIDB.dataBarsGold / EllesmereUIDB.qolUpgradeCalcChars) and the
+-- module init paths drop the keys from the ACTIVE profile; this sweep drops
+-- them from every stored profile so no stale copy lingers on disk or rides a
+-- later export. The string paths strip the keys as well, so this is cleanup,
+-- not the safety line.
+--
+-- Deliberately DROP rather than merge into the account stores: any profile
+-- may be an imported one and nothing durably records that, so a merge could
+-- copy a stranger's characters into permanent account-wide storage. Nothing
+-- of value is lost -- each character re-records itself on login / next scan.
+--
+-- The folder literals contain "EllesmereUI", which the standalone packager
+-- renames to the build token, so they match each build's stored profile keys.
+EllesmereUI.RegisterMigration({
+    id          = "per_character_data_account_wide_v1",
+    scope       = "global",
+    description = "Drop leaked per-character data (DataBars gold ledger, QoL upgrade-calc state) from every stored profile; both are account-wide now.",
+    body        = function(ctx)
+        local db = ctx.db
+        if not db or type(db.profiles) ~= "table" then return end
+        for _, pd in pairs(db.profiles) do
+            local addons = type(pd) == "table" and type(pd.addons) == "table"
+                and pd.addons or nil
+            if addons then
+                local dbars = addons["EllesmereUIDataBars"]
+                if type(dbars) == "table" then dbars.characters = nil end
+                local qol = addons["EllesmereUIQoL"]
+                if type(qol) == "table" then qol.chars = nil end
+            end
+        end
+    end,
+})

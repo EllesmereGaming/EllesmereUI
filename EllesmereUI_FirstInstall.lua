@@ -58,6 +58,7 @@ local GROUPS = {
         entries = {
             { label = "Quality of Life",     addon = "EllesmereUIQoL" },
             { label = "AuraBuff Reminders",  addon = "EllesmereUIAuraBuffReminders" },
+            { label = "DataBars",            addon = "EllesmereUIDataBars" },
             -- Cursor Circle is a feature inside the QoL addon (cursor.enabled).
             -- The checkbox here is a front-end shortcut that writes directly to
             -- the QoL profile so users get a sensible default on first install.
@@ -103,7 +104,7 @@ local function ShowFirstInstallPopup()
     local COL_GAP       = 18
     local CONTENT_LEFT  = 41
     local CONTENT_RIGHT = 36
-    local CONTENT_TOP   = 120
+    local CONTENT_TOP   = 216   -- below the header band + eyebrow/title/subtitle
     local HEADER_H      = 32
     local HEADER_PAD    = 6
     local ROW_H         = 28
@@ -147,24 +148,88 @@ local function ShowFirstInstallPopup()
     bg:SetAllPoints()
     bg:SetColorTexture(0.06, 0.08, 0.10, 1)
 
-    -- 2px border
+    -- 1 physical-pixel white border (announcement-popup chrome), scale-derived
+    -- so each edge stays exactly one physical pixel. Snap disabled.
+    local onePhys = 1 / (popup:GetEffectiveScale() or 1)
     local BRD_A = 0.15
-    local function MakeEdge(anchor1, anchor2, isHoriz)
+    local function MakeEdge()
         local t = popup:CreateTexture(nil, "BORDER")
         t:SetColorTexture(1, 1, 1, BRD_A)
         if t.SetSnapToPixelGrid then t:SetSnapToPixelGrid(false); t:SetTexelSnappingBias(0) end
         return t
     end
-    local spT = MakeEdge(); spT:SetPoint("TOPLEFT", 0, 0); spT:SetPoint("TOPRIGHT", 0, 0); spT:SetHeight(2)
-    local spB = MakeEdge(); spB:SetPoint("BOTTOMLEFT", 0, 0); spB:SetPoint("BOTTOMRIGHT", 0, 0); spB:SetHeight(2)
-    local spL = MakeEdge(); spL:SetPoint("TOPLEFT", spT, "BOTTOMLEFT"); spL:SetPoint("BOTTOMLEFT", spB, "TOPLEFT"); spL:SetWidth(2)
-    local spR = MakeEdge(); spR:SetPoint("TOPRIGHT", spT, "BOTTOMRIGHT"); spR:SetPoint("BOTTOMRIGHT", spB, "TOPRIGHT"); spR:SetWidth(2)
+    local spT = MakeEdge(); spT:SetPoint("TOPLEFT", 0, 0); spT:SetPoint("TOPRIGHT", 0, 0); spT:SetHeight(onePhys)
+    local spB = MakeEdge(); spB:SetPoint("BOTTOMLEFT", 0, 0); spB:SetPoint("BOTTOMRIGHT", 0, 0); spB:SetHeight(onePhys)
+    local spL = MakeEdge(); spL:SetPoint("TOPLEFT", spT, "BOTTOMLEFT"); spL:SetPoint("BOTTOMLEFT", spB, "TOPLEFT"); spL:SetWidth(onePhys)
+    local spR = MakeEdge(); spR:SetPoint("TOPRIGHT", spT, "BOTTOMRIGHT"); spR:SetPoint("BOTTOMRIGHT", spB, "TOPRIGHT"); spR:SetWidth(onePhys)
+
+    -- Decorative header visual (announcement-popup style): three mini module
+    -- cards echoing the three picker columns below, each with the green top
+    -- accent and a checked box beside stand-in text lines. The center card is
+    -- slightly taller/brighter, matching the sibling popups' motif.
+    do
+        local EGh = ELLESMERE_GREEN
+        local CARD_W, CARD_H, CARD_GAP = 124, 52, 14
+        local MIDLINE = -54
+        for i = 1, 3 do
+            local isCenter = (i == 2)
+            local w = CARD_W
+            local h = isCenter and (CARD_H + 10) or CARD_H
+            local card = CreateFrame("Frame", nil, popup)
+            card:SetFrameLevel(popup:GetFrameLevel() + 1)
+            PP.Size(card, w, h)
+            PP.Point(card, "CENTER", popup, "TOP", (i - 2) * (CARD_W + CARD_GAP), MIDLINE)
+            local cbg = card:CreateTexture(nil, "BACKGROUND")
+            cbg:SetAllPoints()
+            cbg:SetColorTexture(0.12, 0.13, 0.15, 1)
+
+            -- Green top accent (the suite's hero-card signature).
+            local accent = card:CreateTexture(nil, "ARTWORK")
+            accent:SetColorTexture(EGh.r, EGh.g, EGh.b, isCenter and 0.95 or 0.7)
+            accent:SetHeight(2)
+            PP.Point(accent, "TOPLEFT", card, "TOPLEFT", 1, -1)
+            PP.Point(accent, "TOPRIGHT", card, "TOPRIGHT", -1, -1)
+            if accent.SetSnapToPixelGrid then accent:SetSnapToPixelGrid(false); accent:SetTexelSnappingBias(0) end
+
+            -- Checked box + stand-in lines: the picker rows in miniature.
+            local box = card:CreateTexture(nil, "ARTWORK")
+            box:SetColorTexture(CB_BOX_R, CB_BOX_G, CB_BOX_B, 1)
+            PP.Size(box, 12, 12)
+            PP.Point(box, "TOPLEFT", card, "TOPLEFT", 12, -14)
+            local check = card:CreateTexture(nil, "OVERLAY")
+            check:SetColorTexture(EGh.r, EGh.g, EGh.b, isCenter and 1 or 0.8)
+            PP.Size(check, 6, 6)
+            PP.Point(check, "CENTER", box, "CENTER", 0, 0)
+            local l1 = card:CreateTexture(nil, "ARTWORK")
+            l1:SetColorTexture(1, 1, 1, isCenter and 0.42 or 0.32)
+            PP.Size(l1, w - 52, 5)
+            PP.Point(l1, "LEFT", box, "RIGHT", 8, 0)
+            local l2 = card:CreateTexture(nil, "ARTWORK")
+            l2:SetColorTexture(1, 1, 1, 0.16)
+            PP.Size(l2, w - 72, 5)
+            PP.Point(l2, "TOPLEFT", box, "BOTTOMLEFT", 0, -8)
+            if isCenter then
+                local l3 = card:CreateTexture(nil, "ARTWORK")
+                l3:SetColorTexture(1, 1, 1, 0.12)
+                PP.Size(l3, w - 84, 5)
+                PP.Point(l3, "TOPLEFT", l2, "BOTTOMLEFT", 0, -7)
+            end
+            MakeBorder(card, 1, 1, 1, isCenter and 0.16 or 0.10, PP)
+        end
+    end
+
+    -- Eyebrow
+    local eyebrow = popup:CreateFontString(nil, "OVERLAY")
+    eyebrow:SetFont(FONT, 13, "")
+    eyebrow:SetTextColor(ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 0.9)
+    PP.Point(eyebrow, "TOP", popup, "TOP", 0, -104)
+    eyebrow:SetText("FIRST TIME SETUP")
 
     -- Title
     local title = popup:CreateFontString(nil, "OVERLAY")
-    title:SetFont(FONT, 22, "")
+    title:SetFont(FONT, 25, "")
     title:SetTextColor(1, 1, 1, 1)
-    PP.Point(title, "TOP", popup, "TOP", 0, -32)
+    PP.Point(title, "TOP", eyebrow, "BOTTOM", 0, -6)
     title:SetText("Welcome to EllesmereUI")
 
     -- Subtitle
@@ -178,7 +243,7 @@ local function ShowFirstInstallPopup()
     sub:SetText("Choose which addons you want enabled. You can change any of these later in the EllesmereUI settings panel.")
 
     -- Check All / Uncheck All links
-    local LINK_Y = -103
+    local LINK_Y = -196
     local LINK_GAP = 20
 
     local checkAllBtn = CreateFrame("Button", nil, popup)
@@ -403,6 +468,7 @@ local function ShowFirstInstallPopup()
         if not EllesmereUIDB then EllesmereUIDB = {} end
         EllesmereUIDB.firstInstallPopupShown = true
         EllesmereUIDB.bagsUserChosen = true
+        EllesmereUI._firstInstallPending = nil
 
         -- Write QoL cursor setting directly into the profile table so it
         -- survives even if the user also disables the QoL addon. NewDB merges
@@ -514,11 +580,23 @@ loader:SetScript("OnEvent", function(self, event, addonName)
         if addonName ~= "EllesmereUI" then return end
         self:UnregisterEvent("ADDON_LOADED")
         _showPopupOnLogin = ComputeShowOnLogin()
+        if _showPopupOnLogin then
+            -- Handshake for other first-login popups (e.g. CDM's Edit Mode
+            -- reload prompt): the picker is coming and ALWAYS ends in its own
+            -- forced ReloadUI, so reload-prompting popups must stay silent and
+            -- let that reload apply their changes. Cleared in Close().
+            EllesmereUI._firstInstallPending = true
+        end
     elseif event == "PLAYER_LOGIN" then
         self:UnregisterEvent("PLAYER_LOGIN")
         if not _showPopupOnLogin then return end
         C_Timer.After(0.5, function()
             if EllesmereUIDB and EllesmereUIDB.firstInstallPopupShown then return end
+            -- A registered external installer owns the first-run experience:
+            -- keep the picker silent (the pending handshake stays armed; the
+            -- installer's import stamps first-install state, and a session
+            -- with no registration brings the picker back).
+            if EllesmereUI._externalInstaller then return end
             ShowFirstInstallPopup()
         end)
     end

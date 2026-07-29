@@ -16,7 +16,14 @@
 --  also stops a brand-new user's SECOND login from looking "existing").
 --
 --  Fires once, at PLAYER_LOGIN. Guarded by EllesmereUIDB.raidFramesIntroShown.
+--
+--  RETIRED 2026-07-12: announcement has had its run; killed at the top so
+--  users upgrading across versions are never shown several intro popups back
+--  to back (only the newest announcement fires). Everything below is inert --
+--  loader, art, and DB stamping all dead; raidFramesIntroShown is no longer
+--  written for anyone. Delete the guard below to revive the popup.
 -------------------------------------------------------------------------------
+do return end
 
 local EllesmereUI = _G.EllesmereUI
 if not EllesmereUI then return end

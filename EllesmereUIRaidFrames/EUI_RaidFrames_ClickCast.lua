@@ -121,15 +121,38 @@ end
 
 -- True when a spell binding is a rez spell (by stored ID, with a name
 -- fallback for legacy bindings saved before spell IDs were stored).
+-- Name lookup for the legacy fallback, built ONCE.
+--
+-- This used to walk every rez spell ID calling C_Spell.GetSpellName on each,
+-- for every binding, for every frame registered. CC_RegisterFrame runs per unit
+-- button (40+ in a full raid), and the whole thing happens inside the login
+-- enable-flush -- which is a SINGLE synchronous execution shared by every
+-- module -- so the API calls multiplied out into thousands and helped trip the
+-- "script ran too long" watchdog on /reload.
+local _rezNames
+local function RezNameSet()
+    if _rezNames then return _rezNames end
+    if not (C_Spell and C_Spell.GetSpellName) then return nil end
+    local set, resolved = {}, false
+    for sid in pairs(REZ_SPELL_IDS) do
+        local n = C_Spell.GetSpellName(sid)
+        if n then set[n] = true; resolved = true end
+    end
+    -- Only latch the cache once something actually resolved: spell data can be
+    -- cold this early in login, and freezing an empty set would permanently
+    -- break the fallback for the rest of the session.
+    if resolved then _rezNames = set end
+    return set
+end
+
 local function IsRezSpellBinding(binding)
     if type(binding.spellID) == "number" and REZ_SPELL_IDS[binding.spellID] then
         return true
     end
     local bn = binding.spell
-    if type(bn) == "string" and C_Spell and C_Spell.GetSpellName then
-        for sid in pairs(REZ_SPELL_IDS) do
-            if C_Spell.GetSpellName(sid) == bn then return true end
-        end
+    if type(bn) == "string" then
+        local names = RezNameSet()
+        return names ~= nil and names[bn] == true
     end
     return false
 end
@@ -143,7 +166,7 @@ local KEY_DISPLAY = {
 -------------------------------------------------------------------------------
 --  State
 -------------------------------------------------------------------------------
-local header           = nil   -- SecureHandlerBaseTemplate (frame bindings)
+local header           = nil   -- SecureHandlerStateTemplate (frame bindings + eui_cc driver)
 local bindProxy          = nil   -- SecureActionButtonTemplate (unnamed frame fallback)
 local globalBtn        = nil   -- SecureActionButtonTemplate (hovercast bindings)
 local registeredFrames = {}
@@ -459,6 +482,17 @@ local function BuildBaseMacroText(binding)
         end
         if isHC then
             body = "/stopmacro [mounted][flying]\n" .. body
+            -- The body is the user's macro, so the friendly/enemy filter cannot be
+            -- folded into its conditionals the way the /cast above is assembled.
+            -- Gate the whole macro instead. Same net effect, and a missing
+            -- mouseover also stops it, matching the spell path's exists check.
+            -- Without this the two Hovercast target toggles were built and shown
+            -- for macro bindings but silently did nothing.
+            if binding.hoverFriendly and not binding.hoverEnemy then
+                body = "/stopmacro [@mouseover,nohelp]\n" .. body
+            elseif binding.hoverEnemy and not binding.hoverFriendly then
+                body = "/stopmacro [@mouseover,noharm]\n" .. body
+            end
         end
         return body
     elseif binding.type == "item" then
@@ -800,11 +834,20 @@ local function SetClickAttr(frame, parsed, actionType, spellOrMacro, macrotext, 
     local suffix = tostring(parsed.buttonNum)
     local typeAttr = prefix .. "type" .. suffix
     -- 12.0.7 gates a raw "togglemenu" on unit buttons (and an insecure reopen
-    -- taints its protected items). Route the menu through the secure proxy via
-    -- the ungated "click" action instead.
+    -- taints its protected items); the gate is still present in 12.1. Route
+    -- the menu through the secure proxy. TRANSPORT: on 12.1 the "click"
+    -- action crashes on a Blizzard typo (SecureTemplates.lua:564, aspect
+    -- check on the mouse-button string), so 12.1 uses a "/click <proxy>"
+    -- macro; 12.0 keeps the proven click action.
     if actionType == "togglemenu" and EllesmereUI.GetSecureMenuProxy then
-        SetGatedType(frame, typeAttr, "click", oocOnly)
-        frame:SetAttribute(prefix .. "clickbutton" .. suffix, EllesmereUI.GetSecureMenuProxy(frame))
+        local proxy = EllesmereUI.GetSecureMenuProxy(frame)
+        if EllesmereUI.IS_121 then
+            SetGatedType(frame, typeAttr, "macro", oocOnly)
+            frame:SetAttribute(prefix .. "macrotext" .. suffix, "/click " .. proxy:GetName())
+        else
+            SetGatedType(frame, typeAttr, "click", oocOnly)
+            frame:SetAttribute(prefix .. "clickbutton" .. suffix, proxy)
+        end
         return
     end
     -- 12.0.7 also gates a raw "target" on unit buttons. Plain unmodified
@@ -813,8 +856,14 @@ local function SetClickAttr(frame, parsed, actionType, spellOrMacro, macrotext, 
     -- target binding (other buttons / modifiers) through the ungated "click"
     -- proxy. Keeps the change scoped to users who rebound target off left-click.
     if actionType == "target" and (suffix ~= "1" or prefix ~= "") and EllesmereUI.GetSecureTargetProxy then
-        SetGatedType(frame, typeAttr, "click", oocOnly)
-        frame:SetAttribute(prefix .. "clickbutton" .. suffix, EllesmereUI.GetSecureTargetProxy(frame))
+        local proxy = EllesmereUI.GetSecureTargetProxy(frame)
+        if EllesmereUI.IS_121 then
+            SetGatedType(frame, typeAttr, "macro", oocOnly)
+            frame:SetAttribute(prefix .. "macrotext" .. suffix, "/click " .. proxy:GetName())
+        else
+            SetGatedType(frame, typeAttr, "click", oocOnly)
+            frame:SetAttribute(prefix .. "clickbutton" .. suffix, proxy)
+        end
         return
     end
     -- Raw action type. Only menu/target honor oocOnly via the combat driver;
@@ -842,17 +891,30 @@ end
 local function SetKeyAttr(frame, idx, actionType, spellOrMacro, macrotext, oocOnly)
     local suffix = "eui_" .. idx
     local typeAttr = "type-" .. suffix
-    -- Route a "menu" keybind through the secure proxy (see SetClickAttr).
+    -- Route a "menu" keybind through the secure proxy (see SetClickAttr for
+    -- why 12.1 uses the /click macro transport instead of the click action).
     if actionType == "togglemenu" and EllesmereUI.GetSecureMenuProxy then
-        SetGatedType(frame, typeAttr, "click", oocOnly)
-        frame:SetAttribute("clickbutton-" .. suffix, EllesmereUI.GetSecureMenuProxy(frame))
+        local proxy = EllesmereUI.GetSecureMenuProxy(frame)
+        if EllesmereUI.IS_121 then
+            SetGatedType(frame, typeAttr, "macro", oocOnly)
+            frame:SetAttribute("macrotext-" .. suffix, "/click " .. proxy:GetName())
+        else
+            SetGatedType(frame, typeAttr, "click", oocOnly)
+            frame:SetAttribute("clickbutton-" .. suffix, proxy)
+        end
         return
     end
     -- A "target" keybind is never plain left-click, so it always hits the 12.0.7
     -- gate -- route it through the ungated "click" proxy (see SetClickAttr).
     if actionType == "target" and EllesmereUI.GetSecureTargetProxy then
-        SetGatedType(frame, typeAttr, "click", oocOnly)
-        frame:SetAttribute("clickbutton-" .. suffix, EllesmereUI.GetSecureTargetProxy(frame))
+        local proxy = EllesmereUI.GetSecureTargetProxy(frame)
+        if EllesmereUI.IS_121 then
+            SetGatedType(frame, typeAttr, "macro", oocOnly)
+            frame:SetAttribute("macrotext-" .. suffix, "/click " .. proxy:GetName())
+        else
+            SetGatedType(frame, typeAttr, "click", oocOnly)
+            frame:SetAttribute("clickbutton-" .. suffix, proxy)
+        end
         return
     end
     -- Only menu/target honor oocOnly via the combat driver; spell/macro carry
@@ -1024,7 +1086,6 @@ local function NeutralizeDefaultClicks(frame, bindings)
 end
 
 local function DoRegisterFrame(frame)
-    if registeredFrames[frame] then return end
     if not frame or not frame.RegisterForClicks then return end
     if not header then return end
     -- Hard guarantee: while click-casting is disabled we touch ZERO frames --
@@ -1033,6 +1094,15 @@ local function DoRegisterFrame(frame)
     -- explicitly enable the feature.
     local cc = GetClickCastDB()
     if not (cc and cc.enabled) then return end
+    -- Deliberately NO `if registeredFrames[frame] then return end` early-out:
+    -- re-registration MUST re-apply the click attributes. EUI unit frames are
+    -- first registered mid-spawn (they land in ClickCastFrames as oUF builds
+    -- them); SetupUnitMenu then re-attaches the secure right-click menu
+    -- (AttachSecureUnitMenu wipes type2 and re-sets the *type2 menu wildcard)
+    -- and re-adds the frame to ClickCastFrames. If the re-add short-circuited,
+    -- the menu would stay in charge and the bound right-click spell would
+    -- silently revert to opening the menu after every login/reload. Every step
+    -- below is idempotent or self-guarded, so re-running the apply is safe.
     registeredFrames[frame] = true
     -- Capture the frame's native left-click target attrs once, before we touch
     -- anything, so DoUnregisterFrame restores them exactly (raid -> target, EUI
@@ -1187,7 +1257,7 @@ function ns.CC_SetAllFrames(enabled)
     if enabled then
         -- Grab the static Blizzard list (PlayerFrame/TargetFrame/party/etc.) and
         -- install the CompactUnitFrame hook. Idempotent: self-gates on
-        -- enabled+allFrames, DoRegisterFrame skips already-registered frames,
+        -- enabled+allFrames, the loop below skips already-registered frames,
         -- and the CUF hook installs at most once.
         if RegisterBlizzardFrames then RegisterBlizzardFrames() end
         for frame in pairs(externalFrames) do
@@ -1334,8 +1404,8 @@ function ns.CC_ApplyBindings()
     --    never lose the race against the binding being set. (This is the part the
     --    old design lacked: it relied solely on the state driver to set, which
     --    lags on arrival and -- worse -- could stay stuck cleared.)
-    --  * The state driver also SETS on "1", covering NON-EUI mouseover targets
-    --    (nameplates / Blizzard frames that have no OnEnter wrap), and on "0"
+    --  * The state driver also SETS on "on", covering NON-EUI mouseover targets
+    --    (nameplates / Blizzard frames that have no OnEnter wrap), and on "off"
     --    CLEARS the hover bindings AND runs the frame-based keyboard failsafe.
     --  * The "0" clear is GUARDED: skipped while the last-hovered EUI frame is
     --    still physically under the cursor, so a transient [@mouseover,exists]==0
@@ -1420,7 +1490,7 @@ function ns.CC_ApplyBindings()
     if #hoverSetLines > 0 or #kbClearLines > 0 then
         local fbFailsafe = table.concat(kbClearLines, "\n")
         header:SetAttribute("_onstate-eui_cc", [[
-            if newstate == "1" then
+            if newstate == "on" then
                 if not eui_hoveractive then
                     self:RunAttribute("eui_hover_set")
                     eui_hoveractive = true
@@ -1432,7 +1502,12 @@ function ns.CC_ApplyBindings()
 
             end
         ]])
-        RegisterStateDriver(header, "eui_cc", "[@mouseover,exists] 1; 0")
+        -- State values are deliberately non-numeric. Blizzard's driver runs
+        -- newValue = tonumber(newValue) or newValue before setting the state, so a
+        -- "1; 0" driver arrives as the NUMBER 1 and never matches a quoted "1" --
+        -- which silently made the set branch above unreachable, leaving nameplates
+        -- (no OnEnter wrap, so the driver is their only path) permanently unbound.
+        RegisterStateDriver(header, "eui_cc", "[@mouseover,exists] on; off")
     end
 
     -- Store for next cleanup
@@ -1637,6 +1712,37 @@ end
 -------------------------------------------------------------------------------
 --  Events
 -------------------------------------------------------------------------------
+-- At login the specialization / trait data can lag PLAYER_ENTERING_WORLD by a
+-- few frames. Applying bindings before the spec is known makes every
+-- SPEC-scoped binding fall back to its GLOBAL default -- e.g. a spec right-click
+-- spell reverts to the global "menu" default, so right-click opens the context
+-- menu -- with nothing to re-apply it afterwards (PLAYER_SPECIALIZATION_CHANGED
+-- does not fire on a plain login). Poll briefly until GetCurrentSpecID resolves,
+-- then reapply so spec bindings take effect. Safe when there is no spec (new /
+-- low-level characters): the cap stops the poll and a later spec pick fires
+-- PLAYER_SPECIALIZATION_CHANGED, which reapplies.
+local specReadyTicker
+local function ReapplyWhenSpecReady()
+    if InCombatLockdown() then pendingApply = true; return end
+    if GetCurrentSpecID() then ns.CC_ApplyBindings(); return end
+    -- Spec not ready yet: only spin up the readiness poll if click-casting is
+    -- actually enabled. A disabled install has no bindings to re-apply, so the
+    -- poll would be idle cost for a user who never turned the feature on.
+    local cc = GetClickCastDB()
+    if not (cc and cc.enabled) then return end
+    if specReadyTicker then return end
+    local tries = 0
+    specReadyTicker = C_Timer.NewTicker(0.25, function(t)
+        tries = tries + 1
+        if GetCurrentSpecID() then
+            t:Cancel(); specReadyTicker = nil
+            if not InCombatLockdown() then ns.CC_ApplyBindings() else pendingApply = true end
+        elseif tries >= 20 then  -- ~5s safety cap: give up if the char has no spec
+            t:Cancel(); specReadyTicker = nil
+        end
+    end)
+end
+
 local function OnCCEvent(self, event)
     if event == "PLAYER_REGEN_ENABLED" then
         local cc = GetClickCastDB()
@@ -1660,8 +1766,10 @@ local function OnCCEvent(self, event)
         if not InCombatLockdown() then ns.CC_ApplyBindings() else pendingApply = true end
     elseif event == "PLAYER_ENTERING_WORLD" then
         -- Reapply bindings after zone/loading screen to clear any stuck
-        -- frame-based bindings (OnLeave may not fire during transitions)
-        if not InCombatLockdown() then ns.CC_ApplyBindings() else pendingApply = true end
+        -- frame-based bindings (OnLeave may not fire during transitions).
+        -- Wait for the spec to resolve first so spec-scoped bindings are not
+        -- lost to their global defaults on login (see ReapplyWhenSpecReady).
+        ReapplyWhenSpecReady()
     end
 end
 
@@ -1673,7 +1781,14 @@ function ns.CC_Init()
     if not ns.db then return end
     GetClickCastDB()
 
-    header = CreateFrame("Frame", "EUIClickCastHeader", UIParent, "SecureHandlerBaseTemplate")
+    -- StateTemplate, not BaseTemplate: only the state template carries the
+    -- OnAttributeChanged script (SecureHandler_StateOnAttributeChanged) that
+    -- dispatches "_onstate-<id>" snippets. Under BaseTemplate the eui_cc driver
+    -- still wrote state-eui_cc, but nothing listened, so the hover set/clear
+    -- handler never ran and hovercast worked only where the OnEnter wrap set the
+    -- binding directly -- i.e. everywhere except nameplates. It inherits the same
+    -- SecureHandler_OnLoad, so Execute / WrapScript / RunAttribute are unchanged.
+    header = CreateFrame("Frame", "EUIClickCastHeader", UIParent, "SecureHandlerStateTemplate")
     ns._ccHeader = header
 
     bindProxy = CreateFrame("Button", "EUIClickCastBindProxy", UIParent,
@@ -2393,8 +2508,12 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                 local mItems = {}
                 for _, m in ipairs(macros) do mItems[#mItems + 1] = { name = m.name, icon = m.icon, macroName = m.name } end
                 PopulateGridG(mItems, function(itm)
+                    -- Macros default to BOTH reactions, unlike a spell binding
+                    -- (friendly only, the click-cast healing case). A macro is
+                    -- general purpose and commonly a mouseover focus/target one,
+                    -- so a friendly-only default would leave it dead on enemies.
                     ns.CC_AddGlobalBinding({ type = "macro", macroName = itm.macroName, icon = itm.icon,
-                        enabled = true, oocOnly = false, hovercast = false, hoverFriendly = true, hoverEnemy = false })
+                        enabled = true, oocOnly = false, hovercast = false, hoverFriendly = true, hoverEnemy = true })
                     ns._ccSelSide = "global"; ns._ccSelIndex = #(GetGlobalBindings()); RebuildPage()
                 end)
             else
@@ -3008,7 +3127,8 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                     ns.CC_AddSpecBinding({
                         type = "macro", macroName = item.macroName, icon = item.icon,
                         enabled = true, oocOnly = false, hovercast = false,
-                        hoverFriendly = true, hoverEnemy = false,
+                        -- Both reactions: see the global macro add above.
+                        hoverFriendly = true, hoverEnemy = true,
                     })
                     ns._ccSelSide = "spec"; ns._ccSelIndex = #(GetSpecBindings()); RebuildPage()
                 end)

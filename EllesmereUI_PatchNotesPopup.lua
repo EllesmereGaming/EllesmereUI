@@ -18,7 +18,14 @@
 --  Defers behind the Raid Frames intro popup if that one is also pending (rare:
 --  a user upgrading from pre-Raid-Frames straight to this build), so the two
 --  never stack.
+--
+--  RETIRED 2026-07-12: announcement has had its run; killed at the top so
+--  users upgrading across versions are never shown several intro popups back
+--  to back (only the newest announcement fires). Everything below is inert --
+--  loader, art, and DB stamping all dead; patchNotesIntroShown is no longer
+--  written for anyone. Delete the guard below to revive the popup.
 -------------------------------------------------------------------------------
+do return end
 
 local EllesmereUI = _G.EllesmereUI
 if not EllesmereUI then return end

@@ -51,13 +51,12 @@ local function InstallAutoQuests()
     local autoPreventNPCGUID = nil
     autoFrame:RegisterEvent("QUEST_DETAIL")
     autoFrame:RegisterEvent("QUEST_COMPLETE")
-    autoFrame:RegisterEvent("QUEST_AUTOCOMPLETE")
     autoFrame:RegisterEvent("GOSSIP_SHOW")
     if not EQT._eventFrames then EQT._eventFrames = {} end
     if not EQT._eventRegistrations then EQT._eventRegistrations = {} end
     local aidx = #EQT._eventFrames + 1
     EQT._eventFrames[aidx] = autoFrame
-    EQT._eventRegistrations[aidx] = {"QUEST_DETAIL", "QUEST_COMPLETE", "QUEST_AUTOCOMPLETE", "GOSSIP_SHOW"}
+    EQT._eventRegistrations[aidx] = {"QUEST_DETAIL", "QUEST_COMPLETE", "GOSSIP_SHOW"}
     autoFrame:SetScript("OnEvent", function(_, event, ...)
         if Cfg("enabled") == false then return end
 
@@ -75,6 +74,7 @@ local function InstallAutoQuests()
                     end
                 end
                 if Cfg("autoAccept") and C_GossipInfo.GetAvailableQuests then
+                    if Cfg("autoAcceptShiftSkip") and IsShiftKeyDown() then return end
                     local available = C_GossipInfo.GetAvailableQuests()
                     if available and #available > 0 then
                         local npcGUID = UnitGUID("npc")
@@ -98,16 +98,18 @@ local function InstallAutoQuests()
             return
         end
 
-        if event == "QUEST_AUTOCOMPLETE" then
-            local qID = ...
-            if qID and ShowQuestComplete and type(ShowQuestComplete) == "function" then
-                pcall(ShowQuestComplete, qID)
-            end
-            return
-        end
+        -- QUEST_AUTOCOMPLETE handling removed: calling ShowQuestComplete()
+        -- from addon execution runs Blizzard's quest-complete panel flow
+        -- (ShowUIPanel, UIPanel attribute writes on WorldMapFrame) under
+        -- our taint, and that state is read by every later map open --
+        -- confirmed in tester taint logs as blocked map-pin calls in
+        -- combat. Blizzard's native auto-quest popup in the tracker covers
+        -- this securely: the player clicks it, and if the reward has no
+        -- choice, the QUEST_COMPLETE auto-turn-in below still fires.
 
         if event == "QUEST_DETAIL" then
             if not Cfg("autoAccept") then return end
+            if Cfg("autoAcceptShiftSkip") and IsShiftKeyDown() then return end
             AcceptQuest()
         elseif event == "QUEST_COMPLETE" then
             if not Cfg("autoTurnIn") then return end
@@ -128,22 +130,25 @@ end
 local function ScanForQuestItem()
     if not C_QuestLog then return nil end
     local num = C_QuestLog.GetNumQuestLogEntries() or 0
+    local fallback = nil
     for i = 1, num do
         local info = C_QuestLog.GetInfo(i)
         if info and not info.isHeader and info.questID then
-            local qID = info.questID
-            local wt = C_QuestLog.GetQuestWatchType and C_QuestLog.GetQuestWatchType(qID)
-            if wt ~= nil then
-                local logIdx = C_QuestLog.GetLogIndexForQuestID and C_QuestLog.GetLogIndexForQuestID(qID) or i
-                local link, itemTex = GetQuestLogSpecialItemInfo(logIdx)
-                if link then
-                    local name = link:match("%[(.-)%]")
-                    if name then return name end
+            local logIdx = C_QuestLog.GetLogIndexForQuestID
+                and C_QuestLog.GetLogIndexForQuestID(info.questID) or i
+            local link = GetQuestLogSpecialItemInfo(logIdx)
+            if link then
+                local name = link:match("%[(.-)%]")
+                if name then
+                    local wt = C_QuestLog.GetQuestWatchType
+                        and C_QuestLog.GetQuestWatchType(info.questID)
+                    if wt ~= nil then return name end
+                    fallback = fallback or name
                 end
             end
         end
     end
-    return nil
+    return fallback
 end
 
 local function InstallQuestItemHotkey()

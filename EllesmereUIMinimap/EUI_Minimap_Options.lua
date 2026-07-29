@@ -80,20 +80,12 @@ initFrame:SetScript("OnEvent", function(self)
     ---------------------------------------------------------------------------
     local PP = EllesmereUI.PP
     local function BuildVisibilityRow(W, parent, y, getCfg, refreshFn)
-        local visRow, visH = W:DualRow(parent, y,
-            { type="dropdown", text="Visibility",
-              values = EllesmereUI.VIS_VALUES,
-              order  = EllesmereUI.VIS_ORDER,
-              getValue=function()
-                  local c = getCfg(); if not c then return "always" end
-                  return c.visibility or "always"
-              end,
-              setValue=function(v)
-                  local c = getCfg(); if not c then return end
-                  c.visibility = v
+        local visRow, visH = EllesmereUI.BuildVisibilityModeRow(W, parent, y,
+            { getStore = getCfg, legacyKey = "visibility",
+              caps = { partyIncludesRaid = false, luaDragonriding = true },
+              onChanged = function()
                   if refreshFn then refreshFn() end
                   if _G._EBS_UpdateVisibility then _G._EBS_UpdateVisibility() end
-                  EllesmereUI:RefreshPage()
               end },
             { type="dropdown", text="Visibility Options",
               values={ __placeholder = "..." }, order={ "__placeholder" },
@@ -771,7 +763,7 @@ initFrame:SetScript("OnEvent", function(self)
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Button Row Settings",
                 rows = {
-                    { type = "slider", label = "Icon Spacing", min = -20, max = 40, step = 1,
+                    { type = "slider", pixel = true, label = "Icon Spacing", min = -20, max = 40, step = 1,
                       get = function() local m = MinimapDB(); return m and m.btnRowSpacing or 0 end,
                       set = function(v)
                           local m = MinimapDB(); if not m then return end
@@ -1045,7 +1037,7 @@ initFrame:SetScript("OnEvent", function(self)
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Element Row Spacing",
                 rows = {
-                    { type = "slider", label = "Icon Spacing", min = -20, max = 40, step = 1,
+                    { type = "slider", pixel = true, label = "Icon Spacing", min = -20, max = 40, step = 1,
                       get = function() local m = MinimapDB(); return m and m.elementRowSpacing or 0 end,
                       set = function(v)
                           local m = MinimapDB(); if not m then return end
@@ -1367,8 +1359,16 @@ initFrame:SetScript("OnEvent", function(self)
             local rgn = coordsRow._rightRegion
             local function coordsOff() return CoordsMode() == "never" end
             local _, cogShow = EllesmereUI.BuildCogPopup({
-                title = "Coordinates Position",
+                title = "Coordinates Size and Position",
                 rows = {
+                    { type = "slider", label = "Scale", min = 0.5, max = 2.0, step = 0.01,
+                      get = function() local m = MinimapDB(); return m and m.coordsScale or 1.0 end,
+                      set = function(v)
+                          local m = MinimapDB(); if not m then return end
+                          m.coordsScale = v
+                          local cf = _G._EBS_CoordFrame
+                          if cf then cf:SetScale(v) end
+                      end },
                     { type = "slider", label = "X Offset", min = -500, max = 500, step = 1,
                       get = function() local m = MinimapDB(); return m and m.coordsBelowOffsetX or 0 end,
                       set = function(v)
@@ -1392,7 +1392,7 @@ initFrame:SetScript("OnEvent", function(self)
             cogBtn:SetAlpha(coordsOff() and 0.15 or 0.4)
             local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
             cogTex:SetAllPoints()
-            cogTex:SetTexture(EllesmereUI.DIRECTIONS_ICON)
+            cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
             cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
             cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(coordsOff() and 0.15 or 0.4) end)
             cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
@@ -1504,8 +1504,16 @@ initFrame:SetScript("OnEvent", function(self)
         do
             local rgn = fpsRow._rightRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
-                title = "FPS/MS Position",
+                title = "FPS/MS Size and Position",
                 rows = {
+                    { type = "slider", label = "Scale", min = 0.5, max = 2.0, step = 0.01,
+                      get = function() local m = MinimapDB(); return m and m.fpsScale or 1.0 end,
+                      set = function(v)
+                          local m = MinimapDB(); if not m then return end
+                          m.fpsScale = v
+                          local fb = _G._EBS_FpsBg
+                          if fb then fb:SetScale(v) end
+                      end },
                     { type = "slider", label = "X Offset", min = -500, max = 500, step = 1,
                       get = function() local m = MinimapDB(); return m and m.fpsOffsetX or 0 end,
                       set = function(v)
@@ -1529,7 +1537,7 @@ initFrame:SetScript("OnEvent", function(self)
             cogBtn:SetAlpha(FpsOff() and 0.15 or 0.4)
             local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
             cogTex:SetAllPoints()
-            cogTex:SetTexture(EllesmereUI.DIRECTIONS_ICON)
+            cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
             cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
             cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(FpsOff() and 0.15 or 0.4) end)
             cogBtn:SetScript("OnClick", function(self) cogShow(self) end)

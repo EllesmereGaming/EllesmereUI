@@ -232,6 +232,7 @@ do
             showStatCategory_Crests      = true,
             showStatCategory_PvP         = true,
             showAdjustedStats            = false,
+            showManaStat                 = false,
         }
         for k, v in pairs(defaults) do
             if EllesmereUIDB[k] == nil then
@@ -342,9 +343,9 @@ local function PreSkinCharacterSheet()
     hooksecurefunc(frame, "SetWidth", UpdateBgTexCoords)
     hooksecurefunc(frame, "SetHeight", UpdateBgTexCoords)
     UpdateBgTexCoords()
-    if EllesmereUI and EllesmereUI.PanelPP then
-        EllesmereUI.PanelPP.CreateBorder(frame, 0.2, 0.2, 0.2, 1, 1, "OVERLAY", 7)
-    end
+    -- Standard window-reskin border (the AdventureMap_TopBorder atlas texture),
+    -- matching every other skinned Blizzard window. Replaces the old 1px line.
+    if ns.WSkin and ns.WSkin.AtlasBorder then ns.WSkin.AtlasBorder(frame) end
     -- Window-style system: lets the Modern flat backdrop live-swap in for the
     -- atlas when the user picks Modern for the Character Sheet window.
     if ns.WSkin and ns.WSkin.AdoptShell then
@@ -665,7 +666,8 @@ local function PreSkinCharacterSheet()
             end
             local iconTexture = _G[slotName .. "IconTexture"]
             if iconTexture then
-                iconTexture:SetTexCoord(.07,.07,.07,.93,.93,.07,.93,.93)
+                local z = (EllesmereUIDB and EllesmereUIDB.charSheetIconZoom) or 0.07
+                iconTexture:SetTexCoord(z, z, z, 1 - z, 1 - z, z, 1 - z, 1 - z)
             end
             local normalTexture = _G[slotName .. "NormalTexture"]
             if normalTexture then
@@ -920,6 +922,7 @@ local function SkinCharacterSheet()
                     slot:SetShown(isCharacterTab)
                     if GetFFD(slot).itemLevelLabel    then GetFFD(slot).itemLevelLabel:SetShown(isCharacterTab)    end
                     if GetFFD(slot).enchantLabel      then GetFFD(slot).enchantLabel:SetShown(isCharacterTab)      end
+                    if GetFFD(slot).enchantHoverFrame then GetFFD(slot).enchantHoverFrame:SetShown(isCharacterTab) end
                     if GetFFD(slot).upgradeTrackLabel then GetFFD(slot).upgradeTrackLabel:SetShown(isCharacterTab) end
                 end
             end
@@ -996,6 +999,9 @@ local function SkinCharacterSheet()
         INVTYPE_NECK = {slot = 2, name = "Neck"},
         INVTYPE_SHOULDER = {slot = 3, name = "Shoulder"},
         INVTYPE_CHEST = {slot = 5, name = "Chest"},
+        -- Cloth chest pieces ("robes") report this equipLoc instead of
+        -- INVTYPE_CHEST -- same slot either way.
+        INVTYPE_ROBE = {slot = 5, name = "Chest"},
         INVTYPE_WAIST = {slot = 6, name = "Waist"},
         INVTYPE_LEGS = {slot = 7, name = "Legs"},
         INVTYPE_FEET = {slot = 8, name = "Feet"},
@@ -1003,21 +1009,51 @@ local function SkinCharacterSheet()
         INVTYPE_HAND = {slot = 10, name = "Hands"},
         INVTYPE_FINGER = {slots = {11, 12}, name = "Ring"},
         INVTYPE_TRINKET = {slots = {13, 14}, name = "Trinket"},
-        INVTYPE_BACK = {slot = 15, name = "Back"},
-        INVTYPE_MAINHAND = {slot = 16, name = "Main Hand"},
-        INVTYPE_OFFHAND = {slot = 17, name = "Off Hand"},
+        -- Blizzard's real equip-location string for a cloak is
+        -- INVTYPE_CLOAK, not INVTYPE_BACK (IsItemUsableBySpec below already
+        -- checks for INVTYPE_CLOAK correctly). With the wrong key here this
+        -- lookup returned nil for every cloak and silently skipped it, so no
+        -- cloak could ever show up as a better item.
+        INVTYPE_CLOAK = {slot = 15, name = "Back"},
+        -- Blizzard's real equip-location strings for one-hand weapons are
+        -- INVTYPE_WEAPONMAINHAND / INVTYPE_WEAPONOFFHAND, not the
+        -- (nonexistent) INVTYPE_MAINHAND / INVTYPE_OFFHAND this had before --
+        -- those never matched a real item, so weapon upgrades never showed.
+        -- An ambiguous one-hander (INVTYPE_WEAPON) can go in either slot.
+        INVTYPE_WEAPON = {slots = {16, 17}, name = "Weapon"},
+        INVTYPE_WEAPONMAINHAND = {slot = 16, name = "Main Hand"},
+        INVTYPE_WEAPONOFFHAND = {slot = 17, name = "Off Hand"},
+        -- Caster off-hand items (tomes/orbs). IsItemUsableBySpec already
+        -- gates these via allow.offhand -- without a slot mapping here they
+        -- never reached that check at all.
+        INVTYPE_HOLDABLE = {slot = 17, name = "Off Hand"},
+        -- Bows/guns/crossbows/wands still report one of these equip
+        -- locations even though they physically equip into the main-hand
+        -- slot in modern retail.
+        INVTYPE_RANGEDRIGHT = {slot = 16, name = "Main Hand"},
+        INVTYPE_RANGED = {slot = 16, name = "Main Hand"},
         INVTYPE_RELIC = {slot = 18, name = "Relic"},
         INVTYPE_BODY = {slot = 4, name = "Body"},
         INVTYPE_SHIELD = {slot = 17, name = "Shield"},
         INVTYPE_2HWEAPON = {slot = 16, name = "Two-Hand"},
     }
 
-    -- Function to get itemlevel of equipped item in a specific slot
+    -- Function to get itemlevel of equipped item in a specific slot.
+    -- GetItemInfo's cached itemLevel can be wrong for a specific item
+    -- instance (e.g. an upgrade-track piece) -- prefer the ItemLocation API
+    -- (exact per-item level, no caching), falling back to
+    -- GetDetailedItemLevelInfo, same precedence EllesmereUIQoL.lua already
+    -- uses for item-level lookups.
     local function GetEquippedItemLevel(slot)
+        if ItemLocation then
+            local loc = ItemLocation:CreateFromEquipmentSlot(slot)
+            if loc and loc:IsValid() and C_Item.DoesItemExist(loc) then
+                return C_Item.GetCurrentItemLevel(loc) or 0
+            end
+        end
         local itemLink = GetInventoryItemLink("player", slot)
         if itemLink then
-            local _, _, _, itemLevel = GetItemInfo(itemLink)
-            return tonumber(itemLevel) or 0
+            return C_Item.GetDetailedItemLevelInfo(itemLink) or 0
         end
         return 0
     end
@@ -1175,22 +1211,63 @@ local function SkinCharacterSheet()
     _ComputeBetterInventoryItems = function()
         local betterItems = {}
 
-        -- Check all bag slots (0 = backpack, 1-4 = bag slots)
-        for bagSlot = 0, 4 do
+        -- A two-handed main-hand weapon (2H melee, staff, or a two-handed
+        -- ranged weapon) leaves the off-hand slot (17) intentionally empty, so
+        -- GetEquippedItemLevel(17) returns 0 and ANY off-hand / holdable /
+        -- shield / one-hander in the bags reads as "better than nothing" --
+        -- even one hundreds of ilvls lower. Suppress slot-17 comparisons then:
+        -- the off-hand can't be filled without giving up the two-hander, so a
+        -- lone off-hand piece isn't a straightforward upgrade. Only applies
+        -- while the off-hand is actually empty (Fury Titan's Grip keeps a real
+        -- item there, which compares normally).
+        local offHandBlocked = false
+        do
+            local mhLink = GetInventoryItemLink("player", 16)
+            if mhLink and GetInventoryItemLink("player", 17) == nil then
+                local _, _, _, mhEquipLoc = GetItemInfoInstant(mhLink)
+                if mhEquipLoc == "INVTYPE_2HWEAPON"
+                    or mhEquipLoc == "INVTYPE_RANGED"
+                    or mhEquipLoc == "INVTYPE_RANGEDRIGHT" then
+                    offHandBlocked = true
+                end
+            end
+        end
+
+        -- Check all bag slots (0 = backpack, 1-4 = bag slots, 5 = reagent
+        -- bag -- included since it can hold any item, not just reagents).
+        for bagSlot = 0, 5 do
             local bagSize = C_Container.GetContainerNumSlots(bagSlot)
             for slotIndex = 1, bagSize do
                 local itemLink = C_Container.GetContainerItemLink(bagSlot, slotIndex)
                 if itemLink then
-                    local itemName, _, itemRarity, itemLevel, _, itemType, _, _, equipSlot, itemIcon = GetItemInfo(itemLink)
-                    itemLevel = tonumber(itemLevel)
+                    local itemName, _, itemRarity, _, _, _, _, _, equipSlot, itemIcon = GetItemInfo(itemLink)
+                    -- GetItemInfo's cached itemLevel can be wrong for a
+                    -- specific item instance (e.g. an upgrade-track piece) --
+                    -- prefer the ItemLocation API (exact per-item level, no
+                    -- caching), falling back to GetDetailedItemLevelInfo,
+                    -- same precedence EllesmereUIQoL.lua already uses.
+                    local itemLevel
+                    if ItemLocation then
+                        local loc = ItemLocation:CreateFromBagAndSlot(bagSlot, slotIndex)
+                        if loc and loc:IsValid() and C_Item.DoesItemExist(loc) then
+                            itemLevel = C_Item.GetCurrentItemLevel(loc)
+                        end
+                    end
+                    itemLevel = tonumber(itemLevel) or tonumber(C_Item.GetDetailedItemLevelInfo(itemLink))
 
-                    -- Only show Weapon and Armor items
-                    if itemLevel and itemName and (itemType == "Weapon" or itemType == "Armor") and equipSlot then
+                    -- Only show Weapon and Armor items. itemType/itemSubType from
+                    -- GetItemInfo are localized display strings (e.g. "Arma" on a
+                    -- Spanish client), so comparing them against English literals
+                    -- silently filtered out every item on non-English clients.
+                    -- classID/subclassID from GetItemInfoInstant are locale-
+                    -- independent numeric IDs (Enum.ItemClass.Weapon = 2,
+                    -- Enum.ItemClass.Armor = 4) and safe to compare directly.
+                    -- GetItemInfoInstant returns:
+                    -- 1 itemID, 2 itemType, 3 itemSubType, 4 itemEquipLoc,
+                    -- 5 iconFileID, 6 classID, 7 subClassID
+                    local _, _, _, _, _, classID, subclassID = GetItemInfoInstant(itemLink)
+                    if itemLevel and itemName and (classID == Enum.ItemClass.Weapon or classID == Enum.ItemClass.Armor) and equipSlot then
                         -- Spec-aware usability filter (skip shields on Ret, etc.)
-                        -- GetItemInfoInstant returns:
-                        -- 1 itemID, 2 itemType, 3 itemSubType, 4 itemEquipLoc,
-                        -- 5 iconFileID, 6 classID, 7 subClassID
-                        local _, _, _, _, _, classID, subclassID = GetItemInfoInstant(itemLink)
                         if not IsItemUsableBySpec(itemLink, equipSlot, classID, subclassID) then
                             -- skip: not usable by current spec
                         else
@@ -1202,10 +1279,14 @@ local function SkinCharacterSheet()
 
                                 -- Check if item is better than ANY of its possible slots
                                 for _, slot in ipairs(compareSlots) do
-                                    local equippedLevel = GetEquippedItemLevel(slot)
-                                    if itemLevel > equippedLevel then
-                                        isBetter = true
-                                        break
+                                    -- Skip the empty off-hand slot behind a 2H weapon
+                                    -- (see offHandBlocked above).
+                                    if not (offHandBlocked and slot == 17) then
+                                        local equippedLevel = GetEquippedItemLevel(slot)
+                                        if itemLevel > equippedLevel then
+                                            isBetter = true
+                                            break
+                                        end
                                     end
                                 end
 
@@ -1424,8 +1505,37 @@ local function SkinCharacterSheet()
     iLvlUpdateFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
     iLvlUpdateFrame:RegisterEvent("CHALLENGE_MODE_COMPLETED")
     iLvlUpdateFrame:RegisterEvent("PLAYER_AVG_ITEM_LEVEL_UPDATE")
+    -- GetItemInfo can return nil for a bag item whose data isn't cached yet
+    -- (common for a tier-set piece on an uncommon upgrade track). Without this,
+    -- that item silently drops out of the "better items" scan for good, since
+    -- nothing else re-dirties the cache once the data finishes loading.
+    iLvlUpdateFrame:RegisterEvent("GET_ITEM_INFO_RECEIVED")
+    local _betterItemsRefreshTimer
+    local function QueueBetterItemsRefresh()
+        if _betterItemsRefreshTimer then
+            _betterItemsRefreshTimer:Cancel()
+            _betterItemsRefreshTimer = nil
+        end
+        _betterItemsRefreshTimer = C_Timer.NewTimer(0.12, function()
+            _betterItemsRefreshTimer = nil
+            if not (frame and frame:IsShown()) then return end
+            _betterDirty = true
+            UpdateItemLevelDisplay()
+        end)
+    end
     iLvlUpdateFrame:SetScript("OnEvent", function(_, event, unit)
         if event == "UNIT_INVENTORY_CHANGED" and unit ~= "player" then return end
+        if event == "GET_ITEM_INFO_RECEIVED" then
+            -- Gate on the sheet being open BEFORE queueing: this event fires
+            -- in large bursts during normal play (bags, loot, mail, other
+            -- addons' scans), and the queue's cancel-and-recreate timer dance
+            -- allocates on every call -- the shown-check inside the timer
+            -- alone would still pay that churn with the sheet closed.
+            if frame and frame:IsShown() then
+                QueueBetterItemsRefresh()
+            end
+            return
+        end
         if not (frame and frame:IsShown()) then return end
         _betterDirty = true
         UpdateItemLevelDisplay()
@@ -1530,6 +1640,15 @@ local function SkinCharacterSheet()
         scrollFrame:HookScript("OnSizeChanged",    UpdateThumb)
         scrollChild:HookScript("OnSizeChanged",    UpdateThumb)
 
+        local function refreshVerticalScroll()
+            local _, _, maxScroll = _info()
+            -- No check on maxScroll, this is intentionnal. It ensures that after a collapse and scroll
+            -- being disabled, it will still works.
+            local newScroll = math.max(0, math.min(maxScroll, scrollFrame:GetVerticalScroll()))
+            scrollFrame:SetVerticalScroll(newScroll)
+        end
+        track._refreshVerticalScroll = refreshVerticalScroll
+
         scrollFrame:EnableMouseWheel(true)
         scrollFrame:SetScript("OnMouseWheel", function(_, delta)
             local _, _, maxScroll = _info()
@@ -1589,8 +1708,9 @@ local function SkinCharacterSheet()
         trackOwner = statsPanel,
         topInset   = -HEADER_H,
     })
-    GetFFD(frame).scrollBar         = scrollTrack
-    GetFFD(frame).updateScrollThumb = scrollTrack._update
+    GetFFD(frame).scrollBar              = scrollTrack
+    GetFFD(frame).updateScrollThumb      = scrollTrack._update
+    GetFFD(frame).refreshVerticalScroll  = scrollTrack._refreshVerticalScroll
 
     -- Re-anchor the scroll frame + track top edge based on whether the
     -- PvP iLvl and M+ Score lines are visible. Each hidden line collapses
@@ -1675,6 +1795,27 @@ local function SkinCharacterSheet()
             and EllesmereUIDB["showCrest_" .. stat.showCrestKey] == false)
     end
 
+    -- Opt-in stat rows. Unlike the crest filter above, this is NOT consulted
+    -- when rows are built -- the row is always created and only its visibility
+    -- is gated, so toggling one on applies immediately instead of waiting for
+    -- a /reload. Default is hidden (the DB flag must be explicitly true).
+    -- showIf adds a live capability check on top of the user's choice.
+    local function ShouldShowOptionalStat(stat)
+        if not stat then return true end
+        if stat.showKey and not (EllesmereUIDB and EllesmereUIDB[stat.showKey] == true) then
+            return false
+        end
+        if stat.showIf and not stat.showIf() then return false end
+        return true
+    end
+
+    -- Max mana pool. Reads 0 for classes that have none (Warrior, Rogue,
+    -- Death Knight, Demon Hunter), which is what gates the Mana row -- the
+    -- same check Blizzard's own PaperDollFrame uses for alternate mana.
+    local function PlayerMaxMana()
+        return UnitPowerMax("player", Enum.PowerType.Mana) or 0
+    end
+
     -- Determine which stats to show based on class/spec
     local function GetFilteredAttributeStats()
         local spec = GetSpecialization()
@@ -1689,11 +1830,17 @@ local function SkinCharacterSheet()
         local primaryStatNames = { "Strength", "Agility", "Stamina", "Intellect" }
         local primaryStat = primaryStatNames[primaryStatIndex]
 
-        -- Return fixed order: Primary Stat, Stamina, Health
+        -- Return fixed order: Primary Stat, Stamina, Health, Mana.
+        -- Mana is always in the list (even for classes without a pool) so the
+        -- row count stays stable -- RefreshAttributeStats pairs rows with this
+        -- list by index on a spec change. Visibility is handled separately.
         return {
             { name = primaryStat, func = function() return UnitStat("player", primaryStatIndex) end, statIndex = primaryStatIndex, tooltip = (primaryStatIndex == 1 and L("Increases melee attack power")) or (primaryStatIndex == 2 and L("Increases dodge chance and melee attack power")) or (primaryStatIndex == 4 and L("Increase the magnitude of your attacks and Abilities")) or L("Primary stat") },
             { name = "Stamina", func = function() return UnitStat("player", 3) end, statIndex = 3, tooltip = L("Increases health") },
             { name = "Health", func = function() return UnitHealthMax("player") end, tooltip = L("The amount of damage you can take") },
+            { name = "Mana", func = PlayerMaxMana, showKey = "showManaStat",
+              showIf = function() return PlayerMaxMana() > 0 end,
+              tooltip = L("The size of your mana pool") },
         }
     end
 
@@ -1730,7 +1877,7 @@ local function SkinCharacterSheet()
                 settingKey = "SecondaryStats",
                 color = GetCategoryColor("Secondary Stats"),
                 stats = {
-                    { name = "Crit", func = function() return GetCritChance("player") or 0 end, format = "%.2f%%", rawFunc = function() return GetCombatRating(CR_CRIT_MELEE) or 0 end },
+                    { name = "Critical Strike", func = function() return GetCritChance("player") or 0 end, format = "%.2f%%", rawFunc = function() return GetCombatRating(CR_CRIT_MELEE) or 0 end },
                     { name = "Haste", func = function() return UnitSpellHaste("player") or 0 end, format = "%.2f%%", rawFunc = function() return GetCombatRating(CR_HASTE_MELEE) or 0 end },
                     { name = "Mastery", func = function() return GetMasteryEffect() or 0 end, format = "%.2f%%", rawFunc = function() return GetCombatRating(CR_MASTERY) or 0 end },
                     { name = "Versatility", func = function()
@@ -1870,9 +2017,12 @@ local function SkinCharacterSheet()
                         labelIndex = labelIndex + 1
 
                         if newStats[labelIndex] then
-                            -- Update label text
+                            -- Update label text. Shown state respects the section's
+                            -- collapsed flag -- a spec switch refreshes the row data
+                            -- even while collapsed, but must not force it visible
+                            -- again (the collapse/expand path owns visibility).
                             stat.label:SetText(L(newStats[labelIndex].name))
-                            stat.label:Show()
+                            stat.label:SetShown(not sectionData.isCollapsed)
 
                             if stat.value then
                                 -- Find and update the corresponding entry in GetFFD(frame).statsValues
@@ -1894,7 +2044,7 @@ local function SkinCharacterSheet()
                                         break
                                     end
                                 end
-                                stat.value:Show()
+                                stat.value:SetShown(not sectionData.isCollapsed)
                             end
                         else
                             -- Hide stats that aren't in newStats
@@ -1902,8 +2052,9 @@ local function SkinCharacterSheet()
                             if stat.value then stat.value:Hide() end
                         end
                     elseif stat.divider then
-                        -- Show dividers only between visible stats
-                        stat.divider:SetShown(labelIndex < #newStats)
+                        -- Show dividers only between visible stats (and only when
+                        -- the section itself isn't collapsed).
+                        stat.divider:SetShown(not sectionData.isCollapsed and labelIndex < #newStats)
                     end
                 end
 
@@ -1924,9 +2075,10 @@ local function SkinCharacterSheet()
                 local visibleCount = 0
                 for si = 1, #sectionData.stats do
                     local stat = sectionData.stats[si]
-                    if stat.label and (stat.showWhen or stat.showCrestKey) then
+                    if stat.label and (stat.showWhen or stat.showCrestKey or stat.showKey) then
                         local shouldShow = ShouldShowStat(stat.showWhen)
                                        and ShouldShowCrest(stat)
+                                       and ShouldShowOptionalStat(stat)
                         stat.label:SetShown(shouldShow)
                         if stat.value then stat.value:SetShown(shouldShow) end
                         if stat.button then stat.button:SetShown(shouldShow) end
@@ -1945,6 +2097,14 @@ local function SkinCharacterSheet()
             end
         end
         GetFFD(frame).recalculateSections()
+        -- A row that just came back on screen was skipped by the last
+        -- UpdateAllStats pass, so its value is stale (or never was set at all).
+        -- Repopulate here instead of leaving it wrong until the next stats
+        -- event fires. This runs on toggles, spec changes and collapse/expand
+        -- only, never on the event path. Guarded because the build calls this
+        -- before UpdateAllStats is published; the build runs its own pass right
+        -- after, so nothing is missed there.
+        if EllesmereUI._refreshStatFormats then EllesmereUI._refreshStatFormats() end
     end
     EllesmereUI._refreshStatsVisibility = RefreshStatsVisibility
 
@@ -2054,6 +2214,7 @@ local function SkinCharacterSheet()
             end
         end
         scrollChild:SetHeight(-yOffset)
+        if GetFFD(frame).refreshVerticalScroll then GetFFD(frame).refreshVerticalScroll() end
     end
     GetFFD(frame).recalculateSections = RecalculateSectionPositions
 
@@ -2218,7 +2379,7 @@ local function SkinCharacterSheet()
                         )
                         -- Description for secondary stats
                         local description = ""
-                        if stat.name == "Crit" then
+                        if stat.name == "Critical Strike" then
                             description = string.format(L("Increases your chance to critically hit by %.2f%%."), percentValue)
                         elseif stat.name == "Haste" then
                             description = string.format(L("Increases attack and casting speed by %.2f%%."), percentValue)
@@ -2252,7 +2413,7 @@ local function SkinCharacterSheet()
                         end
                         GameTooltip:AddLine(description, 1, 1, 1, true)
 
-                        if stat.name == "Crit" and GetCritChanceProvidesParryEffect() then
+                        if stat.name == "Critical Strike" and GetCritChanceProvidesParryEffect() then
                             local critToParry = GetCombatRatingBonusForCombatRatingValue(CR_PARRY, GetCombatRating(CR_CRIT_MELEE))
                             GameTooltip:AddLine(" ")
                             GameTooltip:AddLine(string.format(L("Increases parry chance by %.2f%%."), critToParry), 1, 1, 1, true)
@@ -2407,7 +2568,7 @@ local function SkinCharacterSheet()
                 })
 
                 -- Store stat elements for collapse/expand (include showWhen for visibility checks)
-                table.insert(sectionData.stats, {label = label, value = value, button = valueButton, showWhen = stat.showWhen, showCrestKey = stat.showCrestKey})
+                table.insert(sectionData.stats, {label = label, value = value, button = valueButton, showWhen = stat.showWhen, showCrestKey = stat.showCrestKey, showKey = stat.showKey, showIf = stat.showIf})
 
                 -- Thin leader between label and value, vertically centered on
                 -- the row and physical-pixel-perfect.
@@ -2458,14 +2619,19 @@ local function SkinCharacterSheet()
         titleContainer:SetScript("OnClick", function()
             sectionData.isCollapsed = not sectionData.isCollapsed
             _applyCollapsedState()
+            -- _applyCollapsedState's expand branch unconditionally shows every
+            -- row, including ones a showWhen/showCrestKey filter (spec- or
+            -- crest-gated stats, e.g. Brewmaster's Stagger Effect) correctly
+            -- hid earlier. Re-apply the real filter immediately so expanding
+            -- a section never re-reveals a stat that doesn't apply right now.
+            -- (Also recalculates section layout, so no separate call is needed.)
+            RefreshStatsVisibility()
 
             -- Persist across sessions.
             if EllesmereUIDB then
                 EllesmereUIDB.charSheetCollapsedSections = EllesmereUIDB.charSheetCollapsedSections or {}
                 EllesmereUIDB.charSheetCollapsedSections[_collapseKey] = sectionData.isCollapsed or nil
             end
-
-            GetFFD(frame).recalculateSections()
         end)
 
         -- Up/Down reorder arrows (friends-list Favorites/Friends style):
@@ -2564,8 +2730,17 @@ local function SkinCharacterSheet()
         end
     end
 
-    -- Apply initial visibility settings
+    -- Apply initial visibility settings. RefreshStatsVisibility also settles
+    -- the opt-in rows (Mana), which are built unconditionally so they can be
+    -- toggled without a /reload -- without this they would show once, before
+    -- the first OnShow hook runs.
+    RefreshStatsVisibility()
     UpdateStatCategoryVisibility()
+    -- Defer a call as some settings may not be fully initialized like section visibility
+    C_Timer.After(0, function()
+        RefreshStatsVisibility()
+        UpdateStatCategoryVisibility()
+    end)
 
     -- Function to update all stats
     local function UpdateAllStats()
@@ -2574,26 +2749,35 @@ local function SkinCharacterSheet()
         local secondaryBoth = EllesmereUIDB and EllesmereUIDB.showSecondaryBoth
         local tertiaryBoth  = EllesmereUIDB and EllesmereUIDB.showTertiaryBoth
         for _, statEntry in ipairs(GetFFD(frame).statsValues) do
-            local isSec = (statEntry.categoryKey == "SecondaryStats")
-            local isTer = (statEntry.categoryKey == "Tertiary")
-            local useBoth = statEntry.rawFunc and ((isSec and secondaryBoth) or (isTer and tertiaryBoth))
-            local useRaw  = (not useBoth) and ((isSec and secondaryRaw) or (isTer and tertiaryRaw))
-            if useBoth then
-                local rawResult = statEntry.rawFunc()
-                local pctResult = statEntry.func and statEntry.func()
-                if rawResult ~= nil and pctResult ~= nil then
-                    statEntry.value:SetText(format("%d (%.2f%%)", rawResult, pctResult))
+            -- Filtered-off rows are built and kept in this list, but their value
+            -- is not on screen, so querying and formatting it is pure waste on a
+            -- path that fires many times per second while the sheet is open.
+            -- Own shown flag, NOT IsVisible(): the build's first pass runs before
+            -- the panel itself is up, and effective visibility would skip every
+            -- row there and leave the whole sheet reading "0" until the next
+            -- event. RefreshStatsVisibility repopulates when a row comes back.
+            if statEntry.value and statEntry.value:IsShown() then
+                local isSec = (statEntry.categoryKey == "SecondaryStats")
+                local isTer = (statEntry.categoryKey == "Tertiary")
+                local useBoth = statEntry.rawFunc and ((isSec and secondaryBoth) or (isTer and tertiaryBoth))
+                local useRaw  = (not useBoth) and ((isSec and secondaryRaw) or (isTer and tertiaryRaw))
+                if useBoth then
+                    local rawResult = statEntry.rawFunc()
+                    local pctResult = statEntry.func and statEntry.func()
+                    if rawResult ~= nil and pctResult ~= nil then
+                        statEntry.value:SetText(format("%d (%.2f%%)", rawResult, pctResult))
+                    else
+                        statEntry.value:SetText("0")
+                    end
                 else
-                    statEntry.value:SetText("0")
-                end
-            else
-                local fn  = (useRaw and statEntry.rawFunc) or statEntry.func
-                local fmt = useRaw and "%d" or statEntry.format
-                local result = fn and fn()
-                if result ~= nil then
-                    statEntry.value:SetText(format(fmt, result))
-                else
-                    statEntry.value:SetText("0")
+                    local fn  = (useRaw and statEntry.rawFunc) or statEntry.func
+                    local fmt = useRaw and "%d" or statEntry.format
+                    local result = fn and fn()
+                    if result ~= nil then
+                        statEntry.value:SetText(format(fmt, result))
+                    else
+                        statEntry.value:SetText("0")
+                    end
                 end
             end
         end
@@ -2610,6 +2794,7 @@ local function SkinCharacterSheet()
     local _STATS_EVENTS = {
         "UNIT_STATS", "COMBAT_RATING_UPDATE", "PLAYER_EQUIPMENT_CHANGED",
         "UNIT_ATTACK_POWER", "UNIT_RANGED_ATTACK_POWER", "UNIT_SPELL_HASTE",
+        "UNIT_MAXPOWER",
         "MASTERY_UPDATE", "SPELL_POWER_CHANGED", "PLAYER_DAMAGE_DONE_MODS",
         "PLAYER_SPECIALIZATION_CHANGED",
         "HONOR_XP_UPDATE", "HONOR_LEVEL_UPDATE", "CURRENCY_DISPLAY_UPDATE",
@@ -2657,7 +2842,8 @@ local function SkinCharacterSheet()
 
         -- Crop icon inward
         if slot.icon then
-            slot.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+            local z = (EllesmereUIDB and EllesmereUIDB.charSheetIconZoom) or 0.07
+            slot.icon:SetTexCoord(z, 1 - z, z, 1 - z)
         end
 
         -- Hide NormalTexture
@@ -2678,7 +2864,7 @@ local function SkinCharacterSheet()
 
         -- Add border directly on the slot with item color (2px thickness)
         if EllesmereUI and EllesmereUI.PanelPP then
-            EllesmereUI.PanelPP.CreateBorder(slot, borderR, borderG, borderB, 1, 2, "OVERLAY", 7)
+            EllesmereUI.PanelPP.CreateBorder(slot, borderR, borderG, borderB, 1, 2, "OVERLAY", 1)
             local bdrFrame = EllesmereUI.PanelPP.GetBorders(slot)
             if bdrFrame then bdrFrame:SetFrameLevel(slot:GetFrameLevel()) end
         end
@@ -4007,7 +4193,7 @@ local function SkinCharacterSheet()
                 overlay:SetAllPoints(slot)
                 overlay:SetFrameLevel(slot:GetFrameLevel())
                 if EllesmereUI and EllesmereUI.PanelPP then
-                    EllesmereUI.PanelPP.CreateBorder(overlay, 0.898, 0.286, 0.286, 1, 2, "OVERLAY", 7)  -- #e54949
+                    EllesmereUI.PanelPP.CreateBorder(overlay, 0.898, 0.286, 0.286, 1, 2, "OVERLAY", 1)  -- #e54949
                     local enchBdr = EllesmereUI.PanelPP.GetBorders(overlay)
                     if enchBdr then enchBdr:SetFrameLevel(slot:GetFrameLevel()) end
                 end
@@ -4082,7 +4268,7 @@ local function SkinCharacterSheet()
             -- 2px pixel-perfect border, recolored per-gem in UpdateSocketIcons.
             PP_GEM.CreateBorder(gemFrame, 1, 1, 1, 1, 2, "OVERLAY", 1)
             local gemBdr = PP_GEM.GetBorders(gemFrame)
-            if gemBdr then gemBdr:SetFrameLevel(gemFrame:GetFrameLevel() + 1) end
+            if gemBdr then gemBdr:SetFrameLevel(gemFrame:GetFrameLevel()) end
 
             GetFFD(slot).charSocketsFrames[i] = gemFrame
             GetFFD(slot).charSocketsIcons[i]  = icon
@@ -4247,7 +4433,7 @@ local function SkinCharacterSheet()
     end
 
     local function CharSheetGemsActive()
-        if EllesmereUIDB and EllesmereUIDB.themedCharacterSheet == false then return false end
+        if EllesmereUIDB and (EllesmereUIDB.themedCharacterSheet == false or EllesmereUI.BlizzWindowSkinsKilled()) then return false end
         if EllesmereUIDB and EllesmereUIDB.showGems == false then return false end
         return true
     end
@@ -4584,7 +4770,7 @@ local function SkinCharacterSheet()
     -- redundant work; the events guarantee we catch upgrade / enchant /
     -- socket changes without per-frame polling.
     local function RefreshAllSlotLabels()
-        if EllesmereUIDB and EllesmereUIDB.themedCharacterSheet == false then return end
+        if EllesmereUIDB and (EllesmereUIDB.themedCharacterSheet == false or EllesmereUI.BlizzWindowSkinsKilled()) then return end
         if not (frame and frame:IsShown()) then return end
         for _, slotName in ipairs(itemSlots) do
             local itemLink = GetInventoryItemLink("player", _G[slotName]:GetID())
@@ -4708,7 +4894,7 @@ end
 
 -- Main function to apply themed character sheet
 local function ApplyThemedCharacterSheet()
-    if EllesmereUIDB and EllesmereUIDB.themedCharacterSheet == false then
+    if EllesmereUIDB and (EllesmereUIDB.themedCharacterSheet == false or EllesmereUI.BlizzWindowSkinsKilled()) then
         return
     end
 
@@ -4730,14 +4916,14 @@ if EllesmereUI then
             -- Lightweight pre-skin (chrome hides, bg, border) runs early
             -- while CharacterFrame is still hidden. Running these mid-OnShow
             -- prevents Rep/Currency ScrollBox from completing its data render.
-            if not EllesmereUIDB or EllesmereUIDB.themedCharacterSheet ~= false then
+            if not EllesmereUIDB or (EllesmereUIDB.themedCharacterSheet ~= false and not EllesmereUI.BlizzWindowSkinsKilled()) then
                 PreSkinCharacterSheet()
                 -- PreSkin hides the portrait once; Blizzard's CharacterFrameMixin:UpdatePortrait
                 -- (RefreshDisplay / UNIT_PORTRAIT_UPDATE / spec icon) runs after OnShow hooks and
                 -- redraws it. Re-hide via secure hook + deferred passes on GetPortrait() as well.
                 if not GetFFD(CharacterFrame)._euiPortraitSuppressRegistered then
                     local function SuppressCharacterFramePortrait()
-                        if EllesmereUIDB and EllesmereUIDB.themedCharacterSheet == false then return end
+                        if EllesmereUIDB and (EllesmereUIDB.themedCharacterSheet == false or EllesmereUI.BlizzWindowSkinsKilled()) then return end
                         if not CharacterFrame then return end
                         -- Blizzard re-anchors CharacterFrameInsetRight on each open; it parents
                         -- PaperDollSidebarTabs (Tab1 uses a circular player/spec portrait). Re-apply
@@ -4779,20 +4965,20 @@ if EllesmereUI then
                         end)
 
                         hooksecurefunc(CharacterFrame, "UpdatePortrait", function()
-                            if EllesmereUIDB and EllesmereUIDB.themedCharacterSheet == false then return end
+                            if EllesmereUIDB and (EllesmereUIDB.themedCharacterSheet == false or EllesmereUI.BlizzWindowSkinsKilled()) then return end
                             SuppressCharacterFramePortrait()
                         end)
 
                         if CharacterFrame.RefreshDisplay then
                             hooksecurefunc(CharacterFrame, "RefreshDisplay", function()
-                                if EllesmereUIDB and EllesmereUIDB.themedCharacterSheet == false then return end
+                                if EllesmereUIDB and (EllesmereUIDB.themedCharacterSheet == false or EllesmereUI.BlizzWindowSkinsKilled()) then return end
                                 SuppressCharacterFramePortrait()
                             end)
                         end
 
                         if CharacterFrame.SetPortraitToSpecIcon then
                             hooksecurefunc(CharacterFrame, "SetPortraitToSpecIcon", function()
-                                if EllesmereUIDB and EllesmereUIDB.themedCharacterSheet == false then return end
+                                if EllesmereUIDB and (EllesmereUIDB.themedCharacterSheet == false or EllesmereUI.BlizzWindowSkinsKilled()) then return end
                                 SuppressCharacterFramePortrait()
                             end)
                         end
@@ -4800,7 +4986,7 @@ if EllesmereUI then
                         local portrait = _G.CharacterFramePortrait
                         if portrait then
                             portrait:HookScript("OnShow", function(self)
-                                if EllesmereUIDB and EllesmereUIDB.themedCharacterSheet == false then return end
+                                if EllesmereUIDB and (EllesmereUIDB.themedCharacterSheet == false or EllesmereUI.BlizzWindowSkinsKilled()) then return end
                                 self:SetShown(false)
                                 self:SetAlpha(0)
                             end)
@@ -5039,6 +5225,21 @@ function EllesmereUI._refreshCharacterSheetColors()
     end
 end
 
+-- Re-apply the equipment-icon crop when the Icon Zoom option changes. The
+-- texcoord persists across item swaps, so only slider changes need this.
+function EllesmereUI._refreshCharSheetIconZoom()
+    -- Only the themed sheet crops its slot icons; if it is off the slots show
+    -- Blizzard's default icons, which we must not re-crop.
+    if EllesmereUIDB and (EllesmereUIDB.themedCharacterSheet == false or EllesmereUI.BlizzWindowSkinsKilled()) then return end
+    local z = (EllesmereUIDB and EllesmereUIDB.charSheetIconZoom) or 0.07
+    for _, slotName in ipairs(EUI_ALL_SLOTS) do
+        local slot = _G[slotName]
+        if slot and slot.icon then
+            slot.icon:SetTexCoord(z, 1 - z, z, 1 - z)
+        end
+    end
+end
+
 -- Function to refresh upgrade track visibility when toggle changes
 function EllesmereUI._refreshUpgradeTrackVisibility()
     local itemSlots = EUI_GEAR_SLOTS
@@ -5068,8 +5269,10 @@ function EllesmereUI._refreshEnchantsVisibility()
         if slot and GetFFD(slot).enchantLabel then
             if showEnchants then
                 GetFFD(slot).enchantLabel:Show()
+                if GetFFD(slot).enchantHoverFrame then GetFFD(slot).enchantHoverFrame:Show() end
             else
                 GetFFD(slot).enchantLabel:Hide()
+                if GetFFD(slot).enchantHoverFrame then GetFFD(slot).enchantHoverFrame:Hide() end
             end
         end
     end
