@@ -1,5 +1,25 @@
 #!/bin/bash
 
+echo "================================================================"
+echo " EllesmereUI Installation Script"
+echo "================================================================"
+echo "Because World of Warcraft Wrath of the Lich King (3.3.5a) does"
+echo "not support nested add-on directories, this script will create"
+echo "symbolic links in the parent AddOns directory pointing to the"
+echo "sub-addons included in this repository. This allows the game"
+echo "to discover and load them properly while keeping the repository"
+echo "structure intact."
+echo "================================================================"
+echo ""
+
+read -p "Do you want to continue? (y/n): " confirm
+if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+    echo "Installation aborted."
+    exit 1
+fi
+
+echo ""
+
 # Get the name of the repository directory
 REPO_DIR=$(basename "$PWD")
 
