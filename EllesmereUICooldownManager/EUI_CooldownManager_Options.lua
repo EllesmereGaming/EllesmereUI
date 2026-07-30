@@ -15253,7 +15253,8 @@ initFrame:SetScript("OnEvent", function(self)
             local iconH = iconSize
             local pvShape = bd.iconShape or "none"
             if pvShape == "cropped" then
-                iconH = math.floor(iconSize * 0.80 + 0.5)
+                local cropRatio = bd.iconCropRatio or 0.80
+                iconH = math.floor(iconSize * cropRatio + 0.5)
             end
             local spacing  = bd.spacing or 2
             local zoom     = bd.iconZoom or 0.08
@@ -18008,16 +18009,19 @@ initFrame:SetScript("OnEvent", function(self)
                     local bd = BD()
                     local v = bd.iconShape or "none"
                     local zoom = bd.iconZoom or 0.08
+                    local cropRatio = bd.iconCropRatio or 0.80
                     local synced = true
-                    ForEachSyncBar(function(b) if (b.iconShape or "none") ~= v or (b.iconZoom or 0.08) ~= zoom then synced = false end end)
+                    ForEachSyncBar(function(b) if (b.iconShape or "none") ~= v or (b.iconZoom or 0.08) ~= zoom or (v == "cropped" and (b.iconCropRatio or 0.80) ~= cropRatio) then synced = false end end)
                     return synced
                 end,
                 onClick = function()
                     local bd = BD()
                     local v = bd.iconShape or "none"
                     local zoom = bd.iconZoom or 0.08
+                    local cropRatio = bd.iconCropRatio or 0.80
                     ForEachSyncBar(function(b)
                         b.iconShape = v; b.iconZoom = zoom
+                        if v == "cropped" then b.iconCropRatio = cropRatio end
                         local isCS = (v ~= "none" and v ~= "cropped")
                         if isCS then b.borderThickness = "strong"; b.borderSize = BORDER_SIZES["strong"]
                         else b.borderThickness = "thin"; b.borderSize = BORDER_SIZES["thin"] end
@@ -18046,6 +18050,29 @@ initFrame:SetScript("OnEvent", function(self)
                     ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreview(); EllesmereUI:RefreshPage()
                 end,
             })
+
+            do
+                local rgn = buffShapeZoomRow._leftRegion
+                local _, croppedCogShow = EllesmereUI.BuildCogPopup({
+                    title = "Custom cropped height",
+                    rows = {
+                        { type = "slider", label = "Height", min = 0.1, max = 0.9, step = 0.01,
+                          get = function() return BD().iconCropRatio or 0.80 end,
+                          set = function(v)
+                              BD().iconCropRatio = v
+                              ns.RefreshCDMIconAppearance(BD().key); Refresh(); UpdateCDMPreview()
+                          end
+                        },
+                    },
+                })
+                local cogBtn = MakeCogBtn(rgn, croppedCogShow, rgn._control, EllesmereUI.RESIZE_ICON)
+                local function UpdateCroppedCogState()
+                    local isCropped = (BD().iconShape or "none") == "cropped"
+                    if isCropped then cogBtn:Show() else cogBtn:Hide() end
+                end
+                EllesmereUI.RegisterWidgetRefresh(UpdateCroppedCogState)
+                UpdateCroppedCogState()
+            end
 
             -- Row 4: Border Size + swatches | Border Style dropdown + offset cog
             do
@@ -18697,16 +18724,19 @@ initFrame:SetScript("OnEvent", function(self)
                 local bd = BD()
                 local v = bd.iconShape or "none"
                 local zoom = bd.iconZoom or 0.08
+                local cropRatio = bd.iconCropRatio or 0.80
                 local synced = true
-                ForEachSyncBar(function(b) if (b.iconShape or "none") ~= v or (b.iconZoom or 0.08) ~= zoom then synced = false end end)
+                ForEachSyncBar(function(b) if (b.iconShape or "none") ~= v or (b.iconZoom or 0.08) ~= zoom or (v == "cropped" and (b.iconCropRatio or 0.80) ~= cropRatio) then synced = false end end)
                 return synced
             end,
             onClick = function()
                 local bd = BD()
                 local v = bd.iconShape or "none"
                 local zoom = bd.iconZoom or 0.08
+                local cropRatio = bd.iconCropRatio or 0.80
                 ForEachSyncBar(function(b)
                     b.iconShape = v; b.iconZoom = zoom
+                    if v == "cropped" then b.iconCropRatio = cropRatio end
                     local isCS = (v ~= "none" and v ~= "cropped")
                     if isCS then b.borderThickness = "strong"; b.borderSize = BORDER_SIZES["strong"]
                     else b.borderThickness = "thin"; b.borderSize = BORDER_SIZES["thin"] end
@@ -18734,6 +18764,30 @@ initFrame:SetScript("OnEvent", function(self)
                 ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreview(); EllesmereUI:RefreshPage()
             end,
         })
+
+        do
+            local rgn = shapeRow._leftRegion
+            local _, croppedCogShow = EllesmereUI.BuildCogPopup({
+                title = "Custom cropped height",
+                rows = {
+                    { type = "slider", label = "Height", min = 0.1, max = 0.9, step = 0.01,
+                        get = function() return BD().iconCropRatio or 0.80 end,
+                        set = function(v)
+                            BD().iconCropRatio = v
+                            ns.RefreshCDMIconAppearance(BD().key); Refresh(); UpdateCDMPreview()
+                        end
+                    },
+                },
+            })
+            local cogBtn = MakeCogBtn(rgn, croppedCogShow, rgn._control, EllesmereUI.RESIZE_ICON)
+            local function UpdateCroppedCogState()
+                local isCropped = (BD().iconShape or "none") == "cropped"
+                if isCropped then cogBtn:Show() else cogBtn:Hide() end
+            end
+            EllesmereUI.RegisterWidgetRefresh(UpdateCroppedCogState)
+            UpdateCroppedCogState()
+        end
+
         end -- not isBuffGlowBar
 
         -- Row 4: Duration Size (swatch + cog) | Stack Size (swatch + cog)

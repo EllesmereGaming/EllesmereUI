@@ -4287,7 +4287,8 @@ LayoutCDMBar = function(barKey)
         local curDim = CurHeightDim()
         if targetH > 1 and curDim and curDim > 0 then
             local shape = barData.iconShape or "none"
-            local cropFactor = (shape == "cropped") and 0.80 or 1.0
+            local cropRatio = tonumber(barData.iconCropRatio) or 0.80
+            local cropFactor = (shape == "cropped") and cropRatio or 1.0
             local physTarget = math.floor(targetH / onePx + 0.5)
             local physSp = math.floor(spacing / onePx + 0.5)
             local rawPhysIcon = (physTarget - (curDim - 1) * physSp) / curDim / cropFactor
@@ -4313,6 +4314,7 @@ LayoutCDMBar = function(barKey)
     local iconH = iconW
     local shape = barData.iconShape or "none"
     if shape == "cropped" then
+        local cropRatio = tonumber(barData.iconCropRatio) or 0.80
         if widthMatchApplied then
             -- Width-matched: derive cropped height from the MATCHED icon width
             -- so the icon keeps the same ~0.80 aspect ratio as the non-matched
@@ -4322,7 +4324,7 @@ LayoutCDMBar = function(barKey)
             -- non-matched else branch rounds 0.80 in coord space, so the two can
             -- differ by up to 1px at non-perfect UI scales.
             local wPx = math.floor(iconW / onePx + 0.5)
-            iconH = math.floor(wPx * 0.80 + 0.5) * onePx
+            iconH = math.floor(wPx * cropRatio + 0.50) * onePx
         elseif heightMatchIconHPx then
             -- Height-matched: use the EXACT cropped height the height-match math
             -- already computed (basePhysIconH). Must match that value precisely
@@ -4330,7 +4332,7 @@ LayoutCDMBar = function(barKey)
             -- extraPixelsH leftover distribution, which was sized around it.
             iconH = heightMatchIconHPx * onePx
         else
-            iconH = math.floor((barData.iconSize or 36) * 0.80 + 0.5)
+            iconH = math.floor((barData.iconSize or 36) * cropRatio + 0.5)
         end
     end
 
@@ -4406,7 +4408,8 @@ LayoutCDMBar = function(barKey)
         local function RowSizePx(sz)
             if sz < 16 then sz = 16 end          -- clamp to the Icon Scale minimum
             local wpx = math.floor(sz / onePx + 0.5)
-            local hCoord = (shape == "cropped") and math.floor(sz * 0.80 + 0.5) or sz
+            local cropRatio = tonumber(barData.iconCropRatio) or 0.80
+            local hCoord = (shape == "cropped") and math.floor(sz * cropRatio + 0.5) or sz
             local hpx = math.floor(hCoord / onePx + 0.5)
             return wpx, hpx
         end
@@ -5054,9 +5057,12 @@ ApplyShapeToCDMIcon = function(icon, shape, barData, ssb)
                 -- producing a 1px swipe/icon split on fractional frame positions
                 -- at certain effective scales. Disable snapping so the image
                 -- renders to its exact rect, matching the swipe. No size change.
+                local cropRatio = tonumber(barData.iconCropRatio) or 0.80
+                local cropInset = (1 - cropRatio) / 2
+
                 if tex.SetSnapToPixelGrid then tex:SetSnapToPixelGrid(false) end
                 if tex.SetTexelSnappingBias then tex:SetTexelSnappingBias(0) end
-                tex:SetTexCoord(zoom, 1 - zoom, zoom + 0.10 + extraCrop, 1 - zoom - 0.10 - extraCrop)
+                tex:SetTexCoord(zoom, 1 - zoom, zoom + cropInset + extraCrop, 1 - zoom - cropInset - extraCrop)
             else
                 -- Restore default grid snapping for non-cropped shapes so an
                 -- icon previously set to cropped stays crisp after switching.
