@@ -18001,6 +18001,30 @@ initFrame:SetScript("OnEvent", function(self)
                       ns.RefreshCDMIconAppearance(BD().key); Refresh(); UpdateCDMPreview()
                   end });  y = y - h
 
+            -- Inline cog for cropped height
+            do
+                local rgn = buffShapeZoomRow._leftRegion
+                local _, croppedCogShow = EllesmereUI.BuildCogPopup({
+                    title = "Custom cropped height",
+                    rows = {
+                        { type = "slider", label = "Height", min = 0.1, max = 0.9, step = 0.01,
+                          get = function() return BD().iconCropRatio or 0.80 end,
+                          set = function(v)
+                              BD().iconCropRatio = v
+                              ns.RefreshCDMIconAppearance(BD().key); Refresh(); UpdateCDMPreview()
+                          end
+                        },
+                    },
+                })
+                local cogBtn = MakeCogBtn(rgn, croppedCogShow, rgn._control, EllesmereUI.RESIZE_ICON)
+                local function UpdateCogVis()
+                    local isCropped = (BD().iconShape or "none") == "cropped"
+                    if isCropped then cogBtn:Show() else cogBtn:Hide() end
+                end
+                EllesmereUI.RegisterWidgetRefresh(UpdateCogVis)
+                UpdateCogVis()
+            end
+
             -- Sync icon on Custom Icon Shape (left of row 3)
             EllesmereUI.BuildSyncIcon({
                 region  = buffShapeZoomRow._leftRegion,
@@ -18051,28 +18075,6 @@ initFrame:SetScript("OnEvent", function(self)
                 end,
             })
 
-            do
-                local rgn = buffShapeZoomRow._leftRegion
-                local _, croppedCogShow = EllesmereUI.BuildCogPopup({
-                    title = "Custom cropped height",
-                    rows = {
-                        { type = "slider", label = "Height", min = 0.1, max = 0.9, step = 0.01,
-                          get = function() return BD().iconCropRatio or 0.80 end,
-                          set = function(v)
-                              BD().iconCropRatio = v
-                              ns.RefreshCDMIconAppearance(BD().key); Refresh(); UpdateCDMPreview()
-                          end
-                        },
-                    },
-                })
-                local cogBtn = MakeCogBtn(rgn, croppedCogShow, rgn._control, EllesmereUI.RESIZE_ICON)
-                local function UpdateCroppedCogState()
-                    local isCropped = (BD().iconShape or "none") == "cropped"
-                    if isCropped then cogBtn:Show() else cogBtn:Hide() end
-                end
-                EllesmereUI.RegisterWidgetRefresh(UpdateCroppedCogState)
-                UpdateCroppedCogState()
-            end
 
             -- Row 4: Border Size + swatches | Border Style dropdown + offset cog
             do
@@ -18716,6 +18718,30 @@ initFrame:SetScript("OnEvent", function(self)
                     BD().iconZoom = v
                     ns.RefreshCDMIconAppearance(BD().key); Refresh(); UpdateCDMPreview()
                 end });  y = y - h
+            
+        -- Inline cog for cropped height (left of shapeRow)
+        do
+            local rgn = shapeRow._leftRegion
+            local _, croppedCogShow = EllesmereUI.BuildCogPopup({
+                title = "Custom cropped height",
+                rows = {
+                    { type = "slider", label = "Height", min = 0.1, max = 0.9, step = 0.01,
+                        get = function() return BD().iconCropRatio or 0.80 end,
+                        set = function(v)
+                            BD().iconCropRatio = v
+                            ns.RefreshCDMIconAppearance(BD().key); Refresh(); UpdateCDMPreview()
+                        end
+                    },
+                },
+            })
+            local cogBtn = MakeCogBtn(rgn, croppedCogShow, rgn._control, EllesmereUI.RESIZE_ICON)
+            local function UpdateCogVis()
+                local isCropped = (BD().iconShape or "none") == "cropped"
+                if isCropped then cogBtn:Show() else cogBtn:Hide() end
+            end
+            EllesmereUI.RegisterWidgetRefresh(UpdateCogVis)
+            UpdateCogVis()
+        end
 
         EllesmereUI.BuildSyncIcon({
             region  = shapeRow._leftRegion,
@@ -18764,29 +18790,6 @@ initFrame:SetScript("OnEvent", function(self)
                 ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreview(); EllesmereUI:RefreshPage()
             end,
         })
-
-        do
-            local rgn = shapeRow._leftRegion
-            local _, croppedCogShow = EllesmereUI.BuildCogPopup({
-                title = "Custom cropped height",
-                rows = {
-                    { type = "slider", label = "Height", min = 0.1, max = 0.9, step = 0.01,
-                        get = function() return BD().iconCropRatio or 0.80 end,
-                        set = function(v)
-                            BD().iconCropRatio = v
-                            ns.RefreshCDMIconAppearance(BD().key); Refresh(); UpdateCDMPreview()
-                        end
-                    },
-                },
-            })
-            local cogBtn = MakeCogBtn(rgn, croppedCogShow, rgn._control, EllesmereUI.RESIZE_ICON)
-            local function UpdateCroppedCogState()
-                local isCropped = (BD().iconShape or "none") == "cropped"
-                if isCropped then cogBtn:Show() else cogBtn:Hide() end
-            end
-            EllesmereUI.RegisterWidgetRefresh(UpdateCroppedCogState)
-            UpdateCroppedCogState()
-        end
 
         end -- not isBuffGlowBar
 
