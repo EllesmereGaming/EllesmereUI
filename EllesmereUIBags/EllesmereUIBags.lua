@@ -34,6 +34,52 @@ local SLOT_SIZE, SPACING = 34, 4
 -- Keyed by link (bonus IDs change the answer) and wiped on level up, since the
 -- same item flips from unusable to usable as the character grows into it.
 local _canUseCache = {}
+local _scanTooltip
+local function IsBlockedTooltipLine(text)
+    return text == ITEM_SCRAPABLE_NOT
+        or text == CANNOT_UNEQUIP_COMBAT
+        or text == ITEM_DISENCHANT_NOT_DISENCHANTABLE
+end
+
+local function IsRedTooltipColor(r, g, b)
+    return r and r > 0.99 and (g or 0) < 0.2 and (b or 0) < 0.2
+end
+
+local function ScanLegacyItemTooltip(bagID, slot, itemLink, itemID)
+    if not _scanTooltip then
+        _scanTooltip = CreateFrame("GameTooltip", "EUIBagsScanTooltip", UIParent, "GameTooltipTemplate")
+        _scanTooltip:SetOwner(UIParent, "ANCHOR_NONE")
+    end
+    _scanTooltip:ClearLines()
+    local ok
+    if bagID ~= nil and slot ~= nil and _scanTooltip.SetBagItem then
+        ok = pcall(_scanTooltip.SetBagItem, _scanTooltip, bagID, slot)
+    end
+    if not ok and itemLink and _scanTooltip.SetHyperlink then
+        ok = pcall(_scanTooltip.SetHyperlink, _scanTooltip, itemLink)
+    end
+    if not ok and itemID and _scanTooltip.SetHyperlink then
+        ok = pcall(_scanTooltip.SetHyperlink, _scanTooltip, "item:" .. itemID)
+    end
+    if not ok then return false end
+
+    for line = 1, _scanTooltip:NumLines() do
+        local left = _G["EUIBagsScanTooltipTextLeft" .. line]
+        local right = _G["EUIBagsScanTooltipTextRight" .. line]
+        if left then
+            local r, g, b = left:GetTextColor()
+            if IsRedTooltipColor(r, g, b) and not IsBlockedTooltipLine(left:GetText()) then
+                return true
+            end
+        end
+        if right then
+            local r, g, b = right:GetTextColor()
+            if IsRedTooltipColor(r, g, b) then return true end
+        end
+    end
+    return false
+end
+
 local function BagsItemUnusable(bagID, slot, itemLink, itemID)
     local item = itemLink or itemID
     if not item then return false end
@@ -41,26 +87,37 @@ local function BagsItemUnusable(bagID, slot, itemLink, itemID)
     if cached ~= nil then return cached end
     local unusable = false
     if IsEquippableItem(item) or C_Item.GetItemSpell(item) then
+        -- Classic exposes the authoritative usability check directly. Avoid
+        -- inferring it from arbitrary red tooltip lines (item names and flavor
+        -- text may also be red on 3.3.5 clients).
+        if not C_TooltipInfo and IsUsableItem then
+            local usable = IsUsableItem(item)
+            unusable = not usable
+            _canUseCache[item] = unusable
+            return unusable
+        end
         local tip
-        if bagID and slot then tip = C_TooltipInfo.GetBagItem(bagID, slot) end
-        if not tip and itemLink then tip = C_TooltipInfo.GetHyperlink(itemLink) end
-        if not tip and itemID then tip = C_TooltipInfo.GetItemByID(itemID) end
+        if C_TooltipInfo then
+            if bagID and slot and C_TooltipInfo.GetBagItem then tip = C_TooltipInfo.GetBagItem(bagID, slot) end
+            if not tip and itemLink and C_TooltipInfo.GetHyperlink then tip = C_TooltipInfo.GetHyperlink(itemLink) end
+            if not tip and itemID and C_TooltipInfo.GetItemByID then tip = C_TooltipInfo.GetItemByID(itemID) end
+        end
         if tip and tip.lines then
             for _, row in ipairs(tip.lines) do
                 local lc = row.leftColor
-                if lc and lc.r == 1 and lc.g < 0.2 and lc.b < 0.2
-                   and row.leftText ~= ITEM_SCRAPABLE_NOT
-                   and row.leftText ~= CANNOT_UNEQUIP_COMBAT
-                   and row.leftText ~= ITEM_DISENCHANT_NOT_DISENCHANTABLE then
+                if lc and IsRedTooltipColor(lc.r, lc.g, lc.b)
+                   and not IsBlockedTooltipLine(row.leftText) then
                     unusable = true
                     break
                 end
                 local rc = row.rightColor
-                if rc and rc.r == 1 and rc.g < 0.2 and rc.b < 0.2 then
+                if rc and IsRedTooltipColor(rc.r, rc.g, rc.b) then
                     unusable = true
                     break
                 end
             end
+        elseif not tip then
+            unusable = ScanLegacyItemTooltip(bagID, slot, itemLink, itemID)
         end
     end
     _canUseCache[item] = unusable
@@ -734,7 +791,7 @@ local function CreateHeader()
     sort:SetPoint("RIGHT", search, "LEFT", -13, 0)
     sort.icon = sort:CreateTexture(nil, "OVERLAY")
     sort.icon:SetAllPoints()
-    sort.icon:SetTexture("Interface\\AddOns\\EllesmereUIBags\\Media\\clean-up.png")
+    sort.icon:SetTexture("Interface\\AddOns\\EllesmereUIBags\\Media\\clean-up.tga")
     sort.icon:SetAlpha(0.9)
 
     sort:SetScript("OnEnter", function(self)
@@ -1312,7 +1369,7 @@ local function CreateHeader()
     close:SetPoint("RIGHT", -9, 0)
     close.icon = close:CreateTexture(nil, "OVERLAY")
     close.icon:SetAllPoints()
-    close.icon:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.png")
+    close.icon:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.tga")
     close.icon:SetAlpha(0.7)
     close:SetScript("OnEnter", function() close.icon:SetAlpha(0.9) end)
     close:SetScript("OnLeave", function() close.icon:SetAlpha(0.7) end)
@@ -1782,7 +1839,7 @@ local function UpdateCurrencyDisplays(footerWidth)
 
     for i, info in ipairs(tracked) do
         local display = pool.displays[i]
-        local fullInfo = C_CurrencyInfo.GetCurrencyInfo(info.currencyTypesID)
+        local fullInfo = C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo and C_CurrencyInfo.GetCurrencyInfo(info.currencyTypesID)
         local icon = fullInfo and fullInfo.iconFileID or info.iconFileID
         local quantity = fullInfo and fullInfo.quantity or 0
         local discovered = fullInfo and fullInfo.discovered
@@ -1867,7 +1924,7 @@ local function CreateReagentBagUI()
     close:SetPoint("RIGHT", -5, 0)
     close.icon = close:CreateTexture(nil, "OVERLAY")
     close.icon:SetAllPoints()
-    close.icon:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.png")
+    close.icon:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.tga")
     close.icon:SetAlpha(0.7)
     close:SetScript("OnEnter", function() close.icon:SetAlpha(0.9) end)
     close:SetScript("OnLeave", function() close.icon:SetAlpha(0.7) end)
@@ -1992,6 +2049,47 @@ end)
 -------------------------------------------------------------------------------
 --  Slot Factory (preserved with square icon fix)
 -------------------------------------------------------------------------------
+-- WotLK's ItemButtonTemplate helpers look up regions by concatenating the
+-- button name. Our secure slot buttons are intentionally anonymous, so use
+-- their regions directly instead of calling those helpers.
+local function SetSlotButtonTexture(button, texture)
+    if not button.icon then
+        button.icon = button:CreateTexture(nil, "ARTWORK")
+        button.icon:SetAllPoints(button)
+    end
+    button.icon:SetTexture(texture)
+    if texture then button.icon:Show() else button.icon:Hide() end
+end
+
+local function SetSlotButtonCount(button, count)
+    local countString = button.Count or button.count
+    if not countString then
+        countString = button:CreateFontString(nil, "OVERLAY")
+        countString:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -2, 2)
+        button.Count = countString
+    end
+    count = tonumber(count) or 0
+    if count > 1 then
+        countString:SetText(count)
+        countString:Show()
+    else
+        countString:Hide()
+    end
+end
+
+local function SetSlotButtonDesaturated(button, desaturated)
+    if not button.icon then
+        button.icon = button:CreateTexture(nil, "ARTWORK")
+        button.icon:SetAllPoints(button)
+    end
+    local shaderSupported = button.icon:SetDesaturated(desaturated)
+    if not shaderSupported and desaturated then
+        button.icon:SetVertexColor(0.5, 0.5, 0.5)
+    else
+        button.icon:SetVertexColor(1, 1, 1)
+    end
+end
+
 local function GetOrCreateSlot(idx)
     if itemSlots[idx] then return itemSlots[idx] end
     -- Never EllesmereUI.SafeCreateFrame a secure ContainerFrameItemButtonTemplate button during
@@ -2004,6 +2102,8 @@ local function GetOrCreateSlot(idx)
     local slotParent = EllesmereUI.SafeCreateFrame("Frame", nil, EUI_Bags)
     slotParent:SetSize(SLOT_SIZE, SLOT_SIZE)
     local btn = EllesmereUI.SafeCreateFrame("ItemButton", nil, slotParent, "ContainerFrameItemButtonTemplate")
+    SetSlotButtonTexture(btn, nil)
+    SetSlotButtonCount(btn, 0)
     btn:SetAllPoints(slotParent)
     btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     btn:RegisterForDrag("LeftButton")
@@ -2122,7 +2222,7 @@ local function GetOrCreateSlot(idx)
     local pt = btn:GetPushedTexture()
     if pt then
         pt:SetAtlas(nil)
-        pt:SetTexture("Interface\\AddOns\\EllesmereUIBags\\Media\\highlight-3.png")
+        pt:SetTexture("Interface\\AddOns\\EllesmereUIBags\\Media\\highlight-3.tga")
         pt:SetTexCoord(0, 1, 0, 1)
         pt:ClearAllPoints(); pt:SetAllPoints(btn)
         pt:SetVertexColor(0.973, 0.839, 0.604, 1)
@@ -2215,6 +2315,8 @@ local function GetOrCreateReagentSlot(idx)
     local slotParent = EllesmereUI.SafeCreateFrame("Frame", nil, EUI_BagsReagent)
     slotParent:SetSize(SLOT_SIZE, SLOT_SIZE)
     local btn = EllesmereUI.SafeCreateFrame("ItemButton", nil, slotParent, "ContainerFrameItemButtonTemplate")
+    SetSlotButtonTexture(btn, nil)
+    SetSlotButtonCount(btn, 0)
     btn:SetAllPoints(slotParent)
     btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     btn:RegisterForDrag("LeftButton")
@@ -2239,7 +2341,7 @@ local function GetOrCreateReagentSlot(idx)
     local pt = btn:GetPushedTexture()
     if pt then
         pt:SetAtlas(nil)
-        pt:SetTexture("Interface\\AddOns\\EllesmereUIBags\\Media\\highlight-3.png")
+        pt:SetTexture("Interface\\AddOns\\EllesmereUIBags\\Media\\highlight-3.tga")
         pt:SetTexCoord(0, 1, 0, 1)
         pt:ClearAllPoints(); pt:SetAllPoints(btn)
         pt:SetVertexColor(0.973, 0.839, 0.604, 1)
@@ -2402,6 +2504,9 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
 
     btn:SetID(data.slot or 0)
     parent:SetID(data.bag or 0)
+    btn._itemID = data.info and data.info.itemID or nil
+    btn._renderBag = data.bag
+    btn._renderSlot = data.slot
 
     -- Always clear overlays upfront (pooled buttons carry stale state from prior items)
     if btn.ProfessionQualityOverlay then
@@ -2414,14 +2519,15 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
     if not btn._emptyBg then
         btn._emptyBg = btn:CreateTexture(nil, "BACKGROUND", nil, 1)
         btn._emptyBg:SetAllPoints()
-        btn._emptyBg:SetTexture("Interface\\AddOns\\EllesmereUIBags\\Media\\icon-bg.png")
+        btn._emptyBg:SetTexture("Interface\\AddOns\\EllesmereUIBags\\Media\\icon-bg.tga")
     end
 
     if not data.info then
         -- Empty slot
-        btn:SetItemButtonTexture(nil)
-        btn:SetItemButtonCount(0)
-        SetItemButtonDesaturated(btn, false)
+        SetSlotButtonTexture(btn, nil)
+        SetSlotButtonCount(btn, 0)
+        btn._isMerged = nil
+        SetSlotButtonDesaturated(btn, false)
         if btn.icon then btn.icon:Hide() end
         btn._emptyBg:Show()
         if interactiveEmpties then
@@ -2451,14 +2557,14 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
         btn:EnableMouse(true)
         btn._emptyBg:Hide()
         if btn.icon then btn.icon:Show() end
-        btn:SetItemButtonTexture(data.info.iconFileID)
-        btn:SetItemButtonCount(data._mergedCount or data.info.stackCount)
+        SetSlotButtonTexture(btn, data.info.iconFileID)
+        SetSlotButtonCount(btn, data._mergedCount or data.info.stackCount)
         btn._isMerged = data._mergedCount and true or nil
 
         -- Desature: 1) locked items 2) junk items if option is active
         local quality = data.info.quality or 1
         local isJunk = BP().bagDesaturateJunkItems and quality == 0
-        SetItemButtonDesaturated(btn, data.info.isLocked or isJunk)
+        SetSlotButtonDesaturated(btn, data.info.isLocked or isJunk)
 
         local filtered = data.info.isFiltered
         btn:SetAlpha(filtered and 0.2 or 1)
@@ -2528,7 +2634,7 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
         -- Profession quality overlay: let Blizzard decide via SetItemButtonQuality
         -- (handles all item types, not just ones we think are "profession")
         if data.itemLink then
-            btn:SetItemButtonQuality(quality, data.itemLink, false, false)
+            if btn.SetItemButtonQuality then btn:SetItemButtonQuality(quality, data.itemLink, false, false) end
         end
         -- Control overlay via alpha (immune to parent visibility inheritance).
         -- SetItemButtonQuality may have called Show() internally, but we use
@@ -3789,7 +3895,7 @@ local function CreateSidebar()
     sidebarHdr._label:SetText(EllesmereUI.L("Categories"))
     sidebarHdr._label:SetTextColor(0.5, 0.5, 0.5)
 
-    local ARROW_ICON = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-left.png"
+    local ARROW_ICON = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-left.tga"
     local collapseBtn = EllesmereUI.SafeCreateFrame("Button", nil, sidebarHdr)
     collapseBtn:SetSize(12, 12)
     collapseBtn:SetPoint("RIGHT", sidebarHdr, "RIGHT", -6, 0)
@@ -4879,7 +4985,7 @@ function EUI_Bags:RefreshInventory()
     -- skipped while locked, PLAYER_REGEN_ENABLED replays a full refresh.
     if InCombatLockdown() then EUI_Bags._refreshPendingCombat = true end
 
-    C_NewItems.ClearAll()
+    if C_NewItems and C_NewItems.ClearAll then C_NewItems.ClearAll() end
 
     -- 1. Gather items from all bags (0-4 + reagent bag 5)
     local _t0Scan = ProfBegin("BagScan")
@@ -5212,7 +5318,7 @@ function EUI_Bags:RefreshInventory()
         f:EnableMouse(false)
         f._bg = f:CreateTexture(nil, "BACKGROUND", nil, 1)
         f._bg:SetAllPoints()
-        f._bg:SetTexture("Interface\\AddOns\\EllesmereUIBags\\Media\\icon-bg.png")
+        f._bg:SetTexture("Interface\\AddOns\\EllesmereUIBags\\Media\\icon-bg.tga")
         f._bg:SetAlpha(0.35)
         CreateInsetBorder(f)
         SetInsetBorderColor(f, 0, 0, 0, 0.3)
@@ -6233,17 +6339,17 @@ function EUI_BagsReagent:RefreshInventory()
         parent:SetID(data.bag)
 
         if not data.info then
-            btn:SetItemButtonTexture(nil)
-            btn:SetItemButtonCount(0)
-            SetItemButtonDesaturated(btn, false)
+            SetSlotButtonTexture(btn, nil)
+            SetSlotButtonCount(btn, 0)
+            SetSlotButtonDesaturated(btn, false)
             if btn.icon then btn.icon:Hide() end
             if btn.ItemLevelText then btn.ItemLevelText:SetText("") end
             SetInsetBorderColor(btn, 0.25, 0.25, 0.25, 1)
         else
             if btn.icon then btn.icon:Show() end
-            btn:SetItemButtonTexture(data.info.iconFileID)
-            btn:SetItemButtonCount(data.info.stackCount)
-            SetItemButtonDesaturated(btn, data.info.isLocked)
+            SetSlotButtonTexture(btn, data.info.iconFileID)
+            SetSlotButtonCount(btn, data.info.stackCount)
+            SetSlotButtonDesaturated(btn, data.info.isLocked)
             local filtered = data.info.isFiltered
             btn:SetAlpha(filtered and 0.2 or 1)
             if btn._textOverlay then btn._textOverlay:SetAlpha(filtered and 0.2 or 1) end
@@ -6409,7 +6515,7 @@ local function StartAddon()
     end)
     EUI_Bags:SetScript("OnMouseDown", function(self, button)
         local noShift = BP().bagMoveNoShift
-        if button ~= "LeftButton" or (not noShift and not IsKeyDown("LSHIFT")) then return end
+        if button ~= "LeftButton" or (not noShift and not IsShiftKeyDown()) then return end
         local cx, cy = GetCursorPosition()
         local es = self:GetEffectiveScale()
         _bagDragStartCX = cx / es
@@ -6437,7 +6543,7 @@ local function StartAddon()
 
     EUI_Bags.bg = EUI_Bags:CreateTexture(nil, "BACKGROUND", nil, 0)
     EUI_Bags.bg:SetAllPoints()
-    EUI_Bags.bg:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.png")
+    EUI_Bags.bg:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.tga")
     EUI_Bags.bg:SetTexCoord(0, 1, 0, 1)
 
     -- Dark overlay on top of the atlas (25% black)
@@ -6518,8 +6624,8 @@ local function StartAddon()
     if EUI and EUI.PanelPP then EUI.PanelPP.CreateBorder(EUI_BagsReagent, 0.1, 0.1, 0.1, 1, 1, "OVERLAY", 7) end
 
     EUI_BagsReagent:RegisterEvent("BAG_UPDATE")
-    EUI_BagsReagent:SetScript("OnEvent", function(self, event)
-        if event == "BAG_UPDATE" then
+    EUI_BagsReagent:SetScript("OnEvent", function(self, event, bagID)
+        if event == "BAG_UPDATE" and bagID == 5 then
             local detach = BP().detachReagentBag or false
             if detach and EUI_BagsReagent:IsVisible() then EUI_BagsReagent:RefreshInventory() end
         end
@@ -6603,40 +6709,74 @@ local function StartAddon()
     EUI_Bags._recentItems = {}      -- itemID -> true (set of recent item IDs)
     EUI_Bags._recentOrder = {}      -- ordered list of itemIDs (oldest first)
     local _knownItemIDs = {}    -- itemID -> true (all item IDs present in bags)
+    local _bagState = {}        -- bag -> cached item IDs/counts for cheap BAG_UPDATE diffs
+    local _dirtyBags = {}       -- coalesced changes received while the UI is hidden
     local _snapshotReady = false
+
+    -- BAG_UPDATE supplies the changed bag. Keep a tiny per-slot cache so stack
+    -- count changes (ammo, consumables, etc.) do not invoke the full inventory
+    -- classify/sort/layout/render pipeline.
+    local function ScanBagState(bag, detectRecent)
+        if type(bag) ~= "number" or bag < 0 or bag > 5 then
+            return true, false
+        end
+
+        local numSlots = C_Container.GetContainerNumSlots(bag) or 0
+        local state = _bagState[bag]
+        local structureChanged = not state or state.numSlots ~= numSlots
+        local countChanged = false
+        if not state then
+            state = { ids = {}, counts = {}, numSlots = numSlots }
+            _bagState[bag] = state
+        end
+
+        local ids, counts = state.ids, state.counts
+        local oldSlots = state.numSlots or 0
+        for slot = 1, numSlots do
+            local info = C_Container.GetContainerItemInfo(bag, slot)
+            local itemID = info and info.itemID or nil
+            local count = info and (info.stackCount or 1) or 0
+            if ids[slot] ~= itemID then
+                structureChanged = true
+            elseif counts[slot] ~= count then
+                countChanged = true
+            end
+
+            if detectRecent and itemID and not _knownItemIDs[itemID]
+                and not EUI_Bags._recentItems[itemID] then
+                EUI_Bags._recentItems[itemID] = true
+                EUI_Bags._recentOrder[#EUI_Bags._recentOrder + 1] = itemID
+                while #EUI_Bags._recentOrder > RECENT_MAX do
+                    local old = table.remove(EUI_Bags._recentOrder, 1)
+                    EUI_Bags._recentItems[old] = nil
+                end
+            end
+            if itemID then _knownItemIDs[itemID] = true end
+            ids[slot], counts[slot] = itemID, count
+        end
+        for slot = numSlots + 1, oldSlots do
+            ids[slot], counts[slot] = nil, nil
+        end
+        state.numSlots = numSlots
+        return structureChanged, countChanged
+    end
 
     local function SnapshotKnownIDs()
         for bag = 0, 5 do
-            local numSlots = C_Container.GetContainerNumSlots(bag)
-            for slot = 1, numSlots do
-                local info = C_Container.GetContainerItemInfo(bag, slot)
-                if info and info.itemID then
-                    _knownItemIDs[info.itemID] = true
-                end
-            end
+            ScanBagState(bag, false)
         end
         _snapshotReady = true
     end
 
-    local function DetectNewItems()
-        if not _snapshotReady then return end
-        for bag = 0, 5 do
-            local numSlots = C_Container.GetContainerNumSlots(bag)
-            for slot = 1, numSlots do
-                local info = C_Container.GetContainerItemInfo(bag, slot)
-                if info and info.itemID then
-                    if not _knownItemIDs[info.itemID] and not EUI_Bags._recentItems[info.itemID] then
-                        EUI_Bags._recentItems[info.itemID] = true
-                        EUI_Bags._recentOrder[#EUI_Bags._recentOrder + 1] = info.itemID
-                        while #EUI_Bags._recentOrder > RECENT_MAX do
-                            local old = table.remove(EUI_Bags._recentOrder, 1)
-                            EUI_Bags._recentItems[old] = nil
-                        end
-                    end
-                end
+    local function SyncDirtyBags()
+        if not _snapshotReady then
+            SnapshotKnownIDs()
+        else
+            for bag in pairs(_dirtyBags) do
+                ScanBagState(bag, true)
             end
         end
-        SnapshotKnownIDs()
+        wipe(_dirtyBags)
     end
 
     C_Timer.After(1, function() SnapshotKnownIDs() end)
@@ -6657,12 +6797,59 @@ local function StartAddon()
         end)
     end
 
+    local function SetDisplayedCount(btn, count)
+        SetSlotButtonCount(btn, count)
+    end
+
+    local function GetCachedItemTotal(itemID)
+        local total = 0
+        for bag = 0, 5 do
+            local state = _bagState[bag]
+            if state then
+                for slot = 1, state.numSlots do
+                    if state.ids[slot] == itemID then
+                        total = total + (state.counts[slot] or 0)
+                    end
+                end
+            end
+        end
+        return total
+    end
+
+    -- Update only visible buttons backed by slots in the changed bag. Merged
+    -- category buttons display an aggregate, which is still cheap to derive
+    -- from the small cache without touching item metadata or layout.
+    local function RefreshChangedCounts(bag)
+        local state = _bagState[bag]
+        if not state then return end
+        local mergedTotals = {}
+        local function UpdatePool(pool)
+            for _, btn in pairs(pool) do
+                if btn:IsShown() and btn._renderSlot then
+                    if btn._isMerged and btn._itemID then
+                        local total = mergedTotals[btn._itemID]
+                        if total == nil then
+                            total = GetCachedItemTotal(btn._itemID)
+                            mergedTotals[btn._itemID] = total
+                        end
+                        SetDisplayedCount(btn, total)
+                    elseif btn._renderBag == bag then
+                        SetDisplayedCount(btn, state.counts[btn._renderSlot] or 0)
+                    end
+                end
+            end
+        end
+        UpdatePool(itemSlots)
+        UpdatePool(reagentSlots)
+    end
+
     EUI_Bags:RegisterEvent("BAG_UPDATE")
     EUI_Bags:RegisterEvent("PLAYER_MONEY")
     EUI_Bags:RegisterEvent("ITEM_LOCK_CHANGED")
     EUI_Bags:RegisterEvent("CURRENCY_DISPLAY_UPDATE")
     -- Replays a refresh that was deferred during combat (secure-button taint guard).
     EUI_Bags:RegisterEvent("PLAYER_REGEN_ENABLED")
+    EUI_Bags:RegisterEvent("GET_ITEM_INFO_RECEIVED")
 
     -- Pre-warm the secure item-button pool while out of combat. Creating a
     -- ContainerFrameItemButtonTemplate button during combat lockdown taints it,
@@ -6752,10 +6939,13 @@ local function StartAddon()
         end, EUI_Bags)
     end
 
-    -- DetectNewItems: run synchronously but at most once per frame (zone changes fire many BAG_UPDATEs)
-    local _lastDetectFrame = 0
-
-    EUI_Bags:SetScript("OnEvent", function(self, event)
+    EUI_Bags:SetScript("OnEvent", function(self, event, bagID)
+        if event == "GET_ITEM_INFO_RECEIVED" then
+            if EUI_Bags:IsVisible() then
+                EUI_Bags:RefreshInventory()
+            end
+            return
+        end
         if event == "PLAYER_REGEN_ENABLED" then
             -- Combat ended: replay any refresh deferred during combat, and top
             -- up the pre-warmed pool in case bag count grew while locked.
@@ -6769,35 +6959,59 @@ local function StartAddon()
             return
         end
         if event == "BAG_UPDATE" and EUI_Bags.refreshEnabled ~= false then
-            local now = GetTime()
-            if now ~= _lastDetectFrame then
-                _lastDetectFrame = now
-                DetectNewItems()
+            -- Nothing is being presented while the window is closed. Coalesce
+            -- arbitrarily many ammo BAG_UPDATEs and reconcile once when opened.
+            if not EUI_Bags:IsVisible() then
+                if type(bagID) == "number" and bagID >= 0 and bagID <= 5 then
+                    _dirtyBags[bagID] = true
+                else
+                    for bag = 0, 5 do _dirtyBags[bag] = true end
+                end
+                return
             end
-        end
-        if not EUI_Bags:IsVisible() then return end
-        if event == "BAG_UPDATE" then
+
+            local structureChanged, countChanged
+            if _snapshotReady and type(bagID) == "number" then
+                structureChanged, countChanged = ScanBagState(bagID, true)
+            else
+                -- Initial/argument-less updates are uncommon and retain the
+                -- safe full-refresh behavior.
+                structureChanged = true
+                if not _snapshotReady then SnapshotKnownIDs() end
+            end
+
             if EUI_Bags._pendingBagSwap and EUI_BagsWindow:IsVisible() then
                 EUI_Bags._pendingBagSwap = nil
                 EUI_BagsWindow:RefreshBags()
             end
             if not EUI_Bags.refreshEnabled then return end
-            if EUI_Bags._unlockSort then EUI_Bags._unlockSort() end
-            ScheduleRefresh()
+            if structureChanged then
+                if EUI_Bags._unlockSort then EUI_Bags._unlockSort() end
+                ScheduleRefresh()
+            elseif countChanged then
+                RefreshChangedCounts(bagID)
+            end
+            return
         elseif event == "ITEM_LOCK_CHANGED" then
+            if not EUI_Bags:IsVisible() then return end
             if not EUI_Bags.refreshEnabled then return end
             if EUI_Bags._unlockSort then EUI_Bags._unlockSort() end
             ScheduleRefresh()
         elseif event == "PLAYER_MONEY" then
+            if not EUI_Bags:IsVisible() then return end
             CaptureTrackedGold()
             UpdateBagMoneyDisplay()
         elseif event == "CURRENCY_DISPLAY_UPDATE" then
+            if not EUI_Bags:IsVisible() then return end
             SyncBagFrameToFooter()
         end
     end)
 
     EUI_Bags:HookScript("OnHide", function()
         EUI_BagsWindow:Hide()
+    end)
+    EUI_Bags:HookScript("OnShow", function()
+        SyncDirtyBags()
     end)
 
     EllesmereUI.RegisterEscapeClose(EUI_Bags)

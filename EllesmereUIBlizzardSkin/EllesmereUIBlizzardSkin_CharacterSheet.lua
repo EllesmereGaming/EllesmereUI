@@ -35,8 +35,13 @@ local EUI_ALL_SLOTS = {
 -- raw C_EquipmentSet API. Callers must combat-guard.
 local function EUI_EquipSet(setID)
     if not setID then return end
+    -- The 3.3.5 equipment-manager API takes a set name, while the retail
+    -- C_EquipmentSet API takes an ID.  Resolve the display ID before calling
+    -- the legacy function instead of silently passing it a number.
     if EquipmentManager_EquipSet then
-        EquipmentManager_EquipSet(setID)
+        local setName = C_EquipmentSet and C_EquipmentSet.GetEquipmentSetInfo
+            and C_EquipmentSet.GetEquipmentSetInfo(setID)
+        if setName then EquipmentManager_EquipSet(setName) end
     else
         C_EquipmentSet.UseEquipmentSet(setID)
     end
@@ -225,12 +230,16 @@ do
             showEnchants                 = true,
             showGems                     = true,
             showStatCategory_Attributes  = true,
-            showStatCategory_Attack      = true,
+            showStatCategory_Melee       = true,
+            showStatCategory_Ranged      = true,
+            showStatCategory_Spell       = true,
             showStatCategory_Defense     = true,
+            showStatCategory_Currency    = true,
+            showStatCategory_PvP         = true,
+            showStatCategory_Attack      = true,
             showStatCategory_SecondaryStats = true,
             showStatCategory_Tertiary    = true,
             showStatCategory_Crests      = true,
-            showStatCategory_PvP         = true,
             showAdjustedStats            = false,
         }
         for k, v in pairs(defaults) do
@@ -252,6 +261,13 @@ local function PreSkinCharacterSheet()
     local frame = CharacterFrame
     if not frame then _preSkinned = false; return end
 
+    -- Expand CharacterFrame to fit full EUI theme width (550px)
+    frame:SetWidth(550)
+    if frame.backdrop then
+        frame.backdrop:Hide()
+        frame.backdrop:SetAlpha(0)
+    end
+
     if CharacterFrame.NineSlice then CharacterFrame.NineSlice:Hide() end
     if frame.Background then frame.Background:Hide() end
     if frame.TitleBg then frame.TitleBg:Hide() end
@@ -263,6 +279,11 @@ local function PreSkinCharacterSheet()
     if CharacterModelFrameBackgroundBotLeft then CharacterModelFrameBackgroundBotLeft:Hide() end
     if CharacterModelFrameBackgroundTopRight then CharacterModelFrameBackgroundTopRight:Hide() end
     if CharacterModelFrameBackgroundBotRight then CharacterModelFrameBackgroundBotRight:Hide() end
+    if CharacterModelFrame then
+        CharacterModelFrame:Hide()
+        CharacterModelFrame:SetAlpha(0)
+        hooksecurefunc(CharacterModelFrame, "Show", function(self) self:Hide() end)
+    end
     if CharacterFrameInsetRight then
         if CharacterFrameInsetRight.NineSlice then CharacterFrameInsetRight.NineSlice:Hide() end
         CharacterFrameInsetRight:ClearAllPoints()
@@ -304,13 +325,56 @@ local function PreSkinCharacterSheet()
             region:SetAlpha(0)
         end
     end
+
+    -- WotLK specific textures & frames to hide
+    local wotlk_stats = {
+        "PlayerStatFrameLeft1", "PlayerStatFrameLeft2", "PlayerStatFrameLeft3",
+        "PlayerStatFrameLeft4", "PlayerStatFrameLeft5", "PlayerStatFrameLeft6",
+        "PlayerStatFrameRight1", "PlayerStatFrameRight2", "PlayerStatFrameRight3",
+        "PlayerStatFrameRight4", "PlayerStatFrameRight5", "PlayerStatFrameRight6",
+        "PlayerStatLeftDropDown", "PlayerStatRightDropDown",
+        "CharacterAttributesFrame", "CharacterResistanceFrame",
+        "CharacterFramePortrait", "CharacterFrameTitleText", "CharacterFrameHeader",
+        "CharacterFrameTopLeft", "CharacterFrameTopRight", "CharacterFrameBottomLeft", "CharacterFrameBottomRight",
+        "PaperDollFrameItemBg", "PaperDollFrameItemBgTop", "PaperDollFrameItemBgBottom",
+        "GearManagerToggleButton", "PlayerTitleFrame", "PlayerTitleDropDown", "PlayerTitlePicker"
+    }
+    for _, name in ipairs(wotlk_stats) do
+        local f = _G[name]
+        if f then
+            if f.Hide then f:Hide() end
+            if f.SetAlpha then f:SetAlpha(0) end
+            if f.SetShown then if false then f:Show() else f:Hide() end end
+            if f.HookScript then hooksecurefunc(f, "Show", function(self) self:Hide() end) end
+        end
+    end
+
+    if PaperDollFrame then
+        for i = 1, select("#", PaperDollFrame:GetRegions()) do
+            local r = select(i, PaperDollFrame:GetRegions())
+            if r and r:IsObjectType("Texture") then
+                r:SetAlpha(0)
+            end
+        end
+    end
+
+    -- Hide native WotLK bottom tabs (Character, Pets, Reputation, Skills, Currency)
+    for i = 1, 5 do
+        local tab = _G["CharacterFrameTab" .. i]
+        if tab then
+            tab:Hide()
+            tab:SetAlpha(0)
+            hooksecurefunc(tab, "Show", function(self) self:Hide() end)
+        end
+    end
+
     -- Background scales proportionally to fill the frame without distorting.
     -- Native aspect ratio: 561x433. On resize, compute the size that covers
     -- the full frame (like CSS "cover") and center it, clipping overflow via
     -- adjusted tex coords.
     local BG_ASPECT = 561 / 433
     local bg = frame:CreateTexture(nil, "BACKGROUND", nil, -8)
-    bg:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.png")
+    bg:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.tga")
     bg:SetAllPoints(frame)
     GetFFD(frame).bg = bg
     bg:SetAlpha(1)
@@ -378,7 +442,7 @@ local function PreSkinCharacterSheet()
         bgFrame:SetPoint("BOTTOMRIGHT", myModel, "BOTTOMRIGHT", 0, -18)
         local bgTex = bgFrame:CreateTexture(nil, "BACKGROUND")
         bgTex:SetAllPoints(bgFrame)
-        bgTex:SetTexture("Interface\\AddOns\\EllesmereUIBlizzardSkin\\Media\\character-bg.png")
+        bgTex:SetTexture("Interface\\AddOns\\EllesmereUIBlizzardSkin\\Media\\character-bg.tga")
         bgTex:SetAlpha(1)
 
         GetFFD(frame).modelBg      = bgTex
@@ -386,7 +450,9 @@ local function PreSkinCharacterSheet()
 
         myModel:SetUnit("player")
         local zoomLevel = 0  -- 0 = full body, 1 = tight portrait
-        myModel:SetPortraitZoom(zoomLevel)
+        if myModel.SetPortraitZoom then
+            myModel:SetPortraitZoom(zoomLevel)
+        end
 
         GetFFD(frame).modelScene = myModel  -- name retained for back-compat with older refs
         GetFFD(frame).modelActor = myModel
@@ -457,7 +523,9 @@ local function PreSkinCharacterSheet()
 
         mouseOverlay:SetScript("OnMouseWheel", function(_, delta)
             zoomLevel = math.max(0, math.min(1, zoomLevel + delta * ZOOM_STEP))
-            myModel:SetPortraitZoom(zoomLevel)
+            if myModel.SetPortraitZoom then
+                myModel:SetPortraitZoom(zoomLevel)
+            end
         end)
 
 
@@ -552,24 +620,18 @@ local function PreSkinCharacterSheet()
 
 
     -- Hide the SlotFrame wrappers -- we reposition the inner slot buttons directly.
-    _G.CharacterBackSlotFrame:Hide()
-    _G.CharacterChestSlotFrame:Hide()
-    _G.CharacterFeetSlotFrame:Hide()
-    _G.CharacterFinger0SlotFrame:Hide()
-    _G.CharacterFinger1SlotFrame:Hide()
-    _G.CharacterHandsSlotFrame:Hide()
-    _G.CharacterHeadSlotFrame:Hide()
-    _G.CharacterLegsSlotFrame:Hide()
-    _G.CharacterMainHandSlotFrame:Hide()
-    _G.CharacterNeckSlotFrame:Hide()
-    _G.CharacterSecondaryHandSlotFrame:Hide()
-    _G.CharacterShirtSlotFrame:Hide()
-    _G.CharacterShoulderSlotFrame:Hide()
-    _G.CharacterTabardSlotFrame:Hide()
-    _G.CharacterTrinket0SlotFrame:Hide()
-    _G.CharacterTrinket1SlotFrame:Hide()
-    _G.CharacterWaistSlotFrame:Hide()
-    _G.CharacterWristSlotFrame:Hide()
+    local slotFrameNames = {
+        "CharacterBackSlotFrame", "CharacterChestSlotFrame", "CharacterFeetSlotFrame",
+        "CharacterFinger0SlotFrame", "CharacterFinger1SlotFrame", "CharacterHandsSlotFrame",
+        "CharacterHeadSlotFrame", "CharacterLegsSlotFrame", "CharacterMainHandSlotFrame",
+        "CharacterNeckSlotFrame", "CharacterSecondaryHandSlotFrame", "CharacterShirtSlotFrame",
+        "CharacterShoulderSlotFrame", "CharacterTabardSlotFrame", "CharacterTrinket0SlotFrame",
+        "CharacterTrinket1SlotFrame", "CharacterWaistSlotFrame", "CharacterWristSlotFrame"
+    }
+    for _, name in ipairs(slotFrameNames) do
+        local f = _G[name]
+        if f and f.Hide then f:Hide() end
+    end
 
     -- Grid layout via SetPoint only. Never reparent -- slots are secure and
     -- reparenting them would taint the paper-doll.
@@ -630,20 +692,27 @@ local function PreSkinCharacterSheet()
     end
 
     -- Weapons live in the bottom strip, outside the 2-column grid.
-    _G.CharacterMainHandSlot:ClearAllPoints()
-    _G.CharacterMainHandSlot:SetPoint("BOTTOMLEFT", CharacterFrame, "BOTTOMLEFT", 128, 10)
-    _G.CharacterSecondaryHandSlot:ClearAllPoints()
-    _G.CharacterSecondaryHandSlot:SetPoint("TOPLEFT", _G.CharacterMainHandSlot, "TOPRIGHT", 12, 0)
+    if _G.CharacterMainHandSlot then
+        _G.CharacterMainHandSlot:ClearAllPoints()
+        _G.CharacterMainHandSlot:SetPoint("BOTTOMLEFT", CharacterFrame, "BOTTOMLEFT", 100, 18)
+    end
+    if _G.CharacterSecondaryHandSlot then
+        _G.CharacterSecondaryHandSlot:ClearAllPoints()
+        _G.CharacterSecondaryHandSlot:SetPoint("TOPLEFT", _G.CharacterMainHandSlot, "TOPRIGHT", 12, 0)
+    end
+    if _G.CharacterRangedSlot then
+        _G.CharacterRangedSlot:ClearAllPoints()
+        _G.CharacterRangedSlot:SetPoint("TOPLEFT", _G.CharacterSecondaryHandSlot, "TOPRIGHT", 12, 0)
+    end
 
-
-
-    -- Hide the two extra regions on weapon slots (indices 16/17 are the
-    -- ornamented border/frame textures). Shifting texcoords off-atlas is
-    -- cheaper than SetTexture("") and survives Blizzard re-applying the atlas.
-    select(16, _G.CharacterMainHandSlot:GetRegions()):SetTexCoord(.8,.8,.8,.8,.8,.8,.8,.8)
-    select(17, _G.CharacterMainHandSlot:GetRegions()):SetTexCoord(.8,.8,.8,.8,.8,.8,.8,.8)
-    select(16, _G.CharacterSecondaryHandSlot:GetRegions()):SetTexCoord(.8,.8,.8,.8,.8,.8,.8,.8)
-    select(17, _G.CharacterSecondaryHandSlot:GetRegions()):SetTexCoord(.8,.8,.8,.8,.8,.8,.8,.8)
+    -- Hide extra region borders on weapon slots
+    for _, f in ipairs({_G.CharacterMainHandSlot, _G.CharacterSecondaryHandSlot, _G.CharacterRangedSlot}) do
+        if f then
+            local r16, r17 = select(16, f:GetRegions())
+            if r16 and r16.SetTexCoord then r16:SetTexCoord(.8,.8,.8,.8,.8,.8,.8,.8) end
+            if r17 and r17.SetTexCoord then r17:SetTexCoord(.8,.8,.8,.8,.8,.8,.8,.8) end
+        end
+    end
 
     -- Strip icon borders on the equipment slots and crop icon texcoords
     -- so they fill the slot cleanly.
@@ -677,10 +746,13 @@ local function PreSkinCharacterSheet()
 
     -- Re-apply to weapon-slot regions 16/17 after the loop above may have
     -- clobbered them (the slots are also in slotsToHide).
-    select(16, _G.CharacterMainHandSlot:GetRegions()):SetTexCoord(0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8)
-    select(17, _G.CharacterMainHandSlot:GetRegions()):SetTexCoord(0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8)
-    select(16, _G.CharacterSecondaryHandSlot:GetRegions()):SetTexCoord(0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8)
-    select(17, _G.CharacterSecondaryHandSlot:GetRegions()):SetTexCoord(0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8)
+    for _, f in ipairs({_G.CharacterMainHandSlot, _G.CharacterSecondaryHandSlot, _G.CharacterRangedSlot}) do
+        if f then
+            local r16, r17 = select(16, f:GetRegions())
+            if r16 and r16.SetTexCoord then r16:SetTexCoord(0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8) end
+            if r17 and r17.SetTexCoord then r17:SetTexCoord(0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8) end
+        end
+    end
 
     local slotNames = {
         "CharacterHeadSlot", "CharacterNeckSlot", "CharacterShoulderSlot", "CharacterBackSlot",
@@ -724,6 +796,8 @@ local function SkinCharacterSheet()
 
     local closeBtn = frame.CloseButton or _G.CharacterFrameCloseButton
     if closeBtn then
+        closeBtn:ClearAllPoints()
+        closeBtn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -8, -8)
         if closeBtn.SetNormalTexture then closeBtn:SetNormalTexture("") end
         if closeBtn.SetPushedTexture then closeBtn:SetPushedTexture("") end
         if closeBtn.SetHighlightTexture then closeBtn:SetHighlightTexture("") end
@@ -919,10 +993,10 @@ local function SkinCharacterSheet()
                 local slot = _G[slotName]
                 if slot then
                     if isCharacterTab then slot:Show() else slot:Hide() end
-                    if GetFFD(slot).itemLevelLabel    then GetFFD(slot)if isCharacterTab then .itemLevelLabel:Show() else .itemLevelLabel:Hide() end    end
-                    if GetFFD(slot).enchantLabel      then GetFFD(slot)if isCharacterTab then .enchantLabel:Show() else .enchantLabel:Hide() end      end
-                    if GetFFD(slot).enchantHoverFrame then GetFFD(slot)if isCharacterTab then .enchantHoverFrame:Show() else .enchantHoverFrame:Hide() end end
-                    if GetFFD(slot).upgradeTrackLabel then GetFFD(slot)if isCharacterTab then .upgradeTrackLabel:Show() else .upgradeTrackLabel:Hide() end end
+                    if GetFFD(slot).itemLevelLabel    then if isCharacterTab then GetFFD(slot).itemLevelLabel:Show() else GetFFD(slot).itemLevelLabel:Hide() end    end
+                    if GetFFD(slot).enchantLabel      then if isCharacterTab then GetFFD(slot).enchantLabel:Show() else GetFFD(slot).enchantLabel:Hide() end      end
+                    if GetFFD(slot).enchantHoverFrame then if isCharacterTab then GetFFD(slot).enchantHoverFrame:Show() else GetFFD(slot).enchantHoverFrame:Hide() end end
+                    if GetFFD(slot).upgradeTrackLabel then if isCharacterTab then GetFFD(slot).upgradeTrackLabel:Show() else GetFFD(slot).upgradeTrackLabel:Hide() end end
                 end
             end
         end
@@ -932,13 +1006,13 @@ local function SkinCharacterSheet()
             if btn then if isCharacterTab then btn:Show() else btn:Hide() end end
         end
 
-        if GetFFD(frame).modelBgFrame     then GetFFD(frame)if isCharacterTab then .modelBgFrame:Show() else .modelBgFrame:Hide() end     end
-        if GetFFD(frame).statsPanel       then GetFFD(frame)if isCharacterTab then .statsPanel:Show() else .statsPanel:Hide() end       end
-        if GetFFD(frame).iLvlText         then GetFFD(frame)if isCharacterTab then .iLvlText:Show() else .iLvlText:Hide() end         end
-        if GetFFD(frame).sidebarBgFrame   then GetFFD(frame)if isCharacterTab then .sidebarBgFrame:Show() else .sidebarBgFrame:Hide() end   end
-        if GetFFD(frame).scrollFrame      then GetFFD(frame)if isCharacterTab then .scrollFrame:Show() else .scrollFrame:Hide() end      end
-        if GetFFD(frame).scrollBar        then GetFFD(frame)if isCharacterTab then .scrollBar:Show() else .scrollBar:Hide() end        end
-        if GetFFD(frame).socketContainer  then GetFFD(frame)if isCharacterTab then .socketContainer:Show() else .socketContainer:Hide() end  end
+        if GetFFD(frame).modelBgFrame     then if isCharacterTab then GetFFD(frame).modelBgFrame:Show() else GetFFD(frame).modelBgFrame:Hide() end     end
+        if GetFFD(frame).statsPanel       then if isCharacterTab then GetFFD(frame).statsPanel:Show() else GetFFD(frame).statsPanel:Hide() end       end
+        if GetFFD(frame).iLvlText         then if isCharacterTab then GetFFD(frame).iLvlText:Show() else GetFFD(frame).iLvlText:Hide() end         end
+        if GetFFD(frame).sidebarBgFrame   then if isCharacterTab then GetFFD(frame).sidebarBgFrame:Show() else GetFFD(frame).sidebarBgFrame:Hide() end   end
+        if GetFFD(frame).scrollFrame      then if isCharacterTab then GetFFD(frame).scrollFrame:Show() else GetFFD(frame).scrollFrame:Hide() end      end
+        if GetFFD(frame).scrollBar        then if isCharacterTab then GetFFD(frame).scrollBar:Show() else GetFFD(frame).scrollBar:Hide() end        end
+        if GetFFD(frame).socketContainer  then if isCharacterTab then GetFFD(frame).socketContainer:Show() else GetFFD(frame).socketContainer:Hide() end  end
 
         if GetFFD(frame).statsSections then
             for _, sectionData in ipairs(GetFFD(frame).statsSections) do
@@ -950,12 +1024,12 @@ local function SkinCharacterSheet()
 
         -- Titles / Equipment sub-panels only exist on the Character tab.
         if not isCharacterTab then
-            if GetFFD(frame).titlesPanel then GetFFD(frame)if false then .titlesPanel:Show() else .titlesPanel:Hide() end end
-            if GetFFD(frame).equipPanel  then GetFFD(frame)if false then .equipPanel:Show() else .equipPanel:Hide() end  end
+            if GetFFD(frame).titlesPanel then if false then GetFFD(frame).titlesPanel:Show() else GetFFD(frame).titlesPanel:Hide() end end
+            if GetFFD(frame).equipPanel  then if false then GetFFD(frame).equipPanel:Show() else GetFFD(frame).equipPanel:Hide() end  end
         end
 
-        if GetFFD(frame).modelScene   then GetFFD(frame)if isCharacterTab then .modelScene:Show() else .modelScene:Hide() end   end
-        if GetFFD(frame).modelBgFrame then GetFFD(frame)if isCharacterTab then .modelBgFrame:Show() else .modelBgFrame:Hide() end end
+        if GetFFD(frame).modelScene   then if isCharacterTab then GetFFD(frame).modelScene:Show() else GetFFD(frame).modelScene:Hide() end   end
+        if GetFFD(frame).modelBgFrame then if isCharacterTab then GetFFD(frame).modelBgFrame:Show() else GetFFD(frame).modelBgFrame:Hide() end end
     end
 
     local function _hookPaneOnShow(pane, isChar)
@@ -979,6 +1053,40 @@ local function SkinCharacterSheet()
     statsPanel:SetPoint("TOPLEFT",    frame, "TOPLEFT",    345, -60)
     statsPanel:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 345,  40)
     statsPanel:SetFrameLevel(50)
+
+    -- Blizzard's paper-doll item flyout is parented to the character sheet at
+    -- its default frame level.  The custom stats sidebar is intentionally at
+    -- level 50, so flyout icons that extend over it otherwise render beneath
+    -- the category labels.  Raise both the flyout container and its recycled
+    -- buttons whenever Blizzard populates it.
+    local flyoutLevel = statsPanel:GetFrameLevel() + 10
+    local function RaisePaperDollFlyoutButton(button)
+        if button and button.SetFrameLevel then
+            button:SetFrameLevel(flyoutLevel + 1)
+        end
+    end
+    local function RaisePaperDollFlyout()
+        local flyout = _G.PaperDollFrameItemFlyout
+        local buttons = _G.PaperDollFrameItemFlyoutButtons
+        if flyout and flyout.SetFrameLevel then
+            flyout:SetFrameLevel(flyoutLevel)
+        end
+        if buttons and buttons.SetFrameLevel then
+            buttons:SetFrameLevel(flyoutLevel)
+        end
+        if buttons and buttons.GetChildren then
+            for i = 1, select("#", buttons:GetChildren()) do
+                RaisePaperDollFlyoutButton(select(i, buttons:GetChildren()))
+            end
+        end
+    end
+    if _G.PaperDollFrameItemFlyout_Show then
+        hooksecurefunc("PaperDollFrameItemFlyout_Show", RaisePaperDollFlyout)
+    end
+    if _G.PaperDollFrameItemFlyout_DisplayButton then
+        hooksecurefunc("PaperDollFrameItemFlyout_DisplayButton", RaisePaperDollFlyoutButton)
+    end
+    RaisePaperDollFlyout()
 
     -- Sidebar background: lives on frame (not statsPanel) so it stays visible
     -- when switching between Character / Titles / Equipment panels.
@@ -1235,9 +1343,9 @@ local function SkinCharacterSheet()
         -- Check all bag slots (0 = backpack, 1-4 = bag slots, 5 = reagent
         -- bag -- included since it can hold any item, not just reagents).
         for bagSlot = 0, 5 do
-            local bagSize = C_Container.GetContainerNumSlots(bagSlot)
+            local bagSize = (C_Container and C_Container.GetContainerNumSlots) and C_Container.GetContainerNumSlots(bagSlot) or GetContainerNumSlots(bagSlot)
             for slotIndex = 1, bagSize do
-                local itemLink = C_Container.GetContainerItemLink(bagSlot, slotIndex)
+                local itemLink = (C_Container and C_Container.GetContainerItemLink) and C_Container.GetContainerItemLink(bagSlot, slotIndex) or GetContainerItemLink(bagSlot, slotIndex)
                 if itemLink then
                     local itemName, _, itemRarity, _, _, _, _, _, equipSlot, itemIcon = GetItemInfo(itemLink)
                     -- GetItemInfo's cached itemLevel can be wrong for a
@@ -1462,7 +1570,7 @@ local function SkinCharacterSheet()
         local pvpVisible = false
         if showPvP and avgItemLevelPvP and avgItemLevelPvP > 0 and GetFFD(frame).pvpIlvlText then
             GetFFD(frame).pvpIlvlText:SetText(format("PvP iLvl: |cff00cc66%d|r", math.floor(avgItemLevelPvP)))
-            GetFFD(frame)if isCharTab then .pvpIlvlText:Show() else .pvpIlvlText:Hide() end
+            if isCharTab then GetFFD(frame).pvpIlvlText:Show() else GetFFD(frame).pvpIlvlText:Hide() end
             pvpVisible = isCharTab
         elseif GetFFD(frame).pvpIlvlText then
             GetFFD(frame).pvpIlvlText:Hide()
@@ -1480,12 +1588,13 @@ local function SkinCharacterSheet()
         -- the Character sub-pane is active (selectedTab is unreliable on the
         -- initial open path).
         if EllesmereUIDB and EllesmereUIDB.showMythicRating and GetFFD(frame).mythicRatingLabel then
-            local mythicRating = C_ChallengeMode.GetOverallDungeonScore()
+            -- TODO WotLK: Implement PvP rating/Arena points instead of M+
+            local mythicRating = C_ChallengeMode and C_ChallengeMode.GetOverallDungeonScore and C_ChallengeMode.GetOverallDungeonScore() or 0
             if mythicRating and mythicRating > 0 then
                 local score = math.floor(mythicRating)
                 local hex = GetMPScoreHex(score)
                 GetFFD(frame).mythicRatingLabel:SetText(L("M+ Score:") .. string.format(" |cff%s%d|r", hex, score))
-                GetFFD(frame)if isCharTab then .mythicRatingLabel:Show() else .mythicRatingLabel:Hide() end
+                if isCharTab then GetFFD(frame).mythicRatingLabel:Show() else GetFFD(frame).mythicRatingLabel:Hide() end
             else
                 GetFFD(frame).mythicRatingLabel:Hide()
             end
@@ -1717,7 +1826,7 @@ local function SkinCharacterSheet()
     EllesmereUI._updateScrollHeaderOffset = function()
         local showMP = EllesmereUIDB and EllesmereUIDB.showMythicRating
         if showMP and C_ChallengeMode and C_ChallengeMode.GetOverallDungeonScore then
-            local score = C_ChallengeMode.GetOverallDungeonScore()
+            local score = (C_ChallengeMode and C_ChallengeMode.GetOverallDungeonScore) and C_ChallengeMode.GetOverallDungeonScore() or 0
             if not score or score <= 0 then showMP = false end
         end
         local showPvP = EllesmereUIDB and EllesmereUIDB.showPvpItemLevel
@@ -1762,7 +1871,7 @@ local function SkinCharacterSheet()
 
     -- Helper function to get crest maximum value (now using API to get seasonal max)
     local function GetCrestMaxValue(currencyID)
-        local currencyInfo = C_CurrencyInfo.GetCurrencyInfo(currencyID)
+        local currencyInfo = C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo and C_CurrencyInfo.GetCurrencyInfo(currencyID)
         if currencyInfo and currencyInfo.maxQuantity then
             return currencyInfo.maxQuantity
         end
@@ -1785,46 +1894,43 @@ local function SkinCharacterSheet()
         return true
     end
 
-    -- Per-crest visibility. Each crest stat carries a showCrestKey; the
-    -- user can toggle each crest individually via the options cog. Default
-    -- is visible when the DB key is absent.
-    local function ShouldShowCrest(stat)
-        if not stat or not stat.showCrestKey then return true end
-        return not (EllesmereUIDB
-            and EllesmereUIDB["showCrest_" .. stat.showCrestKey] == false)
-    end
-
-    -- Determine which stats to show based on class/spec
-    local function GetFilteredAttributeStats()
-        local spec = GetSpecialization()
-        local primaryStatIndex = 4  -- default Intellect
-
-        if spec then
-            -- Get primary stat directly from spec info (6th return value)
-            local _, _, _, _, _, primaryStat = GetSpecializationInfo(spec)
-            primaryStatIndex = primaryStat or 4
+    -- Per-currency/crest visibility.
+    local function ShouldShowCurrency(stat)
+        if not stat then return true end
+        local key = stat.showCurrencyKey or stat.showCrestKey
+        if not key then return true end
+        if EllesmereUIDB then
+            if EllesmereUIDB["showCurrency_" .. key] == false then return false end
+            if EllesmereUIDB["showCrest_" .. key] == false then return false end
         end
+        return true
+    end
+    local ShouldShowCrest = ShouldShowCurrency
 
-        local primaryStatNames = { "Strength", "Agility", "Stamina", "Intellect" }
-        local primaryStat = primaryStatNames[primaryStatIndex]
-
-        -- Return fixed order: Primary Stat, Stamina, Health
+    -- Determine which stats to show for Attributes
+    local function GetFilteredAttributeStats()
         return {
-            { name = primaryStat, func = function() return UnitStat("player", primaryStatIndex) end, statIndex = primaryStatIndex, tooltip = (primaryStatIndex == 1 and L("Increases melee attack power")) or (primaryStatIndex == 2 and L("Increases dodge chance and melee attack power")) or (primaryStatIndex == 4 and L("Increase the magnitude of your attacks and Abilities")) or L("Primary stat") },
-            { name = "Stamina", func = function() return UnitStat("player", 3) end, statIndex = 3, tooltip = L("Increases health") },
-            { name = "Health", func = function() return UnitHealthMax("player") end, tooltip = L("The amount of damage you can take") },
+            { name = "Stamina",   func = function() return UnitStat("player", 3) end, statIndex = 3, tooltip = L("Increases health") },
+            { name = "Agility",   func = function() return UnitStat("player", 2) end, statIndex = 2, tooltip = L("Increases attack power, critical strike, and armor") },
+            { name = "Strength",  func = function() return UnitStat("player", 1) end, statIndex = 1, tooltip = L("Increases attack power and block value") },
+            { name = "Intellect", func = function() return UnitStat("player", 4) end, statIndex = 4, tooltip = L("Increases mana, spell critical strike, and spell power") },
         }
     end
 
     -- Default category colors
     local DEFAULT_CATEGORY_COLORS = {
         Attributes = { r = 0.047, g = 0.824, b = 0.616 },
+        Melee      = { r = 1,     g = 0.353, b = 0.122 },
+        Ranged     = { r = 0.859, g = 0.6,   b = 0.3   },
+        Spell      = { r = 0.471, g = 0.255, b = 0.784 },
+        Defense    = { r = 0.247, g = 0.655, b = 1     },
+        Currency   = { r = 1,     g = 0.784, b = 0.341 },
+        PvP        = { r = 0.671, g = 0.431, b = 0.349 },
+        -- Backwards compatibility aliases
         ["Secondary Stats"] = { r = 0.471, g = 0.255, b = 0.784 },
-        ["Tertiary Stats"] = { r = 0.859, g = 0.325, b = 0.855 },
-        Attack = { r = 1, g = 0.353, b = 0.122 },
-        Defense = { r = 0.247, g = 0.655, b = 1 },
-        Crests = { r = 1, g = 0.784, b = 0.341 },
-        PvP = { r = 0.671, g = 0.431, b = 0.349 },
+        ["Tertiary Stats"]  = { r = 0.859, g = 0.325, b = 0.855 },
+        Attack              = { r = 1,     g = 0.353, b = 0.122 },
+        Crests              = { r = 1,     g = 0.784, b = 0.341 },
     }
 
     -- Get category color, applying customization if available
@@ -1844,44 +1950,54 @@ local function SkinCharacterSheet()
                 stats = GetFilteredAttributeStats()
             },
             {
-                title = "Secondary",
-                colorKey = "Secondary Stats",
-                settingKey = "SecondaryStats",
-                color = GetCategoryColor("Secondary Stats"),
+                title = "Melee",
+                colorKey = "Melee",
+                color = GetCategoryColor("Melee"),
                 stats = {
-                    { name = "Critical Strike", func = function() return GetCritChance("player") or 0 end, format = "%.2f%%", rawFunc = function() return GetCombatRating(CR_CRIT_MELEE) or 0 end },
-                    { name = "Haste", func = function() return UnitSpellHaste("player") or 0 end, format = "%.2f%%", rawFunc = function() return GetCombatRating(CR_HASTE_MELEE) or 0 end },
-                    { name = "Mastery", func = function() return GetMasteryEffect() or 0 end, format = "%.2f%%", rawFunc = function() return GetCombatRating(CR_MASTERY) or 0 end },
-                    { name = "Versatility", func = function()
-                        local rating = GetCombatRatingBonus(CR_VERSATILITY_DAMAGE_DONE) or 0
-                        local base = GetVersatilityBonus(CR_VERSATILITY_DAMAGE_DONE) or 0
-                        if issecretvalue(rating) or issecretvalue(base) then return rating end
-                        return rating + base
-                    end, format = "%.2f%%", rawFunc = function() return GetCombatRating(CR_VERSATILITY_DAMAGE_DONE) or 0 end },
+                    { name = "Attack Power", func = function() local base, pos, neg = UnitAttackPower("player"); return (base or 0) + (pos or 0) + (neg or 0) end, format = "%d", tooltip = L("Increases damage dealt with melee weapons") },
+                    { name = "Critical Strike", func = function() return GetCritChance() or 0 end, format = "%.2f%%", rawFunc = function() return GetCombatRating(CR_CRIT_MELEE or 9) or 0 end, tooltip = L("Increases chance for melee attacks to critically strike") },
+                    { name = "Haste", func = function() return GetCombatRatingBonus(CR_HASTE_MELEE or 18) or 0 end, format = "%.2f%%", rawFunc = function() return GetCombatRating(CR_HASTE_MELEE or 18) or 0 end, tooltip = L("Increases melee attack speed") },
+                    { name = "Armor Penetration", func = function() return GetCombatRatingBonus(CR_ARMOR_PENETRATION or 25) or 0 end, format = "%.2f%%", rawFunc = function() return GetCombatRating(CR_ARMOR_PENETRATION or 25) or 0 end, tooltip = L("Enemy armor reduced by up to %.2f%%") },
+                    { name = "Expertise", func = function() local exp = GetExpertise(); return exp or 0 end, format = "%d", rawFunc = function() return GetCombatRating(CR_EXPERTISE or 24) or 0 end, tooltip = L("Reduces chance for attacks to be dodged or parried") },
+                    { name = "Hit", func = function() return GetCombatRatingBonus(CR_HIT_MELEE or 6) or 0 end, format = "%.2f%%", rawFunc = function() return GetCombatRating(CR_HIT_MELEE or 6) or 0 end, tooltip = L("Increases chance to hit with melee attacks") },
                 }
             },
             {
-                title = "Tertiary",
-                colorKey = "Tertiary Stats",
-                settingKey = "Tertiary",
-                color = GetCategoryColor("Tertiary Stats"),
+                title = "Ranged",
+                colorKey = "Ranged",
+                color = GetCategoryColor("Ranged"),
                 stats = {
-                    -- GetLifesteal / GetAvoidance / GetSpeed return the TOTAL
-                    -- percent including talent / racial / innate bonuses.
-                    -- GetCombatRatingBonus only reflects rating-derived percent,
-                    -- which misses e.g. Shadow Priest's +2% innate leech talent.
-                    { name = "Leech",     func = function() return GetLifesteal() or 0 end, format = "%.2f%%", rawFunc = function() return GetCombatRating(CR_LIFESTEAL) or 0 end },
-                    { name = "Avoidance", func = function() return GetAvoidance() or 0 end, format = "%.2f%%", rawFunc = function() return GetCombatRating(CR_AVOIDANCE) or 0 end },
-                    { name = "Speed",     func = function() return GetSpeed()     or 0 end, format = "%.2f%%", rawFunc = function() return GetCombatRating(CR_SPEED)     or 0 end },
+                    { name = "Attack Power", func = function() local base, pos, neg = UnitRangedAttackPower("player"); return (base or 0) + (pos or 0) + (neg or 0) end, format = "%d", tooltip = L("Increases damage dealt with ranged weapons") },
+                    { name = "Critical Strike", func = function() return GetRangedCritChance() or 0 end, format = "%.2f%%", rawFunc = function() return GetCombatRating(CR_CRIT_RANGED or 10) or 0 end, tooltip = L("Increases chance for ranged attacks to critically strike") },
+                    { name = "Haste", func = function() return GetCombatRatingBonus(CR_HASTE_RANGED or 19) or 0 end, format = "%.2f%%", rawFunc = function() return GetCombatRating(CR_HASTE_RANGED or 19) or 0 end, tooltip = L("Increases ranged attack speed") },
+                    { name = "Armor Penetration", func = function() return GetCombatRatingBonus(CR_ARMOR_PENETRATION or 25) or 0 end, format = "%.2f%%", rawFunc = function() return GetCombatRating(CR_ARMOR_PENETRATION or 25) or 0 end, tooltip = L("Enemy armor reduced by up to %.2f%%") },
+                    { name = "Expertise", func = function() local exp = GetExpertise(); return exp or 0 end, format = "%d", rawFunc = function() return GetCombatRating(CR_EXPERTISE or 24) or 0 end, tooltip = L("Reduces chance for attacks to be dodged or parried") },
+                    { name = "Hit", func = function() return GetCombatRatingBonus(CR_HIT_RANGED or 7) or 0 end, format = "%.2f%%", rawFunc = function() return GetCombatRating(CR_HIT_RANGED or 7) or 0 end, tooltip = L("Increases chance to hit with ranged attacks") },
                 }
             },
             {
-                title = "Attack",
-                colorKey = "Attack",
-                color = GetCategoryColor("Attack"),
+                title = "Spell",
+                colorKey = "Spell",
+                color = GetCategoryColor("Spell"),
                 stats = {
-                    { name = "Spell Power", func = function() return GetSpellBonusDamage(7) end, tooltip = L("Increases the power of your spells and abilities") },
-                    { name = "Attack Speed", func = function() return UnitAttackSpeed("player") or 0 end, format = "%.2f", tooltip = L("Attacks per second") },
+                    { name = "Spell Power", func = function()
+                        local maxSP = 0
+                        for i = 2, 7 do
+                            local sp = GetSpellBonusDamage(i) or 0
+                            if sp > maxSP then maxSP = sp end
+                        end
+                        return maxSP
+                    end, format = "%d", tooltip = L("Increases damage and healing done by spells") },
+                    { name = "Critical Strike", func = function()
+                        local maxCrit = 0
+                        for i = 2, 7 do
+                            local c = GetSpellCritChance(i) or 0
+                            if c > maxCrit then maxCrit = c end
+                        end
+                        return maxCrit
+                    end, format = "%.2f%%", rawFunc = function() return GetCombatRating(CR_CRIT_SPELL or 11) or 0 end, tooltip = L("Increases chance for spells to critically hit") },
+                    { name = "Haste", func = function() return GetCombatRatingBonus(CR_HASTE_SPELL or 20) or 0 end, format = "%.2f%%", rawFunc = function() return GetCombatRating(CR_HASTE_SPELL or 20) or 0 end, tooltip = L("Increases spell casting speed") },
+                    { name = "Hit", func = function() return GetCombatRatingBonus(CR_HIT_SPELL or 8) or 0 end, format = "%.2f%%", rawFunc = function() return GetCombatRating(CR_HIT_SPELL or 8) or 0 end, tooltip = L("Increases chance to hit with spells") },
                 }
             },
             {
@@ -1889,23 +2005,24 @@ local function SkinCharacterSheet()
                 colorKey = "Defense",
                 color = GetCategoryColor("Defense"),
                 stats = {
-                    { name = "Armor", func = function() local base, effectiveArmor = UnitArmor("player") return effectiveArmor end, tooltip = L("Reduces physical damage taken") },
-                    { name = "Dodge", func = function() return GetDodgeChance() or 0 end, format = "%.2f%%", tooltip = L("Chance to avoid melee attacks") },
-                    { name = "Parry", func = function() return GetParryChance() or 0 end, format = "%.2f%%", tooltip = L("Chance to deflect melee attacks") },
-                    { name = "Block", func = function() return GetBlockChance() or 0 end, format = "%.2f%%", tooltip = L("Chance to block incoming attacks with a shield") },
-                    { name = "Stagger Effect", func = function() return C_PaperDollInfo.GetStaggerPercentage("player") or 0 end, format = "%.2f%%", showWhen = "brewmaster", tooltip = L("Converts damage into a delayed effect") },
+                    { name = "Defense", func = function() local base, mod = UnitDefense("player"); return (base or 0) + (mod or 0) end, format = "%d", rawFunc = function() return GetCombatRating(CR_DEFENSE_SKILL or 2) or 0 end, tooltip = L("Decreases chance to be hit, critically hit, or blocked") },
+                    { name = "Armor", func = function() local base, effectiveArmor = UnitArmor("player"); return effectiveArmor or 0 end, format = "%d", tooltip = L("Reduces physical damage taken") },
+                    { name = "Dodge", func = function() return GetDodgeChance() or 0 end, format = "%.2f%%", rawFunc = function() return GetCombatRating(CR_DODGE or 3) or 0 end, tooltip = L("Chance to avoid melee attacks") },
+                    { name = "Parry", func = function() return GetParryChance() or 0 end, format = "%.2f%%", rawFunc = function() return GetCombatRating(CR_PARRY or 4) or 0 end, tooltip = L("Chance to deflect melee attacks") },
+                    { name = "Block", func = function() return GetBlockChance() or 0 end, format = "%.2f%%", rawFunc = function() return GetCombatRating(CR_BLOCK or 5) or 0 end, tooltip = L("Chance to block incoming attacks with a shield") },
+                    { name = "Block Value", func = function() return GetShieldBlock() or 0 end, format = "%d", tooltip = L("Amount of damage absorbed by a successful block") },
                 }
             },
             {
-                title = "Crests",
-                colorKey = "Crests",
-                color = GetCategoryColor("Crests"),
+                title = "Currency",
+                colorKey = "Currency",
+                color = GetCategoryColor("Currency"),
                 stats = {
-                    { name = "Myth", showCrestKey = "Myth", func = function() return GetCrestValue(3347) end, format = "%d", currencyID = 3347 },
-                    { name = "Hero", showCrestKey = "Hero", func = function() return GetCrestValue(3345) end, format = "%d", currencyID = 3345 },
-                    { name = "Champion", showCrestKey = "Champion", func = function() return GetCrestValue(3343) end, format = "%d", currencyID = 3343 },
-                    { name = "Veteran", showCrestKey = "Veteran", func = function() return GetCrestValue(3341) end, format = "%d", currencyID = 3341 },
-                    { name = "Adventurer", showCrestKey = "Adventurer", func = function() return GetCrestValue(3383) end, format = "%d", currencyID = 3383 },
+                    { name = "Emblem of Frost",    showCurrencyKey = "EmblemOfFrost",   showCrestKey = "Myth",       func = function() return GetItemCount(49426, true) or 0 end, format = "%d", itemID = 49426 },
+                    { name = "Emblem of Triumph",  showCurrencyKey = "EmblemOfTriumph", showCrestKey = "Hero",       func = function() return GetItemCount(47241, true) or 0 end, format = "%d", itemID = 47241 },
+                    { name = "Emblem of Conquest", showCurrencyKey = "EmblemOfConquest",showCrestKey = "Champion",   func = function() return GetItemCount(45624, true) or 0 end, format = "%d", itemID = 45624 },
+                    { name = "Emblem of Valor",    showCurrencyKey = "EmblemOfValor",   showCrestKey = "Veteran",    func = function() return GetItemCount(40753, true) or 0 end, format = "%d", itemID = 40753 },
+                    { name = "Emblem of Heroism",  showCurrencyKey = "EmblemOfHeroism", showCrestKey = "Adventurer", func = function() return GetItemCount(40752, true) or 0 end, format = "%d", itemID = 40752 },
                 }
             },
             {
@@ -1946,7 +2063,7 @@ local function SkinCharacterSheet()
             }
         }
 
-        -- Apply saved order if exists
+        -- Apply saved order if exists, appending any new default sections
         if EllesmereUIDB and EllesmereUIDB.statSectionsOrder then
             local orderedSections = {}
             for _, title in ipairs(EllesmereUIDB.statSectionsOrder) do
@@ -1957,7 +2074,14 @@ local function SkinCharacterSheet()
                     end
                 end
             end
-            return #orderedSections == #defaultOrder and orderedSections or defaultOrder
+            for _, section in ipairs(defaultOrder) do
+                local found = false
+                for _, s in ipairs(orderedSections) do
+                    if s.title == section.title then found = true; break end
+                end
+                if not found then table.insert(orderedSections, section) end
+            end
+            return orderedSections
         end
         return defaultOrder
     end
@@ -2325,7 +2449,7 @@ local function SkinCharacterSheet()
 
                     -- Currency (Crests)
                     if stat.currencyID then
-                        local currencyInfo = C_CurrencyInfo.GetCurrencyInfo(stat.currencyID)
+                        local currencyInfo = C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo and C_CurrencyInfo.GetCurrencyInfo(stat.currencyID)
                         if currencyInfo then
                             local earned = currencyInfo.totalEarned or 0
                             local maximum = currencyInfo.maxQuantity or 0
@@ -2622,7 +2746,7 @@ local function SkinCharacterSheet()
             upBtn:SetFrameLevel(titleContainer:GetFrameLevel() + 2)
             local upIcon = upBtn:CreateTexture(nil, "OVERLAY")
             upIcon:SetAllPoints()
-            upIcon:SetTexture(MEDIA .. "icons\\eui-arrow-up3.png")
+            upIcon:SetTexture(MEDIA .. "icons\\eui-arrow-up3.tga")
             upIcon:SetVertexColor(section.color.r, section.color.g, section.color.b, 1)
             upBtn:SetAlpha(DIV_ICON_ALPHA)
 
@@ -2633,7 +2757,7 @@ local function SkinCharacterSheet()
             downBtn:SetFrameLevel(titleContainer:GetFrameLevel() + 2)
             local downIcon = downBtn:CreateTexture(nil, "OVERLAY")
             downIcon:SetAllPoints()
-            downIcon:SetTexture(MEDIA .. "icons\\eui-arrow-down3.png")
+            downIcon:SetTexture(MEDIA .. "icons\\eui-arrow-down3.tga")
             downIcon:SetVertexColor(section.color.r, section.color.g, section.color.b, 1)
             downBtn:SetAlpha(DIV_ICON_ALPHA)
 
@@ -3047,26 +3171,43 @@ local function SkinCharacterSheet()
         btn:SetScript("OnLeave", function(self) self._hover:Hide() end)
         btn:SetScript("OnClick", function(self)
             SetCurrentTitle(self._titleIndex)
+            -- GetCurrentTitle() is not updated synchronously on all 3.3.5
+            -- clients/servers.  Paint the title the player just chose instead
+            -- of repainting the previous title until the next click.
             PaintTitleSelection(self._titleIndex)
         end)
         return btn
+    end
+
+    local _knownTitlesSignature
+    local function KnownTitlesSignature()
+        local known = {}
+        for titleIndex = 1, GetNumTitles() do
+            local isKnown = IsTitleKnown(titleIndex)
+            if isKnown == true or (type(isKnown) == "number" and isKnown ~= 0) then
+                known[#known + 1] = titleIndex
+            end
+        end
+        return table.concat(known, ",")
     end
 
     -- Build every known title button ONCE. No rebuild on search keystrokes.
     local function BuildTitlesList()
         if _titlesBuilt then return end
         _titlesBuilt = true
+        _knownTitlesSignature = KnownTitlesSignature()
 
-        -- "No Title" (Blizzard convention: titleId -1 means clear the title).
-        -- Title indices 1+ are real titles; using 0 here would be a silent
-        -- no-op and the server-saved title would persist across logins.
-        local noTitleBtn = _createTitleButton(-1)
+        -- In the 3.3.5 API title index 0 clears the current title.
+        local noTitleBtn = _createTitleButton(0)
         noTitleBtn._text:SetText(L("No Title"))
-        titleButtons[-1] = { btn = noTitleBtn, bg = noTitleBtn._bg }
+        titleButtons[0] = { btn = noTitleBtn, bg = noTitleBtn._bg }
 
         -- All known titles
         for titleIndex = 1, GetNumTitles() do
-            if IsTitleKnown(titleIndex) then
+            -- Some 3.3.5 servers return numeric 0/1 here.  Since 0 is truthy
+            -- in Lua, a plain truth test incorrectly exposes every title.
+            local known = IsTitleKnown(titleIndex)
+            if known == true or (type(known) == "number" and known ~= 0) then
                 local titleName = GetTitleName(titleIndex)
                 if titleName then
                     local btn = _createTitleButton(titleIndex)
@@ -3090,8 +3231,8 @@ local function SkinCharacterSheet()
         wipe(_titlesOrder)
         for idx in pairs(titleButtons) do _titlesOrder[#_titlesOrder + 1] = idx end
         table.sort(_titlesOrder, function(a, b)
-            if a == -1 then return true end
-            if b == -1 then return false end
+            if a == 0 then return true end
+            if b == 0 then return false end
             return SortKey(a) < SortKey(b)
         end)
     end
@@ -3106,9 +3247,9 @@ local function SkinCharacterSheet()
         for _, idx in ipairs(_titlesOrder) do
             local btnData = titleButtons[idx]
             local btn = btnData.btn
-            local name = (idx == -1) and L("No Title") or (btn._titleName or "")
+            local name = (idx == 0) and L("No Title") or (btn._titleName or "")
             local visible = (searchText == "")
-                or (idx == -1)   -- keep "No Title" always visible
+                or (idx == 0)   -- keep "No Title" always visible
                 or name:lower():find(searchText, 1, true)
             if visible then
                 btn:ClearAllPoints()
@@ -3128,12 +3269,16 @@ local function SkinCharacterSheet()
     -- Back-compat alias: a few call sites still say RefreshTitlesList().
     local RefreshTitlesList = FilterTitlesList
 
-    -- When the player learns a new title, invalidate the build cache so the
-    -- next filter rebuilds. (Typically fires once per expansion's worth of
-    -- content; harmless to do a single full rebuild on those edges.)
+    -- Some 3.3.5 clients also fire KNOWN_TITLES_UPDATE when merely changing
+    -- the active title.  Only rebuild when the set of known titles changed;
+    -- otherwise repeated selections would continuously orphan whole button
+    -- lists and eventually make this panel unusable.
     local _titlesInvalidator = EllesmereUI.SafeCreateFrame("Frame")
     _titlesInvalidator:RegisterEvent("KNOWN_TITLES_UPDATE")
     _titlesInvalidator:SetScript("OnEvent", function()
+        if KnownTitlesSignature() == _knownTitlesSignature then
+            return
+        end
         _titlesBuilt = false
         wipe(_titlesOrder)
         for idx, data in pairs(titleButtons) do
@@ -3186,8 +3331,8 @@ local function SkinCharacterSheet()
         SetActiveTopButton(characterBtn)
         if not statsPanel:IsShown() then
             if true then statsPanel:Show() else statsPanel:Hide() end
-            if GetFFD(CharacterFrame).titlesPanel then GetFFD(CharacterFrame)if false then .titlesPanel:Show() else .titlesPanel:Hide() end end
-            if GetFFD(CharacterFrame).equipPanel  then GetFFD(CharacterFrame)if false then .equipPanel:Show() else .equipPanel:Hide() end  end
+            if GetFFD(CharacterFrame).titlesPanel then if false then GetFFD(CharacterFrame).titlesPanel:Show() else GetFFD(CharacterFrame).titlesPanel:Hide() end end
+            if GetFFD(CharacterFrame).equipPanel  then if false then GetFFD(CharacterFrame).equipPanel:Show() else GetFFD(CharacterFrame).equipPanel:Hide() end  end
             -- Deactivate equipment sidebar (hides flyout arrows).
             local sidebarTab = _G.PaperDollSidebarTab1
             if sidebarTab and sidebarTab.Click then pcall(sidebarTab.Click, sidebarTab) end
@@ -3197,9 +3342,9 @@ local function SkinCharacterSheet()
     -- Titles button to show titles
     CreateEUIButton("Titles", L("Titles"), function()
         if not GetFFD(CharacterFrame).titlesPanel:IsShown() then
-            GetFFD(CharacterFrame)if true then .titlesPanel:Show() else .titlesPanel:Hide() end
+            if true then GetFFD(CharacterFrame).titlesPanel:Show() else GetFFD(CharacterFrame).titlesPanel:Hide() end
             if false then statsPanel:Show() else statsPanel:Hide() end
-            if GetFFD(CharacterFrame).equipPanel then GetFFD(CharacterFrame)if false then .equipPanel:Show() else .equipPanel:Hide() end end
+            if GetFFD(CharacterFrame).equipPanel then if false then GetFFD(CharacterFrame).equipPanel:Show() else GetFFD(CharacterFrame).equipPanel:Hide() end end
             -- Deactivate equipment sidebar (hides flyout arrows).
             local sidebarTab = _G.PaperDollSidebarTab1
             if sidebarTab and sidebarTab.Click then pcall(sidebarTab.Click, sidebarTab) end
@@ -3309,7 +3454,8 @@ local function SkinCharacterSheet()
             button1 = L("Create"),
             button2 = L("Cancel"),
             OnAccept = function(dialog)
-                local newName = dialog.EditBox:GetText()
+                local editBox = dialog.EditBox or dialog.editBox
+                local newName = editBox and editBox:GetText() or ""
                 if newName ~= "" then
                     C_EquipmentSet.CreateEquipmentSet(newName)
                     RefreshEquipmentSets()
@@ -3485,7 +3631,7 @@ local function SkinCharacterSheet()
             cog:SetWidth(16); cog:SetHeight(16)
             cog:SetPoint("RIGHT", tile, "RIGHT", -5, 0)
             local cogTex = cog:CreateTexture(nil, "OVERLAY")
-            cogTex:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\cogs-3.png")
+            cogTex:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\cogs-3.tga")
             cogTex:SetVertexColor(1, 1, 1, 1)
             cogTex:SetAllPoints()
             cog:SetAlpha(0.75)
@@ -3524,21 +3670,28 @@ local function SkinCharacterSheet()
                         }
                         StaticPopup_Show("EUI_EQUIP_SET_ICON")
                     end },
-                    { text = "Unassigned", onClick = function()
+                }
+
+                -- Per-specialization equipment-set assignments are a retail
+                -- feature.  Wrath exposes talent trees/dual specs instead and
+                -- has no equipment-set assignment API, so omit these actions
+                -- rather than calling the compatibility no-ops.
+                if GetNumSpecializations then
+                    items[#items + 1] = { text = "Unassigned", onClick = function()
                         if InCombatLockdown() then return end
                         C_EquipmentSet.UnassignEquipmentSetSpec(sid)
                         RefreshEquipmentSets()
-                    end },
-                }
-                for i = 1, GetNumSpecializations() do
-                    local id, specName = GetSpecializationInfo(i)
-                    if id then
-                        local specIdx = i
-                        items[#items + 1] = { text = specName, onClick = function()
-                            if InCombatLockdown() then return end
-                            C_EquipmentSet.AssignSpecToEquipmentSet(sid, specIdx)
-                            RefreshEquipmentSets()
-                        end }
+                    end }
+                    for i = 1, GetNumSpecializations() do
+                        local id, specName = GetSpecializationInfo(i)
+                        if id then
+                            local specIdx = i
+                            items[#items + 1] = { text = specName, onClick = function()
+                                if InCombatLockdown() then return end
+                                C_EquipmentSet.AssignSpecToEquipmentSet(sid, specIdx)
+                                RefreshEquipmentSets()
+                            end }
+                        end
                     end
                 end
                 if EllesmereUI and EllesmereUI.ShowContextMenu then
@@ -3584,22 +3737,16 @@ local function SkinCharacterSheet()
                 end
             end)
 
-            -- Single-click selects, double-click equips.
-            tile._lastClick = 0
+            -- Equipment-manager tiles equip on click.  Keep the selected-set
+            -- state in sync so the save/delete controls target the same set.
             tile:SetScript("OnClick", function()
                 local sid = tile._setID
                 if not sid then return end
                 selectedSetID = sid
-                local now = GetTime()
-                if (now - (tile._lastClick or 0)) < 0.4 then
-                    tile._lastClick = 0
-                    if not InCombatLockdown() then
-                        EUI_EquipSet(sid)
-                        activeEquipmentSetID = sid
-                        if EllesmereUIDB then EllesmereUIDB.lastEquippedSet = sid end
-                    end
-                else
-                    tile._lastClick = now
+                if not InCombatLockdown() then
+                    EUI_EquipSet(sid)
+                    activeEquipmentSetID = sid
+                    if EllesmereUIDB then EllesmereUIDB.lastEquippedSet = sid end
                 end
                 RefreshEquipmentSets()
             end)
@@ -3794,9 +3941,9 @@ local function SkinCharacterSheet()
     -- EquipmentManagerPane with our own gear-sets UI.
     CreateEUIButton("Equipment", L("Equipment"), function()
         if not GetFFD(CharacterFrame).equipPanel:IsShown() then
-            GetFFD(CharacterFrame)if true then .equipPanel:Show() else .equipPanel:Hide() end
+            if true then GetFFD(CharacterFrame).equipPanel:Show() else GetFFD(CharacterFrame).equipPanel:Hide() end
             if false then statsPanel:Show() else statsPanel:Hide() end
-            if GetFFD(CharacterFrame).titlesPanel then GetFFD(CharacterFrame)if false then .titlesPanel:Show() else .titlesPanel:Hide() end end
+            if GetFFD(CharacterFrame).titlesPanel then if false then GetFFD(CharacterFrame).titlesPanel:Show() else GetFFD(CharacterFrame).titlesPanel:Hide() end end
             -- Activate Blizzard's equipment sidebar for flyout arrows.
             local sidebarTab = _G.PaperDollSidebarTab3
             if sidebarTab and sidebarTab.Click then
@@ -3959,8 +4106,8 @@ local function SkinCharacterSheet()
     -- Top-left eyeball toggle: temporarily hides all item slot text (item level,
     -- upgrade track, enchants) by alpha-ing the shared overlay. Session-only.
     do
-        local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-        local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+        local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.tga"
+        local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.tga"
         local hidden = false
         local eyeBtn = EllesmereUI.SafeCreateFrame("Button", "EUI_CharSheet_TextEyeBtn", frame)
         eyeBtn:SetSize(20, 20)
@@ -4475,8 +4622,8 @@ local function SkinCharacterSheet()
         -- un-clickable until the user clicks Currency to resync.
         if isCharacterTab then
             if statsPanel        then if true then statsPanel:Show() else statsPanel:Hide() end          end
-            if GetFFD(frame).titlesPanel then GetFFD(frame)if false then .titlesPanel:Show() else .titlesPanel:Hide() end end
-            if GetFFD(frame).equipPanel  then GetFFD(frame)if false then .equipPanel:Show() else .equipPanel:Hide() end  end
+            if GetFFD(frame).titlesPanel then if false then GetFFD(frame).titlesPanel:Show() else GetFFD(frame).titlesPanel:Hide() end end
+            if GetFFD(frame).equipPanel  then if false then GetFFD(frame).equipPanel:Show() else GetFFD(frame).equipPanel:Hide() end  end
             if SetActiveTopButton and characterBtn then
                 SetActiveTopButton(characterBtn)
             end
@@ -4578,7 +4725,7 @@ local function SkinCharacterSheet()
 
             if showItemLevel then
                 GetFFD(slot).itemLevelLabel:SetText(tostring(itemLevel) or "")
-                GetFFD(slot)if isCharTab then .itemLevelLabel:Show() else .itemLevelLabel:Hide() end
+                if isCharTab then GetFFD(slot).itemLevelLabel:Show() else GetFFD(slot).itemLevelLabel:Hide() end
                 GetFFD(slot).itemLevelLabel:SetTextColor(ilvlColor.r, ilvlColor.g, ilvlColor.b, 0.9)
             else
                 GetFFD(slot).itemLevelLabel:Hide()
@@ -4662,10 +4809,10 @@ local function SkinCharacterSheet()
                     GetFFD(slot).enchantLabel:SetTextColor(1, 1, 1, 0.8)
                     GetFFD(slot).enchantLabel:SetWidth(0)
                 end
-                GetFFD(slot)if isCharTab then .enchantLabel:Show() else .enchantLabel:Hide() end
+                if isCharTab then GetFFD(slot).enchantLabel:Show() else GetFFD(slot).enchantLabel:Hide() end
 
                 if GetFFD(slot).enchantHoverFrame then
-                    GetFFD(slot)if isCharTab then .enchantHoverFrame:Show() else .enchantHoverFrame:Hide() end
+                    if isCharTab then GetFFD(slot).enchantHoverFrame:Show() else GetFFD(slot).enchantHoverFrame:Hide() end
                     GetFFD(slot).enchantHoverFrame:SetScript("OnEnter", function(self)
                         if not tooltipText or tooltipText == "" then return end
                         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -4695,7 +4842,7 @@ local function SkinCharacterSheet()
 
             if showUpgradeTrack then
                 GetFFD(slot).upgradeTrackLabel:SetText(upgradeTrackText ~= "" and ("(" .. upgradeTrackText .. ")") or "")
-                GetFFD(slot)if isCharTab then .upgradeTrackLabel:Show() else .upgradeTrackLabel:Hide() end
+                if isCharTab then GetFFD(slot).upgradeTrackLabel:Show() else GetFFD(slot).upgradeTrackLabel:Hide() end
 
                 -- Determine color to use
                 local displayColor
@@ -4882,6 +5029,19 @@ if EllesmereUI then
                             inset:ClearAllPoints()
                             inset:SetPoint("TOPLEFT", CharacterFrame, "TOPLEFT", 10000, -10000)
                         end
+                        -- WotLK specific: Hide native stat frames and dropdowns at the bottom
+                        local wotlk_stats = {
+                            "PlayerStatFrameLeft1", "PlayerStatFrameLeft2", "PlayerStatFrameLeft3",
+                            "PlayerStatFrameLeft4", "PlayerStatFrameLeft5", "PlayerStatFrameLeft6",
+                            "PlayerStatFrameRight1", "PlayerStatFrameRight2", "PlayerStatFrameRight3",
+                            "PlayerStatFrameRight4", "PlayerStatFrameRight5", "PlayerStatFrameRight6",
+                            "PlayerStatLeftDropDown", "PlayerStatRightDropDown",
+                            "CharacterAttributesFrame", "CharacterResistanceFrame"
+                        }
+                        for _, stat in ipairs(wotlk_stats) do
+                            local f = _G[stat]
+                            if f then f:Hide(); f:SetAlpha(0); hooksecurefunc(f, "Show", function(self) self:Hide() end) end
+                        end
                         if CharacterFrame.Portrait then
                             if false then CharacterFrame.Portrait:Show() else CharacterFrame.Portrait:Hide() end
                             CharacterFrame.Portrait:SetAlpha(0)
@@ -4989,8 +5149,8 @@ if EllesmereUI then
 
             -- Auto-equip equipment set when spec changes
             local specChangeFrame = EllesmereUI.SafeCreateFrame("Frame")
-            local lastSpecIndex = GetSpecialization()
-            specChangeFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+            local lastSpecIndex = GetSpecialization and GetSpecialization()
+            specChangeFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
             specChangeFrame:RegisterEvent("EQUIPMENT_SETS_CHANGED")
             specChangeFrame:SetScript("OnEvent", function(self, event)
                 if event == "EQUIPMENT_SETS_CHANGED" then
@@ -5002,8 +5162,9 @@ if EllesmereUI then
                     end
                 else
                     -- Auto-equip when spec actually changes (not just event noise)
-                    local currentSpecIndex = GetSpecialization()
-                    if currentSpecIndex ~= lastSpecIndex then
+                    local currentSpecIndex = GetSpecialization and GetSpecialization()
+                    if currentSpecIndex and currentSpecIndex ~= lastSpecIndex then
+
                         lastSpecIndex = currentSpecIndex
                         local setIDs = C_EquipmentSet.GetEquipmentSetIDs()
                         if setIDs then
@@ -5124,12 +5285,17 @@ function EllesmereUI._refreshCharacterSheetColors()
     -- Default category colors
     local DEFAULT_CATEGORY_COLORS = {
         Attributes = { r = 0.047, g = 0.824, b = 0.616 },
+        Melee      = { r = 1,     g = 0.353, b = 0.122 },
+        Ranged     = { r = 0.859, g = 0.6,   b = 0.3   },
+        Spell      = { r = 0.471, g = 0.255, b = 0.784 },
+        Defense    = { r = 0.247, g = 0.655, b = 1     },
+        Currency   = { r = 1,     g = 0.784, b = 0.341 },
+        PvP        = { r = 0.671, g = 0.431, b = 0.349 },
+        -- Backwards compatibility aliases
         ["Secondary Stats"] = { r = 0.471, g = 0.255, b = 0.784 },
-        ["Tertiary Stats"] = { r = 0.859, g = 0.325, b = 0.855 },
-        Attack = { r = 1, g = 0.353, b = 0.122 },
-        Defense = { r = 0.247, g = 0.655, b = 1 },
-        Crests = { r = 1, g = 0.784, b = 0.341 },
-        PvP = { r = 0.671, g = 0.431, b = 0.349 },
+        ["Tertiary Stats"]  = { r = 0.859, g = 0.325, b = 0.855 },
+        Attack              = { r = 1,     g = 0.353, b = 0.122 },
+        Crests              = { r = 1,     g = 0.784, b = 0.341 },
     }
 
     -- Helper to get category color

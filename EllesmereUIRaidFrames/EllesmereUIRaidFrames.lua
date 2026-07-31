@@ -211,7 +211,12 @@ local UnitExists            = UnitExists
 local UnitIsConnected       = UnitIsConnected
 local UnitIsVisible         = UnitIsVisible
 local UnitIsDeadOrGhost     = UnitIsDeadOrGhost
-local UnitHasIncomingResurrection = UnitHasIncomingResurrection
+-- Added in later clients. Wrath has no incoming-resurrection query, so treat
+-- the state as absent while keeping the shared status/icon code callable.
+-- This fallback can be replaced with a library function if one is available.
+local UnitHasIncomingResurrection = UnitHasIncomingResurrection or function()
+    return false
+end
 local UnitGroupRolesAssigned = UnitGroupRolesAssigned
 local UnitThreatSituation   = UnitThreatSituation
 local UnitIsUnit            = UnitIsUnit
@@ -219,10 +224,16 @@ local UnitInRange           = UnitInRange
 local UnitGetTotalAbsorbs   = UnitGetTotalAbsorbs
 local UnitGetTotalHealAbsorbs = UnitGetTotalHealAbsorbs
 local GetReadyCheckStatus   = GetReadyCheckStatus
-local C_IncomingSummon      = C_IncomingSummon
-local SUMMON_STATUS_PENDING  = Enum.SummonStatus and Enum.SummonStatus.Pending or 1
-local SUMMON_STATUS_ACCEPTED = Enum.SummonStatus and Enum.SummonStatus.Accepted or 2
-local SUMMON_STATUS_DECLINED = Enum.SummonStatus and Enum.SummonStatus.Declined or 3
+-- Added in later clients. Wrath cannot report incoming summon state, so expose
+-- a no-summon implementation to the shared indicator code. This fallback can
+-- be replaced with a library function if one is available.
+local C_IncomingSummon = C_IncomingSummon or {
+    HasIncomingSummon = function() return false end,
+    IncomingSummonStatus = function() return nil end,
+}
+local SUMMON_STATUS_PENDING  = Enum and Enum.SummonStatus and Enum.SummonStatus.Pending or 1
+local SUMMON_STATUS_ACCEPTED = Enum and Enum.SummonStatus and Enum.SummonStatus.Accepted or 2
+local SUMMON_STATUS_DECLINED = Enum and Enum.SummonStatus and Enum.SummonStatus.Declined or 3
 local GetRaidTargetIndex    = GetRaidTargetIndex
 local IsInRaid              = IsInRaid
 local IsInGroup             = IsInGroup
@@ -247,15 +258,15 @@ local PA_STRATA_FIX = {
 
 -- Absorb shield textures (must match UnitFrames exactly)
 local ABSORB_STYLE_TEX = {
-    striped         = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\striped-5.png",
-    stripedReversed = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\striped-5-reversed.png",
+    striped         = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\striped-5.tga",
+    stripedReversed = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\striped-5-reversed.tga",
     clean           = "Interface\\Buttons\\WHITE8X8",
     blizzard        = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\blizzard.tga",
-    healBlizzModern = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\louis-absorb.png",
-    largeOutlinedStripes  = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\large-habsorb-left.png",
-    largeOutlinedStripesR = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\large-habsorb-right.png",
-    largeStripes          = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\large-absorb-left.png",
-    largeStripesR         = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\large-absorb-right.png",
+    healBlizzModern = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\louis-absorb.tga",
+    largeOutlinedStripes  = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\large-habsorb-left.tga",
+    largeOutlinedStripesR = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\large-habsorb-right.tga",
+    largeStripes          = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\large-absorb-left.tga",
+    largeStripesR         = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\large-absorb-right.tga",
 }
 local ABSORB_STYLE_ALPHA = {
     striped         = 0.8,
@@ -271,9 +282,9 @@ local ROLE_MEDIA = "Interface\\AddOns\\EllesmereUIRaidFrames\\Media\\"
 local ROLE_ICON_STYLES = {
     modern = {
         _isTexture = true,
-        TANK    = ROLE_MEDIA .. "tank-modern.png",
-        HEALER  = ROLE_MEDIA .. "healer-modern.png",
-        DAMAGER = ROLE_MEDIA .. "dps-modern.png",
+        TANK    = ROLE_MEDIA .. "tank-modern.tga",
+        HEALER  = ROLE_MEDIA .. "healer-modern.tga",
+        DAMAGER = ROLE_MEDIA .. "dps-modern.tga",
     },
     modernCircle = {
         TANK    = "UI-LFG-RoleIcon-Tank",
@@ -302,9 +313,9 @@ local ROLE_ICON_STYLES = {
     },
     blizzLight = {
         _isTexture = true,
-        TANK    = ROLE_MEDIA .. "tank.png",
-        HEALER  = ROLE_MEDIA .. "healer.png",
-        DAMAGER = ROLE_MEDIA .. "dps.png",
+        TANK    = ROLE_MEDIA .. "tank.tga",
+        HEALER  = ROLE_MEDIA .. "healer.tga",
+        DAMAGER = ROLE_MEDIA .. "dps.tga",
     },
 }
 
@@ -1001,6 +1012,19 @@ do
     ns._SuppressBlizzParty = function()
         if ns._blizzPartySuppressed then return end
         ns._blizzPartySuppressed = true
+
+        -- Standard 3.3.5a WotLK Blizzard party member frames
+        for i = 1, 4 do
+            local pmf = _G["PartyMemberFrame" .. i]
+            if pmf then
+                handleFrame(pmf)
+            end
+            local pet = _G["PartyMemberFrame" .. i .. "PetFrame"]
+            if pet then
+                handleFrame(pet)
+            end
+        end
+
         if PartyFrame then
             handleFrame(PartyFrame)
             if PartyFrame.PartyMemberFramePool then
@@ -1351,6 +1375,10 @@ end
 local classicHealthCurve
 local function GetClassicHealthCurve()
     if classicHealthCurve then return classicHealthCurve end
+    if not (C_CurveUtil and C_CurveUtil.CreateColorCurve
+        and Enum and Enum.LuaCurveType) then
+        return nil
+    end
     local curve = C_CurveUtil.CreateColorCurve()
     curve:SetType(Enum.LuaCurveType.Linear)
     curve:AddPoint(0, CreateColor(1, 0, 0, 1))     -- red at 0%
@@ -1373,6 +1401,10 @@ do
     local dynCurve
     local r0, g0, b0, r50, g50, b50, r100, g100, b100
     function ns.GetCustomDynamicCurve(s)
+        if not (C_CurveUtil and C_CurveUtil.CreateColorCurve
+            and Enum and Enum.LuaCurveType) then
+            return nil
+        end
         s = s or db.profile
         local c0   = s.dynamicColor0   or DEF0
         local c50  = s.dynamicColor50  or DEF50
@@ -1453,8 +1485,13 @@ function ns._ApplyHealthBg(d, health, s, unit)
     end
     if not bg then return end
     bg:ClearAllPoints()
-    bg:SetPoint("TOPLEFT", health:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
-    bg:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
+    local fillTex = health and health:GetStatusBarTexture()
+    if fillTex then
+        bg:SetPoint("TOPLEFT", fillTex, "TOPRIGHT", 0, 0)
+        bg:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
+    else
+        bg:SetAllPoints(health)
+    end
     if s.healthColorMode == "dark" then
         bg:SetTexture(EllesmereUI.GetDarkModeBg())
     else
@@ -1476,14 +1513,24 @@ local function GetHealthColor(unit, s)
         return dfr, dfg, dfb
     elseif mode == "classic" then
         -- Native WoW health gradient via Blizzard's curve system (secret-value safe)
-        local color = UnitHealthPercent(unit, true, GetClassicHealthCurve())
+        local curve = GetClassicHealthCurve()
+        if not curve then
+            local pct = GetSafeHealthPercent(unit) / 100
+            if pct >= 0.5 then return 2 - pct * 2, 1, 0 end
+            return 1, pct * 2, 0
+        end
+        local color = UnitHealthPercent(unit, true, curve)
         if color and color.GetRGB then
             return color:GetRGB()
         end
         return 0, 1, 0
     elseif mode == "customDynamic" then
         -- User-customizable gradient via the same secret-safe curve path as Classic
-        local color = UnitHealthPercent(unit, true, ns.GetCustomDynamicCurve(s))
+        local curve = ns.GetCustomDynamicCurve(s)
+        if not curve then
+            return ns.ResolveDynamicColor(s, GetSafeHealthPercent(unit) / 100)
+        end
+        local color = UnitHealthPercent(unit, true, curve)
         if color and color.GetRGB then
             return color:GetRGB()
         end
@@ -2029,7 +2076,7 @@ ns.ApplyMaxHealthStyle = function(bar, style, settings)
     style = style or "maxHealthStripes"
     local tex, tiled
     if style == "maxHealthStripes" then
-        tex = "Interface\\AddOns\\EllesmereUIRaidFrames\\Media\\striped-maxhp.png"
+        tex = "Interface\\AddOns\\EllesmereUIRaidFrames\\Media\\striped-maxhp.tga"
         tiled = true
     else
         tex = ns.ResolveAbsorbStyleTex(style, "Interface\\Buttons\\WHITE8X8")
@@ -2058,10 +2105,15 @@ local function CreateAbsorbBar(button, healthBar)
     if not healthBar then return end
     local d = GetFFD(button)
 
-    -- Mask texture: constrains absorb rendering to exact health bar bounds
-    local absorbMask = healthBar:CreateMaskTexture()
-    absorbMask:SetAllPoints(healthBar)
-    absorbMask:SetTexture("Interface\\Buttons\\WHITE8X8")
+    -- Mask textures were added after 3.3.5. The clip frames below already keep
+    -- the bars within the health area, so the mask is only a newer-client
+    -- subpixel-bleed refinement and can safely be omitted on older clients.
+    local absorbMask
+    if healthBar.CreateMaskTexture then
+        absorbMask = healthBar:CreateMaskTexture()
+        absorbMask:SetAllPoints(healthBar)
+        absorbMask:SetTexture("Interface\\Buttons\\WHITE8X8")
+    end
 
     -- Current HP clip: bounds the backfill bar to the filled health area
     local curClip = CreateFrame("Frame", nil, healthBar)
@@ -2075,13 +2127,16 @@ local function CreateAbsorbBar(button, healthBar)
     local backfillBar = CreateFrame("StatusBar", nil, curClip)
     backfillBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
     local bfFill = backfillBar:GetStatusBarTexture()
-    if bfFill then bfFill:SetDrawLayer("ARTWORK", 1); bfFill:AddMaskTexture(absorbMask) end
+    if bfFill then
+        bfFill:SetDrawLayer("ARTWORK", 1)
+        if absorbMask and bfFill.AddMaskTexture then bfFill:AddMaskTexture(absorbMask) end
+    end
     -- Compound "Blizzard (Modern)" solid base (c6c8ff): drawn BEHIND the striped
     -- fill (ARTWORK sublevel 0 < fill sublevel 1). Masked once here; shown only
     -- when that style is active and re-anchored to the fill rect each update.
     local bfBase = backfillBar:CreateTexture(nil, "ARTWORK", nil, 0)
     bfBase:SetTexture(0.776, 0.784, 1.0, 1)
-    if absorbMask then bfBase:AddMaskTexture(absorbMask) end
+    if absorbMask and bfBase.AddMaskTexture then bfBase:AddMaskTexture(absorbMask) end
     bfBase:Hide()
     backfillBar._modernBase = bfBase
     backfillBar:SetStatusBarColor(1, 1, 1, 0.8)
@@ -2099,11 +2154,14 @@ local function CreateAbsorbBar(button, healthBar)
     local forwardBar = CreateFrame("StatusBar", nil, missClip)
     forwardBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
     local fwFill = forwardBar:GetStatusBarTexture()
-    if fwFill then fwFill:SetDrawLayer("ARTWORK", 1); fwFill:AddMaskTexture(absorbMask) end
+    if fwFill then
+        fwFill:SetDrawLayer("ARTWORK", 1)
+        if absorbMask and fwFill.AddMaskTexture then fwFill:AddMaskTexture(absorbMask) end
+    end
     -- Modern solid base (c6c8ff) for the forward bar (see backfill above).
     local fwBase = forwardBar:CreateTexture(nil, "ARTWORK", nil, 0)
     fwBase:SetTexture(0.776, 0.784, 1.0, 1)
-    if absorbMask then fwBase:AddMaskTexture(absorbMask) end
+    if absorbMask and fwBase.AddMaskTexture then fwBase:AddMaskTexture(absorbMask) end
     fwBase:Hide()
     forwardBar._modernBase = fwBase
     forwardBar:SetStatusBarColor(1, 1, 1, 0.8)
@@ -2296,7 +2354,10 @@ local function CreateAbsorbBar(button, healthBar)
     healAbsorbBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
     healAbsorbBar._absorbMask = absorbMask
     local haFill = healAbsorbBar:GetStatusBarTexture()
-    if haFill then haFill:SetDrawLayer("ARTWORK", 2); haFill:AddMaskTexture(absorbMask) end
+    if haFill then
+        haFill:SetDrawLayer("ARTWORK", 2)
+        if absorbMask and haFill.AddMaskTexture then haFill:AddMaskTexture(absorbMask) end
+    end
     healAbsorbBar:SetStatusBarColor(0.8, 0.15, 0.15, 0.65)
     healAbsorbBar:SetReverseFill(true)
     healAbsorbBar:SetPoint("TOPRIGHT", healthBar:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
@@ -2313,7 +2374,7 @@ local function CreateAbsorbBar(button, healthBar)
     -- heal-absorb amount and collapses to nothing when there is none.
     local haBg = healAbsorbBar:CreateTexture(nil, "ARTWORK", nil, 1)
     haBg:SetTexture(0, 0, 0, 0.25)
-    if absorbMask then haBg:AddMaskTexture(absorbMask) end
+    if absorbMask and haBg.AddMaskTexture then haBg:AddMaskTexture(absorbMask) end
     haBg:Hide()
     healAbsorbBar._bg = haBg
 
@@ -2321,7 +2382,10 @@ local function CreateAbsorbBar(button, healthBar)
     healPredBar = CreateFrame("StatusBar", nil, missClip)
     healPredBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
     local hpFill = healPredBar:GetStatusBarTexture()
-    if hpFill then hpFill:SetDrawLayer("ARTWORK", 2); hpFill:AddMaskTexture(absorbMask) end
+    if hpFill then
+        hpFill:SetDrawLayer("ARTWORK", 2)
+        if absorbMask and hpFill.AddMaskTexture then hpFill:AddMaskTexture(absorbMask) end
+    end
     healPredBar:SetStatusBarColor(0.3, 0.8, 0.3, 0.4)
     healPredBar:SetReverseFill(false)
     healPredBar:SetPoint("TOPLEFT", healthBar:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
@@ -2333,7 +2397,7 @@ local function CreateAbsorbBar(button, healthBar)
 
     -- Reduced max health bar: black bg + red striped overlay on right side
     local reducedBar = CreateFrame("StatusBar", nil, healthBar)
-    reducedBar:SetStatusBarTexture("Interface\\AddOns\\EllesmereUIRaidFrames\\Media\\striped-maxhp.png")
+    reducedBar:SetStatusBarTexture("Interface\\AddOns\\EllesmereUIRaidFrames\\Media\\striped-maxhp.tga")
     local rmhFill = reducedBar:GetStatusBarTexture()
     if rmhFill then
         rmhFill:SetDrawLayer("ARTWORK", 3)
@@ -2576,6 +2640,16 @@ local function UpdateAbsorb(button, unit)
             ha:SetWidth(hp:GetWidth()); ha:SetHeight(hp:GetHeight())
             ha:SetMinMaxValues(0, maxHealth)
             ha:SetValue(healAbsorbAmt)
+            -- Reverse-filled status bars can retain a one-pixel sliver at zero.
+            -- The backing follows that fill, turning the sliver into a permanent
+            -- dark/doubled bar on the right edge of live frames. Alpha-gate the
+            -- complete overlay from the same value. SetAlphaFromBoolean also
+            -- accepts the restricted boolean produced by secret absorb values.
+            if ha.SetAlphaFromBoolean then
+                ha:SetAlphaFromBoolean(healAbsorbAmt ~= 0, 1, 0)
+            else
+                ha:SetAlpha(healAbsorbAmt ~= 0 and 1 or 0)
+            end
             ha:Show()
             -- Black backing: track the heal-absorb fill rect, opacity from settings.
             local hbg = ha._bg
@@ -2942,7 +3016,11 @@ local function StyleButton(button)
     health:SetHeight(healthH)
     local texPath = ResolveHealthTexture()
     health:SetStatusBarTexture(texPath)
-    health:GetStatusBarTexture():SetHorizTile(false)
+    -- Some 3.3.5 clients can return nil here for a frame created during secure
+    -- header setup, even though SetStatusBarTexture was just called. Tiling is
+    -- cosmetic, so do not abort creation of the entire party header.
+    local healthTexture = health:GetStatusBarTexture()
+    if healthTexture then healthTexture:SetHorizTile(false) end
     if PP then PP.DisablePixelSnap(health) end
     health:SetMinMaxValues(0, 100)
     health:SetValue(100)
@@ -2972,7 +3050,8 @@ local function StyleButton(button)
         power:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", 0, 0)
         power:SetHeight(powerH)
         power:SetStatusBarTexture(texPath)
-        power:GetStatusBarTexture():SetHorizTile(false)
+        local powerTexture = power:GetStatusBarTexture()
+        if powerTexture then powerTexture:SetHorizTile(false) end
         if PP then PP.DisablePixelSnap(power) end
         power:SetMinMaxValues(0, 1)
         power:SetValue(1)
@@ -3450,11 +3529,11 @@ local function StyleButton(button)
 
         local cooldown = CreateFrame("Cooldown", nil, icon, "CooldownFrameTemplate")
         cooldown:SetAllPoints()
-        cooldown:SetDrawEdge(false)
-        cooldown:SetDrawSwipe(true)
-        cooldown:SetSwipeColor(0, 0, 0, 0.6)
-        cooldown:SetReverse(true)
-        cooldown:SetHideCountdownNumbers(true)
+        if cooldown.SetDrawEdge then cooldown:SetDrawEdge(false) end
+        if cooldown.SetDrawSwipe then cooldown:SetDrawSwipe(true) end
+        if cooldown.SetSwipeColor then cooldown:SetSwipeColor(0, 0, 0, 0.6) end
+        if cooldown.SetReverse then cooldown:SetReverse(true) end
+        if cooldown.SetHideCountdownNumbers then cooldown:SetHideCountdownNumbers(true) end
         icon._cooldown = cooldown
 
         -- Debuff type border
@@ -3475,12 +3554,12 @@ local function StyleButton(button)
         local function MakeClockRing(level, reverse)
             local cd = CreateFrame("Cooldown", nil, button, "CooldownFrameTemplate")
             cd:SetFrameLevel(math.max(0, button:GetFrameLevel() + level))
-            cd:SetReverse(reverse)
-            cd:SetDrawEdge(false)
-            cd:SetDrawBling(false)
-            cd:SetDrawSwipe(true)
-            cd:SetHideCountdownNumbers(true)
-            cd:SetSwipeTexture("Interface\\Buttons\\WHITE8X8")
+            if cd.SetReverse then cd:SetReverse(reverse) end
+            if cd.SetDrawEdge then cd:SetDrawEdge(false) end
+            if cd.SetDrawBling then cd:SetDrawBling(false) end
+            if cd.SetDrawSwipe then cd:SetDrawSwipe(true) end
+            if cd.SetHideCountdownNumbers then cd:SetHideCountdownNumbers(true) end
+            if cd.SetSwipeTexture then cd:SetSwipeTexture("Interface\\Buttons\\WHITE8X8") end
             -- Full icon size, BEHIND the icon texture. ApplyDebuffIcon INSETS the
             -- icon texture by the border thickness so only this ring's inner margin
             -- shows -- an inset border that stays within the icon's footprint.
@@ -3647,11 +3726,11 @@ local function StyleButton(button)
 
         local defCD = CreateFrame("Cooldown", nil, defIcon, "CooldownFrameTemplate")
         defCD:SetAllPoints()
-        defCD:SetDrawEdge(false)
-        defCD:SetDrawSwipe(true)
-        defCD:SetSwipeColor(0, 0, 0, 0.6)
-        defCD:SetReverse(true)
-        defCD:SetHideCountdownNumbers(true)
+        if defCD.SetDrawEdge then defCD:SetDrawEdge(false) end
+        if defCD.SetDrawSwipe then defCD:SetDrawSwipe(true) end
+        if defCD.SetSwipeColor then defCD:SetSwipeColor(0, 0, 0, 0.6) end
+        if defCD.SetReverse then defCD:SetReverse(true) end
+        if defCD.SetHideCountdownNumbers then defCD:SetHideCountdownNumbers(true) end
         defIcon._cooldown = defCD
 
         local defBdr = CreateFrame("Frame", nil, defIcon)
@@ -4207,7 +4286,7 @@ ns._UpdateCombatIcon = function(d, s, unit)
         if not classToken then local _, ct = UnitClass(unit); classToken = ct end
         if classToken and issecretvalue(classToken) then classToken = nil end
         if style == "class" then
-            icon:SetTexture(MEDIA .. "combat-indicator-class-custom.png")
+            icon:SetTexture(MEDIA .. "combat-indicator-class-custom.tga")
             local coords = classToken and ns._COMBAT_CLASS_COORDS[classToken]
             if coords then
                 icon:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
@@ -4215,7 +4294,7 @@ ns._UpdateCombatIcon = function(d, s, unit)
                 icon:SetTexCoord(0, 1, 0, 1)
             end
         else
-            icon:SetTexture(MEDIA .. "combat-indicator-custom.png")
+            icon:SetTexture(MEDIA .. "combat-indicator-custom.tga")
             icon:SetTexCoord(0, 1, 0, 1)
         end
         local colorMode = s.combatIndicatorColor or "custom"
@@ -4308,7 +4387,7 @@ local function UpdateButton(button)
         -- their authoritative height is the button itself, not the shared
         -- setting -- the base value here would shrink health back and leave a
         -- gap under the bar on every update.
-        local frameH = d._isExtra and button:GetHeight() or (s.frameHeight or 46)
+        local frameH = (d._isExtra or d._isParty) and button:GetHeight() or (s.frameHeight or 46)
         if hidePower then
             power:Hide()
             if d.powerBorderFrame then d.powerBorderFrame:Hide() end
@@ -4722,11 +4801,11 @@ local function ApplyDebuffIcon(icon, auraData, unit, s)
                 end
             end
             if applied then
-                icon._cooldown:SetDrawSwipe(wantSwipe)
-                icon._cooldown:SetHideCountdownNumbers(not wantDurText)
+                if icon._cooldown.SetDrawSwipe then icon._cooldown:SetDrawSwipe(wantSwipe) end
+                if icon._cooldown.SetHideCountdownNumbers then icon._cooldown:SetHideCountdownNumbers(not wantDurText) end
                 icon._cooldown:Show()
             else
-                icon._cooldown:Clear()
+                CooldownFrame_Clear(icon._cooldown)
                 icon._cooldown:Hide()
             end
             -- Style the built-in countdown text via GetCountdownFontString
@@ -4795,16 +4874,16 @@ local function ApplyDebuffIcon(icon, auraData, unit, s)
                 -- complement in the same hue at 50% brightness.
                 local c  = dc     or s.debuffBorderColor or { r = 1, g = 1, b = 1 }
                 local cd = dcDark or c
-                cb:SetSwipeColor(c.r, c.g, c.b, 1)
-                cbd:SetSwipeColor(cd.r, cd.g, cd.b, 1)
+                if cb.SetSwipeColor then cb:SetSwipeColor(c.r, c.g, c.b, 1) end
+                if cbd.SetSwipeColor then cbd:SetSwipeColor(cd.r, cd.g, cd.b, 1) end
                 -- Inset the icon texture so the rings show only as an inner margin.
                 icon._tex:ClearAllPoints()
                 icon._tex:SetPoint("TOPLEFT", icon, "TOPLEFT", ring, -ring)
                 icon._tex:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", -ring, ring)
                 cb:Show(); cbd:Show()
             else
-                cb:Clear(); cb:Hide()
-                cbd:Clear(); cbd:Hide()
+                CooldownFrame_Clear(cb); cb:Hide()
+                CooldownFrame_Clear(cbd); cbd:Hide()
                 icon._tex:ClearAllPoints(); icon._tex:SetAllPoints()
             end
         else
@@ -5204,12 +5283,12 @@ local function UpdateDefensives(button, unit, updateInfo)
                                 end
                                 applied = true
                             else
-                                cd:Clear()
+                                CooldownFrame_Clear(cd)
                             end
                         end
                         if applied then
-                            cd:SetDrawSwipe(wantSwipe)
-                            cd:SetHideCountdownNumbers(not wantDurText)
+                            if cd.SetDrawSwipe then cd:SetDrawSwipe(wantSwipe) end
+                            if cd.SetHideCountdownNumbers then cd:SetHideCountdownNumbers(not wantDurText) end
                             cd:Show()
                         else
                             cd:Hide()
@@ -6369,7 +6448,11 @@ FB.ApplyRange = function(b)
     local s = ns._scaledProfile or db.profile
     local inRange = C_Spell.IsSpellInRange(FB.rangeSpell, FB.UnitOf(b))
     if issecretvalue(inRange) or inRange ~= nil then
-        b:SetAlphaFromBoolean(inRange, 1, s.oorAlpha or 0.4)
+        if b.SetAlphaFromBoolean then
+            b:SetAlphaFromBoolean(inRange, 1, s.oorAlpha or 0.4)
+        else
+            b:SetAlpha(inRange and 1 or (s.oorAlpha or 0.4))
+        end
     else
         b:SetAlpha(1)
     end
@@ -7814,9 +7897,14 @@ function ns._BuildSelfFirstNameList(playerGroup, sortByRole, roleOrder, selfLast
     end
     if #members == 0 then return nil end
     table.sort(members, function(a, b)
-        -- Player to the top (self-first) or bottom (self-last). Exactly one of
-        -- a/b is the player inside this branch, so the XOR with selfLast flips it.
-        if a.isPlayer ~= b.isPlayer then return a.isPlayer ~= selfLast end
+        -- UnitIsUnit returns 1/nil on older clients, while selfLast is a
+        -- boolean. Comparing those values as an XOR can make both a < b and
+        -- b < a true, which corrupts Lua 5.1's sort. Return one direction
+        -- explicitly so the comparator always remains a strict ordering.
+        if a.isPlayer ~= b.isPlayer then
+            if selfLast then return not a.isPlayer end
+            return not not a.isPlayer
+        end
         if sortByRole and a.rolePri ~= b.rolePri then return a.rolePri < b.rolePri end
         return a.index < b.index
     end)
@@ -7933,10 +8021,11 @@ function ns._BuildArenaNameList(hideSelf, selfFirst, selfLast, sortByRole, roleO
     if #members == 0 then return nil end
     table.sort(members, function(a, b)
         -- Player to the top (self-first) or bottom (self-last) when either is
-        -- set. Exactly one of a/b is the player in that branch, so XOR-ing with
-        -- selfLast flips top vs bottom.
+        -- set. UnitIsUnit is 1/nil on older clients, so choose the direction
+        -- explicitly rather than comparing its result with a boolean.
         if (selfFirst or selfLast) and a.isPlayer ~= b.isPlayer then
-            return a.isPlayer ~= selfLast
+            if selfLast then return not a.isPlayer end
+            return not not a.isPlayer
         end
         if sortByRole and a.rolePri ~= b.rolePri then return a.rolePri < b.rolePri end
         return a.index < b.index
@@ -8017,6 +8106,14 @@ ns._ApplySortToHeaders = ApplySortToHeaders
 -------------------------------------------------------------------------------
 --  Header creation
 -------------------------------------------------------------------------------
+-- SecureGroupHeader child storage differs by client generation. Retail also
+-- exposes children through header[index], while the 3.3.5 template publishes
+-- them only through secure "childN" attributes.
+local function GetSecureHeaderChild(header, index)
+    if not header then return nil end
+    return header[index] or header:GetAttribute("child" .. index)
+end
+
 local function CreateHeaders()
     if containerFrame then return end
 
@@ -8088,7 +8185,7 @@ local function CreateHeaders()
 
         -- Style pre-created buttons
         for i = 1, 5 do
-            local btn = hdr[i]
+            local btn = GetSecureHeaderChild(hdr, i)
             if btn then
                 StyleButton(btn)
                 allButtons[#allButtons + 1] = btn
@@ -8166,7 +8263,7 @@ local function CreateHeaders()
 
     -- Style all flat-header buttons
     for i = 1, 40 do
-        local btn = ns._flatHeader[i]
+        local btn = GetSecureHeaderChild(ns._flatHeader, i)
         if btn then
             StyleButton(btn)
             allButtons[#allButtons + 1] = btn
@@ -8217,7 +8314,7 @@ function ns._UpdateGroupNumbers()
         if lbl and hdr and vg[group] ~= false then
             -- First populated unit of this group (empty-but-visible groups -> none)
             for i = 1, 5 do
-                local btn = hdr[i]
+                local btn = GetSecureHeaderChild(hdr, i)
                 if btn and btn:IsShown() and btn:GetAttribute("unit") then firstBtn = btn; break end
             end
         end
@@ -8593,7 +8690,8 @@ local function ReloadFrames()
         LayoutTopNameBar(s, bh, powerH, d.health, d.topNameBar, d.topNameBarBg, d.topNameBarText)
         if d.health then
             d.health:SetStatusBarTexture(texPath)
-            d.health:GetStatusBarTexture():SetHorizTile(false)
+            local healthTexture = d.health:GetStatusBarTexture()
+            if healthTexture then healthTexture:SetHorizTile(false) end
             -- Re-anchor absorb clips to the new fill texture object
             if d.ReanchorAbsorbToFill then d.ReanchorAbsorbToFill() end
         end
@@ -8604,7 +8702,8 @@ local function ReloadFrames()
             if powerH > 0 then
                 d.power:SetHeight(powerH)
                 d.power:SetStatusBarTexture(texPath)
-                d.power:GetStatusBarTexture():SetHorizTile(false)
+                local powerTexture = d.power:GetStatusBarTexture()
+                if powerTexture then powerTexture:SetHorizTile(false) end
             end
         end
         if d.powerBg then
@@ -10510,13 +10609,18 @@ ns._CreatePartyHeader = function()
     hdr:SetAttribute("point", "TOP")
     hdr:SetAttribute("xOffset", 0)
     hdr:SetAttribute("yOffset", -cs)
-    hdr:SetAttribute("groupFilter", "1,2,3,4,5,6,7,8")
-    -- showRaid=true so the header binds raid1-5 inside an arena, where the team
-    -- is a raid group. Inert in a normal 5-man party (no raid units exist), so
-    -- it only takes effect when the header is actually shown in a raid group --
-    -- which we do only for arena (see _UpdatePartyVisibility). Outside arena the
-    -- header is hidden in a real raid, so this never shows 40 raid units.
-    hdr:SetAttribute("showRaid", true)
+    -- Do not apply a raid subgroup filter to the party header. On 3.3.5,
+    -- normal party members do not reliably carry subgroup values matching
+    -- "1,2,...,8", so the filter can reject party1-party4 while showPlayer
+    -- still adds the player. showParty/showPlayer already select the complete
+    -- five-player roster; arena uses its explicit raid-token nameList below.
+    hdr:SetAttribute("groupFilter", nil)
+    -- Keep raid enumeration disabled for a normal party. The 3.3.5 secure
+    -- header gives showRaid precedence when both roster modes are enabled;
+    -- with no raid1-raidN units that leaves only the separately added player.
+    -- _LayoutPartyFrames enables it only while the party frames represent an
+    -- arena raid roster.
+    hdr:SetAttribute("showRaid", false)
     hdr:SetAttribute("showParty", true)
     hdr:SetAttribute("showPlayer", true)
     hdr:SetAttribute("showSolo", s.partyShowWhenSolo or false)
@@ -10536,7 +10640,7 @@ ns._CreatePartyHeader = function()
     -- Style all 5 buttons with shared StyleButton (uses raid sizes initially;
     -- ReloadPartyFrames applies party-specific sizing afterward)
     for i = 1, 5 do
-        local btn = hdr[i]
+        local btn = GetSecureHeaderChild(hdr, i)
         if btn then
             StyleButton(btn)
             GetFFD(btn)._isParty = true
@@ -10724,7 +10828,7 @@ ns._LayoutPartyFrames = function()
         local wasShown = ns._partyHeader:IsShown()
         if wasShown then ns._partyHeader:Hide() end
         for i = 1, 5 do
-            local btn = ns._partyHeader[i]
+            local btn = GetSecureHeaderChild(ns._partyHeader, i)
             if btn then btn:ClearAllPoints() end
         end
         ns._partyHeader:SetAttribute("point", hdrPoint)
@@ -10779,6 +10883,7 @@ ns._LayoutPartyFrames = function()
         -- "show the player unless Hide Self" -- and the arena nameList below
         -- keeps membership consistent by omitting the player when Hide Self.
         local wantShowPlayer = not hideSelf and not useSelf
+        local wantShowRaid = ns._InArena()
 
         -- Prioritize Class drives the header with an explicit nameList ordered by
         -- role (optional primary) -> class -> name. nameList is honored only when
@@ -10809,7 +10914,10 @@ ns._LayoutPartyFrames = function()
             wantGroupBy = sortByRole and "ASSIGNEDROLE" or nil
             wantSortMethod = sortByRole and "NAME" or "INDEX"
             wantGroupingOrder = sortByRole and (table.concat(roleOrder, ",") .. ",NONE") or ""
-            wantGroupFilter = "1,2,3,4,5,6,7,8"
+            -- A normal party needs no subgroup filter. In 3.3.5 the secure
+            -- header may not assign raid-style subgroup numbers to party
+            -- entries; filtering for groups 1-8 then leaves only showPlayer.
+            wantGroupFilter = nil
         end
 
         local function ApplyAttrs()
@@ -10819,6 +10927,7 @@ ns._LayoutPartyFrames = function()
             ns._partyHeader:SetAttribute("groupBy", wantGroupBy)
             ns._partyHeader:SetAttribute("sortMethod", wantSortMethod)
             ns._partyHeader:SetAttribute("showPlayer", wantShowPlayer)
+            ns._partyHeader:SetAttribute("showRaid", wantShowRaid)
         end
         local needsHideShow = (ns._partyHeader:GetAttribute("groupBy") ~= wantGroupBy)
             or (ns._partyHeader:GetAttribute("sortMethod") ~= wantSortMethod)
@@ -10826,6 +10935,7 @@ ns._LayoutPartyFrames = function()
             or (ns._partyHeader:GetAttribute("showPlayer") ~= wantShowPlayer)
             or (ns._partyHeader:GetAttribute("nameList") ~= wantNameList)
             or (ns._partyHeader:GetAttribute("groupFilter") ~= wantGroupFilter)
+            or (ns._partyHeader:GetAttribute("showRaid") ~= wantShowRaid)
         if needsHideShow and ns._partyHeader:IsShown() then
             ns._partyHeader:Hide()
             ApplyAttrs()
@@ -10873,18 +10983,35 @@ ns._UpdatePartyVisibility = function()
     end
 
     if visible then
-        ns._partyHeader:Show()
+        -- The legacy SecureGroupHeader only builds/assigns its children when
+        -- it becomes visible through the complete parent chain. Showing the
+        -- header while its container is hidden consumes that transition
+        -- without processing party1-party4; showing the container afterward
+        -- then leaves only the separate static self button on screen.
+        -- Make the parent visible first so Header:Show() performs a real
+        -- roster pass on 3.3.5.
+        local headerWasVisible = ns._partyHeader:IsVisible()
         ns._partyContainerFrame:Show()
+        -- Repair a header left logically shown but never visible by an older
+        -- call order. It needs a fresh Show transition after the parent is up.
+        if not headerWasVisible and ns._partyHeader:IsShown() then
+            ns._partyHeader:Hide()
+        end
+        ns._partyHeader:Show()
 
         -- Suppress Blizzard party frames
         if ns._SuppressBlizzParty then
             ns._SuppressBlizzParty()
         end
 
-        ns._LayoutPartyFrames()
-        ns._RebuildPartyUnitMap()
-        if ns.UpdatePowerEventRegistration then ns.UpdatePowerEventRegistration() end
-        ns._UpdateAllPartyButtons()
+        if ns.ReloadPartyFrames then
+            ns.ReloadPartyFrames()
+        else
+            ns._LayoutPartyFrames()
+            ns._RebuildPartyUnitMap()
+            if ns.UpdatePowerEventRegistration then ns.UpdatePowerEventRegistration() end
+            ns._UpdateAllPartyButtons()
+        end
 
         if IsInGroup() then
             StartRangeTicker()
@@ -10967,7 +11094,8 @@ ns.ReloadPartyFrames = function()
         LayoutTopNameBar(raw, bh, powerH, d.health, d.topNameBar, d.topNameBarBg, d.topNameBarText)
         if d.health then
             d.health:SetStatusBarTexture(texPath)
-            d.health:GetStatusBarTexture():SetHorizTile(false)
+            local healthTexture = d.health:GetStatusBarTexture()
+            if healthTexture then healthTexture:SetHorizTile(false) end
             if d.ReanchorAbsorbToFill then d.ReanchorAbsorbToFill() end
         end
 
@@ -10977,7 +11105,8 @@ ns.ReloadPartyFrames = function()
             if powerH > 0 then
                 d.power:SetHeight(powerH)
                 d.power:SetStatusBarTexture(texPath)
-                d.power:GetStatusBarTexture():SetHorizTile(false)
+                local powerTexture = d.power:GetStatusBarTexture()
+                if powerTexture then powerTexture:SetHorizTile(false) end
             end
         end
         if d.powerBg then
@@ -11614,8 +11743,8 @@ local function PvAuraApply(frameIndex, auraType, slotIndex)
             dtOY = s2.defDurTextOffsetY or 0
         end
         icon._cooldown:SetCooldown(startTime, dur)
-        icon._cooldown:SetDrawSwipe(showSwipe)
-        icon._cooldown:SetHideCountdownNumbers(not showDurText)
+        if icon._cooldown.SetDrawSwipe then icon._cooldown:SetDrawSwipe(showSwipe) end
+        if icon._cooldown.SetHideCountdownNumbers then icon._cooldown:SetHideCountdownNumbers(not showDurText) end
         icon._cooldown:Show()
 
         -- Style the built-in countdown text via GetCountdownFontString
@@ -11760,7 +11889,7 @@ local function PvAuraTick()
                     local ic = pool and pool[info.slot]
                     if ic then
                         ic:Hide()
-                        if ic._cooldown then ic._cooldown:Clear() end
+                        CooldownFrame_Clear(ic._cooldown)
                         if ic._count then ic._count:SetText("") end
                     end
                 end
@@ -11789,7 +11918,7 @@ local function PvAuraTick()
                 local f = pf[fi]
                 if f and f._pvDebuffs and f._pvDebuffs[1] then
                     f._pvDebuffs[1]:Hide()
-                    if f._pvDebuffs[1]._cooldown then f._pvDebuffs[1]._cooldown:Clear() end
+                    CooldownFrame_Clear(f._pvDebuffs[1]._cooldown)
                     -- Re-pack remaining debuffs so a surviving slot-2+ icon shifts
                     -- into the vacated first position immediately, instead of only
                     -- when that icon itself refreshes.
@@ -11816,8 +11945,8 @@ local function PvAuraTick()
                     icon:SetSize(s2.debuffSize or 18, s2.debuffSize or 18)
                     if icon._cooldown then
                         icon._cooldown:SetCooldown(now, dur)
-                        icon._cooldown:SetDrawSwipe(s2.debuffShowSwipe ~= false)
-                        icon._cooldown:SetHideCountdownNumbers(not s2.debuffShowDurText)
+                        if icon._cooldown.SetDrawSwipe then icon._cooldown:SetDrawSwipe(s2.debuffShowSwipe ~= false) end
+                        if icon._cooldown.SetHideCountdownNumbers then icon._cooldown:SetHideCountdownNumbers(not s2.debuffShowDurText) end
                         icon._cooldown:Show()
                         if s2.debuffShowDurText then
                             local cdText = icon._cooldown.GetCountdownFontString and icon._cooldown:GetCountdownFontString()
@@ -11981,19 +12110,19 @@ local function StopPvAuraTicker()
         if f._pvDebuffs then
             for _, ic in ipairs(f._pvDebuffs) do
                 ic:Hide()
-                if ic._cooldown then ic._cooldown:Clear() end
+                CooldownFrame_Clear(ic._cooldown)
             end
         end
         if f._pvDefs then
             for _, ic in ipairs(f._pvDefs) do
                 ic:Hide()
-                if ic._cooldown then ic._cooldown:Clear() end
+                CooldownFrame_Clear(ic._cooldown)
             end
         end
         if f._pvPA then
             for _, ic in ipairs(f._pvPA) do
                 ic:Hide()
-                if ic._cooldown then ic._cooldown:Clear() end
+                CooldownFrame_Clear(ic._cooldown)
             end
         end
     end
@@ -12112,8 +12241,8 @@ ns.PvBuffApply = function(spellInfo, frameIndex, slot)
             local dur = 15
             local startTime = GetTime() - math.random() * 10
             icon._cooldown:SetCooldown(startTime, dur)
-            icon._cooldown:SetDrawSwipe(true)
-            icon._cooldown:SetHideCountdownNumbers(true)
+            if icon._cooldown.SetDrawSwipe then icon._cooldown:SetDrawSwipe(true) end
+            if icon._cooldown.SetHideCountdownNumbers then icon._cooldown:SetHideCountdownNumbers(true) end
             icon._cooldown:Show()
         else
             icon._cooldown:Hide()
@@ -12294,8 +12423,8 @@ ns.RefreshPvAuraVisuals = function()
                         end
                     end
                     if ic._cooldown then
-                        ic._cooldown:SetDrawSwipe(dbShowSwipe)
-                        ic._cooldown:SetHideCountdownNumbers(not dbShowDurText)
+                        if ic._cooldown.SetDrawSwipe then ic._cooldown:SetDrawSwipe(dbShowSwipe) end
+                        if ic._cooldown.SetHideCountdownNumbers then ic._cooldown:SetHideCountdownNumbers(not dbShowDurText) end
                         if dbShowDurText then
                             local cdText = ic._cooldown.GetCountdownFontString and ic._cooldown:GetCountdownFontString()
                             if cdText then
@@ -12330,8 +12459,8 @@ ns.RefreshPvAuraVisuals = function()
                         end
                     end
                     if ic._cooldown then
-                        ic._cooldown:SetDrawSwipe(defShowSwipe)
-                        ic._cooldown:SetHideCountdownNumbers(not defShowDurText)
+                        if ic._cooldown.SetDrawSwipe then ic._cooldown:SetDrawSwipe(defShowSwipe) end
+                        if ic._cooldown.SetHideCountdownNumbers then ic._cooldown:SetHideCountdownNumbers(not defShowDurText) end
                         if defShowDurText then
                             local cdText = ic._cooldown.GetCountdownFontString and ic._cooldown:GetCountdownFontString()
                             if cdText then
@@ -12359,8 +12488,8 @@ ns.RefreshPvAuraVisuals = function()
                         ic._borderFrame:Show()
                     end
                     if ic._cooldown then
-                        ic._cooldown:SetDrawSwipe(true)
-                        ic._cooldown:SetHideCountdownNumbers(not paCD)
+                        if ic._cooldown.SetDrawSwipe then ic._cooldown:SetDrawSwipe(true) end
+                        if ic._cooldown.SetHideCountdownNumbers then ic._cooldown:SetHideCountdownNumbers(not paCD) end
                     end
                 end
             end
@@ -12403,7 +12532,8 @@ local function CreatePreviewFrame(index)
     health:SetPoint("TOPRIGHT", f, "TOPRIGHT", 0, 0)
     health:SetHeight(healthH)
     health:SetStatusBarTexture(ResolveHealthTexture())
-    health:GetStatusBarTexture():SetHorizTile(false)
+    local healthTexture = health:GetStatusBarTexture()
+    if healthTexture then healthTexture:SetHorizTile(false) end
     if PP then PP.DisablePixelSnap(health) end
     health:SetMinMaxValues(0, 100)
     health:SetValue(100)
@@ -12418,10 +12548,13 @@ local function CreatePreviewFrame(index)
     f._uniformRef._euiHealth = health
 
     -- Absorb shield preview (dual clip-frame, matching real frames)
-    -- Mask: constrains absorb rendering to health bar bounds
-    local absorbMask = health:CreateMaskTexture()
-    absorbMask:SetAllPoints(health)
-    absorbMask:SetTexture("Interface\\Buttons\\WHITE8X8")
+    -- Mask support is unavailable on 3.3.5; clip frames provide the fallback.
+    local absorbMask
+    if health.CreateMaskTexture then
+        absorbMask = health:CreateMaskTexture()
+        absorbMask:SetAllPoints(health)
+        absorbMask:SetTexture("Interface\\Buttons\\WHITE8X8")
+    end
 
     -- Current HP clip: bounds the backfill bar to the filled health area
     local curClip = CreateFrame("Frame", nil, health)
@@ -12439,12 +12572,15 @@ local function CreatePreviewFrame(index)
     local backfillBar = CreateFrame("StatusBar", nil, curClip)
     backfillBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
     local bfFill = backfillBar:GetStatusBarTexture()
-    if bfFill then bfFill:SetDrawLayer("ARTWORK", 1); bfFill:AddMaskTexture(absorbMask) end
+    if bfFill then
+        bfFill:SetDrawLayer("ARTWORK", 1)
+        if absorbMask and bfFill.AddMaskTexture then bfFill:AddMaskTexture(absorbMask) end
+    end
     -- Modern compound absorb base (preview): mirrors the live frame's solid c6c8ff
     -- base drawn under the striped fill. Anchored to the fill at render time.
     local bfBase = backfillBar:CreateTexture(nil, "ARTWORK", nil, 0)
     bfBase:SetTexture(0.776, 0.784, 1.0, 1)
-    if absorbMask then bfBase:AddMaskTexture(absorbMask) end
+    if absorbMask and bfBase.AddMaskTexture then bfBase:AddMaskTexture(absorbMask) end
     bfBase:Hide()
     backfillBar._modernBase = bfBase
     backfillBar:SetStatusBarColor(1, 1, 1, 0.3)
@@ -12462,11 +12598,14 @@ local function CreatePreviewFrame(index)
     local forwardBar = CreateFrame("StatusBar", nil, missClip)
     forwardBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
     local fwFill = forwardBar:GetStatusBarTexture()
-    if fwFill then fwFill:SetDrawLayer("ARTWORK", 1); fwFill:AddMaskTexture(absorbMask) end
+    if fwFill then
+        fwFill:SetDrawLayer("ARTWORK", 1)
+        if absorbMask and fwFill.AddMaskTexture then fwFill:AddMaskTexture(absorbMask) end
+    end
     -- Modern compound absorb base (preview) for the forward bar.
     local fwBase = forwardBar:CreateTexture(nil, "ARTWORK", nil, 0)
     fwBase:SetTexture(0.776, 0.784, 1.0, 1)
-    if absorbMask then fwBase:AddMaskTexture(absorbMask) end
+    if absorbMask and fwBase.AddMaskTexture then fwBase:AddMaskTexture(absorbMask) end
     fwBase:Hide()
     forwardBar._modernBase = fwBase
     forwardBar:SetStatusBarColor(1, 1, 1, 0.3)
@@ -12521,7 +12660,10 @@ local function CreatePreviewFrame(index)
         local ha = CreateFrame("StatusBar", nil, healClip)
         ha:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
         local hf = ha:GetStatusBarTexture()
-        if hf then hf:SetDrawLayer("ARTWORK", 2); hf:AddMaskTexture(absorbMask) end
+        if hf then
+            hf:SetDrawLayer("ARTWORK", 2)
+            if absorbMask and hf.AddMaskTexture then hf:AddMaskTexture(absorbMask) end
+        end
         ha:SetStatusBarColor(0.8, 0.15, 0.15, 0.65)
         ha:SetReverseFill(true)
         ha:SetPoint("TOPRIGHT", health:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
@@ -12534,7 +12676,7 @@ local function CreatePreviewFrame(index)
         -- Black backing behind the heal-absorb texture (preview; mirrors live).
         local haBg = ha:CreateTexture(nil, "ARTWORK", nil, 1)
         haBg:SetTexture(0, 0, 0, 0.25)
-        if absorbMask then haBg:AddMaskTexture(absorbMask) end
+        if absorbMask and haBg.AddMaskTexture then haBg:AddMaskTexture(absorbMask) end
         haBg:Hide()
         ha._bg = haBg
         ha:Hide()
@@ -12546,7 +12688,10 @@ local function CreatePreviewFrame(index)
         local hp = CreateFrame("StatusBar", nil, missClip)
         hp:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
         local hf = hp:GetStatusBarTexture()
-        if hf then hf:SetDrawLayer("ARTWORK", 2); hf:AddMaskTexture(absorbMask) end
+        if hf then
+            hf:SetDrawLayer("ARTWORK", 2)
+            if absorbMask and hf.AddMaskTexture then hf:AddMaskTexture(absorbMask) end
+        end
         hp:SetStatusBarColor(0.3, 0.8, 0.3, 0.4)
         hp:SetReverseFill(false)
         hp:SetPoint("TOPLEFT", health:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
@@ -12562,7 +12707,7 @@ local function CreatePreviewFrame(index)
     -- Reduced max health bar (preview): black bg + red striped overlay on right side
     do
         local rmh = CreateFrame("StatusBar", nil, health)
-        rmh:SetStatusBarTexture("Interface\\AddOns\\EllesmereUIRaidFrames\\Media\\striped-maxhp.png")
+        rmh:SetStatusBarTexture("Interface\\AddOns\\EllesmereUIRaidFrames\\Media\\striped-maxhp.tga")
         local rmhFill = rmh:GetStatusBarTexture()
         if rmhFill then
             rmhFill:SetDrawLayer("ARTWORK", 3)
@@ -12628,7 +12773,8 @@ local function CreatePreviewFrame(index)
         power:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", 0, 0)
         power:SetHeight(powerH)
         power:SetStatusBarTexture(ResolveHealthTexture())
-        power:GetStatusBarTexture():SetHorizTile(false)
+        local powerTexture = power:GetStatusBarTexture()
+        if powerTexture then powerTexture:SetHorizTile(false) end
         if PP then PP.DisablePixelSnap(power) end
         power:SetMinMaxValues(0, 100)
         power:SetValue(100)
@@ -12860,9 +13006,12 @@ local function CreatePreviewFrame(index)
         dt:SetAllPoints(); dt:SetTexCoord(0.08, 0.92, 0.08, 0.92)
         di._tex = dt
         local cd = CreateFrame("Cooldown", nil, di, "CooldownFrameTemplate")
-        cd:SetAllPoints(); cd:SetDrawEdge(false); cd:SetDrawSwipe(true)
-        cd:SetSwipeColor(0, 0, 0, 0.6); cd:SetReverse(true)
-        cd:SetHideCountdownNumbers(true)
+        cd:SetAllPoints()
+        if cd.SetDrawEdge then cd:SetDrawEdge(false) end
+        if cd.SetDrawSwipe then cd:SetDrawSwipe(true) end
+        if cd.SetSwipeColor then cd:SetSwipeColor(0, 0, 0, 0.6) end
+        if cd.SetReverse then cd:SetReverse(true) end
+        if cd.SetHideCountdownNumbers then cd:SetHideCountdownNumbers(true) end
         di._cooldown = cd
         local dbdr = CreateFrame("Frame", nil, di)
         dbdr:SetAllPoints(); dbdr:SetFrameLevel(di:GetFrameLevel() + 1)
@@ -13166,7 +13315,8 @@ local function ApplyPreviewData(f, index)
     -- Health bar
     if f._health then
         f._health:SetStatusBarTexture(ResolveHealthTexture())
-        f._health:GetStatusBarTexture():SetHorizTile(false)
+        local healthTexture = f._health:GetStatusBarTexture()
+        if healthTexture then healthTexture:SetHorizTile(false) end
         f._health:SetMinMaxValues(0, 100)
         f._health:SetValue(healthPct)
         f._healthPct = healthPct
@@ -13567,7 +13717,8 @@ local function ApplyPreviewData(f, index)
         if not hidePower then
             f._power:SetHeight(powerH)
             f._power:SetStatusBarTexture(ResolveHealthTexture())
-            f._power:GetStatusBarTexture():SetHorizTile(false)
+            local powerTexture = f._power:GetStatusBarTexture()
+            if powerTexture then powerTexture:SetHorizTile(false) end
             local pwPct = previewPowerValues[index] or (60 + math.random(40))
             f._power:SetMinMaxValues(0, 100)
             f._power:SetValue(pwPct)
@@ -13853,10 +14004,10 @@ local function ApplyPreviewData(f, index)
             f._raidMarker:SetSize(rmSz, rmSz)
             -- Use custom marker PNGs
             if index == previewRoles._markerSlot1 then
-                f._raidMarker:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\marker.png")
+                f._raidMarker:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\marker.tga")
                 f._raidMarker:SetTexCoord(0, 1, 0, 1)
             else
-                f._raidMarker:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\marker2.png")
+                f._raidMarker:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\marker2.tga")
                 f._raidMarker:SetTexCoord(0, 1, 0, 1)
             end
             -- Anchor based on marker position setting
@@ -14287,12 +14438,12 @@ local function ApplyPreviewData(f, index)
                 f._combatIcon:SetVertexColor(1, 1, 1, 1)
             else
                 if style == "class" then
-                    f._combatIcon:SetTexture(MEDIA .. "combat-indicator-class-custom.png")
+                    f._combatIcon:SetTexture(MEDIA .. "combat-indicator-class-custom.tga")
                     local coords = classToken and ns._COMBAT_CLASS_COORDS[classToken]
                     if coords then f._combatIcon:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
                     else f._combatIcon:SetTexCoord(0, 1, 0, 1) end
                 else
-                    f._combatIcon:SetTexture(MEDIA .. "combat-indicator-custom.png")
+                    f._combatIcon:SetTexture(MEDIA .. "combat-indicator-custom.tga")
                     f._combatIcon:SetTexCoord(0, 1, 0, 1)
                 end
                 local colorMode = s.combatIndicatorColor or "custom"
@@ -15068,7 +15219,8 @@ ns._ShowSizePreview = function(tier)
         f._health:ClearAllPoints()
         f._health:SetAllPoints(f)
         f._health:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
-        if f._health:GetStatusBarTexture() then f._health:GetStatusBarTexture():SetHorizTile(false) end
+        local healthTexture = f._health:GetStatusBarTexture()
+        if healthTexture then healthTexture:SetHorizTile(false) end
         f._health:SetStatusBarColor(0.24, 0.26, 0.30, 1)
         f._health:SetValue(100)
         f._bg:SetTexture(0.09, 0.09, 0.11, 1)
@@ -16251,7 +16403,7 @@ do
         dump("self", ns._partySelfButton)
         if ns._partyHeader then
             for i = 1, 5 do
-                local btn = ns._partyHeader[i]
+                local btn = GetSecureHeaderChild(ns._partyHeader, i)
                 if btn then
                     dump("hdr" .. i .. " u=" .. tostring(btn:GetAttribute("unit")), btn)
                 end

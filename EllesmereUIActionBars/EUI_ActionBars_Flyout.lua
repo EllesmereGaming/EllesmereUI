@@ -164,7 +164,8 @@ local function OnBlizzardFlyoutShow(flyout)
     local s = prof.bars and prof.bars[barKey]
     if not s then return end
 
-    local shape = s.buttonShape or "none"
+    local shape = ns.ResolveButtonShape and ns.ResolveButtonShape(s.buttonShape)
+        or s.buttonShape or "none"
     local zoom = ((s.iconZoom or prof.iconZoom or 5.5)) / 100
     local brdSz = ResolveBorderThickness(s)
     local brdOn = brdSz > 0

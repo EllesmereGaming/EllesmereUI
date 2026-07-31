@@ -805,7 +805,8 @@ local function SetClickAttr(frame, parsed, actionType, spellOrMacro, macrotext, 
     -- action crashes on a Blizzard typo (SecureTemplates.lua:564, aspect
     -- check on the mouse-button string), so 12.1 uses a "/click <proxy>"
     -- macro; 12.0 keeps the proven click action.
-    if actionType == "togglemenu" and EllesmereUI.GetSecureMenuProxy then
+    if actionType == "togglemenu" and EllesmereUI.USE_SECURE_UNIT_MENU_PROXY
+        and EllesmereUI.GetSecureMenuProxy then
         local proxy = EllesmereUI.GetSecureMenuProxy(frame)
         if EllesmereUI.IS_121 then
             SetGatedType(frame, typeAttr, "macro", oocOnly)
@@ -816,12 +817,17 @@ local function SetClickAttr(frame, parsed, actionType, spellOrMacro, macrotext, 
         end
         return
     end
+    if actionType == "togglemenu" and EllesmereUI.AttachLegacyUnitMenu then
+        EllesmereUI.AttachLegacyUnitMenu(frame)
+        actionType = "menu"
+    end
     -- 12.0.7 also gates a raw "target" on unit buttons. Plain unmodified
     -- left-click (button 1) still targets natively via Blizzard's default
     -- Interaction click-binding, so leave that one direct; route every OTHER
     -- target binding (other buttons / modifiers) through the ungated "click"
     -- proxy. Keeps the change scoped to users who rebound target off left-click.
-    if actionType == "target" and (suffix ~= "1" or prefix ~= "") and EllesmereUI.GetSecureTargetProxy then
+    if actionType == "target" and (suffix ~= "1" or prefix ~= "")
+        and EllesmereUI.USE_SECURE_UNIT_MENU_PROXY and EllesmereUI.GetSecureTargetProxy then
         local proxy = EllesmereUI.GetSecureTargetProxy(frame)
         if EllesmereUI.IS_121 then
             SetGatedType(frame, typeAttr, "macro", oocOnly)
@@ -834,7 +840,7 @@ local function SetClickAttr(frame, parsed, actionType, spellOrMacro, macrotext, 
     end
     -- Raw action type. Only menu/target honor oocOnly via the combat driver;
     -- spell/macro carry their own conditional in the macro text.
-    local gate = oocOnly and (actionType == "togglemenu" or actionType == "target")
+    local gate = oocOnly and (actionType == "menu" or actionType == "togglemenu" or actionType == "target")
     SetGatedType(frame, typeAttr, actionType, gate)
     if actionType == "spell" then
         frame:SetAttribute(prefix .. "spell" .. suffix, spellOrMacro or "")
@@ -859,7 +865,8 @@ local function SetKeyAttr(frame, idx, actionType, spellOrMacro, macrotext, oocOn
     local typeAttr = "type-" .. suffix
     -- Route a "menu" keybind through the secure proxy (see SetClickAttr for
     -- why 12.1 uses the /click macro transport instead of the click action).
-    if actionType == "togglemenu" and EllesmereUI.GetSecureMenuProxy then
+    if actionType == "togglemenu" and EllesmereUI.USE_SECURE_UNIT_MENU_PROXY
+        and EllesmereUI.GetSecureMenuProxy then
         local proxy = EllesmereUI.GetSecureMenuProxy(frame)
         if EllesmereUI.IS_121 then
             SetGatedType(frame, typeAttr, "macro", oocOnly)
@@ -870,9 +877,14 @@ local function SetKeyAttr(frame, idx, actionType, spellOrMacro, macrotext, oocOn
         end
         return
     end
+    if actionType == "togglemenu" and EllesmereUI.AttachLegacyUnitMenu then
+        EllesmereUI.AttachLegacyUnitMenu(frame)
+        actionType = "menu"
+    end
     -- A "target" keybind is never plain left-click, so it always hits the 12.0.7
     -- gate -- route it through the ungated "click" proxy (see SetClickAttr).
-    if actionType == "target" and EllesmereUI.GetSecureTargetProxy then
+    if actionType == "target" and EllesmereUI.USE_SECURE_UNIT_MENU_PROXY
+        and EllesmereUI.GetSecureTargetProxy then
         local proxy = EllesmereUI.GetSecureTargetProxy(frame)
         if EllesmereUI.IS_121 then
             SetGatedType(frame, typeAttr, "macro", oocOnly)
@@ -885,7 +897,7 @@ local function SetKeyAttr(frame, idx, actionType, spellOrMacro, macrotext, oocOn
     end
     -- Only menu/target honor oocOnly via the combat driver; spell/macro carry
     -- their own conditional in the macro text.
-    local gate = oocOnly and (actionType == "togglemenu" or actionType == "target")
+    local gate = oocOnly and (actionType == "menu" or actionType == "togglemenu" or actionType == "target")
     SetGatedType(frame, typeAttr, actionType, gate)
     if actionType == "spell" then
         frame:SetAttribute("spell-" .. suffix, spellOrMacro or "")
@@ -1089,9 +1101,11 @@ local function DoRegisterFrame(frame)
             -- right now if it isn't already active -- so a keypress on arrival can
             -- never lose the race against the binding being set.
             eui_hoverframe = self
-            control:RunFor(self, control:GetAttribute("eui_setup_onenter"))
+            local setup = control:Run("return self:GetAttribute(...)", "eui_setup_onenter")
+            if setup then control:RunFor(self, setup) end
             if not eui_hoveractive then
-                control:RunAttribute("eui_hover_set")
+                local setHover = control:Run("return self:GetAttribute(...)", "eui_hover_set")
+                if setHover then control:Run(setHover) end
                 eui_hoveractive = true
             end
         ]])
@@ -1100,7 +1114,8 @@ local function DoRegisterFrame(frame)
             -- the per-frame keyboard teardown. The hover binding itself is left to
             -- the guarded state driver so moving onto a non-EUI frame keeps it.
             if eui_hoverframe == self then eui_hoverframe = nil end
-            control:RunFor(self, control:GetAttribute("eui_setup_onleave"))
+            local setup = control:Run("return self:GetAttribute(...)", "eui_setup_onleave")
+            if setup then control:RunFor(self, setup) end
         ]])
     end
 

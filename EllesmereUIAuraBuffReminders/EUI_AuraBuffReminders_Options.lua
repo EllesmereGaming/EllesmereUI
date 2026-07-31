@@ -1556,8 +1556,8 @@ initFrame:SetScript("OnEvent", function(self)
             cogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
 
             -- Eye icon toggles a live preview (left of cog)
-            local EYE_VISIBLE   = EllesmereUI.MEDIA_PATH .. "icons\\eui-visible.png"
-            local EYE_INVISIBLE = EllesmereUI.MEDIA_PATH .. "icons\\eui-invisible.png"
+            local EYE_VISIBLE   = EllesmereUI.MEDIA_PATH .. "icons\\eui-visible.tga"
+            local EYE_INVISIBLE = EllesmereUI.MEDIA_PATH .. "icons\\eui-invisible.tga"
             local eyeBtn = EllesmereUI.SafeCreateFrame("Button", nil, leftRgn)
             eyeBtn:SetSize(26, 26)
             eyeBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
@@ -2508,7 +2508,7 @@ initFrame:SetScript("OnEvent", function(self)
                 PP.Size(delIcon, ICON_SIZE, ICON_SIZE)
                 PP.Point(delIcon, "CENTER", delBtn, "CENTER", 0, 0)
                 if delIcon.SetSnapToPixelGrid then delIcon:SetSnapToPixelGrid(false); delIcon:SetTexelSnappingBias(0) end
-                delIcon:SetTexture(MEDIA .. "icons\\eui-close.png")
+                delIcon:SetTexture(MEDIA .. "icons\\eui-close.tga")
                 delBtn:SetAlpha(0.75)
                 delBtn:SetScript("OnEnter", function(self) self:SetAlpha(1) end)
                 delBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.75) end)

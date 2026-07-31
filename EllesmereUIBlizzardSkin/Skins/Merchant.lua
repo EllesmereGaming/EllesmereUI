@@ -16,8 +16,8 @@ WSkin:AddCallback("Skin_Merchant", function()
 	local MerchantFrame = _G.MerchantFrame
 	WSkin:StripTextures(MerchantFrame, true)
 	WSkin:CreateBackdrop(MerchantFrame, "Transparent")
-	MerchantFrame.WSkin:Point(backdrop, "TOPLEFT", 11, -12)
-	MerchantFrame.WSkin:Point(backdrop, "BOTTOMRIGHT", -32, 76)
+	WSkin:Point(MerchantFrame.backdrop, "TOPLEFT", 11, -12)
+	WSkin:Point(MerchantFrame.backdrop, "BOTTOMRIGHT", -32, 76)
 
 	WSkin:SetUIPanelWindowInfo(MerchantFrame, "width")
 	WSkin:SetBackdropHitRect(MerchantFrame)
@@ -48,12 +48,12 @@ WSkin:AddCallback("Skin_Merchant", function()
 
 		WSkin:StripTextures(button, true)
 		WSkin:CreateBackdrop(button, "Default")
-		button.WSkin:Point(backdrop, "TOPLEFT", -2, 2)
+		WSkin:Point(button.backdrop, "TOPLEFT", -2, 2)
 
 		if buyback then
-			button.WSkin:Point(backdrop, "BOTTOMRIGHT", 4, -13)
+			WSkin:Point(button.backdrop, "BOTTOMRIGHT", 4, -13)
 		else
-			button.WSkin:Point(backdrop, "BOTTOMRIGHT", 4, -6)
+			WSkin:Point(button.backdrop, "BOTTOMRIGHT", 4, -6)
 		end
 
 		WSkin:StripTextures(itemButton)
@@ -62,7 +62,7 @@ WSkin:AddCallback("Skin_Merchant", function()
 		WSkin:Size(itemButton, 40)
 		WSkin:Point(itemButton, "TOPLEFT", 4, -4)
 
-		icon:SetTexCoord(unpack(E.TexCoords))
+		icon:SetTexCoord(unpack(WSkin.TexCoords or {0.08, 0.92, 0.08, 0.92}))
 		WSkin:SetInside(icon)
 
 		WSkin:Point(name, "LEFT", slot, "RIGHT", -4, 5)
@@ -77,11 +77,11 @@ WSkin:AddCallback("Skin_Merchant", function()
 				local currencyIcon = _G[buttonName.."AltCurrencyFrameItem"..j.."Texture"]
 
 				currencyIcon.backdrop = CreateFrame("Frame", nil, currencyItem)
-				currencyIcon.WSkin:SetTemplate(backdrop, "Default")
+				WSkin:SetTemplate(currencyIcon.backdrop, "Default")
 				currencyIcon.backdrop:SetFrameLevel(currencyItem:GetFrameLevel())
-				currencyIcon.WSkin:SetOutside(backdrop, currencyIcon)
+				WSkin:SetOutside(currencyIcon.backdrop, currencyIcon)
 
-				currencyIcon:SetTexCoord(unpack(E.TexCoords))
+				currencyIcon:SetTexCoord(unpack(WSkin.TexCoords or {0.08, 0.92, 0.08, 0.92}))
 				currencyIcon:SetParent(currencyIcon.backdrop)
 			end
 		end
@@ -104,7 +104,7 @@ WSkin:AddCallback("Skin_Merchant", function()
 	WSkin:StyleButton(MerchantRepairItemButton, false)
 	-- texWidth, texHeight, cropWidth, cropHeight, offsetX, offsetY = 128, 64, 26, 26, 5, 6
 	MerchantRepairItemButton:GetRegions():SetTexCoord(0.0390625, 0.2421875, 0.09375, 0.5)
-	WSkin:SetInside(MerchantRepairItemButton:GetRegions())
+	WSkin:SetInside((MerchantRepairItemButton:GetRegions()))
 
 	WSkin:HandleButton(MerchantRepairAllButton)
 	WSkin:StyleButton(MerchantRepairAllIcon, false)

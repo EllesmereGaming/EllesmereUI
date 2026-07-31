@@ -55,15 +55,13 @@ local function HasSeen(id)
         and EllesmereUIDB.videoGuidesSeen[id]) or false
 end
 
--- Right-pointing solid triangle: collapse the right edge of a color texture
--- to its vertical midpoint. Vertex indices: 1=UpperLeft, 2=LowerLeft,
--- 3=UpperRight, 4=LowerRight. Positive y offset is up.
+-- Right-pointing solid triangle. Use an image rather than SetVertexOffset,
+-- which is unavailable on the 3.3.5 client.
 local function MakeTriangle(parent, w, h, r, g, b, a)
     local t = parent:CreateTexture(nil, "ARTWORK")
-    t:SetTexture(r, g, b, a or 1)
+    t:SetTexture(EllesmereUI.MEDIA_PATH .. "icons\\play.tga")
+    t:SetVertexColor(r, g, b, a or 1)
     PP.Size(t, w, h)
-    t:SetVertexOffset(3, 0, -h / 2)
-    t:SetVertexOffset(4, 0, h / 2)
     return t
 end
 
@@ -399,7 +397,7 @@ local function AttachTip(region, tipId, opts)
     -- keeps the tint live when the accent color changes (dedupes by obj).
     local icon = tip:CreateTexture(nil, "ARTWORK")
     icon:SetAllPoints()
-    icon:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\play.png")
+    icon:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\play.tga")
     local EG = EllesmereUI.ELLESMERE_GREEN
     if EG then
         icon:SetVertexColor(EG.r, EG.g, EG.b, 1)

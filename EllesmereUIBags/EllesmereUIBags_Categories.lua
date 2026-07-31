@@ -282,16 +282,23 @@ local _setGearLookup = {}
 
 local function BuildSetGearLookup()
     wipe(_setGearLookup)
-    local setIDs = C_EquipmentSet.GetEquipmentSetIDs()
+    local setIDs = C_EquipmentSet and C_EquipmentSet.GetEquipmentSetIDs and C_EquipmentSet.GetEquipmentSetIDs()
     if not setIDs then return end
     for _, setID in ipairs(setIDs) do
         local locs = C_EquipmentSet.GetItemLocations(setID)
         if locs then
             for _, loc in pairs(locs) do
                 if loc and loc ~= 0 and loc ~= 1 and loc ~= -1 then
-                    local data = EquipmentManager_GetLocationData(loc)
-                    if data.isBags then
-                        _setGearLookup[data.bag * 1000 + data.slot] = true
+                    if EquipmentManager_GetLocationData then
+                        local data = EquipmentManager_GetLocationData(loc)
+                        if data and data.isBags and data.bag and data.slot then
+                            _setGearLookup[data.bag * 1000 + data.slot] = true
+                        end
+                    elseif EquipmentManager_UnpackLocation then
+                        local player, bank, bags, slotIndex, bagIndex = EquipmentManager_UnpackLocation(loc)
+                        if bags and bagIndex and slotIndex then
+                            _setGearLookup[bagIndex * 1000 + slotIndex] = true
+                        end
                     end
                 end
             end
@@ -304,10 +311,81 @@ local ITEM_TYPE_OVERRIDES = {
     [180653] = IC_MISC,
 }
 
+-- GetItemInfoInstant is native on modern clients and provided by the core
+-- compatibility layer on 3.3.5. Some legacy clients expose a partial C_Item
+-- namespace, however, so keep classification independent of that polyfill.
+local LEGACY_ITEM_CLASS_IDS = {
+    ["Consumable"]          = IC_CONSUMABLE,    -- 0
+    ["Container"]           = IC_CONTAINER,     -- 1
+    ["Bag"]                 = IC_CONTAINER,     -- 1
+    ["Weapon"]              = IC_WEAPON,        -- 2
+    ["Gem"]                 = IC_GEM,           -- 3
+    ["Armor"]               = IC_ARMOR,         -- 4
+    ["Reagent"]             = IC_REAGENT,       -- 5
+    ["Projectile"]          = 6,
+    ["Trade Goods"]         = IC_TRADESKILL,    -- 7
+    ["TradeGoods"]          = IC_TRADESKILL,    -- 7
+    ["Item Enhancement"]    = IC_ITEM_ENHANCE,  -- 8
+    ["Generic"]             = IC_ITEM_ENHANCE,  -- 8
+    ["Recipe"]              = IC_RECIPE,        -- 9
+    ["Quiver"]              = 11,
+    ["Quest"]               = IC_QUEST,         -- 12
+    ["Questitem"]           = IC_QUEST,         -- 12
+    ["Key"]                 = 13,
+    ["Miscellaneous"]       = IC_MISC,          -- 15
+    ["Glyph"]               = 16,
+}
+
+local function InitLegacyItemClassIDs()
+    if GetAuctionItemClasses then
+        local classIndexToID = {
+            [1]  = IC_WEAPON,     -- 2
+            [2]  = IC_ARMOR,      -- 4
+            [3]  = IC_CONTAINER,  -- 1
+            [4]  = IC_CONSUMABLE, -- 0
+            [5]  = 16,            -- Glyph
+            [6]  = IC_TRADESKILL, -- 7
+            [7]  = 6,            -- Projectile
+            [8]  = 11,           -- Quiver
+            [9]  = IC_RECIPE,     -- 9
+            [10] = IC_GEM,        -- 3
+            [11] = IC_MISC,       -- 15
+            [12] = IC_QUEST,      -- 12
+        }
+        local classes = { GetAuctionItemClasses() }
+        for i, name in ipairs(classes) do
+            if name and name ~= "" and classIndexToID[i] ~= nil then
+                LEGACY_ITEM_CLASS_IDS[name] = classIndexToID[i]
+            end
+        end
+    end
+end
+InitLegacyItemClassIDs()
+
+local function GetCategoryItemInfo(item)
+    if GetItemInfoInstant then
+        local _, _, _, equipSlot, _, classID = GetItemInfoInstant(item)
+        if classID then return classID, equipSlot end
+    end
+
+    if GetItemInfo then
+        local _, _, _, _, _, itemType, _, _, equipSlot, _, _, classID = GetItemInfo(item)
+        if not classID and itemType then
+            classID = LEGACY_ITEM_CLASS_IDS[itemType]
+            if not classID and GetAuctionItemClasses then
+                InitLegacyItemClassIDs()
+                classID = LEGACY_ITEM_CLASS_IDS[itemType]
+            end
+        end
+        return classID, equipSlot
+    end
+end
+
 -- Classify a single item. Returns category index (1-based) or nil for empty slots.
 -- bag/slot are needed for C_Container.GetContainerItemQuestInfo
 function CategoryManager:ClassifyItem(itemLink, itemID, bag, slot)
-    if not itemLink then return nil end
+    local item = itemLink or itemID
+    if not item then return nil end
 
     local cats = self:GetCategories()
 
@@ -343,8 +421,9 @@ function CategoryManager:ClassifyItem(itemLink, itemID, bag, slot)
     end
 
     -- Check quest status via dedicated API (catches "begins a quest" items too)
-    if bag and slot then
-        local questInfo = C_Container.GetContainerItemQuestInfo(bag, slot)
+    if bag and slot and C_Container and C_Container.GetContainerItemQuestInfo then
+        local ok, questInfo = pcall(C_Container.GetContainerItemQuestInfo, bag, slot)
+        questInfo = ok and questInfo or nil
         if questInfo and (questInfo.isQuestItem or questInfo.questID) then
             for i, cat in ipairs(cats) do
                 if cat.types then
@@ -356,8 +435,9 @@ function CategoryManager:ClassifyItem(itemLink, itemID, bag, slot)
         end
     end
 
-    -- Get classID + equip slot via GetItemInfoInstant (locale-safe numeric IDs)
-    local _, _, _, equipSlot, _, classID = GetItemInfoInstant(itemLink)
+    -- Get classID + equip slot via the modern API or the legacy localized
+    -- GetItemInfo result translated back to locale-safe numeric IDs.
+    local classID, equipSlot = GetCategoryItemInfo(item)
     if not classID then
         -- Item data not available; classify as catch-all for now
         for i, cat in ipairs(cats) do
@@ -440,7 +520,7 @@ function CategoryManager:ClassifyAll(items)
     end
 
     for _, data in ipairs(items) do
-        if data.info and data.itemLink then
+        if data.info and (data.itemLink or data.info.itemID) then
             local idx = self:ClassifyItem(data.itemLink, data.info.itemID, data.bag, data.slot)
             -- Reroute disabled categories to catch-all
             if disabledIdxSet and idx and disabledIdxSet[idx] and catchAllIdx then

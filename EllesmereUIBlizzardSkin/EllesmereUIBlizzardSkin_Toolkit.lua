@@ -1,5 +1,6 @@
 local WSkin = {}
 _G.EllesmereUIBlizzardSkin = WSkin
+WSkin.TexCoords = { 0.08, 0.92, 0.08, 0.92 }
 
 local _G = _G
 local unpack, type, select, getmetatable = unpack, type, select, getmetatable
@@ -41,9 +42,16 @@ local function Point(obj, arg1, arg2, arg3, arg4, arg5)
 end
 
 local function SetOutside(obj, anchor, xOffset, yOffset, anchor2)
-	xOffset = xOffset or 1
-	yOffset = yOffset or 1
-	anchor = anchor or obj:GetParent()
+	if type(anchor) == "number" then
+		anchor2 = yOffset
+		yOffset = xOffset
+		xOffset = anchor
+		anchor = nil
+	end
+	anchor = (type(anchor) == "table" or type(anchor) == "userdata") and anchor or (obj.GetParent and obj:GetParent())
+	xOffset = type(xOffset) == "number" and xOffset or 1
+	yOffset = type(yOffset) == "number" and yOffset or 1
+	anchor2 = (type(anchor2) == "table" or type(anchor2) == "userdata") and anchor2 or nil
 
 	if obj:GetPoint() then obj:ClearAllPoints() end
 	Point(obj, "TOPLEFT", anchor, "TOPLEFT", -xOffset, yOffset)
@@ -51,9 +59,16 @@ local function SetOutside(obj, anchor, xOffset, yOffset, anchor2)
 end
 
 local function SetInside(obj, anchor, xOffset, yOffset, anchor2)
-	xOffset = xOffset or 1
-	yOffset = yOffset or 1
-	anchor = anchor or obj:GetParent()
+	if type(anchor) == "number" then
+		anchor2 = yOffset
+		yOffset = xOffset
+		xOffset = anchor
+		anchor = nil
+	end
+	anchor = (type(anchor) == "table" or type(anchor) == "userdata") and anchor or (obj.GetParent and obj:GetParent())
+	xOffset = type(xOffset) == "number" and xOffset or 1
+	yOffset = type(yOffset) == "number" and yOffset or 1
+	anchor2 = (type(anchor2) == "table" or type(anchor2) == "userdata") and anchor2 or nil
 
 	if obj:GetPoint() then obj:ClearAllPoints() end
 	Point(obj, "TOPLEFT", anchor, "TOPLEFT", xOffset, -yOffset)
@@ -97,17 +112,23 @@ local function CreateBackdrop(frame, template, glossTex, ignoreUpdates, forcePix
 end
 
 local function Kill(object)
+	if not object then return end
+	if type(object) == "string" then object = _G[object] end
+	if not object then return end
 	if object.UnregisterAllEvents then
 		object:UnregisterAllEvents()
 		object:SetParent(CreateFrame("Frame"))
 	else
 		object.Show = function() end
 	end
-	object:Hide()
+	if object.Hide then object:Hide() end
 end
 
 local function StripTextures(object, kill, alpha)
-	if object:IsObjectType("Texture") then
+	if not object then return end
+	if type(object) == "string" then object = _G[object] end
+	if not object then return end
+	if object.IsObjectType and object:IsObjectType("Texture") then
 		if kill then
 			Kill(object)
 		elseif alpha then
@@ -184,6 +205,23 @@ do
 	end
 end
 
+local function FontTemplate(fs, font, fontSize, fontStyle)
+	if not fs or not fs.SetFont then return end
+	font = font or (EllesmereUI and EllesmereUI.GetFontPath and EllesmereUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF"
+	fontSize = fontSize or 12
+	fontStyle = fontStyle or ""
+
+	fs:SetFont(font, fontSize, fontStyle)
+
+	if fontStyle == "NONE" or fontStyle == "" then
+		fs:SetShadowOffset(1, -1)
+		fs:SetShadowColor(0, 0, 0, 1)
+	else
+		fs:SetShadowOffset(0, 0)
+		fs:SetShadowColor(0, 0, 0, 0)
+	end
+end
+
 -- Expose methods directly on WSkin to accept self (WSkin) as first argument
 WSkin.Size = function(self, frame, ...) return Size(frame, ...) end
 WSkin.Width = function(self, frame, ...) return Width(frame, ...) end
@@ -197,6 +235,19 @@ WSkin.Kill = function(self, frame, ...) return Kill(frame, ...) end
 WSkin.StripTextures = function(self, frame, ...) return StripTextures(frame, ...) end
 WSkin.StyleButton = function(self, frame, ...) return StyleButton(frame, ...) end
 WSkin.CreateCloseButton = function(self, frame, ...) return CreateCloseButton(frame, ...) end
+WSkin.FontTemplate = function(self, frame, ...)
+	if type(self) == "table" and self == WSkin then
+		return FontTemplate(frame, ...)
+	else
+		return FontTemplate(self, frame, ...)
+	end
+end
+
+local fontString = CreateFrame("Frame"):CreateFontString()
+local fontStringMt = getmetatable(fontString) and getmetatable(fontString).__index
+if fontStringMt and not fontStringMt.FontTemplate then
+	fontStringMt.FontTemplate = FontTemplate
+end
 
 -- Skins
 function WSkin:SetModifiedBackdrop()
@@ -430,8 +481,9 @@ function WSkin:SetUIPanelWindowInfo(frame, prop, val, offset)
 end
 
 function WSkin:SetBackdropHitRect(frame, backdrop)
+	if not frame then return end
 	if not backdrop then backdrop = frame.backdrop end
-	if backdrop then
+	if backdrop and frame then
 		frame:SetHitRectInsets(backdrop:GetLeft() - frame:GetLeft(), frame:GetRight() - backdrop:GetRight(), backdrop:GetTop() - frame:GetTop(), frame:GetBottom() - backdrop:GetBottom())
 	end
 end
@@ -562,3 +614,57 @@ function WSkin:HandleEditBox(frame)
 		if _G[EditBoxName.."Mid"] then _G[EditBoxName.."Mid"]:SetAlpha(0) end
 	end
 end
+
+function WSkin:HandleIcon(icon, parent)
+	if not icon then return end
+
+	parent = parent or (icon.GetParent and icon:GetParent())
+
+	if icon.SetTexCoord then
+		icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	end
+
+	if parent then
+		if not parent.backdrop then
+			CreateBackdrop(parent, "Default")
+		end
+		if parent.backdrop then
+			icon:SetParent(parent.backdrop)
+		end
+	end
+end
+
+function WSkin:HandleButtonHighlight(frame, r, g, b, a)
+	if not frame then return end
+	if not r then r = 0.9 end
+	if not g then g = 0.9 end
+	if not b then b = 0.9 end
+	if not a then a = 0.35 end
+
+	local highlightTexture
+
+	if frame.SetHighlightTexture then
+		highlightTexture = frame:GetHighlightTexture()
+		if highlightTexture then
+			highlightTexture:SetAllPoints(frame)
+		end
+	elseif frame.SetTexture then
+		highlightTexture = frame
+		if frame.GetParent and frame:GetParent() then
+			frame:SetAllPoints(frame:GetParent())
+		end
+	elseif frame.HighlightTexture then
+		highlightTexture = frame.HighlightTexture
+	else
+		highlightTexture = frame:CreateTexture(nil, "HIGHLIGHT")
+		highlightTexture:SetAllPoints(frame)
+		frame.HighlightTexture = highlightTexture
+	end
+
+	if highlightTexture then
+		highlightTexture:SetTexture(1, 1, 1, a)
+		highlightTexture:SetVertexColor(r, g, b, a)
+	end
+end
+
+

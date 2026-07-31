@@ -284,7 +284,7 @@ local function ApplyStyleToRegions(button, style)
     -- shows only on typed (dispellable) auras and tints per dispel type --
     -- per-aura dispel data is secret, so show/hide and color are ENGINE
     -- decisions. The Color style never assigns a texture file, only vertex-
-    -- tints: the ring ART is entirely ours (media/textures/square-ring.png,
+    -- tints: the ring ART is entirely ours (media/textures/square-ring.tga,
     -- a flat white band flush to a 64px canvas, 16 texels thick), registered
     -- purely as a tint target, and the user's dispel palette rides in via
     -- customDispelColorMap (68824). The ring lives on a dedicated holder one
@@ -307,7 +307,7 @@ local function ApplyStyleToRegions(button, style)
     if style.dispelBorder and not d.dispelBorder and d.dispelHolder
         and (button.AddDispelTypeTexture or button.SetAuraBorder) and dispelTint ~= nil then
         d.dispelBorder = d.dispelHolder:CreateTexture(nil, "OVERLAY")
-        d.dispelBorder:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\textures\\square-ring.png")
+        d.dispelBorder:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\textures\\square-ring.tga")
         if d.dispelBorder.SetSnapToPixelGrid then
             d.dispelBorder:SetSnapToPixelGrid(false)
             d.dispelBorder:SetTexelSnappingBias(0)

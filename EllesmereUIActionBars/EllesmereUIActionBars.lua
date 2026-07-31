@@ -86,6 +86,34 @@ local NUM_ACTIONBAR_BUTTONS = NUM_ACTIONBAR_BUTTONS or 12
 -------------------------------------------------------------------------------
 --  Bar configuration
 -------------------------------------------------------------------------------
+-- Blizzard renamed the native stance widgets after Wrath. Resolve them once
+-- so the same bar code can reuse the actual secure buttons on either client.
+ns.NATIVE_STANCE_BUTTON_PREFIX = _G.ShapeshiftButton1 and "ShapeshiftButton" or "StanceButton"
+ns.NATIVE_STANCE_BAR_NAME = _G.ShapeshiftBarFrame and "ShapeshiftBarFrame" or "StanceBar"
+
+-- Wrath's XML creates the stance artwork as named global regions rather than
+-- assigning the Retail-era fields consumed by the shared styling pipeline.
+-- Normalize those references on the native button without replacing any
+-- secure scripts or click behavior.
+function ns.NormalizeStanceButtonRegions(btn)
+    if not btn or not btn.GetName then return end
+    local name = btn:GetName()
+    if not name then return end
+    btn.icon = btn.icon or btn.Icon or _G[name .. "Icon"]
+    btn.cooldown = btn.cooldown or _G[name .. "Cooldown"]
+    btn.HotKey = btn.HotKey or _G[name .. "HotKey"]
+    btn.Flash = btn.Flash or _G[name .. "Flash"]
+    btn.Border = btn.Border or _G[name .. "Border"]
+    btn.NormalTexture = btn.NormalTexture or _G[name .. "NormalTexture"]
+        or (btn.GetNormalTexture and btn:GetNormalTexture())
+    btn.PushedTexture = btn.PushedTexture or _G[name .. "PushedTexture"]
+        or (btn.GetPushedTexture and btn:GetPushedTexture())
+    btn.CheckedTexture = btn.CheckedTexture or _G[name .. "CheckedTexture"]
+        or (btn.GetCheckedTexture and btn:GetCheckedTexture())
+    btn.HighlightTexture = btn.HighlightTexture or _G[name .. "HighlightTexture"]
+        or (btn.GetHighlightTexture and btn:GetHighlightTexture())
+end
+
 local BAR_CONFIG = {
     -- nativeMainBar: MainBar buttons keep their native IDs (1-12) and derive
     -- action via CalculateAction path 1. The bar frame's _onstate-page handler
@@ -102,11 +130,14 @@ local BAR_CONFIG = {
     { key = "Bar3",      label = "Action Bar 3",        barID = 3,  count = 12, blizzBtnPrefix = "MultiBarBottomRightButton",  blizzFrame = "MultiBarBottomRight", nativeActionPage = 5 },
     { key = "Bar4",      label = "Action Bar 4",        barID = 4,  count = 12, blizzBtnPrefix = "MultiBarRightButton",        blizzFrame = "MultiBarRight",       nativeActionPage = 3 },
     { key = "Bar5",      label = "Action Bar 5",        barID = 5,  count = 12, blizzBtnPrefix = "MultiBarLeftButton",         blizzFrame = "MultiBarLeft",        nativeActionPage = 4 },
-    { key = "Bar6",      label = "Action Bar 6",        barID = 6,  count = 12, blizzBtnPrefix = "MultiBar5Button",          blizzFrame = "MultiBar5",           nativeActionPage = 13 },
-    { key = "Bar7",      label = "Action Bar 7",        barID = 7,  count = 12, blizzBtnPrefix = "MultiBar6Button",          blizzFrame = "MultiBar6",           nativeActionPage = 14 },
-    { key = "Bar8",      label = "Action Bar 8",        barID = 8,  count = 12, blizzBtnPrefix = "MultiBar7Button",          blizzFrame = "MultiBar7",           nativeActionPage = 15 },
-    -- Bar9 / Bar10: extra bars with NO native Blizzard frame. They use our own
-    -- EABButton<slot> buttons and page identically to Bars 2-8 via the
+    -- WotLK has no MultiBar5-7 and only exposes action slots 1-120.  Use the
+    -- remaining real action pages for Bars 6-8 instead of Retail-only pages
+    -- 13-15 (slots 145-180), which render but reject every drop on 3.3.5.
+    { key = "Bar6",      label = "Action Bar 6",        barID = 0,  count = 12, customPage = 7 },
+    { key = "Bar7",      label = "Action Bar 7",        barID = 0,  count = 12, customPage = 8 },
+    { key = "Bar8",      label = "Action Bar 8",        barID = 0,  count = 12, customPage = 9 },
+    -- Bar9 / Bar10: additional bars with NO native Blizzard frame. Like Bars
+    -- 6-8, they use our own EABButton<slot> buttons and page via the
     -- explicit-action + _childupdate-eab-page system. Bar9 maps to action page 2
     -- (slots 13-24) so converts see those spells appear (already
     -- in the per-character action slots, no re-placing) once Bar9 is enabled.
@@ -117,7 +148,7 @@ local BAR_CONFIG = {
     -- live on.
     { key = "Bar9",      label = "Action Bar 9",        barID = 0,  count = 12, customPage = 2 },
     { key = "Bar10",     label = "Action Bar 10",       barID = 0,  count = 12, customPage = 10 },
-    { key = "StanceBar", label = "Stance Bar",          barID = 0,  count = 10, blizzBtnPrefix = "StanceButton",               blizzFrame = "StanceBar", isStance = true },
+    { key = "StanceBar", label = "Stance Bar",          barID = 0,  count = 10, blizzBtnPrefix = ns.NATIVE_STANCE_BUTTON_PREFIX, blizzFrame = ns.NATIVE_STANCE_BAR_NAME, isStance = true },
     { key = "PetBar",    label = "Pet Bar",             barID = 0,  count = 10, blizzBtnPrefix = "PetActionButton",            blizzFrame = "PetActionBar", isPetBar = true },
 }
 
@@ -271,9 +302,9 @@ local function GetEABUseShadow()
     return not EllesmereUI or not EllesmereUI.GetFontUseShadow or EllesmereUI.GetFontUseShadow("actionBars")
 end
 local HIGHLIGHT_TEXTURES = {
-    MEDIA_DIR .. "highlight-2.png",
-    MEDIA_DIR .. "highlight-3.png",
-    MEDIA_DIR .. "highlight-4.png",
+    MEDIA_DIR .. "highlight-2.tga",
+    MEDIA_DIR .. "highlight-3.tga",
+    MEDIA_DIR .. "highlight-4.tga",
 }
 ns.HIGHLIGHT_TEXTURES = HIGHLIGHT_TEXTURES
 
@@ -307,6 +338,18 @@ local SHAPE_ZOOM_DEFAULTS = {
 ns.SHAPE_ZOOM_DEFAULTS = SHAPE_ZOOM_DEFAULTS
 ns.SHAPE_MASKS   = SHAPE_MASKS
 ns.SHAPE_BORDERS = SHAPE_BORDERS
+
+-- MaskTexture was added long after the 3.3.5 client.  Keep the saved shape
+-- value intact (profiles may be shared with a newer client), but resolve
+-- unsupported masked shapes to the regular rectangular presentation.
+ns.MASK_TEXTURES_SUPPORTED = UIParent and type(UIParent.CreateMaskTexture) == "function"
+function ns.ResolveButtonShape(shape)
+    shape = shape or "none"
+    if not ns.MASK_TEXTURES_SUPPORTED and shape ~= "none" and shape ~= "cropped" then
+        return "none"
+    end
+    return shape
+end
 
 local SHAPE_BTN_EXPAND  = 10
 local SHAPE_ICON_EXPAND = 7
@@ -672,13 +715,26 @@ local function FadeTo(frame, toAlpha, duration)
     local group, anim = data.group, data.anim
     -- Already animating toward the same target -- don't restart
     if group:IsPlaying() and group._toAlpha == toAlpha then return end
-    if group:IsPlaying() then group:Stop() end
     group._toAlpha = toAlpha
-    anim:SetFromAlpha(frame:GetAlpha())
-    anim:SetToAlpha(toAlpha)
+    if anim.SetFromAlpha then
+        anim:SetFromAlpha(frame:GetAlpha())
+    elseif anim.SetChange then
+        anim._fromAlpha = frame:GetAlpha()
+    end
+    if anim.SetToAlpha then
+        anim:SetToAlpha(toAlpha)
+    elseif anim.SetChange then
+        anim._toAlpha = toAlpha
+        anim:SetChange(toAlpha - (anim._fromAlpha or 0))
+    end
     anim:SetDuration(duration)
     anim:SetStartDelay(0)
-    group:Restart()
+    if group.Restart then
+        group:Restart()
+    else
+        group:Stop()
+        group:Play()
+    end
 end
 
 local function StopFade(frame)
@@ -697,7 +753,7 @@ local function ResolveBorderThickness(s)
     local thickness = s.borderThickness or "thin"
     local entry = ns.BORDER_THICKNESS[thickness]
     if not entry then entry = ns.BORDER_THICKNESS["thin"] end
-    local shape = s.buttonShape or "none"
+    local shape = ns.ResolveButtonShape(s.buttonShape)
     if shape ~= "none" and shape ~= "cropped" then
         if thickness == "thin" and s.shapeBorderSize and s.shapeBorderSize ~= entry.shape then
             return s.shapeBorderSize
@@ -734,13 +790,52 @@ end
 -- Check if a button has an action assigned
 local function ButtonHasAction(btn, prefix)
     if not btn then return false end
+    -- The 3.3.5 StanceButton template has neither the modern HasAction
+    -- method nor a button.icon field (its texture is StanceButtonNIcon).
+    -- Query the form directly so valid stances are not treated as empty and
+    -- faded out by LayoutBar/ApplyAlwaysShowButtons.
+    if prefix == ns.NATIVE_STANCE_BUTTON_PREFIX and GetShapeshiftFormInfo then
+        local index = btn.GetID and btn:GetID()
+        local texture = index and GetShapeshiftFormInfo(index)
+        return texture ~= nil
+    end
     if btn.HasAction then
         local ok, has = pcall(btn.HasAction, btn)
         if ok then return has end
     end
-    return btn.icon and btn.icon:IsShown() and btn.icon:GetTexture() ~= nil
+    local icon = btn.icon or btn.Icon
+    if not icon and btn.GetName then
+        local name = btn:GetName()
+        icon = name and _G[name .. "Icon"]
+    end
+    return icon and icon:IsShown() and icon:GetTexture() ~= nil
 end
 ns.ButtonHasAction = ButtonHasAction
+
+-- Cooldown:Clear() is a modern API and is absent on some native 3.3.5
+-- cooldown frames that were created before our compatibility shim ran.
+function ns.ClearCooldown(cd)
+    if not cd then return end
+    if cd.Clear then
+        cd:Clear()
+    elseif CooldownFrame_Set then
+        CooldownFrame_Set(cd, 0, 0, 0)
+    else
+        cd:SetCooldown(0, 0)
+        cd:Hide()
+    end
+end
+
+-- GetActionCount returns numeric 0 for actions without a stack/reagent count
+-- on 3.3.5.  Zero is truthy in Lua, so `display or ""` incorrectly paints a
+-- visible "0" until Blizzard's next native count refresh clears it.
+function ns.GetActionCountText(action)
+    if not (C_ActionBar and C_ActionBar.GetActionDisplayCount) then return "" end
+    local display = C_ActionBar.GetActionDisplayCount(action)
+    if issecretvalue and issecretvalue(display) then return display end
+    if display == nil or display == 0 or display == "0" then return "" end
+    return display
+end
 
 -- Force-paint a Blizzard-native button's cooldown swipe/text from its current
 -- action state, instead of waiting on the next ACTIONBAR_UPDATE_COOLDOWN
@@ -748,13 +843,13 @@ ns.ButtonHasAction = ButtonHasAction
 -- don't rebuild (OverrideActionBarButton1-6, ExtraActionButton1) otherwise show
 -- no swipe/number for an ability already on cooldown the instant they appear,
 -- until mouseover or combat forces a refresh. Reads the slot via
--- GetAttribute("action"), never btn.action (protected -- reading it during
+-- GetButtonAction(btn), never btn.action (protected -- reading it during
 -- combat taints). Clears when no active duration is resolvable so a stale swipe
 -- from a prior state is never left behind.
 local function ForceCooldownPaint(btn)
     if not btn then return end
     local cd = btn.cooldown
-    local action = btn:GetAttribute("action")
+    local action = GetButtonAction(btn)
     if cd and action and HasAction(action) and C_ActionBar and C_ActionBar.GetActionCooldown then
         local cdInfo = C_ActionBar.GetActionCooldown(action)
         local durObj = cdInfo and cdInfo.isActive and C_ActionBar.GetActionCooldownDuration
@@ -762,7 +857,7 @@ local function ForceCooldownPaint(btn)
         if durObj then
             cd:SetCooldownFromDurationObject(durObj)
         else
-            cd:Clear()
+            ns.ClearCooldown(cd)
         end
     end
 end
@@ -780,7 +875,7 @@ local STOCK_BAR_DISPOSAL = {
     { name = "MultiBar5" },
     { name = "MultiBar6" },
     { name = "MultiBar7" },
-    { name = "StanceBar" },
+    { name = ns.NATIVE_STANCE_BAR_NAME },
     { name = "PetActionBar" },
 }
 
@@ -1472,7 +1567,7 @@ local function HideBlizzardBars()
     end
     -- Hide stock bar frames. MainMenuBar, StanceBar, PetActionBar need
     -- EAB.db to be ready, so they are handled here rather than at file load.
-    local remainingBars = { "MainMenuBar", "StanceBar", "PetActionBar" }
+    local remainingBars = { "MainMenuBar", ns.NATIVE_STANCE_BAR_NAME, "PetActionBar" }
     for _, name in ipairs(remainingBars) do
         local bar = _G[name]
         if bar then
@@ -1556,7 +1651,7 @@ end
 
 -------------------------------------------------------------------------------
 --  Button Creation
---  All action bar buttons (slots 1-180) are our own EABButton frames.
+--  All action bar buttons (WotLK slots 1-120) are our own EABButton frames.
 --  Stance/Pet bars still reuse Blizzard buttons.
 -------------------------------------------------------------------------------
 local allButtons = {}   -- [actionSlot] = button
@@ -1580,10 +1675,9 @@ local barBaseSize = {}  -- [barKey] = { w, h } original button size before any s
 --   MultiBarBottomRightButton  slots 49-60
 --   MultiBarRightButton        slots 25-36
 --   MultiBarLeftButton         slots 37-48
---   MultiBar5Button            slots 145-156
---   MultiBar6Button            slots 157-168
---   MultiBar7Button            slots 169-180
--- Slots 133-144 are reserved/unknown (not used by any bar).
+--   Custom Bar6                slots 73-84  (action page 7)
+--   Custom Bar7                slots 85-96  (action page 8)
+--   Custom Bar8                slots 97-108 (action page 9)
 -- Stance bar: uses StanceButton1-10 (not action slots)
 local BAR_SLOT_OFFSETS = {
     MainBar = 0,    -- slots 1-12 (paged)
@@ -1591,12 +1685,40 @@ local BAR_SLOT_OFFSETS = {
     Bar3 = 48,      -- slots 49-60  (MultiBarBottomRight)
     Bar4 = 24,      -- slots 25-36  (MultiBarRight)
     Bar5 = 36,      -- slots 37-48  (MultiBarLeft)
-    Bar6 = 144,     -- slots 145-156 (MultiBar5)
-    Bar7 = 156,     -- slots 157-168 (MultiBar6)
-    Bar8 = 168,     -- slots 169-180 (MultiBar7)
+    Bar6 = 72,      -- slots 73-84   (action page 7 -- custom bar)
+    Bar7 = 84,      -- slots 85-96   (action page 8 -- custom bar)
+    Bar8 = 96,      -- slots 97-108  (action page 9 -- custom bar)
     Bar9 = 12,      -- slots 13-24   (action page 2 -- custom bar)
     Bar10 = 108,    -- slots 109-120 (action page 10 -- custom bar, no native frame)
 }
+
+local function GetButtonAction(btn)
+    if not btn then return nil end
+    local info = buttonToBar[btn]
+    if info then
+        local offset = BAR_SLOT_OFFSETS[info.barKey]
+        if offset then
+            if info.barKey == "MainBar" then
+                local frame = barFrames["MainBar"]
+                local page = frame and tonumber(frame:GetAttribute("actionpage")) or (EAB_VTABLE and EAB_VTABLE.GetActionBarPage and EAB_VTABLE.GetActionBarPage()) or 1
+                offset = (page - 1) * 12
+            end
+            return offset + info.index
+        end
+    end
+    local action = btn.GetAttribute and btn:GetAttribute("action")
+    if action and type(action) == "number" and action > 0 then return action end
+    if ActionButton_GetPagedID then
+        local paged = ActionButton_GetPagedID(btn)
+        if paged and type(paged) == "number" and paged > 0 then return paged end
+    end
+    if btn.GetID then
+        action = btn:GetID()
+        if action and type(action) == "number" and action > 0 then return action end
+    end
+    return nil
+end
+ns.GetButtonAction = GetButtonAction
 
 -- Keybind binding name prefixes per bar
 -- WoW binding names: MULTIACTIONBAR<N>BUTTON where N maps to the bar's
@@ -1607,10 +1729,10 @@ local BINDING_MAP = {
     Bar3 = "MULTIACTIONBAR2BUTTON",
     Bar4 = "MULTIACTIONBAR3BUTTON",
     Bar5 = "MULTIACTIONBAR4BUTTON",
-    Bar6 = "MULTIACTIONBAR5BUTTON",
-    Bar7 = "MULTIACTIONBAR6BUTTON",
-    Bar8 = "MULTIACTIONBAR7BUTTON",
-    -- Bar9/Bar10 have no native binding commands; these custom commands are
+    Bar6 = "EUI_BAR6_BUTTON",
+    Bar7 = "EUI_BAR7_BUTTON",
+    Bar8 = "EUI_BAR8_BUTTON",
+    -- Bars 6-10 have no native binding commands; these custom commands are
     -- defined in Bindings.xml and routed via SetOverrideBindingClick (the keypress
     -- clicks our button, which reads the paged "action" attr).
     Bar9 = "EUI_BAR9_BUTTON",
@@ -1619,12 +1741,18 @@ local BINDING_MAP = {
     PetBar = "BONUSACTIONBUTTON",
 }
 
--- Readable labels for the custom Bar9/Bar10 binding commands declared in
+-- Readable labels for the custom Bar6-10 binding commands declared in
 -- Bindings.xml. Global writes only (no file-scope locals). The keybind UI reads
 -- BINDING_HEADER_<header> for the section title and BINDING_NAME_<command> per row.
+_G.BINDING_HEADER_EUI_BAR6  = "EllesmereUI Action Bar 6"
+_G.BINDING_HEADER_EUI_BAR7  = "EllesmereUI Action Bar 7"
+_G.BINDING_HEADER_EUI_BAR8  = "EllesmereUI Action Bar 8"
 _G.BINDING_HEADER_EUI_BAR9  = "EllesmereUI Action Bar 9"
 _G.BINDING_HEADER_EUI_BAR10 = "EllesmereUI Action Bar 10"
 for i = 1, 12 do
+    _G["BINDING_NAME_EUI_BAR6_BUTTON"  .. i] = "Action Bar 6 Button "  .. i
+    _G["BINDING_NAME_EUI_BAR7_BUTTON"  .. i] = "Action Bar 7 Button "  .. i
+    _G["BINDING_NAME_EUI_BAR8_BUTTON"  .. i] = "Action Bar 8 Button "  .. i
     _G["BINDING_NAME_EUI_BAR9_BUTTON"  .. i] = "Action Bar 9 Button "  .. i
     _G["BINDING_NAME_EUI_BAR10_BUTTON" .. i] = "Action Bar 10 Button " .. i
 end
@@ -1727,7 +1855,8 @@ local function GetOrCreateButton(slot, parent, info, index, skipProtected)
     local btn
     if info.isStance then
         -- Stance bar: reuse Blizzard buttons (own secure stance handling)
-        btn = _G["StanceButton" .. index]
+        btn = _G[ns.NATIVE_STANCE_BUTTON_PREFIX .. index]
+        ns.NormalizeStanceButtonRegions(btn)
         if btn and not skipProtected then
             EUI.API.SetSecureAttr(btn, "statehidden", nil)
             ReRegisterButtonEvents(btn, "stance")
@@ -1748,18 +1877,10 @@ local function GetOrCreateButton(slot, parent, info, index, skipProtected)
             -- We handle button art ourselves in MakeButtonSquare/ApplyPushedTextures.
             btn.UpdateButtonArt = function() end
         end
-        -- 12.1's template OnLoad self-registers ACTIONBAR_SLOT_CHANGED on the
-        -- button. The central dispatcher owns that event (see the
-        -- BUTTON_EVENT_LISTS note): the mixin's own handler runs Update()
-        -- under our execution taint (the UpdateButtonArt neuter above is a
-        -- tainted field in that chain) and errors on secret cooldown args,
-        -- plus blocked SetAttribute from UpdatePressAndHoldAction in combat.
-        -- No-op on 12.0, where the event is never self-registered.
         btn:UnregisterEvent("ACTIONBAR_SLOT_CHANGED")
-        -- Same class: the 12.1 template OnLoad may self-register the cooldown
-        -- event too; our event list no longer carries it (OBA idle-spam), so
-        -- kill any self-registration. No-op on 12.0.
         btn:UnregisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
+        btn:UnregisterEvent("ACTIONBAR_UPDATE_STATE")
+        btn:UnregisterEvent("ACTIONBAR_UPDATE_USABLE")
         -- The template OnLoad also registered this button with Blizzard's
         -- ActionBarButtonEventsFrame broadcaster. That tinsert ran under OUR
         -- execution, so the stored entry is a tainted value: while the
@@ -1863,7 +1984,7 @@ end
 -- All paging data stored on EAB_VTABLE to avoid 200-local Lua 5.1 limit.
 EAB_VTABLE.BAR_KEY_TO_PAGE = {
     MainBar = 1,  Bar2 = 6,  Bar3 = 5,  Bar4 = 3,
-    Bar5 = 4,     Bar6 = 13, Bar7 = 14, Bar8 = 15,
+    Bar5 = 4,     Bar6 = 7,  Bar7 = 8,  Bar8 = 9,
     Bar9 = 2,     Bar10 = 10,
 }
 EAB_VTABLE.PAGING_STATES = {
@@ -2352,7 +2473,7 @@ local function CreateBarFrame(info)
         RegisterStateDriver(frame, "page", pagingConditions)
     end
 
-    -- Bars 2-8 (nativeActionPage) and Bars 9-10 (customPage): buttons have static
+    -- Bars 2-5 (nativeActionPage) and Bars 6-10 (customPage): buttons have static
     -- action attributes set in SetupBar that already point at the bar's default
     -- page. When custom paging is configured, a state driver + ChildUpdate
     -- recalculates each button's action attr on page change -- identical machinery
@@ -2513,14 +2634,15 @@ local function SetupBar(info, skipProtected)
     local key = info.key
     local frame = CreateBarFrame(info)
     local buttons = {}
-    local buttonShape = EAB and EAB.db and EAB.db.profile and EAB.db.profile.bars[key]
-        and EAB.db.profile.bars[key].buttonShape or "none"
+    local buttonShape = ns.ResolveButtonShape(EAB and EAB.db and EAB.db.profile
+        and EAB.db.profile.bars[key] and EAB.db.profile.bars[key].buttonShape)
 
     if info.isStance then
         -- Stance bar: reuse StanceButton1-N
         for i = 1, info.count do
-            local btn = _G["StanceButton" .. i]
+            local btn = _G[ns.NATIVE_STANCE_BUTTON_PREFIX .. i]
             if btn then
+                ns.NormalizeStanceButtonRegions(btn)
                 if not skipProtected then
                     ApplyShapeHitRects(btn, buttonShape)
                     EUI.API.SetSecureAttr(btn, "statehidden", nil)
@@ -2568,9 +2690,6 @@ local function SetupBar(info, skipProtected)
                 local bindPrefix = BINDING_MAP[key]
                 if not skipProtected then
                     ApplyShapeHitRects(btn, buttonShape)
-                    -- All our buttons use explicit action attributes.
-                    -- CalculateAction sees the non-zero action attr and
-                    -- returns it directly (path 2).
                     btn:SetAttribute("action", slot)
                     if bindPrefix then
                         EUI.API.SetSecureAttr(btn, "binding", bindPrefix .. i)
@@ -2584,9 +2703,6 @@ local function SetupBar(info, skipProtected)
                 if bindPrefix then
                     btn.commandName = bindPrefix .. i
                 end
-                -- Always register both so empower spells (hold-and-release)
-                -- receive the key-down event even when CVar is key-up mode.
-                -- useOnKeyDown controls which event fires normal spells.
                 btn:RegisterForClicks("AnyDown", "AnyUp")
                 btn:SetAttribute("useOnKeyDown", GetCVarBool("ActionButtonUseKeyDown"))
                 if btn.EnableMouseWheel then
@@ -2858,6 +2974,23 @@ function ns.EnsureChargeCooldown(btn)
     return chargeCd
 end
 
+-- Permanently suppress the native CheckButton slot artwork on EUI-style bars.
+function ns.HideNativeNormalTexture(button)
+    if not button then return end
+    local normal = button.NormalTexture
+        or (button.GetNormalTexture and button:GetNormalTexture())
+    if normal then
+        -- Hide alone is not durable on 3.3.5: emptying a slot makes the
+        -- CheckButton state machine show its normal region again without
+        -- necessarily calling SetNormalTexture.  Clearing the region's image
+        -- makes that late Show harmless; Blizzard Style is reload-gated, so
+        -- EUI-style buttons never need this artwork again in the session.
+        normal:SetTexture(nil)
+        normal:SetAlpha(0)
+        normal:Hide()
+    end
+end
+
 -- Full per-button visual refresh for slot CONTENT changes (spec swap,
 -- drag-drop: slot numbers stay, contents change -- force-less UpdateAction
 -- short-circuits on that exact case).
@@ -2901,9 +3034,8 @@ function EAB_VTABLE.ForceButtonRefresh(btn, action)
         -- which case the tint is left for the usable-event path.
         pcall(ns._TintUsableIcon, icon, action)
     end
-    if btn.Count and C_ActionBar and C_ActionBar.GetActionDisplayCount then
-        local display = C_ActionBar.GetActionDisplayCount(action)
-        btn.Count:SetText(display or "")
+    if btn.Count then
+        btn.Count:SetText(ns.GetActionCountText(action))
     end
     -- Macro / action text. The mixin's Update() maintains this normally, but
     -- we suppress its per-button events, so a moved macro leaves its name
@@ -2927,7 +3059,7 @@ function EAB_VTABLE.ForceButtonRefresh(btn, action)
                 cd:SetCooldownFromDurationObject(dur)
             end
         else
-            cd:Clear()
+            ns.ClearCooldown(cd)
         end
     end
     -- Desaturation / on-CD alpha are otherwise only recomputed by cooldown
@@ -2937,6 +3069,10 @@ function EAB_VTABLE.ForceButtonRefresh(btn, action)
     -- from live cooldown data now that the slot's contents changed.
     if EAB._RefreshCooldownVisuals then
         EAB._RefreshCooldownVisuals(btn)
+    end
+    local profile = EAB.db and EAB.db.profile
+    if not (profile and profile.useBlizzardStyle) then
+        ns.HideNativeNormalTexture(btn)
     end
 end
 
@@ -2993,77 +3129,29 @@ do
         -- (in combat every cast fires one) read 0 and re-saturated the icon
         -- early. The TOTAL duration never decays, so the classification
         -- holds for the cooldown's entire life; the OnCooldownDone edge then
-        -- restores the icon the moment the cooldown actually completes.
-        local function RefreshCooldownVisuals(btn, action, cdInfo, durObj, chargeInfo)
-            local desatOn = EAB.db.profile.desaturateOnCooldown
-            local cdAlpha = EAB.db.profile.alphaWhenOnCD or 100
+        local function RefreshCooldownVisuals(btn, action, start, duration)
+            local desatOn = EAB.db and EAB.db.profile and EAB.db.profile.desaturateOnCooldown
+            local cdAlpha = (EAB.db and EAB.db.profile and EAB.db.profile.alphaWhenOnCD) or 100
             local alphaOn = cdAlpha ~= 100
             if not desatOn and not alphaOn then return end
-            local icon = btn.icon
+
+            local icon = btn.icon or btn.Icon or _G[btn:GetName() .. "Icon"]
             if not icon then return end
-            if not action then
-                action = btn:GetAttribute("action")
-                if not action or not HasAction(action) then return end
+
+            if not action then action = GetButtonAction(btn) end
+            if not action or not HasAction(action) then return end
+
+            if start == nil or duration == nil then
+                start, duration = GetActionCooldown(action)
             end
-            if cdInfo == nil then
-                cdInfo = C_ActionBar.GetActionCooldown(action)
-                if cdInfo and cdInfo.isActive then
-                    durObj = C_ActionBar.GetActionCooldownDuration(action)
-                end
-            end
-            if chargeInfo == nil then
-                chargeInfo = C_ActionBar.GetActionCharges(action)
-            end
-            local useRealCurve = chargeInfo and chargeInfo.maxCharges and chargeInfo.maxCharges > 1
-            if not useRealCurve and GetActionInfo(action) == "item" then
-                useRealCurve = true
-            end
-            local active = cdInfo and cdInfo.isActive and durObj
+
+            local isRealCD = (start and duration and start > 0 and duration > 1.5)
+
             if desatOn then
-                local val = 0
-                if active then
-                    if useRealCurve then
-                        if durObj.EvaluateTotalDuration and desatCurveReal then
-                            val = durObj:EvaluateTotalDuration(desatCurveReal, 0)
-                        elseif durObj.EvaluateRemainingDuration and desatCurveReal then
-                            -- Client without the total evaluator: remaining is
-                            -- start-accurate and the Done edge fixes the tail.
-                            val = durObj:EvaluateRemainingDuration(desatCurveReal, 0)
-                        end
-                    elseif not cdInfo.isOnGCD then
-                        if durObj.EvaluateRemainingDuration and desatCurveAny then
-                            val = durObj:EvaluateRemainingDuration(desatCurveAny, 0)
-                        end
-                    end
-                end
-                -- val may be SECRET: never compare it; SetDesaturation
-                -- accepts secret numbers.
-                icon:SetDesaturation(val or 0)
+                icon:SetDesaturated(isRealCD and true or false)
             end
             if alphaOn then
-                if active then
-                    if useRealCurve and durObj.EvaluateTotalDuration then
-                        -- Same total-duration classification as desat. Also
-                        -- fixes banked-charge spells dimming during the GCD:
-                        -- the old IsZero gate had no real-vs-GCD test for the
-                        -- charge/item class.
-                        local curve = GetCdAlphaCurve(cdAlpha)
-                        if curve then
-                            icon:SetAlpha(durObj:EvaluateTotalDuration(curve, 1) or 1)
-                        else
-                            icon:SetAlpha(1)
-                        end
-                    elseif icon.SetAlphaFromBoolean and durObj.IsZero
-                       and (useRealCurve or not cdInfo.isOnGCD) then
-                        -- IsZero() is a secret boolean; SetAlphaFromBoolean
-                        -- consumes it without any Lua comparison.
-                        icon:SetAlphaFromBoolean(durObj:IsZero(), 1, cdAlpha / 100)
-                    else
-                        icon:SetAlpha(1)
-                    end
-                else
-                    icon:SetAlpha(1)
-                end
+                icon:SetAlpha(isRealCD and (cdAlpha / 100) or 1.0)
             end
         end
         -- Exposed for the per-button OnCooldownDone edge hooks (installed at
@@ -3072,9 +3160,9 @@ do
             if btn and btn.GetAttribute then RefreshCooldownVisuals(btn) end
         end
         dispatcher:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
-        -- Dirty-trigger only (early return in the handler): a player cast is
-        -- the reliable herald of new cooldowns, so it re-arms the heartbeat
-        -- walk below without ever running button work itself.
+        dispatcher:RegisterEvent("SPELL_UPDATE_COOLDOWN")
+        dispatcher:RegisterEvent("BAG_UPDATE_COOLDOWN")
+        dispatcher:RegisterEvent("PET_BAR_UPDATE_COOLDOWN")
         dispatcher:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
         dispatcher:RegisterEvent("ACTIONBAR_UPDATE_STATE")
         dispatcher:RegisterEvent("ACTIONBAR_UPDATE_USABLE")
@@ -3087,28 +3175,52 @@ do
         dispatcher:RegisterEvent("UPDATE_OVERRIDE_ACTIONBAR")
         dispatcher:RegisterEvent("PLAYER_TARGET_CHANGED")
         dispatcher:RegisterEvent("CVAR_UPDATE")  -- "Show numbers for cooldowns" toggled -> re-apply charge recharge numbers
+
+        local function PerformCooldownRefresh()
+            for _, info in ipairs(BAR_CONFIG) do
+                if not info.isStance and not info.isPetBar then
+                    local btns = barButtons[info.key]
+                    local frame = barFrames[info.key]
+                    if btns and (not frame or frame:IsVisible()) then
+                        for _, btn in ipairs(btns) do
+                            local action = GetButtonAction(btn)
+                            if action and HasAction(action) then
+                                local cd = btn.cooldown
+                                if cd then
+                                    local start, duration, enable = GetActionCooldown(action)
+                                    CooldownFrame_Set(cd, start, duration, enable)
+                                    RefreshCooldownVisuals(btn, action, start, duration)
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        local function ScheduleCooldownRefresh()
+            if ns._cdRefreshPending then return end
+            ns._cdRefreshPending = true
+            C_Timer.After(0.05, function()
+                ns._cdRefreshPending = nil
+                PerformCooldownRefresh()
+            end)
+        end
+        ns.ScheduleCooldownRefresh = ScheduleCooldownRefresh
+
         -- Direct API calls bypass the mixin's OnEvent dispatch, which
         -- triggers UpdateButtonArt (noop + hook), icon bg hook, and other
         -- per-button overhead. With 60 populated buttons, the mixin path
         -- caused visible frame drops on high-frequency events.
         dispatcher:SetScript("OnEvent", function(_, event, arg1)
-            -- Idle sleep for the ~1/sec ACTIONBAR_UPDATE_COOLDOWN heartbeat
-            -- (bisect-verified: walking 140 settled buttons per heartbeat was
-            -- ALL of ActionBars' idle CPU). The cooldown walk runs only while
-            -- something is live, within 2s of real activity, or on a 5s
-            -- safety resync that self-heals any exotic missed edge. Casts are
-            -- pure dirty-triggers and return before any button work.
             if event == "UNIT_SPELLCAST_SUCCEEDED" then
-                if arg1 ~= "player" then return end
+                if arg1 and arg1 ~= "player" then return end
                 ns._cdDirtyUntil = GetTime() + 2
-                -- A cast re-opens the walk rate gates so the events that
-                -- follow THIS cast always paint immediately -- the caps only
-                -- ever throttle between-cast chatter. The generation counter
-                -- lets active buttons push their (engine-live) duration
-                -- object once per cast instead of once per event.
+                ns._cdAnyLive = true
                 ns._cdWalkNext = 0
                 ns._stWalkNext = 0
                 ns._gcdGen = (ns._gcdGen or 0) + 1
+                ScheduleCooldownRefresh()
                 return
             end
             -- STATE rate cap (timed at ~0.3ms per walk, ~2.5/sec while
@@ -3143,8 +3255,9 @@ do
             -- dupes return. GetTime() is frame-constant, so this is two
             -- compares. SLOT_CHANGED is exempt (slot-targeted, content-
             -- critical), as is the infrequent-events else-branch.
-            if event == "ACTIONBAR_UPDATE_COOLDOWN" or event == "ACTIONBAR_UPDATE_USABLE"
-               or event == "ACTIONBAR_UPDATE_STATE" then
+            if event == "ACTIONBAR_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_COOLDOWN"
+               or event == "BAG_UPDATE_COOLDOWN" or event == "PET_BAR_UPDATE_COOLDOWN"
+               or event == "ACTIONBAR_UPDATE_USABLE" or event == "ACTIONBAR_UPDATE_STATE" then
                 local stamps = ns._evStamps
                 if not stamps then stamps = {}; ns._evStamps = stamps end
                 local now = GetTime()
@@ -3153,64 +3266,11 @@ do
             end
             local _cdSkip = false
             local _cdCountPass = false
-            if event == "ACTIONBAR_UPDATE_COOLDOWN" then
-                local now = GetTime()
-                if not ns._cdAnyLive and now >= (ns._cdDirtyUntil or 0) then
-                    if now < (ns._cdResyncAt or 0) then
-                        _cdSkip = true
-                    else
-                        ns._cdResyncAt = now + 5
-                        _cdCountPass = true
-                    end
-                else
-                    -- Rate cap while live/dirty (timed: ~1.0ms per walk at
-                    -- 3.5/sec while chain-casting = the bulk of cast-time
-                    -- CPU). Leading edge passes immediately; repeats inside
-                    -- the cap defer to ONE trailing flush so the final state
-                    -- always paints. Casts reset the gate above, so
-                    -- cast-adjacent paints are never delayed.
-                    local nextAt = ns._cdWalkNext or 0
-                    if now < nextAt then
-                        if not ns._cdFlushArmed then
-                            ns._cdFlushArmed = true
-                            if not ns._cdFlushFn then
-                                -- Built HERE, under this AB-born entry, so the
-                                -- timer callback bills ActionBars (closures
-                                -- carry their creation context).
-                                ns._cdFlushFn = function()
-                                    ns._cdFlushArmed = nil
-                                    ns._cdWalkNext = 0
-                                    local d = ns._cdDispatcher
-                                    local h = d and d:GetScript("OnEvent")
-                                    if h then h(d, "ACTIONBAR_UPDATE_COOLDOWN") end
-                                end
-                            end
-                            C_Timer.After((nextAt - now) + 0.02, ns._cdFlushFn)
-                        end
-                        _cdSkip = true
-                    else
-                        ns._cdWalkNext = now + 0.5
-                        -- Count-text sub-pass every ~2s: item stacks are not
-                        -- twitch-critical, and charge counts update instantly
-                        -- through the dedicated CHARGES branch.
-                        if now >= (ns._cdCountNext or 0) then
-                            _cdCountPass = true
-                            ns._cdCountNext = now + 2
-                        end
-                    end
-                end
+            if event == "ACTIONBAR_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_COOLDOWN"
+               or event == "BAG_UPDATE_COOLDOWN" or event == "PET_BAR_UPDATE_COOLDOWN" then
+                _cdSkip = false
+                _cdCountPass = true
             elseif event ~= "PLAYER_TARGET_CHANGED" then
-                -- Any other dispatcher event implies real activity (slot,
-                -- charge, usable, form, vehicle...); target flips cannot
-                -- start cooldowns and tab-targeting spams them.
-                -- EXCEPT the assisted-combat slot's SLOT_CHANGED spam: the
-                -- manager re-stamps that slot ~10x/sec at total idle, which
-                -- kept this dirty window permanently open and the cooldown
-                -- walker permanently out of idle sleep. A real cast around
-                -- the OBA button still dirties via UNIT_SPELLCAST_SUCCEEDED
-                -- and the usable/state events it fires. Those same fires ARE
-                -- the suggestion-change signal, so they drive the assist
-                -- icon repaint instead (see ns.RepaintAssistIcons).
                 if not (event == "ACTIONBAR_SLOT_CHANGED" and arg1 and arg1 ~= 0
                         and select(3, GetActionInfo(arg1)) == "assistedcombat") then
                     ns._cdDirtyUntil = GetTime() + 2
@@ -3277,7 +3337,7 @@ do
                     if btns and not _barHidden then
                         if event == "ACTIONBAR_SLOT_CHANGED" then
                             for _, btn in ipairs(btns) do
-                                local action = btn:GetAttribute("action")
+                                local action = GetButtonAction(btn)
                                 if action and (arg1 == 0 or arg1 == action) then
                                     -- Assisted-combat slot: its "content changes" are
                                     -- the manager re-stamping the suggestion (idle
@@ -3330,145 +3390,17 @@ do
                                     end -- assistedcombat icon-only vs full refresh
                                 end
                             end
-                        elseif event == "ACTIONBAR_UPDATE_COOLDOWN" then
-                            -- Use duration object API (12.0+) to avoid secret
-                            -- values. Opaque duration objects pass straight to
-                            -- the C-side SetCooldownFromDurationObject without
-                            -- any Lua comparisons on timing values.
-                            --
-                            -- EDGE-GATED (bisect-verified: Blizzard fires this
-                            -- event ~1/sec even at total idle, and the full
-                            -- per-button repaint chain here was ALL of
-                            -- ActionBars' idle CPU). A button now pays beyond
-                            -- the cheap isActive probe only while its cooldown
-                            -- or charge recharge is live, or on the exact
-                            -- rising/falling edge. Duration objects are
-                            -- engine-live, so an applied swipe needs no
-                            -- re-push between edges; re-pushing while ACTIVE
-                            -- covers resets and back-to-back new cooldowns.
+                        elseif event == "ACTIONBAR_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_COOLDOWN"
+                               or event == "BAG_UPDATE_COOLDOWN" or event == "PET_BAR_UPDATE_COOLDOWN" then
                             for _, btn in ipairs(btns) do
-                                if _cdSkip then break end
-                                local action = btn:GetAttribute("action")
+                                local action = GetButtonAction(btn)
                                 if action and HasAction(action) then
-                                    local fd = EFD(btn)
                                     local cd = btn.cooldown
-                                    local cdInfo, durObj
-                                    local active = false
                                     if cd then
-                                        cdInfo = C_ActionBar.GetActionCooldown(action)
-                                        active = (cdInfo and cdInfo.isActive) and true or false
-                                        if active then
-                                            -- Push once per cast-generation or on a
-                                            -- rising edge. Duration objects are
-                                            -- engine-live: a pushed swipe animates
-                                            -- itself, and only a new cast can have
-                                            -- changed what this button shows. During
-                                            -- a GCD every button reports active --
-                                            -- this collapses the 140-object re-push
-                                            -- storm to once per cast.
-                                            if fd.pushGen ~= ns._gcdGen or not fd.cdWasActive then
-                                                fd.pushGen = ns._gcdGen
-                                                durObj = C_ActionBar.GetActionCooldownDuration(action)
-                                                if durObj then cd:SetCooldownFromDurationObject(durObj) end
-                                            end
-                                        elseif fd.cdWasActive then
-                                            cd:Clear()
-                                        end
+                                        local start, duration, enable = GetActionCooldown(action)
+                                        CooldownFrame_Set(cd, start, duration, enable)
+                                        RefreshCooldownVisuals(btn, action, start, duration)
                                     end
-                                    -- Charges are fetched UNCONDITIONALLY, exactly as
-                                    -- before the optimization pass. Do NOT re-gate this.
-                                    -- Two gates lived here and both broke charge
-                                    -- tracking outright:
-                                    --   1. A sticky "this slot has no charges" cache.
-                                    --      One transient read reporting maxCharges as
-                                    --      nil or 1 (login before action data settles,
-                                    --      talent swap, slot still populating) latched
-                                    --      it permanently, and it only cleared on
-                                    --      ACTIONBAR_SLOT_CHANGED. From then on that
-                                    --      button never fetched charges again, so its
-                                    --      count, recharge swipe and recharge edge all
-                                    --      froze for the rest of the session.
-                                    --   2. An "only while something is in flight"
-                                    --      activity gate, which assumed every charge
-                                    --      spend lights the main cooldown first via the
-                                    --      GCD. Off-GCD spends do not, so the gate never
-                                    --      opened and the recharge was never drawn.
-                                    -- One fetch per button per walk is the price of
-                                    -- correct charge visuals.
-                                    local chargeInfo = C_ActionBar.GetActionCharges(action)
-                                    local chargeShown = (chargeInfo and chargeInfo.maxCharges
-                                        and chargeInfo.maxCharges > 1) and true or false
-                                    if chargeShown then
-                                        local chargeCd = btn.chargeCooldown
-                                        if not chargeCd and chargeInfo.isActive then
-                                            chargeCd = ns.EnsureChargeCooldown(btn)
-                                        end
-                                        if chargeCd then
-                                            -- Extend the WoW "Show numbers for cooldowns" setting to
-                                            -- recharging charge spells. Blizzard hides the countdown
-                                            -- number on the charge (recharge) cooldown unconditionally,
-                                            -- so a number normally only shows at 0 charges (the main
-                                            -- cooldown). Mirror the "Show numbers for cooldowns" CVar
-                                            -- here: un-hide the recharge timer only when the setting is
-                                            -- on, hide it when off. Cached per chargeCd so we only call
-                                            -- on a state change; CVAR_UPDATE re-applies it live on toggle.
-                                            if chargeCd.SetHideCountdownNumbers then
-                                                local hideNums = (EAB.db.profile.showChargeRechargeNumbers == false)
-                                                    or (not GetCVarBool("countdownForCooldowns"))
-                                                if EFD(chargeCd).rechargeNumbersHidden ~= hideNums then
-                                                    EFD(chargeCd).rechargeNumbersHidden = hideNums
-                                                    chargeCd:SetHideCountdownNumbers(hideNums)
-                                                end
-                                            end
-                                            if chargeInfo.isActive then
-                                                local chargeDur = C_ActionBar.GetActionChargeDuration(action)
-                                                if chargeDur then chargeCd:SetCooldownFromDurationObject(chargeDur) end
-                                            else
-                                                chargeCd:Clear()
-                                            end
-                                        end
-                                    elseif btn.chargeCooldown then
-                                        -- Unconditional clear, as before the
-                                        -- optimization pass. The falling-edge version
-                                        -- relied on chargeWasLive, which the gating
-                                        -- above could leave stale, stranding a
-                                        -- recharge swipe on screen.
-                                        btn.chargeCooldown:Clear()
-                                    end
-                                    -- Desat/dim visuals move only on edges or
-                                    -- while something is live; idle-steady
-                                    -- buttons skip the shared function entirely.
-                                    -- Visuals: edges, charge activity, or first
-                                    -- pass of a new cast-generation. A button
-                                    -- sitting mid-cooldown with no new cast
-                                    -- cannot change its desat/dim state.
-                                    if (active ~= (fd.cdWasActive or false)) or chargeShown or fd.chargeWasLive
-                                       or (active and fd.visGen ~= ns._gcdGen) then
-                                        if active then fd.visGen = ns._gcdGen end
-                                        RefreshCooldownVisuals(btn, action, cdInfo or false, durObj, chargeInfo or false)
-                                    end
-                                    -- Count text rides the ~2s sub-pass; charge
-                                    -- counts update instantly via the CHARGES
-                                    -- branch, so only item stacks wait.
-                                    if _cdCountPass and btn.Count and C_ActionBar.GetActionDisplayCount then
-                                        local display = C_ActionBar.GetActionDisplayCount(action) or ""
-                                        if issecretvalue and issecretvalue(display) then
-                                            -- Secret string (combat): write through --
-                                            -- SetText accepts secrets -- and dirty the
-                                            -- memo (never store a secret; it would
-                                            -- poison the next clean compare).
-                                            btn.Count:SetText(display)
-                                            fd.lastCountText = nil
-                                        elseif fd.lastCountText ~= display then
-                                            fd.lastCountText = display
-                                            btn.Count:SetText(display)
-                                        end
-                                    end
-                                    if active or (chargeInfo and chargeInfo.isActive) then
-                                        _cdLiveSeen = true
-                                    end
-                                    fd.cdWasActive = active
-                                    fd.chargeWasLive = (chargeInfo and chargeInfo.isActive) and true or false
                                 end
                             end
                         elseif event == "CVAR_UPDATE" then
@@ -3495,7 +3427,7 @@ do
                                     -- Force a repaint once range releases.
                                     ufd.usableState = nil
                                 else
-                                local action = btn:GetAttribute("action")
+                                local action = GetButtonAction(btn)
                                 if action and HasAction(action) then
                                     local isUsable, notEnoughMana = IsUsableAction(action)
                                     -- Tri-state memo: USABLE storms with every
@@ -3522,7 +3454,7 @@ do
                             -- Fires ~4/sec while casting; the memo skips the
                             -- C SetChecked push for unchanged buttons.
                             for _, btn in ipairs(btns) do
-                                local action = btn:GetAttribute("action")
+                                local action = GetButtonAction(btn)
                                 if action and HasAction(action) then
                                     local checked = (IsCurrentAction(action) or IsAutoRepeatAction(action)) and true or false
                                     local sfd = EFD(btn)
@@ -3542,7 +3474,7 @@ do
                             -- move charge visuals: recharge swipe, count
                             -- text, and charge-aware desaturation.
                             for _, btn in ipairs(btns) do
-                                local action = btn:GetAttribute("action")
+                                local action = GetButtonAction(btn)
                                 if action and HasAction(action) then
                                     local fd = EFD(btn)
                                     -- Unconditional fetch, no sticky no-charges cache
@@ -3561,15 +3493,15 @@ do
                                                 local chargeDur = C_ActionBar.GetActionChargeDuration(action)
                                                 if chargeDur then chargeCd:SetCooldownFromDurationObject(chargeDur) end
                                             else
-                                                chargeCd:Clear()
+                                                ns.ClearCooldown(chargeCd)
                                             end
                                         end
                                         -- nil (not false) cd args: the shared
                                         -- function re-fetches main-cd state
                                         -- itself for these few charge buttons.
                                         RefreshCooldownVisuals(btn, action, nil, nil, chargeInfo)
-                                        if btn.Count and C_ActionBar.GetActionDisplayCount then
-                                            local display = C_ActionBar.GetActionDisplayCount(action) or ""
+                                        if btn.Count then
+                                            local display = ns.GetActionCountText(action)
                                             if issecretvalue and issecretvalue(display) then
                                                 btn.Count:SetText(display)
                                                 fd.lastCountText = nil
@@ -3587,7 +3519,7 @@ do
                             -- the slot. UpdateAction + explicit icon refresh
                             -- since UpdateButtonArt is nooped.
                             for _, btn in ipairs(btns) do
-                                local action = btn:GetAttribute("action")
+                                local action = GetButtonAction(btn)
                                 if action and HasAction(action) then
                                     if btn.UpdateAction then btn:UpdateAction() end
                                     local tex = GetActionTexture(action)
@@ -3619,7 +3551,7 @@ do
                                 if ufd.rangeTinted then
                                     ufd.usableState = nil
                                 else
-                                local action = btn:GetAttribute("action")
+                                local action = GetButtonAction(btn)
                                 if action and HasAction(action) then
                                     local isUsable, notEnoughMana = IsUsableAction(action)
                                     -- Same tri-state memo as the USABLE branch.
@@ -3973,7 +3905,7 @@ local function ComputeBarLayout(key)
     local padding = s.buttonPadding or 2
     local isVertical = (s.orientation == "vertical")
     local growDir = EAB:ResolveGrowDirectionForLayout(key, s)
-    local shape = s.buttonShape or "none"
+    local shape = ns.ResolveButtonShape(s.buttonShape)
 
     local base = barBaseSize[key]
     local baseW = base and base.w or 45
@@ -4113,7 +4045,7 @@ local function LayoutBar(key)
     local padding = s.buttonPadding or 2
     local isVertical = (s.orientation == "vertical")
     local growDir = EAB:ResolveGrowDirectionForLayout(key, s)
-    local shape = s.buttonShape or "none"
+    local shape = ns.ResolveButtonShape(s.buttonShape)
 
     -- Button size: use explicit width/height if set, otherwise base size.
     local base = barBaseSize[key]
@@ -4569,10 +4501,10 @@ local function HideSelfDeferred(self)
 end
 
 local function HideBorder(button)
-    if button.NormalTexture then
-        button.NormalTexture:Hide()
-        button.NormalTexture:SetAlpha(0)
-    end
+    -- On older ActionBarButtonTemplate implementations (including 3.3.5),
+    -- the CheckButton owns this region without exposing the retail-era
+    -- .NormalTexture field.
+    ns.HideNativeNormalTexture(button)
     if button.Border then
         button.Border:Hide()
         button.Border:SetAlpha(0)
@@ -4715,8 +4647,18 @@ local function MakeButtonSquare(btn)
         end
     end
     local fd = EFD(btn)
-    if btn.NormalTexture and not fd.ntHooked then
-        btn.NormalTexture:HookScript("OnShow", HideSelfDeferred)
+    local normal = btn.NormalTexture
+        or (btn.GetNormalTexture and btn:GetNormalTexture())
+    if normal and not fd.ntHooked then
+        -- Texture regions gained script hooks after Wrath.  Use them where
+        -- available, and also catch SetNormalTexture because the 3.3.5
+        -- ActionButton update path can reassign UI-Quickslot/UI-Quickslot2.
+        if normal.HookScript then
+            pcall(normal.HookScript, normal, "OnShow", HideSelfDeferred)
+        end
+        if btn.SetNormalTexture then
+            hooksecurefunc(btn, "SetNormalTexture", ns.HideNativeNormalTexture)
+        end
         fd.ntHooked = true
     end
     if not fd.showHooked then
@@ -4843,12 +4785,26 @@ local function MakeButtonSquare(btn)
         end
     end
     if not fd.slotBG then
-        local bg = btn:CreateTexture(nil, "BACKGROUND", nil, -1)
+        -- Parent the slot background to the bar, not the secure action button.
+        -- Blizzard changes a button's effective alpha while actions are picked
+        -- up/placed; a child texture inherits that alpha, so the lighter state
+        -- follows the newly-vacated slot no matter how often its own SetAlpha
+        -- is reasserted. A bar-owned sibling still follows layout/bar fading
+        -- but is isolated from per-action button alpha.
+        local bgParent = btn:GetParent() or btn
+        -- Sublevel 0 keeps it above the bar-wide fill (sublevel -1) while
+        -- action-button artwork, which lives on child frames, remains above it.
+        local bg = bgParent:CreateTexture(nil, "BACKGROUND", nil, 0)
         bg:SetAllPoints(btn)
         local sc = (_p and _p.slotBgColor) or { r = 0.15, g = 0.15, b = 0.15 }
         local so = _p and _p.slotBgOpacity
         if so == nil then so = 50 end
-        bg:SetTexture(sc.r or 0.15, sc.g or 0.15, sc.b or 0.15, so / 100)
+        -- Keep color and opacity as separate texture state. On the 3.3.5
+        -- client, changing the alpha embedded in SetTexture(r,g,b,a) does not
+        -- reliably replace the previous value on an existing solid texture,
+        -- leaving buttons created/refreshed at different times visibly darker.
+        bg:SetTexture(sc.r or 0.15, sc.g or 0.15, sc.b or 0.15, 1)
+        bg:SetAlpha(so / 100)
         fd.slotBG = bg
     end
     if btn.SlotArt then
@@ -4992,6 +4948,7 @@ end
 local function ApplyShapeToButton(btn, shape, brdOn, brdR, brdG, brdB, brdA, brdSize, zoom)
     _quickKeybindState.art.RefreshButton(btn)
     local fd = EFD(btn)
+    shape = ns.ResolveButtonShape(shape)
 
     if shape == "none" or shape == "cropped" then
         -- Remove shape mask if previously applied
@@ -5334,7 +5291,7 @@ local function ApplyShapeToButton(btn, shape, brdOn, brdR, brdG, brdB, brdA, brd
     local shapeEdgeScale = SHAPE_EDGE_SCALES[shape] or 0.60
     local useCircular = (shape ~= "square" and shape ~= "csquare")
     do
-        local edgeTex = "Interface\\AddOns\\EllesmereUIActionBars\\Media\\edge.png"
+        local edgeTex = "Interface\\AddOns\\EllesmereUIActionBars\\Media\\edge.tga"
         local p = EAB.db and EAB.db.profile
         local cr, cg, cb, ca = 0.973, 0.839, 0.604, 1
         if p then
@@ -5416,7 +5373,7 @@ function EAB:ApplyShapesForBar(barKey)
     if self.db.profile.useBlizzardStyle then return end
     local s = self.db.profile.bars[barKey]
     if not s then return end
-    local shape = s.buttonShape or "none"
+    local shape = ns.ResolveButtonShape(s.buttonShape)
     local zoom = ((s.iconZoom or self.db.profile.iconZoom or 5.5)) / 100
     local brdSz = ResolveBorderThickness(s)
     local brdOn = brdSz > 0
@@ -5759,7 +5716,7 @@ function EAB:ApplyCDAlphaAll()
                     if icon then
                         local applied = false
                         if on then
-                            local action = btn:GetAttribute("action")
+                            local action = GetButtonAction(btn)
                             if action and HasAction(action) and icon.SetAlphaFromBoolean then
                                 local cdInfo = C_ActionBar.GetActionCooldown(action)
                                 if cdInfo and cdInfo.isActive then
@@ -5805,7 +5762,8 @@ function EAB:ApplySlotBackgroundColor()
             for _, btn in ipairs(btns) do
                 local bfd = btn and EFD(btn)
                 if bfd and bfd.slotBG then
-                    bfd.slotBG:SetTexture(c.r or 0.15, c.g or 0.15, c.b or 0.15, a)
+                    bfd.slotBG:SetTexture(c.r or 0.15, c.g or 0.15, c.b or 0.15, 1)
+                    bfd.slotBG:SetAlpha(a)
                 end
             end
         end
@@ -5857,7 +5815,7 @@ function EAB:ApplyBackgroundForBar(barKey)
     local background = barBackgrounds[barKey]
     if not background then
         local fill = frame:CreateTexture(nil, "BACKGROUND", nil, -1)
-        local border = CreateFrame("Frame", nil, frame, "BackdropTemplate")
+        local border = EllesmereUI.SafeCreateFrame("Frame", nil, frame, "BackdropTemplate")
         border:EnableMouse(false)
         border:SetFrameLevel(math.max(0, frame:GetFrameLevel()))
         background = { fill = fill, border = border }
@@ -5866,7 +5824,11 @@ function EAB:ApplyBackgroundForBar(barKey)
 
     local c = s.bgColor or { r=0, g=0, b=0, a=0.5 }
     local alpha = s.bgOpacity ~= nil and s.bgOpacity / 100 or c.a
-    background.fill:SetTexture(c.r, c.g, c.b, alpha)
+    -- Explicit SetAlpha is required for reliable live opacity updates on the
+    -- Wrath texture API; the alpha component of SetTexture's color overload
+    -- can remain stale on an already-created texture.
+    background.fill:SetTexture(c.r, c.g, c.b, 1)
+    background.fill:SetAlpha(alpha)
     -- bgPadX/bgPadY are retained as fallbacks for profiles made before the
     -- unified spacing control was introduced.
     local padding = s.bgPadding
@@ -8042,7 +8004,7 @@ local function UpdateFlipbook(btn)
             local bH = base and base.h or 45
             local w = (s.buttonWidth and s.buttonWidth > 0) and s.buttonWidth or bW
             local h = (s.buttonHeight and s.buttonHeight > 0) and s.buttonHeight or bH
-            local shape = s.buttonShape or "none"
+            local shape = ns.ResolveButtonShape(s.buttonShape)
             if shape ~= "none" and shape ~= "cropped" then
                 w = w + SHAPE_BTN_EXPAND
                 h = h + SHAPE_BTN_EXPAND
@@ -8636,7 +8598,7 @@ function EAB:ScanExistingProcs()
     end
 end
 
-local EDGE_TEXTURE = "Interface\\AddOns\\EllesmereUIActionBars\\Media\\edge.png"
+local EDGE_TEXTURE = "Interface\\AddOns\\EllesmereUIActionBars\\Media\\edge.tga"
 
 local function GetClassColor()
     local _, class = UnitClass("player")
@@ -9016,7 +8978,7 @@ local function UpdateKeybinds()
                     -- EXCEPT on custom-paged bars (see above), which must also
                     -- route through the button so the keybind tracks the page.
                     local slot = btn:GetAttribute("action")
-                    -- Custom bars (Bar9/Bar10) have no native binding command, so
+                    -- Custom bars (Bars 6-10) have no native binding command, so
                     -- their keys MUST route through the button (SetOverrideBindingClick);
                     -- SetOverrideBinding to a non-existent command would do nothing.
                     -- isPH tracks empower/flyout separately from useClick: on a
@@ -9603,7 +9565,7 @@ local function RegisterWithUnlockMode()
                 if stride < 1 then stride = 1 end
                 local isVert   = (s.orientation == "vertical")
                 local pad      = s.buttonPadding or 2
-                local shape    = s.buttonShape or "none"
+                local shape    = ns.ResolveButtonShape(s.buttonShape)
                 local cols     = isVert and numRows or stride
                 local PP = EllesmereUI and EllesmereUI.PP
                 local onePx = PP and PP.mult or 1
@@ -9644,7 +9606,7 @@ local function RegisterWithUnlockMode()
                 if stride < 1 then stride = 1 end
                 local isVert   = (s.orientation == "vertical")
                 local pad      = s.buttonPadding or 2
-                local shape    = s.buttonShape or "none"
+                local shape    = ns.ResolveButtonShape(s.buttonShape)
                 local rows     = isVert and stride or numRows
                 local PP = EllesmereUI and EllesmereUI.PP
                 local onePx = PP and PP.mult or 1
@@ -10741,7 +10703,10 @@ function EAB:FinishSetup()
     -- Also show mouseover-faded bars while dragging so the player can drop
     -- spells/items onto them.  Purely visual -- no secure frame access.
     local DRAG_TYPES = {
-        spell = true, macro = true,
+        -- Picking up an existing action-bar slot uses "action", not the
+        -- underlying spell/item type.  Omitting it meant bar-to-bar moves
+        -- skipped this entire lifecycle.  Items dragged from bags use "item".
+        action = true, item = true, spell = true, macro = true,
         petaction = true, mount = true, companion = true,
     }
     _dragState.visible = false
@@ -10825,10 +10790,38 @@ function EAB:FinishSetup()
         end
     end
 
+    -- ACTIONBAR_SLOT_CHANGED is normally enough to repaint a drop, but the
+    -- client can coalesce or omit one side of a bar-to-bar move.  Repaint
+    -- after the cursor transaction settles so both the source and destination
+    -- derive their icon/count/cooldown/name from the final slot contents.
+    local function QueueDragContentRefresh()
+        if _dragState.contentRefreshPending then return end
+        _dragState.contentRefreshPending = true
+        C_Timer_After(0, function()
+            _dragState.contentRefreshPending = false
+            for _, info in ipairs(BAR_CONFIG) do
+                if not info.isStance and not info.isPetBar then
+                    local btns = barButtons[info.key]
+                    if btns then
+                        for _, btn in ipairs(btns) do
+                            if btn then
+                                EAB_VTABLE.ForceButtonRefresh(btn, GetButtonAction(btn))
+                            end
+                        end
+                    end
+                end
+            end
+            for _, info in ipairs(BAR_CONFIG) do
+                self:ApplyAlwaysShowButtons(info.key)
+            end
+        end)
+    end
+
     self:RegisterEvent("CURSOR_CHANGED", function()
         local cursorType = GetCursorInfo()
         if cursorType then
             if DRAG_TYPES[cursorType] then
+                QueueDragContentRefresh()
                 SetDragVisible(true)
                 if not _gridState.shown then
                     OnGridChange()
@@ -10874,6 +10867,9 @@ function EAB:FinishSetup()
                 end
             end
         else
+            if _dragState.visible then
+                QueueDragContentRefresh()
+            end
             SetDragVisible(false)
             EAB._RestoreDragNeverBars()
             if _gridState.shown then
@@ -11208,6 +11204,47 @@ function EAB:FinishSetup()
     -- state, etc.) so icon dimming stays current. UNIT_AURA "pet" fires when
     -- an aura on the pet changes, which can also affect ability usability.
     local _petUpdateQueued = false
+    local _petRepaintSerial = 0
+    local function PaintPetIcon(icon, texture, isToken, usable)
+        if not icon then return end
+        local resolvedTexture = isToken and _G[texture] or texture
+        if resolvedTexture then
+            icon:SetTexture(resolvedTexture)
+        end
+        -- Blizzard's pet-button updater can leave the reused icon region at
+        -- zero alpha. Also keep it above the bar-owned slot background, which
+        -- is a sibling texture rather than a child of the action button.
+        icon:SetAlpha(1)
+        if icon.SetDrawLayer then icon:SetDrawLayer("ARTWORK", 0) end
+        if icon.SetDesaturated then icon:SetDesaturated(false) end
+        if usable ~= nil then
+            local shade = usable and 1 or 0.4
+            icon:SetVertexColor(shade, shade, shade)
+        end
+        icon:Show()
+    end
+    local function RepaintPetIcons()
+        local hasPetBar = PetHasActionBar()
+        for i = 1, NUM_PET_ACTION_SLOTS do
+            local btn = _G["PetActionButton" .. i]
+            if btn then
+                local icon = btn.icon or btn.Icon or _G["PetActionButton" .. i .. "Icon"]
+                btn.icon = icon
+                local name, texture, isToken = GetPetActionInfo(i)
+                if icon then
+                    if hasPetBar and texture then
+                        -- A token can briefly exist before its global texture
+                        -- value is populated. Do not replace a valid icon with
+                        -- nil during that transition; the settling pass below
+                        -- will repaint it once the token resolves.
+                        PaintPetIcon(icon, texture, isToken, GetPetActionSlotUsable(i))
+                    else
+                        icon:Hide()
+                    end
+                end
+            end
+        end
+    end
     local function UpdatePetBar(_, event, unit)
         if event == "UNIT_AURA" and unit ~= "pet" then return end
         if event == "UNIT_PET" and unit ~= "player" then return end
@@ -11238,15 +11275,15 @@ function EAB:FinishSetup()
                 for i = 1, NUM_PET_ACTION_SLOTS do
                     local btn = _G["PetActionButton" .. i]
                     if btn then
+                        local icon = btn.icon or btn.Icon or _G["PetActionButton" .. i .. "Icon"]
+                        btn.icon = icon
                         local name, texture, isToken, isActive, autoCastAllowed, autoCastEnabled = GetPetActionInfo(i)
                         if hasPetBar and texture then
-                            if isToken then btn.icon:SetTexture(_G[texture])
-                            else btn.icon:SetTexture(texture) end
-                            -- Dim icon when the ability is not currently usable.
-                            local usable = GetPetActionSlotUsable(i)
-                            local shade = usable and 1 or 0.4
-                            btn.icon:SetVertexColor(shade, shade, shade)
-                            btn.icon:Show()
+                            if icon then
+                                -- Dim icon when the ability is not currently usable.
+                                local usable = GetPetActionSlotUsable(i)
+                                PaintPetIcon(icon, texture, isToken, usable)
+                            end
                             -- AutoCastOverlay (AutoCastOverlayMixin) replaced the old
                             -- AutoCastShine API in modern WoW. SetShown controls the
                             -- corner-ring frame; ShowAutoCastEnabled starts/stops the
@@ -11256,7 +11293,7 @@ function EAB:FinishSetup()
                                 btn.AutoCastOverlay:ShowAutoCastEnabled(autoCastEnabled)
                             end
                         else
-                            btn.icon:Hide()
+                            if icon then icon:Hide() end
                             if btn.AutoCastOverlay then btn.AutoCastOverlay:Hide() end
                         end
                         -- Reflect the active state so pet mode buttons (Passive /
@@ -11268,15 +11305,21 @@ function EAB:FinishSetup()
                         local ctA = EAB:GetCheckedAlpha()
                         if isActive then
                             if IsPetAttackAction(i) then
-                                btn:StartFlash()
+                                if btn.StartFlash then btn:StartFlash()
+                                elseif PetActionButton_StartFlash then PetActionButton_StartFlash(btn)
+                                elseif ActionButton_StartFlash then ActionButton_StartFlash(btn) end
                                 if ct then ct:SetAlpha(0.5 * ctA) end
                             else
-                                btn:StopFlash()
+                                if btn.StopFlash then btn:StopFlash()
+                                elseif PetActionButton_StopFlash then PetActionButton_StopFlash(btn)
+                                elseif ActionButton_StopFlash then ActionButton_StopFlash(btn) end
                                 if ct then ct:SetAlpha(1.0 * ctA) end
                             end
                             btn:SetChecked(true)
                         else
-                            btn:StopFlash()
+                            if btn.StopFlash then btn:StopFlash()
+                            elseif PetActionButton_StopFlash then PetActionButton_StopFlash(btn)
+                            elseif ActionButton_StopFlash then ActionButton_StopFlash(btn) end
                             btn:SetChecked(false)
                         end
                         -- Update cooldown
@@ -11296,13 +11339,13 @@ function EAB:FinishSetup()
                 for i = 1, NUM_PET_ACTION_SLOTS do
                     local btn = _G["PetActionButton" .. i]
                     if btn then
+                        local icon = btn.icon or btn.Icon or _G["PetActionButton" .. i .. "Icon"]
+                        btn.icon = icon
                         local name, texture, isToken = GetPetActionInfo(i)
                         if texture then
-                            if isToken then btn.icon:SetTexture(_G[texture])
-                            else btn.icon:SetTexture(texture) end
-                            btn.icon:Show()
+                            PaintPetIcon(icon, texture, isToken)
                         else
-                            btn.icon:Hide()
+                            if icon then icon:Hide() end
                         end
                     end
                 end
@@ -11311,6 +11354,11 @@ function EAB:FinishSetup()
             if PetActionBar and PetActionBar.Update then
                 PetActionBar:Update()
             end
+            -- PetActionBar is hidden and event-silenced, but its Update method
+            -- still owns the reparented buttons. On transient pet-state data it
+            -- can hide individual icon regions. Reassert the final textures
+            -- after it runs instead of relying on LayoutBar to restore them.
+            RepaintPetIcons()
             LayoutBar("PetBar")
             self:ApplyAlwaysShowButtons("PetBar")
             -- Re-register the state driver so the [pet] condition is always
@@ -11321,6 +11369,17 @@ function EAB:FinishSetup()
             if petInfo and petFrame and petS and not petS.alwaysHidden then
                 RegisterAttributeDriver(petFrame, "state-visibility", BuildVisibilityString(petInfo, petS))
             end
+
+            -- Pet swaps and vehicle transitions can publish PET_BAR_UPDATE one
+            -- frame before every texture token is ready. Only the newest event
+            -- gets a settling repaint, preventing an older pet's callback from
+            -- overwriting the current bar.
+            _petRepaintSerial = _petRepaintSerial + 1
+            local repaintSerial = _petRepaintSerial
+            C_Timer_After(0.05, function()
+                if repaintSerial ~= _petRepaintSerial then return end
+                RepaintPetIcons()
+            end)
         end)
     end
     local _petEventFrame = ns.TakeShell()
@@ -11349,21 +11408,49 @@ function EAB:FinishSetup()
     -- Mirror Blizzard's cooldown update directly on our reused StanceButtons.
     -- Visual-only (CooldownFrame_Set touches no protected state), so it is safe
     -- during combat, same as the pet PET_BAR_UPDATE_COOLDOWN path above.
-    local function UpdateStanceCooldowns()
+    local function UpdateStanceButtons(_, event)
         local numForms = GetNumShapeshiftForms()
-        for i = 1, numForms do
-            local btn = _G["StanceButton" .. i]
-            if btn and btn.cooldown then
+        for i = 1, 10 do
+            local btn = _G[ns.NATIVE_STANCE_BUTTON_PREFIX .. i]
+            if btn and i <= numForms then
+                -- StanceBar owns icon/state painting on 3.3.5. Its events are
+                -- deliberately disabled above with the rest of the stock bar,
+                -- so mirror the small visual portion needed by our reparented
+                -- buttons. Retail exposes the icon on btn.icon; Wrath uses the
+                -- global StanceButtonNIcon region.
+                local texture, second, third = GetShapeshiftFormInfo(i)
+                local active = type(second) == "boolean" and second or third
+                local icon = btn.icon or btn.Icon or _G[ns.NATIVE_STANCE_BUTTON_PREFIX .. i .. "Icon"]
+                if icon and texture then
+                    icon:SetTexture(texture)
+                    icon:Show()
+                end
+                if btn.SetChecked then btn:SetChecked(active and true or false) end
+            end
+            if btn and btn.cooldown and i <= numForms then
                 local start, duration, enable = GetShapeshiftFormCooldown(i)
                 CooldownFrame_Set(btn.cooldown, start, duration, enable)
             end
         end
+        -- Learned/removed forms change the number of occupied buttons. Reflow
+        -- the bar after Blizzard has committed the new form list.
+        if event == "UPDATE_SHAPESHIFT_FORMS" or event == "SPELLS_CHANGED"
+            or event == "PLAYER_ENTERING_WORLD" then
+            C_Timer_After(0, function()
+                if InCombatLockdown() then return end
+                LayoutBar("StanceBar")
+                EAB:ApplyAlwaysShowButtons("StanceBar")
+                EAB:RefreshRuntimeVisibility()
+            end)
+        end
     end
     local _stanceEventFrame = ns.TakeShell()
+    _stanceEventFrame:RegisterEvent("UPDATE_SHAPESHIFT_FORMS")
     _stanceEventFrame:RegisterEvent("UPDATE_SHAPESHIFT_COOLDOWN")
     _stanceEventFrame:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
+    _stanceEventFrame:RegisterEvent("SPELLS_CHANGED")
     _stanceEventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-    _stanceEventFrame:SetScript("OnEvent", UpdateStanceCooldowns)
+    _stanceEventFrame:SetScript("OnEvent", UpdateStanceButtons)
 
 
     -- Talent changes can cause Blizzard to re-show hidden bars.
@@ -11687,6 +11774,7 @@ end
 -- show for a max-level character.
 function ns.XPBarAtMaxLevel()
     local level = UnitLevel("player") or 0
+    if level >= 80 then return true end
     if IsPlayerAtEffectiveMaxLevel and IsPlayerAtEffectiveMaxLevel() then return true end
     if IsLevelAtEffectiveMaxLevel and IsLevelAtEffectiveMaxLevel(level) then return true end
     local maxLevel = (GetMaxLevelForPlayerExpansion and GetMaxLevelForPlayerExpansion())
@@ -13869,7 +13957,7 @@ end)
         local hook   = EllesmereUI and EllesmereUI._HookSwiftmendIcon
         local iconID = EllesmereUI and EllesmereUI._SWIFTMEND_ICON
         if not hook or not iconID then return end
-        for slot = 1, 180 do
+        for slot = 1, 120 do
             local btn = _G["EABButton" .. slot]
             if btn and btn.icon then
                 local t = btn.icon:GetTexture()

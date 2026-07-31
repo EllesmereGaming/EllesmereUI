@@ -11,6 +11,7 @@
 
 # Main Luas
 EllesmereUIActionBars.lua
+EUI_ActionBars_Presentation.lua
 EUI_ActionBars_Flyout.lua
 
 # Options

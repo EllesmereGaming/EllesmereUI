@@ -814,7 +814,97 @@ end
         end)
     end
 
+    -- Wrath context menus use the legacy UIDropDownMenu system rather than the
+    -- Retail Menu manager. Skin the shared DropDownList frames when they open;
+    -- this covers unit-frame right-click menus as well as nested submenus.
+    local _legacyMenuHooked = false
+    local function _legacyMenuSkinFrame(frame)
+        if not frame or not _pmEnabled() then return end
+        local name = frame.GetName and frame:GetName()
+        if not name then return end
+
+        local ffd = GetFFD(frame)
+        local RS = EllesmereUI.RESKIN
+        if not ffd.euiLegacyMenuBG then
+            -- The old dropdown template draws its nine-slice-looking border in
+            -- two named child frames. Remove those textures and replace them
+            -- with the same flat background used by EUI's Retail menus.
+            for _, suffix in ipairs({ "Backdrop", "MenuBackdrop" }) do
+                local backdrop = _G[name .. suffix]
+                if backdrop then
+                    for i = 1, _select("#", backdrop:GetRegions()) do
+                        local region = _select(i, backdrop:GetRegions())
+                        if region and region:IsObjectType("Texture") then
+                            region:SetTexture(nil)
+                        end
+                    end
+                    if backdrop.SetBackdrop then backdrop:SetBackdrop(nil) end
+                end
+            end
+
+            local bg = frame:CreateTexture(nil, "BACKGROUND", nil, -8)
+            bg:SetPoint("TOPLEFT", frame, "TOPLEFT", 1, -1)
+            bg:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -1, 1)
+            bg:SetTexture(RS.BG_R, RS.BG_G, RS.BG_B, RS.CTX_ALPHA)
+            GetFFD(bg).owned = true
+            ffd.euiLegacyMenuBG = bg
+        else
+            ffd.euiLegacyMenuBG:SetTexture(RS.BG_R, RS.BG_G, RS.BG_B, RS.CTX_ALPHA)
+        end
+
+        local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath())
+            or STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
+        local outline = (EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag()) or ""
+        local green = EllesmereUI.ELLESMERE_GREEN or { r = 0.27, g = 0.86, b = 0.49 }
+        local maxButtons = UIDROPDOWNMENU_MAXBUTTONS or 32
+        for i = 1, maxButtons do
+            local button = _G[name .. "Button" .. i]
+            if button then
+                local text = button.GetFontString and button:GetFontString()
+                if text then text:SetFont(fontPath, 12, outline) end
+                local highlight = button.GetHighlightTexture and button:GetHighlightTexture()
+                if highlight then
+                    highlight:SetTexture("Interface\\Buttons\\WHITE8X8")
+                    highlight:SetVertexColor(green.r, green.g, green.b, 0.14)
+                end
+                local check = button.GetCheckedTexture and button:GetCheckedTexture()
+                if check and check.SetVertexColor then
+                    check:SetVertexColor(green.r, green.g, green.b, 1)
+                end
+            end
+        end
+        _applyConfiguredBorder(frame, "popupMenu", 1)
+    end
+
+    local function _legacyMenuSkinOpenLists()
+        local maxLevels = UIDROPDOWNMENU_MAXLEVELS or 2
+        for level = 1, maxLevels do
+            local frame = _G["DropDownList" .. level] or _G["UIDropDownList" .. level]
+            if frame and frame:IsShown() then _legacyMenuSkinFrame(frame) end
+        end
+    end
+
+    local function _legacyMenuInit()
+        if _legacyMenuHooked or not _G.ToggleDropDownMenu then return end
+        _legacyMenuHooked = true
+        hooksecurefunc("ToggleDropDownMenu", function()
+            C_Timer.After(0, _legacyMenuSkinOpenLists)
+        end)
+        -- The first list normally already exists; hook its OnShow as an extra
+        -- path for menus opened directly by older FrameXML code.
+        local maxLevels = UIDROPDOWNMENU_MAXLEVELS or 2
+        for level = 1, maxLevels do
+            local frame = _G["DropDownList" .. level] or _G["UIDropDownList" .. level]
+            if frame then
+                frame:HookScript("OnShow", function(self)
+                    C_Timer.After(0, function() _legacyMenuSkinFrame(self) end)
+                end)
+            end
+        end
+    end
+
     local function _menuInit()
+        _legacyMenuInit()
         if not _G.Menu or not _G.Menu.GetManager then return end
         local mgr = _G.Menu.GetManager()
         if not mgr then return end

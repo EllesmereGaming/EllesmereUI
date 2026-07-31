@@ -8630,7 +8630,7 @@ function ECME:CDMFinishSetup()
     -- change so CDM bars hide while the vehicle UI or pet battle UI is active.
     if not _cdmVehicleProxy then
         _cdmVehicleProxy = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent, "SecureHandlerStateTemplate")
-        _cdmVehicleProxy:SetAttribute("_onstate-cdmvehicle", [[
+        EUI.API.SetSecureAttr(_cdmVehicleProxy, "_onstate-cdmvehicle", [[
             self:CallMethod("OnVehicleStateChanged", newstate)
         ]])
         _cdmVehicleProxy.OnVehicleStateChanged = function(_, state)
@@ -9805,4 +9805,3 @@ SlashCmdList.CDMBUFFID = function()
     end
     P("=== END PROBE ===")
 end
-

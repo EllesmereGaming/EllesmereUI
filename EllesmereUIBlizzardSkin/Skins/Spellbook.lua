@@ -6,8 +6,8 @@ local MAX_SKILLLINE_TABS = MAX_SKILLLINE_TABS
 WSkin:AddCallback("Skin_Spellbook", function()
 	WSkin:StripTextures(SpellBookFrame, true)
 	WSkin:CreateBackdrop(SpellBookFrame, "Transparent")
-	SpellBookFrame.WSkin:Point(backdrop, "TOPLEFT", 11, -12)
-	SpellBookFrame.WSkin:Point(backdrop, "BOTTOMRIGHT", -32, 76)
+	WSkin:Point(SpellBookFrame.backdrop, "TOPLEFT", 11, -12)
+	WSkin:Point(SpellBookFrame.backdrop, "BOTTOMRIGHT", -32, 76)
 
 	WSkin:SetUIPanelWindowInfo(SpellBookFrame, "width", nil, 31)
 	WSkin:SetBackdropHitRect(SpellBookFrame)

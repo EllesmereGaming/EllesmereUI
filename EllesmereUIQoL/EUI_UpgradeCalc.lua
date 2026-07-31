@@ -327,7 +327,7 @@ function Calc:GetPlayerCrests()
     local owned = {}
     for _, td in pairs(Data.tracks) do
         if td.currID and td.currID > 0 then
-            local info = C_CurrencyInfo.GetCurrencyInfo(td.currID)
+            local info = C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo and C_CurrencyInfo.GetCurrencyInfo(td.currID)
             if info then
                 owned[td.crestName] = {
                     quantity = info.quantity    or 0,
@@ -592,7 +592,7 @@ f:Hide()
 
 local fBg = f:CreateTexture(nil, "BACKGROUND", nil, 0)
 fBg:SetAllPoints(f)
-fBg:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.png")
+fBg:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.tga")
 fBg:SetTexCoord(0.25, 1, 0, 0.75)
 local fBgOverlay = f:CreateTexture(nil, "BACKGROUND", nil, 1)
 fBgOverlay:SetAllPoints(f)

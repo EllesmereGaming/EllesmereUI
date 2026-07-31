@@ -334,7 +334,7 @@ initFrame:SetScript("OnEvent", function(self)
     local btbTextOrder = { "none", "---", "name", "perhp", "perhpnosign", "curhpshort", "perhpnum", "both", "perpp", "curpp", "curhp_curpp", "perhp_perpp" }
 
     -- Class theme portrait icons (full-size versions of the sidebar class art)
-    -- Always use EllesmereUIUnitFrames path since only that addon ships the -full.png files
+    -- Always use EllesmereUIUnitFrames path since only that addon ships the -full.tga files
     local ICONS_PATH = "Interface\\AddOns\\EllesmereUI\\media\\icons\\"
     local CLASS_FULL_SPRITE_BASE = ICONS_PATH .. "class-full\\"
 
@@ -392,7 +392,7 @@ initFrame:SetScript("OnEvent", function(self)
     local BORDER_BACKDROP = { edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 }
 
     -- Generic portrait image for NPC previews (player uses SetPortraitTexture)
-    local ENEMY_PORTRAIT_PATH = "Interface\\AddOns\\EllesmereUI\\media\\enemy-portrait.png"
+    local ENEMY_PORTRAIT_PATH = "Interface\\AddOns\\EllesmereUI\\media\\enemy-portrait.tga"
 
     -- Portrait mask/border media paths (for detached portrait shape preview)
     local PORTRAIT_MEDIA_P = "Interface\\AddOns\\EllesmereUI\\media\\portraits\\"
@@ -1927,13 +1927,13 @@ initFrame:SetScript("OnEvent", function(self)
         if unitKey == "player" or unitKey == "target" or unitKey == "focus" then
             local PREV_ABS_TEX = {
                 striped         = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\striped3.tga",
-                stripedReversed = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\striped-5-reversed.png",
+                stripedReversed = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\striped-5-reversed.tga",
                 clean           = "Interface\\Buttons\\WHITE8X8",
                 blizzard        = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\blizzard.tga",
-                largeOutlinedStripes  = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\large-habsorb-left.png",
-                largeOutlinedStripesR = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\large-habsorb-right.png",
-                largeStripes          = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\large-absorb-left.png",
-                largeStripesR         = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\large-absorb-right.png",
+                largeOutlinedStripes  = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\large-habsorb-left.tga",
+                largeOutlinedStripesR = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\large-habsorb-right.tga",
+                largeStripes          = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\large-absorb-left.tga",
+                largeStripesR         = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\large-absorb-right.tga",
             }
             -- Clip container: the shield/heal-absorb fills anchor off the
             -- health fill's current-HP edge with a full-frame width, so a
@@ -2083,12 +2083,14 @@ initFrame:SetScript("OnEvent", function(self)
                 cd:SetPoint("TOPLEFT", df, "TOPLEFT", 1, -1)
                 cd:SetPoint("BOTTOMRIGHT", df, "BOTTOMRIGHT", -1, 1)
                 cd:SetFrameLevel(df:GetFrameLevel() + 1)
-                cd:SetDrawEdge(false)
-                cd:SetDrawBling(false)
-                cd:SetReverse(false)
-                cd:SetDrawSwipe(true)
-                cd:SetSwipeColor(0, 0, 0, 0.6)
-                cd:SetHideCountdownNumbers(true)
+                -- These decoration methods were added after Wrath. Some 3.3.5
+                -- clients expose only a subset of them on Cooldown frames.
+                if cd.SetDrawEdge then cd:SetDrawEdge(false) end
+                if cd.SetDrawBling then cd:SetDrawBling(false) end
+                if cd.SetReverse then cd:SetReverse(false) end
+                if cd.SetDrawSwipe then cd:SetDrawSwipe(true) end
+                if cd.SetSwipeColor then cd:SetSwipeColor(0, 0, 0, 0.6) end
+                if cd.SetHideCountdownNumbers then cd:SetHideCountdownNumbers(true) end
                 local frac = 0.25 + (((i - 1) % 5) * 0.15)
                 cd:SetCooldown(GetTime() - 3600 * (1 - frac), 3600)
                 cd:Hide()
@@ -3020,13 +3022,13 @@ initFrame:SetScript("OnEvent", function(self)
                 if (not _healWillShow) and absS and absS ~= "none" then
                     local _paTex = {
                         striped         = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\striped3.tga",
-                        stripedReversed = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\striped-5-reversed.png",
+                        stripedReversed = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\striped-5-reversed.tga",
                         clean           = "Interface\\Buttons\\WHITE8X8",
                         blizzard        = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\blizzard.tga",
-                        largeOutlinedStripes  = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\large-habsorb-left.png",
-                        largeOutlinedStripesR = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\large-habsorb-right.png",
-                        largeStripes          = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\large-absorb-left.png",
-                        largeStripesR         = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\large-absorb-right.png",
+                        largeOutlinedStripes  = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\large-habsorb-left.tga",
+                        largeOutlinedStripesR = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\large-habsorb-right.tga",
+                        largeStripes          = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\large-absorb-left.tga",
+                        largeStripesR         = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\large-absorb-right.tga",
                     }
                     local _paAlpha = { striped = 0.8, stripedReversed = 0.8, clean = (s.absorbCleanAlpha or 30) / 100, blizzard = 0.8 }
                     -- Effective opacity/color: mirrors GetAbsorbOpacity in EllesmereUIUnitFrames.lua
@@ -3710,12 +3712,12 @@ initFrame:SetScript("OnEvent", function(self)
                         combatInd:SetVertexColor(1, 1, 1, 1)
                     else
                         if ciStyle == "class" then
-                            combatInd:SetTexture(COMBAT_MEDIA_P .. "combat-indicator-class-custom.png")
+                            combatInd:SetTexture(COMBAT_MEDIA_P .. "combat-indicator-class-custom.tga")
                             local crd = CLASS_FULL_COORDS[classToken]
                             if crd then combatInd:SetTexCoord(crd[1], crd[2], crd[3], crd[4])
                             else combatInd:SetTexCoord(0, 1, 0, 1) end
                         else
-                            combatInd:SetTexture(COMBAT_MEDIA_P .. "combat-indicator-custom.png")
+                            combatInd:SetTexture(COMBAT_MEDIA_P .. "combat-indicator-custom.tga")
                             combatInd:SetTexCoord(0, 1, 0, 1)
                         end
                         if ciColor == "classcolor" then
@@ -10682,8 +10684,8 @@ initFrame:SetScript("OnEvent", function(self)
             -- Inline eyeball: preview a magic dispel overlay on the top player preview.
             do
                 local rgn = dispelRow._leftRegion
-                local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-                local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+                local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.tga"
+                local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.tga"
                 local eyeBtn = EllesmereUI.SafeCreateFrame("Button", nil, rgn)
                 eyeBtn:SetSize(26, 26)
                 eyeBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
@@ -10877,10 +10879,10 @@ initFrame:SetScript("OnEvent", function(self)
             ["stripedReversed"] = "Striped Reversed",
             ["clean"]           = "Clean (Flat)",
             ["blizzard"]        = "Blizzard",
-            ["largeOutlinedStripes"]  = "Large Outlined Stripes",  -- heal-absorb only: large-habsorb-left.png
-            ["largeOutlinedStripesR"] = "Large Outlined Stripes R", -- heal-absorb only: large-habsorb-right.png
-            ["largeStripes"]          = "Large Stripes",            -- large-absorb-left.png
-            ["largeStripesR"]         = "Large Stripes R",          -- large-absorb-right.png
+            ["largeOutlinedStripes"]  = "Large Outlined Stripes",  -- heal-absorb only: large-habsorb-left.tga
+            ["largeOutlinedStripesR"] = "Large Outlined Stripes R", -- heal-absorb only: large-habsorb-right.tga
+            ["largeStripes"]          = "Large Stripes",            -- large-absorb-left.tga
+            ["largeStripesR"]         = "Large Stripes R",          -- large-absorb-right.tga
         }
         -- Shield (regular) absorb dropdown order. Heal absorb uses its own
         -- order (it adds the two "Outlined" variants on top).
@@ -11110,8 +11112,8 @@ initFrame:SetScript("OnEvent", function(self)
         -- heal absorb is shown in isolation. State is a session-only runtime flag.
         do
             local rgn = healAbsorbRow._leftRegion
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.tga"
+            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.tga"
             local eyeBtn = EllesmereUI.SafeCreateFrame("Button", nil, rgn)
             eyeBtn:SetSize(26, 26)
             eyeBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
@@ -11313,9 +11315,9 @@ initFrame:SetScript("OnEvent", function(self)
                     if not ct then return nil end
                     local coords = CLASS_FULL_COORDS[ct]
                     if not coords then return nil end
-                    return COMBAT_MEDIA_P .. "combat-indicator-class-custom.png", coords[1], coords[2], coords[3], coords[4]
+                    return COMBAT_MEDIA_P .. "combat-indicator-class-custom.tga", coords[1], coords[2], coords[3], coords[4]
                 elseif key == "standard" then
-                    return COMBAT_MEDIA_P .. "combat-indicator-custom.png", 0, 1, 0, 1
+                    return COMBAT_MEDIA_P .. "combat-indicator-custom.tga", 0, 1, 0, 1
                 else
                     -- New full-colour combat icons (combat0..combat5), shown as-is.
                     return COMBAT_MEDIA_P .. key .. ".tga", 0, 1, 0, 1
@@ -11402,8 +11404,8 @@ initFrame:SetScript("OnEvent", function(self)
         -- (player + target only -- the focus row is dimmed with a tooltip)
         if SVisible("combatIndicatorStyle") then
             local ciRgn = sharedAddRow1._leftRegion
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.tga"
+            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.tga"
             local eyeBtn = EllesmereUI.SafeCreateFrame("Button", nil, ciRgn)
             eyeBtn:SetSize(26, 26)
             eyeBtn:SetPoint("RIGHT", ciRgn._lastInline or ciRgn._control, "LEFT", -8, 0)

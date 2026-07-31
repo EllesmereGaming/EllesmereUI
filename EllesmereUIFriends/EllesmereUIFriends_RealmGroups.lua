@@ -702,7 +702,7 @@ end
 -- Get the icon path for a mini region
 local function GetRegionIcon(miniRegion)
     if not miniRegion then return nil end
-    return REGION_ICON_PATH .. miniRegion .. ".png"
+    return REGION_ICON_PATH .. miniRegion .. ".tga"
 end
 
 -- Public API

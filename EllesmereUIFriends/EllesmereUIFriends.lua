@@ -632,7 +632,7 @@ local function ParseGroupFromNote(note)
 end
 
 -- Offline icon path (displayed when friend is not online)
-local OFFLINE_ICON = "Interface\\AddOns\\EllesmereUIFriends\\Media\\offline.png"
+local OFFLINE_ICON = "Interface\\AddOns\\EllesmereUIFriends\\Media\\offline.tga"
 
 -- Region display names for friend region tooltips
 local MINI_DISPLAY = {
@@ -785,9 +785,9 @@ local function UpdateNameColor(button, bnetInfo, wowInfo)
 end
 
 -- Faction overlay texture paths
-local FACTION_TEX_ALLIANCE = "Interface\\AddOns\\EllesmereUIFriends\\Media\\alliance.png"
-local FACTION_TEX_HORDE    = "Interface\\AddOns\\EllesmereUIFriends\\Media\\horde.png"
-local FACTION_TEX_NEUTRAL  = "Interface\\AddOns\\EllesmereUIFriends\\Media\\neutral.png"
+local FACTION_TEX_ALLIANCE = "Interface\\AddOns\\EllesmereUIFriends\\Media\\alliance.tga"
+local FACTION_TEX_HORDE    = "Interface\\AddOns\\EllesmereUIFriends\\Media\\horde.tga"
+local FACTION_TEX_NEUTRAL  = "Interface\\AddOns\\EllesmereUIFriends\\Media\\neutral.tga"
 
 local function UpdateFactionOverlay(button, bnetInfo, wowInfo)
     local factionName
@@ -1625,12 +1625,12 @@ local function SkinFriendsFrame()
         local msgBtn = _G.FriendsFrameSendMessageButton
         if addBtn then addBtn:SetAlpha(showContactsUI and 1 or 0); addBtn:EnableMouse(showContactsUI) end
         if msgBtn then msgBtn:SetAlpha(showContactsUI and 1 or 0); msgBtn:EnableMouse(showContactsUI) end
-        if GetFFD(frame).addBdr then GetFFD(frame)if showContactsUI then .addBdr:Show() else .addBdr:Hide() end end
-        if GetFFD(frame).msgBdr then GetFFD(frame)if showContactsUI then .msgBdr:Show() else .msgBdr:Hide() end end
+        if GetFFD(frame).addBdr then if showContactsUI then GetFFD(frame).addBdr:Show() else GetFFD(frame).addBdr:Hide() end end
+        if GetFFD(frame).msgBdr then if showContactsUI then GetFFD(frame).msgBdr:Show() else GetFFD(frame).msgBdr:Hide() end end
         local showListChrome = isContacts and _activeSubTab ~= 3
-        if GetFFD(frame).listOverlay then GetFFD(frame)if showListChrome then .listOverlay:Show() else .listOverlay:Hide() end end
-        if GetFFD(frame).listBdr then GetFFD(frame)if showListChrome then .listBdr:Show() else .listBdr:Hide() end end
-        if GetFFD(frame).searchBox then GetFFD(frame)if isContacts then .searchBox:Show() else .searchBox:Hide() end end
+        if GetFFD(frame).listOverlay then if showListChrome then GetFFD(frame).listOverlay:Show() else GetFFD(frame).listOverlay:Hide() end end
+        if GetFFD(frame).listBdr then if showListChrome then GetFFD(frame).listBdr:Show() else GetFFD(frame).listBdr:Hide() end end
+        if GetFFD(frame).searchBox then if isContacts then GetFFD(frame).searchBox:Show() else GetFFD(frame).searchBox:Hide() end end
         if not isContacts and GetFFD(frame).searchDropdown then GetFFD(frame).searchDropdown:Hide() end
         local showTopUI = (selected ~= 3)
         if not isContacts and GetFFD(frame).subTabs then
@@ -1644,15 +1644,15 @@ local function SkinFriendsFrame()
             end
             if GetFFD(frame).updateSubTabs then GetFFD(frame).updateSubTabs() end
         end
-        if GetFFD(frame).statusOrb then GetFFD(frame)if isContacts then .statusOrb:Show() else .statusOrb:Hide() end end
-        if GetFFD(frame).broadcastBtn then GetFFD(frame)if isContacts then .broadcastBtn:Show() else .broadcastBtn:Hide() end end
+        if GetFFD(frame).statusOrb then if isContacts then GetFFD(frame).statusOrb:Show() else GetFFD(frame).statusOrb:Hide() end end
+        if GetFFD(frame).broadcastBtn then if isContacts then GetFFD(frame).broadcastBtn:Show() else GetFFD(frame).broadcastBtn:Hide() end end
         if GetFFD(frame).titleBtn then GetFFD(frame).titleBtn:Show() end
         if GetFFD(frame).titleDiv then GetFFD(frame).titleDiv:Show() end
         -- Sync scrollbar visibility
         local function SetTrackVisSB(sb, vis)
             if sb and GetFFD(sb).track then
-                GetFFD(sb)if vis then .track:Show() else .track:Hide() end
-                if GetFFD(sb).track._hitArea then GetFFD(sb)if vis then .track._hitArea:Show() else .track._hitArea:Hide() end end
+                if vis then GetFFD(sb).track:Show() else GetFFD(sb).track:Hide() end
+                if GetFFD(sb).track._hitArea then if vis then GetFFD(sb).track._hitArea:Show() else GetFFD(sb).track._hitArea:Hide() end end
             end
         end
         local shown = frame:IsShown()

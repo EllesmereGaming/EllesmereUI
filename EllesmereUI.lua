@@ -33,13 +33,15 @@ local THEME_PRESETS = {
 local THEME_ORDER = { "EllesmereUI", "Horde", "Alliance", "Faction (Auto)", "Midnight", "Dark", "Class Colored", "Custom Color" }
 -- Background file paths per theme (relative to MEDIA_PATH, in backgrounds/ subfolder)
 local THEME_BG_FILES = {
-    ["EllesmereUI"]   = "backgrounds\\eui-bg-all-compressed.png",
-    ["Horde"]         = "backgrounds\\eui-bg-horde-compressed.png",
-    ["Alliance"]      = "backgrounds\\eui-bg-alliance-compressed.png",
-    ["Midnight"]      = "backgrounds\\eui-bg-midnight-compressed.png",
-    ["Dark"]          = "backgrounds\\eui-bg-dark-compressed.png",
-    ["Class Colored"] = "backgrounds\\eui-bg-all-compressed.png",
-    ["Custom Color"]  = "backgrounds\\eui-bg-all-compressed.png",
+    -- Wrath needs a legacy texture format and power-of-two dimensions. The
+    -- artwork occupies the top 1024x788 pixels of each padded 1024x1024 TGA.
+    ["EllesmereUI"]   = "backgrounds\\eui-bg-all-compressed-wotlk.tga",
+    ["Horde"]         = "backgrounds\\eui-bg-horde-compressed-wotlk.tga",
+    ["Alliance"]      = "backgrounds\\eui-bg-alliance-compressed-wotlk.tga",
+    ["Midnight"]      = "backgrounds\\eui-bg-midnight-compressed-wotlk.tga",
+    ["Dark"]          = "backgrounds\\eui-bg-dark-compressed-wotlk.tga",
+    ["Class Colored"] = "backgrounds\\eui-bg-all-compressed-wotlk.tga",
+    ["Custom Color"]  = "backgrounds\\eui-bg-all-compressed-wotlk.tga",
 }
 
 --- Resolve "Faction (Auto)" to "Horde" or "Alliance" based on the player's faction.
@@ -64,10 +66,12 @@ do
     for _, file in pairs(THEME_BG_FILES) do
         local tex = preload:CreateTexture()
         tex:SetTexture(mp .. file)
+        tex:SetTexCoord(0, 1, 0, 788 / 1024)
         tex:SetAllPoints()
     end
     local baseTex = preload:CreateTexture()
-    baseTex:SetTexture(mp .. "backgrounds\\eui-bg.png")
+    baseTex:SetTexture(mp .. "backgrounds\\eui-bg-wotlk.tga")
+    baseTex:SetTexCoord(0, 1, 0, 788 / 1024)
     baseTex:SetAllPoints()
 end
 
@@ -85,7 +89,7 @@ local BORDER_A                                = 0.05
 -- Text  (white + alpha -- adapts to any background tint)
 local TEXT_WHITE_R, TEXT_WHITE_G, TEXT_WHITE_B = 1, 1, 1
 local TEXT_DIM_R, TEXT_DIM_G, TEXT_DIM_B       = 1, 1, 1
-local TEXT_DIM_A                              = 0.53
+local TEXT_DIM_A                              = 0.72
 local TEXT_SECTION_R, TEXT_SECTION_G, TEXT_SECTION_B = 1, 1, 1
 local TEXT_SECTION_A                          = 0.41
 
@@ -133,8 +137,8 @@ local DD_BG_A                                 = 0.9
 local DD_BG_HA                                = 0.98                   -- background alpha hovered
 local DD_BRD_A                                = 0.20                   -- border alpha (colour = white)
 local DD_BRD_HA                               = 0.30                   -- border alpha hovered
-local DD_TXT_A                                = 0.50                   -- selected value text alpha (colour = white)
-local DD_TXT_HA                               = 0.60                   -- selected value text alpha hovered
+local DD_TXT_A                                = 0.80                   -- selected value text alpha (colour = white)
+local DD_TXT_HA                               = 1.00                   -- selected value text alpha hovered
 local DD_ITEM_HL_A                            = 0.08                   -- menu item highlight alpha (hover)
 local DD_ITEM_SEL_A                           = 0.04                   -- menu item highlight alpha (active selection)
 
@@ -224,19 +228,19 @@ local MEDIA_PATH = "Interface\\AddOns\\EllesmereUI\\media\\"
 local _, playerClass = UnitClass("player")
 
 local CLASS_ART_MAP = {
-    DEATHKNIGHT  = "dk.png",
-    DEMONHUNTER  = "dh.png",
-    DRUID        = "druid.png",
-    EVOKER       = "evoker.png",
-    HUNTER       = "hunter.png",
-    MAGE         = "mage.png",
-    MONK         = "monk.png",
-    PALADIN      = "paladin.png",
-    PRIEST       = "priest.png",
-    ROGUE        = "rogue.png",
-    SHAMAN       = "shaman.png",
-    WARLOCK      = "warlock.png",
-    WARRIOR      = "warrior.png",
+    DEATHKNIGHT  = "dk.tga",
+    DEMONHUNTER  = "dh.tga",
+    DRUID        = "druid.tga",
+    EVOKER       = "evoker.tga",
+    HUNTER       = "hunter.tga",
+    MAGE         = "mage.tga",
+    MONK         = "monk.tga",
+    PALADIN      = "paladin.tga",
+    PRIEST       = "priest.tga",
+    ROGUE        = "rogue.tga",
+    SHAMAN       = "shaman.tga",
+    WARLOCK      = "warlock.tga",
+    WARRIOR      = "warrior.tga",
 }
 
 -- Official WoW class colors (from RAID_CLASS_COLORS)
@@ -1255,7 +1259,7 @@ do
         local iconTex = popup:CreateTexture(nil, "ARTWORK")
         iconTex:SetSize(19, 19)
         iconTex:SetPoint("TOPLEFT", popup, "TOPLEFT", PAD - 1, cy + 1)
-        iconTex:SetTexture(MEDIA_PATH .. "icons\\linked.png")
+        iconTex:SetTexture(MEDIA_PATH .. "icons\\linked.tga")
         -- Accent when this module has an active sync group, gray otherwise
         if EllesmereUI.IsModuleSynced(folder) then
             iconTex:SetVertexColor(accentColor.r, accentColor.g, accentColor.b, 1)
@@ -1646,7 +1650,7 @@ local function MakeDropdownArrow(parent, xPad, ppOverride)
     local pp = ppOverride or PP
     local arrow = parent:CreateTexture(nil, "ARTWORK")
     pp.DisablePixelSnap(arrow)
-    arrow:SetTexture(ICONS_PATH .. "eui-arrow.png")
+    arrow:SetTexture(ICONS_PATH .. "eui-arrow.tga")
     local pad = (xPad or 12) + 5
     local sz = 26
     pp.Point(arrow, "TOPRIGHT", parent, "RIGHT", -(pad - sz/2), sz/2)
@@ -1741,11 +1745,11 @@ EllesmereUI.TEXT_SECTION     = TEXT_SECTION
 EllesmereUI.CS              = CS
 
 -- Shared icon paths
-EllesmereUI.COGS_ICON       = MEDIA_PATH .. "icons\\cogs-3.png"
-EllesmereUI.UNDO_ICON       = MEDIA_PATH .. "icons\\undo.png"
-EllesmereUI.RESIZE_ICON     = MEDIA_PATH .. "icons\\eui-resize-5.png"
-EllesmereUI.DIRECTIONS_ICON = MEDIA_PATH .. "icons\\eui-directions.png"
-EllesmereUI.SYNC_ICON       = MEDIA_PATH .. "icons\\sync.png"
+EllesmereUI.COGS_ICON       = MEDIA_PATH .. "icons\\cogs-3.tga"
+EllesmereUI.UNDO_ICON       = MEDIA_PATH .. "icons\\undo.tga"
+EllesmereUI.RESIZE_ICON     = MEDIA_PATH .. "icons\\eui-resize-5.tga"
+EllesmereUI.DIRECTIONS_ICON = MEDIA_PATH .. "icons\\eui-directions.tga"
+EllesmereUI.SYNC_ICON       = MEDIA_PATH .. "icons\\sync.tga"
 
 -- Numeric constants
 EllesmereUI.TEXT_WHITE_R = TEXT_WHITE_R
@@ -5369,7 +5373,7 @@ do
     local SHAMAN_ASTRAL_RECALL = 556
     local DALARAN_HS = 253629
     local DALARAN_HS_FALLBACK = 140192
-    local HOUSING_ICON = MEDIA_PATH .. "icons\\housing-teleport.png"
+    local HOUSING_ICON = MEDIA_PATH .. "icons\\housing-teleport.tga"
 
     -- Get the correct icon for a toy (not the base "learn" item icon)
     local function ToyIcon(id)
@@ -5996,7 +6000,7 @@ local function CreateConfirmPopup()
     local popBgFlat = SolidTex(popup, "BACKGROUND", 0.06, 0.08, 0.10, 1)
     popBgFlat:SetAllPoints()
     local popBgAtlas = popup:CreateTexture(nil, "BACKGROUND")
-    popBgAtlas:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.png")
+    popBgAtlas:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.tga")
     popBgAtlas:SetTexCoord(0.25, 1, 0, 0.75)
     popBgAtlas:SetAllPoints()
     popBgAtlas:Hide()
@@ -6631,7 +6635,7 @@ function EllesmereUI:ShowInputPopup(opts)
         local popBgFlat = SolidTex(popup, "BACKGROUND", 0.06, 0.08, 0.10, 1)
         popBgFlat:SetAllPoints()
         local popBgAtlas = popup:CreateTexture(nil, "BACKGROUND")
-        popBgAtlas:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.png")
+        popBgAtlas:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.tga")
         popBgAtlas:SetTexCoord(0.25, 1, 0, 0.75)
         popBgAtlas:SetAllPoints()
         popBgAtlas:Hide()
@@ -7022,7 +7026,8 @@ local function CreateMainFrame()
 
     -- Permanent base background: backdrop shadow (always visible behind everything)
     local bgBase = bgFrame:CreateTexture(nil, "BACKGROUND", nil, -1)
-    bgBase:SetTexture(MEDIA_PATH .. "backgrounds\\eui-bg.png")
+    bgBase:SetTexture(MEDIA_PATH .. "backgrounds\\eui-bg-wotlk.tga")
+    bgBase:SetTexCoord(0, 1, 0, 788 / 1024)
     bgBase:SetAllPoints()
     bgBase:SetAlpha(1)
 
@@ -7031,10 +7036,12 @@ local function CreateMainFrame()
     -- after each transition to free GPU memory.
     local bgA = bgFrame:CreateTexture(nil, "BACKGROUND", nil, 0)
     bgA:SetAllPoints()
+    bgA:SetTexCoord(0, 1, 0, 788 / 1024)
     bgA:SetAlpha(1)
 
     local bgB = bgFrame:CreateTexture(nil, "BACKGROUND", nil, 1)
     bgB:SetAllPoints()
+    bgB:SetTexCoord(0, 1, 0, 788 / 1024)
     bgB:SetAlpha(0)
 
     -- Track which layer is "front" (the one fading in)
@@ -7240,7 +7247,7 @@ local function CreateMainFrame()
 
         -- Glow layer (behind icon): tinted version of the -on texture
         local iconGlow = btn:CreateTexture(nil, "ARTWORK", nil, 0)
-        iconGlow:SetTexture(ICONS_PATH .. "sidebar\\unlockmode-ig-on.png")
+        iconGlow:SetTexture(ICONS_PATH .. "sidebar\\unlockmode-ig-on.tga")
         iconGlow:SetSize(NAV_ICON_W, NAV_ICON_H)
         iconGlow:SetPoint("LEFT", btn, "LEFT", NAV_LEFT, 0)
         iconGlow:SetDesaturated(true)
@@ -7251,12 +7258,12 @@ local function CreateMainFrame()
 
         -- Icon layer (on top of glow): always the white off texture
         local icon = btn:CreateTexture(nil, "ARTWORK", nil, 1)
-        icon:SetTexture(ICONS_PATH .. "sidebar\\unlockmode-ig.png")
+        icon:SetTexture(ICONS_PATH .. "sidebar\\unlockmode-ig.tga")
         icon:SetSize(NAV_ICON_W, NAV_ICON_H)
         icon:SetPoint("LEFT", btn, "LEFT", NAV_LEFT, 0)
         btn._icon    = icon
-        btn._iconOn  = ICONS_PATH .. "sidebar\\unlockmode-ig-on.png"
-        btn._iconOff = ICONS_PATH .. "sidebar\\unlockmode-ig.png"
+        btn._iconOn  = ICONS_PATH .. "sidebar\\unlockmode-ig-on.tga"
+        btn._iconOff = ICONS_PATH .. "sidebar\\unlockmode-ig.tga"
 
         local label = MakeFont(btn, 14, nil, TEXT_DIM.r, TEXT_DIM.g, TEXT_DIM.b, TEXT_DIM.a)
         label:SetPoint("LEFT", icon, "RIGHT", NAV_TXT_GAP, 0)
@@ -7318,7 +7325,7 @@ local function CreateMainFrame()
 
         -- Glow layer (behind icon): tinted version of the -on texture
         local iconGlow = btn:CreateTexture(nil, "ARTWORK", nil, 0)
-        iconGlow:SetTexture(ICONS_PATH .. "sidebar\\settings-ig-on-2.png")
+        iconGlow:SetTexture(ICONS_PATH .. "sidebar\\settings-ig-on-2.tga")
         iconGlow:SetSize(NAV_ICON_W, NAV_ICON_H)
         iconGlow:SetPoint("LEFT", btn, "LEFT", NAV_LEFT, 0)
         iconGlow:SetDesaturated(true)
@@ -7329,12 +7336,12 @@ local function CreateMainFrame()
 
         -- Icon layer (on top of glow): always the white off texture
         local icon = btn:CreateTexture(nil, "ARTWORK", nil, 1)
-        icon:SetTexture(ICONS_PATH .. "sidebar\\settings-ig-2.png")
+        icon:SetTexture(ICONS_PATH .. "sidebar\\settings-ig-2.tga")
         icon:SetSize(NAV_ICON_W, NAV_ICON_H)
         icon:SetPoint("LEFT", btn, "LEFT", NAV_LEFT, 0)
         btn._icon    = icon
-        btn._iconOn  = ICONS_PATH .. "sidebar\\settings-ig-on-2.png"
-        btn._iconOff = ICONS_PATH .. "sidebar\\settings-ig-2.png"
+        btn._iconOn  = ICONS_PATH .. "sidebar\\settings-ig-on-2.tga"
+        btn._iconOff = ICONS_PATH .. "sidebar\\settings-ig-2.tga"
 
         local label = MakeFont(btn, 14, nil, TEXT_DIM.r, TEXT_DIM.g, TEXT_DIM.b, TEXT_DIM.a)
         label:SetPoint("LEFT", icon, "RIGHT", NAV_TXT_GAP, 0)
@@ -7404,7 +7411,7 @@ local function CreateMainFrame()
 
         -- Glow layer (behind icon): tinted version of the -on texture
         local iconGlow = btn:CreateTexture(nil, "ARTWORK", nil, 0)
-        iconGlow:SetTexture(ICONS_PATH .. "sidebar\\notes-on.png")
+        iconGlow:SetTexture(ICONS_PATH .. "sidebar\\notes-on.tga")
         iconGlow:SetSize(NAV_ICON_W, NAV_ICON_H)
         iconGlow:SetPoint("LEFT", btn, "LEFT", NAV_LEFT, 0)
         iconGlow:SetDesaturated(true)
@@ -7415,12 +7422,12 @@ local function CreateMainFrame()
 
         -- Icon layer (on top of glow): always the white off texture
         local icon = btn:CreateTexture(nil, "ARTWORK", nil, 1)
-        icon:SetTexture(ICONS_PATH .. "sidebar\\notes-off.png")
+        icon:SetTexture(ICONS_PATH .. "sidebar\\notes-off.tga")
         icon:SetSize(NAV_ICON_W, NAV_ICON_H)
         icon:SetPoint("LEFT", btn, "LEFT", NAV_LEFT, 0)
         btn._icon    = icon
-        btn._iconOn  = ICONS_PATH .. "sidebar\\notes-on.png"
-        btn._iconOff = ICONS_PATH .. "sidebar\\notes-off.png"
+        btn._iconOn  = ICONS_PATH .. "sidebar\\notes-on.tga"
+        btn._iconOff = ICONS_PATH .. "sidebar\\notes-off.tga"
 
         local label = MakeFont(btn, 14, nil, TEXT_DIM.r, TEXT_DIM.g, TEXT_DIM.b, TEXT_DIM.a)
         label:SetPoint("LEFT", icon, "RIGHT", NAV_TXT_GAP, 0)
@@ -7528,7 +7535,7 @@ local function CreateMainFrame()
 
         -- Glow layer (behind icon): tinted version of the -on texture
         local iconGlow = btn:CreateTexture(nil, "ARTWORK", nil, 0)
-        iconGlow:SetTexture(ICONS_PATH .. "sidebar\\profiles-on.png")
+        iconGlow:SetTexture(ICONS_PATH .. "sidebar\\profiles-on.tga")
         iconGlow:SetSize(NAV_ICON_W, NAV_ICON_H)
         iconGlow:SetPoint("LEFT", btn, "LEFT", NAV_LEFT, 0)
         iconGlow:SetDesaturated(true)
@@ -7539,12 +7546,12 @@ local function CreateMainFrame()
 
         -- Icon layer (on top of glow): always the white off texture
         local icon = btn:CreateTexture(nil, "ARTWORK", nil, 1)
-        icon:SetTexture(ICONS_PATH .. "sidebar\\profiles-off.png")
+        icon:SetTexture(ICONS_PATH .. "sidebar\\profiles-off.tga")
         icon:SetSize(NAV_ICON_W, NAV_ICON_H)
         icon:SetPoint("LEFT", btn, "LEFT", NAV_LEFT, 0)
         btn._icon    = icon
-        btn._iconOn  = ICONS_PATH .. "sidebar\\profiles-on.png"
-        btn._iconOff = ICONS_PATH .. "sidebar\\profiles-off.png"
+        btn._iconOn  = ICONS_PATH .. "sidebar\\profiles-on.tga"
+        btn._iconOff = ICONS_PATH .. "sidebar\\profiles-off.tga"
 
         local label = MakeFont(btn, 14, nil, TEXT_DIM.r, TEXT_DIM.g, TEXT_DIM.b, TEXT_DIM.a)
         label:SetPoint("LEFT", icon, "RIGHT", NAV_TXT_GAP, 0)
@@ -7737,7 +7744,7 @@ local function CreateMainFrame()
     arrowBtn._atBottom = false
     do
         local t = arrowBtn:CreateTexture(nil, "ARTWORK")
-        t:SetTexture(ICONS_PATH .. "eui-arrow-down3.png")
+        t:SetTexture(ICONS_PATH .. "eui-arrow-down3.tga")
         t:SetAllPoints()
     end
     arrowBtn:SetAlpha(arrowBtn._aEnabled)
@@ -7964,7 +7971,7 @@ local function CreateMainFrame()
         local dlIcon = btn:CreateTexture(nil, "ARTWORK")
         dlIcon:SetSize(18, 18)
         dlIcon:SetPoint("RIGHT", btn, "RIGHT", -14, 0)
-        dlIcon:SetTexture(ICONS_PATH .. "eui-download.png")
+        dlIcon:SetTexture(ICONS_PATH .. "eui-download.tga")
         dlIcon:SetDesaturated(true)
         dlIcon:SetAlpha(0.6)
         dlIcon:Hide()
@@ -7980,7 +7987,7 @@ local function CreateMainFrame()
             pwrBtn:SetFrameLevel(btn:GetFrameLevel() + 5)
             local pwrTex = pwrBtn:CreateTexture(nil, "ARTWORK")
             pwrTex:SetAllPoints()
-            pwrTex:SetTexture(ICONS_PATH .. "power.png")
+            pwrTex:SetTexture(ICONS_PATH .. "power.tga")
             pwrTex:SetAlpha(0.75)
             pwrBtn._tex = pwrTex
             pwrBtn._folder = info.folder
@@ -8286,7 +8293,7 @@ local function CreateMainFrame()
 
     -- Class art (decorative, purely visual -- does not affect layout of any other element)
     do
-        local artFile = CLASS_ART_MAP[playerClass] or "warrior.png"
+        local artFile = CLASS_ART_MAP[playerClass] or "warrior.tga"
         local classArt = sidebar:CreateTexture(nil, "BACKGROUND", nil, -1)
         classArt:SetTexture(ICONS_PATH .. "sidebar\\class-accent\\" .. artFile)
         classArt:SetSize(156, 145)
@@ -9190,10 +9197,10 @@ local function CreateMainFrame()
         end
 
         local socialDefs = {
-            { icon = ICONS_PATH .. "twitch-2.png",  url = "https://www.twitch.tv/ellesmere_gaming", tooltip = "Twitch" },
-            { icon = ICONS_PATH .. "discord-2.png", url = "https://discord.gg/FtCsUSC",             tooltip = "Discord" },
-            { icon = ICONS_PATH .. "donate-3.png",  url = "https://www.patreon.com/ellesmere",       tooltip = "Patreon" },
-            { icon = ICONS_PATH .. "paypal.png",    url = "https://www.paypal.biz/ellesmeregaming",  tooltip = "PayPal" },
+            { icon = ICONS_PATH .. "twitch-2.tga",  url = "https://www.twitch.tv/ellesmere_gaming", tooltip = "Twitch" },
+            { icon = ICONS_PATH .. "discord-2.tga", url = "https://discord.gg/FtCsUSC",             tooltip = "Discord" },
+            { icon = ICONS_PATH .. "donate-3.tga",  url = "https://www.patreon.com/ellesmere",       tooltip = "Patreon" },
+            { icon = ICONS_PATH .. "paypal.tga",    url = "https://www.paypal.biz/ellesmeregaming",  tooltip = "PayPal" },
         }
 
         -- Anchor: rightmost icon sits SOCIAL_GAP to the left of where Done starts
@@ -10934,7 +10941,7 @@ local function ShowSidebarUnlockTip()
     if not anchor then return end
 
     if not _sidebarUnlockTip then
-        local TIP_W, TIP_H = 320, 100
+        local TIP_W, TIP_H = 340, 110
         local EG = ELLESMERE_GREEN
         local ar, ag, ab = EG.r, EG.g, EG.b
 
@@ -10943,6 +10950,13 @@ local function ShowSidebarUnlockTip()
         tip:SetFrameLevel(200)
         PanelPP.Size(tip, TIP_W, TIP_H)
         tip:EnableMouse(true)
+
+        local function DismissTip()
+            tip:Hide()
+            if EllesmereUIDB then EllesmereUIDB.sidebarUnlockTipSeen = true end
+        end
+
+        tip:SetScript("OnMouseDown", DismissTip)
 
         -- Center horizontally on the Unlock Mode label text
         local lbl = anchor._label
@@ -10958,6 +10972,20 @@ local function ShowSidebarUnlockTip()
 
         -- Border (pixel-perfect via PanelPP)
         MakeBorder(tip, ar, ag, ab, 0.25, PanelPP)
+
+        -- Close button (X)
+        local closeX = EllesmereUI.SafeCreateFrame("Button", nil, tip)
+        closeX:SetSize(20, 20)
+        closeX:SetPoint("TOPRIGHT", tip, "TOPRIGHT", -4, -4)
+        closeX:SetFrameLevel(tip:GetFrameLevel() + 20)
+
+        local xText = MakeFont(closeX, 11, nil, 1, 1, 1, 0.6)
+        xText:SetPoint("CENTER")
+        xText:SetText("✕")
+
+        closeX:SetScript("OnEnter", function() xText:SetTextColor(1, 1, 1, 1) end)
+        closeX:SetScript("OnLeave", function() xText:SetTextColor(1, 1, 1, 0.6) end)
+        closeX:SetScript("OnClick", DismissTip)
 
         -- Arrow pointing up (clipped diamond)
         local ARROW_SZ = 16
@@ -10999,12 +11027,9 @@ local function ShowSidebarUnlockTip()
         -- Okay button
         local okBtn = EllesmereUI.SafeCreateFrame("Button", nil, tip)
         okBtn:SetSize(86, 26)
-        okBtn:SetPoint("BOTTOM", tip, "BOTTOM", 0, 13)
+        okBtn:SetPoint("BOTTOM", tip, "BOTTOM", 0, 11)
         EllesmereUI.MakeStyledButton(okBtn, "Okay", 11,
-            EllesmereUI.RB_COLOURS, function()
-                tip:Hide()
-                if EllesmereUIDB then EllesmereUIDB.sidebarUnlockTipSeen = true end
-            end)
+            EllesmereUI.RB_COLOURS, DismissTip)
 
         _sidebarUnlockTip = tip
     end
@@ -12835,7 +12860,8 @@ function EllesmereUI._BlizzCastBars()
     if bars then return bars end
 
     bars = {}
-    if PlayerCastingBarFrame then bars[#bars + 1] = { frame = PlayerCastingBarFrame, unit = "player" } end
+    local playerBar = PlayerCastingBarFrame or CastingBarFrame
+    if playerBar then bars[#bars + 1] = { frame = playerBar, unit = "player" } end
     if PetCastingBarFrame then bars[#bars + 1] = { frame = PetCastingBarFrame, unit = "pet" } end
     EllesmereUI._blizzCastBarList = bars
 
@@ -12946,7 +12972,7 @@ end
 -- everything except file-scope silences in addons that load before EUI.
 -- Guarded on BOTH frames: the list is cached on first build, so building it
 -- while either frame is missing would drop that bar for the whole session.
-if PlayerCastingBarFrame and PetCastingBarFrame then
+if PlayerCastingBarFrame or CastingBarFrame then
     EllesmereUI._BlizzCastBars()
 end
 
@@ -12972,7 +12998,7 @@ function EllesmereUI.SetPlayerCastBarSuppressed(owner, suppressed)
         owners[owner] = nil
     end
 
-    local blizzBar = PlayerCastingBarFrame
+    local blizzBar = PlayerCastingBarFrame or CastingBarFrame
     if not blizzBar then return end
 
     local shouldSuppress = next(owners) ~= nil
@@ -12996,6 +13022,7 @@ function EllesmereUI.SetPlayerCastBarSuppressed(owner, suppressed)
         if blizzBar:GetParent() ~= hiddenParent
             and not (EditModeManagerFrame and EditModeManagerFrame:IsShown()) then
             blizzBar:SetParent(hiddenParent)
+            blizzBar:Hide()
         end
 
         -- Edit Mode tries to re-anchor the cast bar during layout changes.
@@ -13016,6 +13043,7 @@ function EllesmereUI.SetPlayerCastBarSuppressed(owner, suppressed)
                            and self:GetParent() ~= EllesmereUI._playerCastBarHiddenParent
                         then
                             self:SetParent(EllesmereUI._playerCastBarHiddenParent)
+                            self:Hide()
                         end
                     end)
                 end
@@ -13038,7 +13066,8 @@ function EllesmereUI.SetPlayerCastBarSuppressed(owner, suppressed)
                     -- Deferred: Show fires inside Edit Mode's secure
                     -- ShowSystemSelections pass; write nothing there.
                     C_Timer.After(0, function()
-                        if PlayerCastingBarFrame and EllesmereUI._GetFFD(PlayerCastingBarFrame).castBarSuppressed then
+                        local playerBar = PlayerCastingBarFrame or CastingBarFrame
+                        if playerBar and EllesmereUI._GetFFD(playerBar).castBarSuppressed then
                             self:SetAlpha(0)
                             self:EnableMouse(false)
                         end

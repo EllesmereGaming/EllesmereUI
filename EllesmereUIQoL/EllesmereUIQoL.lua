@@ -725,9 +725,12 @@ qolFrame:SetScript("OnEvent", function(self)
             trainBtn:SetScript("OnEnter", function(self)
                 local n, gold = TrainableSummary()
                 if n <= 0 then return end
+                local coinStr = (C_CurrencyInfo and C_CurrencyInfo.GetCoinTextureString and C_CurrencyInfo.GetCoinTextureString(gold))
+                    or (GetCoinTextureString and GetCoinTextureString(gold))
+                    or tostring(gold)
                 local msg = string.format("Learn %d skill%s for %s",
                     n, n == 1 and "" or "s",
-                    C_CurrencyInfo.GetCoinTextureString(gold))
+                    coinStr)
                 EllesmereUI.ShowWidgetTooltip(self, msg)
             end)
             trainBtn:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
@@ -792,7 +795,11 @@ qolFrame:SetScript("OnEvent", function(self)
     -- frFR; copper "c" falls through untranslated).
     local function RepairCostString(cost)
         if EllesmereUIDB and EllesmereUIDB.repairCoinIcons then
-            return C_CurrencyInfo.GetCoinTextureString(cost)
+            if C_CurrencyInfo and C_CurrencyInfo.GetCoinTextureString then
+                return C_CurrencyInfo.GetCoinTextureString(cost)
+            elseif GetCoinTextureString then
+                return GetCoinTextureString(cost)
+            end
         end
         local g = floor(cost / 10000)
         local s = floor((cost % 10000) / 100)

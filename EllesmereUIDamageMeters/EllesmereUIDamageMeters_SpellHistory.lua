@@ -961,7 +961,7 @@ local function MakeHistoryBar(parent)
 end
 
 local MEDIA       = "Interface\\AddOns\\EllesmereUIDamageMeters\\Media\\"
-local RESIZE_ICON = "Interface\\AddOns\\EllesmereUI\\media\\icons\\resize_element.png"
+local RESIZE_ICON = "Interface\\AddOns\\EllesmereUI\\media\\icons\\resize_element.tga"
 local MIN_W, MIN_H = 150, 80
 
 local function BuildBarWindow()
@@ -1037,7 +1037,7 @@ local function BuildBarWindow()
         end
 
         -- Btn 1 (rightmost): Settings
-        MakeHdrBtn(MEDIA .. "dm_settings.png", -(btnPad + 2), "Settings", function()
+        MakeHdrBtn(MEDIA .. "dm_settings.tga", -(btnPad + 2), "Settings", function()
             if ns._optionsOpen then
                 if EUI.Hide then EUI:Hide() end
                 return
@@ -1052,12 +1052,12 @@ local function BuildBarWindow()
 
         -- Btn 2: Lock/Unlock
         local lockBtnHdr = MakeHdrBtn(
-            frame._locked and (MEDIA .. "dm_locked_top.png") or (MEDIA .. "dm_unlock_top.png"),
+            frame._locked and (MEDIA .. "dm_locked_top.tga") or (MEDIA .. "dm_unlock_top.tga"),
             -(btnSize + btnPad * 2 + 2), frame._locked and "Locked" or "Unlocked",
             function()
                 frame._locked = not frame._locked
                 DB().barLocked = frame._locked
-                frame._lockBtn._icon:SetTexture(frame._locked and (MEDIA .. "dm_locked_top.png") or (MEDIA .. "dm_unlock_top.png"))
+                frame._lockBtn._icon:SetTexture(frame._locked and (MEDIA .. "dm_locked_top.tga") or (MEDIA .. "dm_unlock_top.tga"))
             end
         )
         frame._lockBtn = lockBtnHdr
@@ -1069,7 +1069,7 @@ local function BuildBarWindow()
         end)
 
         -- Btn 3: Resize (width drag)
-        local resizeBtnHdr = MakeHdrBtn(MEDIA .. "dm_width_resize.png", -(btnSize * 2 + btnPad * 3 + 2), "Resize Width", function() end)
+        local resizeBtnHdr = MakeHdrBtn(MEDIA .. "dm_width_resize.tga", -(btnSize * 2 + btnPad * 3 + 2), "Resize Width", function() end)
         -- Override: drag to resize width
         local resizeStartX, resizeStartW
         local resizeFrame = EllesmereUI.SafeCreateFrame("Frame")

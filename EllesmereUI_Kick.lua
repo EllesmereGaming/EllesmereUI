@@ -86,6 +86,78 @@ EllesmereUI.ComputeCastBarTint = ComputeCastBarTint
 -- AttachSecureUnitMenu(frame) on any unit button that needs a right-click menu
 -- instead of setting *type2 = "togglemenu".
 local menuProxies = setmetatable({}, { __mode = "k" })
+-- This workaround is only needed by Retail's 12.0.7+ click-binding gate.
+-- Older clients (including Wrath 3.3.5) implement `togglemenu` on the
+-- SecureUnitButton itself and cannot reliably execute it through a separate
+-- SecureActionButton proxy.
+EllesmereUI.USE_SECURE_UNIT_MENU_PROXY =
+    (select(4, GetBuildInfo()) or 0) >= 120007
+
+-- Wrath's SecureUnitButtonTemplate handles action type "menu" by calling the
+-- frame's `menu(frame, unit)` function. Retail replaced that path with the
+-- built-in "togglemenu" action. oUF supplies its own callback for frames it
+-- spawns, but EUI's custom raid/party buttons also need one.
+local legacyMenuDropdown
+local function InitializeLegacyUnitMenu(dropdown)
+    local unit = dropdown.unit
+    if not unit then return end
+
+    local unitType = string.match(unit, "^([a-z]+)[0-9]+$") or unit
+    local menu
+    if unitType == "party" then
+        menu = "PARTY"
+    elseif unitType == "boss" then
+        menu = "BOSS"
+    elseif unitType == "focus" then
+        menu = "FOCUS"
+    elseif unitType == "arena" or unitType == "arenapet" then
+        menu = "ARENAENEMY"
+    elseif UnitIsUnit(unit, "player") then
+        menu = "SELF"
+    elseif UnitIsUnit(unit, "vehicle") then
+        menu = "VEHICLE"
+    elseif UnitIsUnit(unit, "pet") then
+        menu = "PET"
+    elseif UnitIsPlayer(unit) then
+        if UnitInRaid(unit) then
+            menu = "RAID_PLAYER"
+        elseif UnitInParty(unit) then
+            menu = "PARTY"
+        else
+            menu = "PLAYER"
+        end
+    elseif UnitIsUnit(unit, "target") then
+        menu = "TARGET"
+    end
+
+    if menu then UnitPopup_ShowMenu(dropdown, menu, unit) end
+end
+
+local function ToggleLegacyUnitMenu(frame, unit)
+    unit = unit or frame.unit or frame:GetAttribute("unit")
+    if not unit then return end
+
+    if not legacyMenuDropdown then
+        legacyMenuDropdown = EllesmereUI.SafeCreateFrame(
+            "Frame", "EllesmereUIUnitMenuDropdown", nil, "UIDropDownMenuTemplate")
+        legacyMenuDropdown:SetID(1)
+        table.insert(UnitPopupFrames, legacyMenuDropdown:GetName())
+        UIDropDownMenu_Initialize(legacyMenuDropdown, InitializeLegacyUnitMenu, "MENU")
+    end
+
+    if legacyMenuDropdown.openedFor and legacyMenuDropdown.openedFor ~= frame then
+        CloseDropDownMenus()
+    end
+    legacyMenuDropdown.unit = string.lower(unit)
+    legacyMenuDropdown.openedFor = frame
+    ToggleDropDownMenu(1, nil, legacyMenuDropdown, "cursor")
+end
+
+function EllesmereUI.AttachLegacyUnitMenu(frame)
+    if not frame then return end
+    if not frame.menu then frame.menu = ToggleLegacyUnitMenu end
+    return "menu"
+end
 -- 12.1: proxies are GLOBALLY NAMED so bindings can reach them via "/click
 -- <name>" (macro transport). 12.1 broke the "click" secure action outright
 -- (a typo: SecureTemplates.lua:564 calls HasAnyForbiddenAspects on the
@@ -162,6 +234,17 @@ end
 -- ungated "click" action. Clears any specific type2 so the wildcard governs.
 function EllesmereUI.AttachSecureUnitMenu(frame)
     if not frame then return end
+    if not EllesmereUI.USE_SECURE_UNIT_MENU_PROXY then
+        -- Wrath's canonical SecureUnitButton setup uses the "menu" action and
+        -- invokes frame.menu(frame, unit). Keep the wildcard too so modifier
+        -- fallbacks retain the native context menu.
+        EllesmereUI.AttachLegacyUnitMenu(frame)
+        frame:SetAttribute("type2", "menu")
+        frame:SetAttribute("*type2", "menu")
+        frame:SetAttribute("*clickbutton2", nil)
+        frame:SetAttribute("*macrotext2", nil)
+        return
+    end
     local proxy = EllesmereUI.GetSecureMenuProxy(frame)
     frame:SetAttribute("type2", nil)
     if EllesmereUI.IS_121 then

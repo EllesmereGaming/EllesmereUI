@@ -1658,7 +1658,7 @@ end
 -------------------------------------------------------------------------------
 --  Theme rendering (self-contained window-skin recipe; no BlizzardSkin dep)
 --  Three pre-built textures per host, swapped by alpha only:
---    bgAtlas   modern_blizz.png cover-fit          (eui style)
+--    bgAtlas   modern_blizz.tga cover-fit          (eui style)
 --    bgOverlay black overlay, alpha = theme.euiAlpha (eui style)
 --    modernBg  flat user color                      (modern style)
 -------------------------------------------------------------------------------
@@ -1669,7 +1669,7 @@ local BASE_U, BASE_V = BASE_R - BASE_L, BASE_B - BASE_T
 local function EnsureThemeTextures(host)
     if host._edbBgAtlas then return end
     local bgAtlas = host:CreateTexture(nil, "BACKGROUND", nil, -8)
-    bgAtlas:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.png")
+    bgAtlas:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.tga")
     bgAtlas:SetAllPoints(host)
     local bgOverlay = host:CreateTexture(nil, "BACKGROUND", nil, -7)
     bgOverlay:SetTexture(0, 0, 0, 0.5)

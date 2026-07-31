@@ -641,7 +641,8 @@ initFrame:SetScript("OnEvent", function(self)
             local mcColor   = settings.macroFontColor or { r = 1, g = 1, b = 1 }
 
             -- Shape settings: derive from unified border system
-            local btnShape = settings.buttonShape or "none"
+            local btnShape = ns.ResolveButtonShape and ns.ResolveButtonShape(settings.buttonShape)
+                or settings.buttonShape or "none"
             local shapeBrdOn = resolvedBrdSize > 0
             local shapeBrdColor = settings.shapeBorderColor or settings.borderColor or { r = 0, g = 0, b = 0, a = 1 }
             local shapeBrdSize = resolvedBrdSize
@@ -3557,10 +3558,14 @@ initFrame:SetScript("OnEvent", function(self)
                   disabled=BlizzStyleOn, disabledTooltip="Blizzard Style Action Bars", requireState="disabled",
                   values=SHAPE_VALUES, order=SHAPE_ORDER,
                   itemDisabled=function(val)
+                      if not ns.MASK_TEXTURES_SUPPORTED and val ~= "none" and val ~= "cropped" then return true end
                       if val ~= "none" and val ~= "cropped" and (SGet("borderTexture") or "solid") ~= "solid" then return true end
                       return false
                   end,
                   itemDisabledTooltip=function(val)
+                      if not ns.MASK_TEXTURES_SUPPORTED and val ~= "none" and val ~= "cropped" then
+                          return "Custom masked shapes are not supported by this game client"
+                      end
                       if val ~= "none" and val ~= "cropped" and (SGet("borderTexture") or "solid") ~= "solid" then
                           return "This option requires the Border Style to be set to Solid"
                       end
@@ -3774,7 +3779,10 @@ initFrame:SetScript("OnEvent", function(self)
                   getValue=function() return GetCVarBool("countdownForCooldowns") end,
                   setValue=function(v)
                       if InCombatLockdown() then return end
-                      SetCVar("countdownForCooldowns", v and "1" or "0")
+                      -- This CVar does not exist on every supported client
+                      -- (notably 3.3.5).  The compatibility wrapper safely
+                      -- ignores unsupported CVar writes instead of raising.
+                      C_CVar.SetCVar("countdownForCooldowns", v and "1" or "0")
                       -- Refresh so the inline cog dims/undims with the CVar state.
                       EllesmereUI:RefreshPage()
                   end });  y = y - h
@@ -3950,7 +3958,10 @@ initFrame:SetScript("OnEvent", function(self)
                 { type="toggle", text="Desaturate on Cooldown",
                   tooltip="Desaturates (grays out) action button icons while the ability is on cooldown. GCD-only cooldowns are excluded.",
                   getValue=function() return EAB.db.profile.desaturateOnCooldown or false end,
-                  setValue=function(v) EAB.db.profile.desaturateOnCooldown = v end },
+                  setValue=function(v)
+                      EAB.db.profile.desaturateOnCooldown = v
+                      if EAB.ApplyCDAlphaAll then EAB:ApplyCDAlphaAll() end
+                  end },
                 { type="toggle", text="Disable Tooltips",
                   getValue=function()
                       return SGet("disableTooltips") or false

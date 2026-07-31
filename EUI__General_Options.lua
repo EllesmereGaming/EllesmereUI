@@ -3087,7 +3087,7 @@ initFrame:SetScript("OnEvent", function(self)
                     PP.Size(delIcon, ICON_SIZE, ICON_SIZE)
                     PP.Point(delIcon, "CENTER", delBtn, "CENTER", 0, 0)
                     if delIcon.SetSnapToPixelGrid then delIcon:SetSnapToPixelGrid(false); delIcon:SetTexelSnappingBias(0) end
-                    delIcon:SetTexture(EllesmereUI.MEDIA_PATH .. "icons\\eui-close.png")
+                    delIcon:SetTexture(EllesmereUI.MEDIA_PATH .. "icons\\eui-close.tga")
                     delBtn:SetAlpha(0.75)
                     delBtn:SetScript("OnEnter", function(self) self:SetAlpha(1) end)
                     delBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.75) end)
@@ -4072,7 +4072,7 @@ initFrame:SetScript("OnEvent", function(self)
             local backIcon = backBtn:CreateTexture(nil, "ARTWORK")
             backIcon:SetSize(14, 14)
             PP.Point(backIcon, "LEFT", backBtn, "LEFT", 10, 0)
-            backIcon:SetTexture(MEDIA .. "icons\\eui-arrow-left.png")
+            backIcon:SetTexture(MEDIA .. "icons\\eui-arrow-left.tga")
             backIcon:SetVertexColor(EG.r, EG.g, EG.b)
             backIcon:SetAlpha(0.6)
             if backIcon.SetSnapToPixelGrid then backIcon:SetSnapToPixelGrid(false); backIcon:SetTexelSnappingBias(0) end
@@ -5049,7 +5049,7 @@ initFrame:SetScript("OnEvent", function(self)
             local backIcon = backBtn:CreateTexture(nil, "ARTWORK")
             backIcon:SetSize(14, 14)
             PP.Point(backIcon, "LEFT", backBtn, "LEFT", 10, 0)
-            backIcon:SetTexture(MEDIA .. "icons\\eui-arrow-left.png")
+            backIcon:SetTexture(MEDIA .. "icons\\eui-arrow-left.tga")
             backIcon:SetVertexColor(EG.r, EG.g, EG.b)
             backIcon:SetAlpha(0.6)
             if backIcon.SetSnapToPixelGrid then backIcon:SetSnapToPixelGrid(false); backIcon:SetTexelSnappingBias(0) end
@@ -5271,7 +5271,7 @@ initFrame:SetScript("OnEvent", function(self)
             local backIcon = backBtn:CreateTexture(nil, "ARTWORK")
             backIcon:SetSize(14, 14)
             PP.Point(backIcon, "LEFT", backBtn, "LEFT", 10, 0)
-            backIcon:SetTexture(MEDIA .. "icons\\eui-arrow-left.png")
+            backIcon:SetTexture(MEDIA .. "icons\\eui-arrow-left.tga")
             backIcon:SetVertexColor(EG.r, EG.g, EG.b)
             backIcon:SetAlpha(0.6)
             if backIcon.SetSnapToPixelGrid then backIcon:SetSnapToPixelGrid(false); backIcon:SetTexelSnappingBias(0) end
@@ -5970,7 +5970,7 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- Import Profile
             local cardX = 0
-            MakeActionCard(rowFrame, cardX, MEDIA .. "icons\\import.png",
+            MakeActionCard(rowFrame, cardX, MEDIA .. "icons\\import.tga",
                 EllesmereUI.L("Import Profile"), EllesmereUI.L("Import a profile from string."), function()
                     ShowPastePage()
                 end)
@@ -5979,7 +5979,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- Presets top tab so the tab strip stays in sync with the content;
             -- the tab's build/restore paths end up in ShowPresetsPage.
             cardX = cardX + CARD_W + CARD_GAP
-            MakeActionCard(rowFrame, cardX, MEDIA .. "icons\\dark-overlay.png",
+            MakeActionCard(rowFrame, cardX, MEDIA .. "icons\\dark-overlay.tga",
                 EllesmereUI.L("Popular Presets"), EllesmereUI.L("Browse community presets."), function()
                     EllesmereUI:SelectPage(PAGE_PRESETS)
                 end)
@@ -6075,7 +6075,7 @@ initFrame:SetScript("OnEvent", function(self)
                             local xIcon = xBtn:CreateTexture(nil, "OVERLAY")
                             xIcon:SetAllPoints()
                             if xIcon.SetSnapToPixelGrid then xIcon:SetSnapToPixelGrid(false); xIcon:SetTexelSnappingBias(0) end
-                            xIcon:SetTexture(MEDIA .. "icons\\eui-close.png")
+                            xIcon:SetTexture(MEDIA .. "icons\\eui-close.tga")
                             xBtn:SetAlpha(0.4)
                             itm._xBtn = xBtn
 
@@ -6086,7 +6086,7 @@ initFrame:SetScript("OnEvent", function(self)
                             local editIcon = editBtn:CreateTexture(nil, "OVERLAY")
                             editIcon:SetAllPoints()
                             if editIcon.SetSnapToPixelGrid then editIcon:SetSnapToPixelGrid(false); editIcon:SetTexelSnappingBias(0) end
-                            editIcon:SetTexture(MEDIA .. "icons\\eui-edit.png")
+                            editIcon:SetTexture(MEDIA .. "icons\\eui-edit.tga")
                             editBtn:SetAlpha(0.4)
                             itm._editBtn = editBtn
 
@@ -6097,7 +6097,7 @@ initFrame:SetScript("OnEvent", function(self)
                             local kbIconI = kbBtnI:CreateTexture(nil, "OVERLAY")
                             kbIconI:SetAllPoints()
                             if kbIconI.SetSnapToPixelGrid then kbIconI:SetSnapToPixelGrid(false); kbIconI:SetTexelSnappingBias(0) end
-                            kbIconI:SetTexture(MEDIA .. "icons\\eui-keybind-2.png")
+                            kbIconI:SetTexture(MEDIA .. "icons\\eui-keybind-2.tga")
                             kbBtnI:SetAlpha(0.4)
                             itm._kbBtn = kbBtnI
 

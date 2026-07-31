@@ -784,7 +784,7 @@ function ECHAT.ApplyBorders()
         end
         if cf and CFD(cf).inputDiv then
             CFD(cf).inputDiv:SetTexture(r, g, b, a)
-            CFD(cf)if not hide then .inputDiv:Show() else .inputDiv:Hide() end
+            if not hide then CFD(cf).inputDiv:Show() else CFD(cf).inputDiv:Hide() end
         end
     end
     local cf1 = _G.ChatFrame1
@@ -796,7 +796,7 @@ function ECHAT.ApplyBorders()
         end
         if CFD(cf1).sidebarDiv then
             CFD(cf1).sidebarDiv:SetTexture(r, g, b, a)
-            CFD(cf1)if not hide then .sidebarDiv:Show() else .sidebarDiv:Hide() end
+            if not hide then CFD(cf1).sidebarDiv:Show() else CFD(cf1).sidebarDiv:Hide() end
         end
     end
     -- Mirror border visibility onto the behind-tabs divider continuation.
@@ -1011,7 +1011,7 @@ function ECHAT.ApplySidebarPosition()
             CFD(cf1).sidebarDiv:SetPoint("TOPRIGHT", sb, "TOPRIGHT", 0, 0)
             CFD(cf1).sidebarDiv:SetPoint("BOTTOMRIGHT", sb, "BOTTOMRIGHT", 0, 0)
         end
-        CFD(cf1)if cfg.sidebarSeparate ~= true then .sidebarDiv:Show() else .sidebarDiv:Hide() end
+        if cfg.sidebarSeparate ~= true then CFD(cf1).sidebarDiv:Show() else CFD(cf1).sidebarDiv:Hide() end
     end
 
     -- Re-place the behind-tabs divider continuation onto the new edge.
@@ -3270,7 +3270,7 @@ local function SkinChatFrame(cf)
         end
 
         local function CreateFriendsIcon()
-            friendsBtn = MakeSidebarIcon(sidebar, MEDIA .. "chat_friends.png")
+            friendsBtn = MakeSidebarIcon(sidebar, MEDIA .. "chat_friends.tga")
             friendsBtn:SetSize(26, 26)
             ChainAnchor(friendsBtn)
 
@@ -3309,7 +3309,7 @@ local function SkinChatFrame(cf)
         end
 
         local function CreateGuildIcon()
-            guildBtn = MakeSidebarIcon(sidebar, MEDIA .. "chat_guild.png")
+            guildBtn = MakeSidebarIcon(sidebar, MEDIA .. "chat_guild.tga")
             guildBtn:SetSize(26, 26)
             ChainAnchor(guildBtn)
 
@@ -3356,7 +3356,7 @@ local function SkinChatFrame(cf)
         end
 
         local function CreateDurabilityIcon()
-            durabilityBtn = MakeSidebarIcon(sidebar, MEDIA .. "chat_durability.png")
+            durabilityBtn = MakeSidebarIcon(sidebar, MEDIA .. "chat_durability.tga")
             ChainAnchor(durabilityBtn)
 
             durabilityPct = sidebar:CreateFontString(nil, "OVERLAY")
@@ -3406,10 +3406,10 @@ local function SkinChatFrame(cf)
             showDurability = { show = showDurability, create = CreateDurabilityIcon },
         }
         local MIDDLE_DEFS = {
-            showCopy     = { tex = "chat_copy.png" },
-            showPortals  = { tex = "chat_portal.png", size = 26 },
-            showVoice    = { tex = "chat_voice.png" },
-            showSettings = { tex = "chat_settings.png" },
+            showCopy     = { tex = "chat_copy.tga" },
+            showPortals  = { tex = "chat_portal.tga", size = 26 },
+            showVoice    = { tex = "chat_voice.tga" },
+            showSettings = { tex = "chat_settings.tga" },
         }
         local middleBtns = {}
         local chainOrder = ECHAT.ResolveSidebarIconOrder()
@@ -3434,7 +3434,7 @@ local function SkinChatFrame(cf)
         settingsBtn = middleBtns["showSettings"]
 
         -- Bottom: Scroll (anchored to bottom with gap)
-        local scrollBtn = MakeSidebarIcon(sidebar, MEDIA .. "chat_scroll2.png")
+        local scrollBtn = MakeSidebarIcon(sidebar, MEDIA .. "chat_scroll2.tga")
         scrollBtn:SetSize(22, 22)
         scrollBtn:ClearAllPoints()
         scrollBtn:SetPoint("BOTTOM", sidebar, "BOTTOM", 0, ICON_SPACING)
@@ -3627,7 +3627,7 @@ local function SkinChatFrame(cf)
             for ri = 1, select("#", resizeBtn:GetRegions()) do
                 local region = select(ri, resizeBtn:GetRegions())
                 if region and region:IsObjectType("Texture") then
-                    region:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\resize_element.png")
+                    region:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\resize_element.tga")
                     region:SetDesaturated(true)
                     region:SetVertexColor(1, 1, 1)
                     region:SetAllPoints()
@@ -3822,7 +3822,7 @@ local function UpdateTabColors()
     if cf1 and CFD(cf1).resizeGrip then
         local cfg = ECHAT.DB()
         local locked = cfg and cfg.lockChatSize
-        CFD(cf1)if not locked and selected == cf1 then .resizeGrip:Show() else .resizeGrip:Hide() end
+        if not locked and selected == cf1 then CFD(cf1).resizeGrip:Show() else CFD(cf1).resizeGrip:Hide() end
     end
 end
 

@@ -13,20 +13,51 @@ end
 function EUI.API.ApplyFrameCompat(frame)
     if not frame then return frame end
 
+    -- Reverse-fill was added after the 3.3.5 StatusBar API.  Keep the setting
+    -- readable on legacy clients so retail-era unit-frame code can use the
+    -- same creation and layout paths without faulting.  The old renderer
+    -- continues to draw the bar in its native direction.
+    if frame.GetObjectType and frame:GetObjectType() == "StatusBar" then
+        if not frame.SetReverseFill then
+            frame.SetReverseFill = function(self, reverse)
+                self._euiReverseFill = reverse and true or false
+            end
+        end
+        if not frame.GetReverseFill then
+            frame.GetReverseFill = function(self)
+                return self._euiReverseFill == true
+            end
+        end
+    end
+
     if not frame.SetShown then
         frame.SetShown = function(self, show)
             if show then self:Show() else self:Hide() end
         end
     end
 
+    -- SetEnabled(boolean) is the modern equivalent of the legacy Button
+    -- Enable()/Disable() pair used by the 3.3.5 client.
+    if not frame.SetEnabled and frame.Enable and frame.Disable then
+        frame.SetEnabled = function(self, enabled)
+            if enabled then self:Enable() else self:Disable() end
+        end
+    end
+
+    -- RegisterUnitEvent was added after WotLK. Register the underlying event;
+    -- legacy UNIT_* events still include the unit token in their payload.
+    if not frame.RegisterUnitEvent then
+        frame.RegisterUnitEvent = function(self, event, ...)
+            return self:RegisterEvent(event)
+        end
+    end
+
     if not frame.SetColorTexture then
         frame.SetColorTexture = function(self, r, g, b, a)
-            if self.SetTexture then
-                self:SetTexture(r, g, b, a or 1)
-            else
-                self:SetTexture("Interface\\Buttons\\WHITE8X8")
-                self:SetVertexColor(r, g, b, a or 1)
-            end
+            -- Legacy SetTexture does not create a solid texture from RGBA
+            -- values. Give it real texture data, then tint that texture.
+            self:SetTexture("Interface\\Buttons\\WHITE8X8")
+            self:SetVertexColor(r, g, b, a or 1)
         end
     end
 
@@ -51,6 +82,13 @@ function EUI.API.ApplyFrameCompat(frame)
     if not frame.SetTexelSnappingBias then frame.SetTexelSnappingBias = function(self, bias) end end
     if not frame.PixelSnap then frame.PixelSnap = function(self, val) return val end end
     if not frame.SetClipsChildren then frame.SetClipsChildren = function(self, clip) end end
+    if not frame.SetPortraitZoom then
+        frame.SetPortraitZoom = function(self, zoom)
+            if self.SetCamDistanceScale and type(zoom) == "number" then
+                pcall(self.SetCamDistanceScale, self, 1 + zoom * 0.5)
+            end
+        end
+    end
 
     if not frame.SetAlphaFromBoolean then
         frame.SetAlphaFromBoolean = function(self, value, trueAlpha, falseAlpha)
@@ -93,18 +131,38 @@ function EUI.API.ApplyFrameCompat(frame)
         end
     end
 
-    if frame:GetObjectType() == "Cooldown" and not frame.SetCooldownFromDurationObject then
-        frame.SetCooldownFromDurationObject = function(self, durObj)
-            if not durObj then
+    if frame:GetObjectType() == "Cooldown" then
+        if not frame.SetCooldownFromDurationObject then
+            frame.SetCooldownFromDurationObject = function(self, durObj)
+                if not durObj then
+                    self:SetCooldown(0, 0)
+                    self:Hide()
+                    return
+                end
+                local start = durObj.startTime
+                local duration = durObj.duration
+                if (not start or start == 0) and durObj.expirationTime and durObj.expirationTime > 0 then
+                    start = durObj.expirationTime - duration
+                end
+                start = start or 0
+                duration = duration or 0
+                if CooldownFrame_Set then
+                    CooldownFrame_Set(self, start, duration)
+                elseif start > 0 and duration > 0 then
+                    self:Hide()
+                    self:SetCooldown(start, duration)
+                    self:Show()
+                else
+                    self:SetCooldown(0, 0)
+                    self:Hide()
+                end
+            end
+        end
+        if not frame.Clear then
+            frame.Clear = function(self)
                 self:SetCooldown(0, 0)
-                return
+                self:Hide()
             end
-            local start = durObj.startTime
-            local duration = durObj.duration
-            if (not start or start == 0) and durObj.expirationTime and durObj.expirationTime > 0 then
-                start = durObj.expirationTime - duration
-            end
-            self:SetCooldown(start or 0, duration or 0)
         end
     end
 
@@ -126,12 +184,23 @@ function EUI.API.ApplyFrameCompat(frame)
         frame.CreateAnimationGroup = function(self, ...)
             local group = origCreateAnimationGroup(self, ...)
             if group then
+                if not group.Restart then
+                    group.Restart = function(g)
+                        g:Stop()
+                        g:Play()
+                    end
+                end
                 local origCreateAnimation = group.CreateAnimation
                 group.CreateAnimation = function(g, animType, ...)
                     local anim = origCreateAnimation(g, animType, ...)
                     if anim and animType == "Alpha" then
                         if not anim.SetFromAlpha then
-                            anim.SetFromAlpha = function(a, alpha) a._fromAlpha = alpha end
+                            anim.SetFromAlpha = function(a, alpha)
+                                a._fromAlpha = alpha
+                                if a._toAlpha and a.SetChange then
+                                    a:SetChange(a._toAlpha - alpha)
+                                end
+                            end
                         end
                         if not anim.SetToAlpha then
                             anim.SetToAlpha = function(a, alpha)
@@ -157,6 +226,7 @@ function EllesmereUI.StripRetailTemplates(template)
     if not template then return template end
     if type(template) == "string" then
         template = template:gsub("BackdropTemplate", "")
+        template = template:gsub("BankPanelPurchaseButtonScriptTemplate", "")
         template = template:gsub(",%s*,", ",")
         template = template:gsub("^%s*,", "")
         template = template:gsub(",%s*$", "")
@@ -174,6 +244,9 @@ function EllesmereUI.StripRetailTemplates(template)
 end
 
 function EllesmereUI.SafeCreateFrame(frameType, name, parent, template)
+    if type(frameType) == "string" and frameType:lower() == "itembutton" then
+        frameType = "Button"
+    end
     local sanitizedTemplate = EllesmereUI.StripRetailTemplates(template)
     local f = CreateFrame(frameType, name, parent, sanitizedTemplate)
 
@@ -212,23 +285,239 @@ local function PatchWidgetMetatable(obj)
     if not obj then return end
     local meta = getmetatable(obj)
     local idx = meta and meta.__index
+    local isStatusBar = obj.GetObjectType and obj:GetObjectType() == "StatusBar"
     if type(idx) == "table" then
         -- Shared metatable table -- patch it once, covers all instances.
+        if isStatusBar then
+            if not idx.SetReverseFill then
+                idx.SetReverseFill = function(self, reverse)
+                    self._euiReverseFill = reverse and true or false
+                end
+            end
+            if not idx.GetReverseFill then
+                idx.GetReverseFill = function(self)
+                    return self._euiReverseFill == true
+                end
+            end
+        end
+        if not idx.SetFromAlpha then
+            idx.SetFromAlpha = function(self, alpha)
+                self._fromAlpha = alpha
+                if self._toAlpha and self.SetChange then
+                    self:SetChange(self._toAlpha - alpha)
+                end
+            end
+        end
+        if not idx.SetToAlpha then
+            idx.SetToAlpha = function(self, alpha)
+                self._toAlpha = alpha
+                if self.SetChange then
+                    local from = self._fromAlpha or 0
+                    self:SetChange(alpha - from)
+                end
+            end
+        end
+        if not idx.Restart then
+            idx.Restart = function(self)
+                self:Stop()
+                self:Play()
+            end
+        end
+        if idx.CreateAnimationGroup and not idx._animGroupHooked then
+            idx._animGroupHooked = true
+            local origCreateAnimationGroup = idx.CreateAnimationGroup
+            idx.CreateAnimationGroup = function(self, ...)
+                local group = origCreateAnimationGroup(self, ...)
+                if group then
+                    if not group.Restart then
+                        group.Restart = function(g)
+                            g:Stop()
+                            g:Play()
+                        end
+                    end
+                    if not group._animHooked then
+                        group._animHooked = true
+                        local origCreateAnimation = group.CreateAnimation
+                        if origCreateAnimation then
+                            group.CreateAnimation = function(g, animType, ...)
+                                local anim = origCreateAnimation(g, animType, ...)
+                                if anim and animType == "Alpha" then
+                                    if not anim.SetFromAlpha then
+                                        anim.SetFromAlpha = function(a, alpha)
+                                            a._fromAlpha = alpha
+                                            if a._toAlpha and a.SetChange then
+                                                a:SetChange(a._toAlpha - alpha)
+                                            end
+                                        end
+                                    end
+                                    if not anim.SetToAlpha then
+                                        anim.SetToAlpha = function(a, alpha)
+                                            a._toAlpha = alpha
+                                            if a.SetChange then
+                                                local from = a._fromAlpha or 0
+                                                a:SetChange(alpha - from)
+                                            end
+                                        end
+                                    end
+                                end
+                                return anim
+                            end
+                        end
+                    end
+                end
+                return group
+            end
+        end
         if not idx.IsForbidden         then idx.IsForbidden         = function(self) return false end end
         if not idx.SetSnapToPixelGrid  then idx.SetSnapToPixelGrid  = function(self) end end
         if not idx.SetPixelSnapDisabled then idx.SetPixelSnapDisabled = function(self) end end
         if not idx.SetTexelSnappingBias then idx.SetTexelSnappingBias = function(self) end end
         if not idx.PixelSnap           then idx.PixelSnap           = function(self, v) return v end end
         if not idx.SetClipsChildren    then idx.SetClipsChildren    = function(self) end end
+        if not idx.SetPortraitZoom     then
+            idx.SetPortraitZoom     = function(self, zoom)
+                if self.SetCamDistanceScale and type(zoom) == "number" then
+                    pcall(self.SetCamDistanceScale, self, 1 + zoom * 0.5)
+                end
+            end
+        end
+        if not idx.SetShown then
+            idx.SetShown = function(self, show)
+                if show then self:Show() else self:Hide() end
+            end
+        end
+        if not idx.SetAlphaFromBoolean then
+            idx.SetAlphaFromBoolean = function(self, value, trueAlpha, falseAlpha)
+                if trueAlpha == nil then trueAlpha = 1 end
+                if falseAlpha == nil then falseAlpha = 0 end
+                if value then
+                    self:SetAlpha(trueAlpha)
+                else
+                    self:SetAlpha(falseAlpha)
+                end
+            end
+        end
+        if not idx.RegisterUnitEvent then
+            idx.RegisterUnitEvent = function(self, event, ...)
+                return self:RegisterEvent(event)
+            end
+        end
+        if not idx.SetColorTexture then
+            idx.SetColorTexture = function(self, r, g, b, a)
+                self:SetTexture("Interface\\Buttons\\WHITE8X8")
+                self:SetVertexColor(r, g, b, a or 1)
+            end
+        end
+        if not idx.SetAtlas then
+            idx.SetAtlas = function(self, atlas, useAtlasSize)
+                if not atlas or atlas == "" then
+                    if self.SetTexture then self:SetTexture(nil) end
+                    return
+                end
+                local path = EUI_AtlasMap and EUI_AtlasMap[atlas]
+                if not path then
+                    path = "Interface\\Icons\\INV_Misc_QuestionMark"
+                    if EUI_AtlasMap then EUI_AtlasMap[atlas] = path end
+                end
+                if self.SetTexture then
+                    self:SetTexture(path)
+                end
+            end
+        end
     else
         -- Fallback: __index is a function or absent; patch the object directly.
         -- This is less efficient but safe.
+        if isStatusBar then
+            if not obj.SetReverseFill then
+                obj.SetReverseFill = function(self, reverse)
+                    self._euiReverseFill = reverse and true or false
+                end
+            end
+            if not obj.GetReverseFill then
+                obj.GetReverseFill = function(self)
+                    return self._euiReverseFill == true
+                end
+            end
+        end
+        if not obj.SetFromAlpha then
+            obj.SetFromAlpha = function(self, alpha)
+                self._fromAlpha = alpha
+                if self._toAlpha and self.SetChange then
+                    self:SetChange(self._toAlpha - alpha)
+                end
+            end
+        end
+        if not obj.SetToAlpha then
+            obj.SetToAlpha = function(self, alpha)
+                self._toAlpha = alpha
+                if self.SetChange then
+                    local from = self._fromAlpha or 0
+                    self:SetChange(alpha - from)
+                end
+            end
+        end
+        if not obj.Restart then
+            obj.Restart = function(self)
+                self:Stop()
+                self:Play()
+            end
+        end
         if not obj.IsForbidden         then obj.IsForbidden         = function(self) return false end end
         if not obj.SetSnapToPixelGrid  then obj.SetSnapToPixelGrid  = function(self) end end
         if not obj.SetPixelSnapDisabled then obj.SetPixelSnapDisabled = function(self) end end
         if not obj.SetTexelSnappingBias then obj.SetTexelSnappingBias = function(self) end end
         if not obj.PixelSnap           then obj.PixelSnap           = function(self, v) return v end end
         if not obj.SetClipsChildren    then obj.SetClipsChildren    = function(self) end end
+        if not obj.SetPortraitZoom     then
+            obj.SetPortraitZoom     = function(self, zoom)
+                if self.SetCamDistanceScale and type(zoom) == "number" then
+                    pcall(self.SetCamDistanceScale, self, 1 + zoom * 0.5)
+                end
+            end
+        end
+        if not obj.SetShown then
+            obj.SetShown = function(self, show)
+                if show then self:Show() else self:Hide() end
+            end
+        end
+        if not obj.SetAlphaFromBoolean then
+            obj.SetAlphaFromBoolean = function(self, value, trueAlpha, falseAlpha)
+                if trueAlpha == nil then trueAlpha = 1 end
+                if falseAlpha == nil then falseAlpha = 0 end
+                if value then
+                    self:SetAlpha(trueAlpha)
+                else
+                    self:SetAlpha(falseAlpha)
+                end
+            end
+        end
+        if not obj.RegisterUnitEvent then
+            obj.RegisterUnitEvent = function(self, event, ...)
+                return self:RegisterEvent(event)
+            end
+        end
+        if not obj.SetColorTexture then
+            obj.SetColorTexture = function(self, r, g, b, a)
+                self:SetTexture("Interface\\Buttons\\WHITE8X8")
+                self:SetVertexColor(r, g, b, a or 1)
+            end
+        end
+        if not obj.SetAtlas then
+            obj.SetAtlas = function(self, atlas, useAtlasSize)
+                if not atlas or atlas == "" then
+                    if self.SetTexture then self:SetTexture(nil) end
+                    return
+                end
+                local path = EUI_AtlasMap and EUI_AtlasMap[atlas]
+                if not path then
+                    path = "Interface\\Icons\\INV_Misc_QuestionMark"
+                    if EUI_AtlasMap then EUI_AtlasMap[atlas] = path end
+                end
+                if self.SetTexture then
+                    self:SetTexture(path)
+                end
+            end
+        end
     end
 end
 
@@ -240,12 +529,22 @@ do
         if tex then PatchWidgetMetatable(tex) end
         local fs = dummy:CreateFontString()
         if fs then PatchWidgetMetatable(fs) end
+        if dummy.CreateAnimationGroup then
+            local ag = dummy:CreateAnimationGroup()
+            if ag then
+                PatchWidgetMetatable(ag)
+                if ag.CreateAnimation then
+                    local anim = ag:CreateAnimation("Alpha")
+                    if anim then PatchWidgetMetatable(anim) end
+                end
+            end
+        end
         dummy:Hide()
     end
     -- Each frame type shares a single C metatable across all instances.
     -- Patching __index on one instance's metatable fixes ALL instances of that type.
     local types = { "Button", "CheckButton", "Cooldown", "Slider", "EditBox",
-                    "ScrollFrame", "SimpleHTML", "MessageFrame", "Model", "StatusBar" }
+                    "ScrollFrame", "SimpleHTML", "MessageFrame", "Model", "PlayerModel", "DressUpModel", "StatusBar" }
     for _, t in ipairs(types) do
         local ok, f = pcall(CreateFrame, t)
         if ok and f then
@@ -254,4 +553,3 @@ do
         end
     end
 end
-

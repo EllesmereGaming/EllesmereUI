@@ -10,8 +10,8 @@ WSkin:AddCallback("Skin_WorldMap", function()
 	WorldMapFrame:DisableDrawLayer("ARTWORK")
 	WorldMapFrame:DisableDrawLayer("OVERLAY")
 	WSkin:CreateBackdrop(WorldMapFrame, "Transparent")
-	WorldMapFrame.WSkin:Point(backdrop, "TOPRIGHT", WorldMapFrameCloseButton, -3, 0)
-	WorldMapFrame.WSkin:Point(backdrop, "BOTTOMRIGHT", WorldMapTrackQuest, 0, -3)
+	WSkin:Point(WorldMapFrame.backdrop, "TOPRIGHT", WorldMapFrameCloseButton, -3, 0)
+	WSkin:Point(WorldMapFrame.backdrop, "BOTTOMRIGHT", WorldMapTrackQuest, 0, -3)
 	WorldMapFrame:SetClampRectInsets(3, 0, 2, 1)
 
 	WorldMapFrameTitle:SetDrawLayer("BORDER")
@@ -20,14 +20,14 @@ WSkin:AddCallback("Skin_WorldMap", function()
 	WSkin:Point(WorldMapTitleButton, "TOPLEFT", WorldMapFrameMiniBorderLeft, "TOPLEFT", 4, 1)
 
 	WSkin:CreateBackdrop(WorldMapDetailFrame)
-	WorldMapDetailFrame.WSkin:Point(backdrop, "TOPLEFT", -2, 2)
-	WorldMapDetailFrame.WSkin:Point(backdrop, "BOTTOMRIGHT", 2, -1)
+	WSkin:Point(WorldMapDetailFrame.backdrop, "TOPLEFT", -2, 2)
+	WSkin:Point(WorldMapDetailFrame.backdrop, "BOTTOMRIGHT", 2, -1)
 
 	WSkin:Width(WorldMapQuestDetailScrollFrame, 348)
 	WSkin:Point(WorldMapQuestDetailScrollFrame, "BOTTOMLEFT", WorldMapDetailFrame, "BOTTOMLEFT", -25, -207)
 	WSkin:CreateBackdrop(WorldMapQuestDetailScrollFrame, "Transparent")
-	WorldMapQuestDetailScrollFrame.WSkin:Point(backdrop, "TOPLEFT", 24, 2)
-	WorldMapQuestDetailScrollFrame.WSkin:Point(backdrop, "BOTTOMRIGHT", 23, -4)
+	WSkin:Point(WorldMapQuestDetailScrollFrame.backdrop, "TOPLEFT", 24, 2)
+	WSkin:Point(WorldMapQuestDetailScrollFrame.backdrop, "BOTTOMRIGHT", 23, -4)
 	WorldMapQuestDetailScrollFrame.backdrop:SetFrameLevel(WorldMapQuestDetailScrollFrame:GetFrameLevel())
 	WorldMapQuestDetailScrollFrame:SetHitRectInsets(24, -23, 0, -2)
 
@@ -38,8 +38,8 @@ WSkin:AddCallback("Skin_WorldMap", function()
 	WSkin:Width(WorldMapQuestRewardScrollFrame, 340)
 	WSkin:Point(WorldMapQuestRewardScrollFrame, "LEFT", WorldMapQuestDetailScrollFrame, "RIGHT", 8, 0)
 	WSkin:CreateBackdrop(WorldMapQuestRewardScrollFrame, "Transparent")
-	WorldMapQuestRewardScrollFrame.WSkin:Point(backdrop, "TOPLEFT", 20, 2)
-	WorldMapQuestRewardScrollFrame.WSkin:Point(backdrop, "BOTTOMRIGHT", 22, -4)
+	WSkin:Point(WorldMapQuestRewardScrollFrame.backdrop, "TOPLEFT", 20, 2)
+	WSkin:Point(WorldMapQuestRewardScrollFrame.backdrop, "BOTTOMRIGHT", 22, -4)
 	WorldMapQuestRewardScrollFrame.backdrop:SetFrameLevel(WorldMapQuestRewardScrollFrame:GetFrameLevel())
 	WorldMapQuestRewardScrollFrame:SetHitRectInsets(20, -22, 0, -2)
 
@@ -49,8 +49,8 @@ WSkin:AddCallback("Skin_WorldMap", function()
 
 	WSkin:Point(WorldMapQuestScrollFrame, "TOPLEFT", WorldMapDetailFrame, "TOPRIGHT", 6, -1)
 	WSkin:CreateBackdrop(WorldMapQuestScrollFrame, "Transparent")
-	WorldMapQuestScrollFrame.WSkin:Point(backdrop, "TOPLEFT", 0, 2)
-	WorldMapQuestScrollFrame.WSkin:Point(backdrop, "BOTTOMRIGHT", 25, -1)
+	WSkin:Point(WorldMapQuestScrollFrame.backdrop, "TOPLEFT", 0, 2)
+	WSkin:Point(WorldMapQuestScrollFrame.backdrop, "BOTTOMRIGHT", 25, -1)
 	WorldMapQuestScrollFrame.backdrop:SetFrameLevel(WorldMapQuestScrollFrame:GetFrameLevel())
 
 	WorldMapQuestSelectBar:SetTexture("Interface\\Buttons\\WHITE8x8")
@@ -99,14 +99,14 @@ WSkin:AddCallback("Skin_WorldMap", function()
 	WSkin:HandleCheckBox(WorldMapTrackQuest)
 	WSkin:HandleCheckBox(WorldMapQuestShowObjectives)
 
-	WorldMapFrameAreaLabel:FontTemplate(nil, 50, "OUTLINE")
+	WSkin:FontTemplate(WorldMapFrameAreaLabel, nil, 50, "OUTLINE")
 	WorldMapFrameAreaLabel:SetShadowOffset(2, -2)
 	WorldMapFrameAreaLabel:SetTextColor(0.90, 0.8294, 0.6407)
 
-	WorldMapFrameAreaDescription:FontTemplate(nil, 40, "OUTLINE")
+	WSkin:FontTemplate(WorldMapFrameAreaDescription, nil, 40, "OUTLINE")
 	WorldMapFrameAreaDescription:SetShadowOffset(2, -2)
 
-	WorldMapZoneInfo:FontTemplate(nil, 27, "OUTLINE")
+	WSkin:FontTemplate(WorldMapZoneInfo, nil, 27, "OUTLINE")
 	WorldMapZoneInfo:SetShadowOffset(2, -2)
 
 	WorldMapLevelDropDown.SetPoint = function() end
@@ -119,22 +119,22 @@ WSkin:AddCallback("Skin_WorldMap", function()
 			if currentMapMode == 0 then return end
 			currentMapMode = 0
 
-			WorldMapFrame.WSkin:Point(backdrop, "TOPLEFT", 3, 2)
-			WorldMapFrame.WSkin:Point(backdrop, "TOPRIGHT", WorldMapFrameCloseButton, -3, 0)
+			WSkin:Point(WorldMapFrame.backdrop, "TOPLEFT", 3, 2)
+			WSkin:Point(WorldMapFrame.backdrop, "TOPRIGHT", WorldMapFrameCloseButton, -3, 0)
 
-			WorldMapDetailFrame.WSkin:Point(backdrop, "TOPLEFT", -2, 2)
-			WorldMapDetailFrame.WSkin:Point(backdrop, "BOTTOMRIGHT", 1, -1)
+			WSkin:Point(WorldMapDetailFrame.backdrop, "TOPLEFT", -2, 2)
+			WSkin:Point(WorldMapDetailFrame.backdrop, "BOTTOMRIGHT", 1, -1)
 
 			setPoint(WorldMapLevelDropDown, "TOPRIGHT", WorldMapPositioningGuide, "TOPRIGHT", -419, -24)
 		else
 			if currentMapMode == 1 then return end
 			currentMapMode = 1
 
-			WorldMapFrame.WSkin:Point(backdrop, "TOPLEFT", 11, -12)
-			WorldMapFrame.WSkin:Point(backdrop, "TOPRIGHT", WorldMapFrameCloseButton, -1, 0)
+			WSkin:Point(WorldMapFrame.backdrop, "TOPLEFT", 11, -12)
+			WSkin:Point(WorldMapFrame.backdrop, "TOPRIGHT", WorldMapFrameCloseButton, -1, 0)
 
-			WorldMapDetailFrame.WSkin:Point(backdrop, "TOPLEFT", -2, 2)
-			WorldMapDetailFrame.WSkin:Point(backdrop, "BOTTOMRIGHT", 2, -1)
+			WSkin:Point(WorldMapDetailFrame.backdrop, "TOPLEFT", -2, 2)
+			WSkin:Point(WorldMapDetailFrame.backdrop, "BOTTOMRIGHT", 2, -1)
 
 			setPoint(WorldMapLevelDropDown, "TOPRIGHT", WorldMapPositioningGuide, "TOPRIGHT", -439, -38)
 		end
@@ -144,11 +144,11 @@ WSkin:AddCallback("Skin_WorldMap", function()
 		if currentMapMode == 2 then return end
 		currentMapMode = 2
 
-		WorldMapFrame.WSkin:Point(backdrop, "TOPLEFT", WorldMapDetailFrame, "TOPLEFT", -8, 70)
-		WorldMapFrame.WSkin:Point(backdrop, "TOPRIGHT", WorldMapFrameCloseButton, -3, 0)
+		WSkin:Point(WorldMapFrame.backdrop, "TOPLEFT", WorldMapDetailFrame, "TOPLEFT", -8, 70)
+		WSkin:Point(WorldMapFrame.backdrop, "TOPRIGHT", WorldMapFrameCloseButton, -3, 0)
 
-		WorldMapDetailFrame.WSkin:Point(backdrop, "TOPLEFT", -1, 1)
-		WorldMapDetailFrame.WSkin:Point(backdrop, "BOTTOMRIGHT", 1, -1)
+		WSkin:Point(WorldMapDetailFrame.backdrop, "TOPLEFT", -1, 1)
+		WSkin:Point(WorldMapDetailFrame.backdrop, "BOTTOMRIGHT", 1, -1)
 
 		setPoint(WorldMapLevelDropDown, "TOPRIGHT", WorldMapPositioningGuide, "TOPRIGHT", -50, -35)
 	end
@@ -157,11 +157,11 @@ WSkin:AddCallback("Skin_WorldMap", function()
 		if currentMapMode == 3 then return end
 		currentMapMode = 3
 
-		WorldMapFrame.WSkin:Point(backdrop, "TOPLEFT", WorldMapDetailFrame, "TOPLEFT", -9, 70)
-		WorldMapFrame.WSkin:Point(backdrop, "TOPRIGHT", WorldMapFrameCloseButton, -3, 0)
+		WSkin:Point(WorldMapFrame.backdrop, "TOPLEFT", WorldMapDetailFrame, "TOPLEFT", -9, 70)
+		WSkin:Point(WorldMapFrame.backdrop, "TOPRIGHT", WorldMapFrameCloseButton, -3, 0)
 
-		WorldMapDetailFrame.WSkin:Point(backdrop, "TOPLEFT", -1, 1)
-		WorldMapDetailFrame.WSkin:Point(backdrop, "BOTTOMRIGHT", 1, -1)
+		WSkin:Point(WorldMapDetailFrame.backdrop, "TOPLEFT", -1, 1)
+		WSkin:Point(WorldMapDetailFrame.backdrop, "BOTTOMRIGHT", 1, -1)
 
 		setPoint(WorldMapLevelDropDown, "TOPRIGHT", WorldMapPositioningGuide, "TOPRIGHT", -50, -35)
 	end
@@ -176,7 +176,7 @@ WSkin:AddCallback("Skin_WorldMap", function()
 		end
 	end
 
-	if not E.private.worldmap.enable then
+	if _G.E and _G.E.private and _G.E.private.worldmap and not _G.E.private.worldmap.enable then
 		WorldMapFrame:EnableMouse(false)
 		WorldMapFrame.EnableMouse = function() end
 	end

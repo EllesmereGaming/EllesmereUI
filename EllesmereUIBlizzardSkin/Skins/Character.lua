@@ -15,11 +15,15 @@ local HasPetUI = HasPetUI
 local UnitFactionGroup = UnitFactionGroup
 
 WSkin:AddCallback("Skin_Character", function()
+	if not EllesmereUIDB or (EllesmereUIDB.themedCharacterSheet ~= false and not (EllesmereUI and EllesmereUI.BlizzWindowSkinsKilled and EllesmereUI.BlizzWindowSkinsKilled())) then
+		return
+	end
+
 	-- CharacterFrame
 	WSkin:StripTextures(CharacterFrame, true)
 	WSkin:CreateBackdrop(CharacterFrame, "Transparent")
-	CharacterFrame.WSkin:Point(backdrop, "TOPLEFT", 11, -12)
-	CharacterFrame.WSkin:Point(backdrop, "BOTTOMRIGHT", -32, 76)
+	WSkin:Point(CharacterFrame.backdrop, "TOPLEFT", 11, -12)
+	WSkin:Point(CharacterFrame.backdrop, "BOTTOMRIGHT", -32, 76)
 
 	WSkin:SetUIPanelWindowInfo(CharacterFrame, "width")
 
@@ -53,8 +57,8 @@ WSkin:AddCallback("Skin_Character", function()
 	-- PaperDollFrame
 	WSkin:StripTextures(PlayerTitleFrame)
 	WSkin:CreateBackdrop(PlayerTitleFrame, "Default")
-	PlayerTitleFrame.WSkin:Point(backdrop, "TOPLEFT", 20, 3)
-	PlayerTitleFrame.WSkin:Point(backdrop, "BOTTOMRIGHT", -16, 15)
+	WSkin:Point(PlayerTitleFrame.backdrop, "TOPLEFT", 20, 3)
+	WSkin:Point(PlayerTitleFrame.backdrop, "BOTTOMRIGHT", -16, 15)
 	PlayerTitleFrame.backdrop:SetFrameLevel(PlayerTitleFrame:GetFrameLevel())
 
 	WSkin:HandleNextPrevButton(PlayerTitleFrameButton)
@@ -63,8 +67,8 @@ WSkin:AddCallback("Skin_Character", function()
 
 	WSkin:StripTextures(PlayerTitlePickerFrame)
 	WSkin:CreateBackdrop(PlayerTitlePickerFrame, "Transparent")
-	PlayerTitlePickerFrame.WSkin:Point(backdrop, "TOPLEFT", 6, -10)
-	PlayerTitlePickerFrame.WSkin:Point(backdrop, "BOTTOMRIGHT", -13, 6)
+	WSkin:Point(PlayerTitlePickerFrame.backdrop, "TOPLEFT", 6, -10)
+	WSkin:Point(PlayerTitlePickerFrame.backdrop, "BOTTOMRIGHT", -13, 6)
 	PlayerTitlePickerFrame.backdrop:SetFrameLevel(PlayerTitlePickerFrame:GetFrameLevel())
 	WSkin:HandleScrollBar(PlayerTitlePickerScrollFrameScrollBar)
 
@@ -169,7 +173,7 @@ WSkin:AddCallback("Skin_Character", function()
 				popout:HookScript("OnLeave", popoutButtonOnLeave)
 
 				popout.icon = popout:CreateTexture(nil, "ARTWORK")
-				popout.WSkin:Size(icon, 16)
+				WSkin:Size(popout.icon, 16)
 				popout.icon:SetPoint("CENTER")
 				popout.icon:SetTexture("Interface\\Buttons\\Arrow-Down-Up")
 
@@ -241,7 +245,7 @@ WSkin:AddCallback("Skin_Character", function()
 			WSkin:StyleButton(button)
 
 			if button.icon then
-				button.WSkin:SetInside(icon)
+				WSkin:SetInside(button.icon)
 				button.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 			end
 			button.isSkinned = true
@@ -305,8 +309,8 @@ WSkin:AddCallback("Skin_Character", function()
 	if GearManagerDialog then
 		WSkin:StripTextures(GearManagerDialog)
 		WSkin:CreateBackdrop(GearManagerDialog, "Transparent")
-		GearManagerDialog.WSkin:Point(backdrop, "TOPLEFT", 5, -2)
-		GearManagerDialog.WSkin:Point(backdrop, "BOTTOMRIGHT", -3, 4)
+		WSkin:Point(GearManagerDialog.backdrop, "TOPLEFT", 5, -2)
+		WSkin:Point(GearManagerDialog.backdrop, "BOTTOMRIGHT", -3, 4)
 
 		WSkin:SetBackdropHitRect(GearManagerDialog)
 		WSkin:HandleCloseButton(GearManagerDialogClose, GearManagerDialog.backdrop)
@@ -319,7 +323,7 @@ WSkin:AddCallback("Skin_Character", function()
 				WSkin:StyleButton(button, nil, true)
 
 				if button.icon then
-					button.WSkin:SetInside(icon)
+					WSkin:SetInside(button.icon)
 					button.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 				end
 			end
@@ -342,8 +346,8 @@ WSkin:AddCallback("Skin_Character", function()
 		GearManagerDialogPopup:EnableMouse(true)
 		WSkin:StripTextures(GearManagerDialogPopup)
 		WSkin:CreateBackdrop(GearManagerDialogPopup, "Transparent")
-		GearManagerDialogPopup.WSkin:Point(backdrop, "TOPLEFT", 5, -10)
-		GearManagerDialogPopup.WSkin:Point(backdrop, "BOTTOMRIGHT", -39, 8)
+		WSkin:Point(GearManagerDialogPopup.backdrop, "TOPLEFT", 5, -10)
+		WSkin:Point(GearManagerDialogPopup.backdrop, "BOTTOMRIGHT", -39, 8)
 
 		WSkin:SetBackdropHitRect(GearManagerDialogPopup)
 		WSkin:StripTextures(GearManagerDialogPopupScrollFrame)
@@ -359,7 +363,7 @@ WSkin:AddCallback("Skin_Character", function()
 				WSkin:StyleButton(button, true, true)
 
 				if button.icon then
-					button.WSkin:SetInside(icon)
+					WSkin:SetInside(button.icon)
 					button.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 				end
 
@@ -401,8 +405,8 @@ WSkin:AddCallback("Skin_Character", function()
 		if tab then
 			WSkin:StripTextures(tab)
 			WSkin:CreateBackdrop(tab, "Default", true)
-			tab.WSkin:Point(backdrop, "TOPLEFT", 2, -7)
-			tab.WSkin:Point(backdrop, "BOTTOMRIGHT", -1, -1)
+			WSkin:Point(tab.backdrop, "TOPLEFT", 2, -7)
+			WSkin:Point(tab.backdrop, "BOTTOMRIGHT", -1, -1)
 			WSkin:SetBackdropHitRect(tab)
 
 			tab:HookScript("OnEnter", WSkin.SetModifiedBackdrop)
@@ -651,7 +655,7 @@ WSkin:AddCallback("Skin_Character", function()
 	if SkillDetailStatusBarUnlearnButton then
 		SkillDetailStatusBarUnlearnButton:SetPoint("LEFT", SkillDetailStatusBarBorder, "RIGHT")
 		if SkillDetailStatusBarUnlearnButton.Texture then
-			SkillDetailStatusBarUnlearnButton.WSkin:Size(Texture, 16)
+			WSkin:Size(SkillDetailStatusBarUnlearnButton.Texture, 16)
 			SkillDetailStatusBarUnlearnButton.Texture:SetVertexColor(1, 0, 0)
 		end
 		SkillDetailStatusBarUnlearnButton:HookScript("OnEnter", function(btn) if btn.Texture then btn.Texture:SetVertexColor(1, 1, 1) end end)
@@ -734,7 +738,7 @@ WSkin:AddCallback("Skin_Character", function()
 				if button.highlight then button.highlight:SetTexture(nil) end
 
 				if button.expandIcon then
-					button.WSkin:Size(expandIcon, 16)
+					WSkin:Size(button.expandIcon, 16)
 					button.expandIcon:SetTexCoord(0, 1, 0, 1)
 					button.expandIcon.SetTexCoord = function() end
 				end

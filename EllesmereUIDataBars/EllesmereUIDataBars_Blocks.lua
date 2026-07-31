@@ -1105,7 +1105,7 @@ end
 -- icon, which the single-icon stat helper cannot do. The bar stays in the
 -- block colour like every other module; criticality green/yellow/red lives in
 -- the tooltip only (GetLatColor).
-local LAT_ICON = { home = MEDIA .. "home_latency.png", world = MEDIA .. "world_latency.png" }
+local LAT_ICON = { home = MEDIA .. "home_latency.tga", world = MEDIA .. "world_latency.tga" }
 
 -- home | world | both. Reads the old useWorldLatency boolean as a fallback so
 -- an existing block keeps its link. Shared by the block and its options row,
@@ -1304,7 +1304,7 @@ ns.BlockFactories.durability = function(blockCfg, slot, content, barCtx)
 
     return MakeStatBlock(blockCfg, slot, content, barCtx, {
         hbPrefix = "durability",
-        texture  = MEDIA .. "forge.png",
+        texture  = MEDIA .. "forge.tga",
         iconExtra = 7,
         interval = 2,
         sample   = SampleDurability,
@@ -1734,7 +1734,7 @@ ns.BlockFactories.location = function(blockCfg, slot, content, barCtx)
         -- fight ends. Same reason the clock block listens for it.
         events = { "ZONE_CHANGED", "ZONE_CHANGED_INDOORS", "ZONE_CHANGED_NEW_AREA",
                    "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED" },
-        texture = MEDIA .. "location.png",
+        texture = MEDIA .. "location.tga",
         text = function() return LocDisplayText(D().showSubZone ~= false) end,
         -- No template: the block sizes from the live name. Zone changes are
         -- rare, so one relayout each is cheaper than permanently reserving
@@ -1761,7 +1761,7 @@ ns.BlockFactories.coords = function(blockCfg, slot, content, barCtx)
         events = { "ZONE_CHANGED_NEW_AREA", "PLAYER_ENTERING_WORLD",
                    "PLAYER_REGEN_ENABLED" },
         tickSeconds = 0.5,
-        texture = MEDIA .. "coordinates.png",
+        texture = MEDIA .. "coordinates.tga",
         text = function() return LocCoordText(Precision()) end,
         template = function() return COORD_TEMPLATE[Precision()] or COORD_TEMPLATE[0] end,
         collapse = function()
@@ -1872,7 +1872,7 @@ ns.BlockFactories.gold = function(blockCfg, slot, content, barCtx)
     local inst = { cfg = blockCfg, slot = slot, content = content, ctx = barCtx }
     inst.key = InstKey(barCtx, blockCfg)
 
-    local GOLD_TEX = MEDIA .. "lootbag.png"
+    local GOLD_TEX = MEDIA .. "lootbag.tga"
     local _goldFitBuf = { "", "" }
     local mouseOver = false
 
@@ -2628,7 +2628,7 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
     inst.key = InstKey(barCtx, blockCfg)
     inst.events = { "HEARTHSTONE_BOUND", "PLAYER_ENTERING_WORLD" }
 
-    local HEARTH_TEX = MEDIA .. "hearthstone.png"
+    local HEARTH_TEX = MEDIA .. "hearthstone.tga"
     local _trvFitBuf1 = { "" }
     local _trvFitBuf2 = { "" }
     local mouseOver = false
@@ -3071,7 +3071,7 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
     local SPEC_MEDIA = MEDIA .. "spec\\"
     local _specFitBuf1 = { "" }
     local _specFitBuf2 = { "" }
-    -- One PNG per spec in media\spec\, named <class>-<spec>.png and listed
+    -- One PNG per spec in media\spec\, named <class>-<spec>.tga and listed
     -- here in SPEC INDEX order per class token (GetSpecializationInfo order
     -- is fixed), so no spec-ID table is needed -- new specs just append.
     local SPEC_ICON_FILES = {
@@ -3263,7 +3263,7 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
                 -- strips regions on release, so nothing set only at
                 -- creation survives a hide/reshow cycle.
                 btn._arrow:SetSize(10, 10)
-                btn._arrow:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-right.png")
+                btn._arrow:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-right.tga")
                 btn._arrow:ClearAllPoints()
                 btn._arrow:SetPoint("RIGHT", btn, "RIGHT", -2, 0)
                 btn._arrow:SetVertexColor(ar, ag, ab, 0.9)
@@ -3573,7 +3573,7 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
             local files = classId and SPEC_ICON_FILES[classId]
             local file = files and files[currentSpecIdx]
             if file then
-                specIcon:SetTexture(SPEC_MEDIA .. file .. ".png")
+                specIcon:SetTexture(SPEC_MEDIA .. file .. ".tga")
                 specIcon:SetTexCoord(0, 1, 0, 1)
             end
         end
@@ -3836,7 +3836,7 @@ local function MakeProfessionBlock(blockCfg, slot, content, barCtx, secondary)
 
         local iconTex = profData.icon
         if profIcons[profData.id] then
-            iconTex = MEDIA_PROF .. profIcons[profData.id] .. ".png"
+            iconTex = MEDIA_PROF .. profIcons[profData.id] .. ".tga"
         end
         -- Show Icon (default ON): hidden drops the icon and its gap from
         -- the layout entirely; the text/bar stack keeps the icon's vertical
@@ -4810,7 +4810,7 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
             AttachTextOffset(inst, textFS[key])
         end
         icons[key] = frame:CreateTexture(nil, "OVERLAY")
-        icons[key]:SetTexture(MM_MEDIA .. (MM_ICON_FILE[key] or key) .. ".png")
+        icons[key]:SetTexture(MM_MEDIA .. (MM_ICON_FILE[key] or key) .. ".tga")
         SetupButtonScripts(key, frame)
         return frame
     end
@@ -5573,7 +5573,7 @@ ns.BlockFactories.greatvault = function(blockCfg, slot, content, barCtx)
     button:RegisterForClicks("AnyUp")
 
     local icon = button:CreateTexture(nil, "OVERLAY")
-    icon:SetTexture(MEDIA .. "great_vault.png")
+    icon:SetTexture(MEDIA .. "great_vault.tga")
     local label = button:CreateFontString(nil, "OVERLAY")
     AttachTextOffset(inst, label)
 
@@ -5756,7 +5756,7 @@ ns.BlockFactories.audio = function(blockCfg, slot, content, barCtx)
     inst.key = InstKey(barCtx, blockCfg)
     inst.events = { "CVAR_UPDATE", "PLAYER_ENTERING_WORLD" }
 
-    local AUDIO_TEX = MEDIA .. "audio.png"
+    local AUDIO_TEX = MEDIA .. "audio.tga"
     local mouseOver = false
     local dragging = false
 

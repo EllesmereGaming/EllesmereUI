@@ -153,7 +153,7 @@ local function SkinAtlasPanel(frame)
     Register(frame, true)
     if not d.bg then
         local bg = frame:CreateTexture(nil, "BACKGROUND", nil, -8)
-        bg:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.png")
+        bg:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.tga")
         bg:SetAllPoints(frame)
         d.bg = bg
         local overlay = frame:CreateTexture(nil, "BACKGROUND", nil, -7)
