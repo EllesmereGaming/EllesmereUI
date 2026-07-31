@@ -362,6 +362,10 @@ local DD_TXT_A  = EllesmereUI.DD_TXT_A
 local DD_TXT_HA = EllesmereUI.DD_TXT_HA
 local DD_ITEM_HL_A  = EllesmereUI.DD_ITEM_HL_A
 local DD_ITEM_SEL_A = EllesmereUI.DD_ITEM_SEL_A
+-- Disabled entries still need enough contrast to be readable on the tinted
+-- dropdown background.  They remain visibly dimmer than normal entries.
+local DD_ITEM_DISABLED_A = 0.45
+local DD_NOTE_DISABLED_A = 0.34
 
 -- Layout constants
 local DUAL_ITEM_W  = EllesmereUI.DUAL_ITEM_W
@@ -638,7 +642,12 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
         menu:SetPoint("TOPLEFT", ddBtn, "BOTTOMLEFT", 0, -2)
     end
     menu:Hide()
-    SolidTex(menu, "BACKGROUND", mBgR, mBgG, mBgB, mBgA):SetAllPoints()
+    -- Keep the tint at the very back of the menu.  Some clients otherwise
+    -- composite the menu-level BACKGROUND texture over nested scroll children,
+    -- making otherwise bright labels and checkboxes look almost black.
+    local menuBg = menu:CreateTexture(nil, "BACKGROUND", nil, -8)
+    menuBg:SetAllPoints()
+    menuBg:SetTexture(mBgR, mBgG, mBgB, mBgA)
     MakeBorder(menu, mBrR, mBrG, mBrB, mBrA, PP)
 
     if _moSearchable then
@@ -701,7 +710,7 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
                 local arrowTex = item:CreateTexture(nil, 'ARTWORK')
                 arrowTex:SetSize(10, 10)
                 arrowTex:SetPoint('RIGHT', item, 'RIGHT', -8, 0)
-                arrowTex:SetTexture(MEDIA_PATH .. 'icons/right-arrow.png')
+                arrowTex:SetTexture(MEDIA_PATH .. 'icons/right-arrow.tga')
                 arrowTex:SetAlpha(0.7)
                 local iHl = SolidTex(item, 'ARTWORK', 1, 1, 1, 1); iHl:SetAlpha(0)
                 iHl:SetAllPoints()
@@ -720,7 +729,9 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
                 flyout:SetClampedToScreen(true)
                 flyout:SetSize(menuW, 10)
                 flyout:Hide()
-                SolidTex(flyout, 'BACKGROUND', mBgR, mBgG, mBgB, mBgA):SetAllPoints()
+                local flyoutBg = flyout:CreateTexture(nil, 'BACKGROUND', nil, -8)
+                flyoutBg:SetAllPoints()
+                flyoutBg:SetTexture(mBgR, mBgG, mBgB, mBgA)
                 MakeBorder(flyout, mBrR, mBrG, mBrB, mBrA, PP)
                 item._flyout = flyout
                 if not menu._flyouts then menu._flyouts = {} end
@@ -769,6 +780,7 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
                         ci:SetScript('OnClick', function()
                             if sn.onSelect then sn.onSelect(childKey) end
                             ddLbl:SetText(TR(parentText) .. ': ' .. TR(childText))
+                            if ddBtn._resizeToText then ddBtn._resizeToText() end
                             flyout:Hide()
                             menu:Hide()
                             C_Timer.After(0, function()
@@ -984,6 +996,7 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
             item:SetScript("OnClick", function()
                 if disabledValuesFn and disabledValuesFn(key) then return end
                 setValue(key); ddLbl:SetText(TR(mainText))
+                if ddBtn._resizeToText then ddBtn._resizeToText() end
                 menu:Hide()
                 -- Deferred refresh: setValue may have mutually-excluded another
                 -- dropdown (e.g. left/right text).  A zero-delay timer ensures
@@ -1226,10 +1239,10 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
             else
                 item._highlight:SetAlpha((item._key == cur and not off) and DD_ITEM_SEL_A or 0)
                 item._label:SetAlpha(1)
-                item._label:SetTextColor(TEXT_DIM_R, TEXT_DIM_G, TEXT_DIM_B, off and 0.18 or TEXT_DIM_A)
+                item._label:SetTextColor(TEXT_DIM_R, TEXT_DIM_G, TEXT_DIM_B, off and DD_ITEM_DISABLED_A or TEXT_DIM_A)
                 if item._note then
                     item._note:SetAlpha(1)
-                    item._note:SetTextColor(TEXT_DIM_R, TEXT_DIM_G, TEXT_DIM_B, off and 0.12 or (TEXT_DIM_A * 0.75))
+                    item._note:SetTextColor(TEXT_DIM_R, TEXT_DIM_G, TEXT_DIM_B, off and DD_NOTE_DISABLED_A or (TEXT_DIM_A * 0.75))
                 end
             end
         end
@@ -1658,6 +1671,10 @@ local function GetTooltipFrame()
         tooltipFrame:SetFrameStrata("TOOLTIP")
         tooltipFrame:SetFrameLevel(200)
         tooltipFrame:SetSize(250, 40)
+        -- This is a display-only frame.  Be explicit so it can never steal the
+        -- mouse from the setting that owns it when clamping places it beneath
+        -- the cursor (which would immediately fire the owner's OnLeave).
+        tooltipFrame:EnableMouse(false)
         local bg = tooltipFrame:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
         tooltipFrame.bg = bg
@@ -1667,6 +1684,11 @@ local function GetTooltipFrame()
         tooltipFrame.text:SetPoint("TOPRIGHT", -8, -8)
         tooltipFrame.text:SetWordWrap(true)
         tooltipFrame.text:SetSpacing(3)
+        -- Unanchored copy used only for natural-width measurement.  Measuring
+        -- the visible FontString is inaccurate because its left/right anchors
+        -- constrain GetStringWidth to the tooltip's previous width.
+        tooltipFrame.measure = MakeFont(tooltipFrame, 10, nil, 1, 1, 1, 0)
+        tooltipFrame.measure:SetWordWrap(false)
         tooltipFrame:Hide()
     end
     -- Unified, user-customizable background (shared with the Blizzard tooltip
@@ -1691,13 +1713,20 @@ ShowWidgetTooltip = function(label, text, opts)
     -- after the suppression checks so it isn't called when the tooltip is hidden.
     if type(text) == "function" then text = text() end
     local tt = GetTooltipFrame()
-    local MAX_W = 250
+    local MIN_W = 80
+    local MAX_W = 420
     local PAD = 8  -- horizontal padding each side (matches text anchor insets)
+    local displayText = EllesmereUI.L(text)
     if opts and opts.width then
         tt:SetWidth(opts.width)
     else
-        -- Measure natural single-line text width, then clamp to MAX_W
-        tt:SetWidth(MAX_W)
+        tt.measure:SetText(displayText)
+        local naturalW = tt.measure:GetStringWidth()
+        if issecretvalue and issecretvalue(naturalW) then
+            tt:SetWidth(250)
+        else
+            tt:SetWidth(math.max(MIN_W, math.min((naturalW or 0) + PAD * 2, MAX_W)))
+        end
     end
     -- Apply text color override or default white
     if opts and opts.color then
@@ -1710,7 +1739,7 @@ ShowWidgetTooltip = function(label, text, opts)
     else
         tt.text:SetJustifyH("CENTER")
     end
-    tt.text:SetText(EllesmereUI.L(text))
+    tt.text:SetText(displayText)
     tt:ClearAllPoints()
     if opts and opts.anchorPoint then
         -- Custom anchor: opts.anchorPoint on tooltip -> opts.anchorTo on label
@@ -1734,16 +1763,6 @@ ShowWidgetTooltip = function(label, text, opts)
     -- on a visible frame (GetStringHeight returns wrong values on hidden frames).
     tt:SetAlpha(0)
     tt:Show()
-    -- Auto-size width: use natural text width + padding, capped at MAX_W
-    if not (opts and opts.width) then
-        local sw = tt.text:GetStringWidth()
-        if issecretvalue and issecretvalue(sw) then
-            tt:SetWidth(MAX_W)
-        else
-            local naturalW = sw + PAD * 2
-            tt:SetWidth(math.min(naturalW, MAX_W))
-        end
-    end
     tt:SetHeight(10)
     local textH = tt.text:GetStringHeight()
     if issecretvalue and issecretvalue(textH) then
@@ -1787,19 +1806,13 @@ ShowWidgetTooltip = function(label, text, opts)
             end
         end
     end
-    -- Cancel any in-progress fade-out so its OnFinished doesn't hide us
+    -- Alpha animations on the 3.3.5 client can restore the frame's base alpha
+    -- (zero) when they finish, making a hovered tooltip disappear after roughly
+    -- half a second.  Stop any legacy groups and keep the tooltip explicitly
+    -- opaque until its owner's OnLeave handler hides it.
     if tt._fadeOutAG then tt._fadeOutAG:Stop() end
     if tt._fadeAG then tt._fadeAG:Stop() end
-    if not tt._fadeAG then
-        tt._fadeAG = tt:CreateAnimationGroup()
-        tt._fadeIn = tt._fadeAG:CreateAnimation("Alpha")
-        tt._fadeIn:SetDuration(0.25)
-        tt._fadeIn:SetSmoothing("OUT")
-    end
-    tt._fadeIn:SetFromAlpha(0)
-    tt._fadeIn:SetToAlpha(1)
-    tt._fadeAG:SetScript("OnFinished", function() tt:SetAlpha(1) end)
-    tt._fadeAG:Play()
+    tt:SetAlpha(1)
 end
 
 HideWidgetTooltip = function(instant)
@@ -1808,21 +1821,8 @@ HideWidgetTooltip = function(instant)
     tt:SetScale(1)
     if tt._fadeOutAG then tt._fadeOutAG:Stop() end
     if tt._fadeAG then tt._fadeAG:Stop() end
-    if instant then
-        tt:SetAlpha(0); tt:Hide()
-        return
-    end
-    -- Fade out
-    if not tt._fadeOutAG then
-        tt._fadeOutAG = tt:CreateAnimationGroup()
-        tt._fadeOut = tt._fadeOutAG:CreateAnimation("Alpha")
-        tt._fadeOut:SetDuration(0.25)
-        tt._fadeOut:SetSmoothing("IN")
-    end
-    tt._fadeOut:SetFromAlpha(tt:GetAlpha())
-    tt._fadeOut:SetToAlpha(0)
-    tt._fadeOutAG:SetScript("OnFinished", function() tt:SetAlpha(0); tt:Hide() end)
-    tt._fadeOutAG:Play()
+    tt:SetAlpha(0)
+    tt:Hide()
 end
 
 -------------------------------------------------------------------------------
@@ -2182,7 +2182,7 @@ end
 -- Helper: create a fully wired dropdown control (button + bg + border + label + arrow + menu)
 -- Returns ddBtn, ddLbl so caller can position the button and register refresh
 -- Menu is created lazily on first click to reduce initial memory allocation.
-local function BuildDropdownControl(parent, ddW, fLevel, values, order, getValue, setValue, disabledValuesFn)
+local function BuildDropdownControl(parent, ddW, fLevel, values, order, getValue, setValue, disabledValuesFn, adaptive)
     local ddBtn = EllesmereUI.SafeCreateFrame("Button", nil, parent)
     PP.Size(ddBtn, ddW, 30)
     ddBtn:SetFrameLevel(fLevel)
@@ -2197,14 +2197,38 @@ local function BuildDropdownControl(parent, ddW, fLevel, values, order, getValue
     ddLbl:SetPoint("LEFT", ddBtn, "LEFT", 12, 0)
     local arrow = MakeDropdownArrow(ddBtn, 12, PP)
     ddLbl:SetPoint("RIGHT", arrow, "LEFT", -5, 0)
+    if adaptive then
+        local ddMeasure = ddBtn:CreateFontString(nil, "OVERLAY")
+        local ddFont, ddFontSize, ddFontFlags = ddLbl:GetFont()
+        ddMeasure:SetFont(ddFont, ddFontSize, ddFontFlags)
+        ddMeasure:SetAlpha(0)
+        ddMeasure:SetWordWrap(false)
+        local parentW = parent:GetWidth() or 0
+        local minW = math.min(ddW, 96)
+        local maxW = math.max(ddW, math.min(300, math.max(ddW, parentW - 40)))
+        ddBtn._resizeToText = function()
+            ddMeasure:SetText(ddLbl:GetText() or "")
+            local textW = ddMeasure:GetStringWidth()
+            if issecretvalue and issecretvalue(textW) then
+                ddBtn:SetWidth(ddW)
+                return
+            end
+            -- Insets, label/arrow gap, arrow, and right padding.
+            ddBtn:SetWidth(math.max(minW, math.min((textW or 0) + 39, maxW)))
+        end
+    else
+        ddBtn._resizeToText = function() ddBtn:SetWidth(ddW) end
+    end
     if not order then order = {}; for key in pairs(values) do order[#order + 1] = key end end
     ddLbl:SetText(DDResolveLabel(values, order, getValue()))
+    ddBtn._resizeToText()
 
     -- Lazy menu: defer BuildDropdownMenu until first click
     local menu, refresh
     local function EnsureMenu()
         if menu then return end
-        menu, _, refresh = BuildDropdownMenu(ddBtn, ddW, order, values, getValue, setValue, ddLbl, "regular", disabledValuesFn)
+        local menuW = adaptive and math.max(ddW, ddBtn:GetWidth() or ddW) or ddW
+        menu, _, refresh = BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue, ddLbl, "regular", disabledValuesFn)
         ddBtn._ddMenu = menu
         ddBtn._ddRefresh = refresh
         -- keepClickHandler=true: our lazy OnClick below must survive so that
@@ -2227,6 +2251,7 @@ local function BuildDropdownControl(parent, ddW, fLevel, values, order, getValue
         end
         -- Also refresh the label text in case the current selection's label changed
         ddLbl:SetText(DDResolveLabel(values, order, getValue()))
+        ddBtn._resizeToText()
     end
 
     -- Public: refresh only the displayed label from getValue, without rebuilding
@@ -2236,6 +2261,7 @@ local function BuildDropdownControl(parent, ddW, fLevel, values, order, getValue
     -- (e.g. the crosshair size dropdown showing "Custom" after a cog edit).
     ddBtn._refreshLabel = function()
         ddLbl:SetText(DDResolveLabel(values, order, getValue()))
+        ddBtn._resizeToText()
     end
 
     -- Lightweight hover scripts (before menu is created).
@@ -2371,7 +2397,7 @@ function WidgetFactory:Dropdown(parent, text, yOffset, values, getValue, setValu
     label:SetAlpha(1)
     PP.Point(label, "LEFT", frame, "LEFT", 20, 0)
     label:SetText(EllesmereUI.L(text))
-    local ddBtn, ddLbl = BuildDropdownControl(frame, 200, frame:GetFrameLevel() + 1, values, order, getValue, setValue)
+    local ddBtn, ddLbl = BuildDropdownControl(frame, 200, frame:GetFrameLevel() + 1, values, order, getValue, setValue, nil, true)
     PP.Point(ddBtn, "RIGHT", frame, "RIGHT", -20, 0)
     local hoverText = ClampRowLabel(label, ddBtn, "LEFT", 12, text, tooltip)
     if hoverText then
@@ -2389,6 +2415,7 @@ function WidgetFactory:Dropdown(parent, text, yOffset, values, getValue, setValu
     end
     RegisterWidgetRefresh(function()
         ddLbl:SetText(DDResolveLabel(values, order, getValue()))
+        ddBtn._resizeToText()
     end)
     return frame, ROW_H
 end
@@ -2568,35 +2595,40 @@ local function BuildColorPickerPopup()
     popup:EnableMouse(true)
     popup:Hide()
 
-    -- Click-off detection: close picker when clicking outside it
-    -- Uses a global OnMouseDown hook (non-blocking, preserves all hover/click on other frames)
+    -- Click-off detection. GLOBAL_MOUSE_DOWN is a Retail-only event and trying
+    -- to register it raises an error on the 3.3.5 client, breaking the picker as
+    -- soon as it opens. Poll the mouse button instead, matching the dropdown
+    -- popups elsewhere in this file.
     local clickOffFrame = EllesmereUI.SafeCreateFrame("Frame")
     clickOffFrame:Hide()
-    clickOffFrame:SetScript("OnEvent", function(_, event)
-        if event == "GLOBAL_MOUSE_DOWN" then
-            if popup:IsShown() and not popup:IsMouseOver() then
-                if cancelFunc then cancelFunc() end
-                popup:Hide()
-            end
+    local mouseWasDown = false
+    clickOffFrame:SetScript("OnUpdate", function()
+        local mouseDown = IsMouseButtonDown("LeftButton")
+            or IsMouseButtonDown("RightButton")
+        if mouseDown and not mouseWasDown and popup:IsShown()
+            and not popup:IsMouseOver() then
+            popup:Hide()
         end
+        mouseWasDown = mouseDown
     end)
     popup:HookScript("OnShow", function()
-        -- Defer registration by one frame so the mouse-down that opened the
-        -- popup doesn't immediately trigger click-outside-to-close.
+        -- Seed the current state after the opening click so that click is not
+        -- mistaken for a new outside click on the next frame.
         C_Timer.After(0, function()
             if popup:IsShown() then
-                clickOffFrame:RegisterEvent("GLOBAL_MOUSE_DOWN")
+                mouseWasDown = IsMouseButtonDown("LeftButton")
+                    or IsMouseButtonDown("RightButton")
                 clickOffFrame:Show()
             end
         end)
     end)
     popup:HookScript("OnHide", function()
-        clickOffFrame:UnregisterEvent("GLOBAL_MOUSE_DOWN")
         clickOffFrame:Hide()
+        mouseWasDown = false
     end)
 
     local bg = popup:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints(); bg:SetTexture(0.06, 0.08, 0.10, 1)
+    bg:SetAllPoints(); bg:SetColorTexture(0.06, 0.08, 0.10, 1)
 
     -- Pixel-perfect border (matching popup style)
     MakeBorder(popup, BORDER_R, BORDER_G, BORDER_B, 0.15, PP)
@@ -2619,7 +2651,7 @@ local function BuildColorPickerPopup()
     closeBtn:SetFrameLevel(popup:GetFrameLevel() + 5)
     local closeIcon = closeBtn:CreateTexture(nil, "ARTWORK")
     closeIcon:SetAllPoints()
-    closeIcon:SetTexture(MEDIA_PATH .. "icons/close-popup-4.png")
+    closeIcon:SetTexture(MEDIA_PATH .. "icons/close-popup-4.tga")
     closeIcon:SetAlpha(0.40)
     if closeIcon.SetSnapToPixelGrid then
         closeIcon:SetSnapToPixelGrid(false)
@@ -2628,7 +2660,6 @@ local function BuildColorPickerPopup()
     closeBtn:SetScript("OnEnter", function() closeIcon:SetAlpha(0.50) end)
     closeBtn:SetScript("OnLeave", function() closeIcon:SetAlpha(0.40) end)
     closeBtn:SetScript("OnClick", function()
-        if cancelFunc then cancelFunc() end
         popup:Hide()
     end)
 
@@ -2658,7 +2689,7 @@ local function BuildColorPickerPopup()
         if UpdateAlphaBar then UpdateAlphaBar(r, g, b, currentA) end
         if UpdateHexInput then UpdateHexInput(r, g, b) end
         if UpdateOpacityInput then UpdateOpacityInput(currentA) end
-        if newPreviewTex then newPreviewTex:SetTexture(r, g, b, currentA) end
+        if newPreviewTex then newPreviewTex:SetColorTexture(r, g, b, currentA) end
         updating = false
     end
 
@@ -2669,27 +2700,27 @@ local function BuildColorPickerPopup()
     svPad:EnableMouse(true)
 
     local svHue = svPad:CreateTexture(nil, "BACKGROUND")
-    svHue:SetAllPoints(); svHue:SetTexture(1, 0, 0, 1)
+    svHue:SetAllPoints(); svHue:SetColorTexture(1, 0, 0, 1)
 
     local svWhite = svPad:CreateTexture(nil, "BORDER")
-    svWhite:SetAllPoints(); svWhite:SetTexture(1, 1, 1, 1)
+    svWhite:SetAllPoints(); svWhite:SetColorTexture(1, 1, 1, 1)
     svWhite:SetGradient("HORIZONTAL", CreateColor(1, 1, 1, 1), CreateColor(1, 1, 1, 0))
 
     local svBlack = svPad:CreateTexture(nil, "ARTWORK")
-    svBlack:SetAllPoints(); svBlack:SetTexture(0, 0, 0, 1)
+    svBlack:SetAllPoints(); svBlack:SetColorTexture(0, 0, 0, 1)
     svBlack:SetGradient("VERTICAL", CreateColor(0, 0, 0, 1), CreateColor(0, 0, 0, 0))
 
     MakeBorder(svPad, 1, 1, 1, 0.06, PP)
 
     local ARM = 6
-    local chT = svPad:CreateTexture(nil, "OVERLAY", nil, 7); chT:SetSize(1, ARM); chT:SetTexture(1,1,1,0.9)
-    local chB = svPad:CreateTexture(nil, "OVERLAY", nil, 7); chB:SetSize(1, ARM); chB:SetTexture(1,1,1,0.9)
-    local chL = svPad:CreateTexture(nil, "OVERLAY", nil, 7); chL:SetSize(ARM, 1); chL:SetTexture(1,1,1,0.9)
-    local chR = svPad:CreateTexture(nil, "OVERLAY", nil, 7); chR:SetSize(ARM, 1); chR:SetTexture(1,1,1,0.9)
+    local chT = svPad:CreateTexture(nil, "OVERLAY", nil, 7); chT:SetSize(1, ARM); chT:SetColorTexture(1,1,1,0.9)
+    local chB = svPad:CreateTexture(nil, "OVERLAY", nil, 7); chB:SetSize(1, ARM); chB:SetColorTexture(1,1,1,0.9)
+    local chL = svPad:CreateTexture(nil, "OVERLAY", nil, 7); chL:SetSize(ARM, 1); chL:SetColorTexture(1,1,1,0.9)
+    local chR = svPad:CreateTexture(nil, "OVERLAY", nil, 7); chR:SetSize(ARM, 1); chR:SetColorTexture(1,1,1,0.9)
 
     UpdateSVPadHue = function(h)
         local r, g, b = HSVtoRGB(h, 1, 1)
-        svHue:SetTexture(r, g, b, 1)
+        svHue:SetColorTexture(r, g, b, 1)
     end
     UpdateSVCrosshair = function(s, v)
         local x = s * SV_SIZE
@@ -2737,14 +2768,14 @@ local function BuildColorPickerPopup()
     for i = 1, 6 do
         local seg = hueBar:CreateTexture(nil, "BACKGROUND")
         seg:SetSize(BAR_W, segH); seg:SetPoint("TOPLEFT", hueBar, "TOPLEFT", 0, -(i-1)*segH)
-        seg:SetTexture(1,1,1,1)
+        seg:SetColorTexture(1,1,1,1)
         local top, bot = HUE_COLORS[i], HUE_COLORS[i+1]
         seg:SetGradient("VERTICAL", CreateColor(bot[1],bot[2],bot[3],1), CreateColor(top[1],top[2],top[3],1))
     end
     MakeBorder(hueBar, 1, 1, 1, 0.06, PP)
 
     local hueInd = hueBar:CreateTexture(nil, "OVERLAY", nil, 7)
-    hueInd:SetSize(BAR_W + 4, 2); hueInd:SetTexture(1,1,1,1)
+    hueInd:SetSize(BAR_W + 4, 2); hueInd:SetColorTexture(1,1,1,1)
 
     UpdateHueIndicator = function(h)
         hueInd:ClearAllPoints()
@@ -2783,15 +2814,15 @@ local function BuildColorPickerPopup()
             local c = ((row + col) % 2 == 0) and 0.3 or 0.15
             local ck = alphaBar:CreateTexture(nil, "BACKGROUND")
             ck:SetSize(CK, CK); ck:SetPoint("TOPLEFT", alphaBar, "TOPLEFT", col * CK, -row * CK)
-            ck:SetTexture(c, c, c, 1)
+            ck:SetColorTexture(c, c, c, 1)
         end
     end
 
     local alphaGrad = alphaBar:CreateTexture(nil, "ARTWORK")
-    alphaGrad:SetAllPoints(); alphaGrad:SetTexture(1,0,0,1)
+    alphaGrad:SetAllPoints(); alphaGrad:SetColorTexture(1,0,0,1)
 
     local alphaInd = alphaBar:CreateTexture(nil, "OVERLAY", nil, 7)
-    alphaInd:SetSize(BAR_W+4, 2); alphaInd:SetTexture(1,1,1,1)
+    alphaInd:SetSize(BAR_W+4, 2); alphaInd:SetColorTexture(1,1,1,1)
     MakeBorder(alphaBar, 1, 1, 1, 0.06, PP)
 
     -- Reusable CreateColor objects to avoid per-frame allocation during drag
@@ -2836,12 +2867,12 @@ local function BuildColorPickerPopup()
 
     newPreviewTex = rightCol:CreateTexture(nil, "ARTWORK")
     newPreviewTex:SetSize(RIGHT_W, 26); newPreviewTex:SetPoint("TOPLEFT", rightCol, "TOPLEFT", 0, -14)
-    newPreviewTex:SetTexture(1,1,1,1)
+    newPreviewTex:SetColorTexture(1,1,1,1)
 
     -- Prev preview (directly below New)
     local prevPrev = rightCol:CreateTexture(nil, "ARTWORK")
     prevPrev:SetSize(RIGHT_W, 26); prevPrev:SetPoint("TOPLEFT", newPreviewTex, "BOTTOMLEFT", 0, -4)
-    prevPrev:SetTexture(1,1,1,1)
+    prevPrev:SetColorTexture(1,1,1,1)
     prevPreviewTex = prevPrev
 
     -- Clickable overlay on prev swatch: clicking restores the previous color
@@ -2867,7 +2898,7 @@ local function BuildColorPickerPopup()
     hexBox:SetMaxLetters(6); hexBox:SetAutoFocus(false); hexBox:EnableMouse(true)
     hexBox:SetJustifyH("CENTER")
     local hbg = hexBox:CreateTexture(nil, "BACKGROUND")
-    hbg:SetAllPoints(); hbg:SetTexture(0.22, 0.24, 0.28, 0.5)
+    hbg:SetAllPoints(); hbg:SetColorTexture(0.22, 0.24, 0.28, 0.5)
     MakeBorder(hexBox, 1, 1, 1, 0.04, PP)
 
     local lastValidHex = "FFFFFF"
@@ -2895,7 +2926,6 @@ local function BuildColorPickerPopup()
         hexBox:SetText(lastValidHex)
         hexBox:ClearFocus()
         hexEscaping = false
-        if cancelFunc then cancelFunc() end
         popup:Hide()
     end)
     hexBox:SetScript("OnEditFocusLost", function()
@@ -2923,7 +2953,7 @@ local function BuildColorPickerPopup()
     opacityBox:SetMaxLetters(3); opacityBox:SetAutoFocus(false); opacityBox:EnableMouse(true)
     opacityBox:SetNumeric(true); opacityBox:SetJustifyH("CENTER")
     local obg = opacityBox:CreateTexture(nil, "BACKGROUND")
-    obg:SetAllPoints(); obg:SetTexture(0.22, 0.24, 0.28, 0.5)
+    obg:SetAllPoints(); obg:SetColorTexture(0.22, 0.24, 0.28, 0.5)
     MakeBorder(opacityBox, 1, 1, 1, 0.04, PP)
 
     local lastOpacityPct = -1
@@ -2956,7 +2986,6 @@ local function BuildColorPickerPopup()
         opacityBox:SetText(tostring(math.floor(currentA * 100 + 0.5)))
         opacityBox:ClearFocus()
         opacityEscaping = false
-        if cancelFunc then cancelFunc() end
         popup:Hide()
     end)
     opacityBox:SetScript("OnEditFocusLost", function() if not opacityEscaping then ApplyOpacityText(true) end end)
@@ -3066,7 +3095,7 @@ local function BuildColorPickerPopup()
             if not btn then btn = MakeSwatchBtn(row, row._isFavorites); swatchPool[i] = btn end
             if i <= count then
                 btn._color = data[i]
-                btn._tex:SetTexture(data[i][1], data[i][2], data[i][3], 1)
+                btn._tex:SetColorTexture(data[i][1], data[i][2], data[i][3], 1)
                 btn:Show(); btn:ClearAllPoints()
                 if i == 1 then btn:SetPoint("LEFT", row, "LEFT", 0, 0)
                 else btn:SetPoint("LEFT", swatchPool[i-1], "RIGHT", SWATCH_SPACING, 0) end
@@ -3111,7 +3140,7 @@ local function BuildColorPickerPopup()
         prevR, prevG, prevB, prevA = r, g, b, a
         currentH, currentS, currentV = RGBtoHSV(r, g, b)
         currentA = hasOpacity and a or 1
-        prevPreviewTex:SetTexture(r, g, b, hasOpacity and a or 1)
+        prevPreviewTex:SetColorTexture(r, g, b, hasOpacity and a or 1)
         -- Reposition right column based on alpha bar visibility. When an alpha
         -- slider is present, only the right column is made taller so OK/Cancel
         -- drop down to clear the Opacity input inserted below Hex#. The favorites
@@ -3622,7 +3651,7 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
                     return false
                 end
             end
-            local ddBtn, ddLbl = BuildDropdownControl(region, DD_W, frame:GetFrameLevel() + 2, cfg.values, cfg.order, cfg.getValue, cfg.setValue, ddDisabledFn)
+            local ddBtn, ddLbl = BuildDropdownControl(region, DD_W, frame:GetFrameLevel() + 2, cfg.values, cfg.order, cfg.getValue, cfg.setValue, ddDisabledFn, true)
             PP.Point(ddBtn, "RIGHT", region, "RIGHT", -SIDE_PAD, 0)
             controlFrame = ddBtn
             controlAnchor = ddBtn
@@ -3670,12 +3699,14 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
                 end
                 RegisterWidgetRefresh(function()
                     ddLbl:SetText(DDResolveLabel(cfg.values, cfg.order or {}, cfg.getValue()))
+                    ddBtn._resizeToText()
                     ApplyLabelOnly()
                 end)
                 ApplyLabelOnly()
             else
                 RegisterWidgetRefresh(function()
                     ddLbl:SetText(DDResolveLabel(cfg.values, cfg.order or {}, cfg.getValue()))
+                    ddBtn._resizeToText()
                     ApplyDisabledState()
                 end)
                 ApplyDisabledState()
@@ -4041,7 +4072,7 @@ function WidgetFactory:TripleRow(parent, yOffset, leftCfg, midCfg, rightCfg, spl
                     return false
                 end
             end
-            local ddBtn, ddLbl = BuildDropdownControl(region, DD_W, frame:GetFrameLevel() + 2, cfg.values, cfg.order, cfg.getValue, cfg.setValue, ddDisabledFn)
+            local ddBtn, ddLbl = BuildDropdownControl(region, DD_W, frame:GetFrameLevel() + 2, cfg.values, cfg.order, cfg.getValue, cfg.setValue, ddDisabledFn, true)
             PP.Point(ddBtn, "RIGHT", region, "RIGHT", -SIDE_PAD, 0)
             controlFrame = ddBtn
             if cfg.labelOnlyDisabled then
@@ -4089,6 +4120,7 @@ function WidgetFactory:TripleRow(parent, yOffset, leftCfg, midCfg, rightCfg, spl
                 end
                 RegisterWidgetRefresh(function()
                     ddLbl:SetText(DDResolveLabel(cfg.values, cfg.order or {}, cfg.getValue()))
+                    ddBtn._resizeToText()
                     ApplyLabelOnly()
                     if ddBtn._ddRefresh then ddBtn._ddRefresh() end
                 end)
@@ -4096,6 +4128,7 @@ function WidgetFactory:TripleRow(parent, yOffset, leftCfg, midCfg, rightCfg, spl
             else
                 RegisterWidgetRefresh(function()
                     ddLbl:SetText(DDResolveLabel(cfg.values, cfg.order or {}, cfg.getValue()))
+                    ddBtn._resizeToText()
                     ApplyDisabledState()
                     if ddBtn._ddRefresh then ddBtn._ddRefresh() end
                 end)
@@ -5780,10 +5813,10 @@ local function BuildSegmentedControl(cfg)
     -------------------------------------------------------------------
     -- Pill caps
     -------------------------------------------------------------------
-    local CAP_FILL_L_TEX   = MEDIA_PATH .. "pill-fill-l.png"
-    local CAP_FILL_R_TEX   = MEDIA_PATH .. "pill-fill-r.png"
-    local CAP_BORDER_L_TEX = MEDIA_PATH .. "pill-border-l.png"
-    local CAP_BORDER_R_TEX = MEDIA_PATH .. "pill-border-r.png"
+    local CAP_FILL_L_TEX   = MEDIA_PATH .. "pill-fill-l.tga"
+    local CAP_FILL_R_TEX   = MEDIA_PATH .. "pill-fill-r.tga"
+    local CAP_BORDER_L_TEX = MEDIA_PATH .. "pill-border-l.tga"
+    local CAP_BORDER_R_TEX = MEDIA_PATH .. "pill-border-r.tga"
 
     local capLeftFill = pillBody:CreateTexture(nil, "BACKGROUND", nil, 1)
     capLeftFill:SetSize(capW, SEG_H)
@@ -6785,8 +6818,8 @@ end
 --  builder, so it forces RefreshPage(true) -- the no-arg fast path only
 --  re-reads values and would never reveal the collapsed rows.
 -------------------------------------------------------------------------------
-local LESS_COMMON_ARROW_DOWN = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-down3.png"
-local LESS_COMMON_ARROW_UP   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-up3.png"
+local LESS_COMMON_ARROW_DOWN = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-down3.tga"
+local LESS_COMMON_ARROW_UP   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-up3.tga"
 
 -- Shared link renderer for both expander states. The link always sits at the
 -- BOTTOM of its section: collapsed it renders where the hidden rows would
@@ -7415,7 +7448,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
         menu:SetSize(ddW, menuH)
         menu:SetPoint("TOPLEFT", ddBtn, "BOTTOMLEFT", 0, -2)
         menu:Hide()
-        local mBg = menu:CreateTexture(nil, "BACKGROUND")
+        local mBg = menu:CreateTexture(nil, "BACKGROUND", nil, -8)
         mBg:SetAllPoints()
         mBg:SetTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA or 0.92)
         EllesmereUI.MakeBorder(menu, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
@@ -7485,11 +7518,13 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
 
         -- Scroll frame for items
         local sf = EllesmereUI.SafeCreateFrame("ScrollFrame", nil, menu)
+        sf:SetFrameLevel(menu:GetFrameLevel() + 2)
         local sfTop = -((SEARCH_H > 0 and (SEARCH_H + 8) or 1) + TOP_H)
         sf:SetPoint("TOPLEFT", 1, sfTop)
         sf:SetPoint("BOTTOMRIGHT", -1, 1)
         sf:EnableMouseWheel(true)
         local child = EllesmereUI.SafeCreateFrame("Frame", nil, sf)
+        child:SetFrameLevel(sf:GetFrameLevel() + 1)
         child:SetWidth(ddW - 2)
         child:SetHeight(contentH)
         sf:SetScrollChild(child)
@@ -7581,7 +7616,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
                 hdr:SetHeight(hdrH)
                 hdr:SetPoint("TOPLEFT", child, "TOPLEFT", 1, yOff)
                 hdr:SetPoint("TOPRIGHT", child, "TOPRIGHT", -1, yOff)
-                hdr:SetFrameLevel(menu:GetFrameLevel() + 2)
+                hdr:SetFrameLevel(child:GetFrameLevel() + 1)
                 local hdrLbl = hdr:CreateFontString(nil, "OVERLAY")
                 hdrLbl:SetFont(fontPath, 10, "")
                 hdrLbl:SetTextColor(0.5, 0.5, 0.5, 1)
@@ -7610,7 +7645,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
                 row:SetHeight(ITEM_H)
                 row:SetPoint("TOPLEFT", child, "TOPLEFT", 1, yOff)
                 row:SetPoint("TOPRIGHT", child, "TOPRIGHT", -1, yOff)
-                row:SetFrameLevel(menu:GetFrameLevel() + 2)
+                row:SetFrameLevel(child:GetFrameLevel() + 1)
                 local lbl = row:CreateFontString(nil, "OVERLAY")
                 lbl:SetFont(fontPath, 13, "")
                 lbl:SetTextColor(EllesmereUI.ELLESMERE_GREEN.r, EllesmereUI.ELLESMERE_GREEN.g, EllesmereUI.ELLESMERE_GREEN.b, 0.8)
@@ -7661,7 +7696,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
             row:SetHeight(ITEM_H)
             row:SetPoint("TOPLEFT", child, "TOPLEFT", 1, yOff)
             row:SetPoint("TOPRIGHT", child, "TOPRIGHT", -1, yOff)
-            row:SetFrameLevel(menu:GetFrameLevel() + 2)
+            row:SetFrameLevel(child:GetFrameLevel() + 1)
             -- Opt-in plain rows (item.noCheck): the identical row minus the
             -- checkbox -- the regular-dropdown look for select-style pickers.
             -- Click still routes setFn(key, not getFn(key)), so a picker

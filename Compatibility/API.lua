@@ -144,6 +144,9 @@ C_AddOns = C_AddOns or {}
 C_AddOns.DisableAddOn = DisableAddOn
 C_AddOns.EnableAddOn = EnableAddOn
 C_AddOns.IsAddOnLoaded = IsAddOnLoaded
+C_AddOns.LoadAddOn = LoadAddOn
+C_AddOns.GetNumAddOns = GetNumAddOns
+C_AddOns.GetAddOnInfo = GetAddOnInfo
 C_AddOns.GetAddOnEnableState = function(name, character)
     local enabled = select(4, GetAddOnInfo(name))
     return enabled and 2 or 0
@@ -151,6 +154,12 @@ end
 C_AddOns.DoesAddOnExist = function(name)
     return GetAddOnInfo(name) ~= nil
 end
+
+-- C_NewItems
+C_NewItems = C_NewItems or {}
+C_NewItems.ClearAll = C_NewItems.ClearAll or function() end
+C_NewItems.IsNewItem = C_NewItems.IsNewItem or function() return false end
+C_NewItems.RemoveNewItem = C_NewItems.RemoveNewItem or function() end
 
 -- C_ClassColor
 C_ClassColor = C_ClassColor or {}
@@ -182,6 +191,51 @@ C_SpecializationInfo.GetSpecializationInfo = function(specIndex)
     local name, icon, pointsSpent = GetTalentTabInfo(specIndex or 1)
     return specIndex, name or "Spec", "", icon or "Interface\\Icons\\INV_Misc_QuestionMark", "DAMAGER", 1
 end
+
+GetSpecialization = GetSpecialization or C_SpecializationInfo.GetSpecialization
+GetSpecializationInfo = GetSpecializationInfo or C_SpecializationInfo.GetSpecializationInfo
+if not GetSpecializationRole then
+    GetSpecializationRole = function(specIndex)
+        local role = select(5, C_SpecializationInfo.GetSpecializationInfo(specIndex or (GetSpecialization and GetSpecialization())))
+        return role or "DAMAGER"
+    end
+end
+
+-- GetShapeshiftFormID was added after WotLK.  Retail form IDs are not the
+-- same thing as the position returned by GetShapeshiftForm(), because that
+-- position changes with the forms a character has learned.  Resource bars
+-- rely on the stable Cat (1), Bear (5), and Moonkin (31) IDs, so recover the
+-- stable ID from the active form's icon on legacy clients.
+if not GetShapeshiftFormID then
+    local legacyFormIDs = {
+        ["ability_druid_catform"] = 1,
+        ["ability_druid_treeoflife"] = 2,
+        ["ability_druid_travelform"] = 3,
+        ["ability_druid_aquaticform"] = 4,
+        ["ability_racial_bearform"] = 5,
+        ["ability_druid_direbearform"] = 5,
+        ["ability_druid_forceofnature"] = 31,
+        ["spell_nature_forceofnature"] = 31,
+        ["ability_druid_flightform"] = 27,
+        ["ability_druid_epicflightform"] = 29,
+    }
+
+    function GetShapeshiftFormID()
+        local form = GetShapeshiftForm and GetShapeshiftForm() or 0
+        if form == 0 or not GetShapeshiftFormInfo then return form end
+
+        local icon = GetShapeshiftFormInfo(form)
+        if type(icon) == "string" then
+            local key = icon:match("([^\\/]*)$") or icon
+            local stableID = legacyFormIDs[string.lower(key)]
+            if stableID then return stableID end
+        end
+
+        -- Non-druid stances do not need retail's stable druid form IDs.
+        return form
+    end
+end
+
 
 
 -- C_CVar
@@ -293,36 +347,179 @@ if not EquipmentManager_GetLocationData then
     pcall(LoadAddOn, "Blizzard_EquipmentManager")
 end
 
+if not EquipmentManager_GetLocationData then
+    EquipmentManager_GetLocationData = function(loc)
+        if not loc or loc == 0 or loc == 1 or loc == -1 then return {} end
+        if EquipmentManager_UnpackLocation then
+            local player, bank, bags, slotIndex, bagIndex = EquipmentManager_UnpackLocation(loc)
+            return {
+                isPlayer = player,
+                isBank = bank,
+                isBags = bags,
+                slot = slotIndex,
+                bag = bagIndex,
+            }
+        end
+        return {}
+    end
+end
+
 -- C_EquipmentSet
 if not C_EquipmentSet then
     C_EquipmentSet = {}
+end
 
-    C_EquipmentSet.GetEquipmentSetIDs = function()
-        local num = GetNumEquipmentSets and GetNumEquipmentSets() or 0
-        local ids = {}
-        for i = 1, num do
-            ids[i] = i
-        end
-        return ids
+C_EquipmentSet.GetEquipmentSetIDs = C_EquipmentSet.GetEquipmentSetIDs or function()
+    local num = GetNumEquipmentSets and GetNumEquipmentSets() or 0
+    local ids = {}
+    for i = 1, num do
+        ids[i] = i
     end
+    return ids
+end
 
-    C_EquipmentSet.GetItemLocations = function(setID)
-        local num = GetNumEquipmentSets and GetNumEquipmentSets() or 0
-        if setID > 0 and setID <= num then
-            local name = GetEquipmentSetInfo(setID)
-            if name then
-                local locations = GetEquipmentSetLocations(name)
-                local list = {}
-                if locations then
-                    for slot, loc in pairs(locations) do
-                        list[#list + 1] = loc
-                    end
+C_EquipmentSet.GetEquipmentSetInfo = C_EquipmentSet.GetEquipmentSetInfo or function(setID)
+    if not GetEquipmentSetInfo then return nil end
+    if type(setID) == "number" then
+        local name, icon, id, isEquipped, numItems, numEquipped, numInInventory, numLost, numIgnored = GetEquipmentSetInfo(setID)
+        if name then
+            return name, icon, id or setID, isEquipped, numItems, numEquipped, numInInventory, numLost, numIgnored
+        end
+    elseif type(setID) == "string" then
+        if GetEquipmentSetInfoByName then
+            local icon, id, isEquipped, numItems, numEquipped, numInInventory, numLost, numIgnored = GetEquipmentSetInfoByName(setID)
+            if icon then
+                return setID, icon, id or setID, isEquipped, numItems, numEquipped, numInInventory, numLost, numIgnored
+            end
+        else
+            local num = GetNumEquipmentSets and GetNumEquipmentSets() or 0
+            for i = 1, num do
+                local name, icon, id, isEquipped, numItems, numEquipped, numInInventory, numLost, numIgnored = GetEquipmentSetInfo(i)
+                if name == setID then
+                    return name, icon, id or i, isEquipped, numItems, numEquipped, numInInventory, numLost, numIgnored
                 end
-                return list
             end
         end
-        return nil
     end
+    return nil
+end
+
+C_EquipmentSet.GetEquipmentSetID = C_EquipmentSet.GetEquipmentSetID or function(setName)
+    if type(setName) == "number" then return setName end
+    if not GetNumEquipmentSets then return nil end
+    local num = GetNumEquipmentSets()
+    for i = 1, num do
+        local name = GetEquipmentSetInfo(i)
+        if name == setName then
+            return i
+        end
+    end
+    return nil
+end
+
+C_EquipmentSet.UseEquipmentSet = C_EquipmentSet.UseEquipmentSet or function(setID)
+    local setName = type(setID) == "string" and setID or (GetEquipmentSetInfo and (GetEquipmentSetInfo(setID)))
+    if setName then
+        if EquipmentManager_EquipSet then
+            EquipmentManager_EquipSet(setName)
+        elseif UseEquipmentSet then
+            UseEquipmentSet(setName)
+        end
+    end
+end
+
+C_EquipmentSet.CreateEquipmentSet = C_EquipmentSet.CreateEquipmentSet or function(setName, icon)
+    if SaveEquipmentSet then
+        SaveEquipmentSet(setName, icon or 1)
+    end
+end
+
+C_EquipmentSet.SaveEquipmentSet = C_EquipmentSet.SaveEquipmentSet or function(setID)
+    local setName, icon = nil, nil
+    if type(setID) == "string" then
+        setName = setID
+    elseif type(setID) == "number" and GetEquipmentSetInfo then
+        setName, icon = GetEquipmentSetInfo(setID)
+    end
+    if setName and SaveEquipmentSet then
+        SaveEquipmentSet(setName, icon)
+    end
+end
+
+C_EquipmentSet.DeleteEquipmentSet = C_EquipmentSet.DeleteEquipmentSet or function(setID)
+    local setName = type(setID) == "string" and setID or (GetEquipmentSetInfo and (GetEquipmentSetInfo(setID)))
+    if setName and DeleteEquipmentSet then
+        DeleteEquipmentSet(setName)
+    end
+end
+
+C_EquipmentSet.ModifyEquipmentSet = C_EquipmentSet.ModifyEquipmentSet or function(setID, newName, newIcon)
+    local oldName = type(setID) == "string" and setID or (GetEquipmentSetInfo and (GetEquipmentSetInfo(setID)))
+    if oldName then
+        if ModifyEquipmentSet then
+            ModifyEquipmentSet(oldName, newName, newIcon)
+        elseif SaveEquipmentSet then
+            SaveEquipmentSet(newName or oldName, newIcon)
+        end
+    end
+end
+
+C_EquipmentSet.PickupEquipmentSet = C_EquipmentSet.PickupEquipmentSet or function(setID)
+    local setName = type(setID) == "string" and setID or (GetEquipmentSetInfo and (GetEquipmentSetInfo(setID)))
+    if setName and PickupEquipmentSet then
+        PickupEquipmentSet(setName)
+    end
+end
+
+C_EquipmentSet.GetEquipmentSetAssignedSpec = C_EquipmentSet.GetEquipmentSetAssignedSpec or function(setID)
+    return nil
+end
+
+C_EquipmentSet.AssignSpecToEquipmentSet = C_EquipmentSet.AssignSpecToEquipmentSet or function(setID, specIndex)
+end
+
+C_EquipmentSet.UnassignEquipmentSetSpec = C_EquipmentSet.UnassignEquipmentSetSpec or function(setID)
+end
+
+C_EquipmentSet.GetItemIDs = C_EquipmentSet.GetItemIDs or function(setID)
+    local setName = type(setID) == "string" and setID or (GetEquipmentSetInfo and (GetEquipmentSetInfo(setID)))
+    if setName then
+        if GetEquipmentSetItemIDs then
+            return GetEquipmentSetItemIDs(setName) or {}
+        elseif GetEquipmentSetLocations then
+            local locations = GetEquipmentSetLocations(setName)
+            local itemIDs = {}
+            if locations then
+                for slot, loc in pairs(locations) do
+                    if loc and loc ~= 0 and EquipmentManager_UnpackLocation then
+                        local player, bank, bags, slotIndex, bagIndex = EquipmentManager_UnpackLocation(loc)
+                        if bags and bagIndex and slotIndex then
+                            itemIDs[slot] = GetContainerItemID(bagIndex, slotIndex)
+                        elseif player and slotIndex then
+                            itemIDs[slot] = GetInventoryItemID("player", slotIndex)
+                        end
+                    end
+                end
+            end
+            return itemIDs
+        end
+    end
+    return {}
+end
+
+C_EquipmentSet.GetItemLocations = C_EquipmentSet.GetItemLocations or function(setID)
+    local setName = type(setID) == "string" and setID or (GetEquipmentSetInfo and (GetEquipmentSetInfo(setID)))
+    if setName and GetEquipmentSetLocations then
+        local locations = GetEquipmentSetLocations(setName)
+        local list = {}
+        if locations then
+            for slot, loc in pairs(locations) do
+                list[#list + 1] = loc
+            end
+        end
+        return list
+    end
+    return nil
 end
 
 
@@ -332,6 +529,11 @@ end
 -- Missing legacy constants definition
 if not LE_PARTY_CATEGORY_HOME then LE_PARTY_CATEGORY_HOME = 1 end
 if not LE_PARTY_CATEGORY_INSTANCE then LE_PARTY_CATEGORY_INSTANCE = 2 end
+if not IsInRaid then
+    function IsInRaid()
+        return GetNumRaidMembers() > 0
+    end
+end
 if not IsInGroup then
     function IsInGroup(category)
         if category == LE_PARTY_CATEGORY_INSTANCE then
@@ -340,6 +542,21 @@ if not IsInGroup then
         else
             return (GetNumRaidMembers() > 0 or GetNumPartyMembers() > 0)
         end
+    end
+end
+if not GetNumGroupMembers then
+    function GetNumGroupMembers()
+        local raidMembers = GetNumRaidMembers()
+        if raidMembers > 0 then return raidMembers end
+
+        local partyMembers = GetNumPartyMembers()
+        if partyMembers > 0 then return partyMembers + 1 end
+        return 0
+    end
+end
+if not GetNumSubgroupMembers then
+    function GetNumSubgroupMembers()
+        return GetNumPartyMembers()
     end
 end
 
@@ -356,13 +573,16 @@ Enum.ItemClass = {
     Consumable = 0,
     Glyph = 16,
     TradeGoods = 7,
+    Tradegoods = 7,
     Projectile = 6,
     Quiver = 11,
     Recipe = 9,
     Reagent = 5,
+    ItemEnhancement = 8,
     Key = 13,
     Miscellaneous = 15,
     Quest = 12,
+    Questitem = 12,
     Profession = 19,
     Housing = 20,
 }
@@ -622,12 +842,130 @@ if not C_Item then
         return select(4, GetItemInfo(itemLink)) or 0
     end
 
+    -- Classic GetItemInfo returns localized class/subclass names rather than
+    -- the numeric class IDs returned by retail. Translate the class name so
+    -- retail category code can remain locale-independent.
+    local itemClassIDs = {
+        ["Consumable"]          = 0,
+        ["Container"]           = 1,
+        ["Bag"]                 = 1,
+        ["Weapon"]              = 2,
+        ["Gem"]                 = 3,
+        ["Armor"]               = 4,
+        ["Reagent"]             = 5,
+        ["Projectile"]          = 6,
+        ["Trade Goods"]         = 7,
+        ["TradeGoods"]          = 7,
+        ["Item Enhancement"]    = 8,
+        ["Generic"]             = 8,
+        ["Recipe"]              = 9,
+        ["Money"]               = 10,
+        ["Quiver"]              = 11,
+        ["Quest"]               = 12,
+        ["Questitem"]           = 12,
+        ["Key"]                 = 13,
+        ["Permanent"]           = 14,
+        ["Miscellaneous"]       = 15,
+        ["Glyph"]               = 16,
+    }
+
+    local classIndexToID = {
+        [1]  = 2,  -- Weapon -> Enum.ItemClass.Weapon (2)
+        [2]  = 4,  -- Armor -> Enum.ItemClass.Armor (4)
+        [3]  = 1,  -- Container -> Enum.ItemClass.Container (1)
+        [4]  = 0,  -- Consumable -> Enum.ItemClass.Consumable (0)
+        [5]  = 16, -- Glyph -> Enum.ItemClass.Glyph (16)
+        [6]  = 7,  -- Trade Goods -> Enum.ItemClass.Tradegoods (7)
+        [7]  = 6,  -- Projectile -> Enum.ItemClass.Projectile (6)
+        [8]  = 11, -- Quiver -> Enum.ItemClass.Quiver (11)
+        [9]  = 9,  -- Recipe -> Enum.ItemClass.Recipe (9)
+        [10] = 3,  -- Gem -> Enum.ItemClass.Gem (3)
+        [11] = 15, -- Miscellaneous -> Enum.ItemClass.Miscellaneous (15)
+        [12] = 12, -- Quest -> Enum.ItemClass.Questitem (12)
+    }
+    local function PopulateItemClassIDs()
+        if GetAuctionItemClasses then
+            local classes = { GetAuctionItemClasses() }
+            for i, name in ipairs(classes) do
+                if name and name ~= "" and classIndexToID[i] ~= nil then
+                    itemClassIDs[name] = classIndexToID[i]
+                end
+            end
+        end
+    end
+    PopulateItemClassIDs()
+
+    local itemSubclassIDs = {
+        -- Armor (4)
+        ["4:Miscellaneous"]       = 0,
+        ["4:Cloth"]               = 1,
+        ["4:Leather"]             = 2,
+        ["4:Mail"]                = 3,
+        ["4:Plate"]               = 4,
+        ["4:Buckler"]             = 5,
+        ["4:Shields"]             = 6,
+        ["4:Shield"]              = 6,
+        ["4:Librams"]             = 7,
+        ["4:Idols"]               = 8,
+        ["4:Totems"]              = 9,
+        ["4:Sigils"]              = 10,
+        -- Weapon (2)
+        ["2:One-Handed Axes"]     = 0,
+        ["2:Two-Handed Axes"]     = 1,
+        ["2:Bows"]                = 2,
+        ["2:Guns"]                = 3,
+        ["2:One-Handed Maces"]    = 4,
+        ["2:Two-Handed Maces"]    = 5,
+        ["2:Polearms"]            = 6,
+        ["2:One-Handed Swords"]   = 7,
+        ["2:Two-Handed Swords"]   = 8,
+        ["2:Staves"]              = 10,
+        ["2:One-Handed Exotics"]  = 11,
+        ["2:Two-Handed Exotics"]  = 12,
+        ["2:Fist Weapons"]        = 13,
+        ["2:Miscellaneous"]       = 14,
+        ["2:Daggers"]             = 15,
+        ["2:Thrown"]              = 16,
+        ["2:Crossbows"]           = 18,
+        ["2:Wands"]               = 19,
+        ["2:Fishing Poles"]       = 20,
+    }
+
+    local function PopulateItemSubclassIDs()
+        if GetAuctionItemClasses and GetAuctionItemSubClasses then
+            for i, classID in pairs(classIndexToID) do
+                local subClasses = { GetAuctionItemSubClasses(i) }
+                for subIdx, subName in ipairs(subClasses) do
+                    if subName and subName ~= "" then
+                        itemSubclassIDs[classID .. ":" .. subName] = subIdx - 1
+                    end
+                end
+            end
+        end
+    end
+    PopulateItemSubclassIDs()
+
     C_Item.GetItemInfoInstant = function(item)
         if not item then return nil end
         local name, link, rarity, level, minLevel, type, subType, stackCount, equipLoc, texture, price, classID, subclassID = GetItemInfo(item)
         local itemID = tonumber(item) or tonumber(tostring(item):match("item:(%d+)"))
+        if not classID and type then
+            classID = itemClassIDs[type]
+            if not classID and GetAuctionItemClasses then
+                PopulateItemClassIDs()
+                classID = itemClassIDs[type]
+            end
+        end
+        if not subclassID and classID and subType then
+            subclassID = itemSubclassIDs[classID .. ":" .. subType]
+            if not subclassID and GetAuctionItemSubClasses then
+                PopulateItemSubclassIDs()
+                subclassID = itemSubclassIDs[classID .. ":" .. subType]
+            end
+        end
         return itemID, type, subType, equipLoc, texture, classID, subclassID
     end
+    GetItemInfoInstant = C_Item.GetItemInfoInstant
 
     C_Item.DoesItemExist = function(loc)
         if not loc then return false end
@@ -853,7 +1191,19 @@ if not C_Spell then
     end
 
     C_Spell.GetSpellCooldown = function(spell)
-        return GetSpellCooldown(spell)
+        local start, duration, enabled, modRate = GetSpellCooldown(spell)
+        start = start or 0
+        duration = duration or 0
+        modRate = modRate or 1
+        local isActive = start > 0 and duration > 0
+        return {
+            startTime = start,
+            duration = duration,
+            isEnabled = enabled == nil or enabled == 1 or enabled == true,
+            modRate = modRate,
+            isActive = isActive,
+            isOnGCD = isActive and duration <= 1.6,
+        }
     end
 
     C_Spell.GetSpellCooldownDuration = function(spell)
@@ -886,10 +1236,25 @@ if not C_Spell then
     end
 
     C_Spell.IsSpellInRange = function(spell, unit)
-        if IsSpellInRange then
-            return IsSpellInRange(spell, unit)
+        if not IsSpellInRange then return nil end
+
+        -- On 3.3.5 a numeric first argument is interpreted as a spellbook
+        -- slot, not a spell ID. Retail callers consistently pass IDs, so
+        -- resolve those to the learned spell name before invoking the legacy
+        -- API. pcall also makes unknown/unlearned IDs safely indeterminate
+        -- instead of aborting secure-header roster processing.
+        local query = spell
+        if type(spell) == "number" then
+            query = GetSpellInfo(spell)
+            if not query then return nil end
         end
-        return nil
+        local ok, result = pcall(IsSpellInRange, query, unit)
+        if not ok then return nil end
+
+        -- Legacy returns 1/0; modern C_Spell returns booleans.
+        if result == 1 then return true end
+        if result == 0 then return false end
+        return result
     end
 
     C_Spell.GetSpellCastCount = function(spell)
@@ -1155,3 +1520,284 @@ if not _G.UnregisterAttributeDriver then
     end
 end
 
+-- 19. GetAverageItemLevel Polyfill for WoW 3.3.5
+if not _G.GetAverageItemLevel then
+    _G.GetAverageItemLevel = function()
+        local totalIlvl = 0
+        local totalSlots = 0
+
+        -- Standard equipment slots in WotLK (1..18, excluding 4=Shirt and 19=Tabard)
+        local slots = {1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18}
+
+        local mhLink = GetInventoryItemLink("player", 16)
+        local is2H = false
+        if mhLink then
+            local _, _, _, _, _, _, _, _, equipLoc = GetItemInfo(mhLink)
+            if equipLoc == "INVTYPE_2HWEAPON" or equipLoc == "INVTYPE_RANGED" or equipLoc == "INVTYPE_RANGEDRIGHT" then
+                is2H = true
+            end
+        end
+
+        for _, slotID in ipairs(slots) do
+            local link = GetInventoryItemLink("player", slotID)
+            if link then
+                local _, _, _, ilvl = GetItemInfo(link)
+                if ilvl and ilvl > 0 then
+                    totalIlvl = totalIlvl + ilvl
+                    totalSlots = totalSlots + 1
+                end
+            elseif slotID == 17 and is2H and mhLink then
+                -- 2H weapon covers off-hand slot
+                local _, _, _, ilvl = GetItemInfo(mhLink)
+                if ilvl and ilvl > 0 then
+                    totalIlvl = totalIlvl + ilvl
+                    totalSlots = totalSlots + 1
+                end
+            end
+        end
+
+        local avg = (totalSlots > 0) and (totalIlvl / totalSlots) or 0
+        return avg, avg, avg
+    end
+end
+
+-- 20. Secondary, Tertiary & Character Stats Polyfills for WotLK 3.3.5
+if not _G.UnitSpellHaste then
+    _G.UnitSpellHaste = function(unit)
+        if GetHaste then return GetHaste() or 0 end
+        if GetCombatRatingBonus then return GetCombatRatingBonus(20) or 0 end
+        return 0
+    end
+end
+
+if not _G.GetMasteryEffect then
+    _G.GetMasteryEffect = function() return 0 end
+end
+
+if not _G.GetVersatilityBonus then
+    _G.GetVersatilityBonus = function(stat) return 0 end
+end
+
+if not _G.GetLifesteal then
+    _G.GetLifesteal = function() return 0 end
+end
+
+if not _G.GetAvoidance then
+    _G.GetAvoidance = function() return 0 end
+end
+
+if not _G.GetSpeed then
+    _G.GetSpeed = function() return 0 end
+end
+
+if not _G.issecretvalue then
+    _G.issecretvalue = function(val) return false end
+end
+
+if not _G.BreakUpLargeNumbers then
+    _G.BreakUpLargeNumbers = function(value)
+        local n = tonumber(value)
+        if not n then return tostring(value or "") end
+        local s = tostring(math.floor(n))
+        local left, num, right = string.match(s, '^([^%d]*%d+)(%d*)(.-)$')
+        if not num then return s end
+        return left .. (num:reverse():gsub('(%d%d%d)', '%1,'):reverse()) .. right
+    end
+end
+
+-- Retail API used by health, power, absorb, and preview text throughout EUI.
+-- The optional config argument is also supported so the unit-frame decimal
+-- settings can use their custom breakpointData tables on WotLK.
+if not _G.AbbreviateNumbers then
+    _G.AbbreviateNumbers = function(value, config)
+        local n = tonumber(value)
+        if not n then return tostring(value or "") end
+
+        local abs = math.abs(n)
+        local breakpoints = config and config.breakpointData
+        if breakpoints then
+            for i = 1, #breakpoints do
+                local data = breakpoints[i]
+                if abs >= (data.breakpoint or math.huge) then
+                    local divisor = data.significandDivisor or data.breakpoint
+                    local fractionDivisor = data.fractionDivisor or 1
+                    local scaled = math.floor(abs / divisor) / fractionDivisor
+                    if n < 0 then scaled = -scaled end
+                    return tostring(scaled) .. (data.abbreviation or "")
+                end
+            end
+            return tostring(n)
+        end
+
+        local divisor, suffix
+        if abs >= 1e9 then
+            divisor, suffix = 1e9, "B"
+        elseif abs >= 1e6 then
+            divisor, suffix = 1e6, "M"
+        elseif abs >= 1e3 then
+            divisor, suffix = 1e3, "K"
+        else
+            return tostring(n)
+        end
+
+        local scaled = n / divisor
+        if math.abs(scaled) >= 100 then
+            return string.format("%.0f%s", scaled, suffix)
+        end
+        return string.format("%.1f%s", scaled, suffix)
+    end
+end
+
+if not _G.AbbreviateLargeNumbers then
+    _G.AbbreviateLargeNumbers = _G.AbbreviateNumbers
+end
+
+-- Retail percentage helpers used by oUF tags. ScaleTo100 is an opaque curve
+-- constant on retail; WotLK only needs a sentinel because these fallbacks
+-- calculate the 0..100 percentage directly.
+_G.CurveConstants = _G.CurveConstants or {}
+if _G.CurveConstants.ScaleTo100 == nil then
+    _G.CurveConstants.ScaleTo100 = true
+end
+
+if not _G.UnitHealthPercent then
+    _G.UnitHealthPercent = function(unit, usePredicted, curve)
+        local maximum = UnitHealthMax(unit)
+        if not maximum or maximum <= 0 then return 0 end
+        return (UnitHealth(unit) or 0) / maximum * 100
+    end
+end
+
+if not _G.UnitPowerPercent then
+    _G.UnitPowerPercent = function(unit, powerType, usePredicted, curve)
+        local maximum = UnitPowerMax(unit, powerType)
+        if not maximum or maximum <= 0 then return 0 end
+        return (UnitPower(unit, powerType) or 0) / maximum * 100
+    end
+end
+
+-- Retail group-role helpers are not available on WotLK 3.3.5.
+if not _G.UnitIsGroupLeader then
+    _G.UnitIsGroupLeader = function(unit)
+        if unit == "player" then
+            return (IsPartyLeader and IsPartyLeader())
+                or (IsRaidLeader and IsRaidLeader())
+                or false
+        end
+
+        if UnitInRaid and UnitInRaid("player") then
+            local unitName = UnitName(unit)
+            if unitName then
+                for i = 1, GetNumRaidMembers() do
+                    local name, rank = GetRaidRosterInfo(i)
+                    if name == unitName then return rank == 2 end
+                end
+            end
+            return false
+        end
+
+        return UnitIsPartyLeader and UnitIsPartyLeader(unit) == 1 or false
+    end
+end
+
+if not _G.UnitIsGroupAssistant then
+    _G.UnitIsGroupAssistant = function(unit)
+        if not (UnitInRaid and UnitInRaid("player")) then return false end
+
+        local unitName = UnitName(unit)
+        if unitName then
+            for i = 1, GetNumRaidMembers() do
+                local name, rank = GetRaidRosterInfo(i)
+                if name == unitName then return rank == 1 end
+            end
+        end
+        return false
+    end
+end
+
+if not _G.GetCritChanceProvidesParryEffect then
+    _G.GetCritChanceProvidesParryEffect = function() return false end
+end
+
+if not _G.GetCombatRatingBonusForCombatRatingValue then
+    _G.GetCombatRatingBonusForCombatRatingValue = function(cr, val) return 0 end
+end
+
+if not _G.GetSpecializationMasterySpells then
+    _G.GetSpecializationMasterySpells = function(specIndex) return nil, nil end
+end
+
+if not _G.GetCrestValue then
+    _G.GetCrestValue = function(id) return 0 end
+end
+
+if not _G.UnitHonorLevel then
+    _G.UnitHonorLevel = function(unit) return 0 end
+end
+
+if not _G.UnitHonor then
+    _G.UnitHonor = function(unit) return 0 end
+end
+
+if not _G.UnitHonorMax then
+    _G.UnitHonorMax = function(unit) return 0 end
+end
+
+-- C_PaperDollInfo Namespace Polyfill
+_G.C_PaperDollInfo = _G.C_PaperDollInfo or {}
+if not _G.C_PaperDollInfo.GetStaggerPercentage then
+    _G.C_PaperDollInfo.GetStaggerPercentage = function(unit) return 0 end
+end
+if not _G.C_PaperDollInfo.GetArmor then
+    _G.C_PaperDollInfo.GetArmor = function(unit)
+        local base, effective = UnitArmor(unit or "player")
+        return effective or 0, base or 0
+    end
+end
+
+-- C_Spell Namespace Polyfill
+_G.C_Spell = _G.C_Spell or {}
+if not _G.C_Spell.GetSpellDescription then
+    _G.C_Spell.GetSpellDescription = function(spellID)
+        if GetSpellDescription then return GetSpellDescription(spellID) end
+        return ""
+    end
+end
+
+-- Retail Combat Rating Constants & Safe Wrappers for WotLK 3.3.5
+CR_MASTERY = CR_MASTERY or 9901
+CR_VERSATILITY_DAMAGE_DONE = CR_VERSATILITY_DAMAGE_DONE or 9902
+CR_VERSATILITY_DAMAGE_TAKEN = CR_VERSATILITY_DAMAGE_TAKEN or 9903
+CR_LIFESTEAL = CR_LIFESTEAL or 9904
+CR_AVOIDANCE = CR_AVOIDANCE or 9905
+CR_SPEED = CR_SPEED or 9906
+
+local _native_GetCombatRating = _G.GetCombatRating
+_G.GetCombatRating = function(cr)
+    if not cr or type(cr) ~= "number" or cr >= 9900 then return 0 end
+    if _native_GetCombatRating then
+        local ok, val = pcall(_native_GetCombatRating, cr)
+        if ok and val then return val end
+    end
+    return 0
+end
+
+local _native_GetCombatRatingBonus = _G.GetCombatRatingBonus
+_G.GetCombatRatingBonus = function(cr)
+    if not cr or type(cr) ~= "number" or cr >= 9900 then return 0 end
+    if _native_GetCombatRatingBonus then
+        local ok, val = pcall(_native_GetCombatRatingBonus, cr)
+        if ok and val then return val end
+    end
+    return 0
+end
+
+local _native_GetCritChance = _G.GetCritChance
+_G.GetCritChance = function(unit)
+    if _native_GetCritChance then
+        local ok, val = pcall(_native_GetCritChance)
+        if ok and val then return val end
+    end
+    if _G.GetCombatRatingBonus then return _G.GetCombatRatingBonus(CR_CRIT_MELEE or 9) or 0 end
+    return 0
+end

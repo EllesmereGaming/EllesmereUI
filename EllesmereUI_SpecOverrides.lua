@@ -111,7 +111,7 @@ local REFRESH_FNS = {
 local GLYPH_SPRITE  = "Interface\\AddOns\\EllesmereUI\\media\\icons\\class-full\\glyph.tga"
 local MODERN_SPRITE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\class-full\\modern.tga"
 -- Generic multi-spec group icon (standalone image, not a sprite)
-local MULTISPEC_ICON = "Interface\\AddOns\\EllesmereUI\\media\\icons\\class-full\\multispec.png"
+local MULTISPEC_ICON = "Interface\\AddOns\\EllesmereUI\\media\\icons\\class-full\\multispec.tga"
 local CLASS_COORDS = {
     WARRIOR={0,0.125,0,0.125}, MAGE={0.125,0.25,0,0.125}, ROGUE={0.25,0.375,0,0.125},
     DRUID={0.375,0.5,0,0.125}, EVOKER={0.5,0.625,0,0.125}, HUNTER={0,0.125,0.125,0.25},
@@ -126,9 +126,9 @@ local CLASS_ORDER = {
 -- Modern role icons (shipped with RaidFrames; loaded by path, no addon dep)
 local ROLE_MEDIA = "Interface\\AddOns\\EllesmereUIRaidFrames\\Media\\"
 local ROLE_ICONS = {
-    TANK    = ROLE_MEDIA .. "tank-modern.png",
-    HEALER  = ROLE_MEDIA .. "healer-modern.png",
-    DAMAGER = ROLE_MEDIA .. "dps-modern.png",
+    TANK    = ROLE_MEDIA .. "tank-modern.tga",
+    HEALER  = ROLE_MEDIA .. "healer-modern.tga",
+    DAMAGER = ROLE_MEDIA .. "dps-modern.tga",
 }
 local ROLE_ORDER = { "TANK", "HEALER", "DAMAGER" }
 
@@ -2787,12 +2787,12 @@ EllesmereUI._CondOv = Cond
 -- crest art; the toolbar button rests on the dungeons icon.
 Cond.ICON_DIR = "Interface\\AddOns\\EllesmereUI\\media\\icons\\overrides\\"
 Cond.ICONS = {
-    keybind      = "override-keybinds.png",
-    dungeon      = "override-dungeons.png",
-    raid         = "override-raid.png",
-    arena        = "override-arena.png",
-    battleground = "override-horde.png",
-    solo         = "override-solo.png",
+    keybind      = "override-keybinds.tga",
+    dungeon      = "override-dungeons.tga",
+    raid         = "override-raid.tga",
+    arena        = "override-arena.tga",
+    battleground = "override-horde.tga",
+    solo         = "override-solo.tga",
 }
 
 --- True while EITHER override editing session (spec or conditional) is live.
@@ -4753,7 +4753,7 @@ end
 -- Background glow overlay: shown while Editing-as. Aligned 1:1 with the
 -- options panel background layers (both fill EllesmereUIFrame edge to edge),
 -- drawn one frame level above them and below all content frames.
-local EDIT_GLOW_TEXTURE = "Interface\\AddOns\\EllesmereUI\\media\\backgrounds\\eui-glow-override.png"
+local EDIT_GLOW_TEXTURE = "Interface\\AddOns\\EllesmereUI\\media\\backgrounds\\eui-glow-override.tga"
 local editOverlay
 local editOverlayTexture = EDIT_GLOW_TEXTURE
 
@@ -5626,7 +5626,7 @@ local function BuildCardRow(parent, y, opts)
         local ico = ed:CreateTexture(nil, "OVERLAY")
         ico:SetAllPoints()
         if ico.SetSnapToPixelGrid then ico:SetSnapToPixelGrid(false); ico:SetTexelSnappingBias(0) end
-        ico:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-edit.png")
+        ico:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-edit.tga")
         ed:SetAlpha(0.75)
         ed:SetScript("OnEnter", function(self)
             self:SetAlpha(1)
@@ -5656,7 +5656,7 @@ local function BuildCardRow(parent, y, opts)
         local ico = ub:CreateTexture(nil, "OVERLAY")
         ico:SetAllPoints()
         if ico.SetSnapToPixelGrid then ico:SetSnapToPixelGrid(false); ico:SetTexelSnappingBias(0) end
-        ico:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-unlocked-small.png")
+        ico:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-unlocked-small.tga")
         local enabled = opts.unlockEnabled
         ub:SetAlpha(enabled and 0.75 or 0.3)
         ub:SetScript("OnEnter", function(self)

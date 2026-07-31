@@ -123,7 +123,7 @@ local BAR_TEX           = "Interface\\Buttons\\WHITE8X8"
 local MEDIA             = "Interface\\AddOns\\EllesmereUIDamageMeters\\Media\\"
 local ICON_ALPHA        = 0.4
 local ICON_HOVER_ALPHA  = 0.9
-local RESIZE_ICON       = "Interface\\AddOns\\EllesmereUI\\media\\icons\\resize_element.png"
+local RESIZE_ICON       = "Interface\\AddOns\\EllesmereUI\\media\\icons\\resize_element.tga"
 local MAX_WINDOWS       = 5
 local L = _G.EllesmereUI.L
 
@@ -148,14 +148,14 @@ local DM_TYPES = {
 }
 
 local DM_TYPE_ICONS = {
-    [Enum.DamageMeterType.DamageDone]           = MEDIA .. "dm_home_damage.png",
-    [Enum.DamageMeterType.HealingDone]          = MEDIA .. "dm_home_healing.png",
-    [Enum.DamageMeterType.DamageTaken]          = MEDIA .. "dm_home_taken.png",
-    [Enum.DamageMeterType.AvoidableDamageTaken] = MEDIA .. "dm_home_avoidable.png",
-    [Enum.DamageMeterType.EnemyDamageTaken]     = MEDIA .. "dm_home_enemytaken.png",
-    [Enum.DamageMeterType.Interrupts]           = MEDIA .. "dm_home_interrupt.png",
-    [Enum.DamageMeterType.Dispels]              = MEDIA .. "dm_home_dispel.png",
-    [Enum.DamageMeterType.Deaths]               = MEDIA .. "dm_home_deaths.png",
+    [Enum.DamageMeterType.DamageDone]           = MEDIA .. "dm_home_damage.tga",
+    [Enum.DamageMeterType.HealingDone]          = MEDIA .. "dm_home_healing.tga",
+    [Enum.DamageMeterType.DamageTaken]          = MEDIA .. "dm_home_taken.tga",
+    [Enum.DamageMeterType.AvoidableDamageTaken] = MEDIA .. "dm_home_avoidable.tga",
+    [Enum.DamageMeterType.EnemyDamageTaken]     = MEDIA .. "dm_home_enemytaken.tga",
+    [Enum.DamageMeterType.Interrupts]           = MEDIA .. "dm_home_interrupt.tga",
+    [Enum.DamageMeterType.Dispels]              = MEDIA .. "dm_home_dispel.tga",
+    [Enum.DamageMeterType.Deaths]               = MEDIA .. "dm_home_deaths.tga",
 }
 
 local SESSION_TYPES = {
@@ -1969,7 +1969,7 @@ local CTX_SEP_H    = 7
 local CTX_PAD      = 0
 local CTX_MIN_W    = 100
 local CTX_FONT_SZ  = 11
-local CTX_ARROW_ICON = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow.png"
+local CTX_ARROW_ICON = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow.tga"
 
 local function MakeMenuPanel(level)
     local RS = EUI.RESKIN or {}
@@ -2620,7 +2620,7 @@ local function CreateDMWindow(winIdx)
         return btn
     end
 
-    W.settingsBtn = MakeHeaderBtn("dm_settings.png", -(btnPad + 2), "Settings", function()
+    W.settingsBtn = MakeHeaderBtn("dm_settings.tga", -(btnPad + 2), "Settings", function()
         -- "Default on M+ Start" submenu: the meter type this window switches to
         -- when a Mythic+ key starts. "Off" (default) leaves the current type alone.
         local function mStartEntry(label, dmType)
@@ -2703,7 +2703,7 @@ local function CreateDMWindow(winIdx)
         }, W.settingsBtn)
     end)
 
-    W.segmentBtn = MakeHeaderBtn("dm_sheet.png", -(btnSize + btnPad * 2 + 2), L("Select Segment"), function()
+    W.segmentBtn = MakeHeaderBtn("dm_sheet.tga", -(btnSize + btnPad * 2 + 2), L("Select Segment"), function()
         local items = {}
         -- Segments first (top of upward menu)
         if C_DamageMeter and C_DamageMeter.GetAvailableCombatSessions then
@@ -2746,7 +2746,7 @@ local function CreateDMWindow(winIdx)
         end
     end
 
-    W.modeBtn = MakeHeaderBtn("dm_arrow.png", -(btnSize * 2 + btnPad * 3 + 2), "Switch Meter Type", function()
+    W.modeBtn = MakeHeaderBtn("dm_arrow.tga", -(btnSize * 2 + btnPad * 3 + 2), "Switch Meter Type", function()
         local function sel(dmType) return function() W.SetDMType(dmType) end end
         local function entry(label, dmType) return { text = label, onClick = sel(dmType), isActive = (dmType == W.curDMType) } end
         local cur = W.curDMType
@@ -2768,9 +2768,9 @@ local function CreateDMWindow(winIdx)
     W._modeIcon:SetTexture(DM_TYPE_ICONS[W.curDMType] or DM_TYPE_ICONS[Enum.DamageMeterType.DamageDone])
 
     -- + (new window) or x (close window) button, left of mode icon
-    local winActionIcon = (winIdx == 1) and (MEDIA .. "dm_open.png") or (MEDIA .. "dm_close.png")
+    local winActionIcon = (winIdx == 1) and (MEDIA .. "dm_open.tga") or (MEDIA .. "dm_close.tga")
     local winActionTip = (winIdx == 1) and L("New Window") or L("Close Window")
-    W.winActionBtn = MakeHeaderBtn("dm_settings.png", -(btnSize * 4 + btnPad * 5 + 2), winActionTip, function()
+    W.winActionBtn = MakeHeaderBtn("dm_settings.tga", -(btnSize * 4 + btnPad * 5 + 2), winActionTip, function()
         if winIdx ~= 1 and W.windowLocked then return end
         if winIdx == 1 then
             if #_windows >= MAX_WINDOWS then return end
@@ -2856,7 +2856,7 @@ local function CreateDMWindow(winIdx)
     end
 
     -- Reset Data button, left of win action button
-    W.resetBtn = MakeHeaderBtn("dm_undo.png", -(btnSize * 3 + btnPad * 4 + 2), "Reset Data", function()
+    W.resetBtn = MakeHeaderBtn("dm_undo.tga", -(btnSize * 3 + btnPad * 4 + 2), "Reset Data", function()
         if C_DamageMeter and C_DamageMeter.ResetAllCombatSessions then
             C_DamageMeter.ResetAllCombatSessions()
             _combatEndTime = 0; _curViewFrozenDur = 0
@@ -3205,11 +3205,11 @@ local function CreateDMWindow(winIdx)
 
     local function UpdateLockIcon()
         if W.windowLocked then
-            lockTex:SetTexture(MEDIA .. "dm_locked.png")
+            lockTex:SetTexture(MEDIA .. "dm_locked.tga")
             W.lockBtn:ClearAllPoints()
             W.lockBtn:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -4, 4)
         else
-            lockTex:SetTexture(MEDIA .. "dm_unlocked.png")
+            lockTex:SetTexture(MEDIA .. "dm_unlocked.tga")
             W.lockBtn:ClearAllPoints()
             W.lockBtn:SetPoint("RIGHT", W.resizeGrip, "LEFT", -2, 0)
         end
@@ -4227,7 +4227,7 @@ local function CreateDMWindow(winIdx)
             card._bg:SetTexture(CARD_BG_R, CARD_BG_G, CARD_BG_B, CARD_BG_A)
             card._lbl:SetFont(fontPath, CTX_FONT_SZ, outline)
             card._lbl:SetText(label)
-            card._icon:SetTexture(DM_TYPE_ICONS[dmType] or MEDIA .. "dm_home_damage.png")
+            card._icon:SetTexture(DM_TYPE_ICONS[dmType] or MEDIA .. "dm_home_damage.tga")
             card._arrow:Show()
 
             if isActive then

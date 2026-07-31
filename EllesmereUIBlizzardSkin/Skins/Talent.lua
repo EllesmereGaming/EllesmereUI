@@ -8,11 +8,12 @@ local unpack = unpack
 local TEXCOORDS = { 0.08, 0.92, 0.08, 0.92 }
 
 WSkin:AddCallback("Skin_Talent", function()
+	if not PlayerTalentFrame then return end
 
 	WSkin:StripTextures(PlayerTalentFrame, true)
 	WSkin:CreateBackdrop(PlayerTalentFrame, "Transparent")
-	PlayerTalentFrame.WSkin:Point(backdrop, "TOPLEFT", 11, -12)
-	PlayerTalentFrame.WSkin:Point(backdrop, "BOTTOMRIGHT", -32, 76)
+	WSkin:Point(PlayerTalentFrame.backdrop, "TOPLEFT", 11, -12)
+	WSkin:Point(PlayerTalentFrame.backdrop, "BOTTOMRIGHT", -32, 76)
 
 	WSkin:SetBackdropHitRect(PlayerTalentFrame)
 

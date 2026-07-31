@@ -8,11 +8,21 @@ if not C_Timer then
     local iterating = false
     local tickerId = 0
     local timerFrame = CreateFrame("Frame")
+    local timerIds = {}
 
     timerFrame:SetScript("OnUpdate", function(self, elapsed)
         iterating = true
-        for id, t in pairs(timers) do
-            if not t.cancelled then
+        -- Lua 5.1's pairs()/next() traversal can fail with "invalid key to
+        -- 'next'" when the current hash key is deleted.  Timer callbacks and
+        -- the expiry path both remove entries, so traverse a stable ID snapshot.
+        for i = #timerIds, 1, -1 do timerIds[i] = nil end
+        for id in pairs(timers) do timerIds[#timerIds + 1] = id end
+        for i = 1, #timerIds do
+            local id = timerIds[i]
+            local t = timers[id]
+            -- An earlier callback may have cancelled a timer that appeared
+            -- later in the snapshot.
+            if t and not t.cancelled then
                 t.remaining = t.remaining - elapsed
                 if t.remaining <= 0 then
                     if t.isTicker then
@@ -40,16 +50,18 @@ if not C_Timer then
                         end
                     end
                 end
-            else
+            elseif t then
                 timers[id] = nil
             end
         end
         iterating = false
-        
+
+        -- No callbacks run during this transfer, so swapping in a fresh table
+        -- is both safe and cheaper than deleting keys while pairs() is active.
         for id, t in pairs(newTimers) do
             timers[id] = t
-            newTimers[id] = nil
         end
+        newTimers = {}
 
         if not next(timers) then
             self:Hide()

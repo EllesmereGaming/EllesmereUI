@@ -4350,7 +4350,7 @@ local function ApplyMinimap()
                     if frame._isCircle then
                         tex:SetAtlas(housingAtlas)
                     else
-                        tex:SetTexture("Interface\\AddOns\\EllesmereUIMinimap\\Media\\housing-minimap.png")
+                        tex:SetTexture("Interface\\AddOns\\EllesmereUIMinimap\\Media\\housing-minimap.tga")
                     end
                     frame:Show()
                 else

@@ -55,7 +55,13 @@ local frame = CreateFrame("Frame")
 frame:RegisterEvent("ADDON_LOADED")
 frame:RegisterEvent("PLAYER_LOGIN")
 frame:SetScript("OnEvent", function(self, event, addon)
-	if event == "PLAYER_LOGIN" then
+	if event == "ADDON_LOADED" then
+		if addon == "Blizzard_TalentUI" then
+			if WSkin.callbacks["Skin_Talent"] then
+				WSkin.callbacks["Skin_Talent"]()
+			end
+		end
+	elseif event == "PLAYER_LOGIN" then
 		for name, func in pairs(WSkin.callbacks) do
 			func()
 		end

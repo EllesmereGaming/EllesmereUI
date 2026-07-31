@@ -101,7 +101,7 @@ local HP_BAR_SLOTS = {
 }
 
 ns.NP_ABSORB_STYLE_TEX = {
-    blizzard = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\blizzard-nameplates.png",
+    blizzard = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\blizzard-nameplates.tga",
     striped  = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\striped3.tga",
     clean    = "Interface\\Buttons\\WHITE8X8",
 }
@@ -2140,7 +2140,7 @@ ns.PositionArrowsOutsideAuras = PositionArrowsOutsideAuras
 --  pooled plate wastes memory. Each Ensure* is idempotent (no-ops if
 --  already created on the plate).
 -------------------------------------------------------------------------------
-local GLOW_TEX = "Interface\\AddOns\\EllesmereUINameplates\\Media\\background.png"
+local GLOW_TEX = "Interface\\AddOns\\EllesmereUINameplates\\Media\\background.tga"
 local GLOW_MARGIN = 0.48
 local GLOW_CORNER = 12
 local GLOW_EXTEND = 6
@@ -2349,9 +2349,9 @@ function ns.EnsureLowHpGlow(plate)
     plate.lowHpGlowTextures = texs
     local function MkTex()
         local t = f:CreateTexture(nil, "BACKGROUND")
-        -- Dedicated art (not the shared target-glow background.png) so its
+        -- Dedicated art (not the shared target-glow background.tga) so its
         -- brightness can be tuned in the file without touching the target glow.
-        t:SetTexture("Interface\\AddOns\\EllesmereUINameplates\\Media\\execute-glow.png")
+        t:SetTexture("Interface\\AddOns\\EllesmereUINameplates\\Media\\execute-glow.tga")
         t:SetVertexColor(0, 0, 0, 1)  -- black = invisible under ADD blend until the first health eval
         t:SetBlendMode("ADD")
         texs[#texs + 1] = t
@@ -2493,9 +2493,9 @@ local function EnsureArrows(plate)
         end
     end
     plate.leftArrow = arrowParent:CreateTexture(nil, "OVERLAY")
-    plate.leftArrow:SetTexture(ns.TARGET_ARROW_DIR .. st.l .. ".png")
+    plate.leftArrow:SetTexture(ns.TARGET_ARROW_DIR .. st.l .. ".tga")
     plate.rightArrow = arrowParent:CreateTexture(nil, "OVERLAY")
-    plate.rightArrow:SetTexture(ns.TARGET_ARROW_DIR .. st.r .. ".png")
+    plate.rightArrow:SetTexture(ns.TARGET_ARROW_DIR .. st.r .. ".tga")
     PP.Size(plate.leftArrow, aw, ah)
     plate.leftArrow:Hide()
     PP.Size(plate.rightArrow, aw, ah)
@@ -2513,7 +2513,7 @@ ns.OVERLAY_STRIPE_KEYS = {
 function ns.ResolveOverlayTexPath(key)
     if not key or key == "none" then return nil end
     if ns.OVERLAY_STRIPE_KEYS[key] then
-        return "Interface\\AddOns\\EllesmereUINameplates\\Media\\" .. key .. ".png"
+        return "Interface\\AddOns\\EllesmereUINameplates\\Media\\" .. key .. ".tga"
     end
     if EllesmereUI.ResolveTexturePath then
         return EllesmereUI.ResolveTexturePath(ns.healthBarTextures, key, "Interface\\Buttons\\WHITE8x8")
@@ -2564,7 +2564,7 @@ local function EnsureFocusOverlay(plate)
     if plate.focusClipFill then return end
     local overlayAlpha = (p and p.focusOverlayAlpha) or defaults.focusOverlayAlpha
     local overlayColor = (p and p.focusOverlayColor) or defaults.focusOverlayColor
-    local STRIPE_TEX = "Interface\\AddOns\\EllesmereUINameplates\\Media\\striped-v2.png"
+    local STRIPE_TEX = "Interface\\AddOns\\EllesmereUINameplates\\Media\\striped-v2.tga"
     local fillTex = plate.health:GetStatusBarTexture()
     plate.focusClipFill = EllesmereUI.SafeCreateFrame("Frame", nil, plate.health)
     plate.focusClipFill:SetClipsChildren(true)
@@ -2672,7 +2672,7 @@ ns.EnsureHoverOverlay = function(plate)
     if plate.hoverClipFill then return end
     local overlayAlpha = (p and p.hoverAlpha) or defaults.hoverAlpha
     local overlayColor = (p and p.hoverColor) or defaults.hoverColor
-    local STRIPE_TEX = "Interface\\AddOns\\EllesmereUINameplates\\Media\\striped-v2.png"
+    local STRIPE_TEX = "Interface\\AddOns\\EllesmereUINameplates\\Media\\striped-v2.tga"
     local fillTex = plate.health:GetStatusBarTexture()
     plate.hoverClipFill = EllesmereUI.SafeCreateFrame("Frame", nil, plate.health)
     plate.hoverClipFill:SetClipsChildren(true)
@@ -2711,7 +2711,7 @@ ns.EnsureTargetOverlay = function(plate)
     if plate.targetClipFill then return end
     local overlayAlpha = (p and p.targetOverlayAlpha) or defaults.targetOverlayAlpha
     local overlayColor = (p and p.targetOverlayColor) or defaults.targetOverlayColor
-    local STRIPE_TEX = "Interface\\AddOns\\EllesmereUINameplates\\Media\\striped-v2.png"
+    local STRIPE_TEX = "Interface\\AddOns\\EllesmereUINameplates\\Media\\striped-v2.tga"
     local fillTex = plate.health:GetStatusBarTexture()
     plate.targetClipFill = EllesmereUI.SafeCreateFrame("Frame", nil, plate.health)
     plate.targetClipFill:SetClipsChildren(true)
@@ -3156,7 +3156,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     plate.castShieldFrame:Hide()
     plate.castShield = plate.castShieldFrame:CreateTexture(nil, "OVERLAY")
     plate.castShield:SetAllPoints()
-    plate.castShield:SetTexture("Interface\\AddOns\\EllesmereUINameplates\\Media\\shield.png")
+    plate.castShield:SetTexture("Interface\\AddOns\\EllesmereUINameplates\\Media\\shield.tga")
     plate.castBarOverlay = plate.cast:CreateTexture(nil, "ARTWORK", nil, 2)
     plate.castBarOverlay:SetAllPoints(plate.cast:GetStatusBarTexture())
     plate.castBarOverlay:SetTexture("Interface\\Buttons\\WHITE8x8")
@@ -7225,8 +7225,8 @@ function NameplateFrame:ApplyTarget()
             EnsureArrows(self)
             local sc = p.targetArrowScale or 1.0
             local st = ns.ResolveTargetArrowStyle(p)
-            self.leftArrow:SetTexture(ns.TARGET_ARROW_DIR .. st.l .. ".png")
-            self.rightArrow:SetTexture(ns.TARGET_ARROW_DIR .. st.r .. ".png")
+            self.leftArrow:SetTexture(ns.TARGET_ARROW_DIR .. st.l .. ".tga")
+            self.rightArrow:SetTexture(ns.TARGET_ARROW_DIR .. st.r .. ".tga")
             local acr, acg, acb = ns.GetTargetArrowColor(p)
             self.leftArrow:SetVertexColor(acr, acg, acb)
             self.rightArrow:SetVertexColor(acr, acg, acb)

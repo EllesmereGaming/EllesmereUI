@@ -622,7 +622,7 @@ local friendlyFrameCache = CreateFramePool("Frame", UIParent, nil, nil, false, f
         end
     end
 
-    local GLOW_TEX = "Interface\\AddOns\\EllesmereUINameplates\\Media\\background.png"
+    local GLOW_TEX = "Interface\\AddOns\\EllesmereUINameplates\\Media\\background.tga"
     local GLOW_MARGIN = 0.48
     local GLOW_CORNER = 12
     local GLOW_EXTEND = 6
@@ -704,13 +704,13 @@ local friendlyFrameCache = CreateFramePool("Frame", UIParent, nil, nil, false, f
     -- identical geometry to the old single-point form on live.
     local _aSt = ns.ResolveTargetArrowStyle(FP())
     plate.leftArrow = plate:CreateTexture(nil, "OVERLAY")
-    plate.leftArrow:SetTexture(ns.TARGET_ARROW_DIR .. _aSt.l .. ".png")
+    plate.leftArrow:SetTexture(ns.TARGET_ARROW_DIR .. _aSt.l .. ".tga")
     plate.leftArrow:SetWidth(_aSt.w)
     plate.leftArrow:SetPoint("TOP", plate.name, "LEFT", -(2 + _aSt.w / 2), 8)
     plate.leftArrow:SetPoint("BOTTOM", plate.name, "LEFT", -(2 + _aSt.w / 2), -8)
     plate.leftArrow:Hide()
     plate.rightArrow = plate:CreateTexture(nil, "OVERLAY")
-    plate.rightArrow:SetTexture(ns.TARGET_ARROW_DIR .. _aSt.r .. ".png")
+    plate.rightArrow:SetTexture(ns.TARGET_ARROW_DIR .. _aSt.r .. ".tga")
     plate.rightArrow:SetWidth(_aSt.w)
     plate.rightArrow:SetPoint("TOP", plate.name, "RIGHT", 2 + _aSt.w / 2, 8)
     plate.rightArrow:SetPoint("BOTTOM", plate.name, "RIGHT", 2 + _aSt.w / 2, -8)
@@ -884,8 +884,8 @@ function FriendlyFrame:ApplyTarget()
     local showArrows = isTarget and fp and fp.showTargetArrows
     if showArrows then
         local st = ns.ResolveTargetArrowStyle(fp)
-        self.leftArrow:SetTexture(ns.TARGET_ARROW_DIR .. st.l .. ".png")
-        self.rightArrow:SetTexture(ns.TARGET_ARROW_DIR .. st.r .. ".png")
+        self.leftArrow:SetTexture(ns.TARGET_ARROW_DIR .. st.l .. ".tga")
+        self.rightArrow:SetTexture(ns.TARGET_ARROW_DIR .. st.r .. ".tga")
         local acr, acg, acb = ns.GetTargetArrowColor(fp)
         self.leftArrow:SetVertexColor(acr, acg, acb)
         self.rightArrow:SetVertexColor(acr, acg, acb)

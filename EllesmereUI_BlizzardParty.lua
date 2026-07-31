@@ -25,6 +25,24 @@ local function ApplyHideBlizzardPartyFrame()
     local mgr = CompactRaidFrameManager or _G["CompactRaidFrameManager"]
     if not mgr then return end
 
+    -- Handle standard WotLK 3.3.5a Blizzard party frames
+    for i = 1, 4 do
+        local pmf = _G["PartyMemberFrame" .. i]
+        if pmf then
+            if shouldHide then
+                pmf:Hide()
+                pmf:UnregisterAllEvents()
+            end
+        end
+        local pet = _G["PartyMemberFrame" .. i .. "PetFrame"]
+        if pet then
+            if shouldHide then
+                pet:Hide()
+                pet:UnregisterAllEvents()
+            end
+        end
+    end
+
     if shouldHide then
         if not _partyHiddenParent then
             _partyHiddenParent = EllesmereUI.SafeCreateFrame("Frame")
@@ -35,9 +53,17 @@ local function ApplyHideBlizzardPartyFrame()
         end
         if not InCombatLockdown() then
             mgr:SetParent(_partyHiddenParent)
+            mgr:Hide()
         end
         if not hookedMgr then
             hookedMgr = true
+            mgr:HookScript("OnShow", function(self)
+                if EllesmereUIDB and EllesmereUIDB.hideBlizzardPartyFrame then
+                    if not InCombatLockdown() then
+                        self:Hide()
+                    end
+                end
+            end)
             local regenFrame = EllesmereUI.SafeCreateFrame("Frame")
             regenFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
             regenFrame:SetScript("OnEvent", function()
@@ -45,6 +71,7 @@ local function ApplyHideBlizzardPartyFrame()
                     if mgr:GetParent() ~= _partyHiddenParent then
                         mgr:SetParent(_partyHiddenParent)
                     end
+                    mgr:Hide()
                 end
             end)
         end

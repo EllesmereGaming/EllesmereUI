@@ -117,7 +117,7 @@ ns.IsEntryBarType = function(entry)
 end
 local SpecName = function(specID)
 	if specID == 0 then return "All Specs" end
-	local _, name, _, _, _, _, className = GetSpecializationInfoByID(specID)
+	local _, name, _, _, _, _, className = ns.GetSpecializationInfoByID(specID)
 	if name and className then return name .. " " .. className end
 	return name or ("Spec " .. specID)
 end

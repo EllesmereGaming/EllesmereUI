@@ -632,7 +632,7 @@ local function ParseGroupFromNote(note)
 end
 
 -- Offline icon path (displayed when friend is not online)
-local OFFLINE_ICON = "Interface\\AddOns\\EllesmereUIFriends\\Media\\offline.png"
+local OFFLINE_ICON = "Interface\\AddOns\\EllesmereUIFriends\\Media\\offline.tga"
 
 -- Region display names for friend region tooltips
 local MINI_DISPLAY = {
@@ -785,9 +785,9 @@ local function UpdateNameColor(button, bnetInfo, wowInfo)
 end
 
 -- Faction overlay texture paths
-local FACTION_TEX_ALLIANCE = "Interface\\AddOns\\EllesmereUIFriends\\Media\\alliance.png"
-local FACTION_TEX_HORDE    = "Interface\\AddOns\\EllesmereUIFriends\\Media\\horde.png"
-local FACTION_TEX_NEUTRAL  = "Interface\\AddOns\\EllesmereUIFriends\\Media\\neutral.png"
+local FACTION_TEX_ALLIANCE = "Interface\\AddOns\\EllesmereUIFriends\\Media\\alliance.tga"
+local FACTION_TEX_HORDE    = "Interface\\AddOns\\EllesmereUIFriends\\Media\\horde.tga"
+local FACTION_TEX_NEUTRAL  = "Interface\\AddOns\\EllesmereUIFriends\\Media\\neutral.tga"
 
 local function UpdateFactionOverlay(button, bnetInfo, wowInfo)
     local factionName

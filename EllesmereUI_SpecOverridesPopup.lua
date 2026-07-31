@@ -136,7 +136,7 @@ local function ShowSpecOverridesPopup()
     local MIDLINE = -54
     local groups = {
         { classes = { "WARRIOR", "PALADIN", "DEATHKNIGHT" }, gold = true },
-        { icons = { "override-horde.png", "override-dungeons.png" }, gold = false },
+        { icons = { "override-horde.tga", "override-dungeons.tga" }, gold = false },
     }
     for i, g in ipairs(groups) do
         local card = EllesmereUI.SafeCreateFrame("Frame", nil, popup)

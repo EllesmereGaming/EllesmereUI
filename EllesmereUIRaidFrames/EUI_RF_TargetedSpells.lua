@@ -372,7 +372,7 @@ local function ClearCaster(caster)
         icon._tsCaster = nil
         icon:Hide()
         if icon._cooldown then
-            icon._cooldown:Clear()
+            CooldownFrame_Clear(icon._cooldown)
             icon._cooldown:Hide()
         end
         touched[icon:GetParent()] = true
@@ -420,7 +420,7 @@ local function ShowFor(caster, matches, texture, durObj)
                     cd:SetDrawSwipe(true)
                     cd:Show()
                 else
-                    cd:Clear()
+                    CooldownFrame_Clear(cd)
                     cd:Hide()
                 end
                 icon:Show()

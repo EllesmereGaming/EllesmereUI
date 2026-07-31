@@ -525,7 +525,7 @@ end
 
 -- Breadcrumb separator: the house right-arrow glyph rendered inline in the
 -- sub text (module -> page), sized to sit with the 10pt breadcrumb font.
-local BREADCRUMB_ARROW = " |TInterface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-right.png:12:12|t "
+local BREADCRUMB_ARROW = " |TInterface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-right.tga:12:12|t "
 
 local function JoinBreadcrumb(...)
     local parts = {}

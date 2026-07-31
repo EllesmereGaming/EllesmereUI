@@ -209,7 +209,7 @@ EUI_Bank:Hide()
 -- Background: atlas matching bags module (full alpha, covers entire window)
 local bgAtlas = EUI_Bank:CreateTexture(nil, "BACKGROUND")
 bgAtlas:SetAllPoints()
-bgAtlas:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.png")
+bgAtlas:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.tga")
 local bgOverlay = EUI_Bank:CreateTexture(nil, "BACKGROUND", nil, 1)
 bgOverlay:SetAllPoints()
 bgOverlay:SetTexture(0, 0, 0, 0.25)
@@ -291,7 +291,7 @@ sortBtn:SetSize(24, 24)
 sortBtn:SetPoint("RIGHT", bankSearch, "LEFT", -13, 0)
 sortBtn.icon = sortBtn:CreateTexture(nil, "OVERLAY")
 sortBtn.icon:SetAllPoints()
-sortBtn.icon:SetTexture("Interface\\AddOns\\EllesmereUIBags\\Media\\clean-up.png")
+sortBtn.icon:SetTexture("Interface\\AddOns\\EllesmereUIBags\\Media\\clean-up.tga")
 sortBtn.icon:SetAlpha(0.9)
 
 local bankSortLocked = false
@@ -336,7 +336,7 @@ close:SetSize(12, 12)
 close:SetPoint("RIGHT", header, "RIGHT", -9, 0)
 close.icon = close:CreateTexture(nil, "OVERLAY")
 close.icon:SetAllPoints()
-close.icon:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.png")
+close.icon:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.tga")
 close.icon:SetAlpha(0.7)
 close:SetScript("OnEnter", function() close.icon:SetAlpha(0.9) end)
 close:SetScript("OnLeave", function() close.icon:SetAlpha(0.7) end)
@@ -583,7 +583,7 @@ local function EnsureBankTabConfigFrame()
     if EUI_BankTabConfigFrame.OpenBankTabSettings then return end
     local bgAtlasBTC = EUI_BankTabConfigFrame:CreateTexture(nil, "BACKGROUND")
     bgAtlasBTC:SetAllPoints()
-    bgAtlasBTC:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.png")
+    bgAtlasBTC:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.tga")
     local bgOverlayBTC = EUI_BankTabConfigFrame:CreateTexture(nil, "BACKGROUND", nil, 1)
     bgOverlayBTC:SetAllPoints()
     bgOverlayBTC:SetTexture(0, 0, 0, 0.25)
@@ -916,7 +916,7 @@ sidebarHdr._label:SetPoint("LEFT", sidebarHdr, "LEFT", 8, 0)
 sidebarHdr._label:SetText(EllesmereUI.L("Tabs"))
 sidebarHdr._label:SetTextColor(0.5, 0.5, 0.5)
 
-local ARROW_ICON = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-left.png"
+local ARROW_ICON = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-left.tga"
 local collapseBtn = EllesmereUI.SafeCreateFrame("Button", nil, sidebarHdr)
 collapseBtn:SetSize(12, 12)
 collapseBtn:SetPoint("RIGHT", sidebarHdr, "RIGHT", -6, 0)
@@ -1378,11 +1378,54 @@ function EUI_Bank:QueueTransfer(srcBag, srcSlot)
     end
 end
 
+-- ItemButtonTemplate's 3.3.5 helpers crash on anonymous buttons because they
+-- concatenate GetName(). Bank slots are anonymous, so update their regions
+-- directly.
+local function SetBankSlotTexture(button, texture)
+    if not button.icon then
+        button.icon = button:CreateTexture(nil, "ARTWORK")
+        button.icon:SetAllPoints(button)
+    end
+    button.icon:SetTexture(texture)
+    if texture then button.icon:Show() else button.icon:Hide() end
+end
+
+local function SetBankSlotCount(button, count)
+    local countString = button.Count or button.count
+    if not countString then
+        countString = button:CreateFontString(nil, "OVERLAY")
+        countString:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -2, 2)
+        button.Count = countString
+    end
+    count = tonumber(count) or 0
+    if count > 1 then
+        countString:SetText(count)
+        countString:Show()
+    else
+        countString:Hide()
+    end
+end
+
+local function SetBankSlotDesaturated(button, desaturated)
+    if not button.icon then
+        button.icon = button:CreateTexture(nil, "ARTWORK")
+        button.icon:SetAllPoints(button)
+    end
+    local shaderSupported = button.icon:SetDesaturated(desaturated)
+    if not shaderSupported and desaturated then
+        button.icon:SetVertexColor(0.5, 0.5, 0.5)
+    else
+        button.icon:SetVertexColor(1, 1, 1)
+    end
+end
+
 local function GetOrCreateBankSlot(idx)
     if _bankSlots[idx] then return _bankSlots[idx] end
     local slotParent = EllesmereUI.SafeCreateFrame("Frame", nil, EUI_Bank)
     slotParent:SetSize(SLOT_SIZE, SLOT_SIZE)
     local btn = EllesmereUI.SafeCreateFrame("ItemButton", nil, slotParent, "ContainerFrameItemButtonTemplate")
+    SetBankSlotTexture(btn, nil)
+    SetBankSlotCount(btn, 0)
     btn:SetAllPoints(slotParent)
     btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     btn:RegisterForDrag("LeftButton")
@@ -1409,7 +1452,7 @@ local function GetOrCreateBankSlot(idx)
     local pt = btn.PushedTexture or btn:GetPushedTexture()
     if pt then
         pt:SetAtlas(nil)
-        pt:SetTexture("Interface\\AddOns\\EllesmereUIBags\\Media\\highlight-3.png")
+        pt:SetTexture("Interface\\AddOns\\EllesmereUIBags\\Media\\highlight-3.tga")
         pt:SetTexCoord(0, 1, 0, 1)
         pt:ClearAllPoints(); pt:SetAllPoints(btn)
         pt:SetVertexColor(0.973, 0.839, 0.604, 1)
@@ -1463,7 +1506,7 @@ local function GetOrCreateBankSlot(idx)
     -- Empty bg
     btn._emptyBg = btn:CreateTexture(nil, "BACKGROUND", nil, 1)
     btn._emptyBg:SetAllPoints()
-    btn._emptyBg:SetTexture("Interface\\AddOns\\EllesmereUIBags\\Media\\icon-bg.png")
+    btn._emptyBg:SetTexture("Interface\\AddOns\\EllesmereUIBags\\Media\\icon-bg.tga")
 
     _bankSlots[idx] = btn
     return btn
@@ -1797,9 +1840,9 @@ function EUI_Bank:RefreshBank()
         if btn.IconOverlay2 then btn.IconOverlay2:SetAlpha(0); btn.IconOverlay2:Hide() end
         local info = cachedInfo or C_Container.GetContainerItemInfo(bagID, slot)
         if not info then
-            if btn.SetItemButtonTexture then btn:SetItemButtonTexture(nil) else SetItemButtonTexture(btn, nil) end
-            if btn.SetItemButtonCount then btn:SetItemButtonCount(0) else SetItemButtonCount(btn, 0) end
-            SetItemButtonDesaturated(btn, false)
+            SetBankSlotTexture(btn, nil)
+            SetBankSlotCount(btn, 0)
+            SetBankSlotDesaturated(btn, false)
             if btn.icon then btn.icon:Hide() end
             btn._emptyBg:Show(); btn._emptyBg:SetAlpha(0.35)
             btn:EnableMouse(true)
@@ -1813,9 +1856,9 @@ function EUI_Bank:RefreshBank()
             btn:EnableMouse(true)
             btn._emptyBg:Hide()
             if btn.icon then btn.icon:Show() end
-            if btn.SetItemButtonTexture then btn:SetItemButtonTexture(info.iconFileID) else SetItemButtonTexture(btn, info.iconFileID) end
-            if btn.SetItemButtonCount then btn:SetItemButtonCount(info.stackCount) else SetItemButtonCount(btn, info.stackCount) end
-            SetItemButtonDesaturated(btn, info.isLocked)
+            SetBankSlotTexture(btn, info.iconFileID)
+            SetBankSlotCount(btn, info.stackCount)
+            SetBankSlotDesaturated(btn, info.isLocked)
             local itemLink = C_Container.GetContainerItemLink(bagID, slot)
             local quality = info.quality or 1
             if itemLink and btn.SetItemButtonQuality then btn:SetItemButtonQuality(quality, itemLink, false, false) end

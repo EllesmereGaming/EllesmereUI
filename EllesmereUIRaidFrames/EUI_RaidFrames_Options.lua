@@ -521,11 +521,11 @@ initFrame:SetScript("OnEvent", function(self)
         ["clean"]           = "Clean (Flat)",
         ["blizzard"]        = "Classic WoW",          -- DB key stays "blizzard"; label only
         ["blizzardModern"]  = "Default Blizz Frames", -- compound: solid base + tiled stripes (shield only)
-        ["healBlizzModern"] = "Default Blizz Frames", -- heal-absorb only: louis-absorb.png texture
-        ["largeOutlinedStripes"]  = "Large Outlined Stripes",  -- heal-absorb only: large-habsorb-left.png
-        ["largeOutlinedStripesR"] = "Large Outlined Stripes R", -- heal-absorb only: large-habsorb-right.png
-        ["largeStripes"]          = "Large Stripes",            -- large-absorb-left.png
-        ["largeStripesR"]         = "Large Stripes R",          -- large-absorb-right.png
+        ["healBlizzModern"] = "Default Blizz Frames", -- heal-absorb only: louis-absorb.tga texture
+        ["largeOutlinedStripes"]  = "Large Outlined Stripes",  -- heal-absorb only: large-habsorb-left.tga
+        ["largeOutlinedStripesR"] = "Large Outlined Stripes R", -- heal-absorb only: large-habsorb-right.tga
+        ["largeStripes"]          = "Large Stripes",            -- large-absorb-left.tga
+        ["largeStripesR"]         = "Large Stripes R",          -- large-absorb-right.tga
         ["maxHealthStripes"]      = "Max Health Stripes",       -- reduced max-health overlay
     }
     -- Shield absorb dropdown shows every style including Blizzard (Modern).
@@ -566,7 +566,7 @@ initFrame:SetScript("OnEvent", function(self)
             background = function(key)
                 if not key or key == "---" or key == "none" then return nil end
                 if key == "blizzardModern" then return ns.ResolveAbsorbStyleTex("striped") end
-                if key == "maxHealthStripes" then return "Interface\\AddOns\\EllesmereUIRaidFrames\\Media\\striped-maxhp.png" end
+                if key == "maxHealthStripes" then return "Interface\\AddOns\\EllesmereUIRaidFrames\\Media\\striped-maxhp.tga" end
                 return ns.ResolveAbsorbStyleTex and ns.ResolveAbsorbStyleTex(key) or nil
             end,
         }
@@ -738,8 +738,8 @@ initFrame:SetScript("OnEvent", function(self)
         -- Built for both raid and party pages; the animation reads the active
         -- preview frame set at runtime via ns.PvActiveFrames().
         do
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.tga"
+            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.tga"
             -- Animation state lives on ns (single shared ticker) so the raid and
             -- party eyeball builds drive the same animation and start/stop works
             -- across both. ns._healthAnimActive is the truth read by the renderer.
@@ -922,87 +922,6 @@ initFrame:SetScript("OnEvent", function(self)
                 end)
             end
 
-            -- One-time hint explaining the eyeball button (raid/main page only)
-            if not _partyCtx and not (EllesmereUIDB and EllesmereUIDB.rfEyeHintSeen) then
-                local TIP_W, TIP_H = 310, 82
-                local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.83, b = 0.62 }
-                local ar, ag, ab = EG.r, EG.g, EG.b
-
-                local tip = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
-                tip:SetFrameStrata("FULLSCREEN_DIALOG")
-                tip:SetFrameLevel(200)
-                if PP then PP.Size(tip, TIP_W, TIP_H) end
-                tip:SetSize(TIP_W, TIP_H)
-                tip:EnableMouse(true)
-                tip:SetPoint("TOP", eyeBtn, "BOTTOM", 0, -14)
-
-                local tipBg = tip:CreateTexture(nil, "BACKGROUND")
-                tipBg:SetAllPoints()
-                tipBg:SetTexture(0.06, 0.08, 0.10, 0.95)
-
-                EllesmereUI.MakeBorder(tip, ar, ag, ab, 0.25, PP)
-
-                -- Arrow pointing up (clipped diamond)
-                local ARROW_SZ = 16
-                local arrowClip = EllesmereUI.SafeCreateFrame("Frame", nil, tip)
-                arrowClip:SetFrameStrata("FULLSCREEN_DIALOG")
-                arrowClip:SetFrameLevel(tip:GetFrameLevel() + 10)
-                arrowClip:SetClipsChildren(true)
-                arrowClip:SetSize(ARROW_SZ * 2, ARROW_SZ)
-                arrowClip:SetPoint("BOTTOM", tip, "TOP", 0, -1)
-
-                local arrowFrame = EllesmereUI.SafeCreateFrame("Frame", nil, arrowClip)
-                arrowFrame:SetFrameLevel(arrowClip:GetFrameLevel() + 1)
-                arrowFrame:SetSize(ARROW_SZ + 4, ARROW_SZ + 4)
-                arrowFrame:SetPoint("CENTER", arrowClip, "BOTTOM", 0, 0)
-
-                local arrowBorder = arrowFrame:CreateTexture(nil, "ARTWORK", nil, 7)
-                arrowBorder:SetSize(ARROW_SZ + 2, ARROW_SZ + 2)
-                arrowBorder:SetPoint("CENTER")
-                arrowBorder:SetTexture(ar, ag, ab, 0.18)
-                arrowBorder:SetRotation(math.rad(45))
-                if arrowBorder.SetSnapToPixelGrid then arrowBorder:SetSnapToPixelGrid(false); arrowBorder:SetTexelSnappingBias(0) end
-
-                local arrowFill = arrowFrame:CreateTexture(nil, "OVERLAY", nil, 6)
-                arrowFill:SetSize(ARROW_SZ, ARROW_SZ)
-                arrowFill:SetPoint("CENTER")
-                arrowFill:SetTexture(0.06, 0.08, 0.10, 0.95)
-                arrowFill:SetRotation(math.rad(45))
-                if arrowFill.SetSnapToPixelGrid then arrowFill:SetSnapToPixelGrid(false); arrowFill:SetTexelSnappingBias(0) end
-
-                local msg = EllesmereUI.MakeFont(tip, 10, nil, 1, 1, 1, 0.85)
-                msg:SetPoint("TOP", tip, "TOP", 0, -12)
-                msg:SetWidth(TIP_W - 24)
-                msg:SetJustifyH("CENTER")
-                msg:SetSpacing(4)
-                msg:SetText(EllesmereUI.L("Click this eye icon to preview live\nhealth bar effects like absorbs and healing."))
-
-                local okBtn = EllesmereUI.SafeCreateFrame("Button", nil, tip)
-                okBtn:SetSize(70, 22)
-                okBtn:SetPoint("BOTTOM", tip, "BOTTOM", 0, 10)
-                EllesmereUI.MakeStyledButton(okBtn, "Okay", 10,
-                    EllesmereUI.RB_COLOURS, function()
-                        tip:Hide()
-                        ns._rfEyeHintTip = nil
-                        EllesmereUIDB = EllesmereUIDB or {}
-                        EllesmereUIDB.rfEyeHintSeen = true
-                    end)
-
-                ns._rfEyeHintTip = tip
-
-                tip:SetAlpha(0)
-                tip:Show()
-                local fadeIn = 0
-                tip:SetScript("OnUpdate", function(self, dt)
-                    fadeIn = fadeIn + dt
-                    if fadeIn >= 0.3 then
-                        self:SetAlpha(1)
-                        self:SetScript("OnUpdate", nil)
-                        return
-                    end
-                    self:SetAlpha(fadeIn / 0.3)
-                end)
-            end
         end  -- close do (health eyeball)
 
         -- Row 1: Health Bar Texture | Fill Opacity
@@ -1249,8 +1168,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Eyeball: toggle shield/heal-absorb effects on the preview frames.
         do
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.tga"
+            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.tga"
 
             -- Find the section label FontString
             local abLabel
@@ -1755,8 +1674,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Power bar animation (same pattern as health; serves raid + party).
         do
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.tga"
+            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.tga"
             -- Shared anim state on ns (single ticker, resolves active preview).
             ns._powerAnimState = ns._powerAnimState or {}
 
@@ -2444,8 +2363,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Eyeball: toggle indicator visibility on preview (raid + party)
         do
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.tga"
+            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.tga"
 
             -- Find the section label FontString
             local indLabel
@@ -2518,13 +2437,13 @@ initFrame:SetScript("OnEvent", function(self)
         -- Row 1: Role Icon Style | Role Icon Size
         local ROLE_MEDIA = "Interface\\AddOns\\EllesmereUIRaidFrames\\Media\\"
         local RI_STYLES = {
-            modern = { _isTexture = true, TANK = ROLE_MEDIA .. "tank-modern.png", HEALER = ROLE_MEDIA .. "healer-modern.png", DAMAGER = ROLE_MEDIA .. "dps-modern.png" },
+            modern = { _isTexture = true, TANK = ROLE_MEDIA .. "tank-modern.tga", HEALER = ROLE_MEDIA .. "healer-modern.tga", DAMAGER = ROLE_MEDIA .. "dps-modern.tga" },
             modernCircle = { TANK = "UI-LFG-RoleIcon-Tank", HEALER = "UI-LFG-RoleIcon-Healer", DAMAGER = "UI-LFG-RoleIcon-DPS" },
             styled = { TANK = "UI-LFG-RoleIcon-Tank-Background", HEALER = "UI-LFG-RoleIcon-Healer-Background", DAMAGER = "UI-LFG-RoleIcon-DPS-Background" },
             classicCircle = { TANK = "UI-LFG-RoleIcon-Tank-Micro-GroupFinder", HEALER = "UI-LFG-RoleIcon-Healer-Micro-GroupFinder", DAMAGER = "UI-LFG-RoleIcon-DPS-Micro-GroupFinder" },
             classic = { TANK = "roleicon-tiny-tank", HEALER = "roleicon-tiny-healer", DAMAGER = "roleicon-tiny-dps" },
             blizzDefault = { TANK = "GM-icon-role-tank", HEALER = "GM-icon-role-healer", DAMAGER = "GM-icon-role-dps" },
-            blizzLight = { _isTexture = true, TANK = ROLE_MEDIA .. "tank.png", HEALER = ROLE_MEDIA .. "healer.png", DAMAGER = ROLE_MEDIA .. "dps.png" },
+            blizzLight = { _isTexture = true, TANK = ROLE_MEDIA .. "tank.tga", HEALER = ROLE_MEDIA .. "healer.tga", DAMAGER = ROLE_MEDIA .. "dps.tga" },
         }
         local playerRole = UnitGroupRolesAssigned("player")
         if playerRole == "NONE" then
@@ -3110,8 +3029,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Eyeball: toggle dispel visibility on preview (raid + party)
         do
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.tga"
+            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.tga"
 
             local dispLabel
             for _, rgn in ipairs({ dispelHeader:GetRegions() }) do
@@ -4137,8 +4056,8 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- Eyeball: toggle targeted spells visibility on the raid preview
             do
-                local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-                local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+                local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.tga"
+                local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.tga"
                 local tsLabel
                 for _, rgn in ipairs({ tsHeader:GetRegions() }) do
                     if rgn.GetText and EllesmereUI.EnKey(rgn:GetText()) == "TARGETED SPELLS" then
@@ -4455,9 +4374,9 @@ initFrame:SetScript("OnEvent", function(self)
             local CUSTOM_TIERS = { 10, 15, 25, 30 }
             local TIER_LABELS = { [10] = "10 Man", [15] = "15 Man", [25] = "25 Man", [30] = "30 Man" }
             local overrides = db.profile.raidSizeOverrides
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
-            local CLOSE_ICON    = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.png"
+            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.tga"
+            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.tga"
+            local CLOSE_ICON    = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.tga"
 
             for _, tier in ipairs(CUSTOM_TIERS) do
                 if overrides and overrides[tier] then
@@ -5532,8 +5451,8 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- Eyeball: toggle targeted spells visibility on the party preview
             do
-                local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-                local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+                local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.tga"
+                local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.tga"
                 local tsLabel
                 for _, rgn in ipairs({ tsHeader:GetRegions() }) do
                     if rgn.GetText and EllesmereUI.EnKey(rgn:GetText()) == "TARGETED SPELLS" then
@@ -5772,8 +5691,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Eyeball: toggle defensive visibility on preview (raid + party)
         do
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.tga"
+            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.tga"
             local defLabel
             for _, rgn in ipairs({ defHeader:GetRegions() }) do
                 if rgn.GetText and EllesmereUI.EnKey(rgn:GetText()) == "DEFENSIVES & EXTERNALS" then
@@ -6046,8 +5965,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Eyeball: toggle private aura visibility on preview (raid + party)
         do
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.tga"
+            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.tga"
             local paLabel
             for _, rgn in ipairs({ paHeader:GetRegions() }) do
                 if rgn.GetText and EllesmereUI.EnKey(rgn:GetText()) == "PRIVATE AURAS" then
@@ -6200,8 +6119,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Eyeball: toggle debuff visibility on preview (raid + party)
         do
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.tga"
+            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.tga"
             local dbLabel
             for _, rgn in ipairs({ debuffHeader:GetRegions() }) do
                 if rgn.GetText and EllesmereUI.EnKey(rgn:GetText()) == "DEBUFF DISPLAY" then
@@ -7716,6 +7635,5 @@ initFrame:SetScript("OnEvent", function(self)
         ns._InitEUIModule()
     end
 end)
-
 
 

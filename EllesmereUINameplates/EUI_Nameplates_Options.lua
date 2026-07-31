@@ -251,7 +251,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Constants matching the real addon exactly
         local CAST_H = 17
         local BORDER_CORNER = 6
-        local BORDER_TEX = "Interface\\AddOns\\EllesmereUINameplates\\Media\\border-colorless.png"
+        local BORDER_TEX = "Interface\\AddOns\\EllesmereUINameplates\\Media\\border-colorless.tga"
 
         -- Container sized in Update()
         local pf = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
@@ -409,7 +409,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Bar texture: applied directly via SetStatusBarTexture (no overlay)
         -- (updated in the preview refresh below)
 
-        local BORDER_TEX_SIMPLE = "Interface\\AddOns\\EllesmereUINameplates\\Media\\border-simple.png"
+        local BORDER_TEX_SIMPLE = "Interface\\AddOns\\EllesmereUINameplates\\Media\\border-simple.tga"
 
         -- Wrapper frame around the health bar a plain Frame (not StatusBar).
         -- The image border is parented to this wrapper so it never interacts
@@ -490,11 +490,11 @@ initFrame:SetScript("OnEvent", function(self)
         local _solidEdges = { solidT, solidB, solidL, solidR }
 
         -- 9-slice soft glow frame for EllesmereUI target glow preview
-        -- Matches the real nameplate glow: background.png with ADD blend, blue tint
+        -- Matches the real nameplate glow: background.tga with ADD blend, blue tint
         -- Packed into a single table to avoid exceeding Lua's 60-upvalue limit.
         local previewGlow = {}
         do
-            local GLOW_TEX = "Interface\\AddOns\\EllesmereUINameplates\\Media\\background.png"
+            local GLOW_TEX = "Interface\\AddOns\\EllesmereUINameplates\\Media\\background.tga"
             local GM = 0.48  -- margin
             local GC = 12    -- corner size
             previewGlow.extend = 6
@@ -585,8 +585,8 @@ initFrame:SetScript("OnEvent", function(self)
         hpNumber:SetText(hpNumStr)
         hpNumber:Hide()
 
-        -- Raid marker: custom marker.png image, position/size from settings
-        local MARKER_PATH = "Interface\\AddOns\\EllesmereUI\\media\\marker.png"
+        -- Raid marker: custom marker.tga image, position/size from settings
+        local MARKER_PATH = "Interface\\AddOns\\EllesmereUI\\media\\marker.tga"
         local raidFrame = EllesmereUI.SafeCreateFrame("Frame", nil, health)
         -- +8 keeps the marker above the name/health text frames (healthTextFrame
         -- sits at health+7), matching the live plate so the preview is accurate.
@@ -599,12 +599,12 @@ initFrame:SetScript("OnEvent", function(self)
         local ARROW_PATH = "Interface\\AddOns\\" .. ADDON_NAME .. "\\Media\\Arrows\\"
         local arrows = {}
         arrows.left = pf:CreateTexture(nil, "OVERLAY")
-        arrows.left:SetTexture(ARROW_PATH .. "arrow_left.png")
+        arrows.left:SetTexture(ARROW_PATH .. "arrow_left.tga")
         arrows.left:SetSize(11, 16)
         arrows.left:SetPoint("RIGHT", health, "LEFT", -8, 0)
         arrows.left:Hide()
         arrows.right = pf:CreateTexture(nil, "OVERLAY")
-        arrows.right:SetTexture(ARROW_PATH .. "arrow_right.png")
+        arrows.right:SetTexture(ARROW_PATH .. "arrow_right.tga")
         arrows.right:SetSize(11, 16)
         arrows.right:SetPoint("LEFT", health, "RIGHT", 8, 0)
         arrows.right:Hide()
@@ -612,7 +612,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Classification icon (elite dragon) shown when transient toggle is on
         local classIcon = pf:CreateTexture(nil, "OVERLAY")
-        classIcon:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\elite-rare-indicator.png")
+        classIcon:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\elite-rare-indicator.tga")
         classIcon:SetSize(24, 24)
         classIcon:Hide()
 
@@ -882,8 +882,8 @@ initFrame:SetScript("OnEvent", function(self)
             local arrowH = math.floor(16 * arrowScale + 0.5)
             if pf._arrows then
                 local _acr, _acg, _acb = ns.GetTargetArrowColor(DB())
-                pf._arrows.left:SetTexture(ns.TARGET_ARROW_DIR .. arrowSt.l .. ".png")
-                pf._arrows.right:SetTexture(ns.TARGET_ARROW_DIR .. arrowSt.r .. ".png")
+                pf._arrows.left:SetTexture(ns.TARGET_ARROW_DIR .. arrowSt.l .. ".tga")
+                pf._arrows.right:SetTexture(ns.TARGET_ARROW_DIR .. arrowSt.r .. ".tga")
                 pf._arrows.left:SetVertexColor(_acr, _acg, _acb)
                 pf._arrows.right:SetVertexColor(_acr, _acg, _acb)
                 pf._arrows.left:SetSize(arrowW, arrowH)
@@ -2830,8 +2830,8 @@ initFrame:SetScript("OnEvent", function(self)
         -- enemy nameplates marking the clickable area, so the sliders can be
         -- dialled in visually. Runtime-only; auto-hides when the panel closes.
         do
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.tga"
+            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.tga"
             local leftRgn = hitboxRow._leftRegion
             local eyeBtn = EllesmereUI.SafeCreateFrame("Button", nil, leftRgn)
             eyeBtn:SetSize(26, 26)
@@ -3437,8 +3437,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Eye icon: show/hide dispel glow on preview buff icons
         do
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.tga"
+            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.tga"
             local leftRgn = dispelGlowRow._leftRegion
             local eyeBtn = EllesmereUI.SafeCreateFrame("Button", nil, leftRgn)
             eyeBtn:SetSize(26, 26)
@@ -4767,8 +4767,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Eye icon: toggle absorb preview on the preview nameplate
         do
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.tga"
+            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.tga"
             local rgn = bgHoverRow._rightRegion
             local eyeBtn = EllesmereUI.SafeCreateFrame("Button", nil, rgn)
             eyeBtn:SetSize(26, 26)
@@ -5636,7 +5636,7 @@ initFrame:SetScript("OnEvent", function(self)
             closeBtn:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -10, -10)
             local closeTex = closeBtn:CreateTexture(nil, "OVERLAY")
             closeTex:SetAllPoints()
-            closeTex:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.png")
+            closeTex:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.tga")
             closeBtn:SetAlpha(0.5)
             closeBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.9) end)
             closeBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.5) end)
@@ -5796,7 +5796,7 @@ initFrame:SetScript("OnEvent", function(self)
                         row.x:SetFrameLevel(row:GetFrameLevel() + 2)
                         row.x.tex = row.x:CreateTexture(nil, "OVERLAY")
                         row.x.tex:SetAllPoints()
-                        row.x.tex:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.png")
+                        row.x.tex:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.tga")
                         row.x:SetAlpha(0.5)
                         row.x:SetScript("OnEnter", function(self)
                             self:SetAlpha(0.9)
@@ -6105,8 +6105,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Eye icon that follows whichever Core Positions dropdown has "Raid Marker"
         do
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.tga"
+            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.tga"
             local eyeBtn = EllesmereUI.SafeCreateFrame("Button", nil, parent)
             eyeBtn:SetSize(26, 26)
             eyeBtn:SetFrameLevel(parent:GetFrameLevel() + 10)
@@ -6150,8 +6150,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Eye icon that follows whichever Core Positions dropdown has "Rare/Quest Indicator"
         do
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.tga"
+            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.tga"
             local eyeBtn = EllesmereUI.SafeCreateFrame("Button", nil, parent)
             eyeBtn:SetSize(26, 26)
             eyeBtn:SetFrameLevel(parent:GetFrameLevel() + 10)
@@ -7167,7 +7167,7 @@ initFrame:SetScript("OnEvent", function(self)
             icon = function(key)
                 local st = ns.TARGET_ARROW_STYLES[key]
                 if not st then return nil end  -- "none" has no preview
-                return ns.TARGET_ARROW_DIR .. st.l .. ".png"
+                return ns.TARGET_ARROW_DIR .. st.l .. ".tga"
             end,
             iconWidth = function(key)
                 local st = ns.TARGET_ARROW_STYLES[key]
@@ -7481,8 +7481,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Eye icon to the left of the Target Glow Style dropdown to toggle glow on preview
         do
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.tga"
+            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.tga"
             local leftRgn = targetGlowRow._leftRegion
             local eyeBtn = EllesmereUI.SafeCreateFrame("Button", nil, leftRgn)
             eyeBtn:SetSize(26, 26)
@@ -7656,7 +7656,7 @@ initFrame:SetScript("OnEvent", function(self)
                 background = function(key)
                     if not key or key == "none" or key == "---" then return nil end
                     if ns.OVERLAY_STRIPE_KEYS and ns.OVERLAY_STRIPE_KEYS[key] then
-                        return "Interface\\AddOns\\EllesmereUINameplates\\Media\\" .. key .. ".png"
+                        return "Interface\\AddOns\\EllesmereUINameplates\\Media\\" .. key .. ".tga"
                     end
                     return ns.healthBarTextures and ns.healthBarTextures[key]
                 end,
@@ -7930,7 +7930,7 @@ initFrame:SetScript("OnEvent", function(self)
                 background = function(key)
                     if not key or key == "none" or key == "---" then return nil end
                     if ns.OVERLAY_STRIPE_KEYS and ns.OVERLAY_STRIPE_KEYS[key] then
-                        return "Interface\\AddOns\\EllesmereUINameplates\\Media\\" .. key .. ".png"
+                        return "Interface\\AddOns\\EllesmereUINameplates\\Media\\" .. key .. ".tga"
                     end
                     return ns.healthBarTextures and ns.healthBarTextures[key]
                 end,
@@ -9355,11 +9355,11 @@ initFrame:SetScript("OnEvent", function(self)
                     local oAlpha = DBVal(_overlayAlphaKey) or defaults[_overlayAlphaKey]
                     local oc = (DB() and DB()[_overlayColorKey]) or defaults[_overlayColorKey]
                     overlayFillClip, overlayFillTex = MakeOverlayClip(fillRef, "TOPLEFT", fillRef, "BOTTOMRIGHT", 2)
-                    overlayFillTex:SetTexture(ns.ResolveOverlayTexPath and ns.ResolveOverlayTexPath(tex) or (MEDIA .. tex .. ".png"))
+                    overlayFillTex:SetTexture(ns.ResolveOverlayTexPath and ns.ResolveOverlayTexPath(tex) or (MEDIA .. tex .. ".tga"))
                     overlayFillTex:SetAlpha(oAlpha)
                     overlayFillTex:SetVertexColor(oc.r, oc.g, oc.b)
                     overlayBgClip, overlayBgTex = MakeOverlayClip(fillRef, "TOPRIGHT", health, "BOTTOMRIGHT", 1)
-                    overlayBgTex:SetTexture(ns.ResolveOverlayTexPath and ns.ResolveOverlayTexPath(tex) or (MEDIA .. tex .. ".png"))
+                    overlayBgTex:SetTexture(ns.ResolveOverlayTexPath and ns.ResolveOverlayTexPath(tex) or (MEDIA .. tex .. ".tga"))
                     overlayBgTex:SetAlpha(_overlayBgAlpha(oAlpha))
                     overlayBgTex:SetVertexColor(oc.r, oc.g, oc.b)
                 end
@@ -9410,14 +9410,14 @@ initFrame:SetScript("OnEvent", function(self)
                     if not overlayFillClip then
                         overlayFillClip, overlayFillTex = MakeOverlayClip(fillRef, "TOPLEFT", fillRef, "BOTTOMRIGHT", 2)
                     end
-                    overlayFillTex:SetTexture(ns.ResolveOverlayTexPath and ns.ResolveOverlayTexPath(tex) or (MEDIA .. tex .. ".png"))
+                    overlayFillTex:SetTexture(ns.ResolveOverlayTexPath and ns.ResolveOverlayTexPath(tex) or (MEDIA .. tex .. ".tga"))
                     overlayFillTex:SetAlpha(oAlpha)
                     overlayFillTex:SetVertexColor(oc.r, oc.g, oc.b)
                     overlayFillClip:Show()
                     if not overlayBgClip then
                         overlayBgClip, overlayBgTex = MakeOverlayClip(fillRef, "TOPRIGHT", health, "BOTTOMRIGHT", 1)
                     end
-                    overlayBgTex:SetTexture(ns.ResolveOverlayTexPath and ns.ResolveOverlayTexPath(tex) or (MEDIA .. tex .. ".png"))
+                    overlayBgTex:SetTexture(ns.ResolveOverlayTexPath and ns.ResolveOverlayTexPath(tex) or (MEDIA .. tex .. ".tga"))
                     overlayBgTex:SetAlpha(_overlayBgAlpha(oAlpha))
                     overlayBgTex:SetVertexColor(oc.r, oc.g, oc.b)
                     overlayBgClip:Show()
@@ -9576,7 +9576,7 @@ initFrame:SetScript("OnEvent", function(self)
                 shieldFrame:SetFrameLevel(cast:GetFrameLevel() + 10)
                 local shield = shieldFrame:CreateTexture(nil, "OVERLAY")
                 shield:SetAllPoints()
-                shield:SetTexture(MEDIA .. "shield.png")
+                shield:SetTexture(MEDIA .. "shield.tga")
             end
 
             -- Color the bar

@@ -421,9 +421,9 @@ local FONT_PATH   = (EllesmereUI and EllesmereUI.GetFontPath and EllesmereUI.Get
 -- because the overlay-builder functions are already at Lua 5.1's 60-upvalue
 -- limit and referencing a file-local helper would add an upvalue. UIParent is a
 -- global, so inlining costs no upvalue.
-local LOCK_INNER  = "Interface\\AddOns\\EllesmereUI\\media\\eui-unlocked-inner-2.png"
-local LOCK_OUTER  = "Interface\\AddOns\\EllesmereUI\\media\\eui-unlocked-outer-2.png"
-local LOCK_TOP    = "Interface\\AddOns\\EllesmereUI\\media\\eui-unlocked-top-2.png"
+local LOCK_INNER  = "Interface\\AddOns\\EllesmereUI\\media\\eui-unlocked-inner-2.tga"
+local LOCK_OUTER  = "Interface\\AddOns\\EllesmereUI\\media\\eui-unlocked-outer-2.tga"
+local LOCK_TOP    = "Interface\\AddOns\\EllesmereUI\\media\\eui-unlocked-top-2.tga"
 local GRID_SPACING = 32          -- pixels between grid lines
 local SNAP_THRESH  = 6            -- px distance to trigger snap-to-element
 local MOVER_ALPHA  = 0.55        -- resting alpha for mover overlays
@@ -4686,7 +4686,7 @@ local function CreateGrid(parent)
     local LIGHT_DIAMETER = LIGHT_RADIUS * 2
     local LIGHT_BOOST    = 0.55
     local NUM_SEGS       = 5
-    local FLASH_PATH = "Interface\\AddOns\\EllesmereUI\\media\\unlock-flash.png"
+    local FLASH_PATH = "Interface\\AddOns\\EllesmereUI\\media\\unlock-flash.tga"
 
     -- Ambient glow texture (soft circle behind lines)
     local flashTex = gridFrame:CreateTexture(nil, "BACKGROUND", nil, -8)
@@ -8068,9 +8068,9 @@ local function CreateMover(barKey)
     --  Cog is flush with mover's top-right corner.
     ---------------------------------------------------------------------------
     local ICON_PATH = "Interface\\AddOns\\EllesmereUI\\media\\icons\\"
-    local ARROW_ICON  = ICON_PATH .. "eui-arrow.png"
-    local ARROW_RIGHT_ICON = ICON_PATH .. "right-arrow.png"
-    local COGS_ICON   = EllesmereUI.COGS_ICON or (ICON_PATH .. "cogs-3.png")
+    local ARROW_ICON  = ICON_PATH .. "eui-arrow.tga"
+    local ARROW_RIGHT_ICON = ICON_PATH .. "right-arrow.tga"
+    local COGS_ICON   = EllesmereUI.COGS_ICON or (ICON_PATH .. "cogs-3.tga")
     local ACT_SZ = 22       -- cog button size
     local ACT_PAD = 3       -- gap between cog and dropdown
     local DD_W = 150        -- dropdown width
@@ -8747,14 +8747,23 @@ local function CreateMover(barKey)
                 local isWidth = (axis == "Width")
                 local matchTarget = isWidth and EllesmereUI.GetWidthMatchTarget(barKey) or (not isWidth and EllesmereUI.GetHeightMatchTarget(barKey))
                 if matchTarget then
-                    box:Disable()
+                    -- EditBox:Disable() is not available on the 3.3.5 client.
+                    -- Keep the field visible but non-interactive, and let the row
+                    -- receive the mouse so the match explanation still appears.
+                    if box.Disable then
+                        box:Disable()
+                    else
+                        box:EnableMouse(false)
+                        rowFrame:EnableMouse(true)
+                    end
                     box:SetTextColor(0.4, 0.4, 0.4, 0.7)
                     local targetName = GetBarLabel(matchTarget) or matchTarget
-                    box:SetScript("OnEnter", function()
+                    local tooltipOwner = box.Disable and box or rowFrame
+                    tooltipOwner:SetScript("OnEnter", function()
                         EllesmereUI.ShowWidgetTooltip(box,
                             axis .. " matched to " .. targetName .. ". Unmatch to edit.")
                     end)
-                    box:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                    tooltipOwner:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                 end
 
                 box:SetScript("OnEnterPressed", function(self)
@@ -9242,18 +9251,18 @@ end
 
 -------------------------------------------------------------------------------
 --  Top Banner Bar
---  Single pre-rendered banner image (eui-unlocked-banner.png, 1144x120).
+--  Single pre-rendered banner image (eui-unlocked-banner.tga, 1144x120).
 --  Displayed pixel-perfect at native resolution, flush with top of screen.
 --  Grid + magnet toggle icons overlaid on top.
 --  Slides down from above screen during the SHACKLE animation phase.
 -------------------------------------------------------------------------------
-local GRID_ICON       = "Interface\\AddOns\\EllesmereUI\\media\\icons\\grid.png"
-local MAGNET_ICON     = "Interface\\AddOns\\EllesmereUI\\media\\icons\\magnet.png"
-local FLASHLIGHT_ICON = "Interface\\AddOns\\EllesmereUI\\media\\icons\\flashlight.png"
-local HOVER_ICON      = "Interface\\AddOns\\EllesmereUI\\media\\icons\\hover.png"
-local DARK_OVERLAY_ICON = "Interface\\AddOns\\EllesmereUI\\media\\icons\\dark-overlay.png"
-local COORD_ICON      = "Interface\\AddOns\\EllesmereUI\\media\\icons\\coordinates.png"
-local BANNER_TEX      = "Interface\\AddOns\\EllesmereUI\\media\\eui-unlocked-banner-2.png"
+local GRID_ICON       = "Interface\\AddOns\\EllesmereUI\\media\\icons\\grid.tga"
+local MAGNET_ICON     = "Interface\\AddOns\\EllesmereUI\\media\\icons\\magnet.tga"
+local FLASHLIGHT_ICON = "Interface\\AddOns\\EllesmereUI\\media\\icons\\flashlight.tga"
+local HOVER_ICON      = "Interface\\AddOns\\EllesmereUI\\media\\icons\\hover.tga"
+local DARK_OVERLAY_ICON = "Interface\\AddOns\\EllesmereUI\\media\\icons\\dark-overlay.tga"
+local COORD_ICON      = "Interface\\AddOns\\EllesmereUI\\media\\icons\\coordinates.tga"
+local BANNER_TEX      = "Interface\\AddOns\\EllesmereUI\\media\\eui-unlocked-banner-2.tga"
 
 local HUD_ON_ALPHA  = 0.60
 local HUD_OFF_ALPHA = 0.30
@@ -9293,10 +9302,17 @@ local function CreateHUD(parent)
 
     hudFrame = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
     hudFrame:SetFrameStrata("TOOLTIP")
-    hudFrame:SetFrameLevel(900)
+    -- The toolbar must sit above the real elements it is used to arrange.
+    -- Several always-on UI elements (cursor effects, reminders, party mode)
+    -- intentionally live on TOOLTIP at levels up to 9999, so level 900 let
+    -- them paint over the banner and its controls.
+    hudFrame:SetFrameLevel(10000)
     hudFrame:SetSize(BANNER_PX_W, BANNER_PX_H)
     hudFrame:SetScale(uiScale)
     hudFrame:EnableMouse(false)  -- background only, clicks pass through
+    -- Keep the text-bearing controls above both the banner and any movable
+    -- TOOLTIP frames instead of relying on inherited child frame levels.
+    local HUD_CONTROL_LEVEL = hudFrame:GetFrameLevel() + 20
     -- Start off-screen above
     hudFrame:SetPoint("TOP", UIParent, "TOP", 0, (BANNER_PX_H + 10) * uiScale)
 
@@ -9332,6 +9348,7 @@ local function CreateHUD(parent)
     --  Grid toggle (left of center): label LEFT of icon
     ---------------------------------------------------------------
     local gridBtn = EllesmereUI.SafeCreateFrame("Button", nil, hudFrame)
+    gridBtn:SetFrameLevel(HUD_CONTROL_LEVEL)
     -- Size will be set after label is created to encompass icon + gap + label
     gridBtn:SetPoint("RIGHT", hudFrame, "TOP", -80 + iconSz / 2, iconCenterY)
 
@@ -9386,6 +9403,7 @@ local function CreateHUD(parent)
     --  Dark Overlays toggle (left of grid): label LEFT of icon
     ---------------------------------------------------------------
     local darkOverlayBtn = EllesmereUI.SafeCreateFrame("Button", nil, hudFrame)
+    darkOverlayBtn:SetFrameLevel(HUD_CONTROL_LEVEL)
     darkOverlayBtn:SetPoint("RIGHT", gridBtn, "LEFT", -20, 0)
 
     local darkOverlayTex = darkOverlayBtn:CreateTexture(nil, "OVERLAY")
@@ -9421,6 +9439,7 @@ local function CreateHUD(parent)
     --  Flashlight toggle (left of grid): label LEFT of icon
     ---------------------------------------------------------------
     local flashBtn = EllesmereUI.SafeCreateFrame("Button", nil, hudFrame)
+    flashBtn:SetFrameLevel(HUD_CONTROL_LEVEL)
     flashBtn:SetPoint("RIGHT", darkOverlayBtn, "LEFT", -20, 0)
 
     local flashTex = flashBtn:CreateTexture(nil, "OVERLAY")
@@ -9455,6 +9474,7 @@ local function CreateHUD(parent)
     --  Magnet/Snap toggle (right of center): label RIGHT of icon
     ---------------------------------------------------------------
     local magnetBtn = EllesmereUI.SafeCreateFrame("Button", nil, hudFrame)
+    magnetBtn:SetFrameLevel(HUD_CONTROL_LEVEL)
     magnetBtn:SetPoint("LEFT", hudFrame, "TOP", 76 - iconSz / 2, iconCenterY)
 
     local magnetTex = magnetBtn:CreateTexture(nil, "OVERLAY")
@@ -9494,6 +9514,7 @@ local function CreateHUD(parent)
     --  Coordinates toggle (right of snap): label RIGHT of icon
     ---------------------------------------------------------------
     local coordBtn = EllesmereUI.SafeCreateFrame("Button", nil, hudFrame)
+    coordBtn:SetFrameLevel(HUD_CONTROL_LEVEL)
     coordBtn:SetPoint("LEFT", magnetBtn, "RIGHT", 7, 0)
 
     local coordTex = coordBtn:CreateTexture(nil, "OVERLAY")
@@ -9541,6 +9562,7 @@ local function CreateHUD(parent)
     --  Hover toggle (right of coords): label RIGHT of icon
     ---------------------------------------------------------------
     local hoverBtn = EllesmereUI.SafeCreateFrame("Button", nil, hudFrame)
+    hoverBtn:SetFrameLevel(HUD_CONTROL_LEVEL)
     hoverBtn:SetPoint("LEFT", coordBtn, "RIGHT", 2, 0)
 
     local hoverTex = hoverBtn:CreateTexture(nil, "OVERLAY")
@@ -9582,6 +9604,7 @@ local function CreateHUD(parent)
 
     -- Exit button (left side, 90px from left edge)
     local exitBtn = EllesmereUI.SafeCreateFrame("Button", nil, hudFrame)
+    exitBtn:SetFrameLevel(HUD_CONTROL_LEVEL)
     exitBtn:SetSize(60, BTN_H)
     exitBtn:SetPoint("LEFT", hudFrame, "TOPLEFT", 85, btnCenterY)
     EllesmereUI.MakeStyledButton(exitBtn, "Exit", BTN_FONT,
@@ -9593,7 +9616,7 @@ local function CreateHUD(parent)
         local btn = EllesmereUI.SafeCreateFrame("Button", nil, hudFrame)
         btn:SetSize(90, BTN_H)
         btn:SetPoint("RIGHT", hudFrame, "TOPRIGHT", -85, btnCenterY)
-        btn:SetFrameLevel(hudFrame:GetFrameLevel() + 2)
+        btn:SetFrameLevel(HUD_CONTROL_LEVEL)
 
         local eg = EllesmereUI.ELLESMERE_GREEN or { r = 12/255, g = 210/255, b = 157/255 }
         EllesmereUI.MakeBorder(btn, eg.r, eg.g, eg.b, 0.7)
@@ -9705,7 +9728,7 @@ local function CreateHUD(parent)
             local btn = EllesmereUI.SafeCreateFrame("Button", nil, hudFrame)
             btn:SetSize(30, 30)
             btn:SetPoint(anchorPoint, anchorTo, anchorRel, xOff, yOff)
-            btn:SetFrameLevel(hudFrame:GetFrameLevel() + 3)
+            btn:SetFrameLevel(HUD_CONTROL_LEVEL + 1)
 
             -- Drop shadow (offset 1px down-right)
             local shadow = btn:CreateFontString(nil, "ARTWORK")
@@ -10898,6 +10921,13 @@ function ns.ShowUnlockTip()
         tip:SetSize(TIP_W, TIP_H)
         tip:EnableMouse(true)
 
+        local function DismissTip()
+            tip:Hide()
+            if EllesmereUIDB then EllesmereUIDB.unlockTipSeen = true end
+        end
+
+        tip:SetScript("OnMouseDown", DismissTip)
+
         -- Pixel-perfect scale (match banner)
         local physW = (GetPhysicalScreenSize())
         local ppScale = GetScreenWidth() / physW
@@ -10913,6 +10943,22 @@ function ns.ShowUnlockTip()
 
         -- Border
         EllesmereUI.MakeBorder(tip, ar, ag, ab, 0.25)
+
+        -- Close button (X)
+        local closeX = EllesmereUI.SafeCreateFrame("Button", nil, tip)
+        closeX:SetSize(22, 22)
+        closeX:SetPoint("TOPRIGHT", tip, "TOPRIGHT", -6, -6)
+        closeX:SetFrameLevel(tip:GetFrameLevel() + 20)
+
+        local xText = tip:CreateFontString(nil, "OVERLAY")
+        xText:SetFont(FONT_PATH, 12, "OUTLINE, SLUG")
+        xText:SetTextColor(1, 1, 1, 0.6)
+        xText:SetPoint("CENTER")
+        xText:SetText("✕")
+
+        closeX:SetScript("OnEnter", function() xText:SetTextColor(1, 1, 1, 1) end)
+        closeX:SetScript("OnLeave", function() xText:SetTextColor(1, 1, 1, 0.6) end)
+        closeX:SetScript("OnClick", DismissTip)
 
         -- Smooth arrow pointing up — rotated squares for clean diagonal edges.
         -- Smooth arrow pointing up — uses SetClipsChildren to show only the
@@ -10969,10 +11015,7 @@ function ns.ShowUnlockTip()
         okBtn:SetSize(80, 24)
         okBtn:SetPoint("BOTTOM", tip, "BOTTOM", 0, 15)
         EllesmereUI.MakeStyledButton(okBtn, "Okay", 10,
-            EllesmereUI.RB_COLOURS, function()
-                tip:Hide()
-                if EllesmereUIDB then EllesmereUIDB.unlockTipSeen = true end
-            end)
+            EllesmereUI.RB_COLOURS, DismissTip)
 
         unlockTipFrame = tip
     end
@@ -11181,20 +11224,20 @@ function ns.OpenUnlockMode()
         local ov = EllesmereUI._specialUnlockGroup and "-override" or ""
         if hudFrame and hudFrame._bannerTex then
             hudFrame._bannerTex:SetTexture(
-                "Interface\\AddOns\\EllesmereUI\\media\\eui-unlocked-banner-2" .. ov .. ".png")
+                "Interface\\AddOns\\EllesmereUI\\media\\eui-unlocked-banner-2" .. ov .. ".tga")
         end
         if openAnimFrame then
             if openAnimFrame._outer then
                 openAnimFrame._outer:SetTexture(
-                    "Interface\\AddOns\\EllesmereUI\\media\\eui-unlocked-outer-2" .. ov .. ".png")
+                    "Interface\\AddOns\\EllesmereUI\\media\\eui-unlocked-outer-2" .. ov .. ".tga")
             end
             if openAnimFrame._inner then
                 openAnimFrame._inner:SetTexture(
-                    "Interface\\AddOns\\EllesmereUI\\media\\eui-unlocked-inner-2" .. ov .. ".png")
+                    "Interface\\AddOns\\EllesmereUI\\media\\eui-unlocked-inner-2" .. ov .. ".tga")
             end
             if openAnimFrame._top then
                 openAnimFrame._top:SetTexture(
-                    "Interface\\AddOns\\EllesmereUI\\media\\eui-unlocked-top-2" .. ov .. ".png")
+                    "Interface\\AddOns\\EllesmereUI\\media\\eui-unlocked-top-2" .. ov .. ".tga")
             end
         end
     end

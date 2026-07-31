@@ -191,13 +191,13 @@ initFrame:SetScript("OnEvent", function(self)
     --  Template cards (header strip + zero-bars empty state)
     ---------------------------------------------------------------------------
     local TEMPLATE_CARDS = {
-        { key = "empty",      icon = "eui-edit.png",    title = "Start Empty",
+        { key = "empty",      icon = "eui-edit.tga",    title = "Start Empty",
           desc = "A blank bar to build from scratch." },
-        { key = "bottom",     icon = "grid.png",        title = "Top/Bottom Info Bar",
+        { key = "bottom",     icon = "grid.tga",        title = "Top/Bottom Info Bar",
           desc = "Full-width bar with the classic info blocks." },
-        { key = "minimapc",   icon = "coordinates.png", title = "Minimap Companion",
+        { key = "minimapc",   icon = "coordinates.tga", title = "Minimap Companion",
           desc = "Compact clock and FPS readout." },
-        { key = "microstrip", icon = "cogs.png",        title = "Micro Menu Strip",
+        { key = "microstrip", icon = "cogs.tga",        title = "Micro Menu Strip",
           desc = "Just the micro menu buttons." },
     }
     local MEDIA_ICONS = "Interface\\AddOns\\EllesmereUI\\media\\icons\\"
@@ -415,7 +415,7 @@ initFrame:SetScript("OnEvent", function(self)
                 delIcon:SetSize(ICON_SZ, ICON_SZ)
                 delIcon:SetPoint("CENTER", delBtn, "CENTER", 0, 0)
                 if delIcon.SetSnapToPixelGrid then delIcon:SetSnapToPixelGrid(false); delIcon:SetTexelSnappingBias(0) end
-                delIcon:SetTexture(MEDIA_ICONS .. "eui-close.png")
+                delIcon:SetTexture(MEDIA_ICONS .. "eui-close.tga")
                 delBtn:SetAlpha(0.75)
 
                 local editBtn = EllesmereUI.SafeCreateFrame("Button", nil, item)
@@ -426,7 +426,7 @@ initFrame:SetScript("OnEvent", function(self)
                 edIcon:SetSize(ICON_SZ, ICON_SZ)
                 edIcon:SetPoint("CENTER", editBtn, "CENTER", 0, 0)
                 if edIcon.SetSnapToPixelGrid then edIcon:SetSnapToPixelGrid(false); edIcon:SetTexelSnappingBias(0) end
-                edIcon:SetTexture(MEDIA_ICONS .. "eui-edit.png")
+                edIcon:SetTexture(MEDIA_ICONS .. "eui-edit.tga")
                 editBtn:SetAlpha(0.75)
 
                 iLbl:SetPoint("RIGHT", editBtn, "LEFT", -4, 0)

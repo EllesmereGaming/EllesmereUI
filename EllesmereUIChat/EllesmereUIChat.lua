@@ -3270,7 +3270,7 @@ local function SkinChatFrame(cf)
         end
 
         local function CreateFriendsIcon()
-            friendsBtn = MakeSidebarIcon(sidebar, MEDIA .. "chat_friends.png")
+            friendsBtn = MakeSidebarIcon(sidebar, MEDIA .. "chat_friends.tga")
             friendsBtn:SetSize(26, 26)
             ChainAnchor(friendsBtn)
 
@@ -3309,7 +3309,7 @@ local function SkinChatFrame(cf)
         end
 
         local function CreateGuildIcon()
-            guildBtn = MakeSidebarIcon(sidebar, MEDIA .. "chat_guild.png")
+            guildBtn = MakeSidebarIcon(sidebar, MEDIA .. "chat_guild.tga")
             guildBtn:SetSize(26, 26)
             ChainAnchor(guildBtn)
 
@@ -3356,7 +3356,7 @@ local function SkinChatFrame(cf)
         end
 
         local function CreateDurabilityIcon()
-            durabilityBtn = MakeSidebarIcon(sidebar, MEDIA .. "chat_durability.png")
+            durabilityBtn = MakeSidebarIcon(sidebar, MEDIA .. "chat_durability.tga")
             ChainAnchor(durabilityBtn)
 
             durabilityPct = sidebar:CreateFontString(nil, "OVERLAY")
@@ -3406,10 +3406,10 @@ local function SkinChatFrame(cf)
             showDurability = { show = showDurability, create = CreateDurabilityIcon },
         }
         local MIDDLE_DEFS = {
-            showCopy     = { tex = "chat_copy.png" },
-            showPortals  = { tex = "chat_portal.png", size = 26 },
-            showVoice    = { tex = "chat_voice.png" },
-            showSettings = { tex = "chat_settings.png" },
+            showCopy     = { tex = "chat_copy.tga" },
+            showPortals  = { tex = "chat_portal.tga", size = 26 },
+            showVoice    = { tex = "chat_voice.tga" },
+            showSettings = { tex = "chat_settings.tga" },
         }
         local middleBtns = {}
         local chainOrder = ECHAT.ResolveSidebarIconOrder()
@@ -3434,7 +3434,7 @@ local function SkinChatFrame(cf)
         settingsBtn = middleBtns["showSettings"]
 
         -- Bottom: Scroll (anchored to bottom with gap)
-        local scrollBtn = MakeSidebarIcon(sidebar, MEDIA .. "chat_scroll2.png")
+        local scrollBtn = MakeSidebarIcon(sidebar, MEDIA .. "chat_scroll2.tga")
         scrollBtn:SetSize(22, 22)
         scrollBtn:ClearAllPoints()
         scrollBtn:SetPoint("BOTTOM", sidebar, "BOTTOM", 0, ICON_SPACING)
@@ -3627,7 +3627,7 @@ local function SkinChatFrame(cf)
             for ri = 1, select("#", resizeBtn:GetRegions()) do
                 local region = select(ri, resizeBtn:GetRegions())
                 if region and region:IsObjectType("Texture") then
-                    region:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\resize_element.png")
+                    region:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\resize_element.tga")
                     region:SetDesaturated(true)
                     region:SetVertexColor(1, 1, 1)
                     region:SetAllPoints()

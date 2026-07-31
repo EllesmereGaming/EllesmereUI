@@ -487,7 +487,7 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                     UnsnapTex(pip._fill)
 
-                    if pip._border then if false then pip._border:Show() else pip._border:Hide() end end
+                    if pip._border then pip._border:SetShown(false) end
                     local active = i <= filledCount
                     if active and useThresh then
                         if _pvPartialOnly and i < _pvThreshCount then
@@ -771,7 +771,7 @@ initFrame:SetScript("OnEvent", function(self)
                 UnsnapTex(fill)
                 pip._fill = fill
                 pip._border = MakePreviewBorder(pip, 0, 0, 0, 0, 0)
-                if false then pip._border:Show() else pip._border:Hide() end
+                pip._border:SetShown(false)
                 _previewFrames.pips[i] = pip
             end
         end
@@ -1154,7 +1154,7 @@ initFrame:SetScript("OnEvent", function(self)
     --  resource count for pip resources, or a percent/value for bar-type bars.
     --  ShowBandEditor() rebinds it to the calling bar each time it opens.
     ---------------------------------------------------------------------------
-    local _bandCloseIcon = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.png"
+    local _bandCloseIcon = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.tga"
     local bandPopup
     local _bandRows = {}
     local _bandEntryIdx
@@ -1883,7 +1883,7 @@ initFrame:SetScript("OnEvent", function(self)
     ---------------------------------------------------------------------------
     local function BuildThresholdSettingsButton(cfg)
         local parentRgn = cfg.parentRgn
-        local CLOSE_ICON_PATH = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.png"
+        local CLOSE_ICON_PATH = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.tga"
         local POPUP_W = 410
         local POPUP_PAD = 14
         local ROW_GAP = 6
@@ -1903,7 +1903,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
         local function SpecName_L(specID)
             if specID == 0 then return "All Specs" end
-            local _, name, _, _, _, _, className = GetSpecializationInfoByID(specID)
+            local _, name, _, _, _, _, className = ns.GetSpecializationInfoByID(specID)
             if name and className then return name .. " " .. className end
             return name or ("Spec " .. specID)
         end
@@ -2036,7 +2036,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- Build class list sorted alphabetically by class name
             local classList = {}
             for classID = 1, (GetNumClasses and GetNumClasses() or 13) do
-                local className, classFile = GetClassInfo(classID)
+                local className, classFile = ns.GetClassInfo(classID)
                 if className then
                     classList[#classList + 1] = { classID = classID, className = className, classFile = classFile }
                 end
@@ -2047,9 +2047,9 @@ initFrame:SetScript("OnEvent", function(self)
             local healers, tanks, dps = {}, {}, {}
             for _, cls in ipairs(classList) do
                 items[#items + 1] = { isHeader = true, label = cls.className }
-                local numSpecs = GetNumSpecializationsForClassID(cls.classID) or 0
+                local numSpecs = ns.GetNumClassSpecializations(cls.classID)
                 for specIndex = 1, numSpecs do
-                    local specID, specName, _, _, role = GetSpecializationInfoForClassID(cls.classID, specIndex)
+                    local specID, specName, _, _, role = ns.GetClassSpecializationInfo(cls.classID, specIndex)
                     if specID and specName then
                         local sid = specID
                         items[#items + 1] = { key = specID, label = specName, lockedFn = function() return IsSpecClaimed(sid) end }
@@ -2782,7 +2782,7 @@ initFrame:SetScript("OnEvent", function(self)
                         if firstSID == 0 then
                             local _, cf = UnitClass("player"); classFile = cf
                         elseif firstSID then
-                            local _, _, _, _, _, cf = GetSpecializationInfoByID(firstSID); classFile = cf
+                            local _, _, _, _, _, cf = ns.GetSpecializationInfoByID(firstSID); classFile = cf
                         end
                         local cc = classFile and CLASS_COLORS_L[classFile]
                         if cc then ef._specLbl:SetTextColor(cc[1], cc[2], cc[3], 1)
@@ -5469,7 +5469,7 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                 end
             end
-            local CLOSE_ICON_PATH = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.png"
+            local CLOSE_ICON_PATH = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.tga"
             local POPUP_W = 480
             local POPUP_PAD = 14
             local ROW_GAP = 6
@@ -5570,7 +5570,7 @@ initFrame:SetScript("OnEvent", function(self)
 
                 local classList = {}
                 for classID = 1, (GetNumClasses and GetNumClasses() or 13) do
-                    local className, classFile = GetClassInfo(classID)
+                    local className, classFile = ns.GetClassInfo(classID)
                     if className then
                         classList[#classList + 1] = { classID = classID, className = className }
                     end
@@ -5580,9 +5580,9 @@ initFrame:SetScript("OnEvent", function(self)
                 local healers, tanks, dps = {}, {}, {}
                 for _, cls in ipairs(classList) do
                     items[#items + 1] = { isHeader = true, label = cls.className }
-                    local numSpecs = GetNumSpecializationsForClassID(cls.classID) or 0
+                    local numSpecs = ns.GetNumClassSpecializations(cls.classID)
                     for specIndex = 1, numSpecs do
-                        local specID, specName, _, _, role = GetSpecializationInfoForClassID(cls.classID, specIndex)
+                        local specID, specName, _, _, role = ns.GetClassSpecializationInfo(cls.classID, specIndex)
                         if specID and specName then
                             local sid = specID
                             items[#items + 1] = { key = specID, label = specName, lockedFn = function() return ns.IsCRSpecClaimed(sid) end }
@@ -5688,7 +5688,7 @@ initFrame:SetScript("OnEvent", function(self)
 				local backIcon = backBtn:CreateTexture(nil, "ARTWORK")
 				backIcon:SetSize(14, 14)
 				PP.Point(backIcon, "LEFT", backBtn, "LEFT", 10, 0)
-				backIcon:SetTexture(MEDIA .. "icons\\eui-arrow-left.png")
+				backIcon:SetTexture(MEDIA .. "icons\\eui-arrow-left.tga")
 				backIcon:SetVertexColor(EG.r, EG.g, EG.b)
 				backIcon:SetAlpha(0.6)
 				if backIcon.SetSnapToPixelGrid then
@@ -6621,7 +6621,7 @@ initFrame:SetScript("OnEvent", function(self)
 					if allowTalent then
 						local specID = advSingle and ctx.specID or (ent.specIDs and ent.specIDs[1])
 						if specID and specID ~= 0 then
-							local _, _, _, _, _, classFile = GetSpecializationInfoByID(specID)
+							local _, _, _, _, _, classFile = ns.GetSpecializationInfoByID(specID)
 							local _, playerClass = UnitClass("player")
 							talentClassOK = (classFile == playerClass)
 						end
@@ -6863,7 +6863,7 @@ initFrame:SetScript("OnEvent", function(self)
                             local _, cf = UnitClass("player")
                             classFile = cf
                         elseif firstSID then
-                            local _, _, _, _, _, cf = GetSpecializationInfoByID(firstSID)
+                            local _, _, _, _, _, cf = ns.GetSpecializationInfoByID(firstSID)
                             classFile = cf
                         end
                         local cc = classFile and CLASS_COLORS[classFile]

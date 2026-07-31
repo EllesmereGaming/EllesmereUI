@@ -965,11 +965,11 @@ function ns.BM_CreateIndicators(button, health, d, PP)
         -- Cooldown swipe (for duration display)
         local cooldown = EllesmereUI.SafeCreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
         cooldown:SetAllPoints()
-        cooldown:SetDrawEdge(false)
-        cooldown:SetDrawSwipe(true)
-        cooldown:SetSwipeColor(0, 0, 0, 0.6)
-        cooldown:SetReverse(true)
-        cooldown:SetHideCountdownNumbers(true)
+        if cooldown.SetDrawEdge then cooldown:SetDrawEdge(false) end
+        if cooldown.SetDrawSwipe then cooldown:SetDrawSwipe(true) end
+        if cooldown.SetSwipeColor then cooldown:SetSwipeColor(0, 0, 0, 0.6) end
+        if cooldown.SetReverse then cooldown:SetReverse(true) end
+        if cooldown.SetHideCountdownNumbers then cooldown:SetHideCountdownNumbers(true) end
         cooldown:Hide()
         f._cooldown = cooldown
 
@@ -1066,11 +1066,11 @@ function ns.BM_CreateIndicators(button, health, d, PP)
 
         local cooldown = EllesmereUI.SafeCreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
         cooldown:SetAllPoints()
-        cooldown:SetDrawEdge(false)
-        cooldown:SetDrawSwipe(true)
-        cooldown:SetSwipeColor(0, 0, 0, 0.6)
-        cooldown:SetReverse(true)
-        cooldown:SetHideCountdownNumbers(true)
+        if cooldown.SetDrawEdge then cooldown:SetDrawEdge(false) end
+        if cooldown.SetDrawSwipe then cooldown:SetDrawSwipe(true) end
+        if cooldown.SetSwipeColor then cooldown:SetSwipeColor(0, 0, 0, 0.6) end
+        if cooldown.SetReverse then cooldown:SetReverse(true) end
+        if cooldown.SetHideCountdownNumbers then cooldown:SetHideCountdownNumbers(true) end
         cooldown:Hide()
         f._cooldown = cooldown
 
@@ -2192,12 +2192,12 @@ function ns.BM_UpdateSimpleGrid(button, unit, db, updateInfo)
                             end
                             applied = true
                         else
-                            cd:Clear()
+                            CooldownFrame_Clear(cd)
                         end
                     end
                     if applied then
-                        cd:SetDrawSwipe(wantSwipe)
-                        cd:SetHideCountdownNumbers(not wantDurText)
+                        if cd.SetDrawSwipe then cd:SetDrawSwipe(wantSwipe) end
+                        if cd.SetHideCountdownNumbers then cd:SetHideCountdownNumbers(not wantDurText) end
                         cd:Show()
                     else
                         cd:Hide()
@@ -2802,11 +2802,11 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
                                         end
                                     end
                                     if applied then
-                                        f._cooldown:SetDrawSwipe(wantSwipe)
-                                        f._cooldown:SetHideCountdownNumbers(not wantDurText)
+                                        if f._cooldown.SetDrawSwipe then f._cooldown:SetDrawSwipe(wantSwipe) end
+                                        if f._cooldown.SetHideCountdownNumbers then f._cooldown:SetHideCountdownNumbers(not wantDurText) end
                                         f._cooldown:Show()
                                     else
-                                        f._cooldown:Clear()
+                                        CooldownFrame_Clear(f._cooldown)
                                         f._cooldown:Hide()
                                     end
                                     -- Style the built-in countdown text via GetCountdownFontString
@@ -3092,11 +3092,11 @@ function ns.BM_CreatePreviewIndicators(f, health, PP)
 
         local cooldown = EllesmereUI.SafeCreateFrame("Cooldown", nil, fr, "CooldownFrameTemplate")
         cooldown:SetAllPoints()
-        cooldown:SetDrawEdge(false)
-        cooldown:SetDrawSwipe(true)
-        cooldown:SetSwipeColor(0, 0, 0, 0.6)
-        cooldown:SetReverse(true)
-        cooldown:SetHideCountdownNumbers(true)
+        if cooldown.SetDrawEdge then cooldown:SetDrawEdge(false) end
+        if cooldown.SetDrawSwipe then cooldown:SetDrawSwipe(true) end
+        if cooldown.SetSwipeColor then cooldown:SetSwipeColor(0, 0, 0, 0.6) end
+        if cooldown.SetReverse then cooldown:SetReverse(true) end
+        if cooldown.SetHideCountdownNumbers then cooldown:SetHideCountdownNumbers(true) end
         cooldown:EnableMouse(false)
         cooldown:Hide()
         fr._cooldown = cooldown
@@ -3558,8 +3558,12 @@ function ns.BM_ApplyPreviewIndicators(f, index, s)
                                             local dur = 3600
                                             local elapsed = dur * (1 - seed)
                                             fr._cooldown:SetCooldown(now - elapsed, dur)
-                                            fr._cooldown:SetDrawSwipe((not pvHideIcon) and (ind.showDuration ~= false))
-                                            fr._cooldown:SetHideCountdownNumbers(true)
+                                            if fr._cooldown.SetDrawSwipe then
+                                                fr._cooldown:SetDrawSwipe((not pvHideIcon) and (ind.showDuration ~= false))
+                                            end
+                                            if fr._cooldown.SetHideCountdownNumbers then
+                                                fr._cooldown:SetHideCountdownNumbers(true)
+                                            end
                                             -- Manual duration text (static, not countdown).
                                             -- Stays visible under Hide Icons (frame alpha is
                                             -- kept; only the icon texture/swipe are zeroed).
@@ -3681,7 +3685,8 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, noGrid
     health:SetPoint("TOPRIGHT", pvFrame, "TOPRIGHT", 0, -rawTopBarH)
     health:SetHeight(healthH)
     health:SetStatusBarTexture(texPath)
-    health:GetStatusBarTexture():SetHorizTile(false)
+    local healthTexture = health:GetStatusBarTexture()
+    if healthTexture then healthTexture:SetHorizTile(false) end
     health:SetMinMaxValues(0, 100)
     health:SetValue(85)
 
@@ -3745,7 +3750,8 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, noGrid
         power:SetPoint("BOTTOMRIGHT", pvFrame, "BOTTOMRIGHT", 0, 0)
         power:SetHeight(rawPowerH)
         power:SetStatusBarTexture(texPath)
-        power:GetStatusBarTexture():SetHorizTile(false)
+        local powerTexture = power:GetStatusBarTexture()
+        if powerTexture then powerTexture:SetHorizTile(false) end
         power:SetMinMaxValues(0, 100)
         power:SetValue(72)
         local pInfo = EllesmereUI.GetPowerColor and EllesmereUI.GetPowerColor("MANA")
@@ -3941,8 +3947,11 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, noGrid
                 tex:SetAllPoints(); tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
                 icon._tex = tex
                 local cd = EllesmereUI.SafeCreateFrame("Cooldown", nil, icon, "CooldownFrameTemplate")
-                cd:SetAllPoints(); cd:SetDrawEdge(false); cd:SetReverse(true)
-                cd:SetSwipeColor(0, 0, 0, 0.6); cd:SetHideCountdownNumbers(true)
+                cd:SetAllPoints()
+                if cd.SetDrawEdge then cd:SetDrawEdge(false) end
+                if cd.SetReverse then cd:SetReverse(true) end
+                if cd.SetSwipeColor then cd:SetSwipeColor(0, 0, 0, 0.6) end
+                if cd.SetHideCountdownNumbers then cd:SetHideCountdownNumbers(true) end
                 cd:Hide()
                 icon._cooldown = cd
                 if PP then
@@ -3983,8 +3992,8 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, noGrid
                 local wantDurText = bs.showDurText
                 if wantSwipe or wantDurText then
                     cd:SetCooldown(GetTime(), 24)
-                    cd:SetDrawSwipe(wantSwipe)
-                    cd:SetHideCountdownNumbers(not wantDurText)
+                    if cd.SetDrawSwipe then cd:SetDrawSwipe(wantSwipe) end
+                    if cd.SetHideCountdownNumbers then cd:SetHideCountdownNumbers(not wantDurText) end
                     cd:Show()
                     if wantDurText then
                         local cdText = cd.GetCountdownFontString and cd:GetCountdownFontString()
@@ -5438,8 +5447,11 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
         classIconBg:SetSize(iconSz, iconSz)
         classIconBg:SetPoint("CENTER", leftFixed, "TOPLEFT", specCenterX, ly - sectionH / 2)
         classIconBg:SetAlpha(0.10)
-        classIconBg:SetDesaturated(true)
-        classIconBg:SetDesaturation(0.5)
+        if classIconBg.SetDesaturation then
+            classIconBg:SetDesaturation(0.5)
+        elseif classIconBg.SetDesaturated then
+            classIconBg:SetDesaturated(true)
+        end
         local selClass = selectedSpecKey and SPEC_CLASS_MAP[selectedSpecKey]
         -- v2: the All Other Specs bucket wears the player's current class
         -- icon (mirrors the dropdown's icon fallthrough). Without this the
@@ -5531,7 +5543,8 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
         health:SetPoint("TOPRIGHT", pvFrame, "TOPRIGHT", 0, -rawTopBarH)
         health:SetHeight(healthH)
         health:SetStatusBarTexture(texPath)
-        health:GetStatusBarTexture():SetHorizTile(false)
+        local healthTexture = health:GetStatusBarTexture()
+        if healthTexture then healthTexture:SetHorizTile(false) end
         health:SetMinMaxValues(0, 100)
         health:SetValue(85)
 
@@ -5587,7 +5600,8 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             power:SetPoint("BOTTOMRIGHT", pvFrame, "BOTTOMRIGHT", 0, 0)
             power:SetHeight(rawPowerH)
             power:SetStatusBarTexture(texPath)
-            power:GetStatusBarTexture():SetHorizTile(false)
+            local powerTexture = power:GetStatusBarTexture()
+            if powerTexture then powerTexture:SetHorizTile(false) end
             power:SetMinMaxValues(0, 100)
             power:SetValue(72)
             -- Power color: use MANA for healer specs (all healer specs use mana)
@@ -5791,8 +5805,8 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
 
         -- Eyeball toggle: show all indicators at full opacity
         do
-            local EYE_VIS = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVIS = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+            local EYE_VIS = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.tga"
+            local EYE_INVIS = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.tga"
             ns._bmAllIndicatorsVisible = ns._bmAllIndicatorsVisible or false
 
             local eyeBtn = EllesmereUI.SafeCreateFrame("Button", nil, leftFrame)

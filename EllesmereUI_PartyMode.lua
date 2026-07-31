@@ -20,7 +20,7 @@ if _G._EllesmereUIPartyModeLoaded then return end
 _G._EllesmereUIPartyModeLoaded = true
 
 local ADDON_NAME = ...
-local GRADIENT_TEX = "Interface\\AddOns\\EllesmereUI\\media\\party.png"
+local GRADIENT_TEX = "Interface\\AddOns\\EllesmereUI\\media\\party.tga"
 
 local BASE_OVERLAY_ALPHA = 0.30
 local function OVERLAY_ALPHA()
@@ -64,6 +64,19 @@ local randomScheduledTimer = nil
 local randomCooldownTimer = nil
 local dimLightsActive = false
 local savedBrightness = nil
+local dimLightsCVar = nil
+
+local function GetNumericCVarSafe(name)
+    if not GetCVar then return nil end
+    local ok, value = pcall(GetCVar, name)
+    if not ok then return nil end
+    return tonumber(value)
+end
+
+local function SetCVarSafe(name, value)
+    if not SetCVar then return false end
+    return pcall(SetCVar, name, value)
+end
 
 -------------------------------------------------------------------------------
 --  Dim lights helpers (for live toggle from options)
@@ -74,15 +87,37 @@ end
 
 function EllesmereUI_ApplyDimLights()
     if dimLightsActive then return end
-    savedBrightness = tonumber(GetCVar("brightness")) or 50
-    SetCVar("brightness", math.max(0, savedBrightness - (savedBrightness - 10) * 0.7))
-    dimLightsActive = true
+
+    -- Retail exposes a 0-100 "brightness" CVar, while the 3.3.5 client uses
+    -- the 0.5-2.5 "gamma" CVar. Probe both and only mark the effect active
+    -- after a successful write, so unsupported CVars can never raise an error.
+    savedBrightness = GetNumericCVarSafe("brightness")
+    if savedBrightness ~= nil
+        and SetCVarSafe("brightness", math.max(0, savedBrightness - (savedBrightness - 10) * 0.7)) then
+        dimLightsCVar = "brightness"
+        dimLightsActive = true
+        return
+    end
+
+    savedBrightness = GetNumericCVarSafe("gamma")
+    if savedBrightness ~= nil
+        and SetCVarSafe("gamma", math.max(0.5, savedBrightness * 0.7)) then
+        dimLightsCVar = "gamma"
+        dimLightsActive = true
+    else
+        savedBrightness = nil
+        dimLightsCVar = nil
+    end
 end
 
 function EllesmereUI_RestoreDimLights()
     if not dimLightsActive then return end
-    SetCVar("brightness", savedBrightness)
+    if dimLightsCVar and savedBrightness ~= nil then
+        SetCVarSafe(dimLightsCVar, savedBrightness)
+    end
     dimLightsActive = false
+    savedBrightness = nil
+    dimLightsCVar = nil
 end
 
 -------------------------------------------------------------------------------

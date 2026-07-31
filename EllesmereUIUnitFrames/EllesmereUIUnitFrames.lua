@@ -3729,13 +3729,13 @@ local ABSORB_SHIELD_TEX = "Interface\\AddOns\\EllesmereUIUnitFrames\\Media\\shie
 -- textures will be added to Media/ when the user uploads them.
 local ABSORB_STYLE_TEX = {
     striped         = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\striped3.tga",
-    stripedReversed = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\striped-5-reversed.png",
+    stripedReversed = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\striped-5-reversed.tga",
     clean           = "Interface\\Buttons\\WHITE8X8",
     blizzard        = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\blizzard.tga",
-    largeOutlinedStripes  = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\large-habsorb-left.png",
-    largeOutlinedStripesR = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\large-habsorb-right.png",
-    largeStripes          = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\large-absorb-left.png",
-    largeStripesR         = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\large-absorb-right.png",
+    largeOutlinedStripes  = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\large-habsorb-left.tga",
+    largeOutlinedStripesR = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\large-habsorb-right.tga",
+    largeStripes          = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\large-absorb-left.tga",
+    largeStripesR         = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\large-absorb-right.tga",
 }
 local ABSORB_STYLE_ALPHA = {
     striped         = 0.8,
@@ -3775,7 +3775,7 @@ local function ApplyAbsorbStyle(absorbBar, style, settings)
     local tex = ns.ResolveAbsorbStyleTex(style, ABSORB_SHIELD_TEX)
     local alpha = GetAbsorbOpacity(style, settings)
     local ac = (settings and settings.absorbColor) or { r = 1, g = 1, b = 1 }
-    -- striped-5-reversed.png is a repeating tile (the striped3 shield texture
+    -- striped-5-reversed.tga is a repeating tile (the striped3 shield texture
     -- is a stretch texture; do not change how it renders)
     local tiled = (style == "stripedReversed" or style == "largeStripes" or style == "largeStripesR" or style == "largeOutlinedStripes" or style == "largeOutlinedStripesR")
     local mask = absorbBar._absorbMask
@@ -4018,9 +4018,12 @@ local function CreateAbsorbBar(frame, unit, settings)
     -- Mask texture: constrains absorb rendering to exact health bar bounds
     -- at the GPU level. Prevents subpixel bleed where absorb textures
     -- extend 1px outside the health bar at certain frame positions.
-    local absorbMask = hpBar:CreateMaskTexture()
-    absorbMask:SetAllPoints(hpBar)
-    absorbMask:SetTexture("Interface\\Buttons\\WHITE8X8")
+    local absorbMask
+    if hpBar.CreateMaskTexture then
+        absorbMask = hpBar:CreateMaskTexture()
+        absorbMask:SetAllPoints(hpBar)
+        absorbMask:SetTexture("Interface\\Buttons\\WHITE8X8")
+    end
 
     -- Reverse fill: when health fills right-to-left, mirror all absorb anchors.
     local isReversed = settings.healthReverseFill and true or false
@@ -4051,7 +4054,10 @@ local function CreateAbsorbBar(frame, unit, settings)
     local backfillBar = EllesmereUI.SafeCreateFrame("StatusBar", nil, curClip)
     backfillBar:SetStatusBarTexture(ABSORB_SHIELD_TEX)
     local bfFill = backfillBar:GetStatusBarTexture()
-    if bfFill then bfFill:SetDrawLayer("ARTWORK", 1); bfFill:AddMaskTexture(absorbMask) end
+    if bfFill then
+        bfFill:SetDrawLayer("ARTWORK", 1)
+        if absorbMask and bfFill.AddMaskTexture then bfFill:AddMaskTexture(absorbMask) end
+    end
     backfillBar:SetStatusBarColor(1, 1, 1, 0.8)
     backfillBar:SetReverseFill(not isReversed)
     if isReversed then
@@ -4070,7 +4076,10 @@ local function CreateAbsorbBar(frame, unit, settings)
     local forwardBar = EllesmereUI.SafeCreateFrame("StatusBar", nil, missClip)
     forwardBar:SetStatusBarTexture(ABSORB_SHIELD_TEX)
     local fwFill = forwardBar:GetStatusBarTexture()
-    if fwFill then fwFill:SetDrawLayer("ARTWORK", 1); fwFill:AddMaskTexture(absorbMask) end
+    if fwFill then
+        fwFill:SetDrawLayer("ARTWORK", 1)
+        if absorbMask and fwFill.AddMaskTexture then fwFill:AddMaskTexture(absorbMask) end
+    end
     forwardBar:SetStatusBarColor(1, 1, 1, 0.8)
     forwardBar:SetReverseFill(isReversed)
     if isReversed then
@@ -4115,7 +4124,10 @@ local function CreateAbsorbBar(frame, unit, settings)
     healAbsorbBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
     healAbsorbBar._absorbMask = absorbMask
     local haFill = healAbsorbBar:GetStatusBarTexture()
-    if haFill then haFill:SetDrawLayer("ARTWORK", 2); haFill:AddMaskTexture(absorbMask) end
+    if haFill then
+        haFill:SetDrawLayer("ARTWORK", 2)
+        if absorbMask and haFill.AddMaskTexture then haFill:AddMaskTexture(absorbMask) end
+    end
     healAbsorbBar:SetStatusBarColor(0.8, 0.15, 0.15, 0.65)
     healAbsorbBar:SetReverseFill(not isReversed)
     if isReversed then
@@ -4136,7 +4148,7 @@ local function CreateAbsorbBar(frame, unit, settings)
     -- tracks the secret heal-absorb amount and collapses when there is none.
     local haBg = healAbsorbBar:CreateTexture(nil, "ARTWORK", nil, 1)
     haBg:SetTexture(0, 0, 0, 0.15)
-    if absorbMask then haBg:AddMaskTexture(absorbMask) end
+    if absorbMask and haBg.AddMaskTexture then haBg:AddMaskTexture(absorbMask) end
     haBg:Hide()
     healAbsorbBar._bg = haBg
 
@@ -5671,7 +5683,20 @@ local function CreateCastBar(frame, unit, settings)
         end
         self.Time:Show()
         if durationObject then
-            local duration = durationObject:GetRemainingDuration()
+            local duration
+            if type(durationObject) == "number" then
+                -- The WotLK oUF castbar passes its numeric progress value,
+                -- whereas retail passes a DurationObject. Keep this display
+                -- as remaining time for both callback contracts.
+                if self.casting then
+                    duration = math.max(0, (self.max or 0) - durationObject)
+                else
+                    duration = math.max(0, durationObject)
+                end
+            elseif durationObject.GetRemainingDuration then
+                duration = durationObject:GetRemainingDuration()
+            end
+            if not duration then return end
             if self.delay and self.delay ~= 0 then
                 self.Time:SetFormattedText('%.1f|cffff0000%s%.2f|r', duration, self.channeling and '-' or '+', self.delay)
             else
@@ -6159,7 +6184,9 @@ local function ApplyAuraCooldownText(container, showCD, cdSize, stackSize, cdOff
         local btn = container[i]
         if btn and btn.Icon then SetAuraIconCrop(btn.Icon, cropped, cropW, cropH, iconZoom) end
         if btn and btn.Cooldown then
-            btn.Cooldown:SetHideCountdownNumbers(not showCD)
+            if btn.Cooldown.SetHideCountdownNumbers then
+                btn.Cooldown:SetHideCountdownNumbers(not showCD)
+            end
             local cdText = btn.Cooldown:GetRegions()
             if cdText and cdText.SetFont then
                 if showCD then
@@ -6393,7 +6420,9 @@ local function CreateTargetAuras(frame, unit)
                 cdOffY = (s and s.debuffCooldownTextOffsetY) or 0
                 cdTextColor = (s and s.debuffCooldownTextColor) or {r=1, g=1, b=1}
             end
-            button.Cooldown:SetHideCountdownNumbers(not showText)
+            if button.Cooldown.SetHideCountdownNumbers then
+                button.Cooldown:SetHideCountdownNumbers(not showText)
+            end
             local cdText = button.Cooldown:GetRegions()
             if cdText and cdText.SetFont then
                 if showText then EllesmereUI.ApplyIconTextFont(cdText, cachedFontPath, textSize, "unitFrames") end
@@ -12043,7 +12072,7 @@ function InitializeFrames()
                 combat:SetVertexColor(1, 1, 1, 1)
             else
                 if style == "class" then
-                    combat:SetTexture(COMBAT_MEDIA .. "combat-indicator-class-custom.png")
+                    combat:SetTexture(COMBAT_MEDIA .. "combat-indicator-class-custom.tga")
                     local coords = classToken and CLASS_FULL_COORDS[classToken]
                     if coords then
                         combat:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
@@ -12051,7 +12080,7 @@ function InitializeFrames()
                         combat:SetTexCoord(0, 1, 0, 1)
                     end
                 else
-                    combat:SetTexture(COMBAT_MEDIA .. "combat-indicator-custom.png")
+                    combat:SetTexture(COMBAT_MEDIA .. "combat-indicator-custom.tga")
                     combat:SetTexCoord(0, 1, 0, 1)
                 end
 
@@ -13185,7 +13214,9 @@ function SetupOptionsPanel()
             cd:SetReverse(false)
             cd:SetDrawSwipe(true)
             cd:SetSwipeColor(0, 0, 0, 0.6)
-            cd:SetHideCountdownNumbers(true)
+            if cd.SetHideCountdownNumbers then
+                cd:SetHideCountdownNumbers(true)
+            end
             local frac = FAKE_DEBUFF_FRACS[idx] or 0.6
             cd:SetCooldown(now - 3600 * (1 - frac), 3600)
             -- Text host above the swipe AND the border container so the
@@ -14664,9 +14695,14 @@ do
     end
 
     local ev2 = EllesmereUI.SafeCreateFrame("Frame")
-    ev2:RegisterUnitEvent("UNIT_AURA", "player")
+    if ev2.RegisterUnitEvent then
+        ev2:RegisterUnitEvent("UNIT_AURA", "player")
+    else
+        ev2:RegisterEvent("UNIT_AURA")
+    end
     ev2:RegisterEvent("PLAYER_ENTERING_WORLD")
-    ev2:SetScript("OnEvent", function()
+    ev2:SetScript("OnEvent", function(_, event, unit)
+        if event == "UNIT_AURA" and unit ~= "player" then return end
         EnsureReloadHook()
         Update()
     end)

@@ -87,6 +87,93 @@ local GetShapeshiftFormID = GetShapeshiftFormID
 local IsPlayerSpell = IsPlayerSpell
 local UnitSpellHaste = UnitSpellHaste
 
+-- GetClassInfo moved to C_CreatureInfo on newer clients and is absent as a
+-- global on some 3.3.5 backports. Keep one normalized accessor for runtime and
+-- options code. The final fallback also works on clients that only expose the
+-- class token tables.
+function ns.GetClassInfo(classID)
+    if C_CreatureInfo and C_CreatureInfo.GetClassInfo then
+        local info = C_CreatureInfo.GetClassInfo(classID)
+        if info then return info.className, info.classFile end
+    end
+    if _G.GetClassInfo then
+        return _G.GetClassInfo(classID)
+    end
+    local classFile = CLASS_SORT_ORDER and CLASS_SORT_ORDER[classID]
+    local className = classFile and LOCALIZED_CLASS_NAMES_MALE
+        and LOCALIZED_CLASS_NAMES_MALE[classFile]
+    return className or classFile, classFile
+end
+
+-- WotLK has talent tabs rather than the account-wide specialization APIs.
+-- Compatibility/API.lua exposes the player's active tab as specialization
+-- IDs 1-3, so only that player's class can be enumerated without producing
+-- colliding IDs for every class.
+function ns.GetPlayerClassID()
+    local _, playerClass, playerClassID = UnitClass("player")
+    if playerClassID then return playerClassID end
+    for classID = 1, (GetNumClasses and GetNumClasses() or 13) do
+        local _, classFile = ns.GetClassInfo(classID)
+        if classFile == playerClass then return classID end
+    end
+end
+
+function ns.GetNumClassSpecializations(classID)
+    if _G.GetNumSpecializationsForClassID then
+        return _G.GetNumSpecializationsForClassID(classID) or 0
+    end
+    return classID == ns.GetPlayerClassID() and 3 or 0
+end
+
+function ns.GetClassSpecializationInfo(classID, specIndex)
+    if _G.GetSpecializationInfoForClassID then
+        return _G.GetSpecializationInfoForClassID(classID, specIndex)
+    end
+    if classID == ns.GetPlayerClassID() and _G.GetSpecializationInfo then
+        return _G.GetSpecializationInfo(specIndex)
+    end
+end
+
+function ns.GetSpecializationInfoByID(specID)
+    if _G.GetSpecializationInfoByID then
+        return _G.GetSpecializationInfoByID(specID)
+    end
+    if _G.GetSpecializationInfo and specID and specID >= 1 and specID <= 3 then
+        local id, name, description, icon, role = _G.GetSpecializationInfo(specID)
+        local className, classFile = UnitClass("player")
+        return id, name, description, icon, role, classFile, className
+    end
+end
+
+-- WotLK inserts the spell texture before the cast timestamps and does not
+-- return retail's spell/channel identifiers.  Normalize both APIs to the
+-- retail-shaped layout used by the cast bar below.
+do
+    local NativeUnitCastingInfo = UnitCastingInfo
+    function ns.UnitCastingInfo(unit)
+        local name, rank, third, fourth, fifth, sixth, seventh, eighth, ninth, tenth = NativeUnitCastingInfo(unit)
+        if name and type(fourth) ~= "number" and type(fifth) == "number" and type(sixth) == "number" then
+            local texture, startTimeMS, endTimeMS = fourth, fifth, sixth
+            local isTradeSkill, castID, notInterruptible = seventh, eighth, ninth
+            return name, rank, texture, startTimeMS, endTimeMS, isTradeSkill,
+                   castID, notInterruptible, nil, castID
+        end
+        return name, rank, third, fourth, fifth, sixth, seventh, eighth, ninth, tenth
+    end
+
+    local NativeUnitChannelInfo = UnitChannelInfo
+    function ns.UnitChannelInfo(unit)
+        local name, rank, third, fourth, fifth, sixth, seventh, eighth, ninth, tenth, eleventh = NativeUnitChannelInfo(unit)
+        if name and type(fourth) ~= "number" and type(fifth) == "number" and type(sixth) == "number" then
+            local texture, startTimeMS, endTimeMS = fourth, fifth, sixth
+            local isTradeSkill, notInterruptible = seventh, eighth
+            return name, rank, texture, startTimeMS, endTimeMS, isTradeSkill,
+                   notInterruptible, nil, nil, nil, nil
+        end
+        return name, rank, third, fourth, fifth, sixth, seventh, eighth, ninth, tenth, eleventh
+    end
+end
+
 -------------------------------------------------------------------------------
 --  Constants
 -------------------------------------------------------------------------------
@@ -293,6 +380,16 @@ local PRIMARY_CLASS_MAP = {
 }
 
 local function GetPrimaryPowerType()
+    -- On Wrath the player's live power type is authoritative.  The class/spec
+    -- map below models retail (for example BM/MM Hunters use Focus and route it
+    -- through the class-resource bar), while 3.3.5 Hunters use Mana.  Applying
+    -- the retail map on Wrath therefore queried an unavailable power pool and
+    -- left an enabled power bar empty/hidden.
+    if select(4, GetBuildInfo()) <= 30300 then
+        local powerType = UnitPowerType("player")
+        if type(powerType) == "number" then return powerType end
+    end
+
     local _, classFile = UnitClass("player")
     local spec = GetSpecialization()
     local form = GetShapeshiftFormID()
@@ -445,6 +542,23 @@ local function IronfurBaseDuration()
     return 7
 end
 
+-- Combo points are target-owned in Wrath and are exposed through
+-- GetComboPoints rather than UnitPower. Keep that API difference contained so
+-- Rogue and Cat Form can use the normal class-resource pip renderer.
+function ns.GetSecondaryPower(unit, powerType, unmodified)
+    if select(4, GetBuildInfo()) <= 30300 and powerType == PT.COMBO then
+        return GetComboPoints(unit or "player", "target") or 0
+    end
+    return UnitPower(unit, powerType, unmodified)
+end
+
+function ns.GetSecondaryPowerMax(unit, powerType)
+    if select(4, GetBuildInfo()) <= 30300 and powerType == PT.COMBO then
+        return MAX_COMBO_POINTS or 5
+    end
+    return UnitPowerMax(unit, powerType)
+end
+
 local function GetSecondaryResource()
     local _, classFile = UnitClass("player")
     local spec = GetSpecialization()
@@ -454,7 +568,7 @@ local function GetSecondaryResource()
         local mx = UnitPowerMax("player", PT.HOLY_POWER)
         return { power = PT.HOLY_POWER, max = (not issecretvalue or not issecretvalue(mx)) and mx or 5, type = "points" }
     elseif classFile == "ROGUE" then
-        local mx = UnitPowerMax("player", PT.COMBO)
+        local mx = ns.GetSecondaryPowerMax("player", PT.COMBO)
         return { power = PT.COMBO, max = (not issecretvalue or not issecretvalue(mx)) and mx or 5, type = "points" }
     elseif classFile == "DRUID" and spec == 3 and form == 5
            and ERB.db and ERB.db.profile and ERB.db.profile.secondary
@@ -466,7 +580,7 @@ local function GetSecondaryResource()
         ironfurBaseDur = IronfurBaseDuration()
         return { power = "IRONFUR_BAR", max = 1, type = "bar" }
     elseif classFile == "DRUID" and form == 1 then
-        local mx = UnitPowerMax("player", PT.COMBO)
+        local mx = ns.GetSecondaryPowerMax("player", PT.COMBO)
         return { power = PT.COMBO, max = (not issecretvalue or not issecretvalue(mx)) and mx or 5, type = "points" }
     elseif classFile == "DRUID" and spec == 1 then
         -- Balance: Astral Power as a class resource bar (like Elemental maelstrom)
@@ -634,11 +748,11 @@ local BAR_TYPE_SPECS = {}
 local function BuildBarTypeSpecMap()
     if not GetNumClasses then return end
     for classID = 1, GetNumClasses() do
-        local _, classFile = GetClassInfo(classID)
+        local _, classFile = ns.GetClassInfo(classID)
         if classFile then
-            local numSpecs = GetNumSpecializationsForClassID(classID) or 0
+            local numSpecs = ns.GetNumClassSpecializations(classID)
             for specIndex = 1, numSpecs do
-                local specID = GetSpecializationInfoForClassID(classID, specIndex)
+                local specID = ns.GetClassSpecializationInfo(classID, specIndex)
                 if specID then
                     local isBar = false
                     if classFile == "DRUID" and specIndex == 1 then isBar = true
@@ -1330,6 +1444,90 @@ local _erbEventFrame = EllesmereUI.SafeCreateFrame("Frame")   -- event entry; ev
 -- lerp entirely. Secret values and deliberate snaps use plain SetValue.
 ns.EASE = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.ExponentialEaseOut
 
+-- WotLK has no native StatusBar interpolation.  Provide one shared animation
+-- driver for every Resource Bars status bar that has "Smooth Bars" enabled;
+-- individual bars only register while moving, so idle bars cost nothing.
+if not ns.EASE then
+    local host = EllesmereUI.SafeCreateFrame("Frame")
+    local ag = host:CreateAnimationGroup()
+    ag:SetLooping("REPEAT")
+    local tick = ag:CreateAnimation("Animation")
+    tick:SetDuration(1 / 60)
+    local active, states = {}, {}
+
+    ag:SetScript("OnLoop", function()
+        local now = GetTime()
+        for i = #active, 1, -1 do
+            local sb = active[i]
+            local state = states[sb]
+            if not state then
+                table.remove(active, i)
+            else
+                local p = (now - state.started) / state.duration
+                if p >= 1 then
+                    sb:SetValue(state.target)
+                    states[sb] = nil
+                    table.remove(active, i)
+                else
+                    -- Cubic ease-out: responsive at the start without snapping,
+                    -- then settles cleanly on the engine-provided value.
+                    local inv = 1 - max(0, p)
+                    local eased = 1 - inv * inv * inv
+                    sb:SetValue(state.from + (state.target - state.from) * eased)
+                end
+            end
+        end
+        if #active == 0 then ag:Stop() end
+    end)
+
+    function ns.SmoothLegacyStatusBar(sb, target)
+        if type(target) ~= "number" then
+            sb:SetValue(target)
+            return
+        end
+        local state = states[sb]
+        if state and state.target == target then return end
+        local current = sb:GetValue()
+        if type(current) ~= "number" or current == target then
+            sb:SetValue(target)
+            return
+        end
+        if not state then active[#active + 1] = sb end
+        states[sb] = {
+            from = current,
+            target = target,
+            started = GetTime(),
+            duration = 0.10,
+        }
+        if not ag:IsPlaying() then ag:Play() end
+    end
+
+    function ns.CancelLegacyStatusBarSmoothing(sb)
+        local state = states[sb]
+        if state then
+            sb:SetValue(state.target)
+            states[sb] = nil
+            for i = #active, 1, -1 do
+                if active[i] == sb then
+                    table.remove(active, i)
+                    break
+                end
+            end
+            if #active == 0 then ag:Stop() end
+        end
+    end
+end
+
+function ns.SetAnimatedStatusBarValue(sb, value)
+    if ns.EASE then
+        sb:SetValue(value, ns.EASE)
+    elseif ns.SmoothLegacyStatusBar then
+        ns.SmoothLegacyStatusBar(sb, value)
+    else
+        sb:SetValue(value)
+    end
+end
+
 -- Small shell pool for handler hosts that must be created at runtime (the
 -- mouse-follow anchor): shells are born HERE so their per-frame work bills
 -- ResourceBars, same attribution rule as the entry frames above.
@@ -1725,7 +1923,11 @@ local function CreateStatusBar(parent, name, w, h, borderSize, borderR, borderG,
         -- set only on health/power/class-resource bars whose toggle is on; nil
         -- everywhere else, so this is a plain SetValue with zero added cost.
         if bar._smoothing then
-            sb:SetValue((...), bar._smoothing)
+            if ns.EASE then
+                sb:SetValue((...), bar._smoothing)
+            else
+                ns.SmoothLegacyStatusBar(sb, (...))
+            end
         else
             sb:SetValue(...)
         end
@@ -4551,10 +4753,10 @@ local function UpdateSecondaryResource()
     if cachedSecondary.type == "points" then
         local _evCur
         if cachedSecondary.frac then
-            _evCur = UnitPower("player", powerType, true)
-            if _evCur == nil then _evCur = UnitPower("player", powerType) end
+            _evCur = ns.GetSecondaryPower("player", powerType, true)
+            if _evCur == nil then _evCur = ns.GetSecondaryPower("player", powerType) end
         else
-            _evCur = UnitPower("player", powerType)
+            _evCur = ns.GetSecondaryPower("player", powerType)
         end
         if not (issecretvalue and issecretvalue(_evCur)) then
             local stb = ns.STB
@@ -4672,15 +4874,23 @@ local function UpdateSecondaryResource()
     -- path, so it routes to the secret overlay renderer (custom branch).
     local _ptsCur, _ptsSecret
     if cachedSecondary.type == "points" then
-        _ptsCur = UnitPower("player", powerType)
+        _ptsCur = ns.GetSecondaryPower("player", powerType)
         _ptsSecret = (issecretvalue and issecretvalue(_ptsCur)) and true or false
     end
 
     if cachedSecondary.type == "runes" then
         local now = GetTime()
+        -- Wrath runes are six distinct slots (two Blood, two Unholy, two
+        -- Frost, with individual slots able to become Death runes).  Retail
+        -- runes are interchangeable, so its display can sort ready runes to
+        -- the front.  Keep native slot order on 3.3.5 or the bar appears to
+        -- move rune types around and reports the wrong slot as recharging.
+        local wrathRunes = select(4, GetBuildInfo()) <= 30300
         local readyN, cdN = 0, 0
         for i = 1, 6 do
             local start, duration, ready = GetRuneCooldown(i)
+            -- Older clients may expose API booleans as 1/nil.
+            ready = ready == true or ready == 1
             _runeStart[i] = start
             _runeDuration[i] = duration
             if ready then
@@ -4723,7 +4933,11 @@ local function UpdateSecondaryResource()
             for i = 1, 6 do
                 local rf = runeFrames[i]
                 if rf and rf:IsShown() then
-                    local slot = slots[i]
+                    -- The 3.3.5 API orders slots Blood, Unholy, Frost.  Present
+                    -- them as Blood, Frost, Unholy while retaining each frame's
+                    -- native rune index for cooldown/type updates.
+                    local visualPos = wrathRunes and ((i <= 2 and i) or (i <= 4 and i + 2) or (i - 2)) or i
+                    local slot = slots[visualPos]
                     local x0 = slot.x0
                     local w  = slot.x1 - slot.x0
                     local pipOri = sp.pipOrientation or "HORIZONTAL"
@@ -4739,15 +4953,28 @@ local function UpdateSecondaryResource()
                         rf:SetWidth(w)
                     end
 
-                    local active = (i <= readyN)
+                    local active = wrathRunes and _runeReady[i] or (i <= readyN)
+                    local rr, rg, rb = r, g, b
+                    if wrathRunes and GetRuneType then
+                        local runeType = GetRuneType(i)
+                        if runeType == 1 then       -- Blood
+                            rr, rg, rb = 0.77, 0.12, 0.23
+                        elseif runeType == 2 then   -- Unholy
+                            rr, rg, rb = 0.20, 0.80, 0.20
+                        elseif runeType == 3 then   -- Frost
+                            rr, rg, rb = 0.20, 0.55, 1.00
+                        elseif runeType == 4 then   -- Death
+                            rr, rg, rb = 0.65, 0.25, 0.85
+                        end
+                    end
                     if active and runeUseThresh then
                         if not _tsBandOn and _tsPartialOnly and i < _tsThreshCount then
-                            rf:SetActive(true, r, g, b, a)
+                            rf:SetActive(true, rr, rg, rb, a)
                         else
                             rf:SetActive(true, tr, tg, tb)
                         end
                     else
-                        rf:SetActive(active, r, g, b, a)
+                        rf:SetActive(active, rr, rg, rb, a)
                     end
                     if rf._rechargeBar then rf._rechargeBar:Hide() end
                     if rf._cdText then rf._cdText:SetText("") end
@@ -4760,29 +4987,35 @@ local function UpdateSecondaryResource()
                 colorText(_runeTI, _runeTiTrig, tr, tg, tb, _spTextBaseR, _spTextBaseG, _spTextBaseB)
             end
         else
-            -- Full rune mode: sort ready left, cooling right with recharge animation
+            -- Full rune mode: retail sorts ready runes left; Wrath retains the
+            -- native slot order because each slot has a rune type.
             -- Clear central count text (used by simple mode)
             if secondaryFrame._countText then secondaryFrame._countText:SetText("") end
-            -- Append cd runes after ready runes in _runeOrder
-            local ci = readyN
-            for i = 1, 6 do
-                if not _runeReady[i] then
-                    ci = ci + 1
-                    _runeOrder[ci] = i
+            if wrathRunes then
+                _runeOrder[1], _runeOrder[2] = 1, 2 -- Blood
+                _runeOrder[3], _runeOrder[4] = 5, 6 -- Frost
+                _runeOrder[5], _runeOrder[6] = 3, 4 -- Unholy
+            else
+                -- Append cd runes after ready runes in _runeOrder
+                local ci = readyN
+                for i = 1, 6 do
+                    if not _runeReady[i] then
+                        ci = ci + 1
+                        _runeOrder[ci] = i
+                    end
                 end
-            end
-            -- Insertion-sort the cd portion (indices readyN+1..readyN+cdN) by
-            -- remaining time. Max 6 elements so this is faster than table.sort
-            -- and avoids creating a comparator closure each tick.
-            for i = readyN + 2, readyN + cdN do
-                local key = _runeOrder[i]
-                local keyRem = _runeRemaining[key]
-                local j = i - 1
-                while j > readyN and _runeRemaining[_runeOrder[j]] > keyRem do
-                    _runeOrder[j + 1] = _runeOrder[j]
-                    j = j - 1
+                -- Insertion-sort the cd portion (indices readyN+1..readyN+cdN)
+                -- by remaining time.
+                for i = readyN + 2, readyN + cdN do
+                    local key = _runeOrder[i]
+                    local keyRem = _runeRemaining[key]
+                    local j = i - 1
+                    while j > readyN and _runeRemaining[_runeOrder[j]] > keyRem do
+                        _runeOrder[j + 1] = _runeOrder[j]
+                        j = j - 1
+                    end
+                    _runeOrder[j + 1] = key
                 end
-                _runeOrder[j + 1] = key
             end
             local totalRunes = readyN + cdN
 
@@ -4812,23 +5045,36 @@ local function UpdateSecondaryResource()
                         rf:SetWidth(w)
                     end
 
+                    local rr, rg, rb = r, g, b
+                    if wrathRunes and GetRuneType then
+                        local runeType = GetRuneType(runeIdx)
+                        if runeType == 1 then       -- Blood
+                            rr, rg, rb = 0.77, 0.12, 0.23
+                        elseif runeType == 2 then   -- Unholy
+                            rr, rg, rb = 0.20, 0.80, 0.20
+                        elseif runeType == 3 then   -- Frost
+                            rr, rg, rb = 0.20, 0.55, 1.00
+                        elseif runeType == 4 then   -- Death
+                            rr, rg, rb = 0.65, 0.25, 0.85
+                        end
+                    end
                     if _runeReady[runeIdx] then
                         -- Ready rune: full brightness + restore background, hide recharge overlay
                         rf._bg:SetAlpha(1)
                         if runeUseThresh then
                             if not _tsBandOn and _tsPartialOnly and pos < _tsThreshCount then
-                                rf:SetActive(true, r, g, b, a)
+                                rf:SetActive(true, rr, rg, rb, a)
                             else
                                 rf:SetActive(true, tr, tg, tb)
                             end
                         else
-                            rf:SetActive(true, r, g, b, a)
+                            rf:SetActive(true, rr, rg, rb, a)
                         end
                         if rf._rechargeBar then rf._rechargeBar:Hide() end
                         if rf._cdText then rf._cdText:SetText("") end
                     else
                         -- Cooling-down rune: hide normal fill + background, show recharge bar
-                        rf:SetActive(false, r, g, b, a)
+                        rf:SetActive(false, rr, rg, rb, a)
                         rf._bg:SetAlpha(0)
 
                         -- Lazily create a StatusBar overlay for recharge progress
@@ -4853,7 +5099,7 @@ local function UpdateSecondaryResource()
                             local elapsed = now - rStart
                             frac = max(0, min(1, elapsed / rDur))
                         end
-                        rf._rechargeBar:SetValue(frac)
+                        ns.SetAnimatedStatusBarValue(rf._rechargeBar, frac)
                         -- Recharge color: custom color when enabled, otherwise 75%
                         -- brightness (subtle dim), matching threshold color when active
                         if sp.runesCustomRecharge then
@@ -4861,7 +5107,7 @@ local function UpdateSecondaryResource()
                         elseif runeUseThresh then
                             rf._rechargeBar:SetStatusBarColor(tr * 0.75, tg * 0.75, tb * 0.75, a)
                         else
-                            rf._rechargeBar:SetStatusBarColor(r * 0.75, g * 0.75, b * 0.75, a)
+                            rf._rechargeBar:SetStatusBarColor(rr * 0.75, rg * 0.75, rb * 0.75, a)
                         end
                         rf._rechargeBar:Show()
 
@@ -5557,7 +5803,7 @@ local function UpdateSecondaryResource()
             end
         end
     else
-        local cur = _ptsCur or UnitPower("player", powerType)
+        local cur = _ptsCur or ns.GetSecondaryPower("player", powerType)
         -- Hide any secret StatusBar overlays left from a combat update that
         -- routed through the secret pip renderer above.
         for i = 1, maxPts do
@@ -5601,7 +5847,7 @@ local function UpdateSecondaryResource()
             local specIdx = GetSpecialization()
             local specID = specIdx and C_SpecializationInfo and C_SpecializationInfo.GetSpecializationInfo(specIdx)
             if specID == 267 then
-                local raw = UnitPower("player", powerType, true)
+                local raw = ns.GetSecondaryPower("player", powerType, true)
                 if raw and (not issecretvalue or not issecretvalue(raw)) then
                     preciseCur = raw / 10
                     frac = preciseCur - cur
@@ -5705,7 +5951,7 @@ local function UpdateSecondaryResource()
                 end
                 nextPip._rechargeBar = sb
             end
-            nextPip._rechargeBar:SetValue(frac)
+            ns.SetAnimatedStatusBarValue(nextPip._rechargeBar, frac)
             --  Partial generator (Evoker/Lock): Color the filling pip the same way the full pips are colored: when the
             -- threshold/band applies to this pip's slot (index cur+1) use that color,
             -- otherwise the base color. Kept dimmed (*0.75) so it still reads as
@@ -5865,6 +6111,64 @@ local function UpdateVisibility()
     end
 end
 
+-- Replace Blizzard's DK rune display while EllesmereUI's class-resource bar
+-- is enabled. RuneFrame is driven by Blizzard events and may Show itself
+-- again after a plain Hide(), so guard its OnShow as well. When the custom bar
+-- is disabled, release the guard and restore the native frame immediately.
+function ns.SyncBlizzardRuneFrame()
+    local runeFrame = _G.RuneFrame
+    if not runeFrame then return end
+
+    if not runeFrame._erbOnShowHooked then
+        runeFrame._erbOnShowHooked = true
+        runeFrame:HookScript("OnShow", function(self)
+            if ERB._hideBlizzardRuneFrame then self:Hide() end
+        end)
+    end
+
+    local _, classFile = UnitClass("player")
+    local sp = _G._ERB_ResolveSecondaryCfg()
+    ERB._hideBlizzardRuneFrame = classFile == "DEATHKNIGHT"
+        and cachedSecondary and cachedSecondary.type == "runes"
+        and sp and sp.enabled ~= false and not IsSpecDisabled(sp)
+
+    if ERB._hideBlizzardRuneFrame then
+        ERB._blizzardRuneFrameSuppressed = true
+        runeFrame:Hide()
+    elseif ERB._blizzardRuneFrameSuppressed then
+        ERB._blizzardRuneFrameSuppressed = nil
+        runeFrame:Show()
+    end
+end
+
+-- Replace Wrath's target-attached combo-point display while the custom class
+-- resource bar owns combo points. ComboFrame can re-show itself on target and
+-- point events, so guard its OnShow just like the native RuneFrame above.
+function ns.SyncBlizzardComboFrame()
+    local comboFrame = _G.ComboFrame
+    if not comboFrame then return end
+
+    if not comboFrame._erbOnShowHooked then
+        comboFrame._erbOnShowHooked = true
+        comboFrame:HookScript("OnShow", function(self)
+            if ERB._hideBlizzardComboFrame then self:Hide() end
+        end)
+    end
+
+    local sp = _G._ERB_ResolveSecondaryCfg()
+    ERB._hideBlizzardComboFrame = select(4, GetBuildInfo()) <= 30300
+        and cachedSecondary and cachedSecondary.power == PT.COMBO
+        and sp and sp.enabled ~= false and not IsSpecDisabled(sp)
+
+    if ERB._hideBlizzardComboFrame then
+        ERB._blizzardComboFrameSuppressed = true
+        comboFrame:Hide()
+    elseif ERB._blizzardComboFrameSuppressed then
+        ERB._blizzardComboFrameSuppressed = nil
+        comboFrame:Show()
+    end
+end
+
 -------------------------------------------------------------------------------
 --  Subsystem tickers
 --
@@ -6018,10 +6322,12 @@ do
     local ag = host:CreateAnimationGroup()
     ag:SetLooping("REPEAT")
     local tick = ag:CreateAnimation("Animation")
-    -- 20 Hz redraw, verified visually smooth: the eased SetValue has the
-    -- engine rendering intermediate fill positions between redraws, so the
-    -- rate governs only text/stage/safety granularity, not fill smoothness.
-    tick:SetDuration(1 / 20)
+    -- WotLK has no StatusBar interpolation or duration-object timer, so the
+    -- fallback SetValue path must redraw at display rate.  The previous 20 Hz
+    -- cadence was smooth on retail only because the engine filled the frames
+    -- between Lua updates; on 3.3.5 it visibly advanced in 50 ms steps.
+    -- Timer text remains change-gated to tenths and all layout data is cached.
+    tick:SetDuration(1 / 60)
     ag:SetScript("OnLoop", function()
         if castBarFrame and (castBarFrame._casting or castBarFrame._channeling
            or castBarFrame._empowering) then
@@ -6038,13 +6344,13 @@ do
     end
 end
 
--- GCD bar ticker: 20 Hz; the eased SetValue inside UpdateGCDBar carries the
--- fill between fires. Runs only while a GCD is live, and the final fire
+-- GCD bar ticker: WotLK has no native interpolation, so redraw at 60 Hz just
+-- like the cast bar. Runs only while a GCD is live, and the final fire
 -- renders the idle state before the loop stops itself.
 ns.GCDTick = EllesmereUI.Tick.NewAnimTicker(EllesmereUI.SafeCreateFrame("Frame"), function()
     UpdateGCDBar()
     return gcdBarFrame and gcdBarFrame._gcdStart ~= nil
-end, 0.05)
+end, 1 / 60)
 
 -------------------------------------------------------------------------------
 
@@ -6957,7 +7263,7 @@ OnCastStart = function()
     local cb = ERB.db.profile.castBar
     if not cb.enabled then return end
 
-    local name, _, _, startTimeMS, endTimeMS, _, _, notInterruptible, spellID, barID = UnitCastingInfo("player")
+    local name, _, texture, startTimeMS, endTimeMS, _, _, notInterruptible, spellID, barID = ns.UnitCastingInfo("player")
     if not name then return end
 
     castBarFrame._casting = true
@@ -6984,8 +7290,8 @@ OnCastStart = function()
 
     -- Icon
     do
-        local spellInfo = C_Spell.GetSpellInfo(spellID)
-        local iconTex = spellInfo and spellInfo.iconID
+        local spellInfo = spellID and C_Spell.GetSpellInfo(spellID)
+        local iconTex = (spellInfo and spellInfo.iconID) or texture
         if iconTex and ERB.db.profile.castBar.showIcon ~= false then
             castBarFrame._icon:SetTexture(iconTex)
             castBarFrame._iconFrame:Show()
@@ -7005,7 +7311,7 @@ OnChannelStart = function()
     local cb = ERB.db.profile.castBar
     if not cb.enabled then return end
 
-    local name, _, _, startTimeMS, endTimeMS, _, notInterruptible, spellID, _, _, channelCastID = UnitChannelInfo("player")
+    local name, _, texture, startTimeMS, endTimeMS, _, notInterruptible, spellID, _, _, channelCastID = ns.UnitChannelInfo("player")
     if not name then
         -- UnitChannelInfo can be empty on rapid channel restarts (e.g. SCK spam).
         -- Single retry on the next frame; if still nil the channel was cancelled.
@@ -7042,8 +7348,8 @@ OnChannelStart = function()
 
     -- Icon
     do
-        local spellInfo = C_Spell.GetSpellInfo(spellID)
-        local iconTex = spellInfo and spellInfo.iconID
+        local spellInfo = spellID and C_Spell.GetSpellInfo(spellID)
+        local iconTex = (spellInfo and spellInfo.iconID) or texture
         if iconTex and ERB.db.profile.castBar.showIcon ~= false then
             castBarFrame._icon:SetTexture(iconTex)
             castBarFrame._iconFrame:Show()
@@ -7065,7 +7371,7 @@ OnChannelUpdate = function()
     if not castBarFrame then return end
     if not castBarFrame._channeling then return end
 
-    local name, _, _, startTimeMS, endTimeMS, _, _, spellID = UnitChannelInfo("player")
+    local name, _, _, startTimeMS, endTimeMS, _, _, spellID = ns.UnitChannelInfo("player")
     if not name then return end
 
     castBarFrame._startTime = startTimeMS / 1000
@@ -7082,7 +7388,7 @@ end
 local function OnCastComplete(eventCastID)
     if not castBarFrame then return end
     if not castBarFrame._casting then return end
-    if not eventCastID or not castBarFrame._castID or eventCastID ~= castBarFrame._castID then return end
+    if eventCastID and castBarFrame._castID and eventCastID ~= castBarFrame._castID then return end
     castBarFrame._casting = false
     castBarFrame._castID = nil
     EllesmereUI.SetElementVisibility(castBarFrame, false)
@@ -7095,7 +7401,7 @@ end
 local function OnCastFailed(eventCastID)
     if not castBarFrame then return end
     if not castBarFrame._casting then return end
-    if not eventCastID or not castBarFrame._castID or eventCastID ~= castBarFrame._castID then return end
+    if eventCastID and castBarFrame._castID and eventCastID ~= castBarFrame._castID then return end
     castBarFrame._casting = false
     castBarFrame._castID = nil
     EllesmereUI.SetElementVisibility(castBarFrame, false)
@@ -7105,7 +7411,7 @@ end
 local function OnChannelStop(eventCastID)
     if not castBarFrame then return end
     if not castBarFrame._channeling then return end
-    if not eventCastID or not castBarFrame._castID or eventCastID ~= castBarFrame._castID then return end
+    if eventCastID and castBarFrame._castID and eventCastID ~= castBarFrame._castID then return end
     castBarFrame._channeling = false
     castBarFrame._castID = nil
     HideChannelTicks()
@@ -7179,7 +7485,7 @@ OnEmpowerStart = function()
     local cb = ERB.db.profile.castBar
     if not cb.enabled then return end
 
-    local name, _, _, startTimeMS, endTimeMS, _, notInterruptible, spellID, empowering, _, empowerCastID = UnitChannelInfo("player")
+    local name, _, _, startTimeMS, endTimeMS, _, notInterruptible, spellID, empowering, _, empowerCastID = ns.UnitChannelInfo("player")
     if not name or not empowering then return end
 
     -- Add hold-at-max time to the end
@@ -7274,7 +7580,7 @@ OnEmpowerUpdate = function()
     if not castBarFrame then return end
     if not castBarFrame._empowering then return end
 
-    local name, _, _, startTimeMS, endTimeMS, _, notInterruptible, spellID, empowering = UnitChannelInfo("player")
+    local name, _, _, startTimeMS, endTimeMS, _, notInterruptible, spellID, empowering = ns.UnitChannelInfo("player")
     if not name or not empowering then return end
 
     local holdAtMax = GetUnitEmpowerHoldAtMaxTime("player")
@@ -7389,7 +7695,7 @@ BuildGCDBar = function()
                 if event ~= "UNIT_SPELLCAST_START" then
                     self._realCastSpellID = spellID
                 else
-                    local _, _, _, st, et = UnitCastingInfo("player")
+                    local _, _, _, st, et = ns.UnitCastingInfo("player")
                     if st and et and et > st then
                         self._realCastSpellID = spellID
                     end
@@ -7440,7 +7746,7 @@ BuildGCDBar = function()
                 -- Defer the capture one frame and skip it if channeling.
 				-- Avoids a 1-frame flash on channel start
                 C_Timer.After(0, function()
-                    if UnitChannelInfo and UnitChannelInfo("player") then return end
+                    if ns.UnitChannelInfo("player") then return end
                     captureGCD()
                 end)
             else
@@ -7677,6 +7983,82 @@ local function GetCooldownNumberFS(cd)
     return nil
 end
 
+-- Wrath's four active-totem buttons predate the retail mixin fields used by
+-- the skinning code below.  Their parts are named globals instead:
+-- TotemFrameTotem1Icon, TotemFrameTotem1IconTexture, and so on.  Attach the
+-- same field shape locally so both clients can share the layout/style path.
+local function NormalizeLegacyTotemButton(btn)
+    if not btn then return btn end
+    local name = btn.GetName and btn:GetName()
+    if not name then return btn end
+
+    -- Some 3.3.5 clients populate btn.Icon themselves, others only create the
+    -- named global.  Complete any missing pieces in either case.
+    local icon = btn.Icon or _G[name .. "Icon"]
+    if icon then
+        icon.Texture = icon.Texture or _G[name .. "IconTexture"]
+        icon.Cooldown = icon.Cooldown or _G[name .. "IconCooldown"]
+        btn.Icon = icon
+    end
+    btn.Background = btn.Background or _G[name .. "Background"]
+    btn.Duration = btn.Duration or _G[name .. "Duration"]
+    btn._euiLegacyTotem = true
+    return btn
+end
+
+local function HideLegacyTotemBorder(btn)
+    if not (btn and btn._euiLegacyTotem) then return end
+    -- The named Background is separate from the spell icon and contributes
+    -- another piece of the stock circular presentation.
+    if btn.Background then
+        btn.Background:Hide()
+        if btn.Background.SetAlpha then btn.Background:SetAlpha(0) end
+        -- TotemFrame_Update shows this texture again whenever the slot changes.
+        -- Wrath skinning addons conventionally suppress its Show method.
+        if not btn.Background._euiShowSuppressed then
+            btn.Background._euiShowSuppressed = true
+            btn.Background.Show = function() end
+        end
+    end
+    -- The 3.3.5 TotemBorder texture lives in a nameless child frame, so it
+    -- cannot be reached through a stable global.  Hide only regions using the
+    -- known TotemBorder artwork and leave the icon/duration regions intact.
+    local frames = { btn }
+    local iconLevel = btn.Icon and btn.Icon:GetFrameLevel()
+    for _, child in ipairs({ btn:GetChildren() }) do
+        frames[#frames + 1] = child
+        -- In Wrath XML the circular border is a nameless direct child placed
+        -- exactly one frame level above the named Icon frame.  Some clients
+        -- return no usable texture path for its region, so identify the border
+        -- frame from the stable hierarchy shown by /fstack as well.
+        if child ~= btn.Icon
+            and not child:GetName()
+            and iconLevel
+            and child:GetFrameLevel() == iconLevel + 1
+        then
+            child:Hide()
+            child:SetAlpha(0)
+            -- Blizzard explicitly re-shows this frame during updates, which
+            -- undoes a normal Hide(). Keep the stock art permanently inert;
+            -- our border overlay is a different frame at a different level.
+            if not child._euiShowSuppressed then
+                child._euiShowSuppressed = true
+                child.Show = function() end
+            end
+        end
+    end
+    for _, frame in ipairs(frames) do
+        for _, region in ipairs({ frame:GetRegions() }) do
+            if region.GetTexture then
+                local texture = region:GetTexture()
+                if type(texture) == "string" and texture:lower():find("totemborder", 1, true) then
+                    region:Hide()
+                end
+            end
+        end
+    end
+end
+
 local function LayoutTotemBar()
     if not totemBarFrame or not TotemFrame then return end
     local tb = GetTotemSettings()
@@ -7690,7 +8072,12 @@ local function LayoutTotemBar()
 
     -- Use SetScale on TotemFrame rather than SetSize on individual buttons.
     -- Buttons keep their native template size; scale controls visual size.
-    local nativeSize = 37
+    local isLegacyTotemFrame = type(_G.TotemFrame_Update) == "function"
+        and type(TotemFrame.Update) ~= "function"
+    -- Wrath's clickable icon is 30x30; the stock circular border surrounding
+    -- it is 38x38. Scaling from 38 made the actual icons too small and caused
+    -- the oversized borders to visually overlap before they were suppressed.
+    local nativeSize = isLegacyTotemFrame and 30 or 37
     local iconScale = iconSize / nativeSize
 
     -- Reparent and position TotemFrame every call (Blizzard's Update can reset these)
@@ -7720,10 +8107,22 @@ local function LayoutTotemBar()
     local buttons = cache.buttons
     if not buttons then buttons = {}; cache.buttons = buttons end
     local count = 0
-    for _, child in ipairs({ TotemFrame:GetChildren() }) do
-        if child:IsShown() and child.Icon and child:GetObjectType() == "Button" then
-            count = count + 1
-            buttons[count] = child
+    if isLegacyTotemFrame then
+        -- Wrath supports four simultaneous elemental totems.  Use their stable
+        -- slot order instead of relying on child enumeration order.
+        for i = 1, 4 do
+            local btn = NormalizeLegacyTotemButton(_G["TotemFrameTotem" .. i])
+            if btn and btn:IsShown() and btn.Icon then
+                count = count + 1
+                buttons[count] = btn
+            end
+        end
+    else
+        for _, child in ipairs({ TotemFrame:GetChildren() }) do
+            if child:IsShown() and child.Icon and child:GetObjectType() == "Button" then
+                count = count + 1
+                buttons[count] = child
+            end
         end
     end
     -- Trim stale entries
@@ -7781,6 +8180,7 @@ local function LayoutTotemBar()
 
         -- Hide Blizzard's circular border
         if btn.Border then btn.Border:Hide() end
+        HideLegacyTotemBorder(btn)
 
         -- Make Icon frame fill the entire button
         if btn.Icon then
@@ -7820,11 +8220,30 @@ local function LayoutTotemBar()
         -- Blizzard's "Xs" Duration string. The number is C-rendered from the
         -- cooldown (secret-safe, no "s" suffix); we restyle only its FontString
         -- region, so nothing reads the protected duration value.
-        if btn.Duration then
-            btn.Duration:SetTextColor(0, 0, 0, 0)  -- hide the "Xs" text
-        end
         local cd = btn.Icon and btn.Icon.Cooldown
-        if cd and cd.SetHideCountdownNumbers then
+        if isLegacyTotemFrame and btn.Duration then
+            -- Wrath's Duration belongs to the lower-level button while Icon is
+            -- a child frame above it, so merely changing the FontString's draw
+            -- layer can still leave the text behind the icon. Reparent it to a
+            -- dedicated host above the cooldown and our border overlay.
+            local timerHost = btn._euiTimerHost
+            if not timerHost then
+                timerHost = EllesmereUI.SafeCreateFrame("Frame", nil, btn)
+                timerHost:SetAllPoints(btn.Icon or btn)
+                btn._euiTimerHost = timerHost
+            end
+            timerHost:SetFrameLevel(btn:GetFrameLevel() + 4)
+            btn.Duration:SetParent(timerHost)
+            btn.Duration:SetDrawLayer("OVERLAY")
+        end
+        -- Some 3.3.5 clients backport SetHideCountdownNumbers without actually
+        -- providing retail's C-rendered countdown FontString.  Choose by frame
+        -- generation, not method presence, or Wrath's real Duration text gets
+        -- hidden with no replacement.
+        if not isLegacyTotemFrame and cd and cd.SetHideCountdownNumbers then
+            if btn.Duration then
+                btn.Duration:SetTextColor(0, 0, 0, 0)  -- hide retail's "Xs" text
+            end
             cd:SetHideCountdownNumbers(not tb.showTimer)
             if tb.showTimer then
                 local cdText = GetCooldownNumberFS(cd)
@@ -7832,6 +8251,18 @@ local function LayoutTotemBar()
                     cdText:SetFont(fontPath, scaledTimerSize, outlineMode)
                     cdText:SetTextColor(1, 1, 1, 1)
                 end
+            end
+        elseif btn.Duration then
+            -- 3.3.5 has no C-rendered cooldown number. Its ordinary duration
+            -- FontString is safe to style and is the only countdown available.
+            if tb.showTimer then
+                btn.Duration:SetFont(fontPath, scaledTimerSize, outlineMode)
+                btn.Duration:SetTextColor(1, 1, 1, 1)
+                btn.Duration:ClearAllPoints()
+                btn.Duration:SetPoint("CENTER", btn, "CENTER", 0, 0)
+                btn.Duration:Show()
+            else
+                btn.Duration:Hide()
             end
         end
 
@@ -7860,7 +8291,7 @@ local function LayoutTotemBar()
     end
 
     -- Size container
-    local maxButtons = 5
+    local maxButtons = isLegacyTotemFrame and 4 or 5
     local maxDim = iconSize * maxButtons + spacing * (maxButtons - 1)
     if vertical then
         totemBarFrame:SetSize(iconSize, maxDim)
@@ -7962,9 +8393,16 @@ local function BuildTotemBar()
             local s = GetTotemSettings()
             if s and s.enabledClasses then LayoutTotemBar() end
         end
-        hooksecurefunc(TotemFrame, "Update", OnTotemUpdate)
+        -- Retail exposes Update as a TotemFrame method, while 3.3.5 uses the
+        -- legacy global TotemFrame_Update function.  hooksecurefunc errors when
+        -- asked to hook a missing method, so select the API that actually exists.
+        if type(TotemFrame.Update) == "function" then
+            hooksecurefunc(TotemFrame, "Update", OnTotemUpdate)
+        elseif type(_G.TotemFrame_Update) == "function" then
+            hooksecurefunc("TotemFrame_Update", OnTotemUpdate)
+        end
         TotemFrame:HookScript("OnShow", OnTotemUpdate)
-        if TotemButtonMixin then
+        if TotemButtonMixin and type(TotemButtonMixin.OnLoad) == "function" then
             hooksecurefunc(TotemButtonMixin, "OnLoad", function()
                 C_Timer.After(0, OnTotemUpdate)
             end)
@@ -7977,24 +8415,36 @@ end
 -------------------------------------------------------------------------------
 --  Master Apply
 -------------------------------------------------------------------------------
--- Native StatusBar fill smoothing (opt-in per bar; default off). Mirrors the
--- Unit Frames approach: store the interpolation mode on the bar and let the
--- CreateStatusBar SetValue wrapper pass it to Blizzard's C-side interpolation.
--- nil = no interpolation = zero added cost (a plain SetValue). Only the three
--- main bars are toggled here (pips never smooth). The cast bar never smooths:
--- its fill is recomputed from GetTime() every frame (already smooth), and
--- easing toward that moving target made the fill trail real progress so the
--- bar looked cut off at cast end. The GCD bar keeps its own bar._castInterp.
+-- StatusBar fill smoothing (opt-in per bar; default off). Retail uses native
+-- C-side interpolation; WotLK routes the same toggle through the shared legacy
+-- driver above. Only the three main bars are toggled here (discrete pips never
+-- smooth). Cast and GCD bars use their direct 60 Hz time-based paths.
 function ERB:ApplySmoothing()
     local interp = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.ExponentialEaseOut
     local p = ERB.db and ERB.db.profile
-    if not (interp and p) then return end
+    if not p then return end
     local _hCfg = _G._ERB_ResolveHealthCfg(p)
     local _pCfg = _G._ERB_ResolvePowerCfg(p)
     local _sCfg = _G._ERB_ResolveSecondaryCfg(p)
-    if healthBar    then healthBar._smoothing    = (_hCfg      and _hCfg.smoothBars)        and interp or nil end
-    if primaryBar   then primaryBar._smoothing   = (_pCfg      and _pCfg.smoothBars)        and interp or nil end
-    if secondaryBar then secondaryBar._smoothing = (_sCfg and _sCfg.smoothBars) and interp or nil end
+    local mode = interp or true
+    if healthBar then
+        healthBar._smoothing = (_hCfg and _hCfg.smoothBars) and mode or nil
+        if not healthBar._smoothing and ns.CancelLegacyStatusBarSmoothing then
+            ns.CancelLegacyStatusBarSmoothing(healthBar._sb)
+        end
+    end
+    if primaryBar then
+        primaryBar._smoothing = (_pCfg and _pCfg.smoothBars) and mode or nil
+        if not primaryBar._smoothing and ns.CancelLegacyStatusBarSmoothing then
+            ns.CancelLegacyStatusBarSmoothing(primaryBar._sb)
+        end
+    end
+    if secondaryBar then
+        secondaryBar._smoothing = (_sCfg and _sCfg.smoothBars) and mode or nil
+        if not secondaryBar._smoothing and ns.CancelLegacyStatusBarSmoothing then
+            ns.CancelLegacyStatusBarSmoothing(secondaryBar._sb)
+        end
+    end
 end
 
 -------------------------------------------------------------------------------
@@ -8109,6 +8559,8 @@ function ERB:ApplyAll()
     UpdatePrimaryBar()
     UpdateSecondaryResource()
     UpdateVisibility()
+    ns.SyncBlizzardRuneFrame()
+    ns.SyncBlizzardComboFrame()
     self:ApplySmoothing()
     if ns.MigrateLegacyAnchorTo then ns.MigrateLegacyAnchorTo() end
 
@@ -8118,14 +8570,17 @@ function ERB:ApplyAll()
         local function InitVehicleProxy()
             if ERB._vehicleProxy then return end
             ERB._vehicleProxy = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent, "SecureHandlerStateTemplate")
-            ERB._vehicleProxy:SetAttribute("_onstate-erbvehicle", [[
+            EUI.API.SetSecureAttr(ERB._vehicleProxy, "_onstate-erbvehicle", [[
                 self:CallMethod("OnVehicleStateChanged", newstate)
             ]])
             ERB._vehicleProxy.OnVehicleStateChanged = function(_, state)
                 ERB._inVehicle = (state == "hide")
                 UpdateVisibility()
             end
-            RegisterStateDriver(ERB._vehicleProxy, "erbvehicle", "[vehicleui][petbattle] hide; show")
+            -- [petbattle] was added after WotLK and causes an "unknown macro
+            -- option" error on 3.3.5 clients. Pet battles do not exist here,
+            -- so only the supported vehicle condition is needed.
+            RegisterStateDriver(ERB._vehicleProxy, "erbvehicle", "[vehicleui] hide; show")
         end
         if InCombatLockdown() then
             local waiter = EllesmereUI.SafeCreateFrame("Frame")
@@ -8185,7 +8640,9 @@ local function OnEvent(self, event, ...)
         if cachedSecondary and cachedSecondary.power == "BREWMASTER_STAGGER" then
             UpdateSecondaryResource()
         end
-    elseif event == "UNIT_POWER_UPDATE" or event == "UNIT_POWER_FREQUENT" then
+    elseif event == "UNIT_POWER_UPDATE" or event == "UNIT_POWER_FREQUENT"
+        or event == "UNIT_MANA" or event == "UNIT_RAGE"
+        or event == "UNIT_ENERGY" or event == "UNIT_RUNIC_POWER" then
         local unit, powerToken = ...
         if unit == "player" then
             UpdatePrimaryBar()
@@ -8213,7 +8670,9 @@ local function OnEvent(self, event, ...)
         if cachedSecondary and cachedSecondary.power == "IGNOREPAIN_BAR" then
             UpdateSecondaryResource()
         end
-    elseif event == "UNIT_MAXPOWER" then
+    elseif event == "UNIT_MAXPOWER" or event == "UNIT_MAXMANA"
+        or event == "UNIT_MAXRAGE" or event == "UNIT_MAXENERGY"
+        or event == "UNIT_MAXRUNIC_POWER" then
         -- Re-check secondary resource in case max changed (e.g. talent-based pip count)
         local newSec = GetSecondaryResource()
         local oldMax = cachedSecondary and cachedSecondary.max
@@ -8225,6 +8684,18 @@ local function OnEvent(self, event, ...)
             UpdateVisibility()
         end
         UpdatePrimaryBar()
+        UpdateSecondaryResource()
+    elseif event == "UNIT_DISPLAYPOWER" then
+        -- Stance/form changes can swap the player's active resource without
+        -- producing the modern UNIT_POWER events on legacy clients.
+        cachedPrimary = GetPrimaryPowerType()
+        UpdatePrimaryBar()
+        UpdateSecondaryResource()
+        UpdateVisibility()
+        ns.SyncBlizzardComboFrame()
+    elseif event == "UNIT_COMBO_POINTS" then
+        -- Wrath combo points belong to the current target, not the player
+        -- power stream, and therefore have their own update event.
         UpdateSecondaryResource()
     elseif event == "RUNE_POWER_UPDATE" then
         UpdateSecondaryResource()
@@ -8244,6 +8715,11 @@ local function OnEvent(self, event, ...)
             EllesmereUI.HandleSweepingStrikes(event)
         end
     elseif event == "PLAYER_TARGET_CHANGED" then
+        -- Acquiring or dropping a target also changes the value returned by
+        -- GetComboPoints, sometimes without a separate combo-point event.
+        if cachedSecondary and cachedSecondary.power == PT.COMBO then
+            UpdateSecondaryResource()
+        end
         UpdateVisibility()
     elseif event == "PLAYER_MOUNT_DISPLAY_CHANGED" or event == "PLAYER_CAN_GLIDE_CHANGED"
         or event == "PLAYER_IS_GLIDING_CHANGED" then
@@ -8301,6 +8777,7 @@ local function OnEvent(self, event, ...)
         UpdatePrimaryBar()
         UpdateSecondaryResource()
         UpdateVisibility()
+        ns.SyncBlizzardComboFrame()
     elseif event == "UNIT_AURA" then
         local unit = ...
         if unit == "player" then
@@ -8367,7 +8844,7 @@ local function OnEvent(self, event, ...)
         -- UNIT_SPELLCAST_CHANNEL_UPDATE.)
         local unit = ...
         if unit == "player" and castBarFrame and castBarFrame._casting then
-            local name, _, _, startTimeMS, endTimeMS = UnitCastingInfo("player")
+            local name, _, _, startTimeMS, endTimeMS = ns.UnitCastingInfo("player")
             if name then
                 castBarFrame._startTime = startTimeMS / 1000
                 castBarFrame._endTime = endTimeMS / 1000
@@ -8564,9 +9041,25 @@ function ERB:OnEnable()
     local eventFrame = _erbEventFrame
     eventFrame:RegisterUnitEvent("UNIT_HEALTH", "player")
     eventFrame:RegisterUnitEvent("UNIT_MAXHEALTH", "player")
-    eventFrame:RegisterUnitEvent("UNIT_POWER_UPDATE", "player")
-    eventFrame:RegisterUnitEvent("UNIT_POWER_FREQUENT", "player")
-    eventFrame:RegisterUnitEvent("UNIT_MAXPOWER", "player")
+    if select(4, GetBuildInfo()) <= 30300 then
+        -- Wrath publishes resource-specific events rather than the unified
+        -- UNIT_POWER_* stream. Register every possible player power so the
+        -- same update path remains responsive across classes and forms.
+        eventFrame:RegisterUnitEvent("UNIT_MANA", "player")
+        eventFrame:RegisterUnitEvent("UNIT_RAGE", "player")
+        eventFrame:RegisterUnitEvent("UNIT_ENERGY", "player")
+        eventFrame:RegisterUnitEvent("UNIT_RUNIC_POWER", "player")
+        eventFrame:RegisterUnitEvent("UNIT_MAXMANA", "player")
+        eventFrame:RegisterUnitEvent("UNIT_MAXRAGE", "player")
+        eventFrame:RegisterUnitEvent("UNIT_MAXENERGY", "player")
+        eventFrame:RegisterUnitEvent("UNIT_MAXRUNIC_POWER", "player")
+        eventFrame:RegisterUnitEvent("UNIT_DISPLAYPOWER", "player")
+        eventFrame:RegisterEvent("UNIT_COMBO_POINTS")
+    else
+        eventFrame:RegisterUnitEvent("UNIT_POWER_UPDATE", "player")
+        eventFrame:RegisterUnitEvent("UNIT_POWER_FREQUENT", "player")
+        eventFrame:RegisterUnitEvent("UNIT_MAXPOWER", "player")
+    end
     eventFrame:RegisterEvent("RUNE_POWER_UPDATE")
     eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
     eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")

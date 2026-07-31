@@ -1061,25 +1061,26 @@ initFrame:SetScript("OnEvent", function(self)
                   end },
             },
         }
-        local function crestRow(label, key)
+        local function currencyRow(label, currencyKey, crestKey)
             return { type="toggle", label=label,
                      get=function()
-                         return not (EllesmereUIDB and EllesmereUIDB["showCrest_"..key] == false)
+                         return not (EllesmereUIDB and (EllesmereUIDB["showCurrency_"..currencyKey] == false or EllesmereUIDB["showCrest_"..crestKey] == false))
                      end,
                      set=function(v)
                          if not EllesmereUIDB then EllesmereUIDB = {} end
-                         EllesmereUIDB["showCrest_"..key] = v
+                         EllesmereUIDB["showCurrency_"..currencyKey] = v
+                         EllesmereUIDB["showCrest_"..crestKey] = v
                          if EllesmereUI._refreshStatsVisibility then EllesmereUI._refreshStatsVisibility() end
                      end }
         end
-        local crestsCogOpts = {
-            title = "Crests",
+        local currencyCogOpts = {
+            title = "Currency",
             rows = {
-                crestRow("Show Myth",       "Myth"),
-                crestRow("Show Hero",       "Hero"),
-                crestRow("Show Champion",   "Champion"),
-                crestRow("Show Veteran",    "Veteran"),
-                crestRow("Show Adventurer", "Adventurer"),
+                currencyRow("Show Emblem of Frost",    "EmblemOfFrost",   "Myth"),
+                currencyRow("Show Emblem of Triumph",  "EmblemOfTriumph", "Hero"),
+                currencyRow("Show Emblem of Conquest", "EmblemOfConquest","Champion"),
+                currencyRow("Show Emblem of Valor",    "EmblemOfValor",   "Veteran"),
+                currencyRow("Show Emblem of Heroism",  "EmblemOfHeroism", "Adventurer"),
             },
         }
 
@@ -1087,50 +1088,48 @@ initFrame:SetScript("OnEvent", function(self)
         statRow1, h = W:DualRow(parent, y,
             StatCategoryToggle("Show Attributes", "Attributes",
                 "Toggle visibility of the Attributes stat category."),
-            StatCategoryToggle("Show Secondary", "SecondaryStats",
-                "Toggle visibility of the Secondary Stats category.")
+            StatCategoryToggle("Show Melee", "Melee",
+                "Toggle visibility of the Melee stat category.")
         );  y = y - h
         AttachDisabledOverlay(statRow1)
         AttachStatSwatch(statRow1._leftRegion, "Attributes",
             { r = 0.047, g = 0.824, b = 0.616 }, StatCategoryEnabled("Attributes"))
-        AttachStatSwatch(statRow1._rightRegion, "Secondary Stats",
-            { r = 0.471, g = 0.255, b = 0.784 }, StatCategoryEnabled("SecondaryStats"),
-            secondaryCogOpts)
+        AttachStatSwatch(statRow1._rightRegion, "Melee",
+            { r = 1, g = 0.353, b = 0.122 }, StatCategoryEnabled("Melee"))
 
         local statRow2
         statRow2, h = W:DualRow(parent, y,
-            StatCategoryToggle("Show Tertiary", "Tertiary",
-                "Toggle visibility of the Tertiary stat category (Leech, Avoidance, Speed)."),
-            StatCategoryToggle("Show Attack", "Attack",
-                "Toggle visibility of the Attack stat category.")
+            StatCategoryToggle("Show Ranged", "Ranged",
+                "Toggle visibility of the Ranged stat category."),
+            StatCategoryToggle("Show Spell", "Spell",
+                "Toggle visibility of the Spell stat category.")
         );  y = y - h
         AttachDisabledOverlay(statRow2)
-        AttachStatSwatch(statRow2._leftRegion, "Tertiary Stats",
-            { r = 0.859, g = 0.325, b = 0.855 }, StatCategoryEnabled("Tertiary"),
-            tertiaryCogOpts)
-        AttachStatSwatch(statRow2._rightRegion, "Attack",
-            { r = 1, g = 0.353, b = 0.122 }, StatCategoryEnabled("Attack"))
+        AttachStatSwatch(statRow2._leftRegion, "Ranged",
+            { r = 0.859, g = 0.6, b = 0.3 }, StatCategoryEnabled("Ranged"))
+        AttachStatSwatch(statRow2._rightRegion, "Spell",
+            { r = 0.471, g = 0.255, b = 0.784 }, StatCategoryEnabled("Spell"))
 
         local statRow3
         statRow3, h = W:DualRow(parent, y,
             StatCategoryToggle("Show Defense", "Defense",
                 "Toggle visibility of the Defense stat category."),
-            StatCategoryToggle("Show Crests", "Crests",
-                "Toggle visibility of the Crests stat category.")
+            StatCategoryToggle("Show Currency", "Currency",
+                "Toggle visibility of the Currency stat category.")
         );  y = y - h
         AttachDisabledOverlay(statRow3)
         AttachStatSwatch(statRow3._leftRegion, "Defense",
             { r = 0.247, g = 0.655, b = 1 }, StatCategoryEnabled("Defense"))
-        AttachStatSwatch(statRow3._rightRegion, "Crests",
-            { r = 1, g = 0.784, b = 0.341 }, StatCategoryEnabled("Crests"),
-            crestsCogOpts)
+        AttachStatSwatch(statRow3._rightRegion, "Currency",
+            { r = 1, g = 0.784, b = 0.341 }, StatCategoryEnabled("Currency"),
+            currencyCogOpts)
 
         local statRow4
         statRow4, h = W:DualRow(parent, y,
             StatCategoryToggle("Show PvP", "PvP",
-                "Toggle visibility of the PvP stat category (Honor Level, Honor, Conquest)."),
+                "Toggle visibility of the PvP stat category."),
             { type="toggle", text="Show Diminishing Returns",
-              tooltip="Add diminishing-returns detail (adjusted rating, wasted rating, and current penalty bracket) to the Secondary and Tertiary stat tooltips.",
+              tooltip="Add diminishing-returns detail to stat tooltips.",
               getValue=function() return EllesmereUIDB and EllesmereUIDB.showAdjustedStats or false end,
               setValue=function(v)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
@@ -1383,8 +1382,8 @@ initFrame:SetScript("OnEvent", function(self)
     --  and nav deep-links keep working. Expand state is session-only; clicking
     --  a header rebuilds the page with that card open or closed.
     ---------------------------------------------------------------------------
-    local WS_ARROW_DOWN = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-down3.png"
-    local WS_ARROW_UP   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-up3.png"
+    local WS_ARROW_DOWN = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-down3.tga"
+    local WS_ARROW_UP   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-up3.tga"
     local WS_CARD_INSET = 0    -- card edges align with the DualRow content width
     local WS_HEADER_H   = 54
     local WS_CARD_GAP   = 14

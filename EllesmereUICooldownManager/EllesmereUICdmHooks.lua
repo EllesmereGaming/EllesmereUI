@@ -963,7 +963,7 @@ end
 --  swipe so a charge spell shows the edge only. Resolved only when in use
 --  (ns._cdmAnyChargeStyle) so the swipe lookup costs ~0 for everyone else.
 -------------------------------------------------------------------------------
-local CDM_EDGE_TEXTURE = "Interface\\AddOns\\EllesmereUI\\media\\edge.png"
+local CDM_EDGE_TEXTURE = "Interface\\AddOns\\EllesmereUI\\media\\edge.tga"
 
 -- Resolve the per-spell settings table for a CDM frame. Thin wrapper: looks up
 -- the frame's spell/bar identity, then defers to ResolveSpellSettings -- the same
@@ -7547,7 +7547,7 @@ end
 -------------------------------------------------------------------------------
 do
     local AB_MEDIA      = "Interface\\AddOns\\EllesmereUIActionBars\\Media\\"
-    local AB_HIGHLIGHT  = { AB_MEDIA .. "highlight-2.png", AB_MEDIA .. "highlight-3.png", AB_MEDIA .. "highlight-4.png" }
+    local AB_HIGHLIGHT  = { AB_MEDIA .. "highlight-2.tga", AB_MEDIA .. "highlight-3.tga", AB_MEDIA .. "highlight-4.tga" }
     local DEPRESS_TEX   = "Interface\\Buttons\\UI-Quickslot-Depress"
     local DEPRESS_INSET = 0.14   -- crop the beveled border off the fallback texture
     local MIN_VISIBLE   = 0.05   -- floor so ultra-fast taps still show a press

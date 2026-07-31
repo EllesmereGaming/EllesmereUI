@@ -35,7 +35,7 @@ local EUI_ALL_SLOTS = {
     "InspectChestSlot", "InspectShirtSlot", "InspectTabardSlot", "InspectWristSlot",
     "InspectHandsSlot", "InspectWaistSlot", "InspectLegsSlot", "InspectFeetSlot",
     "InspectTrinket0Slot", "InspectTrinket1Slot", "InspectFinger0Slot", "InspectFinger1Slot",
-    "InspectMainHandSlot", "InspectSecondaryHandSlot",
+    "InspectMainHandSlot", "InspectSecondaryHandSlot", "InspectRangedSlot",
 }
 
 -- Slot grid layout mapping
@@ -58,7 +58,16 @@ local slotGridMap = {
     InspectTrinket1Slot = {col = 1, row = 7},
     InspectMainHandSlot = {slot = "MainHand"},
     InspectSecondaryHandSlot = {slot = "SecondaryHand"},
+    InspectRangedSlot = {slot = "Ranged"},
 }
+
+-- Retail nests the equipment buttons in InspectPaperDollItemsFrame.  The
+-- 3.3.5 Inspect UI uses InspectPaperDollFrame itself for the same job.
+-- Keeping that difference behind one helper lets the themed layout and all
+-- visibility refreshes work on both versions.
+local function GetInspectItemsFrame()
+    return _G.InspectPaperDollItemsFrame or _G.InspectPaperDollFrame
+end
 
 -- Slots that can have enchants in current expansion (mirrors CharacterSheet)
 local INSPECT_ENCHANT_SLOTS = {
@@ -301,6 +310,37 @@ local function SkinInspectSheet()
     local frame = InspectFrame
     if not frame then return end
 
+    -- Match the themed CharacterFrame canvas.  The stock 3.3.5 inspect frame
+    -- is much narrower, which otherwise leaves the old paper-doll composition
+    -- intact even after its textures have been stripped.
+    frame:SetWidth(550)
+
+    local isLegacyInspect = not _G.InspectPaperDollItemsFrame and _G.InspectPaperDollFrame ~= nil
+
+    -- The 3.3.5 sheet builds its ornate frame from unnamed texture regions,
+    -- rather than NineSlice/Background members.  Strip only direct texture
+    -- regions from the chrome containers; equipment icons are children of the
+    -- slot buttons and remain untouched.
+    if isLegacyInspect and not GetFFD(frame)._legacyChromeStripped then
+        GetFFD(frame)._legacyChromeStripped = true
+        local function HideTextureRegions(owner)
+            if not owner then return end
+            for i = 1, owner:GetNumRegions() do
+                local region = select(i, owner:GetRegions())
+                if region and region.IsObjectType and region:IsObjectType("Texture") then
+                    region:SetAlpha(0)
+                end
+            end
+        end
+        HideTextureRegions(frame)
+        HideTextureRegions(_G.InspectPaperDollFrame)
+        HideTextureRegions(_G.InspectModelFrame)
+
+        for _, button in ipairs({ _G.InspectModelRotateLeftButton, _G.InspectModelRotateRightButton }) do
+            if button then button:Hide() end
+        end
+    end
+
 
     local FRAME_BG_R, FRAME_BG_G, FRAME_BG_B = 0.03, 0.045, 0.05
 
@@ -310,7 +350,7 @@ local function SkinInspectSheet()
     else
         local BG_ASPECT = 561 / 433
         local bg = frame:CreateTexture(nil, "BACKGROUND", nil, -8)
-        bg:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.png")
+        bg:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.tga")
         bg:SetAllPoints(frame)
         bg:SetAlpha(1)
         GetFFD(frame).bg = bg
@@ -364,7 +404,7 @@ local function SkinInspectSheet()
     if InspectFrameBg then InspectFrameBg:SetAlpha(0) end
     if InspectFrameInset and InspectFrameInset.Bg then InspectFrameInset.Bg:SetAlpha(0) end
 
-    -- Create model background (matches character sheet: character-bg.png, no glow/gradient)
+    -- Create model background (matches character sheet: character-bg.tga, no glow/gradient)
     -- Deferred until InspectModelFrame exists (created lazily by Blizzard)
     local function TryCreateModelBg()
         if GetFFD(frame).modelBgFrame then return end
@@ -375,7 +415,7 @@ local function SkinInspectSheet()
         bgFrame:ClearAllPoints()
         -- Match the Character sheet: span the backdrop across the full gear
         -- width (left gear column to right gear column) and down to the model
-        -- bottom, so character-bg.png covers the whole gear + model area. The
+        -- bottom, so character-bg.tga covers the whole gear + model area. The
         -- inspect model sits at Blizzard's default center spot, so its right edge
         -- stops short of the right gear; anchor the right edge to the right gear
         -- column instead. Falls back progressively if the slots are not up yet.
@@ -394,7 +434,7 @@ local function SkinInspectSheet()
         end
         local bgTex = bgFrame:CreateTexture(nil, "BACKGROUND")
         bgTex:SetAllPoints(bgFrame)
-        bgTex:SetTexture("Interface\\AddOns\\EllesmereUIBlizzardSkin\\Media\\character-bg.png")
+        bgTex:SetTexture("Interface\\AddOns\\EllesmereUIBlizzardSkin\\Media\\character-bg.tga")
         bgTex:SetAlpha(1)
 
         GetFFD(frame).modelBg      = bgTex
@@ -621,7 +661,7 @@ local function SkinInspectSheet()
 
         -- Suppress other unnamed buttons in InspectPaperDollItemsFrame.
         -- Never touch buttons other addons parent in here (theirs to run).
-        local paperDollItemsFrame = InspectPaperDollItemsFrame
+        local paperDollItemsFrame = GetInspectItemsFrame()
         if paperDollItemsFrame then
             local IsForeignBtn = ns.WSkin and ns.WSkin.IsForeignFrame
             local talentsBtn = paperDollItemsFrame.InspectTalents
@@ -713,7 +753,7 @@ local function SkinInspectSheet()
     end
 
     -- Grid layout: 2 columns, 8 rows
-    local cellWidth = 280
+    local cellWidth = isLegacyInspect and 500 or 280
     local cellHeight = 41
     local gridStartX = 10
     local gridStartY = -60
@@ -737,8 +777,8 @@ local function SkinInspectSheet()
     -- matches the CharacterSheet eyeball. State lives in FFD so it survives the
     -- frequent inspect re-skins (the SetAlpha above re-applies it each pass).
     if not GetFFD(frame).textEyeBtn then
-        local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-        local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+        local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.tga"
+        local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.tga"
         local eyeBtn = EllesmereUI.SafeCreateFrame("Button", "EUI_InspectSheet_TextEyeBtn", frame)
         eyeBtn:SetSize(20, 20)
         eyeBtn:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -6)
@@ -769,7 +809,8 @@ local function SkinInspectSheet()
     end
 
     -- Position slots and style them
-    if InspectPaperDollItemsFrame then
+    local inspectItemsFrame = GetInspectItemsFrame()
+    if inspectItemsFrame then
         for slotName, gridPos in pairs(slotGridMap) do
             local slot = _G[slotName]
             if slot then
@@ -782,7 +823,7 @@ local function SkinInspectSheet()
                     slot:ClearAllPoints()
                     local xOffset = gridStartX + (gridPos.col * cellWidth)
                     local yOffset = gridStartY - (gridPos.row * cellHeight)
-                    slot:SetPoint("TOPLEFT", InspectPaperDollItemsFrame, "TOPLEFT", xOffset, yOffset)
+                    slot:SetPoint("TOPLEFT", inspectItemsFrame, "TOPLEFT", xOffset, yOffset)
 
                     -- Style the slot with borders, ilvl, enchants (right column = col 1)
                     local isRightColumn = gridPos.col == 1
@@ -792,13 +833,26 @@ local function SkinInspectSheet()
         end
     end
 
+    -- Use the full themed canvas on 3.3.5.  Its native paper-doll/model area is
+    -- only about 330px wide, which is why widening the shell alone produced a
+    -- large empty panel on the right.
+    if isLegacyInspect and InspectModelFrame then
+        InspectModelFrame:ClearAllPoints()
+        InspectModelFrame:SetPoint("TOPLEFT", frame, "TOPLEFT", 80, -76)
+        InspectModelFrame:SetSize(390, 324)
+    end
+
     -- Position weapon slots at bottom (matches CharacterSheet pattern --
     -- hardcoded offset, no GetWidth which can return a secret value).
     if InspectMainHandSlot and InspectSecondaryHandSlot then
         InspectMainHandSlot:ClearAllPoints()
-        InspectMainHandSlot:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 128, 10)
+        InspectMainHandSlot:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", isLegacyInspect and 203 or 128, 10)
         InspectSecondaryHandSlot:ClearAllPoints()
         InspectSecondaryHandSlot:SetPoint("TOPLEFT", InspectMainHandSlot, "TOPRIGHT", 12, 0)
+        if InspectRangedSlot then
+            InspectRangedSlot:ClearAllPoints()
+            InspectRangedSlot:SetPoint("TOPLEFT", InspectSecondaryHandSlot, "TOPRIGHT", 12, 0)
+        end
     end
 
     -- Average item level + M+ score, centered below the title/level text.
@@ -967,6 +1021,19 @@ local function SkinInspectSheet()
     end
     if ns.WSkin and ns.WSkin.NormalizeTabRow then ns.WSkin.NormalizeTabRow(inspTabs) end
 
+    if isLegacyInspect and #inspTabs > 0 then
+        local TAB_W, TAB_H = 110, 30
+        for i, tab in ipairs(inspTabs) do
+            tab:ClearAllPoints()
+            tab:SetSize(TAB_W, TAB_H)
+            if i == 1 then
+                tab:SetPoint("BOTTOM", frame, "BOTTOM", -TAB_W, 55)
+            else
+                tab:SetPoint("LEFT", inspTabs[i - 1], "RIGHT", 0, 0)
+            end
+        end
+    end
+
     -- Update tab visuals on show
     local function UpdateTabVisuals()
         local isTab1 = (frame.selectedTab or 1) == 1
@@ -1052,6 +1119,28 @@ local function SkinInspectSheet()
             if child and child:GetObjectType() == "FontString" then
                 child:SetJustifyH("CENTER")
             end
+        end
+    end
+
+
+    -- Legacy title widgets are not inside TitleContainer.
+    if isLegacyInspect then
+        local nameText = _G.InspectNameText or _G.InspectFrameTitleText
+        local levelText = _G.InspectLevelText
+        if nameText then
+            nameText:ClearAllPoints()
+            nameText:SetPoint("TOP", frame, "TOP", 0, -7)
+            nameText:SetJustifyH("CENTER")
+        end
+        if levelText then
+            levelText:ClearAllPoints()
+            levelText:SetPoint("TOP", nameText or frame, nameText and "BOTTOM" or "TOP", 0, nameText and -4 or -28)
+            levelText:SetJustifyH("CENTER")
+        end
+        local closeBtn = frame.CloseButton or _G.InspectFrameCloseButton
+        if closeBtn then
+            closeBtn:ClearAllPoints()
+            closeBtn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -7, -6)
         end
     end
 
@@ -1298,6 +1387,17 @@ if EllesmereUI then
         end)
 
         InspectFrame:HookScript("OnShow", EnsureInspectNineSliceHidden)
+
+        -- Some 3.3.5 clients show InspectFrame as part of loading
+        -- Blizzard_InspectUI, before ADDON_LOADED listeners get their turn.
+        -- Apply immediately as well as through the OnShow hook so the first
+        -- inspection is never left with Blizzard's stock artwork.
+        if InspectFrame:IsShown() then
+            skinned = false
+            ApplyThemedInspectSheet()
+            EnsureInspectNineSliceHidden()
+            RefreshDock()
+        end
     end
 
     initFrame:RegisterEvent("PLAYER_LOGIN")
@@ -1313,7 +1413,8 @@ if EllesmereUI then
 
     -- Function to refresh all slot styles when inspect data changes
     local function RefreshSlotStyles()
-        if not InspectPaperDollItemsFrame then return end
+        local inspectItemsFrame = GetInspectItemsFrame()
+        if not inspectItemsFrame then return end
         if not InspectFrame then return end
         local textOverlayFrame = GetFFD(InspectFrame).textOverlayFrame
         if not textOverlayFrame then return end
@@ -1349,7 +1450,7 @@ if EllesmereUI then
         -- Update label visibility after all slots have been styled
         local frame = InspectFrame
         if frame then
-            ApplyTabVisibility(InspectPaperDollItemsFrame and InspectPaperDollItemsFrame:IsShown())
+            ApplyTabVisibility(inspectItemsFrame:IsShown())
         end
     end
 
@@ -1364,7 +1465,8 @@ if EllesmereUI then
         RefreshSlotStyles()
         local frame = InspectFrame
         if frame then
-            ApplyTabVisibility(InspectPaperDollItemsFrame and InspectPaperDollItemsFrame:IsShown())
+            local inspectItemsFrame = GetInspectItemsFrame()
+            ApplyTabVisibility(inspectItemsFrame and inspectItemsFrame:IsShown())
             -- Apply visibility settings after styling
             if EllesmereUI._refreshInspectItemLevelVisibility then
                 EllesmereUI._refreshInspectItemLevelVisibility()
@@ -1410,10 +1512,11 @@ end
 
 -- Function to refresh item level visibility when toggle changes
 function EllesmereUI._refreshInspectItemLevelVisibility()
-    if not InspectFrame or not InspectPaperDollItemsFrame then return end
+    local inspectItemsFrame = GetInspectItemsFrame()
+    if not InspectFrame or not inspectItemsFrame then return end
 
     local showItemLevel = (not EllesmereUIDB) or (EllesmereUIDB.inspectShowItemLevel ~= false)
-    local isTab1 = InspectPaperDollItemsFrame and InspectPaperDollItemsFrame:IsShown()
+    local isTab1 = inspectItemsFrame:IsShown()
 
     for slotName, _ in pairs(slotGridMap) do
         local slot = _G[slotName]
@@ -1426,10 +1529,11 @@ end
 
 -- Function to refresh upgrade track visibility when toggle changes
 function EllesmereUI._refreshInspectUpgradeTrackVisibility()
-    if not InspectFrame or not InspectPaperDollItemsFrame then return end
+    local inspectItemsFrame = GetInspectItemsFrame()
+    if not InspectFrame or not inspectItemsFrame then return end
 
     local showUpgradeTrack = (not EllesmereUIDB) or (EllesmereUIDB.inspectShowUpgradeTrack ~= false)
-    local isTab1 = InspectPaperDollItemsFrame and InspectPaperDollItemsFrame:IsShown()
+    local isTab1 = inspectItemsFrame:IsShown()
 
     for slotName, _ in pairs(slotGridMap) do
         local slot = _G[slotName]
@@ -1442,10 +1546,11 @@ end
 
 -- Function to refresh enchants visibility when toggle changes
 function EllesmereUI._refreshInspectEnchantsVisibility()
-    if not InspectFrame or not InspectPaperDollItemsFrame then return end
+    local inspectItemsFrame = GetInspectItemsFrame()
+    if not InspectFrame or not inspectItemsFrame then return end
 
     local showEnchants = (not EllesmereUIDB) or (EllesmereUIDB.inspectShowEnchants ~= false)
-    local isTab1 = InspectPaperDollItemsFrame and InspectPaperDollItemsFrame:IsShown()
+    local isTab1 = inspectItemsFrame:IsShown()
 
     for slotName, _ in pairs(slotGridMap) do
         local slot = _G[slotName]
@@ -1455,4 +1560,3 @@ function EllesmereUI._refreshInspectEnchantsVisibility()
         end
     end
 end
-

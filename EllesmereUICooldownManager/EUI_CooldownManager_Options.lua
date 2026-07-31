@@ -1641,8 +1641,8 @@ initFrame:SetScript("OnEvent", function(self)
                     -- Eyeball preview toggle (on left region of glow type row)
                     do
                         local EYE_MEDIA = "Interface\\AddOns\\EllesmereUI\\media\\icons\\"
-                        local EYE_VIS   = EYE_MEDIA .. "eui-visible.png"
-                        local EYE_INVIS = EYE_MEDIA .. "eui-invisible.png"
+                        local EYE_VIS   = EYE_MEDIA .. "eui-visible.tga"
+                        local EYE_INVIS = EYE_MEDIA .. "eui-invisible.tga"
                         local leftRgn = glowRow._leftRegion
                         if leftRgn and leftRgn._control then
                             local eyeBtn = EllesmereUI.SafeCreateFrame("Button", nil, leftRgn)
@@ -3016,7 +3016,7 @@ initFrame:SetScript("OnEvent", function(self)
     --  ShowStackThreshEditor() rebinds it to the calling bar each time it opens.
     ---------------------------------------------------------------------------
     local STACK_THRESH_MAX = 5
-    local _stCloseIcon = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.png"
+    local _stCloseIcon = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.tga"
     local stPopup
     local _stRows = {}
     local _stGetCfg, _stRefreshFn
@@ -3747,7 +3747,7 @@ initFrame:SetScript("OnEvent", function(self)
                         delIcon:SetSize(ICON_SZ, ICON_SZ)
                         delIcon:SetPoint("CENTER")
                         if delIcon.SetSnapToPixelGrid then delIcon:SetSnapToPixelGrid(false); delIcon:SetTexelSnappingBias(0) end
-                        delIcon:SetTexture(MEDIA .. "icons\\eui-close.png")
+                        delIcon:SetTexture(MEDIA .. "icons\\eui-close.tga")
                         delBtn:SetAlpha(0.6)
                         delBtn:SetScript("OnEnter", function()
                             delBtn:SetAlpha(1)
@@ -3859,7 +3859,7 @@ initFrame:SetScript("OnEvent", function(self)
                     delIcon:SetSize(ICON_SZ, ICON_SZ)
                     delIcon:SetPoint("CENTER")
                     if delIcon.SetSnapToPixelGrid then delIcon:SetSnapToPixelGrid(false); delIcon:SetTexelSnappingBias(0) end
-                    delIcon:SetTexture(MEDIA .. "icons\\eui-close.png")
+                    delIcon:SetTexture(MEDIA .. "icons\\eui-close.tga")
                     delBtn:SetAlpha(0.75)
                     iLbl:SetPoint("RIGHT", delBtn, "LEFT", -4, 0)
 
@@ -4192,7 +4192,7 @@ initFrame:SetScript("OnEvent", function(self)
             end
 
             local MEDIA_ICONS = "Interface\\AddOns\\EllesmereUI\\media\\icons\\"
-            MakeActionCard(0, MEDIA_ICONS .. "power.png",
+            MakeActionCard(0, MEDIA_ICONS .. "power.tga",
                 "Use Blizzard CDM Bars", "Switch back to Blizzard's bars.", function()
                     EllesmereUI:ShowConfirmPopup({
                         title = "Use Blizzard Bars",
@@ -4208,13 +4208,13 @@ initFrame:SetScript("OnEvent", function(self)
                         end,
                     })
                 end)
-            MakeActionCard(CARD_W + CARD_GAP, MEDIA_ICONS .. "eui-open.png",
+            MakeActionCard(CARD_W + CARD_GAP, MEDIA_ICONS .. "eui-open.tga",
                 "Open Blizzard CDM", "Manage your tracked bars.", function()
                     if ns.OpenBlizzardCDMTab then
                         ns.OpenBlizzardCDMTab(true)
                     end
                 end)
-            MakeActionCard((CARD_W + CARD_GAP) * 2, MEDIA_ICONS .. "sync.png",
+            MakeActionCard((CARD_W + CARD_GAP) * 2, MEDIA_ICONS .. "sync.tga",
                 _broadcastLabel, "Copy this bar to every spec.", function()
                     local sel = SelectedTBB()
                     if _tbbSelectedGroup or not ns.IsTrackedBuffBarBroadcastable(sel) then return end
@@ -4393,7 +4393,7 @@ initFrame:SetScript("OnEvent", function(self)
                         local xIcon = xBtn:CreateTexture(nil, "OVERLAY")
                         xIcon:SetAllPoints()
                         if xIcon.SetSnapToPixelGrid then xIcon:SetSnapToPixelGrid(false); xIcon:SetTexelSnappingBias(0) end
-                        xIcon:SetTexture(MEDIA_PR .. "eui-close.png")
+                        xIcon:SetTexture(MEDIA_PR .. "eui-close.tga")
                         xBtn:SetAlpha(0.4)
                         itm._xBtn = xBtn
 
@@ -4404,7 +4404,7 @@ initFrame:SetScript("OnEvent", function(self)
                         local editIcon = editBtn:CreateTexture(nil, "OVERLAY")
                         editIcon:SetAllPoints()
                         if editIcon.SetSnapToPixelGrid then editIcon:SetSnapToPixelGrid(false); editIcon:SetTexelSnappingBias(0) end
-                        editIcon:SetTexture(MEDIA_PR .. "eui-edit.png")
+                        editIcon:SetTexture(MEDIA_PR .. "eui-edit.tga")
                         editBtn:SetAlpha(0.4)
                         itm._editBtn = editBtn
 
@@ -9810,7 +9810,7 @@ initFrame:SetScript("OnEvent", function(self)
                         local arrow = row:CreateTexture(nil, "ARTWORK")
                         arrow:SetSize(10, 10)
                         arrow:SetPoint("RIGHT", row, "RIGHT", -8, 0)
-                        arrow:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\right-arrow.png")
+                        arrow:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\right-arrow.tga")
                         arrow:SetAlpha(RowDisabled() and 0.2 or 0.7)
 
                         local hl = row:CreateTexture(nil, "ARTWORK")
@@ -10008,7 +10008,7 @@ initFrame:SetScript("OnEvent", function(self)
                                 local sArrow = si:CreateTexture(nil, "ARTWORK")
                                 sArrow:SetSize(10, 10)
                                 sArrow:SetPoint("RIGHT", si, "RIGHT", -8, 0)
-                                sArrow:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\right-arrow.png")
+                                sArrow:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\right-arrow.tga")
                                 sArrow:SetAlpha(0.7)
                                 sArrow:Hide()
                                 local function updateArrow()
@@ -10859,7 +10859,7 @@ initFrame:SetScript("OnEvent", function(self)
                             UpdateLabel()
                             local arrow = row:CreateTexture(nil, "ARTWORK")
                             arrow:SetSize(10, 10); arrow:SetPoint("RIGHT", row, "RIGHT", -8, 0)
-                            arrow:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\right-arrow.png")
+                            arrow:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\right-arrow.tga")
                             arrow:SetAlpha(0.7)
                             local hl = row:CreateTexture(nil, "ARTWORK")
                             hl:SetAllPoints(); hl:SetTexture(1, 1, 1, 0); hl:SetAlpha(0)
@@ -12943,7 +12943,7 @@ initFrame:SetScript("OnEvent", function(self)
             local ctArrow = ctItem:CreateTexture(nil, "ARTWORK")
             ctArrow:SetSize(10, 10)
             ctArrow:SetPoint("RIGHT", ctItem, "RIGHT", -8, 0)
-            ctArrow:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\right-arrow.png")
+            ctArrow:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\right-arrow.tga")
             ctArrow:SetAlpha(0.7)
 
             local function ShowCustomTrackingSub()
@@ -13296,7 +13296,7 @@ initFrame:SetScript("OnEvent", function(self)
                 local potArrow = potItem:CreateTexture(nil, "ARTWORK")
                 potArrow:SetSize(10, 10)
                 potArrow:SetPoint("RIGHT", potItem, "RIGHT", -8, 0)
-                potArrow:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\right-arrow.png")
+                potArrow:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\right-arrow.tga")
                 potArrow:SetAlpha(0.7)
 
                 local function ShowPotionsSub()
@@ -16342,7 +16342,7 @@ initFrame:SetScript("OnEvent", function(self)
                         delIcon:SetSize(ICON_SZ, ICON_SZ)
                         delIcon:SetPoint("CENTER", delBtn, "CENTER", 0, 0)
                         if delIcon.SetSnapToPixelGrid then delIcon:SetSnapToPixelGrid(false); delIcon:SetTexelSnappingBias(0) end
-                        delIcon:SetTexture(MEDIA .. "icons\\eui-close.png")
+                        delIcon:SetTexture(MEDIA .. "icons\\eui-close.tga")
                         delBtn:SetAlpha(0.75)
 
                         editBtn = EllesmereUI.SafeCreateFrame("Button", nil, item)
@@ -16353,7 +16353,7 @@ initFrame:SetScript("OnEvent", function(self)
                         edIcon:SetSize(ICON_SZ, ICON_SZ)
                         edIcon:SetPoint("CENTER", editBtn, "CENTER", 0, 0)
                         if edIcon.SetSnapToPixelGrid then edIcon:SetSnapToPixelGrid(false); edIcon:SetTexelSnappingBias(0) end
-                        edIcon:SetTexture(MEDIA .. "icons\\eui-edit.png")
+                        edIcon:SetTexture(MEDIA .. "icons\\eui-edit.tga")
                         editBtn:SetAlpha(0.75)
 
                         iLbl:SetPoint("RIGHT", editBtn, "LEFT", -4, 0)
@@ -19229,6 +19229,13 @@ initFrame:SetScript("OnEvent", function(self)
             tip:EnableMouse(true)
             tip:SetPoint("TOP", preview, "BOTTOM", 0, -12)
 
+            local function DismissTip()
+                tip:Hide()
+                if EllesmereUIDB then EllesmereUIDB.cdmButtonTipSeen = true end
+            end
+
+            tip:SetScript("OnMouseDown", DismissTip)
+
             -- Background
             local bg = tip:CreateTexture(nil, "BACKGROUND")
             bg:SetAllPoints()
@@ -19236,6 +19243,24 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- Border
             EllesmereUI.MakeBorder(tip, ar, ag, ab, 0.25, PP)
+
+            -- Close button (X)
+            local closeX = EllesmereUI.SafeCreateFrame("Button", nil, tip)
+            closeX:SetSize(20, 20)
+            closeX:SetPoint("TOPRIGHT", tip, "TOPRIGHT", -4, -4)
+            closeX:SetFrameLevel(tip:GetFrameLevel() + 20)
+
+            local xText = tip:CreateFontString(nil, "OVERLAY")
+            local FONT_PATH_X = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("cdm"))
+                or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
+            xText:SetFont(FONT_PATH_X, 11, "")
+            xText:SetTextColor(1, 1, 1, 0.6)
+            xText:SetPoint("CENTER")
+            xText:SetText("✕")
+
+            closeX:SetScript("OnEnter", function() xText:SetTextColor(1, 1, 1, 1) end)
+            closeX:SetScript("OnLeave", function() xText:SetTextColor(1, 1, 1, 0.6) end)
+            closeX:SetScript("OnClick", DismissTip)
 
             -- Arrow pointing up
             local ARROW_SZ = 16
@@ -19282,10 +19307,7 @@ initFrame:SetScript("OnEvent", function(self)
             okBtn:SetSize(86, 26)
             okBtn:SetPoint("BOTTOM", tip, "BOTTOM", 0, 11)
             EllesmereUI.MakeStyledButton(okBtn, "Okay", 11,
-                EllesmereUI.RB_COLOURS, function()
-                    tip:Hide()
-                    if EllesmereUIDB then EllesmereUIDB.cdmButtonTipSeen = true end
-                end)
+                EllesmereUI.RB_COLOURS, DismissTip)
 
             _cdmButtonTip = tip
         end
