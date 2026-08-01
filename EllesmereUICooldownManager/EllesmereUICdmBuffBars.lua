@@ -2692,7 +2692,7 @@ local function MatchFrameToConfig(frame, cfg)
     if cfg.trackType == "cooldown" then return false end
     local cdID = frame.cooldownID
     if not cdID then return false end
-    local gci = function(id) return EUICompat.CDM.ActiveProvider:GetEntry(id) end
+    local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
     if not gci then return false end
     local info = gci(cdID)
     if not info then return false end
@@ -2936,7 +2936,7 @@ function ns.IsSpellInBuffBarViewer(spellID)
     if not spellID or spellID <= 0 then return false end
     local viewer = _G["BuffBarCooldownViewer"]
     if not viewer or not viewer.itemFramePool then return false end
-    local gci = function(id) return EUICompat.CDM.ActiveProvider:GetEntry(id) end
+    local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
     if not gci then return false end
     local GetCanonical = ns.GetCanonicalSpellIDForFrame
     for frame in viewer.itemFramePool:EnumerateActive() do
@@ -3056,8 +3056,8 @@ local function SpellCoveredByBars(bars, sp)
     -- so an Eclipse Solar bar is not duplicated when Lunar's frame appears
     -- under a talent-swapped id.
     local info
-    if sp.cdID and EUICompat.CDM.ActiveProvider then
-        info = EUICompat.CDM.ActiveProvider:GetEntry(sp.cdID)
+    if sp.cdID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
+        info = C_CooldownViewer.GetCooldownViewerCooldownInfo(sp.cdID)
     end
     for _, cfg in ipairs(bars) do
         if CfgWantsSID(cfg, sp.spellID) then return true end
@@ -3119,8 +3119,8 @@ local function AutoAddTrackedToGroup(tbb, gid, ignoreSeen)
                 nb.name = sp.name
                 -- Base-form capture for talent-override spells (same as the
                 -- picker): keeps the bar matching once the talent is removed.
-                if sp.cdID and EUICompat.CDM.ActiveProvider then
-                    local info = EUICompat.CDM.ActiveProvider:GetEntry(sp.cdID)
+                if sp.cdID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
+                    local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(sp.cdID)
                     if info and info.spellID and info.spellID > 0 and info.spellID ~= sp.spellID then
                         nb.baseSpellID = info.spellID
                     end
@@ -3174,7 +3174,7 @@ end
 --- Same pattern as IsSpellInBuffBarViewer but for CD/Utility bars.
 function ns.IsSpellInCDUtilViewer(spellID)
     if not spellID or spellID <= 0 then return false end
-    local gci = function(id) return EUICompat.CDM.ActiveProvider:GetEntry(id) end
+    local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
     if not gci then return false end
     local viewers = { "EssentialCooldownViewer", "UtilityCooldownViewer" }
     for _, vName in ipairs(viewers) do

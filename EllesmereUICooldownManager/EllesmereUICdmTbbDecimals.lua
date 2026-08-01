@@ -142,7 +142,7 @@ local function AddCooldownInfoIDs(include, cfg)
         AddCleanID(include, ns.GetCanonicalSpellIDForFrame(frame))
     end
     local cdID = frame.cooldownID
-    local gci = function(id) return EUICompat.CDM.ActiveProvider:GetEntry(id) end
+    local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
     local info = cdID and gci and gci(cdID)
     if not info then return end
     AddCleanID(include, info.spellID)

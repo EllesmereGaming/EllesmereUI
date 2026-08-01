@@ -1,12 +1,17 @@
 local addonName, ns = ...
-local EUICompat = _G.EUICompat
 
-if not EUICompat.IsWotLK then return end
+if not C_CooldownViewer or not C_CooldownViewer.RegisterDefinition then return end
 
-EUICompat.CDM.ActiveProvider:RegisterDefinition({
+-- Category Constants based on EllesmereUI defaults
+local CDM_CATEGORY_ESSENTIAL = 1
+local CDM_CATEGORY_UTILITY   = 2
+local CDM_CATEGORY_BUFF_ICON = 3
+local CDM_CATEGORY_BUFF_BAR  = 4
+
+C_CooldownViewer.RegisterDefinition({
     key = "deathknight.icebound_fortitude",
     cooldownID = 100001,
-    category = EUICompat.CDM_CATEGORY_ESSENTIAL,
+    category = CDM_CATEGORY_ESSENTIAL,
     order = 10,
 
     spellID = 48792,
@@ -16,10 +21,10 @@ EUICompat.CDM.ActiveProvider:RegisterDefinition({
     class = "DEATHKNIGHT",
 })
 
-EUICompat.CDM.ActiveProvider:RegisterDefinition({
+C_CooldownViewer.RegisterDefinition({
     key = "deathknight.killing_machine",
     cooldownID = 200001,
-    category = EUICompat.CDM_CATEGORY_BUFF_ICON,
+    category = CDM_CATEGORY_BUFF_ICON,
     order = 20,
 
     spellID = 51124,

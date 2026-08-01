@@ -1,4 +1,0 @@
-local addonName, ns = ...
-local EUICompat = _G.EUICompat
-
-EUICompat.Secure = {}

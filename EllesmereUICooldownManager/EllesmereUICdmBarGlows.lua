@@ -416,8 +416,8 @@ SlashCmdList.EUIBGDEBUG = function(msg)
                         if ok then print(("    COOLDOWN: start=%s dur=%s"):format(_safe(s), _safe(d))) end
                     end
                     -- Blizzard cooldown-info struct (hasAura / isBuff / linked etc.)
-                    if cdID and EUICompat.CDM.ActiveProvider then
-                        local info = EUICompat.CDM.ActiveProvider:GetEntry(cdID)
+                    if cdID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
+                        local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
                         if info then
                             local parts = {}
                             for k, v in pairs(info) do
