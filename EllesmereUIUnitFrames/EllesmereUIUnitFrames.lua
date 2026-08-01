@@ -5550,7 +5550,10 @@ local function ApplyConfigCastbarBorder(castbarBg, settings)
     local castbar = castbarBg._statusBar
     local bgLevel = castbarBg:GetFrameLevel()
     if castbar then castbar:SetFrameLevel(bgLevel + 2) end
-    borderFrame:SetFrameLevel(settings.castbarBorderBehind and (bgLevel + 1) or (bgLevel + 5))
+    -- "Show Behind" means behind the complete castbar background, not merely
+    -- behind the StatusBar fill.  Keep the border below its parent level so the
+    -- background texture and fill both render over it (matches the preview).
+    borderFrame:SetFrameLevel(settings.castbarBorderBehind and math.max(0, bgLevel - 1) or (bgLevel + 5))
     EllesmereUI.ApplyBorderStyle(borderFrame, settings.castbarBorderSize or 1,
         settings.castbarBorderR or 0, settings.castbarBorderG or 0,
         settings.castbarBorderB or 0, settings.castbarBorderA == nil and 1 or settings.castbarBorderA,
@@ -5599,13 +5602,15 @@ local function ApplyConfigCastbarIconBorder(castbar, settings)
         or (not isPlayer and settings.showCastIcon ~= false and settings.castbarIconInWidth ~= false)
     local size = inWidth and 0 or (settings.castbarBorderSize or 1)
     local bgLevel = castbarBg:GetFrameLevel()
-    -- A detached icon is an independent foreground element. Keep both its art
-    -- and border above the castbar's highest border layer (+5).
-    iconFrame:SetFrameLevel(inWidth and (bgLevel + 2) or (bgLevel + 7))
+    -- A detached icon is an independent foreground element. Keep its artwork
+    -- above the castbar; when Show Behind is enabled, place its border just
+    -- below that artwork instead of forcing it into the foreground.
+    local iconLevel = inWidth and (bgLevel + 2) or (bgLevel + 7)
+    iconFrame:SetFrameLevel(iconLevel)
     if inWidth then
-        borderFrame:SetFrameLevel(settings.castbarBorderBehind and (bgLevel + 1) or (bgLevel + 5))
+        borderFrame:SetFrameLevel(settings.castbarBorderBehind and math.max(0, bgLevel - 1) or (bgLevel + 5))
     else
-        borderFrame:SetFrameLevel(bgLevel + 9)
+        borderFrame:SetFrameLevel(settings.castbarBorderBehind and math.max(0, iconLevel - 1) or (bgLevel + 9))
     end
     EllesmereUI.ApplyBorderStyle(borderFrame, size,
         settings.castbarBorderR or 0, settings.castbarBorderG or 0,

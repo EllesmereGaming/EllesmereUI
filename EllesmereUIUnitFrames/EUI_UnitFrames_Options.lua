@@ -2883,7 +2883,8 @@ initFrame:SetScript("OnEvent", function(self)
                             if ciInWidth then
                                 ibf:SetFrameLevel(s.castbarBorderBehind and math.max(0, castbar:GetFrameLevel() - 1) or (castbar:GetFrameLevel() + 5))
                             else
-                                ibf:SetFrameLevel(castbar:GetFrameLevel() + 9)
+                                local iconLevel = castbar:GetFrameLevel() + 7
+                                ibf:SetFrameLevel(s.castbarBorderBehind and math.max(0, iconLevel - 1) or (castbar:GetFrameLevel() + 9))
                             end
                             EllesmereUI.ApplyBorderStyle(ibf, iconBorderSize,
                                 s.castbarBorderR or 0, s.castbarBorderG or 0,
