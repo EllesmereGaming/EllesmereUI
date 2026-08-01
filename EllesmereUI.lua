@@ -1977,9 +1977,11 @@ do
                 and EllesmereUIDB.charSheetItemLevelColor then
                 return EllesmereUIDB.charSheetItemLevelColor
             end
-            local upgradeText, upgradeColor = EllesmereUI.GetUpgradeTrack(itemLink)
-            if upgradeText and upgradeText ~= "" and upgradeColor then
-                return upgradeColor
+            if not (EllesmereUIDB and EllesmereUIDB.charSheetItemLevelIgnoreTrack) then
+                local upgradeText, upgradeColor = EllesmereUI.GetUpgradeTrack(itemLink)
+                if upgradeText and upgradeText ~= "" and upgradeColor then
+                    return upgradeColor
+                end
             end
             if (not EllesmereUIDB or EllesmereUIDB.charSheetColorItemLevel ~= false) and itemQuality then
                 local r, g, b = GetItemQualityColor(itemQuality)

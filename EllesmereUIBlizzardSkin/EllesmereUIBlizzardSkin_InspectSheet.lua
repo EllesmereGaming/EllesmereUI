@@ -150,7 +150,7 @@ local function EUI_UpdateSlotStyle(slotName, slotID, textOverlayFrame, isRightCo
             local displayColor
             if EllesmereUIDB and EllesmereUIDB.charSheetItemLevelUseColor and EllesmereUIDB.charSheetItemLevelColor then
                 displayColor = EllesmereUIDB.charSheetItemLevelColor
-            elseif upgradeTrackText ~= "" and upgradeTrackColor then
+            elseif not (EllesmereUIDB and EllesmereUIDB.charSheetItemLevelIgnoreTrack) and upgradeTrackText ~= "" and upgradeTrackColor then
                 displayColor = upgradeTrackColor
             elseif (not EllesmereUIDB or EllesmereUIDB.charSheetColorItemLevel ~= false) then
                 local _, _, quality = GetItemInfo(itemLink)

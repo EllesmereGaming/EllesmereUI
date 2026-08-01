@@ -887,6 +887,41 @@ initFrame:SetScript("OnEvent", function(self)
         );  y = y - h
         AttachDisabledOverlay(coreRow1)
 
+        -- Inline cog on the Item Level toggle: color-by-rarity override.
+        -- Disabled (grayed, non-interactive) while Item Level is hidden.
+        do
+            local rgn = coreRow1._rightRegion
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Item Level Options",
+                rows = {
+                    { type="toggle", label="Color by Rarity",
+                      tooltip="Always color the item level by item rarity instead of its upgrade track.",
+                      get=function() return EllesmereUIDB and EllesmereUIDB.charSheetItemLevelIgnoreTrack or false end,
+                      set=function(v)
+                          if not EllesmereUIDB then EllesmereUIDB = {} end
+                          EllesmereUIDB.charSheetItemLevelIgnoreTrack = v
+                          if EllesmereUI._refreshCharSheetSlotLabels then EllesmereUI._refreshCharSheetSlotLabels() end
+                      end },
+                },
+            })
+            local cogBtn = CreateFrame("Button", nil, rgn)
+            cogBtn:SetSize(26, 26)
+            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = cogBtn
+            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY"); cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
+            local function ilvlOn() return EllesmereUIDB and EllesmereUIDB.showItemLevel ~= false end
+            cogBtn:SetScript("OnEnter", function(s) if ilvlOn() then s:SetAlpha(0.7) end end)
+            cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(ilvlOn() and 0.4 or 0.15) end)
+            cogBtn:SetScript("OnClick", function(s) if ilvlOn() then cogShow(s) end end)
+            local function cogState()
+                local on = ilvlOn()
+                cogBtn:SetAlpha(on and 0.4 or 0.15)
+                cogBtn:EnableMouse(on)
+            end
+            EllesmereUI.RegisterWidgetRefresh(cogState); cogState()
+        end
+
         local coreRow2
         coreRow2, h = W:DualRow(parent, y,
             { type="toggle", text="Upgrade Track",

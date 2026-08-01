@@ -1828,6 +1828,7 @@ do
         "showMythicRating", "showItemLevel", "showUpgradeTrack", "showGems",
         "showEnchants", "showPvpItemLevel", "charSheetSocketPanel",
         "charSheetIconZoom", "charSheetEnchantNames", "charSheetEnchantSize",
+        "charSheetItemLevelIgnoreTrack",
         "flyoutItemLevels", "showSecondaryRaw", "showSecondaryBoth",
         "showTertiaryRaw", "showTertiaryBoth", "showAdjustedStats",
         "showManaStat",

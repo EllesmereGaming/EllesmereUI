@@ -1924,7 +1924,7 @@ function EUI_Bank:RefreshBank()
                         local rankText, trackColor = GetUpgradeTrack(itemLink)
                         if BP().itemlevelUseCustomColor and BP().itemlevelCustomColor then
                             r, g, b = BP().itemlevelCustomColor.r, BP().itemlevelCustomColor.g, BP().itemlevelCustomColor.b
-                        elseif rankText and rankText ~= "" and trackColor then
+                        elseif not BP().itemlevelIgnoreTrackColor and rankText and rankText ~= "" and trackColor then
                             r, g, b = trackColor.r, trackColor.g, trackColor.b
                         end
                     end

@@ -4614,7 +4614,7 @@ local function SkinCharacterSheet()
         local ilvlColor
         if EllesmereUIDB and EllesmereUIDB.charSheetItemLevelUseColor and EllesmereUIDB.charSheetItemLevelColor then
             ilvlColor = EllesmereUIDB.charSheetItemLevelColor
-        elseif upgradeTrackText ~= "" and upgradeTrackColor then
+        elseif not (EllesmereUIDB and EllesmereUIDB.charSheetItemLevelIgnoreTrack) and upgradeTrackText ~= "" and upgradeTrackColor then
             ilvlColor = upgradeTrackColor
         elseif (not EllesmereUIDB or EllesmereUIDB.charSheetColorItemLevel ~= false) and itemQuality then
             local r, g, b = GetItemQualityColor(itemQuality)
