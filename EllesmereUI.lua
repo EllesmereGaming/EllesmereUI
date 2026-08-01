@@ -1665,7 +1665,7 @@ local function MakeBorder(parent, r, g, b, a, ppOverride)
     local alpha = a or 1
     r = r or 0; g = g or 0; b = b or 0
     local bf = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
-    bf:SetAllPoints(parent)
+    bf:SetAllPoints()
     bf:SetFrameLevel(parent:GetFrameLevel() + 1)
     bf:EnableMouse(false)
 
@@ -2685,7 +2685,7 @@ do
         -- 4 texture strips instead of BackdropTemplate: avoids NineSlice corner
         -- sub-frames that render as black boxes on nameplate frames.
         local container = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
-        container:SetAllPoints(frame)
+        container:SetAllPoints()
         container:SetFrameLevel(frame:GetFrameLevel() + 1)
 
         local WHITE = "Interface\\Buttons\\WHITE8X8"
@@ -9544,7 +9544,7 @@ end
 
 local function PlaySearchHighlight(hl, targetFrame)
     hl:SetParent(targetFrame)
-    hl:SetAllPoints(targetFrame)
+    hl:SetAllPoints()
     hl:SetFrameLevel(targetFrame:GetFrameLevel() + 5)
     hl:SetAlpha(0)
     hl:Show()

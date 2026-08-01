@@ -24,6 +24,8 @@ Compatibility\Atlas.lua
 Compatibility\Secure.lua
 Compatibility\Layout.lua
 Compatibility\Timer.lua
+Compatibility\CooldownViewer.lua
+Compatibility\CDMData\DeathKnight.lua
 
 # Lightweight addon framework (replaces Ace3)
 EllesmereUI_Lite.lua

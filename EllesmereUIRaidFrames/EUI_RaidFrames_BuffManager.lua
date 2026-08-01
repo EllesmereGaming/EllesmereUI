@@ -2784,7 +2784,11 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
                                     elseif iid and not issecretvalue(iid) and C_UnitAuras.GetAuraDuration then
                                         local durObj = C_UnitAuras.GetAuraDuration(unit, iid)
                                         if durObj then
-                                            f._cooldown:SetCooldownFromDurationObject(durObj)
+                                            if f._cooldown.SetCooldownFromDurationObject then
+                                                f._cooldown:SetCooldownFromDurationObject(durObj)
+                                            elseif f._cooldown.SetCooldown and durObj.startTime and durObj.duration then
+                                                f._cooldown:SetCooldown(durObj.startTime, durObj.duration)
+                                            end
                                             if durObj.IsZero and f._cooldown.SetAlphaFromBoolean then
                                                 f._cooldown:SetAlphaFromBoolean(durObj:IsZero(), 0, cdBaseA)
                                             else

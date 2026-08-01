@@ -4783,7 +4783,11 @@ local function ApplyDebuffIcon(icon, auraData, unit, s)
             if iid and not issecretvalue(iid) and C_UnitAuras.GetAuraDuration then
                 local durObj = C_UnitAuras.GetAuraDuration(unit, iid)
                 if durObj then
-                    icon._cooldown:SetCooldownFromDurationObject(durObj)
+                    if icon._cooldown.SetCooldownFromDurationObject then
+                        icon._cooldown:SetCooldownFromDurationObject(durObj)
+                    elseif icon._cooldown.SetCooldown and durObj.startTime and durObj.duration then
+                        icon._cooldown:SetCooldown(durObj.startTime, durObj.duration)
+                    end
                     if durObj.IsZero and icon._cooldown.SetAlphaFromBoolean then
                         icon._cooldown:SetAlphaFromBoolean(durObj:IsZero(), 0, 1)
                     else
@@ -4848,8 +4852,16 @@ local function ApplyDebuffIcon(icon, auraData, unit, s)
             if iid and not issecretvalue(iid) and C_UnitAuras.GetAuraDuration then
                 local durObj = C_UnitAuras.GetAuraDuration(unit, iid)
                 if durObj then
-                    cb:SetCooldownFromDurationObject(durObj)
-                    cbd:SetCooldownFromDurationObject(durObj)
+                    if cb.SetCooldownFromDurationObject then
+                        cb:SetCooldownFromDurationObject(durObj)
+                    elseif cb.SetCooldown and durObj.startTime and durObj.duration then
+                        cb:SetCooldown(durObj.startTime, durObj.duration)
+                    end
+                    if cbd.SetCooldownFromDurationObject then
+                        cbd:SetCooldownFromDurationObject(durObj)
+                    elseif cbd.SetCooldown and durObj.startTime and durObj.duration then
+                        cbd:SetCooldown(durObj.startTime, durObj.duration)
+                    end
                     if durObj.IsZero and cb.SetAlphaFromBoolean then
                         cb:SetAlphaFromBoolean(durObj:IsZero(), 0, 1)
                         cbd:SetAlphaFromBoolean(durObj:IsZero(), 0, 1)

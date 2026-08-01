@@ -6691,16 +6691,30 @@ local function StartAddon()
     local function KillBlizzard()
         for i = 1, 13 do
             local f = _G["ContainerFrame"..i]
-            if f then f:SetParent(_blizzBagHidden) end
+            if f then
+                f:SetParent(_blizzBagHidden)
+                f:SetID(-1)
+            end
         end
         if ContainerFrameCombinedBags then
             ContainerFrameCombinedBags:SetParent(_blizzBagHidden)
+            ContainerFrameCombinedBags:SetID(-1)
         end
     end
     KillBlizzard()
 
     hooksecurefunc("OpenAllBags", function()
-        if not EUI_Bags:IsVisible() then ToggleEUI() end
+        if BP().enhancedBags ~= false and not EUI_Bags:IsVisible() then ToggleEUI() end
+        KillBlizzard()
+    end)
+
+    hooksecurefunc("CloseAllBags", function()
+        if BP().enhancedBags ~= false and EUI_Bags:IsVisible() then
+            EUI_Bags:Hide()
+            EUI_BagsReagent:Hide()
+            if not EllesmereUIDB then EllesmereUIDB = {} end
+            EllesmereUIDB.bagsVisible = false
+        end
         KillBlizzard()
     end)
 

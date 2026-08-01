@@ -2801,18 +2801,18 @@ CaptureCDMPositions = function()
             local data = {}
 
             -- Read the frame's scale (used to adjust icon size capture)
-            local frameScale = frame:GetScale()
+            local frameScale = frame.GetScale and frame:GetScale() or 1
             if not frameScale or frameScale < 0.1 then frameScale = 1 end
 
             -- Icon size + spacing: read from child icons.
             -- Blizzard CDM icons have a base size and a per-icon scale driven
             -- by the IconSize percentage slider. Spacing is measured from the
             -- gap between two adjacent visible icons in parent coordinates.
-            local childCount = frame:GetNumChildren()
+            local childCount = frame.GetNumChildren and frame:GetNumChildren() or 0
             local numDistinctY = {}
             local shownIcons = {}
             for ci = 1, childCount do
-                local child = select(ci, frame:GetChildren())
+                local child = frame.GetChildren and select(ci, frame:GetChildren())
                 if child and child.Icon then
                     local cw = child:GetWidth()
                     local cs = child:GetScale()
@@ -2858,7 +2858,7 @@ CaptureCDMPositions = function()
                     -- Convert bestStep from UIParent coords to icon-parent coords
                     -- icon-parent coord ? UIParent coord multiplier = frame.effectiveScale / UIParent.effectiveScale
                     -- So to go back: divide by that
-                    local frameEff = frame:GetEffectiveScale()
+                    local frameEff = frame.GetEffectiveScale and frame:GetEffectiveScale() or uiScale
                     local uiEff = UIParent:GetEffectiveScale()
                     local parentStep = bestStep * uiEff / frameEff
                     -- Now parentStep is in frame coords; but iconSize = cw * cs, and positions in frame use cw units
@@ -2884,10 +2884,10 @@ CaptureCDMPositions = function()
             end
 
             -- Position (center-based, in UIParent coordinates)
-            if frame:GetPoint(1) then
-                local cx, cy = frame:GetCenter()
+            if frame.GetPoint and frame:GetPoint(1) then
+                local cx, cy = frame.GetCenter and frame:GetCenter()
                 if cx and cy then
-                    local bScale = frame:GetEffectiveScale()
+                    local bScale = frame.GetEffectiveScale and frame:GetEffectiveScale() or uiScale
                     cx = cx * bScale / uiScale
                     cy = cy * bScale / uiScale
                     data.point = "CENTER"
@@ -3135,15 +3135,15 @@ end
 function ns.ParkSecondaryBuffViewer(frame)
     if not frame then return end
     local fc = FC(frame)
-    frame:SetAlpha(0)
+    if frame.SetAlpha then frame:SetAlpha(0) end
     if InCombatLockdown() then
         -- Flushed on PLAYER_REGEN_ENABLED.
         ns._secondaryParkPending = true
     else
         ns._secondaryParkPending = nil
         fc.parkGuard = true
-        frame:ClearAllPoints()
-        frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -10000, 10000)
+        if frame.ClearAllPoints then frame:ClearAllPoints() end
+        if frame.SetPoint then frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -10000, 10000) end
         fc.parkGuard = nil
     end
     if not fc.parkHooked then
@@ -3163,12 +3163,15 @@ function ns.ParkSecondaryBuffViewer(frame)
                 if c.hidden and not c.restoring then ns.ParkSecondaryBuffViewer(self) end
             end)
         end
-        hooksecurefunc(frame, "SetPoint", function(self) QueueRepark(self, "SetPoint") end)
-        -- SetPoint is not the only way off the park. SetAllPoints and
-        -- SetParent strand the viewer on screen without ever calling it, and
-        -- nothing heals that until an unrelated SetPoint happens to fire.
-        hooksecurefunc(frame, "SetAllPoints", function(self) QueueRepark(self, "SetAllPoints") end)
-        hooksecurefunc(frame, "SetParent", function(self) QueueRepark(self, "SetParent") end)
+        if type(frame.SetPoint) == "function" then
+            hooksecurefunc(frame, "SetPoint", function(self) QueueRepark(self, "SetPoint") end)
+        end
+        if type(frame.SetAllPoints) == "function" then
+            hooksecurefunc(frame, "SetAllPoints", function(self) QueueRepark(self, "SetAllPoints") end)
+        end
+        if type(frame.SetParent) == "function" then
+            hooksecurefunc(frame, "SetParent", function(self) QueueRepark(self, "SetParent") end)
+        end
     end
 end
 
@@ -3192,7 +3195,7 @@ function ns.CheckSecondaryBuffViewerPark()
     local pt, rel, relPt, x, y
     -- Indexing past the last point errors; an unanchored viewer counts as
     -- drifted and falls through to the re-park.
-    if frame:GetNumPoints() > 0 then pt, rel, relPt, x, y = frame:GetPoint(1) end
+    if frame.GetNumPoints and frame:GetNumPoints() > 0 then pt, rel, relPt, x, y = frame:GetPoint(1) end
     if pt == "TOPLEFT" and rel == UIParent and relPt == "TOPLEFT"
        and x == -10000 and y == 10000 then
         fc.driftNoted = nil
@@ -3243,8 +3246,10 @@ HideBlizzardCDM = function()
             local fc = FC(frame)
             if not fc.hidden then
                 fc.origPoints = {}
-                for i = 1, frame:GetNumPoints() do
-                    fc.origPoints[i] = { frame:GetPoint(i) }
+                if frame.GetNumPoints then
+                    for i = 1, frame:GetNumPoints() do
+                        fc.origPoints[i] = { frame:GetPoint(i) }
+                    end
                 end
                 fc.hidden = true
             end
@@ -3258,7 +3263,7 @@ HideBlizzardCDM = function()
                 ns.ParkSecondaryBuffViewer(frame)
             end
             if not InCombatLockdown() then
-                frame:EnableMouse(false)
+                if frame.EnableMouse then frame:EnableMouse(false) end
                 if frame.EnableMouseMotion then frame:EnableMouseMotion(false) end
             end
         end
@@ -3277,9 +3282,9 @@ RestoreBlizzardCDM = function()
             ns._secondaryParkPending = nil
             -- Restore original anchor points
             if fc.origPoints then
-                frame:ClearAllPoints()
+                if frame.ClearAllPoints then frame:ClearAllPoints() end
                 for _, pt in ipairs(fc.origPoints) do
-                    frame:SetPoint(pt[1], pt[2], pt[3], pt[4], pt[5])
+                    if frame.SetPoint then frame:SetPoint(pt[1], pt[2], pt[3], pt[4], pt[5]) end
                 end
             end
             -- The secondary viewer is the only one suppressed by alpha, and
@@ -3287,9 +3292,9 @@ RestoreBlizzardCDM = function()
             -- leaves an invisible click-catcher (same reasoning as
             -- RestoreBlizzardBuffFrame).
             if frameName == BLIZZ_CDM_FRAMES_SECONDARY.buffs then
-                frame:SetAlpha(1)
+                if frame.SetAlpha then frame:SetAlpha(1) end
             else
-                frame:EnableMouse(true)
+                if frame.EnableMouse then frame:EnableMouse(true) end
                 if frame.EnableMouseMotion then frame:EnableMouseMotion(true) end
             end
             fc.hidden = false
@@ -3320,7 +3325,7 @@ local function RestoreBlizzardBuffFrame()
         -- it with EnableMouse(true) creates an invisible click-catcher.
         -- Other viewers need mouse for tooltip hover.
         if frameName ~= "BuffBarCooldownViewer" then
-            frame:EnableMouse(true)
+            if frame.EnableMouse then frame:EnableMouse(true) end
             if frame.EnableMouseMotion then frame:EnableMouseMotion(true) end
         end
         fc.hidden = false
@@ -3595,19 +3600,21 @@ local function SetFrameClickThrough(frame, clickThrough)
     if not frame then return end
     if clickThrough then
         if _cdmMouseState[frame] == nil then
-            _cdmMouseState[frame] = frame:IsMouseEnabled()
+            _cdmMouseState[frame] = frame.IsMouseEnabled and frame:IsMouseEnabled()
         end
-        frame:EnableMouse(false)
+        if frame.EnableMouse then frame:EnableMouse(false) end
         if frame.EnableMouseClicks then frame:EnableMouseClicks(false) end
         if frame.EnableMouseMotion then frame:EnableMouseMotion(false) end
     else
         if _cdmMouseState[frame] ~= nil then
-            frame:EnableMouse(_cdmMouseState[frame])
+            if frame.EnableMouse then frame:EnableMouse(_cdmMouseState[frame]) end
             _cdmMouseState[frame] = nil
         end
     end
-    for _, child in ipairs({ frame:GetChildren() }) do
-        SetFrameClickThrough(child, clickThrough)
+    if frame.GetChildren then
+        for _, child in ipairs({ frame:GetChildren() }) do
+            SetFrameClickThrough(child, clickThrough)
+        end
     end
 end
 
@@ -3832,8 +3839,8 @@ BuildCDMBar = function(barIndex)
                     for ii = 1, #icons do
                         local ic = icons[ii]
                         if ic then
-                            if ic:IsMouseEnabled() then ic:EnableMouse(false) end
-                            if ic.IsMouseMotionEnabled and ic:IsMouseMotionEnabled() then
+                            if ic.IsMouseEnabled and ic:IsMouseEnabled() and ic.EnableMouse then ic:EnableMouse(false) end
+                            if ic.IsMouseMotionEnabled and ic:IsMouseMotionEnabled() and ic.EnableMouseMotion then
                                 ic:EnableMouseMotion(false)
                             end
                         end
@@ -4848,7 +4855,7 @@ function ns.SetCdStateShiftHidden(fc, shiftHidden)
         if frame and grow ~= "CENTER"
            and not frame._mouseTrack and bk ~= ns.FOCUSKICK_BAR_KEY
            and not EllesmereUI._unlockActive
-           and frame:GetNumPoints() == 1 then
+           and frame.GetNumPoints and frame:GetNumPoints() == 1 then
             if grow == "LEFT" then fixedEdge = frame:GetRight()
             elseif grow == "RIGHT" then fixedEdge = frame:GetLeft()
             elseif grow == "UP" then fixedEdge = frame:GetBottom()
@@ -5668,7 +5675,7 @@ local function RefreshCDMIconAppearance(barKey)
                     end
                     local fd = ns._hookFrameData and ns._hookFrameData[icon]
                     if fd then fd._isProcessingOverride = true end
-                    cd:SetDrawSwipe(not hideSw)
+                    if cd.SetDrawSwipe then cd:SetDrawSwipe(not hideSw) end
                     if fd then fd._isProcessingOverride = false end
                 end
             end
@@ -5692,7 +5699,7 @@ local function RefreshCDMIconAppearance(barKey)
             -- the text (using the bar's showCD) so it is ready when numbers return.
             local hideCD = not showCD
             if ns.CdmShouldHideCountdown then hideCD = ns.CdmShouldHideCountdown(icon, hideCD) end
-            cd:SetHideCountdownNumbers(hideCD)
+            if cd.SetHideCountdownNumbers then cd:SetHideCountdownNumbers(hideCD) end
             -- Apply cooldown text font directly (old tick loop is gone)
             if showCD then
                 local cdFont = GetCDMFont()
@@ -6919,7 +6926,7 @@ _CDMApplyVisibility = function()
                         local ic = icons[ii]
                         if ic then
                             ic:SetAlpha(0)
-                            if not icCombat then ic:EnableMouse(false) end
+                            if not icCombat and ic.EnableMouse then ic:EnableMouse(false) end
                         end
                     end
                 end
@@ -6954,7 +6961,7 @@ _CDMApplyVisibility = function()
                             -- Blizzard CDM frames; skip during combat to avoid
                             -- ADDON_ACTION_BLOCKED when dismounting mid-combat.
                             if not icCombat2 then
-                                ic:EnableMouse(false)
+                                if ic.EnableMouse then ic:EnableMouse(false) end
                                 -- An icon that receives mouse MOTION becomes the
                                 -- mouseover-focus frame; with no unit of its own it
                                 -- steals focus from whatever unit frame is underneath,
@@ -7037,7 +7044,9 @@ _CDMApplyVisibility = function()
                     end
                 end
             end
-            viewer:SetAlpha(anyVisible and 1 or 0)
+            if viewer.SetAlpha then
+                viewer:SetAlpha(anyVisible and 1 or 0)
+            end
         end
     end
 end
@@ -8626,8 +8635,8 @@ function ECME:CDMFinishSetup()
         )
     end
 
-    -- One-time vehicle/petbattle proxy. Drives _CDMApplyVisibility on state
-    -- change so CDM bars hide while the vehicle UI or pet battle UI is active.
+    -- One-time vehicle proxy. Drives _CDMApplyVisibility on state
+    -- change so CDM bars hide while the vehicle UI is active.
     if not _cdmVehicleProxy then
         _cdmVehicleProxy = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent, "SecureHandlerStateTemplate")
         EUI.API.SetSecureAttr(_cdmVehicleProxy, "_onstate-cdmvehicle", [[
@@ -8637,7 +8646,10 @@ function ECME:CDMFinishSetup()
             _cdmInVehicle = (state == "hide")
             _CDMApplyVisibility()
         end
-        RegisterStateDriver(_cdmVehicleProxy, "cdmvehicle", "[vehicleui][petbattle] hide; show")
+        -- [petbattle] was added after WotLK and causes an "unknown macro
+        -- option" error on 3.3.5 clients. Pet battles do not exist here,
+        -- so only the supported vehicle condition is needed.
+        RegisterStateDriver(_cdmVehicleProxy, "cdmvehicle", "[vehicleui] hide; show")
     end
 
 
@@ -9247,11 +9259,11 @@ SlashCmdList.CDMBB = function(msg)
         ns._bbUnparkCount or 0, tostring(ns._bbUnparkLast or "none"),
         tostring(ns._cdmbbWatch or false)))
     P(string.format("shown=%s alpha=%.2f effective=%.2f",
-        tostring(frame:IsShown()), frame:GetAlpha(), frame:GetEffectiveAlpha()))
-    local n = frame:GetNumPoints()
+        tostring(frame.IsShown and frame:IsShown()), frame.GetAlpha and frame:GetAlpha() or 0, frame.GetEffectiveAlpha and frame:GetEffectiveAlpha() or 0))
+    local n = frame.GetNumPoints and frame:GetNumPoints() or 0
     if n == 0 then P("points: none") end
     for i = 1, n do
-        local pt, rel, relPt, x, y = frame:GetPoint(i)
+        local pt, rel, relPt, x, y = frame.GetPoint and frame:GetPoint(i)
         P(string.format("point %d: %s -> %s %s (%.0f, %.0f)", i, tostring(pt),
             tostring(rel and rel.GetName and rel:GetName()), tostring(relPt),
             x or 0, y or 0))

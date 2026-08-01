@@ -892,7 +892,8 @@ ns._tickBlizzActiveCache = _activeCache
 -------------------------------------------------------------------------------
 local function IsFrameIncluded(frame)
     if not frame then return false end
-    return frame:IsShown() or (frame.cooldownInfo ~= nil)
+    local isShown = (type(frame.IsShown) == "function" and frame:IsShown()) or (type(frame.IsShown) ~= "function" and frame._isShown ~= false)
+    return isShown or (frame.cooldownInfo ~= nil)
 end
 
 -------------------------------------------------------------------------------
@@ -905,12 +906,12 @@ local function HideBlizzardDecorations(frame)
     fc.blizzHidden = true
 
     local function alphaZero(child)
-        if child then child:SetAlpha(0) end
+        if child and child.SetAlpha then child:SetAlpha(0) end
     end
     alphaZero(frame.Border)
     if frame.SpellActivationAlert then
-        frame.SpellActivationAlert:SetAlpha(0)
-        frame.SpellActivationAlert:Hide()
+        if frame.SpellActivationAlert.SetAlpha then frame.SpellActivationAlert:SetAlpha(0) end
+        if frame.SpellActivationAlert.Hide then frame.SpellActivationAlert:Hide() end
     end
     alphaZero(frame.Shadow)
     alphaZero(frame.IconShadow)
@@ -918,14 +919,14 @@ local function HideBlizzardDecorations(frame)
     alphaZero(frame.CooldownFlash)
 
     local iconWidget = frame.Icon
-    local regions = { frame:GetRegions() }
+    local regions = frame.GetRegions and { frame:GetRegions() } or {}
     for ri = 1, #regions do
         local rgn = regions[ri]
         if rgn and rgn.IsObjectType and rgn:IsObjectType("MaskTexture") then
             pcall(function() rgn:SetTexture("Interface\\Buttons\\WHITE8X8") end)
         end
     end
-    if frame.Cooldown then
+    if frame.Cooldown and frame.Cooldown.GetRegions then
         local cdRegions = { frame.Cooldown:GetRegions() }
         for ri = 1, #cdRegions do
             local rgn = cdRegions[ri]
@@ -1084,13 +1085,13 @@ local function ApplyMaxStacksGlow(frame, fd, ss2, atMax)
             local mo = fd.maxStacksGlowOverlay
             if not mo and frame then
                 mo = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
-                mo:SetAllPoints(frame)
+                mo:SetAllPoints()
                 mo:SetAlpha(0)
                 mo:EnableMouse(false)
                 fd.maxStacksGlowOverlay = mo
             end
             if mo then
-                if frame then mo:SetFrameLevel(frame:GetFrameLevel() + 16) end
+                if frame and type(frame.GetFrameLevel) == "function" then mo:SetFrameLevel(frame:GetFrameLevel() + 16) end
                 local gr, gg, gb = ns.ResolveGlowColor(ss2)
                 ns.StartNativeGlow(mo, ss2.maxStacksGlow, gr, gg, gb)
                 fd._maxStacksGlowOn = true
@@ -1989,15 +1990,19 @@ local function DecorateFrame(frame, barData)
     -- levels are relative to the icon's own live level (not a value cached at
     -- first decoration) so a pooled frame reclaimed at a different base level
     -- stays correctly layered against its own border/glow/text overlays.
-    local baseLvl = frame:GetFrameLevel()
+    local baseLvl = (type(frame.GetFrameLevel) == "function" and frame:GetFrameLevel()) or (frame._frameLevel or 1)
 
-    if not fd.bg then
+    if not fd.bg and type(frame.CreateTexture) == "function" then
         local bg = frame:CreateTexture(nil, "BACKGROUND")
-        bg:SetAllPoints()
-        fd.bg = bg
+        if bg then
+            bg:SetAllPoints()
+            fd.bg = bg
+        end
     end
-    fd.bg:SetTexture(barData.bgR or 0.08, barData.bgG or 0.08,
-        barData.bgB or 0.08, barData.bgA or 0.6)
+    if fd.bg then
+        fd.bg:SetTexture(barData.bgR or 0.08, barData.bgG or 0.08,
+            barData.bgB or 0.08, barData.bgA or 0.6)
+    end
 
     -- Custom-shape bars own their border: ApplyShapeToCDMIcon draws the ring
     -- on the shapeBorder texture and hides the square border. Re-applying the
@@ -2018,7 +2023,7 @@ local function DecorateFrame(frame, barData)
     else
         if not fd.borderFrame then
             local bf = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
-            bf:SetAllPoints(frame)
+            bf:SetAllPoints()
             fd.borderFrame = bf
         end
         local brdR, brdG, brdB = barData.borderR or 0, barData.borderG or 0, barData.borderB or 0
@@ -2154,7 +2159,7 @@ local function DecorateFrame(frame, barData)
     -- levels are (re)applied unconditionally near the top of this function.
     if not fd.glowOverlay then
         local go = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
-        go:SetAllPoints(frame)
+        go:SetAllPoints()
         go:SetAlpha(0)
         go:EnableMouse(false)
         fd.glowOverlay = go
@@ -2169,7 +2174,7 @@ local function DecorateFrame(frame, barData)
 
     if not fd.textOverlay then
         local txo = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
-        txo:SetAllPoints(frame)
+        txo:SetAllPoints()
         txo:EnableMouse(false)
         fd.textOverlay = txo
         txo:SetFrameLevel(baseLvl + 23)
@@ -2211,17 +2216,17 @@ local function DecorateFrame(frame, barData)
     fd.procGlowActive = false
 
     if fd.cooldown then
-        fd.cooldown:SetDrawEdge(false)
+        if fd.cooldown.SetDrawEdge then fd.cooldown:SetDrawEdge(false) end
         -- Swipe starts disabled. CollectAndReanchor enables it once the
         -- frame is claimed and positioned on a bar. This prevents a flash
         -- of black swipe at the Blizzard viewer's default position before
         -- our reanchor runs.
-        fd.cooldown:SetDrawSwipe(false)
-        fd.cooldown:SetDrawBling(false)
+        if fd.cooldown.SetDrawSwipe then fd.cooldown:SetDrawSwipe(false) end
+        if fd.cooldown.SetDrawBling then fd.cooldown:SetDrawBling(false) end
         fd._isProcessingOverride = true
-        fd.cooldown:SetSwipeColor(0, 0, 0, barData.swipeAlpha or 0.7)
+        if fd.cooldown.SetSwipeColor then fd.cooldown:SetSwipeColor(0, 0, 0, barData.swipeAlpha or 0.7) end
         fd._isProcessingOverride = false
-        fd.cooldown:SetSwipeTexture("Interface\\Buttons\\WHITE8x8")
+        if fd.cooldown.SetSwipeTexture then fd.cooldown:SetSwipeTexture("Interface\\Buttons\\WHITE8x8") end
         -- Hook SetSwipeColor on EVERY CD/utility frame.
         -- Forces our swipe color (default black, or per-spell custom)
         -- so Blizzard's active state color flash never shows.
@@ -2229,7 +2234,8 @@ local function DecorateFrame(frame, barData)
         if not fd._swipeColorHooked then
             fd._swipeColorHooked = true
             local cd = fd.cooldown
-            hooksecurefunc(cd, "SetSwipeColor", function()
+            if cd and cd.SetSwipeColor then
+                hooksecurefunc(cd, "SetSwipeColor", function()
                 if fd._isProcessingOverride then return end
                 -- Buff-viewer frame (buff bar or hosted on a CD/util bar): the swipe
                 -- is the aura DURATION, so skip all cd-style logic (Suppress-GCD,
@@ -2484,7 +2490,9 @@ local function DecorateFrame(frame, barData)
 
                 fd._isProcessingOverride = false
             end)
-            hooksecurefunc(cd, "SetDrawSwipe", function(_, show)
+            end
+            if cd and cd.SetDrawSwipe then
+                hooksecurefunc(cd, "SetDrawSwipe", function(_, show)
                 if fd._isProcessingOverride then return end
                 -- Hosted buff: never toggle its duration swipe from our cd logic.
                 if fd._isBuffViewerFrame then return end
@@ -2514,7 +2522,7 @@ local function DecorateFrame(frame, barData)
                     if hideSw then
                         if show then
                             fd._isProcessingOverride = true
-                            cd:SetDrawSwipe(false)
+                            if cd.SetDrawSwipe then cd:SetDrawSwipe(false) end
                             fd._isProcessingOverride = false
                         end
                         return
@@ -2522,9 +2530,10 @@ local function DecorateFrame(frame, barData)
                 end
                 if show then return end
                 fd._isProcessingOverride = true
-                cd:SetDrawSwipe(true)
+                if cd.SetDrawSwipe then cd:SetDrawSwipe(true) end
                 fd._isProcessingOverride = false
             end)
+            end
             -- Hide Recharge Edge enforcement. Blizzard re-enables the leading
             -- edge on every cooldown re-push -- notably while a cooldown-reduction
             -- effect repeatedly re-arms a charge recharge -- and the SetDrawSwipe
@@ -2596,8 +2605,11 @@ local function DecorateFrame(frame, barData)
                     or C_Spell.GetSpellCooldownDuration(sid2)
                 if not durObj then return end
                 fd._isProcessingOverride = true
-                if cd.SetUseAuraDisplayTime then cd:SetUseAuraDisplayTime(false) end
-                cd:SetCooldownFromDurationObject(durObj)
+                if cd.SetCooldownFromDurationObject then
+                    cd:SetCooldownFromDurationObject(durObj)
+                elseif cd.SetCooldown and durObj.startTime and durObj.duration then
+                    cd:SetCooldown(durObj.startTime, durObj.duration)
+                end
                 -- Only the geometry was wiped -- Blizzard's clear leaves the draw-
                 -- swipe flag on -- so re-arming the duration restores the visible
                 -- swipe. Deliberately NOT forcing SetDrawSwipe(true): doing so under
@@ -2677,10 +2689,11 @@ local function DecorateFrame(frame, barData)
                 end
                 if not durObj then return end
                 fd._isProcessingOverride = true
-                if cd.SetUseAuraDisplayTime then
-                    cd:SetUseAuraDisplayTime(false)
+                if cd.SetCooldownFromDurationObject then
+                    cd:SetCooldownFromDurationObject(durObj)
+                elseif cd.SetCooldown and durObj.startTime and durObj.duration then
+                    cd:SetCooldown(durObj.startTime, durObj.duration)
                 end
-                cd:SetCooldownFromDurationObject(durObj)
                 -- Baseline charge edge (+ per-spell Hide Swipe) on the re-arm.
                 ApplyCdmChargeStyle(frame, cd)
                 fd._isProcessingOverride = false
@@ -2721,10 +2734,11 @@ local function DecorateFrame(frame, barData)
                 end
                 if not durObj then return end
                 fd._isProcessingOverride = true
-                if cd.SetUseAuraDisplayTime then
-                    cd:SetUseAuraDisplayTime(false)
+                if cd.SetCooldownFromDurationObject then
+                    cd:SetCooldownFromDurationObject(durObj)
+                elseif cd.SetCooldown and durObj.startTime and durObj.duration then
+                    cd:SetCooldown(durObj.startTime, durObj.duration)
                 end
-                cd:SetCooldownFromDurationObject(durObj)
                 ApplyCdmChargeStyle(frame, cd)
                 -- We have just re-armed the REAL recharge, so whatever is now
                 -- displayed is the recharge -- never a GCD. Suppress-GCD's alpha-0
@@ -4598,7 +4612,7 @@ local function CollectAndReanchor()
                             if not barSeen then barSeen = {}; seenSpell[targetBar] = barSeen end
                             local dedupKey = frame.cooldownID
                             if dedupKey and not barSeen[dedupKey] then
-                                if frame:IsShown() then
+                                if type(frame.IsShown) ~= "function" or frame:IsShown() then
                                     -- Active buff: route Blizzard's real frame.
                                     local tbd = barDataByKey[targetBar]
                                     if tbd and tbd.barType ~= "buffs" and tbd.barType ~= "custom_buff" then
@@ -5134,7 +5148,7 @@ local function CollectAndReanchor()
                     -- Hidden frames are collected for data (assignedSpells)
                     -- but left visually untouched so we don't override
                     -- Blizzard's "hide when inactive" state machine.
-                    if frame:IsShown() and not isFocusKickBar then
+                    if (type(frame.IsShown) ~= "function" or frame:IsShown()) and not isFocusKickBar then
                         local barHidden = container and container._visHidden
                         local fcH = _ecmeFC[frame]
                         if not (fcH and fcH._cdStateHidden) then
@@ -5159,7 +5173,7 @@ local function CollectAndReanchor()
                     -- transitions; re-raise cheaply here every collect pass.
                     -- Use relative levels so cursor-anchored bars (level 9980+)
                     -- keep text above their icons.
-                    local _txtLvl = frame:GetFrameLevel() + 23
+                    local _txtLvl = (type(frame.GetFrameLevel) == "function" and frame:GetFrameLevel() or 1) + 23
                     if frame.Applications then pcall(frame.Applications.SetFrameLevel, frame.Applications, _txtLvl) end
                     if frame.ChargeCount then pcall(frame.ChargeCount.SetFrameLevel, frame.ChargeCount, _txtLvl) end
                     if frame.Cooldown then
@@ -5179,7 +5193,7 @@ local function CollectAndReanchor()
                             efdR._revKind = true
                             frame.Cooldown:SetReverse(true)
                         end
-                        frame.Cooldown:SetHideCountdownNumbers(hideCD)
+                        if frame.Cooldown.SetHideCountdownNumbers then frame.Cooldown:SetHideCountdownNumbers(hideCD) end
                     end
                 end
 
@@ -5936,7 +5950,7 @@ local function CollectAndReanchor()
                     end
                     end
                     frame:Show()
-                    local _txtLvl2 = frame:GetFrameLevel() + 23
+                    local _txtLvl2 = (type(frame.GetFrameLevel) == "function" and frame:GetFrameLevel() or 1) + 23
                     if frame.Applications then pcall(frame.Applications.SetFrameLevel, frame.Applications, _txtLvl2) end
                     if frame.ChargeCount then pcall(frame.ChargeCount.SetFrameLevel, frame.ChargeCount, _txtLvl2) end
                     if frame.Cooldown then
@@ -5960,7 +5974,7 @@ local function CollectAndReanchor()
                         end
                         local hcd = hideCDText
                         if ns.CdmShouldHideCountdown then hcd = ns.CdmShouldHideCountdown(frame, hcd) end
-                        frame.Cooldown:SetHideCountdownNumbers(hcd)
+                        if frame.Cooldown.SetHideCountdownNumbers then frame.Cooldown:SetHideCountdownNumbers(hcd) end
                     end
                     -- Reparent custom frames to our container (never to Blizzard viewers)
                     -- and force click-through. Something in the Decorate /
@@ -6737,7 +6751,7 @@ function ns.SetupViewerHooks()
     local _activeStateReanchorPending = false
 
     local function InstallBuffFrameHooks(viewer)
-        if not viewer or not viewer.itemFramePool then return end
+        if not viewer or not viewer.itemFramePool or type(viewer.itemFramePool.EnumerateActive) ~= "function" then return end
         -- Attach the buff gain/loss sound hook here -- at pool-acquire time, BEFORE
         -- Blizzard finishes setting the frame up and fires its first
         -- TriggerAuraAppliedAlert. Installing it lazily in DecorateFrame ran one step
@@ -6753,7 +6767,7 @@ function ns.SetupViewerHooks()
                 -- becomes active/inactive. Run a full reanchor so new/removed
                 -- icons get collected and centered. Batched via C_Timer to
                 -- collapse the spam (fires many times per frame).
-                if frame.OnActiveStateChanged then
+                if type(frame.OnActiveStateChanged) == "function" then
                     local _asDeferFrame = EllesmereUI.SafeCreateFrame("Frame")
                     _asDeferFrame:Hide()
                     local _asDeferTicks = 0
@@ -6781,23 +6795,25 @@ function ns.SetupViewerHooks()
         if v and v.itemFramePool then
             local isBuff = (vi == 3 or vi == 4) -- BuffIcon or BuffBar
             local isBarViewer = (vi == 4) -- BuffBarCooldownViewer
-            hooksecurefunc(v.itemFramePool, "Acquire", function()
-                ns._acGen = (ns._acGen or 0) + 1
-                ns._btDirty = true
-                if isBuff then InstallBuffFrameHooks(v) end
-                if isBarViewer and ns.InvalidateTBBFrameCache then
-                    ns.InvalidateTBBFrameCache()
-                end
-                -- A new tracked-bar spell acquires a pool frame here: let the
-                -- Tracking Bars auto-add pass pick it up (debounced, no-op
-                -- unless a never-seen spell appeared).
-                if isBarViewer and ns.QueueTBBAutoAdd then
-                    ns.QueueTBBAutoAdd()
-                end
-                -- Only buff viewers need real-time reanchors on Acquire.
-                -- CD/utility spell sets are static (rebuilt by FullCDMRebuild).
-                if isBuff then QueueReanchor() end
-            end)
+            if type(v.itemFramePool.Acquire) == "function" then
+                hooksecurefunc(v.itemFramePool, "Acquire", function()
+                    ns._acGen = (ns._acGen or 0) + 1
+                    ns._btDirty = true
+                    if isBuff then InstallBuffFrameHooks(v) end
+                    if isBarViewer and ns.InvalidateTBBFrameCache then
+                        ns.InvalidateTBBFrameCache()
+                    end
+                    -- A new tracked-bar spell acquires a pool frame here: let the
+                    -- Tracking Bars auto-add pass pick it up (debounced, no-op
+                    -- unless a never-seen spell appeared).
+                    if isBarViewer and ns.QueueTBBAutoAdd then
+                        ns.QueueTBBAutoAdd()
+                    end
+                    -- Only buff viewers need real-time reanchors on Acquire.
+                    -- CD/utility spell sets are static (rebuilt by FullCDMRebuild).
+                    if isBuff then QueueReanchor() end
+                end)
+            end
             -- Hook existing frames too
             if isBuff then InstallBuffFrameHooks(v) end
 
@@ -6808,7 +6824,7 @@ function ns.SetupViewerHooks()
             -- Skip during init: on /reload ALL frames are acquired at once
             -- and our reanchor hasn't run yet, so blanking them would hide
             -- all buffs until the first buff change.
-            if v.OnAcquireItemFrame then
+            if type(v.OnAcquireItemFrame) == "function" then
                 hooksecurefunc(v, "OnAcquireItemFrame", function(_, itemFrame)
                     if not ns._initialReanchorDone then return end
                     -- Skip blanking bar viewer children when user wants Blizzard tracked bars
@@ -6988,7 +7004,7 @@ function ns.SetupViewerHooks()
                     if icons then
                         for fi = 1, #icons do
                             local frame = icons[fi]
-                            if frame and frame:IsShown() then
+                            if frame and (type(frame.IsShown) ~= "function" or frame:IsShown()) then
                                 local fc = _ecmeFC[frame]
                                 local sid = fc and fc.resolvedSid
                                 local fd = hookFrameData[frame]
@@ -7049,7 +7065,7 @@ function ns.SetupViewerHooks()
                                 -- already counts shown totems and our preset/custom
                                 -- own-frames as active, so this just reads it.
                                 local glowActive = isActiveBuff
-                                    or (bd.barType == "custom_buff" and frame:IsShown())
+                                    or (bd.barType == "custom_buff" and (type(frame.IsShown) ~= "function" or frame:IsShown()))
                                 -- Effective Buff Glow = per-icon override (fd._bgT,
                                 -- stashed by RefreshCDMIconAppearance) falling back to
                                 -- the bar's Buff Glow. nil override => inherit; 0 => None.
@@ -7058,7 +7074,7 @@ function ns.SetupViewerHooks()
                                 if effGlowType > 0 and fd and glowActive then
                                     if not fd.buffGlowOverlay then
                                         local ov = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
-                                        ov:SetAllPoints(frame)
+                                        ov:SetAllPoints()
                                         ov:EnableMouse(false)
                                         fd.buffGlowOverlay = ov
                                     end
@@ -7069,7 +7085,7 @@ function ns.SetupViewerHooks()
                                     -- clips the inner edge of the ring, making it look
                                     -- thinner). Track the icon's base level and re-apply
                                     -- each pass, matching the primary glowOverlay (+16).
-                                    fd.buffGlowOverlay:SetFrameLevel(frame:GetFrameLevel() + 16)
+                                    fd.buffGlowOverlay:SetFrameLevel((type(frame.GetFrameLevel) == "function" and frame:GetFrameLevel() or 1) + 16)
                                     if not fd.buffGlowActive then
                                         local cr, cg, cb
                                         if bd.buffGlowMode == "custom" then
@@ -7127,13 +7143,13 @@ function ns.SetupViewerHooks()
                                     if inPandemic then
                                         if not fd.pandemicOverlay then
                                             local ov = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
-                                            ov:SetAllPoints(frame)
+                                            ov:SetAllPoints()
                                             ov:EnableMouse(false)
                                             fd.pandemicOverlay = ov
                                         end
                                         -- Same base-level tracking as the buff glow, one
                                         -- level higher so pandemic sits above buff glow.
-                                        fd.pandemicOverlay:SetFrameLevel(frame:GetFrameLevel() + 17)
+                                        fd.pandemicOverlay:SetFrameLevel((type(frame.GetFrameLevel) == "function" and frame:GetFrameLevel() or 1) + 17)
                                         if not fd.pandemicGlowActive then
                                             local c
                                             if bd.pandemicGlowMode == "class" then
@@ -7269,7 +7285,7 @@ function ns.SetupViewerHooks()
                     if vf and vf.itemFramePool and vf.itemFramePool.EnumerateActive then
                         for frame in vf.itemFramePool:EnumerateActive() do
                             local active = frame.wasSetFromAura == true or frame.auraInstanceID ~= nil
-                            if not active and isBuffViewer and frame:IsShown()
+                            if not active and isBuffViewer and type(frame.IsShown) == "function" and frame:IsShown()
                                and not frame._isPlaceholderFrame then
                                 active = true
                             end
@@ -7516,9 +7532,11 @@ function ns.SetupEditModeLock()
     end
 
     if not TrySetup() then
-        EventUtil.ContinueOnAddOnLoaded("Blizzard_EditMode", function()
-            TrySetup()
-        end)
+        if EventUtil and EventUtil.ContinueOnAddOnLoaded then
+            EventUtil.ContinueOnAddOnLoaded("Blizzard_EditMode", function()
+                TrySetup()
+            end)
+        end
     end
 end
 
@@ -7624,10 +7642,10 @@ do
         local ov = _pushOverlay[icon]
         if not ov then
             ov = EllesmereUI.SafeCreateFrame("Frame", nil, icon)
-            ov:SetFrameLevel(icon:GetFrameLevel() + 15)  -- above icon + cooldown swipe
+            ov:SetFrameLevel((type(icon.GetFrameLevel) == "function" and icon:GetFrameLevel() or 1) + 15)  -- above icon + cooldown swipe
             ov:Hide()
             local tex = ov:CreateTexture(nil, "OVERLAY")
-            tex:SetAllPoints(ov)
+            tex:SetAllPoints()
             ov._tex = tex
             _pushOverlay[icon] = ov
         end

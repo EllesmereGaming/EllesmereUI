@@ -1,0 +1,426 @@
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:37:-- Reject secret-tainted numbers BEFORE comparing. In Midnight, frame:GetSpellID()
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:118:-- Per-cooldownID cache of the last CLEAN frame:GetSpellID(). On an ACTIVE
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:119:-- buff/HoT/DoT viewer frame GetSpellID()/GetAuraSpellID() return secret values,
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:122:-- cooldownInfo.spellID (e.g. 137029 Holy Paladin, a spec aura with a generic
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:123:-- icon). We reuse the clean value captured when this same cooldownID's frame
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:127:-- overwrites the entry, so a re-talented cooldownID re-resolves on next scan.
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:139:--    1. frame:GetSpellID()              (frame method, most authoritative)
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:145:--  Why frame:GetSpellID() first: under transforms (e.g. Glacial Spike from
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:148:--  in the world, not whatever the static cooldownInfo says.
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:153:    -- 1. frame:GetSpellID()
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:154:    local fnGetSpellID = frame.GetSpellID
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:155:    if type(fnGetSpellID) == "function" then
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:156:        local sid = fnGetSpellID(frame)
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:158:            -- Clean read: cache it by cooldownID so an active (secret) read of
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:160:            local cdid = frame.cooldownID
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:166:    -- 1b. frame:GetAuraSpellID() -- buff bar frames expose the actual aura
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:167:    -- variant here (e.g. Eclipse Solar vs Eclipse Lunar) while GetSpellID
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:169:    local fnGetAura = frame.GetAuraSpellID
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:175:    -- 1c. Active-frame fallback: GetSpellID/GetAuraSpellID returned secret/nil
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:176:    -- (the aura is up). Reuse the clean GetSpellID captured for this cooldownID
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:178:    -- cooldownInfo.spellID below.
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:179:    local cdid = frame.cooldownID
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:185:    -- Resolve cooldownInfo (frame.cooldownInfo OR frame:GetCooldownInfo())
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:186:    local info = frame.cooldownInfo
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:207:    -- 5. base of frame:GetSpellID() if all else failed
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:208:    if type(fnGetSpellID) == "function" then
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:209:        local raw = fnGetSpellID(frame)
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:234:        viewers = { "BuffIconCooldownViewer" }
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:236:        viewers = { "EssentialCooldownViewer", "UtilityCooldownViewer" }
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:246:        if viewer and viewer.itemFramePool and viewer.itemFramePool.EnumerateActive then
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:247:            for frame in viewer.itemFramePool:EnumerateActive() do
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:248:                if frame:IsShown() or frame.cooldownInfo then
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:251:                    -- cooldownID, and Blizzard can report the SAME canonical
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:252:                    -- spellID for two DIFFERENT cooldownIDs (Diabolist: the
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:255:                    -- can't see or style them individually. Key on cooldownID so
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:258:                    -- unaffected: there a unique sid implies a unique cooldownID.
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:259:                    local cd = frame.cooldownID
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:266:                            cdID         = frame.cooldownID,
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:377:    -- Blizzard-tracked buffs key as "c"..cooldownID and are unaffected.
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:441:    local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:450:            -- Resolve the spell id from the C_CooldownViewer info (the same
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:621:--- Check if a cooldownID has a Blizzard CDM child (is "displayed")
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:631:            local cid = child.cooldownID
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:632:            if not cid and child.cooldownInfo then
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:633:                cid = child.cooldownInfo.cooldownID
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:668:--- viewerBarKey fallback already showed everything from BuffIconCooldownViewer
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:729:        for _, vName in ipairs({ "EssentialCooldownViewer", "UtilityCooldownViewer" }) do
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:731:            if v and v.itemFramePool and v.itemFramePool.EnumerateActive then
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:732:                for _ in v.itemFramePool:EnumerateActive() do
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:779:    --   1. LIVE viewer pools (Essential + Utility itemFramePool active set)
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:801:    local gcs = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:802:    local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:903:    -- buffs is the cooldownInfo base / a shared ability id. CD/utility keep
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:968:--- Stable display-order key for a Blizzard-tracked buff (cooldownID) or custom.
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:982:    if pfx == "c" and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:983:        local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(num)
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:992:--- hero-talent / override variants (cooldownID can drift across talent swaps).
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:1015:    local divertedCd = {}  -- cooldownID-level diversions (collided-buff slots)
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:1044:        -- Dedup on the stable (cooldownID-derived) key, not e.sid: two viewer
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:1045:        -- slots can share a canonical spellID but are distinct cooldownIDs
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:1101:--  slots (cooldownIDs). Per-icon buff settings are keyed by spellID, so those
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:1103:--  "c"..cooldownID instead, giving each its own entry. Only collided slots do
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:1104:--  this: keying every buff by cooldownID would regress non-collided buffs,
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:1105:--  whose settings must survive talent swaps (cooldownID drifts; spellID does
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:1111:--- Set of canonical spellIDs that map to 2+ distinct buff-viewer cooldownIDs.
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:1131:-- least one "c"..cooldownID key. Cached by store-table identity, so a spec or
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:1149:--- Called when a "c"..cooldownID buff entry is first persisted, so the hot-path
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:1279:        local cd = entry.frame and entry.frame.cooldownID
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:1284:        -- reserved for genuine talent-gap frames whose cooldownID drifted.
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:1296:    -- lookup can't tell them apart and both would miss. cooldownID is
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:1299:    local cdKey = ef and ef.cooldownID and BuffDisplayStableKey(nil, ef.cooldownID)
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:1313:--- array of STABLE keys ("c"..cooldownID for Blizzard buffs, "s"..spellID for
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:1315:--- cooldownID is used (not the canonical spellID) because a buff's canonical id
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:1488:    if not C_CooldownViewer or not C_CooldownViewer.GetCooldownViewerCategorySet then return end
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:1489:    local gci = C_CooldownViewer.GetCooldownViewerCooldownInfo
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:1492:        local knownIDs = C_CooldownViewer.GetCooldownViewerCategorySet(cat, false)
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:1508:        local allIDs = C_CooldownViewer.GetCooldownViewerCategorySet(cat, true)
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:1672:--- Track a single buff-viewer SLOT (cooldownID) on a buff-family bar.
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:1677:--- per cooldownID -- sidesteps that dedup while reusing AddTrackedSpell's
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:1682:--- survives talent swaps (cooldownIDs drift -- the same accepted limitation
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:1683:--- as the per-cooldownID settings keys). Never valid on the default "buffs"
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:1739:--- Host a single collided-buff SLOT (cooldownID) on a CD/util bar. Same
+EllesmereUICooldownManager/EllesmereUICdmSpellPicker.lua:1756:    -- "c"..cooldownID settings key independently -- just the table's
+EllesmereUICooldownManager/EllesmereUICdmBarGlows.lua:5:--  v4: CDM bar assignments keyed by cooldownID for stability across reanchors.
+EllesmereUICooldownManager/EllesmereUICdmBarGlows.lua:42:-- CDM bar icon lookup by cooldownID (stable across reanchors).
+EllesmereUICooldownManager/EllesmereUICdmBarGlows.lua:44:-- guarantees a cooldownID can only live on one bar at a time.
+EllesmereUICooldownManager/EllesmereUICdmBarGlows.lua:45:local function FindCDMButtonByCooldownID(cooldownID)
+EllesmereUICooldownManager/EllesmereUICdmBarGlows.lua:50:            if icon and icon.cooldownID == cooldownID then
+EllesmereUICooldownManager/EllesmereUICdmBarGlows.lua:106:--- Get assignments for a CDM bar icon (cooldownID-based)
+EllesmereUICooldownManager/EllesmereUICdmBarGlows.lua:107:function ns.GetCDMButtonAssignments(cooldownID)
+EllesmereUICooldownManager/EllesmereUICdmBarGlows.lua:109:    local key = "cdm_" .. cooldownID
+EllesmereUICooldownManager/EllesmereUICdmBarGlows.lua:194:            -- CDM bar assignment: "cdm_<cooldownID>"
+EllesmereUICooldownManager/EllesmereUICdmBarGlows.lua:198:                -- Find which CDM bar has this cooldownID (walks all bars)
+EllesmereUICooldownManager/EllesmereUICdmBarGlows.lua:385:    local viewers = { "EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer", "BuffBarCooldownViewer" }
+EllesmereUICooldownManager/EllesmereUICdmBarGlows.lua:388:        if vf and vf.itemFramePool and vf.itemFramePool.EnumerateActive then
+EllesmereUICooldownManager/EllesmereUICdmBarGlows.lua:389:            for frame in vf.itemFramePool:EnumerateActive() do
+EllesmereUICooldownManager/EllesmereUICdmBarGlows.lua:390:                local cdID = frame.cooldownID or (frame.cooldownInfo and frame.cooldownInfo.cooldownID)
+EllesmereUICooldownManager/EllesmereUICdmBarGlows.lua:419:                    if cdID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
+EllesmereUICooldownManager/EllesmereUICdmBarGlows.lua:420:                        local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:271:    "EssentialCooldownViewer",
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:272:    "UtilityCooldownViewer",
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:273:    "BuffIconCooldownViewer",
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:274:    "BuffBarCooldownViewer",
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:854:--  cooldownID instead. Same marker-in-assignedSpells pattern as hosted-buff
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:858:--  Encoding: -(BASE + cooldownID). BASE sits beyond HOSTED_BUFF_MARKER_BASE
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:869:-- Decode a cd-claim marker to its cooldownID; nil for anything else.
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:1287:-- from the id (GetCanonicalSpellIDForFrame reads cooldownInfo, so it works while the
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:1645:--  For buff bars the cooldownInfo struct often contains the wrong spellID
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:1647:--  knows the correct spell via GetAuraSpellID / GetSpellID at runtime.
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:1656:    if child.GetAuraSpellID then
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:1657:        local ok, auraID = pcall(child.GetAuraSpellID, child)
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:1664:    if child.GetSpellID then
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:1665:        local ok, fid = pcall(child.GetSpellID, child)
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:1671:    -- Fall back to cooldownInfo struct
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:1672:    local cdID = child.cooldownID or (child.cooldownInfo and child.cooldownInfo.cooldownID)
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:1673:    if cdID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:1674:        local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:1687:    if not C_CooldownViewer or not C_CooldownViewer.GetCooldownViewerCategorySet then return known end
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:1689:        local knownIDs = C_CooldownViewer.GetCooldownViewerCategorySet(cat, false)
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:1692:                local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:1735:            local allIDs = C_CooldownViewer.GetCooldownViewerCategorySet(cat, true)
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:1738:                    local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:1898:    CDM_COOLDOWN = "EssentialCooldownViewer",
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:1899:    CDM_UTILITY  = "UtilityCooldownViewer",
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:1968:    local root = _G.BuffIconCooldownViewer
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:2103:    "BuffIconCooldownViewer", "BuffBarCooldownViewer",
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:2104:    "EssentialCooldownViewer", "UtilityCooldownViewer",
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:2515:    EssentialCooldownViewer = "cooldowns",
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:2516:    UtilityCooldownViewer   = "utility",
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:2517:    BuffIconCooldownViewer  = "buffs",
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:2577:    local cdID = blizzChild.cooldownID
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:2578:    if not cdID and blizzChild.cooldownInfo then
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:2579:        cdID = blizzChild.cooldownInfo.cooldownID
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:2582:        local info = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:2583:            and C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:2760:    cooldowns = "EssentialCooldownViewer",
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:2761:    utility   = "UtilityCooldownViewer",
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:2762:    buffs     = "BuffIconCooldownViewer",
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:2765:-- BuffBarCooldownViewer is the Blizzard buff bar strip. We hide it alongside
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:2769:    buffs = "BuffBarCooldownViewer",
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:2772:-- CDM category numbers per bar key (for C_CooldownViewer API)
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:3122:-- Suppress the secondary buff-bar viewer (BuffBarCooldownViewer).
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:3253:            -- BuffBarCooldownViewer is secondary: alpha + offscreen park,
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:3301:-- Restore Blizzard's BuffBarCooldownViewer (the bar-style buff tracking strip)
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:3319:        -- BuffBarCooldownViewer's default is EnableMouse(false); restoring
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:3322:        if frameName ~= "BuffBarCooldownViewer" then
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:5546:            -- fc.spellID (the cooldownInfo base). For buffs whose cooldownInfo base
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:6411:-- play the matching per-icon sound. The frame's GetSpellID is a SECRET value
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:7389:    -- secondary BuffBarCooldownViewer that HideBlizzardCDM moved offscreen.
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:7631:    -- cooldownIDs may have changed (so cached resolvedSid is stale).
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:7668:    -- IDs behind cooldownIDs may have changed.
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:7692:        -- Spells behind cooldownIDs change on spec swap; stale caches
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:7696:            if vf and vf.itemFramePool and vf.itemFramePool.EnumerateActive then
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:7697:                for ch in vf.itemFramePool:EnumerateActive() do
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:7908:                    -- is the cooldownID claim, never a spellID slot (mirrors
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:7910:                    if sid and claimedCd and icon.cooldownID
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:7911:                       and claimedCd[icon.cooldownID] then
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:9222:-- /cdmbb -- state of Blizzard's BuffBarCooldownViewer.
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:9238:    if not frame then P("BuffBarCooldownViewer does not exist") return end
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:9265:--   2. _cdidRouteMap aggregated by target bar (which cooldownIDs route where)
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:9364:    --    cdID, GetSpellID, info.spellID, info.overrideSpellID, canonical,
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:9367:    --    carries cooldownInfo (the IsFrameIncluded trigger for hidden
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:9370:    local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:9372:    -- category's learned cooldownIDs. A pool frame whose cdID is NOT in
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:9375:    if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:9378:            local ok, ids = pcall(C_CooldownViewer.GetCooldownViewerCategorySet, cat, false)
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:9384:    for _, vName in ipairs({ "EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer" }) do
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:9387:        if v and v.itemFramePool and v.itemFramePool.EnumerateActive then
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:9388:            for frame in v.itemFramePool:EnumerateActive() do
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:9390:                local cdID = frame.cooldownID
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:9391:                local frameSid = (type(frame.GetSpellID) == "function") and frame:GetSpellID() or nil
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:9422:                    tostring(frame.cooldownInfo ~= nil),
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:9572:                        tostring(frame.cooldownID), tostring(frame.layoutIndex),
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:9602:-- GetSpellID-derived, == slot._previewSpellID / ResolveBuffSettingsKey) collapse
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:9624:    -- Live buff GetSpellID is a secret value while the aura is active; guard
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:9677:    local gci      = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:9690:                local cdID    = frame.cooldownID
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:9704:                -- raw cooldownInfo for context (helps explain a divergence)
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:9750:    -- E. Display-order match simulation (stable-key format: "c"..cooldownID for
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:9753:    --    cooldownID fix, a buff's active frame and its placeholder share one key,
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:9763:        local gci2 = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+EllesmereUICooldownManager/EllesmereUICooldownManager.lua:9783:                    local cd = frame.cooldownID
+EllesmereUICooldownManager/EllesmereUICdmTbbDecimals.lua:121:-- Secret-guarded AddVariants for ids read off live frames/cooldownInfo (an
+EllesmereUICooldownManager/EllesmereUICdmTbbDecimals.lua:139:    -- The frame's canonical id resolves GetSpellID/GetAuraSpellID (the actual
+EllesmereUICooldownManager/EllesmereUICdmTbbDecimals.lua:144:    local cdID = frame.cooldownID
+EllesmereUICooldownManager/EllesmereUICdmTbbDecimals.lua:145:    local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+EllesmereUICooldownManager/EllesmereUICdmTbbDecimals.lua:199:-- cooldownInfo enrichment, but an id claimed by a DIFFERENT decimal bar's
+EllesmereUICooldownManager/EllesmereUICdmTbbDecimals.lua:200:-- saved config never leaks in: spell families share one cooldownInfo
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:2675:--  Iterates BuffBarCooldownViewer pool directly (pool is tiny, 3-5 frames).
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:2676:--  Matches by cooldownID first (cached on cfg), then by spell ID variants
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:2677:--  from cooldownInfo. No external caches, no stale data in combat.
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:2693:    local cdID = frame.cooldownID
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:2695:    local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:2703:    -- config so the bar keeps matching once the talent is removed: cooldownInfo
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:2712:    -- Fast path: match via cooldownInfo struct fields.
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:2728:    -- frames expose the actual aura variant via GetAuraSpellID which may
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:2729:    -- not appear in the cooldownInfo struct (e.g. Eclipse Solar/Lunar).
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:2768:        if cached.frame and cached.frame.cooldownID == cached.cdID then
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:2772:    -- Full scan: iterate BuffBarCooldownViewer pool (TBB's own viewer).
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:2775:    local viewer = _G["BuffBarCooldownViewer"]
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:2776:    if viewer and viewer.itemFramePool then
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:2777:        for frame in viewer.itemFramePool:EnumerateActive() do
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:2780:                entry.cdID = frame.cooldownID
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:2792:--  Pairs each tracked-bar config to AT MOST ONE BuffBarCooldownViewer frame,
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:2795:--  expose sibling frames that SHARE one cooldownInfo (linkedSpellIDs lists both
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:2805:--                  when GetAuraSpellID turns secret mid-fight. Revalidated
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:2811:--    3. Fallback-- cooldownInfo/linkedSpellIDs struct match for configs still
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:2847:    local viewer = _G["BuffBarCooldownViewer"]
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:2848:    if not viewer or not viewer.itemFramePool then return assignment end
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:2859:    for frame in viewer.itemFramePool:EnumerateActive() do
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:2913:    -- Pass 3: cooldownInfo/linkedSpellIDs struct fallback. Do NOT sticky a fuzzy
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:2932:--- Frame-based check: is a spellID present in BuffBarCooldownViewer?
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:2937:    local viewer = _G["BuffBarCooldownViewer"]
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:2938:    if not viewer or not viewer.itemFramePool then return false end
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:2939:    local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:2942:    for frame in viewer.itemFramePool:EnumerateActive() do
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:2943:        local cdID = frame.cooldownID
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:2959:--- Enumerate all spells currently in BuffBarCooldownViewer (Blizzard's
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:2980:    local viewer = _G["BuffBarCooldownViewer"]
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:2981:    if viewer and viewer.itemFramePool then
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:2982:        for frame in viewer.itemFramePool:EnumerateActive() do
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:2983:            if frame:IsShown() or frame.cooldownInfo then
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:2990:                        cdID        = frame.cooldownID,
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:3055:    -- the whole linked set (base/override/aura variants share a cooldownInfo),
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:3059:    if sp.cdID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:3060:        info = C_CooldownViewer.GetCooldownViewerCooldownInfo(sp.cdID)
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:3100:        local viewer = _G["BuffBarCooldownViewer"]
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:3102:        if viewer and viewer.itemFramePool and GetCanonical then
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:3103:            for frame in viewer.itemFramePool:EnumerateActive() do
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:3104:                if (frame:IsShown() or frame.cooldownInfo) and not GetCanonical(frame) then
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:3122:                if sp.cdID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:3123:                    local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(sp.cdID)
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:3177:    local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:3179:    local viewers = { "EssentialCooldownViewer", "UtilityCooldownViewer" }
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:3182:        if viewer and viewer.itemFramePool then
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:3183:            for frame in viewer.itemFramePool:EnumerateActive() do
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:3184:                local cdID = frame.cooldownID
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:3450:--- Check if a TBB config has a matching frame in BuffBarCooldownViewer.
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:4628:--  Direct reskin of Blizzard's BuffBarCooldownViewer StatusBars.
+EllesmereUICooldownManager/EllesmereUICdmBuffBars.lua:4662:    -- cooldownInfo) from both mirroring the same frame and showing twice.
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:237:    -- have no stable cooldownID to key a glow assignment on. They are NOT
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:853:        -- Blizzard CDM "Tracked Bars" section (BuffBarCooldownViewer).
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:1252:                if isCDMBar and realBtn and realBtn.cooldownID then
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:1253:                    assignKey = "cdm_" .. realBtn.cooldownID
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:1520:                if icon and icon.cooldownID then
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:1521:                    assignKey = "cdm_" .. icon.cooldownID
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:1548:                    -- Get the button's spell name for the header. cooldownID is a
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:1559:                            if (not sid) and icon.cooldownID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:1560:                                local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(icon.cooldownID)
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:2695:            -- Every spell here came from BuffBarCooldownViewer enumeration,
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:2777:                -- live cooldownInfo reports the base (Death's Advance) in
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:2780:                if sp.cdID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:2781:                    local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(sp.cdID)
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:2926:                    if sp.cdID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:2927:                        local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(sp.cdID)
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:6375:        -- a buff's resolved spellID drifts between its ACTIVE state (GetSpellID/
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:6376:        -- GetAuraSpellID return secret -> resolution falls back) and its INACTIVE
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:6377:        -- state (clean GetAuraSpellID), so right after combat when buffs expire the
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:6440:                -- does (canonical = GetSpellID-first, with the active-frame cache),
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:6441:                -- so a spell whose cooldownInfo base differs from its live talent
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:6445:                -- custom frames (no GetSpellID/cooldownInfo to resolve).
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:6596:        -- resolver was cache-backed. A buff whose cooldownInfo base spellID
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:6601:        -- canonical live spellID (GetSpellID-first, cache-backed), then drop any
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:6606:            local viewer = _G.BuffIconCooldownViewer
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:6607:            local pool = viewer and viewer.itemFramePool
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:6611:                    local info = frame.cooldownInfo
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:7666:            -- Pre-gray rows whose SLOT (cooldownID) is already tracked here: a
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:7817:        -- hosted by cooldownID, not by the shared spellID in `already` --
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:7926:                -- by cooldownID so each slot is hostable on its own. Non-
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:7928:                -- swaps, cooldownIDs drift).
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:8458:        -- GetSpellID-derived id, _previewSpellID). NOT the cooldownInfo base: for
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:8459:        -- some buffs the cooldownInfo base is an unrelated GENERIC spec spell shared
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:8471:            -- own cooldownID so each is configured independently. Non-collided
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:8473:            local cdID = af and (af._previewCdID or af.cooldownID)
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:8476:                -- Read-your-writes: once a per-cooldownID entry exists, keep
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:8725:                    -- collision "c"..cooldownID form directly -- the marker's
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:8727:                    -- cooldownID (no ambiguity to gate on, unlike
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:8773:                            -- cooldownID-scoped buff entry is first persisted.
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:13977:        -- both ids resolve to the same Blizzard cooldownID. BOTH ids must stay in the
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:13979:        -- one slot per cooldownID, remembering which assignedSpells index/indices each
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:13983:        -- spellID -> cooldownID is a function of the player's talents, so it is stable
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:13996:            local gcs = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:13997:            local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:14027:                -- Group by cooldownID when the id maps to a tracked buff; otherwise the
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:14950:                -- dedicated buffDisplayOrder (stable cooldownID-keyed, reconciled
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:15059:                        -- claim by cooldownID so each slot is addable on its
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:15061:                        -- identity survives talent swaps, cooldownIDs drift.
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:15185:            -- cooldownID for each Blizzard-tracked buff (nil for custom/injected
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:15186:            -- entries). Per-icon buff settings MUST key off the cooldownID-derived
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:15187:            -- stable spellID, never the live aura GetSpellID (secret/variant-drift).
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:15230:                    -- Resolve cooldownID-level claims (collided buffs tracked by
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:15243:                                -- active since): fall back to cooldownInfo. Each
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:15246:                                local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:15460:                            -- marker. Same clean-cache + cooldownInfo fallback the
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:15464:                                local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:19532:        if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet then
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:19534:                local allIDs = C_CooldownViewer.GetCooldownViewerCategorySet(cat, true) or {}
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:19535:                local knownIDs = C_CooldownViewer.GetCooldownViewerCategorySet(cat, false) or {}
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:19539:                    local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:19552:        local viewers = { "EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer", "BuffBarCooldownViewer" }
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:19560:                        if child.GetSpellID then
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:19561:                            local ok, v = pcall(child.GetSpellID, child)
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:19564:                        if not csid and child.GetAuraSpellID then
+EllesmereUICooldownManager/EUI_CooldownManager_Options.lua:19565:                            local ok, v = pcall(child.GetAuraSpellID, child)
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:198:    "EssentialCooldownViewer",
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:199:    "UtilityCooldownViewer",
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:200:    "BuffIconCooldownViewer",
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:201:    "BuffBarCooldownViewer",
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:220:    EssentialCooldownViewer = "cooldowns",
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:221:    UtilityCooldownViewer   = "utility",
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:222:    BuffIconCooldownViewer  = "buffs",
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:235:    local cdID = frame.cooldownID
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:236:    if not cdID and frame.cooldownInfo then
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:237:        cdID = frame.cooldownInfo.cooldownID
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:239:    if not cdID or not C_CooldownViewer then return nil, nil end
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:254:    local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:282:--   * sid2          -- ResolveFrameSpellID's cooldownInfo base. For some
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:284:--                      a Hellcaller Wither slot whose cooldownInfo base is
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:287:--                      the picker keys settings by (GetSpellID-first, clean-read
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:341:    -- Per-cooldownID buff override: two buff-viewer slots can share one
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:343:    -- configured independently under a "c"..cooldownID key. Gated so the hot
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:350:        -- Keep in Same Place) both carry the viewer cooldownID and must resolve
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:353:        -- preset placeholders, which nil the cooldownID.
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:355:            local cdID = frame.cooldownID
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:364:                -- GetSpellID reads secret, so the direct hit below would
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:367:                -- cooldownID from unrestricted reads. For normal buffs the
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:407:    -- configured -- but that base is NOT the cooldownInfo base (which for these is
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:599:--  _cdidRouteMap:   memoization cache, cooldownID -> barKey. Lazily
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:602:--                   a given cooldownID only exists in ONE viewer, so the
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:609:-- cooldownID-level buff diversions: a collided buff (two viewer slots sharing
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:611:-- tracked on a custom bar by its cooldownID (a cd-claim marker in
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:632:---   for a cooldownID. But Blizzard's actual CDM viewer can show a spell
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:696:            -- cooldownID-level claims (collided buffs tracked by slot, via
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:752:            -- the sid-keyed hostedBuffSpellIDs flag): claim the cooldownID
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:779:--- Lazily resolve a cooldownID to a bar key. Called per-frame at reanchor
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:805:    -- cooldownID-level claim first (collided buffs tracked by slot). Needs no
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:806:    -- cooldownInfo read, so it also works while every sid field is secret.
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:816:    local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:891:--  Include if shown OR has cooldownInfo (catches transitional frames).
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:895:    return frame:IsShown() or (frame.cooldownInfo ~= nil)
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:1790:--  spell-ID resolution can miss on the frame's very first pass (cooldownID
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:2075:    fd._isBuffViewerFrame = (frame.viewerFrame == _G.BuffIconCooldownViewer
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:2076:        or frame.viewerFrame == _G.BuffBarCooldownViewer) or nil
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:2854:                -- -> Moonlight Chakram), the base cooldownID spell (sid2) is on its
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:3190:    local cdID = frame.cooldownID
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:3255:    f.cooldownID = nil
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:3256:    f.cooldownInfo = nil
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:3728:        f.cooldownID = nil; f.cooldownInfo = nil
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:3773:        f.cooldownID = nil; f.cooldownInfo = nil
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:3842:    f.cooldownID = nil; f.cooldownInfo = nil
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:4585:        if viewer and viewer.itemFramePool and viewer.itemFramePool.EnumerateActive then
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:4587:            for frame in viewer.itemFramePool:EnumerateActive() do
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:4599:                            local dedupKey = frame.cooldownID
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:4630:                                    -- LIVE resolved spell (GetSpellID) for the icon/identity:
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:4631:                                    -- cooldownInfo's override can point at a base spec spell with
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:4632:                                    -- a generic icon (e.g. 137029 Holy Paladin) while GetSpellID is
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:4634:                                    -- Bulwark). GetSpellID can return a SECRET number on a live
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:4638:                                    -- cooldownInfo-resolved displaySID.
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:4639:                                    local realSID = frame.GetSpellID and frame:GetSpellID()
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:4654:                                        -- Inactive frame -> CLEAN GetSpellID. Prime the shared cache
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:4655:                                        -- (keyed by cooldownID) so the custom-buff picker/preview
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:4657:                                        -- the aura is ACTIVE (GetSpellID secret then). Done for ALL
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:4742:                                            -- Carry the viewer slot's cooldownID so the
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:4746:                                            -- active<->inactive; cooldownID does not).
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:4747:                                            ph.cooldownID = dedupKey
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:4780:                        local cdID = frame.cooldownID
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:4880:                                -- key by "s"..sid. Clear any cooldownID a shared pooled
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:4882:                                -- the sort never mistakes it for "c"..cooldownID.
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:4883:                                ph.cooldownID = nil
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:5013:                -- options preview key off, NOT fc.spellID (the cooldownInfo base,
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:5032:                            -- by STABLE ids: "c"..cooldownID for Blizzard buffs (incl.
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:5033:                            -- placeholders, which now carry the viewer cooldownID) and
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:5036:                            -- cooldownID does not, so the order survives buffs proccing.
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:5056:                                    -- spellID, so order by the stable "c"..cooldownID
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:5058:                                    -- cooldownID-first lookup for these slots).
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:5332:                -- sort probe below must check cooldownID. Cached alongside the
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:5373:                                    -- rank it by the stable "c"..cooldownID key, the
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:5446:                            -- (cd-claim markers are -(CD_CLAIM_MARKER_BASE + cooldownID)).
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:5591:                                        f.cooldownID = nil; f.cooldownInfo = nil
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:5647:                -- key off fc.spellID = cooldownInfo.spellID (the base) and bridge
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:5650:                -- actually stored (documented: a Wither slot whose cooldownInfo
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:5659:                    -- (or none). cooldownID is unique per slot -- check it first,
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:5663:                        local cd = frame and frame.cooldownID
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:5725:                -- (cooldownID set) anchors at its OWN layoutIndex. A preset we inject
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:5726:                -- (trinket/pot/racial -- cooldownID nil, no real layoutIndex) anchors
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:5738:                        if type(k) == "number" and frame.cooldownID ~= nil then
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:5761:                            if type(k) == "number" and frame.cooldownID == nil then
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:5793:                            if anchorKeys and frame.cooldownID ~= nil then
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:6138:    local buffViewer = _G["BuffIconCooldownViewer"]
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:6139:    local barViewer  = _G["BuffBarCooldownViewer"]
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:6477:                                    f.cooldownID = nil; f.cooldownInfo = nil
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:6740:        if not viewer or not viewer.itemFramePool then return end
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:6748:        for frame in viewer.itemFramePool:EnumerateActive() do
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:6781:        if v and v.itemFramePool then
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:6783:            local isBarViewer = (vi == 4) -- BuffBarCooldownViewer
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:6784:            hooksecurefunc(v.itemFramePool, "Acquire", function()
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:6858:        EssentialCooldownViewer = "cooldowns",
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:6859:        UtilityCooldownViewer   = "utility",
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:6900:    local buffViewer = _G["BuffIconCooldownViewer"]
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:6904:    local buffBarViewer = _G["BuffBarCooldownViewer"]
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:7246:            -- so BuffBarCooldownViewer frames -- which CollectAndReanchor
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:7269:                    if vf and vf.itemFramePool and vf.itemFramePool.EnumerateActive then
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:7270:                        for frame in vf.itemFramePool:EnumerateActive() do
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:7442:-- Skip locking the BuffBarCooldownViewer when the user has enabled
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:7447:    if frame == _G["BuffBarCooldownViewer"] then
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:7689:        local cdID = icon.cooldownID
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:7690:        if cdID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
+EllesmereUICooldownManager/EllesmereUICdmHooks.lua:7691:            local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
+EllesmereUIResourceBars/EllesmereUIResourceBars.lua:4330:local _euiBuffViewers = { "BuffBarCooldownViewer", "BuffIconCooldownViewer" }
+EllesmereUIResourceBars/EllesmereUIResourceBars.lua:4332:    local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+EllesmereUIResourceBars/EllesmereUIResourceBars.lua:4336:        local pool = vf and vf.itemFramePool
+EllesmereUIResourceBars/EllesmereUIResourceBars.lua:4340:                    local cdID = frame.cooldownID or (frame.cooldownInfo and frame.cooldownInfo.cooldownID)
+EllesmereUIResourceBars/EllesmereUIResourceBars.lua:4578:    if frame.GetSpellID then
+EllesmereUIResourceBars/EllesmereUIResourceBars.lua:4579:        local ok, sid = pcall(frame.GetSpellID, frame)
+EllesmereUIResourceBars/EllesmereUIResourceBars.lua:4582:    local cdID = frame.cooldownID or (frame.cooldownInfo and frame.cooldownInfo.cooldownID)
+EllesmereUIResourceBars/EllesmereUIResourceBars.lua:4583:    if cdID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
+EllesmereUIResourceBars/EllesmereUIResourceBars.lua:4584:        local ok, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, cdID)
+EllesmereUIResourceBars/EllesmereUIResourceBars.lua:4637:        if not viewer or not viewer.itemFramePool then return end
+EllesmereUIResourceBars/EllesmereUIResourceBars.lua:4638:        for frame in viewer.itemFramePool:EnumerateActive() do
+EllesmereUIResourceBars/EllesmereUIResourceBars.lua:4646:    scanPool(_G.BuffIconCooldownViewer, function(f)
+EllesmereUIResourceBars/EllesmereUIResourceBars.lua:4650:        scanPool(_G.BuffBarCooldownViewer, function(f)
+EllesmereUIResourceBars/EllesmereUIResourceBars.lua:9269:		local g = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+EllesmereUIResourceBars/EllesmereUIResourceBars.lua:9270:		for _, n in ipairs({ "EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer", "BuffBarCooldownViewer" }) do
+EllesmereUIResourceBars/EllesmereUIResourceBars.lua:9272:			if f and f.itemFramePool and g then
+EllesmereUIResourceBars/EllesmereUIResourceBars.lua:9273:				for fr in f.itemFramePool:EnumerateActive() do
+EllesmereUIResourceBars/EllesmereUIResourceBars.lua:9274:					local i = fr.cooldownID and g(fr.cooldownID)
