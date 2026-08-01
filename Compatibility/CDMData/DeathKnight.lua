@@ -3,6 +3,11 @@ local addonName, ns = ...
 if not C_CooldownViewer or not C_CooldownViewer.RegisterDefinition then return end
 
 -- Category Constants based on EllesmereUI defaults
+-- These correspond to the internal enum values mapped to the specific cooldown viewer bars:
+-- 1 = EssentialCooldownViewer
+-- 2 = UtilityCooldownViewer
+-- 3 = BuffIconCooldownViewer
+-- 4 = BuffBarCooldownViewer
 local CDM_CATEGORY_ESSENTIAL = 1
 local CDM_CATEGORY_UTILITY   = 2
 local CDM_CATEGORY_BUFF_ICON = 3
