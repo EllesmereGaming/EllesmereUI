@@ -1213,6 +1213,7 @@ local DEFAULTS = {
             alwaysShow    = false,  -- keep the bar on screen (sitting empty) while nothing is being cast
             showIcon      = true,
             iconOnRight   = false,  -- attach the spell icon to the right of the bar instead of the left
+            iconDivider   = false,  -- one-pixel separator at the icon/bar seam
             width         = 220,
             height        = 20,
             anchorX       = 0,
@@ -6378,6 +6379,15 @@ BuildCastBar = function()
         castBarFrame._iconFrame = iconFrame
         castBarFrame._icon = icon
 
+        -- Optional one-physical-pixel separator at the icon/bar seam.
+        local iconDivider = CreateFrame("Frame", nil, castBarFrame)
+        iconDivider:SetFrameLevel(castBarFrame:GetFrameLevel() + 10)
+        local iconDividerTex = iconDivider:CreateTexture(nil, "OVERLAY")
+        iconDividerTex:SetAllPoints()
+        iconDividerTex:SetColorTexture(0, 0, 0, 1)
+        iconDivider:Hide()
+        castBarFrame._iconDivider = iconDivider
+
         -- Text overlay frame (above all bar borders)
         local textFrame = CreateFrame("Frame", nil, castBarFrame)
         textFrame:SetAllPoints(bar)
@@ -6478,6 +6488,16 @@ BuildCastBar = function()
         iconFrame:Show()
     else
         iconFrame:Hide()
+    end
+
+    local iconDivider = castBarFrame._iconDivider
+    if iconDivider then
+        iconDivider:ClearAllPoints()
+        local edge = iconOnRight and "LEFT" or "RIGHT"
+        iconDivider:SetPoint("TOP", iconFrame, "TOP" .. edge, 0, 0)
+        iconDivider:SetPoint("BOTTOM", iconFrame, "BOTTOM" .. edge, 0, 0)
+        iconDivider:SetWidth((PP and PP.mult) or 1)
+        iconDivider:SetShown(hasIcon and cb.iconDivider == true)
     end
 
     -- Clip frame + bar: beside the icon (or full width), full height

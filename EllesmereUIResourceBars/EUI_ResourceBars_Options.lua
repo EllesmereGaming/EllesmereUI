@@ -7993,6 +7993,15 @@ initFrame:SetScript("OnEvent", function(self)
             if hasIcon then pf.iconFrame:Show() else pf.iconFrame:Hide() end
         end
 
+        if pf.iconDivider then
+            pf.iconDivider:ClearAllPoints()
+            local edge = iconOnRight and "LEFT" or "RIGHT"
+            pf.iconDivider:SetPoint("TOP", pf.iconFrame, "TOP" .. edge, 0, 0)
+            pf.iconDivider:SetPoint("BOTTOM", pf.iconFrame, "BOTTOM" .. edge, 0, 0)
+            pf.iconDivider:SetWidth((EllesmereUI.PP and EllesmereUI.PP.mult) or 1)
+            pf.iconDivider:SetShown(hasIcon and cb.iconDivider == true)
+        end
+
         -- Cast text side-aware layout (mirrors the live cast bar)
         local cbTimerW   = (cb.timerSize or 11) * 2.2
         local cbDurSide   = cb.timerSide or "right"
@@ -8151,6 +8160,14 @@ initFrame:SetScript("OnEvent", function(self)
         if not hasIcon then iconFrame:Hide() end
         _castBarPreviewFrames.iconFrame = iconFrame
         _castBarPreviewFrames.icon = icon
+
+        local iconDivider = CreateFrame("Frame", nil, container)
+        iconDivider:SetFrameLevel(container:GetFrameLevel() + 10)
+        local iconDividerTex = iconDivider:CreateTexture(nil, "OVERLAY")
+        iconDividerTex:SetAllPoints()
+        iconDividerTex:SetColorTexture(0, 0, 0, 1)
+        iconDivider:Hide()
+        _castBarPreviewFrames.iconDivider = iconDivider
 
         -- Timer text
         local timerText = bar:CreateFontString(nil, "OVERLAY")
@@ -8360,7 +8377,7 @@ initFrame:SetScript("OnEvent", function(self)
                   p.castBar.showSpark = v; RefreshCast()
               end }
         );  y = y - h
-        -- Inline cog on Show Spell Icon: Icon on Right
+        -- Inline cog on Show Spell Icon: icon side + seam divider
         do
             local rgn = iconRow._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
@@ -8372,6 +8389,13 @@ initFrame:SetScript("OnEvent", function(self)
                       set = function(v)
                           local p = DB(); if not p then return end
                           p.castBar.iconOnRight = v; RefreshCast()
+                      end },
+                    { type = "toggle", label = "Show Icon Divider",
+                      tooltip = "Draw a solid one-pixel separator between the spell icon and cast bar.",
+                      get = function() local p = DB(); return p and p.castBar.iconDivider == true end,
+                      set = function(v)
+                          local p = DB(); if not p then return end
+                          p.castBar.iconDivider = v and true or nil; RefreshCast()
                       end },
                 },
             })
