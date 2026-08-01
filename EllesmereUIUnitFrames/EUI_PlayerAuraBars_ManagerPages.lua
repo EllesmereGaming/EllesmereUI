@@ -112,6 +112,65 @@ local function DedupedFilterItems()
     return out
 end
 
+-- Custom buff bar sidebar tile subtitle -- was a flat "N spells" (the
+-- RESOLVED spell count, filters expanded), which didn't tell the user
+-- WHICH selection mode a bar was actually in. Now reflects the bar's
+-- actual ASSIGNED BUFFS config instead of the resolved count:
+--   Show All Buffs on:  "Show All Buffs" (+ " + N spells" if Extra Spells
+--     also has entries -- Extra Spells stays active/visible regardless of
+--     Show All Buffs, see BuildAssignedBuffsFields' exRow, so it's still
+--     meaningful to surface here).
+--   Show All Buffs off: first 3 selected filters' names, comma-joined, in
+--     ns.PAB_Filters() list order (map iteration via bar.filters alone is
+--     unordered -- would make the tile flicker between refreshes). If 3+
+--     filters are selected the 3rd shown name is truncated to its first 3
+--     characters + "..." as an overflow hint. Falls back to the old
+--     resolved-count phrasing when no filters are selected at all (e.g. a
+--     bar with only Extra Spells and Show All Buffs off).
+local function TruncateFilterName(name)
+    return (name or ""):sub(1, 3) .. "..."
+end
+
+local function BuildBuffBarSubtitle(bar)
+    local extraCount = bar.spells and #bar.spells or 0
+
+    if bar.showAllBuffs ~= false then
+        if extraCount > 0 then
+            return L("Show All Buffs") .. " + " .. extraCount .. " " .. L("spells")
+        end
+        return L("Show All Buffs")
+    end
+
+    local names, totalSelected = {}, 0
+    if bar.filters then
+        local allFilters = ns.PAB_Filters and ns.PAB_Filters()
+        if allFilters then
+            for i = 1, #allFilters do
+                local f = allFilters[i]
+                if bar.filters[f.id] then
+                    totalSelected = totalSelected + 1
+                    if #names < 3 then names[#names + 1] = f.name end
+                end
+            end
+        end
+    end
+
+    if #names == 0 then
+        local resolved = ns.PAB_ResolveSpells and ns.PAB_ResolveSpells(bar) or (bar.spells or {})
+        return tostring(#resolved) .. " " .. L("spells")
+    end
+
+    if totalSelected >= 3 then
+        names[#names] = TruncateFilterName(names[#names])
+    end
+
+    local label = table.concat(names, ", ")
+    if extraCount > 0 then
+        label = label .. " + " .. extraCount .. " " .. L("spells")
+    end
+    return label
+end
+
 -------------------------------------------------------------------------------
 --  Shared field builders -- used by BOTH the default bars and custom bars.
 --  cfg is whatever table the caller wants read/written: DefaultBuffsCfg(s),
@@ -1757,8 +1816,7 @@ function ns.PABMP_BuildPage(pageName, parent, yOffset)
 
         for i = 1, #buffBars do
             local bar = buffBars[i]
-            local resolved = ns.PAB_ResolveSpells and ns.PAB_ResolveSpells(bar) or (bar.spells or {})
-            local sub = tostring(#resolved) .. " " .. L("spells")
+            local sub = BuildBuffBarSubtitle(bar)
             tileY = tileY - BuildTile(sidebarChild, tileY, {
                 width = sidebarW, fontPath = fontPath,
                 title = bar.name or L("Buff Bar"),
