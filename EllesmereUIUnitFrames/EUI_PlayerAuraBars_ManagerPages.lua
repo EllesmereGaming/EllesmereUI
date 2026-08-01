@@ -171,6 +171,20 @@ local function BuildBuffBarSubtitle(bar)
     return label
 end
 
+-- Custom debuff bar sidebar tile subtitle -- same "reflect the actual
+-- ASSIGNED DEBUFFS config" fix as BuildBuffBarSubtitle above, just for the
+-- debuff shape (bar.showAllDebuffs + bar.classFilters, no filters/extra
+-- spells concept on the debuff side -- custom debuff bars are pure
+-- class-token selection, see ns.PAB_AddCustomDebuffBar).
+local function BuildDebuffBarSubtitle(bar)
+    if bar.showAllDebuffs == true then
+        return L("Show All Debuffs")
+    end
+    local nc = 0
+    if bar.classFilters then for _ in pairs(bar.classFilters) do nc = nc + 1 end end
+    return tostring(nc) .. " " .. (nc == 1 and L("class") or L("classes"))
+end
+
 -------------------------------------------------------------------------------
 --  Shared field builders -- used by BOTH the default bars and custom bars.
 --  cfg is whatever table the caller wants read/written: DefaultBuffsCfg(s),
@@ -440,6 +454,11 @@ local function BuildAssignedDebuffsFields(frame, fontPath, sy, cfg, apply)
                 cfg.classFilters = cfg.classFilters or {}
                 cfg.classFilters[k] = v or nil
                 apply()
+                -- Non-force: same reasoning as the buff-side Filters/Extra
+                -- Spells dropdowns -- runs only the registered lightweight
+                -- refresh callbacks (e.g. the sidebar tile's subtitleFn) in
+                -- place, without closing this open dropdown.
+                EllesmereUI:RefreshPage()
             end)
         PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
         rgn._control = cbDD; rgn._lastInline = nil
@@ -1901,13 +1920,10 @@ function ns.PABMP_BuildPage(pageName, parent, yOffset)
 
         for i = 1, #debuffBars do
             local bar = debuffBars[i]
-            local nc = 0
-            if bar.classFilters then for _ in pairs(bar.classFilters) do nc = nc + 1 end end
-            local sub = tostring(nc) .. " " .. (nc == 1 and L("class") or L("classes"))
             tileY = tileY - BuildTile(sidebarChild, tileY, {
                 width = sidebarW, fontPath = fontPath,
                 title = bar.name or L("Debuff Bar"),
-                subtitle = sub,
+                subtitleFn = function() return BuildDebuffBarSubtitle(bar) end,
                 selected = (pabSel and pabSel.kind == "debuff" and pabSel.id == bar.id),
                 enabled = bar.enabled and true or false,
                 showToggle = true,
