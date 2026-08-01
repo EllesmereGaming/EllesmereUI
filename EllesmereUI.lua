@@ -1612,9 +1612,29 @@ end
 -------------------------------------------------------------------------------
 --  Utilities
 -------------------------------------------------------------------------------
+-- Every options row, panel and popup in the suite builds its text through here
+-- (~380 call sites across 25 files), so this decides whether a chosen font
+-- reaches the EUI menu at all. It used to hardcode the bundled face, which is
+-- why a custom global font landed on some dropdowns and not others: the
+-- specialised builders (visibility options, multi-apply, reorder) resolve
+-- GetFontPath themselves, while everything built through here stayed on
+-- Expressway regardless of the setting. That is the "no pattern" a reporter
+-- described -- it tracks which builder a row uses, not which module it is in.
+--
+-- GetFontPath is also the locale-correct source: it forces the system glyph
+-- font on CJK and Cyrillic clients, which is what LOCALE_FONT_FALLBACK was
+-- approximating here. It is memoised, so the call is cheap at this volume.
+--
+-- The literal stays as a fallback for two cases: before the font system is
+-- initialised, and when a user-imported face fails to load. SetFont returns
+-- false on failure, and without the retry a broken custom font would render
+-- every menu string invisible rather than merely unstyled.
 local function MakeFont(parent, size, flags, r, g, b, a)
     local fs = parent:CreateFontString(nil, "OVERLAY")
-    fs:SetFont(LOCALE_FONT_FALLBACK or EXPRESSWAY, size, flags or "")
+    local path = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("options")
+    if not path or not fs:SetFont(path, size, flags or "") then
+        fs:SetFont(LOCALE_FONT_FALLBACK or EXPRESSWAY, size, flags or "")
+    end
     if r then fs:SetTextColor(r, g, b, a or 1) end
     return fs
 end
