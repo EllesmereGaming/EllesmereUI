@@ -1312,6 +1312,10 @@ ns.healthBarTextureNames = healthBarTextureNames
 -- to the settings sub-table key in db.profile.
 local function UnitToSettingsKey(unit)
     if not unit then return nil end
+    -- The shared boss configuration is also addressed by the generic "boss"
+    -- key in a few layout/preview paths. Keep it on the boss profile instead
+    -- of falling through to the player profile.
+    if unit == "boss" then return "boss" end
     if unit:match("^boss%d$") then return "boss" end
     if unit == "pet" then return "pet" end
     if db.profile[unit] then return unit end
@@ -2335,6 +2339,7 @@ local function GetSettingsForUnit(unit)
             pet = db.profile.pet,
             focus = db.profile.focus,
             focustarget = db.profile.focustarget,
+            boss = db.profile.boss,
         }
         for i = 1, 5 do
             unitSettingsMap["boss" .. i] = db.profile.boss
@@ -2500,8 +2505,9 @@ local function LayoutCastbarIcon(castbar, inWidth, iconH, onRight, offX, offY)
     end
 end
 
--- Returns the donor settings table for mini frames (focus > target > player)
--- Used to inherit border, texture, and font settings
+-- Returns the donor settings table for mini frames (focus > target > player).
+-- Boss frames use this only for their shared texture/font fallbacks; their
+-- frame and aura borders always come from db.profile.boss.
 local function GetMiniDonorSettings()
     local ef = db.profile.enabledFrames
     if ef.focus ~= false and db.profile.focus then return db.profile.focus end
@@ -6023,15 +6029,30 @@ ns.ApplyBossBorderState = function(self)
     local s = db.profile.boss
     if not s then return end
     local r, g, b, a
+    local raised = false
     if self._hovered and s.bossHoverBorderEnabled then
         local c = s.bossHoverBorderColor or { r = 1, g = 1, b = 1 }
         r, g, b, a = c.r, c.g, c.b, s.bossHoverBorderAlpha or 1
+        raised = true
     elseif self._isTarget and s.bossTargetBorderEnabled then
         local c = s.bossTargetBorderColor or { r = 1, g = 1, b = 1 }
         r, g, b, a = c.r, c.g, c.b, s.bossTargetBorderAlpha or 1
+        raised = true
     else
         local c = s.borderColor or { r = 0, g = 0, b = 0 }
         r, g, b, a = c.r, c.g, c.b, s.borderAlpha or 1
+    end
+    -- A normal boss border may intentionally render behind the frame. Hover
+    -- and target states must temporarily raise that same styled border so the
+    -- highlight stays visible, then restore its configured level afterwards.
+    local frameLevel = self:GetFrameLevel()
+    local level = (s.borderBehind and not raised)
+        and math.max(0, frameLevel - 1) or (frameLevel + 10)
+    local border = self.unifiedBorder
+    local container = PP.GetBorders(border)
+    if border:GetFrameLevel() ~= level then border:SetFrameLevel(level) end
+    if container and container:GetFrameLevel() ~= level + 1 then
+        container:SetFrameLevel(level + 1)
     end
     EllesmereUI.SetBorderStyleColor(self.unifiedBorder, r, g, b, a)
 end
@@ -6065,7 +6086,10 @@ local function FrameBorderLeave(self)
         return
     end
     local isMini = (unit == "pet" or unit == "targettarget" or unit == "focustarget")
-    local settings = isMini and GetMiniDonorSettings() or GetSettingsForUnit(unit)
+    -- Target of Target owns its base border. Its optional hover highlight still
+    -- follows the donor, but leaving hover must restore the ToT border color.
+    local settings = (unit == "targettarget") and GetSettingsForUnit(unit)
+        or (isMini and GetMiniDonorSettings() or GetSettingsForUnit(unit))
     local bc = settings.borderColor or { r = 0, g = 0, b = 0 }
     local ba = settings.borderAlpha or 1
     EllesmereUI.SetBorderStyleColor(self.unifiedBorder, bc.r, bc.g, bc.b, ba)
@@ -6463,6 +6487,14 @@ local function CreateTargetAuras(frame, unit)
         button._euiABGen = gen  -- stamped after the apply, never before
     end
 
+    local function RestyleLegacyAuraElement(element)
+        if not element then return end
+        local n = element.num or 0
+        for i = 1, n do
+            ApplyLegacyAuraBorder(element[i])
+        end
+    end
+
     local function SetupAuraIcon(container, button)
         if not button then return end
 
@@ -6753,6 +6785,14 @@ local function CreateTargetAuras(frame, unit)
             debuffs:Hide()
         end
         frame.Debuffs = debuffs
+    end
+
+    -- Border-only settings changes do not necessarily trigger an aura update.
+    -- Restyle the already-pooled buttons directly on the next config reload;
+    -- this reads only our numeric button slots and never inspects aura data.
+    frame._restyleAuraBorders = function()
+        RestyleLegacyAuraElement(frame.Buffs)
+        RestyleLegacyAuraElement(frame.Debuffs)
     end
 end
 
@@ -11123,8 +11163,10 @@ local function ReloadFrames()
                 ReparentBarsToClip(frame, settings.powerPosition, settings)
             end
 
-            -- Determine if this is a mini frame that inherits border/texture/font
-            local isMiniFrame = (unit == "pet" or unit == "targettarget" or unit == "focustarget" or unit:match("^boss%d$"))
+            -- Mini frames inherit donor texture/font settings. Boss frames share
+            -- those donor fallbacks for bars/text, but keep their own border.
+            local isBossFrame = unit:match("^boss%d$") ~= nil
+            local isMiniFrame = (unit == "pet" or unit == "targettarget" or unit == "focustarget" or isBossFrame)
             local donorSettings = isMiniFrame and GetMiniDonorSettings() or settings
 
             -- Apply health bar texture overlay (mini frames inherit the donor
@@ -11146,14 +11188,6 @@ local function ReloadFrames()
                     cbTexKey = settings.healthBarTexture or db.profile.healthBarTexture or "none"
                 end
                 ns.ApplyCastBarTexture(frame.Castbar, cbTexKey)
-            end
-            -- Boss Hover/Target border: the border was just restyled to its normal
-            -- color above, so re-apply the hover/target recolor (both default off,
-            -- so this is a no-op unless the user enabled a boss border).
-            if unit:match("^boss%d$") then
-                local isT = UnitIsUnit(unit, "target")
-                frame._isTarget = (not issecretvalue(isT) and isT) and true or false
-                ns.ApplyBossBorderState(frame)
             end
             frame.Health:SetReverseFill(settings.healthReverseFill and true or false)
             ApplyDarkTheme(frame.Health)
@@ -11260,15 +11294,28 @@ local function ReloadFrames()
 
             if frame.unifiedBorder then
                 frame.unifiedBorder:ClearAllPoints()
-                -- Mini frames (ToT/Focus Target/Pet) may override ONLY the border
-                -- size per frame (settings.borderSizeOverride); color and texture
-                -- still inherit from the donor. nil = inherit the donor size.
-                local bs = settings.borderSizeOverride or donorSettings.borderSize or 1
-                local bc = donorSettings.borderColor or { r = 0, g = 0, b = 0 }
-                local btex = donorSettings.borderTexture or "solid"
+                -- Boss and Target-of-Target own their complete border. Focus
+                -- Target and Pet retain the established donor inheritance.
+                local ownsBorder = isBossFrame or unit == "targettarget"
+                local borderSettings = ownsBorder and settings or donorSettings
+                local bs = ownsBorder and (borderSettings.borderSize or 1)
+                    or (settings.borderSizeOverride or borderSettings.borderSize or 1)
+                local bc = borderSettings.borderColor or { r = 0, g = 0, b = 0 }
+                local btex = borderSettings.borderTexture or "solid"
                 PP.Point(frame.unifiedBorder, "TOPLEFT", frame, "TOPLEFT", 0, 0)
                 PP.Point(frame.unifiedBorder, "BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
-                EllesmereUI.ApplyBorderStyle(frame.unifiedBorder, bs, bc.r, bc.g, bc.b, donorSettings.borderAlpha or 1, btex, donorSettings.borderTextureOffset, donorSettings.borderTextureOffsetY, donorSettings.borderTextureShiftX, donorSettings.borderTextureShiftY, "unitframes", bs)
+                frame.unifiedBorder:SetFrameLevel(borderSettings.borderBehind
+                    and math.max(0, frame:GetFrameLevel() - 1)
+                    or (frame:GetFrameLevel() + 10))
+                EllesmereUI.ApplyBorderStyle(frame.unifiedBorder, bs, bc.r, bc.g, bc.b, borderSettings.borderAlpha or 1, btex, borderSettings.borderTextureOffset, borderSettings.borderTextureOffsetY, borderSettings.borderTextureShiftX, borderSettings.borderTextureShiftY, "unitframes", bs)
+                -- Apply this after rebuilding the configured border style. Doing
+                -- it earlier lets ApplyBorderStyle overwrite an active hover or
+                -- target color during an options refresh.
+                if isBossFrame then
+                    local isT = UnitIsUnit(unit, "target")
+                    frame._isTarget = (not issecretvalue(isT) and isT) and true or false
+                    ns.ApplyBossBorderState(frame)
+                end
             end
 
             -- Helper: set font on a FontString, using donor font for mini frames
@@ -11334,6 +11381,7 @@ local function ReloadFrames()
                     if cb._syncOffsetsAndLayout then cb:_syncOffsetsAndLayout(settings) end
                 end
             end
+            if frame._restyleAuraBorders then frame._restyleAuraBorders() end
             end -- else (enabled frame processing)
         end
     end
@@ -13330,6 +13378,33 @@ function SetupOptionsPanel()
     local FAKE_DEBUFF_STACKS = { [2] = 3 }          -- one fake stack (icon 2 only)
     local FAKE_DEBUFF_FRACS  = { 0.35, 0.62, 0.88 } -- static fake swipe fraction remaining
     local FAKE_DEBUFF_SECS   = { 8, 15, 23 }         -- static fake duration-text seconds
+
+    -- The boss preview uses addon-owned fake aura frames, so style their borders
+    -- through the same boss aura settings as live legacy/container buttons.
+    -- Keeping this on an owned host avoids touching Blizzard aura buttons and is
+    -- safe regardless of aura secrecy/combat state.
+    local function ApplyBossPreviewAuraBorder(iconFrame, ownerFrame, settings)
+        local border = CreateFrame("Frame", nil, iconFrame)
+        border:SetAllPoints(iconFrame)
+        border:EnableMouse(false)
+        if settings.auraBorderBehindUnitFrame then
+            border:SetFrameLevel(math.max(0, ownerFrame:GetFrameLevel() - 1))
+        else
+            border:SetFrameLevel(settings.auraBorderBehind
+                and math.max(0, iconFrame:GetFrameLevel() - 1)
+                or (iconFrame:GetFrameLevel() + 1))
+        end
+        local size = settings.auraBorderSize or 1
+        EllesmereUI.ApplyBorderStyle(border, size,
+            settings.auraBorderR or 0, settings.auraBorderG or 0,
+            settings.auraBorderB or 0, settings.auraBorderA or 1,
+            settings.auraBorderTexture or "solid",
+            settings.auraBorderTextureOffset, settings.auraBorderTextureOffsetY,
+            settings.auraBorderTextureShiftX, settings.auraBorderTextureShiftY,
+            "unitframes", size)
+        return border
+    end
+
     local function AttachFakeDebuffs(frame)
         -- Tear down any prior holder so size/anchor refresh on every call.
         if frame._previewDebuffs then
@@ -13492,12 +13567,8 @@ function SetupOptionsPanel()
                 stack:SetTextColor(stackTextColor.r, stackTextColor.g, stackTextColor.b)
                 stack:SetText(FAKE_DEBUFF_STACKS[idx])
             end
-            -- Border just above the icon; its PP container renders at border+1
-            -- (iconFrame+2), below the swipe and text host so both stay on top.
-            local border = CreateFrame("Frame", nil, iconFrame)
-            border:SetAllPoints(icon)
-            border:SetFrameLevel(iconFrame:GetFrameLevel() + 1)
-            if PP and PP.CreateBorder then PP.CreateBorder(border, 0, 0, 0, 1) end
+            -- Uses the boss aura border style; cooldown/text remain above it.
+            ApplyBossPreviewAuraBorder(iconFrame, frame, settings)
         end
         frame._previewDebuffs = holder
     end
@@ -13600,10 +13671,7 @@ function SetupOptionsPanel()
             if tex then icon:SetTexture(tex) end
             local z = settings.buffIconZoom or 0.07
             icon:SetTexCoord(z, 1 - z, z, 1 - z)
-            local border = CreateFrame("Frame", nil, iconFrame)
-            border:SetAllPoints(icon)
-            border:SetFrameLevel(iconFrame:GetFrameLevel() + 1)
-            if PP and PP.CreateBorder then PP.CreateBorder(border, 0, 0, 0, 1) end
+            ApplyBossPreviewAuraBorder(iconFrame, frame, settings)
         end
         frame._previewBuffs = holder
     end

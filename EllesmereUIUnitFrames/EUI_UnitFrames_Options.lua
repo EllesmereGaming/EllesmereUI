@@ -2153,15 +2153,22 @@ initFrame:SetScript("OnEvent", function(self)
             elseif unitKey == "focustarget" then s = db.profile.focustarget
             else s = db.profile.player end
 
-            -- Player/target preview: mirror the live shared aura border style.
+            -- Player/target/boss preview: mirror the live aura border style.
+            -- Apply after the preview's final scale is known (below), otherwise
+            -- pixel-sized borders can be built against the previous scale.
+            local ApplyPreviewAuraBorders
             if unitKey == "player" or unitKey == "target" or unitKey == "boss" then
                 local function ApplyPreviewAuraBorder(icon)
                     if icon._iconTex then
                         icon._iconTex:ClearAllPoints()
-                        local inset = (s.auraBorderSize or 1) > 0 and 1 or 0
-                        PP.Point(icon._iconTex, "TOPLEFT", icon, "TOPLEFT", inset, -inset)
-                        PP.Point(icon._iconTex, "BOTTOMRIGHT", icon, "BOTTOMRIGHT", -inset, inset)
+                        -- Live aura icons fill the button and the configurable
+                        -- border draws independently above/behind that texture.
+                        -- The old 1px inset exposed the preview's hard-coded
+                        -- black backdrop underneath textured boss borders.
+                        PP.Point(icon._iconTex, "TOPLEFT", icon, "TOPLEFT", 0, 0)
+                        PP.Point(icon._iconTex, "BOTTOMRIGHT", icon, "BOTTOMRIGHT", 0, 0)
                     end
+                    if icon.SetBackdropColor then icon:SetBackdropColor(0, 0, 0, 0) end
                     local border = icon._euiAuraBorder
                     if not border then
                         border = CreateFrame("Frame", nil, icon)
@@ -2170,7 +2177,7 @@ initFrame:SetScript("OnEvent", function(self)
                         icon._euiAuraBorder = border
                     end
                     if s.auraBorderBehindUnitFrame then
-                        border:SetFrameLevel(0)
+                        border:SetFrameLevel(math.max(0, pf:GetFrameLevel() - 1))
                     else
                         border:SetFrameLevel(s.auraBorderBehind
                             and math.max(0, icon:GetFrameLevel() - 1) or (icon:GetFrameLevel() + 1))
@@ -2182,11 +2189,13 @@ initFrame:SetScript("OnEvent", function(self)
                         s.auraBorderTextureShiftX, s.auraBorderTextureShiftY,
                         "unitframes", s.auraBorderSize or 1)
                 end
-                for i = 1, #buffIcons do ApplyPreviewAuraBorder(buffIcons[i]) end
-                for i = 1, #debuffIcons do ApplyPreviewAuraBorder(debuffIcons[i]) end
+                ApplyPreviewAuraBorders = function()
+                    for i = 1, #buffIcons do ApplyPreviewAuraBorder(buffIcons[i]) end
+                    for i = 1, #debuffIcons do ApplyPreviewAuraBorder(debuffIcons[i]) end
+                end
             end
 
-            -- Donor settings for mini frames (border/texture/font inherit from focus player)
+            -- Donor settings for mini frames (texture/font inherit from focus player;
             local isMini = (unitKey == "pet" or unitKey == "boss" or unitKey == "targettarget" or unitKey == "focustarget")
             local ds = s
             if isMini then
@@ -2855,15 +2864,16 @@ initFrame:SetScript("OnEvent", function(self)
             end
 
             -- Border size and color (encompasses health+power+BTB+above pips)
-            local bs = ds.borderSize or 1
-            local bc = ds.borderColor or { r = 0, g = 0, b = 0 }
-            local bTexKey = ds.borderTexture or "solid"
+            local previewBorder = (unitKey == "boss" or unitKey == "targettarget") and s or ds
+            local bs = previewBorder.borderSize or 1
+            local bc = previewBorder.borderColor or { r = 0, g = 0, b = 0 }
+            local bTexKey = previewBorder.borderTexture or "solid"
             local borderH = bh2 + (s.bottomTextBar and btbIsAtt and (s.bottomTextBarHeight or 16) or 0)
             border:ClearAllPoints()
             border:SetPoint("TOPLEFT", barArea, "TOPLEFT", 0, 0)
             border:SetPoint("TOPRIGHT", barArea, "TOPRIGHT", 0, 0)
             border:SetHeight(borderH)
-            EllesmereUI.ApplyBorderStyle(border, bs, bc.r, bc.g, bc.b, ds.borderAlpha or 1, bTexKey, ds.borderTextureOffset, ds.borderTextureOffsetY, ds.borderTextureShiftX, ds.borderTextureShiftY, "unitframes", bs)
+            EllesmereUI.ApplyBorderStyle(border, bs, bc.r, bc.g, bc.b, previewBorder.borderAlpha or 1, bTexKey, previewBorder.borderTextureOffset, previewBorder.borderTextureOffsetY, previewBorder.borderTextureShiftX, previewBorder.borderTextureShiftY, "unitframes", bs)
 
             -- Class Power Pips update (player only)
             if cpPipContainer and cpPips then
@@ -3479,11 +3489,17 @@ initFrame:SetScript("OnEvent", function(self)
             local combinedScale = baseScale * fitScale
             pf:SetScale(combinedScale)
 
+            -- Border thickness/default offsets depend on effective scale. Do this
+            -- only after pf has its final scale so boss aura previews match live.
+            if ApplyPreviewAuraBorders then ApplyPreviewAuraBorders() end
+
             -- Recalculate border sizes after scale change so they stay pixel-perfect
             if border then
-                local bs2 = ds.borderSize or 1
-                local bTex2 = ds.borderTexture or "solid"
-                EllesmereUI.ApplyBorderStyle(border, bs2, (ds.borderColor or {r=0,g=0,b=0}).r, (ds.borderColor or {r=0,g=0,b=0}).g, (ds.borderColor or {r=0,g=0,b=0}).b, ds.borderAlpha or 1, bTex2, ds.borderTextureOffset, ds.borderTextureOffsetY, ds.borderTextureShiftX, ds.borderTextureShiftY, "unitframes", bs2)
+                local finalBorder = (unitKey == "boss" or unitKey == "targettarget") and s or ds
+                local bs2 = finalBorder.borderSize or 1
+                local bTex2 = finalBorder.borderTexture or "solid"
+                local bc2 = finalBorder.borderColor or {r=0,g=0,b=0}
+                EllesmereUI.ApplyBorderStyle(border, bs2, bc2.r, bc2.g, bc2.b, finalBorder.borderAlpha or 1, bTex2, finalBorder.borderTextureOffset, finalBorder.borderTextureOffsetY, finalBorder.borderTextureShiftX, finalBorder.borderTextureShiftY, "unitframes", bs2)
             end
             if castbar then
                 if PP.GetBorders(castbar) then PP.SetBorderSize(castbar, 1) end
@@ -12277,12 +12293,117 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
-        -- DISPLAY bottom row: per-frame Border Size override for ToT / Focus
-        -- Target / Pet (the mini frames). Just the size slider, no color swatch --
-        -- overrides ONLY the border size; color and texture still inherit from the
-        -- main frames. borderSizeOverride nil = inherit the donor border size until
-        -- the user sets it. Boss frames are NOT mini frames, so they are excluded.
-        if unitKey ~= "boss" then
+        -- Boss and Target-of-Target use their own full border configuration.
+        -- Their profile tables already carry the base border keys; optional
+        -- offsets and Show Behind remain nil until explicitly changed.
+        if unitKey == "boss" or unitKey == "targettarget" then
+            local bossTexValues, bossTexOrder = EllesmereUI.GetBorderTextureDropdown()
+            local bossBorderSizes = { none = "None", thin = "Thin", normal = "Normal", heavy = "Heavy", strong = "Strong" }
+            local bossBorderSizeOrder = { "none", "thin", "normal", "heavy", "strong" }
+            local bossBorderSizeToNumber = { none = 0, thin = 1, normal = 2, heavy = 3, strong = 4 }
+            local bossBorderNumberToSize = { [0] = "none", [1] = "thin", [2] = "normal", [3] = "heavy", [4] = "strong" }
+            local bossBorderRow
+            bossBorderRow, h = W:DualRow(parent, y,
+                { type = "dropdown", text = "Border Style", values = bossTexValues, order = bossTexOrder,
+                  getValue = function() return settingsTable.borderTexture or "solid" end,
+                  setValue = function(v)
+                      settingsTable.borderTexture = v
+                      settingsTable.borderTextureOffset = nil
+                      settingsTable.borderTextureOffsetY = nil
+                      settingsTable.borderTextureShiftX = nil
+                      settingsTable.borderTextureShiftY = nil
+                      local color, behind = EllesmereUI.GetBorderStyleSelectDefaults(v)
+                      settingsTable.borderColor = color
+                      settingsTable.borderAlpha = 1
+                      settingsTable.borderBehind = behind
+                      local defSz = EllesmereUI.GetBorderDefaultSize("unitframes", v)
+                      if defSz then settingsTable.borderSize = defSz end
+                      ReloadAndUpdate()
+                  end },
+                { type = "dropdown", text = "Border Size", values = bossBorderSizes, order = bossBorderSizeOrder,
+                  getValue = function() return bossBorderNumberToSize[settingsTable.borderSize or 1] or "thin" end,
+                  setValue = function(v)
+                      settingsTable.borderSize = bossBorderSizeToNumber[v] or 1
+                      ReloadAndUpdate()
+                  end }); y = y - h
+
+            do
+                local rgn = bossBorderRow._leftRegion
+                local _, bossBorderCogShow = EllesmereUI.BuildCogPopup({
+                    title = "Border Offset",
+                    rows = {
+                        { type = "slider", label = "Offset X", min = -10, max = 10, step = 1,
+                          get = function()
+                              local v = settingsTable.borderTextureOffset
+                              if v ~= nil then return v end
+                              return EllesmereUI.GetBorderDefaults("unitframes", settingsTable.borderTexture or "solid", settingsTable.borderSize or 1)
+                          end,
+                          set = function(v) settingsTable.borderTextureOffset = v; ReloadAndUpdate() end },
+                        { type = "slider", label = "Offset Y", min = -10, max = 10, step = 1,
+                          get = function()
+                              local v = settingsTable.borderTextureOffsetY
+                              if v ~= nil then return v end
+                              local _, oy = EllesmereUI.GetBorderDefaults("unitframes", settingsTable.borderTexture or "solid", settingsTable.borderSize or 1)
+                              return oy
+                          end,
+                          set = function(v) settingsTable.borderTextureOffsetY = v; ReloadAndUpdate() end },
+                        { type = "slider", label = "Shift X", min = -10, max = 10, step = 1,
+                          get = function()
+                              local v = settingsTable.borderTextureShiftX
+                              if v ~= nil then return v end
+                              local _, _, sx = EllesmereUI.GetBorderDefaults("unitframes", settingsTable.borderTexture or "solid", settingsTable.borderSize or 1)
+                              return sx
+                          end,
+                          set = function(v) settingsTable.borderTextureShiftX = v == 0 and nil or v; ReloadAndUpdate() end },
+                        { type = "slider", label = "Shift Y", min = -10, max = 10, step = 1,
+                          get = function()
+                              local v = settingsTable.borderTextureShiftY
+                              if v ~= nil then return v end
+                              local _, _, _, sy = EllesmereUI.GetBorderDefaults("unitframes", settingsTable.borderTexture or "solid", settingsTable.borderSize or 1)
+                              return sy
+                          end,
+                          set = function(v) settingsTable.borderTextureShiftY = v == 0 and nil or v; ReloadAndUpdate() end },
+                        { type = "toggle", label = "Show Behind",
+                          get = function() return settingsTable.borderBehind == true end,
+                          set = function(v) settingsTable.borderBehind = v and true or nil; ReloadAndUpdate() end },
+                    },
+                })
+                local bossBorderCog = MCogBtn(rgn, bossBorderCogShow, EllesmereUI.DIRECTIONS_ICON)
+                local function UpdateBossBorderCog()
+                    bossBorderCog:SetShown((settingsTable.borderTexture or "solid") ~= "solid")
+                end
+                EllesmereUI.RegisterWidgetRefresh(UpdateBossBorderCog)
+                UpdateBossBorderCog()
+            end
+
+            do
+                local rgn = bossBorderRow._rightRegion
+                local swatch, refreshSwatch = EllesmereUI.BuildColorSwatch(
+                    rgn, bossBorderRow:GetFrameLevel() + 3,
+                    function()
+                        local c = settingsTable.borderColor or { r = 0, g = 0, b = 0 }
+                        return c.r, c.g, c.b, settingsTable.borderAlpha or 1
+                    end,
+                    function(r, g, b, a)
+                        settingsTable.borderColor = { r = r, g = g, b = b }
+                        settingsTable.borderAlpha = a
+                        ReloadAndUpdate()
+                    end, true, 20)
+                PP.Point(swatch, "RIGHT", rgn._control, "LEFT", -8, 0)
+                EllesmereUI.RegisterWidgetRefresh(refreshSwatch)
+            end
+        end
+
+        -- Target of Target now owns its full border above, but keeps the existing
+        -- opt-out for the donor's hover-highlight color. Focus Target and Pet
+        -- retain their donor-size override.
+        if unitKey == "targettarget" then
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Show Highlight Border",
+                  tooltip="Use the main frames' hover highlight color on this frame. When the cursor leaves, the Target of Target border returns to its own configured color.",
+                  getValue=function() return settingsTable.showHighlightBorder ~= false end,
+                  setValue=function(v) settingsTable.showHighlightBorder = v end }); y = y - h
+        elseif unitKey ~= "boss" then
             _, h = W:DualRow(parent, y,
                 { type="slider", text="Border Size", min=0, max=4, step=1,
                   tooltip="Overrides the border size from the main frames for this frame only. Border color and texture still follow the main frames.",
