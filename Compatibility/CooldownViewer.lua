@@ -2,6 +2,11 @@ local addonName, ns = ...
 
 _G.C_CooldownViewer = _G.C_CooldownViewer or {}
 
+-- This file globally polyfills the Retail C_CooldownViewer API for WotLK 3.3.5a.
+-- We do this to decouple the data layer from EllesmereUI's internal namespaces,
+-- allowing standard Retail renderer code to work unchanged on older clients
+-- and making this Cooldown logic reusable for other addons.
+
 -- Internal State
 local definitions = {} -- cdID -> def
 local entriesByCategory = {} -- cat -> array of defs
@@ -11,6 +16,9 @@ local knownSpellsCache = {} -- cdID -> { isKnown = bool, activeSpellID = number,
 local tracker = CreateFrame("Frame")
 
 -- Registration
+-- Registers a logical ability definition into the system.
+-- The cooldownID MUST be globally unique across ALL classes and items.
+-- It acts as a stable handle for UI components (like drag-and-drop or saves).
 function C_CooldownViewer.RegisterDefinition(def)
     if not def.cooldownID then return end
     definitions[def.cooldownID] = def

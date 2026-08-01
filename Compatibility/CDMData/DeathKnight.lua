@@ -13,6 +13,14 @@ local CDM_CATEGORY_UTILITY   = 2
 local CDM_CATEGORY_BUFF_ICON = 3
 local CDM_CATEGORY_BUFF_BAR  = 4
 
+-- cooldownID Schema:
+-- These IDs MUST be globally unique across the entire addon (not just per-class).
+-- They act as stable anchors for settings, ordering, and UI references.
+-- Recommended ranges:
+-- 100000-199999: Class abilities (cooldowns)
+-- 200000-299999: Class buffs and procs
+-- 300000-399999: Racials
+-- 400000-499999: Items/Trinkets
 C_CooldownViewer.RegisterDefinition({
     key = "deathknight.icebound_fortitude",
     cooldownID = 100001,
