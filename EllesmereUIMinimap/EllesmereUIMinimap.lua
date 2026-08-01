@@ -1106,74 +1106,76 @@ local _freeMoveHooked = {}  -- [frame] = true, one-time hook guard
 -- minimap border (inside or outside face). Holding Ctrl together with Shift
 -- disables it for precise placement. Returns a screen-space correction
 -- converted to the dragged frame's units.
-local FM_SNAP_PX = 6
--- Best-candidate accumulator for FreeMoveSnapDelta. File-scope (one drag can
--- run at a time) so the per-frame drag path allocates nothing.
-local fmBestDX, fmBestDY
-local function fmConsider(dx, dy)
-    if dx and math.abs(dx) <= FM_SNAP_PX and (not fmBestDX or math.abs(dx) < math.abs(fmBestDX)) then fmBestDX = dx end
-    if dy and math.abs(dy) <= FM_SNAP_PX and (not fmBestDY or math.abs(dy) < math.abs(fmBestDY)) then fmBestDY = dy end
-end
-local function FreeMoveSnapDelta(self)
-    if IsControlKeyDown() then return 0, 0 end
-    local es = self:GetEffectiveScale()
-    local L, R, T, B = self:GetLeft(), self:GetRight(), self:GetTop(), self:GetBottom()
-    if not (L and es and es > 0) then return 0, 0 end
-    L, R, T, B = L * es, R * es, T * es, B * es
-    fmBestDX, fmBestDY = nil, nil
-    -- 1) Other free-move buttons
-    for other in pairs(_freeMoveHooked) do
-        if other ~= self and other.IsShown and other:IsShown() and other.GetLeft and other:GetLeft() then
-            local oes = other:GetEffectiveScale()
-            local oL, oR = other:GetLeft() * oes, other:GetRight() * oes
-            local oT, oB = other:GetTop() * oes, other:GetBottom() * oes
-            local xNear = (L < oR + FM_SNAP_PX) and (R > oL - FM_SNAP_PX)
-            local yNear = (B < oT + FM_SNAP_PX) and (T > oB - FM_SNAP_PX)
-            if xNear then
-                fmConsider(nil, oT - B)                          -- sit on top of it
-                fmConsider(nil, oB - T)                          -- hang below it
-                fmConsider(oL - L, nil)                          -- align left edges
-                fmConsider(oR - R, nil)                          -- align right edges
-                fmConsider((oL + oR) / 2 - (L + R) / 2, nil)     -- align centers
-            end
-            if yNear then
-                fmConsider(oR - L, nil)                          -- flush to its right
-                fmConsider(oL - R, nil)                          -- flush to its left
-                fmConsider(nil, oT - T)                          -- align top edges
-                fmConsider(nil, oB - B)                          -- align bottom edges
-                fmConsider(nil, (oT + oB) / 2 - (T + B) / 2)     -- align middles
+do
+    local FM_SNAP_PX = 6
+    -- Best-candidate accumulator, shared by the two functions below as upvalues
+    -- (one drag runs at a time), so the per-frame drag path allocates nothing.
+    local fmBestDX, fmBestDY
+    local function fmConsider(dx, dy)
+        if dx and math.abs(dx) <= FM_SNAP_PX and (not fmBestDX or math.abs(dx) < math.abs(fmBestDX)) then fmBestDX = dx end
+        if dy and math.abs(dy) <= FM_SNAP_PX and (not fmBestDY or math.abs(dy) < math.abs(fmBestDY)) then fmBestDY = dy end
+    end
+    function EBS._FreeMoveSnapDelta(self)
+        if IsControlKeyDown() then return 0, 0 end
+        local es = self:GetEffectiveScale()
+        local L, R, T, B = self:GetLeft(), self:GetRight(), self:GetTop(), self:GetBottom()
+        if not (L and es and es > 0) then return 0, 0 end
+        L, R, T, B = L * es, R * es, T * es, B * es
+        fmBestDX, fmBestDY = nil, nil
+        -- 1) Other free-move buttons
+        for other in pairs(_freeMoveHooked) do
+            if other ~= self and other.IsShown and other:IsShown() and other.GetLeft and other:GetLeft() then
+                local oes = other:GetEffectiveScale()
+                local oL, oR = other:GetLeft() * oes, other:GetRight() * oes
+                local oT, oB = other:GetTop() * oes, other:GetBottom() * oes
+                local xNear = (L < oR + FM_SNAP_PX) and (R > oL - FM_SNAP_PX)
+                local yNear = (B < oT + FM_SNAP_PX) and (T > oB - FM_SNAP_PX)
+                if xNear then
+                    fmConsider(nil, oT - B)                          -- sit on top of it
+                    fmConsider(nil, oB - T)                          -- hang below it
+                    fmConsider(oL - L, nil)                          -- align left edges
+                    fmConsider(oR - R, nil)                          -- align right edges
+                    fmConsider((oL + oR) / 2 - (L + R) / 2, nil)     -- align centers
+                end
+                if yNear then
+                    fmConsider(oR - L, nil)                          -- flush to its right
+                    fmConsider(oL - R, nil)                          -- flush to its left
+                    fmConsider(nil, oT - T)                          -- align top edges
+                    fmConsider(nil, oB - B)                          -- align bottom edges
+                    fmConsider(nil, (oT + oB) / 2 - (T + B) / 2)     -- align middles
+                end
             end
         end
-    end
-    -- 2) Minimap border. Square shapes snap to the edges (inside or outside
-    -- face); circle shapes snap the button's center onto the rim along its
-    -- current angle (edge snapping would target the invisible square corners).
-    local mm = _G.Minimap
-    if mm and mm.GetLeft and mm:GetLeft() then
-        local mes = mm:GetEffectiveScale()
-        local mL, mR = mm:GetLeft() * mes, mm:GetRight() * mes
-        local mT, mB = mm:GetTop() * mes, mm:GetBottom() * mes
-        local mp = EBS.db and EBS.db.profile and EBS.db.profile.minimap
-        local isCircle = mp and (mp.shape == "circle" or mp.shape == "textured_circle")
-        if isCircle then
-            local mcx, mcy = (mL + mR) / 2, (mT + mB) / 2
-            local bcx, bcy = (L + R) / 2, (T + B) / 2
-            local ddx, ddy = bcx - mcx, bcy - mcy
-            local dist = math.sqrt(ddx * ddx + ddy * ddy)
-            local radius = (mR - mL) / 2
-            if dist > 0.001 and math.abs(dist - radius) <= FM_SNAP_PX * 2 then
-                local f = radius / dist
-                fmBestDX = mcx + ddx * f - bcx   -- rim snap overrides edge results
-                fmBestDY = mcy + ddy * f - bcy
+        -- 2) Minimap border. Square shapes snap to the edges (inside or outside
+        -- face); circle shapes snap the button's center onto the rim along its
+        -- current angle (edge snapping would target the invisible square corners).
+        local mm = _G.Minimap
+        if mm and mm.GetLeft and mm:GetLeft() then
+            local mes = mm:GetEffectiveScale()
+            local mL, mR = mm:GetLeft() * mes, mm:GetRight() * mes
+            local mT, mB = mm:GetTop() * mes, mm:GetBottom() * mes
+            local mp = EBS.db and EBS.db.profile and EBS.db.profile.minimap
+            local isCircle = mp and (mp.shape == "circle" or mp.shape == "textured_circle")
+            if isCircle then
+                local mcx, mcy = (mL + mR) / 2, (mT + mB) / 2
+                local bcx, bcy = (L + R) / 2, (T + B) / 2
+                local ddx, ddy = bcx - mcx, bcy - mcy
+                local dist = math.sqrt(ddx * ddx + ddy * ddy)
+                local radius = (mR - mL) / 2
+                if dist > 0.001 and math.abs(dist - radius) <= FM_SNAP_PX * 2 then
+                    local f = radius / dist
+                    fmBestDX = mcx + ddx * f - bcx   -- rim snap overrides edge results
+                    fmBestDY = mcy + ddy * f - bcy
+                end
+            else
+                fmConsider(mL - R, nil); fmConsider(mR - L, nil)   -- outside: left/right of map
+                fmConsider(nil, mB - T); fmConsider(nil, mT - B)   -- outside: below/above map
+                fmConsider(mL - L, nil); fmConsider(mR - R, nil)   -- inside: flush to left/right edge
+                fmConsider(nil, mT - T); fmConsider(nil, mB - B)   -- inside: flush to top/bottom edge
             end
-        else
-            fmConsider(mL - R, nil); fmConsider(mR - L, nil)   -- outside: left/right of map
-            fmConsider(nil, mB - T); fmConsider(nil, mT - B)   -- outside: below/above map
-            fmConsider(mL - L, nil); fmConsider(mR - R, nil)   -- inside: flush to left/right edge
-            fmConsider(nil, mT - T); fmConsider(nil, mB - B)   -- inside: flush to top/bottom edge
         end
+        return (fmBestDX or 0) / es, (fmBestDY or 0) / es
     end
-    return (fmBestDX or 0) / es, (fmBestDY or 0) / es
 end
 
 local function EnableFreeMove(frame)
@@ -1231,7 +1233,7 @@ local function EnableFreeMove(frame)
             self:SetPoint(origPoint, origRel, origRelPoint, origX + origOffX + dx, origY + origOffY + dy)
             -- Magnet: nudge onto nearby buttons / the minimap border. Remember
             -- the correction so release saves the snapped position.
-            local sdx, sdy = FreeMoveSnapDelta(self)
+            local sdx, sdy = EBS._FreeMoveSnapDelta(self)
             local ffdS = GetFFD(self)
             ffdS.fmSnapDX, ffdS.fmSnapDY = sdx, sdy
             if sdx ~= 0 or sdy ~= 0 then
@@ -4178,7 +4180,7 @@ end
 -- Round the black button backgrounds to match circle map shapes (and square
 -- them back on square shapes). The backgrounds are BackdropTemplate frames,
 -- so we mask their Center texture with the standard round portrait mask.
-local function ApplyBtnBgShape(bgFrame)
+function EBS._ApplyBtnBgShape(bgFrame)
     local tex = bgFrame.Center
     if not tex then return end
     local mp = EBS.db and EBS.db.profile and EBS.db.profile.minimap
@@ -4252,7 +4254,7 @@ end
 -- _EBS_ globals; the Omnium Folio corrects itself in PositionOmniumFolio).
 -- Idempotent via per-child base capture: a scale someone else set since our
 -- last pass becomes the new base instead of compounding our factor.
-local function CounterScaleBlipChildren(minimap, blipScale)
+function EBS._CounterScaleBlipChildren(minimap, blipScale)
     local inv = 1 / blipScale
     local ffdM = GetFFD(minimap)
     ffdM.blipChildBase    = ffdM.blipChildBase    or setmetatable({}, { __mode = "k" })
@@ -4571,7 +4573,7 @@ local function ApplyMinimap()
     GetFFD(minimap).blipScaleApplied = blipScale
     -- First pass here so the row layout below reads counter-scaled children;
     -- second pass at the end of ApplyMinimap catches late-created ones.
-    CounterScaleBlipChildren(minimap, blipScale)
+    EBS._CounterScaleBlipChildren(minimap, blipScale)
 
     -- Shape mask
     local maskID = isCircle and 186178 or 130937
@@ -5349,12 +5351,12 @@ local function ApplyMinimap()
     ApplyOmniumFolio()
 
     -- Second pass: catches children created during this apply.
-    CounterScaleBlipChildren(minimap, blipScale)
+    EBS._CounterScaleBlipChildren(minimap, blipScale)
 
     -- Match the button backgrounds to the map shape (round on circle shapes).
     for _, child in ipairs({ minimap:GetChildren() }) do
         local bg = child._bg or GetFFD(child).ungroupBg
-        if bg then ApplyBtnBgShape(bg) end
+        if bg then EBS._ApplyBtnBgShape(bg) end
     end
 end
 
@@ -5383,7 +5385,7 @@ function _G._EBS_PreviewBlipScale(v)
         end
     end
     ffd.blipScaleApplied = v
-    CounterScaleBlipChildren(minimap, v)
+    EBS._CounterScaleBlipChildren(minimap, v)
     if _G._EBS_ClockBg    then pcall(_G._EBS_ClockBg.SetScale,    _G._EBS_ClockBg,    (mp.clockScale or 1.15) / v) end
     if _G._EBS_LocationBg then pcall(_G._EBS_LocationBg.SetScale, _G._EBS_LocationBg, (mp.locationScale or 1.15) / v) end
     if _G._EBS_CoordFrame then pcall(_G._EBS_CoordFrame.SetScale, _G._EBS_CoordFrame, (mp.coordsScale or 1.0) / v) end
