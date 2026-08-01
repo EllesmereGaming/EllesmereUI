@@ -99,7 +99,7 @@ initFrame:SetScript("OnEvent", function(self)
         if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fs, GetCDMOptUseShadow()) end
         fs:SetFont(font, size, GetCDMOptOutline())
     end
-    local function MakeTextInput(parent, label, yOffset, getValue, setValue)
+    local function MakeTextInput(tyuent, label, yOffset, getValue, setValue)
         local ROW_H = 50
         local frame = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
         frame:SetSize(parent:GetWidth(), ROW_H)
@@ -11027,8 +11027,13 @@ initFrame:SetScript("OnEvent", function(self)
                                 play:SetSize(16, 16)
                                 play:SetPoint("RIGHT", si, "RIGHT", -8, 0)
                                 play:SetFrameLevel(si:GetFrameLevel() + 2)
-                                play:SetNormalAtlas("common-icon-sound")
-                                play:SetPushedAtlas("common-icon-sound-pressed")
+                                if play.SetNormalAtlas then
+                                    play:SetNormalAtlas("common-icon-sound")
+                                    play:SetPushedAtlas("common-icon-sound-pressed")
+                                else
+                                    play:SetNormalTexture("Interface\\OptionsFrame\\VoiceChat-Play")
+                                    play:SetPushedTexture("Interface\\OptionsFrame\\VoiceChat-Down")
+                                end
                                 play:SetScript("OnClick", function()
                                     local paths = ns.FOCUSKICK_SOUND_PATHS
                                     local path = paths and paths[item.val]
@@ -11441,8 +11446,13 @@ initFrame:SetScript("OnEvent", function(self)
                             play:SetSize(16, 16)
                             play:SetPoint("RIGHT", si, "RIGHT", -8, 0)
                             play:SetFrameLevel(si:GetFrameLevel() + 2)
-                            play:SetNormalAtlas("common-icon-sound")
-                            play:SetPushedAtlas("common-icon-sound-pressed")
+                            if play.SetNormalAtlas then
+                                play:SetNormalAtlas("common-icon-sound")
+                                play:SetPushedAtlas("common-icon-sound-pressed")
+                            else
+                                play:SetNormalTexture("Interface\\OptionsFrame\\VoiceChat-Play")
+                                play:SetPushedTexture("Interface\\OptionsFrame\\VoiceChat-Down")
+                            end
                             play:SetScript("OnClick", function()
                                 local path = ns.FOCUSKICK_SOUND_PATHS and ns.FOCUSKICK_SOUND_PATHS[item.val]
                                 if path then PlaySoundFile(path, "Master") end
@@ -12070,8 +12080,13 @@ initFrame:SetScript("OnEvent", function(self)
                             play:SetSize(16, 16)
                             play:SetPoint("RIGHT", si, "RIGHT", -8, 0)
                             play:SetFrameLevel(si:GetFrameLevel() + 2)
-                            play:SetNormalAtlas("common-icon-sound")
-                            play:SetPushedAtlas("common-icon-sound-pressed")
+                            if play.SetNormalAtlas then
+                                play:SetNormalAtlas("common-icon-sound")
+                                play:SetPushedAtlas("common-icon-sound-pressed")
+                            else
+                                play:SetNormalTexture("Interface\\OptionsFrame\\VoiceChat-Play")
+                                play:SetPushedTexture("Interface\\OptionsFrame\\VoiceChat-Down")
+                            end
                             play:SetScript("OnClick", function()
                                 local paths = ns.FOCUSKICK_SOUND_PATHS
                                 local path = paths and paths[item.val]

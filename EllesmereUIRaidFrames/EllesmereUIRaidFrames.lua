@@ -919,8 +919,16 @@ ns._blizzHiddenParent = CreateFrame("Frame", nil, UIParent)
 ns._blizzHiddenParent:SetAllPoints()
 ns._blizzHiddenParent:Hide()
 
+-- Blizzard's supported switch for the legacy PartyMemberFrame1-4 set while
+-- raiding. Keep this independent of EUI's party visibility: in a raid the EUI
+-- party container is intentionally hidden, so that path is never entered.
+ns._SetHidePartyInRaidCVar = function()
+    if SetCVar then SetCVar("hidePartyInRaid", 1) end
+end
+
 do
     local hookedFrames = {}
+    local hideHookedFrames = {}
     local looseFrames = {}
 
     local watcher = CreateFrame("Frame")
@@ -946,6 +954,12 @@ do
         if not frame then return end
         frame:UnregisterAllEvents()
         frame:Hide()
+        if not hideHookedFrames[frame] then
+            frame:HookScript("OnShow", function(self)
+                if ns._partyFramesVisible then self:Hide() end
+            end)
+            hideHookedFrames[frame] = true
+        end
         if not doNotReparent then
             frame:SetParent(ns._blizzHiddenParent)
             if not hookedFrames[frame] then
@@ -1010,40 +1024,33 @@ do
 
     -- Callable from UpdateVisibility when "Show When: In a Group" is active
     ns._SuppressBlizzParty = function()
-        if ns._blizzPartySuppressed then return end
         ns._blizzPartySuppressed = true
 
-        -- Standard 3.3.5a WotLK Blizzard party member frames
-        for i = 1, 4 do
-            local pmf = _G["PartyMemberFrame" .. i]
-            if pmf then
-                handleFrame(pmf)
-            end
-            local pet = _G["PartyMemberFrame" .. i .. "PetFrame"]
-            if pet then
-                handleFrame(pet)
-            end
-        end
+        -- Let Blizzard own the legacy PartyMemberFrame1-4 visibility while in
+        -- a raid. This CVar is the supported switch and also covers pet frames.
+        ns._SetHidePartyInRaidCVar()
+
+        -- Deliberately repeat this scan. Some clients create or recycle their
+        -- compact party frames after the first roster pass; a one-shot guard
+        -- leaves those late frames visible beside EUI's party header.
 
         if PartyFrame then
             handleFrame(PartyFrame)
-            if PartyFrame.PartyMemberFramePool then
-                for mf in PartyFrame.PartyMemberFramePool:EnumerateActive() do
-                    handleFrame(mf, true)
-                end
-            end
-            local MEMBERS_PER_GROUP = _G.MEMBERS_PER_RAID_GROUP or 5
-            for i = 1, MEMBERS_PER_GROUP do
-                handleFrame(_G["CompactPartyFrameMember" .. i])
-            end
-            -- Hide the party Edit Mode selection overlay. This runs only while
-            -- EUI owns the party frames (called from UpdateVisibility), so
-            -- Blizzard party frames left in place for non-EUI users keep their
-            -- Edit Mode movers. PartyFrame is the standard party system;
-            -- CompactPartyFrame covers raid-style party (guarded if absent).
-            suppressEditModeOverlay(PartyFrame)
-            suppressEditModeOverlay(_G["CompactPartyFrame"])
         end
+
+        -- Compact party frames exist without PartyFrame on some legacy/client
+        -- compatibility combinations, so never gate them on the newer parent.
+        local compactParty = _G["CompactPartyFrame"]
+        if compactParty then handleFrame(compactParty) end
+        local MEMBERS_PER_GROUP = _G.MEMBERS_PER_RAID_GROUP or 5
+        for i = 1, MEMBERS_PER_GROUP do
+            handleFrame(_G["CompactPartyFrameMember" .. i])
+        end
+
+        -- Hide the party Edit Mode selection overlay. This runs only while EUI
+        -- owns the party frames, so non-EUI users retain Blizzard's movers.
+        suppressEditModeOverlay(PartyFrame)
+        suppressEditModeOverlay(compactParty)
     end
 
     -- Edit Mode overlay timing: Edit Mode re-shows its registered systems (and
@@ -2963,6 +2970,31 @@ do
     end
 end
 
+-- Wrath runs Set Focus / Clear Focus from insecure UnitPopup Lua for custom
+-- unit buttons, so those two rows can only throw a taint error. Keep this
+-- workaround owned by Raid Frames: wrap the menu callback installed on EUI's
+-- raid/party buttons and remove the rendered focus rows after it opens.
+function ns.AttachRaidUnitMenu(frame)
+    if EllesmereUI.AttachSecureUnitMenu then
+        EllesmereUI.AttachSecureUnitMenu(frame)
+    else
+        frame:SetAttribute("*type2", "togglemenu")
+    end
+    if EllesmereUI.USE_SECURE_UNIT_MENU_PROXY or frame._euiFocusMenuFiltered
+        or not frame.menu then return end
+    frame._euiFocusMenuFiltered = true
+    frame._euiUnfilteredUnitMenu = frame.menu
+    frame.menu = function(self, unit)
+        self._euiUnfilteredUnitMenu(self, unit)
+        for i = 1, (UIDROPDOWNMENU_MAXBUTTONS or 32) do
+            local row = _G["DropDownList1Button" .. i]
+            if row and (row.value == "SET_FOCUS" or row.value == "CLEAR_FOCUS") then
+                row:Hide()
+            end
+        end
+    end
+end
+
 -------------------------------------------------------------------------------
 --  Style a single button (called once per button at creation time)
 -------------------------------------------------------------------------------
@@ -4143,12 +4175,7 @@ local function StyleButton(button)
     -- 12.0.7 gates SecureUnitButton's togglemenu; route right-click securely
     -- through a SecureActionButton proxy so the menu (and its protected items
     -- like Set Focus) work without taint. (Sets *type2 = "click" -> proxy.)
-    if EllesmereUI.AttachSecureUnitMenu then
-        EllesmereUI.AttachSecureUnitMenu(button)
-    else
-        button:SetAttribute("type2", "togglemenu")
-        button:SetAttribute("*type2", "togglemenu")
-    end
+    ns.AttachRaidUnitMenu(button)
 
     -- Hover ping support. Without this, a mouseover ping over our frame falls
     -- through to the 3D world behind it, because the ping system only targets a
@@ -6698,11 +6725,7 @@ FB.EnsureBuilt = function()
         b:RegisterForClicks("AnyUp")
         -- 12.0.7 gates SecureUnitButton's togglemenu; route right-click securely
         -- through a SecureActionButton proxy so the menu works without taint.
-        if EllesmereUI.AttachSecureUnitMenu then
-            EllesmereUI.AttachSecureUnitMenu(b)
-        else
-            b:SetAttribute("*type2", "togglemenu")
-        end
+        ns.AttachRaidUnitMenu(b)
         b:Hide()
 
         local bg = b:CreateTexture(nil, "BACKGROUND")
@@ -8285,6 +8308,41 @@ local function CreateHeaders()
 
     -- Apply initial sort settings
     ApplySortToHeaders()
+end
+
+-- PLAYER_ENTERING_WORLD can arrive while the raid roster is still streaming.
+-- The secure headers then process only the groups known at that instant and a
+-- normal ReloadFrames merely restyles those existing children. Force a real
+-- Hide/Show transition once the roster has settled, then adopt/style any
+-- children the legacy header created during that transition.
+ns._ReprocessRaidHeaders = function()
+    if InCombatLockdown() or not containerFrame then return end
+
+    local tracked = {}
+    for _, btn in ipairs(allButtons) do tracked[btn] = true end
+
+    local function reprocess(hdr, maxChildren)
+        if not hdr or not hdr:IsShown() then return end
+        hdr:Hide()
+        hdr:Show()
+        for i = 1, maxChildren do
+            local btn = GetSecureHeaderChild(hdr, i)
+            if btn and not tracked[btn] then
+                StyleButton(btn)
+                allButtons[#allButtons + 1] = btn
+                tracked[btn] = true
+                if hdr == ns._flatHeader then
+                    ns._flatButtons[#ns._flatButtons + 1] = btn
+                end
+            end
+        end
+    end
+
+    if db.profile.mergeGroups then
+        reprocess(ns._flatHeader, 40)
+    else
+        for group = 1, 8 do reprocess(separatedHdrs[group], 5) end
+    end
 end
 
 -------------------------------------------------------------------------------
@@ -10249,7 +10307,8 @@ local function OnEvent(self, event, arg1, ...)
         -- Combat" keeps suppressing; otherwise this clears a stale flag from a
         -- missed ENCOUNTER_END so tooltips are not stuck hidden.
         ns._inBossCombat = (IsEncounterInProgress and IsEncounterInProgress()) or false
-        C_Timer.After(0.5, function()
+        ns._SetHidePartyInRaidCVar()
+        local function reconcileEnteringWorld()
             -- Zoning in mid-combat (e.g. into a raid where trash is already
             -- pulled) must NOT run the reload here: ReloadFrames calls SetSize on
             -- the protected SecureGroupHeader buttons, which Blizzard blocks in
@@ -10265,6 +10324,7 @@ local function OnEvent(self, event, arg1, ...)
             local t0 = ns.ProfBegin("Visibility:PEW"); UpdateVisibility(); ns.ProfEnd("Visibility:PEW", t0)
             ns._UpdatePartyVisibility()
             if framesVisible then
+                ns._ReprocessRaidHeaders()
                 -- Full reload to recalculate tier dimensions from current group size
                 t0 = ns.ProfBegin("ReloadFrames:PEW"); ReloadFrames(); ns.ProfEnd("ReloadFrames:PEW", t0)
             end
@@ -10278,7 +10338,14 @@ local function OnEvent(self, event, arg1, ...)
                 -- Auto Resize scale and re-registers every anchor.
                 ns.ReloadPartyFrames()
             end
-        end)
+            -- Blizzard's legacy party frames may be created/recycled after our
+            -- first visibility pass. Re-scan after its world-entry work ends.
+            if ns._partyFramesVisible and ns._SuppressBlizzParty then
+                ns._SuppressBlizzParty()
+            end
+        end
+        C_Timer.After(0.5, reconcileEnteringWorld)
+        C_Timer.After(2, reconcileEnteringWorld)
     end
 end
 
@@ -16001,6 +16068,7 @@ end
 -------------------------------------------------------------------------------
 function ERF:OnEnable()
     PP = EllesmereUI.PanelPP or EllesmereUI.PP
+    ns._SetHidePartyInRaidCVar()
 
     -- First-install default position: left edge of frame at 200px from screen
     -- left, vertically centered.

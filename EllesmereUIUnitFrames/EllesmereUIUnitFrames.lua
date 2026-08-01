@@ -2929,6 +2929,11 @@ local MASK_INSETS = {
     square   = 17,
 }
 
+-- MaskTexture does not exist on the 3.3.5 client. Keep the configured shape
+-- intact for profiles shared with newer clients, but render an unmasked
+-- detached portrait here instead of calling the unavailable API.
+local MASK_TEXTURES_SUPPORTED = UIParent and type(UIParent.CreateMaskTexture) == "function"
+
 -- Apply detached portrait shape (mask + border overlay) to a portrait backdrop.
 -- Creates mask/border textures on first call, then updates them.
 -- backdrop: the portrait backdrop frame
@@ -2939,6 +2944,7 @@ local function ApplyDetachedPortraitShape(backdrop, uSettings, unitToken)
     local isMini = unitToken and (unitToken == "pet" or unitToken == "targettarget" or unitToken == "focustarget" or unitToken:match("^boss%d$"))
     local isDetached = not isMini and ((uSettings and uSettings.portraitStyle) or db.profile.portraitStyle or "attached") == "detached"
     local shape = (uSettings and uSettings.detachedPortraitShape) or "portrait"
+    if not MASK_TEXTURES_SUPPORTED then shape = "none" end
     local showBorder = true
     local borderOpacity = ((uSettings and uSettings.detachedPortraitBorderOpacity) or 100) / 100
     local borderColor = (uSettings and uSettings.detachedPortraitBorderColor) or { r = 0, g = 0, b = 0 }
@@ -11328,6 +11334,30 @@ local function UnitFrame_OnLeave(self)
     end
 end
 
+-- Wrath's custom-unit-frame popup cannot securely execute Set Focus / Clear
+-- Focus. Wrap only EUI Unit Frames' menu callbacks and remove those rendered
+-- rows after the legacy dropdown opens; Retail keeps its native secure menu.
+function ns.AttachUnitFrameMenu(frame)
+    if EllesmereUI.AttachSecureUnitMenu then
+        EllesmereUI.AttachSecureUnitMenu(frame)
+    else
+        frame:SetAttribute("*type2", "togglemenu")
+    end
+    if EllesmereUI.USE_SECURE_UNIT_MENU_PROXY or frame._euiFocusMenuFiltered
+        or not frame.menu then return end
+    frame._euiFocusMenuFiltered = true
+    frame._euiUnfilteredUnitMenu = frame.menu
+    frame.menu = function(self, unit)
+        self._euiUnfilteredUnitMenu(self, unit)
+        for i = 1, (UIDROPDOWNMENU_MAXBUTTONS or 32) do
+            local row = _G["DropDownList1Button" .. i]
+            if row and (row.value == "SET_FOCUS" or row.value == "CLEAR_FOCUS") then
+                row:Hide()
+            end
+        end
+    end
+end
+
 function InitializeFrames()
     -- Sync EUI global power colors into oUF at init
     if EllesmereUI and EllesmereUI.ApplyColorsToOUF then
@@ -11381,11 +11411,7 @@ function InitializeFrames()
         -- 12.0.7 gates SecureUnitButton's togglemenu; route right-click securely
         -- through a SecureActionButton proxy so the menu (and its protected items
         -- like Set Focus) work without taint.
-        if EllesmereUI.AttachSecureUnitMenu then
-            EllesmereUI.AttachSecureUnitMenu(frame)
-        else
-            frame:SetAttribute("*type2", "togglemenu")
-        end
+        ns.AttachUnitFrameMenu(frame)
         frame:HookScript("OnEnter", UnitFrame_OnEnter)
         frame:HookScript("OnLeave", UnitFrame_OnLeave)
         -- Expose to click-casting via the standard global table. The EUI unit

@@ -441,6 +441,12 @@ initFrame:SetScript("OnEvent", function(self)
         if not pFrame then return end
         local isDetached = (s.portraitStyle or db.profile.portraitStyle or "attached") == "detached"
         local shape = s.detachedPortraitShape or "portrait"
+        -- Wrath 3.3.5 has no MaskTexture API. Preserve the selected value in
+        -- the profile, while previewing the same rectangular fallback used by
+        -- live unit frames.
+        if not (UIParent and type(UIParent.CreateMaskTexture) == "function") then
+            shape = "none"
+        end
         local showBorder = true
         local borderOpacity = (s.detachedPortraitBorderOpacity or 100) / 100
         local borderColor = s.detachedPortraitBorderColor or { r = 0, g = 0, b = 0 }

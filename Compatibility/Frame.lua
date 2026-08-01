@@ -62,6 +62,16 @@ local function ApplyCooldownCompat(target)
     if not target.GetReverse then target.GetReverse = function(self) return self._euiReverse == true end end
 end
 
+local function GetAtlasPath(atlas)
+    if not atlas or atlas == "" then return nil end
+    local path = EUI_AtlasMap and EUI_AtlasMap[atlas]
+    if not path then
+        path = "Interface\\Icons\\INV_Misc_QuestionMark"
+        if EUI_AtlasMap then EUI_AtlasMap[atlas] = path end
+    end
+    return path
+end
+
 function EUI.API.ApplyFrameCompat(frame)
     if not frame then return frame end
 
@@ -115,16 +125,36 @@ function EUI.API.ApplyFrameCompat(frame)
 
     if not frame.SetAtlas then
         frame.SetAtlas = function(self, atlas, useAtlasSize)
-            if not atlas or atlas == "" then
-                self:SetTexture(nil)
-                return
-            end
-            local path = EUI_AtlasMap and EUI_AtlasMap[atlas]
-            if not path then
-                path = "Interface\\Icons\\INV_Misc_QuestionMark"
-                if EUI_AtlasMap then EUI_AtlasMap[atlas] = path end
-            end
-            self:SetTexture(path)
+            local path = GetAtlasPath(atlas)
+            if self.SetTexture then self:SetTexture(path) end
+        end
+    end
+
+    if not frame.SetNormalAtlas then
+        frame.SetNormalAtlas = function(self, atlas, useAtlasSize)
+            local path = GetAtlasPath(atlas)
+            if self.SetNormalTexture then self:SetNormalTexture(path) end
+        end
+    end
+
+    if not frame.SetPushedAtlas then
+        frame.SetPushedAtlas = function(self, atlas, useAtlasSize)
+            local path = GetAtlasPath(atlas)
+            if self.SetPushedTexture then self:SetPushedTexture(path) end
+        end
+    end
+
+    if not frame.SetDisabledAtlas then
+        frame.SetDisabledAtlas = function(self, atlas, useAtlasSize)
+            local path = GetAtlasPath(atlas)
+            if self.SetDisabledTexture then self:SetDisabledTexture(path) end
+        end
+    end
+
+    if not frame.SetHighlightAtlas then
+        frame.SetHighlightAtlas = function(self, atlas, useAtlasSize)
+            local path = GetAtlasPath(atlas)
+            if self.SetHighlightTexture then self:SetHighlightTexture(path) end
         end
     end
 
@@ -443,18 +473,32 @@ local function PatchWidgetMetatable(obj)
         end
         if not idx.SetAtlas then
             idx.SetAtlas = function(self, atlas, useAtlasSize)
-                if not atlas or atlas == "" then
-                    if self.SetTexture then self:SetTexture(nil) end
-                    return
-                end
-                local path = EUI_AtlasMap and EUI_AtlasMap[atlas]
-                if not path then
-                    path = "Interface\\Icons\\INV_Misc_QuestionMark"
-                    if EUI_AtlasMap then EUI_AtlasMap[atlas] = path end
-                end
-                if self.SetTexture then
-                    self:SetTexture(path)
-                end
+                local path = GetAtlasPath(atlas)
+                if self.SetTexture then self:SetTexture(path) end
+            end
+        end
+        if not idx.SetNormalAtlas then
+            idx.SetNormalAtlas = function(self, atlas, useAtlasSize)
+                local path = GetAtlasPath(atlas)
+                if self.SetNormalTexture then self:SetNormalTexture(path) end
+            end
+        end
+        if not idx.SetPushedAtlas then
+            idx.SetPushedAtlas = function(self, atlas, useAtlasSize)
+                local path = GetAtlasPath(atlas)
+                if self.SetPushedTexture then self:SetPushedTexture(path) end
+            end
+        end
+        if not idx.SetDisabledAtlas then
+            idx.SetDisabledAtlas = function(self, atlas, useAtlasSize)
+                local path = GetAtlasPath(atlas)
+                if self.SetDisabledTexture then self:SetDisabledTexture(path) end
+            end
+        end
+        if not idx.SetHighlightAtlas then
+            idx.SetHighlightAtlas = function(self, atlas, useAtlasSize)
+                local path = GetAtlasPath(atlas)
+                if self.SetHighlightTexture then self:SetHighlightTexture(path) end
             end
         end
         local isCooldown = obj.GetObjectType and obj:GetObjectType() == "Cooldown"
@@ -541,18 +585,32 @@ local function PatchWidgetMetatable(obj)
         end
         if not obj.SetAtlas then
             obj.SetAtlas = function(self, atlas, useAtlasSize)
-                if not atlas or atlas == "" then
-                    if self.SetTexture then self:SetTexture(nil) end
-                    return
-                end
-                local path = EUI_AtlasMap and EUI_AtlasMap[atlas]
-                if not path then
-                    path = "Interface\\Icons\\INV_Misc_QuestionMark"
-                    if EUI_AtlasMap then EUI_AtlasMap[atlas] = path end
-                end
-                if self.SetTexture then
-                    self:SetTexture(path)
-                end
+                local path = GetAtlasPath(atlas)
+                if self.SetTexture then self:SetTexture(path) end
+            end
+        end
+        if not obj.SetNormalAtlas then
+            obj.SetNormalAtlas = function(self, atlas, useAtlasSize)
+                local path = GetAtlasPath(atlas)
+                if self.SetNormalTexture then self:SetNormalTexture(path) end
+            end
+        end
+        if not obj.SetPushedAtlas then
+            obj.SetPushedAtlas = function(self, atlas, useAtlasSize)
+                local path = GetAtlasPath(atlas)
+                if self.SetPushedTexture then self:SetPushedTexture(path) end
+            end
+        end
+        if not obj.SetDisabledAtlas then
+            obj.SetDisabledAtlas = function(self, atlas, useAtlasSize)
+                local path = GetAtlasPath(atlas)
+                if self.SetDisabledTexture then self:SetDisabledTexture(path) end
+            end
+        end
+        if not obj.SetHighlightAtlas then
+            obj.SetHighlightAtlas = function(self, atlas, useAtlasSize)
+                local path = GetAtlasPath(atlas)
+                if self.SetHighlightTexture then self:SetHighlightTexture(path) end
             end
         end
         local isCooldown = obj.GetObjectType and obj:GetObjectType() == "Cooldown"

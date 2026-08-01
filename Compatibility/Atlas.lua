@@ -17,4 +17,6 @@ _G.EUI_AtlasMap = {
     ["Crosshair_Quest_64"] = "Interface\\Icons\\INV_Misc_QuestionMark",
     ["UI-HUD-RotationHelper-Inactive-2x"] = "Interface\\Buttons\\UI-Quickslot-Depress",
     ["UI-HUD-ActionBar-IconFrame-Slot"] = "Interface\\Buttons\\UI-EmptySlot",
+    ["common-icon-sound"] = "Interface\\OptionsFrame\\VoiceChat-Play",
+    ["common-icon-sound-pressed"] = "Interface\\OptionsFrame\\VoiceChat-Down",
 }

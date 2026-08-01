@@ -25,24 +25,6 @@ local function ApplyHideBlizzardPartyFrame()
     local mgr = CompactRaidFrameManager or _G["CompactRaidFrameManager"]
     if not mgr then return end
 
-    -- Handle standard WotLK 3.3.5a Blizzard party frames
-    for i = 1, 4 do
-        local pmf = _G["PartyMemberFrame" .. i]
-        if pmf then
-            if shouldHide then
-                pmf:Hide()
-                pmf:UnregisterAllEvents()
-            end
-        end
-        local pet = _G["PartyMemberFrame" .. i .. "PetFrame"]
-        if pet then
-            if shouldHide then
-                pet:Hide()
-                pet:UnregisterAllEvents()
-            end
-        end
-    end
-
     if shouldHide then
         if not _partyHiddenParent then
             _partyHiddenParent = EllesmereUI.SafeCreateFrame("Frame")
