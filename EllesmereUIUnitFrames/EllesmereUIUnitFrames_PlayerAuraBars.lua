@@ -358,7 +358,25 @@ local function BuildStyle(isBuff, cfg)
         iconZoom = iconZoom or 0.055,
 
         cooldownReverse = true,
-        hideSwipe = false,
+        -- Always hidden (2026-08-02, Joel's explicit request): the swipe is
+        -- the darkening radial overlay CooldownFrameTemplate draws over the
+        -- icon as remaining time shrinks -- distinct from the duration
+        -- NUMBER text below (hideDurationText), which stays independently
+        -- controllable. See EllesmereUI_AuraKit.lua's MakeInitializer:
+        -- hideSwipe just does d.cooldown:SetShown(false), no cfg field/UI
+        -- toggle needed since it's unconditional here.
+        hideSwipe = true,
+
+        -- Right-click to cancel (2026-08-02): mirrors Blizzard's own player
+        -- BuffFrame / Edit Mode behavior and EUI_UnitFrames_AuraContainers
+        -- .lua's own `cancelButtons = (unit == "player" and isBuff) and
+        -- "RightButtonUp"` -- PAB is always the player unit, so only the
+        -- isBuff half of that condition applies here (debuffs were never
+        -- player-cancelable in Blizzard's own UI either). AK wires this
+        -- straight through to the engine's AuraButtonMixin:
+        -- SetCancelAuraButtons -- same secure click-to-cancel Blizzard uses,
+        -- not a hand-rolled macro/attribute setup.
+        cancelButtons = isBuff and "RightButtonUp" or nil,
 
         hideDurationText = cfg.durationShow == false,
         durationFontSize = cfg.durationTextSize or 11,
