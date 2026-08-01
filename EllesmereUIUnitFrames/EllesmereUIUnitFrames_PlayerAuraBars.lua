@@ -185,6 +185,7 @@ end
 
 local STYLE_BUFFS = "playerAuraBars_buffs"
 local STYLE_DEBUFFS = "playerAuraBars_debuffs"
+local STYLE_EXTDEF = "playerAuraBars_extDef"
 
 -- STEP B: real styling. Field names verified against AK's own
 -- ApplyStyleToRegions (EllesmereUI_AuraKit.lua) -- not guessed.
@@ -508,6 +509,15 @@ end
 -- 2026-08-02). Every custom bar sets all three explicitly at creation
 -- (PAB_AddCustomBuffBar/DebuffBar, 8x1=8 for both), so this fallback is
 -- default-bar-only in practice.
+--
+-- width/height (2026-08-02 fix, trial): N icons need (N-1) gaps, not N --
+-- the previous `cols * (iconSize + pad)` baked one extra trailing pad's
+-- worth of edge margin into the box (visible as the box being a few px
+-- bigger than the icons it actually contains). Surfaced by the External
+-- Defensives migration (directly comparable against the old standalone
+-- module's tighter `4*iconSize + 3*spacing` formula, which never had this
+-- trailing pad). Affects every PAB bar's rendered box size, not just that
+-- one -- Joel asked to see this applied before deciding whether to keep it.
 local function ComputeGrid(isBuff, cfg)
     local iconSize = cfg.iconSize or 32
     local pad = cfg.padding or 5
@@ -517,12 +527,13 @@ local function ComputeGrid(isBuff, cfg)
     local effectiveMax = math.min(configuredMax, rows * cols)
     -- Actual rows needed for the effective cap, never more than the row limit
     local usedRows = math.min(rows, math.max(1, math.ceil(effectiveMax / cols)))
-    local cell = iconSize + pad
+    local width = cols * iconSize + (cols - 1) * pad
+    local height = usedRows * iconSize + (usedRows - 1) * pad
     return {
         effectiveMax = effectiveMax,
-        rowWidth = cols * cell,
-        width = cols * cell,
-        height = usedRows * cell,
+        rowWidth = width,
+        width = width,
+        height = height,
     }
 end
 
@@ -541,13 +552,80 @@ end
 ns.PAB_DefaultBuffsCfg = DefaultBuffsCfg
 ns.PAB_DefaultDebuffsCfg = DefaultDebuffsCfg
 
-local buffsContainer, debuffsContainer
-local buffsParent, debuffsParent
+-- One-time migration from the retired standalone EllesmereUIUnitFrames_
+-- ExternalDefensives.lua module (db.profile.externalDefensives) into PAB's
+-- own defaultExternalDefensives cfg, run lazily the first time
+-- DefaultExternalDefensivesCfg is accessed (mirrors DefaultBuffsCfg/
+-- DefaultDebuffsCfg's `s.defaultX = s.defaultX or {}` pattern, just with a
+-- real seed body instead of an empty table). Field-name/semantics mapping:
+--   enabled/iconSize/borderSize/R/G/B/A: direct 1:1
+--   growDirection: old module used lowercase "left"/"right", PAB uses
+--     uppercase "LEFT"/"RIGHT"
+--   showText -> durationShow: same semantics both sides (nil/true = shown)
+--   textSize -> stackTextSize: old module's `textSize` styled the stack/
+--     application-count text (btn._count), NOT a duration text -- the old
+--     module's duration numbers came from Blizzard's native Cooldown
+--     countdown text instead (SetCountdownFont/SetCountdownFormatter on the
+--     swipe widget itself), which PAB does not use (AK forces native
+--     countdown numbers off unconditionally and renders duration through
+--     its own d.duration binding instead, see EllesmereUI_AuraKit.lua's
+--     ApplyStyleToRegions doc comment) -- so there is no equivalent source
+--     field to migrate FROM for PAB's durationTextSize/durationPosition/etc,
+--     they just start at PAB's normal fallbacks (except durationPosition,
+--     seeded to "CENTER" below per Joel's explicit request, closer to how
+--     the old module's centered native countdown text looked).
+-- NOT migrated (PAB's BuildStyle does not expose these fields at all, even
+-- though AK's engine border call already accepts them -- flagged 2026-08-02
+-- as a follow-up: Joel wants border texture/offset/shift/behind support
+-- added across ALL of PAB later, not just for this bar):
+--   iconZoom, borderTexture, borderTextureOffset(Y), borderTextureShiftX/Y,
+--   borderBehind, durationFormat (colon/seconds compact variants -- already
+--   a known, pre-existing PAB-wide gap, see the Settings Schema doc comment
+--   near BuildStyle).
+local function MigrateExternalDefensives(s)
+    local old = ns.db and ns.db.profile and ns.db.profile.externalDefensives
+    local cfg = {
+        enabled = false,
+        iconsPerRow = 4,
+        maxRows = 1,
+        maxTotal = 4,
+        durationPosition = "CENTER",
+    }
+    if old then
+        if old.enabled ~= nil then cfg.enabled = old.enabled end
+        if old.iconSize then cfg.iconSize = old.iconSize end
+        if old.growDirection then cfg.growDirection = string.upper(old.growDirection) end
+        if old.showText ~= nil then cfg.durationShow = old.showText end
+        if old.textSize then cfg.stackTextSize = old.textSize end
+        if old.borderSize then cfg.borderSize = old.borderSize end
+        if old.borderR then cfg.borderR = old.borderR end
+        if old.borderG then cfg.borderG = old.borderG end
+        if old.borderB then cfg.borderB = old.borderB end
+        if old.borderA then cfg.borderA = old.borderA end
+        if old.unlockPos and old.unlockPos.point and not s.extDefPos then
+            s.extDefPos = {
+                point = old.unlockPos.point,
+                relPoint = old.unlockPos.relPoint or old.unlockPos.point,
+                x = old.unlockPos.x, y = old.unlockPos.y,
+            }
+        end
+    end
+    return cfg
+end
+
+local function DefaultExternalDefensivesCfg(s)
+    s.defaultExternalDefensives = s.defaultExternalDefensives or MigrateExternalDefensives(s)
+    return s.defaultExternalDefensives
+end
+ns.PAB_DefaultExternalDefensivesCfg = DefaultExternalDefensivesCfg
+
+local buffsContainer, debuffsContainer, extDefContainer
+local buffsParent, debuffsParent, extDefParent
 -- Per-container, per-polarity registry of every group key ever declared
 -- (see ApplyGroupConfig above) -- reset only when a container is (re-)
 -- created, never cleared on a live settings change.
 local declared = { buffs = {}, debuffs = {} } -- buffs: only the "Show All Buffs" catch-all group key ("all"); debuffs: every class-token chain group key
-local lastSize = { buffs = nil, debuffs = nil } -- {w=,h=}, tracks our own last-applied grid size for CENTER-anchor compensation (see ApplyLiveConfig)
+local lastSize = { buffs = nil, debuffs = nil, extdef = nil } -- {w=,h=}, tracks our own last-applied grid size for CENTER-anchor compensation (see ApplyLiveConfig)
 local buffsSlotSig -- signature of the default Buffs bar's last-applied resolved spell list (ns.PAB_ResolveSpells), mirrors customBuffSig[barId] for the per-bar slots model
 local RegisterPABUnlock -- forward-declared; defined after CreateBars, called from it
 local ReloadAllCustomBars -- forward-declared; defined after CreateBars (custom bars section), called from it
@@ -615,6 +693,7 @@ end
 local DEFAULT_POS = {
     buffs = { point = "TOPRIGHT", relPoint = "TOPRIGHT", x = -300, y = -200 },
     debuffs = { point = "TOPRIGHT", relPoint = "TOPRIGHT", x = -300, y = -260 },
+    extdef = { point = "CENTER", relPoint = "CENTER", x = 0, y = -220 }, -- matches the old standalone module's own default
 }
 
 local function BarPositionKey(isBuff)
@@ -628,6 +707,21 @@ local function ApplyBarPosition(parent, isBuff)
     local s = PAB()
     local pos = s and s[BarPositionKey(isBuff)]
     local def = isBuff and DEFAULT_POS.buffs or DEFAULT_POS.debuffs
+    parent:ClearAllPoints()
+    if pos and pos.point then
+        parent:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x, pos.y)
+    else
+        parent:SetPoint(def.point, UIParent, def.relPoint, def.x, def.y)
+    end
+end
+
+-- Same as ApplyBarPosition, kept separate rather than folded into its
+-- isBuff-boolean signature: External Defensives is a THIRD, independent
+-- position slot (s.extDefPos), not a third value of a two-state toggle.
+local function ApplyExtDefPosition(parent)
+    local s = PAB()
+    local pos = s and s.extDefPos
+    local def = DEFAULT_POS.extdef
     parent:ClearAllPoints()
     if pos and pos.point then
         parent:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x, pos.y)
@@ -669,12 +763,15 @@ local function CreateBars()
     HideBlizzardPlayerAuras()
 
     local buffCfg, debuffCfg = DefaultBuffsCfg(s), DefaultDebuffsCfg(s)
+    local extDefCfg = DefaultExternalDefensivesCfg(s)
 
     AK.styles[STYLE_BUFFS] = BuildStyle(true, buffCfg)
     AK.styles[STYLE_DEBUFFS] = BuildStyle(false, debuffCfg)
+    AK.styles[STYLE_EXTDEF] = BuildStyle(true, extDefCfg) -- isBuff=true: External Defensives are HELPFUL auras, inherits the same swipe-hide/right-click-cancel treatment every other buff bar gets
 
     local buffGrid = ComputeGrid(true, buffCfg)
     local debuffGrid = ComputeGrid(false, debuffCfg)
+    local extDefGrid = ComputeGrid(true, extDefCfg)
 
     buffsParent = buffsParent or CreateFrame("Frame", "EllesmereUIPlayerAuraBars_Buffs", UIParent)
     buffsParent:SetSize(buffGrid.width, buffGrid.height)
@@ -685,6 +782,12 @@ local function CreateBars()
     debuffsParent:SetSize(debuffGrid.width, debuffGrid.height)
     ApplyBarPosition(debuffsParent, false)
     lastSize.debuffs = { w = debuffGrid.width, h = debuffGrid.height }
+
+    extDefParent = extDefParent or CreateFrame("Frame", "EllesmereUIPlayerAuraBars_ExternalDefensives", UIParent)
+    extDefParent:SetSize(extDefGrid.width, extDefGrid.height)
+    ApplyExtDefPosition(extDefParent)
+    extDefParent:SetShown(extDefCfg.enabled ~= false)
+    lastSize.extdef = { w = extDefGrid.width, h = extDefGrid.height }
 
     local debuffChain = BuildChain("HARMFUL", function(class) return ClassEnabled(class, false, debuffCfg) end)
 
@@ -778,6 +881,30 @@ local function CreateBars()
         ApplyGroupConfig(container, debuffChain, declared.debuffs, STYLE_DEBUFFS, debuffGrid.effectiveMax, debuffPad)
     end)
 
+    -- External Defensives: fixed engine classification, not a user-selected
+    -- spell/class set -- ONE static group declared once and never touched
+    -- again (no ApplyGroupConfig chain machinery, no spell-signature
+    -- diffing/rebuild like Buffs/Debuffs above -- there is nothing to
+    -- diff, the filter can never change). filter={"HELPFUL",
+    -- "EXTERNAL_DEFENSIVE"} is AK.Filter-joined into the exact same
+    -- "HELPFUL|EXTERNAL_DEFENSIVE" string the old standalone module used
+    -- directly against C_UnitAuras.IsAuraFilteredOutByInstanceID.
+    local extDefPad = extDefCfg.padding or 5
+    local _, extDefSpec = BuildContainerSpec(extDefParent, extDefCfg, extDefGrid)
+    AK.RequestContainer(extDefParent, "player", extDefSpec, function(container)
+        extDefContainer = container
+        AK.AddGroupToContainer(container, {
+            key = "extdef",
+            filter = { "HELPFUL", "EXTERNAL_DEFENSIVE" },
+            style = STYLE_EXTDEF,
+            maxFrameCount = extDefGrid.effectiveMax,
+        })
+        container:SetAuraGroupLayout("extdef", {
+            elementSpacing = extDefPad, lineSpacing = extDefPad,
+            groupSpacing = extDefPad, groupLineSpacing = extDefPad,
+        })
+    end)
+
     RegisterPABUnlock()
     ReloadAllCustomBars()
 end
@@ -840,6 +967,50 @@ function RegisterPABUnlock()
     local elements = {
         MakeBarElement("PAB_Buffs", "Buffs", 700, true, function() return buffsParent end),
         MakeBarElement("PAB_Debuffs", "Debuffs", 701, false, function() return debuffsParent end),
+        -- Bespoke third entry, not MakeBarElement: External Defensives is a
+        -- THIRD independent position slot (s.extDefPos via
+        -- ApplyExtDefPosition), not a third value of MakeBarElement's
+        -- isBuff-boolean-driven BarPositionKey/ApplyBarPosition. isBuff=true
+        -- only for getSize's ComputeGrid call (it IS buff-shaped content),
+        -- everything position-related is its own accessor.
+        MK({
+            key = "PAB_ExternalDefensives",
+            label = "External Defensives",
+            group = "Player Aura Bars",
+            order = 702,
+            noResize = true,
+            noAnchorTarget = true,
+            getFrame = function() return extDefParent end,
+            isHidden = function()
+                local s = PAB()
+                local cfg = s and DefaultExternalDefensivesCfg(s)
+                return not (cfg and cfg.enabled ~= false)
+            end,
+            getSize = function()
+                local s = PAB()
+                if not s then return 32, 32 end
+                local grid = ComputeGrid(true, DefaultExternalDefensivesCfg(s))
+                return grid.width, grid.height
+            end,
+            savePos = function(_, point, relPoint, x, y)
+                local s = PAB()
+                if not s then return end
+                s.extDefPos = { point = point, relPoint = relPoint or point, x = x, y = y }
+            end,
+            loadPos = function()
+                local s = PAB()
+                local pos = s and s.extDefPos
+                if not pos then return nil end
+                return { point = pos.point, relPoint = pos.relPoint, x = pos.x, y = pos.y }
+            end,
+            clearPos = function()
+                local s = PAB()
+                if s then s.extDefPos = nil end
+            end,
+            applyPos = function()
+                if extDefParent then ApplyExtDefPosition(extDefParent) end
+            end,
+        }),
     }
     EllesmereUI:RegisterUnlockElements(elements, "EllesmereUIUnitFrames")
 end
@@ -856,8 +1027,10 @@ local function RestyleBars()
     if not (AK and s) then return end
     AK.styles[STYLE_BUFFS] = BuildStyle(true, DefaultBuffsCfg(s))
     AK.styles[STYLE_DEBUFFS] = BuildStyle(false, DefaultDebuffsCfg(s))
+    AK.styles[STYLE_EXTDEF] = BuildStyle(true, DefaultExternalDefensivesCfg(s))
     AK.RestyleSoon(STYLE_BUFFS)
     AK.RestyleSoon(STYLE_DEBUFFS)
+    AK.RestyleSoon(STYLE_EXTDEF)
 end
 ns.PAB_Restyle = RestyleBars
 
@@ -980,6 +1153,55 @@ local function ApplyLiveConfig(isBuff)
 end
 ns.PAB_ApplyLiveConfig = ApplyLiveConfig
 
+-- External Defensives' counterpart to ApplyLiveConfig above -- much
+-- shorter since there is no spell/class selection to diff or rebuild: the
+-- single "extdef" group's filter is permanent, only style/grid/anchor ever
+-- change. Also handles the enabled toggle (ApplyLiveConfig has no
+-- equivalent -- the two default bars have no enable/disable of their own).
+local function ApplyExtDefLiveConfig()
+    local s = PAB()
+    if not (AK and s) then return end
+    local container, parent = extDefContainer, extDefParent
+    if not container or not parent then return end
+
+    local cfg = DefaultExternalDefensivesCfg(s)
+    local grid = ComputeGrid(true, cfg)
+    local prev = lastSize.extdef
+
+    -- Same CENTER-anchor size-change compensation as ApplyLiveConfig.
+    local pos = s.extDefPos
+    if pos and pos.point == "CENTER" and prev and (prev.w ~= grid.width or prev.h ~= grid.height) then
+        pos.x = pos.x + (prev.w - grid.width) / 2
+        pos.y = pos.y + (prev.h - grid.height) / 2
+        parent:ClearAllPoints()
+        parent:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x, pos.y)
+    end
+    lastSize.extdef = { w = grid.width, h = grid.height }
+
+    parent:SetSize(grid.width, grid.height)
+    parent:SetShown(cfg.enabled ~= false)
+
+    local FlowDir = AnchorUtil and AnchorUtil.FlowDirection
+    local corner = CornerFor(cfg.growDirection or "LEFT")
+    local pad = cfg.padding or 5
+
+    container:ClearAllPoints()
+    container:SetPoint(corner, parent, corner, 0, 0)
+    AK.SetContainerAnchor(container, corner)
+    if FlowDir then
+        AK.SetContainerGrowth(container, ToGrowthH(cfg.growDirection or "LEFT"), FlowDir.Down)
+    end
+    AK.SetContainerPadding(container, 0, 0, 0, 0)
+    AK.SetContainerRowWidth(container, grid.rowWidth)
+
+    container:SetAuraGroupMaxFrameCount("extdef", grid.effectiveMax)
+    container:SetAuraGroupLayout("extdef", {
+        elementSpacing = pad, lineSpacing = pad,
+        groupSpacing = pad, groupLineSpacing = pad,
+    })
+end
+ns.PAB_ApplyExtDefLiveConfig = ApplyExtDefLiveConfig
+
 -- Bridge for EllesmereUF:GetGrowDirectionForBar/SetGrowDirectionForBar (see
 -- snippet to add in EllesmereUIUnitFrames.lua). Kept here, not inlined
 -- there, so the settings-field names stay defined in one place.
@@ -999,6 +1221,7 @@ function ns.PAB_GetGrowDirection(barKey)
     if not s then return "LEFT" end
     if barKey == "PAB_Buffs" then return DefaultBuffsCfg(s).growDirection or "LEFT" end
     if barKey == "PAB_Debuffs" then return DefaultDebuffsCfg(s).growDirection or "LEFT" end
+    if barKey == "PAB_ExternalDefensives" then return DefaultExternalDefensivesCfg(s).growDirection or "LEFT" end
     local buffId = barKey:match("^PAB_CustomBuff_(%d+)$")
     if buffId then
         local bar = ns.PAB_GetCustomBuffBar(tonumber(buffId))
@@ -1022,6 +1245,10 @@ function ns.PAB_SetGrowDirection(barKey, dir)
     elseif barKey == "PAB_Debuffs" then
         DefaultDebuffsCfg(s).growDirection = dir
         ApplyLiveConfig(false)
+        return
+    elseif barKey == "PAB_ExternalDefensives" then
+        DefaultExternalDefensivesCfg(s).growDirection = dir
+        ApplyExtDefLiveConfig()
         return
     end
     local buffId = barKey:match("^PAB_CustomBuff_(%d+)$")

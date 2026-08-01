@@ -797,6 +797,44 @@ local function BuildDefaultBarDetail(frame, fontPath, isBuff)
     end
 end
 
+-- Third default bar, migrated from the retired standalone
+-- EllesmereUIUnitFrames_ExternalDefensives.lua module. Deliberately does
+-- NOT call BuildAssignedBuffsFields: its content is a single fixed engine
+-- classification (EXTERNAL_DEFENSIVE), not a user-selected spell/filter
+-- set, so there is nothing to assign -- only Core (icon size, grow
+-- direction, border, duration/stack styling) and Display apply. See
+-- ns.PAB_ApplyExtDefLiveConfig's own doc comment for the engine side.
+local function BuildExternalDefensivesBarDetail(frame, fontPath)
+    local W = EllesmereUI.Widgets
+    if not W then return end
+
+    local s = ns.db and ns.db.profile and ns.db.profile.playerAuraBars
+    if not s then return end
+    local cfg = ns.PAB_DefaultExternalDefensivesCfg and ns.PAB_DefaultExternalDefensivesCfg(s)
+    if not cfg then return end
+
+    local title = frame:CreateFontString(nil, "OVERLAY")
+    title:SetFont(fontPath, 15, "")
+    title:SetPoint("TOPLEFT", frame, "TOPLEFT", 20, 0)
+    title:SetText(L("External Defensives"))
+    title:SetTextColor(1, 1, 1, 0.95)
+    local desc = frame:CreateFontString(nil, "OVERLAY")
+    desc:SetFont(fontPath, 11, "")
+    desc:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -4)
+    desc:SetText(L("Built-in bar. Shows external defensives cast on you (Pain Suppression, Ironbark, etc). Cannot be deleted."))
+    desc:SetTextColor(1, 1, 1, 0.45)
+
+    local body = WrapCompensatedBody(frame, -36)
+    local sy = 0
+    local function ApplyBar()
+        if ns.PAB_Restyle then ns.PAB_Restyle() end
+        if ns.PAB_ApplyExtDefLiveConfig then ns.PAB_ApplyExtDefLiveConfig() end
+    end
+
+    sy = BuildCoreFields(body, fontPath, sy, cfg, ApplyBar)
+    sy = BuildDisplayFields(body, fontPath, sy, cfg, ApplyBar)
+end
+
 -------------------------------------------------------------------------------
 --  Shared tile widget (verbatim pattern from EUI_RaidFrames_ManagerPages.lua
 --  BuildTile, trimmed to the fields this page actually uses)
@@ -1783,8 +1821,9 @@ function ns.PABMP_BuildPage(pageName, parent, yOffset)
     local debuffBars = ns.PAB_CustomDebuffBars and ns.PAB_CustomDebuffBars() or {}
 
     -- Validate selection against current data (bar may have been deleted
-    -- elsewhere, e.g. profile switch). "default" is always valid.
-    if pabSel and pabSel.id ~= "default" then
+    -- elsewhere, e.g. profile switch). "default" and "extdef" are always
+    -- valid (fixed built-in bars, not custom-bar list entries).
+    if pabSel and pabSel.id ~= "default" and pabSel.id ~= "extdef" then
         local ok = false
         local list = (pabSel.kind == "buff") and buffBars or debuffBars
         for i = 1, #list do if list[i].id == pabSel.id then ok = true end end
@@ -1856,6 +1895,32 @@ function ns.PABMP_BuildPage(pageName, parent, yOffset)
             selected = (pabSel and pabSel.kind == "buff" and pabSel.id == "default"),
             showToggle = false,
             onSelect = function() pabSel = { kind = "buff", id = "default" }; EllesmereUI:RefreshPage(true) end,
+        })
+
+        -- Second fixed/built-in bar (migrated from the retired standalone
+        -- ExternalDefensives module) -- unlike "Buffs"/"Debuffs" above, this
+        -- one has its own enable/disable toggle (showToggle=true) since it
+        -- has no "Assigned" content of its own to gate visibility on.
+        tileY = tileY - BuildTile(sidebarChild, tileY, {
+            width = sidebarW, fontPath = fontPath,
+            title = L("External Defensives"),
+            subtitle = L("Shows external defensives cast on you."),
+            selected = (pabSel and pabSel.kind == "buff" and pabSel.id == "extdef"),
+            enabled = (function()
+                local s = ns.db and ns.db.profile and ns.db.profile.playerAuraBars
+                local cfg = s and ns.PAB_DefaultExternalDefensivesCfg and ns.PAB_DefaultExternalDefensivesCfg(s)
+                return cfg and cfg.enabled ~= false or false
+            end)(),
+            showToggle = true,
+            onSelect = function() pabSel = { kind = "buff", id = "extdef" }; EllesmereUI:RefreshPage(true) end,
+            onToggle = function(v)
+                local s = ns.db and ns.db.profile and ns.db.profile.playerAuraBars
+                local cfg = s and ns.PAB_DefaultExternalDefensivesCfg and ns.PAB_DefaultExternalDefensivesCfg(s)
+                if not cfg then return end
+                cfg.enabled = v and true or false
+                if ns.PAB_ApplyExtDefLiveConfig then ns.PAB_ApplyExtDefLiveConfig() end
+                EllesmereUI:RefreshPage(true)
+            end,
         })
 
         for i = 1, #buffBars do
@@ -1980,6 +2045,8 @@ function ns.PABMP_BuildPage(pageName, parent, yOffset)
     if pabSel then
         if pabSel.id == "default" then
             BuildDefaultBarDetail(detail, fontPath, pabSel.kind == "buff")
+        elseif pabSel.id == "extdef" then
+            BuildExternalDefensivesBarDetail(detail, fontPath)
         elseif pabSel.kind == "buff" then
             local bar = ns.PAB_GetCustomBuffBar and ns.PAB_GetCustomBuffBar(pabSel.id)
             if bar then BuildBuffBarDetail(detail, fontPath, bar) end

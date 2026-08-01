@@ -233,23 +233,16 @@ local defaults = {
             maxDebuffs = 16,
         },
         -- playerAuras (BuffFrame/DebuffFrame reskin) removed -- retired,
-        -- superseded by playerAuraBars. externalDefensives kept below;
-        -- pending evaluation for migration into playerAuraBars' "External
-        -- Defensive" class filter, not deleted outright.
-        externalDefensives = {
-            enabled       = false,
-            iconSize      = 32,
-            iconZoom      = 0.055,
-            growDirection = "right",  -- "right" | "left": which way icons extend from the frame edge
-            showText      = true,
-            textSize      = 11,
-            borderTexture = "solid",
-            borderSize    = 1,
-            borderBehind  = false,
-            borderR       = 0, borderG = 0, borderB = 0, borderA = 1,
-            durationFormat = "blizzard",
-            unlockPos     = nil,
-        },
+        -- superseded by playerAuraBars. externalDefensives (the standalone
+        -- EllesmereUIUnitFrames_ExternalDefensives.lua module) removed the
+        -- same way 2026-08-02: migrated into playerAuraBars.
+        -- defaultExternalDefensives as a third built-in bar (see
+        -- EllesmereUIUnitFrames_PlayerAuraBars.lua's MigrateExternalDefensives
+        -- -- it reads any EXISTING db.profile.externalDefensives from a
+        -- user's old saved profile once, on first access, entirely
+        -- independent of this defaults table). No entry needed here any
+        -- more: a brand new profile has no old data to migrate and simply
+        -- starts at PAB's own built-in fallback values.
         castbarOpacity = 1.0,
         castbarColor = { r = 0.114, g = 0.655, b = 0.514 },
         portraitMode = "2d",
