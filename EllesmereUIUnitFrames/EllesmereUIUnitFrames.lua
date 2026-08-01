@@ -11294,6 +11294,13 @@ local function ReloadFrames()
 
             if frame.unifiedBorder then
                 frame.unifiedBorder:ClearAllPoints()
+                -- Preserve the old mini-frame size override when upgrading ToT
+                -- to a fully independent border. This consumes the legacy key
+                -- once, so subsequent edits operate only on borderSize.
+                if unit == "targettarget" and settings.borderSizeOverride ~= nil then
+                    settings.borderSize = settings.borderSizeOverride
+                    settings.borderSizeOverride = nil
+                end
                 -- Boss and Target-of-Target own their complete border. Focus
                 -- Target and Pet retain the established donor inheritance.
                 local ownsBorder = isBossFrame or unit == "targettarget"
