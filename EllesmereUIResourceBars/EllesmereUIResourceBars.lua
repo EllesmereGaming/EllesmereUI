@@ -6136,7 +6136,7 @@ do
     tick:SetDuration(1 / 20)
     ag:SetScript("OnLoop", function()
         if castBarFrame and (castBarFrame._casting or castBarFrame._channeling
-           or castBarFrame._empowering) then
+           or castBarFrame._empowering or castBarFrame._cancelDisplayUntil) then
             UpdateCastBar()
         else
             ag:Stop()
@@ -6879,6 +6879,19 @@ end
 
 UpdateCastBar = function(dt)
     if not castBarFrame then return end
+    local now = GetTime()
+
+    -- A cancelled/interrupted cast has no active cast state anymore, but its
+    -- message remains visible until this deadline. Check it before the fast
+    -- inactive-state return below so the bar can actually expire.
+    if castBarFrame._cancelDisplayUntil then
+        if now >= castBarFrame._cancelDisplayUntil then
+            castBarFrame._cancelDisplayUntil = nil
+            EllesmereUI.SetElementVisibility(castBarFrame, false)
+        end
+        return
+    end
+
     -- EllesmereUI.SetElementVisibility fades an idle cast bar to alpha 0 rather
     -- than calling Hide(), so IsShown() stays true for the whole session and the
     -- IsShown guard that used to be here never fired once. The entire body --
@@ -6893,7 +6906,6 @@ UpdateCastBar = function(dt)
     -- changes. The cast-state gate above is the real guard.
 
 
-    local now = GetTime()
     local bar = castBarFrame._bar
 
     -- Per-cast constants. None of these can change while a single cast is in
@@ -6929,14 +6941,6 @@ UpdateCastBar = function(dt)
     local totalDurMode = castBarFrame._cstTotalMode
     -- Cache the " / X.X" suffix once per cast (total duration is constant)
     local totalSuffix = totalDurMode and castBarFrame._totalDurSuffix
-
-    if castBarFrame._cancelDisplayUntil then
-        if now >= castBarFrame._cancelDisplayUntil then
-            castBarFrame._cancelDisplayUntil = nil
-            EllesmereUI.SetElementVisibility(castBarFrame, false)
-        end
-        return
-    end
 
     if castBarFrame._casting or castBarFrame._empowering then
         -- Safety: if cast/empower ran 1s past expected end, force stop.
@@ -8902,7 +8906,8 @@ function ERB:OnEnable()
         -- needs it, and each disarms itself, so a cast no longer drags the
         -- health/power/secondary blocks along at frame rate.
         if castBarFrame and (castBarFrame._casting
-           or castBarFrame._channeling or castBarFrame._empowering) then
+           or castBarFrame._channeling or castBarFrame._empowering
+           or castBarFrame._cancelDisplayUntil) then
             ns.StartCastTick()
         end
         if gcdBarFrame and gcdBarFrame._gcdStart then
