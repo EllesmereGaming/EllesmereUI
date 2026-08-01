@@ -1177,37 +1177,19 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 return sep .. tgt
             end
-            local function _pvShortName(raw)
-                if not prefix then return raw end
-                local maxLen = s[prefix .. "ShortNameLength"] or 0
-                if maxLen <= 0 then return raw end
-                local useEllipsis = s[prefix .. "ShortNameEllipsis"] ~= false
-                -- Mirror the live eui-name tag exactly: truncate by UTF-8
-                -- codepoints on a character boundary, never by bytes.
-                local i, chars = 1, 0
-                local len = #raw
-                while i <= len do
-                    if chars == maxLen then
-                        local cut = raw:sub(1, i - 1)
-                        if useEllipsis then return cut .. "..." end
-                        return cut
-                    end
-                    local b = raw:byte(i)
-                    i = i + ((b >= 240 and 4) or (b >= 224 and 3) or (b >= 192 and 2) or 1)
-                    chars = chars + 1
-                end
-                return raw
-            end
+            -- Name truncation is width-based on the live frames (the per-slot
+            -- Width % clamp in the position code); the preview renders the
+            -- full name and relies on its own FontString width for clipping.
             if content == "name" then
-                return _pvShortName(_pvName())
+                return _pvName()
             elseif content == "nametotarget" then
-                return _pvShortName(_pvName()) .. _pvTargetSuffix()
+                return _pvName() .. _pvTargetSuffix()
             elseif content == "level" or content == "levelname" or content == "namelevel" then
                 local lvl = UnitLevel("player")
                 lvl = (type(lvl) == "number" and lvl > 0) and tostring(lvl) or "80"
                 if content == "level" then return lvl
-                elseif content == "levelname" then return lvl .. " | " .. _pvShortName(_pvName())
-                else return _pvShortName(_pvName()) .. " | " .. lvl end
+                elseif content == "levelname" then return lvl .. " | " .. _pvName()
+                else return _pvName() .. " | " .. lvl end
             elseif content == "both" or content == "bothdash" or content == "curhpshort" or content == "perhp" or content == "perhpnosign" or content == "perhpnum" or content == "perhpnumdash" then
                 local maxHP = UnitHealthMax("player") or 1
                 local pct = _previewHealthPct or 0.70
@@ -6159,8 +6141,7 @@ initFrame:SetScript("OnEvent", function(self)
                         d.leftTextColorR, d.leftTextColorG, d.leftTextColorB = src.leftTextColorR, src.leftTextColorG, src.leftTextColorB
                         d.leftTextSize = src.leftTextSize
                         d.leftTextX, d.leftTextY = src.leftTextX, src.leftTextY
-                        d.leftTextShortNameLength = src.leftTextShortNameLength
-                        d.leftTextShortNameEllipsis = src.leftTextShortNameEllipsis
+                        d.leftTextWidthPct = src.leftTextWidthPct
                     end
                 end
                 ReloadAndUpdate(); EllesmereUI:RefreshPage()
@@ -6183,8 +6164,7 @@ initFrame:SetScript("OnEvent", function(self)
                         if (d.leftTextSize or 0) ~= (src.leftTextSize or 0) then return false end
                         if (d.leftTextX or 0) ~= (src.leftTextX or 0) then return false end
                         if (d.leftTextY or 0) ~= (src.leftTextY or 0) then return false end
-                        if (d.leftTextShortNameLength or 0) ~= (src.leftTextShortNameLength or 0) then return false end
-                        if (d.leftTextShortNameEllipsis == false) ~= (src.leftTextShortNameEllipsis == false) then return false end
+                        if (d.leftTextWidthPct or 100) ~= (src.leftTextWidthPct or 100) then return false end
                     end
                     return true
                 end,
@@ -6283,16 +6263,9 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="slider", label="Y Offset", min=-150, max=150, step=1,
                       get=function() return SVal("leftTextY", 0) end,
                       set=function(v) SSet("leftTextY", v); UpdatePreview() end },
-                    { type="slider", label="Name Length", min=0, max=30, step=1,
-                      get=function() return SVal("leftTextShortNameLength", 0) end,
-                      set=function(v) SSet("leftTextShortNameLength", v); UpdatePreview() end,
-                      disabled=function() local c=SVal("leftTextContent","name") return c ~= "name" and c ~= "nametotarget" and c ~= "levelname" and c ~= "namelevel" end,
-                      disabledTooltip="Only applies when the selected text includes a Name." },
-                    { type="toggle", label="Show Ellipsis",
-                      get=function() return SVal("leftTextShortNameEllipsis", true) ~= false end,
-                      set=function(v) SSet("leftTextShortNameEllipsis", v); UpdatePreview() end,
-                      disabled=function() local c=SVal("leftTextContent","name") return c ~= "name" and c ~= "nametotarget" and c ~= "levelname" and c ~= "namelevel" end,
-                      disabledTooltip="Only applies when the selected text includes a Name." },
+                    { type="slider", label="Width %", min=20, max=200, step=5,
+                      get=function() return SVal("leftTextWidthPct", 100) end,
+                      set=function(v) SSet("leftTextWidthPct", v); UpdatePreview() end },
                     { type="multiswatch", label="Indicator Color",
                       disabled=function() return SVal("leftTextContent","name") ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name > Target is selected.",
@@ -6361,8 +6334,7 @@ initFrame:SetScript("OnEvent", function(self)
                         d.rightTextColorR, d.rightTextColorG, d.rightTextColorB = src.rightTextColorR, src.rightTextColorG, src.rightTextColorB
                         d.rightTextSize = src.rightTextSize
                         d.rightTextX, d.rightTextY = src.rightTextX, src.rightTextY
-                        d.rightTextShortNameLength = src.rightTextShortNameLength
-                        d.rightTextShortNameEllipsis = src.rightTextShortNameEllipsis
+                        d.rightTextWidthPct = src.rightTextWidthPct
                     end
                 end
                 ReloadAndUpdate(); EllesmereUI:RefreshPage()
@@ -6385,8 +6357,7 @@ initFrame:SetScript("OnEvent", function(self)
                         if (d.rightTextSize or 0) ~= (src.rightTextSize or 0) then return false end
                         if (d.rightTextX or 0) ~= (src.rightTextX or 0) then return false end
                         if (d.rightTextY or 0) ~= (src.rightTextY or 0) then return false end
-                        if (d.rightTextShortNameLength or 0) ~= (src.rightTextShortNameLength or 0) then return false end
-                        if (d.rightTextShortNameEllipsis == false) ~= (src.rightTextShortNameEllipsis == false) then return false end
+                        if (d.rightTextWidthPct or 100) ~= (src.rightTextWidthPct or 100) then return false end
                     end
                     return true
                 end,
@@ -6479,16 +6450,9 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="slider", label="Y Offset", min=-150, max=150, step=1,
                       get=function() return SVal("rightTextY", 0) end,
                       set=function(v) SSet("rightTextY", v); UpdatePreview() end },
-                    { type="slider", label="Name Length", min=0, max=30, step=1,
-                      get=function() return SVal("rightTextShortNameLength", 0) end,
-                      set=function(v) SSet("rightTextShortNameLength", v); UpdatePreview() end,
-                      disabled=function() local c=SVal("rightTextContent","both") return c ~= "name" and c ~= "nametotarget" and c ~= "levelname" and c ~= "namelevel" end,
-                      disabledTooltip="Only applies when the selected text includes a Name." },
-                    { type="toggle", label="Show Ellipsis",
-                      get=function() return SVal("rightTextShortNameEllipsis", true) ~= false end,
-                      set=function(v) SSet("rightTextShortNameEllipsis", v); UpdatePreview() end,
-                      disabled=function() local c=SVal("rightTextContent","both") return c ~= "name" and c ~= "nametotarget" and c ~= "levelname" and c ~= "namelevel" end,
-                      disabledTooltip="Only applies when the selected text includes a Name." },
+                    { type="slider", label="Width %", min=20, max=200, step=5,
+                      get=function() return SVal("rightTextWidthPct", 100) end,
+                      set=function(v) SSet("rightTextWidthPct", v); UpdatePreview() end },
                     { type="multiswatch", label="Indicator Color",
                       disabled=function() return SVal("rightTextContent","both") ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name > Target is selected.",
@@ -6573,8 +6537,7 @@ initFrame:SetScript("OnEvent", function(self)
                         d.centerTextColorR, d.centerTextColorG, d.centerTextColorB = src.centerTextColorR, src.centerTextColorG, src.centerTextColorB
                         d.centerTextSize = src.centerTextSize
                         d.centerTextX, d.centerTextY = src.centerTextX, src.centerTextY
-                        d.centerTextShortNameLength = src.centerTextShortNameLength
-                        d.centerTextShortNameEllipsis = src.centerTextShortNameEllipsis
+                        d.centerTextWidthPct = src.centerTextWidthPct
                     end
                 end
                 ReloadAndUpdate(); EllesmereUI:RefreshPage()
@@ -6597,8 +6560,7 @@ initFrame:SetScript("OnEvent", function(self)
                         if (d.centerTextSize or 0) ~= (src.centerTextSize or 0) then return false end
                         if (d.centerTextX or 0) ~= (src.centerTextX or 0) then return false end
                         if (d.centerTextY or 0) ~= (src.centerTextY or 0) then return false end
-                        if (d.centerTextShortNameLength or 0) ~= (src.centerTextShortNameLength or 0) then return false end
-                        if (d.centerTextShortNameEllipsis == false) ~= (src.centerTextShortNameEllipsis == false) then return false end
+                        if (d.centerTextWidthPct or 100) ~= (src.centerTextWidthPct or 100) then return false end
                     end
                     return true
                 end,
@@ -6677,16 +6639,9 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="slider", label="Y Offset", min=-150, max=150, step=1,
                       get=function() return SVal("centerTextY", 0) end,
                       set=function(v) SSet("centerTextY", v); UpdatePreview() end },
-                    { type="slider", label="Name Length", min=0, max=30, step=1,
-                      get=function() return SVal("centerTextShortNameLength", 0) end,
-                      set=function(v) SSet("centerTextShortNameLength", v); UpdatePreview() end,
-                      disabled=function() local c=SVal("centerTextContent","none") return c ~= "name" and c ~= "nametotarget" and c ~= "levelname" and c ~= "namelevel" end,
-                      disabledTooltip="Only applies when the selected text includes a Name." },
-                    { type="toggle", label="Show Ellipsis",
-                      get=function() return SVal("centerTextShortNameEllipsis", true) ~= false end,
-                      set=function(v) SSet("centerTextShortNameEllipsis", v); UpdatePreview() end,
-                      disabled=function() local c=SVal("centerTextContent","none") return c ~= "name" and c ~= "nametotarget" and c ~= "levelname" and c ~= "namelevel" end,
-                      disabledTooltip="Only applies when the selected text includes a Name." },
+                    { type="slider", label="Width %", min=20, max=200, step=5,
+                      get=function() return SVal("centerTextWidthPct", 100) end,
+                      set=function(v) SSet("centerTextWidthPct", v); UpdatePreview() end },
                     { type="multiswatch", label="Indicator Color",
                       disabled=function() return SVal("centerTextContent","none") ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name > Target is selected.",
@@ -6759,8 +6714,7 @@ initFrame:SetScript("OnEvent", function(self)
                         d.extraTextSize = src.extraTextSize
                         d.extraTextX, d.extraTextY = src.extraTextX, src.extraTextY
                         d.extraTextAlign = src.extraTextAlign
-                        d.extraTextShortNameLength = src.extraTextShortNameLength
-                        d.extraTextShortNameEllipsis = src.extraTextShortNameEllipsis
+                        d.extraTextWidthPct = src.extraTextWidthPct
                     end
                 end
                 ReloadAndUpdate(); EllesmereUI:RefreshPage()
@@ -6784,8 +6738,7 @@ initFrame:SetScript("OnEvent", function(self)
                         if (d.extraTextX or 0) ~= (src.extraTextX or 0) then return false end
                         if (d.extraTextY or 0) ~= (src.extraTextY or 0) then return false end
                         if (d.extraTextAlign or "left") ~= (src.extraTextAlign or "left") then return false end
-                        if (d.extraTextShortNameLength or 0) ~= (src.extraTextShortNameLength or 0) then return false end
-                        if (d.extraTextShortNameEllipsis == false) ~= (src.extraTextShortNameEllipsis == false) then return false end
+                        if (d.extraTextWidthPct or 100) ~= (src.extraTextWidthPct or 100) then return false end
                     end
                     return true
                 end,
@@ -6867,16 +6820,9 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="slider", label="Y Offset", min=-150, max=150, step=1,
                       get=function() return SVal("extraTextY", 0) end,
                       set=function(v) SSet("extraTextY", v); UpdatePreview() end },
-                    { type="slider", label="Name Length", min=0, max=30, step=1,
-                      get=function() return SVal("extraTextShortNameLength", 0) end,
-                      set=function(v) SSet("extraTextShortNameLength", v); UpdatePreview() end,
-                      disabled=function() local c=SVal("extraTextContent","none") return c ~= "name" and c ~= "nametotarget" and c ~= "levelname" and c ~= "namelevel" end,
-                      disabledTooltip="Only applies when the selected text includes a Name." },
-                    { type="toggle", label="Show Ellipsis",
-                      get=function() return SVal("extraTextShortNameEllipsis", true) ~= false end,
-                      set=function(v) SSet("extraTextShortNameEllipsis", v); UpdatePreview() end,
-                      disabled=function() local c=SVal("extraTextContent","none") return c ~= "name" and c ~= "nametotarget" and c ~= "levelname" and c ~= "namelevel" end,
-                      disabledTooltip="Only applies when the selected text includes a Name." },
+                    { type="slider", label="Width %", min=20, max=200, step=5,
+                      get=function() return SVal("extraTextWidthPct", 100) end,
+                      set=function(v) SSet("extraTextWidthPct", v); UpdatePreview() end },
                     { type="multiswatch", label="Indicator Color",
                       disabled=function() return SVal("extraTextContent","none") ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name > Target is selected.",
@@ -9061,16 +9007,9 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="slider", label="Y Offset", min=-30, max=30, step=1,
                       get=function() return SVal("btbLeftY", 0) end,
                       set=function(v) SSet("btbLeftY", v); UpdatePreview() end },
-                    { type="slider", label="Name Length", min=0, max=30, step=1,
-                      get=function() return SVal("btbLeftShortNameLength", 0) end,
-                      set=function(v) SSet("btbLeftShortNameLength", v); UpdatePreview() end,
-                      disabled=function() local c=SVal("btbLeftContent","none") return c ~= "name" and c ~= "nametotarget" end,
-                      disabledTooltip="Only applies when Name or Name > Target is selected." },
-                    { type="toggle", label="Show Ellipsis",
-                      get=function() return SVal("btbLeftShortNameEllipsis", true) ~= false end,
-                      set=function(v) SSet("btbLeftShortNameEllipsis", v); UpdatePreview() end,
-                      disabled=function() local c=SVal("btbLeftContent","none") return c ~= "name" and c ~= "nametotarget" end,
-                      disabledTooltip="Only applies when Name or Name > Target is selected." },
+                    { type="slider", label="Width %", min=20, max=200, step=5,
+                      get=function() return SVal("btbLeftWidthPct", 100) end,
+                      set=function(v) SSet("btbLeftWidthPct", v); UpdatePreview() end },
                     { type="multiswatch", label="Indicator Color",
                       disabled=function() return SVal("btbLeftContent","none") ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name > Target is selected.",
@@ -9220,16 +9159,9 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="slider", label="Y Offset", min=-30, max=30, step=1,
                       get=function() return SVal("btbRightY", 0) end,
                       set=function(v) SSet("btbRightY", v); UpdatePreview() end },
-                    { type="slider", label="Name Length", min=0, max=30, step=1,
-                      get=function() return SVal("btbRightShortNameLength", 0) end,
-                      set=function(v) SSet("btbRightShortNameLength", v); UpdatePreview() end,
-                      disabled=function() local c=SVal("btbRightContent","none") return c ~= "name" and c ~= "nametotarget" end,
-                      disabledTooltip="Only applies when Name or Name > Target is selected." },
-                    { type="toggle", label="Show Ellipsis",
-                      get=function() return SVal("btbRightShortNameEllipsis", true) ~= false end,
-                      set=function(v) SSet("btbRightShortNameEllipsis", v); UpdatePreview() end,
-                      disabled=function() local c=SVal("btbRightContent","none") return c ~= "name" and c ~= "nametotarget" end,
-                      disabledTooltip="Only applies when Name or Name > Target is selected." },
+                    { type="slider", label="Width %", min=20, max=200, step=5,
+                      get=function() return SVal("btbRightWidthPct", 100) end,
+                      set=function(v) SSet("btbRightWidthPct", v); UpdatePreview() end },
                     { type="multiswatch", label="Indicator Color",
                       disabled=function() return SVal("btbRightContent","none") ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name > Target is selected.",
@@ -9460,16 +9392,9 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="slider", label="Y Offset", min=-30, max=30, step=1,
                       get=function() return SVal("btbCenterY", 0) end,
                       set=function(v) SSet("btbCenterY", v); UpdatePreview() end },
-                    { type="slider", label="Name Length", min=0, max=30, step=1,
-                      get=function() return SVal("btbCenterShortNameLength", 0) end,
-                      set=function(v) SSet("btbCenterShortNameLength", v); UpdatePreview() end,
-                      disabled=function() local c=SVal("btbCenterContent","none") return c ~= "name" and c ~= "nametotarget" end,
-                      disabledTooltip="Only applies when Name or Name > Target is selected." },
-                    { type="toggle", label="Show Ellipsis",
-                      get=function() return SVal("btbCenterShortNameEllipsis", true) ~= false end,
-                      set=function(v) SSet("btbCenterShortNameEllipsis", v); UpdatePreview() end,
-                      disabled=function() local c=SVal("btbCenterContent","none") return c ~= "name" and c ~= "nametotarget" end,
-                      disabledTooltip="Only applies when Name or Name > Target is selected." },
+                    { type="slider", label="Width %", min=20, max=200, step=5,
+                      get=function() return SVal("btbCenterWidthPct", 100) end,
+                      set=function(v) SSet("btbCenterWidthPct", v); UpdatePreview() end },
                     { type="multiswatch", label="Indicator Color",
                       disabled=function() return SVal("btbCenterContent","none") ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name > Target is selected.",
@@ -10073,18 +9998,58 @@ initFrame:SetScript("OnEvent", function(self)
         -- When Buff/Debuff Display is "none", everything in that column is disabled.
         local function BuffDisabled()
             local s = UNIT_DB_MAP[selectedUnit]()
-            return s and s.showBuffs == false
+            if not s then return false end
+            -- Anchor Buffs with Debuffs renders the buffs inside the debuff
+            -- stack, so the buff appearance settings stay live while Buff
+            -- Display reads None (visibility belongs to the merge toggle).
+            if s.debuffAnchorBuffs and SValSupported("debuffAnchor", "bottomleft") ~= "none" then
+                return false
+            end
+            return s.showBuffs == false
         end
         local function DebuffDisabled()
             return SValSupported("debuffAnchor", "bottomleft") == "none"
         end
 
+        -- Buff Display gains "Anchor to Debuffs" -- a pure VIEW over the same
+        -- stored keys the merge has always used (debuffAnchorBuffs = true +
+        -- showBuffs = false), so profiles that enabled it through the old cog
+        -- toggle read back identically. The shared anchor tables serve three
+        -- other dropdowns, hence the per-site copy.
+        local buffDispValues = { ["anchor_debuffs"] = "Anchor to Debuffs" }
+        for k, v in pairs(buffAnchorValues) do buffDispValues[k] = v end
+        local buffDispOrder = {}
+        for i = 1, #buffAnchorOrder do buffDispOrder[i] = buffAnchorOrder[i] end
+        buffDispOrder[#buffDispOrder + 1] = "anchor_debuffs"
+        buffDispValues._menuOpts = {
+            onItemHover = function(key, item)
+                if key == "anchor_debuffs" and item then
+                    EllesmereUI.ShowWidgetTooltip(item, "Buffs join the debuff stack as its first rows; debuffs continue on the next row and move as buff rows change.")
+                end
+            end,
+            onItemLeave = function(key)
+                if key == "anchor_debuffs" then EllesmereUI.HideWidgetTooltip() end
+            end,
+        }
+
         -- Buffs: Location | Icon Size + inline directions cog (X/Y)
         local sharedAddRow2
         sharedAddRow2, h = W:DualRow(parent, y,
-            { type="dropdown", text="Buff Display", values=buffAnchorValues, order=buffAnchorOrder,
+            { type="dropdown", text="Buff Display", values=buffDispValues, order=buffDispOrder,
+              itemDisabled=function(v)
+                  return v == "anchor_debuffs" and DebuffDisabled()
+              end,
+              itemDisabledTooltip=function(v)
+                  if v == "anchor_debuffs" then return "Requires a Debuff Display" end
+              end,
               getValue=function()
                   local s = UNIT_DB_MAP[selectedUnit]()
+                  -- Active merge presents as its own display choice; an inert
+                  -- merge (Debuff Display None) falls through to the truthful
+                  -- None readout.
+                  if s.debuffAnchorBuffs and SValSupported("debuffAnchor", "bottomleft") ~= "none" then
+                      return "anchor_debuffs"
+                  end
                   if s.showBuffs == false then return "none" end
                   return SValSupported("buffAnchor", "topleft")
               end,
@@ -10095,11 +10060,20 @@ initFrame:SetScript("OnEvent", function(self)
                   function() return not BuffDisabled() end,
                   function(v)
                       local s = UNIT_DB_MAP[selectedUnit]()
-                      if v == "none" then
+                      if v == "anchor_debuffs" then
+                          -- Same stored shape the old cog toggle wrote: the
+                          -- merge owns visibility, Buff Display stores None.
+                          s.debuffAnchorBuffs = true
                           s.showBuffs = false
+                      elseif v == "none" then
+                          s.showBuffs = false
+                          s.debuffAnchorBuffs = nil
                       else
                           s.showBuffs = true
                           SwapAuraSlot(s, "buffAnchor", v)
+                          -- Choosing a standalone Buff Display exits the
+                          -- merged mode (which forces this dropdown to None).
+                          s.debuffAnchorBuffs = nil
                       end
                       ReloadAndUpdate(); UpdatePreview(); EllesmereUI:RefreshPage()
                   end) },
@@ -11218,8 +11192,8 @@ initFrame:SetScript("OnEvent", function(self)
         local absorbBarRow
         absorbBarRow, h = W:DualRow(parent, y,
             { type="dropdown", text="Absorb Bar",
-              values={ none="None", aboveRight="Above Frame Right", aboveLeft="Above Frame Left", topRight="Top Right", topLeft="Top Left" },
-              order={ "none", "aboveRight", "aboveLeft", "topRight", "topLeft" },
+              values={ none="None", aboveRight="Above Frame Right", aboveLeft="Above Frame Left", topRight="Top Right", topLeft="Top Left", bottomRight="Bottom Right", bottomLeft="Bottom Left" },
+              order={ "none", "aboveRight", "aboveLeft", "topRight", "topLeft", "bottomRight", "bottomLeft" },
               getValue=function() return SValSupported("absorbBarPosition", "none") end,
               setValue=function(v) SSetSupported("absorbBarPosition", v); EllesmereUI:RefreshPage() end },
             { type="slider", text="Bar Height", min=1, max=20, step=1,
@@ -11255,8 +11229,8 @@ initFrame:SetScript("OnEvent", function(self)
         local healAbsorbBarRow
         healAbsorbBarRow, h = W:DualRow(parent, y,
             { type="dropdown", text="Heal Absorb Bar",
-              values={ none="None", belowAbsorb="Below Absorb Bar", aboveRight="Above Frame Right", aboveLeft="Above Frame Left", topRight="Top Right", topLeft="Top Left" },
-              order={ "none", "belowAbsorb", "aboveRight", "aboveLeft", "topRight", "topLeft" },
+              values={ none="None", aboveAbsorb="Above Absorb Bar", belowAbsorb="Below Absorb Bar", aboveRight="Above Frame Right", aboveLeft="Above Frame Left", topRight="Top Right", topLeft="Top Left", bottomRight="Bottom Right", bottomLeft="Bottom Left" },
+              order={ "none", "aboveAbsorb", "belowAbsorb", "aboveRight", "aboveLeft", "topRight", "topLeft", "bottomRight", "bottomLeft" },
               getValue=function() return SValSupported("healAbsorbBarPosition", "none") end,
               setValue=function(v) SSetSupported("healAbsorbBarPosition", v); EllesmereUI:RefreshPage() end },
             { type="slider", text="Bar Height", min=1, max=20, step=1,
@@ -11430,6 +11404,40 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUI.HideWidgetTooltip()
             end)
 
+            -- Inline color swatch for custom color. Same order and spacing as
+            -- the Heal Absorb Style row above: eye, swatch, cog at -8 gaps,
+            -- with the swatch dimmed + click-blocked (never hidden, so the
+            -- inline chain keeps its spacing) when the color doesn't apply.
+            local combatSwatch = EllesmereUI.BuildColorSwatch(ciRgn, ciRgn:GetFrameLevel() + 5,
+                function()
+                    local cc = SGetSupported("combatIndicatorCustomColor")
+                    cc = cc or { r=1, g=1, b=1 }
+                    return cc.r, cc.g, cc.b, 1
+                end,
+                function(r, g, b)
+                    UNIT_DB_MAP[selectedUnit]().combatIndicatorCustomColor = { r=r, g=g, b=b }
+                    ReloadAndUpdate(); UpdatePreview()
+                end, false, 20)
+            combatSwatch:SetPoint("RIGHT", ciRgn._lastInline or ciRgn._control, "LEFT", -8, 0)
+            ciRgn._lastInline = combatSwatch
+            local combatSwatchBlock = CreateFrame("Frame", nil, combatSwatch)
+            combatSwatchBlock:SetAllPoints()
+            combatSwatchBlock:SetFrameLevel(combatSwatch:GetFrameLevel() + 10)
+            combatSwatchBlock:EnableMouse(true)
+            combatSwatchBlock:Hide()
+            local function UpdateSwatchVisibility()
+                local colorMode = SValSupported("combatIndicatorColor", "custom")
+                local style = SValSupported("combatIndicatorStyle", "class")
+                -- All custom combat icons (combat0..5) are shown as-is, so the custom-
+                -- color swatch doesn't apply to them.
+                local isRawIcon = style:find("^combat%d") and true or false
+                local usable = colorMode == "custom" and style ~= "none" and not isRawIcon
+                combatSwatch:SetAlpha(usable and 1 or 0.3)
+                if usable then combatSwatchBlock:Hide() else combatSwatchBlock:Show() end
+            end
+            UpdateSwatchVisibility()
+            RegisterWidgetRefresh(UpdateSwatchVisibility)
+
             -- Cog popup for combat indicator settings
             -- "healthbar" is the long-standing stored value for centered-on-health-bar,
             -- shown as "Center". "center" (briefly stored by 8.4.9-era builds) maps to it.
@@ -11470,35 +11478,6 @@ initFrame:SetScript("OnEvent", function(self)
             })
             local combatCogShow = combatCogShowRaw
             MakeCogBtn(ciRgn, combatCogShow)
-
-            -- Inline color swatch for custom color
-            local combatSwatch = EllesmereUI.BuildColorSwatch(ciRgn, ciRgn:GetFrameLevel() + 5,
-                function()
-                    local cc = SGetSupported("combatIndicatorCustomColor")
-                    cc = cc or { r=1, g=1, b=1 }
-                    return cc.r, cc.g, cc.b, 1
-                end,
-                function(r, g, b)
-                    UNIT_DB_MAP[selectedUnit]().combatIndicatorCustomColor = { r=r, g=g, b=b }
-                    ReloadAndUpdate(); UpdatePreview()
-                end, false, 20)
-            combatSwatch:SetPoint("RIGHT", ciRgn._lastInline or ciRgn._control, "LEFT", -12, 0)
-            ciRgn._lastInline = combatSwatch
-
-            local function UpdateSwatchVisibility()
-                local colorMode = SValSupported("combatIndicatorColor", "custom")
-                local style = SValSupported("combatIndicatorStyle", "class")
-                -- All custom combat icons (combat0..5) are shown as-is, so the custom-
-                -- color swatch doesn't apply to them.
-                local isRawIcon = style:find("^combat%d") and true or false
-                if colorMode == "custom" and style ~= "none" and not isRawIcon then
-                    combatSwatch:Show()
-                else
-                    combatSwatch:Hide()
-                end
-            end
-            UpdateSwatchVisibility()
-            RegisterWidgetRefresh(UpdateSwatchVisibility)
         end
         end -- _showAbsorbsCombat
 
@@ -12677,16 +12656,9 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="slider", label="Y Offset", min=-30, max=30, step=1,
                       get=function() return MVal("leftTextY", 0) end,
                       set=function(v) MSet("leftTextY", v) end },
-                    { type="slider", label="Name Length", min=0, max=30, step=1,
-                      get=function() return MVal("leftTextShortNameLength", 0) end,
-                      set=function(v) MSet("leftTextShortNameLength", v) end,
-                      disabled=function() local c=MVal("leftTextContent","name") return c ~= "name" and c ~= "nametotarget" and c ~= "levelname" and c ~= "namelevel" end,
-                      disabledTooltip="Only applies when the selected text includes a Name." },
-                    { type="toggle", label="Show Ellipsis",
-                      get=function() return MVal("leftTextShortNameEllipsis", true) ~= false end,
-                      set=function(v) MSet("leftTextShortNameEllipsis", v) end,
-                      disabled=function() local c=MVal("leftTextContent","name") return c ~= "name" and c ~= "nametotarget" and c ~= "levelname" and c ~= "namelevel" end,
-                      disabledTooltip="Only applies when the selected text includes a Name." },
+                    { type="slider", label="Width %", min=20, max=200, step=5,
+                      get=function() return MVal("leftTextWidthPct", 100) end,
+                      set=function(v) MSet("leftTextWidthPct", v) end },
                     { type="multiswatch", label="Indicator Color",
                       disabled=function() return MVal("leftTextContent","name") ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name > Target is selected.",
@@ -12798,16 +12770,9 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="slider", label="Y Offset", min=-30, max=30, step=1,
                       get=function() return MVal("rightTextY", 0) end,
                       set=function(v) MSet("rightTextY", v) end },
-                    { type="slider", label="Name Length", min=0, max=30, step=1,
-                      get=function() return MVal("rightTextShortNameLength", 0) end,
-                      set=function(v) MSet("rightTextShortNameLength", v) end,
-                      disabled=function() local c=MVal("rightTextContent","none") return c ~= "name" and c ~= "nametotarget" and c ~= "levelname" and c ~= "namelevel" end,
-                      disabledTooltip="Only applies when the selected text includes a Name." },
-                    { type="toggle", label="Show Ellipsis",
-                      get=function() return MVal("rightTextShortNameEllipsis", true) ~= false end,
-                      set=function(v) MSet("rightTextShortNameEllipsis", v) end,
-                      disabled=function() local c=MVal("rightTextContent","none") return c ~= "name" and c ~= "nametotarget" and c ~= "levelname" and c ~= "namelevel" end,
-                      disabledTooltip="Only applies when the selected text includes a Name." },
+                    { type="slider", label="Width %", min=20, max=200, step=5,
+                      get=function() return MVal("rightTextWidthPct", 100) end,
+                      set=function(v) MSet("rightTextWidthPct", v) end },
                     { type="multiswatch", label="Indicator Color",
                       disabled=function() return MVal("rightTextContent","none") ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name > Target is selected.",
@@ -12938,16 +12903,9 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="slider", label="Y Offset", min=-30, max=30, step=1,
                       get=function() return MVal("centerTextY", 0) end,
                       set=function(v) MSet("centerTextY", v) end },
-                    { type="slider", label="Name Length", min=0, max=30, step=1,
-                      get=function() return MVal("centerTextShortNameLength", 0) end,
-                      set=function(v) MSet("centerTextShortNameLength", v) end,
-                      disabled=function() local c=MVal("centerTextContent","none") return c ~= "name" and c ~= "nametotarget" and c ~= "levelname" and c ~= "namelevel" end,
-                      disabledTooltip="Only applies when the selected text includes a Name." },
-                    { type="toggle", label="Show Ellipsis",
-                      get=function() return MVal("centerTextShortNameEllipsis", true) ~= false end,
-                      set=function(v) MSet("centerTextShortNameEllipsis", v) end,
-                      disabled=function() local c=MVal("centerTextContent","none") return c ~= "name" and c ~= "nametotarget" and c ~= "levelname" and c ~= "namelevel" end,
-                      disabledTooltip="Only applies when the selected text includes a Name." },
+                    { type="slider", label="Width %", min=20, max=200, step=5,
+                      get=function() return MVal("centerTextWidthPct", 100) end,
+                      set=function(v) MSet("centerTextWidthPct", v) end },
                     { type="multiswatch", label="Indicator Color",
                       disabled=function() return MVal("centerTextContent","none") ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name > Target is selected.",
@@ -13066,16 +13024,9 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="slider", label="Y Offset", min=-150, max=150, step=1,
                       get=function() return MVal("extraTextY", 0) end,
                       set=function(v) MSet("extraTextY", v) end },
-                    { type="slider", label="Name Length", min=0, max=30, step=1,
-                      get=function() return MVal("extraTextShortNameLength", 0) end,
-                      set=function(v) MSet("extraTextShortNameLength", v) end,
-                      disabled=function() local c=MVal("extraTextContent","none") return c ~= "name" and c ~= "nametotarget" and c ~= "levelname" and c ~= "namelevel" end,
-                      disabledTooltip="Only applies when the selected text includes a Name." },
-                    { type="toggle", label="Show Ellipsis",
-                      get=function() return MVal("extraTextShortNameEllipsis", true) ~= false end,
-                      set=function(v) MSet("extraTextShortNameEllipsis", v) end,
-                      disabled=function() local c=MVal("extraTextContent","none") return c ~= "name" and c ~= "nametotarget" and c ~= "levelname" and c ~= "namelevel" end,
-                      disabledTooltip="Only applies when the selected text includes a Name." },
+                    { type="slider", label="Width %", min=20, max=200, step=5,
+                      get=function() return MVal("extraTextWidthPct", 100) end,
+                      set=function(v) MSet("extraTextWidthPct", v) end },
                     { type="multiswatch", label="Indicator Color",
                       disabled=function() return MVal("extraTextContent","none") ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name > Target is selected.",
@@ -13585,7 +13536,17 @@ initFrame:SetScript("OnEvent", function(self)
             if isEUI then
                 AttachPortraitSideCog(portraitRow._rightRegion, db.profile.pet)
             end
-            AttachFrameSourceCog(portraitRow._leftRegion, "pet")
+            AttachFrameSourceCog(portraitRow._leftRegion, "pet", {
+                extraRows = {
+                    { type = "toggle", label = "Always Show Pet Frame",
+                      tooltip = "Show the pet frame whenever you have a pet, ignoring the Player frame's visibility settings.",
+                      get = function() return db.profile.pet.alwaysShow == true end,
+                      set = function(v)
+                          db.profile.pet.alwaysShow = v and true or nil
+                          if ns.UpdateFrameVisibility then ns.UpdateFrameVisibility() end
+                      end },
+                },
+            })
             return portraitRow, h
         end
 
@@ -15524,7 +15485,15 @@ initFrame:SetScript("OnEvent", function(self)
     local ufSearchTerms = {}
     for _, label in pairs(unitLabels) do ufSearchTerms[#ufSearchTerms + 1] = label end
     for _, label in pairs(miniUnitLabels) do ufSearchTerms[#ufSearchTerms + 1] = label end
-    local _paTerms = { "buff", "debuff", "aura", "player buffs", "player debuffs", "icon zoom", "private auras", "external defensives", "externals", "pain suppression" }
+    -- "external defensives" stays on both clients: the External Defensive AURA
+    -- FILTER checkbox keeps that name. Only the two terms that exist purely to
+    -- find the retired External Defensives FRAME are dropped on 12.1, so a
+    -- search there cannot land on a section that no longer builds.
+    local _paTerms = { "buff", "debuff", "aura", "player buffs", "player debuffs", "icon zoom", "private auras", "external defensives" }
+    if not EllesmereUI.IS_121 then
+        _paTerms[#_paTerms + 1] = "externals"
+        _paTerms[#_paTerms + 1] = "pain suppression"
+    end
     for _, t in ipairs(_paTerms) do ufSearchTerms[#ufSearchTerms + 1] = t end
 
     -- Rebuild preview when spec changes (class resource pips may appear/disappear)
@@ -15663,7 +15632,33 @@ initFrame:SetScript("OnEvent", function(self)
                       },
                       order = { "blizzard", "compact", "colon", "seconds" },
                       get = function() return PAGet("durationFormat") or "blizzard" end,
-                      set = function(v) PASet("durationFormat", v) end },
+                      set = function(v)
+                          -- Custom formats re-enter the per-frame UpdateDuration
+                          -- hook path (per visible aura, every render frame), so
+                          -- leaving the free Blizzard default gets the suite's
+                          -- standard performance confirm, once per account.
+                          local cur = PAGet("durationFormat") or "blizzard"
+                          if v ~= "blizzard" and cur == "blizzard"
+                             and not (EllesmereUIDB and EllesmereUIDB.dismissedDurFmtWarning) then
+                              EllesmereUI:ShowConfirmPopup({
+                                  title       = "Custom Duration Format",
+                                  message     = "Custom duration formats may cause a slight loss in performance efficiency. Do you want to enable them?",
+                                  confirmText = "Enable",
+                                  cancelText  = "Cancel",
+                                  onConfirm   = function()
+                                      if not EllesmereUIDB then EllesmereUIDB = {} end
+                                      EllesmereUIDB.dismissedDurFmtWarning = true
+                                      PASet("durationFormat", v)
+                                      if EllesmereUI.RefreshPage then EllesmereUI:RefreshPage(true) end
+                                  end,
+                                  onCancel    = function()
+                                      if EllesmereUI.RefreshPage then EllesmereUI:RefreshPage() end
+                                  end,
+                              })
+                              return
+                          end
+                          PASet("durationFormat", v)
+                      end },
                 },
             })
             local cogBtn = CreateFrame("Button", nil, rgn)
@@ -15824,6 +15819,10 @@ initFrame:SetScript("OnEvent", function(self)
         -----------------------------------------------------------------------
         --  External Defensives Frame (our own frame; live enable, no reload)
         -----------------------------------------------------------------------
+        -- 12.1 retires this frame, so the whole block (spacer and section
+        -- header included) is skipped there and nothing renders. The body is
+        -- left unindented so retail stays a byte-for-byte identical diff.
+        if not EllesmereUI.IS_121 then
         local function EDGet(key)
             local p = db and db.profile and db.profile.externalDefensives
             return p and p[key]
@@ -16044,6 +16043,7 @@ initFrame:SetScript("OnEvent", function(self)
         ); y = y - h
 
         end -- EDGet("enabled") section gate
+        end -- not IS_121: External Defensives Frame retired on 12.1
 
         return math.abs(y)
     end

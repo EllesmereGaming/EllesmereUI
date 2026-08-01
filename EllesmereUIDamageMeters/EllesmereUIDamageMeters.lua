@@ -815,7 +815,13 @@ instanceFrame:SetScript("OnEvent", function(_, event)
             C_Timer.After(0.1, function()
                 instanceFrame._sessionPending = nil
                 for _, w in ipairs(_windows) do
-                    w._barCacheKey = nil
+                    -- Data-only invalidation. Session updates change DATA,
+                    -- never STYLE: _barCacheKey gates the per-bar font and
+                    -- texture restyle, and nilling it here made every wipe
+                    -- (deaths fire session updates) restyle all bars at
+                    -- ticker rate -- the dominant meter cost in the
+                    -- dead-spectate capture. Style invalidation belongs to
+                    -- the settings/palette appliers only.
                     w._cachedTargets = nil
                 end
                 if not _inCombat then
@@ -845,7 +851,8 @@ instanceFrame:SetScript("OnEvent", function(_, event)
             -- and the ticker covers everything in between. Out of combat,
             -- one debounced repaint keeps session rolls visually prompt.
             for _, w in ipairs(_windows) do
-                w._barCacheKey = nil
+                -- Data caches only -- see the SESSION_UPDATED note: style
+                -- never changes on a session roll.
                 w._barSources = nil
                 w._cachedTargets = nil
             end
@@ -860,7 +867,8 @@ instanceFrame:SetScript("OnEvent", function(_, event)
             end
         else
             for _, w in ipairs(_windows) do
-                w._barCacheKey = nil
+                -- Data caches only -- see the SESSION_UPDATED note: style
+                -- never changes on a session roll.
                 w._barSources = nil
                 w._cachedTargets = nil
                 w.Refresh()

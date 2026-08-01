@@ -21,6 +21,7 @@ local BAGS_DEFAULTS = {
         bagShowTrackRank      = false,
         itemlevelUseCustomColor = false,
         bagHideEmptyCategories = true,
+        bagMergeDuplicates    = true,
         bagSidebarCollapsed   = false,
         bankSidebarCollapsed  = false,
         bagShowPinnedItems    = true,
@@ -202,6 +203,17 @@ initFrame:SetScript("OnEvent", function(self)
                           _G.EUI_Bags._asMaxH = nil
                           if _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
                       end
+                  end }
+            ); y = y - h
+
+            -- Merge Duplicate Items
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Merge Duplicate Items",
+                  tooltip="Show copies of the same item that sit in separate bag slots as one icon with their counts added together. Turn this off to keep every slot separate, for example when you deliberately split stacks. Merging is always paused while the mail, trade, auction house, bank or guild bank window is open, since those take one bag slot at a time.",
+                  getValue=function() return db.profile.bagMergeDuplicates ~= false end,
+                  setValue=function(v)
+                      db.profile.bagMergeDuplicates = v
+                      if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
                   end }
             ); y = y - h
 

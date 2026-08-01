@@ -615,7 +615,6 @@ if EllesmereUI and EllesmereUI.IS_121 then
                 -- inside the engine).
                 local showCD = bd and bd.showCooldownText
                 if ss and ss.showCooldownText ~= nil then showCD = ss.showCooldownText end
-                if bd and bd.onlyShowNumbers then showCD = true end
                 if showCD then
                     -- ARMORED: an uncaught error inside initializeFrame
                     -- aborts the engine's whole CreateFrameBatch and kills
@@ -1453,6 +1452,42 @@ ns.FullCDMRebuild = function(reason)
     ns._cdmBuffOrderDirty = true
     if _origFullCDMRebuild then _origFullCDMRebuild(reason) end
     ns.FakeActive_Rearm()
+end
+
+-- Re-arm once after world entry.
+--
+-- A custom active state on an EQUIPPED TRINKET is stored under the item
+-- (-itemID), while the live icon carries the SLOT key (-13 / -14). The two are
+-- bridged in the slot pass of FakeActive_Rearm, which reads
+-- GetInventoryItemID -- so a re-arm that runs before the client can answer that
+-- builds no slot rule, and the icon it was meant to drive matches nothing.
+--
+-- The login re-arm rides FullCDMRebuild, which is early enough for that to
+-- happen, and nothing re-arms afterwards: PLAYER_EQUIPMENT_CHANGED is only
+-- registered once user rules exist and in any case needs a real gear swap. So
+-- the state stayed dormant for the whole session, and the only thing that
+-- revived it was opening the options, which re-arms as a side effect. That is
+-- exactly the reported shape: "works until you log out, then you have to choose
+-- it again".
+--
+-- Once per session, deferred, and only for the FIRST world entry: re-arming is
+-- a teardown and rebuild of every rule, so doing it on later zone-ins could cut
+-- short an overlay that is currently running. Nothing is running this early.
+-- Re-arm is idempotent, so this costs one rebuild of a small rule set.
+do
+    local rearmed = false
+    local f = ns.TakeShell()
+    f:RegisterEvent("PLAYER_ENTERING_WORLD")
+    f:SetScript("OnEvent", function(self)
+        if rearmed then return end
+        rearmed = true
+        self:UnregisterEvent("PLAYER_ENTERING_WORLD")
+        if C_Timer then
+            C_Timer.After(2, function()
+                if ns.FakeActive_Rearm then ns.FakeActive_Rearm() end
+            end)
+        end
+    end)
 end
 
 -- Debug toggle: /run EllesmereUI.FakeActiveDebug()

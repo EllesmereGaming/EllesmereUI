@@ -1402,6 +1402,36 @@ end
 local function IsVerticalOrientation(ori)
     return ori == "VERTICAL_UP" or ori == "VERTICAL_DOWN"
 end
+-- Shared with the options file, which has to know a bar's drawn axes to grey
+-- the right size slider when a dimension is matched. Exported rather than
+-- duplicated so the two never drift.
+ns.IsVerticalOrientation = IsVerticalOrientation
+
+-- Orientation-aware MatchGuard.
+--
+-- The size sliders are labelled and stored in HORIZONTAL terms, but a match
+-- locks the axis the bar is DRAWN on. On a vertical bar those are swapped, so
+-- guarding by the slider's own label greys the field the match does not write
+-- and leaves the field it does write editable -- the player's change then
+-- disappears on the next apply.
+--
+-- Both guards are built and the right one is chosen when the widget asks, not
+-- when the page is built, so flipping orientation with the panel open is
+-- honoured. getOri returns the bar's effective orientation.
+ns.OrientedMatchGuard = function(barKey, propKey, getOri, existingDisabled, existingTooltip)
+    local hD, hT, hR = EllesmereUI.MatchGuard(barKey, "Height", existingDisabled, existingTooltip)
+    local wD, wT, wR = EllesmereUI.MatchGuard(barKey, "Width",  existingDisabled, existingTooltip)
+    local function pick(sameAxis, swappedAxis)
+        return function(...)
+            if IsVerticalOrientation(getOri and getOri()) then return swappedAxis(...) end
+            return sameAxis(...)
+        end
+    end
+    if propKey == "Height" then
+        return pick(hD, wD), pick(hT, wT), pick(hR, wR)
+    end
+    return pick(wD, hD), pick(wT, hT), pick(wR, hR)
+end
 
 -- Cached empower stage thresholds (set once at empower start, avoids per-frame API call)
 local cachedStageThresholds
@@ -2108,11 +2138,34 @@ local function RegisterUnlockElements()
             key = "ERB_Health", label = "Health Bar", group = "Resource Bars", order = 500,
             getFrame = function() return healthBar end,
             isHidden = function() local s = S(); return not s.enabled or IsSpecDisabled(s) end,
+            -- Reported through the ON-SCREEN axes, not the stored ones. A
+            -- vertical bar renders through OrientedSize, so stored width is
+            -- what the player sees as height; handing the unlock mover and the
+            -- W/H match the raw stored pair made both act on a bar that is
+            -- still horizontal.
             getSize  = function()
-                local s = SS(); return s.width, s.height
+                local s, g = SS(), ERB.db.profile.general
+                return OrientedSize(s.width, s.height,
+                    s.orientation or (g and g.orientation) or "HORIZONTAL")
             end,
-            setWidth = function(_, w) SS().width = PP.Snap(w); Rebuild() end,
-            setHeight = function(_, h) SS().height = PP.Snap(h); Rebuild() end,
+            setWidth = function(_, w)
+                local s, g = SS(), ERB.db.profile.general
+                if IsVerticalOrientation(s.orientation or (g and g.orientation)) then
+                    s.height = PP.Snap(w)
+                else
+                    s.width = PP.Snap(w)
+                end
+                Rebuild()
+            end,
+            setHeight = function(_, h)
+                local s, g = SS(), ERB.db.profile.general
+                if IsVerticalOrientation(s.orientation or (g and g.orientation)) then
+                    s.width = PP.Snap(h)
+                else
+                    s.height = PP.Snap(h)
+                end
+                Rebuild()
+            end,
             isAnchored = function() local s = S(); return s.anchorTo and s.anchorTo ~= "none" end,
             keepMoverWhenAnchored = true,
             onLiveMove = LiveMove,
@@ -2129,11 +2182,30 @@ local function RegisterUnlockElements()
             key = "ERB_Power", label = "Power Bar", group = "Resource Bars", order = 501,
             getFrame = function() return primaryBar end,
             isHidden = function() local s = S(); return s.enabled == false or IsSpecDisabled(s) end,
+            -- On-screen axes, as with the health bar above.
             getSize  = function()
-                local s = SS(); return s.width or 214, s.height or 14
+                local s, g = SS(), ERB.db.profile.general
+                return OrientedSize(s.width or 214, s.height or 14,
+                    s.orientation or (g and g.orientation) or "HORIZONTAL")
             end,
-            setWidth = function(_, w) SS().width = PP.Snap(w); Rebuild() end,
-            setHeight = function(_, h) SS().height = PP.Snap(h); Rebuild() end,
+            setWidth = function(_, w)
+                local s, g = SS(), ERB.db.profile.general
+                if IsVerticalOrientation(s.orientation or (g and g.orientation)) then
+                    s.height = PP.Snap(w)
+                else
+                    s.width = PP.Snap(w)
+                end
+                Rebuild()
+            end,
+            setHeight = function(_, h)
+                local s, g = SS(), ERB.db.profile.general
+                if IsVerticalOrientation(s.orientation or (g and g.orientation)) then
+                    s.width = PP.Snap(h)
+                else
+                    s.height = PP.Snap(h)
+                end
+                Rebuild()
+            end,
             isAnchored = function() local s = S(); return s.anchorTo and s.anchorTo ~= "none" end,
             keepMoverWhenAnchored = true,
             onLiveMove = LiveMove,
@@ -2149,16 +2221,34 @@ local function RegisterUnlockElements()
         elements[#elements + 1] = MK({
             key = "ERB_ClassResource", label = "Class Resource", group = "Resource Bars", order = 502,
             getFrame = function() return secondaryFrame end,
+            -- On-screen axes. This bar carries its OWN orientation key
+            -- (pipOrientation, what the dropdown writes) and takes no fallback
+            -- from general, and its renderer treats anything that is not
+            -- HORIZONTAL as vertical -- both mirrored here so the mover and the
+            -- W/H match agree with what is drawn.
             getSize  = function()
                 local s = SS()
-                return s.pipWidth, s.pipHeight
+                return OrientedSize(s.pipWidth, s.pipHeight,
+                    (s.pipOrientation or "HORIZONTAL") ~= "HORIZONTAL" and "VERTICAL_UP" or "HORIZONTAL")
             end,
             setWidth = function(_, w)
                 local s = SS()
-                s.pipWidth = PP.Snap(w)
+                if (s.pipOrientation or "HORIZONTAL") ~= "HORIZONTAL" then
+                    s.pipHeight = PP.Snap(w)
+                else
+                    s.pipWidth = PP.Snap(w)
+                end
                 Rebuild()
             end,
-            setHeight = function(_, h) SS().pipHeight = PP.Snap(h); Rebuild() end,
+            setHeight = function(_, h)
+                local s = SS()
+                if (s.pipOrientation or "HORIZONTAL") ~= "HORIZONTAL" then
+                    s.pipWidth = PP.Snap(h)
+                else
+                    s.pipHeight = PP.Snap(h)
+                end
+                Rebuild()
+            end,
             isHidden = function() local s = S(); return s.enabled == false or IsSpecDisabled(s) end,
             isAnchored = function() local s = S(); return s.anchorTo and s.anchorTo ~= "none" end,
             keepMoverWhenAnchored = true,
@@ -4400,6 +4490,9 @@ IP.HookViewerFS = function(frame, appFS)
                 IP.viewerFrame = nil
                 IP.viewerFS = nil
                 IP.value = nil
+                -- Recapture on the next text tick: the pool rebuild that
+                -- recycled this frame has already re-homed the IP icon.
+                IP.nextScan = 0
                 return
             end
             -- Secrets pass through raw (SetText renders them);
@@ -4430,22 +4523,27 @@ end
 -- carry the stack FontString at frame.Applications.Applications; Tracked
 -- Bars carry it at frame.Icon.Applications (the same child the EUI CDM
 -- buff bars read stacks from). Whichever has IP wins.
-IP.ScanViewer = function()
-    if IP.viewerFrame then return end
+-- force: rescan even while a capture is held (used when the captured FS has
+-- gone invisible -- the capture may be stranded on a released pool frame).
+-- A forced scan that finds nothing leaves the current capture in place.
+IP.ScanViewer = function(force)
+    if IP.viewerFrame and not force then return end
     local function scanPool(viewer, resolve)
         if not viewer or not viewer.itemFramePool then return end
         for frame in viewer.itemFramePool:EnumerateActive() do
             if IP.FrameSpellID(frame) == IP.SPELL then
                 local fs = resolve(frame)
-                if fs then IP.HookViewerFS(frame, fs) end
+                if fs then IP.HookViewerFS(frame, fs); return true end
                 return
             end
         end
     end
-    scanPool(_G.BuffIconCooldownViewer, function(f)
+    local hit = scanPool(_G.BuffIconCooldownViewer, function(f)
         return f.Applications and f.Applications.Applications
     end)
-    if not IP.viewerFrame then
+    -- Icon viewer wins; the bar viewer is only consulted when the icon scan
+    -- captured nothing this pass (a held stale capture must not block it).
+    if not hit and (not IP.viewerFrame or force) then
         scanPool(_G.BuffBarCooldownViewer, function(f)
             return f.Icon and f.Icon.Applications
         end)
@@ -4467,10 +4565,16 @@ IP.UpdateText = function()
         end
         return
     end
-    -- Lazy (re)scan for the Blizzard tracked-buff IP icon (2s throttle)
-    if not IP.viewerFrame and GetTime() >= IP.nextScan then
+    -- Lazy (re)scan for the Blizzard tracked-buff IP icon (2s throttle).
+    -- Also rescan while the captured FS is invisible: a viewer pool rebuild
+    -- (tracked buffs proccing/expiring, e.g. Thunder Blast) can strand the
+    -- capture on a released, hidden frame that never fires SetText to flag
+    -- the recycling. The icon lives on in another pool frame, and without
+    -- this the text sits blank until the orphan happens to be reused.
+    local staleFS = IP.viewerFS and not IP.viewerFS:IsVisible()
+    if (not IP.viewerFrame or staleFS) and GetTime() >= IP.nextScan then
         IP.nextScan = GetTime() + 2
-        IP.ScanViewer()
+        IP.ScanViewer(staleFS)
     end
     -- The captured viewer value is usually a SECRET number (type() says
     -- "number" and truthiness works, but comparisons/format error). SetText
@@ -4530,8 +4634,8 @@ local function UpdateSecondaryResource()
     -- UNIT_POWER_UPDATE, UNIT_POWER_FREQUENT, UNIT_AURA,
     -- UNIT_SPELLCAST_SUCCEEDED and the 10fps safety poll -- and most of those
     -- fire without the resource having changed at all. Measured 2026-07-26:
-    -- 300 hits / 9 misses over ~15s of casting, and this function's share of a
-    -- Perfy trace fell from 12.2% to 2.9%.
+    -- 300 hits / 9 misses over ~15s of casting, and this function's share of
+    -- the profiled trace fell from 12.2% to 2.9%.
     --
     -- Deliberately skipped when the bar tracks a buff for colouring: that state
     -- changes on aura events while the value stands still, so an early-out

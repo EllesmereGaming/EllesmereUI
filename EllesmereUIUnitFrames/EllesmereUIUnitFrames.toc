@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: Simple unit frames with a modern visual style.
 ## Author: Ellesmere
-## Version: 8.6.5
+## Version: 8.7.1
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIUnitFramesDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
@@ -15,6 +15,7 @@ Libs\oUF\oUF.xml
 
 # Main Luas
 EllesmereUIUnitFrames.lua
+EUI_UnitFrames_AuraElement.lua
 EllesmereUIUnitFrames_PlayerAuras.lua
 EUI_UnitFrames_AuraContainers.lua
 

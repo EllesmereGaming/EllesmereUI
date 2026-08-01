@@ -2260,6 +2260,81 @@ initFrame:SetScript("OnEvent", function(self)
         return math.abs(yOffset - 24 - HERO_H)
     end
 
+    ---------------------------------------------------------------------------
+    --  THIRD-PARTY ADDONS section: addons that registered for EUI skinning
+    --  via EllesmereUI.RegisterSkin (SkinAPI). Deliberately independent of
+    --  the per-profile kill switch and of every per-window setting -- window
+    --  styles only decide WHICH theme third-party skins get -- so it renders
+    --  on both the normal page and the disabled hero. Hidden entirely when
+    --  no addon has registered. Skins install at load: turning a toggle ON
+    --  applies live when possible, turning OFF is reload-bound.
+    ---------------------------------------------------------------------------
+    local function BuildThirdPartySection(parent, y)
+        local W = EllesmereUI.Widgets
+        local list = ns.GetThirdPartySkinList and ns.GetThirdPartySkinList()
+        if not list or #list == 0 then return y end
+
+        local _, h
+        _, h = W:Spacer(parent, y, 10); y = y - h
+        _, h = W:SectionHeader(parent, "THIRD-PARTY ADDONS", y); y = y - h
+
+        local function MasterOff()
+            return (EllesmereUIDB and EllesmereUIDB.thirdPartySkinsOff) and true or false
+        end
+        local function TurnedOn()
+            -- Live-apply any skins that can install right now; only removal
+            -- needs the reload.
+            local fired = ns.TryDispatchThirdPartySkins and ns.TryDispatchThirdPartySkins()
+            EllesmereUI:RefreshPage()
+            if not fired then
+                WSReloadPopup("Some addon skins could not apply live. A UI reload will fully apply them.")
+            end
+        end
+
+        local items = {}
+        items[1] = { type = "toggle", text = "Skin Third-Party Addons",
+            tooltip = "Master switch for skinning other addons that support the EllesmereUI skinning API.",
+            getValue = function() return not MasterOff() end,
+            setValue = function(v)
+                if not EllesmereUIDB then EllesmereUIDB = {} end
+                EllesmereUIDB.thirdPartySkinsOff = (not v) and true or nil
+                if v then
+                    TurnedOn()
+                else
+                    EllesmereUI:RefreshPage()
+                    WSReloadPopup("Removing third-party addon skins requires a UI reload.")
+                end
+            end }
+        for _, info in ipairs(list) do
+            local name = info.name
+            items[#items + 1] = { type = "toggle", text = name,
+                tooltip = "Skin " .. name .. " to match the EllesmereUI theme.",
+                disabled = MasterOff,
+                disabledTooltip = "Enable Skin Third-Party Addons",
+                getValue = function()
+                    local t = EllesmereUIDB and EllesmereUIDB.thirdPartySkinAddons
+                    return not (t and t[name] == false)
+                end,
+                setValue = function(v)
+                    if not EllesmereUIDB then EllesmereUIDB = {} end
+                    local t = EllesmereUIDB.thirdPartySkinAddons
+                    if not t then t = {}; EllesmereUIDB.thirdPartySkinAddons = t end
+                    t[name] = (not v) and false or nil
+                    if v then
+                        TurnedOn()
+                    else
+                        WSReloadPopup("Removing " .. name .. "'s skin requires a UI reload.")
+                    end
+                end }
+        end
+        local h2
+        for i = 1, #items, 2 do
+            _, h2 = W:DualRow(parent, y, items[i], items[i + 1] or { type = "label", text = "" })
+            y = y - h2
+        end
+        return y
+    end
+
     local function BuildWindowSkinsPage(pageName, parent, yOffset)
         local W = EllesmereUI.Widgets
         local PP = EllesmereUI.PanelPP
@@ -2271,8 +2346,12 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Per-profile kill switch takeover: while window skins are disabled
         -- for this profile, hide every setting and show the feature hero.
+        -- Third-party skinning is decoupled from the kill switch, so its
+        -- section stays reachable below the hero.
         if EllesmereUI.BlizzWindowSkinsKilled and EllesmereUI.BlizzWindowSkinsKilled() then
-            return BuildWindowSkinsDisabledHero(parent, yOffset)
+            local heroH = BuildWindowSkinsDisabledHero(parent, yOffset)
+            local y2 = BuildThirdPartySection(parent, -heroH)
+            return math.abs(y2)
         end
 
         _, h = W:Spacer(parent, y, 14);  y = y - h
@@ -2409,6 +2488,8 @@ initFrame:SetScript("OnEvent", function(self)
         for _, win in ipairs(WINDOWS) do
             y = BuildWindowCard(parent, y, win)
         end
+
+        y = BuildThirdPartySection(parent, y)
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
         return math.abs(y)
@@ -2706,6 +2787,8 @@ initFrame:SetScript("OnEvent", function(self)
                 -- (the "Window & Tooltip Skins" include). A new account-global
                 -- setting on the Window Skins or Tooltips, Menus & Popups tab
                 -- must be added to BOTH lists.
+                EllesmereUIDB.thirdPartySkinsOff = nil
+                EllesmereUIDB.thirdPartySkinAddons = nil
                 EllesmereUIDB.customTooltips = nil
                 EllesmereUIDB.reskinPopupsMenus = nil
                 EllesmereUIDB.accentReskinElements = nil

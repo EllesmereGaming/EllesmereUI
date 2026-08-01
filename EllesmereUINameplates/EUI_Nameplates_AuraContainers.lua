@@ -820,7 +820,7 @@ end
 
 local function TopAnchorFor(plate)
     local topElement = (ns.GetTextSlot and ns.GetTextSlot("textSlotTop")) or "none"
-    if topElement == "enemyName" then return plate.name or plate.health end
+    if ns.IsNameElement and ns.IsNameElement(topElement) then return plate.name or plate.health end
     if topElement == "healthNumber" then return plate.hpNumber or plate.health end
     if topElement ~= "none" then return plate.hpText or plate.health end
     return plate.health, true -- health-anchored: add class power push

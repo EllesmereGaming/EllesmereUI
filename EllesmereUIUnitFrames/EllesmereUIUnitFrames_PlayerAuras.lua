@@ -38,6 +38,17 @@ end
 -------------------------------------------------------------------------------
 local skinGen = 1
 local lastCfg = {}
+-- Active custom duration style, or nil when the user is on the Blizzard
+-- default. Maintained by NoteConfig. The UpdateDuration hook fires every
+-- render frame per visible aura button, so its body must read ONE upvalue --
+-- never the settings chain -- and the hook itself only installs when a custom
+-- style is configured (zero cost on the default).
+local _durFmt
+-- True when the aura LIST may have changed since the last sweep (player
+-- UNIT_AURA, Edit Mode preview, or an explicit settings refresh): aura
+-- buttons are only ever BORN from those, so the grid passes Blizzard fires
+-- from pure duration ticking find this false and skin nothing.
+local _paAuraDirty = true
 
 local function NoteConfig(cfg)
     local font    = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("unitFrames")) or ""
@@ -58,6 +69,7 @@ local function NoteConfig(cfg)
     and lastCfg.shiftY          == cfg.borderTextureShiftY
     and lastCfg.buffZoom        == cfg.buffIconZoom
     and lastCfg.debuffZoom      == cfg.debuffIconZoom
+    and lastCfg.durFmt          == cfg.durationFormat
     and lastCfg.font            == font
     and lastCfg.outline         == outline then
         return
@@ -70,7 +82,10 @@ local function NoteConfig(cfg)
     lastCfg.offX, lastCfg.offY                  = cfg.borderTextureOffset, cfg.borderTextureOffsetY
     lastCfg.shiftX, lastCfg.shiftY              = cfg.borderTextureShiftX, cfg.borderTextureShiftY
     lastCfg.buffZoom, lastCfg.debuffZoom        = cfg.buffIconZoom, cfg.debuffIconZoom
+    lastCfg.durFmt                              = cfg.durationFormat
     lastCfg.font, lastCfg.outline               = font, outline
+    _durFmt = (cfg.durationFormat and cfg.durationFormat ~= "blizzard")
+        and cfg.durationFormat or nil
     skinGen = skinGen + 1
 end
 
@@ -104,8 +119,8 @@ end
 -------------------------------------------------------------------------------
 --  Per-button skinning
 -------------------------------------------------------------------------------
-local function SkinAuraButton(btn, isDebuff)
-    local cfg = PA()
+local function SkinAuraButton(btn, isDebuff, cfg)
+    cfg = cfg or PA()
     if not cfg then return end
     -- Skip layout anchors
     if btn.isAuraAnchor then return end
@@ -164,18 +179,20 @@ local function SkinAuraButton(btn, isDebuff)
             if r and r.SetFont then durFS = r; break end
         end
     end
-    if durFS and durFS.SetFont and not ffd._paDurHooked
+    -- Lazy install: only when a custom duration style is active. The settings
+    -- change that activates one bumps skinGen (NoteConfig tracks the key), so
+    -- this body re-runs and installs then. hooksecurefunc cannot uninstall,
+    -- so on a revert to "blizzard" the body bails on the single _durFmt read.
+    if durFS and durFS.SetFont and not ffd._paDurHooked and _durFmt
         and type(btn.UpdateDuration) == "function" then
         ffd._paDurHooked = true
         local fs = durFS
         hooksecurefunc(btn, "UpdateDuration", function(_, timeLeft)
-            local pa = PA()
-            local style = pa and pa.durationFormat
-            if not style or style == "blizzard" then return end
+            if not _durFmt then return end
             if type(timeLeft) ~= "number" then return end
             if issecretvalue and issecretvalue(timeLeft) then return end
             if timeLeft <= 0 then return end
-            fs:SetText(FormatCompactDuration(timeLeft, style))
+            fs:SetText(FormatCompactDuration(timeLeft, _durFmt))
         end)
     end
 
@@ -242,11 +259,11 @@ end
 -------------------------------------------------------------------------------
 --  Iterate and skin all visible aura buttons on a frame
 -------------------------------------------------------------------------------
-local function SkinAllButtons(frame, isDebuff)
+local function SkinAllButtons(frame, isDebuff, cfg)
     if not frame or not frame.auraFrames then return end
     for _, btn in pairs(frame.auraFrames) do
         if btn and btn.Icon and not btn.isAuraAnchor then
-            SkinAuraButton(btn, isDebuff)
+            SkinAuraButton(btn, isDebuff, cfg)
         end
     end
 end
@@ -259,8 +276,9 @@ local function RefreshAll()
     if not (cfg and cfg.enabled) then return end
     -- Once per refresh, not once per button.
     NoteConfig(cfg)
-    SkinAllButtons(BuffFrame, false)
-    SkinAllButtons(DebuffFrame, true)
+    _paAuraDirty = false
+    SkinAllButtons(BuffFrame, false, cfg)
+    SkinAllButtons(DebuffFrame, true, cfg)
 end
 ns.RefreshPlayerAuras = RefreshAll
 
@@ -271,13 +289,17 @@ local refreshPending = false
 
 local function DoPendingRefresh()
     refreshPending = false
-    RefreshAll()
+    if _paAuraDirty then
+        RefreshAll()
+    end
 end
 
 local function RequestRefresh()
     if refreshPending then return end
-    refreshPending = true
-    C_Timer.After(0, DoPendingRefresh)
+    if _paAuraDirty then
+        refreshPending = true
+        C_Timer.After(0, DoPendingRefresh)
+    end
 end
 
 -------------------------------------------------------------------------------
@@ -685,6 +707,13 @@ end
 -- Live enable/disable + full restyle. Zero footprint while never enabled:
 -- no frames, no font object, no event registration.
 local function EDF_Setup()
+    -- 12.1 retires the External Defensives frame. Bail at the one chokepoint
+    -- that builds it, so on that client no frame, font object, event
+    -- registration or Unlock Mode element is ever created (the module is
+    -- already zero-footprint until first enabled, so this simply keeps it
+    -- there). Saved settings are left untouched, so a retail session on the
+    -- same profile still builds and positions the frame exactly as before.
+    if EllesmereUI.IS_121 then return end
     local cfg = ED()
     local enabled = cfg and cfg.enabled
     if enabled and not edfRoot then
@@ -736,6 +765,23 @@ initFrame:SetScript("OnEvent", function(self, event, arg1)
 
             -- Initial skin pass
             RefreshAll()
+
+            -- Aura-set dirty signal: aura buttons are only born from
+            -- aura-list changes, so the grid hooks below sweep only after a
+            -- player UNIT_AURA. Edit Mode is the one birth path without an
+            -- aura event (its preview shows example buttons) -- hook its
+            -- open as a second dirty source.
+            local auraWatch = CreateFrame("Frame")
+            auraWatch:RegisterUnitEvent("UNIT_AURA", "player")
+            auraWatch:SetScript("OnEvent", function()
+                _paAuraDirty = true
+            end)
+            if EditModeManagerFrame then
+                EditModeManagerFrame:HookScript("OnShow", function()
+                    _paAuraDirty = true
+                    RequestRefresh()
+                end)
+            end
 
             -- Hook aura updates to catch new/changed buttons
             if BuffFrame and BuffFrame.AuraContainer then

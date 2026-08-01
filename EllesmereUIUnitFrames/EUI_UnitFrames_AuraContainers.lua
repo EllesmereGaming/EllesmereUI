@@ -442,7 +442,9 @@ end
 
 -- Container anchoring: mirrors the legacy element's SetPoint(ia, frame, fp,
 -- ox + userX, oy + castbarPush + userY) with gap = 1.
-local function AnchorContainer(container, frame, unit, base, s)
+-- buffContainer (HARMFUL calls only): the unit's buff container, needed by
+-- the Anchor Buffs with Debuffs mode below.
+local function AnchorContainer(container, frame, unit, base, s, buffContainer)
     local isBuff = (base == "HELPFUL")
 
     -- Boss simple side display: forced side anchoring flush with the frame
@@ -468,9 +470,24 @@ local function AnchorContainer(container, frame, unit, base, s)
 
     local anchor = Pick(isBuff, s.buffAnchor, s.debuffAnchor)
     if anchor == nil then anchor = Pick(isBuff, "topleft", "none") end
+
+    -- Anchor Buffs with Debuffs (per-unit debuffAnchorBuffs, non-boss):
+    -- buffs adopt the debuff anchor/growth/offsets and become the stack's
+    -- first rows; the debuff container then rides the BUFF CONTAINER's
+    -- leading edge. The engine re-sizes that container to its rows every
+    -- layout pass, so the push is engine-driven -- full rows only, and no
+    -- aura reads (secret-safe in combat).
+    -- The merge OWNS buff visibility: it renders buffs even with Buff
+    -- Display at None (showBuffs false), which is the state the options
+    -- auto-select on enable.
+    local merged = s.debuffAnchorBuffs == true and not unit:match("^boss")
+        and (s.debuffAnchor or "none") ~= "none"
+    local mergedBuff = merged and isBuff
+    if mergedBuff then anchor = s.debuffAnchor end
     if anchor == "none" then return anchor end
 
     local growth = Pick(isBuff, s.buffGrowth, s.debuffGrowth)
+    if mergedBuff then growth = s.debuffGrowth end
     local ia, fp, ox, oy, gX, gY = ResolveLayout(anchor, growth)
 
     local cbOff = 0
@@ -487,10 +504,32 @@ local function AnchorContainer(container, frame, unit, base, s)
 
     local offX = Pick(isBuff, s.buffOffsetX, s.debuffOffsetX) or 0
     local offY = Pick(isBuff, s.buffOffsetY, s.debuffOffsetY) or 0
+    if mergedBuff then
+        offX = s.debuffOffsetX or 0
+        offY = s.debuffOffsetY or 0
+    end
 
     container:ClearAllPoints()
-    container:SetPoint(ia, frame, fp, ox + offX, oy + cbOff + offY)
-    AK.SetContainerAnchor(container, ia)
+    if merged and not isBuff and buffContainer then
+        -- Ride the buff container: horizontal side from the layout anchor,
+        -- vertical side from the wrap direction, one debuff line-gap
+        -- between the blocks. Debuffs never share a row with buffs.
+        local PP = EllesmereUI.PP
+        local horiz = ""
+        if ia:find("LEFT") then horiz = "LEFT" elseif ia:find("RIGHT") then horiz = "RIGHT" end
+        local vert, relVert, gapSign
+        if gY == "UP" then
+            vert, relVert, gapSign = "BOTTOM", "TOP", 1
+        else
+            vert, relVert, gapSign = "TOP", "BOTTOM", -1
+        end
+        local gap = PP.FromPixels(s.debuffSpacingY or 1)
+        container:SetPoint(vert .. horiz, buffContainer, relVert .. horiz, 0, gap * gapSign)
+        AK.SetContainerAnchor(container, vert .. horiz)
+    else
+        container:SetPoint(ia, frame, fp, ox + offX, oy + cbOff + offY)
+        AK.SetContainerAnchor(container, ia)
+    end
     AK.SetContainerGrowth(container, FlowDir(gX), FlowDir(gY))
 
     return anchor
@@ -503,9 +542,15 @@ local function ApplyGroupConfig(container, unit, base, s, chain, own, declared)
 
     local simpleOn = BossSimple(unit, base, s)
 
+    -- Anchor Buffs with Debuffs: the merge owns buff visibility (Buff
+    -- Display reads None while the stack renders the buffs), and the buff
+    -- groups wrap like the debuff stack they join.
+    local mergedAB = s.debuffAnchorBuffs == true and not unit:match("^boss")
+        and (s.debuffAnchor or "none") ~= "none"
+
     local shown
     if isBuff then
-        shown = (s.showBuffs ~= false) or simpleOn
+        shown = (s.showBuffs ~= false) or simpleOn or mergedAB
     else
         shown = ((s.debuffAnchor or "none") ~= "none") or simpleOn
     end
@@ -531,6 +576,7 @@ local function ApplyGroupConfig(container, unit, base, s, chain, own, declared)
 
     local growth = Pick(isBuff, s.buffGrowth, s.debuffGrowth)
     if simpleOn then growth = "auto" end
+    if mergedAB and isBuff then growth = s.debuffGrowth end
     local maxPerRow = Pick(isBuff, s.buffMaxPerRow, s.debuffMaxPerRow)
     local cols = ResolveColumns(growth, num > 0 and num or 1, maxPerRow)
     local rowWidth = nil
@@ -621,11 +667,20 @@ local function CfgFP(unit, base, s)
     else
         showCb, cbH = s.showCastbar, s.castbarHeight
     end
+    -- Anchor Buffs with Debuffs inputs ride BOTH elements' fingerprints,
+    -- but ONLY while the toggle is on: the buff element reads the debuff
+    -- anchor set while merged, and the debuff element re-anchors when the
+    -- merge flag or buff visibility flips. Off (the default), the extra
+    -- slots are constant nils so no existing fingerprint ever moves.
+    local mAB = s.debuffAnchorBuffs == true
     return FP(size, h, spX, spY, simpleOn, simpleMode, sOffX, sOffY,
         Pick(isBuff, s.buffAnchor, s.debuffAnchor), Pick(isBuff, s.buffGrowth, s.debuffGrowth),
         Pick(isBuff, s.buffOffsetX, s.debuffOffsetX), Pick(isBuff, s.buffOffsetY, s.debuffOffsetY),
         showCb, cbH, Pick(isBuff, s.maxBuffs, s.maxDebuffs),
-        Pick(isBuff, s.buffMaxPerRow, s.debuffMaxPerRow), s.showBuffs, s.showLustDebuff)
+        Pick(isBuff, s.buffMaxPerRow, s.debuffMaxPerRow), s.showBuffs, s.showLustDebuff,
+        mAB, mAB and s.debuffAnchor or nil, mAB and s.debuffGrowth or nil,
+        mAB and s.debuffOffsetX or nil, mAB and s.debuffOffsetY or nil,
+        mAB and s.debuffSpacingY or nil)
 end
 
 ------------------------------------------------------------------------------
@@ -647,6 +702,17 @@ local DISPEL_SLOTS = {
     { key = "bleed",   colorKey = "dispelColorBleed",   fallback = { 0.75, 0.15, 0.15 },   level = 1 },
 }
 local DISPEL_TYPE_TOKENS = { magic = "Magic", curse = "Curse", disease = "Disease", poison = "Poison", bleed = "Bleed" }
+
+-- A dispel type only the player's RACE can clear (bleeds, via Stoneform) is
+-- rejected by RAID_PLAYER_DISPELLABLE, which knows class and spec dispels
+-- only. Handled here by keeping the PLAIN slot lit for such a type rather than
+-- giving the by-me twin a filter that would match it: two slots declaring one
+-- filter string share a single engine parse batch (see AK.Filter) and both are
+-- not guaranteed to receive the aura. The rule itself lives with the legacy
+-- overlay in EllesmereUIUnitFrames.lua, which needs the same answer.
+local function RacialCoversDispelSlot(slotKey)
+    return ns.UF_RacialClearsDispel ~= nil and ns.UF_RacialClearsDispel(slotKey)
+end
 local GRADIENT_TEXTURE = "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-tb.tga"
 local GRADIENT_SHARP_TEXTURE = "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-sharp.tga"
 
@@ -712,6 +778,10 @@ local function BuildDispelStyles(frame)
     local op = p.dispelOverlayOpacity or 100
     for i = 1, #DISPEL_SLOTS do
         local slot = DISPEL_SLOTS[i]
+        -- A type only the player's RACE can clear keeps using the PLAIN slot in
+        -- "by me" mode: the engine token can never match it, so its by-me twin
+        -- stays dark and would swallow the setting entirely.
+        local racial = RacialCoversDispelSlot(slot.key)
         local col = p[slot.colorKey]
         local color = { r = col and col.r or slot.fallback[1], g = col and col.g or slot.fallback[2], b = col and col.b or slot.fallback[3] }
         AK.styles[DispelStyleKey(slot.key)] = {
@@ -719,7 +789,7 @@ local function BuildDispelStyles(frame)
             noRegions = true,
             mode = mode,
             color = color,
-            opacity = byMe and 0 or op,
+            opacity = (byMe and not racial) and 0 or op,
             level = slot.level,
             healthFrame = frame.Health,
             applyExtra = ApplyDispelSlotStyle,
@@ -729,7 +799,7 @@ local function BuildDispelStyles(frame)
             noRegions = true,
             mode = mode,
             color = color,
-            opacity = byMe and op or 0,
+            opacity = (byMe and not racial) and op or 0,
             level = slot.level,
             healthFrame = frame.Health,
             applyExtra = ApplyDispelSlotStyle,
@@ -913,7 +983,7 @@ function ns.UF_ReloadAuraContainers(frame, unit)
             local cfgV = CfgFP(unit, base, s)
             if force or st.cfg ~= cfgV then
                 st.cfg = cfgV
-                AnchorContainer(container, frame, unit, base, s) -- self-skips on anchor "none"
+                AnchorContainer(container, frame, unit, base, s, entry.buffs) -- self-skips on anchor "none"
                 ApplyGroupConfig(container, unit, base, s, chain, own, declared)
             end
         end

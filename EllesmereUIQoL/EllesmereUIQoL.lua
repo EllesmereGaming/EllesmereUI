@@ -929,6 +929,108 @@ qolFrame:SetScript("OnEvent", function(self)
         end
     end
 
+    -- Auto-repair result watcher. Three things here are not inferable from the
+    -- code:
+    --   * RepairAllItems(true) never fails for want of guild funds -- the server
+    --     pays whatever the guild allowance still covers and silently charges
+    --     the player the rest, so "nothing left to repair" says nothing about
+    --     who paid.
+    --   * The guild's usable funds are readable (GuildRepairFunds below), but
+    --     GetGuildBankMoney() reads 0 until the player opens a guild bank this
+    --     session, so the figure cannot be trusted on its own -- it serves as a
+    --     ceiling on the deduced share, never as the source of it.
+    --   * Hence the guild share is deduced from the player's ledger, and only
+    --     outgoing amounts are summed. The junk sweep above keeps firing passes
+    --     across this window, so a net before/after figure would cancel its
+    --     credits against the repair debit and invent a guild share. Credits
+    --     arrive in their own PLAYER_MONEY and are ignored; only a sale landing
+    --     in the same event as the debit could still net off.
+    local repairWatcher, repairWatchLast, repairWatchOut
+    local repairWatchGen = 0
+
+    -- Mirrors the arithmetic behind Blizzard's own guild-repair tooltip: today's
+    -- remaining allowance, bounded by the balance; -1 means an unlimited rank.
+    local function GuildRepairFunds()
+        local allowance = GetGuildBankWithdrawMoney()
+        local balance = GetGuildBankMoney()
+        if allowance < 0 or allowance > balance then return balance end
+        return allowance
+    end
+
+    -- Total, then the guild's share -- spelled out only on a split bill, since a
+    -- wholly guild-funded one is unambiguous from the suffix alone.
+    local function ReportRepairOutcome(guildPart, ownPart)
+        local line = EllesmereUI.Lf("Repaired all items for %s", RepairCostString(guildPart + ownPart))
+        if guildPart > 0 then
+            line = line .. EllesmereUI.L(" (guild bank)")
+            if ownPart > 0 then line = line .. " " .. RepairCostString(guildPart) end
+        end
+        EllesmereUI.Print("|cff0CD29DEllesmereUI:|r " .. line)
+    end
+
+    local function ReportRepairBroke()
+        EllesmereUI.Print("|cff0CD29DEllesmereUI:|r |cffff6060" .. EllesmereUI.L("Not enough gold to repair.") .. "|r")
+    end
+
+    local function OnRepairWatchEvent()  -- PLAYER_MONEY: accumulate only, never decide
+        local now = GetMoney()
+        local spent = repairWatchLast - now
+        if spent > 0 then repairWatchOut = repairWatchOut + spent end
+        repairWatchLast = now
+    end
+
+    -- One timer settles everything. Resolving early on a big enough deduction
+    -- would misread an unrelated purchase in the same window as the player
+    -- having paid the whole bill, and MERCHANT_CLOSED would settle before a
+    -- deduction still in flight had landed.
+    local function StartRepairWatch(cost, moneyBefore, guildFunds)
+        if not repairWatcher then
+            repairWatcher = CreateFrame("Frame", "EUI_RepairWatcher", UIParent)
+            repairWatcher:SetScript("OnEvent", OnRepairWatchEvent)
+        end
+
+        -- The bump is the whole cancellation mechanism: a timeout still pending
+        -- from a previous merchant sees a stale gen and dies.
+        repairWatchGen = repairWatchGen + 1
+        repairWatchLast = moneyBefore
+        repairWatchOut = 0
+        repairWatcher:RegisterEvent("PLAYER_MONEY")
+
+        local gen = repairWatchGen
+        C_Timer.After(0.5, function()
+            if gen ~= repairWatchGen then return end
+            repairWatcher:UnregisterAllEvents()
+            local remainCost, stillNeed = GetRepairAllCost()
+            if not (stillNeed and remainCost > 0) then remainCost = 0 end
+
+            local own = repairWatchOut
+
+            -- The funds can run dry mid-bill; settle the rest, but only if the
+            -- merchant is still open to take it.
+            if remainCost > 0 and CanMerchantRepair() and GetMoney() >= remainCost then
+                RepairAllItems(false)
+                own = own + remainCost
+                remainCost = 0
+            end
+
+            local paid = cost - remainCost
+            if own > paid then own = paid end
+            local guildPart = paid - own
+
+            -- A junk sale sharing one PLAYER_MONEY with the repair nets against
+            -- it and inflates the deduced guild share; the pre-repair funds cap
+            -- it back. A stale read is either too high to bind or zero and
+            -- skipped, so it can only ever tighten a wrong answer.
+            if guildFunds > 0 and guildPart > guildFunds then
+                guildPart = guildFunds
+                own = paid - guildPart
+            end
+
+            if paid > 0 then ReportRepairOutcome(guildPart, own) end
+            if remainCost > 0 and GetMoney() < remainCost then ReportRepairBroke() end
+        end)
+    end
+
     local merchantFrame = CreateFrame("Frame", "EUI_MerchantHandler", UIParent)
     merchantFrame:RegisterEvent("MERCHANT_SHOW")
     merchantFrame:RegisterEvent("MERCHANT_CLOSED")
@@ -950,32 +1052,33 @@ qolFrame:SetScript("OnEvent", function(self)
             if CanMerchantRepair() then
                 local cost, canRepair = GetRepairAllCost()
                 if canRepair and cost > 0 then
+                    -- No affordability test on purpose: Blizzard's own guild
+                    -- repair button just calls RepairAllItems(true) and lets the
+                    -- server split the bill. Gating on "the guild covers it all"
+                    -- threw that split away and billed the player the lot.
                     local useGuild = (EllesmereUIDB.autoRepairGuild ~= false)
                         and IsInGuild()
                         and CanGuildBankRepair()
-                        and cost <= GetGuildBankWithdrawMoney()
 
                     -- Check if we can actually afford the repair
                     if not useGuild and GetMoney() < cost then
-                        EllesmereUI.Print("|cff0CD29DEllesmereUI:|r |cffff6060" .. EllesmereUI.L("Not enough gold to repair.") .. "|r")
+                        ReportRepairBroke()
                         return
                     end
 
+                    -- Both readings must predate the repair, and neither is of
+                    -- any use unless the guild bank is in play.
+                    local moneyBefore, guildFunds
+                    if useGuild then
+                        moneyBefore, guildFunds = GetMoney(), GuildRepairFunds()
+                    end
                     RepairAllItems(useGuild)
 
                     if useGuild then
-                        C_Timer.After(0.5, function()
-                            local remainCost, stillNeed = GetRepairAllCost()
-                            if stillNeed and remainCost > 0 then
-                                if GetMoney() >= remainCost then
-                                    RepairAllItems(false)
-                                end
-                            end
-                        end)
+                        StartRepairWatch(cost, moneyBefore, guildFunds)  -- reports once the real payer is known
+                    else
+                        ReportRepairOutcome(0, cost)  -- own gold: no ambiguity, report now
                     end
-
-                    local src = useGuild and EllesmereUI.L(" (guild bank)") or ""
-                    EllesmereUI.Print("|cff0CD29DEllesmereUI:|r " .. EllesmereUI.Lf("Repaired all items for %s", RepairCostString(cost)) .. src)
                 end
             end
         end
@@ -3886,8 +3989,8 @@ do
 
         -- Toys
         { key = "aqir",       cat = "toys", label = "Aqir Egg Cluster",          ids = { 318452 } },
-        { key = "atomic",     cat = "toys", label = "Atomically Recalibrator",   ids = { 399502 } },
-        { key = "atomgoblin", cat = "toys", label = "Atomically Regoblinator",   ids = { 1215363 } },
+        { key = "atomic",     cat = "toys", label = "Atomically Recalibrator",   ids = { 399502 },  defaultOff = true },
+        { key = "atomgoblin", cat = "toys", label = "Atomically Regoblinator",   ids = { 1215363 }, defaultOff = true },
         { key = "blight",     cat = "toys", label = "Detoxified Blight Grenade", ids = { 290224 } },
         { key = "witch",      cat = "toys", label = "Lucille's Sewing Needle",   ids = { 279509 } },
         { key = "spraybots",  cat = "toys", label = "Spraybots",                 ids = { 301892, 301893, 301894 } },
@@ -3901,11 +4004,18 @@ do
     -- Runtime lookup: [spellID] = true for every included transform.
     local cTable = {}
 
-    -- Transforms are included by default; the picker stores false to exclude.
+    -- Per-key default: included unless the entry sets defaultOff. The picker
+    -- stores only values that differ from the default, so nil = default.
+    local ITEM_DEFAULT = {}
+    for _, item in ipairs(TRANSFORMS) do
+        ITEM_DEFAULT[item.key] = not item.defaultOff
+    end
+
     local function ItemEnabled(key)
         local t = EllesmereUIDB and EllesmereUIDB.hideTransformItems
-        if t and t[key] == false then return false end
-        return true
+        local v = t and t[key]
+        if v ~= nil then return v end
+        return ITEM_DEFAULT[key] ~= false
     end
 
     local function RebuildList()
@@ -4027,11 +4137,12 @@ do
     EllesmereUI.SetHideTransformItem = function(key, enabled)
         if not EllesmereUIDB then EllesmereUIDB = {} end
         EllesmereUIDB.hideTransformItems = EllesmereUIDB.hideTransformItems or {}
-        -- Included is the default -- store only exclusions, keeping the table sparse.
-        if enabled then
+        -- Store only values that differ from the per-key default, keeping the table sparse.
+        enabled = enabled and true or false
+        if enabled == (ITEM_DEFAULT[key] ~= false) then
             EllesmereUIDB.hideTransformItems[key] = nil
         else
-            EllesmereUIDB.hideTransformItems[key] = false
+            EllesmereUIDB.hideTransformItems[key] = enabled
         end
         ApplyHideTransforms()
     end

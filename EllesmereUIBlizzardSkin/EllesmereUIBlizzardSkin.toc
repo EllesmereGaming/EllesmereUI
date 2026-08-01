@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: Clean and beautiful visual refreshes for Blizzard UI elements.
 ## Author: Ellesmere
-## Version: 8.6.5
+## Version: 8.7.1
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIBlizzardSkinDB, EllesmereUIDragonRidingDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
@@ -22,6 +22,7 @@ EllesmereUIBlizzardSkin_GroupFinder.lua
 # Window Skins (shared engine + per-window packs)
 EllesmereUIBlizzardSkin_WindowEngine.lua
 EllesmereUIBlizzardSkin_WindowPacks.lua
+EllesmereUIBlizzardSkin_SkinAPI.lua
 
 # Options
 EUI_BlizzardSkin_Options.lua

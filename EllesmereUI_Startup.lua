@@ -74,6 +74,27 @@ do
                     EllesmereUIDB.ppUIScale = 0.7111111111
                 end
                 scaleKnown = true
+                -- Apply here, not only at PLAYER_LOGIN: the engine restores
+                -- user-placed frame positions from its own layout cache during
+                -- login, converting the stored values with UIParent's scale AT
+                -- THAT MOMENT. The cache was written at last logout using OUR
+                -- scale, so applying ours later than the restore makes the
+                -- round-trip asymmetric and every user-placed frame shifts by
+                -- (ourScale / cvarScale) every session -- the undocked chat
+                -- window drift, field-measured at exactly x0.8333 =
+                -- 0.5333/0.64 per reload. ADDON_LOADED is the earliest point
+                -- the saved value exists, so applying it here closes the
+                -- window: the engine decodes with the scale that encoded.
+                -- The PLAYER_LOGIN apply below stays as an idempotent belt.
+                --
+                -- FIELD RESULT (2026-07-28): this did NOT stop the drift.
+                -- Blizzard applies the user's CVar scale during login AFTER
+                -- addon ADDON_LOADED (this file's own PLAYER_ENTERING_WORLD
+                -- comment says so), so the chat restore still ran at the CVar
+                -- scale. Kept anyway: it is idempotent, costs nothing, and
+                -- closes the same window for anything restored before
+                -- Blizzard's CVar apply. The chat fix is below.
+                ApplyScaleSafe(EllesmereUIDB.ppUIScale)
             end
 
         elseif event == "PLAYER_LOGIN" then
@@ -149,6 +170,103 @@ do
     end)
 end
 
+-- Apply the saved unit name font -- the names that float above players, NPCs
+-- and enemies. UNIT_NAME_FONT is a plain path string the engine reads once at
+-- login, so a UI reload is not enough and the change shows after a full relog.
+--
+-- Opt-in: while no name font is chosen the global is never written, so
+-- Blizzard's default is left exactly as it was.
+--
+-- Rides the combat text font's event frame below rather than creating its own.
+-- Both drive a Blizzard global cached at login and want the same timing, and a
+-- feature nobody enabled must not register events or build frames of its own.
+--
+-- Reads EllesmereUIDB.fonts directly rather than going through GetFontsDB():
+-- that helper lazy-creates the table, and this can run at the ADDON_LOADED of
+-- Blizzard_CombatText, before our SavedVariables have been restored.
+local function ApplyUnitNameFont()
+    local fonts = EllesmereUIDB and EllesmereUIDB.fonts
+    local name = fonts and fonts.unitNameFont
+    if not name or name == "" then return end
+    local path = fonts.unitNameFontPath
+    if (type(path) ~= "string" or path == "")
+       and EllesmereUI and EllesmereUI.ResolveFontName then
+        path = EllesmereUI.ResolveFontName(name)
+    end
+    if type(path) == "string" and path ~= "" then
+        _G.UNIT_NAME_FONT = path
+    end
+end
+
+-------------------------------------------------------------------------------
+--  Undocked chat window position fix
+--
+--  Root cause, arithmetically pinned by the field drift capture (2026-07-28).
+--  UIParent's height in UI units is always 768 / scale, so it is 1440 at our
+--  pixel-perfect 0.5333 but 1200 at the tester's CVar scale 0.64. Blizzard
+--  stores an undocked window's position as a screen-height RATIO and restores
+--  it as ratio * GetScreenHeight(). Blizzard applies the CVar scale during
+--  login and we apply ours at PLAYER_LOGIN, AFTER the chat restore has
+--  already run -- so the restore resolves the ratio against the 1200 space:
+--      correct : 0.1566 * 1440 = 225.5   (where the user dropped it)
+--      restored: 0.1566 * 1200 = 187.9   (where it reappeared)
+--  Then we rescale UIParent to the 1440 space and the frame keeps that
+--  numeric 188 offset, which now points somewhere lower. Each session
+--  repeats it, so the window creeps toward the bottom-left by
+--  (cvarScale height / our height) per login. Only setups whose EUI scale
+--  differs from the CVar scale drift, which is why not everyone sees it.
+--
+--  Fixing the scale TIMING does not work: applying our scale at ADDON_LOADED
+--  (kept above, harmless) is overwritten by Blizzard's own CVar apply later
+--  in login, so the restore still runs at the CVar scale. The position has
+--  to be recomputed after both the restore and our final scale, which is what
+--  this pass does -- Blizzard's own formula, against the settled space.
+--
+--  TAINT NOTE -- anchoring a Blizzard chat frame from insecure code is the
+--  injector class this module's bisect ledger convicted, so this pass was
+--  suspected of causing the field ChatFrameEditBox.lua:360 secret-SetText
+--  error and was removed entirely in v6. The error reproduced on v6, a build
+--  whose only chat contact is read-only getters -- so the pass is NOT the
+--  vector and is restored here. That error is tracked separately as a
+--  pre-existing chat-module issue. Exposure is still kept minimal: ONE
+--  deferred pass per login, never during a session, no hooks, and nothing
+--  written to Blizzard frame state (SetPoint only). Do not add the
+--  FCF_SavePositionAndDimensions hook, the SetUserPlaced writes, or the
+--  UPDATE_CHAT_WINDOWS registration back -- all three were separately
+--  pulled, none of them bought anything.
+-------------------------------------------------------------------------------
+do
+    local function ReassertUndockedPositions()
+        if not GetChatWindowSavedPosition then return end
+        local W, H = GetScreenWidth(), GetScreenHeight()
+        if not (W and H) then return end
+        for i = 2, NUM_CHAT_WINDOWS or 10 do
+            local cf = _G["ChatFrame" .. i]
+            if cf and cf:IsShown() and not cf.isDocked and not cf.isTemporary then
+                local point, xOff, yOff = GetChatWindowSavedPosition(i)
+                if point and xOff and yOff then
+                    -- Blizzard's own restore formula, re-run now that the
+                    -- scale (and therefore GetScreenWidth/Height) has settled.
+                    cf:ClearAllPoints()
+                    cf:SetPoint(point, UIParent, point, xOff * W, yOff * H)
+                end
+            end
+        end
+    end
+
+    local fixFrame = CreateFrame("Frame")
+    fixFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+    fixFrame:SetScript("OnEvent", function(self, _, initialLogin, reloadingUi)
+        if not (initialLogin or reloadingUi) then return end
+        self:UnregisterEvent("PLAYER_ENTERING_WORLD")
+        -- Obsolete v2 migration flag; the rebase it gated was a no-op.
+        if EllesmereUIDB then EllesmereUIDB.chatPosRebased = nil end
+        C_Timer.After(0, ReassertUndockedPositions)
+        -- Belt for slow loads, still inside the login window.
+        C_Timer.After(2, ReassertUndockedPositions)
+    end)
+end
+
 -- Apply the saved combat text font immediately at file scope.
 -- DAMAGE_TEXT_FONT must be set before the engine caches it at login.
 -- CombatTextFont may not exist yet here, so we also hook ADDON_LOADED
@@ -192,6 +310,7 @@ do
         end
 
         ApplyCombatTextFont()
+        ApplyUnitNameFont()
 
         if event == "PLAYER_LOGIN" then
             self:UnregisterEvent("PLAYER_LOGIN")

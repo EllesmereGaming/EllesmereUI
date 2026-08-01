@@ -1819,6 +1819,7 @@ do
         "reskinDelves",
         "blizzWindowSkinStyles", "blizzWindowModernDefault",
         "blizzWinAccentBar", "blizzWinBarFill", "blizzWinLinks",
+        "thirdPartySkinsOff", "thirdPartySkinAddons",
     })
     -- Window Skins tab: per-window card options
     add({

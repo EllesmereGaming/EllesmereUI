@@ -581,6 +581,14 @@ local function WriteLive(fkey, v)
                 nxt._topLeftAnchored = true
                 nxt._cornerAnchored = true
             end
+            -- Fabricate numeric-named containers under the NUMERIC key
+            -- (mirrors the leaf write below): RF reads tiers numerically, so
+            -- a string-keyed fabrication never renders, and SegKey would
+            -- prefer the phantom over the real tier forever after. Only
+            -- raid-size tier segments can reach this (other numeric
+            -- segments returned false above).
+            local n = tonumber(k)
+            if type(k) == "string" and n ~= nil then k = n end
             t[k] = nxt
         end
         t = nxt
@@ -1016,12 +1024,32 @@ function EllesmereUI.SpecOverrides_ApplyValues(specID)
             local sid = specID or _activeSpec or CurrentSpecID()
             if sid then
                 prof._importEstablishPending = nil
+                -- One converge serves both windows: the forced apply below
+                -- also satisfies a pending reset-pointer converge.
+                EllesmereUI._unlockResetConvergePending = nil
                 if EllesmereUI.SpecOverrides_ApplyUnlock then
                     pcall(EllesmereUI.SpecOverrides_ApplyUnlock, sid, true)
                 end
                 if EllesmereUI.SpecOverrides_ApplyBm then
                     pcall(EllesmereUI.SpecOverrides_ApplyBm, sid, true)
                 end
+            end
+        end
+    end
+    -- Reset-pointer converge (see SpecOverrides_UnlockResetActive): a
+    -- profile activation restored baseline links and cleared a live layer
+    -- pointer, but module elem positions still hold that layer's geometry.
+    -- A baseline-spec login early-outs on want == active == nil, leaving
+    -- the desync for the next harvest to bank into baselineLayout; one
+    -- forced apply paints the pointer's truth instead. Import contract
+    -- mirrored: spec resolved BEFORE clearing, clear-first, pcall'd. No
+    -- ApplyBm -- the BM pointer is never reset, so it is never lied about.
+    if EllesmereUI._unlockResetConvergePending then
+        local sid = specID or _activeSpec or CurrentSpecID()
+        if sid then
+            EllesmereUI._unlockResetConvergePending = nil
+            if EllesmereUI.SpecOverrides_ApplyUnlock then
+                pcall(EllesmereUI.SpecOverrides_ApplyUnlock, sid, true)
             end
         end
     end
@@ -1088,12 +1116,32 @@ function EllesmereUI.SpecOverrides_Apply(specID, deferLogin)
             local sid = specID or _activeSpec or CurrentSpecID()
             if sid then
                 prof._importEstablishPending = nil
+                -- One converge serves both windows: the forced apply below
+                -- also satisfies a pending reset-pointer converge.
+                EllesmereUI._unlockResetConvergePending = nil
                 if EllesmereUI.SpecOverrides_ApplyUnlock then
                     pcall(EllesmereUI.SpecOverrides_ApplyUnlock, sid, true)
                 end
                 if EllesmereUI.SpecOverrides_ApplyBm then
                     pcall(EllesmereUI.SpecOverrides_ApplyBm, sid, true)
                 end
+            end
+        end
+    end
+    -- Reset-pointer converge (see SpecOverrides_UnlockResetActive): a
+    -- profile activation restored baseline links and cleared a live layer
+    -- pointer, but module elem positions still hold that layer's geometry.
+    -- A baseline-spec login early-outs on want == active == nil, leaving
+    -- the desync for the next harvest to bank into baselineLayout; one
+    -- forced apply paints the pointer's truth instead. Import contract
+    -- mirrored: spec resolved BEFORE clearing, clear-first, pcall'd. No
+    -- ApplyBm -- the BM pointer is never reset, so it is never lied about.
+    if EllesmereUI._unlockResetConvergePending then
+        local sid = specID or _activeSpec or CurrentSpecID()
+        if sid then
+            EllesmereUI._unlockResetConvergePending = nil
+            if EllesmereUI.SpecOverrides_ApplyUnlock then
+                pcall(EllesmereUI.SpecOverrides_ApplyUnlock, sid, true)
             end
         end
     end
@@ -1925,6 +1973,21 @@ function EllesmereUI.SpecOverrides_HarvestUnlockLayout(userCommit)
             end
         end
     end
+    -- Reset-pointer window (see SpecOverrides_UnlockResetActive): a profile
+    -- activation cleared a live layer pointer while module elem positions
+    -- still hold that layer's geometry. Banking any boundary before the
+    -- forced converge lands -- the login harvest above all -- would file
+    -- the outgoing layer's positions into baselineLayout via the nil
+    -- pointer. Same fail-open semantics as the import window, including
+    -- the user-commit bypass: a Save & Exit layout is live-authoritative
+    -- by definition.
+    if EllesmereUI._unlockResetConvergePending then
+        if userCommit then
+            EllesmereUI._unlockResetConvergePending = nil
+        else
+            return
+        end
+    end
     -- Default Editing Mode / editing-as session: live module sizes are the
     -- VIEW's swapped values, not the active layer's state (value writes
     -- resize bars). Banking that geometry poisons the layer bucket (spec
@@ -2018,10 +2081,23 @@ end
 
 --- Resets the active pointer after a profile-level unlockLayout restore
 --- wrote baseline links into the live globals (profile switch/import).
---- The per-spec overlay re-applies the correct layer right after.
+--- The per-spec overlay re-applies the correct layer right after -- but
+--- only when the incoming spec WANTS a layer: a baseline spec early-outs
+--- on want == active == nil while module elem positions still hold the
+--- previous session's layer geometry (only LINKS were restored above), and
+--- the next harvest would bank that geometry into baselineLayout via the
+--- freshly nil'd pointer. Clearing a LIVE pointer therefore arms a runtime
+--- converge flag: layout banks are suppressed until one forced apply
+--- paints the pointer's truth (consumed in the Apply/ApplyValues tails
+--- beside the import converge). Never arms for a pointer that was already
+--- nil -- users without active layers take the old path byte-identically.
 function EllesmereUI.SpecOverrides_UnlockResetActive(profRoot)
     local s = profRoot and profRoot.specUnlockOverrides
-    if s then s.active = nil end
+    if not s then return end
+    if s.active ~= nil then
+        EllesmereUI._unlockResetConvergePending = true
+    end
+    s.active = nil
 end
 
 --- Completes a pending unlock-layer apply: performs deferred generic-

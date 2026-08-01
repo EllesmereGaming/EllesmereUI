@@ -385,7 +385,7 @@ local function BuildCharLine(accountInfo)
         if SOCIAL_UI_RECENT_ALLIES_CARD_LEVEL_DISPLAY_FORMAT then
             levelText = format(SOCIAL_UI_RECENT_ALLIES_CARD_LEVEL_DISPLAY_FORMAT, lvl)
         else
-            levelText = format("(Level %d)", lvl)
+            levelText = EllesmereUI.Lf("(Level %d)", lvl)
         end
         local c = LocationColor(accountInfo)
         if c and c.WrapTextInColorCode then

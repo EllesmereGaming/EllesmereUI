@@ -430,7 +430,8 @@ local BUFF_BAR_PRESETS = {
 ns.BUFF_BAR_PRESETS = BUFF_BAR_PRESETS
 
 -- Item presets for CD/utility bars (potions that track cooldowns)
--- displayOrder (combat pots only): dynamic-display priority. The icon resolves
+-- displayOrder (pots with ranked/multi-tier variants): dynamic-display
+-- priority, newest tier first. The icon resolves
 -- to the FIRST id in this list with a bag count and shows that variant's icon,
 -- exact count, and tooltip. Rank 2 before rank 1, Fleeting before regular at
 -- the same rank (cheap pots get burned first). Id-to-rank mapping is
@@ -469,9 +470,21 @@ local CDM_ITEM_PRESETS = {
     {
         key      = "silvermoon_health",
         name     = "Silvermoon Health Potion",
+        -- icon MUST stay the art of itemID: PotSwap.Ensure only paints
+        -- preset.icon when the resolved variant IS the primary, and every other
+        -- variant is painted from C_Item.GetItemIconByID. Putting a newer
+        -- tier's art here shows that art over the primary's bag count.
         icon     = 7548909,
         itemID   = 241304,
-        altItemIDs = { 241305 },
+        altItemIDs = { 241305, 271884 },
+        -- Newest tier leads, then the Silvermoon pair (r2 before r1). itemID
+        -- stays on 241304: it is the identity anchor for saved frames and the
+        -- PotSwap.Ensure primary check, so it must not follow the new tier.
+        displayOrder = {
+            271884,  -- current-tier health potion
+            241304,  -- Silvermoon Health Potion r2
+            241305,  -- Silvermoon Health Potion r1
+        },
     },
     {
         key      = "lightfused_mana",
@@ -717,8 +730,19 @@ end
 -- specProfiles table for the active PROFILE (the live CDM bucket). Spell content
 -- is per-EUI-profile and switches with the profile -- no account-wide layout
 -- pointer mediates rendering.
+-- Combat-hot and CACHED: every icon repaint resolves per-spell settings
+-- through here (plus GetBarSpellData at nearly every call site), and the
+-- name/bucket re-derivation was ~20ms/min of combat CPU doing identical
+-- walks. Invalidated on the same lifecycle as the spec-key cache
+-- (ProcessSpecChange / InvalidateSpecKey) plus BuildAllCDMBars' head as
+-- the belt -- every profile apply, import, layout switch and options
+-- rebuild passes through one of those.
 function ns.GetActiveSpecProfiles()
-    return ns.GetSpecProfilesForProfile(ns.GetActiveProfileName())
+    local sp = ns._cachedSpecProfiles
+    if sp then return sp end
+    sp = ns.GetSpecProfilesForProfile(ns.GetActiveProfileName())
+    ns._cachedSpecProfiles = sp
+    return sp
 end
 
 function SpellStore.GetSpecProfiles()
@@ -732,10 +756,27 @@ end
 --  Returns the spell table for a bar key under the current spec, creating
 --  it if needed. All spell reads/writes go through this -- no copies.
 -------------------------------------------------------------------------------
+-- Reference memo for the combat-hot store fetches (this + the per-spell
+-- settings stores below). Validity is LIVE: the memo records the specProfiles
+-- ROOT table and specKey it was built against and re-checks both per call --
+-- profile applies, imports and spec swaps all change one of the two, so there
+-- is no invalidation edge to miss. Cached values are TABLE REFERENCES that
+-- writers mutate in place, so options edits are always visible through the
+-- memo; nil results are never cached (creation self-heals on the next call).
+-- Belt: BuildAllCDMBars' head drops the memo outright, covering structural
+-- bar ops (delete/reset) that replace an inner table.
 function ns.GetBarSpellData(barKey)
     local specKey = ns.GetActiveSpecKey()
     if not specKey or specKey == "0" then return nil end
     local sp = SpellStore.GetSpecProfiles()
+    local memo = ns._cdmStoreMemo
+    if memo and memo.root == sp and memo.spec == specKey then
+        local hit = memo.sd[barKey]
+        if hit then return hit end
+    else
+        memo = { root = sp, spec = specKey, sd = {} }
+        ns._cdmStoreMemo = memo
+    end
     local prof = sp[specKey]
     if not prof then
         prof = { barSpells = {} }
@@ -747,6 +788,7 @@ function ns.GetBarSpellData(barKey)
         bs = {}
         prof.barSpells[barKey] = bs
     end
+    memo.sd[barKey] = bs
     return bs
 end
 
@@ -913,18 +955,35 @@ function ns.GetSpellSettingsStoreForProf(prof, famKey, create)
 end
 
 -- Family per-spell store for the ACTIVE spec, resolved from a bar.
+-- Same live-validity reference memo as GetBarSpellData (see the comment
+-- there): keyed by family under the shared memo, nil never cached, and the
+-- create=true path refreshes the entry so a first-write store creation is
+-- immediately visible to readers.
 function ns.GetSpellSettingsStore(barKeyOrBd, create)
     local specKey = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
     if not specKey or specKey == "0" then return nil end
     local sp = SpellStore.GetSpecProfiles()
     if not sp then return nil end
+    local famKey = ns.SettingsFamilyKey(barKeyOrBd)
+    local memo = ns._cdmStoreMemo
+    if memo and memo.root == sp and memo.spec == specKey then
+        if not create then
+            local hit = memo[famKey]
+            if hit then return hit end
+        end
+    else
+        memo = { root = sp, spec = specKey, sd = {} }
+        ns._cdmStoreMemo = memo
+    end
     local prof = sp[specKey]
     if not prof then
         if not create then return nil end
         prof = { barSpells = {} }
         sp[specKey] = prof
     end
-    return ns.GetSpellSettingsStoreForProf(prof, ns.SettingsFamilyKey(barKeyOrBd), create)
+    local st = ns.GetSpellSettingsStoreForProf(prof, famKey, create)
+    if st then memo[famKey] = st end
+    return st
 end
 
 -- Chain child.__index -> parent (or clear the link when parent is nil).
@@ -1085,6 +1144,9 @@ function ns.CopyCustomSpellToSpecs(barKey, spellID, specKeys)
                     if not store then store = {}; prof[famKey] = store end
                     if store[spellID] == nil then
                         store[spellID] = DeepCopy(srcSettings)
+                        -- New entry (belt: usually a non-active spec, but the
+                        -- bump is one integer on a user click).
+                        ns._cdmResGen = ns._cdmResGen + 1
                     end
                 end
                 copied = copied + 1
@@ -1166,6 +1228,8 @@ function ns.RemoveCustomSpellFromSpecs(spellID, specKeys)
                     -- clearing both family stores is safe -- only one holds it).
                     if prof.spellSettingsCD then prof.spellSettingsCD[spellID] = nil end
                     if prof.spellSettingsBuff then prof.spellSettingsBuff[spellID] = nil end
+                    -- Entry deletion (belt: non-active specs by contract).
+                    ns._cdmResGen = ns._cdmResGen + 1
                     removed = removed + 1
                 end
             end
@@ -1544,6 +1608,8 @@ end
 -- Never called during spec change processing.
 function ns.InvalidateSpecKey()
     _cachedSpecKey = nil
+    ns._cachedSpecProfiles = nil
+    ns._cdmStoreMemo = nil
 end
 
 -- Compute the live spec key from the game API without touching the cache.
@@ -1838,6 +1904,8 @@ local function ProcessSpecChange(newSpecKey)
     -- Atomic swap: write the new key BEFORE rebuilding so every
     -- GetBarSpellData call during the rebuild reads the correct spec.
     _cachedSpecKey = newSpecKey
+    ns._cachedSpecProfiles = nil
+    ns._cdmStoreMemo = nil
 
     -- Suppress the _ECME_Apply rebuild that the profile system will fire
     -- via RefreshAllAddons. We're about to do a full talent_reconcile
@@ -2464,6 +2532,15 @@ local cdmBarIcons = {}
 -- Fast barData lookup by key (rebuilt in BuildAllCDMBars, avoids linear scan per tick)
 local barDataByKey = {}
 
+-- Claim generation: bumped at the end of every CollectAndReanchor pass and at
+-- BuildAllCDMBars' head, i.e. whenever the cdmBarIcons claim set can change.
+-- The proc-alert child map below rebuilds lazily against it.
+ns._cdmClaimGen = 0
+-- Resolution generation: bumped whenever spell resolution INPUTS change
+-- (SPELLS_CHANGED talent/spec churn, live SPELL_OVERRIDE_UPDATED flips,
+-- rebuilds). cooldownID-keyed resolution memos key their validity on it.
+ns._cdmResGen = 0
+
 -- Shown-alpha for cd-state / fake-active restore paths: EffectiveBarAlpha,
 -- except 0 while the icon's bar is visibility-hidden. Restores that painted
 -- EffectiveBarAlpha directly resurrected icons on bars the visibility
@@ -2550,6 +2627,21 @@ local ResolveBlizzChildSpellID  -- forward-declare (defined below)
 -- Falls back to spellID + override matching for proc glows on transformed spells.
 -- In hook mode, the icon IS the Blizzard child (direct identity check).
 local function FindOurIconForBlizzChild(barKey, blizzChild)
+    -- O(1) common case: in hook mode our "icon" IS the claimed Blizzard child.
+    -- Membership map (child -> claimed barKey) rebuilt lazily whenever the
+    -- claim generation moves; between passes the claim set is stable ("icon
+    -- mapping is current from the last reanchor"). Weak keys so released
+    -- viewer children never pin. A miss falls through to the legacy scans,
+    -- so staleness can only cost the fast path, never invent a claim.
+    local m = ns._cdmChildClaimMap
+    if not m or m.gen ~= ns._cdmClaimGen then
+        m = setmetatable({ gen = ns._cdmClaimGen }, { __mode = "k" })
+        for bk, list in pairs(cdmBarIcons) do
+            for i = 1, #list do m[list[i]] = bk end
+        end
+        ns._cdmChildClaimMap = m
+    end
+    if m[blizzChild] == barKey then return blizzChild end
     local icons = cdmBarIcons[barKey]
     if not icons then return nil end
     for _, icon in ipairs(icons) do
@@ -2558,13 +2650,19 @@ local function FindOurIconForBlizzChild(barKey, blizzChild)
         if icon == blizzChild or bc == blizzChild then return icon end
     end
     -- Fallback: match by spellID (covers override spells like HST -> Storm Stream)
-    local alertSid = ResolveBlizzChildSpellID(blizzChild)
+    local alertSid, alertBase = ResolveBlizzChildSpellID(blizzChild)
     if alertSid then
         for _, icon in ipairs(icons) do
             local ifc = _ecmeFC[icon]
-            if (ifc and ifc.spellID) == alertSid then return icon end
+            local isid = ifc and ifc.spellID
+            -- Second compare: the alert child's own cooldownInfo carries its
+            -- BASE id, so an icon assigned the base of a transformed spell
+            -- matches on a plain field compare -- no per-icon API translation.
+            if isid == alertSid or (alertBase and isid == alertBase) then return icon end
         end
-        -- Check override mapping (base spell <-> override)
+        -- Check override mapping (base spell <-> override). Last resort: only
+        -- reachable when the icon's assigned id and the alert's base id differ
+        -- yet still override-resolve to the alert spell.
         for _, icon in ipairs(icons) do
             local ifc = _ecmeFC[icon]
             local iconSid = ifc and ifc.spellID
@@ -2577,17 +2675,39 @@ local function FindOurIconForBlizzChild(barKey, blizzChild)
     return nil
 end
 
--- Resolve spellID from a Blizzard CDM child (for IsSpellOverlayed guard and proc glow matching)
+-- Resolve spellID from a Blizzard CDM child (for IsSpellOverlayed guard and
+-- proc glow matching). Returns (resolvedSid, baseSid). cooldownID-keyed memo:
+-- the cdID -> spell mapping only moves on resolution edges (talent churn,
+-- live override flips), all of which bump ns._cdmResGen and drop the memo
+-- wholesale -- so the per-alert API round-trip collapses to a hash hit.
+-- false = resolved to nothing (distinct from never-resolved).
 ResolveBlizzChildSpellID = function(blizzChild)
     local cdID = blizzChild.cooldownID
     if not cdID and blizzChild.cooldownInfo then
         cdID = blizzChild.cooldownInfo.cooldownID
     end
-    if cdID then
-        local info = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
-            and C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
-        if info then return ResolveInfoSpellID(info) end
+    if type(cdID) ~= "number" then return nil end
+    local m = ns._cdidSidMemo
+    if not m or m.gen ~= ns._cdmResGen then
+        m = { gen = ns._cdmResGen }
+        ns._cdidSidMemo = m
     end
+    local hit = m[cdID]
+    if hit ~= nil then
+        if hit == false then return nil end
+        return hit[1], hit[2]
+    end
+    local info = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+        and C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
+    if info then
+        local sid = ResolveInfoSpellID(info)
+        if sid then
+            local entry = { sid, info.spellID }
+            m[cdID] = entry
+            return sid, info.spellID
+        end
+    end
+    m[cdID] = false
     return nil
 end
 
@@ -3198,8 +3318,14 @@ function ns.CheckSecondaryBuffViewerPark()
     -- Indexing past the last point errors; an unanchored viewer counts as
     -- drifted and falls through to the re-park.
     if frame:GetNumPoints() > 0 then pt, rel, relPt, x, y = frame:GetPoint(1) end
-    if pt == "TOPLEFT" and rel == UIParent and relPt == "TOPLEFT"
-       and x == -10000 and y == 10000 then
+    -- Tolerant compare: GetPoint round-trips through UI scale, so the stored
+    -- -10000/10000 can read back with float drift, and a parent-anchored point
+    -- can report its relative frame as nil. Exact equality made this check
+    -- fail every pass on scaled UIs -- re-parking an already-parked viewer at
+    -- 10 Hz forever (native ClearAllPoints/SetPoint churn each time). Anywhere
+    -- far offscreen top-left IS parked.
+    if pt == "TOPLEFT" and (rel == UIParent or rel == nil) and relPt == "TOPLEFT"
+       and x and x < -9990 and y and y > 9990 then
         fc.driftNoted = nil
         return
     end
@@ -3227,6 +3353,38 @@ function ns.NoteBuffViewerUnpark(method)
     print("|cff0cd29f[CDM]|r unpark via " .. tostring(method) .. ":")
     print(debugstack(3, 4, 0))
 end
+
+-- Park integrity for visibility-hidden cursor bars, driven by the CDM buff
+-- ticker (10 Hz) next to the secondary-viewer check. Their glue shells sleep
+-- while hidden, so a mover that strands one on-screen (icon alpha can be
+-- engine-raised through paths no hook sees) gets healed here within 0.1s
+-- instead of by a per-frame OnUpdate. A parked bar costs two reads.
+function ns._CheckCursorParks()
+    for _, frame in pairs(cdmBarFrames) do
+        if frame and frame._mouseTrack and frame._visHidden
+           and (frame:GetLeft() or 0) > -9000 then
+            frame._mouseParked = true
+            frame:ClearAllPoints()
+            frame:SetPoint(frame._mousePoint or "LEFT", UIParent, "BOTTOMLEFT", -10000, -10000)
+        end
+    end
+end
+
+-- Edge-driven park integrity, replacing the 10 Hz patrols: the hookable
+-- movers self-heal via the QueueRepark hooksecurefuncs, LayoutCDMBar guards
+-- hidden cursor bars directly, and these are the remaining un-hookable
+-- edges (scale changes and Edit Mode layout passes re-anchor Blizzard
+-- frames through paths no hook sees). A stale park beyond these is a
+-- missing edge to add here -- never a patrol to bring back.
+ns._parkEdges = CreateFrame("Frame")
+ns._parkEdges:RegisterEvent("UI_SCALE_CHANGED")
+ns._parkEdges:RegisterEvent("DISPLAY_SIZE_CHANGED")
+ns._parkEdges:RegisterEvent("EDIT_MODE_LAYOUTS_UPDATED")
+ns._parkEdges:RegisterEvent("PLAYER_ENTERING_WORLD")
+ns._parkEdges:SetScript("OnEvent", function()
+    if ns.CheckSecondaryBuffViewerPark then ns.CheckSecondaryBuffViewerPark() end
+    if ns._CheckCursorParks then ns._CheckCursorParks() end
+end)
 
 HideBlizzardCDM = function()
     -- Anchor each viewer to our corresponding bar container.
@@ -3650,10 +3808,11 @@ BuildCDMBar = function(barIndex)
     if not barData.enabled then
         if frame._mouseTrack then
             frame:SetScript("OnUpdate", nil)
-            if frame._mouseShell then
-                frame._mouseShell:SetScript("OnUpdate", nil)
-                frame._mouseShell:Hide()
+            if EllesmereUI.Mouse then
+                EllesmereUI.Mouse.UnsubscribeFrame("cdmCursor:" .. tostring(key))
+                EllesmereUI.Mouse.UnsubscribeTick("cdmCursor:" .. tostring(key) .. ":watch")
             end
+            frame._mouseResume = nil
             frame._mouseTrack = nil
             if frame._preMousePos and not p.cdmBarPositions[key] then
                 p.cdmBarPositions[key] = frame._preMousePos
@@ -3675,13 +3834,14 @@ BuildCDMBar = function(barIndex)
         frame:SetFrameLevel(5)
     end
 
-    -- Clear any previous mouse-tracking OnUpdate
+    -- Clear any previous mouse-tracking subscriptions
     if frame._mouseTrack then
         frame:SetScript("OnUpdate", nil)
-        if frame._mouseShell then
-            frame._mouseShell:SetScript("OnUpdate", nil)
-            frame._mouseShell:Hide()
+        if EllesmereUI.Mouse then
+            EllesmereUI.Mouse.UnsubscribeFrame("cdmCursor:" .. tostring(key))
+            EllesmereUI.Mouse.UnsubscribeTick("cdmCursor:" .. tostring(key) .. ":watch")
         end
+        frame._mouseResume = nil
         frame._mouseTrack = nil
         -- Restore saved position from before mouse anchor
         if frame._preMousePos and not p.cdmBarPositions[key] then
@@ -3748,32 +3908,55 @@ BuildCDMBar = function(barIndex)
             baseOX = 15 + oX; baseOY = oY
         end
         frame._mouseGrow = forceGrow
+        frame._mousePoint = pointFrom  -- park/heal sites outside this closure need it
         -- Elevate to TOOLTIP strata so the bar renders above all UI
         frame:SetFrameStrata("TOOLTIP")
         frame:SetFrameLevel(9980)
         -- Make frame and all children fully click-through while following cursor
         SetFrameClickThrough(frame, true)
         local lastMX, lastMY
-        local mouseAssertTick = 0
         frame:ClearAllPoints()
         frame:SetPoint(pointFrom, UIParent, "BOTTOMLEFT", 0, 0)
         frame._mouseTrack = true
         frame._mouseHiddenByPanel = false
-        -- Cursor-follow runs per RENDER FRAME on a pool shell. The shell is
-        -- born in this addon's main chunk so the work bills CooldownManager
-        -- (frame-birth attribution). Rate experiment (2026-07-27): a 60 Hz
-        -- anim ticker visibly stepped against a gliding cursor -- position
-        -- has no engine easing (unlike SetValue fills), so cursor glue needs
-        -- one reposition per rendered frame. The body keeps that cheap:
-        -- unmoved-cursor frames early-out on a raw-pixel compare, and moves
-        -- replace SetPoint offsets in place (no ClearAllPoints).
-        if not frame._mouseShell then frame._mouseShell = ns.TakeShell() end
-        frame._mouseShell:Show()
-        frame._mouseShell:SetScript("OnUpdate", function()
+        -- Cursor glue rides the suite Mouse service (EllesmereUI_Mouse.lua):
+        -- per render frame while the cursor MOVES (position has no engine
+        -- easing -- the 2026-07-27 experiment showed cadence stepping), parked
+        -- by the service while it is still or mouselooking, re-armed within
+        -- one 20 Hz watch interval of the first moved pixel. The 0.15s
+        -- CursorWatch below owns panel/unlock/visibility state, so the glue
+        -- body is position-only: moves replace SetPoint offsets in place.
+        local glueKey = "cdmCursor:" .. tostring(key)
+        local Mouse = EllesmereUI.Mouse
+        local glueActive = false
+        local function CursorGlue(cx, cy)
+            if cx ~= lastMX or cy ~= lastMY then
+                local firstMove = lastMX == nil
+                lastMX, lastMY = cx, cy
+                local s = UIParent:GetEffectiveScale()
+                if firstMove then frame:ClearAllPoints() end
+                frame:SetPoint(pointFrom, UIParent, "BOTTOMLEFT",
+                    floor(cx / s + 0.5) + baseOX, floor(cy / s + 0.5) + baseOY)
+            end
+        end
+        frame._mouseResume = function()
+            lastMX, lastMY = nil, nil
+            frame._mouseParked = false
+            glueActive = true
+            Mouse.SubscribeFrame(glueKey, CursorGlue, true)
+        end
+        local function GlueOff()
+            if glueActive then
+                glueActive = false
+                Mouse.UnsubscribeFrame(glueKey)
+            end
+        end
+        local function CursorWatch()
             -- Hide cursor-anchored bar while EUI options panel or unlock mode is open
             local panelOpen = (EllesmereUI._mainFrame and EllesmereUI._mainFrame:IsShown())
                 or EllesmereUI._unlockActive
             if panelOpen then
+                GlueOff()
                 frame._mouseHiddenByPanel = true
                 if frame:GetAlpha() > 0 then frame:SetAlpha(0) end
                 -- Reset icon strata while panel is open
@@ -3786,7 +3969,7 @@ BuildCDMBar = function(barIndex)
                         end
                     end
                 end
-                return true
+                return
             elseif frame._mouseHiddenByPanel then
                 -- Panel just closed: restore visibility and icon strata
                 frame._mouseHiddenByPanel = false
@@ -3809,60 +3992,45 @@ BuildCDMBar = function(barIndex)
             -- riding the cursor (same lesson as the unclaimed-frame park in
             -- EllesmereUICdmHooks). Icons are anchored to this container, so
             -- the park carries them along; position is immune to every alpha
-            -- path. The lastMX reset forces a re-SetPoint on the first frame
-            -- after the visibility engine un-hides the bar.
-            -- The GetLeft probe re-asserts the park if anything moved the
-            -- container back on-screen while hidden (LayoutCDMBar, a
-            -- rebuild, or a stale _mouseParked flag surviving an
-            -- unanchor/re-anchor cycle -- teardown never clears it).
+            -- path. Movers-while-parked are healed by ns._parkEdges (event
+            -- edges) and the LayoutCDMBar guard -- no patrol.
             if frame._visHidden then
+                GlueOff()
                 if not frame._mouseParked or (frame:GetLeft() or 0) > -9000 then
                     frame._mouseParked = true
                     lastMX, lastMY = nil, nil
                     frame:ClearAllPoints()
                     frame:SetPoint(pointFrom, UIParent, "BOTTOMLEFT", -10000, -10000)
                 end
-                return true
+                return
             end
-            frame._mouseParked = false
-            -- Throttled mouse-through re-assert: the Decorate/Show/Cooldown
-            -- path can re-enable mouse on icons mid-session, and an icon
-            -- riding the cursor with mouse enabled intermittently kills
-            -- [@mouseover] hovercast keys. Cheap no-op when state is clean.
-            mouseAssertTick = mouseAssertTick + 1
-            if mouseAssertTick >= 30 then
-                mouseAssertTick = 0
-                local icons = cdmBarIcons[key]
-                if icons then
-                    for ii = 1, #icons do
-                        local ic = icons[ii]
-                        if ic then
-                            if ic:IsMouseEnabled() then ic:EnableMouse(false) end
-                            if ic.IsMouseMotionEnabled and ic:IsMouseMotionEnabled() then
-                                ic:EnableMouseMotion(false)
-                            end
+            -- Visible and unobstructed: ensure the glue is riding the service
+            -- (covers the visibility show edge and any setup re-run; the
+            -- resume snaps to the cursor via the lastMX reset).
+            if frame._mouseParked or not glueActive then
+                frame._mouseResume()
+            end
+            -- Mouse-through re-assert: the Decorate/Show/Cooldown path can
+            -- re-enable mouse on icons mid-session, and an icon riding the
+            -- cursor with mouse enabled intermittently kills [@mouseover]
+            -- hovercast keys. Lives HERE (0.15s, motion-independent), not in
+            -- the glue: cooldown repaints re-enable mouse with the cursor
+            -- perfectly still. Cheap no-op when state is clean.
+            local icons = cdmBarIcons[key]
+            if icons then
+                for ii = 1, #icons do
+                    local ic = icons[ii]
+                    if ic then
+                        if ic:IsMouseEnabled() then ic:EnableMouse(false) end
+                        if ic.IsMouseMotionEnabled and ic:IsMouseMotionEnabled() then
+                            ic:EnableMouseMotion(false)
                         end
                     end
                 end
             end
-            -- Raw-pixel early-out: GetCursorPosition returns raw pixels, so
-            -- comparing RAW coords skips the scale fetch and divisions on
-            -- every fire where the cursor has not moved. lastMX/lastMY hold
-            -- raw values; nil (install and the park above) forces the next
-            -- move to re-assert the full anchor spec.
-            local cx, cy = GetCursorPosition()
-            if cx ~= lastMX or cy ~= lastMY then
-                local firstMove = lastMX == nil
-                lastMX, lastMY = cx, cy
-                local s = UIParent:GetEffectiveScale()
-                -- Steady tracking replaces offsets in place: SetPoint with an
-                -- unchanged point spec needs no ClearAllPoints, halving the
-                -- layout churn of every reposition.
-                if firstMove then frame:ClearAllPoints() end
-                frame:SetPoint(pointFrom, UIParent, "BOTTOMLEFT",
-                    floor(cx / s + 0.5) + baseOX, floor(cy / s + 0.5) + baseOY)
-            end
-        end)
+        end
+        Mouse.SubscribeTick(glueKey .. ":watch", 0.15, CursorWatch)
+        CursorWatch()
     elseif anchorKey == "partyframe" then
         -- Anchor to the player's party frame
         local partyFrame = EllesmereUI.FindPlayerPartyFrame()
@@ -4170,6 +4338,16 @@ LayoutCDMBar = function(barKey)
 
     local barData = barDataByKey[barKey]
     if not barData or not barData.enabled then return end
+
+    -- A visibility-hidden cursor bar must never be laid back on-screen: its
+    -- glue is parked and cannot re-glue it. Park it here instead; the
+    -- visibility show edge re-runs LayoutCDMBar via its deferred call.
+    if frame._mouseTrack and frame._visHidden then
+        frame._mouseParked = true
+        frame:ClearAllPoints()
+        frame:SetPoint(frame._mousePoint or "LEFT", UIParent, "BOTTOMLEFT", -10000, -10000)
+        return
+    end
 
     -- Shift-Icons cd-state modes: icons flagged shift-hidden are dropped from
     -- the layout entirely, so later icons close the gap and the bar resizes as
@@ -5272,8 +5450,6 @@ function ns.StyleOverlayCooldownText(oCd, barData, ssb, iconScale)
     local fontScale = 1 / iconScale
     local showCD = barData and barData.showCooldownText
     if ssb and ssb.showCooldownText ~= nil then showCD = ssb.showCooldownText end
-    -- Only Show Numbers (bar setting): the countdown IS the icon on these bars.
-    if barData and barData.onlyShowNumbers then showCD = true end
     oCd:SetHideCountdownNumbers(not showCD)
     if not showCD then return end
     local cdFont = GetCDMFont()
@@ -5521,6 +5697,14 @@ local function RefreshCDMIconAppearance(barKey)
         if ns._cdmAnyChargeHideCdText and not isBuffFamilyBar and ns.WatchChargeCdTextIfEnabled then
             ns.WatchChargeCdTextIfEnabled(icon)
         end
+        -- "Hide Text at 0 Stacks" (bar-level): enroll/refresh on the same
+        -- login + settings-change pass. Gated on the bar's own key, plus a
+        -- next() probe so turning the setting OFF still reaches the unwatch/
+        -- restore path; both empty = skipped entirely (zero cost unused).
+        if not isBuffFamilyBar and ns.WatchZeroChargeTextIfEnabled
+           and (barData.hideZeroChargeText or next(ns._zeroChargeTextWatch or {}) ~= nil) then
+            ns.WatchZeroChargeTextIfEnabled(icon)
+        end
         -- Immediately re-assert Hide Recharge Edge / Hide Swipe on charge icons so a
         -- toggle (per-icon or via Apply to Bar) updates a currently-recharging spell
         -- right away instead of waiting for its next recharge to fire the reactive
@@ -5609,11 +5793,10 @@ local function RefreshCDMIconAppearance(barKey)
             -- Above the border (icon+13); still below glow (icon+16) / text (icon+23).
             pcall(cd.SetFrameLevel, cd, icon:GetFrameLevel() + 14)
             -- Per-icon Duration Text override (ssb) falls back to the bar's values.
+            -- Only Show Numbers no longer forces this on: hiding the duration
+            -- (bar toggle or per-icon) under it leaves just the stack count.
             local showCD = barData.showCooldownText
             if ssb and ssb.showCooldownText ~= nil then showCD = ssb.showCooldownText end
-            -- Only Show Numbers (bar setting): the countdown IS the icon, so it
-            -- overrides both the bar's Cooldown Text toggle and per-icon offs.
-            if barData.onlyShowNumbers then showCD = true end
             cd:SetSwipeColor(0, 0, 0, barData.swipeAlpha or 0.7)
             -- Per-spell Reverse Swipe: flips this icon's swipe direction away from
             -- the bar default (buffs fill up, cooldowns deplete). Entire block is
@@ -6237,25 +6420,37 @@ ns.ApplyFocusKickAnchor = ApplyFocusKickAnchor
 -- plate exists -- zero work when there is no focus.
 local _focusKickProxy
 local _focusKickLastPlateVisible
-local _focusKickTickAccum = 0
 local _FOCUSKICK_TICK_INTERVAL = 0.1
 local function EnsureFocusKickProxy()
-    if _focusKickProxy then return _focusKickProxy end
+    if _focusKickProxy then
+        -- Re-apply/re-activate paths must restore the event set (a demand-
+        -- gate teardown unregisters it; RegisterEvent is idempotent) and
+        -- re-arm the watcher: a focus can already exist with no event
+        -- forthcoming (settings apply, /reload with focus).
+        _focusKickProxy:RegisterEvent("PLAYER_FOCUS_CHANGED")
+        _focusKickProxy:RegisterEvent("PLAYER_TARGET_CHANGED")
+        _focusKickProxy:RegisterEvent("NAME_PLATE_UNIT_ADDED")
+        _focusKickProxy:RegisterEvent("NAME_PLATE_UNIT_REMOVED")
+        if _focusKickProxy._arm then _focusKickProxy._arm() end
+        return _focusKickProxy
+    end
     _focusKickProxy = ns.TakeShell()
     _focusKickProxy:RegisterEvent("PLAYER_FOCUS_CHANGED")
     _focusKickProxy:RegisterEvent("PLAYER_TARGET_CHANGED")
     _focusKickProxy:RegisterEvent("NAME_PLATE_UNIT_ADDED")
     _focusKickProxy:RegisterEvent("NAME_PLATE_UNIT_REMOVED")
-    _focusKickProxy:SetScript("OnEvent", function(_, event, unit)
+    _focusKickProxy:SetScript("OnEvent", function(self, event, unit)
         local fkUnit = GetFocusKickUnit()
         if event == "PLAYER_FOCUS_CHANGED" then
             if fkUnit ~= "focus" then return end
             _focusKickLastPlateVisible = nil
             ApplyFocusKickAnchor()
+            if self._arm then self._arm() end
         elseif event == "PLAYER_TARGET_CHANGED" then
             if fkUnit ~= "target" then return end
             _focusKickLastPlateVisible = nil
             ApplyFocusKickAnchor()
+            if self._arm then self._arm() end
         elseif event == "NAME_PLATE_UNIT_REMOVED" then
             -- Only react when the tracked unit's plate is removed.
             -- Reacting to every plate removal caused the bar to flicker
@@ -6268,16 +6463,21 @@ local function EnsureFocusKickProxy()
             if unit and (unit == fkUnit or UnitIsUnit(unit, fkUnit)) then
                 _focusKickLastPlateVisible = nil
                 ApplyFocusKickAnchor()
+                if self._arm then self._arm() end
             end
         end
     end)
-    _focusKickProxy:SetScript("OnUpdate", function(_, elapsed)
-        _focusKickTickAccum = _focusKickTickAccum + elapsed
-        if _focusKickTickAccum < _FOCUSKICK_TICK_INTERVAL then return end
-        _focusKickTickAccum = 0
-        -- Cheap reject: no tracked unit -> nothing to watch.
+    -- Plate fade/occlusion has no event, so watching the tracked unit's
+    -- plate visibility needs a poll -- but ONLY while a tracked unit exists,
+    -- and on a self-stopping anim ticker (the C engine sleeps between 0.1s
+    -- fires) instead of the old per-render-frame OnUpdate whose body was an
+    -- accumulator gating this same 10 Hz job. The ticker stops itself the
+    -- moment the unit is gone; the proxy's own events (focus/target changed,
+    -- plate added) and EnsureFocusKickProxy re-arm it. Same 0.1s cadence.
+    local fkTicker
+    local function FocusKickTick()
         local fkUnit = GetFocusKickUnit()
-        if not UnitExists(fkUnit) then return end
+        if not UnitExists(fkUnit) then return false end
         local plate = C_NamePlate and C_NamePlate.GetNamePlateForUnit
             and C_NamePlate.GetNamePlateForUnit(fkUnit)
         local visibleNow
@@ -6291,7 +6491,19 @@ local function EnsureFocusKickProxy()
             _focusKickLastPlateVisible = visibleNow
             SetFocusKickAlpha(visibleNow and 1 or 0)
         end
-    end)
+        return true
+    end
+    _focusKickProxy._arm = function()
+        if not fkTicker then
+            fkTicker = EllesmereUI.Tick.NewAnimTicker(_focusKickProxy,
+                FocusKickTick, _FOCUSKICK_TICK_INTERVAL)
+        end
+        fkTicker.Start()
+    end
+    _focusKickProxy._stop = function()
+        if fkTicker then fkTicker.Stop() end
+    end
+    _focusKickProxy._arm()
     return _focusKickProxy
 end
 ns.EnsureFocusKickProxy = EnsureFocusKickProxy
@@ -6360,7 +6572,14 @@ local function RefreshFocusCastProxyUnit()
 end
 ns.RefreshFocusCastProxyUnit = RefreshFocusCastProxyUnit
 local function EnsureFocusCastProxy()
-    if _focusCastProxy then return _focusCastProxy end
+    if _focusCastProxy then
+        -- Demand-gate re-activation: re-register (idempotent; re-applying
+        -- RegisterUnitEvent also picks up a changed kick-unit setting).
+        local unit = GetFocusKickUnit()
+        _focusCastProxy:RegisterUnitEvent("UNIT_SPELLCAST_START", unit)
+        _focusCastProxy:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_START", unit)
+        return _focusCastProxy
+    end
     _focusCastProxy = ns.TakeShell()
     local unit = GetFocusKickUnit()
     _focusCastProxy:RegisterUnitEvent("UNIT_SPELLCAST_START", unit)
@@ -6715,7 +6934,19 @@ end
 ns.UpdateFocusKickContext = UpdateFocusKickContext
 
 local function EnsureFocusReminderProxy()
-    if _focusReminderProxy then return _focusReminderProxy end
+    if _focusReminderProxy then
+        -- Demand-gate re-activation: restore the event set (idempotent) and
+        -- re-seed the state the creation path seeds.
+        _focusReminderProxy:RegisterEvent("NAME_PLATE_UNIT_ADDED")
+        _focusReminderProxy:RegisterEvent("NAME_PLATE_UNIT_REMOVED")
+        _focusReminderProxy:RegisterEvent("PLAYER_FOCUS_CHANGED")
+        _focusReminderProxy:RegisterEvent("PLAYER_ENTERING_WORLD")
+        _focusReminderProxy:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+        _focusReminderProxy:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+        _focusKickHasFocus = UnitExists("focus") and true or false
+        UpdateFocusKickContext()
+        return _focusReminderProxy
+    end
     -- Initialize focus + context state once at proxy creation
     _focusKickHasFocus = UnitExists("focus") and true or false
     UpdateFocusKickContext()
@@ -6749,6 +6980,49 @@ local function EnsureFocusReminderProxy()
     return _focusReminderProxy
 end
 ns.EnsureFocusReminderProxy = EnsureFocusReminderProxy
+
+-- Demand gate for the whole FocusKick feature family (anchor proxy + plate
+-- watcher, reminder text, cast sound). An EMPTY kick bar -- no positive
+-- spell assigned, or the bar disabled -- means the feature does not exist at
+-- runtime: no events registered anywhere, no ticker, zero cost. Called from
+-- setup and from the tail of every BuildAllCDMBars, so assigning the first
+-- kick spell (or removing the last) flips the family on/off live.
+function ns.RefreshFocusKickProxies()
+    local bd = barDataByKey and barDataByKey[FOCUSKICK_BAR_KEY]
+    local hasContent = false
+    if bd and bd.enabled ~= false then
+        local sd = ns.GetBarSpellData and ns.GetBarSpellData(FOCUSKICK_BAR_KEY)
+        local spells = sd and sd.assignedSpells
+        if spells then
+            for _, sid in ipairs(spells) do
+                if type(sid) == "number" and sid > 0 then
+                    hasContent = true
+                    break
+                end
+            end
+        end
+    end
+    if hasContent then
+        EnsureFocusKickProxy()
+        ApplyFocusKickAnchor()
+        EnsureFocusReminderProxy()
+        RefreshFocusReminders()
+        EnsureFocusCastProxy()
+    else
+        if _focusKickProxy then
+            _focusKickProxy:UnregisterAllEvents()
+            if _focusKickProxy._stop then _focusKickProxy._stop() end
+            SetFocusKickAlpha(0)
+        end
+        if _focusReminderProxy then
+            _focusReminderProxy:UnregisterAllEvents()
+            HideAllFocusReminders()
+        end
+        if _focusCastProxy then
+            _focusCastProxy:UnregisterAllEvents()
+        end
+    end
+end
 
 
 -- Ghost bars: ensure both buff and CD ghost bars exist in the bars array.
@@ -6913,6 +7187,14 @@ _CDMApplyVisibility = function()
                 frame:SetAlpha(0)
                 if frame.EnableMouseMotion and not InCombatLockdown() then frame:EnableMouseMotion(false) end
                 frame._visHidden = true
+                -- Cursor bars: park immediately on the hide edge. The glue
+                -- shell self-sleeps on its next frame, so this is the one
+                -- guaranteed park before it stops watching.
+                if frame._mouseTrack and (frame:GetLeft() or 0) > -9000 then
+                    frame._mouseParked = true
+                    frame:ClearAllPoints()
+                    frame:SetPoint(frame._mousePoint or "LEFT", UIParent, "BOTTOMLEFT", -10000, -10000)
+                end
                 -- Hide this bar's icons individually. The viewer may stay
                 -- at alpha 1 (other bars need it), so icon alpha must be
                 -- managed per-bar. EnableMouse is protected on Blizzard CDM
@@ -6945,6 +7227,12 @@ _CDMApplyVisibility = function()
                     frame:EnableMouseMotion(false)
                 end
                 frame._visHidden = false
+                -- Cursor bars: resume the glue subscription the vis-hidden
+                -- watch released; the resume snaps to the cursor immediately
+                -- instead of waiting for the next 0.15s watch fire.
+                if frame._mouseTrack and frame._mouseResume then
+                    frame._mouseResume()
+                end
                 -- Apply opacity to icons every pass (idempotent, handles
                 -- fresh loads where wasHidden is false). EffectiveBarAlpha folds
                 -- in the out-of-combat fade when that option is on.
@@ -7125,6 +7413,7 @@ local function FormatKeybindKey(key)
     key = key:gsub("SHIFT%-", "S")
     key = key:gsub("CTRL%-",  "C")
     key = key:gsub("ALT%-",   "A")
+    key = key:gsub("META%-",  "M")  -- Mac Command key (CMD-E -> ME)
     key = key:gsub("Mouse Button ", "M")
     key = key:gsub("MOUSEWHEELUP",   "MwU")
     key = key:gsub("MOUSEWHEELDOWN", "MwD")
@@ -7322,6 +7611,14 @@ ns.CDMKeybindCache = _cdmKeybindCache
 
 BuildAllCDMBars = function()
     ns._spellOrderDirty = true  -- force spell order cache rebuild
+    -- Belt for the active-store cache: every profile apply, import, layout
+    -- switch and options rebuild passes through here.
+    ns._cachedSpecProfiles = nil
+    ns._cdmStoreMemo = nil
+    -- Structural edges: claims and resolution inputs both change across a
+    -- rebuild, so retire the proc-alert claim map and cdID resolution memo.
+    ns._cdmClaimGen = ns._cdmClaimGen + 1
+    ns._cdmResGen = ns._cdmResGen + 1
     -- Hard guard: never build with an unknown spec. CDMFinishSetup is
     -- gated on GetActiveSpecKey() at OnEnable, so this is a defense in
     -- depth for any other path that calls BuildAllCDMBars too early.
@@ -7528,6 +7825,11 @@ BuildAllCDMBars = function()
             end
         end
     end)
+
+    -- Every full rebuild re-evaluates the FocusKick demand gate, so
+    -- assigning the first kick spell (or removing the last) flips the
+    -- feature family on/off live.
+    if ns.RefreshFocusKickProxies then ns.RefreshFocusKickProxies() end
 end
 
 -- Expose for options
@@ -7646,7 +7948,14 @@ function ns.FullCDMRebuild(reason)
             f:Hide()
             f:ClearAllPoints()
         end
-        wipe(ns._presetFrames)
+        -- Deliberately NOT wiped: this map is the identity/REUSE registry
+        -- the create-only frame sites key by. Wiping it orphaned every
+        -- preset frame OBJECT (WoW frames are unreclaimable) and rebuilt
+        -- the whole population on the next inject -- a frame-object leak on
+        -- EVERY talent/spec/profile rebuild. Stale keys are harmless: the
+        -- drain iterates the shown-set (_pcActive in CdmHooks), not this
+        -- map, and re-injected keys REUSE their frame with a full re-arm on
+        -- the Show edge -- the same reuse path every reanchor already runs.
     end
 
     -- (Site #8 init snapshot deleted: default bars no longer need
@@ -8615,14 +8924,10 @@ function ECME:CDMFinishSetup()
     -- Hook Blizzard CDM viewer pools (route map already built by FullCDMRebuild)
     ns.SetupViewerHooks()
 
-    -- FocusKick: install nameplate event proxy + initial position
-    EnsureFocusKickProxy()
-    ApplyFocusKickAnchor()
-    -- FocusKick: install Focus Reminder text proxy + initial pass
-    EnsureFocusReminderProxy()
-    RefreshFocusReminders()
-    -- FocusKick: install focus cast sound proxy + append SharedMedia sounds
-    EnsureFocusCastProxy()
+    -- FocusKick family (anchor proxy + plate watcher, reminder text, cast
+    -- sound): demand-gated -- an EMPTY kick bar installs nothing at all.
+    ns.RefreshFocusKickProxies()
+    -- SharedMedia sounds feed the options dropdowns; append regardless.
     if EllesmereUI.AppendSharedMediaSounds then
         EllesmereUI.AppendSharedMediaSounds(
             FOCUSKICK_SOUND_PATHS,
@@ -8889,6 +9194,9 @@ local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 eventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 eventFrame:RegisterEvent("SPELLS_CHANGED")
+-- Live override flips (proc-based hero-talent transforms): resolution memos
+-- derived from override state go stale the moment this fires.
+eventFrame:RegisterEvent("COOLDOWN_VIEWER_SPELL_OVERRIDE_UPDATED")
 eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
 eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 eventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
@@ -8964,6 +9272,9 @@ local function ScheduleTalentRebuild()
         -- renders on which bar. A full CDM rebuild + reanchor below picks
         -- up the new routing.
         if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
+        -- The placeholder icon bridge reads the spellbook, and a talent swap is
+        -- exactly what changes which form a name resolves to.
+        if ns.WipeCdmBookNameCache then ns.WipeCdmBookNameCache() end
         -- Clear cached viewer child info so the next tick re-reads from API
         -- (overrideSpellID may have changed with the new talent set)
         for _, vname in ipairs(_cdmViewerNames) do
@@ -9018,6 +9329,12 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
         ns.SaveCachedBarSizes()
         return
     end
+    if event == "COOLDOWN_VIEWER_SPELL_OVERRIDE_UPDATED" then
+        -- Bump-only: painting is driven by the cooldown/desat hooks, which
+        -- re-resolve on their next fire. No repaint request from here.
+        ns._cdmResGen = ns._cdmResGen + 1
+        return
+    end
     if event == "COMBAT_LOG_EVENT_UNFILTERED" then
         return
     end
@@ -9048,6 +9365,13 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
         -- The spell set may have changed: let the post-rebuild reanchor
         -- re-run the automatic base-bar materialization for this spec.
         if ns._reseededSpecsSession then wipe(ns._reseededSpecsSession) end
+        -- Drop the spellbook name map NOW, not only in the debounced rebuild.
+        -- It answers "which form does the player have", which is exactly what
+        -- just changed, and anything repainting inside the debounce window
+        -- would otherwise resolve against the pre-swap book. The rebuild wipes
+        -- it again, which still matters: this early rebuild can read a book the
+        -- client has not finished updating, and that second wipe corrects it.
+        if ns.WipeCdmBookNameCache then ns.WipeCdmBookNameCache() end
         ScheduleTalentRebuild()
         return
     end
@@ -9176,6 +9500,8 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
     if event == "SPELLS_CHANGED" then
         CheckSpecChange()
         ns._spellsReadyForApply = true
+        -- Spell data churn invalidates cooldownID resolution memos.
+        ns._cdmResGen = ns._cdmResGen + 1
         -- Engine spell data changed (spec-swap churn tail, druid form swap,
         -- talent/spell overrides). The variant-expanded diversion maps and
         -- the memoized cdID->bar routes were derived from the PREVIOUS
@@ -9618,7 +9944,7 @@ end
 -------------------------------------------------------------------------------
 SLASH_CDMBUFFID1 = "/cdmbuffid"
 SLASH_CDMBUFFID2 = "/cdmbid"
-SlashCmdList.CDMBUFFID = function()
+SlashCmdList.CDMBUFFID = function(msg)
     local ACCENT = "|cff0cd29f"
     local DIM    = "|cff7f7f7f"
     local BAD    = "|cffff5555"
@@ -9640,7 +9966,9 @@ SlashCmdList.CDMBUFFID = function()
     end
 
     local specKey = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
-    P("=== DEFAULT BUFFS BAR ID PROBE (spec " .. tostring(specKey) .. ") ===")
+    -- Bump on every probe change: an unchanged dump is otherwise ambiguous
+    -- between "the fix did nothing" and "the new file never loaded".
+    P("=== DEFAULT BUFFS BAR ID PROBE (spec " .. tostring(specKey) .. ") probe=v4 ===")
 
     -- A. Stored order state for the buffs bar (what reorder would manipulate).
     local sd = ns.GetBarSpellData and ns.GetBarSpellData("buffs")
@@ -9660,6 +9988,12 @@ SlashCmdList.CDMBUFFID = function()
     local enumByCdID    = {}   -- cdID -> enum index
     local enumSidByCdID = {}   -- cdID -> canonical sid
     local enumCount     = 0
+    local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+    -- This section works with NOTHING currently rendering, so it is the one to
+    -- read for a replacing-talent icon report (Hellcaller Wither). "icon=" is the
+    -- form an inactive placeholder paints, straight from the runtime resolver: it
+    -- differing from sid= is the override bridge firing.
+    local nBridged = 0
     P(ACCENT .. "--- EnumerateCDMViewerSpells(true) [preview + settings id = e.sid] ---" .. OFF)
     if ns.EnumerateCDMViewerSpells then
         local entries = ns.EnumerateCDMViewerSpells(true)
@@ -9670,16 +10004,225 @@ SlashCmdList.CDMBUFFID = function()
                 enumSidByCdID[e.cdID] = e.sid
                 enumCount = enumCount + 1
             end
-            P(string.format("  [%d] sid=%s cdID=%s name=%s",
-                i, SN(e.sid), SN(e.cdID), NM(e.sid)))
+            local infoSpell, infoOvr, linked
+            if e.cdID ~= nil and gci then
+                local info = gci(e.cdID)
+                if info then
+                    infoSpell, infoOvr = info.spellID, info.overrideSpellID
+                    if info.linkedSpellIDs and #info.linkedSpellIDs > 0 then
+                        local t = {}
+                        for _, lid in ipairs(info.linkedSpellIDs) do t[#t + 1] = SN(lid) end
+                        linked = table.concat(t, ",")
+                    end
+                end
+            end
+            local iconSID = ns.ResolvePlaceholderIconSID
+                and ns.ResolvePlaceholderIconSID(e.sid, e.cdID) or e.sid
+            local bridgeTag = ""
+            if type(iconSID) == "number" and type(e.sid) == "number" and iconSID ~= e.sid then
+                nBridged = nBridged + 1
+                bridgeTag = "  " .. GOOD .. "BRIDGED" .. OFF
+            end
+            -- Print the TEXTURE id too, not just the spell name. A reporter
+            -- quotes the icon they can see, and two ids can share a name while
+            -- carrying different art (Wither's castable and its DoT aura), so a
+            -- name-only line cannot tell a right icon from a wrong one.
+            local _GT = C_Spell and C_Spell.GetSpellTexture
+            local texNow = _GT and _GT(iconSID)
+            P(string.format("  [%d] sid=%s cdID=%s info.sID=%s info.ovr=%s linked=%s icon=%s(%s) tex=%s name=%s%s",
+                i, SN(e.sid), SN(e.cdID), SN(infoSpell), SN(infoOvr),
+                linked or "none", SN(iconSID), NM(iconSID), SN(texNow), NM(e.sid), bridgeTag))
         end
+        P(string.format("  placeholder icon bridge: %d of %d entries resolve to a replacing spell",
+            nBridged, #entries))
+
+        -- Why a non-bridge happened. The bridge resolves an aura NAME against the
+        -- spellbook, so when it silently does nothing the useful facts are how
+        -- many names the scan saw and what each variant's name looked up to. A
+        -- scan count of 0 means the walk itself failed; a name that maps to
+        -- nothing means the book lists the replacement under a different name.
+        if ns.CdmBookNameCount and ns.CdmBookIDForName then
+            P(string.format("  spellbook name map: %d names", ns.CdmBookNameCount()))
+            for i, e in ipairs(entries) do
+                local info = e.cdID ~= nil and gci and gci(e.cdID) or nil
+                if info and info.linkedSpellIDs and #info.linkedSpellIDs > 0 then
+                    local parts = {}
+                    local function Look(id, tag)
+                        local nm2 = NM(id)
+                        parts[#parts + 1] = string.format("%s %s(%s)->book=%s",
+                            tag, SN(id), tostring(nm2), SN(ns.CdmBookIDForName(nm2)))
+                    end
+                    Look(e.sid, "self")
+                    for _, lid in ipairs(info.linkedSpellIDs) do Look(lid, "link") end
+                    P("    [" .. i .. "] " .. table.concat(parts, "  "))
+                end
+            end
+        end
+    end
+
+    -- B2. Focused identity battery: /cdmbuffid <cdID|spellID>.
+    --
+    -- For a slot whose variants live in linkedSpellIDs rather than the spellbook
+    -- override table (Destruction Immolate lists Wither's aura 445474 as a link,
+    -- with overrideSpellID == spellID), the question the runtime must answer is
+    -- WHICH linked form the player currently has. This runs every identity API
+    -- against the slot's ids and one level of expansion, so the answer is visible
+    -- rather than guessed. Prints only this section to keep the output readable.
+    local focusList
+    if msg then
+        for n in msg:gmatch("%d+") do
+            focusList = focusList or {}
+            focusList[#focusList + 1] = tonumber(n)
+        end
+    end
+    if focusList then
+        local GB  = C_Spell and C_Spell.GetBaseSpell
+        local GOS = C_Spell and C_Spell.GetOverrideSpell
+        local FO  = C_SpellBook and C_SpellBook.FindSpellOverrideByID
+        P(ACCENT .. "=== IDENTITY BATTERY for " .. table.concat(focusList, ", ") .. " ===" .. OFF)
+
+        -- Hero talent tree: the whole question is whether the replacing talent is
+        -- active, so state it outright instead of inferring it from ids.
+        -- GetSubTreeInfo needs the ACTIVE config id; passing nil silently yields
+        -- nothing, which is why an earlier run could only print the raw number.
+        local heroName
+        if C_ClassTalents and C_ClassTalents.GetActiveHeroTalentSpec then
+            local ok, hid = pcall(C_ClassTalents.GetActiveHeroTalentSpec)
+            if ok and hid then
+                heroName = tostring(hid)
+                local cfg
+                if C_ClassTalents.GetActiveConfigID then
+                    local ok2, c = pcall(C_ClassTalents.GetActiveConfigID)
+                    if ok2 then cfg = c end
+                end
+                if cfg and C_Traits and C_Traits.GetSubTreeInfo then
+                    local ok3, st = pcall(C_Traits.GetSubTreeInfo, cfg, hid)
+                    if ok3 and st and st.name then heroName = st.name .. " (" .. hid .. ")" end
+                end
+            end
+        end
+        P("  active hero talent tree: " .. (heroName or (BAD .. "unknown/none" .. OFF)))
+
+        local seen, queue = {}, {}
+        local function Push(id, why)
+            if type(id) ~= "number" or id <= 0 or IsSecret(id) or seen[id] then return end
+            seen[id] = true
+            queue[#queue + 1] = { id = id, why = why }
+        end
+
+        -- Each argument is a cooldownID if the viewer knows it, else a raw
+        -- spellID. Passing castable ids explicitly is the point: an aura id has
+        -- no API path back to the spell that applies it, so the castable form
+        -- (Immolate 348 / Wither 445468) can only enter the set by hand.
+        local slotCandidates
+        for _, focus in ipairs(focusList) do
+            local info = gci and gci(focus)
+            if info then
+                P("  " .. focus .. " -> cooldownID")
+                Push(info.spellID, "info.spellID of " .. focus)
+                Push(info.overrideSpellID, "info.overrideSpellID of " .. focus)
+                slotCandidates = slotCandidates or {}
+                slotCandidates[#slotCandidates + 1] = info.spellID
+                if info.linkedSpellIDs then
+                    for _, lid in ipairs(info.linkedSpellIDs) do
+                        Push(lid, "linkedSpellID of " .. focus)
+                        slotCandidates[#slotCandidates + 1] = lid
+                    end
+                end
+                local esid = enumSidByCdID[focus]
+                if esid then Push(esid, "enumerated sid of " .. focus) end
+            else
+                P("  " .. focus .. " -> spellID")
+                Push(focus, "argument")
+            end
+        end
+
+        -- One level of expansion: the castable form that owns a replacement often
+        -- is NOT in the slot's own id set, and that is exactly where the override
+        -- link lives (castable Immolate 348 -> Wither 445468).
+        local n0 = #queue
+        for i = 1, n0 do
+            local id = queue[i].id
+            Push(GB and GB(id), "base of " .. id)
+            Push(GOS and GOS(id), "override of " .. id)
+            Push(FO and FO(id), "findOverride of " .. id)
+        end
+
+        for _, e in ipairs(queue) do
+            local id = e.id
+            local isPlayer = IsPlayerSpell and IsPlayerSpell(id)
+            local known    = C_SpellBook and C_SpellBook.IsSpellKnown
+                             and C_SpellBook.IsSpellKnown(id)
+            local knownOvr
+            if C_SpellBook and C_SpellBook.IsSpellKnownOrOverridesKnown then
+                local ok, v = pcall(C_SpellBook.IsSpellKnownOrOverridesKnown, id)
+                if ok then knownOvr = v end
+            end
+            local inBook
+            if C_SpellBook and C_SpellBook.FindSpellBookSlotForSpell then
+                local ok, v = pcall(C_SpellBook.FindSpellBookSlotForSpell, id)
+                if ok and v then inBook = true end
+            end
+            -- REPLACED marks the live-form test: a spell whose override is some
+            -- OTHER spell is one you no longer cast in that form. Do not read
+            -- player= for this -- a replaced base still reports player=true while
+            -- its replacement reports false, so that field points the wrong way.
+            local liveOvr = FO and FO(id)
+            local tag = (type(liveOvr) == "number" and liveOvr ~= id)
+                and (GOOD .. " <<REPLACED BY " .. NM(liveOvr) .. OFF) or ""
+            P(string.format("  %s (%s) [%s]  base=%s ovr=%s findOvr=%s player=%s known=%s knownOrOvr=%s book=%s%s",
+                SN(id), NM(id), e.why,
+                SN(GB and GB(id)), SN(GOS and GOS(id)), SN(FO and FO(id)),
+                tostring(isPlayer or false), tostring(known or false),
+                tostring(knownOvr or false), tostring(inBook or false), tag))
+        end
+        P("  " .. DIM .. "Read: an id marked REPLACED BY names the form actually cast." .. OFF)
+
+        -- B3. What the shipped bridge sees for this slot. Deliberately calls the
+        -- real helpers rather than reimplementing the lookup, so the probe cannot
+        -- drift from the runtime and quietly report on code that is not running.
+        if slotCandidates and #slotCandidates > 0 then
+            P(ACCENT .. "--- icon bridge (aura -> castable by name) ---" .. OFF)
+
+            -- Do the variants even carry different art? Equal textures would mean
+            -- there is nothing here to fix and the bridge is chasing a non-problem.
+            local GT = C_Spell and C_Spell.GetSpellTexture
+            local texLine = {}
+            for _, cid in ipairs(slotCandidates) do
+                texLine[#texLine + 1] = string.format("%s(%s)=tex%s", SN(cid), NM(cid), SN(GT and GT(cid)))
+            end
+            P("  candidate art: " .. table.concat(texLine, "  "))
+
+            if ns.CdmBookNameCount and ns.CdmBookIDForName then
+                P("  spellbook name map: " .. ns.CdmBookNameCount() .. " names")
+                for _, cid in ipairs(slotCandidates) do
+                    local nm = NM(cid)
+                    local castable = ns.CdmBookIDForName(nm)
+                    local ovr = (castable and FO) and FO(castable) or nil
+                    P(string.format("  %s (%s) -> book=%s -> override=%s(%s)",
+                        SN(cid), tostring(nm), SN(castable), SN(ovr), NM(ovr)))
+                end
+            end
+            for _, focus in ipairs(focusList) do
+                if gci and gci(focus) and ns.ResolvePlaceholderIconSID then
+                    local esid = enumSidByCdID[focus]
+                    if esid then
+                        local painted = ns.ResolvePlaceholderIconSID(esid, focus)
+                        local tag = (painted ~= esid) and ("  " .. GOOD .. "BRIDGED" .. OFF) or ""
+                        P(string.format("  slot %s paints %s(%s)%s",
+                            SN(focus), SN(painted), NM(painted), tag))
+                    end
+                end
+            end
+        end
+        P(ACCENT .. "=== END BATTERY ===" .. OFF)
+        return
     end
 
     -- C. Live rendered icons: walk cdmBarIcons["buffs"] in render order and
     --    compare SEED/SORT id (fc.spellID) vs PREVIEW/SETTINGS id (canonical),
     --    and render order vs preview-enum order.
     P(ACCENT .. "--- live cdmBarIcons[\"buffs\"] [seed + sort id = fc.spellID] ---" .. OFF)
-    local gci      = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
     local fcCache  = ns._ecmeFC
     local icons    = ns.cdmBarIcons and ns.cdmBarIcons["buffs"]
     local nDiverge, nTotal = 0, 0
@@ -9723,10 +10266,23 @@ SlashCmdList.CDMBUFFID = function()
                     enumTag = BAD .. "no-enum(custom/injected?)" .. OFF
                 end
 
+                -- Live override bridge + the form an inactive placeholder paints.
+                -- A hero-talent slot reports its pre-talent id while inactive
+                -- (Hellcaller: info.sID=348 Immolate, fOvr=445468 Wither), so an
+                -- fOvr that differs from canon is the bridge working, and ph=
+                -- should match fOvr rather than canon.
+                local fOvr
+                if type(canon) == "number" and not IsSecret(canon) and canon > 0
+                   and C_SpellBook and C_SpellBook.FindSpellOverrideByID then
+                    fOvr = C_SpellBook.FindSpellOverrideByID(canon)
+                end
+                local phTag = frame._isPlaceholderFrame
+                    and (" ph=" .. SN(frame._phSpellID) .. "(" .. NM(frame._phSpellID) .. ")") or ""
+
                 local shown = frame.IsShown and frame:IsShown()
-                P(string.format("  render#%d %s  fc.spellID=%s fc.base=%s canon=%s | cdID=%s info.sID=%s info.ovr=%s | %s shown=%s name=%s",
-                    j, verdict, SN(fcSpell), SN(fcBase), SN(canon),
-                    SN(cdID), SN(infoSpell), SN(infoOvr), enumTag, tostring(shown), NM(canon)))
+                P(string.format("  render#%d %s  fc.spellID=%s fc.base=%s canon=%s fOvr=%s | cdID=%s info.sID=%s info.ovr=%s | %s shown=%s name=%s%s",
+                    j, verdict, SN(fcSpell), SN(fcBase), SN(canon), SN(fOvr),
+                    SN(cdID), SN(infoSpell), SN(infoOvr), enumTag, tostring(shown), NM(canon), phTag))
             end
         end
     else
@@ -9737,7 +10293,8 @@ SlashCmdList.CDMBUFFID = function()
     P(ACCENT .. "--- verdict ---" .. OFF)
     P(string.format("  rendered icons=%d  diverge=%d  preview entries=%d", nTotal, nDiverge, enumCount))
     if nTotal == 0 then
-        P("  " .. DIM .. "inconclusive: no rendered buffs to sample" .. OFF)
+        P("  " .. DIM .. "inconclusive for id-collapse: no rendered buffs to sample" .. OFF)
+        P("  " .. DIM .. "(the icon bridge above does NOT need rendered buffs -- read that line instead)" .. OFF)
     elseif nDiverge == 0 then
         P("  " .. GOOD .. "id-collapse: ALL buffs agree (seed/sort == preview/settings). Default-bar reorder is safe with the simple approach." .. OFF)
     else

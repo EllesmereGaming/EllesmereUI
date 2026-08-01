@@ -4185,6 +4185,17 @@ initFrame:SetScript("OnEvent", function(self)
                 block:SetShown(off0)
             end
 
+            -- Row: Hide Count at 0 (odd last slot -- blank right label)
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Hide Charge Count at 0",
+                  tooltip="Hide the charge number on action buttons when it reaches 0, instead of showing a 0. The number returns as soon as a charge or item comes back.",
+                  getValue=function() return EAB.db.profile.hideZeroCount or false end,
+                  setValue=function(v)
+                      EAB.db.profile.hideZeroCount = v or nil
+                      if EAB.RefreshAllCounts then EAB:RefreshAllCounts() end
+                  end },
+                { type="label", text="" });  y = y - h
+
             BuildBarBackgroundSection()
 
             -------------------------------------------------------------------

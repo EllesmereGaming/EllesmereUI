@@ -3562,17 +3562,34 @@ function EABR:OnEnable()
     cursorAnchor:EnableMouse(false)
     cursorAnchor:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
     do
+        -- Cursor glue on the suite's shared cursor service (Tier A
+        -- motionOnly: per render frame while the cursor MOVES, parked at
+        -- rest -- a resting anchor needs no repositioning). Subscription
+        -- follows the frame's own OnShow/OnHide, which every show/hide
+        -- site passes through, mirroring the old hidden-frame-stops-
+        -- OnUpdate gate. OnShow snaps once via M.Get() so a cursor that
+        -- moved while the anchor was hidden never shows it stale.
         local lastMX, lastMY
-        cursorAnchor:SetScript("OnUpdate", function()
+        local function GlueBody(rawX, rawY)
             local s = UIParent:GetEffectiveScale()
-            local cx, cy = GetCursorPosition()
-            cx = floor(cx / s + 0.5)
-            cy = floor(cy / s + 0.5)
+            local cx = floor(rawX / s + 0.5)
+            local cy = floor(rawY / s + 0.5)
             if cx ~= lastMX or cy ~= lastMY then
                 lastMX, lastMY = cx, cy
                 cursorAnchor:ClearAllPoints()
                 cursorAnchor:SetPoint("CENTER", UIParent, "BOTTOMLEFT", cx, cy + 60)
             end
+        end
+        cursorAnchor:SetScript("OnShow", function()
+            local M = EllesmereUI.Mouse
+            if M then
+                GlueBody(M.Get())
+                M.SubscribeFrame("abrCursor", GlueBody, true)
+            end
+        end)
+        cursorAnchor:SetScript("OnHide", function()
+            local M = EllesmereUI.Mouse
+            if M then M.UnsubscribeFrame("abrCursor") end
         end)
     end
     -- Start hidden: OnUpdate only runs while :IsShown(), saving CPU

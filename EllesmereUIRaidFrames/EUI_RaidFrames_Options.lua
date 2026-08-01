@@ -85,6 +85,7 @@ initFrame:SetScript("OnEvent", function(self)
         else
             db.profile[key] = val
         end
+        if ns._BumpAbsorbGen then ns._BumpAbsorbGen() end
         ReloadAndUpdate()
     end
     local function SVal(key, default)
@@ -103,6 +104,7 @@ initFrame:SetScript("OnEvent", function(self)
         else
             db.profile[key] = val
         end
+        if ns._BumpAbsorbGen then ns._BumpAbsorbGen() end
     end
 
     ---------------------------------------------------------------------------
@@ -5307,6 +5309,7 @@ initFrame:SetScript("OnEvent", function(self)
                             db.profile.partySyncSections = {}
                         end
                         db.profile.partySyncSections[k] = v and true or false
+                        if ns._RefreshProxyModes then ns._RefreshProxyModes() end
                         -- Toggle overlay directly (no page rebuild needed)
                         local ov = ns._syncOverlays and ns._syncOverlays[k]
                         if ov then
@@ -5730,6 +5733,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if button ~= "LeftButton" then return end
                 if not db.profile.partySyncSections then db.profile.partySyncSections = {} end
                 db.profile.partySyncSections[sectionKey] = false
+                if ns._RefreshProxyModes then ns._RefreshProxyModes() end
                 self:Hide()
                 if ns.ReloadPartyFrames then ns.ReloadPartyFrames() end
                 if ns.partyPvActive and ns.partyPvActive() and ns.ShowPartyPreview then
