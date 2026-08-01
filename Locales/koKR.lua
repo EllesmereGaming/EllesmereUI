@@ -4107,6 +4107,9 @@ L["|cff20c020At maximum item level|r"] = "|cff20c020최대 아이템 레벨 도�
 -- 2026-07-27 신규 (편의 기능 6번)
 L["Adds Bonus Roll, Group Loot, and Alert Toast movers to Unlock Mode."] = "잠금 해제 모드에 추가 주사위 굴림, 그룹 전리품, 알림 팝업 이동 도구를 추가합니다."
 L["Alert Toasts"] = "알림 팝업"
+L["Loss of Control"] = "행동 불가"
+L["Loss of Control (on)"] = "행동 불가 (켜짐)"
+L["Loss of Control (off)"] = "행동 불가 (꺼짐)"
 L["Enable Text-to-Speech first"] = "먼저 텍스트 음성 변환을 활성화하세요"
 L["Text-to-Speech is enabled below and takes priority over Sound."] = "아래에서 텍스트 음성 변환이 활성화되어 있으며 소리보다 우선합니다."
 L["Disable Loot unlock mode overlays in Shifter once done positioning"] = "위치 조정을 마치면 Shifter에서 전리품 잠금 해제 모드 오버레이를 끄세요"
