@@ -189,7 +189,8 @@ initFrame:SetScript("OnEvent", function(self)
                 _G._EBS_BlipDragTimer = C_Timer.NewTimer(0.2, function()
                     RefreshMinimap()
                 end)
-              end })
+              end },
+            { type="label", text="" })
         y = y - h
 
         h = BuildVisibilityRow(W, parent, y, MinimapDB, RefreshMinimap);  y = y - h
