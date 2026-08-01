@@ -954,11 +954,32 @@ ns.PAB_ApplyLiveConfig = ApplyLiveConfig
 -- Bridge for EllesmereUF:GetGrowDirectionForBar/SetGrowDirectionForBar (see
 -- snippet to add in EllesmereUIUnitFrames.lua). Kept here, not inlined
 -- there, so the settings-field names stay defined in one place.
+--
+-- Also handles custom-bar keys ("PAB_CustomBuff_<id>" / "PAB_CustomDebuff_
+-- <id>", the unlock-mode keys RegisterPABCustomUnlock registers below) --
+-- EUI_UnlockMode.lua's Grow dropdown dispatches to this bridge for ANY
+-- barKey prefixed "PAB_", not just the two default bars, so custom bars
+-- need their own branch here or the dropdown silently no-ops on them
+-- (2026-08-02 fix: originally only recognized the two literal default keys).
+-- ns.PAB_ReloadCustomBuffBar/DebuffBar are called (not a direct
+-- BuildContainerSpec/SetContainerGrowth call) since the spell/class
+-- signature is unchanged and they already re-apply corner + growth on that
+-- cheap path -- see those functions' own doc comments.
 function ns.PAB_GetGrowDirection(barKey)
     local s = PAB()
     if not s then return "LEFT" end
     if barKey == "PAB_Buffs" then return DefaultBuffsCfg(s).growDirection or "LEFT" end
     if barKey == "PAB_Debuffs" then return DefaultDebuffsCfg(s).growDirection or "LEFT" end
+    local buffId = barKey:match("^PAB_CustomBuff_(%d+)$")
+    if buffId then
+        local bar = ns.PAB_GetCustomBuffBar(tonumber(buffId))
+        return bar and (bar.growDirection or "LEFT") or "LEFT"
+    end
+    local debuffId = barKey:match("^PAB_CustomDebuff_(%d+)$")
+    if debuffId then
+        local bar = ns.PAB_GetCustomDebuffBar(tonumber(debuffId))
+        return bar and (bar.growDirection or "LEFT") or "LEFT"
+    end
     return "LEFT"
 end
 
@@ -968,9 +989,29 @@ function ns.PAB_SetGrowDirection(barKey, dir)
     if barKey == "PAB_Buffs" then
         DefaultBuffsCfg(s).growDirection = dir
         ApplyLiveConfig(true)
+        return
     elseif barKey == "PAB_Debuffs" then
         DefaultDebuffsCfg(s).growDirection = dir
         ApplyLiveConfig(false)
+        return
+    end
+    local buffId = barKey:match("^PAB_CustomBuff_(%d+)$")
+    if buffId then
+        local bar = ns.PAB_GetCustomBuffBar(tonumber(buffId))
+        if bar then
+            bar.growDirection = dir
+            ns.PAB_ReloadCustomBuffBar(bar.id)
+        end
+        return
+    end
+    local debuffId = barKey:match("^PAB_CustomDebuff_(%d+)$")
+    if debuffId then
+        local bar = ns.PAB_GetCustomDebuffBar(tonumber(debuffId))
+        if bar then
+            bar.growDirection = dir
+            ns.PAB_ReloadCustomDebuffBar(bar.id)
+        end
+        return
     end
 end
 
