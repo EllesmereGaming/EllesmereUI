@@ -1888,6 +1888,17 @@ local function ReloadCustomBuffBarImpl(barId)
 
     local styleKey = CustomBuffStyleKey(barId)
     AK.styles[styleKey] = BuildStyle(true, bar)
+    -- Bug fix (2026-08-02): missing counterpart to RestyleBars' own
+    -- AK.RestyleSoon(STYLE_BUFFS)/(STYLE_DEBUFFS) for the two default bars.
+    -- Without this, writing AK.styles[styleKey] alone only affects buttons
+    -- created AFTER this point (MakeInitializer runs once per button, see
+    -- its own doc comment) -- any style-only edit (icon zoom, swipe,
+    -- stack/duration position, ...) on a custom bar whose container/buttons
+    -- already exist (the "spell list unchanged" cheap path further below)
+    -- silently kept rendering the OLD style until the container was
+    -- released and rebuilt for an unrelated reason. RestyleSoon re-runs
+    -- ApplyStyleToRegions against every already-live button under that key.
+    AK.RestyleSoon(styleKey)
 
     local parent = customBuffParents[barId]
     if not parent then
@@ -2011,6 +2022,8 @@ local function ReloadCustomDebuffBarImpl(barId)
 
     local styleKey = CustomDebuffStyleKey(barId)
     AK.styles[styleKey] = BuildStyle(false, bar)
+    -- Same bug fix as ReloadCustomBuffBarImpl above.
+    AK.RestyleSoon(styleKey)
 
     local parent = customDebuffParents[barId]
     if not parent then
