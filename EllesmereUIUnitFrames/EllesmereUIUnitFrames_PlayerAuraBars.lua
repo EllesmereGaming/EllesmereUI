@@ -128,7 +128,12 @@ local function ClassEnabled(class, isBuff, cfg)
     -- saved classFilters table, so turning it back off restores exactly
     -- what was configured before. Debuffs only -- buffs no longer read
     -- classFilters at all (BM2/filters model, see engine-wiring section).
-    if not isBuff and cfg.showAllDebuffs then return false end
+    -- ~= false (not == true): defaults to ON like showAllBuffs, so nil
+    -- (unconfigured bar) behaves the same as an explicit true -- 2026-08-02
+    -- symmetry fix, matches showAllBuffs' own "nil == on" convention (see
+    -- BuildAssignedBuffsFields' doc comment, which used to flag this as the
+    -- one deliberate asymmetry between the two).
+    if not isBuff and cfg.showAllDebuffs ~= false then return false end
     -- playerUnitOnly classes (currently just "nonplayer") always apply --
     -- this module only ever targets the player unit.
     return cfg.classFilters and cfg.classFilters[class.skey] == true
@@ -236,14 +241,13 @@ local STYLE_DEBUFFS = "playerAuraBars_debuffs"
 --   used via the always-catch-all showAllBuffs group, never per-class.)
 -- Debuff bars (default AND custom):
 --   classFilters                      ([classSkey]=true)
---   showAllDebuffs                    (bypasses classFilters entirely when
---                                      true, same semantics as RaidFrames'
---                                      DebuffManager "Show All" toggle --
---                                      defaults to FALSE here, not true like
---                                      DM, so existing configured classFilters
---                                      keep working unchanged after upgrade;
---                                      flag this default-direction choice if
---                                      you'd rather match DM exactly)
+--   showAllDebuffs                    (bypasses classFilters entirely unless
+--                                      explicitly false. Defaults to TRUE
+--                                      (nil == on) as of 2026-08-02, mirroring
+--                                      showAllBuffs' own default -- previously
+--                                      defaulted to false/off, unlike
+--                                      RaidFrames' DebuffManager "Show All"
+--                                      which always defaulted to true)
 --   dispelColorMagic/Curse/Disease/Poison/Bleed  (optional Color-like {r,g,b};
 --                                      falls back to the same palette as
 --                                      Raid Frames if unset)
@@ -345,13 +349,13 @@ local function BuildStyle(isBuff, cfg)
     -- SetPoint expects -- normalized here so a mismatched-case default or
     -- Options write can't silently mis-anchor or error.
     local durSide = string.upper(cfg.durationPosition or "BOTTOM")
-    local stackSide = string.upper(cfg.stackPosition or "BOTTOMRIGHT")
+    local stackSide = string.upper(cfg.stackPosition or "TOP")
 
     local style = {
         width = cfg.iconSize or 32,
         height = cfg.iconSize or 32,
         iconCrop = true,
-        iconZoom = iconZoom or 0.07,
+        iconZoom = iconZoom or 0.055,
 
         cooldownReverse = true,
         hideSwipe = false,
@@ -361,14 +365,14 @@ local function BuildStyle(isBuff, cfg)
         durationPoint = OPPOSITE_POINT[durSide] or "TOP",
         durationRelPoint = durSide,
         durationX = cfg.durationOffsetX or 0,
-        durationY = cfg.durationOffsetY or -2,
+        durationY = cfg.durationOffsetY or 0,
         durationColor = cfg.durationColorR and
             { r = cfg.durationColorR, g = cfg.durationColorG, b = cfg.durationColorB } or nil,
 
-        stackFontSize = cfg.stackTextSize or 12,
+        stackFontSize = cfg.stackTextSize or 11,
         stackPoint = stackSide,
-        stackX = cfg.stackOffsetX or 2,
-        stackY = cfg.stackOffsetY or -2,
+        stackX = cfg.stackOffsetX or 0,
+        stackY = cfg.stackOffsetY or 0,
         showStacks = cfg.stackShow ~= false,
         stackColor = cfg.stackColorR and
             { r = cfg.stackColorR, g = cfg.stackColorG, b = cfg.stackColorB } or nil,
@@ -479,12 +483,19 @@ end
 -- cap): iconsPerRow (columns), maxRows. Effective cap = min(configured
 -- maxTotal, maxRows * iconsPerRow) -- e.g. maxTotal=10 with a 5x5 grid
 -- still shows at most 10, using 2 rows.
+--
+-- iconsPerRow/maxRows/maxTotal fallbacks are isBuff-conditional (11x3=32 for
+-- buffs, 8x2=16 for debuffs) -- only reached when a bar doesn't set these
+-- fields itself, i.e. the two default bars (Joel's chosen starting values,
+-- 2026-08-02). Every custom bar sets all three explicitly at creation
+-- (PAB_AddCustomBuffBar/DebuffBar, 8x1=8 for both), so this fallback is
+-- default-bar-only in practice.
 local function ComputeGrid(isBuff, cfg)
     local iconSize = cfg.iconSize or 32
-    local pad = cfg.padding or 4
-    local cols = math.max(1, cfg.iconsPerRow or 8)
-    local rows = math.max(1, cfg.maxRows or 4)
-    local configuredMax = cfg.maxTotal or 32
+    local pad = cfg.padding or 5
+    local cols = math.max(1, cfg.iconsPerRow or (isBuff and 11 or 8))
+    local rows = math.max(1, cfg.maxRows or (isBuff and 3 or 2))
+    local configuredMax = cfg.maxTotal or (isBuff and 32 or 16)
     local effectiveMax = math.min(configuredMax, rows * cols)
     -- Actual rows needed for the effective cap, never more than the row limit
     local usedRows = math.min(rows, math.max(1, math.ceil(effectiveMax / cols)))
@@ -669,8 +680,8 @@ local function CreateBars()
     -- the whole grid away from its fixed corner as padding grew instead of
     -- only widening gaps between icons. Outer edge inset is fixed at 0
     -- below instead.
-    local buffPad = buffCfg.padding or 4
-    local debuffPad = debuffCfg.padding or 4
+    local buffPad = buffCfg.padding or 5
+    local debuffPad = debuffCfg.padding or 5
 
     local _, buffSpec = BuildContainerSpec(buffsParent, buffCfg, buffGrid)
     local _, debuffSpec = BuildContainerSpec(debuffsParent, debuffCfg, debuffGrid)
@@ -873,7 +884,7 @@ local function ApplyLiveConfig(isBuff)
 
     local FlowDir = AnchorUtil and AnchorUtil.FlowDirection
     local corner = CornerFor(cfg.growDirection or "LEFT")
-    local pad = cfg.padding or 4
+    local pad = cfg.padding or 5
 
     -- Outer frame anchor is a plain SetPoint, not an AK-managed field --
     -- live-settable directly, same as any other frame anchor.
@@ -1595,7 +1606,14 @@ function ns.PAB_AddCustomBuffBar(name)
         filters = {},         -- [filterId] = true (BM2-style assigned filters)
         spells = {},           -- {spellID, ...} direct/custom spells
         ownOnlySpells = {},    -- [spellID] = bool
-        growDirection = "RIGHT",
+        growDirection = "LEFT",
+        -- Starting grid (2026-08-02, Joel's chosen values): a compact
+        -- single row, distinct from the default bars' own ComputeGrid
+        -- fallback (11x3 for buffs) -- a freshly-added custom bar is meant
+        -- to start small, not inherit the default bar's larger grid.
+        iconsPerRow = 8,
+        maxRows = 1,
+        maxTotal = 8,
     }
     s.customBuffBars[#s.customBuffBars + 1] = bar
     return bar
@@ -1610,7 +1628,11 @@ function ns.PAB_AddCustomDebuffBar(name)
         name = name or "New Debuff Bar",
         enabled = true,
         classFilters = {},    -- [classKey] = true, same vocabulary as BuildChain
-        growDirection = "RIGHT",
+        growDirection = "LEFT",
+        -- Same starting-grid reasoning as PAB_AddCustomBuffBar above.
+        iconsPerRow = 8,
+        maxRows = 1,
+        maxTotal = 8,
     }
     s.customDebuffBars[#s.customDebuffBars + 1] = bar
     return bar
@@ -1688,10 +1710,15 @@ local pabRegisteredCustomBuffKeys, pabRegisteredCustomDebuffKeys
 local function CustomBuffStyleKey(barId) return "playerAuraBars_customBuff_" .. barId end
 local function CustomDebuffStyleKey(barId) return "playerAuraBars_customDebuff_" .. barId end
 
--- Default anchor for a bar with no saved position yet. Offsetting by index
--- keeps freshly-created bars from stacking exactly on top of each other.
+-- Default anchor for a bar with no saved position yet -- the SAME fixed
+-- spot (screen center, slight upward offset) for every bar, not staggered
+-- by barId (2026-08-02, Joel's explicit request): since this is only ever
+-- read as a fallback for a bar that has no bar.pos, a bar that's been
+-- dragged elsewhere keeps its own saved position regardless, while any
+-- bar still untouched -- 1st, 2nd, 3rd, ... -- always starts from this
+-- same default until the user moves it.
 local function DefaultCustomPos(barId)
-    return { point = "CENTER", relPoint = "CENTER", x = 0, y = -120 - ((barId % 8) * 40) }
+    return { point = "CENTER", relPoint = "CENTER", x = 0, y = 80 }
 end
 
 -- Applies bar.pos (or the default) to a custom bar's parent frame. Mirrors
@@ -1891,7 +1918,7 @@ local function ReloadCustomBuffBarImpl(barId)
             -- catch-all chain (ApplyGroupConfig is idempotent and
             -- self-zeroes it when Show All Buffs is off).
             if #spells > 0 then
-                local livePad = bar.padding or 4
+                local livePad = bar.padding or 5
                 container:SetAuraGroupMaxFrameCount("spells", grid.effectiveMax)
                 container:SetAuraGroupLayout("spells", {
                     elementSpacing = livePad, lineSpacing = livePad,
@@ -1899,7 +1926,7 @@ local function ReloadCustomBuffBarImpl(barId)
                 })
             end
             customBuffDeclared[barId] = customBuffDeclared[barId] or {}
-            ApplyGroupConfig(container, allChain, customBuffDeclared[barId], styleKey, grid.effectiveMax, bar.padding or 4)
+            ApplyGroupConfig(container, allChain, customBuffDeclared[barId], styleKey, grid.effectiveMax, bar.padding or 5)
             return -- nothing structural to rebuild
         end
         AK.ReleaseContainer(container) -- safe: dedicated container, see doc comment above
@@ -1907,7 +1934,7 @@ local function ReloadCustomBuffBarImpl(barId)
     end
 
     local _, spec = BuildContainerSpec(parent, bar, grid)
-    local pad = bar.padding or 4
+    local pad = bar.padding or 5
     AK.RequestContainer(parent, "player", spec, function(container)
         customBuffContainers[barId] = container
         customBuffSig[barId] = sig
@@ -1981,7 +2008,7 @@ local function ReloadCustomDebuffBarImpl(barId)
 
     local chain = BuildChain("HARMFUL", function(class) return ClassEnabled(class, false, bar) end)
     local corner, spec = BuildContainerSpec(parent, bar, grid)
-    local pad = bar.padding or 4
+    local pad = bar.padding or 5
 
     if not customDebuffContainers[barId] then
         AK.RequestContainer(parent, "player", spec, function(container)

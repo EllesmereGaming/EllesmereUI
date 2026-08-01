@@ -177,7 +177,7 @@ end
 -- spells concept on the debuff side -- custom debuff bars are pure
 -- class-token selection, see ns.PAB_AddCustomDebuffBar).
 local function BuildDebuffBarSubtitle(bar)
-    if bar.showAllDebuffs == true then
+    if bar.showAllDebuffs ~= false then
         return L("Show All Debuffs")
     end
     local nc = 0
@@ -215,10 +215,10 @@ local function BuildAssignedBuffsFields(frame, fontPath, sy, cfg, apply)
 
     -- "Show All Buffs" + "Filters": mirrors BuildAssignedDebuffsFields'
     -- Show All Debuffs/Base Filters row exactly (same blocking-overlay
-    -- pattern), just with buffs' default flipped -- cfg.showAllBuffs
-    -- defaults to true (nil == on, see CreateBars'/ApplyLiveConfig's own
-    -- `~= false` checks), not false like showAllDebuffs, so the stored
-    -- value is written directly rather than normalized to nil/true.
+    -- pattern AND, since 2026-08-02, the same "nil == on" default -- see
+    -- CreateBars'/ApplyLiveConfig's own `~= false` checks). The stored
+    -- value is written directly rather than normalized to nil/true, same
+    -- as showAllDebuffs' own setValue now does.
     local safRow
     safRow, hh = W:DualRow(frame, sy,
         {
@@ -427,9 +427,14 @@ local function BuildAssignedDebuffsFields(frame, fontPath, sy, cfg, apply)
         {
             type = "toggle", text = "Show All Debuffs",
             tooltip = "Show every debuff. The Base Filters dropdown is ignored while this is on.",
-            getValue = function() return cfg.showAllDebuffs == true end,
+            -- ~= false (not == true): defaults to ON, mirrors Show All
+            -- Buffs' own "nil == on" convention (2026-08-02 symmetry fix).
+            -- Stores the raw boolean directly, same as showAllBuffs'
+            -- setValue -- NOT normalized to nil/true, since nil must mean
+            -- "on" now, the opposite of what it meant before this fix.
+            getValue = function() return cfg.showAllDebuffs ~= false end,
             setValue = function(v)
-                cfg.showAllDebuffs = v or nil
+                cfg.showAllDebuffs = v
                 apply()
                 EllesmereUI:RefreshPage(true)
             end
@@ -476,7 +481,7 @@ local function BuildAssignedDebuffsFields(frame, fontPath, sy, cfg, apply)
         end)
         block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
         local function UpdateState()
-            local allOn = cfg.showAllDebuffs == true
+            local allOn = cfg.showAllDebuffs ~= false
             cbDD:SetAlpha(allOn and 0.4 or 1)
             block:SetShown(allOn)
         end
