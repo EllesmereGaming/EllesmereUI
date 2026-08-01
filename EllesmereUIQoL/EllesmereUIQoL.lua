@@ -2149,7 +2149,7 @@ do
         local fs = durWarnOverlay:CreateFontString(nil, "OVERLAY")
         fs:SetFont(EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF", 18, EllesmereUI.GetFontOutlineFlag("extras"))
         fs:SetPoint("CENTER")
-        fs:SetText("Low Durability")
+        fs:SetText(EllesmereUI.L("Low Durability"))
         durWarnOverlay._text = fs
 
         local function ApplySettings()
@@ -2191,7 +2191,7 @@ do
 
         durWarnOverlay._show = function(pct)
             ApplySettings()
-            durWarnOverlay._text:SetText("Low Durability (" .. math.floor(pct) .. "%)")
+            durWarnOverlay._text:SetText(EllesmereUI.Lf("Low Durability (%d%%)", math.floor(pct)))
             durWarnOverlay:Show()
             ag:Play()
         end
@@ -2212,7 +2212,7 @@ do
     EllesmereUI._durWarnPreview = function()
         CreateDurabilityWarning()
         durWarnOverlay._show(25)
-        durWarnOverlay._text:SetText("Low Durability (Preview)")
+        durWarnOverlay._text:SetText(EllesmereUI.L("Low Durability (Preview)"))
     end
 
     EllesmereUI._durWarnHidePreview = function()
