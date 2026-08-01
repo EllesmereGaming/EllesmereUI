@@ -448,7 +448,14 @@ local function BuildDebuffStyle(s, sizeOverride)
         stackColor = s.debuffStacksTextColor,
         stackOffX = s.debuffStacksOffsetX,
         stackOffY = s.debuffStacksOffsetY,
-        noTooltips = s.debuffHideTooltips ~= false,
+        -- 4-state tooltip mode (12.1): true/nil = hidden (legacy default),
+        -- false = shown, "combat" = hidden in combat, "cursor" = shown at
+        -- the cursor. The raw key is already in DebuffStyleFP, so mode
+        -- edits restyle without extra FP terms.
+        noTooltips = not (s.debuffHideTooltips == false
+            or s.debuffHideTooltips == "combat" or s.debuffHideTooltips == "cursor"),
+        tooltipCombatHide = s.debuffHideTooltips == "combat",
+        tooltipAnchor = (s.debuffHideTooltips == "cursor") and "cursor" or nil,
         -- Base DM Effects (per-filter blocks); tile styles override this
         -- after the build with their own (or nil).
         fxList = (ns.DM_FxList and ns.DM_FxList()) or nil,
@@ -1386,9 +1393,18 @@ end
 -- on -- and unlike the legacy path it shows the real aura even while secret.
 -- Mirrors the legacy pools' BM_SetTipTarget gating; effect slots (healthcolor/
 -- border) stay motion-off always since they overlay the health bar.
-local function BmTipsOff()
+-- 4-state mode (12.1): true/nil = hidden (legacy default), false = shown,
+-- "combat" = hidden in combat, "cursor" = shown at the cursor.
+local function BmTipMode()
     local p = ns.db and ns.db.profile
-    return not p or p.buffHideTooltips ~= false
+    local v = p and p.buffHideTooltips
+    if v == nil then v = true end
+    return v
+end
+
+local function BmTipsOff()
+    local v = BmTipMode()
+    return not (v == false or v == "combat" or v == "cursor")
 end
 
 local function BuildBmIconStyle(ind, iscale, size)
@@ -1419,6 +1435,8 @@ local function BuildBmIconStyle(ind, iscale, size)
         alpha = (ind.iconOpacity or 100) / 100,
         levelOffset = BM_FRAMELVL[ind.frameLevel or "medium"] or 13,
         noTooltips = BmTipsOff(),
+        tooltipCombatHide = BmTipMode() == "combat",
+        tooltipAnchor = (BmTipMode() == "cursor") and "cursor" or nil,
         bmGlowType = ind.displayGlowType or 0,
         bmGlowClassColor = ind.displayGlowClassColor,
         bmGlowR = ind.displayGlowR,
@@ -1639,12 +1657,17 @@ local function BuildBmStyleFor(kind, ind, iscale, size, spellID)
             stackOffX = ind.stacksOffsetX or -1,
             stackOffY = ind.stacksOffsetY or 2,
             noTooltips = BmTipsOff(),
+            tooltipCombatHide = BmTipMode() == "combat",
+            tooltipAnchor = (BmTipMode() == "cursor") and "cursor" or nil,
             applyExtra = BmApplySquare,
         }
     end
     if kind == "bar" then
         return { width = 1, height = 1, noRegions = true, ind = ind,
-            noTooltips = BmTipsOff(), applyExtra = BmApplyBar }
+            noTooltips = BmTipsOff(),
+            tooltipCombatHide = BmTipMode() == "combat",
+            tooltipAnchor = (BmTipMode() == "cursor") and "cursor" or nil,
+            applyExtra = BmApplyBar }
     end
     return { width = 1, height = 1, noRegions = true, ind = ind, applyExtra = BmApplyEffect }
 end
@@ -1924,18 +1947,18 @@ local function BmVisualKey(kind, ind, size, font, spellID)
             ind.showDuration, ind.showDurationText, ind.durationTextSize, CK(ind.durationTextColor),
             ind.durationTextOffsetX, ind.durationTextOffsetY, ind.thresholdEnabled, ind.threshold,
             CK(ind.thresholdColor), ind.showStacks, ind.stacksTextSize, CK(ind.stacksTextColor),
-            ind.stacksOffsetX, ind.stacksOffsetY, ind.frameLevel, BmTipsOff())
+            ind.stacksOffsetX, ind.stacksOffsetY, ind.frameLevel, tostring(BmTipMode()))
     end
     if kind == "square" then
         return FP(font, size, CK(BmSquareColor(ind, spellID)), ind.showDuration, ind.indBorderSize,
             CK(ind.indBorderColor), ind.frameLevel, ind.showDurationText, ind.durationTextSize,
             CK(ind.durationTextColor), ind.durationTextOffsetX, ind.durationTextOffsetY,
             ind.thresholdEnabled, ind.threshold, CK(ind.thresholdColor), ind.showStacks,
-            ind.stacksTextSize, CK(ind.stacksTextColor), ind.stacksOffsetX, ind.stacksOffsetY, BmTipsOff())
+            ind.stacksTextSize, CK(ind.stacksTextColor), ind.stacksOffsetX, ind.stacksOffsetY, tostring(BmTipMode()))
     end
     if kind == "bar" then
         return FP(CK(ind.color), ind.barColorOpacity, ind.reverseFill,
-            CK(ind.barBgColor), ind.barBgOpacity, ind.frameLevel, BmTipsOff())
+            CK(ind.barBgColor), ind.barBgOpacity, ind.frameLevel, tostring(BmTipMode()))
     end
     return FP(ind.type, CK(ind.color), ind.opacity, ind.borderWidth, ind.borderOpacity)
 end
@@ -2032,7 +2055,7 @@ end
 local function BmSimpleStyleFP(bs, font, iscale)
     return FP(font, iscale, bs.size, bs.iconZoom, bs.borderSize, CK(bs.borderColor), bs.showSwipe,
         bs.showDurText, bs.durTextSize, CK(bs.durTextColor), bs.durTextOffsetX, bs.durTextOffsetY,
-        BmTipsOff())
+        tostring(BmTipMode()))
 end
 
 local function BmSimpleGeoFP(bs, iscale, s)
@@ -2078,6 +2101,8 @@ local function BuildBmSimpleStyle(bs, iscale)
         durOffY = bs.durTextOffsetY,
         showStacks = false, -- the legacy grid has no stack text
         noTooltips = BmTipsOff(),
+        tooltipCombatHide = BmTipMode() == "combat",
+        tooltipAnchor = (BmTipMode() == "cursor") and "cursor" or nil,
         applyExtra = ApplyBmSimpleExtra,
     }
 end

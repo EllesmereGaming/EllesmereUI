@@ -5,6 +5,16 @@
 -- for filter-string normalization (exact-string dedup inside the engine),
 -- decoration presets, the restyle registry, and combat-safe creation.
 
+-- LIVE GATE: everything below drives the 12.1 aura container engine
+-- (AuraContainer templates, engine bindings, restriction state). Pre-12.1
+-- clients get no AuraKit at all: EllesmereUI.AuraKit stays nil, every
+-- consumer either nil-guards or is itself a 12.1-gated file (audited
+-- 2026-07-27), and none of the workers/watchers below are created -- the
+-- restyler, build worker, lift watcher and burst frame simply never exist,
+-- so live pays zero and profiling never shows AuraKit again. Standard
+-- dual-client gate; dissolves with the 12.1 cleanup pass.
+if not (EllesmereUI and EllesmereUI.IS_121) then return end
+
 local AK = {}
 EllesmereUI.AuraKit = AK
 
@@ -382,6 +392,79 @@ local function ApplyStyleToRegions(button, style)
         end
     end
 
+    -- Tooltip behavior (68914 button APIs): combat-only hiding and anchor
+    -- overrides from the 4-state tooltip mode (style.tooltipCombatHide /
+    -- style.tooltipAnchor = "cursor"). Button-surface calls: change-guarded,
+    -- stamped on success only, deferred to the restriction lift when denied.
+    -- API-existence guards keep stale builds inert. Skipped entirely for
+    -- noTooltips styles: these buttons must never show a tooltip, and
+    -- configuring tooltip behaviour re-arms the button's mouse as a side
+    -- effect (the nameplate click/tooltip eater), so never touch the tooltip
+    -- surface of a button that has no tooltip to configure.
+    if not style.noTooltips then
+        -- Style flip noTooltips -> tooltips (e.g. the unit-frame aura-tooltip
+        -- toggle re-enabled): this button's motion was disabled by the pass
+        -- below, and the tooltip-config calls underneath are change-guarded by
+        -- stamps that still match, so nothing else would re-arm it. Re-enable
+        -- explicitly, only for buttons we ourselves turned off (akMotionOff),
+        -- so buttons that were never noTooltips see zero new calls.
+        if d.akMotionOff and button.SetMouseMotionEnabled then
+            if pcall(button.SetMouseMotionEnabled, button, true) then
+                d.akMotionOff = nil
+            elseif d.styleKey and AK.AurasRestricted() then
+                deferredRestyles[d.styleKey] = true
+            end
+        end
+        if button.SetHideTooltipInCombat then
+            local wantCombat = style.tooltipCombatHide and true or false
+            if d.akTipCombat ~= wantCombat then
+                if pcall(button.SetHideTooltipInCombat, button, wantCombat) then
+                    d.akTipCombat = wantCombat
+                elseif d.styleKey and AK.AurasRestricted() then
+                    deferredRestyles[d.styleKey] = true
+                end
+            end
+        end
+        if button.SetTooltipAnchorPoint then
+            local wantAnchor = (style.tooltipAnchor == "cursor")
+                and "ANCHOR_CURSOR" or "ANCHOR_BOTTOMLEFT"
+            if d.akTipAnchor ~= wantAnchor then
+                if pcall(button.SetTooltipAnchorPoint, button, wantAnchor) then
+                    d.akTipAnchor = wantAnchor
+                elseif d.styleKey and AK.AurasRestricted() then
+                    deferredRestyles[d.styleKey] = true
+                end
+            end
+        end
+    end
+
+    -- Re-assert the mouse state the style wants. It has to run AFTER the
+    -- tooltip calls above: configuring tooltip behaviour on an engine button
+    -- turns its mouse back on, which silently re-opened the nameplate
+    -- click-eater. Motion needs the same treatment: the module motion passes
+    -- are change-guarded by stamps that still read "off" after the engine
+    -- flips it back, so they never repair it (field evidence: debuff tooltips
+    -- appearing over empty space beside nameplates, whose styles set
+    -- noTooltips). Running here also covers every Restyle, so a settings
+    -- change cannot re-open either one. Same deferral as the neighbours above
+    -- when the button is locked down while auras are secret.
+    if not style.cancelButtons and button.SetMouseClickEnabled then
+        if not pcall(button.SetMouseClickEnabled, button, false)
+            and d.styleKey and AK.AurasRestricted() then
+            deferredRestyles[d.styleKey] = true
+        end
+    end
+    if style.noTooltips and button.SetMouseMotionEnabled then
+        if pcall(button.SetMouseMotionEnabled, button, false) then
+            -- Deliberately re-asserted every pass (the engine re-arms motion
+            -- as a side effect of tooltip config); the stamp only records
+            -- that WE own the off state, for the flip-back re-arm above.
+            d.akMotionOff = true
+        elseif d.styleKey and AK.AurasRestricted() then
+            deferredRestyles[d.styleKey] = true
+        end
+    end
+
     -- Module-specific styling pass; runs at init and on every Restyle.
     if style.applyExtra then
         style.applyExtra(button, d, style)
@@ -491,9 +574,17 @@ function AK.MakeInitializer(styleKey, extra)
         -- Level order above the swipe: border first (as close to the icon
         -- as possible), then the text carrier -- duration/stack text must
         -- never render behind the border strips.
+        -- The three holders below are pure art/text carriers stacked over the
+        -- whole button, so none of them may take mouse input: on a NAMEPLATE
+        -- aura they sit between the cursor and the plate's own click region,
+        -- and a click that lands on one is swallowed instead of switching
+        -- target -- unmissable in M+, where every enemy plate is covered in
+        -- debuff icons. The button itself keeps its mouse for tooltips.
+        -- (EUI_Nameplates_AuraContainers does the same for its glow host.)
         d.borderHost = CreateFrame("Frame", nil, button)
         d.borderHost:SetAllPoints(button)
         d.borderHost:SetFrameLevel(d.cooldown:GetFrameLevel() + 1)
+        d.borderHost:EnableMouse(false)
 
         -- Dispel-ring holder: its own frame between the border host and the
         -- text carrier so the engine-tinted ring ALWAYS WINS over every
@@ -507,14 +598,31 @@ function AK.MakeInitializer(styleKey, extra)
         d.dispelHolder = CreateFrame("Frame", nil, button)
         d.dispelHolder:SetAllPoints(button)
         d.dispelHolder:SetFrameLevel(d.borderHost:GetFrameLevel() + 3)
+        d.dispelHolder:EnableMouse(false)
 
         -- Stack and duration text ride a carrier frame above the cooldown,
         -- borders and dispel ring so none of them can cover the text.
         d.stackCarrier = CreateFrame("Frame", nil, button)
         d.stackCarrier:SetAllPoints(button)
         d.stackCarrier:SetFrameLevel(d.borderHost:GetFrameLevel() + 4)
+        d.stackCarrier:EnableMouse(false)
         d.stack = d.stackCarrier:CreateFontString(nil, "OVERLAY")
         d.duration = d.stackCarrier:CreateFontString(nil, "OVERLAY")
+
+        -- Engine aura buttons come CLICK-enabled. On nameplates a click-alive
+        -- icon sits between the cursor and the plate's click region, eating
+        -- target-switch clicks (measured in-game: the M+ "takes several
+        -- clicks to swap target" report was an EUI plate aura icon with
+        -- clicks on). This is the ONLY reliable place to turn them off:
+        -- post-creation writes on the button are denied in secret contexts
+        -- (12.x DenyTaintedAccessWhenAurasAreSecret), which is combat --
+        -- exactly when it matters. Motion stays per-style so tooltips keep
+        -- working where styles want them. Styles that wire a click action
+        -- (cancelButtons: player buffs right-click-to-cancel, applied below)
+        -- keep their clicks -- those buttons overlay nothing clickable.
+        if not style.cancelButtons then
+            pcall(button.SetMouseClickEnabled, button, false)
+        end
 
         ApplyStyleToRegions(button, style)
 

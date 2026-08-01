@@ -2896,16 +2896,30 @@ function EMT:OnEnable()
                     end
                 end,
                 loadPos = function()
-                    -- Unlock Mode expects { point, relPoint, x, y }; we store
-                    -- centerX/centerY in UIParent-logical units.
+                    -- RAW UIParent-logical units, NOT _centerPosFromSaved.
+                    -- savePos stores UIParent-logical centerX/centerY, and the
+                    -- consumers of loadPos (Unlock Mode's centralized
+                    -- ApplySavedPositions pass in particular) divide by the
+                    -- frame's scale themselves at SetPoint time. Returning the
+                    -- scale-divided value here made that pass divide TWICE:
+                    -- its SetPoint landed at stored/scale on screen, shrinking
+                    -- a scaled floating timer toward screen center on every
+                    -- pass -- the "wrong place at every key start, unlock
+                    -- mode fixes it" field report (/emtdbg capture: our apply
+                    -- wrote 696.3 at scale 1.26 = 877 on screen, then the
+                    -- centralized pass stomped it with 552.6 = 696 on
+                    -- screen). At scale 1.0 both forms are identical, which
+                    -- is why only scaled timers ever drifted. The /scale
+                    -- division belongs ONLY at the module's own SetPoint
+                    -- (ApplyStandalonePosition / _centerPosFromSaved), never
+                    -- in the interchange format.
                     local pos = db.profile.standalonePos
-                    local sx, sy = _centerPosFromSaved(pos)
-                    if sx == nil then return nil end
+                    if not (pos and pos.centerX and pos.centerY) then return nil end
                     return {
                         point = "CENTER",
                         relPoint = "CENTER",
-                        x = sx,
-                        y = sy,
+                        x = pos.centerX,
+                        y = pos.centerY,
                     }
                 end,
                 clearPos = function()

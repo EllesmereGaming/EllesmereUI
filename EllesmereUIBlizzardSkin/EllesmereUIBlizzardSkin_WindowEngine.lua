@@ -144,7 +144,7 @@ local function Register(frame, keep)
 end
 WSkin.Register = Register
 
-local PROTECT_KEYS = { "bg", "bgOverlay", "modernBg", "hover", "selBar", "rightShade", "fill", "x", "topBar", "arrow", "caret" }
+local PROTECT_KEYS = { "bg", "bgOverlay", "modernBg", "hover", "selBar", "rightShade", "fill", "x", "topBar", "bottomBar", "arrow", "caret" }
 local function Restrip()
     for frame, keep in pairs(_restrip) do
         if frame and not frame:IsForbidden() then
@@ -274,12 +274,31 @@ function WSkin.Shell(winKey, frame, opts)
 
         -- Black top bar behind the window title. Sits above both style
         -- backdrops (-8/-7/-6) and below all content and the border overlay.
-        local topBar = frame:CreateTexture(nil, "BACKGROUND", nil, -5)
-        topBar:SetColorTexture(0, 0, 0, 0.5)
-        topBar:SetPoint("TOPLEFT")
-        topBar:SetPoint("TOPRIGHT")
-        topBar:SetHeight(25)
-        d.topBar = topBar
+        -- opts.noTopBar skips it for shells with no title row of their own
+        -- (loot toasts and other small popups), where a 25px bar would just be
+        -- a dark stripe across the top.
+        if not (opts and opts.noTopBar) then
+            local topBar = frame:CreateTexture(nil, "BACKGROUND", nil, -5)
+            topBar:SetColorTexture(0, 0, 0, 0.5)
+            topBar:SetPoint("TOPLEFT")
+            topBar:SetPoint("TOPRIGHT")
+            topBar:SetHeight(25)
+            d.topBar = topBar
+        end
+        -- Matching bar along the BOTTOM, opt-in via opts.bottomBar (pass a
+        -- number for a height other than the top bar's 25). For windows that
+        -- carry a footer strip -- a currency row, a total, an action bar --
+        -- so it reads as a deliberate band rather than content floating on
+        -- the backdrop. Same layer and color as the top bar, so the two match.
+        local bb = opts and opts.bottomBar
+        if bb then
+            local bottomBar = frame:CreateTexture(nil, "BACKGROUND", nil, -5)
+            bottomBar:SetColorTexture(0, 0, 0, 0.5)
+            bottomBar:SetPoint("BOTTOMLEFT")
+            bottomBar:SetPoint("BOTTOMRIGHT")
+            bottomBar:SetHeight(type(bb) == "number" and bb or 25)
+            d.bottomBar = bottomBar
+        end
     end
     if not (opts and opts.noBorder) then WSkin.AtlasBorder(frame) end
     WSkin.AdoptShell(winKey, frame)
@@ -1254,6 +1273,13 @@ end
 -- page nav, scroll bars.
 function WSkin.CommonChrome(frame, prefix)
     if frame.CloseButton then WSkin.CloseButton(frame.CloseButton) end
+    -- Newer templates hang the X off the title bar (or name it ClosePanelButton)
+    -- instead of putting it on the frame -- the loot window is one of them, and
+    -- it kept Blizzard's red X until these two paths were added.
+    if frame.TitleContainer and frame.TitleContainer.CloseButton then
+        WSkin.CloseButton(frame.TitleContainer.CloseButton)
+    end
+    if frame.ClosePanelButton then WSkin.CloseButton(frame.ClosePanelButton) end
     if prefix then
         local cb = _G[prefix .. "CloseButton"]
         if cb then WSkin.CloseButton(cb) end

@@ -28,7 +28,7 @@ local POS_ORDER = { "topleft", "top", "topright", "left", "center", "right", "bo
 local GROW_VALUES = { RIGHT = "Right", LEFT = "Left", UP = "Up", DOWN = "Down", CENTER = "Center" }
 local GROW_ORDER = { "RIGHT", "LEFT", "UP", "DOWN", "CENTER" }
 
-local CAT_VALUES = { boss = "Boss", role = "Role", priority = "Important (Priority)",
+local CAT_VALUES = { boss = "Boss", role = "Role", priority = "Important",
     cc = "Crowd Control", raid = "Raid", raidcombat = "Raid In Combat", dispel = "Dispellable" }
 local CAT_ORDER = { "priority", "boss", "role", "cc", "raid", "raidcombat", "dispel" }
 
@@ -36,6 +36,23 @@ local TYPE_NAMES = { icons = "Icon", glow = "Frame Glow", square = "Square",
     healthcolor = "Health Bar Color", bar = "Duration Bar" }
 -- Grid types above the divider, frame effects below (BM dropdown parity).
 local TYPE_ORDER = { "icons", "square", "---", "glow", "healthcolor", "bar" }
+
+-- 4-state aura tooltip mode stored on the legacy hide-tooltips keys:
+-- true/nil = hidden, false = shown, "cursor" = shown at the cursor,
+-- "combat" = shown but hidden during combat.
+local TIP_VALUES = { hidden = "Hidden", shown = "Shown",
+    cursor = "Shown At Cursor", combat = "Hidden In Combat" }
+local TIP_ORDER = { "hidden", "shown", "cursor", "combat" }
+local function TipModeKey(v)
+    if v == false then return "shown" end
+    if v == "cursor" or v == "combat" then return v end
+    return "hidden"
+end
+local function TipModeStore(k)
+    if k == "shown" then return false end
+    if k == "hidden" then return true end
+    return k
+end
 
 -- Page-local selection: "base" or a tile id. Reset when the page rebuilds
 -- with a vanished selection.
@@ -532,7 +549,7 @@ end
 -- fxOwner = the PERSISTED table carrying .fxGlow (the dm table for the
 -- base pane, the tile table for grid tiles).
 local TILE_FILTER_ITEMS = {
-    { key = "priority", label = "Important (Priority)",
+    { key = "priority", label = "Important",
       tooltip = "Debuffs Blizzard flags as priority for raid frames." },
     { key = "cc", label = "Crowd Control",
       tooltip = "Loss-of-control debuffs." },
@@ -846,10 +863,12 @@ local function BuildBaseDetailDM(frame, fontPath)
         local rgn = safRow._rightRegion
         if rgn._control then rgn._control:Hide() end
         local FILTER_ITEMS = {
-            { key = "priority", label = "Important (Priority)",
+            { key = "priority", label = "Important",
               tooltip = "Debuffs Blizzard flags as priority for raid frames." },
             { key = "cc", label = "Crowd Control",
               tooltip = "Loss-of-control debuffs. These lead the row and carry the CC glow." },
+            { key = "nonplayer", label = "Non-Player Debuffs",
+              tooltip = "All debuffs except the ones you or your pet applied." },
             { key = "boss", label = "Boss Debuffs",
               tooltip = "Debuffs applied by boss encounters." },
             { key = "role", label = "Role Debuffs",
@@ -1118,13 +1137,13 @@ local function BuildBaseDetailDM(frame, fontPath)
         cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
     end
 
-    -- Row: Hide Tooltips | Show Duration Swipe. The swipe toggle was not in
+    -- Row: Tooltips | Show Duration Swipe. The swipe toggle was not in
     -- the requested layout but silently orphaning a stored setting is
     -- worse -- parked here pending a call on removing it outright.
     _, hh = W:DualRow(frame, sy,
-        { type = "toggle", text = "Hide Tooltips",
-          getValue = function() return p.debuffHideTooltips ~= false end,
-          setValue = function(v) p.debuffHideTooltips = v; DmApply() end },
+        { type = "dropdown", text = "Tooltips", values = TIP_VALUES, order = TIP_ORDER,
+          getValue = function() return TipModeKey(p.debuffHideTooltips) end,
+          setValue = function(k) p.debuffHideTooltips = TipModeStore(k); DmApply() end },
         { type = "toggle", text = "Show Duration Swipe",
           getValue = function() return p.debuffShowSwipe ~= false end,
           setValue = function(v) p.debuffShowSwipe = v; DmApply() end }); sy = sy - hh
@@ -1374,11 +1393,15 @@ local function BuildTileDetail(frame, fontPath, t)
             cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
         end
 
-        -- Row: Hide Tooltips | Show Duration Swipe (base pane parity)
+        -- Row: Tooltips | Show Duration Swipe (base pane parity)
         _, hh = W:DualRow(frame, sy,
-            { type = "toggle", text = "Hide Tooltips",
-              getValue = function() return TBoolOn("hideTooltips", "debuffHideTooltips") end,
-              setValue = function(v) TSet("hideTooltips", v and true or false) end },
+            { type = "dropdown", text = "Tooltips", values = TIP_VALUES, order = TIP_ORDER,
+              getValue = function()
+                  local v = t.hideTooltips
+                  if v == nil then v = p.debuffHideTooltips end
+                  return TipModeKey(v)
+              end,
+              setValue = function(k) TSet("hideTooltips", TipModeStore(k)) end },
             { type = "toggle", text = "Show Duration Swipe",
               getValue = function() return TBoolOn("showSwipe", "debuffShowSwipe") end,
               setValue = function(v) TSet("showSwipe", v and true or false) end }); sy = sy - hh
@@ -2278,7 +2301,7 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
                 py = py - LABEL_H - LBL_GAP
 
                 local FILTER_ITEMS = {
-                    { key = "priority", label = "Important (Priority)",
+                    { key = "priority", label = "Important",
                       tooltip = "Debuffs Blizzard flags as priority for raid frames." },
                     { key = "cc", label = "Crowd Control",
                       tooltip = "Loss-of-control debuffs." },

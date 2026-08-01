@@ -85,6 +85,7 @@ initFrame:SetScript("OnEvent", function(self)
         else
             db.profile[key] = val
         end
+        if ns._BumpAbsorbGen then ns._BumpAbsorbGen() end
         ReloadAndUpdate()
     end
     local function SVal(key, default)
@@ -103,6 +104,7 @@ initFrame:SetScript("OnEvent", function(self)
         else
             db.profile[key] = val
         end
+        if ns._BumpAbsorbGen then ns._BumpAbsorbGen() end
     end
 
     ---------------------------------------------------------------------------
@@ -1023,13 +1025,24 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return SVal("healthColorMode", "class") end,
               setValue=function(v)
                   SSet("healthColorMode", v)
+                  -- "dark" here feeds the Dark Mode conditional-override condition.
+                  if EllesmereUI.Conditions_Recheck then EllesmereUI.Conditions_Recheck() end
                   EllesmereUI:RefreshPage()
               end },
             { type="slider", text="Background", min=0, max=100, step=1,
               disabled=function() return SVal("healthColorMode", "class") == "dark" end,
-              disabledTooltip="Not available in Dark Mode", rawTooltip=true,
+              disabledTooltip="Not available in Dark Mode. Dark Mode colors can be adjusted in Global Settings -> Fonts & Colors.", rawTooltip=true,
               getValue=function() return SVal("bgDarkness", 50) end,
               setValue=function(v) SSet("bgDarkness", v) end });  y = y - h
+        -- Fill Color's "dark" choice IS the Dark Mode condition's input for
+        -- Raid Frames: lock the dropdown while a Dark Mode conditional is
+        -- being edited, or the override could capture a mode change that
+        -- flips its own condition.
+        if EllesmereUI.SpecOverrides_AttachEditLock then
+            EllesmereUI.SpecOverrides_AttachEditLock(row._leftRegion,
+                "Fill Color's Dark Mode choice drives a Dark Mode override condition, so it can't be changed while editing an override",
+                EllesmereUI.SpecOverrides_DarkCondEditActive)
+        end
         -- Inline color swatch for custom fill color, plus the three Custom Dynamic
         -- Colors stop swatches (100% / 50% / 0%). Only one set is interactive at a
         -- time depending on the Fill Color mode; they share the same inline slot.
@@ -1162,7 +1175,7 @@ initFrame:SetScript("OnEvent", function(self)
             bgBlock:SetPoint("BOTTOMRIGHT", bgClassSwatch, "BOTTOMRIGHT", 0, 0)
             bgBlock:SetFrameLevel(bgClassSwatch:GetFrameLevel() + 10)
             bgBlock:EnableMouse(true)
-            bgBlock:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(bgSwatch, "Not available in Dark Mode") end)
+            bgBlock:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(bgSwatch, "Not available in Dark Mode. Dark Mode colors can be adjusted in Global Settings -> Fonts & Colors.") end)
             bgBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local function UpdateBgSwatchVis()
                 if SVal("healthColorMode", "class") == "dark" then
@@ -2030,7 +2043,7 @@ initFrame:SetScript("OnEvent", function(self)
                 SSet("powerBgPowerColored", true)
                 EllesmereUI:RefreshPage()
             end)
-            bgPwrSwatch:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(bgPwrSwatch, "Power Colored Background") end)
+            bgPwrSwatch:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(bgPwrSwatch, "Power Colored Background. Power colors can be adjusted in Global Settings -> Fonts & Colors.") end)
             bgPwrSwatch:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             bgPwrSwatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = bgPwrSwatch
@@ -4320,18 +4333,44 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v) SSet("tooltipMode", v) end });  y = y - h
         -- Cog: buff/HoT aura-icon tooltips (Buff Manager). Hidden by default --
         -- matches the long-standing behavior where buff icons showed no tooltip;
-        -- opt in here. When shown, the aura tip still follows the tooltip mode
-        -- on this dropdown (mode governs when, this governs whether).
+        -- opt in here. This is the ONLY gate on the aura tip: the tooltip mode
+        -- on this dropdown governs the UNIT tooltip and must not veto an aura
+        -- tip enabled here (it used to, so a hidden unit tip also killed the
+        -- aura tip -- see ns.RaidFrameTooltipAllowed).
         do
             local rgn = row._rightRegion
-            local _, cogShow = EllesmereUI.BuildCogPopup({
-                title = "Tooltip Settings",
-                rows = {
+            local tipRows
+            if EllesmereUI.IS_121 then
+                -- 4-state on the same key: true/nil = hidden, false = shown,
+                -- "cursor" = shown at the cursor, "combat" = hidden during combat.
+                tipRows = {
+                    { type="dropdown", label="Buff Tooltips",
+                      tooltip="Tooltip behavior when hovering a buff/HoT icon on a raid or party frame.",
+                      values={ hidden="Hidden", shown="Shown", cursor="Shown At Cursor", combat="Hidden In Combat" },
+                      order={ "hidden", "shown", "cursor", "combat" },
+                      get=function()
+                          local v = SVal("buffHideTooltips", true)
+                          if v == false then return "shown" end
+                          if v == "cursor" or v == "combat" then return v end
+                          return "hidden"
+                      end,
+                      set=function(k)
+                          local v = k
+                          if k == "shown" then v = false elseif k == "hidden" then v = true end
+                          SSet("buffHideTooltips", v); if ns.ReloadFrames then ns.ReloadFrames() end
+                      end },
+                }
+            else
+                tipRows = {
                     { type="toggle", label="Hide Buff Tooltips",
                       tooltip="Hide the tooltip when hovering a buff/HoT icon on a raid or party frame.",
                       get=function() return SVal("buffHideTooltips", true) end,
                       set=function(v) SSet("buffHideTooltips", v); if ns.ReloadFrames then ns.ReloadFrames() end end },
-                },
+                }
+            end
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Tooltip Settings",
+                rows = tipRows,
             })
             local cogBtn = CreateFrame("Button", nil, rgn)
             cogBtn:SetSize(26, 26)
@@ -5236,7 +5275,7 @@ initFrame:SetScript("OnEvent", function(self)
             cogDis:SetFrameLevel(cogBtn:GetFrameLevel() + 5)
             cogDis:EnableMouse(true)
             cogDis:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip("Raid Frames Show When Solo"))
+                EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip("Raid Frames Show When Solo", "disabled"))
             end)
             cogDis:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local function UpdateSoloCogDis()
@@ -5270,6 +5309,7 @@ initFrame:SetScript("OnEvent", function(self)
                             db.profile.partySyncSections = {}
                         end
                         db.profile.partySyncSections[k] = v and true or false
+                        if ns._RefreshProxyModes then ns._RefreshProxyModes() end
                         -- Toggle overlay directly (no page rebuild needed)
                         local ov = ns._syncOverlays and ns._syncOverlays[k]
                         if ov then
@@ -5693,6 +5733,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if button ~= "LeftButton" then return end
                 if not db.profile.partySyncSections then db.profile.partySyncSections = {} end
                 db.profile.partySyncSections[sectionKey] = false
+                if ns._RefreshProxyModes then ns._RefreshProxyModes() end
                 self:Hide()
                 if ns.ReloadPartyFrames then ns.ReloadPartyFrames() end
                 if ns.partyPvActive and ns.partyPvActive() and ns.ShowPartyPreview then
@@ -6620,7 +6661,7 @@ initFrame:SetScript("OnEvent", function(self)
                               ReloadAndUpdate()
                           end,
                           disabled=function() return SVal("debuffCCGlowBackground", false) ~= true end,
-                          disabledTooltip=EllesmereUI.DisabledTooltip("Pixel Glow Background") },
+                          disabledTooltip="Pixel Glow Background" },
                     },
                 })
                 local cogBtn = CreateFrame("Button", nil, leftRgn)

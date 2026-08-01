@@ -37,7 +37,6 @@ local QT_DEFAULTS = {
 
             -- Skin toggles
             skinHeaders          = true,
-            accentHeaders        = true,
             -- Show Blizzard's native quest type icons/buttons (right side)
             -- instead of our custom classified icons. Off = our icons. Reload-gated.
             showQuestIcons       = false,

@@ -345,6 +345,10 @@ local function ApplyRPT(specProfiles, sourceSpecKey, targetSpecKey)
                 if tgt[id] == nil then tgt[id] = DeepCopy(s) end
             end
         end
+        -- Sync REPLACES entry tables (fresh copies): retire memoized
+        -- resolution results. Targets are non-active specs by contract, but
+        -- the bump is one integer on a rare user-triggered sync.
+        ns._cdmResGen = (ns._cdmResGen or 0) + 1
     end
 end
 

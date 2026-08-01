@@ -26,6 +26,13 @@ local function IsSecret(value)
     return issecretvalue and issecretvalue(value) or false
 end
 
+-- Secret values throw on any comparison (==, <, ...) once execution is
+-- tainted, so route a payload field through this before comparing it.
+local function PlainValue(value)
+    if IsSecret(value) then return nil end
+    return value
+end
+
 local inCombat = false
 
 -------------------------------------------------------------------------------
@@ -381,6 +388,10 @@ EllesmereUI._MovementBarTextures = {
 -- SetCountdownFont takes the NAME of a named font object, and StyleSlot
 -- re-points this one at the user's font/size.
 local movementCdFont = CreateFont("EUI_MovementAlertCdFont")
+-- A fresh font object has no font file; give it one immediately so text
+-- attached to it can render before the first StyleSlot pass re-points it
+-- at the user's font and size.
+movementCdFont:SetFont(FALLBACK_FONT, 24, "OUTLINE")
 
 local displayPool = {}
 local activeSlotCount = 0
@@ -412,6 +423,14 @@ local function CreateDisplaySlot()
     if slot.icon.cooldown.SetCountdownFont then
         slot.icon.cooldown:SetCountdownFont("EUI_MovementAlertCdFont")
     end
+    -- Own countdown text for icon mode: the engine numbers on a plain
+    -- Cooldown widget only render when the user's countdownForCooldowns
+    -- CVar is on, so the poll drives this FontString instead. The engine
+    -- numbers remain only for secret durations (which Lua cannot format).
+    slot.icon.timeText = slot.icon.cooldown:CreateFontString(nil, "OVERLAY")
+    slot.icon.timeText:SetFontObject(movementCdFont)
+    slot.icon.timeText:SetPoint("CENTER")
+    slot.icon.timeText:SetText("")
     slot.icon:Hide()
 
     slot.bar = CreateFrame("StatusBar", nil, slot)
@@ -466,6 +485,7 @@ local function StyleSlot(slot)
         slot.text:SetFont(FALLBACK_FONT, fontSize, outline)
     end
     slot.text:SetTextColor(tR, tG, tB)
+    slot.icon.timeText:SetTextColor(tR, tG, tB)
 
     local barH = math.max(12, math.floor(frameH * 0.5))
     local barW = frameW - (ma.barShowIcon ~= false and (barH + 8) or 0) - 10
@@ -758,7 +778,7 @@ local function OnPlayerBuffActiveAuraUpdate(updateInfo)
                 local state = buffActiveState[key]
                 if state and state.instanceID then
                     for _, instanceID in ipairs(updateInfo.removedAuraInstanceIDs) do
-                        if instanceID == state.instanceID then
+                        if PlainValue(instanceID) == state.instanceID then
                             SetBuffActiveState(key, false, nil)
                             expectingBuffAura[key] = nil
                             break
@@ -773,24 +793,30 @@ local function OnPlayerBuffActiveAuraUpdate(updateInfo)
             if entry.checkType == "buffActive" then
                 local key = BuffActiveKey(entry)
                 if expectingBuffAura[key] then
-                    -- Prefer an exact spellId match. Only fall back to
-                    -- accepting a nil/secret spellId (can't compare it
-                    -- directly) when it's the ONLY aura in this batch --
-                    -- otherwise an unrelated aura landing in the same batch
-                    -- as the real one could get matched instead.
-                    local unambiguous = #updateInfo.addedAuras == 1
+                    -- Prefer an exact spellId match, but in combat the field is
+                    -- a secret value we can't read at all. Fall back to the
+                    -- batch's only unreadable aura -- with more than one there
+                    -- is no way to tell which is ours, so leave the expectation
+                    -- standing rather than latch onto an unrelated aura.
+                    local match, unreadable, unreadableCount = nil, nil, 0
                     for _, aura in ipairs(updateInfo.addedAuras) do
-                        local matches = (aura.spellId == key)
-                            or (unambiguous and (not aura.spellId or IsSecret(aura.spellId)))
-                        if matches and aura.auraInstanceID then
-                            SetBuffActiveState(key, true, aura.auraInstanceID)
-                            expectingBuffAura[key] = nil
-                            break
+                        local sid = PlainValue(aura.spellId)
+                        if sid then
+                            if sid == key then match = aura; break end
+                        else
+                            unreadable = aura
+                            unreadableCount = unreadableCount + 1
                         end
+                    end
+                    if not match and unreadableCount == 1 then match = unreadable end
+                    if match and match.auraInstanceID then
+                        SetBuffActiveState(key, true, match.auraInstanceID)
+                        expectingBuffAura[key] = nil
                     end
                 end
                 for _, aura in ipairs(updateInfo.addedAuras) do
-                    if aura.spellId and not IsSecret(aura.spellId) and aura.spellId == key and aura.auraInstanceID then
+                    local sid = PlainValue(aura.spellId)
+                    if sid and sid == key and aura.auraInstanceID then
                         SetBuffActiveState(key, true, aura.auraInstanceID)
                     end
                 end
@@ -972,26 +998,43 @@ local function ShowMovementSlot(index, cdInfo, spellEntry, duration)
 
     slot.text:Hide(); slot.icon:Hide(); slot.bar:Hide()
 
-    if cdInfo and cdInfo.timeUntilEndOfStartRecovery then
+    -- Start-recovery branch. GetSpellCooldown's timeUntilEndOfStartRecovery
+    -- is ALWAYS present as a number on this client (0 outside an actual
+    -- start-recovery window), so it must be gated on a POSITIVE value --
+    -- plain truthiness hijacked EVERY render into this branch, which is why
+    -- icon mode never drew its cooldown swipe or number. Secret check comes
+    -- first (relational compares on secret numbers throw); a secret recovery
+    -- falls through to the main path, whose engine sinks accept secrets.
+    local recov = cdInfo and cdInfo.timeUntilEndOfStartRecovery
+    if issecretvalue and issecretvalue(recov) then recov = nil end
+    if type(recov) == "number" and recov > 0 then
         if displayMode == "icon" and spellIcon then
             slot.icon.tex:SetTexture(spellIcon)
-            slot.icon.cooldown:Clear()
-            slot.icon.cooldown:SetHideCountdownNumbers(false)
+            -- Recharge swipe: derived from the entry's recharge duration
+            -- (same source the bar branch scales by).
+            local rechDur = spellEntry.rechargeDuration or 0
+            if rechDur > 0 then
+                slot.icon.cooldown:SetCooldown(GetTime() - (rechDur - recov), rechDur)
+            else
+                slot.icon.cooldown:Clear()
+            end
+            slot.icon.cooldown:SetHideCountdownNumbers(true)
+            slot.icon.timeText:SetFormattedText("%." .. precision .. "f", recov)
             slot.icon:Show()
         elseif displayMode == "bar" then
             local rechDur = spellEntry.rechargeDuration or 0
             slot.bar:SetMinMaxValues(0, rechDur)
-            slot.bar:SetValue(cdInfo.timeUntilEndOfStartRecovery)
+            slot.bar:SetValue(recov)
             local r, g, b = ResolveAlertColor("textColor", "textColorUseClass")
             slot.bar:SetStatusBarColor(r, g, b)
             slot.bar.text:SetShown(ma.barShowDuration ~= false)
             if ma.barShowDuration ~= false then
-                slot.bar.text:SetFormattedText("%." .. precision .. "f", cdInfo.timeUntilEndOfStartRecovery)
+                slot.bar.text:SetFormattedText("%." .. precision .. "f", recov)
             end
             if ma.barShowIcon ~= false and spellIcon then slot.bar.icon:SetTexture(spellIcon); slot.bar.icon:Show() else slot.bar.icon:Hide() end
             slot.bar:Show()
         else
-            slot.text:SetFormattedText(fmtStr, cdInfo.timeUntilEndOfStartRecovery)
+            slot.text:SetFormattedText(fmtStr, recov)
             slot.text:Show()
         end
         slot:Show()
@@ -1029,12 +1072,25 @@ local function ShowMovementSlot(index, cdInfo, spellEntry, duration)
     if displayMode == "icon" then
         if spellIcon then
             slot.icon.tex:SetTexture(spellIcon)
+            -- Single-argument form: every proven duration-object consumer in
+            -- the suite calls it this way; the extra boolean is not part of
+            -- the working pattern.
             if duration and slot.icon.cooldown.SetCooldownFromDurationObject then
-                slot.icon.cooldown:SetCooldownFromDurationObject(duration, true)
+                slot.icon.cooldown:SetCooldownFromDurationObject(duration)
             else
                 slot.icon.cooldown:SetCooldown(cdStart, cdDuration, cdModRate)
             end
-            slot.icon.cooldown:SetHideCountdownNumbers(false)
+            if hasSecretDuration then
+                -- Secret timing: only the engine can render the number.
+                slot.icon.cooldown:SetHideCountdownNumbers(false)
+                slot.icon.timeText:SetText("")
+            else
+                -- Our own countdown text: the engine numbers only render
+                -- when the countdownForCooldowns CVar is on, which most
+                -- users have off -- the poll refreshes this every tick.
+                slot.icon.cooldown:SetHideCountdownNumbers(true)
+                slot.icon.timeText:SetFormattedText("%." .. precision .. "f", cdRemaining)
+            end
             slot.icon:Show()
         else
             slot.text:SetFormattedText(fmtStr, cdRemaining)
@@ -1074,6 +1130,7 @@ local function ShowBuffActiveSlot(index, spellEntry)
         slot.icon.tex:SetTexture(spellIcon)
         slot.icon.cooldown:Clear()
         slot.icon.cooldown:SetHideCountdownNumbers(true)
+        slot.icon.timeText:SetText("")
         slot.icon:Show()
     elseif displayMode == "bar" then
         slot.bar:SetMinMaxValues(0, 1); slot.bar:SetValue(1)
@@ -1092,6 +1149,57 @@ local function ShowBuffActiveSlot(index, spellEntry)
 
     slot:Show()
     return true
+end
+
+-------------------------------------------------------------------------------
+--  Charge spells: "no movement remaining" must mean ZERO charges left.
+--  currentCharges is a SECRET value -- verified live on Devourer's Shift, where
+--  maxCharges reads 3 but currentCharges, cooldownDuration and every timing
+--  field come back SECRET even out of combat -- so Lua can never branch on the
+--  count, and IsSpellUsable reads true at 0 charges as well (also verified), so
+--  it cannot stand in.
+--  Blizzard's own discriminator is the cooldown's TOTAL duration: while a
+--  charge is banked the spell reports only a GCD-length cooldown, and the full
+--  recharge drives it only once the last charge is spent. A Step curve turns
+--  that secret total into a secret ALPHA the engine resolves itself, with no
+--  Lua comparison anywhere -- the same trick Action Bars uses to stop
+--  banked-charge buttons desaturating (desatCurveReal / GetCdAlphaCurve).
+--  Non-charge spells are forced back to full alpha so a pooled slot can never
+--  keep a stale 0 from a previous occupant.
+-------------------------------------------------------------------------------
+local chargeAlphaCurve = nil   -- nil = not built, false = API unavailable
+local function GetChargeAlphaCurve()
+    if chargeAlphaCurve == nil then
+        if C_CurveUtil and C_CurveUtil.CreateCurve and Enum and Enum.LuaCurveType then
+            local c = C_CurveUtil.CreateCurve()
+            c:SetType(Enum.LuaCurveType.Step)
+            c:AddPoint(0, 0)     -- GCD-length cooldown: a charge is banked -> hide
+            c:AddPoint(1.6, 1)   -- real recharge: out of charges -> show
+            chargeAlphaCurve = c
+        else
+            chargeAlphaCurve = false
+        end
+    end
+    return chargeAlphaCurve or nil
+end
+
+local function ApplyChargeVisibility(slot, spellId, chargeInfo)
+    if not slot then return end
+    -- maxCharges stays PLAIN even when the rest of the charge record is secret,
+    -- so this branch is safe (and is why the entry's cached isChargeSpell flag
+    -- is not consulted -- SafeGetChargeInfo throws the whole record away when
+    -- cooldownDuration is secret, leaving Shift cached as a 1-charge cooldown).
+    local mc = chargeInfo and chargeInfo.maxCharges
+    if mc == nil or IsSecret(mc) or mc <= 1 then slot:SetAlpha(1); return end
+    local curve = GetChargeAlphaCurve()
+    local durObj = C_Spell.GetSpellCooldownDuration and C_Spell.GetSpellCooldownDuration(spellId)
+    if curve and durObj and durObj.EvaluateTotalDuration then
+        -- Result may be SECRET: never compare it. SetAlpha accepts secrets, and
+        -- "or 1" on a secret number is safe (a secret is always truthy).
+        slot:SetAlpha(durObj:EvaluateTotalDuration(curve, 1) or 1)
+    else
+        slot:SetAlpha(1)
+    end
 end
 
 CheckMovementCooldown = function()
@@ -1125,6 +1233,8 @@ CheckMovementCooldown = function()
                 if ShowMovementSlot(count + 1, spellInfo, entry, duration) then
                     count = count + 1
                     nowShownReady[entry.spellId] = entry
+                    -- Charge spells alpha-hide while a charge is still banked.
+                    ApplyChargeVisibility(GetDisplaySlot(count), spellId, hasCharges)
                 end
             end
         end
@@ -1232,7 +1342,7 @@ local function PreviewTick()
     local shown = EllesmereUI._mainFrame and EllesmereUI._mainFrame:IsShown()
     local onPage = shown
         and EllesmereUI.GetActiveModule and EllesmereUI:GetActiveModule() == "EllesmereUIQoL"
-        and EllesmereUI.GetActivePage and EllesmereUI:GetActivePage() == "Movement Alerts"
+        and EllesmereUI.GetActivePage and EllesmereUI:GetActivePage() == "MoveAlert"
     if not ma or not onPage then StopMovementPreview(); return end
 
     local now = GetTime()

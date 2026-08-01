@@ -98,6 +98,15 @@ local function MakeBorderColorSwatches()
     }
 end
 
+-- Text display mode ("2 | 4:14"): shared predicates + swatches for the
+-- Display Style controls.
+local function TextModeOn()
+    return (Cfg("displayMode") or "icon") == "text"
+end
+
+local ICON_ROWS_TIP = "This option requires Display Style to be set to Icon"
+local TEXT_ROWS_TIP = "This option requires Display Style to be set to Text"
+
 local function BuildBattleResPage(pageName, parent, yOffset)
     local W = EllesmereUI.Widgets
     local PP = EllesmereUI.PP
@@ -242,8 +251,11 @@ _G._EUI_BuildBattleResSection = function(parent, yOffset, W, PP)
               function() return Cfg("visibility") ~= "NEVER" end,
               function(v) Set("visibility", v); Refresh(); EllesmereUI:RefreshPage() end) },
         { type="slider", text="Icon Size",
-          disabled=function() return Cfg("visibility") == "NEVER" end,
-          disabledTooltip="BattleRes Icon",
+          disabled=function() return Cfg("visibility") == "NEVER" or TextModeOn() end,
+          disabledTooltip=function()
+              if Cfg("visibility") == "NEVER" then return "BattleRes Icon" end
+              return ICON_ROWS_TIP
+          end,
           min=16, max=120, step=1, isPercent=false,
           getValue=function() return Cfg("iconSize") or 40 end,
           setValue=function(v) Set("iconSize", v); Refresh() end })
@@ -254,24 +266,34 @@ _G._EUI_BuildBattleResSection = function(parent, yOffset, W, PP)
     if Cfg("visibility") ~= "NEVER" then
     row, h = W:DualRow(parent, y,
         { type="dropdown", text="Icon Shape",
+          disabled=TextModeOn,
+          disabledTooltip=ICON_ROWS_TIP,
           values=SHAPE_VALUES, order=SHAPE_ORDER,
           getValue=function() return Cfg("shape") or "none" end,
           setValue=function(v) Set("shape", v); Refresh() end },
         { type="multiSwatch", text="Border Color",
+          disabled=TextModeOn,
+          disabledTooltip=ICON_ROWS_TIP,
           swatches = MakeBorderColorSwatches() })
     y = y - h
 
     row, h = W:DualRow(parent, y,
         { type="dropdown", text="Border Size",
+          disabled=TextModeOn,
+          disabledTooltip=ICON_ROWS_TIP,
           values=BORDER_VALUES, order=BORDER_ORDER,
           getValue=function() return Cfg("borderSize") or "thin" end,
           setValue=function(v) Set("borderSize", v); Refresh() end },
         { type="slider", text="Icon Zoom",
           disabled=function()
+              if TextModeOn() then return true end
               local s = Cfg("shape") or "none"
               return s ~= "none" and s ~= "cropped"
           end,
-          disabledTooltip="This option requires Icon Shape to be set to None or Cropped",
+          disabledTooltip=function()
+              if TextModeOn() then return ICON_ROWS_TIP end
+              return "This option requires Icon Shape to be set to None or Cropped"
+          end,
           min=0, max=20, step=0.5, isPercent=false,
           getValue=function() return Cfg("iconZoom") or 11 end,
           setValue=function(v) Set("iconZoom", v); Refresh() end })
@@ -279,10 +301,14 @@ _G._EUI_BuildBattleResSection = function(parent, yOffset, W, PP)
 
     row, h = W:DualRow(parent, y,
         { type="slider", text="Duration Size",
+          disabled=TextModeOn,
+          disabledTooltip=ICON_ROWS_TIP,
           min=8, max=30, step=1, isPercent=false,
           getValue=function() return Cfg("durationSize") or 12 end,
           setValue=function(v) Set("durationSize", v); Refresh() end },
         { type="slider", text="Count Size",
+          disabled=TextModeOn,
+          disabledTooltip=ICON_ROWS_TIP,
           min=8, max=20, step=1, isPercent=false,
           getValue=function() return Cfg("countSize") or 11 end,
           setValue=function(v) Set("countSize", v); Refresh() end })
@@ -308,13 +334,109 @@ _G._EUI_BuildBattleResSection = function(parent, yOffset, W, PP)
             local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
             cogTex:SetAllPoints()
             cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
-            cogBtn:SetAlpha(0.4)
-            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
-            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.75) end)
-            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+            local function UpdateAlpha() cogBtn:SetAlpha(TextModeOn() and 0.15 or 0.4) end
+            EllesmereUI.RegisterWidgetRefresh(UpdateAlpha)
+            UpdateAlpha()
+            cogBtn:SetScript("OnClick", function(self)
+                if not TextModeOn() then cogShow(self) end
+            end)
+            cogBtn:SetScript("OnEnter", function(self)
+                if not TextModeOn() then self:SetAlpha(0.75) end
+            end)
+            cogBtn:SetScript("OnLeave", function(self) UpdateAlpha() end)
         end
         _attachOffsetCog(row._leftRegion,  "Duration Position", "durationOffsetX", "durationOffsetY")
         _attachOffsetCog(row._rightRegion, "Count Position",    "countOffsetX",    "countOffsetY")
+    end
+
+    -- Display Style (icon vs text) + text-mode appearance. The count / timer
+    -- color swatches sit inline on the dropdown, disabled outside text mode.
+    local dispRow
+    dispRow, h = W:DualRow(parent, y,
+        { type="dropdown", text="Display Style",
+          tooltip="Show the tracker as the Rebirth icon or as a compact text line with charges and time until the next one.",
+          values={ icon="Icon", text="Text" }, order={ "icon", "text" },
+          getValue=function() return Cfg("displayMode") or "icon" end,
+          setValue=function(v) Set("displayMode", v); Refresh(); EllesmereUI:RefreshPage() end },
+        { type="slider", text="Text Size",
+          disabled=function() return not TextModeOn() end,
+          disabledTooltip=TEXT_ROWS_TIP,
+          min=8, max=40, step=1, isPercent=false,
+          getValue=function() return Cfg("textSize") or 14 end,
+          setValue=function(v) Set("textSize", v); Refresh() end })
+    y = y - h
+
+    do
+        local rgn = dispRow._leftRegion
+        -- Builds one inline color swatch with the blocking-overlay disabled
+        -- state (interactive only while Display Style is Text). Anchored
+        -- right-to-left so the visual order matches the "2 | 4:14" line.
+        local function MakeInlineTextSwatch(colorKey, tipText, anchorTo)
+            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5,
+                function()
+                    local c = Cfg(colorKey)
+                    if c then return c.r or 1, c.g or 1, c.b or 1 end
+                    return 1, 1, 1
+                end,
+                function(r, g, b)
+                    Set(colorKey, { r = r, g = g, b = b })
+                    Refresh()
+                end, nil, 20)
+            PP.Point(swatch, "RIGHT", anchorTo, "LEFT", -8, 0)
+            swatch:HookScript("OnEnter", function()
+                if TextModeOn() then EllesmereUI.ShowWidgetTooltip(swatch, tipText) end
+            end)
+            swatch:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            local block = CreateFrame("Frame", nil, swatch)
+            block:SetAllPoints()
+            block:SetFrameLevel(swatch:GetFrameLevel() + 10)
+            block:EnableMouse(true)
+            block:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(swatch, TEXT_ROWS_TIP) end)
+            block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            local function UpdateState()
+                updateSwatch()
+                if TextModeOn() then
+                    swatch:SetAlpha(1); block:Hide()
+                else
+                    swatch:SetAlpha(0.3); block:Show()
+                end
+            end
+            EllesmereUI.RegisterWidgetRefresh(UpdateState)
+            UpdateState()
+            return swatch
+        end
+        local timerSwatch = MakeInlineTextSwatch("textTimerColor", "Timer Color", rgn._control)
+        local countSwatch = MakeInlineTextSwatch("textCountColor", "Count Color", timerSwatch)
+        rgn._lastInline = countSwatch
+    end
+
+    -- Font | Font Outline: text-display-only controls (the icon's duration /
+    -- count texts keep the fixed module style), so both disable while
+    -- Display Style is Icon. Mirrors the Chat module's font controls, but
+    -- applies live -- no reload needed for these font strings.
+    do
+        local fontValues, fontOrder = EllesmereUI.BuildFontDropdownData()
+        local outlineValues = {
+            ["__global"] = { text = "EUI Global Default" },
+            ["none"]     = { text = "Drop Shadow" },
+            ["outline"]  = { text = "Outline" },
+            ["thick"]    = { text = "Thick Outline" },
+        }
+        local outlineOrder = { "__global", "none", "outline", "thick" }
+        row, h = W:DualRow(parent, y,
+            { type="dropdown", text="Font",
+              disabled=function() return not TextModeOn() end,
+              disabledTooltip=TEXT_ROWS_TIP,
+              values=fontValues, order=fontOrder,
+              getValue=function() return Cfg("font") or "__global" end,
+              setValue=function(v) Set("font", v); Refresh() end },
+            { type="dropdown", text="Font Outline",
+              disabled=function() return not TextModeOn() end,
+              disabledTooltip=TEXT_ROWS_TIP,
+              values=outlineValues, order=outlineOrder,
+              getValue=function() return Cfg("outlineMode") or "__global" end,
+              setValue=function(v) Set("outlineMode", v); Refresh() end })
+        y = y - h
     end
     end   -- close BattleRes hidden-while-Never gate
 

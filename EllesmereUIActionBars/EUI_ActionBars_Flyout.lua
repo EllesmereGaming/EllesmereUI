@@ -217,7 +217,9 @@ local function InstallBlizzFlyoutHook()
     return true
 end
 if not InstallBlizzFlyoutHook() then
-    local hookFrame = CreateFrame("Frame")
+    -- Shell from the main file's pool: born at ActionBars' file scope so the
+    -- handler work bills this addon (see the pool note there).
+    local hookFrame = ns.TakeShell()
     hookFrame:RegisterEvent("PLAYER_LOGIN")
     hookFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     hookFrame:SetScript("OnEvent", function(self)

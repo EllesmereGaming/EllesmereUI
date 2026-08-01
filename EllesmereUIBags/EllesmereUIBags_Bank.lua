@@ -1189,6 +1189,49 @@ function EUI_Bank:IsWarbandView()
     return false
 end
 
+-------------------------------------------------------------------------------
+--  TradeSkillMaster compatibility
+-------------------------------------------------------------------------------
+-- TSM decides whether its Banking UI targets the character bank or the
+-- warband bank by watching Blizzard's BankPanel, which EUI reparents to a
+-- hidden frame, so TSM never sees bank/warbank switches made in the EUI
+-- sidebar. TSM supports addon-provided bank frames through two globals
+-- (TSM Core/Service/Banking/Core.lua): it calls Addon_GetBankType() to
+-- read the active bank type, and hooksecurefunc's Addon_SetBankType at
+-- init so it can re-check whenever the view changes. Both globals must
+-- exist before TSM initializes; EUI loads first alphabetically. Cost when
+-- TSM is absent is one comparison per RefreshBank. Guarded so another bag
+-- addon that already implements the contract wins.
+
+local _lastTSMBankType = nil
+
+if not _G.Addon_GetBankType then
+    _G.Addon_GetBankType = function()
+        if EUI_Bank:IsVisible() then
+            return EUI_Bank:IsWarbandView() and Enum.BankType.Account
+                or Enum.BankType.Character
+        end
+        if BankFrame and BankFrame.GetActiveBankType then
+            return BankFrame:GetActiveBankType()
+        end
+        return Enum.BankType.Character
+    end
+end
+
+if not _G.Addon_SetBankType then
+    -- Intentionally empty: TSM reacts to the call itself via hooksecurefunc.
+    _G.Addon_SetBankType = function() end
+end
+
+local function NotifyBankTypeForTSM()
+    local bankType = _G.Addon_GetBankType()
+    if bankType ~= _lastTSMBankType then
+        _lastTSMBankType = bankType
+        -- Dynamic lookup so the call goes through TSM's hooked wrapper.
+        _G.Addon_SetBankType(bankType)
+    end
+end
+
 --- Find the first empty slot in a specific bank bag and deposit the cursor
 --- item into it. If no empty slot, try stacking with an existing partial stack.
 --- Returns true if placement was attempted, false if no space found.
@@ -1546,6 +1589,7 @@ end
 -------------------------------------------------------------------------------
 function EUI_Bank:RefreshBank()
     if not EUI_Bank:IsVisible() then return end
+    NotifyBankTypeForTSM()
 
     -- Re-discover tabs if empty (data may not be ready on the same frame as
     -- BANKFRAME_OPENED; BAG_UPDATE fires shortly after with real slot counts).
@@ -2352,6 +2396,7 @@ eventFrame:SetScript("OnEvent", function(_, event)
 
     elseif event == "BANKFRAME_CLOSED" then
         _warbandOnly = false
+        _lastTSMBankType = nil
         WipeTransferState()
         -- Clear search on close
         if EUI_Bank._searchBox then
