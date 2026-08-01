@@ -470,6 +470,7 @@ No talent
 No talent reminders configured
 None
 None (Disabled)
+None (use cooldown icon)
 Not Bound
 Not Included
 Not Loaded
@@ -559,6 +560,7 @@ Rename Profile
 Renders this slot's element above the rest of the nameplate.
 Renown
 Repaired all items for %s
+Replace with Buff
 Reposition freely with
 Reposition this element with Shift+Click and Drag.
 Reposition this element within Blizzard Edit Mode
@@ -664,6 +666,7 @@ Target
 Target Unit
 Targeting:
 Targets
+That Spell ID is not in Blizzard's tracked-buff catalog.
 The pasted string could not be read completely. Please paste it again.
 The scriptProfile CVar is enabled.
 The single stack threshold is off while Multiple Thresholds is on.

@@ -1385,6 +1385,21 @@ function ns.RescanCdReadySoundFlag()
     end)
 end
 
+-- Cooldown-to-buff replacement gate. Routing and frame compaction skip all
+-- replacement work unless a saved mapping exists or one is enabled live.
+function ns.RescanBuffReplacementFlag()
+    if ns._cdmAnyBuffReplacement or ns._buffReplacementFlagScanned then return end
+    if not EllesmereUIDB then return end
+    ns._buffReplacementFlagScanned = true
+    ns.ForEachSavedSettingsBlock(function(ss)
+        if type(ss.replacementBuffSpellID) == "number"
+           and ss.replacementBuffSpellID > 0 then
+            ns._cdmAnyBuffReplacement = true
+            return true
+        end
+    end)
+end
+
 -- "Hide CD Text (Charges)" gate: set ns._cdmAnyChargeHideCdText once if any saved spell
 -- (any spec) has the toggle on; RefreshCDMIconAppearance then skips its per-icon watch
 -- check for non-users. Same contract as RescanMaxStacksGlowFlag.
@@ -7748,6 +7763,7 @@ BuildAllCDMBars = function()
     ns.RescanChargeStyleFlag()    -- set the Hide Swipe (Charges) gate (once) before refresh
     ns.RescanBuffSoundFlag()      -- set the Audio on Buff Gain/Loss gate (once) before refresh
     ns.RescanCdReadySoundFlag()   -- set the Audio Effect on CD Ready gate (once) before refresh
+    ns.RescanBuffReplacementFlag() -- set the cooldown-to-buff replacement gate (once)
     ns.RescanCustomItemFlag()     -- set the custom-item buff-injection gate (once)
     ns.RescanCustomForceCountFlag() -- set the "Show Charges" custom-spell gate (once)
     ns.RescanReverseSwipeFlag()   -- set the Reverse Swipe gate (once) before refresh
