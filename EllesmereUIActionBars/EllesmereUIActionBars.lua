@@ -855,7 +855,11 @@ local function ForceCooldownPaint(btn)
         local durObj = cdInfo and cdInfo.isActive and C_ActionBar.GetActionCooldownDuration
             and C_ActionBar.GetActionCooldownDuration(action)
         if durObj then
-            cd:SetCooldownFromDurationObject(durObj)
+            if cd.SetCooldownFromDurationObject then
+                cd:SetCooldownFromDurationObject(durObj)
+            elseif cd.SetCooldown and durObj.startTime and durObj.duration then
+                cd:SetCooldown(durObj.startTime, durObj.duration)
+            end
         else
             ns.ClearCooldown(cd)
         end

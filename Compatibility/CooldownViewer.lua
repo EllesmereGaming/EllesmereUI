@@ -13,7 +13,18 @@ local definitions = {}      -- cooldownID -> definition schema
 local availability = {}     -- cooldownID -> { isKnown = boolean, activeSpellID = number, activeAuraSpellID = number }
 local runtimeState = {}     -- cooldownID -> { cooldownStart, cooldownDuration, cooldownEnabled, auraActive, auraStacks, auraDuration, auraExpiration }
 local categories = {}       -- categoryID -> array of cooldownIDs
-local adapters = {}         -- cooldownID -> Frame-like mock object
+local adapters = {}         -- cooldownID -> native adapter frame
+
+-- The renderer expects the objects returned by itemFramePool to be real,
+-- anchorable frames.  A Lua table can expose GetSpellID/cooldownInfo, but it
+-- cannot own textures or be placed on a CDM bar, so catalog entries would be
+-- discovered without ever producing pixels on screen.
+local viewerNamesByCategory = {
+    [1] = "EssentialCooldownViewer",
+    [2] = "UtilityCooldownViewer",
+    [3] = "BuffIconCooldownViewer",
+    [4] = "BuffBarCooldownViewer",
+}
 
 -- Caching
 local cachedPlayerAuras = {}
@@ -63,17 +74,254 @@ function AdapterMixin:GetAuraSpellID()
     return nil
 end
 
+function AdapterMixin:IsShown()
+    return self._isShown ~= false
+end
+
+function AdapterMixin:IsVisible()
+    return self:IsShown()
+end
+
+function AdapterMixin:Show()
+    self._isShown = true
+end
+
+function AdapterMixin:Hide()
+    self._isShown = false
+end
+
+function AdapterMixin:SetShown(show)
+    self._isShown = show and true or false
+end
+
+function AdapterMixin:SetAlpha(a)
+    self._alpha = a
+end
+
+function AdapterMixin:GetAlpha()
+    return self._alpha or 1
+end
+
+function AdapterMixin:ClearAllPoints() end
+function AdapterMixin:SetPoint() end
+function AdapterMixin:GetScale()
+    return 1
+end
+
+function AdapterMixin:GetObjectType()
+    return "Frame"
+end
+
+function AdapterMixin:IsObjectType(t)
+    return t == "Frame"
+end
+
+local DummyRegionMixin = {}
+function DummyRegionMixin:SetTexture() end
+function DummyRegionMixin:SetColorTexture() end
+function DummyRegionMixin:SetVertexColor() end
+function DummyRegionMixin:SetAlpha(a) self._alpha = a end
+function DummyRegionMixin:GetAlpha() return self._alpha or 1 end
+function DummyRegionMixin:SetAllPoints() end
+function DummyRegionMixin:SetPoint() end
+function DummyRegionMixin:ClearAllPoints() end
+function DummyRegionMixin:Show() self._shown = true end
+function DummyRegionMixin:Hide() self._shown = false end
+function DummyRegionMixin:IsShown() return self._shown ~= false end
+function DummyRegionMixin:SetShown(s) self._shown = s and true or false end
+function DummyRegionMixin:SetDrawLayer() end
+function DummyRegionMixin:SetDesaturated() end
+function DummyRegionMixin:IsDesaturated() return false end
+function DummyRegionMixin:SetFont() end
+function DummyRegionMixin:SetText() end
+function DummyRegionMixin:GetText() return "" end
+function DummyRegionMixin:SetTextColor() end
+function DummyRegionMixin:SetFrameLevel() end
+function DummyRegionMixin:GetFrameLevel() return 1 end
+
+local function CreateDummyRegion()
+    local r = {}
+    setmetatable(r, { __index = DummyRegionMixin })
+    return r
+end
+
+function AdapterMixin:GetFrameLevel()
+    return self._frameLevel or 1
+end
+
+function AdapterMixin:SetFrameLevel(lvl)
+    self._frameLevel = lvl
+end
+
+function AdapterMixin:GetFrameStrata()
+    return self._frameStrata or "MEDIUM"
+end
+
+function AdapterMixin:SetFrameStrata(strata)
+    self._frameStrata = strata
+end
+
+function AdapterMixin:CreateTexture()
+    return CreateDummyRegion()
+end
+
+function AdapterMixin:CreateFontString()
+    return CreateDummyRegion()
+end
+
+function AdapterMixin:GetParent()
+    return self._parent or UIParent
+end
+
+function AdapterMixin:SetParent(p)
+    self._parent = p
+end
+
+function AdapterMixin:GetWidth()
+    return self._width or 32
+end
+
+function AdapterMixin:GetHeight()
+    return self._height or 32
+end
+
+function AdapterMixin:SetWidth(w)
+    self._width = w
+end
+
+function AdapterMixin:SetHeight(h)
+    self._height = h
+end
+
+function AdapterMixin:SetSize(w, h)
+    self._width = w
+    self._height = h
+end
+
+function AdapterMixin:GetName()
+    return self._name or nil
+end
+
+function AdapterMixin:GetScript()
+    return nil
+end
+
+function AdapterMixin:SetScript() end
+function AdapterMixin:HookScript() end
+
 function AdapterMixin:UpdateInfo()
     self.cooldownInfo = C_CooldownViewer.GetCooldownViewerCooldownInfo(self.cooldownID)
 end
 
+function AdapterMixin:GetCooldownInfo()
+    return self.cooldownInfo
+end
+
+-- EllesmereUICdmHooks hooks this method on buff viewer children and queues a
+-- re-layout after it runs.  The compatibility tracker calls it whenever an
+-- aura-backed adapter changes active state.
+function AdapterMixin:OnActiveStateChanged() end
+
+local function CopyAdapterMethod(frame, method)
+    frame[method] = AdapterMixin[method]
+end
+
+local function CreateAdapterFrame(cdID)
+    local def = definitions[cdID]
+    local viewer = def and _G[viewerNamesByCategory[def.category]] or UIParent
+    local frame = CreateFrame("Button", nil, viewer or UIParent)
+    if EUI and EUI.API and EUI.API.ApplyFrameCompat then
+        EUI.API.ApplyFrameCompat(frame)
+    end
+
+    frame:SetSize(32, 32)
+    frame:EnableMouse(false)
+    frame.cooldownID = cdID
+    frame.viewerFrame = viewer
+    frame.layoutIndex = (def and def.order) or cdID
+    frame._isCooldownViewerAdapter = true
+
+    local icon = frame:CreateTexture(nil, "ARTWORK")
+    icon:SetAllPoints(frame)
+    frame.Icon = icon
+    frame._tex = icon
+
+    local cooldown = CreateFrame("Cooldown", nil, frame, "CooldownFrameTemplate")
+    if EUI and EUI.API and EUI.API.ApplyFrameCompat then
+        EUI.API.ApplyFrameCompat(cooldown)
+    end
+    cooldown:SetAllPoints(frame)
+    cooldown:EnableMouse(false)
+    frame.Cooldown = cooldown
+    frame._cooldown = cooldown
+
+    -- Only the data/notification methods need to override native frame
+    -- behavior.  Show/Hide/SetPoint/etc. must remain the engine methods.
+    CopyAdapterMethod(frame, "GetSpellID")
+    CopyAdapterMethod(frame, "GetAuraSpellID")
+    CopyAdapterMethod(frame, "GetCooldownInfo")
+    CopyAdapterMethod(frame, "UpdateInfo")
+    CopyAdapterMethod(frame, "OnActiveStateChanged")
+
+    frame:Hide()
+    return frame
+end
+
+local function RefreshAdapterVisual(frame)
+    if not frame then return end
+    local cdID = frame.cooldownID
+    local def = definitions[cdID]
+    local avail = availability[cdID]
+    local state = runtimeState[cdID]
+    if not def then return end
+
+    frame:UpdateInfo()
+
+    local spellID = (avail and avail.activeSpellID)
+        or def.iconSpellID or def.spellID or def.auraSpellID
+    local iconSpellID = def.iconSpellID or spellID
+    if iconSpellID and frame.Icon then
+        local texture = GetSpellTexture and GetSpellTexture(iconSpellID)
+        if not texture and C_Spell and C_Spell.GetSpellTexture then
+            texture = C_Spell.GetSpellTexture(iconSpellID)
+        end
+        if texture then frame.Icon:SetTexture(texture) end
+    end
+
+    local isKnown = avail and avail.isKnown or false
+    local isAura = def.trackingType == "aura"
+        or def.trackingType == "cooldown_and_aura"
+    local isActive = isKnown and (not isAura or (state and state.auraActive))
+    local wasActive = frame._adapterActive == true
+    frame._adapterActive = isActive and true or false
+    frame.wasSetFromAura = isAura and isActive or false
+
+    if isActive then frame:Show() else frame:Hide() end
+
+    if frame.Cooldown then
+        local start, duration = 0, 0
+        if isAura and state and state.auraActive then
+            duration = state.auraDuration or 0
+            local expiration = state.auraExpiration or 0
+            if duration > 0 and expiration > 0 then start = expiration - duration end
+        elseif state then
+            start = state.cooldownStart or 0
+            duration = state.cooldownDuration or 0
+        end
+        CooldownFrame_Set(frame.Cooldown, start, duration,
+            isActive and duration > 0 and 1 or 0)
+    end
+
+    if isAura and wasActive ~= (isActive and true or false) then
+        frame:OnActiveStateChanged(isActive)
+    end
+end
+
 local function GetOrCreateAdapter(cdID)
     if not adapters[cdID] then
-        local a = { cooldownID = cdID }
-        setmetatable(a, { __index = AdapterMixin })
-        adapters[cdID] = a
+        adapters[cdID] = CreateAdapterFrame(cdID)
     end
-    adapters[cdID]:UpdateInfo()
+    RefreshAdapterVisual(adapters[cdID])
     return adapters[cdID]
 end
 
@@ -133,6 +381,11 @@ function C_CooldownViewer.GetCooldownViewerCooldownInfo(cooldownID)
         cooldownID = cooldownID,
         spellID = activeSpellID,
         overrideSpellID = def.overrideSpellID,
+        linkedSpellIDs = def.linkedSpellIDs,
+        iconSpellID = def.iconSpellID,
+        auraSpellID = (avail and avail.activeAuraSpellID) or def.auraSpellID,
+        hasAura = def.hasAura,
+        selfAura = def.selfAura,
 
         -- Runtime state fields expected by EllesmereUI adapters
         cooldownStart = state and state.cooldownStart or 0,
@@ -147,7 +400,7 @@ end
 
 -- Aura Caching
 local function UpdateAuraCache()
-    table.wipe(cachedPlayerAuras)
+    wipe(cachedPlayerAuras)
     for i = 1, 40 do
         local name, rank, icon, count, debuffType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellID = UnitAura("player", i, "HELPFUL")
         if not name then break end
@@ -264,7 +517,7 @@ local function ReevaluateState()
 
         -- Update persistent adapter
         if adapters[cdID] then
-            adapters[cdID]:UpdateInfo()
+            RefreshAdapterVisual(adapters[cdID])
         end
     end
 end
@@ -298,15 +551,14 @@ tracker:SetScript("OnEvent", function(self, event, ...)
 end)
 
 -- Global Viewer Pools (Mocking Retail UI Frames)
-_G.EssentialCooldownViewer = _G.EssentialCooldownViewer or {}
-_G.UtilityCooldownViewer = _G.UtilityCooldownViewer or {}
-_G.BuffIconCooldownViewer = _G.BuffIconCooldownViewer or {}
-_G.BuffBarCooldownViewer = _G.BuffBarCooldownViewer or {}
-
 local function CreateMockPool(categoryID)
     return {
         EnumerateActive = function()
-            local entries = C_CooldownViewer.GetCooldownViewerCategorySet(categoryID, true)
+            -- A Retail itemFramePool contains frames for displayed/known
+            -- abilities, not every definition for every class.  Unknown entries
+            -- remain available through GetCooldownViewerCategorySet(..., true)
+            -- for pickers and reconciliation.
+            local entries = C_CooldownViewer.GetCooldownViewerCategorySet(categoryID, false)
             local i = 0
             return function()
                 i = i + 1
@@ -315,11 +567,34 @@ local function CreateMockPool(categoryID)
                 end
                 return nil
             end
-        end
+        end,
+        Acquire = function() end,
+        Release = function() end,
+        ReleaseAll = function() end,
     }
 end
 
-_G.EssentialCooldownViewer.itemFramePool = CreateMockPool(1)
-_G.UtilityCooldownViewer.itemFramePool = CreateMockPool(2)
-_G.BuffIconCooldownViewer.itemFramePool = CreateMockPool(3)
-_G.BuffBarCooldownViewer.itemFramePool = CreateMockPool(4)
+local function InitMockViewer(globalName, categoryID)
+    local frame = _G[globalName]
+    if not frame then
+        if CreateFrame then
+            frame = CreateFrame("Frame", globalName, UIParent)
+        else
+            frame = {}
+            _G[globalName] = frame
+        end
+    end
+    if not frame.SetAlpha then frame.SetAlpha = function(self, a) self._alpha = a end end
+    if not frame.GetAlpha then frame.GetAlpha = function(self) return self._alpha or 1 end end
+    if not frame.ClearAllPoints then frame.ClearAllPoints = function() end end
+    if not frame.SetPoint then frame.SetPoint = function() end end
+    if not frame.GetScale then frame.GetScale = function() return 1 end end
+    if not frame.Layout then frame.Layout = function() end end
+    frame.itemFramePool = CreateMockPool(categoryID)
+    return frame
+end
+
+InitMockViewer("EssentialCooldownViewer", 1)
+InitMockViewer("UtilityCooldownViewer", 2)
+InitMockViewer("BuffIconCooldownViewer", 3)
+InitMockViewer("BuffBarCooldownViewer", 4)

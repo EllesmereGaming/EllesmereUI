@@ -10,6 +10,58 @@ function EUI.API.SetSecureAttr(frame, name, value)
     end
 end
 
+local function ApplyCooldownCompat(target)
+    if not target then return end
+    if not target.SetCooldownFromDurationObject then
+        target.SetCooldownFromDurationObject = function(self, durObj)
+            if not durObj then
+                if self.SetCooldown then self:SetCooldown(0, 0) end
+                self:Hide()
+                return
+            end
+            local start = durObj.startTime
+            local duration = durObj.duration
+            if (not start or start == 0) and durObj.expirationTime and durObj.expirationTime > 0 then
+                start = durObj.expirationTime - (duration or 0)
+            end
+            start = start or 0
+            duration = duration or 0
+            if CooldownFrame_Set then
+                CooldownFrame_Set(self, start, duration)
+            elseif start > 0 and duration > 0 then
+                self:Hide()
+                if self.SetCooldown then self:SetCooldown(start, duration) end
+                self:Show()
+            else
+                if self.SetCooldown then self:SetCooldown(0, 0) end
+                self:Hide()
+            end
+        end
+    end
+    if not target.Clear then
+        target.Clear = function(self)
+            if self.SetCooldown then self:SetCooldown(0, 0) end
+            self:Hide()
+        end
+    end
+    if not target.SetDrawBling then target.SetDrawBling = function(self, draw) self._euiDrawBling = draw and true or false end end
+    if not target.GetDrawBling then target.GetDrawBling = function(self) return self._euiDrawBling == true end end
+    if not target.SetDrawEdge then target.SetDrawEdge = function(self, draw) self._euiDrawEdge = draw and true or false end end
+    if not target.GetDrawEdge then target.GetDrawEdge = function(self) return self._euiDrawEdge ~= false end end
+    if not target.SetDrawSwipe then target.SetDrawSwipe = function(self, draw) self._euiDrawSwipe = draw and true or false end end
+    if not target.GetDrawSwipe then target.GetDrawSwipe = function(self) return self._euiDrawSwipe ~= false end end
+    if not target.SetHideCountdownNumbers then target.SetHideCountdownNumbers = function(self, hide) self._euiHideCountdownNumbers = hide and true or false end end
+    if not target.GetHideCountdownNumbers then target.GetHideCountdownNumbers = function(self) return self._euiHideCountdownNumbers == true end end
+    if not target.SetBlingTexture then target.SetBlingTexture = function(self, tex) self._euiBlingTexture = tex end end
+    if not target.SetEdgeTexture then target.SetEdgeTexture = function(self, tex) self._euiEdgeTexture = tex end end
+    if not target.SetSwipeTexture then target.SetSwipeTexture = function(self, tex) self._euiSwipeTexture = tex end end
+    if not target.SetSwipeColor then target.SetSwipeColor = function(self, r, g, b, a) self._euiSwipeColor = { r, g, b, a } end end
+    if not target.SetEdgeScale then target.SetEdgeScale = function(self, scale) self._euiEdgeScale = scale end end
+    if not target.GetEdgeScale then target.GetEdgeScale = function(self) return self._euiEdgeScale or 1 end end
+    if not target.SetCooldownUNIX then target.SetCooldownUNIX = function(self, start, duration) if self.SetCooldown then self:SetCooldown(start or 0, duration or 0) end end end
+    if not target.GetReverse then target.GetReverse = function(self) return self._euiReverse == true end end
+end
+
 function EUI.API.ApplyFrameCompat(frame)
     if not frame then return frame end
 
@@ -131,39 +183,8 @@ function EUI.API.ApplyFrameCompat(frame)
         end
     end
 
-    if frame:GetObjectType() == "Cooldown" then
-        if not frame.SetCooldownFromDurationObject then
-            frame.SetCooldownFromDurationObject = function(self, durObj)
-                if not durObj then
-                    self:SetCooldown(0, 0)
-                    self:Hide()
-                    return
-                end
-                local start = durObj.startTime
-                local duration = durObj.duration
-                if (not start or start == 0) and durObj.expirationTime and durObj.expirationTime > 0 then
-                    start = durObj.expirationTime - duration
-                end
-                start = start or 0
-                duration = duration or 0
-                if CooldownFrame_Set then
-                    CooldownFrame_Set(self, start, duration)
-                elseif start > 0 and duration > 0 then
-                    self:Hide()
-                    self:SetCooldown(start, duration)
-                    self:Show()
-                else
-                    self:SetCooldown(0, 0)
-                    self:Hide()
-                end
-            end
-        end
-        if not frame.Clear then
-            frame.Clear = function(self)
-                self:SetCooldown(0, 0)
-                self:Hide()
-            end
-        end
+    if frame.GetObjectType and frame:GetObjectType() == "Cooldown" then
+        ApplyCooldownCompat(frame)
     end
 
     if frame.CreateFontString and not frame._fsHooked then
@@ -243,12 +264,24 @@ function EllesmereUI.StripRetailTemplates(template)
     return template
 end
 
+local function IsRealUIFrame(obj)
+    if not obj then return false end
+    local t = type(obj)
+    if t == "userdata" then return true end
+    if t == "table" and rawget(obj, 0) ~= nil then return true end
+    return false
+end
+
 function EllesmereUI.SafeCreateFrame(frameType, name, parent, template)
     if type(frameType) == "string" and frameType:lower() == "itembutton" then
         frameType = "Button"
     end
     local sanitizedTemplate = EllesmereUI.StripRetailTemplates(template)
-    local f = CreateFrame(frameType, name, parent, sanitizedTemplate)
+    local realParent = parent
+    if parent ~= nil and not IsRealUIFrame(parent) then
+        realParent = UIParent
+    end
+    local f = CreateFrame(frameType, name, realParent, sanitizedTemplate)
 
     if f then
         EUI.API.ApplyFrameCompat(f)
@@ -424,6 +457,10 @@ local function PatchWidgetMetatable(obj)
                 end
             end
         end
+        local isCooldown = obj.GetObjectType and obj:GetObjectType() == "Cooldown"
+        if isCooldown or idx.SetCooldown then
+            ApplyCooldownCompat(idx)
+        end
     else
         -- Fallback: __index is a function or absent; patch the object directly.
         -- This is less efficient but safe.
@@ -517,6 +554,10 @@ local function PatchWidgetMetatable(obj)
                     self:SetTexture(path)
                 end
             end
+        end
+        local isCooldown = obj.GetObjectType and obj:GetObjectType() == "Cooldown"
+        if isCooldown or obj.SetCooldown then
+            ApplyCooldownCompat(obj)
         end
     end
 end

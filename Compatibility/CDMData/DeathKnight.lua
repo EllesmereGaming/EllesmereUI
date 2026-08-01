@@ -13,6 +13,25 @@ local CDM_CATEGORY_UTILITY   = 2
 local CDM_CATEGORY_BUFF_ICON = 3
 local CDM_CATEGORY_BUFF_BAR  = 4
 
+-- Proc auras generally are not spellbook entries, so IsSpellKnown(auraID)
+-- cannot decide whether their talent is learned.  Resolve the localized spell
+-- name and compare it with the player's current talent ranks instead.
+local function HasLearnedTalentBySpellID(spellID)
+    local talentName = GetSpellInfo and GetSpellInfo(spellID)
+    if not talentName or not GetNumTalentTabs or not GetNumTalents or not GetTalentInfo then
+        return false
+    end
+    for tab = 1, GetNumTalentTabs() do
+        for index = 1, GetNumTalents(tab) do
+            local name, _, _, _, rank = GetTalentInfo(tab, index)
+            if name == talentName and (rank or 0) > 0 then
+                return true
+            end
+        end
+    end
+    return false
+end
+
 -- cooldownID Schema: [CD type 1 digit][Class ID 2 digits][Unique ID 3 digits]
 -- These IDs MUST be globally unique across the entire addon.
 -- CD Types:
@@ -52,4 +71,12 @@ C_CooldownViewer.RegisterDefinition({
     selfAura = true,
 
     class = "DEATHKNIGHT",
+    resolvers = {
+        requirements = function()
+            return HasLearnedTalentBySpellID(51124)
+        end,
+        resolveSpellID = function()
+            return 51124
+        end,
+    },
 })

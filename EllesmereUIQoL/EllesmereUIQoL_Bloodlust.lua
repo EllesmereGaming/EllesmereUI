@@ -415,7 +415,11 @@ local function _applyActiveAura(aura, sid)
         elseif iid and not issecretvalue(iid) and C_UnitAuras.GetAuraDuration then
             local durObj = C_UnitAuras.GetAuraDuration("player", iid)
             if durObj then
-                cooldownFrame:SetCooldownFromDurationObject(durObj)
+                if cooldownFrame.SetCooldownFromDurationObject then
+                    cooldownFrame:SetCooldownFromDurationObject(durObj)
+                elseif cooldownFrame.SetCooldown and durObj.startTime and durObj.duration then
+                    cooldownFrame:SetCooldown(durObj.startTime, durObj.duration)
+                end
             end
         else
             local dur = aura.duration
