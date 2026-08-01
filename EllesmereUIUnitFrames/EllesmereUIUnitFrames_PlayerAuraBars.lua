@@ -809,8 +809,8 @@ function RegisterPABUnlock()
     end
 
     local elements = {
-        MakeBarElement("PAB_Buffs", "Player Aura Bars: Buffs", 700, true, function() return buffsParent end),
-        MakeBarElement("PAB_Debuffs", "Player Aura Bars: Debuffs", 701, false, function() return debuffsParent end),
+        MakeBarElement("PAB_Buffs", "Buffs", 700, true, function() return buffsParent end),
+        MakeBarElement("PAB_Debuffs", "Debuffs", 701, false, function() return debuffsParent end),
     }
     EllesmereUI:RegisterUnlockElements(elements, "EllesmereUIUnitFrames")
 end
@@ -1639,14 +1639,16 @@ end
 local customBuffParents, customBuffContainers, customBuffSig, customBuffDeclared = {}, {}, {}, {}
 local customDebuffParents, customDebuffContainers, customDebuffDeclared = {}, {}, {}
 
+-- Tracks which unlock-mode keys are currently registered for custom bars,
+-- so RegisterPABCustomUnlock can retire keys for bars deleted since the
+-- previous call. See that function's doc comment.
+local pabRegisteredCustomBuffKeys, pabRegisteredCustomDebuffKeys
+
 local function CustomBuffStyleKey(barId) return "playerAuraBars_customBuff_" .. barId end
 local function CustomDebuffStyleKey(barId) return "playerAuraBars_customDebuff_" .. barId end
 
 -- Default anchor for a bar with no saved position yet. Offsetting by index
 -- keeps freshly-created bars from stacking exactly on top of each other.
--- Real per-bar drag support (unlock-mode integration, mirroring
--- RegisterPABUnlock for the two default bars) is a further increment --
--- this is just a usable, non-overlapping starting point.
 local function DefaultCustomPos(barId)
     return { point = "CENTER", relPoint = "CENTER", x = 0, y = -120 - ((barId % 8) * 40) }
 end
@@ -1665,6 +1667,110 @@ local function CustomBuffSpellSignature(spells)
     return table.concat(spells, ",")
 end
 
+-- Unlock-mode registration for custom bars, patterned on RegisterPABUnlock
+-- (the two default bars) for the per-element schema, and on
+-- EllesmereUICdmBuffBars.lua's ns.RegisterTBBUnlockElements for the "dynamic
+-- list" shape: rebuilds the FULL element list (every currently-persisted
+-- custom buff + debuff bar) on every call and re-registers it, rather than
+-- trying to diff adds/removes incrementally. Cheap at PAB's expected bar
+-- counts, and it means a freshly-added bar just appears next call with no
+-- separate registration path.
+--
+-- Unlike TBB (index-keyed, so a deleted mid-list bar reshuffles every
+-- higher key and its links), PAB custom bars carry a permanent NextBarId
+-- that's never reused or renumbered, so the "never unregister, just hide"
+-- caution from TBB's doc comment doesn't apply here: a genuinely deleted
+-- bar's key is retired for good, so calling UnregisterUnlockElement for it
+-- is correct, not lossy. Still noResize/noAnchorTarget for the same reason
+-- as the default bars: AuraKit sizes the container itself, and a
+-- dynamically-resizing frame is a bad anchor target for other elements.
+local function RegisterPABCustomUnlock()
+    if not (EllesmereUI and EllesmereUI.RegisterUnlockElements and EllesmereUI.MakeUnlockElement) then return end
+    local MK = EllesmereUI.MakeUnlockElement
+
+    local prevBuffKeys, prevDebuffKeys = pabRegisteredCustomBuffKeys, pabRegisteredCustomDebuffKeys
+    pabRegisteredCustomBuffKeys, pabRegisteredCustomDebuffKeys = {}, {}
+
+    local function MakeCustomBarElement(barId, bar, order, isBuff, parents)
+        local key = (isBuff and "PAB_CustomBuff_" or "PAB_CustomDebuff_") .. barId
+        return key, MK({
+            key = key,
+            label = "PAB: " .. (bar.name or (isBuff and "Buff Bar" or "Debuff Bar")),
+            group = "Player Aura Bars",
+            order = order,
+            noResize = true,
+            noAnchorTarget = true,
+            isHidden = function()
+                local b = isBuff and ns.PAB_GetCustomBuffBar(barId) or ns.PAB_GetCustomDebuffBar(barId)
+                return not b or b.enabled == false
+            end,
+            getFrame = function() return parents[barId] end,
+            getSize = function()
+                local b = isBuff and ns.PAB_GetCustomBuffBar(barId) or ns.PAB_GetCustomDebuffBar(barId)
+                if not b then return 32, 32 end
+                local grid = ComputeGrid(isBuff, b)
+                return grid.width, grid.height
+            end,
+            savePos = function(_, point, relPoint, x, y)
+                local b = isBuff and ns.PAB_GetCustomBuffBar(barId) or ns.PAB_GetCustomDebuffBar(barId)
+                if not b then return end
+                b.pos = { point = point, relPoint = relPoint or point, x = x, y = y }
+            end,
+            loadPos = function()
+                local b = isBuff and ns.PAB_GetCustomBuffBar(barId) or ns.PAB_GetCustomDebuffBar(barId)
+                return b and b.pos or nil
+            end,
+            clearPos = function()
+                local b = isBuff and ns.PAB_GetCustomBuffBar(barId) or ns.PAB_GetCustomDebuffBar(barId)
+                if b then b.pos = nil end
+            end,
+            applyPos = function()
+                local b = isBuff and ns.PAB_GetCustomBuffBar(barId) or ns.PAB_GetCustomDebuffBar(barId)
+                local parent = parents[barId]
+                if b and parent then ApplyCustomBarPosition(parent, b, barId) end
+            end,
+        })
+    end
+
+    local elements = {}
+    local buffList = ns.PAB_CustomBuffBars()
+    if buffList then
+        for i = 1, #buffList do
+            local bar = buffList[i]
+            local key, el = MakeCustomBarElement(bar.id, bar, 702, true, customBuffParents)
+            elements[#elements + 1] = el
+            pabRegisteredCustomBuffKeys[key] = true
+        end
+    end
+    local debuffList = ns.PAB_CustomDebuffBars()
+    if debuffList then
+        for i = 1, #debuffList do
+            local bar = debuffList[i]
+            local key, el = MakeCustomBarElement(bar.id, bar, 703, false, customDebuffParents)
+            elements[#elements + 1] = el
+            pabRegisteredCustomDebuffKeys[key] = true
+        end
+    end
+
+    if #elements > 0 then
+        EllesmereUI:RegisterUnlockElements(elements, "EllesmereUIUnitFrames")
+    end
+
+    -- Retire keys for bars deleted since the last call -- safe here (unlike
+    -- TBB) because PAB custom-bar ids are permanent, see doc comment above.
+    if prevBuffKeys then
+        for key in pairs(prevBuffKeys) do
+            if not pabRegisteredCustomBuffKeys[key] then EllesmereUI:UnregisterUnlockElement(key) end
+        end
+    end
+    if prevDebuffKeys then
+        for key in pairs(prevDebuffKeys) do
+            if not pabRegisteredCustomDebuffKeys[key] then EllesmereUI:UnregisterUnlockElement(key) end
+        end
+    end
+end
+ns.PAB_RegisterCustomUnlock = RegisterPABCustomUnlock
+
 -- Public hook for the Options UI: (re)builds one custom buff bar's engine
 -- state to match its current DB entry. Safe to call after ANY change to
 -- that bar (spell add/remove, any cfg field, enable toggle, delete) -- it
@@ -1673,7 +1779,12 @@ end
 -- anchor) is cheap to just re-apply every time, same as the default bars'
 -- RestyleBars/ApplyLiveConfig split does across two calls -- one combined
 -- call here keeps the Options UI's call sites simple.
-function ns.PAB_ReloadCustomBuffBar(barId)
+--
+-- Wrapped below so unlock-mode registration stays in sync on every exit
+-- path (deleted, disabled, spell-list-unchanged, and full rebuild) without
+-- duplicating the RegisterPABCustomUnlock() call at each of this function's
+-- several early returns.
+local function ReloadCustomBuffBarImpl(barId)
     AK = AK or (EllesmereUI and EllesmereUI.AuraKit)
     if not AK then return end
 
@@ -1779,12 +1890,20 @@ function ns.PAB_ReloadCustomBuffBar(barId)
     end)
 end
 
+function ns.PAB_ReloadCustomBuffBar(barId)
+    ReloadCustomBuffBarImpl(barId)
+    RegisterPABCustomUnlock()
+end
+
 -- Public hook for the Options UI: (re)builds one custom debuff bar's engine
 -- state to match its current DB entry. Groups are additive and never
 -- released (same reasoning as ApplyGroupConfig's doc comment for the two
 -- default bars) -- a class toggle, grid change, or style edit just re-runs
 -- this on the same container.
-function ns.PAB_ReloadCustomDebuffBar(barId)
+--
+-- Wrapped below for the same reason as PAB_ReloadCustomBuffBar: keeps
+-- unlock-mode registration in sync on every exit path.
+local function ReloadCustomDebuffBarImpl(barId)
     AK = AK or (EllesmereUI and EllesmereUI.AuraKit)
     if not AK then return end
 
@@ -1842,6 +1961,11 @@ function ns.PAB_ReloadCustomDebuffBar(barId)
         AK.SetContainerRowWidth(container, grid.rowWidth)
         ApplyGroupConfig(container, chain, customDebuffDeclared[barId], styleKey, grid.effectiveMax, pad)
     end
+end
+
+function ns.PAB_ReloadCustomDebuffBar(barId)
+    ReloadCustomDebuffBarImpl(barId)
+    RegisterPABCustomUnlock()
 end
 
 -- Rebuilds every persisted custom bar's engine state. Called once from
