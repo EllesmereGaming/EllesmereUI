@@ -4329,7 +4329,7 @@ end
 -- Seems to be limited to only CDM trackable buffs but can enter any ID to try
 local _euiBuffViewers = { "BuffBarCooldownViewer", "BuffIconCooldownViewer" }
 local function BuffActiveViaCooldownViewer(spellID, wantName)
-    local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+    local gci = function(id) return EUICompat.CDM.ActiveProvider:GetEntry(id) end
     if not gci then return false end
     for vi = 1, #_euiBuffViewers do
         local vf = _G[_euiBuffViewers[vi]]
@@ -4580,8 +4580,8 @@ IP.FrameSpellID = function(frame)
         if ok and sid and not (issecretvalue and issecretvalue(sid)) then return sid end
     end
     local cdID = frame.cooldownID or (frame.cooldownInfo and frame.cooldownInfo.cooldownID)
-    if cdID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
-        local ok, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, cdID)
+    if cdID and EUICompat.CDM.ActiveProvider then
+        local ok, info = pcall(function() return EUICompat.CDM.ActiveProvider:GetEntry(cdID) end)
         if ok and info then
             local sid = info.spellID
             if sid and not (issecretvalue and issecretvalue(sid)) then return sid end
@@ -9266,7 +9266,7 @@ SlashCmdList["EUIBUFF"] = function(msg)
 	end
 	local id = tonumber(msg:match("%d+"))
 	if not id then
-		local g = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+		local g = function(id) return EUICompat.CDM.ActiveProvider:GetEntry(id) end
 		for _, n in ipairs({ "EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer", "BuffBarCooldownViewer" }) do
 			local f = _G[n]
 			if f and f.itemFramePool and g then

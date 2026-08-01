@@ -1556,8 +1556,8 @@ initFrame:SetScript("OnEvent", function(self)
                         local icon = cdmIcons and cdmIcons[curBtn]
                         if icon then
                             local sid = ns.GetCanonicalSpellIDForFrame and ns.GetCanonicalSpellIDForFrame(icon)
-                            if (not sid) and icon.cooldownID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
-                                local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(icon.cooldownID)
+                            if (not sid) and icon.cooldownID and EUICompat.CDM.ActiveProvider then
+                                local info = EUICompat.CDM.ActiveProvider:GetEntry(icon.cooldownID)
                                 if info and info.spellID and info.spellID > 0 then sid = info.spellID end
                             end
                             if sid then btnSpellName = C_Spell.GetSpellName(sid) or btnSpellName end
@@ -2777,8 +2777,8 @@ initFrame:SetScript("OnEvent", function(self)
                 -- live cooldownInfo reports the base (Death's Advance) in
                 -- info.spellID; store it only when it differs from the picked id.
                 barCfg.baseSpellID = nil
-                if sp.cdID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
-                    local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(sp.cdID)
+                if sp.cdID and EUICompat.CDM.ActiveProvider then
+                    local info = EUICompat.CDM.ActiveProvider:GetEntry(sp.cdID)
                     if info and info.spellID and info.spellID > 0 and info.spellID ~= sp.spellID then
                         barCfg.baseSpellID = info.spellID
                     end
@@ -2923,8 +2923,8 @@ initFrame:SetScript("OnEvent", function(self)
                     -- Capture the BASE spell id for hero-talent override spells
                     -- so the bar keeps tracking after the talent is removed.
                     barCfg.baseSpellID = nil
-                    if sp.cdID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
-                        local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(sp.cdID)
+                    if sp.cdID and EUICompat.CDM.ActiveProvider then
+                        local info = EUICompat.CDM.ActiveProvider:GetEntry(sp.cdID)
                         if info and info.spellID and info.spellID > 0 and info.spellID ~= sp.spellID then
                             barCfg.baseSpellID = info.spellID
                         end
@@ -13993,8 +13993,8 @@ initFrame:SetScript("OnEvent", function(self)
             if _buffIdToCdSpec == specKey then return _buffIdToCd end
             _buffIdToCdSpec = specKey
             local map
-            local gcs = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet
-            local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+            local gcs = function(cat, inc) return EUICompat.CDM.ActiveProvider:GetEntries(cat, inc) end
+            local gci = function(id) return EUICompat.CDM.ActiveProvider:GetEntry(id) end
             if gcs and gci then
                 for cat = 0, 3 do
                     local ids = gcs(cat, true)
@@ -15243,7 +15243,7 @@ initFrame:SetScript("OnEvent", function(self)
                                 -- active since): fall back to cooldownInfo. Each
                                 -- field is vetted on its own -- never `or`-chain
                                 -- possibly-secret values (truthiness taints).
-                                local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+                                local gci = function(id) return EUICompat.CDM.ActiveProvider:GetEntry(id) end
                                 local info = gci and gci(cdID)
                                 local raw2 = info and info.overrideSpellID
                                 if not (type(raw2) == "number"
@@ -15461,7 +15461,7 @@ initFrame:SetScript("OnEvent", function(self)
                             -- buff-bar preview uses.
                             local csid = ns._cdmCleanSidByCDID and ns._cdmCleanSidByCDID[cdClaim]
                             if not (type(csid) == "number" and csid > 0) then
-                                local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+                                local gci = function(id) return EUICompat.CDM.ActiveProvider:GetEntry(id) end
                                 local info = gci and gci(cdClaim)
                                 local raw2 = info and info.overrideSpellID
                                 if not (type(raw2) == "number"
@@ -19529,14 +19529,14 @@ initFrame:SetScript("OnEvent", function(self)
         print("  GetSpellBaseCooldown: " .. tostring(baseCd))
         print("  maxCharges: " .. tostring(maxCh))
         -- Check all CDM categories for this spell
-        if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet then
+        if EUICompat.CDM.ActiveProvider then
             for cat = 0, 3 do
-                local allIDs = C_CooldownViewer.GetCooldownViewerCategorySet(cat, true) or {}
-                local knownIDs = C_CooldownViewer.GetCooldownViewerCategorySet(cat, false) or {}
+                local allIDs = EUICompat.CDM.ActiveProvider:GetEntries(cat, true) or {}
+                local knownIDs = EUICompat.CDM.ActiveProvider:GetEntries(cat, false) or {}
                 local knownSet = {}
                 for _, id in ipairs(knownIDs) do knownSet[id] = true end
                 for _, cdID in ipairs(allIDs) do
-                    local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
+                    local info = EUICompat.CDM.ActiveProvider:GetEntry(cdID)
                     if info then
                         local infoSid = info.spellID
                         if info.overrideSpellID and info.overrideSpellID > 0 then infoSid = info.overrideSpellID end

@@ -438,7 +438,7 @@ function ns.EnumerateCDMSettingsCatalog(wantSet)
        or type(provider.GetCooldownInfoForID) ~= "function" then return nil end
     local okO, ordered = pcall(provider.GetOrderedCooldownIDs, provider)
     if not okO or type(ordered) ~= "table" then return nil end
-    local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+    local gci = function(id) return EUICompat.CDM.ActiveProvider:GetEntry(id) end
     if not gci then return nil end
 
     local result = {}
@@ -798,8 +798,8 @@ function ns.MigrateSpecToBarFilterModelV6()
     end
 
     -- Source 2: category API (Essential + Utility)
-    local gcs = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet
-    local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+    local gcs = function(cat, inc) return EUICompat.CDM.ActiveProvider:GetEntries(cat, inc) end
+    local gci = function(id) return EUICompat.CDM.ActiveProvider:GetEntry(id) end
     local evc = Enum and Enum.CooldownViewerCategory
     if gcs and gci and evc then
         for _, cat in ipairs({ evc.Essential, evc.Utility }) do
@@ -979,8 +979,8 @@ local function SpellIdsForBuffOrderKey(key)
     local pfx, num = string.sub(key, 1, 1), tonumber(string.sub(key, 2))
     if not num or num <= 0 then return nil end
     if pfx == "s" then return num end
-    if pfx == "c" and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
-        local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(num)
+    if pfx == "c" and EUICompat.CDM.ActiveProvider then
+        local info = EUICompat.CDM.ActiveProvider:GetEntry(num)
         if not info then return nil end
         if _IsUsableSID(info.overrideSpellID) then return info.overrideSpellID end
         if _IsUsableSID(info.spellID) then return info.spellID end
@@ -1485,11 +1485,11 @@ local function RebuildCDMSpellCaches()
     _cdmSpellCacheDirty = false
     wipe(_knownSpellSet)
     wipe(_allSpellSet)
-    if not C_CooldownViewer or not C_CooldownViewer.GetCooldownViewerCategorySet then return end
-    local gci = C_CooldownViewer.GetCooldownViewerCooldownInfo
+    if not EUICompat.CDM.ActiveProvider then return end
+    local gci = function(id) return EUICompat.CDM.ActiveProvider:GetEntry(id) end
     if not gci then return end
     for cat = 0, 3 do
-        local knownIDs = C_CooldownViewer.GetCooldownViewerCategorySet(cat, false)
+        local knownIDs = EUICompat.CDM.ActiveProvider:GetEntries(cat, false)
         if knownIDs then
             for _, cdID in ipairs(knownIDs) do
                 local info = gci(cdID)
@@ -1505,7 +1505,7 @@ local function RebuildCDMSpellCaches()
                 end
             end
         end
-        local allIDs = C_CooldownViewer.GetCooldownViewerCategorySet(cat, true)
+        local allIDs = EUICompat.CDM.ActiveProvider:GetEntries(cat, true)
         if allIDs then
             for _, cdID in ipairs(allIDs) do
                 local info = gci(cdID)

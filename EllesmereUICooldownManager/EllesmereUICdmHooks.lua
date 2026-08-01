@@ -236,7 +236,7 @@ local function ResolveFrameSpellID(frame)
     if not cdID and frame.cooldownInfo then
         cdID = frame.cooldownInfo.cooldownID
     end
-    if not cdID or not C_CooldownViewer then return nil, nil end
+    if not cdID or not EUICompat.CDM.ActiveProvider then return nil, nil end
 
     local fc = _ecmeFC[frame]
     if fc and fc.resolvedSid and fc.cachedCdID == cdID then
@@ -251,7 +251,7 @@ local function ResolveFrameSpellID(frame)
         return fc.resolvedSid, fc.baseSpellID
     end
 
-    local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
+    local info = EUICompat.CDM.ActiveProvider:GetEntry(cdID)
     if not info then return nil, nil end
     local displaySID = ResolveInfoSpellID(info)
     if not displaySID or displaySID <= 0 then return nil, nil end
@@ -813,7 +813,7 @@ local function ResolveCDIDToBar(cdID, viewerDefaultBar)
     end
 
     local RVV = ns.ResolveVariantValue
-    local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+    local gci = function(id) return EUICompat.CDM.ActiveProvider:GetEntry(id) end
     if not RVV or not gci then
         _cdidRouteMap[cdID] = viewerDefaultBar
         return viewerDefaultBar
@@ -7687,8 +7687,8 @@ do
         local sid = fc and fc.spellID
         if sid then return sid end
         local cdID = icon.cooldownID
-        if cdID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
-            local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
+        if cdID and EUICompat.CDM.ActiveProvider then
+            local info = EUICompat.CDM.ActiveProvider:GetEntry(cdID)
             if info then return info.overrideSpellID or info.spellID end
         end
         return nil

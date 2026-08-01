@@ -1670,8 +1670,8 @@ local function ResolveChildSpellID(child)
     end
     -- Fall back to cooldownInfo struct
     local cdID = child.cooldownID or (child.cooldownInfo and child.cooldownInfo.cooldownID)
-    if cdID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
-        local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
+    if cdID and EUICompat.CDM.ActiveProvider then
+        local info = EUICompat.CDM.ActiveProvider:GetEntry(cdID)
         return ResolveInfoSpellID(info)
     end
     return nil
@@ -1684,12 +1684,12 @@ end
 -------------------------------------------------------------------------------
 local function BuildAvailableSpellPool()
     local known = {}
-    if not C_CooldownViewer or not C_CooldownViewer.GetCooldownViewerCategorySet then return known end
+    if not EUICompat.CDM.ActiveProvider then return known end
     for cat = 0, 3 do
-        local knownIDs = C_CooldownViewer.GetCooldownViewerCategorySet(cat, false)
+        local knownIDs = EUICompat.CDM.ActiveProvider:GetEntries(cat, false)
         if knownIDs then
             for _, cdID in ipairs(knownIDs) do
-                local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
+                local info = EUICompat.CDM.ActiveProvider:GetEntry(cdID)
                 if info then
                     local primarySid = ResolveInfoSpellID(info)
                     -- Store ALL related spell IDs so reconcile can match
@@ -1732,10 +1732,10 @@ local function BuildAvailableSpellPool()
     local _IsPlayerSpell = IsPlayerSpell
     if _IsPlayerSpell then
         for cat = 0, 3 do
-            local allIDs = C_CooldownViewer.GetCooldownViewerCategorySet(cat, true)
+            local allIDs = EUICompat.CDM.ActiveProvider:GetEntries(cat, true)
             if allIDs then
                 for _, cdID in ipairs(allIDs) do
-                    local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
+                    local info = EUICompat.CDM.ActiveProvider:GetEntry(cdID)
                     if info then
                         local sid = ResolveInfoSpellID(info)
                         if sid and sid > 0 and not known[sid] and _IsPlayerSpell(sid) then
@@ -2579,8 +2579,8 @@ ResolveBlizzChildSpellID = function(blizzChild)
         cdID = blizzChild.cooldownInfo.cooldownID
     end
     if cdID then
-        local info = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
-            and C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
+        local info = EUICompat.CDM.ActiveProvider
+            and EUICompat.CDM.ActiveProvider:GetEntry(cdID)
         if info then return ResolveInfoSpellID(info) end
     end
     return nil
@@ -9367,15 +9367,15 @@ SlashCmdList.CDMDBG = function()
     --    carries cooldownInfo (the IsFrameIncluded trigger for hidden
     --    frames), and which bar our claim cache has it on.
     P(ACCENT .. "--- Raw viewer pool walk ---" .. OFF)
-    local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+    local gci = function(id) return EUICompat.CDM.ActiveProvider:GetEntry(id) end
     -- Engine truth for the CURRENT spec/form state: the union of every
     -- category's learned cooldownIDs. A pool frame whose cdID is NOT in
     -- this set is a leftover from a previous spec/form state.
     local learnedSet = {}
-    if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet
+    if EUICompat.CDM.ActiveProvider
        and Enum and Enum.CooldownViewerCategory then
         for _, cat in pairs(Enum.CooldownViewerCategory) do
-            local ok, ids = pcall(C_CooldownViewer.GetCooldownViewerCategorySet, cat, false)
+            local ok, ids = pcall(function() return EUICompat.CDM.ActiveProvider:GetEntries(cat, false) end)
             if ok and type(ids) == "table" then
                 for _, id in ipairs(ids) do learnedSet[id] = true end
             end
@@ -9674,7 +9674,7 @@ SlashCmdList.CDMBUFFID = function()
     --    compare SEED/SORT id (fc.spellID) vs PREVIEW/SETTINGS id (canonical),
     --    and render order vs preview-enum order.
     P(ACCENT .. "--- live cdmBarIcons[\"buffs\"] [seed + sort id = fc.spellID] ---" .. OFF)
-    local gci      = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+    local gci      = function(id) return EUICompat.CDM.ActiveProvider:GetEntry(id) end
     local fcCache  = ns._ecmeFC
     local icons    = ns.cdmBarIcons and ns.cdmBarIcons["buffs"]
     local nDiverge, nTotal = 0, 0
@@ -9760,7 +9760,7 @@ SlashCmdList.CDMBUFFID = function()
     elseif type(order[1]) == "number" then
         P("  " .. DIM .. "(stale numeric format -- open CDM options once to re-seed, then re-run)" .. OFF)
     else
-        local gci2 = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+        local gci2 = function(id) return EUICompat.CDM.ActiveProvider:GetEntry(id) end
         local orderIdx = {}
         for i, key in ipairs(order) do
             if orderIdx[key] == nil then orderIdx[key] = i end
