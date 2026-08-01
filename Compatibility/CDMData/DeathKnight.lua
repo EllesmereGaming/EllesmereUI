@@ -13,17 +13,20 @@ local CDM_CATEGORY_UTILITY   = 2
 local CDM_CATEGORY_BUFF_ICON = 3
 local CDM_CATEGORY_BUFF_BAR  = 4
 
--- cooldownID Schema:
--- These IDs MUST be globally unique across the entire addon (not just per-class).
--- They act as stable anchors for settings, ordering, and UI references.
--- Recommended ranges:
--- 100000-199999: Class abilities (cooldowns)
--- 200000-299999: Class buffs and procs
--- 300000-399999: Racials
--- 400000-499999: Items/Trinkets
+-- cooldownID Schema: [CD type 1 digit][Class ID 2 digits][Unique ID 3 digits]
+-- These IDs MUST be globally unique across the entire addon.
+-- CD Types:
+-- 1 = Class abilities (cooldowns)
+-- 2 = Class buffs and procs
+-- 3 = Racials
+-- 4 = Items/Trinkets
+-- Class IDs (standard WoW API):
+-- 01=Warrior, 02=Paladin, 03=Hunter, 04=Rogue, 05=Priest, 06=Death Knight,
+-- 07=Shaman, 08=Mage, 09=Warlock, 11=Druid.
+-- Example: Death Knight (06) cooldown (1) -> 106XXX
 C_CooldownViewer.RegisterDefinition({
     key = "deathknight.icebound_fortitude",
-    cooldownID = 100001,
+    cooldownID = 106001,
     category = CDM_CATEGORY_ESSENTIAL,
     order = 10,
 
@@ -36,7 +39,7 @@ C_CooldownViewer.RegisterDefinition({
 
 C_CooldownViewer.RegisterDefinition({
     key = "deathknight.killing_machine",
-    cooldownID = 200001,
+    cooldownID = 206001,
     category = CDM_CATEGORY_BUFF_ICON,
     order = 20,
 
