@@ -130,7 +130,7 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = W:SectionHeader(parent, SECTION_MINIMAP, y);  y = y - h
 
         _, h = W:DualRow(parent, y,
-            { type="slider", text="Size", min=100, max=600, step=1,
+            { type="slider", text="Size", min=100, max=1000, step=1,
               getValue=function() local m = MinimapDB(); return m and m.mapSize or 140 end,
               setValue=function(v)
                 local m = MinimapDB(); if not m then return end
@@ -171,6 +171,24 @@ initFrame:SetScript("OnEvent", function(self)
                 local m = MinimapDB(); if not m then return end
                 m.interactableBtnSize = v
                 RefreshMinimap()
+              end })
+        y = y - h
+
+        -- Map Icon Size: scales the engine-drawn blips (herbs, ore, quest dots).
+        _, h = W:DualRow(parent, y,
+            { type="slider", text="Map Icon Size (Blips)", min=0.5, max=3.0, step=0.05,
+              tooltip="Scales the tracking blips drawn on the map (herbs, ore, quest dots). The map itself keeps its size; other minimap elements are unaffected.",
+              getValue=function() local m = MinimapDB(); return m and m.blipScale or 1.0 end,
+              setValue=function(v)
+                local m = MinimapDB(); if not m then return end
+                m.blipScale = v
+                -- Drag = map-only preview (no relayout -> no icon shimmer);
+                -- one full refresh 0.2s after the slider settles.
+                if _G._EBS_PreviewBlipScale then _G._EBS_PreviewBlipScale(v) end
+                if _G._EBS_BlipDragTimer then _G._EBS_BlipDragTimer:Cancel() end
+                _G._EBS_BlipDragTimer = C_Timer.NewTimer(0.2, function()
+                    RefreshMinimap()
+                end)
               end })
         y = y - h
 
@@ -462,7 +480,7 @@ initFrame:SetScript("OnEvent", function(self)
         local fmRow
         fmRow, h = W:DualRow(parent, y,
             { type="toggle", text="Free Move Buttons",
-              tooltip="When enabled, Shift+Click any minimap button (mail, calendar, tracking, addon buttons) to drag it to a custom position.",
+              tooltip="When enabled, Shift+Click any minimap button (mail, calendar, tracking, addon buttons) to drag it to a custom position. While dragging, buttons snap to nearby buttons and the minimap border; hold Ctrl together with Shift to disable snapping.",
               getValue=function() local m = MinimapDB(); return m and m.freeMoveBtns end,
               setValue=function(v)
                 local m = MinimapDB(); if not m then return end
