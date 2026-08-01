@@ -782,7 +782,48 @@ local LOOT_WINDOWS = {
     { name = "BonusRollFrame",     key = "EUI_BonusRoll",   label = "Bonus Roll",   order = 640, defW = 330, defH = 120, defY = 240 },
     { name = "GroupLootContainer", key = "EUI_GroupLoot",   label = "Group Loot",   order = 641, defW = 300, defH = 80,  defY = 340 },
     { name = "AlertFrame",         key = "EUI_AlertToasts", label = "Alert Toasts", order = 642, defW = 300, defH = 100, defY = 160, fixedSize = true },
+    -- alwaysOn: no Shifter toggle of its own -- Blizzard's "Loss of Control
+    -- Alerts" combat option decides whether the frame ever appears.
+    -- scalable: one icon + timer + label block, so both size inputs drive the
+    -- same SCALE and the aspect ratio is kept.
+    { name = "LossOfControlFrame", key = "EUI_LossOfControl", label = "Loss of Control", order = 643, defW = 220, defH = 90, defY = 400, alwaysOn = true, scalable = true },
 }
+
+-- Saved scale for scalable entries, keyed by frame name.
+local function GetLootScale(name)
+    local db = EllesmereUIDB
+    return tonumber(db and db.shifterLootScales and db.shifterLootScales[name]) or 1
+end
+
+local function SaveLootScale(name, scale)
+    if not EllesmereUIDB then EllesmereUIDB = {} end
+    EllesmereUIDB.shifterLootScales = EllesmereUIDB.shifterLootScales or {}
+    EllesmereUIDB.shifterLootScales[name] = scale
+end
+
+local function LootInfo(name)
+    for i = 1, #LOOT_WINDOWS do
+        if LOOT_WINDOWS[i].name == name then return LOOT_WINDOWS[i] end
+    end
+end
+
+-- Unscaled size a scalable entry's mover box is built from: the live frame's
+-- own size (so the box matches its real shape), floored to the table values so
+-- the label always fits, and cached once a real size is readable.
+local lootBaseSize = {}
+local function LootBaseSize(info)
+    local c = lootBaseSize[info.name]
+    if c then return c[1], c[2] end
+    local f = _G[info.name]
+    local w = f and f.GetWidth and f:GetWidth() or 0
+    local h = f and f.GetHeight and f:GetHeight() or 0
+    if w > 20 and h > 20 then
+        c = { math.max(w, info.defW), math.max(h, info.defH) }
+        lootBaseSize[info.name] = c
+        return c[1], c[2]
+    end
+    return info.defW, info.defH
+end
 
 local lootProxies = {}
 local lootHooked  = {}
@@ -815,8 +856,14 @@ local function LootFrame(name)
     return frame
 end
 
+-- alwaysOn entries are not part of the Loot opt-in group (see LOOT_WINDOWS).
+local function LootActive(name)
+    local info = LootInfo(name)
+    return (info and info.alwaysOn) or LootEnabled()
+end
+
 local function ApplyLootPos(name)
-    if not LootEnabled() then return end
+    if not LootActive(name) then return end
     local pos = GetLootPos(name)
     if not pos then return end
     local frame = LootFrame(name)
@@ -825,8 +872,13 @@ local function ApplyLootPos(name)
     if ffd._shLootIgnoreSP then return end
     ffd._shLootIgnoreSP = true
     frame.ignoreFramePositionManager = true
+    local info = LootInfo(name)
+    local scale = (info and info.scalable) and GetLootScale(name) or 1
+    if scale ~= 1 then pcall(frame.SetScale, frame, scale) end
     frame:ClearAllPoints()
-    frame:SetPoint(pos.point, UIParent, pos.relPoint, pos.x, pos.y)
+    -- SetScale reinterprets offsets: divide them back out so the frame lands
+    -- exactly where the mover showed it.
+    frame:SetPoint(pos.point, UIParent, pos.relPoint, pos.x / scale, pos.y / scale)
     ffd._shLootIgnoreSP = false
 end
 
@@ -844,13 +896,25 @@ local function HookLootWindow(name)
     end)
 end
 
+-- Mover box size for a scalable entry: base size at the saved scale.
+local function SizeLootProxy(info, proxy)
+    if not proxy then return end
+    local sc = GetLootScale(info.name)
+    local bw, bh = LootBaseSize(info)
+    proxy:SetSize(bw * sc, bh * sc)
+end
+
 -- Hidden rect-only ghost the unlock mover attaches to; never visible.
 local function EnsureLootProxy(info)
     local proxy = lootProxies[info.name]
     if proxy then return proxy end
     proxy = CreateFrame("Frame", nil, UIParent)
     proxy:Hide()
-    proxy:SetSize(info.defW, info.defH)
+    if info.scalable then
+        SizeLootProxy(info, proxy)
+    else
+        proxy:SetSize(info.defW, info.defH)
+    end
     local pos = GetLootPos(info.name)
     if pos then
         proxy:SetPoint(pos.point, UIParent, pos.relPoint, pos.x, pos.y)
@@ -872,18 +936,36 @@ local function InitLootWindows()
     end
 end
 
+-- Push a new scale onto the proxy (what the mover shows) and the live frame.
+local function ApplyLootScale(info)
+    SizeLootProxy(info, lootProxies[info.name])
+    ApplyLootPos(info.name)
+end
+
+-- Typed size on either axis -> one scale (aspect ratio preserved).
+local function ScaleLootFromAxis(info, value, axis)
+    local v = tonumber(value)
+    if not v then return end
+    local bw, bh = LootBaseSize(info)
+    local base = (axis == 1) and bw or bh
+    if base <= 0 then return end
+    SaveLootScale(info.name, math.max(0.5, math.min(5, v / base)))
+    ApplyLootScale(info)
+end
+
 local function RegisterLootUnlockElements()
     local MK = EllesmereUI.MakeUnlockElement
     if not MK or not EllesmereUI.RegisterUnlockElements then return end
     local elements = {}
     for i = 1, #LOOT_WINDOWS do
         local info = LOOT_WINDOWS[i]
-        elements[#elements + 1] = MK({
+        local elem
+        elem = MK({
             key   = info.key,
             label = info.label,
             group = "Quality of Life",
             order = info.order,
-            noResize          = true,
+            noResize          = not info.scalable,
             noAnchorTarget    = true,
             noAnchorTo        = true,
             noSizeMatchTarget = true,
@@ -891,9 +973,19 @@ local function RegisterLootUnlockElements()
             -- until the user turns them off: brown tint + reminder subtitle
             -- to tell them apart from live-frame movers.
             moverBg  = { r = 0.165, g = 0.11, b = 0.055 },
-            subtitle = "Disable Loot unlock mode overlays in Shifter once done positioning",
+            -- alwaysOn movers carry no subtitle: they are not tied to the Loot
+            -- unlock toggle, so there is nothing to switch off afterwards.
+            subtitle = (not info.alwaysOn)
+                and "Disable Loot unlock mode overlays in Shifter once done positioning" or nil,
             isHidden = function()
-                if not LootEnabled() or not _G[info.name] then return true end
+                if not LootActive(info.name) or not _G[info.name] then return true end
+                if info.alwaysOn then
+                    -- Carry Blizzard's alert state in the label: without it the
+                    -- mover looks live while the alert is switched off.
+                    local on = GetCVarBool and GetCVarBool("lossOfControl")
+                    elem.label = on and "Loss of Control (on)" or "Loss of Control (off)"
+                    return false
+                end
                 -- "Hide Unlock Mode Overlays": the movers stay out of unlock
                 -- mode but saved positions keep applying (the SetPoint/OnShow
                 -- enforcement never depends on the movers existing).
@@ -903,6 +995,11 @@ local function RegisterLootUnlockElements()
                 return EnsureLootProxy(info)
             end,
             getSize = function()
+                if info.scalable then
+                    local sc = GetLootScale(info.name)
+                    local bw, bh = LootBaseSize(info)
+                    return bw * sc, bh * sc
+                end
                 if info.fixedSize then return info.defW, info.defH end
                 local frame = _G[info.name]
                 local w = frame and frame.GetWidth and frame:GetWidth() or 0
@@ -938,6 +1035,10 @@ local function RegisterLootUnlockElements()
                 local frame = LootFrame(info.name)
                 if frame then frame.ignoreFramePositionManager = nil end
             end,
+            -- Both axes drive the same scale, so the frame keeps its shape
+            -- whichever box the user types in.
+            setWidth  = info.scalable and function(_, v) ScaleLootFromAxis(info, v, 1) end or nil,
+            setHeight = info.scalable and function(_, v) ScaleLootFromAxis(info, v, 2) end or nil,
             applyPos = function()
                 local pos = GetLootPos(info.name)
                 local proxy = EnsureLootProxy(info)
@@ -950,6 +1051,7 @@ local function RegisterLootUnlockElements()
                 ApplyLootPos(info.name)
             end,
         })
+        elements[#elements + 1] = elem
     end
     EllesmereUI:RegisterUnlockElements(elements, "EllesmereUIQoL")
 end
