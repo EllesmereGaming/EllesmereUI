@@ -4655,7 +4655,7 @@ local function SkinCharacterSheet()
                 -- Same hex atlas the enchanted items show, tinted red
                 -- (#e54949 → RGB 229, 73, 73 in the atlas-escape color fields).
                 iconOnly    = "|A:Professions-ChatIcon-Quality-Tier5:14:14:0:0:229:73:73|a"
-                tooltipText = "Enchant missing"
+                tooltipText = L("Enchant missing")
             elseif hasEnchant then
                 -- Concatenate every |A:...|a atlas escape, drop everything else.
                 local icons = {}
