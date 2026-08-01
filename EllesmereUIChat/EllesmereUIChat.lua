@@ -510,6 +510,14 @@ local function SidebarParticipatesInLayout(cfg)
         or (mode == "mouseover" and _sidebarMouseoverLayoutVisible)
 end
 
+local function ShouldShowSidebarDivider(cfg)
+    return not cfg.hideBorders
+        and cfg.sidebarSeparate ~= true
+        -- Without the sidebar background this becomes an exposed edge line,
+        -- not a divider between two panel backgrounds, on either side.
+        and not cfg.hideSidebarBg
+end
+
 -- Extend the chat background up behind the tab strip (and the sidebar by the
 -- same amount) so the tabs sit on one continuous panel instead of floating over
 -- empty space. Opt-in via cfg.extendBgBehindTabs (default off, reload on toggle).
@@ -844,7 +852,7 @@ function ECHAT.ApplyBorders()
         end
         if CFD(cf1).sidebarDiv then
             CFD(cf1).sidebarDiv:SetColorTexture(r, g, b, a)
-            CFD(cf1).sidebarDiv:SetShown(not hide)
+            CFD(cf1).sidebarDiv:SetShown(ShouldShowSidebarDivider(cfg))
         end
     end
     -- Mirror border visibility onto the behind-tabs divider continuation.
@@ -1087,7 +1095,7 @@ function ECHAT.ApplySidebarPosition()
             CFD(cf1).sidebarDiv:SetPoint("TOPRIGHT", sb, "TOPRIGHT", 0, 0)
             CFD(cf1).sidebarDiv:SetPoint("BOTTOMRIGHT", sb, "BOTTOMRIGHT", 0, 0)
         end
-        CFD(cf1).sidebarDiv:SetShown(cfg.sidebarSeparate ~= true)
+        CFD(cf1).sidebarDiv:SetShown(ShouldShowSidebarDivider(cfg))
     end
 
     -- Re-place the behind-tabs divider continuation onto the new edge.
@@ -1189,6 +1197,9 @@ function ECHAT.ApplySidebarBackground()
     end
     if PP.GetBorders(sb) then
         PP.GetBorders(sb):SetShown(show)
+    end
+    if CFD(cf1).sidebarDiv then
+        CFD(cf1).sidebarDiv:SetShown(ShouldShowSidebarDivider(cfg))
     end
     -- Hide the sidebar extension too when the sidebar background is hidden.
     if ECHAT.ApplyExtendedBackground then ECHAT.ApplyExtendedBackground() end
