@@ -1211,8 +1211,9 @@ local DEFAULTS = {
         castBar = {
             enabled       = true,
             alwaysShow    = false,  -- keep the bar on screen (sitting empty) while nothing is being cast
+            orientation   = "HORIZONTAL", -- "HORIZONTAL","VERTICAL_UP","VERTICAL_DOWN"
             showIcon      = true,
-            iconOnRight   = false,  -- attach the spell icon to the right of the bar instead of the left
+            iconOnRight   = false,  -- attach the spell icon to the fill end instead of the fill start
             width         = 220,
             height        = 20,
             anchorX       = 0,
@@ -2296,16 +2297,49 @@ local function RegisterUnlockElements()
             getFrame = function() return castBarFrame end,
             getSize  = function()
                 local cb = S()
-                local iconW = (cb.showIcon ~= false) and cb.height or 0
-                return cb.width + iconW, cb.height
+                local iconLength = (cb.showIcon ~= false) and cb.height or 0
+                return OrientedSize(cb.width + iconLength, cb.height,
+                    cb.orientation or "HORIZONTAL")
             end,
             setWidth = function(_, w)
                 local cb = S()
-                local iconW = (cb.showIcon ~= false) and cb.height or 0
-                cb.width = PP.Snap(math.max(w - iconW, 10))
+                if IsVerticalOrientation(cb.orientation) then
+                    local newThickness = PP.Snap(math.max(w, 1))
+                    -- With an icon, changing thickness also changes the
+                    -- rendered length. Preserve a simultaneous height match;
+                    -- its propagation is suppressed while this width setter
+                    -- runs, so it cannot repair the coupled axis itself.
+                    if cb.showIcon ~= false and EllesmereUI.GetHeightMatchTarget
+                       and EllesmereUI.GetHeightMatchTarget("ERB_CastBar") then
+                        local totalLength = cb.width + cb.height
+                        cb.width = PP.Snap(math.max(totalLength - newThickness, 10))
+                    end
+                    cb.height = newThickness
+                else
+                    local iconLength = (cb.showIcon ~= false) and cb.height or 0
+                    cb.width = PP.Snap(math.max(w - iconLength, 10))
+                end
                 Rebuild()
             end,
-            setHeight = function(_, h) S().height = PP.Snap(h); Rebuild() end,
+            setHeight = function(_, h)
+                local cb = S()
+                if IsVerticalOrientation(cb.orientation) then
+                    local iconLength = (cb.showIcon ~= false) and cb.height or 0
+                    cb.width = PP.Snap(math.max(h - iconLength, 10))
+                else
+                    local newThickness = PP.Snap(math.max(h, 1))
+                    -- Horizontal is the symmetric case: icon thickness
+                    -- contributes to rendered width, so keep an active width
+                    -- match stable when only the height source changes.
+                    if cb.showIcon ~= false and EllesmereUI.GetWidthMatchTarget
+                       and EllesmereUI.GetWidthMatchTarget("ERB_CastBar") then
+                        local totalLength = cb.width + cb.height
+                        cb.width = PP.Snap(math.max(totalLength - newThickness, 10))
+                    end
+                    cb.height = newThickness
+                end
+                Rebuild()
+            end,
             savePos = castSave, loadPos = castLoad, clearPos = castClear, applyPos = castApply,
         })
     end
@@ -6412,9 +6446,13 @@ BuildCastBar = function()
 
     -- Apply settings
     local w, h = cb.width, cb.height
+    local orientation = cb.orientation or "HORIZONTAL"
+    local isVertical = IsVerticalOrientation(orientation)
     local hasIcon = cb.showIcon ~= false
-    -- Total frame width includes icon (h x h) only when icon is shown
-    local totalW = hasIcon and (w + h) or w
+    -- Width remains the saved bar length and height remains its thickness.
+    -- Vertical modes swap those logical axes only for the rendered frame.
+    local totalLength = hasIcon and (w + h) or w
+    local frameW, frameH = OrientedSize(totalLength, h, orientation)
     if cb.unlockPos and cb.unlockPos.point then
         -- Position managed by unlock mode -- only animate size changes.
         -- Skip reposition during unlock mode so resize does not snap the bar.
@@ -6422,23 +6460,23 @@ BuildCastBar = function()
         local px, py = cb.unlockPos.x or 0, cb.unlockPos.y or 0
         local anchored = EllesmereUI.IsUnlockAnchored("ERB_CastBar")
         if EllesmereUI._unlockActive then
-            castBarFrame:SetSize(totalW, h)
+            castBarFrame:SetSize(frameW, frameH)
         elseif anchored and castBarFrame:GetLeft() then
             -- Anchor system owns position; just set size directly
-            castBarFrame:SetSize(totalW, h)
+            castBarFrame:SetSize(frameW, frameH)
         else
             local function ApplyCastUnlockTransform()
-                local aw = castBarFrame["_barAnim_w"] or totalW
-                local ah = castBarFrame["_barAnim_h"] or h
+                local aw = castBarFrame["_barAnim_w"] or frameW
+                local ah = castBarFrame["_barAnim_h"] or frameH
                 castBarFrame:SetSize(aw, ah)
                 castBarFrame:ClearAllPoints()
                 castBarFrame:SetPoint(cb.unlockPos.point, UIParent, rp, px, py)
             end
-            SmoothBarAnimate(castBarFrame, "w", totalW, function() ApplyCastUnlockTransform() end)
-            SmoothBarAnimate(castBarFrame, "h", h, function() ApplyCastUnlockTransform() end)
+            SmoothBarAnimate(castBarFrame, "w", frameW, function() ApplyCastUnlockTransform() end)
+            SmoothBarAnimate(castBarFrame, "h", frameH, function() ApplyCastUnlockTransform() end)
         end
     else
-        castBarFrame:SetSize(totalW, h)
+        castBarFrame:SetSize(frameW, frameH)
         if not EllesmereUI._unlockActive then
             castBarFrame:ClearAllPoints()
             castBarFrame:SetPoint("CENTER", UIParent, "CENTER", cb.anchorX, cb.anchorY)
@@ -6458,13 +6496,20 @@ BuildCastBar = function()
             cb.borderTextureShiftX, cb.borderTextureShiftY, "resourcebars", bs)
     end
 
-    -- Icon: left or right side (iconOnRight), full height, no inset
+    -- Icon follows the cast axis. "Icon on fill end" means right for
+    -- horizontal, top for vertical-up, and bottom for vertical-down.
     local iconFrame = castBarFrame._iconFrame
-    local iconOnRight = hasIcon and cb.iconOnRight
+    local iconOnEnd = hasIcon and cb.iconOnRight
+    local iconAtTop = isVertical and hasIcon and
+        ((orientation == "VERTICAL_UP" and iconOnEnd) or
+         (orientation ~= "VERTICAL_UP" and not iconOnEnd))
     if hasIcon then
         iconFrame:SetSize(h, h)
         iconFrame:ClearAllPoints()
-        if iconOnRight then
+        if isVertical then
+            iconFrame:SetPoint(iconAtTop and "TOP" or "BOTTOM", castBarFrame,
+                iconAtTop and "TOP" or "BOTTOM", 0, 0)
+        elseif iconOnEnd then
             iconFrame:SetPoint("TOPRIGHT", castBarFrame, "TOPRIGHT", 0, 0)
         else
             iconFrame:SetPoint("TOPLEFT", castBarFrame, "TOPLEFT", 0, 0)
@@ -6483,10 +6528,20 @@ BuildCastBar = function()
     -- is interior, no border draws there, and insetting it exposed a 1px
     -- background column next to the icon (visible with light bg colors).
     -- Outer edges keep the inset so the fill never bleeds past the border.
-    local clipLeft  = (hasIcon and not iconOnRight) and h or bdrInset
-    local clipRight = iconOnRight and h or bdrInset
-    clipFrame:SetPoint("TOPLEFT", castBarFrame, "TOPLEFT", clipLeft, -bdrInset)
-    clipFrame:SetPoint("BOTTOMRIGHT", castBarFrame, "BOTTOMRIGHT", -clipRight, bdrInset)
+    local clipLeft, clipRight, clipTop, clipBottom
+    if isVertical then
+        clipLeft = bdrInset
+        clipRight = bdrInset
+        clipTop = iconAtTop and h or bdrInset
+        clipBottom = (hasIcon and not iconAtTop) and h or bdrInset
+    else
+        clipLeft = (hasIcon and not iconOnEnd) and h or bdrInset
+        clipRight = iconOnEnd and h or bdrInset
+        clipTop = bdrInset
+        clipBottom = bdrInset
+    end
+    clipFrame:SetPoint("TOPLEFT", castBarFrame, "TOPLEFT", clipLeft, -clipTop)
+    clipFrame:SetPoint("BOTTOMRIGHT", castBarFrame, "BOTTOMRIGHT", -clipRight, clipBottom)
     clipFrame:SetFrameLevel(castBarFrame:GetFrameLevel() + 1)
     bar:ClearAllPoints()
     bar:SetAllPoints(clipFrame)
@@ -6506,6 +6561,17 @@ BuildCastBar = function()
         castBarFrame._bg:SetTexture(nil)
         castBarFrame._bg:SetColorTexture(cb.bgR, cb.bgG, cb.bgB, cb.bgA)
         ns.ApplyCastBgAnchor()
+    end
+    -- Texture and rotation both reset vertex color, so orientation must be
+    -- applied after the texture and before the color/gradient pass below.
+    -- Leave the legacy horizontal path untouched until a vertical mode has
+    -- actually been used; reverting from vertical restores the defaults once.
+    if isVertical then
+        ApplyBarOrientation(bar, orientation)
+        castBarFrame._castVerticalApplied = true
+    elseif castBarFrame._castVerticalApplied then
+        ApplyBarOrientation(bar, "HORIZONTAL")
+        castBarFrame._castVerticalApplied = nil
     end
 
     -- Bar color / gradient. Fill Opacity multiplies into the fill alpha
@@ -6556,15 +6622,26 @@ end
     -- Spark
     local spark = castBarFrame._spark
     if cb.showSpark then
-        spark:SetSize(8, h)
+        spark:SetSize(isVertical and h or 8, isVertical and 8 or h)
+        if isVertical then
+            spark:SetRotation(math.pi / 2)
+            spark._erbRotated = true
+        elseif spark._erbRotated then
+            spark:SetRotation(0)
+            spark._erbRotated = nil
+        end
         spark:ClearAllPoints()
 
+        local sparkPoint = orientation == "VERTICAL_UP" and "TOP"
+            or (isVertical and "BOTTOM" or "RIGHT")
         if cb.gradientEnabled and castBarFrame._gradClip then
-            spark:SetPoint("CENTER", castBarFrame._gradClip, "RIGHT", 0, 0)
+            spark:SetPoint("CENTER", castBarFrame._gradClip, sparkPoint, 0, 0)
         else
-            spark:SetPoint("CENTER", fillTex, "RIGHT", 0, 0)
+            spark:SetPoint("CENTER", fillTex, sparkPoint, 0, 0)
         end
 
+        castBarFrame._sparkAnchor = nil
+        castBarFrame._sparkPoint = sparkPoint
         spark:Show()
     else
         spark:Hide()
@@ -6588,6 +6665,13 @@ end
         else
             lo:SetColorTexture(lR, lG, lB, lA)
         end
+        if isVertical then
+            lo:SetRotation(math.pi / 2)
+            lo._erbRotated = true
+        elseif lo._erbRotated then
+            lo:SetRotation(0)
+            lo._erbRotated = nil
+        end
     else
         if castBarFrame._latencyOverlay then castBarFrame._latencyOverlay:Hide() end
         castBarFrame._latencySuffix = nil
@@ -6596,7 +6680,7 @@ end
     -- and border insets are accounted for. Falls back to cb.width if
     -- the bar hasn't been laid out yet.
     local barW = bar:GetWidth()
-    if not barW or barW < 10 then barW = cb.width end
+    if not barW or barW < 1 then barW = cb.width end
 
     -- Cast text side-aware layout (mirrors nameplates / unit frames). The duration
     -- reserves a slot on its side and pushes the spell text inward when they share a
@@ -6610,10 +6694,18 @@ end
     local timerText = castBarFrame._timerText
     if cb.showTimer then
         SetRBFont(timerText, GetRBFont(), cb.timerSize or 11)
-        local pt, xb, jh = ns.GetCastTextAnchor(durSide, false, timerW)
         timerText:ClearAllPoints()
-        timerText:SetJustifyH(jh)
-        timerText:SetPoint(pt, bar, pt, xb + (cb.timerX or 0), cb.timerY or 0)
+        if isVertical and durSide ~= "center" then
+            local pt = durSide == "left" and "RIGHT" or "LEFT"
+            local rel = durSide == "left" and "LEFT" or "RIGHT"
+            local xb = durSide == "left" and -4 or 4
+            timerText:SetJustifyH(durSide == "left" and "RIGHT" or "LEFT")
+            timerText:SetPoint(pt, bar, rel, xb + (cb.timerX or 0), cb.timerY or 0)
+        else
+            local pt, xb, jh = ns.GetCastTextAnchor(durSide, false, timerW)
+            timerText:SetJustifyH(jh)
+            timerText:SetPoint(pt, bar, pt, xb + (cb.timerX or 0), cb.timerY or 0)
+        end
         timerText:Show()
     else
         timerText:Hide()
@@ -6623,14 +6715,27 @@ end
     local nameText = castBarFrame._nameText
     if cb.showSpellText then
         SetRBFont(nameText, GetRBFont(), cb.spellTextSize or 11)
-        local pt, xb, jh = ns.GetCastTextAnchor(spellSide, cb.showTimer and durSide == spellSide, timerW)
         nameText:ClearAllPoints()
-        nameText:SetJustifyH(jh)
-        nameText:SetPoint(pt, bar, pt, xb + (cb.spellTextX or 0), cb.spellTextY or 0)
-        if spellSide == "center" then
-            nameText:SetWidth(barW * 0.6)
+        if isVertical and spellSide ~= "center" then
+            local pt = spellSide == "left" and "RIGHT" or "LEFT"
+            local rel = spellSide == "left" and "LEFT" or "RIGHT"
+            local xb = spellSide == "left" and -4 or 4
+            local sharedSideY = (cb.showTimer and durSide == spellSide)
+                and -((cb.timerSize or 11) + 2) or 0
+            nameText:SetJustifyH(spellSide == "left" and "RIGHT" or "LEFT")
+            nameText:SetPoint(pt, bar, rel, xb + (cb.spellTextX or 0),
+                (cb.spellTextY or 0) + sharedSideY)
+            nameText:SetWidth(max(50, cb.width * 0.6))
         else
-            nameText:SetWidth(barW - 8 - (cb.showTimer and timerW or 0))
+            local pt, xb, jh = ns.GetCastTextAnchor(spellSide,
+                cb.showTimer and durSide == spellSide, timerW)
+            nameText:SetJustifyH(jh)
+            nameText:SetPoint(pt, bar, pt, xb + (cb.spellTextX or 0), cb.spellTextY or 0)
+            if spellSide == "center" then
+                nameText:SetWidth((isVertical and cb.width or barW) * 0.6)
+            else
+                nameText:SetWidth(barW - 8 - (cb.showTimer and timerW or 0))
+            end
         end
         nameText:Show()
     else
@@ -6657,6 +6762,11 @@ end
         ns.ShowIdleCastBar()
     else
         ns.ActivateCastBar()
+        -- A live options rebuild replaces texture/orientation geometry and
+        -- hides pooled ticks/pips above. Re-arm the active cast decorations
+        -- after that layout change so flipping orientation mid-cast does not
+        -- leave stale horizontal overlays until the next spell.
+        if ns.RefreshActiveCastLayout then ns.RefreshActiveCastLayout() end
     end
 end
 
@@ -6690,6 +6800,9 @@ ShowChannelTicks = function(spellID)
     local barWidth = bar:GetWidth()
     local barHeight = bar:GetHeight()
     if barWidth <= 0 or barHeight <= 0 then return end
+    local orientation = cb.orientation or "HORIZONTAL"
+    local isVertical = IsVerticalOrientation(orientation)
+    local barLength = isVertical and barHeight or barWidth
 
     -- Pixel-snap helpers (same approach as empower pips)
     local effectiveScale = bar:GetEffectiveScale()
@@ -6697,6 +6810,7 @@ ShowChannelTicks = function(spellID)
     local tickWidth = max(pixelSize, floor(2 * effectiveScale + 0.5) / effectiveScale)
     local highlightWidth = max(pixelSize, floor(3 * effectiveScale + 0.5) / effectiveScale)
     local snappedHeight = floor(barHeight * effectiveScale + 0.5) / effectiveScale
+    local snappedWidth = floor(barWidth * effectiveScale + 0.5) / effectiveScale
 
     -- Tick marks
     if wantTicks then
@@ -6733,18 +6847,32 @@ ShowChannelTicks = function(spellID)
                     castBarFrame._ticks[i] = tick
                 end
 
-                local snappedOffset = floor(barWidth * (numTicks - i) / numTicks * effectiveScale + 0.5) / effectiveScale
+                local snappedOffset = floor(barLength * (numTicks - i) / numTicks * effectiveScale + 0.5) / effectiveScale
 
                 if isLastTick and showLastTick then
                     tick:SetColorTexture(ltR, ltG, ltB, ltA)
-                    tick:SetSize(highlightWidth, snappedHeight)
+                    if isVertical then
+                        tick:SetSize(snappedWidth, highlightWidth)
+                    else
+                        tick:SetSize(highlightWidth, snappedHeight)
+                    end
                 else
                     tick:SetColorTexture(tmR, tmG, tmB, tmA)
-                    tick:SetSize(tickWidth, snappedHeight)
+                    if isVertical then
+                        tick:SetSize(snappedWidth, tickWidth)
+                    else
+                        tick:SetSize(tickWidth, snappedHeight)
+                    end
                 end
 
                 tick:ClearAllPoints()
-                tick:SetPoint("CENTER", bar, "LEFT", snappedOffset, 0)
+                if orientation == "VERTICAL_UP" then
+                    tick:SetPoint("CENTER", bar, "BOTTOM", 0, snappedOffset)
+                elseif isVertical then
+                    tick:SetPoint("CENTER", bar, "TOP", 0, -snappedOffset)
+                else
+                    tick:SetPoint("CENTER", bar, "LEFT", snappedOffset, 0)
+                end
                 tick:Show()
             end
         end
@@ -6965,7 +7093,7 @@ UpdateCastBar = function(dt)
         end
     end
 
-    -- Spark position. The spark is anchored to the RIGHT edge of the fill, and
+    -- Spark position. The spark is anchored to the leading edge of the fill, and
     -- the engine already moves it as the fill grows, so re-anchoring to the same
     -- target every frame achieves nothing and costs two frame API calls. The
     -- target only changes when gradient mode toggles.
@@ -6979,7 +7107,8 @@ UpdateCastBar = function(dt)
         if castBarFrame._sparkAnchor ~= target then
             castBarFrame._sparkAnchor = target
             castBarFrame._spark:ClearAllPoints()
-            castBarFrame._spark:SetPoint("CENTER", target, "RIGHT", 0, 0)
+            castBarFrame._spark:SetPoint("CENTER", target,
+                castBarFrame._sparkPoint or "RIGHT", 0, 0)
         end
     end
 end
@@ -7010,9 +7139,12 @@ local function ShowLatencyOverlay(castType)
     if latencyMs <= 0 then latencyMs = latencyHome end
     local latencySec = latencyMs / 1000
     local castDur = castBarFrame._endTime - castBarFrame._startTime
-    local barWidth = castBarFrame._bar:GetWidth()
+    local orientation = cb.orientation or "HORIZONTAL"
+    local isVertical = IsVerticalOrientation(orientation)
+    local barLength = isVertical and castBarFrame._bar:GetHeight()
+        or castBarFrame._bar:GetWidth()
 
-    if latencySec <= 0 or castDur <= 0 or barWidth <= 0 then
+    if latencySec <= 0 or castDur <= 0 or barLength <= 0 then
         overlay:Hide(); castBarFrame._latencySuffix = nil; return
     end
 
@@ -7025,19 +7157,36 @@ local function ShowLatencyOverlay(castType)
 
     -- Size as a fraction of the cast, clamped to [1px, full bar] so it always
     -- renders something and never overruns the bar on a lag spike.
-    local width = barWidth * (latencySec / castDur)
-    if width < 1 then width = 1 elseif width > barWidth then width = barWidth end
+    local length = barLength * (latencySec / castDur)
+    if length < 1 then length = 1 elseif length > barLength then length = barLength end
 
     local clip = castBarFrame._barClip
     overlay:ClearAllPoints()
-    if castType == "channel" then
-        overlay:SetPoint("TOPLEFT", clip, "TOPLEFT", 0, 0)
-        overlay:SetPoint("BOTTOMLEFT", clip, "BOTTOMLEFT", 0, 0)
+    if isVertical then
+        local atTop
+        if castType == "channel" then
+            atTop = orientation ~= "VERTICAL_UP"
+        else
+            atTop = orientation == "VERTICAL_UP"
+        end
+        if atTop then
+            overlay:SetPoint("TOPLEFT", clip, "TOPLEFT", 0, 0)
+            overlay:SetPoint("TOPRIGHT", clip, "TOPRIGHT", 0, 0)
+        else
+            overlay:SetPoint("BOTTOMLEFT", clip, "BOTTOMLEFT", 0, 0)
+            overlay:SetPoint("BOTTOMRIGHT", clip, "BOTTOMRIGHT", 0, 0)
+        end
+        overlay:SetHeight(length)
     else
-        overlay:SetPoint("TOPRIGHT", clip, "TOPRIGHT", 0, 0)
-        overlay:SetPoint("BOTTOMRIGHT", clip, "BOTTOMRIGHT", 0, 0)
+        if castType == "channel" then
+            overlay:SetPoint("TOPLEFT", clip, "TOPLEFT", 0, 0)
+            overlay:SetPoint("BOTTOMLEFT", clip, "BOTTOMLEFT", 0, 0)
+        else
+            overlay:SetPoint("TOPRIGHT", clip, "TOPRIGHT", 0, 0)
+            overlay:SetPoint("BOTTOMRIGHT", clip, "BOTTOMRIGHT", 0, 0)
+        end
+        overlay:SetWidth(length)
     end
-    overlay:SetWidth(width)
     overlay:Show()
 end
 
@@ -7045,6 +7194,25 @@ local function HideLatencyOverlay()
     if not castBarFrame then return end
     if castBarFrame._latencyOverlay then castBarFrame._latencyOverlay:Hide() end
     castBarFrame._latencySuffix = nil
+end
+
+-- Re-arm geometry/state that a live BuildCastBar style pass invalidates.
+-- This only runs while a cast is already active and only from a settings
+-- rebuild; the normal event handlers remain the steady-state path.
+function ns.RefreshActiveCastLayout()
+    if not castBarFrame then return end
+    castBarFrame._cstKey = nil
+    if castBarFrame._empowering then
+        OnEmpowerStart()
+    elseif castBarFrame._channeling then
+        ns.ApplyCastTimer("channel")
+        local _, _, _, _, _, _, _, spellID = UnitChannelInfo("player")
+        if spellID then ShowChannelTicks(spellID) end
+        ShowLatencyOverlay("channel")
+    elseif castBarFrame._casting then
+        ns.ApplyCastTimer("cast")
+        ShowLatencyOverlay("cast")
+    end
 end
 
 -------------------------------------------------------------------------------
@@ -7066,8 +7234,8 @@ function ns.ApplyCastBgAnchor()
     local casting = castBarFrame._casting or castBarFrame._channeling or castBarFrame._empowering
     castBarFrame._bg:ClearAllPoints()
     if casting and (cb.fillOpacity or 100) < 100 then
-        castBarFrame._bg:SetPoint("TOPLEFT", bar:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
-        castBarFrame._bg:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", 0, 0)
+        ns.AnchorBgToFillEdge(castBarFrame._bg, bar:GetStatusBarTexture(), bar,
+            cb.orientation or "HORIZONTAL")
     else
         castBarFrame._bg:SetAllPoints(castBarFrame)
     end
@@ -7403,6 +7571,9 @@ OnEmpowerStart = function()
         local bar = castBarFrame._bar
         local barWidth = bar:GetWidth()
         local barHeight = bar:GetHeight()
+        local orientation = cb.orientation or "HORIZONTAL"
+        local isVertical = IsVerticalOrientation(orientation)
+        local barLength = isVertical and barHeight or barWidth
         local numStages = #stages
         castBarFrame._numStages = numStages
 
@@ -7420,14 +7591,25 @@ OnEmpowerStart = function()
                 pip:SetColorTexture(1, 1, 1, 0.85)
                 castBarFrame._pips[i] = pip
             end
-            local rawOffset = lastOffset + (barWidth * stages[i])
+            local rawOffset = lastOffset + (barLength * stages[i])
             lastOffset = rawOffset
             -- Snap offset to nearest physical pixel
             local snappedOffset = floor(rawOffset * effectiveScale + 0.5) / effectiveScale
             local snappedHeight = floor(barHeight * effectiveScale + 0.5) / effectiveScale
-            pip:SetSize(pipWidth, snappedHeight)
+            local snappedWidth = floor(barWidth * effectiveScale + 0.5) / effectiveScale
+            if isVertical then
+                pip:SetSize(snappedWidth, pipWidth)
+            else
+                pip:SetSize(pipWidth, snappedHeight)
+            end
             pip:ClearAllPoints()
-            pip:SetPoint("CENTER", bar, "LEFT", snappedOffset, 0)
+            if orientation == "VERTICAL_UP" then
+                pip:SetPoint("CENTER", bar, "BOTTOM", 0, snappedOffset)
+            elseif isVertical then
+                pip:SetPoint("CENTER", bar, "TOP", 0, -snappedOffset)
+            else
+                pip:SetPoint("CENTER", bar, "LEFT", snappedOffset, 0)
+            end
             pip:Show()
         end
 

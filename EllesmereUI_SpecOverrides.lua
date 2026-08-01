@@ -399,8 +399,8 @@ end
 -- link exists for the element -- checked against the account-global link
 -- tables, which ApplyLayer keeps swapped to the active layer's set.
 -- Static map, Resource Bars only for now (the reported corruption
--- family). The GCD bar's setters swap dims by orientation, so either
--- link kind owns both of its keys.
+-- family). The Cast and GCD bar setters swap dims by orientation, so either
+-- link kind owns both keys for those bars.
 local MATCH_OWNED_FKEYS = {
     ["EllesmereUIResourceBars\31health\30width"]        = { elem = "ERB_Health",        dim = "w" },
     ["EllesmereUIResourceBars\31health\30height"]       = { elem = "ERB_Health",        dim = "h" },
@@ -408,8 +408,8 @@ local MATCH_OWNED_FKEYS = {
     ["EllesmereUIResourceBars\31primary\30height"]      = { elem = "ERB_Power",         dim = "h" },
     ["EllesmereUIResourceBars\31secondary\30pipWidth"]  = { elem = "ERB_ClassResource", dim = "w" },
     ["EllesmereUIResourceBars\31secondary\30pipHeight"] = { elem = "ERB_ClassResource", dim = "h" },
-    ["EllesmereUIResourceBars\31castBar\30width"]       = { elem = "ERB_CastBar",       dim = "w" },
-    ["EllesmereUIResourceBars\31castBar\30height"]      = { elem = "ERB_CastBar",       dim = "h" },
+    ["EllesmereUIResourceBars\31castBar\30width"]       = { elem = "ERB_CastBar",       dim = "both" },
+    ["EllesmereUIResourceBars\31castBar\30height"]      = { elem = "ERB_CastBar",       dim = "both" },
     ["EllesmereUIResourceBars\31gcdBar\30width"]        = { elem = "ERB_GCDBar",        dim = "both" },
     ["EllesmereUIResourceBars\31gcdBar\30height"]       = { elem = "ERB_GCDBar",        dim = "both" },
 }
