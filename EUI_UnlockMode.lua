@@ -616,12 +616,12 @@ EllesmereUI._ELEMENT_SETTINGS_MAP = {
     ["EABR_Reminders"] = { module = "EllesmereUIAuraBuffReminders", page = "Auras, Buffs & Consumables", sectionName = "DISPLAY" },
 
     -- Quality of Life (FPS + Secondary Stats live on the QoL page's EXTRAS section)
-    ["EUI_FPS"]            = { module = "EllesmereUIQoL", page = "QoL", sectionName = "EXTRAS", highlightText = "Show FPS Counter" },
-    ["EUI_SecondaryStats"] = { module = "EllesmereUIQoL", page = "QoL", sectionName = "EXTRAS", highlightText = "Secondary Stat Display" },
+    ["EUI_FPS"]            = { module = "EllesmereUIQoL", page = "Quality of Life", sectionName = "EXTRAS", highlightText = "Show FPS Counter" },
+    ["EUI_SecondaryStats"] = { module = "EllesmereUIQoL", page = "Quality of Life", sectionName = "EXTRAS", highlightText = "Secondary Stat Display" },
 
     -- Battle Res + Bloodlust (bottom of the Quality of Life page)
-    ["EUI_BattleRes"]      = { module = "EllesmereUIQoL",             page = "QoL",   sectionName = "BATTLE RES",        highlightText = "Enable BattleRes Icon" },
-    ["EUI_Bloodlust"]      = { module = "EllesmereUIQoL",             page = "QoL",   sectionName = "BLOODLUST TRACKER", highlightText = "Enable Bloodlust Icon" },
+    ["EUI_BattleRes"]      = { module = "EllesmereUIQoL",             page = "Quality of Life",   sectionName = "BATTLE RES",        highlightText = "Enable BattleRes Icon" },
+    ["EUI_Bloodlust"]      = { module = "EllesmereUIQoL",             page = "Quality of Life",   sectionName = "BLOODLUST TRACKER", highlightText = "Enable Bloodlust Icon" },
 
     -- Mythic+ Timer
     ["EMT_MythicTimer"]    = { module = "EllesmereUIMythicTimer",     page = "Mythic+ Timer",     sectionName = "DISPLAY",           highlightText = "Scale" },
@@ -6091,7 +6091,7 @@ local function CreateMover(barKey)
         StanceBar = true, PetBar = true,
         ERB_TotemBar = true,   -- totem bar: align active icons left/right/center
     }
-    local canGrow = _GROW_KEYS[barKey] or barKey:sub(1, 4) == "CDM_"
+    local canGrow = _GROW_KEYS[barKey] or barKey:sub(1, 4) == "CDM_" or barKey:sub(1, 4) == "PAB_"
 
     -- Match-source capability: the width/height MATCH buttons may appear even when
     -- drag/manual resize is disabled (noResize), if the element opts in via
@@ -6794,14 +6794,20 @@ local function CreateMover(barKey)
                 local _, v3 = EllesmereUI.GetTotemGrowDir()
                 isVert = v3
             end
+        elseif barKey:sub(1, 4) == "PAB_" then
+            isVert = false -- Player Aura Bars are horizontal-only, AK has no vertical flow axis wired for them
         else
             local eab3 = EllesmereUI.Lite.GetAddon("EllesmereUIActionBars", true)
             local s3 = eab3 and eab3.db and eab3.db.profile and eab3.db.profile.bars and eab3.db.profile.bars[barKey]
             if s3 then isVert = (s3.orientation == "vertical") end
         end
-        local growDirs = {
-            { label = "Grow Centered", val = "CENTER" },
-        }
+        -- Player Aura Bars: no "Grow Centered" -- AK's SetFlowLayoutGrowthDirection
+        -- (AnchorUtil.FlowDirection) is a strict Left/Right/Up/Down axis, it has
+        -- no centered concept, unlike CDM/ActionBars' own bar renderer.
+        local growDirs = {}
+        if barKey:sub(1, 4) ~= "PAB_" then
+            growDirs[#growDirs + 1] = { label = "Grow Centered", val = "CENTER" }
+        end
         if isVert then
             growDirs[#growDirs + 1] = { label = "Grow Up",   val = "UP"   }
             growDirs[#growDirs + 1] = { label = "Grow Down", val = "DOWN" }
@@ -6825,6 +6831,9 @@ local function CreateMover(barKey)
             -- layout does or it would highlight an option that is not offered.
             currentVal = EllesmereUI.GetTotemGrowDir and EllesmereUI.GetTotemGrowDir()
                 or (isVert and "DOWN" or "RIGHT")
+        elseif barKey:sub(1, 4) == "PAB_" then
+            local euf4 = EllesmereUI.Lite.GetAddon("EllesmereUIUnitFrames", true)
+            currentVal = (euf4 and euf4.GetGrowDirectionForBar and euf4:GetGrowDirectionForBar(barKey)) or "LEFT"
         else
             local eab4 = EllesmereUI.Lite.GetAddon("EllesmereUIActionBars", true)
             local s4 = eab4 and eab4.db and eab4.db.profile and eab4.db.profile.bars
@@ -6911,6 +6920,11 @@ local function CreateMover(barKey)
                         if tb then tb.growDirection = sideVal end
                         if EllesmereUI.LayoutTotemBar then EllesmereUI.LayoutTotemBar() end
                         EllesmereUI.RecenterBarAnchor(barKey)
+                    elseif barKey:sub(1, 4) == "PAB_" then
+                        local euf = EllesmereUI.Lite.GetAddon("EllesmereUIUnitFrames", true)
+                        if euf and euf.SetGrowDirectionForBar then
+                            euf:SetGrowDirectionForBar(barKey, sideVal)
+                        end
                     else
                         local eab = EllesmereUI.Lite.GetAddon("EllesmereUIActionBars", true)
                         if eab and eab.SetGrowDirectionForBar then

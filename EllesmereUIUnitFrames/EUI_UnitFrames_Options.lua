@@ -8,7 +8,8 @@ local ADDON_NAME, ns = ...
 local PAGE_DISPLAY   = "Main Frames"
 local PAGE_BOSS      = "Boss Frames"
 local PAGE_MINI      = "Mini Frames"
-local PAGE_AURAS     = "Blizzard Aura Frames"
+local PAGE_AURAS     = "External Defensives"
+local PAGE_AURA_BARS = "Player Aura Bars"
 local PAGE_UNLOCK    = "Unlock Mode"
 
 local initFrame = CreateFrame("Frame")
@@ -99,7 +100,55 @@ initFrame:SetScript("OnEvent", function(self)
         if ns._bossPreviewActive and ns.SetBossPreview then
             ns.SetBossPreview(false)
         end
+        -- Player Aura Bars root: built onto the shared live scrollFrame, not
+        -- under a page's own `parent`. This fires when the WHOLE options
+        -- window closes (confirmed against EUI_RaidFrames_Options.lua's
+        -- identical _bmRoot/_dmRoot/_ccRoot cleanup here) -- NOT on
+        -- switching to a different top-level module; that's a separate
+        -- event, handled below via SelectModule.
+        if ns._pabRoot then
+            ns._pabRoot:Hide()
+            ns._pabRoot:SetParent(nil)
+            ns._pabRoot = nil
+        end
     end)
+
+    -- Rebuild Player Aura Bars when the options window re-opens while
+    -- already sitting on that page. RegisterOnHide above tore _pabRoot down
+    -- on close; nothing else rebuilds it on a plain re-open (unlike a tab
+    -- switch, which goes through buildPage/onPageCacheRestore). Mirrors
+    -- EUI_RaidFrames_Options.lua's identical "Show preview / rebuild BM when
+    -- panel re-opens on RF page" RegisterOnShow block.
+    if EllesmereUI.RegisterOnShow then
+        EllesmereUI:RegisterOnShow(function()
+            if EllesmereUI:GetActiveModule() == "EllesmereUIUnitFrames"
+               and EllesmereUI:GetActivePage() == PAGE_AURA_BARS
+               and not ns._pabRoot then
+                C_Timer.After(0, function()
+                    if EllesmereUI:GetActiveModule() == "EllesmereUIUnitFrames" and ns.PABMP_BuildPage then
+                        ns.PABMP_BuildPage(PAGE_AURA_BARS, nil, -6)
+                    end
+                end)
+            end
+        end)
+    end
+
+    -- Clean up Player Aura Bars root when switching to a DIFFERENT
+    -- top-level module (Nameplates, Raid Frames, ...). This is NOT the same
+    -- event as RegisterOnHide (the whole options window closing) -- while
+    -- switching modules the window stays open, so RegisterOnHide never
+    -- fires and _pabRoot was left overlapping the newly-shown module's
+    -- content. Mirrors EUI_RaidFrames_Options.lua's identical
+    -- hooksecurefunc(EllesmereUI, "SelectModule", ...) cleanup.
+    if EllesmereUI.SelectModule then
+        hooksecurefunc(EllesmereUI, "SelectModule", function(_, folderName)
+            if folderName ~= "EllesmereUIUnitFrames" and ns._pabRoot then
+                ns._pabRoot:Hide()
+                ns._pabRoot:SetParent(nil)
+                ns._pabRoot = nil
+            end
+        end)
+    end
 
     ---------------------------------------------------------------------------
     --  Individual Display unit selector
@@ -311,7 +360,7 @@ initFrame:SetScript("OnEvent", function(self)
     local healthTextOrder = { "none", "---", "name", "levelname", "namelevel", "level", "perhp", "perhpnosign", "curhpshort", "perhpnum", "both" }
     -- Boss frames also get "Name > Target" (the boss's current target); the other
     -- mini frames (Target of Target / Focus Target / Pet) do not.
-    local healthTextOrderBoss = { "none", "---", "name", "nametotarget", "levelname", "namelevel", "level", "perhp", "perhpnosign", "curhpshort", "perhpnum", "both", "bothdash", "perhpnumdash", "absorb", "absorbshort", "healabsorb", "healabsorbshort" }
+    local healthTextOrderBoss = { "none", "---", "name", "nametotarget", "levelname", "namelevel", "level", "perhp", "perhpnosign", "curhpshort", "perhpnum", "both", "bothdash", "perhpnumdash" }
     local healthTextOrderPlayer = { "none", "---", "name", "nametotarget", "levelname", "namelevel", "level", "perhp", "perhpnosign", "curhpshort", "perhpnum", "both", "bothdash", "perhpnumdash", "absorb", "absorbshort", "healabsorb", "healabsorbshort", "group" }
     -- Target/Focus get the same absorb text options as player, minus "group"
     -- (Group Number is the player's own raid group; it is meaningless on a target/focus).
@@ -3918,7 +3967,7 @@ initFrame:SetScript("OnEvent", function(self)
         block:SetAllPoints()
         block:SetFrameLevel(rgn:GetFrameLevel() + 50)
         block:EnableMouse(true)
-        block:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(block, "Not available in Dark Mode. Dark Mode colors can be adjusted in Global Settings -> Fonts & Colors.") end)
+        block:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(block, "Not available in Dark Mode") end)
         block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
         local function Update()
             if db and db.profile and db.profile.darkTheme then
@@ -4642,18 +4691,8 @@ initFrame:SetScript("OnEvent", function(self)
                   setValue=function(v)
                       db.profile.darkTheme = v
                       ReloadAndUpdate(); UpdatePreview()
-                      -- Dark Mode feeds the conditional-override condition.
-                      if EllesmereUI.Conditions_Recheck then EllesmereUI.Conditions_Recheck() end
                       EllesmereUI:RefreshPage()
                   end });  y = y - h
-        -- This toggle IS the Dark Mode condition's input for Unit Frames:
-        -- lock it while a Dark Mode conditional is being edited, or the
-        -- override could capture a value that flips its own condition.
-        if EllesmereUI.SpecOverrides_AttachEditLock then
-            EllesmereUI.SpecOverrides_AttachEditLock(barTexRow._rightRegion,
-                "Dark Mode drives a Dark Mode override condition and can't be changed while editing an override",
-                EllesmereUI.SpecOverrides_DarkCondEditActive)
-        end
         -- Sync icon: Bar Texture (left region) -- pushes this unit's texture to frames
         do
             local rgn = barTexRow._leftRegion
@@ -4954,21 +4993,19 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(function() updateBorderSwatch() end)
         end
 
-        -- Row 4: Show Tooltip For (checkbox-dropdown) | Frame Strata
-        -- "Show Tooltip For" is a pure VIEW over the existing per-unit
-        -- showUnitTooltip key (Unit Frame item) plus the new per-unit
-        -- showAuraTooltips key (Buffs & Debuffs item, default on = the
-        -- old always-shown behavior). Zero migration; both setters write
-        -- EVERY unit key so the choice covers all frames including boss.
+        -- Row 4: Show Tooltip | Frame Strata
         local ufStrataValues = { BACKGROUND = "Background", LOW = "Low", MEDIUM = "Medium", HIGH = "High", DIALOG = "Dialog" }
         local ufStrataOrder = { "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG" }
-        local tipStrataRow
-        tipStrataRow, h = W:DualRow(parent, y,
-            { type="dropdown", text="Show Tooltip For",
-              tooltip="Choose which tooltips appear on hover. Affects all unit frames, including boss frames.",
-              values={ ["_placeholder"]="..." }, order={ "_placeholder" },
-              getValue=function() return "_placeholder" end,
-              setValue=function() end },
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Show Tooltip",
+              getValue=function() return SVal("showUnitTooltip", true) end,
+              setValue=function(v)
+                  local keys = GROUP_UNIT_ORDER or {"player", "target", "focus"}
+                  for _, key in ipairs(keys) do
+                      UNIT_DB_MAP[key]().showUnitTooltip = v
+                  end
+                  ReloadAndUpdate()
+              end },
             { type="dropdown", text="Frame Strata",
               tooltip="Controls the order that overlapping elements display in. Set higher to show above other elements.",
               values = ufStrataValues, order = ufStrataOrder,
@@ -4978,60 +5015,9 @@ initFrame:SetScript("OnEvent", function(self)
                   ReloadAndUpdate()
               end });  y = y - h
 
-        -- Show Tooltip For checkbox-dropdown (left region)
-        do
-            local rgn = tipStrataRow._leftRegion
-            if rgn._control then rgn._control:Hide() end
-            local tipItems = {
-                { key = "unit",  label = "Unit Frame",
-                  tooltip = "Show the unit's tooltip when hovering the frame itself." },
-                { key = "auras", label = "Main Frames Buffs & Debuffs",
-                  tooltip = "Show aura tooltips when hovering buff and debuff icons on all unit frames except boss frames." },
-                { key = "bossauras", label = "Boss Frames Buffs & Debuffs",
-                  tooltip = "Show aura tooltips when hovering buff and debuff icons on boss frames." },
-            }
-            -- Both aura items are views over the same per-unit showAuraTooltips
-            -- key the runtime already reads per element; they only differ in
-            -- which unit keys the setter fans out to.
-            local ALL_UNITS  = { "player", "target", "focus", "targettarget", "focustarget", "pet", "boss" }
-            local MAIN_UNITS = { "player", "target", "focus", "targettarget", "focustarget", "pet" }
-            local PP = EllesmereUI.PP
-            local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-                rgn, 210, rgn:GetFrameLevel() + 2,
-                tipItems,
-                function(k)
-                    if k == "unit" then return SVal("showUnitTooltip", true) end
-                    if k == "auras" then return SVal("showAuraTooltips", true) end
-                    if k == "bossauras" then
-                        return UNIT_DB_MAP["boss"]().showAuraTooltips ~= false
-                    end
-                    return false
-                end,
-                function(k, v)
-                    if k == "unit" then
-                        for _, key in ipairs(ALL_UNITS) do
-                            UNIT_DB_MAP[key]().showUnitTooltip = v
-                        end
-                    elseif k == "auras" then
-                        for _, key in ipairs(MAIN_UNITS) do
-                            UNIT_DB_MAP[key]().showAuraTooltips = v
-                        end
-                    elseif k == "bossauras" then
-                        UNIT_DB_MAP["boss"]().showAuraTooltips = v
-                    else
-                        return
-                    end
-                    ReloadAndUpdate()
-                end)
-            PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
-            rgn._control = cbDD
-            rgn._lastInline = nil
-            EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
-        end
-
         -- Cog on Frame Strata: custom bar stratas for detached power/text bar
         do
-            local strataRgn = tipStrataRow
+            local strataRgn = _
             if strataRgn and strataRgn._rightRegion then strataRgn = strataRgn._rightRegion end
             local barStrataValues = { BACKGROUND = "Background", LOW = "Low", MEDIUM = "Medium", HIGH = "High", DIALOG = "Dialog" }
             local barStrataOrder = { "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG" }
@@ -6261,11 +6247,7 @@ initFrame:SetScript("OnEvent", function(self)
             PP.Point(ltClassSwatch, "RIGHT", ltAnchor, "LEFT", -8, 0)
             ltClassSwatch:SetScript("OnClick", function()
                 if SVal("leftTextContent", "name") == "none" then return end
-                SSet("leftTextClassColor", true)
-                -- Bespoke write: notify for exact Spec Overrides attribution
-                -- (the forced RefreshPage below would otherwise resync-absorb it).
-                if EllesmereUI._NotifySettingWrite then EllesmereUI._NotifySettingWrite(ltClassSwatch) end
-                UpdatePreview(); EllesmereUI:RefreshPage()
+                SSet("leftTextClassColor", true); UpdatePreview(); EllesmereUI:RefreshPage()
             end)
             ltClassSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(ltClassSwatch, "Class Colored") end)
             ltClassSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
@@ -6284,9 +6266,7 @@ initFrame:SetScript("OnEvent", function(self)
             ltSwatch:SetScript("OnClick", function(self, ...)
                 if SVal("leftTextContent", "name") == "none" then return end
                 if SVal("leftTextClassColor", false) then
-                    SSet("leftTextClassColor", false)
-                    if EllesmereUI._NotifySettingWrite then EllesmereUI._NotifySettingWrite(self) end
-                    UpdatePreview(); EllesmereUI:RefreshPage(); return
+                    SSet("leftTextClassColor", false); UpdatePreview(); EllesmereUI:RefreshPage(); return
                 end
                 if ltOrigClick then ltOrigClick(self, ...) end
             end)
@@ -6300,18 +6280,6 @@ initFrame:SetScript("OnEvent", function(self)
             end
             RegisterWidgetRefresh(function() ltUpdateSwatch(); ltUpdateClassSwatch(); UpdateLtSwatches() end)
             UpdateLtSwatches()
-            -- The class-color mode flag is written only by the bespoke swatch
-            -- OnClicks above and read by no widget getter, so the Spec
-            -- Overrides read-trace could never connect an override on it to
-            -- this row (no gold border / overlay for class-color overrides).
-            -- Declare it as a capture accessor: the gold walk traces it.
-            if EllesmereUI.AddCaptureAccessor then
-                EllesmereUI.AddCaptureAccessor(leftRgn, {
-                    type = "toggle", text = "Left Text Class Color",
-                    getValue = function() return SVal("leftTextClassColor", false) end,
-                    setValue = function(v) SSet("leftTextClassColor", v) end,
-                })
-            end
         end
         -- Cogwheel on Left Text (left region)
         do
@@ -6453,11 +6421,7 @@ initFrame:SetScript("OnEvent", function(self)
             PP.Point(rtClassSwatch, "RIGHT", rtAnchor, "LEFT", -8, 0)
             rtClassSwatch:SetScript("OnClick", function()
                 if SVal("rightTextContent", "both") == "none" then return end
-                SSet("rightTextClassColor", true)
-                -- Bespoke write: notify for exact Spec Overrides attribution
-                -- (the forced RefreshPage below would otherwise resync-absorb it).
-                if EllesmereUI._NotifySettingWrite then EllesmereUI._NotifySettingWrite(rtClassSwatch) end
-                UpdatePreview(); EllesmereUI:RefreshPage()
+                SSet("rightTextClassColor", true); UpdatePreview(); EllesmereUI:RefreshPage()
             end)
             rtClassSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(rtClassSwatch, "Class Colored") end)
             rtClassSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
@@ -6475,9 +6439,7 @@ initFrame:SetScript("OnEvent", function(self)
             rtSwatch:SetScript("OnClick", function(self, ...)
                 if SVal("rightTextContent", "both") == "none" then return end
                 if SVal("rightTextClassColor", false) then
-                    SSet("rightTextClassColor", false)
-                    if EllesmereUI._NotifySettingWrite then EllesmereUI._NotifySettingWrite(self) end
-                    UpdatePreview(); EllesmereUI:RefreshPage(); return
+                    SSet("rightTextClassColor", false); UpdatePreview(); EllesmereUI:RefreshPage(); return
                 end
                 if rtOrigClick then rtOrigClick(self, ...) end
             end)
@@ -6491,14 +6453,6 @@ initFrame:SetScript("OnEvent", function(self)
             end
             RegisterWidgetRefresh(function() rtUpdateSwatch(); rtUpdateClassSwatch(); UpdateRtSwatches() end)
             UpdateRtSwatches()
-            -- Mirror of the Left Text class-flag accessor: see that comment.
-            if EllesmereUI.AddCaptureAccessor then
-                EllesmereUI.AddCaptureAccessor(rightRgn, {
-                    type = "toggle", text = "Right Text Class Color",
-                    getValue = function() return SVal("rightTextClassColor", false) end,
-                    setValue = function(v) SSet("rightTextClassColor", v) end,
-                })
-            end
         end
         -- Cogwheel on Right Text (right region)
         do
@@ -7241,7 +7195,7 @@ initFrame:SetScript("OnEvent", function(self)
                   refreshAlpha = function()
                       return SVal("powerPercentPowerColor", true) and 0.3 or 1
                   end },
-                { tooltip = "Power Colored Fill. Power colors can be adjusted in Global Settings -> Fonts & Colors.",
+                { tooltip = "Power Colored Fill",
                   hasAlpha = false,
                   getValue = function()
                       local _, pToken = UnitPowerType("player")
@@ -7279,7 +7233,7 @@ initFrame:SetScript("OnEvent", function(self)
                 SSet("powerBgPowerColored", true)
                 ReloadAndUpdate(); UpdatePreview(); EllesmereUI:RefreshPage()
             end)
-            bgPwrSw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(bgPwrSw, "Power Colored Background. Power colors can be adjusted in Global Settings -> Fonts & Colors.") end)
+            bgPwrSw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(bgPwrSw, "Power Colored Background") end)
             bgPwrSw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             PP.Point(bgPwrSw, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = bgPwrSw
@@ -8049,11 +8003,11 @@ initFrame:SetScript("OnEvent", function(self)
                       UNIT_DB_MAP[selectedUnit]().castFillOpacity = v
                       ReloadAndUpdate(); UpdatePreview()
                   end },
-                -- Global (not per-frame, not synced): lift all
+                -- Global (not per-frame, not synced): lift the player/target/focus
                 -- cast bars to HIGH strata. Default on = existing behavior; off leaves
-                -- them at the frame's strata. One db.profile key drives every unit.
+                -- them at the frame's strata. A single db.profile key drives all three.
                 { type = "toggle", label = "Raise Cast Bar Strata (All)",
-                  tooltip = "Lifts player, target, focus, and boss cast bars above other frames so they are never hidden behind them.",
+                  tooltip = "Lifts the player, target, and focus cast bars above other frames so they are never hidden behind them.",
                   get = function() return db.profile.raiseCastbarStrata ~= false end,
                   set = function(v)
                       db.profile.raiseCastbarStrata = v
@@ -10063,58 +10017,18 @@ initFrame:SetScript("OnEvent", function(self)
         -- When Buff/Debuff Display is "none", everything in that column is disabled.
         local function BuffDisabled()
             local s = UNIT_DB_MAP[selectedUnit]()
-            if not s then return false end
-            -- Anchor Buffs with Debuffs renders the buffs inside the debuff
-            -- stack, so the buff appearance settings stay live while Buff
-            -- Display reads None (visibility belongs to the merge toggle).
-            if s.debuffAnchorBuffs and SValSupported("debuffAnchor", "bottomleft") ~= "none" then
-                return false
-            end
-            return s.showBuffs == false
+            return s and s.showBuffs == false
         end
         local function DebuffDisabled()
             return SValSupported("debuffAnchor", "bottomleft") == "none"
         end
 
-        -- Buff Display gains "Anchor to Debuffs" -- a pure VIEW over the same
-        -- stored keys the merge has always used (debuffAnchorBuffs = true +
-        -- showBuffs = false), so profiles that enabled it through the old cog
-        -- toggle read back identically. The shared anchor tables serve three
-        -- other dropdowns, hence the per-site copy.
-        local buffDispValues = { ["anchor_debuffs"] = "Anchor to Debuffs" }
-        for k, v in pairs(buffAnchorValues) do buffDispValues[k] = v end
-        local buffDispOrder = {}
-        for i = 1, #buffAnchorOrder do buffDispOrder[i] = buffAnchorOrder[i] end
-        buffDispOrder[#buffDispOrder + 1] = "anchor_debuffs"
-        buffDispValues._menuOpts = {
-            onItemHover = function(key, item)
-                if key == "anchor_debuffs" and item then
-                    EllesmereUI.ShowWidgetTooltip(item, "Buffs join the debuff stack as its first rows; debuffs continue on the next row and move as buff rows change.")
-                end
-            end,
-            onItemLeave = function(key)
-                if key == "anchor_debuffs" then EllesmereUI.HideWidgetTooltip() end
-            end,
-        }
-
         -- Buffs: Location | Icon Size + inline directions cog (X/Y)
         local sharedAddRow2
         sharedAddRow2, h = W:DualRow(parent, y,
-            { type="dropdown", text="Buff Display", values=buffDispValues, order=buffDispOrder,
-              itemDisabled=function(v)
-                  return v == "anchor_debuffs" and DebuffDisabled()
-              end,
-              itemDisabledTooltip=function(v)
-                  if v == "anchor_debuffs" then return "Requires a Debuff Display" end
-              end,
+            { type="dropdown", text="Buff Display", values=buffAnchorValues, order=buffAnchorOrder,
               getValue=function()
                   local s = UNIT_DB_MAP[selectedUnit]()
-                  -- Active merge presents as its own display choice; an inert
-                  -- merge (Debuff Display None) falls through to the truthful
-                  -- None readout.
-                  if s.debuffAnchorBuffs and SValSupported("debuffAnchor", "bottomleft") ~= "none" then
-                      return "anchor_debuffs"
-                  end
                   if s.showBuffs == false then return "none" end
                   return SValSupported("buffAnchor", "topleft")
               end,
@@ -10125,20 +10039,11 @@ initFrame:SetScript("OnEvent", function(self)
                   function() return not BuffDisabled() end,
                   function(v)
                       local s = UNIT_DB_MAP[selectedUnit]()
-                      if v == "anchor_debuffs" then
-                          -- Same stored shape the old cog toggle wrote: the
-                          -- merge owns visibility, Buff Display stores None.
-                          s.debuffAnchorBuffs = true
+                      if v == "none" then
                           s.showBuffs = false
-                      elseif v == "none" then
-                          s.showBuffs = false
-                          s.debuffAnchorBuffs = nil
                       else
                           s.showBuffs = true
                           SwapAuraSlot(s, "buffAnchor", v)
-                          -- Choosing a standalone Buff Display exits the
-                          -- merged mode (which forces this dropdown to None).
-                          s.debuffAnchorBuffs = nil
                       end
                       ReloadAndUpdate(); UpdatePreview(); EllesmereUI:RefreshPage()
                   end) },
@@ -10575,11 +10480,11 @@ initFrame:SetScript("OnEvent", function(self)
                     { key = "externalDefensive", label = "External Defensive", tooltip = "Shows only external defensive cooldowns cast on the unit" },
                     { key = "bossAura",          label = "Boss Auras",         tooltip = "Shows only debuffs applied by bosses" },
                     { key = "roleAura",          label = "Role Auras",         tooltip = "Shows only debuffs flagged for your role" },
-                    { key = "priorityAura",      label = "Important",          tooltip = "Shows only debuffs Blizzard flags as important" },
+                    { key = "priorityAura",      label = "Priority",           tooltip = "Shows only priority debuffs" },
                     { key = "ownOnly",           label = "Own Only",           tooltip = "Shows only the Debuffs you apply" },
                 }
                 BUFF_FILTER_KEYS   = { ownOnly = "onlyPlayerBuffs",   raidFrames = "buffRaid",   raidInCombat = "buffRaidInCombat",   dispellable = "buffDispellable",   crowdControl = "buffCrowdControl",   bigDefensive = "buffBigDefensive",   externalDefensive = "buffExternalDefensive",   cancelable = "buffCancelable", stealable = "buffStealable" }
-                DEBUFF_FILTER_KEYS = { ownOnly = "onlyPlayerDebuffs", raidFrames = "debuffRaid", raidInCombat = "debuffRaidInCombat", dispellable = "debuffDispellable", crowdControl = "debuffCrowdControl", bigDefensive = "debuffBigDefensive", externalDefensive = "debuffExternalDefensive", bossAura = "debuffBossAura", roleAura = "debuffRoleAura", priorityAura = "debuffPriorityAura", nonplayer = "debuffNonPlayer" }
+                DEBUFF_FILTER_KEYS = { ownOnly = "onlyPlayerDebuffs", raidFrames = "debuffRaid", raidInCombat = "debuffRaidInCombat", dispellable = "debuffDispellable", crowdControl = "debuffCrowdControl", bigDefensive = "debuffBigDefensive", externalDefensive = "debuffExternalDefensive", bossAura = "debuffBossAura", roleAura = "debuffRoleAura", priorityAura = "debuffPriorityAura" }
             else
                 buffFilterItems = {
                     { key = "raidFrames",        label = "Raid Frames",        tooltip = "Shows only the Buffs/Debuffs that appear on Raid Frames" },
@@ -10596,23 +10501,9 @@ initFrame:SetScript("OnEvent", function(self)
             -- your own debuffs to yourself); any stale onlyPlayerDebuffs value is
             -- ignored at runtime.
             if selectedUnit == "player" then
-                -- Player list is re-ordered: Important leads (the most common
-                -- pick) with the 12.1-only Non-Player Debuffs classification
-                -- (the negated PLAYER engine token) right below it; the rest
-                -- keep their relative order. On 12.0 neither key exists in
-                -- the list, so this reduces to the plain ownOnly trim.
                 local trimmed = {}
                 for _, it in ipairs(debuffFilterItems) do
-                    if it.key == "priorityAura" then trimmed[#trimmed + 1] = it end
-                end
-                if EllesmereUI.IS_121 then
-                    trimmed[#trimmed + 1] = { key = "nonplayer", label = "Non-Player Debuffs",
-                        tooltip = "Shows every debuff except the ones you or your pet apply" }
-                end
-                for _, it in ipairs(debuffFilterItems) do
-                    if it.key ~= "ownOnly" and it.key ~= "priorityAura" then
-                        trimmed[#trimmed + 1] = it
-                    end
+                    if it.key ~= "ownOnly" then trimmed[#trimmed + 1] = it end
                 end
                 debuffFilterItems = trimmed
             end
@@ -13283,7 +13174,7 @@ initFrame:SetScript("OnEvent", function(self)
                     settingsTable.powerBgPowerColored = true
                     ReloadAndUpdate(); EllesmereUI:RefreshPage()
                 end)
-                bgPwrSw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(bgPwrSw, "Power Colored Background. Power colors can be adjusted in Global Settings -> Fonts & Colors.") end)
+                bgPwrSw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(bgPwrSw, "Power Colored Background") end)
                 bgPwrSw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                 PP.Point(bgPwrSw, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
                 rgn._lastInline = bgPwrSw
@@ -13338,7 +13229,7 @@ initFrame:SetScript("OnEvent", function(self)
                     settingsTable.powerPercentPowerColor = true
                     ReloadAndUpdate(); EllesmereUI:RefreshPage()
                 end)
-                fPwrSw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(fPwrSw, "Power Colored Fill. Power colors can be adjusted in Global Settings -> Fonts & Colors.") end)
+                fPwrSw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(fPwrSw, "Power Colored Fill") end)
                 fPwrSw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                 PP.Point(fPwrSw, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
                 rgn._lastInline = fPwrSw
@@ -13517,36 +13408,6 @@ initFrame:SetScript("OnEvent", function(self)
                 cogBtn:SetScript("OnClick", function(self) szCog(self) end)
                 Upd()
                 RegisterWidgetRefresh(Upd)
-            end
-
-            -- Power bar border size and color, matching Player/Target/Focus.
-            local pwrBorderRow
-            pwrBorderRow, h = W:DualRow(parent, y,
-                { type="slider", text="Border Size", min=0, max=4, step=1, trackWidth=120,
-                  getValue=function() return MVal("powerBorderSize", 0) end,
-                  setValue=function(v) MSet("powerBorderSize", v) end },
-                { type="label", text="" });  y = y - h
-            do
-                local rgn = pwrBorderRow._leftRegion
-                local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
-                    rgn, pwrBorderRow:GetFrameLevel() + 3,
-                    function()
-                        local c = MGet("powerBorderColor") or { r=0, g=0, b=0 }
-                        return c.r, c.g, c.b, MVal("powerBorderAlpha", 1)
-                    end,
-                    function(r, g, b, a)
-                        settingsTable.powerBorderColor = { r=r, g=g, b=b }
-                        settingsTable.powerBorderAlpha = a
-                        ReloadAndUpdate()
-                    end,
-                    true, 20)
-                PP.Point(swatch, "RIGHT", rgn._control, "LEFT", -8, 0)
-                swatch:SetScript("OnEnter", function()
-                    EllesmereUI.ShowWidgetTooltip(swatch, "Border Color")
-                end)
-                swatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                rgn._lastInline = swatch
-                RegisterWidgetRefresh(updateSwatch)
             end
         end
 
@@ -13928,11 +13789,6 @@ initFrame:SetScript("OnEvent", function(self)
                         { type="slider", label="Max Count", min=1, max=20, step=1,
                           get=function() return db.profile.boss.maxBuffs or 4 end,
                           set=function(v) db.profile.boss.maxBuffs = v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end },
-                        -- Shares the boss buffMaxPerRow key with Buffs Location
-                        -- (mutually exclusive modes), like Max Count above.
-                        { type="slider", label="Max Per Row", min=1, max=20, step=1,
-                          get=function() return db.profile.boss.buffMaxPerRow or db.profile.boss.maxBuffs or 4 end,
-                          set=function(v) db.profile.boss.buffMaxPerRow = v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end },
                         { type="slider", label="Offset X", min=-200, max=200, step=1,
                           get=function() local x = ns.GetBossSimpleBuffOffset(db.profile.boss); return x end,
                           set=function(v) db.profile.boss.simpleBuffOffsetX = v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end },
@@ -14072,11 +13928,6 @@ initFrame:SetScript("OnEvent", function(self)
                         { type="slider", label="Max Count", min=1, max=20, step=1,
                           get=function() return db.profile.boss.maxDebuffs or 10 end,
                           set=function(v) db.profile.boss.maxDebuffs = v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end },
-                        -- Shares the boss debuffMaxPerRow key with Debuffs Location
-                        -- (mutually exclusive modes), like Max Count above.
-                        { type="slider", label="Max Per Row", min=1, max=20, step=1,
-                          get=function() return db.profile.boss.debuffMaxPerRow or db.profile.boss.maxDebuffs or 10 end,
-                          set=function(v) db.profile.boss.debuffMaxPerRow = v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end },
                         { type="slider", label="Offset X", min=-200, max=200, step=1,
                           get=function() local x = ns.GetBossSimpleDebuffOffset(db.profile.boss); return x end,
                           set=function(v) db.profile.boss.simpleDebuffOffsetX = v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end },
@@ -14367,7 +14218,7 @@ initFrame:SetScript("OnEvent", function(self)
                         { key = "externalDefensive", label = "External Defensive", tooltip = "Shows only external defensive cooldowns cast on the unit" },
                         { key = "bossAura",          label = "Boss Auras",         tooltip = "Shows only debuffs applied by bosses" },
                         { key = "roleAura",          label = "Role Auras",         tooltip = "Shows only debuffs flagged for your role" },
-                        { key = "priorityAura",      label = "Important",          tooltip = "Shows only debuffs Blizzard flags as important" },
+                        { key = "priorityAura",      label = "Priority",           tooltip = "Shows only priority debuffs" },
                         { key = "ownOnly",           label = "Own Only",           tooltip = "Shows only the Debuffs you apply" },
                     }
                     DEBUFF_FILTER_KEYS = { ownOnly = "onlyPlayerDebuffs", raidFrames = "debuffRaid", raidInCombat = "debuffRaidInCombat", dispellable = "debuffDispellable", crowdControl = "debuffCrowdControl", bigDefensive = "debuffBigDefensive", externalDefensive = "debuffExternalDefensive", bossAura = "debuffBossAura", roleAura = "debuffRoleAura", priorityAura = "debuffPriorityAura" }
@@ -14678,9 +14529,6 @@ initFrame:SetScript("OnEvent", function(self)
                         { type="slider", label="Max Count", min=1, max=20, step=1,
                           get=function() return db.profile.boss.maxBuffs or 4 end,
                           set=function(v) db.profile.boss.maxBuffs = v; ReloadAndUpdate() end },
-                        { type="slider", label="Max Per Row", min=1, max=20, step=1,
-                          get=function() return db.profile.boss.buffMaxPerRow or db.profile.boss.maxBuffs or 4 end,
-                          set=function(v) db.profile.boss.buffMaxPerRow = v; ReloadAndUpdate() end },
                     },
                 })
                 local cogBtn = BossCogBtn(leftRgn, bBuffCogShowRaw)
@@ -14724,9 +14572,6 @@ initFrame:SetScript("OnEvent", function(self)
                         { type="slider", label="Max Count", min=1, max=20, step=1,
                           get=function() return db.profile.boss.maxDebuffs or 10 end,
                           set=function(v) db.profile.boss.maxDebuffs = v; ReloadAndUpdate() end },
-                        { type="slider", label="Max Per Row", min=1, max=20, step=1,
-                          get=function() return db.profile.boss.debuffMaxPerRow or db.profile.boss.maxDebuffs or 10 end,
-                          set=function(v) db.profile.boss.debuffMaxPerRow = v; ReloadAndUpdate() end },
                     },
                 })
                 local cogBtn = BossCogBtn(rightRgn, bDebuffCogShowRaw)
@@ -14873,10 +14718,10 @@ initFrame:SetScript("OnEvent", function(self)
             -- greys a region (its slider/dropdown/toggle plus any inline swatch or
             -- cog) to 0.3 and drops an invisible mouse-blocker over it while the
             -- cast bar is off, tracking the toggle live via the widget-refresh fast
-            -- path. Mirrors AddDarkModeBlock. The Show Cast Bar toggle's own color
-            -- swatches are gated on their own so the toggle itself stays interactive.
-            local castColorSwatches = {}
-            local function AddCastBlock(rgn, enabledAlpha)
+            -- path. Mirrors AddDarkModeBlock. The Show Cast Bar toggle's own fill
+            -- swatch is gated on its own so the toggle itself stays interactive.
+            local castFillSwatch
+            local function AddCastBlock(rgn)
                 if not rgn then return end
                 local block = CreateFrame("Frame", nil, rgn)
                 block:SetAllPoints()
@@ -14890,7 +14735,7 @@ initFrame:SetScript("OnEvent", function(self)
                     if B.showCastbar == false then
                         rgn:SetAlpha(0.3); block:Show()
                     else
-                        rgn:SetAlpha(enabledAlpha and enabledAlpha() or 1); block:Hide()
+                        rgn:SetAlpha(1); block:Hide()
                     end
                 end
                 Update()
@@ -14913,69 +14758,25 @@ initFrame:SetScript("OnEvent", function(self)
                   disabledTooltip="Show Cast Bar",
                   getValue=function() return B.castbarHeight or 14 end,
                   setValue=function(v) B.castbarHeight = v; ReloadAndUpdate() end });  yy = yy - hh
-            -- Enemy cast colors on Show Cast Bar (left region), matching
-            -- target/focus.
+            -- Inline fill-color swatch on Show Cast Bar (left region).
             do
                 local rgn = castMainRow._leftRegion
-                local function AddCastColorSwatch(tooltip, colorKey, fallback, disabledFn)
-                    local sw, updateSw = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5,
-                        function()
-                            local c = B[colorKey] or fallback
-                            return c.r, c.g, c.b, 1
-                        end,
-                        function(r, g, b)
-                            B[colorKey] = { r=r, g=g, b=b }
-                            ReloadAndUpdate()
-                        end, false, 20)
-                    sw:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-                    sw:SetScript("OnEnter", function(self) EllesmereUI.ShowWidgetTooltip(self, tooltip) end)
-                    sw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                    rgn._lastInline = sw
-                    castColorSwatches[#castColorSwatches + 1] = { sw = sw, enabledAlpha = disabledFn
-                        and function() return disabledFn() and 0.3 or 1 end }
-                    if disabledFn then
-                        local function Update()
-                            local off = disabledFn()
-                            sw:SetAlpha(off and 0.3 or 1)
-                            sw:EnableMouse(not off)
-                            if updateSw then updateSw() end
-                        end
-                        Update()
-                        EllesmereUI.RegisterWidgetRefresh(Update)
-                    end
-                end
-                AddCastColorSwatch("Interrupt Ready Mid-Cast", "castbarInterruptMidCastColor",
-                    { r=0.318, g=0.820, b=0.357 },
-                    function() return B.castbarInterruptMidCastEnabled ~= true end)
-                AddCastColorSwatch("Interrupt on CD", "castbarInterruptReadyColor", { r=0.92, g=0.35, b=0.20 })
-                AddCastColorSwatch("Uninterruptible Cast", "castbarUninterruptibleColor", { r=0.5, g=0.5, b=0.5 })
-                AddCastColorSwatch("Interruptible Cast", "castbarFillColor", { r=0.863, g=0.820, b=0.639 })
+                local sw = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5,
+                    function() local c = B.castbarFillColor or { r=0.863, g=0.820, b=0.639 }; return c.r, c.g, c.b end,
+                    function(r, g, b) B.castbarFillColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20)
+                sw:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+                sw:SetScript("OnEnter", function(self) EllesmereUI.ShowWidgetTooltip(self, "Fill Color") end)
+                sw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                rgn._lastInline = sw
+                castFillSwatch = sw
             end
-            -- Inline settings cog matching target/focus, plus boss positioning.
+            -- Inline cog on Show Cast Bar (left region): Offset X/Y nudge the whole
+            -- cast bar (positive = right/up). Updates the live frames + both
+            -- previews via ReloadAndUpdate + the boss preview refresh.
             do
-                local _, cogShow = EllesmereUI.BuildCogPopup({
-                    title = "Cast Bar",
+                local _, offCogShow = EllesmereUI.BuildCogPopup({
+                    title = "Cast Bar Position",
                     rows = {
-                        { type="toggle", label="Hide When Idle",
-                          tooltip="Only show the cast bar while a cast is in progress; hide it the rest of the time.",
-                          get=function() return B.castbarHideWhenInactive ~= false end,
-                          set=function(v) B.castbarHideWhenInactive = v; ReloadAndUpdate() end },
-                        { type="slider", label="Fill Opacity", min=0, max=100, step=1,
-                          tooltip="Opacity of the cast bar fill; below 100 the world shows through the fill instead of the background.",
-                          get=function() return B.castFillOpacity or 100 end,
-                          set=function(v) B.castFillOpacity = v; ReloadAndUpdate() end },
-                        { type="toggle", label="Raise Cast Bar Strata (All)",
-                          tooltip="Lifts player, target, focus, and boss cast bars above other frames so they are never hidden behind them.",
-                          get=function() return db.profile.raiseCastbarStrata ~= false end,
-                          set=function(v) db.profile.raiseCastbarStrata = v; ReloadAndUpdate() end },
-                        { type="toggle", label="Show Kick Ready Mid-Cast Tick",
-                          tooltip="Shows a small white tick mark where the cast will be when your interrupt comes off cooldown.",
-                          get=function() return B.castbarKickTickEnabled ~= false end,
-                          set=function(v) B.castbarKickTickEnabled = v; ReloadAndUpdate() end },
-                        { type="toggle", label="Show Kick Ready Mid-Cast Bar",
-                          tooltip="Colors the cast segment during which your interrupt will be available.",
-                          get=function() return B.castbarInterruptMidCastEnabled == true end,
-                          set=function(v) B.castbarInterruptMidCastEnabled = v; ReloadAndUpdate(); EllesmereUI:RefreshPage() end },
                         { type="slider", label="Offset X", min=-500, max=500, step=1,
                           get=function() return B.castbarOffsetX or 0 end,
                           set=function(v) B.castbarOffsetX = v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end },
@@ -14984,7 +14785,7 @@ initFrame:SetScript("OnEvent", function(self)
                           set=function(v) B.castbarOffsetY = v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end },
                     },
                 })
-                AddCastBlock(CCogBtn(castMainRow._leftRegion, cogShow))
+                AddCastBlock(CCogBtn(castMainRow._leftRegion, offCogShow, EllesmereUI.DIRECTIONS_ICON))
             end
 
             -- Rows 2-4 are HIDDEN entirely while Show Cast Bar is off (the
@@ -15132,10 +14933,10 @@ initFrame:SetScript("OnEvent", function(self)
 
             end   -- close boss Cast Bar hidden-while-disabled gate
 
-            -- The Show Cast Bar toggle's own color swatches stay gated grey +
+            -- The Show Cast Bar toggle's own fill swatch stays gated grey +
             -- blocked while the cast bar is off (the Height slider uses a
             -- native disabled state; the hidden rows need nothing).
-            for _, item in ipairs(castColorSwatches) do AddCastBlock(item.sw, item.enabledAlpha) end
+            if castFillSwatch then AddCastBlock(castFillSwatch) end
             return yy
         end
 
@@ -15627,16 +15428,10 @@ initFrame:SetScript("OnEvent", function(self)
     local ufSearchTerms = {}
     for _, label in pairs(unitLabels) do ufSearchTerms[#ufSearchTerms + 1] = label end
     for _, label in pairs(miniUnitLabels) do ufSearchTerms[#ufSearchTerms + 1] = label end
-    -- "external defensives" stays on both clients: the External Defensive AURA
-    -- FILTER checkbox keeps that name. Only the two terms that exist purely to
-    -- find the retired External Defensives FRAME are dropped on 12.1, so a
-    -- search there cannot land on a section that no longer builds.
-    local _paTerms = { "buff", "debuff", "aura", "player buffs", "player debuffs", "icon zoom", "private auras", "external defensives" }
-    if not EllesmereUI.IS_121 then
-        _paTerms[#_paTerms + 1] = "externals"
-        _paTerms[#_paTerms + 1] = "pain suppression"
-    end
+    local _paTerms = { "external defensives", "externals", "pain suppression" }
     for _, t in ipairs(_paTerms) do ufSearchTerms[#ufSearchTerms + 1] = t end
+    local _pabTerms = { "aura bars", "player aura bars", "buff bar", "debuff bar", "cooldown bars", "dispel colors", "grow direction" }
+    for _, t in ipairs(_pabTerms) do ufSearchTerms[#ufSearchTerms + 1] = t end
 
     -- Rebuild preview when spec changes (class resource pips may appear/disappear)
     local ufOptSpecFrame = CreateFrame("Frame")
@@ -15655,24 +15450,41 @@ initFrame:SetScript("OnEvent", function(self)
     end)
 
     ---------------------------------------------------------------------------
-    --  Player Buffs & Debuffs page
+    --  External Defensives / Player Aura Bars pages
     ---------------------------------------------------------------------------
-    local function BuildPlayerAurasPage(pageName, parent, yOffset)
+    -- Local cog-button helper (mirrors the shared MakeCogBtn pattern used
+    -- elsewhere, but that helper is scoped to BuildSharedSettings only).
+    local function PAMakeCogBtn(rgn, showFn)
+        local cogBtn = CreateFrame("Button", nil, rgn)
+        cogBtn:SetSize(26, 26)
+        cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+        rgn._lastInline = cogBtn
+        cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+        local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+        cogTex:SetAllPoints()
+        cogTex:SetTexture(EllesmereUI.COGS_ICON)
+        cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+        cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+        cogBtn:SetScript("OnClick", function(self) showFn(self) end)
+        cogBtn:SetAlpha(0.4)
+        return cogBtn
+    end
+	ns._PAMakeCogBtn = PAMakeCogBtn -- bridge for EUI_PlayerAuraBars_ManagerPages.lua																				 
+
+    -- External Defensives Frame options. Split out from the old
+    -- BuildPlayerAurasPage (BuffFrame/DebuffFrame reskin, retired --
+    -- superseded by PlayerAuraBars, its Lua file is no longer loaded, see
+    -- the .toc). Kept as its own page/DB namespace (db.profile.
+    -- externalDefensives, independent of the removed db.profile.
+    -- playerAuras) since Joel wants to evaluate migrating this into
+    -- PlayerAuraBars' "External Defensive" class filter later rather than
+    -- delete it outright. Its implementation (EDF_Setup/EDF_Update/edfRoot)
+    -- now lives in its own EllesmereUIUnitFrames_ExternalDefensives.lua,
+    -- loaded from the .toc -- functional again.
+    local function BuildExternalDefensivesPage(pageName, parent, yOffset)
         local W = EllesmereUI.Widgets
         local y = yOffset
         local _, h
-
-        local function PAGet(key)
-            local p = db and db.profile and db.profile.playerAuras
-            return p and p[key]
-        end
-        local function PASet(key, v)
-            if not db or not db.profile then return end
-            if not db.profile.playerAuras then db.profile.playerAuras = {} end
-            db.profile.playerAuras[key] = v
-            if ns.RefreshPlayerAuras then ns.RefreshPlayerAuras() end
-            if ns.ApplyPlayerAuraScale then ns.ApplyPlayerAuraScale() end
-        end
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
         _, h = W:SectionHeader(parent, "PLAYER BUFFS & DEBUFFS", y);  y = y - h
@@ -15961,10 +15773,6 @@ initFrame:SetScript("OnEvent", function(self)
         -----------------------------------------------------------------------
         --  External Defensives Frame (our own frame; live enable, no reload)
         -----------------------------------------------------------------------
-        -- 12.1 retires this frame, so the whole block (spacer and section
-        -- header included) is skipped there and nothing renders. The body is
-        -- left unindented so retail stays a byte-for-byte identical diff.
-        if not EllesmereUI.IS_121 then
         local function EDGet(key)
             local p = db and db.profile and db.profile.externalDefensives
             return p and p[key]
@@ -16185,17 +15993,31 @@ initFrame:SetScript("OnEvent", function(self)
         ); y = y - h
 
         end -- EDGet("enabled") section gate
-        end -- not IS_121: External Defensives Frame retired on 12.1
 
         return math.abs(y)
     end
-
     EllesmereUI:RegisterModule("EllesmereUIUnitFrames", {
-        title       = "Unit Frames",
-        description = "Configure unit frame appearance and behavior.",
-        pages       = { PAGE_DISPLAY, PAGE_BOSS, PAGE_MINI, PAGE_AURAS },
-        searchTerms = ufSearchTerms,
-        buildPage   = function(pageName, parent, yOffset)
+        title               = "Unit Frames",
+        description         = "Configure unit frame appearance and behavior.",
+        pages               = { PAGE_DISPLAY, PAGE_BOSS, PAGE_MINI, PAGE_AURAS, PAGE_AURA_BARS },
+        searchTerms         = ufSearchTerms,
+        buildPage           = function(pageName, parent, yOffset)
+            if EllesmereUI._prebuilding and pageName == PAGE_AURA_BARS then
+                return
+            end
+            -- Clean up Player Aura Bars root when switching away. Needed
+            -- here AND in onPageCacheRestore below -- this branch covers a
+            -- fresh build of the destination page, onPageCacheRestore
+            -- covers a cache-restored destination page. Without both, the
+            -- root only ever gets cleaned up via whichever path the
+            -- destination page happens to take, which is inconsistent
+            -- across repeated tab switches (see EUI_RaidFrames_Options.lua's
+            -- identical _bmRoot/_dmRoot/_ccRoot pattern for the same fix).
+            if pageName ~= PAGE_AURA_BARS and ns._pabRoot then
+                ns._pabRoot:Hide()
+                ns._pabRoot:SetParent(nil)
+                ns._pabRoot = nil
+            end
             -- Randomize preview creature IDs on every tab switch
             RandomizePreviewCreatures()
             if pageName == PAGE_DISPLAY then
@@ -16205,10 +16027,12 @@ initFrame:SetScript("OnEvent", function(self)
             elseif pageName == PAGE_MINI then
                 return BuildMiniPage(pageName, parent, yOffset)
             elseif pageName == PAGE_AURAS then
-                return BuildPlayerAurasPage(pageName, parent, yOffset)
+                return BuildExternalDefensivesPage(pageName, parent, yOffset)
+            elseif pageName == PAGE_AURA_BARS then
+                if ns.PABMP_BuildPage then return ns.PABMP_BuildPage(pageName, parent, yOffset) end
             end
         end,
-        getHeaderBuilder = function(pageName)
+        getHeaderBuilder    = function(pageName)
             if pageName == PAGE_DISPLAY then
                 return _displayHeaderBuilder
             elseif pageName == PAGE_BOSS then
@@ -16232,7 +16056,31 @@ initFrame:SetScript("OnEvent", function(self)
             end
             return nil
         end,
-        onPageCacheRestore = function(pageName)
+        onPageCacheRestore  = function(pageName)
+			-- Clean up Player Aura Bars root when switching away
+            if pageName ~= PAGE_AURA_BARS and ns._pabRoot then
+                ns._pabRoot:Hide()
+                ns._pabRoot:SetParent(nil)
+                ns._pabRoot = nil
+            elseif pageName == PAGE_AURA_BARS and not ns._pabRoot then
+                -- PABMP_BuildPage bypasses `parent` and builds onto the
+                -- live shared scrollFrame into ns._pabRoot (see buildPage's
+                -- _prebuilding guard above for why). The framework's page
+                -- cache has no knowledge of that self-managed root -- when
+                -- it decides this page doesn't need a fresh buildPage call
+                -- (cache-restore instead), our real content, if it was
+                -- already torn down by an earlier switch-away, never gets
+                -- rebuilt. Mirrors EUI__General_Options.lua's identical
+                -- PAGE_PROFILES/PAGE_OVERRIDES fix (CleanupProfilesRoot +
+                -- deferred RefreshPage(true) guarded by GetActiveModule/
+                -- GetActivePage so a since-superseded switch doesn't fire).
+                C_Timer.After(0, function()
+                    if EllesmereUI:GetActiveModule() == "EllesmereUIUnitFrames"
+                       and EllesmereUI:GetActivePage() == pageName then
+                        EllesmereUI:RefreshPage(true)
+                    end
+                end)
+            end					  															
             RandomizePreviewCreatures()
             -- Hide all UIParent-parented disabled overlays before restoring
             -- (they persist across tab switches since they're not children of pf)
@@ -16261,7 +16109,7 @@ initFrame:SetScript("OnEvent", function(self)
                 end
             end
         end,
-        onReset     = function()
+        onReset             = function()
             db:ResetProfile()
             ReloadUI()
         end,

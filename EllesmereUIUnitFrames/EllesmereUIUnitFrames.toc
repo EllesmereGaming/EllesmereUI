@@ -16,8 +16,13 @@ Libs\oUF\oUF.xml
 # Main Luas
 EllesmereUIUnitFrames.lua
 EUI_UnitFrames_AuraElement.lua
-EllesmereUIUnitFrames_PlayerAuras.lua
+# EllesmereUIUnitFrames_PlayerAuras.lua retired (BuffFrame/DebuffFrame
+# reskin, superseded by PlayerAuraBars). Its External Defensives sub-feature
+# was extracted into its own file below and still loads.
+EllesmereUIUnitFrames_ExternalDefensives.lua
+EllesmereUIUnitFrames_PlayerAuraBars.lua
 EUI_UnitFrames_AuraContainers.lua
 
 # Options
 EUI_UnitFrames_Options.lua
+EUI_PlayerAuraBars_ManagerPages.lua

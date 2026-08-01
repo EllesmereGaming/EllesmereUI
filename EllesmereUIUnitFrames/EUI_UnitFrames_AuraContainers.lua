@@ -79,6 +79,14 @@ local CANDIDATE_CLASSES = {
     { key = "steal",    cand = "isStealable",    skey = "Stealable",    buffOnly = true },
 }
 
+-- Shared with EllesmereUIUnitFrames_PlayerAuraBars.lua: same class vocabulary,
+-- same mutual-exclusion semantics (token classes negate every enabled class
+-- before them; candidate classes are engine boolean selectors). One source
+-- of truth so a future class addition/removal here does not silently drift
+-- from what Player Aura Bars offers.
+ns.UF_TokenClasses = TOKEN_CLASSES
+ns.UF_CandidateClasses = CANDIDATE_CLASSES
+
 local function ClassEnabled(class, isBuff, s, unit)
     if class.buffOnly and not isBuff then return false end
     if class.debuffOnly and isBuff then return false end
@@ -457,9 +465,7 @@ end
 
 -- Container anchoring: mirrors the legacy element's SetPoint(ia, frame, fp,
 -- ox + userX, oy + castbarPush + userY) with gap = 1.
--- buffContainer (HARMFUL calls only): the unit's buff container, needed by
--- the Anchor Buffs with Debuffs mode below.
-local function AnchorContainer(container, frame, unit, base, s, buffContainer)
+local function AnchorContainer(container, frame, unit, base, s)
     local isBuff = (base == "HELPFUL")
 
     -- Boss simple side display: forced side anchoring flush with the frame
@@ -485,24 +491,9 @@ local function AnchorContainer(container, frame, unit, base, s, buffContainer)
 
     local anchor = Pick(isBuff, s.buffAnchor, s.debuffAnchor)
     if anchor == nil then anchor = Pick(isBuff, "topleft", "none") end
-
-    -- Anchor Buffs with Debuffs (per-unit debuffAnchorBuffs, non-boss):
-    -- buffs adopt the debuff anchor/growth/offsets and become the stack's
-    -- first rows; the debuff container then rides the BUFF CONTAINER's
-    -- leading edge. The engine re-sizes that container to its rows every
-    -- layout pass, so the push is engine-driven -- full rows only, and no
-    -- aura reads (secret-safe in combat).
-    -- The merge OWNS buff visibility: it renders buffs even with Buff
-    -- Display at None (showBuffs false), which is the state the options
-    -- auto-select on enable.
-    local merged = s.debuffAnchorBuffs == true and not unit:match("^boss")
-        and (s.debuffAnchor or "none") ~= "none"
-    local mergedBuff = merged and isBuff
-    if mergedBuff then anchor = s.debuffAnchor end
     if anchor == "none" then return anchor end
 
     local growth = Pick(isBuff, s.buffGrowth, s.debuffGrowth)
-    if mergedBuff then growth = s.debuffGrowth end
     local ia, fp, ox, oy, gX, gY = ResolveLayout(anchor, growth)
 
     local cbOff = 0
@@ -520,32 +511,10 @@ local function AnchorContainer(container, frame, unit, base, s, buffContainer)
 
     local offX = Pick(isBuff, s.buffOffsetX, s.debuffOffsetX) or 0
     local offY = Pick(isBuff, s.buffOffsetY, s.debuffOffsetY) or 0
-    if mergedBuff then
-        offX = s.debuffOffsetX or 0
-        offY = s.debuffOffsetY or 0
-    end
 
     container:ClearAllPoints()
-    if merged and not isBuff and buffContainer then
-        -- Ride the buff container: horizontal side from the layout anchor,
-        -- vertical side from the wrap direction, one debuff line-gap
-        -- between the blocks. Debuffs never share a row with buffs.
-        local PP = EllesmereUI.PP
-        local horiz = ""
-        if ia:find("LEFT") then horiz = "LEFT" elseif ia:find("RIGHT") then horiz = "RIGHT" end
-        local vert, relVert, gapSign
-        if gY == "UP" then
-            vert, relVert, gapSign = "BOTTOM", "TOP", 1
-        else
-            vert, relVert, gapSign = "TOP", "BOTTOM", -1
-        end
-        local gap = PP.FromPixels(s.debuffSpacingY or 1)
-        container:SetPoint(vert .. horiz, buffContainer, relVert .. horiz, 0, gap * gapSign)
-        AK.SetContainerAnchor(container, vert .. horiz)
-    else
-        container:SetPoint(ia, frame, fp, ox + offX, oy + cbOff + offY)
-        AK.SetContainerAnchor(container, ia)
-    end
+    container:SetPoint(ia, frame, fp, ox + offX, oy + cbOff + offY)
+    AK.SetContainerAnchor(container, ia)
     AK.SetContainerGrowth(container, FlowDir(gX), FlowDir(gY))
 
     return anchor
@@ -558,15 +527,9 @@ local function ApplyGroupConfig(container, unit, base, s, chain, own, declared)
 
     local simpleOn = BossSimple(unit, base, s)
 
-    -- Anchor Buffs with Debuffs: the merge owns buff visibility (Buff
-    -- Display reads None while the stack renders the buffs), and the buff
-    -- groups wrap like the debuff stack they join.
-    local mergedAB = s.debuffAnchorBuffs == true and not unit:match("^boss")
-        and (s.debuffAnchor or "none") ~= "none"
-
     local shown
     if isBuff then
-        shown = (s.showBuffs ~= false) or simpleOn or mergedAB
+        shown = (s.showBuffs ~= false) or simpleOn
     else
         shown = ((s.debuffAnchor or "none") ~= "none") or simpleOn
     end
@@ -592,7 +555,6 @@ local function ApplyGroupConfig(container, unit, base, s, chain, own, declared)
 
     local growth = Pick(isBuff, s.buffGrowth, s.debuffGrowth)
     if simpleOn then growth = "auto" end
-    if mergedAB and isBuff then growth = s.debuffGrowth end
     local maxPerRow = Pick(isBuff, s.buffMaxPerRow, s.debuffMaxPerRow)
     local cols = ResolveColumns(growth, num > 0 and num or 1, maxPerRow)
     local rowWidth = nil
@@ -1000,7 +962,7 @@ function ns.UF_ReloadAuraContainers(frame, unit)
             local cfgV = CfgFP(unit, base, s)
             if force or st.cfg ~= cfgV then
                 st.cfg = cfgV
-                AnchorContainer(container, frame, unit, base, s, entry.buffs) -- self-skips on anchor "none"
+                AnchorContainer(container, frame, unit, base, s) -- self-skips on anchor "none"
                 ApplyGroupConfig(container, unit, base, s, chain, own, declared)
             end
         end

@@ -201,20 +201,41 @@ EllesmereUI._ufPortraitSide = EllesmereUI._ufPortraitSide or setmetatable({}, { 
 local db
 local defaults = {
     profile = {
-        playerAuras = {
-            enabled       = false,
-            iconSize      = 32,
-            showText      = true,
-            textSize      = 11,
-            borderTexture = "solid",
-            borderSize    = 1,
-            borderBehind  = false,
-            borderR       = 0, borderG = 0, borderB = 0, borderA = 1,
-            noBorderDebuffs = true,
-            buffIconZoom   = 0.055,
+        playerAuraBars = {
+            iconSize = 32,
+            showText = true,
+            durationPosition = "BOTTOM",
+            durationTextSize = 11,
+            durationOffsetX = 0,
+            durationOffsetY = 0,
+            stackPosition = "TOP",
+            stackTextSize = 11,
+            stackOffsetX = 0,
+            stackOffsetY = 0,
+            buffIconZoom = 0.055,
             debuffIconZoom = 0.055,
-            durationFormat = "blizzard",
+            buffBorderSize = 1,
+            debuffBorderSize = 1,
+            buffBorderR = 0, buffBorderG = 0, buffBorderB = 0, buffBorderA = 1,
+            debuffBorderR = 0, debuffBorderG = 0, debuffBorderB = 0, debuffBorderA = 1,
+            dispelColorMagic = { r = 0.349, g =  0.475, b = 1.0 },
+            dispelColorCurse = { r = 0.636, g = 0.0, b = 0.64 } ,
+            dispelColorDisease = { r = 0.671, g = 0.384, b = 0.098 },
+            dispelColorPoison = { r = 0.0, g = 0.706, b = 0.286 },
+            dispelColorBleed = { r = 0.75, g = 0.15, b = 0.15 },
+            paddingBuffs = 5,
+            paddingDebuffs = 5,
+            iconsPerRowBuffs = 11,
+            iconsPerRowDebuffs = 8,
+            maxRowsBuffs = 3,
+            maxRowsDebuffs = 2,
+            maxBuffs = 32,
+            maxDebuffs = 16,
         },
+        -- playerAuras (BuffFrame/DebuffFrame reskin) removed -- retired,
+        -- superseded by playerAuraBars. externalDefensives kept below;
+        -- pending evaluation for migration into playerAuraBars' "External
+        -- Defensive" class filter, not deleted outright.
         externalDefensives = {
             enabled       = false,
             iconSize      = 32,
@@ -1579,22 +1600,8 @@ local function UF_SecretSafeHealthColor(self, event, unit)
         or (element.colorClassNPC and not (UnitIsPlayer(unit) or UnitInPartyIsAI(unit)))
         or (element.colorClassPet and UnitPlayerControlled(unit) and not UnitIsPlayer(unit)) then
         local _, class = UnitClass(unit)
-        if issecretvalue(class) then
-            -- 12.1 (68914) added SecretWhenUnitIdentityRestricted to UnitClass,
-            -- which is what took class color off focus, focus-target and
-            -- target-of-target: the token can be neither read nor used as a
-            -- table key, so the old lookup degraded to the green reaction tier.
-            -- C_ClassColor.GetClassColor and SetStatusBarColor are BOTH
-            -- documented SecretArguments = "AllowedWhenTainted", so the real
-            -- color still reaches the bar with Lua never inspecting the class.
-            -- Custom class colors cannot apply on this path (they are an
-            -- addon-side table lookup, which is the thing a secret key forbids).
-            if C_ClassColor and C_ClassColor.GetClassColor then
-                color = C_ClassColor.GetClassColor(class)
-            end
-        else
-            color = class and self.colors.class[class]
-        end
+        if issecretvalue(class) then class = nil end
+        color = class and self.colors.class[class]
         if not color then
             -- Unreadable class: fall to the tiers the lib chain would have
             -- reached had the class branch not matched.
@@ -2614,49 +2621,6 @@ local function ResolveBuffLayout(anchor, growth)
     }
     local m = fpMap[anchor] or fpMap.topleft
     return m.fp, ia, gx, gy, m.ox, m.oy
-end
-
--- Anchor Buffs with Debuffs (per-unit debuffAnchorBuffs): buffs render as
--- the first rows of the debuff stack, so the debuff container must sit a
--- whole row step past the buff block per visible buff row -- debuffs never
--- share a row with buffs. Installed as Buffs:PostUpdate by the reload
--- blocks; config rides element._euiMerge (nil = feature off, zero work
--- beyond one table read per aura update). Row math mirrors the aura
--- element's SetPosition grid exactly (size + spacing, maxCols else
--- width-derived columns), so cropped heights and spacing edits self-heal
--- on the next aura update without a reload.
-ns.UF_MergedBuffsPostUpdate = function(element)
-    local m = element._euiMerge
-    if not m then return end
-    local deb = m.deb
-    if not deb or deb.num == 0 then return end
-    local rows = 0
-    local n = element.visibleButtons or 0
-    if n > 0 then
-        local width = element.width or element.size or 16
-        local sizeX = width + (element.spacingX or element.spacing or 0)
-        local cols = element.maxCols or math.floor(element:GetWidth() / sizeX + 0.5)
-        if not cols or cols < 1 then cols = 1 end
-        rows = math.ceil(n / cols)
-    end
-    local height = element.height or element.size or 16
-    local rowH = height + (element.spacingY or element.spacing or 0)
-    if element._euiMergeRows == rows and element._euiMergeRowH == rowH then return end
-    element._euiMergeRows = rows
-    element._euiMergeRowH = rowH
-    local shift = rows * rowH
-    if m.gy ~= "UP" then shift = -shift end
-    deb:ClearAllPoints()
-    deb:SetPoint(m.dia, m.parent, m.dfp, m.x, m.y + shift)
-end
-
--- True when a unit's buffs should ride the debuff stack: toggle on and a
--- real debuff anchor to join. The toggle OWNS buff visibility -- merged
--- buffs render even with Buff Display at None (showBuffs false), which is
--- exactly the state the options auto-select on enable. Per-unit debuff
--- anchor defaults differ, so callers pass their resolved dAnc.
-ns.UF_MergedAuras = function(settings, dAnc)
-    return settings.debuffAnchorBuffs == true and dAnc ~= "none"
 end
 
 -- Boss "Simple Debuff Display" mode: "none" | "left" | "right".
@@ -9817,11 +9781,7 @@ local function ReloadFrames()
 
                     -- Live toggle player buffs
                     if frame.Buffs then
-                        -- Anchor Buffs with Debuffs forces the element on:
-                        -- the merge owns buff visibility while Buff Display
-                        -- reads None (the option it overrides).
-                        local mergedB = ns.UF_MergedAuras(settings, settings.debuffAnchor or "none")
-                        if settings.showBuffs or mergedB then
+                        if settings.showBuffs then
                             if not frame:IsElementEnabled("Buffs") then
                                 frame:EnableElement("Buffs")
                             end
@@ -9840,42 +9800,20 @@ local function ReloadFrames()
                                 if cbH <= 0 then cbH = 14 end
                                 buffCbOff = -cbH
                             end
-                            -- Anchor Buffs with Debuffs: buffs become the first
-                            -- rows of the debuff stack -- adopt the debuff
-                            -- anchor/growth/offsets wholesale (the debuff stack
-                            -- shifts past the buff rows; UF_MergedBuffsPostUpdate).
-                            local bOffX = settings.buffOffsetX or 0
-                            local bOffY = settings.buffOffsetY or 0
-                            if mergedB then
-                                local dAncM = settings.debuffAnchor or "none"
-                                bfp, bia, bgx, bgy, box, boy = ResolveBuffLayout(dAncM, settings.debuffGrowth or "auto")
-                                buffCbOff = 0
-                                if (dAncM == "bottomleft" or dAncM == "bottomright") and settings.showPlayerCastbar then
-                                    local cbH = settings.playerCastbarHeight or 0
-                                    if cbH <= 0 then cbH = 14 end
-                                    buffCbOff = -cbH
-                                end
-                                bOffX = settings.debuffOffsetX or 0
-                                bOffY = settings.debuffOffsetY or 0
-                            end
                             -- Only reanchor + ForceUpdate when layout actually changed
                             local buffFilter = ns.ComposeAuraFilter("HELPFUL", settings)
-                            local buffKey = string.format("%s%s%d%d%d%s%d%d%d%d", bia or "", bfp or "", box or 0, boy or 0, buffCbOff, settings.buffGrowth or "auto", settings.maxBuffs or 4, settings.buffSize or 22, bOffX, bOffY) .. "p" .. (settings.buffMaxPerRow or 0) .. "spx" .. (settings.buffSpacingX or 1) .. "spy" .. (settings.buffSpacingY or 1) .. buffFilter .. (settings.showAuraTooltips == false and "ttOff" or "") .. (mergedB and ("M1" .. (settings.debuffGrowth or "auto")) or "")
+                            local buffKey = string.format("%s%s%d%d%d%s%d%d%d%d", bia or "", bfp or "", box or 0, boy or 0, buffCbOff, settings.buffGrowth or "auto", settings.maxBuffs or 4, settings.buffSize or 22, settings.buffOffsetX or 0, settings.buffOffsetY or 0) .. "p" .. (settings.buffMaxPerRow or 0) .. "spx" .. (settings.buffSpacingX or 1) .. "spy" .. (settings.buffSpacingY or 1) .. buffFilter .. (settings.showAuraTooltips == false and "ttOff" or "")
                             if frame.Buffs._lastBuffKey ~= buffKey then
                                 frame.Buffs._lastBuffKey = buffKey
                                 ns.ApplyEUIAuraFilter(frame.Buffs, "HELPFUL", settings)
                                 frame.Buffs.size = settings.buffSize or 22
                                 frame.Buffs.spacingX = PP.FromPixels(settings.buffSpacingX or 1); frame.Buffs.spacingY = PP.FromPixels(settings.buffSpacingY or 1)
                                 frame.Buffs:ClearAllPoints()
-                                frame.Buffs:SetPoint(bia, frame, bfp, box * 1 + bOffX, boy * 1 + buffCbOff + bOffY)
+                                frame.Buffs:SetPoint(bia, frame, bfp, box * 1 + (settings.buffOffsetX or 0), boy * 1 + buffCbOff + (settings.buffOffsetY or 0))
                                 frame.Buffs.initialAnchor = bia
                                 frame.Buffs.growthX = bgx
                                 frame.Buffs.growthY = bgy
-                                -- Merged: wrap like the debuff stack it joins
-                                -- (growth was resolved from the debuff config).
-                                local bColsGrowth = settings.buffGrowth
-                                if mergedB then bColsGrowth = settings.debuffGrowth or "auto" end
-                                frame.Buffs.maxCols = AuraMaxCols(bColsGrowth, settings.maxBuffs or 4, settings.buffMaxPerRow)
+                                frame.Buffs.maxCols = AuraMaxCols(settings.buffGrowth, settings.maxBuffs or 4, settings.buffMaxPerRow)
                                 if frame.Buffs.ForceUpdate then
                                     frame.Buffs:ForceUpdate()
                                 end
@@ -9913,7 +9851,7 @@ local function ReloadFrames()
                                 debuffCbOff = -cbH
                             end
                             local debuffFilter = ns.ComposeAuraFilter("HARMFUL", settings) .. (settings.showLustDebuff and "|LUST" or "")
-                            local debuffKey = string.format("%s%s%d%d%d%s%d%d%d%d", dia or "", dfp or "", dox or 0, doy or 0, debuffCbOff, settings.debuffGrowth or "auto", settings.maxDebuffs or 10, settings.debuffSize or 22, settings.debuffOffsetX or 0, settings.debuffOffsetY or 0) .. "p" .. (settings.debuffMaxPerRow or 0) .. "spx" .. (settings.debuffSpacingX or 1) .. "spy" .. (settings.debuffSpacingY or 1) .. debuffFilter .. (settings.showAuraTooltips == false and "ttOff" or "") .. (settings.debuffAnchorBuffs and "M1" or "")
+                            local debuffKey = string.format("%s%s%d%d%d%s%d%d%d%d", dia or "", dfp or "", dox or 0, doy or 0, debuffCbOff, settings.debuffGrowth or "auto", settings.maxDebuffs or 10, settings.debuffSize or 22, settings.debuffOffsetX or 0, settings.debuffOffsetY or 0) .. "p" .. (settings.debuffMaxPerRow or 0) .. "spx" .. (settings.debuffSpacingX or 1) .. "spy" .. (settings.debuffSpacingY or 1) .. debuffFilter .. (settings.showAuraTooltips == false and "ttOff" or "")
                             if frame.Debuffs._lastDebuffKey ~= debuffKey then
                                 frame.Debuffs._lastDebuffKey = debuffKey
                                 ns.ApplyEUIAuraFilter(frame.Debuffs, "HARMFUL", settings)
@@ -9926,31 +9864,6 @@ local function ReloadFrames()
                                 frame.Debuffs.growthX = dgx
                                 frame.Debuffs.growthY = dgy
                                 frame.Debuffs.maxCols = AuraMaxCols(settings.debuffGrowth, settings.maxDebuffs or 10, settings.debuffMaxPerRow)
-                                -- Anchor Buffs with Debuffs: stash this stack's
-                                -- base point for the buff element's PostUpdate,
-                                -- which pushes the stack past the buff rows.
-                                if frame.Buffs then
-                                    if ns.UF_MergedAuras(settings, dAnc) then
-                                        frame.Buffs._euiMerge = {
-                                            deb = frame.Debuffs, parent = frame, dia = dia, dfp = dfp,
-                                            x = dox * 1 + (settings.debuffOffsetX or 0),
-                                            y = doy * 1 + debuffCbOff + (settings.debuffOffsetY or 0),
-                                            gy = dgy,
-                                        }
-                                        frame.Buffs._euiMergeRows = nil
-                                        frame.Buffs.PostUpdate = ns.UF_MergedBuffsPostUpdate
-                                        ns.UF_MergedBuffsPostUpdate(frame.Buffs)
-                                    else
-                                        -- Feature off: leave the element exactly
-                                        -- as stock oUF runs it -- no PostUpdate
-                                        -- installed, zero per-update work.
-                                        frame.Buffs._euiMerge = nil
-                                        frame.Buffs._euiMergeRows = nil
-                                        if frame.Buffs.PostUpdate == ns.UF_MergedBuffsPostUpdate then
-                                            frame.Buffs.PostUpdate = nil
-                                        end
-                                    end
-                                end
                                 if frame.Debuffs.ForceUpdate then
                                     frame.Debuffs:ForceUpdate()
                                 end
@@ -10294,11 +10207,7 @@ local function ReloadFrames()
 
                     -- Buffs
                     if frame.Buffs then
-                        -- Anchor Buffs with Debuffs forces the element on:
-                        -- the merge owns buff visibility while Buff Display
-                        -- reads None (the option it overrides).
-                        local mergedB = ns.UF_MergedAuras(settings, settings.debuffAnchor or "bottomleft")
-                        local showBuffs = settings.showBuffs ~= false or mergedB
+                        local showBuffs = settings.showBuffs ~= false
                         if showBuffs then
                             if not frame:IsElementEnabled("Buffs") then
                                 frame:EnableElement("Buffs")
@@ -10317,41 +10226,19 @@ local function ReloadFrames()
                                     liveCbOff = -cbH
                                 end
                             end
-                            -- Anchor Buffs with Debuffs: buffs become the first
-                            -- rows of the debuff stack -- adopt the debuff
-                            -- anchor/growth/offsets wholesale (the debuff stack
-                            -- shifts past the buff rows; UF_MergedBuffsPostUpdate).
-                            local bOffX = settings.buffOffsetX or 0
-                            local bOffY = settings.buffOffsetY or 0
-                            if mergedB then
-                                local dAncM = settings.debuffAnchor or "bottomleft"
-                                bfp, bia, bgx, bgy, box, boy = ResolveBuffLayout(dAncM, settings.debuffGrowth or "auto")
-                                liveCbOff = 0
-                                if settings.showCastbar ~= false and (dAncM == "bottomleft" or dAncM == "bottomright") then
-                                    local cbH = settings.castbarHeight or 14
-                                    if cbH <= 0 then cbH = 14 end
-                                    liveCbOff = -cbH
-                                end
-                                bOffX = settings.debuffOffsetX or 0
-                                bOffY = settings.debuffOffsetY or 0
-                            end
                             local buffFilter = ns.ComposeAuraFilter("HELPFUL", settings)
-                            local buffKey = string.format("%s%s%d%d%s%d%d%d%d%d", bia or "", bfp or "", box or 0, boy or 0, settings.buffGrowth or "auto", settings.maxBuffs or 20, liveCbOff, settings.buffSize or 22, bOffX, bOffY) .. "p" .. (settings.buffMaxPerRow or 0) .. "spx" .. (settings.buffSpacingX or 1) .. "spy" .. (settings.buffSpacingY or 1) .. buffFilter .. (settings.showAuraTooltips == false and "ttOff" or "") .. (mergedB and ("M1" .. (settings.debuffGrowth or "auto")) or "")
+                            local buffKey = string.format("%s%s%d%d%s%d%d%d%d%d", bia or "", bfp or "", box or 0, boy or 0, settings.buffGrowth or "auto", settings.maxBuffs or 20, liveCbOff, settings.buffSize or 22, settings.buffOffsetX or 0, settings.buffOffsetY or 0) .. "p" .. (settings.buffMaxPerRow or 0) .. "spx" .. (settings.buffSpacingX or 1) .. "spy" .. (settings.buffSpacingY or 1) .. buffFilter .. (settings.showAuraTooltips == false and "ttOff" or "")
                             if frame.Buffs._lastBuffKey ~= buffKey then
                                 frame.Buffs._lastBuffKey = buffKey
                                 ns.ApplyEUIAuraFilter(frame.Buffs, "HELPFUL", settings)
                                 frame.Buffs.size = settings.buffSize or 22
                                 frame.Buffs.spacingX = PP.FromPixels(settings.buffSpacingX or 1); frame.Buffs.spacingY = PP.FromPixels(settings.buffSpacingY or 1)
                                 frame.Buffs:ClearAllPoints()
-                                frame.Buffs:SetPoint(bia, frame, bfp, box * 1 + bOffX, boy * 1 + liveCbOff + bOffY)
+                                frame.Buffs:SetPoint(bia, frame, bfp, box * 1 + (settings.buffOffsetX or 0), boy * 1 + liveCbOff + (settings.buffOffsetY or 0))
                                 frame.Buffs.initialAnchor = bia
                                 frame.Buffs.growthX = bgx
                                 frame.Buffs.growthY = bgy
-                                -- Merged: wrap like the debuff stack it joins
-                                -- (growth was resolved from the debuff config).
-                                local bColsGrowth = settings.buffGrowth
-                                if mergedB then bColsGrowth = settings.debuffGrowth or "auto" end
-                                frame.Buffs.maxCols = AuraMaxCols(bColsGrowth, settings.maxBuffs or 4, settings.buffMaxPerRow)
+                                frame.Buffs.maxCols = AuraMaxCols(settings.buffGrowth, settings.maxBuffs or 4, settings.buffMaxPerRow)
                                 if frame.Buffs.ForceUpdate then
                                     frame.Buffs:ForceUpdate()
                                 end
@@ -10391,7 +10278,7 @@ local function ReloadFrames()
                                 end
                             end
                             local debuffFilter = ns.ComposeAuraFilter("HARMFUL", settings) .. (settings.showLustDebuff and "|LUST" or "")
-                            local debuffKey = string.format("%s%s%d%d%s%d%d%d%d%d%d", dia or "", dfp or "", dox or 0, doy or 0, settings.debuffGrowth or "auto", settings.maxDebuffs or 20, liveDbCbOff, settings.debuffSize or 22, settings.debuffOffsetX or 0, settings.debuffOffsetY or 0, settings.onlyPlayerDebuffs and 1 or 0) .. "p" .. (settings.debuffMaxPerRow or 0) .. "spx" .. (settings.debuffSpacingX or 1) .. "spy" .. (settings.debuffSpacingY or 1) .. debuffFilter .. (settings.showAuraTooltips == false and "ttOff" or "") .. (settings.debuffAnchorBuffs and "M1" or "")
+                            local debuffKey = string.format("%s%s%d%d%s%d%d%d%d%d%d", dia or "", dfp or "", dox or 0, doy or 0, settings.debuffGrowth or "auto", settings.maxDebuffs or 20, liveDbCbOff, settings.debuffSize or 22, settings.debuffOffsetX or 0, settings.debuffOffsetY or 0, settings.onlyPlayerDebuffs and 1 or 0) .. "p" .. (settings.debuffMaxPerRow or 0) .. "spx" .. (settings.debuffSpacingX or 1) .. "spy" .. (settings.debuffSpacingY or 1) .. debuffFilter .. (settings.showAuraTooltips == false and "ttOff" or "")
                             if frame.Debuffs._lastDebuffKey ~= debuffKey then
                                 frame.Debuffs._lastDebuffKey = debuffKey
                                 ns.ApplyEUIAuraFilter(frame.Debuffs, "HARMFUL", settings)
@@ -10404,31 +10291,6 @@ local function ReloadFrames()
                                 frame.Debuffs.growthX = dgx
                                 frame.Debuffs.growthY = dgy
                                 frame.Debuffs.maxCols = AuraMaxCols(settings.debuffGrowth, settings.maxDebuffs or 10, settings.debuffMaxPerRow)
-                                -- Anchor Buffs with Debuffs: stash this stack's
-                                -- base point for the buff element's PostUpdate,
-                                -- which pushes the stack past the buff rows.
-                                if frame.Buffs then
-                                    if ns.UF_MergedAuras(settings, dAnc) then
-                                        frame.Buffs._euiMerge = {
-                                            deb = frame.Debuffs, parent = frame, dia = dia, dfp = dfp,
-                                            x = dox * 1 + (settings.debuffOffsetX or 0),
-                                            y = doy * 1 + liveDbCbOff + (settings.debuffOffsetY or 0),
-                                            gy = dgy,
-                                        }
-                                        frame.Buffs._euiMergeRows = nil
-                                        frame.Buffs.PostUpdate = ns.UF_MergedBuffsPostUpdate
-                                        ns.UF_MergedBuffsPostUpdate(frame.Buffs)
-                                    else
-                                        -- Feature off: leave the element exactly
-                                        -- as stock oUF runs it -- no PostUpdate
-                                        -- installed, zero per-update work.
-                                        frame.Buffs._euiMerge = nil
-                                        frame.Buffs._euiMergeRows = nil
-                                        if frame.Buffs.PostUpdate == ns.UF_MergedBuffsPostUpdate then
-                                            frame.Buffs.PostUpdate = nil
-                                        end
-                                    end
-                                end
                                 if frame.Debuffs.ForceUpdate then
                                     frame.Debuffs:ForceUpdate()
                                 end
@@ -10738,7 +10600,7 @@ local function ReloadFrames()
                             end
                         end
                         local debuffFilter = ns.ComposeAuraFilter("HARMFUL", settings) .. (settings.showLustDebuff and "|LUST" or "")
-                        local debuffKey = string.format("%s%s%d%d%s%d%d%d%d%d%d", dia or "", dfp or "", dox or 0, doy or 0, settings.debuffGrowth or "auto", settings.maxDebuffs or 10, focusDbCbOff, settings.debuffSize or 22, settings.debuffOffsetX or 0, settings.debuffOffsetY or 0, settings.onlyPlayerDebuffs and 1 or 0) .. "p" .. (settings.debuffMaxPerRow or 0) .. "spx" .. (settings.debuffSpacingX or 1) .. "spy" .. (settings.debuffSpacingY or 1) .. debuffFilter .. (settings.showAuraTooltips == false and "ttOff" or "") .. (settings.debuffAnchorBuffs and "M1" or "")
+                        local debuffKey = string.format("%s%s%d%d%s%d%d%d%d%d%d", dia or "", dfp or "", dox or 0, doy or 0, settings.debuffGrowth or "auto", settings.maxDebuffs or 10, focusDbCbOff, settings.debuffSize or 22, settings.debuffOffsetX or 0, settings.debuffOffsetY or 0, settings.onlyPlayerDebuffs and 1 or 0) .. "p" .. (settings.debuffMaxPerRow or 0) .. "spx" .. (settings.debuffSpacingX or 1) .. "spy" .. (settings.debuffSpacingY or 1) .. debuffFilter .. (settings.showAuraTooltips == false and "ttOff" or "")
                         if frame.Debuffs._lastDebuffKey ~= debuffKey then
                             frame.Debuffs._lastDebuffKey = debuffKey
                             ns.ApplyEUIAuraFilter(frame.Debuffs, "HARMFUL", settings)
@@ -10751,31 +10613,6 @@ local function ReloadFrames()
                             frame.Debuffs.growthX = dgx
                             frame.Debuffs.growthY = dgy
                             frame.Debuffs.maxCols = AuraMaxCols(settings.debuffGrowth, settings.maxDebuffs or 10, settings.debuffMaxPerRow)
-                            -- Anchor Buffs with Debuffs: stash this stack's
-                            -- base point for the buff element's PostUpdate,
-                            -- which pushes the stack past the buff rows.
-                            if frame.Buffs then
-                                if ns.UF_MergedAuras(settings, dAnc) then
-                                    frame.Buffs._euiMerge = {
-                                        deb = frame.Debuffs, parent = frame, dia = dia, dfp = dfp,
-                                        x = dox * 1 + (settings.debuffOffsetX or 0),
-                                        y = doy * 1 + focusDbCbOff + (settings.debuffOffsetY or 0),
-                                        gy = dgy,
-                                    }
-                                    frame.Buffs._euiMergeRows = nil
-                                    frame.Buffs.PostUpdate = ns.UF_MergedBuffsPostUpdate
-                                    ns.UF_MergedBuffsPostUpdate(frame.Buffs)
-                                else
-                                    -- Feature off: leave the element exactly
-                                    -- as stock oUF runs it -- no PostUpdate
-                                    -- installed, zero per-update work.
-                                    frame.Buffs._euiMerge = nil
-                                    frame.Buffs._euiMergeRows = nil
-                                    if frame.Buffs.PostUpdate == ns.UF_MergedBuffsPostUpdate then
-                                        frame.Buffs.PostUpdate = nil
-                                    end
-                                end
-                            end
                             if frame.Debuffs.ForceUpdate then
                                 frame.Debuffs:ForceUpdate()
                             end
@@ -10786,11 +10623,7 @@ local function ReloadFrames()
 
                 -- Buffs (focus)
                 if frame.Buffs then
-                    -- Anchor Buffs with Debuffs forces the element on: the
-                    -- merge owns buff visibility while Buff Display reads
-                    -- None (the option it overrides).
-                    local mergedB = ns.UF_MergedAuras(settings, settings.debuffAnchor or "bottomleft")
-                    local showBuffs = settings.showBuffs ~= false or mergedB
+                    local showBuffs = settings.showBuffs ~= false
                     if showBuffs then
                         if not frame:IsElementEnabled("Buffs") then
                             frame:EnableElement("Buffs")
@@ -10809,41 +10642,19 @@ local function ReloadFrames()
                                 focusBfCbOff = -cbH
                             end
                         end
-                        -- Anchor Buffs with Debuffs: buffs become the first
-                        -- rows of the debuff stack -- adopt the debuff
-                        -- anchor/growth/offsets wholesale (the debuff stack
-                        -- shifts past the buff rows; UF_MergedBuffsPostUpdate).
-                        local bOffX = settings.buffOffsetX or 0
-                        local bOffY = settings.buffOffsetY or 0
-                        if mergedB then
-                            local dAncM = settings.debuffAnchor or "bottomleft"
-                            bfp, bia, bgx, bgy, box, boy = ResolveBuffLayout(dAncM, settings.debuffGrowth or "auto")
-                            focusBfCbOff = 0
-                            if settings.showCastbar ~= false and (dAncM == "bottomleft" or dAncM == "bottomright") then
-                                local cbH = settings.castbarHeight or 14
-                                if cbH <= 0 then cbH = 14 end
-                                focusBfCbOff = -cbH
-                            end
-                            bOffX = settings.debuffOffsetX or 0
-                            bOffY = settings.debuffOffsetY or 0
-                        end
                         local buffFilter = ns.ComposeAuraFilter("HELPFUL", settings)
-                        local buffKey = string.format("%s%s%d%d%s%d%d%d%d%d", bia or "", bfp or "", box or 0, boy or 0, settings.buffGrowth or "auto", settings.maxBuffs or 4, focusBfCbOff, settings.buffSize or 22, bOffX, bOffY) .. "p" .. (settings.buffMaxPerRow or 0) .. "spx" .. (settings.buffSpacingX or 1) .. "spy" .. (settings.buffSpacingY or 1) .. buffFilter .. (settings.showAuraTooltips == false and "ttOff" or "") .. (mergedB and ("M1" .. (settings.debuffGrowth or "auto")) or "")
+                        local buffKey = string.format("%s%s%d%d%s%d%d%d%d%d", bia or "", bfp or "", box or 0, boy or 0, settings.buffGrowth or "auto", settings.maxBuffs or 4, focusBfCbOff, settings.buffSize or 22, settings.buffOffsetX or 0, settings.buffOffsetY or 0) .. "p" .. (settings.buffMaxPerRow or 0) .. "spx" .. (settings.buffSpacingX or 1) .. "spy" .. (settings.buffSpacingY or 1) .. buffFilter .. (settings.showAuraTooltips == false and "ttOff" or "")
                         if frame.Buffs._lastBuffKey ~= buffKey then
                             frame.Buffs._lastBuffKey = buffKey
                             ns.ApplyEUIAuraFilter(frame.Buffs, "HELPFUL", settings)
                             frame.Buffs.size = settings.buffSize or 22
                             frame.Buffs.spacingX = PP.FromPixels(settings.buffSpacingX or 1); frame.Buffs.spacingY = PP.FromPixels(settings.buffSpacingY or 1)
                             frame.Buffs:ClearAllPoints()
-                            frame.Buffs:SetPoint(bia, frame, bfp, box * 1 + bOffX, boy * 1 + focusBfCbOff + bOffY)
+                            frame.Buffs:SetPoint(bia, frame, bfp, box * 1 + (settings.buffOffsetX or 0), boy * 1 + focusBfCbOff + (settings.buffOffsetY or 0))
                             frame.Buffs.initialAnchor = bia
                             frame.Buffs.growthX = bgx
                             frame.Buffs.growthY = bgy
-                            -- Merged: wrap like the debuff stack it joins
-                            -- (growth was resolved from the debuff config).
-                            local bColsGrowth = settings.buffGrowth
-                            if mergedB then bColsGrowth = settings.debuffGrowth or "auto" end
-                            frame.Buffs.maxCols = AuraMaxCols(bColsGrowth, settings.maxBuffs or 4, settings.buffMaxPerRow)
+                            frame.Buffs.maxCols = AuraMaxCols(settings.buffGrowth, settings.maxBuffs or 4, settings.buffMaxPerRow)
                             if frame.Buffs.ForceUpdate then
                                 frame.Buffs:ForceUpdate()
                             end
@@ -14807,6 +14618,21 @@ do
             ns._eufEnablePending = true
         end
         -- Incompatible addon detection is handled globally by EllesmereUI
+    end
+end
+
+-- Called by EUI_UnlockMode.lua's Grow Direction dropdown for barKey ==
+-- "PAB_Buffs" / "PAB_Debuffs". Thin delegation to
+-- EllesmereUIUnitFrames_PlayerAuraBars.lua's ns.PAB_Get/SetGrowDirection so
+-- the settings field names stay defined in exactly one file.
+
+function EllesmereUF:GetGrowDirectionForBar(barKey)
+    return ns.PAB_GetGrowDirection and ns.PAB_GetGrowDirection(barKey)
+end
+
+function EllesmereUF:SetGrowDirectionForBar(barKey, dir)
+    if ns.PAB_SetGrowDirection then
+        ns.PAB_SetGrowDirection(barKey, dir)
     end
 end
 
