@@ -72,10 +72,14 @@ local BISECT_TEX_SHIFT_OFF = false      -- 8: CLEARED (this cycle) -- textures
 -- chat frame) as parent. Textures created directly on tabs (bg/hover)
 -- are fine -- they existed in 8.5.2, field-clean.
 local _tabHostClip
+-- Keep tab borders/dividers above the chat tabs via frame level, not via a
+-- global DIALOG strata. DIALOG made these small chat-only visuals win against
+-- unrelated UI (most visibly the minimap) whenever their rectangles overlap.
+local TAB_HOST_STRATA = "LOW"
 local function GetTabHostClip()
     if _tabHostClip then return _tabHostClip end
     local clip = CreateFrame("Frame", nil, UIParent)
-    clip:SetFrameStrata("DIALOG")
+    clip:SetFrameStrata(TAB_HOST_STRATA)
     clip:EnableMouse(false)
     clip:SetClipsChildren(true)
     local gdm = _G.GeneralDockManager
@@ -2737,10 +2741,11 @@ function ECHAT.ApplyTabBorders()
             if host:GetParent() ~= wantedParent then
                 host:SetParent(wantedParent)
             end
-            host:SetFrameStrata("DIALOG")
-            -- Constant level: hosts render on our clip at DIALOG strata,
-            -- so a tab-derived level is meaningless -- and tab:GetFrameLevel
-            -- was an un-exonerated tab getter in this (dirty-tested) pass.
+            host:SetFrameStrata(TAB_HOST_STRATA)
+            -- Constant level: hosts render above the tabs on the normal chat
+            -- strata without covering unrelated higher-strata UI. A tab-derived
+            -- level is meaningless here, and tab:GetFrameLevel was an
+            -- un-exonerated tab getter in this (dirty-tested) pass.
             local level = 100
             host:SetFrameLevel(level)
             -- No alpha writes here at all: hosts default to 1, docked hosts
@@ -2814,7 +2819,7 @@ function ECHAT.ApplyTabSeparators()
         end
         if not ns._tabPanelSepHost then
             local host = CreateFrame("Frame", nil, clip)
-            host:SetFrameStrata("DIALOG")
+            host:SetFrameStrata(TAB_HOST_STRATA)
             host:SetFrameLevel(90)
             host:EnableMouse(false)
             host:SetHeight((PP and PP.mult) or 1)
@@ -2900,7 +2905,7 @@ local function SkinTab(cf)
 
     local separatorHost = CreateFrame("Frame", nil, hostParent)
     separatorHost:Hide()
-    separatorHost:SetFrameStrata("DIALOG")
+    separatorHost:SetFrameStrata(TAB_HOST_STRATA)
     separatorHost:SetFrameLevel(90)
     separatorHost:EnableMouse(false)
     local onePx = (PP and PP.mult) or 1
@@ -2925,7 +2930,7 @@ local function SkinTab(cf)
 
     local underlineHost = CreateFrame("Frame", nil, hostParent)
     underlineHost:Hide()
-    underlineHost:SetFrameStrata("DIALOG")
+    underlineHost:SetFrameStrata(TAB_HOST_STRATA)
     underlineHost:SetFrameLevel(95)
     underlineHost:EnableMouse(false)
     local activeUnderline = underlineHost:CreateTexture(nil, "OVERLAY", nil, 7)
