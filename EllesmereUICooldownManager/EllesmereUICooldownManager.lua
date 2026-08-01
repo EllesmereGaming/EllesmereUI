@@ -588,6 +588,15 @@ local DEFAULTS = {
             -- seeds it into existing profiles at login, and an explicit
             -- false (user turned it off) survives the logout default-strip.
             stableKeybinds = true,
+            -- Rotation Assist uses Blizzard's native highlight until the user
+            -- explicitly opts into a custom style.
+            rotationAssistStyle = "blizzard",
+            rotationAssistColorMode = "default",
+            rotationAssistColorR = 1,
+            rotationAssistColorG = 0,
+            rotationAssistColorB = 0,
+            rotationAssistThickness = 3,
+            rotationAssistOutset = 1,
             -- The 3 default bars (match Blizzard CDM)
             bars = {
                 {
@@ -9952,21 +9961,36 @@ end
 
 -------------------------------------------------------------------------------
 --  Rotation Helper Integration (Blizzard C_AssistedCombat)
---  Highlights the currently suggested spell on its CDM icon using Blizzard's
---  native ActionBarButtonAssistedCombatHighlightTemplate -- same shine as the
---  stock action bars. Gated purely by Blizzard's "assistedCombatHighlight"
---  CVar; we don't carry a second toggle of our own.
+--  Highlights the currently suggested spell on its CDM icon. The default is
+--  Blizzard's ActionBarButtonAssistedCombatHighlightTemplate; profile settings
+--  can opt into a custom glow or a static solid border.
 -------------------------------------------------------------------------------
+do
 ns._rotationGlowedIcons = {}
 ns._rotationHookInstalled = false
 ns._rotationInCombat = false
 
 local ROT_GLOW_RATIO = 0.33
+local ROT_STYLE_TO_GLOW = {
+    pixel = 1,
+    shape = 2,
+    button = 3,
+    autocast = 4,
+    gcd = 5,
+    modern = 6,
+    classic = 7,
+}
+local ROT_RESTRICTED_STYLE = { [1] = 7, [2] = 6, [3] = 6, [4] = 6 }
+
+local function _rotConfig()
+    local p = ECME.db and ECME.db.profile
+    return p and p.cdmBars
+end
 
 local function _rotCVarOn()
     -- User can force-hide via our own toggle, overriding Blizzard's CVar
-    local p = ECME.db and ECME.db.profile
-    if p and p.cdmBars and p.cdmBars.hideRotationHelper then return false end
+    local cfg = _rotConfig()
+    if cfg and cfg.hideRotationHelper then return false end
     return GetCVarBool and GetCVarBool("assistedCombatHighlight")
 end
 
@@ -9984,17 +10008,128 @@ local function _rotCreateHighlight(icon)
     return hf
 end
 
+local function _rotCreateCustom(icon)
+    local overlay = CreateFrame("Frame", nil, icon)
+    overlay:SetFrameLevel(icon:GetFrameLevel() + 15)
+    overlay:SetAlpha(0)
+    return overlay
+end
+
+local function _rotSolidBorder(overlay, thickness, r, g, b)
+    local t = overlay._rotSolid
+    if not t then
+        t = {}
+        for i = 1, 4 do
+            t[i] = overlay:CreateTexture(nil, "OVERLAY", nil, 7)
+        end
+        t[1]:SetPoint("TOPLEFT"); t[1]:SetPoint("TOPRIGHT")
+        t[2]:SetPoint("BOTTOMLEFT"); t[2]:SetPoint("BOTTOMRIGHT")
+        t[3]:SetPoint("TOPLEFT"); t[3]:SetPoint("BOTTOMLEFT")
+        t[4]:SetPoint("TOPRIGHT"); t[4]:SetPoint("BOTTOMRIGHT")
+        overlay._rotSolid = t
+    end
+    local px = SnapForScale(thickness)
+    t[1]:SetHeight(px); t[2]:SetHeight(px)
+    t[3]:SetWidth(px);  t[4]:SetWidth(px)
+    for i = 1, 4 do
+        t[i]:SetColorTexture(r, g, b, 1)
+        t[i]:Show()
+    end
+end
+
+local function _rotHideSolid(overlay)
+    local t = overlay and overlay._rotSolid
+    if not t then return end
+    for i = 1, 4 do t[i]:Hide() end
+end
+
+local function _rotResolveColor(cfg)
+    local mode = cfg and cfg.rotationAssistColorMode or "default"
+    if mode == "class" then
+        local c = EllesmereUI.GetClassColor and EllesmereUI.GetClassColor(EllesmereUI._playerClass)
+        if c then return c.r, c.g, c.b end
+    elseif mode == "custom" then
+        return cfg.rotationAssistColorR or 1,
+               cfg.rotationAssistColorG or 0,
+               cfg.rotationAssistColorB or 0
+    end
+    return 1.0, 0.788, 0.137
+end
+
 local function _rotHide(icon)
     local rfc = icon and _ecmeFC[icon]
     local hf = rfc and rfc.rotationHighlight
-    if not hf then return end
-    if hf.Flipbook and hf.Flipbook.Anim then hf.Flipbook.Anim:Stop() end
-    hf:Hide()
+    if hf then
+        if hf.Flipbook and hf.Flipbook.Anim then hf.Flipbook.Anim:Stop() end
+        hf:Hide()
+    end
+    local custom = rfc and rfc.rotationCustomHighlight
+    if custom then
+        StopNativeGlow(custom)
+        _rotHideSolid(custom)
+        custom._rotCfgKey = nil
+    end
 end
 
 local function _rotShow(icon)
     if not icon then return end
     local rfc = FC(icon)
+    local cfg = _rotConfig()
+    local style = cfg and cfg.rotationAssistStyle or "blizzard"
+    if style ~= "solid" and not ROT_STYLE_TO_GLOW[style] then style = "blizzard" end
+
+    if style ~= "blizzard" then
+        local hf0 = rfc.rotationHighlight
+        if hf0 then
+            if hf0.Flipbook and hf0.Flipbook.Anim then hf0.Flipbook.Anim:Stop() end
+            hf0:Hide()
+        end
+        local overlay = rfc.rotationCustomHighlight
+        if not overlay then
+            overlay = _rotCreateCustom(icon)
+            rfc.rotationCustomHighlight = overlay
+        end
+        local outset = cfg.rotationAssistOutset or 1
+        if outset < 0 then outset = 0 elseif outset > 12 then outset = 12 end
+        overlay:ClearAllPoints()
+        overlay:SetPoint("TOPLEFT", icon, "TOPLEFT", -outset, outset)
+        overlay:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", outset, -outset)
+        overlay:SetFrameLevel(icon:GetFrameLevel() + 15)
+        local thickness = cfg.rotationAssistThickness or 3
+        if thickness < 1 then thickness = 1 elseif thickness > 8 then thickness = 8 end
+        local cr, cg, cb = _rotResolveColor(cfg)
+        local glowStyle = ROT_STYLE_TO_GLOW[style]
+        if glowStyle and rfc.isReplacementBuff then
+            glowStyle = ROT_RESTRICTED_STYLE[glowStyle] or glowStyle
+        end
+        local cfgKey = table.concat({ style, cr, cg, cb, thickness, outset, glowStyle or 0 }, ":")
+        if overlay._rotCfgKey ~= cfgKey or not overlay._glowActive then
+            overlay._rotCfgKey = cfgKey
+            if style == "solid" then
+                StopNativeGlow(overlay)
+                _rotSolidBorder(overlay, thickness, cr, cg, cb)
+                overlay._glowActive = true
+                overlay:SetAlpha(1)
+            else
+                _rotHideSolid(overlay)
+                local w = (icon:GetWidth() or 36) + outset * 2
+                local h = (icon:GetHeight() or 36) + outset * 2
+                StartNativeGlow(overlay, glowStyle, cr, cg, cb, {
+                    th = thickness,
+                    width = w,
+                    height = h,
+                })
+            end
+        end
+        return
+    end
+
+    local custom = rfc.rotationCustomHighlight
+    if custom then
+        StopNativeGlow(custom)
+        _rotHideSolid(custom)
+        custom._rotCfgKey = nil
+    end
     local hf = rfc.rotationHighlight
     if not hf then
         hf = _rotCreateHighlight(icon)
@@ -10087,7 +10222,7 @@ local function _rotSyncCombat()
 end
 ns._syncRotationCombatState = _rotSyncCombat
 
-local function InstallRotationHook()
+function ns.InstallRotationHook()
     if ns._rotationHookInstalled then return end
     ns._rotationHookInstalled = true
 
@@ -10115,6 +10250,7 @@ local function InstallRotationHook()
     end
 
     UpdateRotationHighlights()
+end
 end
 
 -- Show Item Count "Out of Combat" mode: re-run the icon restyle for bars using it whenever combat starts or ends (the gate inside the restyle reads the event-tracked combat flag). No-ops instantly when no bar uses the mode.
@@ -10476,7 +10612,7 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
         end
         -- Install rotation helper hook after CDM frames have been built
         C_Timer.After(1, function()
-            InstallRotationHook()
+            ns.InstallRotationHook()
         end)
         -- Safety: re-apply visibility after loading screen settles. Two passes to catch both fast and late viewer pool rebuilds.
         C_Timer.After(1.5, _CDMApplyVisibility)
