@@ -251,6 +251,12 @@ local function BuildAssignedBuffsFields(frame, fontPath, sy, cfg, apply)
                 cfg.filters = cfg.filters or {}
                 cfg.filters[k] = v or nil
                 apply()
+                -- Non-force: runs only the registered lightweight refresh
+                -- callbacks (e.g. the sidebar tile's subtitleFn) in-place,
+                -- unlike RefreshPage(true) which would tear down and
+                -- rebuild the whole page -- and close this open dropdown
+                -- mid multi-select.
+                EllesmereUI:RefreshPage()
             end,
             nil, 12)
         PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
@@ -377,6 +383,9 @@ local function BuildAssignedBuffsFields(frame, fontPath, sy, cfg, apply)
                     end
                 end
                 apply()
+                -- Same reasoning as the Filters dropdown above: lightweight
+                -- refresh only, so this checkbox dropdown stays open.
+                EllesmereUI:RefreshPage()
             end,
             nil, 10, true)
         PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
@@ -800,15 +809,26 @@ local function BuildTile(parentFrame, y, opts)
     titleFS:SetText(opts.title or "")
     titleFS:SetTextColor(1, 1, 1)
 
-    if opts.subtitle then
+    if opts.subtitle or opts.subtitleFn then
         local sub = tile:CreateFontString(nil, "OVERLAY")
         sub:SetFont(fontPath, 11, "")
         sub:SetPoint("TOPLEFT", titleFS, "BOTTOMLEFT", 0, -4)
         sub:SetPoint("RIGHT", tile, "RIGHT", textRight, 0)
         sub:SetJustifyH("LEFT")
         sub:SetWordWrap(false)
-        sub:SetText(opts.subtitle)
+        sub:SetText(opts.subtitleFn and opts.subtitleFn() or opts.subtitle)
         sub:SetTextColor(0.4, 0.4, 0.4)
+        -- subtitleFn (vs. a static subtitle string): re-read on every
+        -- lightweight RefreshPage() pass, e.g. after a Filters/Extra Spells
+        -- checkbox toggle in the detail pane -- those call apply() +
+        -- RefreshPage() (non-force) rather than a full page rebuild, since
+        -- a full rebuild would close the open checkbox dropdown mid
+        -- multi-select. Without this, the sidebar tile's subtitle would
+        -- only update on the next full page rebuild (bar select, add,
+        -- delete, ...), not live.
+        if opts.subtitleFn then
+            EllesmereUI.RegisterWidgetRefresh(function() sub:SetText(opts.subtitleFn()) end)
+        end
     end
 
     tile:SetScript("OnEnter", function()
@@ -1816,11 +1836,10 @@ function ns.PABMP_BuildPage(pageName, parent, yOffset)
 
         for i = 1, #buffBars do
             local bar = buffBars[i]
-            local sub = BuildBuffBarSubtitle(bar)
             tileY = tileY - BuildTile(sidebarChild, tileY, {
                 width = sidebarW, fontPath = fontPath,
                 title = bar.name or L("Buff Bar"),
-                subtitle = sub,
+                subtitleFn = function() return BuildBuffBarSubtitle(bar) end,
                 selected = (pabSel and pabSel.kind == "buff" and pabSel.id == bar.id),
                 enabled = bar.enabled and true or false,
                 showToggle = true,
