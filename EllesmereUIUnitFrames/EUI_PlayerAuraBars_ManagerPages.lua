@@ -502,7 +502,7 @@ local function BuildAssignedDebuffsFields(frame, fontPath, sy, cfg, apply)
 end
 
 -- "Core": Icon Size (+Icon Zoom cog) | Growth Direction;
---         Duration [+cog][swatch][toggle] | Stacks [+cog][swatch][toggle].
+--         Duration [+expand][swatch][toggle] | Stacks [+expand][swatch][toggle].
 -- Shared by every bar (default + custom, buff + debuff) -- growDirection
 -- is generic (BuildContainerSpec doesn't care about slots vs. groups).
 local function BuildCoreFields(frame, fontPath, sy, cfg, apply)
@@ -548,7 +548,7 @@ local function BuildCoreFields(frame, fontPath, sy, cfg, apply)
         cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
         cogBtn:SetAlpha(0.4)
         local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-        cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
+        cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
         cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
         cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
         cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
@@ -624,7 +624,7 @@ local function BuildCoreFields(frame, fontPath, sy, cfg, apply)
 end
 
 -- "Display": Border Size [swatch] | Spacing; Icons per Row (+Max Rows/Max
--- Total cog) | spacer.
+-- Total/Row Spacing cog) | spacer.
 local function BuildDisplayFields(frame, fontPath, sy, cfg, apply)
     local W = EllesmereUI.Widgets
     local PP = EllesmereUI.PanelPP
@@ -686,6 +686,12 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply)
                 { type = "slider", label = "Max Total", min = 1, max = 40, step = 1,
                   get = function() return cfg.maxTotal or 32 end,
                   set = function(v) cfg.maxTotal = v; apply() end },
+                -- nil = auto (follows Spacing/padding, same as before this
+                -- field existed) -- default shown here mirrors the current
+                -- Spacing value rather than a fixed number, per Joel's request.
+                { type = "slider", label = "Row Spacing", min = 0, max = 20, step = 1,
+                  get = function() return cfg.rowSpacing or cfg.padding or 4 end,
+                  set = function(v) cfg.rowSpacing = v; apply() end },
             },
         })
         ns._PAMakeCogBtn(rgn, cogShow)

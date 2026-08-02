@@ -227,6 +227,13 @@ local STYLE_EXTDEF = "playerAuraBars_extDef"
 --   borderSize, borderR/G/B/A         (base border color; per-dispel-type
 --                                      override is Step C, not this)
 --   padding                           (single scalar -> applied to all 4 sides)
+--   rowSpacing                        (optional; row-to-row gap override, i.e.
+--                                      lineSpacing/groupLineSpacing only --
+--                                      nil falls back to `padding`, same
+--                                      value ComputeGrid used for both before
+--                                      this field existed. elementSpacing/
+--                                      groupSpacing (icon-to-icon within a
+--                                      row) always stay tied to `padding`.)
 --   maxTotal                          (overall icon cap)
 --   iconsPerRow                       (row width in icon columns)
 --   maxRows                           (row cap; combined with iconsPerRow this
@@ -493,17 +500,22 @@ end
 -- custom Debuff Bar (class-token chain), declared.buffs for the default
 -- Buffs bar's single "Show All Buffs" catch-all group (see CreateBars'
 -- doc comment for why buffs still need ONE group alongside their slots).
-local function ApplyGroupConfig(container, chain, declaredSet, styleKey, effectiveMax, gap)
+local function ApplyGroupConfig(container, chain, declaredSet, styleKey, effectiveMax, gap, rowGap)
     -- elementSpacing = gap between icons in the same row; lineSpacing = gap
     -- between wrapped rows within a group; group*Spacing = gap to the NEXT
-    -- group on the same container. All four use the same scalar (matches the
-    -- old module's single "padding" value) -- container-level padding is the
-    -- OUTER edge inset only and does not affect icon-to-icon gaps.
+    -- group on the same container. elementSpacing/groupSpacing stay tied to
+    -- `gap` (padding); lineSpacing/groupLineSpacing use `rowGap` (defaults to
+    -- `gap` when not passed, i.e. the pre-rowSpacing-field behavior) so row-
+    -- to-row distance can be overridden independently of icon-to-icon
+    -- spacing (see cfg.rowSpacing in the Settings Schema doc comment).
+    -- Container-level padding is a THIRD, unrelated concept: the OUTER edge
+    -- inset, fixed at 0 elsewhere and never affected by either of these.
+    rowGap = rowGap or gap
     local layout = {
         elementSpacing = gap,
-        lineSpacing = gap,
+        lineSpacing = rowGap,
         groupSpacing = gap,
-        groupLineSpacing = gap,
+        groupLineSpacing = rowGap,
     }
 
     local active = {}
@@ -568,6 +580,7 @@ end
 local function ComputeGrid(isBuff, cfg)
     local iconSize = cfg.iconSize or 32
     local pad = cfg.padding or 5
+    local rowGap = cfg.rowSpacing or pad
     local cols = math.max(1, cfg.iconsPerRow or (isBuff and 11 or 8))
     local rows = math.max(1, cfg.maxRows or (isBuff and 3 or 2))
     local configuredMax = cfg.maxTotal or (isBuff and 32 or 16)
@@ -575,12 +588,13 @@ local function ComputeGrid(isBuff, cfg)
     -- Actual rows needed for the effective cap, never more than the row limit
     local usedRows = math.min(rows, math.max(1, math.ceil(effectiveMax / cols)))
     local width = cols * iconSize + (cols - 1) * pad
-    local height = usedRows * iconSize + (usedRows - 1) * pad
+    local height = usedRows * iconSize + (usedRows - 1) * rowGap
     return {
         effectiveMax = effectiveMax,
         rowWidth = width,
         width = width,
         height = height,
+        rowGap = rowGap,
     }
 end
 
@@ -915,7 +929,7 @@ local function CreateBars()
         buffsContainer = container
         declared.buffs = {}
         if buffCfg.showAllBuffs ~= false then
-            ApplyGroupConfig(container, buffAllChain, declared.buffs, STYLE_BUFFS, buffGrid.effectiveMax, buffPad)
+            ApplyGroupConfig(container, buffAllChain, declared.buffs, STYLE_BUFFS, buffGrid.effectiveMax, buffPad, buffGrid.rowGap)
         end
         if #buffSpells > 0 then
             local includeMap = {}
@@ -928,8 +942,8 @@ local function CreateBars()
                 candidateFilters = { includeSpellIDs = includeMap },
             })
             container:SetAuraGroupLayout("spells", {
-                elementSpacing = buffPad, lineSpacing = buffPad,
-                groupSpacing = buffPad, groupLineSpacing = buffPad,
+                elementSpacing = buffPad, lineSpacing = buffGrid.rowGap,
+                groupSpacing = buffPad, groupLineSpacing = buffGrid.rowGap,
             })
             declared.buffs.spells = true
         end
@@ -937,7 +951,7 @@ local function CreateBars()
     AK.RequestContainer(debuffsParent, "player", debuffSpec, function(container)
         debuffsContainer = container
         declared.debuffs = {}
-        ApplyGroupConfig(container, debuffChain, declared.debuffs, STYLE_DEBUFFS, debuffGrid.effectiveMax, debuffPad)
+        ApplyGroupConfig(container, debuffChain, declared.debuffs, STYLE_DEBUFFS, debuffGrid.effectiveMax, debuffPad, debuffGrid.rowGap)
     end)
 
     -- External Defensives: fixed engine classification, not a user-selected
@@ -959,8 +973,8 @@ local function CreateBars()
             maxFrameCount = extDefGrid.effectiveMax,
         })
         container:SetAuraGroupLayout("extdef", {
-            elementSpacing = extDefPad, lineSpacing = extDefPad,
-            groupSpacing = extDefPad, groupLineSpacing = extDefPad,
+            elementSpacing = extDefPad, lineSpacing = extDefGrid.rowGap,
+            groupSpacing = extDefPad, groupLineSpacing = extDefGrid.rowGap,
         })
     end)
 
@@ -1168,7 +1182,7 @@ local function ApplyLiveConfig(isBuff)
                 buffsContainer = newContainer
                 declared.buffs = {}
                 if cfg.showAllBuffs ~= false then
-                    ApplyGroupConfig(newContainer, allChain, declared.buffs, STYLE_BUFFS, grid.effectiveMax, pad)
+                    ApplyGroupConfig(newContainer, allChain, declared.buffs, STYLE_BUFFS, grid.effectiveMax, pad, grid.rowGap)
                 end
                 if #spells > 0 then
                     local includeMap = {}
@@ -1181,8 +1195,8 @@ local function ApplyLiveConfig(isBuff)
                         candidateFilters = { includeSpellIDs = includeMap },
                     })
                     newContainer:SetAuraGroupLayout("spells", {
-                        elementSpacing = pad, lineSpacing = pad,
-                        groupSpacing = pad, groupLineSpacing = pad,
+                        elementSpacing = pad, lineSpacing = grid.rowGap,
+                        groupSpacing = pad, groupLineSpacing = grid.rowGap,
                     })
                     declared.buffs.spells = true
                 end
@@ -1196,18 +1210,18 @@ local function ApplyLiveConfig(isBuff)
             -- and off without a separate branch. The spells group (if
             -- declared) isn't part of that chain-based path, so its
             -- maxFrameCount/layout are refreshed here directly.
-            ApplyGroupConfig(container, allChain, declared.buffs, STYLE_BUFFS, grid.effectiveMax, pad)
+            ApplyGroupConfig(container, allChain, declared.buffs, STYLE_BUFFS, grid.effectiveMax, pad, grid.rowGap)
             if declared.buffs.spells then
                 container:SetAuraGroupMaxFrameCount("spells", grid.effectiveMax)
                 container:SetAuraGroupLayout("spells", {
-                    elementSpacing = pad, lineSpacing = pad,
-                    groupSpacing = pad, groupLineSpacing = pad,
+                    elementSpacing = pad, lineSpacing = grid.rowGap,
+                    groupSpacing = pad, groupLineSpacing = grid.rowGap,
                 })
             end
         end
     else
         local chain = BuildChain("HARMFUL", function(class) return ClassEnabled(class, false, cfg) end, cfg.showAllDebuffs ~= false)
-        ApplyGroupConfig(container, chain, declared.debuffs, STYLE_DEBUFFS, grid.effectiveMax, pad)
+        ApplyGroupConfig(container, chain, declared.debuffs, STYLE_DEBUFFS, grid.effectiveMax, pad, grid.rowGap)
     end
 
     if PAB_MaybeRefreshPreview then PAB_MaybeRefreshPreview(isBuff and "buff" or "debuff", "default") end
@@ -1257,8 +1271,8 @@ local function ApplyExtDefLiveConfig()
 
     container:SetAuraGroupMaxFrameCount("extdef", grid.effectiveMax)
     container:SetAuraGroupLayout("extdef", {
-        elementSpacing = pad, lineSpacing = pad,
-        groupSpacing = pad, groupLineSpacing = pad,
+        elementSpacing = pad, lineSpacing = grid.rowGap,
+        groupSpacing = pad, groupLineSpacing = grid.rowGap,
     })
 
     if PAB_MaybeRefreshPreview then PAB_MaybeRefreshPreview("buff", "extdef") end
@@ -2240,12 +2254,12 @@ local function ReloadCustomBuffBarImpl(barId)
                 local livePad = bar.padding or 5
                 container:SetAuraGroupMaxFrameCount("spells", grid.effectiveMax)
                 container:SetAuraGroupLayout("spells", {
-                    elementSpacing = livePad, lineSpacing = livePad,
-                    groupSpacing = livePad, groupLineSpacing = livePad,
+                    elementSpacing = livePad, lineSpacing = grid.rowGap,
+                    groupSpacing = livePad, groupLineSpacing = grid.rowGap,
                 })
             end
             customBuffDeclared[barId] = customBuffDeclared[barId] or {}
-            ApplyGroupConfig(container, allChain, customBuffDeclared[barId], styleKey, grid.effectiveMax, bar.padding or 5)
+            ApplyGroupConfig(container, allChain, customBuffDeclared[barId], styleKey, grid.effectiveMax, bar.padding or 5, grid.rowGap)
             return -- nothing structural to rebuild
         end
         AK.ReleaseContainer(container) -- safe: dedicated container, see doc comment above
@@ -2258,7 +2272,7 @@ local function ReloadCustomBuffBarImpl(barId)
         customBuffContainers[barId] = container
         customBuffSig[barId] = sig
         customBuffDeclared[barId] = {}
-        ApplyGroupConfig(container, allChain, customBuffDeclared[barId], styleKey, grid.effectiveMax, pad)
+        ApplyGroupConfig(container, allChain, customBuffDeclared[barId], styleKey, grid.effectiveMax, pad, grid.rowGap)
         if #spells > 0 then
             local includeMap = {}
             for i = 1, #spells do includeMap[spells[i]] = true end
@@ -2270,8 +2284,8 @@ local function ReloadCustomBuffBarImpl(barId)
                 candidateFilters = { includeSpellIDs = includeMap },
             })
             container:SetAuraGroupLayout("spells", {
-                elementSpacing = pad, lineSpacing = pad,
-                groupSpacing = pad, groupLineSpacing = pad,
+                elementSpacing = pad, lineSpacing = grid.rowGap,
+                groupSpacing = pad, groupLineSpacing = grid.rowGap,
             })
         end
     end)
@@ -2341,7 +2355,7 @@ local function ReloadCustomDebuffBarImpl(barId)
         AK.RequestContainer(parent, "player", spec, function(container)
             customDebuffContainers[barId] = container
             customDebuffDeclared[barId] = {}
-            ApplyGroupConfig(container, chain, customDebuffDeclared[barId], styleKey, grid.effectiveMax, pad)
+            ApplyGroupConfig(container, chain, customDebuffDeclared[barId], styleKey, grid.effectiveMax, pad, grid.rowGap)
         end)
     else
         local container = customDebuffContainers[barId]
@@ -2354,7 +2368,7 @@ local function ReloadCustomDebuffBarImpl(barId)
         end
         AK.SetContainerPadding(container, 0, 0, 0, 0)
         AK.SetContainerRowWidth(container, grid.rowWidth)
-        ApplyGroupConfig(container, chain, customDebuffDeclared[barId], styleKey, grid.effectiveMax, pad)
+        ApplyGroupConfig(container, chain, customDebuffDeclared[barId], styleKey, grid.effectiveMax, pad, grid.rowGap)
     end
 end
 
@@ -2574,6 +2588,7 @@ local function ScaledPreviewCfg(cfg)
     for k, v in pairs(cfg) do out[k] = v end
     out.iconSize = (cfg.iconSize or 32) * comp
     out.padding = (cfg.padding or 5) * comp
+    out.rowSpacing = cfg.rowSpacing and (cfg.rowSpacing * comp) or nil
     out.borderSize = (cfg.borderSize or 1) * comp
     out.durationTextSize = (cfg.durationTextSize or 11) * comp
     out.durationOffsetX = (cfg.durationOffsetX or 0) * comp
@@ -2606,6 +2621,7 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, buffPool)
     -- it just no longer moves the box/divider around while doing it.
     local corner = CornerFor(cfg.growDirection or "LEFT")
     local pad = cfg.padding or 5
+    local rowGap = cfg.rowSpacing or pad
     local iconSize = cfg.iconSize or 32
     local cols = math.max(1, cfg.iconsPerRow or (isBuff and 11 or 8))
     local count = grid.effectiveMax
@@ -2614,7 +2630,7 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, buffPool)
 
     local rows = math.max(1, math.ceil(count / cols))
     local blockW = cols * iconSize + math.max(0, cols - 1) * pad
-    local blockH = rows * iconSize + math.max(0, rows - 1) * pad
+    local blockH = rows * iconSize + math.max(0, rows - 1) * rowGap
     local halfW, halfH = blockW / 2, blockH / 2
 
     for i = 1, math.max(count, #icons) do
@@ -2632,7 +2648,7 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, buffPool)
             local col = (i - 1) % cols
             local row = math.floor((i - 1) / cols)
             local colStep = (iconSize + pad) * col
-            local rowStep = (iconSize + pad) * row
+            local rowStep = (iconSize + rowGap) * row
             -- btn's own anchor point is `corner` (TOPLEFT/TOPRIGHT, matching
             -- growDirection), placed at an offset from the box's CENTER --
             -- see the block-centering comment above `local rows = ...`.
