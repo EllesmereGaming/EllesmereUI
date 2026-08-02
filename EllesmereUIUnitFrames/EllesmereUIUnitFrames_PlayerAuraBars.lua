@@ -328,6 +328,29 @@ local function PAB_ApplyExtraText(button, d, style)
         local c = style.stackColor
         d.stack:SetTextColor(c and c.r or 1, c and c.g or 1, c and c.b or 1)
     end
+
+    -- hideSwipe (BuildStyle, unconditionally true for every PAB style) only
+    -- runs through AK's own ApplyStyleToRegions, which fires at button
+    -- CREATION and on explicit Restyle passes -- NOT on ordinary aura
+    -- content churn. Blizzard's own engine calls something equivalent to
+    -- Cooldown:SetCooldown(...) on d.cooldown internally every time that
+    -- slot's aura data refreshes (new aura in the slot, duration change,
+    -- ...), and that native Blizzard Cooldown API implicitly re-Shows the
+    -- frame as a side effect -- confirmed in-game 2026-08-02: the swipe
+    -- disappeared right after a restyle but kept reappearing on ordinary
+    -- aura updates, i.e. SetShown(false) was being silently undone by
+    -- Blizzard's own code, not failing to apply in the first place. Same
+    -- "Blizzard keeps re-showing this" pattern already used in this file
+    -- for BuffFrame/DebuffFrame (HideBlizzardPlayerAuras) -- hooksecurefunc
+    -- runs AFTER Blizzard's call completes, not from inside it, so this
+    -- does not taint anything. Installed once per button (guarded, not
+    -- per-restyle) since the hook itself never needs to change -- PAB never
+    -- offers a UI toggle for hideSwipe, it is unconditional for every style
+    -- this module owns.
+    if d.cooldown and not d._pabSwipeHooked then
+        d._pabSwipeHooked = true
+        hooksecurefunc(d.cooldown, "Show", function() d.cooldown:Hide() end)
+    end
 end
 
 local function BuildStyle(isBuff, cfg)
