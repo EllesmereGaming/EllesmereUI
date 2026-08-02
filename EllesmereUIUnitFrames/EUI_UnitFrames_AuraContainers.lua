@@ -1008,7 +1008,8 @@ unitWatcher:RegisterEvent("PLAYER_TARGET_CHANGED")
 unitWatcher:RegisterEvent("PLAYER_FOCUS_CHANGED")
 unitWatcher:RegisterEvent("INSTANCE_ENCOUNTER_ENGAGE_UNIT")
 unitWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
-unitWatcher:SetScript("OnEvent", function(_, event)
+unitWatcher:RegisterEvent("PLAYER_ENTERING_WORLD")
+unitWatcher:SetScript("OnEvent", function(_, event, isInitialLogin, isReloadingUi)
     if event == "PLAYER_TARGET_CHANGED" then
         RefreshUnit("target")
     elseif event == "PLAYER_FOCUS_CHANGED" then
@@ -1020,6 +1021,22 @@ unitWatcher:SetScript("OnEvent", function(_, event)
                 entry.pendingSwap = nil
                 ns.UF_ReloadAuraContainers(entry.frame, unitKey)
             end
+        end
+    elseif event == "PLAYER_ENTERING_WORLD" then
+        -- Login/reload only (not every zone transition): auras that were
+        -- already active before the client finished loading can bind with
+        -- a stale/zero expirationTime if the container's SetUnit lands
+        -- inside the accelerated login build window (see AK's
+        -- BUILD_BUDGET_LOGIN_MS) before the server's own aura-timing sync
+        -- settles. One UpdateAllAuras() poke per already-built unit a few
+        -- seconds later re-pulls a fresh snapshot; cheap (bounded unit
+        -- count) and a no-op for any unit whose container isn't built yet.
+        if isInitialLogin or isReloadingUi then
+            C_Timer.After(2, function()
+                for unitKey in pairs(registry) do
+                    RefreshUnit(unitKey)
+                end
+            end)
         end
     else
         for i = 1, 5 do RefreshUnit("boss" .. i) end
