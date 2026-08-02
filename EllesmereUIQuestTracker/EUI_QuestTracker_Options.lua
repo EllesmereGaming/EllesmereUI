@@ -199,34 +199,33 @@ initFrame:SetScript("OnEvent", function(self)
                           cancelText  = "Later",
                           onConfirm   = function() ReloadUI() end,
                       })
-                    end 
-                })
+                  end })
         end
         y = y - h
 
-        -- Row 4: Font | Show Quest Icons
-            _, h = W:DualRow(parent, y,
-                { type="toggle", text="Show Quest Icons",
-                  tooltip="Show Blizzard's native quest type icons/buttons on the right instead of EllesmereUI's custom icons. Requires a UI reload.",
-                  getValue=function() return Cfg("showQuestIcons") or false end,
-                  setValue=function(v)
-                      Set("showQuestIcons", v)
-                      EllesmereUI:ShowConfirmPopup({
-                          title       = "Reload Required",
-                          message     = "Changing quest icons requires a UI reload to apply.",
-                          confirmText = "Reload Now",
-                          cancelText  = "Later",
-                          onConfirm   = function() ReloadUI() end,
-                      })
-                  end },
-                { type="toggle", text="Hide All Objectives",
-                tooltip="Hides the master header and its minimize button at the top of the tracker. When shown, it's skinned to match the section headers below it (Quests, Achievements, ...).",
-                getValue=function() return Cfg("hideAllObjectivesHeader") ~= false end,
-                setValue=function(v)
-                    Set("hideAllObjectivesHeader", v)
-                    if EQT.ApplyMasterHeaderVisibility then EQT.ApplyMasterHeaderVisibility() end
-                    if EQT.QueueResize then EQT.QueueResize() end
-                end })
+        -- Row 4: Show Quest Icons | Hide All Objectives
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Show Quest Icons",
+              tooltip="Show Blizzard's native quest type icons/buttons on the right instead of EllesmereUI's custom icons. Requires a UI reload.",
+              getValue=function() return Cfg("showQuestIcons") or false end,
+              setValue=function(v)
+                  Set("showQuestIcons", v)
+                  EllesmereUI:ShowConfirmPopup({
+                      title       = "Reload Required",
+                      message     = "Changing quest icons requires a UI reload to apply.",
+                      confirmText = "Reload Now",
+                      cancelText  = "Later",
+                      onConfirm   = function() ReloadUI() end,
+                  })
+              end },
+            { type="toggle", text="Hide All Objectives",
+              tooltip="Hides the master header and its minimize button at the top of the tracker. When shown, it's skinned to match the section headers below it (Quests, Achievements, ...).",
+              getValue=function() return Cfg("hideAllObjectivesHeader") ~= false end,
+              setValue=function(v)
+                  Set("hideAllObjectivesHeader", v)
+                  if EQT.ApplyMasterHeaderVisibility then EQT.ApplyMasterHeaderVisibility() end
+                  if EQT.QueueResize then EQT.QueueResize() end
+              end })
         y = y - h
 
         -- Row 5: Show Top Line| spacer

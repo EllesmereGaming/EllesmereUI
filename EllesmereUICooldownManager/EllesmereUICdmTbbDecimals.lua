@@ -366,7 +366,7 @@ function ns.TBBDecimals_Sync()
     if InCombatLockdown() then
         pendingRegen = true
         if not regenFrame then
-            regenFrame = CreateFrame("Frame")
+            regenFrame = ns.TakeShell()
             regenFrame:SetScript("OnEvent", function(self)
                 self:UnregisterEvent("PLAYER_REGEN_ENABLED")
                 if pendingRegen then

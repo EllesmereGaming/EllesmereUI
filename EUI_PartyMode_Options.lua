@@ -249,6 +249,46 @@ do
             nil
         );  y = y - h
 
+        -- Row 4: Play Sound on Party Mode (dropdown; shares the whisper
+        -- alert catalogue incl. SharedMedia, with per-item preview icons)
+        do
+            local sndPaths, sndNames, sndOrder = {}, { none = "None" }, { "none" }
+            if EllesmereUI_GetPartyModeSounds then
+                sndPaths, sndNames, sndOrder = EllesmereUI_GetPartyModeSounds()
+            end
+            -- Shallow-copy the shared names table so _menuOpts (preview
+            -- icon) doesn't pollute it.
+            local sndValues = {}
+            for k, v in pairs(sndNames) do sndValues[k] = v end
+            sndValues._menuOpts = {
+                itemHeight = 26,
+                maxTextWidthPct = 0.8,
+                searchable = true,
+                iconAtlas = function(key)
+                    if key == "none" then return nil end
+                    if not sndPaths[key] then return nil end
+                    return "common-icon-sound"
+                end,
+                iconPressedAtlas = function(key)
+                    if key == "none" then return nil end
+                    return "common-icon-sound-pressed"
+                end,
+                iconOnClick = function(key)
+                    local path = sndPaths[key]
+                    if path then PlaySoundFile(path, "Master") end
+                end,
+                iconTooltip = function() return "Preview Sound" end,
+            }
+            _, h = W:Dropdown(parent, "Play Sound on Party Mode", y, sndValues,
+                function() return (EllesmereUIDB and EllesmereUIDB.partyModeSoundKey) or "none" end,
+                function(v)
+                    if not EllesmereUIDB then EllesmereUIDB = {} end
+                    EllesmereUIDB.partyModeSoundKey = v
+                end,
+                sndOrder)
+            y = y - h
+        end
+
         -------------------------------------------------------------------
         --  CELEBRATION TRIGGERS
         -------------------------------------------------------------------
@@ -582,6 +622,7 @@ do
                 EllesmereUIDB.partyModeTriggerRandom = nil
                 EllesmereUIDB.partyModeRandomCooldown = nil
                 EllesmereUIDB.partyModeDimLights = nil
+                EllesmereUIDB.partyModeSoundKey = nil
             end
             -- Stop random trigger timer
             EllesmereUI_StopRandomTrigger()

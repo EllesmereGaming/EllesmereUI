@@ -311,7 +311,7 @@ initFrame:SetScript("OnEvent", function(self)
     local healthTextOrder = { "none", "---", "name", "levelname", "namelevel", "level", "perhp", "perhpnosign", "curhpshort", "perhpnum", "both" }
     -- Boss frames also get "Name > Target" (the boss's current target); the other
     -- mini frames (Target of Target / Focus Target / Pet) do not.
-    local healthTextOrderBoss = { "none", "---", "name", "nametotarget", "levelname", "namelevel", "level", "perhp", "perhpnosign", "curhpshort", "perhpnum", "both", "bothdash", "perhpnumdash" }
+    local healthTextOrderBoss = { "none", "---", "name", "nametotarget", "levelname", "namelevel", "level", "perhp", "perhpnosign", "curhpshort", "perhpnum", "both", "bothdash", "perhpnumdash", "absorb", "absorbshort", "healabsorb", "healabsorbshort" }
     local healthTextOrderPlayer = { "none", "---", "name", "nametotarget", "levelname", "namelevel", "level", "perhp", "perhpnosign", "curhpshort", "perhpnum", "both", "bothdash", "perhpnumdash", "absorb", "absorbshort", "healabsorb", "healabsorbshort", "group" }
     -- Target/Focus get the same absorb text options as player, minus "group"
     -- (Group Number is the player's own raid group; it is meaningless on a target/focus).
@@ -1177,37 +1177,19 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 return sep .. tgt
             end
-            local function _pvShortName(raw)
-                if not prefix then return raw end
-                local maxLen = s[prefix .. "ShortNameLength"] or 0
-                if maxLen <= 0 then return raw end
-                local useEllipsis = s[prefix .. "ShortNameEllipsis"] ~= false
-                -- Mirror the live eui-name tag exactly: truncate by UTF-8
-                -- codepoints on a character boundary, never by bytes.
-                local i, chars = 1, 0
-                local len = #raw
-                while i <= len do
-                    if chars == maxLen then
-                        local cut = raw:sub(1, i - 1)
-                        if useEllipsis then return cut .. "..." end
-                        return cut
-                    end
-                    local b = raw:byte(i)
-                    i = i + ((b >= 240 and 4) or (b >= 224 and 3) or (b >= 192 and 2) or 1)
-                    chars = chars + 1
-                end
-                return raw
-            end
+            -- Name truncation is width-based on the live frames (the per-slot
+            -- Width % clamp in the position code); the preview renders the
+            -- full name and relies on its own FontString width for clipping.
             if content == "name" then
-                return _pvShortName(_pvName())
+                return _pvName()
             elseif content == "nametotarget" then
-                return _pvShortName(_pvName()) .. _pvTargetSuffix()
+                return _pvName() .. _pvTargetSuffix()
             elseif content == "level" or content == "levelname" or content == "namelevel" then
                 local lvl = UnitLevel("player")
                 lvl = (type(lvl) == "number" and lvl > 0) and tostring(lvl) or "80"
                 if content == "level" then return lvl
-                elseif content == "levelname" then return lvl .. " | " .. _pvShortName(_pvName())
-                else return _pvShortName(_pvName()) .. " | " .. lvl end
+                elseif content == "levelname" then return lvl .. " | " .. _pvName()
+                else return _pvName() .. " | " .. lvl end
             elseif content == "both" or content == "bothdash" or content == "curhpshort" or content == "perhp" or content == "perhpnosign" or content == "perhpnum" or content == "perhpnumdash" then
                 local maxHP = UnitHealthMax("player") or 1
                 local pct = _previewHealthPct or 0.70
@@ -1893,9 +1875,38 @@ initFrame:SetScript("OnEvent", function(self)
         --   right   = pinned to the health bar's right edge, fills leftward
         --   left    = pinned to the health bar's left edge, fills rightward
         -- right/left are absolute (independent of reverse fill); overlay mirrors.
-        local function PositionPreviewAbsorb(bar, mode, isRev)
+        local function PositionPreviewAbsorb(bar, mode, isRev, isVert)
             if not bar then return end
             bar:ClearAllPoints()
+            bar:SetOrientation(isVert and "VERTICAL" or "HORIZONTAL")
+            ns.ApplyFillRotation(bar)
+            if isVert then
+                -- Vertical fill: same rules with the axis swapped. The edge modes
+                -- keep their key names -- "right" is the far edge of the fill axis
+                -- (the top here), "left" the near one (the bottom).
+                if mode == "right" then
+                    bar:SetReverseFill(true)
+                    bar:SetPoint("TOPLEFT",  health, "TOPLEFT",  0, 0)
+                    bar:SetPoint("TOPRIGHT", health, "TOPRIGHT", 0, 0)
+                elseif mode == "left" then
+                    bar:SetReverseFill(false)
+                    bar:SetPoint("BOTTOMLEFT",  health, "BOTTOMLEFT",  0, 0)
+                    bar:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
+                elseif isRev then
+                    -- Reverse fill: missing health sits BELOW, so the shield grows
+                    -- down out of the current-HP edge (the health fill's bottom).
+                    bar:SetReverseFill(true)
+                    bar:SetPoint("TOPLEFT",  healthFill, "BOTTOMLEFT",  0, 0)
+                    bar:SetPoint("TOPRIGHT", healthFill, "BOTTOMRIGHT", 0, 0)
+                else
+                    -- Normal fill: missing health sits ABOVE, so the shield grows
+                    -- up out of the current-HP edge (the health fill's top).
+                    bar:SetReverseFill(false)
+                    bar:SetPoint("BOTTOMLEFT",  healthFill, "TOPLEFT",  0, 0)
+                    bar:SetPoint("BOTTOMRIGHT", healthFill, "TOPRIGHT", 0, 0)
+                end
+                return
+            end
             if mode == "right" then
                 bar:SetReverseFill(true)
                 bar:SetPoint("TOPRIGHT",    health, "TOPRIGHT",    0, 0)
@@ -1962,7 +1973,7 @@ initFrame:SetScript("OnEvent", function(self)
                 absFillTex:SetHorizTile(absTiled); absFillTex:SetVertTile(absTiled)
             end
             absorbBar:SetStatusBarColor(ac.r, ac.g, ac.b, alpha)
-            PositionPreviewAbsorb(absorbBar, settings.absorbEdgeMode or "overlay", settings.healthReverseFill)
+            PositionPreviewAbsorb(absorbBar, settings.absorbEdgeMode or "overlay", settings.healthReverseFill, settings.healthVerticalFill)
             PP.Width(absorbBar, frameW)
             PP.Height(absorbBar, healthH)
             absorbBar:SetMinMaxValues(0, 1)
@@ -1987,7 +1998,7 @@ initFrame:SetScript("OnEvent", function(self)
                 haFillTex:SetHorizTile(haTiled); haFillTex:SetVertTile(haTiled)
             end
             healAbsorbBar:SetStatusBarColor(hc.r, hc.g, hc.b, haAlpha)
-            PositionPreviewAbsorb(healAbsorbBar, settings.healAbsorbEdgeMode or "overlay", settings.healthReverseFill)
+            PositionPreviewAbsorb(healAbsorbBar, settings.healAbsorbEdgeMode or "overlay", settings.healthReverseFill, settings.healthVerticalFill)
             PP.Width(healAbsorbBar, frameW)
             PP.Height(healAbsorbBar, healthH)
             healAbsorbBar:SetMinMaxValues(0, 1)
@@ -2351,14 +2362,30 @@ initFrame:SetScript("OnEvent", function(self)
                 if portraitFrame then portraitFrame._anchored = false end
             end
             healthFill:ClearAllPoints()
-            if s.healthReverseFill then
-                healthFill:SetPoint("TOPRIGHT", health, "TOPRIGHT", 0, 0)
-                healthFill:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
+            -- Vertical Fill swaps the preview's fill axis to match the live bar:
+            -- the fill grows up from the bottom, and Reverse Fill flips it to
+            -- grow down from the top. The two anchors always sit on the axis the
+            -- fill does NOT grow along, so the other dimension comes from the
+            -- explicit PP.Width / PP.Height below.
+            if s.healthVerticalFill then
+                if s.healthReverseFill then
+                    healthFill:SetPoint("TOPLEFT", health, "TOPLEFT", 0, 0)
+                    healthFill:SetPoint("TOPRIGHT", health, "TOPRIGHT", 0, 0)
+                else
+                    healthFill:SetPoint("BOTTOMLEFT", health, "BOTTOMLEFT", 0, 0)
+                    healthFill:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
+                end
+                PP.Height(healthFill, math.floor(hh * (_previewHealthPct or 0.70) + 0.5))
             else
-                healthFill:SetPoint("TOPLEFT", health, "TOPLEFT", 0, 0)
-                healthFill:SetPoint("BOTTOMLEFT", health, "BOTTOMLEFT", 0, 0)
+                if s.healthReverseFill then
+                    healthFill:SetPoint("TOPRIGHT", health, "TOPRIGHT", 0, 0)
+                    healthFill:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
+                else
+                    healthFill:SetPoint("TOPLEFT", health, "TOPLEFT", 0, 0)
+                    healthFill:SetPoint("BOTTOMLEFT", health, "BOTTOMLEFT", 0, 0)
+                end
+                PP.Width(healthFill, math.floor(fw * (_previewHealthPct or 0.70) + 0.5))
             end
-            PP.Width(healthFill, math.floor(fw * (_previewHealthPct or 0.70) + 0.5))
 
             -- Live-update dark mode colors
             do
@@ -2413,13 +2440,24 @@ initFrame:SetScript("OnEvent", function(self)
                 -- backdrop, not the bg color. Mirrors the live frame edge-anchor.
                 healthBgColor:ClearAllPoints()
                 do
-                    local hpW = math.floor(fw * (_previewHealthPct or 0.70) + 0.5)
-                    if s.healthReverseFill then
-                        healthBgColor:SetPoint("TOPLEFT", health, "TOPLEFT", 0, 0)
-                        healthBgColor:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", -hpW, 0)
+                    if s.healthVerticalFill then
+                        local hpH = math.floor(hh * (_previewHealthPct or 0.70) + 0.5)
+                        if s.healthReverseFill then
+                            healthBgColor:SetPoint("TOPLEFT", health, "TOPLEFT", 0, -hpH)
+                            healthBgColor:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
+                        else
+                            healthBgColor:SetPoint("TOPLEFT", health, "TOPLEFT", 0, 0)
+                            healthBgColor:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, hpH)
+                        end
                     else
-                        healthBgColor:SetPoint("TOPLEFT", health, "TOPLEFT", hpW, 0)
-                        healthBgColor:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
+                        local hpW = math.floor(fw * (_previewHealthPct or 0.70) + 0.5)
+                        if s.healthReverseFill then
+                            healthBgColor:SetPoint("TOPLEFT", health, "TOPLEFT", 0, 0)
+                            healthBgColor:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", -hpW, 0)
+                        else
+                            healthBgColor:SetPoint("TOPLEFT", health, "TOPLEFT", hpW, 0)
+                            healthBgColor:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
+                        end
                     end
                 end
                 healthBgColor:SetColorTexture(uBgR, uBgG, uBgB, 1)
@@ -3040,7 +3078,7 @@ initFrame:SetScript("OnEvent", function(self)
                         _paFill:SetHorizTile(_paTiled); _paFill:SetVertTile(_paTiled)
                     end
                     absorbBar:SetStatusBarColor(_paC.r, _paC.g, _paC.b, _paA)
-                    PositionPreviewAbsorb(absorbBar, s.absorbEdgeMode or "overlay", s.healthReverseFill)
+                    PositionPreviewAbsorb(absorbBar, s.absorbEdgeMode or "overlay", s.healthReverseFill, s.healthVerticalFill)
                     absorbBar:SetWidth(fw)
                     absorbBar:SetHeight(hh)
                     absorbBar:Show()
@@ -3062,7 +3100,7 @@ initFrame:SetScript("OnEvent", function(self)
                         _haFill:SetHorizTile(_haTiled); _haFill:SetVertTile(_haTiled)
                     end
                     healAbsorbBar:SetStatusBarColor(_haC.r, _haC.g, _haC.b, _haA)
-                    PositionPreviewAbsorb(healAbsorbBar, s.healAbsorbEdgeMode or "overlay", s.healthReverseFill)
+                    PositionPreviewAbsorb(healAbsorbBar, s.healAbsorbEdgeMode or "overlay", s.healthReverseFill, s.healthVerticalFill)
                     healAbsorbBar:SetWidth(fw)
                     healAbsorbBar:SetHeight(hh)
                     healAbsorbBar:Show()
@@ -3880,7 +3918,7 @@ initFrame:SetScript("OnEvent", function(self)
         block:SetAllPoints()
         block:SetFrameLevel(rgn:GetFrameLevel() + 50)
         block:EnableMouse(true)
-        block:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(block, "Not available in Dark Mode") end)
+        block:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(block, "Not available in Dark Mode. Dark Mode colors can be adjusted in Global Settings -> Fonts & Colors.") end)
         block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
         local function Update()
             if db and db.profile and db.profile.darkTheme then
@@ -4604,8 +4642,18 @@ initFrame:SetScript("OnEvent", function(self)
                   setValue=function(v)
                       db.profile.darkTheme = v
                       ReloadAndUpdate(); UpdatePreview()
+                      -- Dark Mode feeds the conditional-override condition.
+                      if EllesmereUI.Conditions_Recheck then EllesmereUI.Conditions_Recheck() end
                       EllesmereUI:RefreshPage()
                   end });  y = y - h
+        -- This toggle IS the Dark Mode condition's input for Unit Frames:
+        -- lock it while a Dark Mode conditional is being edited, or the
+        -- override could capture a value that flips its own condition.
+        if EllesmereUI.SpecOverrides_AttachEditLock then
+            EllesmereUI.SpecOverrides_AttachEditLock(barTexRow._rightRegion,
+                "Dark Mode drives a Dark Mode override condition and can't be changed while editing an override",
+                EllesmereUI.SpecOverrides_DarkCondEditActive)
+        end
         -- Sync icon: Bar Texture (left region) -- pushes this unit's texture to frames
         do
             local rgn = barTexRow._leftRegion
@@ -4906,19 +4954,21 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(function() updateBorderSwatch() end)
         end
 
-        -- Row 4: Show Tooltip | Frame Strata
+        -- Row 4: Show Tooltip For (checkbox-dropdown) | Frame Strata
+        -- "Show Tooltip For" is a pure VIEW over the existing per-unit
+        -- showUnitTooltip key (Unit Frame item) plus the new per-unit
+        -- showAuraTooltips key (Buffs & Debuffs item, default on = the
+        -- old always-shown behavior). Zero migration; both setters write
+        -- EVERY unit key so the choice covers all frames including boss.
         local ufStrataValues = { BACKGROUND = "Background", LOW = "Low", MEDIUM = "Medium", HIGH = "High", DIALOG = "Dialog" }
         local ufStrataOrder = { "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG" }
-        _, h = W:DualRow(parent, y,
-            { type="toggle", text="Show Tooltip",
-              getValue=function() return SVal("showUnitTooltip", true) end,
-              setValue=function(v)
-                  local keys = GROUP_UNIT_ORDER or {"player", "target", "focus"}
-                  for _, key in ipairs(keys) do
-                      UNIT_DB_MAP[key]().showUnitTooltip = v
-                  end
-                  ReloadAndUpdate()
-              end },
+        local tipStrataRow
+        tipStrataRow, h = W:DualRow(parent, y,
+            { type="dropdown", text="Show Tooltip For",
+              tooltip="Choose which tooltips appear on hover. Affects all unit frames, including boss frames.",
+              values={ ["_placeholder"]="..." }, order={ "_placeholder" },
+              getValue=function() return "_placeholder" end,
+              setValue=function() end },
             { type="dropdown", text="Frame Strata",
               tooltip="Controls the order that overlapping elements display in. Set higher to show above other elements.",
               values = ufStrataValues, order = ufStrataOrder,
@@ -4928,9 +4978,60 @@ initFrame:SetScript("OnEvent", function(self)
                   ReloadAndUpdate()
               end });  y = y - h
 
+        -- Show Tooltip For checkbox-dropdown (left region)
+        do
+            local rgn = tipStrataRow._leftRegion
+            if rgn._control then rgn._control:Hide() end
+            local tipItems = {
+                { key = "unit",  label = "Unit Frame",
+                  tooltip = "Show the unit's tooltip when hovering the frame itself." },
+                { key = "auras", label = "Main Frames Buffs & Debuffs",
+                  tooltip = "Show aura tooltips when hovering buff and debuff icons on all unit frames except boss frames." },
+                { key = "bossauras", label = "Boss Frames Buffs & Debuffs",
+                  tooltip = "Show aura tooltips when hovering buff and debuff icons on boss frames." },
+            }
+            -- Both aura items are views over the same per-unit showAuraTooltips
+            -- key the runtime already reads per element; they only differ in
+            -- which unit keys the setter fans out to.
+            local ALL_UNITS  = { "player", "target", "focus", "targettarget", "focustarget", "pet", "boss" }
+            local MAIN_UNITS = { "player", "target", "focus", "targettarget", "focustarget", "pet" }
+            local PP = EllesmereUI.PP
+            local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                rgn, 210, rgn:GetFrameLevel() + 2,
+                tipItems,
+                function(k)
+                    if k == "unit" then return SVal("showUnitTooltip", true) end
+                    if k == "auras" then return SVal("showAuraTooltips", true) end
+                    if k == "bossauras" then
+                        return UNIT_DB_MAP["boss"]().showAuraTooltips ~= false
+                    end
+                    return false
+                end,
+                function(k, v)
+                    if k == "unit" then
+                        for _, key in ipairs(ALL_UNITS) do
+                            UNIT_DB_MAP[key]().showUnitTooltip = v
+                        end
+                    elseif k == "auras" then
+                        for _, key in ipairs(MAIN_UNITS) do
+                            UNIT_DB_MAP[key]().showAuraTooltips = v
+                        end
+                    elseif k == "bossauras" then
+                        UNIT_DB_MAP["boss"]().showAuraTooltips = v
+                    else
+                        return
+                    end
+                    ReloadAndUpdate()
+                end)
+            PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
+            rgn._control = cbDD
+            rgn._lastInline = nil
+            EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
+        end
+
         -- Cog on Frame Strata: custom bar stratas for detached power/text bar
         do
-            local strataRgn = _
+            local strataRgn = tipStrataRow
             if strataRgn and strataRgn._rightRegion then strataRgn = strataRgn._rightRegion end
             local barStrataValues = { BACKGROUND = "Background", LOW = "Low", MEDIUM = "Medium", HIGH = "High", DIALOG = "Dialog" }
             local barStrataOrder = { "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG" }
@@ -5719,6 +5820,15 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="toggle", label="Reverse Fill",
                       get=function() return SVal("healthReverseFill", false) end,
                       set=function(v) SSet("healthReverseFill", v); ReloadAndUpdate(); UpdatePreview() end },
+                    -- Vertical Fill swaps the bar's fill AXIS; Reverse Fill still
+                    -- flips the direction within it (bottom-to-top by default,
+                    -- top-to-bottom when reversed).
+                    { type="toggle", label="Vertical Fill",
+                      tooltip="Fill the health bar bottom-to-top instead of left-to-right. Reverse Fill flips it to top-to-bottom.",
+                      get=function() return SVal("healthVerticalFill", false) end,
+                      -- RefreshPage re-labels the Absorbs Placement dropdowns for
+                      -- the new axis (cog popups bake labels in on first build).
+                      set=function(v) SSet("healthVerticalFill", v); ReloadAndUpdate(); UpdatePreview(); EllesmereUI:RefreshPage() end },
                 },
             })
             MakeCogBtn(rgn, revCogShow)
@@ -6096,8 +6206,7 @@ initFrame:SetScript("OnEvent", function(self)
                         d.leftTextColorR, d.leftTextColorG, d.leftTextColorB = src.leftTextColorR, src.leftTextColorG, src.leftTextColorB
                         d.leftTextSize = src.leftTextSize
                         d.leftTextX, d.leftTextY = src.leftTextX, src.leftTextY
-                        d.leftTextShortNameLength = src.leftTextShortNameLength
-                        d.leftTextShortNameEllipsis = src.leftTextShortNameEllipsis
+                        d.leftTextWidthPct = src.leftTextWidthPct
                     end
                 end
                 ReloadAndUpdate(); EllesmereUI:RefreshPage()
@@ -6120,8 +6229,7 @@ initFrame:SetScript("OnEvent", function(self)
                         if (d.leftTextSize or 0) ~= (src.leftTextSize or 0) then return false end
                         if (d.leftTextX or 0) ~= (src.leftTextX or 0) then return false end
                         if (d.leftTextY or 0) ~= (src.leftTextY or 0) then return false end
-                        if (d.leftTextShortNameLength or 0) ~= (src.leftTextShortNameLength or 0) then return false end
-                        if (d.leftTextShortNameEllipsis == false) ~= (src.leftTextShortNameEllipsis == false) then return false end
+                        if (d.leftTextWidthPct or 100) ~= (src.leftTextWidthPct or 100) then return false end
                     end
                     return true
                 end,
@@ -6153,7 +6261,11 @@ initFrame:SetScript("OnEvent", function(self)
             PP.Point(ltClassSwatch, "RIGHT", ltAnchor, "LEFT", -8, 0)
             ltClassSwatch:SetScript("OnClick", function()
                 if SVal("leftTextContent", "name") == "none" then return end
-                SSet("leftTextClassColor", true); UpdatePreview(); EllesmereUI:RefreshPage()
+                SSet("leftTextClassColor", true)
+                -- Bespoke write: notify for exact Spec Overrides attribution
+                -- (the forced RefreshPage below would otherwise resync-absorb it).
+                if EllesmereUI._NotifySettingWrite then EllesmereUI._NotifySettingWrite(ltClassSwatch) end
+                UpdatePreview(); EllesmereUI:RefreshPage()
             end)
             ltClassSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(ltClassSwatch, "Class Colored") end)
             ltClassSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
@@ -6172,7 +6284,9 @@ initFrame:SetScript("OnEvent", function(self)
             ltSwatch:SetScript("OnClick", function(self, ...)
                 if SVal("leftTextContent", "name") == "none" then return end
                 if SVal("leftTextClassColor", false) then
-                    SSet("leftTextClassColor", false); UpdatePreview(); EllesmereUI:RefreshPage(); return
+                    SSet("leftTextClassColor", false)
+                    if EllesmereUI._NotifySettingWrite then EllesmereUI._NotifySettingWrite(self) end
+                    UpdatePreview(); EllesmereUI:RefreshPage(); return
                 end
                 if ltOrigClick then ltOrigClick(self, ...) end
             end)
@@ -6186,6 +6300,18 @@ initFrame:SetScript("OnEvent", function(self)
             end
             RegisterWidgetRefresh(function() ltUpdateSwatch(); ltUpdateClassSwatch(); UpdateLtSwatches() end)
             UpdateLtSwatches()
+            -- The class-color mode flag is written only by the bespoke swatch
+            -- OnClicks above and read by no widget getter, so the Spec
+            -- Overrides read-trace could never connect an override on it to
+            -- this row (no gold border / overlay for class-color overrides).
+            -- Declare it as a capture accessor: the gold walk traces it.
+            if EllesmereUI.AddCaptureAccessor then
+                EllesmereUI.AddCaptureAccessor(leftRgn, {
+                    type = "toggle", text = "Left Text Class Color",
+                    getValue = function() return SVal("leftTextClassColor", false) end,
+                    setValue = function(v) SSet("leftTextClassColor", v) end,
+                })
+            end
         end
         -- Cogwheel on Left Text (left region)
         do
@@ -6202,16 +6328,9 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="slider", label="Y Offset", min=-150, max=150, step=1,
                       get=function() return SVal("leftTextY", 0) end,
                       set=function(v) SSet("leftTextY", v); UpdatePreview() end },
-                    { type="slider", label="Name Length", min=0, max=30, step=1,
-                      get=function() return SVal("leftTextShortNameLength", 0) end,
-                      set=function(v) SSet("leftTextShortNameLength", v); UpdatePreview() end,
-                      disabled=function() local c=SVal("leftTextContent","name") return c ~= "name" and c ~= "nametotarget" and c ~= "levelname" and c ~= "namelevel" end,
-                      disabledTooltip="Only applies when the selected text includes a Name." },
-                    { type="toggle", label="Show Ellipsis",
-                      get=function() return SVal("leftTextShortNameEllipsis", true) ~= false end,
-                      set=function(v) SSet("leftTextShortNameEllipsis", v); UpdatePreview() end,
-                      disabled=function() local c=SVal("leftTextContent","name") return c ~= "name" and c ~= "nametotarget" and c ~= "levelname" and c ~= "namelevel" end,
-                      disabledTooltip="Only applies when the selected text includes a Name." },
+                    { type="slider", label="Width %", min=20, max=200, step=5,
+                      get=function() return SVal("leftTextWidthPct", 100) end,
+                      set=function(v) SSet("leftTextWidthPct", v); UpdatePreview() end },
                     { type="multiswatch", label="Indicator Color",
                       disabled=function() return SVal("leftTextContent","name") ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name > Target is selected.",
@@ -6280,8 +6399,7 @@ initFrame:SetScript("OnEvent", function(self)
                         d.rightTextColorR, d.rightTextColorG, d.rightTextColorB = src.rightTextColorR, src.rightTextColorG, src.rightTextColorB
                         d.rightTextSize = src.rightTextSize
                         d.rightTextX, d.rightTextY = src.rightTextX, src.rightTextY
-                        d.rightTextShortNameLength = src.rightTextShortNameLength
-                        d.rightTextShortNameEllipsis = src.rightTextShortNameEllipsis
+                        d.rightTextWidthPct = src.rightTextWidthPct
                     end
                 end
                 ReloadAndUpdate(); EllesmereUI:RefreshPage()
@@ -6304,8 +6422,7 @@ initFrame:SetScript("OnEvent", function(self)
                         if (d.rightTextSize or 0) ~= (src.rightTextSize or 0) then return false end
                         if (d.rightTextX or 0) ~= (src.rightTextX or 0) then return false end
                         if (d.rightTextY or 0) ~= (src.rightTextY or 0) then return false end
-                        if (d.rightTextShortNameLength or 0) ~= (src.rightTextShortNameLength or 0) then return false end
-                        if (d.rightTextShortNameEllipsis == false) ~= (src.rightTextShortNameEllipsis == false) then return false end
+                        if (d.rightTextWidthPct or 100) ~= (src.rightTextWidthPct or 100) then return false end
                     end
                     return true
                 end,
@@ -6336,7 +6453,11 @@ initFrame:SetScript("OnEvent", function(self)
             PP.Point(rtClassSwatch, "RIGHT", rtAnchor, "LEFT", -8, 0)
             rtClassSwatch:SetScript("OnClick", function()
                 if SVal("rightTextContent", "both") == "none" then return end
-                SSet("rightTextClassColor", true); UpdatePreview(); EllesmereUI:RefreshPage()
+                SSet("rightTextClassColor", true)
+                -- Bespoke write: notify for exact Spec Overrides attribution
+                -- (the forced RefreshPage below would otherwise resync-absorb it).
+                if EllesmereUI._NotifySettingWrite then EllesmereUI._NotifySettingWrite(rtClassSwatch) end
+                UpdatePreview(); EllesmereUI:RefreshPage()
             end)
             rtClassSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(rtClassSwatch, "Class Colored") end)
             rtClassSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
@@ -6354,7 +6475,9 @@ initFrame:SetScript("OnEvent", function(self)
             rtSwatch:SetScript("OnClick", function(self, ...)
                 if SVal("rightTextContent", "both") == "none" then return end
                 if SVal("rightTextClassColor", false) then
-                    SSet("rightTextClassColor", false); UpdatePreview(); EllesmereUI:RefreshPage(); return
+                    SSet("rightTextClassColor", false)
+                    if EllesmereUI._NotifySettingWrite then EllesmereUI._NotifySettingWrite(self) end
+                    UpdatePreview(); EllesmereUI:RefreshPage(); return
                 end
                 if rtOrigClick then rtOrigClick(self, ...) end
             end)
@@ -6368,6 +6491,14 @@ initFrame:SetScript("OnEvent", function(self)
             end
             RegisterWidgetRefresh(function() rtUpdateSwatch(); rtUpdateClassSwatch(); UpdateRtSwatches() end)
             UpdateRtSwatches()
+            -- Mirror of the Left Text class-flag accessor: see that comment.
+            if EllesmereUI.AddCaptureAccessor then
+                EllesmereUI.AddCaptureAccessor(rightRgn, {
+                    type = "toggle", text = "Right Text Class Color",
+                    getValue = function() return SVal("rightTextClassColor", false) end,
+                    setValue = function(v) SSet("rightTextClassColor", v) end,
+                })
+            end
         end
         -- Cogwheel on Right Text (right region)
         do
@@ -6384,16 +6515,9 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="slider", label="Y Offset", min=-150, max=150, step=1,
                       get=function() return SVal("rightTextY", 0) end,
                       set=function(v) SSet("rightTextY", v); UpdatePreview() end },
-                    { type="slider", label="Name Length", min=0, max=30, step=1,
-                      get=function() return SVal("rightTextShortNameLength", 0) end,
-                      set=function(v) SSet("rightTextShortNameLength", v); UpdatePreview() end,
-                      disabled=function() local c=SVal("rightTextContent","both") return c ~= "name" and c ~= "nametotarget" and c ~= "levelname" and c ~= "namelevel" end,
-                      disabledTooltip="Only applies when the selected text includes a Name." },
-                    { type="toggle", label="Show Ellipsis",
-                      get=function() return SVal("rightTextShortNameEllipsis", true) ~= false end,
-                      set=function(v) SSet("rightTextShortNameEllipsis", v); UpdatePreview() end,
-                      disabled=function() local c=SVal("rightTextContent","both") return c ~= "name" and c ~= "nametotarget" and c ~= "levelname" and c ~= "namelevel" end,
-                      disabledTooltip="Only applies when the selected text includes a Name." },
+                    { type="slider", label="Width %", min=20, max=200, step=5,
+                      get=function() return SVal("rightTextWidthPct", 100) end,
+                      set=function(v) SSet("rightTextWidthPct", v); UpdatePreview() end },
                     { type="multiswatch", label="Indicator Color",
                       disabled=function() return SVal("rightTextContent","both") ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name > Target is selected.",
@@ -6478,8 +6602,7 @@ initFrame:SetScript("OnEvent", function(self)
                         d.centerTextColorR, d.centerTextColorG, d.centerTextColorB = src.centerTextColorR, src.centerTextColorG, src.centerTextColorB
                         d.centerTextSize = src.centerTextSize
                         d.centerTextX, d.centerTextY = src.centerTextX, src.centerTextY
-                        d.centerTextShortNameLength = src.centerTextShortNameLength
-                        d.centerTextShortNameEllipsis = src.centerTextShortNameEllipsis
+                        d.centerTextWidthPct = src.centerTextWidthPct
                     end
                 end
                 ReloadAndUpdate(); EllesmereUI:RefreshPage()
@@ -6502,8 +6625,7 @@ initFrame:SetScript("OnEvent", function(self)
                         if (d.centerTextSize or 0) ~= (src.centerTextSize or 0) then return false end
                         if (d.centerTextX or 0) ~= (src.centerTextX or 0) then return false end
                         if (d.centerTextY or 0) ~= (src.centerTextY or 0) then return false end
-                        if (d.centerTextShortNameLength or 0) ~= (src.centerTextShortNameLength or 0) then return false end
-                        if (d.centerTextShortNameEllipsis == false) ~= (src.centerTextShortNameEllipsis == false) then return false end
+                        if (d.centerTextWidthPct or 100) ~= (src.centerTextWidthPct or 100) then return false end
                     end
                     return true
                 end,
@@ -6582,16 +6704,9 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="slider", label="Y Offset", min=-150, max=150, step=1,
                       get=function() return SVal("centerTextY", 0) end,
                       set=function(v) SSet("centerTextY", v); UpdatePreview() end },
-                    { type="slider", label="Name Length", min=0, max=30, step=1,
-                      get=function() return SVal("centerTextShortNameLength", 0) end,
-                      set=function(v) SSet("centerTextShortNameLength", v); UpdatePreview() end,
-                      disabled=function() local c=SVal("centerTextContent","none") return c ~= "name" and c ~= "nametotarget" and c ~= "levelname" and c ~= "namelevel" end,
-                      disabledTooltip="Only applies when the selected text includes a Name." },
-                    { type="toggle", label="Show Ellipsis",
-                      get=function() return SVal("centerTextShortNameEllipsis", true) ~= false end,
-                      set=function(v) SSet("centerTextShortNameEllipsis", v); UpdatePreview() end,
-                      disabled=function() local c=SVal("centerTextContent","none") return c ~= "name" and c ~= "nametotarget" and c ~= "levelname" and c ~= "namelevel" end,
-                      disabledTooltip="Only applies when the selected text includes a Name." },
+                    { type="slider", label="Width %", min=20, max=200, step=5,
+                      get=function() return SVal("centerTextWidthPct", 100) end,
+                      set=function(v) SSet("centerTextWidthPct", v); UpdatePreview() end },
                     { type="multiswatch", label="Indicator Color",
                       disabled=function() return SVal("centerTextContent","none") ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name > Target is selected.",
@@ -6664,8 +6779,7 @@ initFrame:SetScript("OnEvent", function(self)
                         d.extraTextSize = src.extraTextSize
                         d.extraTextX, d.extraTextY = src.extraTextX, src.extraTextY
                         d.extraTextAlign = src.extraTextAlign
-                        d.extraTextShortNameLength = src.extraTextShortNameLength
-                        d.extraTextShortNameEllipsis = src.extraTextShortNameEllipsis
+                        d.extraTextWidthPct = src.extraTextWidthPct
                     end
                 end
                 ReloadAndUpdate(); EllesmereUI:RefreshPage()
@@ -6689,8 +6803,7 @@ initFrame:SetScript("OnEvent", function(self)
                         if (d.extraTextX or 0) ~= (src.extraTextX or 0) then return false end
                         if (d.extraTextY or 0) ~= (src.extraTextY or 0) then return false end
                         if (d.extraTextAlign or "left") ~= (src.extraTextAlign or "left") then return false end
-                        if (d.extraTextShortNameLength or 0) ~= (src.extraTextShortNameLength or 0) then return false end
-                        if (d.extraTextShortNameEllipsis == false) ~= (src.extraTextShortNameEllipsis == false) then return false end
+                        if (d.extraTextWidthPct or 100) ~= (src.extraTextWidthPct or 100) then return false end
                     end
                     return true
                 end,
@@ -6772,16 +6885,9 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="slider", label="Y Offset", min=-150, max=150, step=1,
                       get=function() return SVal("extraTextY", 0) end,
                       set=function(v) SSet("extraTextY", v); UpdatePreview() end },
-                    { type="slider", label="Name Length", min=0, max=30, step=1,
-                      get=function() return SVal("extraTextShortNameLength", 0) end,
-                      set=function(v) SSet("extraTextShortNameLength", v); UpdatePreview() end,
-                      disabled=function() local c=SVal("extraTextContent","none") return c ~= "name" and c ~= "nametotarget" and c ~= "levelname" and c ~= "namelevel" end,
-                      disabledTooltip="Only applies when the selected text includes a Name." },
-                    { type="toggle", label="Show Ellipsis",
-                      get=function() return SVal("extraTextShortNameEllipsis", true) ~= false end,
-                      set=function(v) SSet("extraTextShortNameEllipsis", v); UpdatePreview() end,
-                      disabled=function() local c=SVal("extraTextContent","none") return c ~= "name" and c ~= "nametotarget" and c ~= "levelname" and c ~= "namelevel" end,
-                      disabledTooltip="Only applies when the selected text includes a Name." },
+                    { type="slider", label="Width %", min=20, max=200, step=5,
+                      get=function() return SVal("extraTextWidthPct", 100) end,
+                      set=function(v) SSet("extraTextWidthPct", v); UpdatePreview() end },
                     { type="multiswatch", label="Indicator Color",
                       disabled=function() return SVal("extraTextContent","none") ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name > Target is selected.",
@@ -7135,7 +7241,7 @@ initFrame:SetScript("OnEvent", function(self)
                   refreshAlpha = function()
                       return SVal("powerPercentPowerColor", true) and 0.3 or 1
                   end },
-                { tooltip = "Power Colored Fill",
+                { tooltip = "Power Colored Fill. Power colors can be adjusted in Global Settings -> Fonts & Colors.",
                   hasAlpha = false,
                   getValue = function()
                       local _, pToken = UnitPowerType("player")
@@ -7173,7 +7279,7 @@ initFrame:SetScript("OnEvent", function(self)
                 SSet("powerBgPowerColored", true)
                 ReloadAndUpdate(); UpdatePreview(); EllesmereUI:RefreshPage()
             end)
-            bgPwrSw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(bgPwrSw, "Power Colored Background") end)
+            bgPwrSw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(bgPwrSw, "Power Colored Background. Power colors can be adjusted in Global Settings -> Fonts & Colors.") end)
             bgPwrSw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             PP.Point(bgPwrSw, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = bgPwrSw
@@ -8966,16 +9072,9 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="slider", label="Y Offset", min=-30, max=30, step=1,
                       get=function() return SVal("btbLeftY", 0) end,
                       set=function(v) SSet("btbLeftY", v); UpdatePreview() end },
-                    { type="slider", label="Name Length", min=0, max=30, step=1,
-                      get=function() return SVal("btbLeftShortNameLength", 0) end,
-                      set=function(v) SSet("btbLeftShortNameLength", v); UpdatePreview() end,
-                      disabled=function() local c=SVal("btbLeftContent","none") return c ~= "name" and c ~= "nametotarget" end,
-                      disabledTooltip="Only applies when Name or Name > Target is selected." },
-                    { type="toggle", label="Show Ellipsis",
-                      get=function() return SVal("btbLeftShortNameEllipsis", true) ~= false end,
-                      set=function(v) SSet("btbLeftShortNameEllipsis", v); UpdatePreview() end,
-                      disabled=function() local c=SVal("btbLeftContent","none") return c ~= "name" and c ~= "nametotarget" end,
-                      disabledTooltip="Only applies when Name or Name > Target is selected." },
+                    { type="slider", label="Width %", min=20, max=200, step=5,
+                      get=function() return SVal("btbLeftWidthPct", 100) end,
+                      set=function(v) SSet("btbLeftWidthPct", v); UpdatePreview() end },
                     { type="multiswatch", label="Indicator Color",
                       disabled=function() return SVal("btbLeftContent","none") ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name > Target is selected.",
@@ -9125,16 +9224,9 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="slider", label="Y Offset", min=-30, max=30, step=1,
                       get=function() return SVal("btbRightY", 0) end,
                       set=function(v) SSet("btbRightY", v); UpdatePreview() end },
-                    { type="slider", label="Name Length", min=0, max=30, step=1,
-                      get=function() return SVal("btbRightShortNameLength", 0) end,
-                      set=function(v) SSet("btbRightShortNameLength", v); UpdatePreview() end,
-                      disabled=function() local c=SVal("btbRightContent","none") return c ~= "name" and c ~= "nametotarget" end,
-                      disabledTooltip="Only applies when Name or Name > Target is selected." },
-                    { type="toggle", label="Show Ellipsis",
-                      get=function() return SVal("btbRightShortNameEllipsis", true) ~= false end,
-                      set=function(v) SSet("btbRightShortNameEllipsis", v); UpdatePreview() end,
-                      disabled=function() local c=SVal("btbRightContent","none") return c ~= "name" and c ~= "nametotarget" end,
-                      disabledTooltip="Only applies when Name or Name > Target is selected." },
+                    { type="slider", label="Width %", min=20, max=200, step=5,
+                      get=function() return SVal("btbRightWidthPct", 100) end,
+                      set=function(v) SSet("btbRightWidthPct", v); UpdatePreview() end },
                     { type="multiswatch", label="Indicator Color",
                       disabled=function() return SVal("btbRightContent","none") ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name > Target is selected.",
@@ -9365,16 +9457,9 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="slider", label="Y Offset", min=-30, max=30, step=1,
                       get=function() return SVal("btbCenterY", 0) end,
                       set=function(v) SSet("btbCenterY", v); UpdatePreview() end },
-                    { type="slider", label="Name Length", min=0, max=30, step=1,
-                      get=function() return SVal("btbCenterShortNameLength", 0) end,
-                      set=function(v) SSet("btbCenterShortNameLength", v); UpdatePreview() end,
-                      disabled=function() local c=SVal("btbCenterContent","none") return c ~= "name" and c ~= "nametotarget" end,
-                      disabledTooltip="Only applies when Name or Name > Target is selected." },
-                    { type="toggle", label="Show Ellipsis",
-                      get=function() return SVal("btbCenterShortNameEllipsis", true) ~= false end,
-                      set=function(v) SSet("btbCenterShortNameEllipsis", v); UpdatePreview() end,
-                      disabled=function() local c=SVal("btbCenterContent","none") return c ~= "name" and c ~= "nametotarget" end,
-                      disabledTooltip="Only applies when Name or Name > Target is selected." },
+                    { type="slider", label="Width %", min=20, max=200, step=5,
+                      get=function() return SVal("btbCenterWidthPct", 100) end,
+                      set=function(v) SSet("btbCenterWidthPct", v); UpdatePreview() end },
                     { type="multiswatch", label="Indicator Color",
                       disabled=function() return SVal("btbCenterContent","none") ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name > Target is selected.",
@@ -9978,18 +10063,58 @@ initFrame:SetScript("OnEvent", function(self)
         -- When Buff/Debuff Display is "none", everything in that column is disabled.
         local function BuffDisabled()
             local s = UNIT_DB_MAP[selectedUnit]()
-            return s and s.showBuffs == false
+            if not s then return false end
+            -- Anchor Buffs with Debuffs renders the buffs inside the debuff
+            -- stack, so the buff appearance settings stay live while Buff
+            -- Display reads None (visibility belongs to the merge toggle).
+            if s.debuffAnchorBuffs and SValSupported("debuffAnchor", "bottomleft") ~= "none" then
+                return false
+            end
+            return s.showBuffs == false
         end
         local function DebuffDisabled()
             return SValSupported("debuffAnchor", "bottomleft") == "none"
         end
 
+        -- Buff Display gains "Anchor to Debuffs" -- a pure VIEW over the same
+        -- stored keys the merge has always used (debuffAnchorBuffs = true +
+        -- showBuffs = false), so profiles that enabled it through the old cog
+        -- toggle read back identically. The shared anchor tables serve three
+        -- other dropdowns, hence the per-site copy.
+        local buffDispValues = { ["anchor_debuffs"] = "Anchor to Debuffs" }
+        for k, v in pairs(buffAnchorValues) do buffDispValues[k] = v end
+        local buffDispOrder = {}
+        for i = 1, #buffAnchorOrder do buffDispOrder[i] = buffAnchorOrder[i] end
+        buffDispOrder[#buffDispOrder + 1] = "anchor_debuffs"
+        buffDispValues._menuOpts = {
+            onItemHover = function(key, item)
+                if key == "anchor_debuffs" and item then
+                    EllesmereUI.ShowWidgetTooltip(item, "Buffs join the debuff stack as its first rows; debuffs continue on the next row and move as buff rows change.")
+                end
+            end,
+            onItemLeave = function(key)
+                if key == "anchor_debuffs" then EllesmereUI.HideWidgetTooltip() end
+            end,
+        }
+
         -- Buffs: Location | Icon Size + inline directions cog (X/Y)
         local sharedAddRow2
         sharedAddRow2, h = W:DualRow(parent, y,
-            { type="dropdown", text="Buff Display", values=buffAnchorValues, order=buffAnchorOrder,
+            { type="dropdown", text="Buff Display", values=buffDispValues, order=buffDispOrder,
+              itemDisabled=function(v)
+                  return v == "anchor_debuffs" and DebuffDisabled()
+              end,
+              itemDisabledTooltip=function(v)
+                  if v == "anchor_debuffs" then return "Requires a Debuff Display" end
+              end,
               getValue=function()
                   local s = UNIT_DB_MAP[selectedUnit]()
+                  -- Active merge presents as its own display choice; an inert
+                  -- merge (Debuff Display None) falls through to the truthful
+                  -- None readout.
+                  if s.debuffAnchorBuffs and SValSupported("debuffAnchor", "bottomleft") ~= "none" then
+                      return "anchor_debuffs"
+                  end
                   if s.showBuffs == false then return "none" end
                   return SValSupported("buffAnchor", "topleft")
               end,
@@ -10000,11 +10125,20 @@ initFrame:SetScript("OnEvent", function(self)
                   function() return not BuffDisabled() end,
                   function(v)
                       local s = UNIT_DB_MAP[selectedUnit]()
-                      if v == "none" then
+                      if v == "anchor_debuffs" then
+                          -- Same stored shape the old cog toggle wrote: the
+                          -- merge owns visibility, Buff Display stores None.
+                          s.debuffAnchorBuffs = true
                           s.showBuffs = false
+                      elseif v == "none" then
+                          s.showBuffs = false
+                          s.debuffAnchorBuffs = nil
                       else
                           s.showBuffs = true
                           SwapAuraSlot(s, "buffAnchor", v)
+                          -- Choosing a standalone Buff Display exits the
+                          -- merged mode (which forces this dropdown to None).
+                          s.debuffAnchorBuffs = nil
                       end
                       ReloadAndUpdate(); UpdatePreview(); EllesmereUI:RefreshPage()
                   end) },
@@ -10441,11 +10575,11 @@ initFrame:SetScript("OnEvent", function(self)
                     { key = "externalDefensive", label = "External Defensive", tooltip = "Shows only external defensive cooldowns cast on the unit" },
                     { key = "bossAura",          label = "Boss Auras",         tooltip = "Shows only debuffs applied by bosses" },
                     { key = "roleAura",          label = "Role Auras",         tooltip = "Shows only debuffs flagged for your role" },
-                    { key = "priorityAura",      label = "Priority",           tooltip = "Shows only priority debuffs" },
+                    { key = "priorityAura",      label = "Important",          tooltip = "Shows only debuffs Blizzard flags as important" },
                     { key = "ownOnly",           label = "Own Only",           tooltip = "Shows only the Debuffs you apply" },
                 }
                 BUFF_FILTER_KEYS   = { ownOnly = "onlyPlayerBuffs",   raidFrames = "buffRaid",   raidInCombat = "buffRaidInCombat",   dispellable = "buffDispellable",   crowdControl = "buffCrowdControl",   bigDefensive = "buffBigDefensive",   externalDefensive = "buffExternalDefensive",   cancelable = "buffCancelable", stealable = "buffStealable" }
-                DEBUFF_FILTER_KEYS = { ownOnly = "onlyPlayerDebuffs", raidFrames = "debuffRaid", raidInCombat = "debuffRaidInCombat", dispellable = "debuffDispellable", crowdControl = "debuffCrowdControl", bigDefensive = "debuffBigDefensive", externalDefensive = "debuffExternalDefensive", bossAura = "debuffBossAura", roleAura = "debuffRoleAura", priorityAura = "debuffPriorityAura" }
+                DEBUFF_FILTER_KEYS = { ownOnly = "onlyPlayerDebuffs", raidFrames = "debuffRaid", raidInCombat = "debuffRaidInCombat", dispellable = "debuffDispellable", crowdControl = "debuffCrowdControl", bigDefensive = "debuffBigDefensive", externalDefensive = "debuffExternalDefensive", bossAura = "debuffBossAura", roleAura = "debuffRoleAura", priorityAura = "debuffPriorityAura", nonplayer = "debuffNonPlayer" }
             else
                 buffFilterItems = {
                     { key = "raidFrames",        label = "Raid Frames",        tooltip = "Shows only the Buffs/Debuffs that appear on Raid Frames" },
@@ -10462,9 +10596,23 @@ initFrame:SetScript("OnEvent", function(self)
             -- your own debuffs to yourself); any stale onlyPlayerDebuffs value is
             -- ignored at runtime.
             if selectedUnit == "player" then
+                -- Player list is re-ordered: Important leads (the most common
+                -- pick) with the 12.1-only Non-Player Debuffs classification
+                -- (the negated PLAYER engine token) right below it; the rest
+                -- keep their relative order. On 12.0 neither key exists in
+                -- the list, so this reduces to the plain ownOnly trim.
                 local trimmed = {}
                 for _, it in ipairs(debuffFilterItems) do
-                    if it.key ~= "ownOnly" then trimmed[#trimmed + 1] = it end
+                    if it.key == "priorityAura" then trimmed[#trimmed + 1] = it end
+                end
+                if EllesmereUI.IS_121 then
+                    trimmed[#trimmed + 1] = { key = "nonplayer", label = "Non-Player Debuffs",
+                        tooltip = "Shows every debuff except the ones you or your pet apply" }
+                end
+                for _, it in ipairs(debuffFilterItems) do
+                    if it.key ~= "ownOnly" and it.key ~= "priorityAura" then
+                        trimmed[#trimmed + 1] = it
+                    end
                 end
                 debuffFilterItems = trimmed
             end
@@ -10919,13 +11067,35 @@ initFrame:SetScript("OnEvent", function(self)
         -- Inline cog: absorb placement (overlay / right edge / left edge)
         do
             local rgn = absorbRow._leftRegion
+            -- Placement labels follow the FILL AXIS. The saved values stay right/left --
+            -- they have always meant the FAR / NEAR end of the fill -- but on a vertical
+            -- bar "From Left Edge" describes nothing, so the wording becomes top/bottom.
+            -- MUTATED IN PLACE, never rebuilt: RefreshPage's fast path does not rebuild
+            -- the page, and a cog popup is built once then cached, so a freshly-built
+            -- table would never reach the widget. The popup re-reads values[get()] on
+            -- every show, and _invalidateMenu makes an already-built menu rebuild its
+            -- entries from this same table on the next click.
+            local absorbEdgeLabels = { overlay = "Overlay" }
+            local absorbEdgeLabelsVert  -- last applied axis; nil until the first sync
+            -- Returns true only when the axis actually flipped, so the caller can
+            -- skip _invalidateMenu on unrelated refreshes (it nils the cached menu
+            -- and would break the wired click if one were open).
+            local function SyncAbsorbEdgeLabels()
+                local vert = (SValSupported("healthVerticalFill", false)) and true or false
+                if absorbEdgeLabelsVert == vert then return false end
+                absorbEdgeLabelsVert = vert
+                absorbEdgeLabels.right = vert and "From Top Edge"    or "From Right Edge"
+                absorbEdgeLabels.left  = vert and "From Bottom Edge" or "From Left Edge"
+                return true
+            end
+            SyncAbsorbEdgeLabels()
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Absorb Rendering",
                 rows = {
                     { type="dropdown", label="Placement",
-                      values = { overlay = "Overlay", right = "From Right Edge", left = "From Left Edge" },
+                      values = absorbEdgeLabels,
                       order = { "overlay", "right", "left" },
-                      get=function() return SValSupported("absorbEdgeMode", "overlay") end,
+                      get=function() SyncAbsorbEdgeLabels(); return SValSupported("absorbEdgeMode", "overlay") end,
                       set=function(v) SSetSupported("absorbEdgeMode", v) end },
                     { type="toggle", label="Show Overshield",
                       tooltip="Show the part of an absorb that exceeds your empty health and backfills over your current health. When off, absorbs only fill the empty part of the health bar.",
@@ -10946,6 +11116,17 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
+            -- Re-label on every page refresh (the Vertical Fill toggle fires one) and
+            -- drop any built menu so its entries rebuild with the new wording.
+            RegisterWidgetRefresh(function()
+                if not SyncAbsorbEdgeLabels() then return end
+                local pf = cogShow and cogShow._popupFrame
+                if pf and pf.GetChildren then
+                    for _, child in ipairs({ pf:GetChildren() }) do
+                        if child._invalidateMenu then child._invalidateMenu() end
+                    end
+                end
+            end)
             MakeCogBtn(rgn, cogShow)
         end
         -- Sync icon: Absorb Style + color swatch + cog settings across all frames
@@ -11064,19 +11245,52 @@ initFrame:SetScript("OnEvent", function(self)
         -- Inline cog: heal absorb placement (independent of shield absorb)
         do
             local rgn = healAbsorbRow._leftRegion
+            -- Placement labels follow the FILL AXIS. The saved values stay right/left --
+            -- they have always meant the FAR / NEAR end of the fill -- but on a vertical
+            -- bar "From Left Edge" describes nothing, so the wording becomes top/bottom.
+            -- MUTATED IN PLACE, never rebuilt: RefreshPage's fast path does not rebuild
+            -- the page, and a cog popup is built once then cached, so a freshly-built
+            -- table would never reach the widget. The popup re-reads values[get()] on
+            -- every show, and _invalidateMenu makes an already-built menu rebuild its
+            -- entries from this same table on the next click.
+            local healAbsorbEdgeLabels = { overlay = "Overlay" }
+            local healAbsorbEdgeLabelsVert  -- last applied axis; nil until the first sync
+            -- Returns true only when the axis actually flipped, so the caller can
+            -- skip _invalidateMenu on unrelated refreshes (it nils the cached menu
+            -- and would break the wired click if one were open).
+            local function SyncHealAbsorbEdgeLabels()
+                local vert = (SValSupported("healthVerticalFill", false)) and true or false
+                if healAbsorbEdgeLabelsVert == vert then return false end
+                healAbsorbEdgeLabelsVert = vert
+                healAbsorbEdgeLabels.right = vert and "From Top Edge"    or "From Right Edge"
+                healAbsorbEdgeLabels.left  = vert and "From Bottom Edge" or "From Left Edge"
+                return true
+            end
+            SyncHealAbsorbEdgeLabels()
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Heal Absorb Rendering",
                 rows = {
                     { type="dropdown", label="Placement",
-                      values = { overlay = "Overlay", right = "From Right Edge", left = "From Left Edge" },
+                      values = healAbsorbEdgeLabels,
                       order = { "overlay", "right", "left" },
-                      get=function() return SValSupported("healAbsorbEdgeMode", "overlay") end,
+                      get=function() SyncHealAbsorbEdgeLabels(); return SValSupported("healAbsorbEdgeMode", "overlay") end,
                       set=function(v) SSetSupported("healAbsorbEdgeMode", v) end },
                     { type="slider", label="Backing Opacity", min=0, max=100, step=1,
                       get=function() return SValSupported("healAbsorbBgOpacity", 15) end,
                       set=function(v) SSetSupported("healAbsorbBgOpacity", v) end },
                 },
             })
+            -- Re-label on every page refresh (the Vertical Fill toggle fires one) and
+            -- drop any built menu so its entries rebuild with the new wording.
+            RegisterWidgetRefresh(function()
+                if not SyncHealAbsorbEdgeLabels() then return end
+                local pf = cogShow and cogShow._popupFrame
+                if pf and pf.GetChildren then
+                    for _, child in ipairs({ pf:GetChildren() }) do
+                        if child._invalidateMenu then child._invalidateMenu() end
+                    end
+                end
+            end)
             MakeCogBtn(rgn, cogShow)
         end
         -- Sync icon: Heal Absorb Style + color swatch + cog settings across all frames
@@ -11109,8 +11323,8 @@ initFrame:SetScript("OnEvent", function(self)
         local absorbBarRow
         absorbBarRow, h = W:DualRow(parent, y,
             { type="dropdown", text="Absorb Bar",
-              values={ none="None", aboveRight="Above Frame Right", aboveLeft="Above Frame Left", topRight="Top Right", topLeft="Top Left" },
-              order={ "none", "aboveRight", "aboveLeft", "topRight", "topLeft" },
+              values={ none="None", aboveRight="Above Frame Right", aboveLeft="Above Frame Left", topRight="Top Right", topLeft="Top Left", bottomRight="Bottom Right", bottomLeft="Bottom Left" },
+              order={ "none", "aboveRight", "aboveLeft", "topRight", "topLeft", "bottomRight", "bottomLeft" },
               getValue=function() return SValSupported("absorbBarPosition", "none") end,
               setValue=function(v) SSetSupported("absorbBarPosition", v); EllesmereUI:RefreshPage() end },
             { type="slider", text="Bar Height", min=1, max=20, step=1,
@@ -11146,8 +11360,8 @@ initFrame:SetScript("OnEvent", function(self)
         local healAbsorbBarRow
         healAbsorbBarRow, h = W:DualRow(parent, y,
             { type="dropdown", text="Heal Absorb Bar",
-              values={ none="None", belowAbsorb="Below Absorb Bar", aboveRight="Above Frame Right", aboveLeft="Above Frame Left", topRight="Top Right", topLeft="Top Left" },
-              order={ "none", "belowAbsorb", "aboveRight", "aboveLeft", "topRight", "topLeft" },
+              values={ none="None", aboveAbsorb="Above Absorb Bar", belowAbsorb="Below Absorb Bar", aboveRight="Above Frame Right", aboveLeft="Above Frame Left", topRight="Top Right", topLeft="Top Left", bottomRight="Bottom Right", bottomLeft="Bottom Left" },
+              order={ "none", "aboveAbsorb", "belowAbsorb", "aboveRight", "aboveLeft", "topRight", "topLeft", "bottomRight", "bottomLeft" },
               getValue=function() return SValSupported("healAbsorbBarPosition", "none") end,
               setValue=function(v) SSetSupported("healAbsorbBarPosition", v); EllesmereUI:RefreshPage() end },
             { type="slider", text="Bar Height", min=1, max=20, step=1,
@@ -11321,6 +11535,40 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUI.HideWidgetTooltip()
             end)
 
+            -- Inline color swatch for custom color. Same order and spacing as
+            -- the Heal Absorb Style row above: eye, swatch, cog at -8 gaps,
+            -- with the swatch dimmed + click-blocked (never hidden, so the
+            -- inline chain keeps its spacing) when the color doesn't apply.
+            local combatSwatch = EllesmereUI.BuildColorSwatch(ciRgn, ciRgn:GetFrameLevel() + 5,
+                function()
+                    local cc = SGetSupported("combatIndicatorCustomColor")
+                    cc = cc or { r=1, g=1, b=1 }
+                    return cc.r, cc.g, cc.b, 1
+                end,
+                function(r, g, b)
+                    UNIT_DB_MAP[selectedUnit]().combatIndicatorCustomColor = { r=r, g=g, b=b }
+                    ReloadAndUpdate(); UpdatePreview()
+                end, false, 20)
+            combatSwatch:SetPoint("RIGHT", ciRgn._lastInline or ciRgn._control, "LEFT", -8, 0)
+            ciRgn._lastInline = combatSwatch
+            local combatSwatchBlock = CreateFrame("Frame", nil, combatSwatch)
+            combatSwatchBlock:SetAllPoints()
+            combatSwatchBlock:SetFrameLevel(combatSwatch:GetFrameLevel() + 10)
+            combatSwatchBlock:EnableMouse(true)
+            combatSwatchBlock:Hide()
+            local function UpdateSwatchVisibility()
+                local colorMode = SValSupported("combatIndicatorColor", "custom")
+                local style = SValSupported("combatIndicatorStyle", "class")
+                -- All custom combat icons (combat0..5) are shown as-is, so the custom-
+                -- color swatch doesn't apply to them.
+                local isRawIcon = style:find("^combat%d") and true or false
+                local usable = colorMode == "custom" and style ~= "none" and not isRawIcon
+                combatSwatch:SetAlpha(usable and 1 or 0.3)
+                if usable then combatSwatchBlock:Hide() else combatSwatchBlock:Show() end
+            end
+            UpdateSwatchVisibility()
+            RegisterWidgetRefresh(UpdateSwatchVisibility)
+
             -- Cog popup for combat indicator settings
             -- "healthbar" is the long-standing stored value for centered-on-health-bar,
             -- shown as "Center". "center" (briefly stored by 8.4.9-era builds) maps to it.
@@ -11361,35 +11609,6 @@ initFrame:SetScript("OnEvent", function(self)
             })
             local combatCogShow = combatCogShowRaw
             MakeCogBtn(ciRgn, combatCogShow)
-
-            -- Inline color swatch for custom color
-            local combatSwatch = EllesmereUI.BuildColorSwatch(ciRgn, ciRgn:GetFrameLevel() + 5,
-                function()
-                    local cc = SGetSupported("combatIndicatorCustomColor")
-                    cc = cc or { r=1, g=1, b=1 }
-                    return cc.r, cc.g, cc.b, 1
-                end,
-                function(r, g, b)
-                    UNIT_DB_MAP[selectedUnit]().combatIndicatorCustomColor = { r=r, g=g, b=b }
-                    ReloadAndUpdate(); UpdatePreview()
-                end, false, 20)
-            combatSwatch:SetPoint("RIGHT", ciRgn._lastInline or ciRgn._control, "LEFT", -12, 0)
-            ciRgn._lastInline = combatSwatch
-
-            local function UpdateSwatchVisibility()
-                local colorMode = SValSupported("combatIndicatorColor", "custom")
-                local style = SValSupported("combatIndicatorStyle", "class")
-                -- All custom combat icons (combat0..5) are shown as-is, so the custom-
-                -- color swatch doesn't apply to them.
-                local isRawIcon = style:find("^combat%d") and true or false
-                if colorMode == "custom" and style ~= "none" and not isRawIcon then
-                    combatSwatch:Show()
-                else
-                    combatSwatch:Hide()
-                end
-            end
-            UpdateSwatchVisibility()
-            RegisterWidgetRefresh(UpdateSwatchVisibility)
         end
         end -- _showAbsorbsCombat
 
@@ -12483,6 +12702,17 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
+        -- Vertical Fill: swaps the health bar's fill AXIS. Reverse Fill (above)
+        -- still flips the direction within it, so vertical + reverse fills
+        -- top-to-bottom. Its own row -- both mini and boss layouts already fill
+        -- both halves of the Reverse Fill row.
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Vertical Fill",
+              tooltip="Fill the health bar bottom-to-top instead of left-to-right. Reverse Fill flips it to top-to-bottom.",
+              getValue=function() return settingsTable.healthVerticalFill end,
+              setValue=function(v) settingsTable.healthVerticalFill = v; ReloadAndUpdate() end },
+            { type="spacer" });  y = y - h
+
         -- Row 3: Left Text + Right Text (with inline swatches + cogs)
         local textRow
         textRow, h = W:DualRow(parent, y,
@@ -12568,16 +12798,9 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="slider", label="Y Offset", min=-30, max=30, step=1,
                       get=function() return MVal("leftTextY", 0) end,
                       set=function(v) MSet("leftTextY", v) end },
-                    { type="slider", label="Name Length", min=0, max=30, step=1,
-                      get=function() return MVal("leftTextShortNameLength", 0) end,
-                      set=function(v) MSet("leftTextShortNameLength", v) end,
-                      disabled=function() local c=MVal("leftTextContent","name") return c ~= "name" and c ~= "nametotarget" and c ~= "levelname" and c ~= "namelevel" end,
-                      disabledTooltip="Only applies when the selected text includes a Name." },
-                    { type="toggle", label="Show Ellipsis",
-                      get=function() return MVal("leftTextShortNameEllipsis", true) ~= false end,
-                      set=function(v) MSet("leftTextShortNameEllipsis", v) end,
-                      disabled=function() local c=MVal("leftTextContent","name") return c ~= "name" and c ~= "nametotarget" and c ~= "levelname" and c ~= "namelevel" end,
-                      disabledTooltip="Only applies when the selected text includes a Name." },
+                    { type="slider", label="Width %", min=20, max=200, step=5,
+                      get=function() return MVal("leftTextWidthPct", 100) end,
+                      set=function(v) MSet("leftTextWidthPct", v) end },
                     { type="multiswatch", label="Indicator Color",
                       disabled=function() return MVal("leftTextContent","name") ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name > Target is selected.",
@@ -12689,16 +12912,9 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="slider", label="Y Offset", min=-30, max=30, step=1,
                       get=function() return MVal("rightTextY", 0) end,
                       set=function(v) MSet("rightTextY", v) end },
-                    { type="slider", label="Name Length", min=0, max=30, step=1,
-                      get=function() return MVal("rightTextShortNameLength", 0) end,
-                      set=function(v) MSet("rightTextShortNameLength", v) end,
-                      disabled=function() local c=MVal("rightTextContent","none") return c ~= "name" and c ~= "nametotarget" and c ~= "levelname" and c ~= "namelevel" end,
-                      disabledTooltip="Only applies when the selected text includes a Name." },
-                    { type="toggle", label="Show Ellipsis",
-                      get=function() return MVal("rightTextShortNameEllipsis", true) ~= false end,
-                      set=function(v) MSet("rightTextShortNameEllipsis", v) end,
-                      disabled=function() local c=MVal("rightTextContent","none") return c ~= "name" and c ~= "nametotarget" and c ~= "levelname" and c ~= "namelevel" end,
-                      disabledTooltip="Only applies when the selected text includes a Name." },
+                    { type="slider", label="Width %", min=20, max=200, step=5,
+                      get=function() return MVal("rightTextWidthPct", 100) end,
+                      set=function(v) MSet("rightTextWidthPct", v) end },
                     { type="multiswatch", label="Indicator Color",
                       disabled=function() return MVal("rightTextContent","none") ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name > Target is selected.",
@@ -12752,7 +12968,8 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- Row 4: Center Text (with inline swatch + cog). Slot 2 holds Smooth Health
-        -- Bars for the mini frames (ToT / Focus Target / Pet); blank for boss.
+        -- Bars for the mini frames (ToT / Focus Target / Pet); boss gets the
+        -- Extra Text zone there instead (4th text zone, same as Main Frames).
         local centerRow
         centerRow, h = W:DualRow(parent, y,
             { type="dropdown", text="Center Text", values=healthTextValues, order=(unitKey == "boss") and healthTextOrderBoss or healthTextOrder,
@@ -12761,7 +12978,13 @@ initFrame:SetScript("OnEvent", function(self)
                 settingsTable.centerTextContent = v
                 ReloadAndUpdate(); EllesmereUI:RefreshPage()
               end },
-            (unitKey ~= "boss") and smoothBarsWidget or { type="label", text="" });  y = y - h
+            (unitKey ~= "boss") and smoothBarsWidget
+            or { type="dropdown", text="Extra Text (full length)", values=healthTextValues, order=healthTextOrderBoss,
+              getValue=function() return MVal("extraTextContent", "none") end,
+              setValue=function(v)
+                settingsTable.extraTextContent = v
+                ReloadAndUpdate(); EllesmereUI:RefreshPage()
+              end });  y = y - h
         -- Inline color swatches + cog on Center Text: Custom + Class (CDM Border Size pattern)
         do
             local rgn = centerRow._leftRegion
@@ -12822,16 +13045,9 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="slider", label="Y Offset", min=-30, max=30, step=1,
                       get=function() return MVal("centerTextY", 0) end,
                       set=function(v) MSet("centerTextY", v) end },
-                    { type="slider", label="Name Length", min=0, max=30, step=1,
-                      get=function() return MVal("centerTextShortNameLength", 0) end,
-                      set=function(v) MSet("centerTextShortNameLength", v) end,
-                      disabled=function() local c=MVal("centerTextContent","none") return c ~= "name" and c ~= "nametotarget" and c ~= "levelname" and c ~= "namelevel" end,
-                      disabledTooltip="Only applies when the selected text includes a Name." },
-                    { type="toggle", label="Show Ellipsis",
-                      get=function() return MVal("centerTextShortNameEllipsis", true) ~= false end,
-                      set=function(v) MSet("centerTextShortNameEllipsis", v) end,
-                      disabled=function() local c=MVal("centerTextContent","none") return c ~= "name" and c ~= "nametotarget" and c ~= "levelname" and c ~= "namelevel" end,
-                      disabledTooltip="Only applies when the selected text includes a Name." },
+                    { type="slider", label="Width %", min=20, max=200, step=5,
+                      get=function() return MVal("centerTextWidthPct", 100) end,
+                      set=function(v) MSet("centerTextWidthPct", v) end },
                     { type="multiswatch", label="Indicator Color",
                       disabled=function() return MVal("centerTextContent","none") ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name > Target is selected.",
@@ -12881,6 +13097,127 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             cogBtn:SetScript("OnLeave", function(self) UpdCog(); EllesmereUI.HideWidgetTooltip() end)
             cogBtn:SetScript("OnClick", function(self) if MVal("centerTextContent", "none") ~= "none" then cogShowFn(self) end end)
+            UpdCog(); RegisterWidgetRefresh(UpdCog)
+        end
+
+        -- Inline color swatches + cog on Extra Text (boss only, Center row right
+        -- region). Same pattern as Center Text above; the cog adds Alignment
+        -- (the Extra Text zone's distinguishing setting, as on Main Frames).
+        if unitKey == "boss" then
+            local rgn = centerRow._rightRegion
+            local classSw, classSwUp = EllesmereUI.BuildColorSwatch(
+                rgn, rgn:GetFrameLevel() + 5,
+                function()
+                    local _, classFile = UnitClass("player")
+                    local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
+                    if cc then return cc.r, cc.g, cc.b end
+                    return 1, 1, 1
+                end,
+                function() end, nil, 20)
+            PP.Point(classSw, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            classSw:SetScript("OnClick", function()
+                if MVal("extraTextContent", "none") == "none" then return end
+                MSet("extraTextClassColor", true); EllesmereUI:RefreshPage()
+            end)
+            classSw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(classSw, "Class Colored") end)
+            classSw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            local swGet = function()
+                return MVal("extraTextColorR", 1), MVal("extraTextColorG", 1), MVal("extraTextColorB", 1)
+            end
+            local swSet = function(r, g, b)
+                settingsTable.extraTextColorR = r; settingsTable.extraTextColorG = g; settingsTable.extraTextColorB = b
+                ReloadAndUpdate()
+            end
+            local sw, swUp = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, swGet, swSet, nil, 20)
+            PP.Point(sw, "RIGHT", classSw, "LEFT", -8, 0)
+            rgn._lastInline = sw
+            local swOrigClick = sw:GetScript("OnClick")
+            sw:SetScript("OnClick", function(self, ...)
+                if MVal("extraTextContent", "none") == "none" then return end
+                if MVal("extraTextClassColor", false) then
+                    MSet("extraTextClassColor", false); EllesmereUI:RefreshPage(); return
+                end
+                if swOrigClick then swOrigClick(self, ...) end
+            end)
+            sw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Custom Colored") end)
+            sw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            local function UpdSwatches()
+                local isNone = MVal("extraTextContent", "none") == "none"
+                local isClass = MVal("extraTextClassColor", false)
+                sw:SetAlpha((isClass or isNone) and 0.3 or 1)
+                classSw:SetAlpha((isClass and not isNone) and 1 or 0.3)
+            end
+            RegisterWidgetRefresh(function() swUp(); classSwUp(); UpdSwatches() end)
+            UpdSwatches()
+
+            local _, cogShowFn = EllesmereUI.BuildCogPopup({
+                title = "Extra Text Settings",
+                rows = {
+                    { type="dropdown", label="Alignment",
+                      values={ ["left"]="Left", ["right"]="Right", ["center"]="Center" }, order={ "left", "right", "center" },
+                      get=function() return MVal("extraTextAlign", "left") end,
+                      set=function(v) MSet("extraTextAlign", v) end },
+                    { type="slider", label="Size", min=8, max=100, step=1,
+                      get=function() return MVal("extraTextSize", settingsTable.textSize or 12) end,
+                      set=function(v) MSet("extraTextSize", v) end },
+                    { type="slider", label="X Offset", min=-150, max=150, step=1,
+                      get=function() return MVal("extraTextX", 0) end,
+                      set=function(v) MSet("extraTextX", v) end },
+                    { type="slider", label="Y Offset", min=-150, max=150, step=1,
+                      get=function() return MVal("extraTextY", 0) end,
+                      set=function(v) MSet("extraTextY", v) end },
+                    { type="slider", label="Width %", min=20, max=200, step=5,
+                      get=function() return MVal("extraTextWidthPct", 100) end,
+                      set=function(v) MSet("extraTextWidthPct", v) end },
+                    { type="multiswatch", label="Indicator Color",
+                      disabled=function() return MVal("extraTextContent","none") ~= "nametotarget" end,
+                      disabledTooltip="Only applies when Name > Target is selected.",
+                      swatches = {
+                        { tooltip = "Custom Colored", hasAlpha = false,
+                          getValue = function() local c = MVal("extraTextTargetSepColor", nil) if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end return 1, 1, 1 end,
+                          setValue = function(r, g, b) MSet("extraTextTargetSepColor", { r=r, g=g, b=b }) end,
+                          onClick = function(self)
+                              if MVal("extraTextTargetSepClassColor", false) then
+                                  MSet("extraTextTargetSepClassColor", false)
+                                  return
+                              end
+                              if self._eabOrigClick then self._eabOrigClick(self) end
+                          end,
+                          refreshAlpha = function() return MVal("extraTextTargetSepClassColor", false) and 0.3 or 1 end },
+                        { tooltip = "Class Colored", hasAlpha = false,
+                          getValue = function()
+                              local _, ct = UnitClass("player")
+                              local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+                              if cc then return cc.r, cc.g, cc.b end
+                              return 1, 1, 1
+                          end,
+                          setValue = function() end,
+                          onClick = function() MSet("extraTextTargetSepClassColor", true) end,
+                          refreshAlpha = function() return MVal("extraTextTargetSepClassColor", false) and 1 or 0.3 end },
+                      } },
+                    { type="input", label="Separator", inputWidth=60,
+                      get=function() return MVal("extraTextTargetSep", ">") end,
+                      set=function(v)
+                          v = tostring(v or ""):gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                          if v == "" then v = ">" end
+                          MSet("extraTextTargetSep", v)
+                      end,
+                      disabled=function() return MVal("extraTextContent","none") ~= "nametotarget" end,
+                      disabledTooltip="Only applies when Name > Target is selected." },
+                                    },
+            })
+            local cogBtn = MCogBtn(rgn, cogShowFn)
+            local function UpdCog()
+                local isNone = MVal("extraTextContent", "none") == "none"
+                cogBtn:SetAlpha(isNone and 0.15 or 0.4)
+            end
+            cogBtn:SetScript("OnEnter", function(self)
+                if MVal("extraTextContent", "none") == "none" then
+                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip("This option requires a text selection other than none."))
+                else self:SetAlpha(0.7) end
+            end)
+            cogBtn:SetScript("OnLeave", function(self) UpdCog(); EllesmereUI.HideWidgetTooltip() end)
+            cogBtn:SetScript("OnClick", function(self) if MVal("extraTextContent", "none") ~= "none" then cogShowFn(self) end end)
             UpdCog(); RegisterWidgetRefresh(UpdCog)
         end
 
@@ -12946,7 +13283,7 @@ initFrame:SetScript("OnEvent", function(self)
                     settingsTable.powerBgPowerColored = true
                     ReloadAndUpdate(); EllesmereUI:RefreshPage()
                 end)
-                bgPwrSw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(bgPwrSw, "Power Colored Background") end)
+                bgPwrSw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(bgPwrSw, "Power Colored Background. Power colors can be adjusted in Global Settings -> Fonts & Colors.") end)
                 bgPwrSw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                 PP.Point(bgPwrSw, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
                 rgn._lastInline = bgPwrSw
@@ -13001,7 +13338,7 @@ initFrame:SetScript("OnEvent", function(self)
                     settingsTable.powerPercentPowerColor = true
                     ReloadAndUpdate(); EllesmereUI:RefreshPage()
                 end)
-                fPwrSw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(fPwrSw, "Power Colored Fill") end)
+                fPwrSw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(fPwrSw, "Power Colored Fill. Power colors can be adjusted in Global Settings -> Fonts & Colors.") end)
                 fPwrSw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                 PP.Point(fPwrSw, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
                 rgn._lastInline = fPwrSw
@@ -13341,7 +13678,17 @@ initFrame:SetScript("OnEvent", function(self)
             if isEUI then
                 AttachPortraitSideCog(portraitRow._rightRegion, db.profile.pet)
             end
-            AttachFrameSourceCog(portraitRow._leftRegion, "pet")
+            AttachFrameSourceCog(portraitRow._leftRegion, "pet", {
+                extraRows = {
+                    { type = "toggle", label = "Always Show Pet Frame",
+                      tooltip = "Show the pet frame whenever you have a pet, ignoring the Player frame's visibility settings.",
+                      get = function() return db.profile.pet.alwaysShow == true end,
+                      set = function(v)
+                          db.profile.pet.alwaysShow = v and true or nil
+                          if ns.UpdateFrameVisibility then ns.UpdateFrameVisibility() end
+                      end },
+                },
+            })
             return portraitRow, h
         end
 
@@ -13581,6 +13928,11 @@ initFrame:SetScript("OnEvent", function(self)
                         { type="slider", label="Max Count", min=1, max=20, step=1,
                           get=function() return db.profile.boss.maxBuffs or 4 end,
                           set=function(v) db.profile.boss.maxBuffs = v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end },
+                        -- Shares the boss buffMaxPerRow key with Buffs Location
+                        -- (mutually exclusive modes), like Max Count above.
+                        { type="slider", label="Max Per Row", min=1, max=20, step=1,
+                          get=function() return db.profile.boss.buffMaxPerRow or db.profile.boss.maxBuffs or 4 end,
+                          set=function(v) db.profile.boss.buffMaxPerRow = v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end },
                         { type="slider", label="Offset X", min=-200, max=200, step=1,
                           get=function() local x = ns.GetBossSimpleBuffOffset(db.profile.boss); return x end,
                           set=function(v) db.profile.boss.simpleBuffOffsetX = v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end },
@@ -13720,6 +14072,11 @@ initFrame:SetScript("OnEvent", function(self)
                         { type="slider", label="Max Count", min=1, max=20, step=1,
                           get=function() return db.profile.boss.maxDebuffs or 10 end,
                           set=function(v) db.profile.boss.maxDebuffs = v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end },
+                        -- Shares the boss debuffMaxPerRow key with Debuffs Location
+                        -- (mutually exclusive modes), like Max Count above.
+                        { type="slider", label="Max Per Row", min=1, max=20, step=1,
+                          get=function() return db.profile.boss.debuffMaxPerRow or db.profile.boss.maxDebuffs or 10 end,
+                          set=function(v) db.profile.boss.debuffMaxPerRow = v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end },
                         { type="slider", label="Offset X", min=-200, max=200, step=1,
                           get=function() local x = ns.GetBossSimpleDebuffOffset(db.profile.boss); return x end,
                           set=function(v) db.profile.boss.simpleDebuffOffsetX = v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end },
@@ -14010,7 +14367,7 @@ initFrame:SetScript("OnEvent", function(self)
                         { key = "externalDefensive", label = "External Defensive", tooltip = "Shows only external defensive cooldowns cast on the unit" },
                         { key = "bossAura",          label = "Boss Auras",         tooltip = "Shows only debuffs applied by bosses" },
                         { key = "roleAura",          label = "Role Auras",         tooltip = "Shows only debuffs flagged for your role" },
-                        { key = "priorityAura",      label = "Priority",           tooltip = "Shows only priority debuffs" },
+                        { key = "priorityAura",      label = "Important",          tooltip = "Shows only debuffs Blizzard flags as important" },
                         { key = "ownOnly",           label = "Own Only",           tooltip = "Shows only the Debuffs you apply" },
                     }
                     DEBUFF_FILTER_KEYS = { ownOnly = "onlyPlayerDebuffs", raidFrames = "debuffRaid", raidInCombat = "debuffRaidInCombat", dispellable = "debuffDispellable", crowdControl = "debuffCrowdControl", bigDefensive = "debuffBigDefensive", externalDefensive = "debuffExternalDefensive", bossAura = "debuffBossAura", roleAura = "debuffRoleAura", priorityAura = "debuffPriorityAura" }
@@ -14321,6 +14678,9 @@ initFrame:SetScript("OnEvent", function(self)
                         { type="slider", label="Max Count", min=1, max=20, step=1,
                           get=function() return db.profile.boss.maxBuffs or 4 end,
                           set=function(v) db.profile.boss.maxBuffs = v; ReloadAndUpdate() end },
+                        { type="slider", label="Max Per Row", min=1, max=20, step=1,
+                          get=function() return db.profile.boss.buffMaxPerRow or db.profile.boss.maxBuffs or 4 end,
+                          set=function(v) db.profile.boss.buffMaxPerRow = v; ReloadAndUpdate() end },
                     },
                 })
                 local cogBtn = BossCogBtn(leftRgn, bBuffCogShowRaw)
@@ -14364,6 +14724,9 @@ initFrame:SetScript("OnEvent", function(self)
                         { type="slider", label="Max Count", min=1, max=20, step=1,
                           get=function() return db.profile.boss.maxDebuffs or 10 end,
                           set=function(v) db.profile.boss.maxDebuffs = v; ReloadAndUpdate() end },
+                        { type="slider", label="Max Per Row", min=1, max=20, step=1,
+                          get=function() return db.profile.boss.debuffMaxPerRow or db.profile.boss.maxDebuffs or 10 end,
+                          set=function(v) db.profile.boss.debuffMaxPerRow = v; ReloadAndUpdate() end },
                     },
                 })
                 local cogBtn = BossCogBtn(rightRgn, bDebuffCogShowRaw)
@@ -15264,7 +15627,15 @@ initFrame:SetScript("OnEvent", function(self)
     local ufSearchTerms = {}
     for _, label in pairs(unitLabels) do ufSearchTerms[#ufSearchTerms + 1] = label end
     for _, label in pairs(miniUnitLabels) do ufSearchTerms[#ufSearchTerms + 1] = label end
-    local _paTerms = { "buff", "debuff", "aura", "player buffs", "player debuffs", "icon zoom", "private auras", "external defensives", "externals", "pain suppression" }
+    -- "external defensives" stays on both clients: the External Defensive AURA
+    -- FILTER checkbox keeps that name. Only the two terms that exist purely to
+    -- find the retired External Defensives FRAME are dropped on 12.1, so a
+    -- search there cannot land on a section that no longer builds.
+    local _paTerms = { "buff", "debuff", "aura", "player buffs", "player debuffs", "icon zoom", "private auras", "external defensives" }
+    if not EllesmereUI.IS_121 then
+        _paTerms[#_paTerms + 1] = "externals"
+        _paTerms[#_paTerms + 1] = "pain suppression"
+    end
     for _, t in ipairs(_paTerms) do ufSearchTerms[#ufSearchTerms + 1] = t end
 
     -- Rebuild preview when spec changes (class resource pips may appear/disappear)
@@ -15403,7 +15774,33 @@ initFrame:SetScript("OnEvent", function(self)
                       },
                       order = { "blizzard", "compact", "colon", "seconds" },
                       get = function() return PAGet("durationFormat") or "blizzard" end,
-                      set = function(v) PASet("durationFormat", v) end },
+                      set = function(v)
+                          -- Custom formats re-enter the per-frame UpdateDuration
+                          -- hook path (per visible aura, every render frame), so
+                          -- leaving the free Blizzard default gets the suite's
+                          -- standard performance confirm, once per account.
+                          local cur = PAGet("durationFormat") or "blizzard"
+                          if v ~= "blizzard" and cur == "blizzard"
+                             and not (EllesmereUIDB and EllesmereUIDB.dismissedDurFmtWarning) then
+                              EllesmereUI:ShowConfirmPopup({
+                                  title       = "Custom Duration Format",
+                                  message     = "Custom duration formats may cause a slight loss in performance efficiency. Do you want to enable them?",
+                                  confirmText = "Enable",
+                                  cancelText  = "Cancel",
+                                  onConfirm   = function()
+                                      if not EllesmereUIDB then EllesmereUIDB = {} end
+                                      EllesmereUIDB.dismissedDurFmtWarning = true
+                                      PASet("durationFormat", v)
+                                      if EllesmereUI.RefreshPage then EllesmereUI:RefreshPage(true) end
+                                  end,
+                                  onCancel    = function()
+                                      if EllesmereUI.RefreshPage then EllesmereUI:RefreshPage() end
+                                  end,
+                              })
+                              return
+                          end
+                          PASet("durationFormat", v)
+                      end },
                 },
             })
             local cogBtn = CreateFrame("Button", nil, rgn)
@@ -15564,6 +15961,10 @@ initFrame:SetScript("OnEvent", function(self)
         -----------------------------------------------------------------------
         --  External Defensives Frame (our own frame; live enable, no reload)
         -----------------------------------------------------------------------
+        -- 12.1 retires this frame, so the whole block (spacer and section
+        -- header included) is skipped there and nothing renders. The body is
+        -- left unindented so retail stays a byte-for-byte identical diff.
+        if not EllesmereUI.IS_121 then
         local function EDGet(key)
             local p = db and db.profile and db.profile.externalDefensives
             return p and p[key]
@@ -15784,6 +16185,7 @@ initFrame:SetScript("OnEvent", function(self)
         ); y = y - h
 
         end -- EDGet("enabled") section gate
+        end -- not IS_121: External Defensives Frame retired on 12.1
 
         return math.abs(y)
     end

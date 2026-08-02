@@ -18,6 +18,77 @@ local function PA()
     return db and db.profile and db.profile.playerAuras
 end
 
+-------------------------------------------------------------------------------
+--  Skin generation
+--
+--  Blizzard fires AuraContainer:UpdateGridLayout continuously while buff timers
+--  tick, and every fire used to re-skin every visible button from scratch: the
+--  full border chain (ApplySecretSafeBorderStyle -> ApplyBorderStyle ->
+--  PP.UpdateBorder -> SnapBorderTextures) plus a font resolve and SetFont per
+--  button, every frame, even standing still doing nothing. SkinAuraButton
+--  already set an ffd._paSkinned flag for exactly this -- but nothing ever read
+--  it, so it never short-circuited anything. Profiling attributed the cost to
+--  the PARENT addon, because that is where the border and font code lives.
+--
+--  A button stamped with the current generation is already styled correctly and
+--  is skipped. The settings that feed the skin are compared ONCE per refresh
+--  rather than per button, so a change from any source -- options, a profile
+--  switch, a font change -- bumps the generation and re-skins everything,
+--  without paying for the comparison on every button.
+-------------------------------------------------------------------------------
+local skinGen = 1
+local lastCfg = {}
+-- Active custom duration style, or nil when the user is on the Blizzard
+-- default. Maintained by NoteConfig. The UpdateDuration hook fires every
+-- render frame per visible aura button, so its body must read ONE upvalue --
+-- never the settings chain -- and the hook itself only installs when a custom
+-- style is configured (zero cost on the default).
+local _durFmt
+-- True when the aura LIST may have changed since the last sweep (player
+-- UNIT_AURA, Edit Mode preview, or an explicit settings refresh): aura
+-- buttons are only ever BORN from those, so the grid passes Blizzard fires
+-- from pure duration ticking find this false and skin nothing.
+local _paAuraDirty = true
+
+local function NoteConfig(cfg)
+    local font    = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("unitFrames")) or ""
+    local outline = (EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("unitFrames")) or ""
+    if  lastCfg.borderSize      == cfg.borderSize
+    and lastCfg.borderBehind    == cfg.borderBehind
+    and lastCfg.noBorderDebuffs == cfg.noBorderDebuffs
+    and lastCfg.showText        == cfg.showText
+    and lastCfg.textSize        == cfg.textSize
+    and lastCfg.borderR         == cfg.borderR
+    and lastCfg.borderG         == cfg.borderG
+    and lastCfg.borderB         == cfg.borderB
+    and lastCfg.borderA         == cfg.borderA
+    and lastCfg.borderTexture   == cfg.borderTexture
+    and lastCfg.offX            == cfg.borderTextureOffset
+    and lastCfg.offY            == cfg.borderTextureOffsetY
+    and lastCfg.shiftX          == cfg.borderTextureShiftX
+    and lastCfg.shiftY          == cfg.borderTextureShiftY
+    and lastCfg.buffZoom        == cfg.buffIconZoom
+    and lastCfg.debuffZoom      == cfg.debuffIconZoom
+    and lastCfg.durFmt          == cfg.durationFormat
+    and lastCfg.font            == font
+    and lastCfg.outline         == outline then
+        return
+    end
+    lastCfg.borderSize, lastCfg.borderBehind    = cfg.borderSize, cfg.borderBehind
+    lastCfg.noBorderDebuffs, lastCfg.showText   = cfg.noBorderDebuffs, cfg.showText
+    lastCfg.textSize, lastCfg.borderTexture     = cfg.textSize, cfg.borderTexture
+    lastCfg.borderR, lastCfg.borderG            = cfg.borderR, cfg.borderG
+    lastCfg.borderB, lastCfg.borderA            = cfg.borderB, cfg.borderA
+    lastCfg.offX, lastCfg.offY                  = cfg.borderTextureOffset, cfg.borderTextureOffsetY
+    lastCfg.shiftX, lastCfg.shiftY              = cfg.borderTextureShiftX, cfg.borderTextureShiftY
+    lastCfg.buffZoom, lastCfg.debuffZoom        = cfg.buffIconZoom, cfg.debuffIconZoom
+    lastCfg.durFmt                              = cfg.durationFormat
+    lastCfg.font, lastCfg.outline               = font, outline
+    _durFmt = (cfg.durationFormat and cfg.durationFormat ~= "blizzard")
+        and cfg.durationFormat or nil
+    skinGen = skinGen + 1
+end
+
 local function FormatCompactDuration(timeLeft, style)
     if timeLeft >= 86400 then
         return string.format("%dd", math.floor(timeLeft / 86400 + 0.5))
@@ -48,14 +119,18 @@ end
 -------------------------------------------------------------------------------
 --  Per-button skinning
 -------------------------------------------------------------------------------
-local function SkinAuraButton(btn, isDebuff)
-    local cfg = PA()
+local function SkinAuraButton(btn, isDebuff, cfg)
+    cfg = cfg or PA()
     if not cfg then return end
     -- Skip layout anchors
     if btn.isAuraAnchor then return end
 
     local ffd = GetFFD(btn)
     if not ffd then return end
+
+    -- Already styled at the current settings: nothing below would change a
+    -- pixel. This is the read that _paSkinned was always missing.
+    if ffd._paSkinned == skinGen and ffd._paSkinDebuff == isDebuff then return end
 
     -- Icon zoom crop (btn.Icon is a Frame in Midnight; find the Texture inside)
     local iconFrame = btn.Icon
@@ -87,11 +162,11 @@ local function SkinAuraButton(btn, isDebuff)
 
     -- Hide Blizzard border (alpha, not Hide, to avoid taint)
     -- Keep it visible on debuffs when noBorderDebuffs is enabled (colored border)
-    if btn.Border then
+    if btn.DebuffBorder then
         if isDebuff and cfg.noBorderDebuffs then
-            btn.Border:SetAlpha(1)
+            btn.DebuffBorder:SetAlpha(1)
         else
-            btn.Border:SetAlpha(0)
+            btn.DebuffBorder:SetAlpha(0)
         end
     end
 
@@ -104,18 +179,20 @@ local function SkinAuraButton(btn, isDebuff)
             if r and r.SetFont then durFS = r; break end
         end
     end
-    if durFS and durFS.SetFont and not ffd._paDurHooked
+    -- Lazy install: only when a custom duration style is active. The settings
+    -- change that activates one bumps skinGen (NoteConfig tracks the key), so
+    -- this body re-runs and installs then. hooksecurefunc cannot uninstall,
+    -- so on a revert to "blizzard" the body bails on the single _durFmt read.
+    if durFS and durFS.SetFont and not ffd._paDurHooked and _durFmt
         and type(btn.UpdateDuration) == "function" then
         ffd._paDurHooked = true
         local fs = durFS
         hooksecurefunc(btn, "UpdateDuration", function(_, timeLeft)
-            local pa = PA()
-            local style = pa and pa.durationFormat
-            if not style or style == "blizzard" then return end
+            if not _durFmt then return end
             if type(timeLeft) ~= "number" then return end
             if issecretvalue and issecretvalue(timeLeft) then return end
             if timeLeft <= 0 then return end
-            fs:SetText(FormatCompactDuration(timeLeft, style))
+            fs:SetText(FormatCompactDuration(timeLeft, _durFmt))
         end)
     end
 
@@ -175,17 +252,18 @@ local function SkinAuraButton(btn, isDebuff)
         cfg.borderTextureShiftX, cfg.borderTextureShiftY,
         "unitframes", bs)
 
-    ffd._paSkinned = true
+    ffd._paSkinned = skinGen
+    ffd._paSkinDebuff = isDebuff
 end
 
 -------------------------------------------------------------------------------
 --  Iterate and skin all visible aura buttons on a frame
 -------------------------------------------------------------------------------
-local function SkinAllButtons(frame, isDebuff)
+local function SkinAllButtons(frame, isDebuff, cfg)
     if not frame or not frame.auraFrames then return end
     for _, btn in pairs(frame.auraFrames) do
         if btn and btn.Icon and not btn.isAuraAnchor then
-            SkinAuraButton(btn, isDebuff)
+            SkinAuraButton(btn, isDebuff, cfg)
         end
     end
 end
@@ -194,11 +272,35 @@ end
 --  Full refresh (called on setting change or UNIT_AURA)
 -------------------------------------------------------------------------------
 local function RefreshAll()
-    if not (PA() and PA().enabled) then return end
-    SkinAllButtons(BuffFrame, false)
-    SkinAllButtons(DebuffFrame, true)
+    local cfg = PA()
+    if not (cfg and cfg.enabled) then return end
+    -- Once per refresh, not once per button.
+    NoteConfig(cfg)
+    _paAuraDirty = false
+    SkinAllButtons(BuffFrame, false, cfg)
+    SkinAllButtons(DebuffFrame, true, cfg)
 end
 ns.RefreshPlayerAuras = RefreshAll
+
+-- UpdateGridLayout can fire several times within one frame; each fire used to
+-- queue its own full refresh. Coalesced to one pass per tick. Named rather than
+-- an inline closure so scheduling allocates nothing.
+local refreshPending = false
+
+local function DoPendingRefresh()
+    refreshPending = false
+    if _paAuraDirty then
+        RefreshAll()
+    end
+end
+
+local function RequestRefresh()
+    if refreshPending then return end
+    if _paAuraDirty then
+        refreshPending = true
+        C_Timer.After(0, DoPendingRefresh)
+    end
+end
 
 -------------------------------------------------------------------------------
 --  Scale helper (applies iconSize via SetScale on AuraContainer)
@@ -280,6 +382,62 @@ local function ED()
     return db and db.profile and db.profile.externalDefensives
 end
 
+-- Countdown formatters for the EDF cooldown widgets. SetCountdownFormatter
+-- takes an ENGINE formatter object (C_StringUtil.CreateNumericRuleFormatter),
+-- never a Lua function -- passing a closure throws "bad argument #2", which
+-- aborted EDF_StyleButton partway and left the button permanently unstyled and
+-- its count FontString font-less. Engine-side formatting is also what makes
+-- secret durations render at all, the same reason the Cooldown Manager's
+-- threshold text uses this API.
+--
+-- Only the sub-hour range is styled per format; externals are all short, and
+-- the hour/day breakpoints exist purely as a tail. Thresholds sit just above
+-- each unit boundary so an UP-rounded value in (59, 60] routes into the next
+-- breakpoint instead of reading "60" for a tick.
+local EDF_formatters = {}
+local EDF_fmtUnsupported = false
+
+local function EDF_FormatterFor(style)
+    if EDF_fmtUnsupported or not style or style == "blizzard" then return nil end
+    local cached = EDF_formatters[style]
+    if cached ~= nil then return cached or nil end
+    if not (C_StringUtil and C_StringUtil.CreateNumericRuleFormatter
+        and Enum.NumericRuleFormatRounding) then
+        EDF_fmtUnsupported = true
+        return nil
+    end
+    local Up = Enum.NumericRuleFormatRounding.Up
+    local points = { { threshold = 0, format = "%d", rounding = Up, step = 1 } }
+    if style == "colon" then
+        points[#points + 1] = {
+            threshold = 59.0001, format = "%d:%02d", rounding = Up, step = 1,
+            components = { { div = 60 }, { mod = 60 } },
+        }
+    elseif style ~= "seconds" then
+        -- "compact": minutes above a minute. "seconds" deliberately has no
+        -- minute breakpoint, so it keeps counting raw seconds ("152").
+        points[#points + 1] = {
+            threshold = 59.0001, format = "%dm", rounding = Up, step = 1,
+            components = { { div = 60 } },
+        }
+    end
+    points[#points + 1] = {
+        threshold = 3599.0001, format = "%dh", rounding = Up, step = 1,
+        components = { { div = 3600 } },
+    }
+    points[#points + 1] = {
+        threshold = 86399.0001, format = "%dd", rounding = Up, step = 1,
+        components = { { div = 86400 } },
+    }
+    local f = C_StringUtil.CreateNumericRuleFormatter()
+    if not pcall(f.SetBreakpoints, f, points) then
+        EDF_formatters[style] = false
+        return nil
+    end
+    EDF_formatters[style] = f
+    return f
+end
+
 local function EDF_StyleButton(btn, cfg)
     local size = cfg.iconSize or 32
     btn:SetSize(size, size)
@@ -304,17 +462,7 @@ local function EDF_StyleButton(btn, cfg)
     -- Custom duration formats via the engine formatter (nil-guarded: on
     -- clients without it the dropdown falls back to the native format).
     if cd.SetCountdownFormatter then
-        local style = cfg.durationFormat
-        if style and style ~= "blizzard" then
-            cd:SetCountdownFormatter(function(timeLeft)
-                if type(timeLeft) ~= "number" then return end
-                if issecretvalue and issecretvalue(timeLeft) then return end
-                if timeLeft <= 0 then return end
-                return FormatCompactDuration(timeLeft, style)
-            end)
-        else
-            cd:SetCountdownFormatter(nil)
-        end
+        cd:SetCountdownFormatter(EDF_FormatterFor(cfg.durationFormat))
     end
 
     if btn._count then
@@ -359,6 +507,12 @@ local function EDF_CreateButton(i)
     txtHost:SetAllPoints()
     txtHost:SetFrameLevel(cd:GetFrameLevel() + 1)
     local cnt = txtHost:CreateFontString(nil, "OVERLAY")
+    -- Baseline font at creation: EDF_StyleButton re-points this at the user's
+    -- configured font, but the button is already in edfButtons by then, so a
+    -- styling pass that fails partway would otherwise leave a font-less
+    -- FontString that throws "Font not set" on every later SetText.
+    cnt:SetFont(EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("unitFrames")
+        or STANDARD_TEXT_FONT, 11, "")
     cnt:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -1, 1)
     btn._count = cnt
 
@@ -553,6 +707,13 @@ end
 -- Live enable/disable + full restyle. Zero footprint while never enabled:
 -- no frames, no font object, no event registration.
 local function EDF_Setup()
+    -- 12.1 retires the External Defensives frame. Bail at the one chokepoint
+    -- that builds it, so on that client no frame, font object, event
+    -- registration or Unlock Mode element is ever created (the module is
+    -- already zero-footprint until first enabled, so this simply keeps it
+    -- there). Saved settings are left untouched, so a retail session on the
+    -- same profile still builds and positions the frame exactly as before.
+    if EllesmereUI.IS_121 then return end
     local cfg = ED()
     local enabled = cfg and cfg.enabled
     if enabled and not edfRoot then
@@ -605,10 +766,27 @@ initFrame:SetScript("OnEvent", function(self, event, arg1)
             -- Initial skin pass
             RefreshAll()
 
+            -- Aura-set dirty signal: aura buttons are only born from
+            -- aura-list changes, so the grid hooks below sweep only after a
+            -- player UNIT_AURA. Edit Mode is the one birth path without an
+            -- aura event (its preview shows example buttons) -- hook its
+            -- open as a second dirty source.
+            local auraWatch = CreateFrame("Frame")
+            auraWatch:RegisterUnitEvent("UNIT_AURA", "player")
+            auraWatch:SetScript("OnEvent", function()
+                _paAuraDirty = true
+            end)
+            if EditModeManagerFrame then
+                EditModeManagerFrame:HookScript("OnShow", function()
+                    _paAuraDirty = true
+                    RequestRefresh()
+                end)
+            end
+
             -- Hook aura updates to catch new/changed buttons
             if BuffFrame and BuffFrame.AuraContainer then
                 hooksecurefunc(BuffFrame.AuraContainer, "UpdateGridLayout", function()
-                    C_Timer.After(0, RefreshAll)
+                    RequestRefresh()
                 end)
                 if BuffFrame.RefreshConsolidationFrameVisibility then
                     hooksecurefunc(BuffFrame, "RefreshConsolidationFrameVisibility", function()
@@ -628,7 +806,7 @@ initFrame:SetScript("OnEvent", function(self, event, arg1)
             end
             if DebuffFrame and DebuffFrame.AuraContainer then
                 hooksecurefunc(DebuffFrame.AuraContainer, "UpdateGridLayout", function()
-                    C_Timer.After(0, RefreshAll)
+                    RequestRefresh()
                 end)
             end
 

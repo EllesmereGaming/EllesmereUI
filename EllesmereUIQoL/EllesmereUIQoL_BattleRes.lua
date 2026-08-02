@@ -33,6 +33,7 @@ local defaults = {
         battleRes = {
             enabled        = true,
             visibility     = "MPLUS_AND_RAID",  -- MPLUS_AND_RAID | MPLUS | RAID | NEVER
+            displayMode    = "icon",  -- icon | text ("2 | 4:14" line)
             iconSize       = 40,
             iconZoom       = 11,   -- percent
             shape          = "none",
@@ -45,6 +46,11 @@ local defaults = {
             countSize      = 11,
             countOffsetX   = 0,
             countOffsetY   = 0,
+            textSize       = 14,
+            textCountColor = { r = 1, g = 1, b = 1 },
+            textTimerColor = { r = 1, g = 1, b = 1 },
+            font           = "__global",  -- key into the shared font registry
+            outlineMode    = "__global",  -- __global | none (shadow) | outline | thick
             pos            = nil,  -- { centerX, centerY } stored after first move
         },
         -- Bloodlust Tracker: additive sibling of battleRes. Stores ONLY its own
@@ -68,7 +74,57 @@ local function P()
     return addon.db and addon.db.profile and addon.db.profile.battleRes
 end
 
-local frame, iconTex, borderTex, durationFS, countFS, cooldownFrame
+local frame, iconTex, borderTex, durationFS, countFS, cooldownFrame, textFS
+
+local function IsTextMode()
+    local p = P()
+    return (p and p.displayMode) == "text"
+end
+
+-------------------------------------------------------------------------------
+--  Font resolution -- mirrors the Chat module's font / outline settings:
+--  "__global" follows the EUI Fonts & Colors defaults, a named key resolves
+--  through the shared font registry, and outline overrides stay slug-gated.
+-------------------------------------------------------------------------------
+local function GetBrezFont()
+    local p = P()
+    local key = (p and p.font) or "__global"
+    if key ~= "__global" and EllesmereUI and EllesmereUI.ResolveFontName then
+        local path = EllesmereUI.ResolveFontName(key)
+        if path then return path end
+    end
+    return (EllesmereUI and EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT
+end
+
+local function GetBrezOutline()
+    local p = P()
+    local mode = (p and p.outlineMode) or "__global"
+    if mode == "outline" then return (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG" end
+    if mode == "thick" then return (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("THICKOUTLINE, SLUG")) or "THICKOUTLINE, SLUG" end
+    if mode == "none" then return "" end
+    return (EllesmereUI and EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("qol"))
+        or (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG"
+end
+
+-- ONLY the text display ("2 | 4:14") routes through this; the icon's
+-- duration / count texts keep the fixed house style via SetBrezIconFont
+-- below. Empty flags = Drop Shadow mode, primed via FontObject (instance
+-- shadow setters do not render).
+local function SetBrezFont(fs, size)
+    if not fs then return end
+    local flags = GetBrezOutline()
+    if EllesmereUI and EllesmereUI.PrimeFontShadow then
+        EllesmereUI.PrimeFontShadow(fs, flags == "")
+    end
+    fs:SetFont(GetBrezFont(), size, flags)
+end
+
+-- Icon-mode duration / count texts: fixed module font + forced crisp
+-- outline (slug-gated), untouched by the Font / Font Outline settings.
+local function SetBrezIconFont(fs, size)
+    if not fs then return end
+    fs:SetFont((EllesmereUI and EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT, size, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
+end
 
 -------------------------------------------------------------------------------
 --  Shape application
@@ -113,12 +169,12 @@ local function ApplyShape()
 
     -- Duration text (centered) and count text (bottom-right) -- positioned for
     -- every shape since the early-return below would otherwise skip them.
-    durationFS:SetFont((EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT, p.durationSize or 12, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
+    SetBrezIconFont(durationFS, p.durationSize or 12)
     durationFS:ClearAllPoints()
     durationFS:SetPoint("CENTER", frame, "CENTER",
         p.durationOffsetX or 0, p.durationOffsetY or 0)
 
-    countFS:SetFont((EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT, p.countSize or 11, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
+    SetBrezIconFont(countFS, p.countSize or 11)
     countFS:ClearAllPoints()
     countFS:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT",
         -2 + (p.countOffsetX or 0), 2 + (p.countOffsetY or 0))
@@ -217,6 +273,59 @@ local function ApplyShape()
         borderTex:Hide()
     end
 
+end
+
+-------------------------------------------------------------------------------
+--  Text display -- "2 | 4:14" (charges, then time until the next charge).
+--  Alternative to the icon, toggled via displayMode; shares the same frame,
+--  position, visibility, and unlock element.
+-------------------------------------------------------------------------------
+local _cntPfx, _timPfx = "|cffffffff", "|cffffffff"
+local _txtCount, _txtTime, _txtZero
+
+local function _colorPrefix(c)
+    local r = math.floor(((c and c.r) or 1) * 255 + 0.5)
+    local g = math.floor(((c and c.g) or 1) * 255 + 0.5)
+    local b = math.floor(((c and c.b) or 1) * 255 + 0.5)
+    return string.format("|cff%02x%02x%02x", r, g, b)
+end
+
+-- Compose the line only when a part actually changed (once per second while
+-- recharging). The separator pipe is escaped as || for the renderer; the
+-- count goes red at 0 charges, matching the icon display's count text.
+local function _setTextDisplay(countStr, timeStr, isZero)
+    if not textFS then return end
+    if countStr == _txtCount and timeStr == _txtTime and isZero == _txtZero then return end
+    _txtCount, _txtTime, _txtZero = countStr, timeStr, isZero
+    local cpfx = isZero and "|cffff3333" or _cntPfx
+    if timeStr ~= "" then
+        textFS:SetFormattedText("%s%s|r |cffa6a6a6|||r %s%s|r", cpfx, countStr, _timPfx, timeStr)
+    else
+        textFS:SetFormattedText("%s%s|r", cpfx, countStr)
+    end
+end
+
+-- Font, colors, and the frame's nominal box (read by the unlock mover).
+-- Runs on settings changes only. While hidden the measurement uses a
+-- placeholder string; live polling overwrites it the moment the tracker
+-- shows (UpdateVisibility polls immediately on Show).
+local function ApplyText()
+    local p = P()
+    if not p or not textFS then return end
+    _cntPfx = _colorPrefix(p.textCountColor)
+    _timPfx = _colorPrefix(p.textTimerColor)
+    SetBrezFont(textFS, p.textSize or 14)
+    -- Drop the dedupe caches so the next compose re-renders with new colors
+    -- (the ticker repaints within half a second while shown).
+    _txtCount, _txtTime, _txtZero = nil, nil, nil
+    if not frame:IsShown() then
+        _setTextDisplay("2", "4:14", false)
+    end
+    local w = textFS:GetStringWidth() or 0
+    local h = textFS:GetStringHeight() or 0
+    if w < 1 then w = (p.textSize or 14) * 4 end
+    if h < 1 then h = p.textSize or 14 end
+    frame:SetSize(math.ceil(w) + 4, math.ceil(h) + 2)
 end
 
 -------------------------------------------------------------------------------
@@ -321,23 +430,38 @@ end
 
 local function PollCharges()
     if not frame then return end
+    local textMode = IsTextMode()
     local info = C_Spell and C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(BREZ_SPELL_ID)
     if not info or not info.maxCharges then
-        _setCount("", false); _setDur("")
+        if textMode then
+            _setTextDisplay("", "", false)
+        else
+            _setCount("", false); _setDur("")
+        end
         return
     end
     local charges, maxCharges = info.currentCharges, info.maxCharges
-    _setCount(tostring(charges), charges <= 0)
+    local start, dur = info.cooldownStartTime, info.cooldownDuration
+    local recharging = charges < maxCharges and start and dur and dur > 0
+    local timeText = ""
+    if recharging then
+        local remaining = (start + dur) - GetTime()
+        timeText = remaining > 0 and FormatTime(remaining) or ""
+    end
 
-    if charges < maxCharges and info.cooldownStartTime and info.cooldownDuration and info.cooldownDuration > 0 then
-        local remaining = (info.cooldownStartTime + info.cooldownDuration) - GetTime()
-        _setDur(remaining > 0 and FormatTime(remaining) or "")
-        if cooldownFrame then
-            cooldownFrame:SetCooldown(info.cooldownStartTime, info.cooldownDuration)
+    if textMode then
+        _setTextDisplay(tostring(charges), timeText, charges <= 0)
+        return
+    end
+
+    _setCount(tostring(charges), charges <= 0)
+    _setDur(timeText)
+    if cooldownFrame then
+        if recharging then
+            cooldownFrame:SetCooldown(start, dur)
+        else
+            cooldownFrame:Clear()
         end
-    else
-        _setDur("")
-        if cooldownFrame then cooldownFrame:Clear() end
     end
 end
 
@@ -387,12 +511,22 @@ local function CreateBrezFrame()
     cooldownFrame:SetFrameLevel(frame:GetFrameLevel() + 1)
 
     durationFS = cooldownFrame:CreateFontString(nil, "OVERLAY")
-    durationFS:SetFont((EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT, 14, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
+    SetBrezIconFont(durationFS, 14)
     durationFS:SetText("")
 
     countFS = cooldownFrame:CreateFontString(nil, "OVERLAY")
-    countFS:SetFont((EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT, 12, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
+    SetBrezIconFont(countFS, 12)
     countFS:SetText("")
+
+    -- Text display ("2 | 4:14"): centered on the frame, shown instead of the
+    -- icon elements when displayMode is "text". A default font is required
+    -- before any SetText ("Font not set" error otherwise); ApplyText re-applies
+    -- the configured size on top of it.
+    textFS = frame:CreateFontString(nil, "OVERLAY")
+    SetBrezFont(textFS, 14)
+    textFS:SetPoint("CENTER", frame, "CENTER", 0, 0)
+    textFS:SetText("")
+    textFS:Hide()
 
     return frame
 end
@@ -404,7 +538,22 @@ local _syncEventRegistration  -- defined in the event section below
 local function Apply()
     if not addon.db then return end
     if not frame then CreateBrezFrame() end
-    ApplyShape()
+    if IsTextMode() then
+        -- Text display: hide every icon element (duration/count texts are
+        -- children of the cooldown frame, so they hide with it).
+        iconTex:Hide()
+        borderTex:Hide()
+        if cooldownFrame then cooldownFrame:Clear(); cooldownFrame:Hide() end
+        local PP = EllesmereUI and EllesmereUI.PP
+        if PP and PP.GetBorders and PP.GetBorders(frame) then PP.HideBorder(frame) end
+        textFS:Show()
+        ApplyText()
+    else
+        textFS:Hide()
+        iconTex:Show()
+        if cooldownFrame then cooldownFrame:Show() end
+        ApplyShape()
+    end
     ApplyPosition()
     _syncEventRegistration()
     UpdateVisibility()
@@ -507,14 +656,25 @@ local function RegisterUnlock()
             end,
             getSize = function()
                 local p = P()
+                if p and p.displayMode == "text" then
+                    -- Text display: the frame is sized to the measured text
+                    -- box by ApplyText, so report that instead of iconSize.
+                    if not frame then CreateBrezFrame() end
+                    local w, h = frame:GetWidth(), frame:GetHeight()
+                    if w and w > 0 then return w, h end
+                end
                 local s = (p and p.iconSize) or 40
                 return s, s
             end,
             linkedDimensions = true,  -- always square; one slider drives both
             setWidth = function(_, w)
                 local p = P(); if not p then return end
-                local PPb = EllesmereUI and EllesmereUI.PP
-                p.iconSize = math.max(16, PPb and PPb.Snap(w) or math.floor(w + 0.5))
+                if p.displayMode == "text" then
+                    p.textSize = math.max(8, math.min(40, math.floor(w + 0.5)))
+                else
+                    local PPb = EllesmereUI and EllesmereUI.PP
+                    p.iconSize = math.max(16, PPb and PPb.Snap(w) or math.floor(w + 0.5))
+                end
                 Apply()
                 if EllesmereUI._unlockActive and EllesmereUI.RepositionBarToMover then
                     EllesmereUI.RepositionBarToMover("EUI_BattleRes")
@@ -522,8 +682,12 @@ local function RegisterUnlock()
             end,
             setHeight = function(_, h)
                 local p = P(); if not p then return end
-                local PPb = EllesmereUI and EllesmereUI.PP
-                p.iconSize = math.max(16, PPb and PPb.Snap(h) or math.floor(h + 0.5))
+                if p.displayMode == "text" then
+                    p.textSize = math.max(8, math.min(40, math.floor(h + 0.5)))
+                else
+                    local PPb = EllesmereUI and EllesmereUI.PP
+                    p.iconSize = math.max(16, PPb and PPb.Snap(h) or math.floor(h + 0.5))
+                end
                 Apply()
                 if EllesmereUI._unlockActive and EllesmereUI.RepositionBarToMover then
                     EllesmereUI.RepositionBarToMover("EUI_BattleRes")

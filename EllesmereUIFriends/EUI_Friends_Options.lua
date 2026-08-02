@@ -403,6 +403,7 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI:InvalidatePageCache()
             if _G._EFR_ApplyFriends then _G._EFR_ApplyFriends() end
             if _G._EFR_ProcessFriendButtons then _G._EFR_ProcessFriendButtons() end
+            if _G._EFR_RepaintTiles then _G._EFR_RepaintTiles() end
         end,
     })
 

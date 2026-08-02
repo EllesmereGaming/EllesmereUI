@@ -118,6 +118,66 @@ local ResolveCastSpells
 local PresetOnCD, ApplyCdState, RestoreAllCdState, EnsureCdStateTicker, EvalCdStateNow
 
 -- ---------------------------------------------------------------------------
+--  Icon identity: slot key <-> equipped item key
+-- ---------------------------------------------------------------------------
+-- The same icon can be named by two different tokens. An equipped trinket is
+-- -itemID in the settings store (ResolveCustomActiveKey maps a slot frame to
+-- the equipped item so each item tracks separately) and -13/-14 on the slot
+-- frame itself. Which token a RULE ends up with depends on whether equipment
+-- data was readable at re-arm -- and at login it is not: GetInventoryItemID
+-- returns nil, the equipped-trinket skip in Rearm does not fire, and the rule
+-- is keyed -itemID while the frame that renders moments later carries -13.
+-- Nothing reconciled them, so the rule sat armed against an icon that did not
+-- exist for the rest of the session; any settings touch re-armed with
+-- equipment present and it started working, which is the "dead until I open
+-- the setting again" report.
+--
+-- Comparing through this map fixes every ordering variant at once, because it
+-- resolves at MATCH time (frames render long after equipment is available)
+-- rather than at arm time. Kept as a table so the hot loops below cost a
+-- lookup rather than an API call per frame per rule.
+local _slotItemKey = {}
+
+-- EVERY equipment slot, not just the trinkets. ns.SlotIDFromKey accepts any
+-- key in ns.INV_SLOT_NAMES (18 slots), ResolveCustomActiveKey resolves any of
+-- them to the equipped item, and the per-spell menu chains per-item settings
+-- over any of them -- so an on-use head piece or weapon has the identical
+-- two-token problem a trinket does. Driving off the same table the rest of the
+-- module uses keeps the two from drifting apart again.
+local function RefreshSlotItemKeys()
+    wipe(_slotItemKey)
+    local slots = ns.INV_SLOT_NAMES
+    if not slots then return end
+    for slot in pairs(slots) do
+        local id = GetInventoryItemID and GetInventoryItemID("player", slot)
+        if id then _slotItemKey[-slot] = -id end
+    end
+end
+
+-- Refreshed lazily while empty (covers the login window, where re-arm ran
+-- before equipment was readable) and on every equipment change.
+--
+-- The throttle matters because an EMPTY map re-reads on EVERY call, and the
+-- callers are hot: EvalCdStateNow runs on a 0.12s ticker and asks once per
+-- icon per rule. Unthrottled that is a wipe plus a slot sweep hundreds of
+-- times a second for as long as the map stays empty. It only ever engages
+-- while empty, so a character wearing anything at all never reaches it --
+-- which is also why widening the sweep above shrinks this window to the brief
+-- login gap it was written for.
+local _slotKeyNextTry = 0
+local function KeyMatches(ruleKey, frameKey)
+    if ruleKey == frameKey then return true end
+    if not next(_slotItemKey) then
+        local now = GetTime()
+        if now >= _slotKeyNextTry then
+            _slotKeyNextTry = now + 0.2
+            RefreshSlotItemKeys()
+        end
+    end
+    return _slotItemKey[frameKey] == ruleKey or _slotItemKey[ruleKey] == frameKey
+end
+
+-- ---------------------------------------------------------------------------
 --  Overlay icon: one per underlying icon frame, pooled. Toggled by alpha only.
 -- ---------------------------------------------------------------------------
 GetOverlay = function(iconFrame)
@@ -331,7 +391,7 @@ ApplyRule = function(rule, win)
         for i = 1, #list do
             local f = list[i]
             local fc = f and FCt[f]
-            if fc and fc.spellID == sid and (not rule.barKey or fc.barKey == rule.barKey) then
+            if fc and KeyMatches(sid, fc.spellID) and (not rule.barKey or fc.barKey == rule.barKey) then
                 ApplyToFrame(f, rule, win)
                 if ns._fakeActiveDebug then
                     print(("|cff0cd29fEUI FakeActive|r %s sid=%s"):format(
@@ -460,7 +520,7 @@ if EllesmereUI and EllesmereUI.IS_121 then
                     for i = 1, #list do
                         local f = list[i]
                         local fc = f and FCt[f]
-                        if fc and fc.spellID == rule.spellID then
+                        if fc and KeyMatches(rule.spellID, fc.spellID) then
                             local barKey = fc.barKey
                             bd = barKey and ns.barDataByKey and ns.barDataByKey[barKey]
                             ss = rule.cas
@@ -555,7 +615,6 @@ if EllesmereUI and EllesmereUI.IS_121 then
                 -- inside the engine).
                 local showCD = bd and bd.showCooldownText
                 if ss and ss.showCooldownText ~= nil then showCD = ss.showCooldownText end
-                if bd and bd.onlyShowNumbers then showCD = true end
                 if showCD then
                     -- ARMORED: an uncaught error inside initializeFrame
                     -- aborts the engine's whole CreateFrameBatch and kills
@@ -585,7 +644,8 @@ if EllesmereUI and EllesmereUI.IS_121 then
                             (ss and ss.cooldownTextR) or (bd and bd.cooldownTextR) or 1,
                             (ss and ss.cooldownTextG) or (bd and bd.cooldownTextG) or 1,
                             (ss and ss.cooldownTextB) or (bd and bd.cooldownTextB) or 1)
-                        fs:SetPoint("CENTER", cd, "CENTER",
+                        ns.AnchorCooldownText(fs, cd,
+                            (ss and ss.cooldownTextPosition) or (bd and bd.cooldownTextPosition) or "center",
                             (ss and ss.cooldownTextX) or (bd and bd.cooldownTextX) or 0,
                             (ss and ss.cooldownTextY) or (bd and bd.cooldownTextY) or 0)
                         local AK2 = EllesmereUI.AuraKit
@@ -684,7 +744,7 @@ if EllesmereUI and EllesmereUI.IS_121 then
     -- working/dark flip-flop across identical reloads). World entry re-scans
     -- with staggered retries; Rescan is idempotent and armed-guarded, so
     -- quiet sessions cost three no-op walks of a one-entry table.
-    local pew = CreateFrame("Frame")
+    local pew = ns.TakeShell()
     pew:RegisterEvent("PLAYER_ENTERING_WORLD")
     pew:SetScript("OnEvent", function()
         FA121.Rescan()
@@ -806,8 +866,16 @@ OnEvent = function(self, event, unit, _, spellID)
         end
         for i = 1, #_customRules do EvalCustom(_customRules[i]) end
     elseif event == "PLAYER_EQUIPMENT_CHANGED" then
-        -- A trinket swap re-points a slot's settings to a different item; re-arm
-        -- so the slot picks up the newly-equipped trinket's rule (or none).
+        -- The key map covers every equipment slot, so ANY swap can stale it --
+        -- refresh unconditionally. It is a wipe plus one lookup per slot on an
+        -- event that fires only when gear actually changes.
+        RefreshSlotItemKeys()
+        -- Re-arm stays TRINKET-ONLY on purpose. A trinket swap re-points a
+        -- slot's settings to a different item, so the slot must pick up the
+        -- newly-equipped trinket's rule (or none). Re-arming on every gear
+        -- change would tear down and rebuild the whole rule set mid-gearing
+        -- for no benefit -- the refreshed map above already keeps matching
+        -- correct for the other slots.
         if unit == 13 or unit == 14 then
             ns.FakeActive_Rearm()
         end
@@ -1110,7 +1178,7 @@ EvalCdStateNow = function()
                 for i = 1, #list do
                     local f = list[i]
                     local fc = f and FCt[f]
-                    if fc and fc.spellID == sid then
+                    if fc and KeyMatches(sid, fc.spellID) then
                         hasIcon = true
                         if eff then ApplyCdState(f, fc, cas, eff, onCD, ready) end
                     end
@@ -1256,6 +1324,9 @@ function ns.FakeActive_Rearm()
     RestoreAllCdState()  -- un-hide / un-glow icons from the outgoing rule set
     CloseAll()
     wipe(_rules); wipe(_auraRules); wipe(_customRules); wipe(_castMap); wipe(_cdStateRules)
+    -- Re-read rather than wipe: a re-arm during the login window would leave
+    -- the map empty and the lazy refresh in KeyMatches would just rebuild it.
+    RefreshSlotItemKeys()
     _needAura, _needCast, _armed, _hasUserRules = false, false, false, false
     if FA121 then FA121.BeginSweep() end
 
@@ -1298,6 +1369,10 @@ function ns.FakeActive_Rearm()
             if eff == false then eff = nil end
             local hasCd = eff ~= nil
             local hasSound = cas.cdReadySoundKey ~= nil and cas.cdReadySoundKey ~= "none"
+            -- Keep Colored (On CD) needs no rule of its own -- preset frames read
+            -- it directly (PresetKeepsColor). Gate flipped BEFORE the early return:
+            -- it is valid on a spell with no overlay, cd-state effect or sound.
+            if cas.noDesatOnCD then ns._cdmAnyNoDesatOnCD = true end
             if not (hasDur or hasCd or hasSound) then return end
             local rule = { spellID = matchKey, srcKey = srcKey, cas = cas, user = true }
             _rules[#_rules + 1] = rule
@@ -1379,11 +1454,77 @@ ns.FullCDMRebuild = function(reason)
     ns.FakeActive_Rearm()
 end
 
+-- Re-arm once after world entry.
+--
+-- A custom active state on an EQUIPPED TRINKET is stored under the item
+-- (-itemID), while the live icon carries the SLOT key (-13 / -14). The two are
+-- bridged in the slot pass of FakeActive_Rearm, which reads
+-- GetInventoryItemID -- so a re-arm that runs before the client can answer that
+-- builds no slot rule, and the icon it was meant to drive matches nothing.
+--
+-- The login re-arm rides FullCDMRebuild, which is early enough for that to
+-- happen, and nothing re-arms afterwards: PLAYER_EQUIPMENT_CHANGED is only
+-- registered once user rules exist and in any case needs a real gear swap. So
+-- the state stayed dormant for the whole session, and the only thing that
+-- revived it was opening the options, which re-arms as a side effect. That is
+-- exactly the reported shape: "works until you log out, then you have to choose
+-- it again".
+--
+-- Once per session, deferred, and only for the FIRST world entry: re-arming is
+-- a teardown and rebuild of every rule, so doing it on later zone-ins could cut
+-- short an overlay that is currently running. Nothing is running this early.
+-- Re-arm is idempotent, so this costs one rebuild of a small rule set.
+do
+    local rearmed = false
+    local f = ns.TakeShell()
+    f:RegisterEvent("PLAYER_ENTERING_WORLD")
+    f:SetScript("OnEvent", function(self)
+        if rearmed then return end
+        rearmed = true
+        self:UnregisterEvent("PLAYER_ENTERING_WORLD")
+        if C_Timer then
+            C_Timer.After(2, function()
+                if ns.FakeActive_Rearm then ns.FakeActive_Rearm() end
+            end)
+        end
+    end)
+end
+
 -- Debug toggle: /run EllesmereUI.FakeActiveDebug()
 if EllesmereUI then
     function EllesmereUI.FakeActiveDebug()
         ns._fakeActiveDebug = not ns._fakeActiveDebug
         print(("|cff0cd29fEUI FakeActive|r debug %s | armed=%s rules=%d"):format(
             ns._fakeActiveDebug and "ON" or "off", tostring(_armed), #_rules))
+
+        -- Per-rule dump. "armed with N rules" reads true in every broken report,
+        -- so on its own it separates nothing. What matters per rule is whether
+        -- its trigger resolved to a cast spell at all, and whether any live icon
+        -- carries its key -- the two independent ways a rule goes inert.
+        local FCt, icons = ns._ecmeFC, ns.cdmBarIcons
+        for i = 1, #_rules do
+            local rule = _rules[i]
+            local triggers = {}
+            for sp, list in pairs(_castMap) do
+                for j = 1, #list do
+                    if list[j] == rule then triggers[#triggers + 1] = sp end
+                end
+            end
+            local matched = 0
+            if FCt and icons then
+                for _, list in pairs(icons) do
+                    for j = 1, #list do
+                        local f = list[j]
+                        local fc = f and FCt[f]
+                        if fc and KeyMatches(rule.spellID, fc.spellID) then matched = matched + 1 end
+                    end
+                end
+            end
+            print(("  rule%d key=%s src=%s dur=%s trigger=%s casts=[%s] frames=%d%s"):format(
+                i, tostring(rule.spellID), tostring(rule.srcKey), tostring(rule.duration),
+                tostring(rule.trigger),
+                (#triggers > 0) and table.concat(triggers, ",") or "|cffff4444NONE|r",
+                matched, (matched == 0) and " |cffff4444<- no icon|r" or ""))
+        end
     end
 end

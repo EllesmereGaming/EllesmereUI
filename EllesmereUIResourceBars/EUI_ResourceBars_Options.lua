@@ -3017,8 +3017,14 @@ initFrame:SetScript("OnEvent", function(self)
         -- via Unlock Mode) is a global relationship that greys the slider in BOTH
         -- modes -- you can't per-spec override a matched dimension. Only the
         -- "apply to all bars" sync icons below are Simple-only.
+        -- Orientation-aware: on a vertical bar the drawn axes are swapped, so
+        -- the slider labelled Height controls what the match calls Width.
+        local function healthOri()
+            local c, p = cfg(), DB()
+            return (c and c.orientation) or (p and p.general and p.general.orientation)
+        end
         local function guard(propKey)
-            return EllesmereUI.MatchGuard("ERB_Health", propKey, healthOff, "Health Bar")
+            return ns.OrientedMatchGuard("ERB_Health", propKey, healthOri, healthOff, "Health Bar")
         end
         local hhDis, hhTip, hhRaw = guard("Height")
         local hwDis, hwTip, hwRaw = guard("Width")
@@ -3792,8 +3798,13 @@ initFrame:SetScript("OnEvent", function(self)
         -- toggle's DependentSetValue forces the rebuild on flips).
         if not powerOff() then
         -- Row 2: Height | Width (MatchGuard both modes; sync icons Simple-only).
+        -- Orientation-aware, as on the health bar above.
+        local function powerOri()
+            local c, p = cfg(), DB()
+            return (c and c.orientation) or (p and p.general and p.general.orientation)
+        end
         local function guard(propKey)
-            return EllesmereUI.MatchGuard("ERB_Power", propKey, powerOff, powerDisTip)
+            return ns.OrientedMatchGuard("ERB_Power", propKey, powerOri, powerOff, powerDisTip)
         end
         local phDis, phTip, phRaw = guard("Height")
         local pwDis, pwTip, pwRaw = guard("Width")
@@ -4704,8 +4715,16 @@ initFrame:SetScript("OnEvent", function(self)
         local classColorRow
         if not classOff() then
         -- Row 2: Height | Width (MatchGuard both modes; sync icons Simple-only).
+        -- Orientation-aware. This bar has its OWN orientation key and its
+        -- renderer counts anything that is not HORIZONTAL as vertical, so the
+        -- value is normalised before the shared helper sees it.
+        local function classOri()
+            local c = cfg()
+            local o = (c and c.pipOrientation) or "HORIZONTAL"
+            return o ~= "HORIZONTAL" and "VERTICAL_UP" or "HORIZONTAL"
+        end
         local function classGuard(propKey)
-            return EllesmereUI.MatchGuard("ERB_ClassResource", propKey, classOff, "Class Resource")
+            return ns.OrientedMatchGuard("ERB_ClassResource", propKey, classOri, classOff, "Class Resource")
         end
         local chDis, chTip, chRaw = classGuard("Height")
         local cwDis, cwTip, cwRaw = classGuard("Width")
@@ -5147,7 +5166,7 @@ initFrame:SetScript("OnEvent", function(self)
         }, { disabled = function() local c = cfg(); return (not c) or (not c.enabled) or c.darkTheme end,
              disabledTooltip = function()
                  local c = cfg()
-                 if c and c.darkTheme then return "This option requires Dark Mode Class Resource to be disabled" end
+                 if c and c.darkTheme then return "This option requires Dark Mode Class Resource to be disabled. Dark Mode colors can be adjusted in Global Settings -> Fonts & Colors." end
                  return "Class Resource"
              end })
         -- Inline cog for Charged Combo Point color (on Fill Color)
@@ -7396,7 +7415,7 @@ initFrame:SetScript("OnEvent", function(self)
                   -- Force a full rebuild so the Background label re-renders.
                   EllesmereUI:RefreshPage(true)
               end },
-            { type = "slider", text = bgLabel, min = 0, max = 100, step = 1,
+            { type = "slider", text = bgLabel, min = 0, max = 100, step = 1, trackWidth = 120,
               getValue = function()
                   local p = DB(); return math.floor(((p and p.health.bgA or 0.75) * 100) + 0.5)
               end,
@@ -7436,10 +7455,11 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(bgUpdateSwatch)
         end
 
-        -- Row 3: Texture | Frame Strata
+        -- Row 3: Texture (+ cog: Blizzard atlas for the class resource) | Frame Strata
         local strataValues = { BACKGROUND = "Background", LOW = "Low", MEDIUM = "Medium", HIGH = "High", DIALOG = "Dialog" }
         local strataOrder = { "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG" }
-        _, h = W:DualRow(parent, y,
+        local texRow
+        texRow, h = W:DualRow(parent, y,
             { type = "dropdown", text = "Texture", values = hbtValues, order = hbtOrder,
               getValue = function()
                   local p = DB(); if not p then return "none" end
@@ -7459,7 +7479,46 @@ initFrame:SetScript("OnEvent", function(self)
                   local p = DB(); if not p then return end
                   p.general.frameStrata = v; SmoothRefresh()
               end }
-        );  y = y - h
+        );
+        -- Cog on Texture: Blizzard atlas fill for the class resource bar
+        do
+            local lrgn = texRow._leftRegion
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Texture Settings",
+                rows = {
+                    { type = "toggle", label = "Blizzard Atlas Class Resource",
+                      tooltip = "Bar-style class resources (Insanity, Maelstrom, Astral Power, etc.) use Blizzard's default player frame bar artwork instead of the texture above.",
+                      get = function()
+                          local p = DB(); return (p and p.secondary.useBlizzardAtlas) or false
+                      end,
+                      set = function(v)
+                          local p = DB(); if not p then return end
+                          p.secondary.useBlizzardAtlas = v
+                          RebuildClass()
+                          if v then
+                              EllesmereUI:ShowConfirmPopup({
+                                  title = "Blizzard Atlas Texture",
+                                  message = "Blizzard's bar artwork is never recolored, so fill color modes and threshold colors will not tint the bar while this is enabled. To keep threshold colors visible, use Recolor Text Instead.",
+                                  confirmText = "Okay",
+                              })
+                          end
+                      end },
+                },
+            })
+            local cogBtn = CreateFrame("Button", nil, lrgn)
+            cogBtn:SetSize(26, 26)
+            cogBtn:SetPoint("RIGHT", lrgn._lastInline or lrgn._control, "LEFT", -8, 0)
+            lrgn._lastInline = cogBtn
+            cogBtn:SetFrameLevel(lrgn:GetFrameLevel() + 5)
+            cogBtn:SetAlpha(0.4)
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+            cogTex:SetAllPoints()
+            cogTex:SetTexture(EllesmereUI.COGS_ICON)
+            cogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
+            cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
+            cogBtn:SetScript("OnClick", function(s) cogShow(s) end)
+        end
+        y = y - h
 
         -- Row 4: Shift Elements if No Resource | Expand Power Bar if No Resource
         local shiftResRow
@@ -8375,6 +8434,20 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(UpdateCogDisIcon)
             UpdateCogDisIcon()
         end
+
+        -- Row 4: Always Show
+        _, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Always Show",
+              tooltip = "Keep the cast bar visible (sitting empty) when you are not casting, instead of hiding it.",
+              disabled = castOff,
+              disabledTooltip = "Player Cast Bar",
+              getValue = function() local p = DB(); return p and p.castBar.alwaysShow end,
+              setValue = function(v)
+                  local p = DB(); if not p then return end
+                  p.castBar.alwaysShow = v; RefreshCast()
+              end },
+            { type = "spacer" }
+        );  y = y - h
 
         _, h = W:Spacer(parent, y, 16);  y = y - h
 
@@ -9466,8 +9539,15 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- Row: Height | Width
-        local ghDis, ghTip, ghRaw = EllesmereUI.MatchGuard("ERB_GCDBar", "Height", gcdOff, "GCD Bar")
-        local gwDis, gwTip, gwRaw = EllesmereUI.MatchGuard("ERB_GCDBar", "Width", gcdOff, "GCD Bar")
+        -- Orientation-aware. This bar's size callbacks have always reported the
+        -- drawn axes, so its sliders were guarded on the wrong one for vertical
+        -- orientations before the other bars were brought in line.
+        local function gcdOri()
+            local p = DB()
+            return p and p.gcdBar and p.gcdBar.orientation
+        end
+        local ghDis, ghTip, ghRaw = ns.OrientedMatchGuard("ERB_GCDBar", "Height", gcdOri, gcdOff, "GCD Bar")
+        local gwDis, gwTip, gwRaw = ns.OrientedMatchGuard("ERB_GCDBar", "Width", gcdOri, gcdOff, "GCD Bar")
         _, h = W:DualRow(parent, y,
             { type = "slider", text = "Height", min = 1, max = 60, step = 1,
               disabled = ghDis, disabledTooltip = ghTip, rawTooltip = ghRaw,

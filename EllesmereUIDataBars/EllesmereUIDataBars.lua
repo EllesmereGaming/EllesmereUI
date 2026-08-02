@@ -13,9 +13,9 @@
 --   * unlock-mode registration (one element per bar, key "EDB_<id>")
 --   * the bar/block CRUD API on `ns` consumed by the options file
 --
--- Block factories (clock, fps, ms, gold, xprep, spec, profession, travel,
--- micromenu, currency, spacer) live in EllesmereUIDataBars_Blocks.lua and
--- attach themselves to ns.BlockFactories.
+-- Block factories (clock, fps, ms, location, coords, gold, xprep, spec,
+-- profession, travel, micromenu, currency, spacer) live in
+-- EllesmereUIDataBars_Blocks.lua and attach themselves to ns.BlockFactories.
 --
 -- API HANDOFF (everything the options file may call; nothing else):
 --   ns.GetProfile() -> profile
@@ -39,6 +39,9 @@
 --   ns.SolveLayout(barCfg, L, measureFn) -> segments (pure)
 --   ns.GetLiveAutoLength(barId, blockId) -> px | nil
 --   ns.BuildCurrencyList() -> values, order
+--   ns.LocationWidthMode(blockSettings) -> "auto" | "manual"
+--   ns.LOC_MAX_WIDTH_DEFAULT               Manual-mode width before one is set
+--   ns.BlockTextDynamic(blockType) -> r, g, b   state-driven Text Color swatch
 --   ns.UpdateAllBarVisibility()
 --   ns.MakePreviewBackdrop(host, themeCfg)
 --   ns.BLOCK_TYPES / ns.BLOCK_DEFAULTS / ns.EDB_VIS_CAPS / ns.EDGE_PAD
@@ -63,6 +66,7 @@ local L = {
     RIGHT_CLICK          = "|cffFFFFFFRight Click:|r",
     SHIFT_MIDDLE_CLICK   = "|cffFFFFFFShift + Middle Click:|r",
     SHIFT_LEFT_CLICK     = "|cffFFFFFFShift + Left Click:|r",
+    CTRL_LEFT_CLICK      = "|cffFFFFFFCtrl + Left Click:|r",
     CTRL_RIGHT_CLICK     = "|cffFFFFFFCtrl + Right Click:|r",
     CTRL_ALT_LEFT_CLICK  = "|cffFFFFFFCtrl + Alt + Left Click:|r",
     YOU_HAVE_MAIL        = "You've Got Mail!",
@@ -76,6 +80,9 @@ local L = {
     FPS                  = "FPS",
     HOME                 = "Home",
     WORLD                = "World",
+    DOWNLOAD             = "Download",
+    UPLOAD               = "Upload",
+    KB_PER_SEC           = "KB/s",
     MEMORY_USAGE         = "Memory Usage",
     REFRESH_STATS        = "Refresh stats / print memory snapshot",
     FORCE_GC             = "Force garbage collection",
@@ -103,6 +110,7 @@ local L = {
     CHANGE_SPEC          = "Change Specialization",
     CHANGE_SPEC_SHORT    = "Change Spec",
     CHANGE_LOOT_SPEC     = "Change Loot Spec",
+    OPEN_TALENTS         = "Open Talents",
     CANNOT_USE_COMBAT    = "Cannot Use While In Combat",
     AUDIO                = "Audio",
     AUDIO_MASTER         = "Master",
@@ -128,6 +136,7 @@ local L = {
     INVITE               = "Invite",
     NO_FRIENDS_ONLINE    = "No friends online",
     NOT_IN_GUILD         = "Not in a guild",
+    TOGGLE_WORLD_MAP     = "Toggle World Map",
 }
 ns.L = L
 
@@ -159,7 +168,6 @@ local defaults = {
     profile = {
         nextBarId  = 0,   -- monotonic bar id counter; only ever incremented
         bars       = {},  -- ordered array of barCfg
-        characters = {},  -- cross-character gold store, keyed "Name-Realm"
     },
 }
 
@@ -170,6 +178,8 @@ ns.BLOCK_TYPES = {
     { key = "clock",      label = "Clock" },
     { key = "fps",        label = "FPS" },
     { key = "ms",         label = "Latency" },
+    { key = "location",   label = "Location" },
+    { key = "coords",     label = "Coordinates" },
     { key = "gold",       label = "Gold" },
     { key = "durability", label = "Durability" },
     { key = "xprep",      label = "XP / Reputation Bar" },
@@ -187,7 +197,12 @@ ns.BLOCK_TYPES = {
 ns.BLOCK_DEFAULTS = {
     clock      = { localTime = true, twentyFour = true, showMail = true, showResting = true, fontSizeClock = nil, fontSizeInfo = nil },
     fps        = {},
-    ms         = { useWorldLatency = false },
+    ms         = { showIcon = false },
+    -- widthMode/maxWidth deliberately unset: "auto" is the resolved default
+    -- (ns.LocationWidthMode) and a nil maxWidth is what marks the width as
+    -- never chosen, which is what the options page pulses about.
+    location   = { showIcon = true, showSubZone = true },
+    coords     = { showIcon = true, precision = 0, hideInInstance = true },
     gold       = { showIcons = true, showBagSpace = false, showSmall = false, coinIcons = false },
     durability = { showIcon = true },
     xprep      = { mode = "auto" },
@@ -2154,6 +2169,26 @@ function ns.ApplyBar(id)
         RegisterBarMouseoverProxy(id)
     end
 
+    -- Bar Strata (cfg.barStrata, cog on the Visibility row). nil = "MEDIUM",
+    -- the value the bar was hardcoded to at creation above, so an unset bar
+    -- renders byte-identically and there is nothing to migrate. Applied on
+    -- EVERY apply rather than only at creation, so a change lands without a
+    -- reload.
+    --
+    -- Setting a frame's strata RE-STACKS its children's levels as well as their
+    -- stratas, so the creation-time levels are re-asserted immediately after:
+    -- the bar at 10, and the border container at bar + 1 (what PP.CreateBorder
+    -- gave it). Slots and block content set no explicit levels and re-stack
+    -- correctly on their own.
+    --
+    -- Combat-safe by position: ApplyBar's protected-bar gate has already
+    -- returned above, so a protected bar never reaches this in lockdown.
+    rec.bar:SetFrameStrata(cfg.barStrata or "MEDIUM")
+    rec.bar:SetFrameLevel(10)
+    if rec.bar._edbBorder then
+        rec.bar._edbBorder:SetFrameLevel(rec.bar:GetFrameLevel() + 1)
+    end
+
     local wasDisabled = not rec.enabled
     rec.enabled = true
     rec.ctx.cfg = cfg
@@ -3046,6 +3081,13 @@ end
 -------------------------------------------------------------------------------
 function WB:OnInitialize()
     self.db = EllesmereUI.Lite.NewDB("EllesmereUIDataBarsDB", defaults)
+    -- The cross-character gold ledger used to live in the profile, which put
+    -- every character's name, realm and balance into shared export strings and
+    -- gave each profile its own separate ledger. It is account data now
+    -- (EllesmereUIDB.dataBarsGold, see GoldStore). Drop the old copy rather
+    -- than migrate it: on anyone who imported a profile it holds the exporter's
+    -- characters, not their own, and the account store refills from live play.
+    self.db.profile.characters = nil
 end
 
 function WB:OnEnable()

@@ -1064,9 +1064,11 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- Cropped icons (mirror the runtime): rectangular height (80% of
             -- width) + matching texcoord trim. Off by default.
-            local debuffCrop = DBVal("debuffCropIcons") or defaults.debuffCropIcons
-            local buffCrop   = DBVal("buffCropIcons")   or defaults.buffCropIcons
-            local ccCrop     = DBVal("ccCropIcons")     or defaults.ccCropIcons
+            -- ns.GetAuraCrop returns the height FACTOR (truthy number) when
+            -- cropped, so the preview follows the Adjust Crop slider exactly.
+            local debuffCrop = ns.GetAuraCrop("debuffs")
+            local buffCrop   = ns.GetAuraCrop("buffs")
+            local ccCrop     = ns.GetAuraCrop("ccs")
             local debuffH = ns.GetAuraCropHeight(debuffCrop, debuffSz)
             local buffH   = ns.GetAuraCropHeight(buffCrop, buffSz)
             local ccH     = ns.GetAuraCropHeight(ccCrop, ccSz)
@@ -1230,6 +1232,8 @@ initFrame:SetScript("OnEvent", function(self)
                 castParts.iconFrame:Hide()
             end
             castParts.spark:SetHeight(castH)
+            -- Show Spark (Cast Color cog): default on; explicit false hides it.
+            castParts.spark:SetShown(DBVal("castBarSparkEnabled") ~= false)
 
             -- Name font + color + position (font size set per-slot below)
             local nameYOff = DBVal("nameYOffset") or defaults.nameYOffset
@@ -1383,7 +1387,7 @@ initFrame:SetScript("OnEvent", function(self)
                 for _, info in ipairs(barSlotInfo) do
                     if info.key ~= nameSlotKey then
                         local el = info.slot
-                        if el ~= "none" and el ~= "enemyName" then
+                        if el ~= "none" and not ns.IsNameElement(el) then
                             usedWidth = usedWidth + ns.EstimateHealthTextWidth(el)
                         end
                     end
@@ -1398,7 +1402,7 @@ initFrame:SetScript("OnEvent", function(self)
             local topYOff = DBVal("textSlotTopYOffset") or 0
             local topFontSz = DBVal("textSlotTopSize") or defaults.textSlotTopSize
             local topC = (DB() and DB().textSlotTopColor) or defaults.textSlotTopColor
-            if slotTop == "enemyName" then
+            if ns.IsNameElement(slotTop) then
                 pvNameSlotKey = "textSlotTop"
                 SetPVFont(nameFS, fontPath, topFontSz, npOutline)
                 nameFS:SetParent(topTextFrame)
@@ -1423,7 +1427,7 @@ initFrame:SetScript("OnEvent", function(self)
             local rightYOff = DBVal("textSlotRightYOffset") or 0
             local rightFontSz = DBVal("textSlotRightSize") or defaults.textSlotRightSize
             local rightC = (DB() and DB().textSlotRightColor) or defaults.textSlotRightColor
-            if slotRight == "enemyName" then
+            if ns.IsNameElement(slotRight) then
                 PlaceNameInBar("RIGHT", "RIGHT", -2, "RIGHT", rightXOff, rightYOff, rightFontSz, rightC.r, rightC.g, rightC.b, "textSlotRight")
             else
                 PlaceHealthInBar(slotRight, "RIGHT", "RIGHT", -2 + rightXOff, rightYOff, rightFontSz, rightC.r, rightC.g, rightC.b, "textSlotRight")
@@ -1434,7 +1438,7 @@ initFrame:SetScript("OnEvent", function(self)
             local leftYOff = DBVal("textSlotLeftYOffset") or 0
             local leftFontSz = DBVal("textSlotLeftSize") or defaults.textSlotLeftSize
             local leftC = (DB() and DB().textSlotLeftColor) or defaults.textSlotLeftColor
-            if slotLeft == "enemyName" then
+            if ns.IsNameElement(slotLeft) then
                 PlaceNameInBar("LEFT", "LEFT", 4, "LEFT", leftXOff, leftYOff, leftFontSz, leftC.r, leftC.g, leftC.b, "textSlotLeft")
             else
                 PlaceHealthInBar(slotLeft, "LEFT", "LEFT", 4 + leftXOff, leftYOff, leftFontSz, leftC.r, leftC.g, leftC.b, "textSlotLeft")
@@ -1445,11 +1449,23 @@ initFrame:SetScript("OnEvent", function(self)
             local centerYOff = DBVal("textSlotCenterYOffset") or 0
             local centerFontSz = DBVal("textSlotCenterSize") or defaults.textSlotCenterSize
             local centerC = (DB() and DB().textSlotCenterColor) or defaults.textSlotCenterColor
-            if slotCenter == "enemyName" then
+            if ns.IsNameElement(slotCenter) then
                 PlaceNameInBar("CENTER", "CENTER", 0, "CENTER", centerXOff, centerYOff, centerFontSz, centerC.r, centerC.g, centerC.b, "textSlotCenter")
             else
                 PlaceHealthInBar(slotCenter, "CENTER", "CENTER", centerXOff, centerYOff, centerFontSz, centerC.r, centerC.g, centerC.b, "textSlotCenter")
             end
+            -- Preview sample for whichever name-family variant is slotted (the
+            -- player's level stands in for the mob level). Runs after the slot
+            -- branches so the text re-lays out under the just-applied justify
+            -- (SetJustifyH alone does not re-flow already-rendered text).
+            ns.SetNameElementText(nameFS,
+                (ns.IsNameElement(slotTop) and slotTop)
+                or (ns.IsNameElement(slotRight) and slotRight)
+                or (ns.IsNameElement(slotLeft) and slotLeft)
+                or (ns.IsNameElement(slotCenter) and slotCenter)
+                or "enemyName",
+                EllesmereUI.L("Enemy Name Text"), "player")
+            ns.ReflowFontString(nameFS)
             if DBVal("hideEnemyNameWhileCasting") == true then nameFS:Hide() end
             LayoutPreviewNameRaidMarker()
 
@@ -1575,7 +1591,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if slotName == "top" then
                     -- Anchor auras to whichever FontString is in the top slot
                     local anchor
-                    if slotTop == "enemyName" then
+                    if ns.IsNameElement(slotTop) then
                         anchor = nameFS
                     elseif slotTop == "healthNumber" then
                         anchor = hpNumber
@@ -2379,6 +2395,14 @@ initFrame:SetScript("OnEvent", function(self)
         local function friendlyPlayersOff() return DBVal("showFriendlyPlayers") == false end
         local function friendlyPlateOff() return friendlyPlayersOff() or DBVal("friendlyNameOnly") ~= false end
         local function nameOnlyOff() return friendlyPlayersOff() or DBVal("friendlyNameOnly") == false end
+        -- The title renders INLINE with the name (one string), so it takes the
+        -- name's own font, size and color. Everything below the name -- the
+        -- guild line -- is what the size / color / bracket controls style, so
+        -- they gate on a mode that actually includes the guild.
+        local function subtitleGuildOff()
+            local m = DBVal("friendlyBelowName") or "none"
+            return friendlyPlayersOff() or (m ~= "guild" and m ~= "both")
+        end
 
         local friendlyRow
         _, h = W:DualRow(parent, y,
@@ -2397,8 +2421,12 @@ initFrame:SetScript("OnEvent", function(self)
                         local p = DB()
                         local nameOnly = (p and p.friendlyNameOnly ~= false)
                         local classColor = (p and p.classColorFriendly ~= false)
-                        pcall(SetCVar, "nameplateShowFriendlyPlayers", 1)
-                        pcall(SetCVar, "nameplateShowFriends", 1)
+                        -- Explicit intent: this is one of the two places EUI is
+                        -- allowed to force friendly plates visible (login no
+                        -- longer does). Also clears any follower-dungeon capture.
+                        if ns.ForceFriendlyPlayerCVarsOn then
+                            ns.ForceFriendlyPlayerCVarsOn()
+                        end
                         pcall(SetCVar, "UnitNameFriendlyPlayerName", 1)
                         pcall(SetCVar, "nameplateShowOnlyNameForFriendlyPlayerUnits", nameOnly and 1 or 0)
                         pcall(SetCVar, "ShowClassColorInFriendlyNameplate", classColor and 1 or 0)
@@ -2434,6 +2462,11 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v)
                 DB().friendlyNameOnly = v
                 if SetCVar then pcall(SetCVar, "nameplateShowOnlyNameForFriendlyPlayerUnits", v and 1 or 0) end
+                -- Turning name-only ON means the user wants to SEE friendly
+                -- plates, so this is the second sanctioned force-visible point.
+                if v and ns.ForceFriendlyPlayerCVarsOn then
+                    ns.ForceFriendlyPlayerCVarsOn()
+                end
                 if ns.UpdateFriendlyNameplateSystem then ns.UpdateFriendlyNameplateSystem() end
                 EllesmereUI:RefreshPage()
               end,
@@ -2566,6 +2599,123 @@ initFrame:SetScript("OnEvent", function(self)
             classSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             EllesmereUI.RegisterWidgetRefresh(refreshNameSwatches)
             refreshNameSwatches()
+        end
+
+        ---------------------------------------------------------------
+        --  Subtitle Text: the title renders inline with the name, the guild
+        --  on its own line below. The colour pair styles the guild line
+        --  only -- the inline title is part of the name string and so takes
+        --  the name's own colour.
+        ---------------------------------------------------------------
+        -- Custom / Class pair, house multiSwatch convention: clicking the
+        -- INACTIVE custom swatch only selects custom mode; clicking it again
+        -- opens the picker. The inactive one dims, both grey out together.
+        local function MakeGuildColorSwatches()
+            return {
+                { tooltip = "Custom Color", hasAlpha = false,
+                  getValue = function()
+                      local c = DBVal("friendlyBelowNameColor") or defaults.friendlyBelowNameColor
+                      return c.r, c.g, c.b
+                  end,
+                  setValue = function(r, g, b)
+                      DB().friendlyBelowNameColor = { r = r, g = g, b = b }
+                      if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
+                  end,
+                  onClick = function(self)
+                      if DBVal("friendlyBelowNameClassColor") == true then
+                          DB().friendlyBelowNameClassColor = false
+                          if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
+                          EllesmereUI:RefreshPage()
+                          return
+                      end
+                      if self._eabOrigClick then self._eabOrigClick(self) end
+                  end,
+                  refreshAlpha = function()
+                      if subtitleGuildOff() then return 0.15 end
+                      return (DBVal("friendlyBelowNameClassColor") == true) and 0.3 or 1
+                  end },
+                { tooltip = "Class Color", hasAlpha = false,
+                  getValue = function()
+                      local _, ct = UnitClass("player")
+                      local cc = ct and C_ClassColor and C_ClassColor.GetClassColor(ct)
+                      if cc then return cc.r, cc.g, cc.b end
+                      return 1, 1, 1
+                  end,
+                  setValue = function() end,
+                  onClick = function()
+                      DB().friendlyBelowNameClassColor = true
+                      if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
+                      EllesmereUI:RefreshPage()
+                  end,
+                  refreshAlpha = function()
+                      if subtitleGuildOff() then return 0.15 end
+                      return (DBVal("friendlyBelowNameClassColor") == true) and 1 or 0.3
+                  end },
+            }
+        end
+
+        local subtitleRow
+        subtitleRow, h = W:DualRow(parent, y,
+            { type="dropdown", text="Subtitle Text",
+              tooltip="Show the player's title inline with their name, and/or their guild on a line below it, on friendly nameplates.",
+              disabled=friendlyPlayersOff,
+              disabledTooltip="Show EUI Friendly Player Nameplates",
+              values={ none="None", title="Player Title", guild="Guild Name", both="Title & Guild" },
+              order={ "none", "title", "guild", "both" },
+              getValue=function() return DBVal("friendlyBelowName") or "none" end,
+              setValue=function(v)
+                DB().friendlyBelowName = v
+                if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
+                EllesmereUI:RefreshPage()
+              end },
+            { type="multiSwatch", text="Guild Text Color",
+              disabled=subtitleGuildOff,
+              disabledTooltip=function()
+                  if friendlyPlayersOff() then return "Show EUI Friendly Player Nameplates" end
+                  return "This option requires Subtitle Text to include the Guild Name"
+              end,
+              rawTooltip=function() return not friendlyPlayersOff() end,
+              swatches = MakeGuildColorSwatches() });  y = y - h
+
+        -- Subtitle Text inline cog (guild bracket toggle)
+        do
+            local subCogOwner
+            local _, ShowSubtitlePopup = EllesmereUI.BuildCogPopup({
+                title = "Subtitle Text Settings",
+                rows = {
+                    { type = "toggle", label = "Show <> Around Guild",
+                      get = function() return DBVal("friendlyBelowNameGuildBrackets") ~= false end,
+                      set = function(v)
+                        DB().friendlyBelowNameGuildBrackets = v and true or false
+                        if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
+                      end },
+                },
+            })
+
+            local rgn = subtitleRow._leftRegion
+            local btn = CreateFrame("Button", nil, rgn)
+            btn:SetSize(26, 26)
+            btn:SetPoint("RIGHT", rgn._control, "LEFT", -8, 0)
+            btn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            btn:SetAlpha(subtitleGuildOff() and 0.15 or 0.4)
+            local tex = btn:CreateTexture(nil, "OVERLAY")
+            tex:SetAllPoints(); tex:SetTexture(COGS_ICON)
+            btn:SetScript("OnEnter", function(self)
+                if subtitleGuildOff() then
+                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("This option requires Subtitle Text to include the Guild Name"))
+                else self:SetAlpha(0.7) end
+            end)
+            btn:SetScript("OnLeave", function(self)
+                EllesmereUI.HideWidgetTooltip()
+                if subCogOwner ~= self then self:SetAlpha(subtitleGuildOff() and 0.15 or 0.4) end
+            end)
+            btn:SetScript("OnClick", function(self)
+                if subtitleGuildOff() then return end
+                ShowSubtitlePopup(self)
+            end)
+            EllesmereUI.RegisterWidgetRefresh(function()
+                if subCogOwner ~= btn then btn:SetAlpha(subtitleGuildOff() and 0.15 or 0.4) end
+            end)
         end
 
         local npcRow
@@ -4049,6 +4199,17 @@ initFrame:SetScript("OnEvent", function(self)
             cogBtn:SetAlpha(questObjOff() and 0.15 or 0.4)
         end
 
+        -- Row 4: Execute Pulse Glow | (blank)
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Execute Pulse Glow",
+              tooltip="Pulses a red glow on enemy nameplates below 30% health.",
+              getValue=function() return DBVal("lowHpGlow") == true end,
+              setValue=function(v)
+                DB().lowHpGlow = v
+                ns.RefreshAllSettings()
+              end },
+            { type="label", text="" });  y = y - h
+
         return math.abs(y)
     end
 
@@ -4232,8 +4393,16 @@ initFrame:SetScript("OnEvent", function(self)
             local db = DB()
             if element ~= "none" then
                 for _, key in ipairs(textSlotKeys) do
-                    if key ~= slotKey and (db[key] or defaults[key]) == element then
-                        db[key] = "none"
+                    if key ~= slotKey then
+                        local cur = db[key] or defaults[key]
+                        -- Name-family variants (name / level combos / level) all
+                        -- render through the plate's single name FontString, so
+                        -- slotting any of them evicts whichever family member
+                        -- occupies another slot -- same rule as an exact match.
+                        if cur == element
+                           or (ns.IsNameElement(element) and ns.IsNameElement(cur)) then
+                            db[key] = "none"
+                        end
                     end
                 end
             end
@@ -5186,12 +5355,72 @@ initFrame:SetScript("OnEvent", function(self)
                 pf._cropLabel = cropLabel
                 local cropToggle, _, cropToggleSnap = EllesmereUI.BuildToggleControl(pf, pf:GetFrameLevel() + 5,
                     function() return pf._cropGet and pf._cropGet() or false end,
-                    function(v) if pf._cropSet then pf._cropSet(v) end end,
+                    function(v)
+                        if pf._cropSet then pf._cropSet(v) end
+                        -- The Adjust Crop slider (below) rides this toggle's state.
+                        if pf._cropPctSyncDisabled then pf._cropPctSyncDisabled() end
+                    end,
                     { sizeRatio = 0.8, noAnim = true })
                 cropToggle:SetPoint("RIGHT", pf, "TOPRIGHT", -SIDE_PAD, G_ROW_Y - GROWTH_ROW_H / 2)
                 cropToggle:Hide()
                 pf._cropToggle = cropToggle
                 pf._cropToggleSnap = cropToggleSnap
+
+                -- Optional "Adjust Crop" slider row (own row, directly below
+                -- Cropped Icons; wired via pf._cropPctGet / pf._cropPctSet).
+                -- Per-side trim percentage; 10 is the classic fixed crop.
+                -- Blocked + dimmed while Cropped Icons is off, following the
+                -- standard disabled-inline-control pattern.
+                local cpLabel = MakeFont(pf, 12, nil, 1, 1, 1)
+                cpLabel:SetAlpha(0.6); cpLabel:SetText(EllesmereUI.L("Adjust Crop"))
+                cpLabel:Hide()
+                pf._cropPctLabel = cpLabel
+                local cpHover = CreateFrame("Frame", nil, pf)
+                cpHover:SetFrameLevel(pf:GetFrameLevel() + 10)
+                cpHover:SetAllPoints(cpLabel)
+                cpHover:EnableMouse(true)
+                cpHover:Hide()
+                cpHover:SetScript("OnEnter", function(self)
+                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("How much is trimmed from the icon's top and bottom, as a percentage per side. 10% is the classic cropped look."), { width = 230 })
+                end)
+                cpHover:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                pf._cropPctHover = cpHover
+                -- Narrower track than the standard rows: the "Adjust Crop"
+                -- label is wider than Size/Spacing and would run under a
+                -- full-width track. The right edge stays aligned (the track
+                -- start shifts right by the same amount in the reposition).
+                local cpTrack, cpValBox = BuildSliderCore(pf, SLIDER_W - 26, 4, 12, INPUT_W, SLIDER_H, 11, SL_INPUT_A,
+                    5, 25, 1,
+                    function() return pf._cropPctGet and pf._cropPctGet() or 10 end,
+                    function(v) if pf._cropPctSet then pf._cropPctSet(v) end end, true)
+                cpTrack:Hide(); cpValBox:Hide()
+                pf._cropPctTrack = cpTrack; pf._cropPctValBox = cpValBox
+                -- Blocking overlay for the disabled state (covers track + input).
+                local cpBlock = CreateFrame("Frame", nil, pf)
+                cpBlock:SetFrameLevel(pf:GetFrameLevel() + 20)
+                cpBlock:EnableMouse(true)
+                cpBlock:Hide()
+                cpBlock:SetScript("OnEnter", function(self)
+                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip("Cropped Icons"))
+                end)
+                cpBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                pf._cropPctBlock = cpBlock
+                -- Dim/undim + block per the crop toggle's current value; called
+                -- on every popup show and whenever the crop toggle flips.
+                pf._cropPctSyncDisabled = function()
+                    if not cpTrack:IsShown() then
+                        cpBlock:Hide()
+                        return
+                    end
+                    local on = pf._cropGet and pf._cropGet() and true or false
+                    local a = on and 1 or 0.3
+                    cpTrack:SetAlpha(a); cpValBox:SetAlpha(a)
+                    cpLabel:SetAlpha(on and 0.6 or 0.25)
+                    cpBlock:ClearAllPoints()
+                    cpBlock:SetPoint("TOPLEFT", cpTrack, "TOPLEFT", 0, 4)
+                    cpBlock:SetPoint("BOTTOMRIGHT", cpValBox, "BOTTOMRIGHT", 0, -4)
+                    cpBlock:SetShown(not on)
+                end
 
                 -- Optional "Wrap" toggle row (own row, like Cropped Icons). Used by
                 -- the truncating text elements (enemy name, cast name/target, health
@@ -5282,6 +5511,7 @@ initFrame:SetScript("OnEvent", function(self)
             local hasCrop = opts.cropGet ~= nil
             local hasWrap = opts.wrapGet ~= nil
             local hasRaiseStrata = opts.raiseStrataGet ~= nil
+            local hasCropPct = opts.cropPctGet ~= nil
             if hasSize then
                 -- Rebuild size slider if range changed
                 local sStep = opts.sizeStep or 1
@@ -5398,6 +5628,24 @@ initFrame:SetScript("OnEvent", function(self)
                 cogPopup._cropToggle:Hide()
             end
 
+            -- Show/hide Adjust Crop row (slider, directly below Cropped Icons)
+            if hasCropPct then
+                cogPopup._cropPctGet = opts.cropPctGet
+                cogPopup._cropPctSet = opts.cropPctSet
+                cogPopup._cropPctLabel:Show()
+                cogPopup._cropPctTrack:Show()
+                cogPopup._cropPctValBox:Show()
+                cogPopup._cropPctHover:Show()
+            else
+                cogPopup._cropPctGet = nil
+                cogPopup._cropPctSet = nil
+                cogPopup._cropPctLabel:Hide()
+                cogPopup._cropPctTrack:Hide()
+                cogPopup._cropPctValBox:Hide()
+                cogPopup._cropPctHover:Hide()
+                cogPopup._cropPctBlock:Hide()
+            end
+
             -- Show/hide Wrap row (its own row, like Cropped Icons)
             if hasWrap then
                 cogPopup._wrapGet = opts.wrapGet
@@ -5493,6 +5741,23 @@ initFrame:SetScript("OnEvent", function(self)
                 p._cropLabel:SetPoint("LEFT", p, "TOPLEFT", SPAD, cropY - GRH / 2)
                 p._cropToggle:ClearAllPoints()
                 p._cropToggle:SetPoint("RIGHT", p, "TOPRIGHT", -SPAD, cropY - GRH / 2)
+                -- Adjust Crop sits in the row directly below Cropped Icons; the
+                -- slider anchorRow handles label + track + input box, then the
+                -- disabled sync dims/blocks it per the toggle's current state.
+                if hasCropPct then
+                    -- Manual anchoring instead of anchorRow: the track starts
+                    -- 26px further right (it was built 26px narrower) so the
+                    -- wider "Adjust Crop" label never runs underneath it while
+                    -- the track's right edge stays aligned with the other rows.
+                    local cpy = rowY(#seq + 2 + extraRows)
+                    p._cropPctLabel:ClearAllPoints()
+                    p._cropPctLabel:SetPoint("LEFT", p, "TOPLEFT", SPAD, cpy - SH / 2)
+                    p._cropPctTrack:ClearAllPoints()
+                    p._cropPctTrack:SetPoint("TOPLEFT", p, "TOPLEFT", SLEFT + 26, cpy - 2)
+                    p._cropPctValBox:ClearAllPoints()
+                    p._cropPctValBox:SetPoint("TOPRIGHT", p, "TOPRIGHT", -SPAD, cpy)
+                    if p._cropPctSyncDisabled then p._cropPctSyncDisabled() end
+                end
                 -- Wrap sits in its own row, like Cropped Icons: below the
                 -- Grow/toggle band when present, else after the data rows.
                 -- (No cog uses both Wrap and Cropped Icons, so they never collide.)
@@ -5507,6 +5772,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if hasRaiseStrata then
                     local rsRowIndex = #seq + 1 + extraRows
                     if hasCrop or hasWrap then rsRowIndex = rsRowIndex + 1 end
+                    if hasCropPct then rsRowIndex = rsRowIndex + 1 end
                     local rsY = rowY(rsRowIndex)
                     p._rsLabel:ClearAllPoints()
                     p._rsLabel:SetPoint("LEFT", p, "TOPLEFT", SPAD, rsY - GRH / 2)
@@ -5519,6 +5785,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if hasWidth then
                     local widthRowIndex = #seq + 1 + extraRows
                     if hasCrop or hasWrap then widthRowIndex = widthRowIndex + 1 end
+                    if hasCropPct then widthRowIndex = widthRowIndex + 1 end
                     anchorRow(p._wLabel, p._wTrack, p._wValBox, rowY(widthRowIndex))
                 end
             end
@@ -5548,6 +5815,8 @@ initFrame:SetScript("OnEvent", function(self)
                 if hasToggle then h = h + gap + p._GROWTH_ROW_H end
                 -- Cropped Icons always occupies its own extra row.
                 if hasCrop then h = h + gap + p._GROWTH_ROW_H end
+                -- Adjust Crop (slider) occupies its own extra row below it.
+                if hasCropPct then h = h + gap + rowH end
                 -- Wrap occupies its own extra row.
                 if hasWrap then h = h + gap + p._GROWTH_ROW_H end
                 -- Raise Strata occupies its own extra row.
@@ -6005,6 +6274,12 @@ initFrame:SetScript("OnEvent", function(self)
                 if cropKey then
                     opts.cropGet = function() return DBVal(cropKey) or defaults[cropKey] end
                     opts.cropSet = function(v) DB()[cropKey] = v; RefreshAllSlots(); UpdatePreview() end
+                    -- Adjust Crop: per-side trim percentage for the cropped mode.
+                    local cropPctKey = (element == "debuffs" and "debuffCropPercent")
+                        or (element == "buffs" and "buffCropPercent")
+                        or "ccCropPercent"
+                    opts.cropPctGet = function() return DBVal(cropPctKey) or 10 end
+                    opts.cropPctSet = function(v) DB()[cropPctKey] = v; RefreshAllSlots(); UpdatePreview() end
                 end
                 -- Rare/Quest Indicator: "Show In Instances" lifts the
                 -- open-world-only gates (UpdateClassification render gate +
@@ -6257,6 +6532,9 @@ initFrame:SetScript("OnEvent", function(self)
 
         local textElementValues = {
             enemyName            = "Enemy Name",
+            levelName            = "Level | Name",
+            nameLevel            = "Name | Level",
+            level                = "Level",
             healthPercent        = "Health %",
             healthPercentNoSign  = "Health % (No Sign)",
             healthNumber         = "Health #",
@@ -6266,7 +6544,7 @@ initFrame:SetScript("OnEvent", function(self)
             healthNumPctDash     = "Health # - %",
             none                 = "None",
         }
-        local textElementOrder = { "none", "---", "enemyName", "healthPercent", "healthPercentNoSign", "healthNumber", "healthPctNum", "healthNumPct", "healthPctNumDash", "healthNumPctDash" }
+        local textElementOrder = { "none", "---", "enemyName", "levelName", "nameLevel", "level", "healthPercent", "healthPercentNoSign", "healthNumber", "healthPctNum", "healthNumPct", "healthPctNumDash", "healthNumPctDash" }
 
         local function TextSlotSetValue(slotKey, v)
             SetTextElementAtSlot(slotKey, v)
@@ -6336,11 +6614,12 @@ initFrame:SetScript("OnEvent", function(self)
                     sizeFirst = true,
                 }
                 -- Both name and health text in this slot get Width % + Wrap (on the
-                -- dedicated Wrap row). Enemy name uses the GLOBAL enemyName keys (one
-                -- slot holds the name at a time) and its width % scales the computed
+                -- dedicated Wrap row). Name-family variants (name / level combos /
+                -- level) use the GLOBAL enemyName keys (one slot holds the name
+                -- FontString at a time) and their width % scales the computed
                 -- width. Health text uses PER-SLOT keys, width % is of the health bar
                 -- (default 100 = no clip), and it keeps the "Show % Decimal" toggle.
-                if DBVal(slotKey) == "enemyName" then
+                if ns.IsNameElement(DBVal(slotKey)) then
                     cogOpts.widthGet = function() return DBVal("enemyNameWidthPct") or defaults.enemyNameWidthPct end
                     cogOpts.widthSet = function(v) DB().enemyNameWidthPct = v; ns.RefreshAllSettings(); UpdatePreview() end
                     cogOpts.wrapGet = function() return DBVal("enemyNameWrap") == true end
@@ -6417,7 +6696,7 @@ initFrame:SetScript("OnEvent", function(self)
               disabled=function() return DBVal("textSlotRight") == "none" end,
               disabledTooltip="This option requires a text to be assigned", rawTooltip=true,
               labelOnlyDisabled=true,
-              disabledValues=function(k) if ns.IsComboHealthText(k) and DBVal("textSlotCenter") == "enemyName" then return "Disabled when Enemy Name is centered on the health bar due to overlapping text" end end });  y = y - h
+              disabledValues=function(k) if ns.IsComboHealthText(k) and ns.IsNameElement(DBVal("textSlotCenter")) then return "Disabled when the Name/Level text is centered on the health bar due to overlapping text" end end });  y = y - h
         MakeTextColorSwatch(textRow1, "_leftRegion",  "textSlotTop")
         MakeTextCogIcon(textRow1, "_leftRegion",  "textSlotTop",   "Top Text")
         MakeTextColorSwatch(textRow1, "_rightRegion", "textSlotRight")
@@ -6432,7 +6711,7 @@ initFrame:SetScript("OnEvent", function(self)
               disabled=function() return DBVal("textSlotLeft") == "none" end,
               disabledTooltip="This option requires a text to be assigned", rawTooltip=true,
               labelOnlyDisabled=true,
-              disabledValues=function(k) if ns.IsComboHealthText(k) and DBVal("textSlotCenter") == "enemyName" then return "Disabled when Enemy Name is centered on the health bar due to overlapping text" end end },
+              disabledValues=function(k) if ns.IsComboHealthText(k) and ns.IsNameElement(DBVal("textSlotCenter")) then return "Disabled when the Name/Level text is centered on the health bar due to overlapping text" end end },
             { type="dropdown", text="Center Text", values=textElementValues,
               getValue=function() return DBVal("textSlotCenter") end,
               setValue=function(v) TextSlotSetValue("textSlotCenter", v) end,
@@ -6903,6 +7182,20 @@ initFrame:SetScript("OnEvent", function(self)
                         DB().castBarShieldEnabled = v
                         RefreshAllPlates()
                       end },
+                    { type = "toggle", label = "Show Spark",
+                      tooltip = "Show the bright spark at the leading edge of the cast bar fill.",
+                      get = function()
+                        local db = DB()
+                        if db and db.castBarSparkEnabled ~= nil then return db.castBarSparkEnabled end
+                        return defaults.castBarSparkEnabled ~= false
+                      end,
+                      set = function(v)
+                        DB().castBarSparkEnabled = v
+                        for _, plate in pairs(plates) do
+                            if plate.castSpark then plate.castSpark:SetShown(v ~= false) end
+                        end
+                        UpdatePreview()
+                      end },
                     { type = "toggle", label = "Important Cast Color",
                       tooltip = "Tint the cast bar with the Important colour when the enemy casts a spell the game flags as important. Overrides the Interruptible Cast colour; your interrupt being on cooldown still takes priority.",
                       get = function()
@@ -7033,7 +7326,7 @@ initFrame:SetScript("OnEvent", function(self)
                           end,
                           set = function(r, g, b) DB().importantCastGlowBackgroundColor = { r = r, g = g, b = b }; RefreshAllPlates() end,
                           disabled = function() return DB().importantCastGlowBackground ~= true end,
-                          disabledTooltip = EllesmereUI.DisabledTooltip("Pixel Glow Background") },
+                          disabledTooltip = "Pixel Glow Background" },
                     },
                 })
 
@@ -7375,7 +7668,7 @@ initFrame:SetScript("OnEvent", function(self)
                             UpdatePreview()
                           end,
                           disabled=function() return not ns.GetTargetGlowBorderSize() end,
-                          disabledTooltip=EllesmereUI.DisabledTooltip("Border Size Target Effect") },
+                          disabledTooltip="Border Size Target Effect" },
                     },
                 })
                 local highlightCogBtn = CreateFrame("Button", nil, leftRgn)
@@ -7743,7 +8036,6 @@ initFrame:SetScript("OnEvent", function(self)
                 title = "Target Texture",
                 rows = {
                     { type="slider", label="Opacity", min=5, max=100, step=1,
-                      disabled=isTargetNoTint,
                       get=function() return math.floor(((DBVal("targetOverlayAlpha") or defaults.targetOverlayAlpha) * 100) + 0.5) end,
                       set=function(v)
                         DB().targetOverlayAlpha = v / 100
@@ -7751,7 +8043,6 @@ initFrame:SetScript("OnEvent", function(self)
                         if targetPrev and targetPrev.UpdateOverlay then targetPrev.UpdateOverlay() end
                       end },
                     { type="toggle", label="Full alpha on empty part of bar",
-                      disabled=isTargetNoTint,
                       get=function()
                         local v = DBVal("targetOverlayFullBgAlpha")
                         if v == nil then return defaults.targetOverlayFullBgAlpha end
@@ -7763,7 +8054,7 @@ initFrame:SetScript("OnEvent", function(self)
                         if targetPrev and targetPrev.UpdateOverlay then targetPrev.UpdateOverlay() end
                       end },
                     { type="toggle", label="Don't tint (keep bar's own color)",
-                      tooltip="Applies this pattern as the health bar's own fill texture instead of a colored overlay on top -- the bar keeps its normal reaction (or custom target) color.",
+                      tooltip="Tints the pattern with the bar's current color instead of the custom overlay color.",
                       get=isTargetNoTint,
                       set=function(v)
                         DB().targetOverlayNoTint = v
@@ -7827,14 +8118,12 @@ initFrame:SetScript("OnEvent", function(self)
                 title = "Focus Texture",
                 rows = {
                     { type="slider", label="Opacity", min=5, max=100, step=1,
-                      disabled=isFocusNoTint,
                       get=function() return math.floor(((DBVal("focusOverlayAlpha") or defaults.focusOverlayAlpha) * 100) + 0.5) end,
                       set=function(v)
                         DB().focusOverlayAlpha = v / 100
                         RefreshFocusPreview()
                       end },
                     { type="toggle", label="Full alpha on empty part of bar",
-                      disabled=isFocusNoTint,
                       get=function()
                         local v = DBVal("focusOverlayFullBgAlpha")
                         if v == nil then return defaults.focusOverlayFullBgAlpha end
@@ -7845,7 +8134,7 @@ initFrame:SetScript("OnEvent", function(self)
                         RefreshFocusPreview()
                       end },
                     { type="toggle", label="Don't tint (keep bar's own color)",
-                      tooltip="Applies this pattern as the health bar's own fill texture instead of a colored overlay on top -- the bar keeps its normal reaction (or custom focus) color.",
+                      tooltip="Tints the pattern with the bar's current color instead of the custom overlay color.",
                       get=isFocusNoTint,
                       set=function(v)
                         DB().focusOverlayNoTint = v
@@ -8784,7 +9073,15 @@ initFrame:SetScript("OnEvent", function(self)
             ccIcon       = function() return ResolveCoreMapping("ccs") end,
             raidMarker   = function() return ResolveCoreMapping("raidmarker") end,
             classIcon    = function() return ResolveCoreMapping("classification") end,
-            enemyName    = function() return ResolveTextMapping("enemyName") end,
+            enemyName    = function()
+                -- The name FontString renders whichever name-family variant is
+                -- slotted; resolve the row for any of them.
+                local slot = FindTextSlotForElement("enemyName") or FindTextSlotForElement("levelName") or FindTextSlotForElement("nameLevel") or FindTextSlotForElement("level")
+                if not slot then return { section = coreTextHeader, target = textRow1 } end
+                local info = textSlotToRow[slot]
+                if not info then return { section = coreTextHeader, target = textRow1 } end
+                return { section = coreTextHeader, target = info.row, slotSide = (info.side == "_leftRegion") and "left" or "right" }
+            end,
             healthText   = function()
                 local slot = FindTextSlotForElement("healthPercent") or FindTextSlotForElement("healthPercentNoSign") or FindTextSlotForElement("healthNumber") or FindTextSlotForElement("healthPctNum") or FindTextSlotForElement("healthNumPct") or FindTextSlotForElement("healthPctNumDash") or FindTextSlotForElement("healthNumPctDash")
                 if not slot then return { section = coreTextHeader, target = textRow1 } end
@@ -9290,7 +9587,7 @@ initFrame:SetScript("OnEvent", function(self)
                 -- Use the largest text slot size (capped at 13 for mini bars)
                 for _, sk in ipairs({"textSlotRight", "textSlotLeft", "textSlotCenter"}) do
                     local el = DBVal(sk) or defaults[sk]
-                    if el and el ~= "none" and el ~= "enemyName" then
+                    if el and el ~= "none" and not ns.IsNameElement(el) then
                         hpFS = math.min(DBVal(sk .. "Size") or defaults[sk .. "Size"] or 10, 13)
                         break
                     end
@@ -9489,6 +9786,8 @@ initFrame:SetScript("OnEvent", function(self)
             spark:SetSize(8, BAR_H)
             spark:SetPoint("CENTER", cast:GetStatusBarTexture(), "RIGHT", 0, 0)
             spark:SetBlendMode("ADD")
+            -- Show Spark (Cast Color cog): default on; explicit false hides it.
+            spark:SetShown(DBVal("castBarSparkEnabled") ~= false)
 
             -- Cast icon frame (to the left) no border for Colors tab previews
             local iconFrame = CreateFrame("Frame", nil, cast)

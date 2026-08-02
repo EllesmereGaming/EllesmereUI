@@ -255,10 +255,87 @@ local function CreateOverlay()
 end
 
 -------------------------------------------------------------------------------
+--  Activation sound catalogue
+--  Same built-in files as the chat whisper alert, plus LibSharedMedia
+--  sounds. Built lazily on first request (options page open or first
+--  activation): both happen well after login, so sound packs other addons
+--  register with SharedMedia at their own load time are all present.
+-------------------------------------------------------------------------------
+local _soundPaths, _soundNames, _soundOrder
+local function GetSoundTables()
+    if not _soundPaths then
+        local dir = "Interface\\AddOns\\EllesmereUI\\media\\sounds\\"
+        _soundPaths = {
+            ["none"]      = nil,
+            ["airhorn"]   = dir .. "AirHorn.ogg",
+            ["banana"]    = dir .. "BananaPeelSlip.ogg",
+            ["bikehorn"]  = dir .. "BikeHorn.ogg",
+            ["bite"]      = dir .. "Bite.ogg",
+            ["boxing"]    = dir .. "BoxingArenaSound.ogg",
+            ["catmeow"]   = dir .. "CatMeow.ogg",
+            ["catmeow2"]  = dir .. "CatMeow2.ogg",
+            ["gunshot"]   = dir .. "FrontalsGunshot.wav",
+            ["glass"]     = dir .. "Glass.mp3",
+            ["kaching"]   = dir .. "Kaching.ogg",
+            ["phone"]     = dir .. "Phone.ogg",
+            ["robotblip"] = dir .. "RobotBlip.ogg",
+            ["sonar"]     = dir .. "Sonar.ogg",
+            ["siren"]     = dir .. "WarningSiren.ogg",
+            ["water"]     = dir .. "WaterDrop.ogg",
+            ["wilhelm"]   = dir .. "Wilhelm.ogg",
+        }
+        _soundNames = {
+            ["none"]      = "None",
+            ["airhorn"]   = "Air Horn",
+            ["banana"]    = "Banana Peel Slip",
+            ["bikehorn"]  = "Bike Horn",
+            ["bite"]      = "Bite",
+            ["boxing"]    = "Boxing Arena",
+            ["catmeow"]   = "Cat Meow",
+            ["catmeow2"]  = "Cat Meow 2",
+            ["gunshot"]   = "Frontals Gunshot",
+            ["glass"]     = "Glass",
+            ["kaching"]   = "Kaching",
+            ["phone"]     = "Phone",
+            ["robotblip"] = "Robot Blip",
+            ["sonar"]     = "Sonar",
+            ["siren"]     = "Warning Siren",
+            ["water"]     = "Water Drop",
+            ["wilhelm"]   = "Wilhelm",
+        }
+        _soundOrder = {
+            "none", "airhorn", "banana", "bikehorn", "bite", "boxing", "catmeow",
+            "catmeow2", "gunshot", "glass", "kaching", "phone", "robotblip", "sonar",
+            "siren", "water", "wilhelm",
+        }
+        local EUI = _G.EllesmereUI
+        if EUI and EUI.AppendSharedMediaSounds then
+            EUI.AppendSharedMediaSounds(_soundPaths, _soundNames, _soundOrder)
+        end
+    end
+    return _soundPaths, _soundNames, _soundOrder
+end
+
+-- Options page reads the catalogue through this accessor.
+function EllesmereUI_GetPartyModeSounds()
+    return GetSoundTables()
+end
+
+-------------------------------------------------------------------------------
 --  Global API
 -------------------------------------------------------------------------------
 function EllesmereUI_StartPartyMode()
     CreateOverlay()
+    -- Activation sound: only on the actual off->on edge, so re-entrant
+    -- Start calls while the overlay is already visible stay silent.
+    if not container:IsShown() then
+        local key = EllesmereUIDB and EllesmereUIDB.partyModeSoundKey
+        if key and key ~= "none" then
+            local paths = GetSoundTables()
+            local path = paths[key]
+            if path then PlaySoundFile(path, "Master") end
+        end
+    end
     container:Show()
     -- Dim the lights if enabled (defaults to on)
     if EllesmereUIDB and (EllesmereUIDB.partyModeDimLights ~= false) then

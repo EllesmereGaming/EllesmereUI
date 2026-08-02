@@ -852,6 +852,21 @@ initFrame:SetScript("OnEvent", function(self)
                           -- so the fast refresh path is not enough
                           EllesmereUI:RefreshPage(true)
                       end },
+                    { type = "toggle", label = "Border Follows Bar",
+                      tooltip = "Border wraps only the filled portion of each bar instead of the whole row. Always renders as a solid border.",
+                      get = function() return Cfg("borderFollowFill") or false end,
+                      set = function(v)
+                          Set("borderFollowFill", v)
+                          ApplyBrd()
+                      end },
+                    { type = "toggle", label = "Include Icon in Bar Border",
+                      tooltip = "Extends the follow-bar border to include the class icon.",
+                      disabled = function() return not Cfg("borderFollowFill") end,
+                      get = function() return Cfg("borderFollowFillIcon") or false end,
+                      set = function(v)
+                          Set("borderFollowFillIcon", v)
+                          ApplyBrd()
+                      end },
                 },
             })
             local cogBtn = CreateFrame("Button", nil, rgn)
@@ -1096,9 +1111,12 @@ initFrame:SetScript("OnEvent", function(self)
                     { type = "slider", label = "Scale", min = 80, max = 150, step = 1,
                       get = function() return (Cfg("hoverTooltipScale") or 100) end,
                       set = function(v) Set("hoverTooltipScale", v) end },
-                    { type = "toggle", label = "Show in Center of Screen",
-                      get = function() return Cfg("breakdownAnchorPoint") == "center" end,
-                      set = function(v) Set("breakdownAnchorPoint", v and "center" or "row") end },
+                    { type = "dropdown", label = "Anchor",
+                      values = { row = "Above Hovered Row", center = "Center of Screen",
+                                 left = "Left of Window", right = "Right of Window" },
+                      order = { "row", "center", "left", "right" },
+                      get = function() return Cfg("breakdownAnchorPoint") or "row" end,
+                      set = function(v) Set("breakdownAnchorPoint", v) end },
                     { type = "toggle", label = "Show More Spells",
                       tooltip = "Show top 15 entries instead of 8.",
                       get = function() return Cfg("showAllBreakdownSpells") ~= false end,
@@ -1160,10 +1178,10 @@ initFrame:SetScript("OnEvent", function(self)
         -- Left Text Size (+ inline custom/class swatches) | Right Text Size (+ inline custom/class swatches)
         local btRow
         btRow, h = W:DualRow(parent, y,
-            { type="slider", text="Left Text Size", min = 8, max = 18, step = 1,
+            { type="slider", text="Left Text Size", min = 8, max = 18, step = 1, trackWidth = 120,
               getValue = function() return Cfg("leftFontSize") or Cfg("fontSize") or 11 end,
               setValue = function(v) Set("leftFontSize", v); Refresh() end },
-            { type="slider", text="Right Text Size", min = 8, max = 18, step = 1,
+            { type="slider", text="Right Text Size", min = 8, max = 18, step = 1, trackWidth = 120,
               getValue = function() return Cfg("rightFontSize") or Cfg("fontSize") or 11 end,
               setValue = function(v) Set("rightFontSize", v); Refresh() end })
         -- Left text inline swatches
@@ -1229,6 +1247,36 @@ initFrame:SetScript("OnEvent", function(self)
             end
             EllesmereUI.RegisterWidgetRefresh(refreshLeft)
             refreshLeft()
+
+            -- Inline cog: left text X/Y offsets (live via ns.ApplyBarTextOffsets)
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Left Text",
+                rows = {
+                    { type = "slider", label = "X Offset", min = -20, max = 20, step = 1,
+                      get = function() return Cfg("leftTextOffsetX") or 0 end,
+                      set = function(v)
+                          Set("leftTextOffsetX", v)
+                          if ns.ApplyBarTextOffsets then ns.ApplyBarTextOffsets() end
+                      end },
+                    { type = "slider", label = "Y Offset", min = -20, max = 20, step = 1,
+                      get = function() return Cfg("leftTextOffsetY") or 0 end,
+                      set = function(v)
+                          Set("leftTextOffsetY", v)
+                          if ns.ApplyBarTextOffsets then ns.ApplyBarTextOffsets() end
+                      end },
+                },
+            })
+            local cogBtn = CreateFrame("Button", nil, rgn)
+            cogBtn:SetSize(26, 26)
+            cogBtn:SetPoint("RIGHT", classSwatch, "LEFT", -8, 0)
+            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            cogBtn:SetAlpha(0.4)
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+            cogTex:SetAllPoints()
+            cogTex:SetTexture(EllesmereUI.COGS_ICON)
+            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
         end
         -- Right text inline swatches
         do
@@ -1293,6 +1341,36 @@ initFrame:SetScript("OnEvent", function(self)
             end
             EllesmereUI.RegisterWidgetRefresh(refreshRight)
             refreshRight()
+
+            -- Inline cog: right text X/Y offsets (live via ns.ApplyBarTextOffsets)
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Right Text",
+                rows = {
+                    { type = "slider", label = "X Offset", min = -20, max = 20, step = 1,
+                      get = function() return Cfg("rightTextOffsetX") or 0 end,
+                      set = function(v)
+                          Set("rightTextOffsetX", v)
+                          if ns.ApplyBarTextOffsets then ns.ApplyBarTextOffsets() end
+                      end },
+                    { type = "slider", label = "Y Offset", min = -20, max = 20, step = 1,
+                      get = function() return Cfg("rightTextOffsetY") or 0 end,
+                      set = function(v)
+                          Set("rightTextOffsetY", v)
+                          if ns.ApplyBarTextOffsets then ns.ApplyBarTextOffsets() end
+                      end },
+                },
+            })
+            local cogBtn = CreateFrame("Button", nil, rgn)
+            cogBtn:SetSize(26, 26)
+            cogBtn:SetPoint("RIGHT", classSwatch, "LEFT", -8, 0)
+            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            cogBtn:SetAlpha(0.4)
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+            cogTex:SetAllPoints()
+            cogTex:SetTexture(EllesmereUI.COGS_ICON)
+            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
         end
         y = y - h
 
@@ -1383,6 +1461,9 @@ initFrame:SetScript("OnEvent", function(self)
                     { type = "slider", label = "Font Size", min = 10, max = 40, step = 1,
                       get = function() return Cfg("standaloneTimerSize") or 26 end,
                       set = function(v) Set("standaloneTimerSize", v); ApplySAT() end },
+                    { type = "toggle", label = "Show Decimal",
+                      get = function() return Cfg("standaloneTimerDecimal") or false end,
+                      set = function(v) Set("standaloneTimerDecimal", v); ApplySAT() end },
                     { type = "toggle", label = "Align Text Left",
                       disabled = function() return (Cfg("standaloneTimerAnchor") or "free") ~= "free" end,
                       disabledTooltip = "Available only when Anchor to Windows is set to Free Move.",

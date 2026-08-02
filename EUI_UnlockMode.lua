@@ -616,12 +616,12 @@ EllesmereUI._ELEMENT_SETTINGS_MAP = {
     ["EABR_Reminders"] = { module = "EllesmereUIAuraBuffReminders", page = "Auras, Buffs & Consumables", sectionName = "DISPLAY" },
 
     -- Quality of Life (FPS + Secondary Stats live on the QoL page's EXTRAS section)
-    ["EUI_FPS"]            = { module = "EllesmereUIQoL", page = "Quality of Life", sectionName = "EXTRAS", highlightText = "Show FPS Counter" },
-    ["EUI_SecondaryStats"] = { module = "EllesmereUIQoL", page = "Quality of Life", sectionName = "EXTRAS", highlightText = "Secondary Stat Display" },
+    ["EUI_FPS"]            = { module = "EllesmereUIQoL", page = "QoL", sectionName = "EXTRAS", highlightText = "Show FPS Counter" },
+    ["EUI_SecondaryStats"] = { module = "EllesmereUIQoL", page = "QoL", sectionName = "EXTRAS", highlightText = "Secondary Stat Display" },
 
     -- Battle Res + Bloodlust (bottom of the Quality of Life page)
-    ["EUI_BattleRes"]      = { module = "EllesmereUIQoL",             page = "Quality of Life",   sectionName = "BATTLE RES",        highlightText = "Enable BattleRes Icon" },
-    ["EUI_Bloodlust"]      = { module = "EllesmereUIQoL",             page = "Quality of Life",   sectionName = "BLOODLUST TRACKER", highlightText = "Enable Bloodlust Icon" },
+    ["EUI_BattleRes"]      = { module = "EllesmereUIQoL",             page = "QoL",   sectionName = "BATTLE RES",        highlightText = "Enable BattleRes Icon" },
+    ["EUI_Bloodlust"]      = { module = "EllesmereUIQoL",             page = "QoL",   sectionName = "BLOODLUST TRACKER", highlightText = "Enable Bloodlust Icon" },
 
     -- Mythic+ Timer
     ["EMT_MythicTimer"]    = { module = "EllesmereUIMythicTimer",     page = "Mythic+ Timer",     sectionName = "DISPLAY",           highlightText = "Scale" },
@@ -691,6 +691,13 @@ local GetPositionDB
 -------------------------------------------------------------------------------
 local function GetBarGrowDirActual(barKey)
     if barKey == "EQT_Tracker" then return "DOWN" end
+    -- Through the owning module's resolver, so the menu and the layout can never
+    -- disagree about which direction is in effect (it clamps to the current
+    -- orientation on read rather than persisting the clamp).
+    if barKey == "ERB_TotemBar" then
+        if EllesmereUI.GetTotemGrowDir then return (EllesmereUI.GetTotemGrowDir()) end
+        return "RIGHT"
+    end
     if barKey:sub(1, 4) == "CDM_" then
         local rawKey = barKey:sub(5)
         local cdm = EllesmereUI.Lite.GetAddon("EllesmereUICooldownManager", true)
@@ -721,6 +728,12 @@ end
 -------------------------------------------------------------------------------
 local function GetBarGrowDir(barKey)
     if barKey == "EQT_Tracker" then return "DOWN" end
+    if barKey == "ERB_TotemBar" then
+        if not EllesmereUI.GetTotemGrowDir then return "RIGHT" end
+        local g = EllesmereUI.GetTotemGrowDir()
+        if g == "CENTER" then return nil end   -- centered = no direction indicator
+        return g
+    end
     if barKey:sub(1, 4) == "CDM_" then
         local rawKey = barKey:sub(5)
         local cdm = EllesmereUI.Lite.GetAddon("EllesmereUICooldownManager", true)
@@ -838,9 +851,18 @@ function EllesmereUI.RecenterBarAnchor(barKey)
         end
     end
 
+    -- cRelX/cRelY are UIParent units; SetPoint offsets are read in the frame's
+    -- own space. Identical unless the element scales itself (see
+    -- ApplyCenterPosition), so this divide is a no-op for everything unscaled.
+    local setX, setY = cRelX, cRelY
+    if elemScale ~= 1 and elemScale > 0 then
+        setX = cRelX / elemScale
+        setY = cRelY / elemScale
+    end
+
     pcall(function()
         b:ClearAllPoints()
-        b:SetPoint(anchor, UIParent, "CENTER", cRelX, cRelY)
+        b:SetPoint(anchor, UIParent, "CENTER", setX, setY)
     end)
 
     -- Keep mover's stored center in sync so drag/snap logic stays consistent
@@ -1525,6 +1547,18 @@ end
 function EllesmereUI.ScheduleSettleReapply()
     if isUnlocked then return end                            -- unlock owns positioning
     if EllesmereUI._settleReapplyInProgress then return end  -- never re-arm from our own pass
+    -- The in-progress flag only covers the SYNCHRONOUS pass. Everything the
+    -- pass spawns -- anchor batches, SetPoint move checks -- is After(0)
+    -- deferred and lands after the flag clears, so on a layout whose forced
+    -- re-apply is not pixel-stable (snap deltas of 1 physical px exceed the
+    -- 0.5 UI-unit change epsilon at low UI scale) the tail re-armed the timer
+    -- and the settle pass ran itself forever at the debounce rate: a
+    -- permanent ~5Hz full anchor re-apply, burning the client down in combat.
+    -- Suppress re-arms for a window long enough to swallow the deferred tail.
+    -- A REAL disturbance inside the window loses only the belt-and-braces
+    -- settle pass; the normal notify/batch path has already handled it.
+    local su = EllesmereUI._settleSuppressUntil
+    if su and GetTime() < su then return end
     if EllesmereUI._settleTimer then EllesmereUI._settleTimer:Cancel() end
     EllesmereUI._settleTimer = C_Timer.NewTimer(0.25, function()
         EllesmereUI._settleTimer = nil
@@ -1543,6 +1577,7 @@ function EllesmereUI.ScheduleSettleReapply()
         end
         if EllesmereUI.ReapplyAllUnlockAnchorsForced then
             EllesmereUI._settleReapplyInProgress = true
+            EllesmereUI._settleSuppressUntil = GetTime() + 0.75
             pcall(EllesmereUI.ReapplyAllUnlockAnchorsForced)
             EllesmereUI._settleReapplyInProgress = false
         end
@@ -3942,6 +3977,18 @@ ApplyCenterPosition = function(barKey, pos)
 
     local cx, cy = pos.x or 0, pos.y or 0
 
+    -- Stored coords are UIParent screen units (ConvertToCenterPos produces them
+    -- by scaling the frame's live edges into UIParent space). SetPoint offsets,
+    -- however, are read in the FRAME's own coordinate space -- identical only
+    -- while the frame sits at UIParent scale. An element that scales ITSELF
+    -- (Raid Tools' Window Scale) therefore lands at offset * scale, i.e. drifts
+    -- toward or away from screen centre on every apply, and Save & Exit then
+    -- stores the drifted spot back. fRatio converts both ways; it is exactly 1
+    -- for every unscaled element, so nothing else changes.
+    local uiS = UIParent:GetEffectiveScale()
+    local fS  = frame:GetEffectiveScale() or uiS
+    local fRatio = (uiS and uiS > 0 and fS and fS > 0) and (fS / uiS) or 1
+
     -- Determine grow anchor from unlock-mode anchor relationship
     local anchorInfo = anchorDB and anchorDB[barKey]
     local anchor = "CENTER"
@@ -3949,8 +3996,8 @@ ApplyCenterPosition = function(barKey, pos)
 
     if anchorInfo and anchorInfo.target and anchorInfo.side then
         local side = anchorInfo.side
-        local fw = (frame:GetWidth() or 0)
-        local fh = (frame:GetHeight() or 0)
+        local fw = (frame:GetWidth() or 0) * fRatio
+        local fh = (frame:GetHeight() or 0) * fRatio
         -- Use raw half-dimensions (fw/2, fh/2) instead of floor().
         -- For odd-pixel-height frames, the center cy is integer + 0.5
         -- (because edges are integer and (top+bottom)/2 is .5). Using
@@ -3981,8 +4028,8 @@ ApplyCenterPosition = function(barKey, pos)
             adjY = ge.y
         else
             local growDir = GetBarGrowDirActual(barKey)
-            local fw = (frame:GetWidth() or 0)
-            local fh = (frame:GetHeight() or 0)
+            local fw = (frame:GetWidth() or 0) * fRatio
+            local fh = (frame:GetHeight() or 0) * fRatio
             -- Skip grow-direction conversion if frame has no dimensions yet
             -- (not laid out). Using CENTER avoids wrong edge placement from
             -- zero-size math. The bar will be re-positioned after LayoutBar runs.
@@ -4012,14 +4059,22 @@ ApplyCenterPosition = function(barKey, pos)
     -- odd-dimension frames that need half-pixel centering.
     local PPap = EllesmereUI and EllesmereUI.PP
     if PPap and PPap.SnapCenterForDim then
-        local es = frame:GetEffectiveScale()
+        -- adjX/adjY and the dimensions handed in are UIParent units, so the
+        -- grid to snap against is UIParent's, not the frame's own.
+        local es = uiS
         if anchor == "CENTER" then
-            adjX = PPap.SnapCenterForDim(adjX, frame:GetWidth() or 0, es)
-            adjY = PPap.SnapCenterForDim(adjY, frame:GetHeight() or 0, es)
+            adjX = PPap.SnapCenterForDim(adjX, (frame:GetWidth() or 0) * fRatio, es)
+            adjY = PPap.SnapCenterForDim(adjY, (frame:GetHeight() or 0) * fRatio, es)
         elseif PPap.SnapForES then
             adjX = PPap.SnapForES(adjX, es)
             adjY = PPap.SnapForES(adjY, es)
         end
+    end
+
+    -- Back into the frame's own space for SetPoint (no-op at fRatio == 1).
+    if fRatio ~= 1 then
+        adjX = adjX / fRatio
+        adjY = adjY / fRatio
     end
 
     pcall(function()
@@ -6034,6 +6089,7 @@ local function CreateMover(barKey)
         MainBar = true, Bar2 = true, Bar3 = true, Bar4 = true,
         Bar5 = true, Bar6 = true, Bar7 = true, Bar8 = true,
         StanceBar = true, PetBar = true,
+        ERB_TotemBar = true,   -- totem bar: align active icons left/right/center
     }
     local canGrow = _GROW_KEYS[barKey] or barKey:sub(1, 4) == "CDM_"
 
@@ -6733,6 +6789,11 @@ local function CreateMover(barKey)
                     if b3.key == barKey:sub(5) then isVert = b3.verticalOrientation == true; break end
                 end
             end
+        elseif barKey == "ERB_TotemBar" then
+            if EllesmereUI.GetTotemGrowDir then
+                local _, v3 = EllesmereUI.GetTotemGrowDir()
+                isVert = v3
+            end
         else
             local eab3 = EllesmereUI.Lite.GetAddon("EllesmereUIActionBars", true)
             local s3 = eab3 and eab3.db and eab3.db.profile and eab3.db.profile.bars and eab3.db.profile.bars[barKey]
@@ -6758,6 +6819,12 @@ local function CreateMover(barKey)
                     if b4.key == barKey:sub(5) then currentVal = b4.growDirection or "CENTER"; break end
                 end
             end
+        elseif barKey == "ERB_TotemBar" then
+            -- Clamped read: a direction left over from the other orientation is
+            -- never stored back, so the menu must resolve it the same way the
+            -- layout does or it would highlight an option that is not offered.
+            currentVal = EllesmereUI.GetTotemGrowDir and EllesmereUI.GetTotemGrowDir()
+                or (isVert and "DOWN" or "RIGHT")
         else
             local eab4 = EllesmereUI.Lite.GetAddon("EllesmereUIActionBars", true)
             local s4 = eab4 and eab4.db and eab4.db.profile and eab4.db.profile.bars
@@ -6837,6 +6904,12 @@ local function CreateMover(barKey)
                         if EllesmereUI.LayoutCDMBar then
                             EllesmereUI.LayoutCDMBar(rawKey)
                         end
+                        EllesmereUI.RecenterBarAnchor(barKey)
+                    elseif barKey == "ERB_TotemBar" then
+                        local erb = EllesmereUI.Lite.GetAddon("EllesmereUIResourceBars", true)
+                        local tb = erb and erb.db and erb.db.profile and erb.db.profile.totemBar
+                        if tb then tb.growDirection = sideVal end
+                        if EllesmereUI.LayoutTotemBar then EllesmereUI.LayoutTotemBar() end
                         EllesmereUI.RecenterBarAnchor(barKey)
                     else
                         local eab = EllesmereUI.Lite.GetAddon("EllesmereUIActionBars", true)

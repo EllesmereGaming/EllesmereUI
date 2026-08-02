@@ -20,6 +20,7 @@ local ADDON_NAME = ...
 local PAGE_GENERAL      = "General"
 local PAGE_COLORS      = "Fonts & Colors"
 local PAGE_PROFILES    = "Profiles"
+local PAGE_PRESETS     = "Presets"   -- navigation tab over the presets subpage of the profiles page
 local PAGE_WHATSNEW    = "Patch Notes"
 
 -- Profiles and Patch Notes are their own sidebar pages (single-page modules),
@@ -184,6 +185,109 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
         else
             card:EnableMouse(false)
         end
+    end
+
+    -- Tier 1b: a full-width banner hero (entry.banner = true), styled after
+    -- the announcement popups (EllesmereUI_RaidFramesPopup /
+    -- EllesmereUI_PatchNotesPopup): their solid panel fill and white 1px
+    -- border, the 2px green top accent, a small green eyebrow over a LARGE
+    -- centered title and centered description, and -- their signature --
+    -- decorative abstract art built from plain texture bars. Here the art is
+    -- two mirrored mini bar-charts flanking the text: cost stepping DOWN into
+    -- a green bar on the left, framerate stepping UP to a green bar on the
+    -- right. Takes a whole row; height follows the description. Static unless
+    -- the entry carries a nav.
+    local function MakeBannerCard(x, cy, w, entry)
+        local card = CreateFrame("Button", nil, parent)
+        -- Width FIRST, height provisional: the description anchors LEFT+RIGHT
+        -- to the card, so the card must already be its real width when the
+        -- text lays out (and is measured below) -- a width-0 card renders the
+        -- description as one truncated line instead of wrapping it.
+        PP.Size(card, w, 100)
+        PP.Point(card, "TOPLEFT", parent, "TOPLEFT", x, cy)
+        card:SetFrameLevel(parent:GetFrameLevel() + 2)
+
+        local bg = card:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints()
+        bg:SetColorTexture(0.06, 0.08, 0.10, 0.92)
+        local brd = MakeBorder(card, 1, 1, 1, 0.15, PP)
+
+        local accent = card:CreateTexture(nil, "ARTWORK", nil, 7)
+        accent:SetColorTexture(EG.r, EG.g, EG.b, 0.9)
+        PP.Point(accent, "TOPLEFT", card, "TOPLEFT", 1, -1)
+        PP.Point(accent, "TOPRIGHT", card, "TOPRIGHT", -1, -1)
+        accent:SetHeight(2)
+        if PP.DisablePixelSnap then PP.DisablePixelSnap(accent) end
+
+        -- Flanking decorative bar-charts, in the popups' stand-in-texture
+        -- language (dim white steps, the "now" bar green, a faint baseline).
+        local BAR_W, BAR_GAP2 = 8, 4
+        local function MakeChart(anchorSide, inset, heights, alphas)
+            local groupW = #heights * BAR_W + (#heights - 1) * BAR_GAP2
+            local base = card:CreateTexture(nil, "ARTWORK")
+            base:SetColorTexture(1, 1, 1, 0.12)
+            PP.Size(base, groupW, 1)
+            if anchorSide == "LEFT" then
+                PP.Point(base, "LEFT", card, "LEFT", inset, -12)
+            else
+                PP.Point(base, "RIGHT", card, "RIGHT", -inset, -12)
+            end
+            if PP.DisablePixelSnap then PP.DisablePixelSnap(base) end
+            for i = 1, #heights do
+                local bar = card:CreateTexture(nil, "ARTWORK")
+                local a = alphas[i]
+                if a == "green" then
+                    bar:SetColorTexture(EG.r, EG.g, EG.b, 0.9)
+                else
+                    bar:SetColorTexture(1, 1, 1, a)
+                end
+                PP.Size(bar, BAR_W, heights[i])
+                PP.Point(bar, "BOTTOMLEFT", base, "TOPLEFT", (i - 1) * (BAR_W + BAR_GAP2), 1)
+                if PP.DisablePixelSnap then PP.DisablePixelSnap(bar) end
+            end
+        end
+        -- Left: cost falling to a low green bar. Right: fps rising to a tall
+        -- green bar.
+        MakeChart("LEFT",  36, { 34, 26, 19, 13, 8 },  { 0.28, 0.23, 0.18, 0.14, "green" })
+        MakeChart("RIGHT", 36, { 8, 13, 19, 26, 34 },  { 0.14, 0.18, 0.23, 0.28, "green" })
+
+        local eyebrow = MakeFont(card, 11, nil, EG.r, EG.g, EG.b, 0.9)
+        PP.Point(eyebrow, "TOP", card, "TOP", 0, -18)
+        eyebrow:SetJustifyH("CENTER"); eyebrow:SetWordWrap(false)
+        eyebrow:SetText(EllesmereUI.L(entry.eyebrow or "SPECIAL UPDATE"))
+
+        -- Banner titles stand alone: no "Module:" prefix, the card IS the
+        -- event -- and it renders LARGE, like the popups' 26px headline.
+        local titleFs = MakeFont(card, 24, nil, 1, 1, 1, 1)
+        PP.Point(titleFs, "TOP", eyebrow, "BOTTOM", 0, -8)
+        titleFs:SetJustifyH("CENTER"); titleFs:SetWordWrap(false)
+        titleFs:SetText(EllesmereUI.L(entry.title) or "")
+
+        local descFs = MakeFont(card, 13, nil, 1, 1, 1, 0.5)
+        PP.Point(descFs, "TOP", titleFs, "BOTTOM", 0, -10)
+        PP.Point(descFs, "LEFT", card, "LEFT", 110, 0)
+        PP.Point(descFs, "RIGHT", card, "RIGHT", -110, 0)
+        descFs:SetJustifyH("CENTER"); descFs:SetJustifyV("TOP"); descFs:SetWordWrap(true)
+        descFs:SetText(EllesmereUI.L(entry.desc) or "")
+
+        local dh = math.ceil(descFs:GetStringHeight() or 14)
+        local bh = 18 + 11 + 8 + 24 + 10 + dh + 28
+        PP.Size(card, w, bh)
+
+        if entry.nav and entry.nav.module then
+            card:SetScript("OnEnter", function()
+                brd:SetColor(1, 1, 1, 0.30)
+                descFs:SetAlpha(0.65)
+            end)
+            card:SetScript("OnLeave", function()
+                brd:SetColor(1, 1, 1, 0.15)
+                descFs:SetAlpha(0.5)
+            end)
+            card:SetScript("OnClick", function() GoTo(entry.nav) end)
+        else
+            card:EnableMouse(false)
+        end
+        return bh
     end
 
     -- Tier 2: a clickable small listing -- title + subtitle, no card chrome, a
@@ -354,16 +458,26 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
         if #heroes > 0 then
             local cardW = math.floor((totalW - CARD_GAP) / 2)
             local CARD_H = 96
-            local rows = math.ceil(#heroes / 2)
-            for i, hero in ipairs(heroes) do
-                local col = (i - 1) % 2
-                local rw  = math.floor((i - 1) / 2)
-                local cx  = PAD + col * (cardW + CARD_GAP)
-                local cy  = y - rw * (CARD_H + CARD_GAP)
-                MakeHeroCard(cx, cy, cardW, CARD_H, hero)
+            -- Sequential layout with column state: normal heroes flow two per
+            -- row in authored order; a `banner` hero takes a full row of its
+            -- own, breaking and then resuming the two-column flow. A patch
+            -- with only two-column heroes consumes exactly the vertical space
+            -- the old rows-times-height math produced.
+            local col = 0
+            for _, hero in ipairs(heroes) do
+                if hero.banner then
+                    if col == 1 then y = y - CARD_H - CARD_GAP; col = 0 end
+                    local bh = MakeBannerCard(PAD, y, totalW, hero)
+                    y = y - bh - CARD_GAP
+                else
+                    local cx = PAD + col * (cardW + CARD_GAP)
+                    MakeHeroCard(cx, y, cardW, CARD_H, hero)
+                    col = col + 1
+                    if col == 2 then y = y - CARD_H - CARD_GAP; col = 0 end
+                end
             end
-            local consumed = rows * CARD_H + (rows - 1) * CARD_GAP
-            y = y - consumed - 18
+            if col == 1 then y = y - CARD_H - CARD_GAP end
+            y = y + CARD_GAP - 18
         end
 
         -- Tier 2: small listings.
@@ -406,1016 +520,564 @@ end
 -------------------------------------------------------------------------------
 EllesmereUI._WHATSNEW_PATCHES = {
     {
-        version = "8.5.7",
+        version = "8.7.3",
         heroes = {
             {
-                module = "Unit Frames",
-                title  = "Boss Cast Bar Interrupt Tracking",
-                desc   = "Boss cast bars now get the full interrupt toolkit: colors that shift as your kick comes off cooldown, a mid-cast ready tick and segment, a custom uninterruptible-cast color, a fill opacity slider, and an optional idle-hide toggle.",
-                nav    = { module = "EllesmereUIUnitFrames", page = "Boss Frames", section = "CAST BAR", highlight = "Show Cast Bar" },
+                -- Vertical Fill lives in the Health Bar Texture row's cog
+                -- (cog-only controls have no _labelText), so the highlight
+                -- targets the owning row.
+                module = "Raid & Unit Frames",
+                title  = "Vertical Health Bars",
+                desc   = "Health bars can now fill bottom-to-top on raid, party, and every unit frame. Absorbs, heal prediction, and the bar background follow the same axis, and Reverse Fill flips the direction to top-to-bottom.",
+                nav    = { module = "EllesmereUIRaidFrames", page = "Frames", section = "HEALTH BAR", highlight = "Health Bar Texture" },
             },
             {
-                module = "PTR Nameplates",
-                title  = "Debuff Filter Editor",
-                desc   = "Choose exactly which debuffs and crowd control show on enemy nameplates: layer categories like Important, Crowd Control, Boss, and Dispellable By You, and exclude individual spells by ID. Replaces the old Show All Your Player Debuffs checkbox on the 12.1 client.",
-                nav    = { module = "EllesmereUINameplates", page = "Display", section = "CORE POSITIONS", highlight = "Top" },
+                module = "Chat",
+                title  = "True Hide & Click-Through",
+                desc   = "Chat at Fade Strength 100 or hidden by visibility rules is now completely gone: clicks, camera drags, and targeting pass straight through to the world, and mouseover still wakes the faded chat.",
+                nav    = { module = "EllesmereUIChat", page = "Chat", section = "IDLE FADE", highlight = "Fade Strength" },
             },
         },
         features = {
             {
+                module = "Chat",
+                title  = "Scroll Button on Chat Panel",
+                desc   = "Anchor the scroll-to-bottom arrow to the chat's corner like default UI",
+                nav    = { module = "EllesmereUIChat", page = "Sidebar", section = "ICONS", highlight = "Scroll Button on Chat Panel" },
+            },
+            {
+                -- Tab Offset X is a cog-popup row (no _labelText); the
+                -- highlight targets the Inner Padding X row that owns the cog.
+                module = "Chat",
+                title  = "Tab Offset X",
+                desc   = "Shift the tab strip so corner-flush chat never clips a tab",
+                nav    = { module = "EllesmereUIChat", page = "Tabs", section = "LAYOUT", highlight = "Inner Padding X" },
+            },
+            {
+                -- Anchor choices live in the Breakdown cog; the highlight
+                -- targets the owning row.
+                module = "Damage Meters",
+                title  = "Breakdown Anchor Positions",
+                desc   = "Show the hover breakdown beside the window or centered",
+                nav    = { module = "EllesmereUIDamageMeters", page = "Damage Meters", section = "BARS", highlight = "Show Breakdown on Hover" },
+            },
+            {
+                -- No setting to open: pure interaction change, renders static.
+                module = "Damage Meters",
+                title  = "Header Right-Click",
+                desc   = "Right-click the window header to switch meter type",
+            },
+            {
+                -- Show Decimal lives in the Standalone Combat Timer cog.
+                module = "Damage Meters",
+                title  = "Standalone Timer Decimal",
+                desc   = "Optional tenths display on the standalone combat timer",
+                nav    = { module = "EllesmereUIDamageMeters", page = "Damage Meters", section = "STANDALONE COMBAT TIMER", highlight = "Standalone Combat Timer" },
+            },
+            {
+                module = "Mythic+ Timer",
+                title  = "Count / Total + Remaining",
+                desc   = "New enemy forces text format, e.g. 188/240 (52 left)",
+                nav    = { module = "EllesmereUIMythicTimer", page = "Mythic+ Timer", section = "FORCES", highlight = "Enemy Text Format" },
+            },
+            {
+                -- The slider lives in each aura slot's cog on the Core
+                -- Positions grid (custom chrome, no highlightable rows), so
+                -- the nav is section-only.
                 module = "Nameplates",
-                title  = "Combine Spell Name and Target",
-                desc   = "Merge cast text into one line",
-                nav    = { module = "EllesmereUINameplates", page = "Display", section = "GENERAL TEXT", highlight = "Spell Name" },
+                title  = "Adjust Crop",
+                desc   = "Set how much cropped aura icons trim, per element",
+                nav    = { module = "EllesmereUINameplates", page = "Display", section = "CORE POSITIONS" },
             },
             {
-                module = "PTR Raid Frames",
-                title  = "Grid Wrap for Tracked Auras",
-                desc   = "Wrap icons into rows and cap how many show",
-                nav    = { module = "EllesmereUIRaidFrames", page = "Buff Manager" },
+                -- The toggle lives in the Texture row's cog.
+                module = "Resource Bars",
+                title  = "Blizzard Bar Artwork",
+                desc   = "Class Resource bar can use Blizzard's default bar art",
+                nav    = { module = "EllesmereUIResourceBars", page = "Class, Power and Health Bars", section = "BAR DISPLAY", highlight = "Texture" },
             },
             {
-                module = "Raid Frames",
-                title  = "Centered Party Growth",
-                desc   = "Keep frames centered as the group grows",
-                nav    = { module = "EllesmereUIRaidFrames", page = "Party", section = "FRAMES", highlight = "Frame Growth" },
+                -- Both toggles live in the Spell ID cog on this row.
+                module = "Tooltips",
+                title  = "Icon ID & Item ID Toggles",
+                desc   = "Turn each tooltip ID line off individually",
+                nav    = { module = "EllesmereUIBlizzardSkin", page = "Tooltips, Menus & Popups", section = "BLIZZARD TOOLTIP", highlight = "Show Spell ID on Tooltip" },
             },
         },
         fixes = {
-            { module = "Nameplates", text = "Fixed a bug that could make it hard to click or target the correct enemy in overlapping packs." },
-            { module = "Nameplates", text = "Aura icon spacing and class resource bar spacing sliders now go down to -5, letting icons and bars sit closer together or slightly overlap." },
-            { module = "Nameplates", text = "Fixed the target arrows overlapping the raid marker when marking your current target; arrows now reposition the moment a marker is added or removed." },
-            { module = "Unit Frames", text = "Boss frame power bars can now show a colored border with adjustable thickness, matching player, target, and focus." },
-            { module = "Unit Frames", text = "Disabling Show Expand Button on the Blizzard-style player aura reskin no longer causes errors and lag in raid combat, and custom icon borders no longer revert to Blizzard's default on reload." },
-            { module = "Cooldown Manager", text = "Hosting a buff that collides with a cooldown slot on a Cooldowns or Utility bar no longer throws an error on every refresh." },
-            { module = "Cooldown Manager", text = "Toggling off a bar-wide custom color, border color, or threshold seconds value for a spell now restores that spell's own prior value instead of resetting it to default." },
-            { module = "General", text = "Importing an exported profile during your very first login no longer risks the first-run setup silently overwriting the imported cooldown layout, positions, sizes, or custom colors." },
-            { module = "General", text = "Added Traditional Chinese translations for option labels introduced in recent updates." },
-            { module = "Chat", text = "Receiving a whisper while in a Mythic+ key or other restricted content no longer triggers error messages." },
-            { module = "Quest Tracker", text = "The quest map pin icon no longer briefly flashes on tracked objectives when quest icons are turned off." },
-            { module = "PTR Unit Frames & Nameplates", text = "Viewing a unit whose class is privacy-restricted no longer spams errors or causes stutter; affected frames now fall back to reaction coloring and default class icons." },
-            { module = "PTR Unit Frames", text = "Right-click pinging over the Pet, Target of Target, and Focus Target frames now correctly marks the shown unit instead of falling through to a world ping." },
-            { module = "PTR General", text = "Restored the colored dispel-type border and glow art on aura icons after a Blizzard interface change on newer 12.1 builds." },
-            { module = "PTR General", text = "The Show Spell ID on Tooltip developer option now shows spell IDs on aura tooltips while in combat or restricted content." },
-            { module = "PTR Nameplates", text = "Fixed the target-direction arrows causing errors on the newest 12.1 builds." },
-            { module = "PTR Nameplates", text = "Debuff, buff, and crowd control icons no longer stop appearing during large Mythic+ or raid pulls." },
-            { module = "PTR Raid Frames", text = "Enabling a buff tracker, adding a debuff tile, or first showing an aura display mid-combat now appears immediately instead of waiting until combat ends." },
-            { module = "PTR Raid Frames", text = "The Buff Manager Enable Threshold and Text Color controls now actually recolor a buff's countdown text as it nears expiration." },
-            { module = "PTR Raid Frames", text = "Spells can now be added to a custom Buff Manager filter by searching their name, instead of only by entering a numeric spell ID." },
-            { module = "PTR Raid Frames", text = "The Edit Excluded Debuffs list under the Debuff Manager preview has been removed; built-in sated and always-hide debuffs are still filtered automatically." },
-            { module = "PTR Cooldown Manager", text = "Tracking Bar decimal duration text no longer gets stuck on an old threshold when the update is briefly blocked; it now retries until it lands." },
+            { module = "Action Bars", text = "Cooldown countdown text now scales down on small buttons instead of overflowing them." },
+            { module = "Action Bars", text = "Empowered spells no longer flip to Press and Tap behavior after mounting between pulls." },
+            { module = "Chat", text = "Clicks and camera drags pass through the visible chat like the default UI." },
+            { module = "Chat", text = "Hidden sidebar icons are no longer clickable and no longer show tooltips." },
+            { module = "Chat", text = "Panel border no longer draws above the EllesmereUI settings window." },
+            { module = "Cooldown Manager", text = "Suppress GCD now covers the final moments of a charge recharge." },
+            { module = "Damage Meters", text = "Combat timer ticks smoothly every second regardless of the refresh rate." },
+            { module = "Localization", text = "Updated Korean (koKR) translations for the latest options." },
+            { module = "Minimap", text = "The middle-click menu is now translated on every language and uses your minimap font." },
+            { module = "Quality of Life", text = "Movement Alert countdown no longer snaps to 0.0 when combat starts in instances." },
+            { module = "Unit Frames", text = "Kick tracking now follows the summoned demon's interrupt for Demonology Warlocks." },
+            { module = "PTR Tooltips", text = "Buff tooltips no longer show the spell ID twice when no modifier is set." },
+            { module = "PTR Unit Frames", text = "No more gap under the frame when the cast bar is moved away in unlock mode." },
         },
     },
     {
-        version = "8.5.6",
+        version = "8.7.2",
         mini = true,
         fixes = {
-            { module = "Action Bars", text = "Now appear correctly on a fresh installation." },
-            { module = "Aura & Buff Reminders", text = "Fixed reminders appearing oversized when one was already on screen at login or /reload." },
-            { module = "Cooldown Manager", text = "Now appears correctly on a fresh installation." },
-            { module = "Quest Tracker", text = "Fixed Lua errors when opening the world map or hovering map pins during Mythic+ or raid combat." },
-            { module = "General", text = "Fixed a wave of errors when reloading the UI during combat." },
-            { module = "Click Casting", text = "Fixed right-click spell bindings reverting to the context menu after login or /reload." },
+            { module = "Cooldown Manager", text = "Fixed the Edit Mode update popup reappearing on every login for a small number of players, leaving them stuck in a reload loop. It now asks once, and if the change still cannot be saved it explains how to set it manually." },
+            { module = "General", text = "The options panel and its popups now scale to your display, so they are no longer around half size on 4K and 5K monitors." },
+            { module = "General", text = "Fixed popups being scaled twice, which made them bigger than intended and made them grow as you lowered your UI Scale. They are now a consistent size on every display, which can look slightly smaller than before at some UI Scale settings." },
+            { module = "General", text = "The first install window can no longer open larger than your screen, which could put its buttons off display with no way to close it." },
+            { module = "General", text = "The options panel scale is set once on displays above 1440p to match the corrected default. Any size you pick after that is kept." },
+            { module = "Nameplates", text = "Long friendly player names no longer get cut off." },
+            { module = "Nameplates", text = "Player titles now show inline with the name instead of on their own line below it." },
+            { module = "Nameplates", text = "The guild name now sits on its own line below the name, with its own Guild Text Color control for custom or class color." },
+            { module = "Nameplates", text = "Subtitle Text Size has been removed. The guild line now follows the name's font size." },
+            { module = "Resource Bars", text = "Fixed Balance Druid hash lines disappearing after shifting to cat or bear form and back, staying gone until a reload." },
+            { module = "Resource Bars", text = "Shift Elements if No Power now works when the power bar is hidden by Hide Power Bar if Resource, instead of leaving a gap where the bar would have been." },
         },
     },
     {
-        version = "8.5.5",
-        features = {
-            {
-                module = "Cooldown Manager",
-                title  = "Row Growth Direction",
-                desc   = "Choose which row stays put when a second row appears",
-                nav    = { module = "EllesmereUICooldownManager", page = "CDM Bars", section = "BAR LAYOUT", highlight = "Number of Rows",
-                    preSelect = function()
-                        if EllesmereUI._setCDMBar then EllesmereUI._setCDMBar("cooldowns") end
-                    end },
-            },
-            {
-                module = "PTR Raid Frames",
-                title  = "Dispel-Type Debuff Rings",
-                desc   = "Colored dispel-type rings on debuff icons, thickness adjustable",
-            },
-        },
-        fixes = {
-            { module = "Action Bars & Cooldown Manager", text = "The Caps Lock keybind now shows as the shorter Caps on action buttons and ability icons instead of the full CAPSLOCK, matching the abbreviations for other long key names." },
-            { module = "Action Bars", text = "Fixed holding a keybind on a Druid or Rogue form bar casting once and then stalling into auto-attack instead of repeat-casting, which also fixes Single Button Assistant and Assisted Combat on those bars." },
-            { module = "Action Bars", text = "Fixed the main action bar showing one ability but casting a different one when a Druid or Rogue manually paged to another bar while in a form or stance." },
-            { module = "Blizzard Skin", text = "Fixed the Achievement window's objectives progress text clipping when a taller custom font was set." },
-            { module = "Blizzard Skin", text = "Fixed Set Note, Set Officer Note, Set Rank, and Whisper on the guild roster throwing an action blocked error while the Guild and Communities skin was on." },
-            { module = "Blizzard Skin", text = "Fixed the quest greeting paragraph shown when an NPC offers multiple quests not picking up the skin's text color." },
-            { module = "Cooldown Manager", text = "Lowered the Base Row Icons slider maximum from 50 to 15, since a base row that wide never worked well with the two-row split layout." },
-            { module = "Cooldown Manager", text = "Reverse Swipe now also applies to Active State overlays, matching the direction used on the icon's normal cooldown swipe." },
-            { module = "Cooldown Manager", text = "Fixed per-spell settings and custom icons for split-identity buffs, like the Evoker's Starweaver, sometimes applying to the wrong form or a slot vanishing once Mythic+ combat starts." },
-            { module = "Cooldown Manager", text = "Fixed a custom spell icon occasionally staying visible after being turned off if the change happened right as bars rebuilt during login." },
-            { module = "Data Bars", text = "Fixed Bar Opacity not working when a custom Bar Texture was set on the Modern background style." },
-            { module = "Quality of Life", text = "Fixed the Movement Alert Show Decimal toggle not turning decimals off for profiles carrying an older saved value, so it now works immediately and stays off after a reload." },
-            { module = "Quality of Life", text = "The Secondary Stats overlay now sizes its Unlock Mode outline to match the actual text, so it lines up whether or not tertiary stats are shown and at any UI scale." },
-            { module = "Raid Frames", text = "The Targeted Spells icon on raid frames now sorts together with the other aura icons instead of sitting underneath the name and health text." },
-            { module = "Unit Frames", text = "Fixed toggling Blizzard's Edit Mode spamming secret value errors in instances and sometimes leaving party frames broken for the rest of the session." },
-            { module = "PTR Blizzard Skin", text = "Fixed a 12.1 forbidden-object error from the Window Skins tooltip skin when a spell tooltip was re-shown by Blizzard's own secure code." },
-            { module = "PTR Cooldown Manager", text = "Fixed the Ebon Might active-state glow and swipe on its Cooldown Manager icon for Augmentation Evokers on the 12.1 client, where the aura's data is hidden from addons." },
-            { module = "PTR Raid Frames", text = "Each Debuff Manager filter can now use its own icon size, independent of the base debuff icons." },
-            { module = "PTR Raid Frames", text = "Fixed the Buff Manager's live preview so center-growth icon groups line up the same way they render on your raid frames." },
-            { module = "PTR Raid Frames", text = "Spells removed from a filter's curated list no longer stick around as an undeletable leftover entry in the Filter Editor." },
-            { module = "PTR Resource Bars", text = "Fixed the Ebon Might power bar so it fills and counts down correctly for Augmentation Evokers on the 12.1 client, where it previously stayed empty because the buff is hidden from addons." },
-            { module = "PTR Unit Frames", text = "Fixed a 12.1 error that could hit Evoker, Monk, and Demon Hunter players from Blizzard's own hidden power bars still reacting to events behind the hidden default player frame." },
-            { module = "PTR Unit Frames", text = "Fixed the Dispel Type Borders toggle on unit frames so it shows your chosen dispel colors instead of default ones on the 12.1 client." },
-        },
-    },
-    {
-        version = "8.5.3",
+        version = "8.7.1",
         heroes = {
             {
-                module = "Raid Frames",
-                title  = "PTR 12.1 Advanced Aura Filtering",
-                desc   = "Midnight's 12.1 client reworks how raid frame auras are filtered, and EllesmereUI is ready: the Buff and Debuff Managers are rebuilt to let you choose exactly which buffs and debuffs your frames show. Already testable on the 12.1 PTR client, with more coming before launch.",
+                module = "Nameplates",
+                title  = "Title and Guild Subtitles",
+                desc   = "Friendly players can now show a smaller line under their name with their title, guild, or both, in both full health bar plates and Name Only mode. Text size, a custom or class color, and the angle brackets around guild names are all configurable.",
+                nav    = { module = "EllesmereUINameplates", page = "General", section = "OTHER NAMEPLATES", highlight = "Subtitle Text" },
             },
             {
-                module = "Quality of Life",
-                title  = "Movement Alerts",
-                desc   = "Watch your mobility cooldowns count down on screen as text, an icon, or a bar, enabled per class with a preset spell list covering every spec plus your own added spells.",
-                nav    = { module = "EllesmereUIQoL", page = "Movement Alerts" },
-            },
-            {
-                module = "Chat",
-                title  = "Tabs & Sidebar Customization",
-                desc   = "Chat tabs get their own options page for layout, typography, and per-tab colors, and the whole panel can now wear a styled border. The old Extend Background Behind Tabs toggle becomes Tabs Inside Chat Panel and applies without a reload.",
-                nav    = { module = "EllesmereUIChat", page = "Tabs", section = "LAYOUT", highlight = "Tabs Inside Chat Panel" },
+                -- Section header lives in the shared BATTLE RES section builder
+                -- (EUI_QoL_BattleRes_Options.lua), which the QoL page embeds.
+                -- The duplicate header in the file's own page builder is dead
+                -- code with no callers, so it cannot shadow this one.
+                module = "Battle Res",
+                title  = "Text Display Style",
+                desc   = "The tracker can now be shown as a compact text line with the charge count, a separator, and the time until the next charge, instead of the Rebirth icon. Timer color, count color, text size, font, and outline each get their own settings.",
+                nav    = { module = "EllesmereUIQoL", page = "QoL", section = "BATTLE RES", highlight = "Display Style" },
             },
         },
         features = {
             {
+                -- The same toggle ships on Cooldown Manager's ICON DISPLAY
+                -- section; one entry covers both and points at Action Bars.
+                -- preSelect is REQUIRED, not decorative: ICON EFFECTS is built
+                -- by BuildSharedBarSettings, which is skipped entirely whenever
+                -- the persisted bar selection is a visibility-only bar.
                 module = "Action Bars",
-                title  = "Bar Background Rework",
-                desc   = "Spacing, color, opacity, and a border, tiling across bars",
-                nav    = { module = "EllesmereUIActionBars", page = "Bar Display", section = "BAR BACKGROUND", highlight = "Enable Bar Background" },
+                title  = "Hide Charge Count at 0",
+                desc   = "Also on Cooldown Manager bars",
+                nav    = { module = "EllesmereUIActionBars", page = "Bar Display", section = "ICON EFFECTS", highlight = "Hide Charge Count at 0",
+                           preSelect = function()
+                               if EllesmereUI._setActionBarKey then EllesmereUI._setActionBarKey("MainBar") end
+                           end },
             },
             {
-                module = "Aura Reminders & Cooldown Manager",
-                title  = "Glow Class Color",
-                desc   = "Reminder glows and CDM Pandemic Glow can now follow your class color",
-                nav    = { module = "EllesmereUIAuraBuffReminders", page = "Auras, Buffs & Consumables", section = "DISPLAY", highlight = "Glow Type" },
+                module = "Bags",
+                title  = "Merge Duplicate Items",
+                desc   = "Turn merging off to keep slots separate",
+                nav    = { module = "EllesmereUIBags", page = "Bags", section = "DISPLAY", highlight = "Merge Duplicate Items" },
             },
             {
-                module = "Blizzard Windows",
-                title  = "Merchant List View",
-                desc   = "Show the vendor window as a scrollable list with adjustable row height",
-                nav    = { module = "EllesmereUIBlizzardSkin", page = "Blizzard Window Skins" },
-            },
-            {
-                module = "Chat",
-                title  = "Guild Sidebar Icon",
-                desc   = "Optional Guild icon in the sidebar with online count, opens on click",
-                nav    = { module = "EllesmereUIChat", page = "Sidebar", section = "SIDEBAR", highlight = "Sidebar Icons" },
-            },
-            {
-                module = "Cooldown Manager",
-                title  = "Equipment Slot Tracking",
-                desc   = "Track on-use effects from any of 19 equipped gear slots",
-                nav    = { module = "EllesmereUICooldownManager", page = "CDM Bars",
-                    preSelect = function()
-                        if EllesmereUI._setCDMBar then EllesmereUI._setCDMBar("cooldowns") end
-                    end },
-            },
-            {
-                module = "Cooldown Manager",
-                title  = "Potion Presets Match Your Bags",
-                desc   = "Presets show the exact pot variant you carry and swap when one runs out",
-                nav    = { module = "EllesmereUICooldownManager", page = "CDM Bars", section = "EXTRAS", highlight = "Swap Light/Reckless Pots When Missing",
-                    preSelect = function()
-                        if EllesmereUI._setCDMBar then EllesmereUI._setCDMBar("cooldowns") end
-                    end },
-            },
-            {
-                module = "Damage Meters",
-                title  = "Combat Timer Out of Combat",
-                desc   = "Keep the Combat Timer visible after a fight, now placeable in Unlock Mode",
-                nav    = { module = "EllesmereUIDamageMeters", page = "Damage Meters", section = "STANDALONE COMBAT TIMER", highlight = "Show Out of Combat" },
-            },
-            {
-                module = "Quality of Life",
-                title  = "Target Distance Text",
-                desc   = "Movable yard readout for your target, off by default",
-                nav    = { module = "EllesmereUIQoL", page = "Quality of Life", section = "EXTRAS", highlight = "Target Distance Text" },
-            },
-            {
-                module = "Raid Frames",
-                title  = "Dashed & Sweep Border Indicators",
-                desc   = "Buff Manager border indicators gain animated Dashed and Sweep styles",
-                nav    = { module = "EllesmereUIRaidFrames", page = "Buff Manager", section = "DISPLAY", highlight = "Border Style" },
-            },
-            {
-                module = "Raid Frames",
-                title  = "Missing Number Health Text",
-                desc   = "New Health Text mode shows missing health, hidden at full health",
-                nav    = { module = "EllesmereUIRaidFrames", page = "Frames", section = "TEXT DISPLAY", highlight = "Health Text" },
-            },
-            {
-                module = "Raid Frames",
-                title  = "Per-Type Dispel Opacity",
-                desc   = "Each dispel color gets its own opacity; set to 0 to opt a type out",
-                nav    = { module = "EllesmereUIRaidFrames", page = "Frames", section = "DISPELS", highlight = "Dispel Colors" },
-            },
-            {
+                -- Pet is only selectable on the Mini Frames page (Main Frames'
+                -- selector offers player/target/focus only), and the toggle
+                -- sits in the Enable Pet Frame row's left Frame Source cog, so
+                -- the highlight targets that owning row.
                 module = "Unit Frames",
-                title  = "Aura Border Style Picker",
-                desc   = "Aura icon borders can now use the full border style texture picker",
-                nav    = { module = "EllesmereUIUnitFrames", page = "Blizzard Aura Frames", section = "PLAYER BUFFS & DEBUFFS", highlight = "Border Style" },
+                title  = "Always Show Pet Frame",
+                desc   = "Pet ignores your frame visibility rules",
+                nav    = { module = "EllesmereUIUnitFrames", page = "Mini Frames", section = "DISPLAY", highlight = "Enable Pet Frame",
+                           preSelect = function()
+                               if EllesmereUI._setMiniUnit then EllesmereUI._setMiniUnit("pet") end
+                           end },
+            },
+            {
+                -- The Width % sliders are cog-popup rows built with label=,
+                -- which DualRow never tags into _labelText, so the highlight
+                -- targets the Left Text row that owns the cog.
+                module = "Unit Frames",
+                title  = "Text Width %",
+                desc   = "Per slot width for name and text rows",
+                nav    = { module = "EllesmereUIUnitFrames", page = "Main Frames", section = "HEALTH BAR", highlight = "Left Text",
+                           preSelect = function()
+                               if EllesmereUI._setUnitFrameUnit then EllesmereUI._setUnitFrameUnit("player") end
+                           end },
             },
         },
         fixes = {
-            { module = "Chat", text = "Fixed chat tabs occasionally flashing back to Blizzard's default unstyled color instead of staying styled." },
-            { module = "Chat", text = "Idle fade can now be turned off entirely with a new Enable Idle Fade toggle; Fade Delay and Fade Strength gray out while it is off." },
-            { module = "Chat", text = "Added a color and opacity swatch for the chat frame's inner border and divider lines, next to Hide Borders." },
-            { module = "Cooldown Manager", text = "Demonic Art and Diabolic Ritual, which share one spell ID, can now each be assigned to a bar, hosted on a Cooldown or Utility bar, and dragged to reorder individually instead of collapsing into one fixed slot." },
-            { module = "Data Bars", text = "Gold suffixes, the clock tooltip's date and reset countdowns, and the unconfigured Currency block's text now use your client's language instead of hardcoded English." },
-            { module = "Data Bars", text = "Renamed or deleted characters can be dropped from the Gold tooltip's per-character list with Ctrl+Alt+Left-Click." },
-            { module = "Data Bars", text = "Clickable Gold and Social or Guild tooltip rows now get the same full-row hover highlight as the Mythic+ teleport rows." },
-            { module = "Data Bars", text = "New Coin Icons toggle on the Gold block renders amounts with Blizzard's coin textures instead of letter suffixes." },
-            { module = "General", text = "Updated French, Simplified and Traditional Chinese, German, and Korean translations." },
-            { module = "Quest Tracker", text = "Fixed a taint error from clicking a tracker section title to collapse it, and the tracker's top padding jumping or flickering during combat." },
-            { module = "Raid Frames", text = "Name display now recognizes custom nicknames set with the RaidGaming Aliases addon, alongside the existing nickname sources." },
-            { module = "Resource Bars", text = "Fixed the Custom Colored fill's transparency fighting the separate Fill Opacity control on health, power, class resource, and cast bar fills, and the empty-slot backdrop and pip spacing not matching a translucent fill on pip resources like Combo Points and Runes." },
-            { module = "Spec Overrides", text = "New Promote Override to Profile tool bakes an override's settings into your profile, then clears all overrides." },
-            { module = "Spec Overrides", text = "Data Bars settings captured in an override group now repaint the moment the override applies, instead of waiting for another refresh to poke them." },
-            { module = "Unit Frames", text = "New Show Expand Button toggle can hide Blizzard's buff collapse and expand button and keep every buff visible instead." },
-            { module = "Blizzard Windows", text = "Fixed guild rank reordering being blocked and a cascade of errors on guild roster refresh while the Guild window skin was enabled." },
-            { module = "General", text = "\"In Party\" visibility now means party only across every module's visibility settings; check \"In Raid Group\" as well if something should also show in raids." },
-            { module = "Nameplates", text = "Fixed the name raid marker erroring and landing in the wrong spot beside names Midnight protects; it now sits cleanly at the name's edge." },
-            { module = "Profiles & Presets", text = "Export and import can now carry your Blizzard window and tooltip skins." },
-            { module = "Quality of Life", text = "Fixed Target Distance Text triggering blocked-action errors on friendly targets in combat; the readout now pauses for friendlies in restricted situations instead." },
-            { module = "Quality of Life", text = "The Keys, Logs & Brez tab merged into the bottom of the main Quality of Life page; the Battle Res and Bloodlust settings live there now." },
-            { module = "Raid Frames", text = "Fixed an error that could spam when a dispellable debuff appeared while the dispel overlay was enabled." },
-            { module = "Raid Frames", text = "Fixed party power bars freezing mid-combat when the Power Bar section was unsynced with power off for raid but on for party." },
-            { module = "Resource Bars", text = "Fixed Anchor to Cursor turning itself off on reload; the bar now keeps following the cursor across sessions." },
+            { module = "Action Bars", text = "Mac Command key bindings now abbreviate correctly in hotkey text on action buttons and Cooldown Manager icons, instead of showing the raw META prefix." },
+            { module = "Bags", text = "Merged stacks now split back apart automatically while the Send Mail tab, a trade, the auction house, your bank, or a guild bank is open, then re-merge once those close, so you can reach every individual slot." },
+            { module = "Blizz UI Enhanced", text = "Inspecting a new player right after someone else no longer leaves the previous target's item level, enchant, and upgrade track labels on the gear slots." },
+            { module = "Cooldown Manager", text = "Only Show Numbers on buff bars now follows the bar's own Cooldown Text setting and any per icon override, instead of forcing the countdown on. If you had Cooldown Text turned off on one of those bars, those icons now show only the stack count, so turn Cooldown Text back on to bring the number back." },
+            { module = "Data Bars", text = "The Travel block now shows a dash and treats a hearthstone or Mythic+ teleport as still cooling when its cooldown data is unreadable in restricted combat, instead of throwing an error." },
+            { module = "General", text = "Long setting labels now truncate with an ellipsis and show their full text on hover, instead of wrapping onto a second line or running under the control beside them." },
+            { module = "Movement Alert", text = "Icon display mode now shows the cooldown swipe and its countdown number reliably, including in the moment right after a cast, and no longer depends on Blizzard's Cooldown Timer Text setting being on." },
+            { module = "Raid Frames", text = "Buff icons created for the first time during combat no longer swallow clicks and mouseover for the rest of that fight, so click casting works through them immediately. Their aura tooltip comes back when combat ends." },
+            { module = "Unit Frames", text = "Auras removed at the same moment their data updates, such as dispels, trap breaks, and fully consumed absorbs, no longer leave a stuck icon behind with no tooltip, and reapplying the same aura no longer duplicates it." },
+            { module = "Unit Frames", text = "Name Length and Show Ellipsis have been replaced by a per slot Width % setting, so text is now trimmed by how much room it has rather than by a character count. Any Name Length you had set no longer applies and names show at full length until you lower Width %." },
+            { module = "Unit Frames", text = "The combat indicator custom color swatch now dims and blocks clicks when it does not apply, instead of disappearing and shifting the row spacing." },
         },
     },
     {
-        version = "8.5.2",
+        version = "8.7",
+        mini = true,
+        fixes = {
+            { module = "Cooldown Manager", text = "Hide Active State now greys transformed charge spells (e.g. Judgment under Avenging Wrath) at zero charges in real combat, reading the transformed spell's own cooldown." },
+            { module = "Mythic+ Timer", text = "Fixed the floating timer appearing in the wrong place at the start of each key when the timer is scaled, drifting toward the center of the screen until Unlock Mode was opened." },
+            { module = "Nameplates", text = "Pandemic and dispel glows no longer cover the duration and stack text on nameplate auras." },
+            { module = "Quality of Life", text = "Hide Item Transformations no longer hides the Atomically Recalibrator and Atomically Regoblinator toy effects by default." },
+            { module = "Raid Frames", text = "Frames now show OFFLINE instead of DEAD when a player is both disconnected and dead." },
+            { module = "Raid Frames", text = "Fixed action blocked errors when buff indicators built their icons for the first time during combat, such as on delve trash pulls." },
+            { module = "Unit Frames", text = "Fixed buffs and debuffs keeping the previous target's icons when switching targets." },
+        },
+    },
+    {
+        version = "8.6.8",
         heroes = {
             {
-                module = "Unit Frames",
-                title  = "External Defensives Frame",
-                desc   = "External defensives cast on you, like Pain Suppression or Ironbark, now show in a new movable icon row you can size, color, and position.",
-                nav    = { module = "EllesmereUIUnitFrames", page = "Blizzard Aura Frames", section = "EXTERNAL DEFENSIVES FRAME", highlight = "Enable External Defensives Frame" },
+                -- Full-width banner card (banner = true, see MakeBannerCard):
+                -- announcement-style chrome dedicated to the suite-wide
+                -- performance overhaul. Static on purpose -- the speedup is
+                -- automatic, there is no setting to open.
+                banner  = true,
+                eyebrow = "SUITE-WIDE OPTIMIZATION",
+                title   = "The Performance Patch",
+                desc    = "The entire suite has been rebuilt for speed: CPU Usage has been cut by more than 70% while idle, and over 50% during M+/Raid combat. Same look, same features, at a fraction of the cost.",
             },
+        },
+        fixes = {
+            { module = "Action Bars", text = "The micro menu and bag bar reappear on their own after wild pet battles." },
+            { module = "Action Bars", text = "Clicking an empty stretch of an action bar no longer flips the main bar to another page." },
+            { module = "Action Bars", text = "Cooldown swipes repaint when a proc modifies them, and an active GCD no longer greys out charge spells." },
+            { module = "Blizz UI Enhanced", text = "Context menus keep their skin after the first menu of the session." },
+            { module = "Blizz UI Enhanced", text = "Submenu flyouts (Loot Specialization, Raid Markers and friends) are skinned again." },
+            { module = "Blizz UI Enhanced", text = "Fixed repeating errors when hovering enemy nameplate auras inside instances." },
+            { module = "Cooldown Manager", text = "Replaced tracked buffs (e.g. Wither for Hellcaller) show the castable spell's icon instead of the aura's." },
+            { module = "Cooldown Manager", text = "Transforming cooldowns like Holy Armaments stay on the bar you assigned them to." },
+            { module = "Cooldown Manager", text = "Custom Active States (e.g. trinket glows) work after login without opening the settings first." },
+            { module = "Cooldown Manager", text = "Pandemic Glow's None option is now selectable and actually hides Blizzard's pandemic glow." },
+            { module = "Cooldown Manager", text = "Suppress GCD now covers racials and user-added spells." },
+            { module = "Cooldown Manager", text = "Transformed charge spells (e.g. Judgment under Avenging Wrath) grey out at zero charges with Hide Active State." },
+            { module = "Cooldown Manager", text = "Bar Glows light up when the aura is gained, not only after one is removed." },
+            { module = "General", text = "Typing a value into a slider's number box now updates dependent controls the same as dragging it." },
+            { module = "General", text = "Many missing translations now translate on non-English clients; Traditional Chinese and Korean translations expanded (community)." },
+            { module = "Quality of Life", text = "The Upgrade Calculator works on non-English clients: crest totals, missing upgrades and the queue no longer read zero." },
+            { module = "Quality of Life", text = "The Raid Tools window keeps its saved position correctly when scaled." },
+            { module = "Unit Frames", text = "More absorb bar position options." },
+            { module = "Unit Frames", text = "With Only Dispellable by You, dwarves now get the dispel overlay for bleeds (Stoneform clears them)." },
+        },
+    },
+    {
+        version = "8.6.6",
+        heroes = {
             {
-                module = "Data Bars",
-                title  = "New Blocks, Tooltips, and Textures",
-                desc   = "A big Data Bars pass: new Great Vault and audio Volume blocks, clickable Social and Guild tooltips, a richer Travel tooltip, per-icon coloring, Modern style bar textures, and Micro Menu buttons that keep working in combat.",
-                nav    = { module = "EllesmereUIDataBars", page = "DataBars" },
+                -- Umbrella card: absorbs the pull-timer boss-mod sync, the
+                -- combat-safe markers, and the auto-show/collapse/keybind work
+                -- rather than spawning sibling feature cards beside itself.
+                module = "Quality of Life",
+                title  = "Raid Tools Panel",
+                desc   = "A new movable panel with ready check, role check, convert or disband, one click pull timers, and target/world markers that work in combat. Show it as one or two windows at any scale, collapse it to an icon, and open it from a keybind.",
+                nav    = { module = "EllesmereUIQoL", page = "Raid Tools", section = "GENERAL", highlight = "Show Raid Tools" },
             },
         },
         features = {
             {
-                module = "Blizzard Windows",
-                title  = "Movable Tooltip Position",
-                desc   = "Drag the game tooltip anywhere in Unlock Mode",
-                nav    = { module = "EllesmereUIBlizzardSkin", page = "Tooltips, Menus & Popups", section = "BLIZZARD TOOLTIP", highlight = "" },
+                module = "Chat",
+                title  = "Input Field Size and Font",
+                desc   = "Set the chat box height, font and size",
+                nav    = { module = "EllesmereUIChat", page = "Chat", section = "INPUT FIELD", highlight = "Edit Box Height" },
             },
             {
-                module = "Blizzard Windows",
-                title  = "Show Unit Target on Tooltip",
-                desc   = "Who the hovered unit is targeting, in green when it's you",
-                nav    = { module = "EllesmereUIBlizzardSkin", page = "Tooltips, Menus & Popups", section = "BLIZZARD TOOLTIP", highlight = "Reskin Tooltip" },
+                module = "Chat",
+                title  = "Sidebar Width",
+                desc   = "Size the sidebar from 30 to 100 pixels",
+                nav    = { module = "EllesmereUIChat", page = "Sidebar", section = "SIDEBAR", highlight = "Sidebar Width" },
             },
             {
-                module = "Blizzard Windows",
-                title  = "Resurrect Glow and Tooltip Growth",
-                desc   = "Pulsing glow on resurrect Accept buttons, plus a tooltip Growth Direction",
-                nav    = { module = "EllesmereUIBlizzardSkin", page = "Tooltips, Menus & Popups", section = "BLIZZARD POPUPS & GAME MENU", highlight = "Resurrect Accept Glow" },
+                module = "General",
+                title  = "Name Font",
+                desc   = "Own font for floating names; needs a logout",
+                nav    = { module = "_EUIGlobal", page = "Fonts & Colors", section = "GLOBAL FONT", highlight = "Name Font" },
             },
             {
-                module = "Blizzard Windows",
-                title  = "Style Popups, Tooltips, and Menus",
-                desc   = "Border styles and color modes for popups, tooltips, and the Game Menu",
-                nav    = { module = "EllesmereUIBlizzardSkin", page = "Tooltips, Menus & Popups", section = "BLIZZARD POPUPS & GAME MENU", highlight = "Border Style" },
+                -- Title carries no module word: TitleOf prefixes "Party Mode: ",
+                -- and the option's own label ends in "on Party Mode", which would
+                -- read twice. The row is a direct W:Dropdown call, which still
+                -- tags _labelText from its text argument, so the label matches.
+                module = "Party Mode",
+                title  = "Activation Sound",
+                desc   = "Play a chosen sound when it turns on",
+                nav    = { module = "EllesmereUIPartyMode", page = "Party Mode", section = "PARTY MODE", highlight = "Play Sound on Party Mode" },
             },
             {
+                -- Lives as the "Anchor to Debuffs" VALUE inside the Buff Display
+                -- dropdown, so the highlight targets that row (its DualRow label
+                -- starts "Buff Display", and it is the first row under the
+                -- header, so nothing can intercept the match). preSelect is
+                -- REQUIRED, not optional: the BUFFS AND DEBUFFS section only
+                -- builds for player/target/focus, so anyone whose last viewed
+                -- unit was pet or boss would land on a page without the section.
+                module = "Unit Frames",
+                title  = "Anchor to Debuffs",
+                desc   = "Buffs show as the first rows of your debuff stack",
+                nav    = { module = "EllesmereUIUnitFrames", page = "Main Frames", section = "BUFFS AND DEBUFFS", highlight = "Buff Display",
+                           preSelect = function()
+                               if EllesmereUI._setUnitFrameUnit then EllesmereUI._setUnitFrameUnit("player") end
+                           end },
+            },
+        },
+        fixes = {
+            { module = "Action Bars", text = "Reduced CPU usage while Assisted Combat (One Button Assist) is active: a new suggested spell now updates just that button, instead of running a full pass over every button on every bar each time the rotation moves on." },
+            { module = "Bags", text = "TradeSkillMaster's Banking UI now detects when you switch between your character bank and the warbank from the sidebar, instead of staying on the wrong bank type." },
+            { module = "Blizz UI Enhanced", text = "Fixed right-clicking a unit and choosing Whisper sometimes opening the chat box with a broken, unreadable recipient name and spamming repeated errors." },
+            { module = "Chat", text = "Fixed undocked windows creeping toward the bottom-left corner of the screen on every login or reload." },
+            { module = "Chat", text = "Turning on Input on Top now grows the chat panel upward to fit the input box, instead of placing it inside the panel and shrinking the area your chat text has to work with." },
+            { module = "Chat", text = "Fixed windows you create and dock permanently sometimes being sized like a temporary whisper tab, and tabs losing their custom colors after moving or resizing the frame in Blizzard's Edit Mode." },
+            { module = "Chat", text = "The Tab Texture option, renamed from Tab Background Texture, now works whether or not Sync Border with Chat Panel is on, instead of staying greyed out." },
+            { module = "Chat", text = "A Mouseover sidebar now only takes up panel space while it is actually showing, so with Tabs Inside Chat Panel or Align Tabs to Full Panel the panel and tab alignment resize as you move the mouse on and off it, where before that space was reserved at all times." },
+            { module = "Chat", text = "Tab borders, dividers and the active underline now line up again immediately after changing Tab Spacing, instead of staying at their old positions until something else redrew the tabs." },
+            { module = "Chat", text = "Tab dividers now sit in the gap between tabs rather than on the tab's own edge, and temporary whisper tabs no longer draw one." },
+            { module = "Chat", text = "Tab Background Color and Tab Background Color Active are now color swatches, with their opacity moved into the cog beside each row." },
+            { module = "Chat", text = "Tab fonts, the active tab font and the active tab background can now be set to Accent Color or Class Color." },
+            { module = "Chat", text = "The Active Underline's third color preset is now Class Color instead of Border Color, so an underline that was set to Border Color now shows your Custom Color instead." },
+            { module = "Chat", text = "Fixed another source of repeating error messages when receiving a whisper, or when a Battle.net whisper toast appeared, while the sender's name was hidden by the game such as during a Mythic+ key." },
+            { module = "Cooldown Manager", text = "Fixed an inactive tracked buff's placeholder icon showing the pre-talent spell's art, such as a Hellcaller Destruction Warlock's Immolate slot that actually casts Wither. The icon's tooltip follows the same correction, and the per-icon preview in the options page shows the corrected art." },
+            { module = "Cooldown Manager", text = "Turning off a bar's Pandemic Glow now clears a glow already lit on an icon straight away, instead of leaving it stuck on screen until you turned the setting back on, let the buff expire, then turned it off again." },
+            { module = "Cooldown Manager", text = "Custom and preset buff icons now use the Cooldown Swipe Color you picked for them, instead of falling back to the cooldown style swipe handling meant for ability cooldowns." },
+            { module = "Cooldown Manager", text = "Setting up or editing a Generic CDs/Buffs sync now tells you in chat how many specs were included and that icon order is not synced, and says when confirming with only one spec ticked cleared an existing sync instead of creating one." },
+            { module = "Cooldown Manager", text = "The Health Potion preset now shows and tracks the newest health potion first, falling back to the Silvermoon potions when you have none of the new ones." },
+            { module = "General", text = "Tooltips inside the EllesmereUI options panel and its popups now follow your EUI Options Panel Scale setting, instead of always showing at the default size." },
+            { module = "General", text = "The Mushroom hearthstone toy is now included, so it can be picked in the Data Bars Travel block and shows in the Chat and Minimap portal flyouts." },
+            { module = "General", text = "Account Wide Interface Settings no longer triggers an Incompatible Addon Detected warning on login for Quest Tracker." },
+            { module = "General", text = "Added and corrected translations across German, Spanish, French, Italian, Portuguese, Russian, Korean, Simplified Chinese and Traditional Chinese." },
+            { module = "Nameplates", text = "Nameplate text slots can now show a unit's level, on its own or alongside the name." },
+            { module = "PTR Nameplates", text = "Fixed the Caster nameplate color on PTR, it now applies to any unit with a mana bar." },
+            { module = "PTR Unit Frames", text = "Focus, focus target and target of target frames show class colors for allied players again, instead of falling back to the plain green friendly color. Those three frames use Blizzard's standard class colors, so a custom class color addon cannot recolor them." },
+            { module = "Quality of Life", text = "Auto Repair now uses whatever the guild bank can contribute and charges you only the remainder, instead of charging your own gold for the whole bill any time the guild bank could not cover it in full. It also no longer refuses to repair when your own gold is short but your gold plus guild funds would cover it." },
+            { module = "Resource Bars", text = "Fixed vertical Health Bar, Power Bar and Class Resource bars showing a sideways box and swapped size numbers in Unlock Mode, so dragging a handle resized the wrong axis. On all four bars, including the GCD Bar, the Height and Width Match options now grey out the slider they actually control. Horizontal bars were not affected." },
+            { module = "Resource Bars", text = "Fixed the Protection Warrior Ignore Pain bar's stack count text going blank and staying blank until Blizzard's tracked buff viewer happened to reuse the same icon slot." },
+            { module = "Spec Overrides", text = "Fixed a spec or conditional override captured on a custom raid size (10, 15, 25 or 30 man) silently never taking effect, and continuing to fail on later edits to that tier. New overrides now save correctly, and profiles carrying the earlier ones repair themselves with nothing for you to do." },
+            { module = "Spec Overrides", text = "Fixed old profile corruption that could cause switching to a different profile while a spec-specific Unlock Mode layout was active to leave the old layout's frame positions on screen and then save them over your regular layout. Positions now resync immediately instead." },
+            { module = "Unit Frames", text = "Fixed the Absorb Short health text getting stuck on a leftover 0 on target, focus, boss and pet frames after the unit changed or died. The player frame was never affected." },
+        },
+    },
+    {
+        version = "8.6.5",
+        -- No hero tier: 8.6.5 is a maintenance release whose largest additions
+        -- are single toggles. `_BuildWhatsNewPage` skips the hero block when
+        -- `heroes` is absent, and this is NOT a mini patch (a features tier is
+        -- present), so the version title still renders full size.
+        features = {
+            {
+                -- Page-only nav on purpose. Both new Cooldown Saturation rows
+                -- are MakeSubnavRow entries inside the per-icon spell picker
+                -- popup, which never gets a _labelText or _isSectionHeader, so
+                -- any section/highlight would fall through the match loop and
+                -- no-op. The popup opens off the live preview in the page's
+                -- fixed content header, so this lands one click away.
                 module = "Cooldown Manager",
-                title  = "Drag to Reorder Custom Bars",
-                desc   = "Reorder bars in the selector, plus higher size and threshold caps",
-                nav    = { module = "EllesmereUICooldownManager", page = "Tracking Bars", section = "BAR LAYOUT", highlight = "Height" },
-            },
-            {
-                module = "Cooldown Manager",
-                title  = "Multiple Stack Color Thresholds",
-                desc   = "Color a Tracking Bar at up to five stack counts, plus tick mark colors",
-                nav    = { module = "EllesmereUICooldownManager", page = "Tracking Bars", section = "EXTRAS", highlight = "Enable Stack Threshold" },
-            },
-            {
-                module = "Cooldown Manager",
-                title  = "Only Numbers, Custom Icons, and Strata",
-                desc   = "Number-only buff bars, custom spell icons, and wider Bar Strata",
+                title  = "Cooldown Saturation",
+                desc   = "Keep icons colored while on cooldown",
                 nav    = { module = "EllesmereUICooldownManager", page = "CDM Bars" },
             },
             {
-                module = "Damage Meters",
-                title  = "Meter Window Borders",
-                desc   = "Border style, size, and color for the window, plus a header divider",
-                nav    = { module = "EllesmereUIDamageMeters", page = "Damage Meters", section = "DISPLAY", highlight = "Border Style" },
-            },
-            {
-                module = "Damage Meters",
-                title  = "Spell History Fade-Out",
-                desc   = "Icons fade after a set time, pausing during combat",
-                nav    = { module = "EllesmereUIDamageMeters", page = "Spell History", section = "ICON HISTORY", highlight = "Fade-Out Time" },
-            },
-            {
-                module = "Nameplates",
-                title  = "Debuffs + CC Slot",
-                desc   = "Show crowd control icons alongside debuffs in one nameplate slot",
-                nav    = { module = "EllesmereUINameplates", page = "Display", section = "CORE POSITIONS", highlight = "Top" },
-            },
-            {
-                module = "Nameplates",
-                title  = "Distance to Target Text",
-                desc   = "Show an approximate range bracket like 15+ on your target's nameplate",
-                nav    = { module = "EllesmereUINameplates", page = "General", section = "TARGET AND FOCUS EFFECTS", highlight = "Distance to Target Text" },
-            },
-            {
-                module = "QoL",
-                title  = "More Unlock Mode Movers",
-                desc   = "Move the top-center event text and the alert toast banner",
-                nav    = { module = "EllesmereUIQoL", page = "Shifter", section = "BLIZZARD TOP BAR EVENT TEXT", highlight = "Move Top Bar Event Text in Unlock Mode" },
-            },
-            {
-                module = "Raid Frames",
-                title  = "Extend Health Bar Behind Power",
-                desc   = "Health fills the frame behind the power bar, plus higher aura size caps",
-                nav    = { module = "EllesmereUIRaidFrames", page = "Frames", section = "POWER BAR", highlight = "Power Height" },
-            },
-            {
-                module = "Unit & Resource Bars",
-                title  = "Translucent Bar Fills",
-                desc   = "Make bar fills translucent so the game world shows through",
-                nav    = { module = "EllesmereUIResourceBars", page = "Cast Bar", section = "DISPLAY", highlight = "Fill Opacity" },
-            },
-        },
-        fixes = {
-            { module = "Action Bars", text = "Crafted rank icons and button icon states now update instantly when a slot's contents change, without needing a hover first." },
-            { module = "Action Bars", text = "The Icon Size slider now shows an explanatory tooltip when disabled by Blizzard Style bars or size matching, instead of showing nothing." },
-            { module = "Action Bars", text = "Size matching an action bar while using Blizzard Style no longer silently changes your saved icon sizes; new matches are refused with an explanation instead." },
-            { module = "Action Bars & Cooldown Manager", text = "Fixed the Assisted Combat highlight not lighting up action bar and cooldown bar buttons until you moused over them or reloaded, including spells shown in an override form." },
-            { module = "Blizzard Windows", text = "Fixed setting a guild or officer note, or changing a member's rank, throwing an error while the Guild and Communities skin was enabled." },
-            { module = "Chat", text = "Chat backgrounds can now use a texture instead of a flat color." },
-            { module = "Cooldown Manager", text = "Fixed being unable to track both halves of a collided buff pair, such as Demonic Art and Diabolic Ritual, on one custom buff bar." },
-            { module = "Cooldown Manager", text = "Fixed a saved Cooldown or Utility bar icon order sometimes reverting to the default on reload." },
-            { module = "Cooldown Manager", text = "Fixed Stack Based Tracking Bars sometimes not updating their fill and stack count, including in fallback tracking mode." },
-            { module = "Cooldown Manager", text = "The Tracking Bar spell picker now groups buffs under their own Buffs header, with the Missing Spells? shortcut moved there and always shown." },
-            { module = "Cooldown Manager", text = "Imported profiles now keep your current spell layouts for any specs the import string does not carry, instead of leaving those specs empty." },
-            { module = "General", text = "Options pages across the suite now hide settings that do not apply instead of graying them out." },
-            { module = "General", text = "Fixed pixel sliders sometimes unable to select 1 pixel on scaled UI setups, and reduced-opacity borders briefly flashing to full opacity when reapplied." },
-            { module = "General", text = "Profile exporting is now a single flow: choose your addons and use the new Include menu for Overrides, Unlock Mode Layout, and Global Settings; importing gained a matching Include Overrides option." },
-            { module = "General", text = "Fixed broken override data in imported profiles erasing individual settings on some specs, including an error when opening the options on a new character." },
-            { module = "General", text = "Fixed anchored elements, such as chained Damage Meters windows, snapping out of position after importing a profile and staying wrong on every login." },
-            { module = "General", text = "Updated German, French, and Traditional Chinese translations." },
-            { module = "Minimap", text = "Fixed a possible protected-frame error when hover or conditional visibility tried to show or hide the minimap in combat." },
-            { module = "Mythic Timer", text = "Fixed the Unlock Mode drag anchor drifting from the timer's real position and size, and the timer now shows placeholder data while Unlock Mode is open." },
-            { module = "Nameplates", text = "Fixed neutral mobs staying on the enemy in-combat color instead of showing the Tank Has Aggro color while you hold aggro on them." },
-            { module = "QoL", text = "Auto Open Containers no longer strands slow-opening or bags-full containers in a stuck, unopenable state." },
-            { module = "QoL", text = "Macro Factory now shows spec macros in your client's language on all clients, fixes blank combo-macro icons, and limits the Devourer macros to the Devourer spec." },
-            { module = "Quest Tracker", text = "Auto Accept Quests can now be skipped by holding Shift while talking to an NPC, matching Auto Turn In." },
-            { module = "Quest Tracker", text = "Fixed the tracker's top padding staying wide after combat, auto-hide failing or erroring on boss pulls and arenas, and a taint bug where font or focus changes could block world map clicks in combat." },
-            { module = "Resource Bars", text = "Fixed the Sweeping Strikes charge tracker draining charges during Bladestorm, and it now resyncs against the Cooldown Manager's buff widget." },
-            { module = "Resource Bars", text = "Fixed clicking the class resource count in Simple mode doing nothing, a thin gap beside the cast bar icon, and Expand Power Bar if No Resource conflicting with height matching." },
-            { module = "Unit Frames", text = "Power bars attached to the health bar can now show a divider border along the seam, with an adjustable size." },
-            { module = "Unit Frames", text = "Frame text can now show a unit's level, alone or combined with its name." },
-            { module = "Unit Frames", text = "Added a Combine Spell Name and Target option for Target and Focus cast bars, and raised most on-frame text size slider caps to 100." },
-        },
-    },
-    {
-        version = "8.5.1",
-        heroes = {
-            {
-                module = "Cooldown Manager",
-                title  = "Stack Based Tracking Bars",
-                desc   = "Buff Tracking Bars can now fill by stack count instead of remaining time: turn on Stack Based Bar, set your Max Stacks, and the bar fills as your stacks build.",
-                nav    = { module = "EllesmereUICooldownManager", page = "Tracking Bars", section = "EXTRAS", highlight = "Stack Based Bar" },
-            },
-            {
-                module = "Raid Frames",
-                title  = "Show Your Buffs on All Specs",
-                desc   = "Your own tracked buffs can now show on every spec of your class: flip one toggle in Simple Setup, or use the new cog on Own Only to opt in a single Custom Buff Display indicator.",
-                nav    = { module = "EllesmereUIRaidFrames", page = "Buff Manager", section = "BUFF DISPLAY", highlight = "Show Own on All Specs" },
-            },
-        },
-        features = {
-            {
-                module = "Cooldown Manager",
-                title  = "CD Tracking Bar Charge Lines",
-                desc   = "Split multi-charge bars into per-charge segments with divider lines",
-                nav    = { module = "EllesmereUICooldownManager", page = "Tracking Bars", section = "BAR LAYOUT", highlight = "Charge Hash Lines" },
-            },
-            {
-                module = "Unit Frames",
-                title  = "More Combat Indicator Positions",
-                desc   = "Anchor to any health bar corner, plus a wider offset range",
-                nav    = { module = "EllesmereUIUnitFrames", page = "Main Frames", section = "EXTRAS", highlight = "Combat Indicator",
-                    preSelect = function()
-                        if EllesmereUI._setUnitFrameUnit then EllesmereUI._setUnitFrameUnit("player") end
-                    end },
-            },
-            {
-                module = "Unit Frames",
-                title  = "Independent Leader Indicator",
-                desc   = "Player and Target set separately, with one-click sync",
-                nav    = { module = "EllesmereUIUnitFrames", page = "Main Frames", section = "EXTRAS", highlight = "Leader Indicator",
-                    preSelect = function()
-                        if EllesmereUI._setUnitFrameUnit then EllesmereUI._setUnitFrameUnit("player") end
-                    end },
-            },
-        },
-        fixes = {
-            { module = "Action Bars", text = "Macro names and profession rank icons now update immediately after moving or swapping macros or switching loadouts." },
-            { module = "Blizzard Windows", text = "Fixed the character stats scrollbar getting stuck after collapsing a section, and hidden stat categories reappearing after a reload." },
-            { module = "Blizzard Windows", text = "Item quality, enchant, and socket borders no longer cover crafting order and catalyst slot highlights on the character sheet." },
-            { module = "Cooldown Manager", text = "Fixed keybind text missing or wrong for abilities and items cast from a macro." },
-            { module = "Cooldown Manager", text = "Fixed textured icon borders showing at different thicknesses on icons in the same bar." },
-            { module = "Cooldown Manager", text = "Fixed charge and stack count text offsets not scaling with icon size." },
-            { module = "Cooldown Manager", text = "Fixed custom colors being discarded when using Apply to Bar on an Active State color row." },
-            { module = "Cooldown Manager", text = "Fixed Diabolist buffs that share a spell ID collapsing into one icon and sharing settings." },
-            { module = "Cooldown Manager", text = "Raised the Tracking Bars Max Stacks slider cap from 50 to 100." },
-            { module = "Cooldown Manager", text = "Fixed charge hash lines and stack tick marks not appearing on the Tracking Bars preview until settings were edited again." },
-            { module = "Cooldown Manager", text = "Fixed stack tick marks never showing unless the Stack Threshold color was also enabled; they now only require Max Stacks." },
-            { module = "General", text = "Spacing sliders across the whole suite now show and step in real screen pixels, so 1 always equals exactly one pixel on your monitor at any UI scale; saved layouts are unchanged." },
-            { module = "General", text = "Fixed a rare rounding issue that could shave one pixel off some element sizes at certain UI scales." },
-            { module = "General", text = "Fixed the French translation failing to load entirely, with all text falling back to English." },
-            { module = "General", text = "Updated Korean, French, Simplified Chinese, and Traditional Chinese translations." },
-            { module = "QoL", text = "The auto repair chat message is now translatable, with a new Coin Icons option to show the cost with coin icons instead of text." },
-            { module = "Quest Tracker", text = "Removed the large empty gap at the top of the tracker and stopped it briefly dropping down when clicking a quest." },
-            { module = "Raid Frames", text = "The Buff Manager's Editing Spec dropdown now opens on your class's tracked spec (or Holy Paladin) instead of blank when playing an untracked spec." },
-            { module = "Resource Bars", text = "Fixed the Sweeping Strikes bar dropping to zero mid-combat and in Mythic+." },
-            { module = "Resource Bars", text = "Restored Unlock Mode movers for bars still using an old Anchor To setting, keeping the bar's position." },
-            { module = "Resource Bars", text = "Resource text no longer flips between value and percent when combat starts; a Show % option picks the display." },
-        },
-    },
-    {
-        version = "8.4.9",
-        heroes = {
-            {
-                module = "Data Bars",
-                title  = "Smarter Tooltips",
-                desc   = "New Mythic Plus teleports in the Travel tooltip can now be left-clicked to cast, and a new opt-in Character button tooltip shows your item level, primary stat, and Crit, Haste, Mastery, and Versatility.",
-                nav    = { module = "EllesmereUIDataBars", page = "DataBars" },
-            },
-        },
-        features = {
-            {
-                module = "Blizz UI Enhanced",
-                title  = "Disable Window Skins Switch",
-                desc   = "Turn off all window skinning with one per profile switch",
+                -- PTR entry: the socialui window pack gates on
+                -- Blizzard_SocialUI, which does not exist on 12.0, so this is
+                -- 12.1-only. Umbrella for the whole Social window effort: the
+                -- window pack chrome, the 12.1 friends tile styling, and the
+                -- legacy Friends skin standing down when the Social UI is live.
+                -- Page-only rather than targeting the Friends List card: that
+                -- card's _sectionName is title .. " " .. desc, a 169-char join
+                -- that any wording tweak would silently break.
+                module = "PTR Friends List",
+                title  = "Social Window Styling",
+                desc   = "EllesmereUI styling for the 12.1 friends window",
                 nav    = { module = "EllesmereUIBlizzardSkin", page = "Blizzard Window Skins" },
             },
-            {
-                module = "Cooldown Manager",
-                title  = "Tracking Bar Strata",
-                desc   = "Choose the screen layer Tracking Bars sit on",
-                nav    = { module = "EllesmereUICooldownManager", page = "Tracking Bars", section = "BAR LAYOUT", highlight = "Bar Strata" },
-            },
-            {
-                module = "Damage Meters",
-                title  = "Unlock Mode Support",
-                desc   = "Windows now move, anchor, and size match through Unlock Mode",
-                nav    = { module = "EllesmereUIDamageMeters", page = "Damage Meters" },
-            },
-            {
-                module = "Resource Bars",
-                title  = "Hide Bars per Druid Form",
-                desc   = "Hide the whole Health, Power, or Class Resource bar per form",
-                nav    = { module = "EllesmereUIResourceBars", page = "Class, Power and Health Bars", section = "HEALTH BAR", highlight = "Show Health Bar" },
-            },
         },
         fixes = {
-            { module = "Character Sheet", text = "Fixed the diminishing returns breakdown no longer showing for Critical Strike after a Blizzard internal stat rename." },
-            { module = "Chat", text = "Fixed Up and Down arrow message history recall breaking protected commands like /ping during Mythic Plus keys and boss encounters." },
-            { module = "Cooldown Manager", text = "Fixed untouched spells on the base bars being left out of profile exports and then hidden for anyone importing that profile." },
-            { module = "Data Bars", text = "On-cooldown Hearthstone and teleport rows now dim to gray, with the remaining cooldown shown in the tooltip instead of under the icon." },
-            { module = "General", text = "Fixed the settings search box and per-spec overrides icon appearing on pages where they do not apply." },
-            { module = "General", text = "Updated koKR, zhTW, and deDE translations across several option pages." },
-            { module = "Mail", text = "Fixed auction house invoice and crafting order mail text showing unreadable dark brown instead of themed white." },
-            { module = "Nameplates", text = "Renamed Open World Basic Coloring to Full Coloring M+ Only; when enabled, full enemy type colors now show only in 5-man dungeons." },
-            { module = "Profiles & Presets", text = "Fixed profile sync (mirror groups) overwriting per-profile window positions and settings owned by a spec or conditional override." },
-            { module = "Profiles & Presets", text = "Fixed unchecking Include Layout on profile export or import still letting override-group layout layers overwrite the recipient's own layouts." },
-            { module = "Profiles & Presets", text = "Fixed importing a profile while viewing an override group's layout leaking that group's positions into the imported profile." },
-            { module = "Profiles & Presets", text = "Profiles now include their UI scale and users will be prompted during import if their UI scale doesn't match." },
-            { module = "Profiles & Presets", text = "Removed the extra Cooldown Manager spec-assignment popup during profile import; spells now import directly before the reload." },
-            { module = "Quest Tracker", text = "Fixed world quest map pin errors and quest icons briefly flashing visible while Show Quest Icons is turned off." },
-            { module = "Raid Frames", text = "Fixed the raid frame container staying at its previous spec's or profile's position until manually moved." },
-            { module = "Raid Frames", text = "Real Preview now shows your active spec's true effective override settings, with a gold marker on the Preview Mode control when an override is being previewed." },
-            { module = "Raid Frames", text = "Friendly Boss Frames now show their debuff, defensive, and Buff Manager indicator icons, which previously never appeared." },
-            { module = "Resource Bars", text = "Fixed resource percent text and class resource pips failing to update during Mythic Plus combat." },
-            { module = "Resource Bars", text = "Fixed leftover highlight overlays sometimes staying visible on pips after a combat-hidden value became readable again." },
-            { module = "Resource Bars", text = "Fixed a hidden bar briefly reappearing when its maximum value changed mid-fight, such as from a talent swap." },
-            { module = "Resource Bars", text = "Fixed the Sweeping Strikes charge indicator drifting out of sync with your real charges." },
-            { module = "Spec Overrides", text = "Fixed another case of width and height matched bars reverting to a stale size, this time shared across every spec in the group." },
-            { module = "Spec Overrides", text = "Fixed cooldown and action bars created after an override layout group already existed ignoring the group's saved layout." },
-            { module = "Spec Overrides", text = "Fixed adding a spec to an override group copying a stale matched bar width from another member onto the new spec." },
-            { module = "Spec Overrides", text = "Fixed a remaining case where opening Unlock Mode while editing an override group could corrupt shared defaults like Show Power Bar and Resource Text." },
+            { module = "Action Bars", text = "Fixed charge abilities flickering between colored and greyed out while recharging, and sometimes showing two overlapping cooldown numbers." },
+            { module = "Action Bars", text = "Fixed the recharge countdown on charge abilities showing in Blizzard's default font instead of your configured cooldown font." },
+            { module = "Action Bars", text = "Fixed a bar set to Never not getting a move handle in unlock mode while the Toggle Action Bar Visibility keybind had it on screen, and a bar set to Always that the keybind had toggled off still getting one." },
+            { module = "Action Bars", text = "Fixed combat error spam when the micro menu or bag bar changed visibility during Mythic+ keys and other combat." },
+            { module = "Blizz UI Enhanced", text = "Fixed the Crafting Orders type tabs (Public, NPC, Guild, Personal) keeping their highlight stuck on Public no matter which tab was selected." },
+            { module = "Blizz UI Enhanced", text = "Added an optional Mana row to the character sheet Attributes stats, off by default in the Attributes cog and hidden for classes with no mana pool." },
+            { module = "Conditional Overrides", text = "Fixed a pending condition switch such as Dark Mode getting stuck while the options panel was open, which silently blocked later setting changes from saving until a reload." },
+            { module = "Cooldown Manager", text = "Fixed two buff viewer slots that collide, such as Diabolic Ritual and Demonic Art, sharing one reserved slot, which could resize a buff bar mid fight as the two icons came and went." },
+            { module = "Cooldown Manager", text = "Added an Only In Combat option to Tracking Bars, hiding a bar completely while out of combat no matter what it is tracking." },
+            { module = "Cooldown Manager", text = "Added a Charges/Stacks Only option to Cooldown and Utility bars, stripping icons down to just their charge or stack count." },
+            { module = "Data Bars", text = "Fixed micro menu block buttons, and a hidden Blizzard micro menu, staying gone after a pet battle ended." },
+            { module = "General", text = "Fixed a permanent frame rate collapse caused by the anchor settle pass re-triggering itself in a loop, most likely at low UI scale where a re-apply is not pixel stable." },
+            { module = "General", text = "Added and corrected translations across German, French, Russian, Korean, Simplified Chinese and Traditional Chinese, including hyphenation fixes across a batch of German strings." },
+            { module = "Quality of Life", text = "Fixed Auto Sell Junk sometimes leaving grey items unsold. The sweep now retries until everything sells and tells you in chat if anything could not be sold." },
+            { module = "Quality of Life", text = "Movement Alert now only warns for charge based movement spells once every charge is spent, instead of treating a recharging spell as unavailable while a charge was still banked." },
+            { module = "Quality of Life", text = "Raised the crosshair H Length and V Length slider maximums from 100 to 500." },
+            { module = "Raid Frames", text = "Fixed Hover Cast bindings never firing over nameplates, and the Friendly and Enemy reaction toggles being ignored for macro bindings." },
+            { module = "Resource Bars", text = "Added an Always Show option to the cast bar, keeping it on screen and empty between casts." },
+            { module = "Resource Bars", text = "Fixed the Survival Hunter Tip of the Spear tracker landing on the wrong stack count after Takedown when Twin Fangs is talented." },
+            { module = "Spec Overrides", text = "Fixed a sustained frame rate drop lasting up to two minutes after leaving combat when a Dragon Riding HUD setting had been captured into an override." },
         },
     },
     {
-        version = "8.4.8",
-        heroes = {
-            {
-                module = "Cooldown Manager",
-                title  = "Bar Icon Overflow",
-                desc   = "Cap how many icons a Cooldown or Utility bar shows with the new Max Icons slider. Extra icons overflow onto another bar of your choice, keeping your main rotation row clean.",
-                nav    = { module = "EllesmereUICooldownManager", page = "CDM Bars", section = "BAR LAYOUT", highlight = "Max Icons (0 = Off)",
-                    preSelect = function()
-                        if EllesmereUI._setCDMBar then EllesmereUI._setCDMBar("cooldowns") end
-                    end },
-            },
-            {
-                module = "Spec Overrides",
-                title  = "Stability Hotfixes",
-                desc   = "A thorough pass at hardening the override system: override values can no longer corrupt your shared defaults or bleed onto specs outside their group, and settings controlled by an applied Conditional Override now show an Override overlay.",
-                nav    = { module = "_EUIProfiles", page = "Spec Overrides" },
-            },
-        },
-        features = {
-            {
-                module = "Nameplates",
-                title  = "Non-Target Opacity",
-                desc   = "Fade every enemy nameplate except your target and focus",
-                nav    = { module = "EllesmereUINameplates", page = "General", section = "EXTRAS", highlight = "Non-Target Opacity" },
-            },
-            {
-                module = "Profiles & Presets",
-                title  = "Import UI Scale Control",
-                desc   = "Choose whether an imported profile applies its UI scale",
-                nav    = { module = "_EUIProfiles", page = "Profiles" },
-            },
-            {
-                module = "Profiles & Presets",
-                title  = "Export Without Global Look",
-                desc   = "Per-addon exports can leave fonts and colors out",
-                nav    = { module = "_EUIProfiles", page = "Profiles" },
-            },
-            {
-                module = "Raid Frames",
-                title  = "Extra Frames, Up to 20",
-                desc   = "Up to 20 duplicate frames with grid wrap controls",
-                nav    = { module = "EllesmereUIRaidFrames", page = "Frames", section = "EXTRA FRAMES", highlight = "Position" },
-            },
-            {
-                module = "Raid Frames",
-                title  = "Icons Ignore Power Bar",
-                desc   = "Align icons and text as if no power bar existed",
-                nav    = { module = "EllesmereUIRaidFrames", page = "Frames", section = "POWER BAR", highlight = "Power Height" },
-            },
-            {
-                module = "Unit Frames",
-                title  = "Custom Name > Target Separator",
-                desc   = "Type your own separator and color it",
-                nav    = { module = "EllesmereUIUnitFrames", page = "Main Frames", section = "HEALTH BAR", highlight = "Left Text",
-                    preSelect = function()
-                        if EllesmereUI._setUnitFrameUnit then EllesmereUI._setUnitFrameUnit("player") end
-                    end },
-            },
-            {
-                module = "Unit Frames",
-                title  = "Only Dispellable by You",
-                desc   = "Show the dispel overlay only for debuffs you can dispel",
-                nav    = { module = "EllesmereUIUnitFrames", page = "Main Frames", section = "BUFFS AND DEBUFFS", highlight = "Dispel Overlay",
-                    preSelect = function()
-                        if EllesmereUI._setUnitFrameUnit then EllesmereUI._setUnitFrameUnit("player") end
-                    end },
-            },
-        },
-        fixes = {
-            { module = "Action Bars", text = "Fixed icons with Desaturate on Cooldown or Alpha when on CD returning to full color too early for charge spells and items, and staying dimmed after a charge regenerated." },
-            { module = "Action Bars", text = "Fixed the Show Item Rank icon not updating right away when a different rank item replaces the item in an action bar slot." },
-            { module = "Bags", text = "OneBag Sort now reorganizes items in the reagent bag along with your other bags." },
-            { module = "Bags", text = "Depositing into One or All Warband Bank views now stacks onto matching items in any warband tab instead of only the first tab with an empty slot." },
-            { module = "Bags", text = "Rapidly transferring items no longer causes clicks to fall through onto your action bars underneath." },
-            { module = "Bags", text = "Right-clicking the Miscellaneous category and choosing Rename now actually renames it." },
-            { module = "Character Sheet", text = "Secondary Stats now say Critical Strike instead of Crit, matching Blizzard's naming." },
-            { module = "Character Sheet", text = "The gem socket panel now reliably closes after socketing, instead of occasionally staying open and blocking clicks." },
-            { module = "Cooldown Manager", text = "The Pixel Glow and Button Glow CD Ready effects on trinkets, racials, potions, and custom spells now correctly turn off while the ability is on cooldown." },
-            { module = "Cooldown Manager", text = "Buff bar countdown timers now round seconds up to match Blizzard's own aura timers instead of reading one second low." },
-            { module = "Cooldown Manager", text = "Bars no longer disappear after entering or leaving an arena or battleground." },
-            { module = "Cooldown Manager", text = "Trinket icons no longer disappear while browsing a crafting order vendor." },
-            { module = "Cooldown Manager", text = "Buff icons shown for configuration no longer stay visible on screen after closing the options window." },
-            { module = "General", text = "The module on/off icon in the sidebar stays dimmed for disabled modules instead of brightening on mouseover." },
-            { module = "Global Search", text = "Typing a window's name (for example Mail or Achievements) into the sidebar search now finds that window's skin card." },
-            { module = "Global Search", text = "Search results keep mixed-case section labels like LFG Menu intact instead of re-capitalizing them." },
-            { module = "Mail", text = "Opened mail letters now render their text in the skin font." },
-            { module = "Profiles & Presets", text = "Importing a profile with custom colors now displays the imported palette right away." },
-            { module = "Profiles & Presets", text = "Importing a per-addon export without fonts no longer resets your global font to the default." },
-            { module = "Quality of Life", text = "Auto Open Containers no longer leaves a container stuck greyed out and unopenable when opens overlap." },
-            { module = "Quest Tracker", text = "The quest item hotkey now works for quest items from quests you are not tracking." },
-            { module = "Raid Frames", text = "Extra Frames in Free Move no longer shift position when the number of shown frames changes." },
-            { module = "Raid Frames", text = "Fixed the raid frame block not moving to its saved per-size position when the roster crossed a size tier in combat." },
-            { module = "Spec Overrides", text = "Fixed width and height matched bars randomly reverting to a stale size on spec changes and options roundtrips." },
-            { module = "Spec Overrides", text = "Adding your current spec to an existing override group no longer overwrites the group's stored values with your live settings." },
-            { module = "Spec Overrides", text = "Custom per-tier raid size settings can now be captured into an override group." },
-            { module = "Spec Overrides", text = "Creating a new override group now drops you straight into editing it." },
-            { module = "Spec Overrides", text = "When two groups share a spec, the Unlock button locks on every group except the one that owns that spec's layout, with a tooltip naming the owner." },
-            { module = "Tooltips", text = "Reskinned tooltips now size themselves correctly on their first show after changing the tooltip font scale." },
-            { module = "Unit Frames", text = "Boss frame names with Class Colored enabled now recolor correctly when a new boss engages or your target changes." },
-            { module = "Unit Frames", text = "Switching Power Bar Position to Detached now updates the bar's border and text immediately." },
-            { module = "Unlock Mode", text = "Entering Unlock Mode from the minimap button or slash command now returns you to the options panel when you exit." },
-            { module = "Unlock Mode", text = "Selected elements no longer keep their info label expanded after your cursor moves away." },
-            { module = "Unlock Mode", text = "Bars linked by a fallback anchor no longer drift off their pinned edge when the linked bar is a different size on another spec." },
-            { module = "Unlock Mode", text = "Size edits made from the inline cog inputs are no longer reverted the next time override values apply." },
-        },
-    },
-    {
-        version = "8.4.7",
-        heroes = {
-            {
-                title  = "Data Bars",
-                desc   = "A brand new module for building your own info bars. Add widgets like the clock, FPS, gold, durability, XP/Rep bars, spec, professions, travel cooldowns, currencies and the micro menu. Create as many bars as you want, drag blocks into any order, and place them anywhere on screen.",
-                nav    = { module = "EllesmereUIDataBars", page = "DataBars" },
-            },
-            {
-                module = "Cooldown Manager",
-                title  = "Cooldown Tracking Bars",
-                desc   = "Tracking Bars can now follow a spell's cooldown, not just a buff. Pick a spell from the new Cooldowns list in a bar's spell picker and the bar drains as the cooldown ticks, showing remaining time and a charge count that stay accurate through cooldown reduction and resets.",
-                nav    = { module = "EllesmereUICooldownManager", page = "Tracking Bars" },
-            },
-        },
-        features = {
-            {
-                module = "Cooldown Manager",
-                title  = "Smooth Bars",
-                desc   = "Toggle fill easing on or off for buff and cooldown bars",
-                nav    = { module = "EllesmereUICooldownManager", page = "Tracking Bars", section = "BAR LAYOUT", highlight = "Smooth Bars" },
-            },
-            {
-                module = "Inspect Sheet",
-                title  = "Hide Item Text",
-                desc   = "An eyeball button hides item level, upgrade and enchant text",
-                nav    = { module = "EllesmereUIBlizzardSkin", page = "Blizzard Window Skins", section = "INSPECT SHEET" },
-            },
-            {
-                module = "Merchant",
-                title  = "Item Level",
-                desc   = "Show item level on weapons and armor a vendor sells",
-                nav    = { module = "EllesmereUIBlizzardSkin", page = "Blizzard Window Skins" },
-            },
-            {
-                module = "Raid Frames",
-                title  = "Combat Icon",
-                desc   = "An icon marks group members who are still in combat",
-                nav    = { module = "EllesmereUIRaidFrames", page = "Frames", section = "INDICATORS", highlight = "Combat Icon" },
-            },
-        },
-        fixes = {
-            { module = "Action Bars", text = "The Pushed and Highlight border styles now draw an actual border outline instead of recoloring the whole icon." },
-            { module = "Action Bars", text = "The Micro Menu and Bag Bar now hide correctly when entering a pet battle." },
-            { module = "Action Bars", text = "Keybinds no longer trigger the wrong spell for Druids and Rogues when a shapeshift or stealth swap changes which ability is on a button." },
-            { module = "Action Bars", text = "The extra action button (delves and other zone abilities) now shows its cooldown swipe and keybind the moment it appears, and a rare vehicle/override bar combat error is fixed." },
-            { module = "Action Bars", text = "Action bar keybinds no longer override the House Editor's own hotkeys while decorating." },
-            { module = "Aura & Buff Reminders", text = "Rogue poison reminders now respect the Show Consumes Below timer, warning shortly before a poison expires instead of only after." },
-            { module = "Character Sheet", text = "The character and inspect sheets now share the same window border as other skinned windows, and the inspect sheet's panel and dressing-room button line up with the character sheet." },
-            { module = "Character Sheet", text = "The better-item indicator no longer flags off-hands as upgrades while a two-handed weapon is equipped, and now works on non-English clients." },
-            { module = "Character Sheet", text = "The character sheet now moves beside the inspect window and the Dungeons and Raids window instead of overlapping them." },
-            { module = "Character Sheet", text = "Hovering an empty gem socket now glows the matching gear slot and opens the gem list so one click sockets it, and the socketing window no longer sticks after a gem is applied." },
-            { module = "Cooldown Manager", text = "Moving a Tracking Bar in Unlock Mode on one spec no longer drags the same bar's anchor on your other specs." },
-            { module = "Cooldown Manager", text = "Icon keybind text no longer shows the wrong key while shapeshifted, in a vehicle, or on a bonus bar page, and updates immediately instead of waiting for combat to end." },
-            { module = "Cooldown Manager", text = "Transform spells (such as Rising Sun Kick becoming Rushing Wind Kick) and certain Demon Hunter sigils no longer show a stuck or missing cooldown swipe." },
-            { module = "Cooldown Manager", text = "Blizzard's Assisted Combat Highlight glow now appears reliably on icons for talent-swapped or overridden spells." },
-            { module = "Cooldown Manager", text = "Threshold Text's Apply to Bar and Apply to All Specs now reliably push a custom seconds value, even on a spell excluded from the bar." },
-            { module = "Guild", text = "Achievement Points and Mythic+ Rating now show in the far-right stat column instead of under the Note column in the widened roster." },
-            { module = "Mythic+ Timer", text = "The Blizzard Quest Tracker no longer stays visible over the timer during combat; it now hides the instant combat ends." },
-            { module = "Nameplates", text = "The pandemic glow on debuff icons is no longer dimmed by the cooldown swipe animation." },
-            { module = "Nameplates", text = "The target, focus, and hover health bar overlay now covers the full bar width on plates wider than 200 pixels." },
-            { module = "Profiles & Presets", text = "Pasting or importing a very large profile or preset string now processes across frames with a progress percentage instead of freezing the game, with nothing cut off." },
-            { module = "Profiles & Presets", text = "Importing a profile that references a bar texture you do not have now shows Texture Not Found on those bars instead of silently swapping in another texture." },
-            { module = "Quality of Life", text = "Auto Open Containers now pauses at a vendor so newly bought bags are not sold or opened, and Exclude Warbound Containers now applies by default." },
-            { module = "Quality of Life", text = "Fixed a Lua error from Hide Tutorial Pop-ups that could interrupt other windows such as the House Editor." },
-            { module = "Quality of Life", text = "Window Shifter can now move the Quest Log, and the Achievement window can be dragged from anywhere on its body, not just the header." },
-            { module = "Quality of Life", text = "Companion windows (map, professions, item upgrade and more) keep their alignment beside a moved or resized Character panel, and the Group Finder no longer redocks over other addons' panels." },
-            { module = "Quest Tracker", text = "Fixed errors when clicking a tracked quest or hovering quest pins and tooltips on the map afterward." },
-            { module = "Raid Frames", text = "The buff manager's simple grid gained an Own Only toggle to show only buffs you applied." },
-            { module = "Raid Frames", text = "Frame and power bar borders no longer keep an old color or style on party frames after a profile or spec override swap." },
-            { module = "Resource Bars", text = "Pressing an off-GCD ability like Hover during a cast or channel no longer makes the cast bar snap to full or empty for a frame." },
-            { module = "Spec Overrides", text = "Tracking Bar unlock and anchor links no longer carry over from the wrong spec after a profile or spec swap." },
-            { module = "Spec Overrides", text = "Importing a profile you exported yourself no longer creates duplicate Spec Override or Conditional Override groups." },
-            { module = "Tooltips", text = "The tooltip peek modifier no longer fails to reveal a suppressed tooltip in combat, and suppressed tooltips no longer briefly flash under the Out of Combat modes." },
-            { module = "Unit Frames", text = "The leader icon on player and target frames now shows the correct icon and also lights up for raid assistants." },
-            { module = "Unit Frames", text = "Power bar text is no longer hidden behind the power bar's border in some border layouts." },
-        },
-    },
-    {
-        version = "8.4.5",
-        heroes = {
-            {
-                module = "Profiles & Presets",
-                title  = "Settings Overrides",
-                desc   = "Change any setting for a group of specs (all your tanks, your healers...) or based on a condition: Dungeon, Raid, Arena, Battleground, Solo, or an out-of-combat keybind toggle. Click the class glyph next to the search bar, pick who or when, and everything you change applies only there.",
-                nav    = { module = "_EUIProfiles", page = "Spec Overrides" },
-            },
-            {
-                title  = "Modular Visibility",
-                desc   = "Every Visibility dropdown is now a checklist. Combine conditions - In Combat while In a Raid, only When Dragonriding, and more - and add Mouseover to reveal on hover only while they pass. Both Dragonriding options are now available for every module.",
-                nav    = { module = "EllesmereUIActionBars", page = "Bar Display", section = "VISIBILITY", highlight = "Visibility" },
-            },
-            {
-                title  = "PTR Ready - One Version for Both",
-                desc   = "EllesmereUI now ships as a single version that runs on both live retail and the Midnight 12.1 PTR. Install once, play anywhere - the same addon loads on either client, with full support for the PTR's reworked aura system. No separate PTR build to download or keep in sync.",
-            },
-            {
-                module = "Character Sheet",
-                title  = "Socket Panel",
-                desc   = "Gem sockets from your equipped gear now line the bottom of the character sheet. Click a socket to see every socketable gem in your bags with its stats, and click a gem to socket it instantly - no Blizzard socketing window needed.",
-                nav    = { module = "EllesmereUIBlizzardSkin", page = "Blizzard Window Skins", section = "CORE OPTIONS", highlight = "Socket Panel" },
-            },
-            {
-                module = "Unit Frames",
-                title  = "Player Private Auras",
-                desc   = "Boss-mechanic icons (private auras) can now show directly on your player frame. Opt-in per-slot icons with size and position controls, so you see your assignment the instant it lands - no more hunting Blizzard's floating icons mid-pull.",
-                nav    = { module = "EllesmereUIUnitFrames", page = "Main Frames", section = "PRIVATE AURAS", highlight = "Enable Private Auras",
-                    preSelect = function()
-                        if EllesmereUI._setUnitFrameUnit then EllesmereUI._setUnitFrameUnit("player") end
-                        EllesmereUI._pendingUnitSelect = "player"
-                    end },
-            },
-            {
-                module = "Cooldown Manager",
-                title  = "Global Tracking Bar Groups",
-                desc   = "Tracking bar groups can now be Global: build the group once and its bars, layout and position follow you across every spec, instead of rebuilding the same setup thirteen times.",
-                nav    = { module = "EllesmereUICooldownManager", page = "Tracking Bars" },
-            },
-        },
+        version = "8.6.4",
+        -- No hero tier this patch. `_BuildWhatsNewPage` skips the hero block
+        -- entirely when `heroes` is absent, and this is NOT a mini patch (mini
+        -- is fixes-only; a features tier is present), so the version title
+        -- still renders full size and drops straight into ADDITIONAL FEATURES.
         features = {
             {
                 module = "Action Bars",
                 title  = "Icon Order",
-                desc   = "Start buttons from any corner, or reverse the order",
+                desc   = "Reverse a bar, or start button 1 in any corner",
                 nav    = { module = "EllesmereUIActionBars", page = "Bar Display", section = "LAYOUT", highlight = "Icon Order" },
             },
             {
-                module = "Aura & Buff Reminders",
-                title  = "Text Anchor",
-                desc   = "Place the label above, on, or beside the icon",
-                nav    = { module = "EllesmereUIAuraBuffReminders", page = "Auras, Buffs & Consumables", section = "DISPLAY", highlight = "Show Text" },
+                -- Highlights the on-page "Text Size" slider in the first of the
+                -- three data-bar sections (Experience, Reputation, House Favor);
+                -- each section carries its own copy of the row. Note the rows
+                -- below a section's visibility dropdown are hidden entirely
+                -- while that bar's visibility is Never, so the pulse no-ops on
+                -- a profile with the Experience bar switched off.
+                module = "Action Bars",
+                title  = "Bar Text Size",
+                desc   = "Resize Experience, Reputation, and Favor text",
+                nav    = { module = "EllesmereUIActionBars", page = "Menu, Bags & XP Bars", section = "EXPERIENCE BAR", highlight = "Text Size" },
             },
             {
-                module = "Aura & Buff Reminders",
-                title  = "Mana Warning Settings",
-                desc   = "Toggle, recolor, resize and preview the ready-check warning",
-                nav    = { module = "EllesmereUIAuraBuffReminders", page = "Auras, Buffs & Consumables", section = "CONSUMABLES", highlight = "Ready Check Mana Warning" },
+                -- Page-only nav: the module's own NavigateToElementSettings
+                -- pre-hook only force-expands the window cards when a section or
+                -- highlight is passed, so this lands on the card list collapsed,
+                -- which is the right landing for an entry covering three windows.
+                module = "Blizz UI Enhanced",
+                title  = "Loot and Item Upgrade Skins",
+                desc   = "Loot window, Item Upgrade, and toast popups",
+                nav    = { module = "EllesmereUIBlizzardSkin", page = "Blizzard Window Skins" },
             },
             {
+                -- Highlight targets the neighbouring Duration Size row: the new
+                -- Position dropdown is cog-only, and cog rows use label= so they
+                -- never get a _labelText to match against.
                 module = "Cooldown Manager",
-                title  = "Threshold Text",
-                desc   = "Per-spell decimal countdown and color below a threshold",
-                nav    = { module = "EllesmereUICooldownManager", page = "CDM Bars" },
+                title  = "Duration Text Position",
+                desc   = "Place the countdown outside the icon",
+                nav    = { module = "EllesmereUICooldownManager", page = "CDM Bars", section = "ICON DISPLAY", highlight = "Duration Size" },
             },
             {
-                module = "General",
-                title  = "Icon Zoom",
-                desc   = "Crop icon borders: Bags, Character Sheet, Damage Meters, Unit Frames",
-                nav    = { module = "EllesmereUIBags", page = "Bags", section = "DISPLAY", highlight = "Icon Zoom" },
+                -- Page-only nav: block rows only exist once the user adds the
+                -- block from the preview strip, so any section or highlight here
+                -- would be state-dependent and could silently miss.
+                module = "Data Bars",
+                title  = "Location and Coordinates Blocks",
+                desc   = "Show your zone and X/Y coordinates",
+                nav    = { module = "EllesmereUIDataBars", page = "DataBars" },
             },
             {
-                module = "General",
-                title  = "Tutorial Tips & Video Guides",
-                desc   = "Help badges on key features open a video guide popup",
-                nav    = { module = "_EUIGlobal", page = "General", section = "DISPLAY", highlight = "Enable Tutorial Tips" },
+                -- The Bar Strata dropdown is cog-only, so the highlight targets
+                -- the on-page row that owns the cog: the Visibility dropdown,
+                -- whose left slot is labelled "Visibility" by
+                -- EllesmereUI.BuildVisibilityModeRow. It is the first row under
+                -- BAR SETTINGS, so it cannot be intercepted by an earlier match.
+                module = "Data Bars",
+                title  = "Bar Strata",
+                desc   = "Raise or lower a bar against other frames",
+                nav    = { module = "EllesmereUIDataBars", page = "DataBars", section = "BAR SETTINGS", highlight = "Visibility" },
             },
             {
-                module = "General",
-                title  = "New Patch Reminder Dot",
-                desc   = "A dot on Patch Notes whenever your version increases",
-            },
-            {
-                module = "Minimap",
-                title  = "Readout Scale Sliders",
-                desc   = "Resize the Coordinates and FPS/MS text independently",
-                nav    = { module = "EllesmereUIMinimap", page = "Minimap", section = "TEXT", highlight = "Show Coordinates" },
-            },
-            {
+                -- The Show Spark toggle is cog-only (cog rows use label= and get
+                -- no _labelText), so the highlight targets the on-page multiSwatch
+                -- row that owns the Cast Color cog.
                 module = "Nameplates",
-                title  = "Rare/Quest Icon In Instances",
-                desc   = "New toggle lifts the open-world-only restriction",
-                nav    = { module = "EllesmereUINameplates", page = "Display", section = "CORE POSITIONS" },
+                title  = "Cast Bar Spark",
+                desc   = "Hide the bright spark on the cast bar fill",
+                nav    = { module = "EllesmereUINameplates", page = "Display", section = "CAST COLORS AND EFFECTS", highlight = "Cast Color" },
             },
             {
-                module = "Nameplates",
-                title  = "Open World Basic Coloring",
-                desc   = "One flat enemy color outside instances",
-                nav    = { module = "EllesmereUINameplates", page = "Colors", section = "ENEMY COLORS", highlight = "Enemy Types" },
-            },
-            {
-                module = "Raid Frames",
-                title  = "Buff Threshold Sounds",
-                desc   = "Play a sound when a tracked buff hits its threshold",
-                nav    = { module = "EllesmereUIRaidFrames", page = "Buff Manager" },
-            },
-            {
-                module = "Raid Frames",
-                title  = "Incoming Resurrection Icon",
-                desc   = "See queued rezzes on dead players",
-                nav    = { module = "EllesmereUIRaidFrames", page = "Frames", section = "INDICATORS", highlight = "Ready Check / Summon / Rez" },
-            },
-            {
-                module = "Raid Frames",
-                title  = "Buff Hover Tooltips",
-                desc   = "Optional aura tooltips on Buff Manager icons",
-                nav    = { module = "EllesmereUIRaidFrames", page = "Frames", section = "EXTRAS", highlight = "Show Raid Frames Tooltip" },
-            },
-            {
-                module = "Raid Frames",
-                title  = "Show Text Above Icons",
-                desc   = "Render name and health text above aura icons",
-                nav    = { module = "EllesmereUIRaidFrames", page = "Frames", section = "TEXT DISPLAY", highlight = "Name Size" },
-            },
-            {
-                module = "Raid Frames",
-                title  = "Dispellable Debuff Icon Size",
-                desc   = "Independent size for split-location dispellables",
-                nav    = { module = "EllesmereUIRaidFrames", page = "Frames", section = "DISPELS", highlight = "Dispellable Debuff Location" },
-            },
-            {
+                -- Page-only nav: the grow picker lives in the Unlock Mode
+                -- right-click menu, not on a settings row, so there is no valid
+                -- highlight to pass and inventing one would ship a dead pulse.
                 module = "Resource Bars",
-                title  = "Buff Colors",
-                desc   = "Recolor the Class Resource bar while chosen buffs are active",
-                nav    = { module = "EllesmereUIResourceBars", page = "Class, Power and Health Bars", section = "CLASS RESOURCE BAR", highlight = "Threshold & Hash Lines" },
-            },
-            {
-                module = "Resource Bars",
-                title  = "Per-Spec Setup Moved to Spec Overrides",
-                desc   = "Advanced mode retired; setups migrate automatically",
-                nav    = { module = "EllesmereUIResourceBars", page = "Class, Power and Health Bars", section = "BAR DISPLAY" },
-            },
-            {
-                module = "Resource Bars",
-                title  = "Recolor Text Instead Of Bar",
-                desc   = "Threshold colors can target the text",
-                nav    = { module = "EllesmereUIResourceBars", page = "Class, Power and Health Bars", section = "HEALTH BAR", highlight = "Health Text" },
-            },
-            {
-                module = "Resource Bars",
-                title  = "Bar Text Anchor",
-                desc   = "Pin bar text left, center, or right",
-                nav    = { module = "EllesmereUIResourceBars", page = "Class, Power and Health Bars", section = "HEALTH BAR", highlight = "Health Text" },
-            },
-            {
-                module = "Resource Bars",
-                title  = "Stagger Full %",
-                desc   = "Set where the Brewmaster bar reads as full",
-                nav    = { module = "EllesmereUIResourceBars", page = "Class, Power and Health Bars", section = "CLASS RESOURCE BAR", highlight = "Threshold & Hash Lines" },
-            },
-            {
-                module = "Resource Bars",
-                title  = "Hide Bar Text per Druid Form",
-                desc   = "Independent text visibility per form",
-                nav    = { module = "EllesmereUIResourceBars", page = "Class, Power and Health Bars", section = "HEALTH BAR", highlight = "Health Text" },
-            },
-            {
-                module = "Resource Bars",
-                title  = "Hide when Dragonriding",
-                desc   = "New visibility option",
-                nav    = { module = "EllesmereUIResourceBars", page = "Class, Power and Health Bars", section = "BAR DISPLAY", highlight = "Visibility Options" },
-            },
-            {
-                module = "Unit & Resource Bars",
-                title  = "Out of Combat Fade",
-                desc   = "Fade frames and bars to a chosen alpha out of combat",
-                nav    = { module = "EllesmereUIUnitFrames", page = "Main Frames", section = "DISPLAY", highlight = "Visibility",
-                    preSelect = function()
-                        if EllesmereUI._setUnitFrameUnit then EllesmereUI._setUnitFrameUnit("player") end
-                        EllesmereUI._pendingUnitSelect = "player"
-                    end },
+                title  = "Totem Bar Grow Direction",
+                desc   = "Grow left, right, centered, up or down",
+                nav    = { module = "EllesmereUIResourceBars", page = "Totem Bar" },
             },
             {
                 module = "Unit Frames",
-                title  = "Frame Source",
-                desc   = "Render each frame as EllesmereUI or Blizzard's default",
-                nav    = { module = "EllesmereUIUnitFrames", page = "Main Frames", section = "DISPLAY", highlight = "Visibility",
-                    preSelect = function()
-                        if EllesmereUI._setUnitFrameUnit then EllesmereUI._setUnitFrameUnit("player") end
-                        EllesmereUI._pendingUnitSelect = "player"
-                    end },
-            },
-            {
-                module = "Unit Frames",
-                title  = "Apply All Settings To",
-                desc   = "Copy one frame's settings to another in one click",
-                nav    = { module = "EllesmereUIUnitFrames", page = "Main Frames",
-                    preSelect = function()
-                        if EllesmereUI._setUnitFrameUnit then EllesmereUI._setUnitFrameUnit("player") end
-                        EllesmereUI._pendingUnitSelect = "player"
-                    end },
-            },
-            {
-                module = "Unit Frames",
-                title  = "Target Combat Indicator",
-                desc   = "The combat indicator can now show on the target frame",
-                nav    = { module = "EllesmereUIUnitFrames", page = "Main Frames", section = "EXTRAS", highlight = "Combat Indicator",
-                    preSelect = function()
-                        if EllesmereUI._setUnitFrameUnit then EllesmereUI._setUnitFrameUnit("target") end
-                        EllesmereUI._pendingUnitSelect = "target"
-                    end },
-            },
-            {
-                module = "Unit Frames",
-                title  = "Name Truncation",
-                desc   = "Length limit and optional ellipsis on name text",
-                nav    = { module = "EllesmereUIUnitFrames", page = "Main Frames", section = "HEALTH BAR", highlight = "Left Text",
-                    preSelect = function()
-                        if EllesmereUI._setUnitFrameUnit then EllesmereUI._setUnitFrameUnit("player") end
-                        EllesmereUI._pendingUnitSelect = "player"
-                    end },
-            },
-            {
-                module = "Unit Frames",
-                title  = "Aura Duration Format",
-                desc   = "New countdown styles for player buff text",
-                nav    = { module = "EllesmereUIUnitFrames", page = "Blizzard Aura Frames", section = "PLAYER BUFFS & DEBUFFS", highlight = "Show Text" },
-            },
-            {
-                module = "Unit Frames",
-                title  = "Dispel Type Borders",
-                desc   = "Recolor debuff borders by dispel type",
-                nav    = { module = "EllesmereUIUnitFrames", page = "Main Frames", section = "BUFFS AND DEBUFFS", highlight = "Debuff Display",
-                    preSelect = function()
-                        if EllesmereUI._setUnitFrameUnit then EllesmereUI._setUnitFrameUnit("target") end
-                        EllesmereUI._pendingUnitSelect = "target"
-                    end },
-            },
-            {
-                module = "Unit Frames",
-                title  = "Boss Frame Absorbs",
-                desc   = "Absorb shields on Boss frames",
-                nav    = { module = "EllesmereUIUnitFrames", page = "Main Frames", section = "ABSORBS", highlight = "Absorb Style",
-                    preSelect = function()
-                        if EllesmereUI._setUnitFrameUnit then EllesmereUI._setUnitFrameUnit("target") end
-                        EllesmereUI._pendingUnitSelect = "target"
-                    end },
-            },
-            {
-                module = "Unlock Mode",
-                title  = "Fallback Anchors",
-                desc   = "Anchored elements land safely when their target is missing",
-            },
-            {
-                module = "Tooltips",
-                title  = "Peek Modifier",
-                desc   = "Hold Shift/Ctrl/Alt to reveal hidden tooltips on hover",
-                nav    = { module = "EllesmereUIBlizzardSkin", page = "Tooltips, Menus & Popups", section = "BLIZZARD TOOLTIP", highlight = "Show Tooltips" },
+                title  = "Separate Tooltip Controls",
+                desc   = "Turn aura tooltips off on their own",
+                nav    = { module = "EllesmereUIUnitFrames", page = "Main Frames", section = "DISPLAY", highlight = "Show Tooltip For" },
             },
         },
         fixes = {
-            { module = "Action Bars", text = "Vehicle ability cooldowns now show their swipe and timer immediately, instead of only after mouseover or entering combat." },
-            { module = "Action Bars", text = "The Stance Bar now stays hidden for classes with no shapeshift forms." },
-            { module = "Action Bars", text = "Custom keybind text color no longer reverts to white after target or combat changes." },
-            { module = "Action Bars & Cooldown Manager", text = "Item macros no longer trigger a false spell proc glow." },
-            { module = "Aura & Buff Reminders", text = "Clicking preview elements now jumps to the right settings section." },
-            { module = "Bags", text = "The currency footer now grows with your tracked currencies instead of clipping." },
-            { module = "Bags", text = "Collapsing the sidebar no longer drifts a right-anchored bag window." },
-            { module = "Character Sheet", text = "Collapsed stat sections now stay collapsed after switching specs, and spec-restricted stats no longer flash back when expanding a section." },
-            { module = "Character Sheet", text = "The item level tooltip's better-items list no longer misses cloaks, weapons, caster off-hands or slow-loading items, and now checks the reagent bag too." },
-            { module = "Cooldown Manager", text = "Fixed icons from another spec lingering on bars after spec swaps or shapeshifting." },
-            { module = "Cooldown Manager", text = "Per-trinket settings now follow the equipped trinket across swaps." },
-            { module = "Cooldown Manager", text = "The default Buff Bar's custom order survives respecs and \"Repopulate from Blizzard\"." },
-            { module = "Cooldown Manager", text = "Essence of the Blood Queen and similar untracked procs now appear on buff bars." },
-            { module = "Cooldown Manager", text = "Pandemic glow now wraps the whole tracking bar instead of clipping under borders." },
-            { module = "Cooldown Manager", text = "Tracking bar icons now always match Blizzard's resolved icon (e.g. Roll the Bones)." },
-            { module = "Cooldown Manager", text = "Demonic Healthstone is no longer treated as unusable in combat." },
-            { module = "Cooldown Manager", text = "CD Ready sound no longer false-triggers on loading screens or bar rebuilds." },
-            { module = "Cooldown Manager", text = "Swiftmend brightness now applies reliably and its toggle works without a reload." },
-            { module = "Cooldown Manager", text = "FocusKick info text now matches the Show on Target setting." },
-            { module = "Cooldown Manager", text = "Tracking bar previews no longer linger after closing the options." },
-            { module = "Cooldown Manager", text = "Charge text on custom spells now follows the bar's font and position settings." },
-            { module = "Cooldown Manager", text = "Border style and background color now apply consistently across every icon on the Essential and Utility bars." },
-            { module = "Crafting Orders", text = "The Place Order / My Orders tabs now show which one is active." },
-            { module = "Dragon Riding", text = "The bar's height can now be adjusted from the Unlock Mode cog, and its width is no longer stuck above 96px." },
-            { module = "Dragon Riding", text = "Fixed extra spacing between the charge pips and the Whirling Surge icon at certain UI scales." },
-            { module = "Dragon Riding", text = "The HUD no longer stays stuck on screen after exiting Unlock Mode while dismounted." },
-            { module = "General", text = "11 new alert sounds (Cat Meow, Kaching, Wilhelm, Warning Siren and more) in every sound picker." },
-            { module = "General", text = "Hide when Mounted now counts druid Travel, Flight and Aquatic forms." },
-            { module = "Group Finder", text = "Fixed errors clicking role and filter checkboxes in Premade Groups." },
-            { module = "Mail", text = "The Send Mail attachment slot now reliably shows the attached item's icon." },
-            { module = "Nameplates", text = "Fixed the Rare/Quest indicator not anchoring in the Bottom slot." },
-            { module = "Nameplates", text = "Fixed border edges flickering or vanishing when plates rescale." },
-            { module = "Profiles & Presets", text = "Spec pickers gained Check Tanks / Healers / DPS quick-select links." },
-            { module = "Quality of Life", text = "Fixed a multi-second freeze opening /keys in large guilds." },
-            { module = "Quality of Life", text = "Quick Loot, Auto Open Containers, LFG Reminder, Low Durability Warning and Shifter now apply instantly without a reload." },
-            { module = "Quality of Life", text = "Train All no longer skips still-affordable trainer skills." },
-            { module = "Quality of Life", text = "The secondary-stats display now refreshes on gear changes." },
-            { module = "Quality of Life", text = "FPS counter labels now resize with the Text Size slider." },
-            { module = "Quality of Life", text = "Fixed the wrong icon on the Ursol's Vortex cursor macro." },
-            { module = "Quality of Life", text = "Item Upgrade, Transmog, sockets, vendors and other companion windows now dock beside a Shifter-moved Character window instead of hiding underneath it." },
-            { module = "Quest Tracker", text = "Fixed tracked quests overlapping after focusing a quest or changing fonts." },
-            { module = "Quests", text = "Fixed dark, unreadable text in quest dialogue and reward descriptions." },
-            { module = "Raid Frames", text = "Buff Manager Simple Setup now shows buff stack counts, with a new Show Stacks toggle plus color, size and offset controls." },
-            { module = "Raid Frames", text = "Hover and target highlights no longer cover name text or icons." },
-            { module = "Raid Frames", text = "Fixed frames sizing for a too-small raid right after zoning in." },
-            { module = "Raid Frames", text = "Fixed custom size-tier layouts drifting from their saved position." },
-            { module = "Resource Bars", text = "Soul Fragments now respect Surrender to the Void's higher fragment cap." },
-            { module = "Tooltips", text = "Show Mount now marks whether you've collected the mount." },
-            { module = "Unit & Raid Frames", text = "New Gradient Sharp dispel overlay style." },
-            { module = "Unit Frames", text = "The pet frame's Class Colored fill now works." },
-            { module = "Unit Frames", text = "Fixed blank name/health/power text after a cold login." },
-            { module = "Unit Frames", text = "Fixed a detached power bar rendering behind the frame border." },
-            { module = "Unit Frames", text = "Frames hidden by visibility conditions no longer absorb mouse clicks." },
-            { module = "Unit Frames", text = "Fixed the 3D portrait staying visible on its own while the rest of the frame was hidden." },
-            { module = "Unit Frames", text = "Pet, Target-of-Target and Focus Target now follow their parent frame's visibility." },
+            { module = "Action Bars", text = "Fixed a CPU usage issue caused by the One Button Assist button. Its rotation ring is now static, with a new toggle to hide it and a slider in its cog for how far it extends past the button." },
+            { module = "Action Bars", text = "Charge cooldowns no longer freeze. A spell's recharge swipe, charge count, or edge glow could silently stop updating for the rest of the session after one unlucky read, such as right after login or a talent swap. Charge spells spent off the global cooldown now draw their recharge swipe at all." },
+            { module = "Action Bars", text = "The icon order control for each bar is back, so a bar left stuck in reversed order since 8.5.3 can be changed again." },
+            { module = "Blizz UI Enhanced", text = "The new Loot, Item Upgrade, and loot toast skins are on by default, each with its own toggle on the Window Skins page. Loot toasts can also show a quality-color strip down the edge in place of the icon's quality ring." },
+            { module = "Blizz UI Enhanced", text = "The Currency Options popup on the character panel now follows that panel's own window style instead of showing as a flat grey box, and its checkboxes keep the standard checkmark. The Currency tab also no longer loads unskinned on characters where Blizzard's currency window arrives late." },
+            { module = "Blizz UI Enhanced", text = "Skinned Blizzard windows whose close button sits on the title bar no longer keep Blizzard's red X." },
+            { module = "Cooldown Manager", text = "Active State Glow and per-item Active State rules now light up reliably. A glow could stay dark for the rest of the session when Blizzard's engine skipped a color update, and rules for on-use trinkets or gear could fail to match the equipped item depending on login order." },
+            { module = "Cooldown Manager", text = "Show Item Count is now a three-way choice of Never, Always, or Out of Combat, so charge and stack numbers can hide themselves while you are in combat and come back afterwards." },
+            { module = "General", text = "Fixed a crash during unit frame setup that left the player frame blank and the settings tab unable to open when a profile still held an older Absorb Bar style value. Importing such a profile now converts the value to the matching style instead of falling back to a default texture." },
+            { module = "General", text = "The UI Scale slider now snaps to the exact pixel-perfect value for 1080p displays near 0.71, matching the snap already in place near 0.53 for 1440p." },
+            { module = "General", text = "Added new Korean and French translations." },
+            { module = "Minimap", text = "The square border no longer vanishes. Depending on what else was loading at login, or after a housing-related minimap change, a solid or textured square border could disappear and not come back after a reload." },
+            { module = "Nameplates", text = "Friendly nameplate visibility is no longer forced back on at every login, and leaving a follower dungeon now hands back the setting you had instead of forcing plates on, so hiding friendly nameplates in Blizzard's own Nameplate settings finally sticks. Friendly plates are only forced visible on a fresh install or when you turn on Show EUI Friendly Player Nameplates or Make Friendly Nameplates Name Only, so if you relied on the old forcing to restore them after another addon cleared the setting, use one of those toggles instead." },
+            { module = "PTR Raid Frames", text = "Turning Hide Tooltips back off in the Buff Manager or Debuff Display sections now restores aura tooltips right away instead of needing a reload." },
+            { module = "Raid Frames", text = "Buff Manager and Debuff Display aura tooltips are no longer silenced by the unit tooltip mode, and now follow only their own section's Hide Tooltips toggle. If you were setting Show Raid Frames Tooltip to Never, or hiding it in combat, to suppress aura tooltips as well, turn on Hide Tooltips in the Buff Manager and Debuff Display sections to keep them hidden." },
+            { module = "Raid Frames", text = "MiniCC cooldown icons can now anchor to raid frames, not just party frames." },
+            { module = "Resource Bars", text = "Shift Elements If No Power now closes the gap when a bar is hidden by your current Druid form, such as the primary power bar while in Moonkin form." },
+            { module = "Unit Frames", text = "Boss frames now have the same 4th Extra Text zone as other frames, with its own content, size, color, alignment and offsets, plus a Max Per Row slider in the Simple Display buff and debuff layout menus." },
+        },
+    },
+    {
+        version = "8.6.3",
+        mini = true,
+        fixes = {
+            { module = "Cooldown Manager", text = "Reordering a buff that shares its spell with another tracked ability, such as Diabolic Ritual, now moves the live bar instead of only the options preview." },
+            { module = "Cooldown Manager", text = "Blizzard's own tracked buff bars no longer reappear over Tracked Buff Bars in combat; the suppression now re-asserts itself whatever moved them, including Edit Mode layout passes and other addons." },
+            { module = "General", text = "Custom fonts from a SharedMedia font addon now apply reliably. When that addon finished loading after EllesmereUI, text could stay on the default font for the rest of the session, most visibly on action bars." },
+            { module = "General", text = "Added the missing French translations for the latency block's bandwidth labels, plus a large pass of new German translations." },
+            { module = "Resource Bars", text = "Destruction Warlock soul shard fragments display and drain again. Partial shards were invisible in combat and did not deplete out of combat." },
+            { module = "Unit Frames", text = "The External Defensives frame no longer breaks when Duration Format is set to anything other than Blizzard Default. Those custom formats now display correctly." },
+        },
+    },
+    {
+        version = "8.6.2",
+        heroes = {
+            {
+                -- Static on purpose: a suite-wide CPU pass has no single
+                -- setting to open, so this card renders non-clickable.
+                module = "General",
+                title  = "Performance Upgrades",
+                desc   = "A major optimization pass across many of the core addons of the suite: Resource Bars, Action Bars, Cooldown Manager, and Unit Frames.",
+            },
+        },
+        features = {
+            {
+                module = "General",
+                title  = "Expressway Font Option",
+                desc   = "Now selectable in non-Latin locales",
+                nav    = { module = "_EUIGlobal", page = "Fonts & Colors", section = "GLOBAL FONT", highlight = "Global Font" },
+            },
+            {
+                -- Page-only nav: BuildFullExportPage is hand-built chrome with
+                -- no W:SectionHeader to anchor, and the scroll resets to the
+                -- top on tab switch, which is where its content sits.
+                module = "Profiles",
+                title  = "Full Account Export & Import",
+                desc   = "Share every account-wide setting as one string",
+                nav    = { module = "_EUIProfiles", page = "Full Export" },
+            },
+        },
+        fixes = {
+            { module = "Action Bars", text = "The pet bar's visibility conditions work again; in combat, out of combat, and the dragonriding modes were being ignored, or applied under the opposite state." },
+            { module = "Conditional Overrides", text = "Deleting an active group no longer leaves its captured values stuck on your profile; your normal settings come back the moment it is removed, and any settings page you have open updates immediately." },
+            { module = "Cooldown Manager", text = "Blizzard's own tracked buff bars no longer reappear over Tracked Buff Bars during combat or on zone-in, and no longer stay invisible while still blocking clicks after Tracked Buff Bars is disabled." },
+            { module = "General", text = "Added the missing Traditional Chinese translations." },
+            { module = "Nameplates", text = "Execute Pulse Glow is now spec-aware: it lights only for specs that actually have an execute, at that spec's own health threshold, and rises automatically with talents that widen the window. Most specs now trigger at 20% instead of a flat 30%, and specs with no execute no longer glow at all." },
+            { module = "Profiles", text = "The Spec Overrides and Conditional Overrides tabs are now a single Overrides tab, with a toggle at the top to switch between the two lists." },
+            { module = "Quality of Life", text = "Buff-based Movement Alerts such as Burning Rush no longer throw an error and stop detecting the buff once you are in combat." },
+            { module = "Unit Frames", text = "An attached power bar no longer draws a stray border line where it meets the health bar." },
+            { module = "Unit Frames", text = "Turning off EllesmereUI's own cast bar no longer leaves Blizzard's player and pet cast bars dead or invisible, including when you log in with it already off or hide the player frame entirely." },
         },
     },
 }
@@ -1792,8 +1454,10 @@ initFrame:SetScript("OnEvent", function(self)
               end,
               setValue=function(v)
                 if not EllesmereUIDB then EllesmereUIDB = {} end
-                -- Snap 0.53 to exact pixel-perfect 0.5333...
+                -- Snap 0.53 to exact pixel-perfect 0.5333... (768/1440)
                 if math.abs(v - 0.53) < 0.005 then v = 0.5333333333 end
+                -- Snap 0.71 to exact pixel-perfect 0.7111... (768/1080)
+                if math.abs(v - 0.71) < 0.005 then v = 0.7111111111 end
                 EllesmereUI._uiScaleDragVal = v
                 EllesmereUIDB.ppUIScaleAuto = false
                 local mf = EllesmereUI._mainFrame
@@ -1821,7 +1485,7 @@ initFrame:SetScript("OnEvent", function(self)
                     end)
                 end
               end },
-            { type="dropdown", text="EUI Options Scale",
+            { type="dropdown", text="EUI Options Panel Scale",
               values={ ["Tiny (75%)"]="Tiny (75%)", ["Small (90%)"]="Small (90%)", ["Normal (100%)"]="Normal (100%)", ["Large (110%)"]="Large (110%)", ["Huge (125%)"]="Huge (125%)", ["Giant (150%)"]="Giant (150%)", ["Massive (200%)"]="Massive (200%)" },
               order={ "Tiny (75%)", "Small (90%)", "Normal (100%)", "Large (110%)", "Huge (125%)", "Giant (150%)", "Massive (200%)" },
               getValue=function()
@@ -2742,10 +2406,17 @@ initFrame:SetScript("OnEvent", function(self)
         local fontDropValues = {}
         local fontDropOrder  = {}
         if localeRestricted then
-            -- System Default (correct glyph font) + external SharedMedia only;
-            -- bundled Latin fonts are omitted (they would render as boxes here).
+            -- System Default (correct glyph font) + an explicit Expressway
+            -- entry + external SharedMedia. Bundled Latin fonts are otherwise
+            -- omitted (they render the local script as boxes); the Expressway
+            -- entry is the informed opt-in for players who want the EUI look
+            -- on numbers/Latin text anyway -- distinct sentinel key, so the
+            -- untouched default still maps to System Default.
             fontDropValues[EllesmereUI.SYSTEM_FONT_KEY] = { text = "System Default", font = EllesmereUI.LOCALE_FONT_FALLBACK }
             fontDropOrder[#fontDropOrder + 1] = EllesmereUI.SYSTEM_FONT_KEY
+            fontDropValues[EllesmereUI.EXPRESSWAY_FORCED_KEY] = { text = "Expressway (Latin only)",
+                font = EllesmereUI.MEDIA_PATH .. "fonts\\Expressway.TTF" }
+            fontDropOrder[#fontDropOrder + 1] = EllesmereUI.EXPRESSWAY_FORCED_KEY
             if EllesmereUI.AppendExternalSharedMediaFonts then
                 EllesmereUI.AppendExternalSharedMediaFonts(fontDropValues, fontDropOrder)
             end
@@ -2770,6 +2441,11 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Reload popup for font changes
         local function FontReload()
+            -- Every font setter on this page routes through here, so this is the
+            -- one place the resolution cache has to be dropped. It matters even
+            -- though a reload is being offered: the user can choose Later, and
+            -- the new setting is already live in the DB by then.
+            EllesmereUI.InvalidateFontCache()
             EllesmereUI:ShowConfirmPopup({
                 title       = "Reload Required",
                 message     = "Font changed. A UI reload is needed to apply the new font.",
@@ -2882,6 +2558,28 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
         end
 
+        -- Name Font: the text floating above characters and NPCs. Deliberately
+        -- independent of Global Font, and modelled on Combat Text Font rather
+        -- than the settings around it: both drive a Blizzard global the engine
+        -- reads once at login (UNIT_NAME_FONT / DAMAGE_TEXT_FONT), so both need
+        -- a logout rather than the reload FontReload offers, and both treat
+        -- "Blizzard Default" as leave-it-alone instead of using a toggle.
+        -- Applied in EllesmereUI_Startup.lua.
+        local NAME_FONT_DEFAULT = "__default"
+        local nameFontValues, nameFontOrder = {}, {}
+        do
+            -- Same faces the Global Font dropdown offers, SharedMedia included,
+            -- but a private copy: prepending the default entry to the shared
+            -- tables would put it in the Global Font list too.
+            nameFontValues[NAME_FONT_DEFAULT] = { text = "Blizzard Default", font = "Fonts\\FRIZQT__.TTF" }
+            nameFontOrder[1] = NAME_FONT_DEFAULT
+            nameFontOrder[2] = "---"
+            for _, k in ipairs(fontDropOrder) do
+                nameFontOrder[#nameFontOrder + 1] = k
+                if k ~= "---" then nameFontValues[k] = fontDropValues[k] end
+            end
+        end
+
         -- Never Show Slug: per-profile toggle (rides profile export/import) that
         -- drops the SLUG token from every outline the UI produces -- body text and
         -- icon/aura text across all modules, plus the global Outline Mode itself.
@@ -2896,7 +2594,33 @@ initFrame:SetScript("OnEvent", function(self)
                       EllesmereUI.GetFontsDB().neverShowSlug = v and true or false
                       FontReload()
                   end },
-                { type="label", text="" }
+                { type="dropdown", text="Name Font",
+                  -- Coloured inline rather than via tooltipOpts.color, which
+                  -- would tint the explanation red along with the warning.
+                  tooltip="Sets the font for the names that float above players, NPCs and enemies in the world.\n\nSeparate from Global Font - changing this does not affect the rest of the UI, and Global Font does not affect it.\n\nBlizzard Default leaves the name text completely untouched.\n\n|cffff4d4dRequires a re-log or restart of WoW to take effect.|r",
+                  values=nameFontValues, order=nameFontOrder,
+                  getValue=function()
+                      local n = EllesmereUI.GetFontsDB().unitNameFont
+                      if not n or not nameFontValues[n] then return NAME_FONT_DEFAULT end
+                      return n
+                  end,
+                  setValue=function(v)
+                      local fdb = EllesmereUI.GetFontsDB()
+                      -- nil, not the sentinel, so the startup code can tell
+                      -- "leave Blizzard alone" without knowing the key.
+                      fdb.unitNameFont = (v ~= NAME_FONT_DEFAULT) and v or nil
+                      fdb.unitNameFontPath = (v ~= NAME_FONT_DEFAULT)
+                          and nameFontValues[v].font or nil
+                      -- No apply call here: the engine has already cached the
+                      -- global by this point, so the change lands on the next
+                      -- login either way. Same as Combat Text Font above.
+                      EllesmereUI:ShowConfirmPopup({
+                          title       = "Logout Required",
+                          message     = "Name font changes require a logout to character select to take effect. This is a WoW engine limitation.",
+                          confirmText = "Okay",
+                          cancelText  = "Later",
+                      })
+                  end }
             );  y = y - h
         end
 
@@ -3465,7 +3189,8 @@ initFrame:SetScript("OnEvent", function(self)
             -- resource bar alone, so users can dark one without the other.
             local function _dmIsRB(p) return p.id == "resourceBars" end
             local function _dmNotRB(p) return p.id ~= "resourceBars" end
-            _, h = W:DualRow(parent, y,
+            local dmMasterRow
+            dmMasterRow, h = W:DualRow(parent, y,
                 { type = "toggle", text = "Dark Mode",
                   tooltip = "Turns Dark Mode on or off for Unit Frames and Raid Frames at once.",
                   getValue = function() return EllesmereUI.IsDarkModeAllOn(_dmNotRB) end,
@@ -3480,6 +3205,18 @@ initFrame:SetScript("OnEvent", function(self)
                       EllesmereUI.SetDarkModeAll(v, _dmIsRB)
                       EllesmereUI:RefreshPage()
                   end });  y = y - h
+            -- The MAIN master writes the UF+RF dark flags = the Dark Mode
+            -- conditional-override condition's inputs, so it is locked during
+            -- a Dark Mode conditional edit session (the override must not
+            -- capture a change that flips its own condition). The Class
+            -- Resource Bar master is NOT a condition input (DarkModeMasterOn
+            -- excludes it) and stays editable. (SetDarkModeAll's tail
+            -- rechecks the condition live for both.)
+            if EllesmereUI.SpecOverrides_AttachEditLock then
+                EllesmereUI.SpecOverrides_AttachEditLock(dmMasterRow._leftRegion,
+                    "Dark Mode drives a Dark Mode override condition and can't be changed while editing an override",
+                    EllesmereUI.SpecOverrides_DarkCondEditActive)
+            end
 
             -- Row 1: Dark Mode Fill Color | Dark Mode Fill Opacity
             _, h = W:DualRow(parent, y,
@@ -5508,6 +5245,30 @@ initFrame:SetScript("OnEvent", function(self)
                             EllesmereUI:ShowInfoPopup({ title = EllesmereUI.L("Import Failed"), content = err or EllesmereUI.L("Invalid import string.") })
                             return
                         end
+                        -- FULL ACCOUNT string: its own flow entirely. Routed
+                        -- here, BEFORE the normal import machinery ever sees
+                        -- the payload -- no module selection, no include
+                        -- toggles, no store merging apply to it. Typed
+                        -- confirmation because it overwrites account-wide
+                        -- settings the recipient never chose to share.
+                        if EllesmereUI.IsFullAccountPayload
+                           and EllesmereUI.IsFullAccountPayload(payload) then
+                            pastePage:Hide()
+                            EllesmereUI:ShowConfirmPopup({
+                                title = EllesmereUI.L("Import Full Account Data"),
+                                message = EllesmereUI.L("This string is a FULL ACCOUNT export. It replaces your account-wide settings with the sender's, including Quality of Life, HoverCast bindings, Cooldown Manager spell setups, unlock anchors, UI scale, and profile keybinds -- not just a profile. Your other profiles are kept, but a profile with the same name is replaced."),
+                                disclaimer = EllesmereUI.L("This cannot be undone. Export your own profile as a backup first."),
+                                typeToConfirm = "Confirm",
+                                confirmText = EllesmereUI.L("Import & Reload"),
+                                cancelText = EllesmereUI.L("Cancel"),
+                                onConfirm = function()
+                                    if EllesmereUI.ImportFullAccountData then
+                                        EllesmereUI.ImportFullAccountData(payload)
+                                    end
+                                end,
+                            })
+                            return
+                        end
                         pastePage:Hide()
                         MaybeConfirmUIScale(payload, function(applyScale)
                             ShowImportPage(importStr, payload, nil, nil, nil, applyScale)
@@ -5572,6 +5333,13 @@ initFrame:SetScript("OnEvent", function(self)
                 backLbl:SetAlpha(0.55)
             end)
             backBtn:SetScript("OnClick", function()
+                -- Arrived via the Presets top tab: hand tab state back to
+                -- Profiles so tab and content stay in sync (its cache-restore
+                -- path lands on the main subpage).
+                if EllesmereUI:GetActivePage() == PAGE_PRESETS then
+                    EllesmereUI:SelectPage(PAGE_PROFILES)
+                    return
+                end
                 presetsPage:Hide()
                 mainPage:Show()
             end)
@@ -5589,7 +5357,20 @@ initFrame:SetScript("OnEvent", function(self)
 
             local totalW  = presetsPage:GetWidth() - PAD * 2
             local DB      = EllesmereUI.DARK_BG
-            local presets = EllesmereUI.POPULAR_PRESETS or {}
+
+            -- Display order is shuffled on every page open so each preset
+            -- gets fair visibility. The hero card defaults to the first
+            -- preset of the shuffled order (current = presets[1] below) and
+            -- the grid mirrors the same order.
+            local presets = {}
+            do
+                local src = EllesmereUI.POPULAR_PRESETS or {}
+                for i = 1, #src do presets[i] = src[i] end
+                for i = #presets, 2, -1 do
+                    local j = math.random(i)
+                    presets[i], presets[j] = presets[j], presets[i]
+                end
+            end
 
             -- Selected preset, shared by the hero card actions (built below) and
             -- the grid. Declared here so the hero import controls can read it.
@@ -5721,11 +5502,29 @@ initFrame:SetScript("OnEvent", function(self)
                 end
             end
 
-            -- Hero import controls: two side-by-side import buttons -- "Import
-            -- 1080p" (left) and "Import 2K (1440p)" (right) -- pinned flush with the
-            -- bottom of the hero image. The button matching the user's physical
-            -- resolution is accent-colored (green); the other is neutral. The
-            -- UI-scale variant (.64 vs .53) is auto-picked from the user's scale.
+            -- Version tag (small pill, top-right corner of the hero card).
+            -- Text and width are set per selection in UpdateHero; hidden for
+            -- presets without a version.
+            local heroVerPill = CreateFrame("Frame", nil, hero)
+            heroVerPill:SetFrameLevel(hero:GetFrameLevel() + 5)
+            local heroVerFs = EllesmereUI.MakeFont(heroVerPill, 12, nil, EG.r, EG.g, EG.b)
+            heroVerFs:SetPoint("CENTER")
+            local heroVerBg = heroVerPill:CreateTexture(nil, "BACKGROUND")
+            heroVerBg:SetAllPoints()
+            heroVerBg:SetColorTexture(0.06, 0.08, 0.10, 0.85)
+            EllesmereUI.MakeBorder(heroVerPill, 1, 1, 1, 0.15, PP)
+            PP.Point(heroVerPill, "TOPRIGHT", hero, "TOPRIGHT", -10, -10)
+            heroVerPill:Hide()
+
+            -- Hero import controls: two side-by-side import buttons --
+            -- "Regular Import" (left; serves both 1080p and 1440p) and
+            -- "Ultrawide Import" (right; 21:9) -- pinned flush with the
+            -- bottom of the hero image. The button matching the user's
+            -- display shape is accent-colored (green); the other is neutral.
+            -- A preset without an ultrawide string keeps the Ultrawide button
+            -- dimmed. Each display type carries UI-scale variants (.64 / .53);
+            -- the one closest to the user's scale is auto-picked, and the
+            -- import flow's scale popup fires when it is not an exact match.
             -- Wrapped in a do-block so its helper locals stay scoped here; current
             -- and RefreshPresetActions are upvalues declared at the top of this page.
             do
@@ -5750,20 +5549,20 @@ initFrame:SetScript("OnEvent", function(self)
                     return nil
                 end
 
-                -- EUI profile import string for the current preset + a resolution key.
-                local function ImportStringFor(resKey)
+                -- EUI profile import string for the current preset + display key.
+                local function ImportStringFor(displayKey)
                     if not current or type(current.import) ~= "table" then return nil end
-                    return PickScale(current.import[resKey])
+                    return PickScale(current.import[displayKey])
                 end
 
-                -- Blizzard Edit Mode layout string for the current preset + resolution.
-                local function EditModeStringFor(resKey)
+                -- Blizzard Edit Mode layout string for the current preset + display key.
+                local function EditModeStringFor(displayKey)
                     if not current or type(current.editMode) ~= "table" then return nil end
-                    return PickScale(current.editMode[resKey])
+                    return PickScale(current.editMode[displayKey])
                 end
 
-                local function DoImport(resKey)
-                    local str = ImportStringFor(resKey)
+                local function DoImport(displayKey)
+                    local str = ImportStringFor(displayKey)
                     if not str then
                         EllesmereUI:ShowInfoPopup({ title = EllesmereUI.L("Not Available Yet"),
                             content = EllesmereUI.Lf("%1$s is not available to import for that resolution yet.", (current and current.name) or EllesmereUI.L("This preset")) })
@@ -5773,45 +5572,45 @@ initFrame:SetScript("OnEvent", function(self)
                     -- profile -- it is applied at the import commit, just before the
                     -- single reload. The import page shows its own scale/resolution
                     -- warning from the string's embedded meta.
-                    local editStr  = EditModeStringFor(resKey)
+                    local editStr  = EditModeStringFor(displayKey)
                     local editName = "EUI " .. current.name
                     DoPresetImportFlow(str, current.name, editStr, editName)
                 end
 
-                -- The button matching the user's physical resolution is accent-colored.
-                local is1440
+                -- The button matching the user's display shape is accent-colored:
+                -- Ultrawide on 21:9-class monitors (aspect >= 2.0), Regular otherwise.
+                local isUltrawide
                 do
-                    local _, physH = GetPhysicalScreenSize()
-                    physH = physH or 1080
-                    is1440 = math.abs(physH - 1440) < math.abs(physH - 1080)
+                    local physW, physH = GetPhysicalScreenSize()
+                    isUltrawide = (physW and physH and physH > 0 and (physW / physH) >= 2.0) or false
                 end
 
                 -- Build one import button, accent (green) or neutral, OnClick wired.
-                local function MakeImportBtn(accent, text, resKey)
+                local function MakeImportBtn(accent, text, displayKey)
                     local b
                     if accent then
                         b = MakeGreenButton(hero, primW, CTRL_H, text)
-                        b:SetScript("OnClick", function() DoImport(resKey) end)
+                        b:SetScript("OnClick", function() DoImport(displayKey) end)
                     else
                         b = CreateFrame("Button", nil, hero)
                         PP.Size(b, primW, CTRL_H)
                         b:SetFrameLevel(hero:GetFrameLevel() + 2)
-                        EllesmereUI.MakeStyledButton(b, text, 11, PROF_BTN_COLOURS, function() DoImport(resKey) end)
+                        EllesmereUI.MakeStyledButton(b, text, 11, PROF_BTN_COLOURS, function() DoImport(displayKey) end)
                     end
                     return b
                 end
 
-                -- 1080p (left) + 2K (right), bottom flush with the hero image.
-                local btn1080 = MakeImportBtn(not is1440, EllesmereUI.L("Import 1080p"), "p1080")
-                PP.Point(btn1080, "BOTTOMLEFT", heroImgHolder, "BOTTOMLEFT", detailX - IMG_PAD, 0)
-                local btn2k = MakeImportBtn(is1440, EllesmereUI.L("Import 2K (1440p)"), "p1440")
-                PP.Point(btn2k, "LEFT", btn1080, "RIGHT", BTN_GAP, 0)
+                -- Regular (left) + Ultrawide (right), bottom flush with the hero image.
+                local btnRegular = MakeImportBtn(not isUltrawide, EllesmereUI.L("Regular Import"), "regular")
+                PP.Point(btnRegular, "BOTTOMLEFT", heroImgHolder, "BOTTOMLEFT", detailX - IMG_PAD, 0)
+                local btnUltrawide = MakeImportBtn(isUltrawide, EllesmereUI.L("Ultrawide Import"), "ultrawide")
+                PP.Point(btnUltrawide, "LEFT", btnRegular, "RIGHT", BTN_GAP, 0)
 
                 -- Dim a button when the current preset has no string for its
-                -- resolution. Called from UpdateHero on preset change.
+                -- display type. Called from UpdateHero on preset change.
                 RefreshPresetActions = function()
-                    btn1080:SetAlpha(ImportStringFor("p1080") and 1 or 0.4)
-                    btn2k:SetAlpha(ImportStringFor("p1440") and 1 or 0.4)
+                    btnRegular:SetAlpha(ImportStringFor("regular") and 1 or 0.4)
+                    btnUltrawide:SetAlpha(ImportStringFor("ultrawide") and 1 or 0.4)
                 end
             end
 
@@ -5890,6 +5689,22 @@ initFrame:SetScript("OnEvent", function(self)
                 descFs:SetWordWrap(false)
                 descFs:SetMaxLines(1)
                 descFs:SetText(EllesmereUI.L(preset.description or ""))
+
+                -- Version tag (small pill, top-right corner of the tile).
+                -- Sits below the hover overlay so it dims with the tile.
+                if preset.version then
+                    local verPill = CreateFrame("Frame", nil, card)
+                    verPill:SetFrameLevel(card:GetFrameLevel() + 5)
+                    local vf = EllesmereUI.MakeFont(verPill, 11, nil, EG.r, EG.g, EG.b)
+                    vf:SetPoint("CENTER")
+                    vf:SetText("v" .. preset.version)
+                    PP.Size(verPill, math.floor(vf:GetStringWidth() + 0.5) + 14, 18)
+                    PP.Point(verPill, "TOPRIGHT", card, "TOPRIGHT", -6, -6)
+                    local vbg = verPill:CreateTexture(nil, "BACKGROUND")
+                    vbg:SetAllPoints()
+                    vbg:SetColorTexture(0.06, 0.08, 0.10, 0.85)
+                    EllesmereUI.MakeBorder(verPill, 1, 1, 1, 0.15, PP)
+                end
 
                 -- 40% black overlay above the whole card (image + text bar).
                 -- Higher frame level so it covers the image's child frame too.
@@ -6086,6 +5901,13 @@ initFrame:SetScript("OnEvent", function(self)
                 heroAuthor:SetText(preset.author or "")
                 heroDesc:SetText(EllesmereUI.L(preset.description or ""))
                 BuildTagPills(preset.tags)
+                if preset.version then
+                    heroVerFs:SetText("v" .. preset.version)
+                    PP.Size(heroVerPill, math.floor(heroVerFs:GetStringWidth() + 0.5) + 16, 20)
+                    heroVerPill:Show()
+                else
+                    heroVerPill:Hide()
+                end
                 if RefreshPresetActions then RefreshPresetActions() end
             end
 
@@ -6193,11 +6015,13 @@ initFrame:SetScript("OnEvent", function(self)
                     ShowPastePage()
                 end)
 
-            -- Popular Presets (opens the presets page)
+            -- Popular Presets (opens the presets page). Routes through the
+            -- Presets top tab so the tab strip stays in sync with the content;
+            -- the tab's build/restore paths end up in ShowPresetsPage.
             cardX = cardX + CARD_W + CARD_GAP
             MakeActionCard(rowFrame, cardX, MEDIA .. "icons\\dark-overlay.png",
                 EllesmereUI.L("Popular Presets"), EllesmereUI.L("Browse community presets."), function()
-                    ShowPresetsPage()
+                    EllesmereUI:SelectPage(PAGE_PRESETS)
                 end)
 
             y = y - CARD_H
@@ -7279,6 +7103,18 @@ initFrame:SetScript("OnEvent", function(self)
             mainPage:Show()
         end
 
+        -- Jump straight to the Popular Presets subpage (used by the Presets
+        -- top tab's cache-restore path). Registered per build (latest wins),
+        -- same lifetime rules as _ProfilesResetToMain above. ShowPresetsPage
+        -- only hides mainPage (its action-card entry point can only fire from
+        -- there); the tab can arrive from any subpage, so hide the other two
+        -- first.
+        EllesmereUI._ProfilesShowPresetsPage = function()
+            importPage:Hide()
+            pastePage:Hide()
+            ShowPresetsPage()
+        end
+
         -- Continue an API session with its decoded payload: UI-scale prompt
         -- (asked at most once), then the normal selection page. Registered per
         -- build (latest wins) and re-resolved from the namespace by every
@@ -7333,6 +7169,17 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
         EllesmereUI._ProfilesConsumeApiImport()
+
+        -- A sidebar Presets-shortcut click may have landed before this build
+        -- (page not built yet): honor it now that the subpages exist. An
+        -- active API import session wins -- it just showed its own subpage.
+        if EllesmereUI._pendingShowPresetsPage then
+            EllesmereUI._pendingShowPresetsPage = nil
+            local s = EllesmereUI._apiImportSession
+            if not (s and s.state ~= "done") then
+                ShowPresetsPage()
+            end
+        end
 
         return 0
     end
@@ -7416,6 +7263,7 @@ initFrame:SetScript("OnEvent", function(self)
             if EllesmereUIDB then
                 EllesmereUIDB.fonts = nil
             end
+            EllesmereUI.InvalidateFontCache()
             EllesmereUI.ApplyColorsToOUF()
             -- Reset panel scale to 100%
             if EllesmereUI.SetPanelScale then
@@ -7479,14 +7327,165 @@ initFrame:SetScript("OnEvent", function(self)
     -- Profiles & Presets: its own sidebar module. Reuses the existing
     -- profiles page builder; the profiles-root lifecycle is handled by the
     -- shared CleanupProfilesRoot hooks below (now keyed to PROFILES_KEY).
-    -- Second tab: the Spec Overrides management list (built by
+    -- Second tab: the Overrides management list (built by
     -- EllesmereUI_SpecOverrides.lua).
-    local PAGE_SPECOV = "Spec Overrides"
-    local PAGE_CONDOV = "Conditional Overrides"
+    --
+    -- ONE tab, TWO pages. "Spec Overrides" and "Conditional Overrides" remain
+    -- two completely separate page builders with their own stores, prune
+    -- passes, and row logic -- nothing about them was merged. The tab strip
+    -- simply shows a single "Overrides" entry, and a segmented toggle at the
+    -- top of the page picks which builder renders below it (the same control
+    -- Raid Frames uses for Simple Setup / Custom Buff Display, centered).
+    -- The mode is runtime-only and defaults to the spec list, exactly like
+    -- the old tab order.
+    local PAGE_OVERRIDES = "Overrides"
+
+    -- Builds the centered mode toggle and returns the vertical space it used.
+    -- Deliberately a plain local closure over the page build: no widget-
+    -- factory row, no capture config, no saved state -- this is chrome.
+    local function BuildOverridesModeToggle(parent, y)
+        local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
+        local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath())
+            or "Fonts\\FRIZQT__.TTF"
+        -- Wider than the Raid Frames pair (162): "Conditional Overrides" is a
+        -- longer label than "Custom Buff Display" and must not clip.
+        local BTN_W, BTN_H = 180, 31
+        local wrap = CreateFrame("Frame", nil, parent)
+        wrap:SetSize(BTN_W * 2, BTN_H)
+        wrap:SetPoint("TOP", parent, "TOP", 0, y - 14)
+        wrap:SetFrameLevel(parent:GetFrameLevel() + 1)
+        if EllesmereUI.PP then
+            EllesmereUI.PP.CreateBorder(wrap, 1, 1, 1, 0.10, 1)
+        end
+        local MODES = {
+            { key = "spec", label = "Spec Overrides" },
+            { key = "cond", label = "Conditional Overrides" },
+        }
+        local cur = EllesmereUI._overridesTabMode or "spec"
+        for i, m in ipairs(MODES) do
+            local btn = CreateFrame("Button", nil, wrap)
+            btn:SetSize(BTN_W, BTN_H)
+            btn:SetPoint("LEFT", wrap, "LEFT", (i - 1) * BTN_W, 0)
+            local bg = btn:CreateTexture(nil, "BACKGROUND")
+            bg:SetAllPoints()
+            local lbl = btn:CreateFontString(nil, "OVERLAY")
+            lbl:SetFont(fontPath, 13, "")
+            lbl:SetPoint("CENTER")
+            lbl:SetText(EllesmereUI.L(m.label))
+            if cur == m.key then
+                bg:SetColorTexture(EG.r, EG.g, EG.b, 0.85)
+                lbl:SetTextColor(1, 1, 1, 1)
+            else
+                bg:SetColorTexture(0.10, 0.10, 0.11, 0.85)
+                lbl:SetTextColor(1, 1, 1, 0.55)
+                btn:SetScript("OnEnter", function()
+                    bg:SetColorTexture(0.16, 0.16, 0.17, 0.9); lbl:SetTextColor(1, 1, 1, 0.85)
+                end)
+                btn:SetScript("OnLeave", function()
+                    bg:SetColorTexture(0.10, 0.10, 0.11, 0.85); lbl:SetTextColor(1, 1, 1, 0.55)
+                end)
+                btn:SetScript("OnClick", function()
+                    EllesmereUI._overridesTabMode = m.key
+                    -- Forced: the two builders render entirely different rows.
+                    EllesmereUI:RefreshPage(true)
+                end)
+            end
+        end
+        -- 14 above + 15 below the buttons.
+        return BTN_H + 29
+    end
+
+    -- FULL EXPORT tab: a warning and a single button. Deliberately its own
+    -- page with its own exporter (EllesmereUI.ExportFullAccountData) -- it
+    -- shares no code path with the Profiles tab's export flow, so nothing
+    -- here can change what a normal profile string contains.
+    local PAGE_FULLEXPORT = "Full Export"
+
+    local function BuildFullExportPage(parent, yOffset)
+        local PAD = EllesmereUI.CONTENT_PAD or 40
+        local y = yOffset - 10
+        local width = parent:GetWidth() - PAD * 2
+
+        -- Warning card (red-bordered, full width).
+        local warn = CreateFrame("Frame", nil, parent)
+        warn:SetPoint("TOPLEFT", parent, "TOPLEFT", PAD, y)
+        warn:SetWidth(width)
+        warn:SetFrameLevel(parent:GetFrameLevel() + 2)
+        local wbg = EllesmereUI.SolidTex(warn, "BACKGROUND", 0.10, 0.04, 0.04, 0.55)
+        wbg:SetAllPoints()
+        EllesmereUI.MakeBorder(warn, 0.8, 0.2, 0.2, 0.55)
+        local wtext = EllesmereUI.MakeFont(warn, 13, nil, 1, 0.55, 0.55, 1)
+        wtext:SetPoint("TOPLEFT", warn, "TOPLEFT", 16, -14)
+        wtext:SetWidth(width - 32)
+        wtext:SetJustifyH("LEFT")
+        wtext:SetSpacing(3)
+        wtext:SetText(EllesmereUI.L("This export includes cross profile settings that will overwrite the importing user's settings including Quality of Life, Hovercast and more that should typically not be shared with standard profiles. THIS IS NOT RECOMMENDED for public sharing of profiles."))
+        warn:SetHeight((wtext:GetStringHeight() or 40) + 28)
+        y = y - warn:GetHeight() - 40
+
+        -- Centered export button.
+        local BTN_W, BTN_H = 300, 38
+        local btn = CreateFrame("Button", nil, parent)
+        btn:SetSize(BTN_W, BTN_H)
+        btn:SetPoint("TOP", parent, "TOP", 0, y)
+        btn:SetFrameLevel(parent:GetFrameLevel() + 5)
+        local DARK_BG = EllesmereUI.DARK_BG or { r = 0.05, g = 0.07, b = 0.09 }
+        local bbg = EllesmereUI.SolidTex(btn, "BACKGROUND", DARK_BG.r, DARK_BG.g, DARK_BG.b, 0.92)
+        bbg:SetAllPoints()
+        local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
+        local bbrd = EllesmereUI.MakeBorder(btn, EG.r, EG.g, EG.b, 0.5)
+        local blbl = EllesmereUI.MakeFont(btn, 13, nil, EG.r, EG.g, EG.b, 1)
+        blbl:SetAlpha(0.8)
+        blbl:SetPoint("CENTER")
+        blbl:SetText(EllesmereUI.L("Export All Data with Profile"))
+        btn:SetScript("OnEnter", function()
+            blbl:SetAlpha(1)
+            if bbrd and bbrd.SetColor then bbrd:SetColor(EG.r, EG.g, EG.b, 0.9) end
+        end)
+        btn:SetScript("OnLeave", function()
+            blbl:SetAlpha(0.8)
+            if bbrd and bbrd.SetColor then bbrd:SetColor(EG.r, EG.g, EG.b, 0.5) end
+        end)
+        btn:SetScript("OnClick", function()
+            local str = EllesmereUI.ExportFullAccountData and EllesmereUI.ExportFullAccountData()
+            if str then
+                EllesmereUI:ShowExportPopup(str)
+            else
+                EllesmereUI:ShowInfoPopup({
+                    title = EllesmereUI.L("Export Failed"),
+                    content = EllesmereUI.L("Could not build the export string."),
+                })
+            end
+        end)
+        y = y - BTN_H - 20
+
+        return -y + 40
+    end
+
+    -- Runs the toggle, then the builder for the selected mode. The builders
+    -- return their total content height measured from the ORIGINAL page top
+    -- (they accumulate from the startY they are handed), so the toggle's
+    -- space is already inside the returned value.
+    local function BuildOverridesPage(parent, yOffset)
+        local y = yOffset - BuildOverridesModeToggle(parent, yOffset)
+        if (EllesmereUI._overridesTabMode or "spec") == "cond" then
+            if EllesmereUI.Conditions_BuildListPage then
+                return EllesmereUI.Conditions_BuildListPage(parent, y)
+            end
+        elseif EllesmereUI.SpecOverrides_BuildListPage then
+            return EllesmereUI.SpecOverrides_BuildListPage(parent, y)
+        end
+        return 200
+    end
+    -- PAGE_PRESETS (file-scope, near PAGE_PROFILES) is a NAVIGATION tab only:
+    -- the Popular Presets browser stays a subpage of the profiles page (same
+    -- frames, same import flow). The tab builds the same profiles page and
+    -- immediately flips it to the presets subpage via the pending flag
+    -- consumed at the end of BuildProfilesPage.
     EllesmereUI:RegisterModule(PROFILES_KEY, {
         title       = "Profiles & Presets",
         description = "Import, export, and switch EllesmereUI profiles and presets.",
-        pages       = { PAGE_PROFILES, PAGE_SPECOV, PAGE_CONDOV },
+        pages       = { PAGE_PROFILES, PAGE_PRESETS, PAGE_OVERRIDES, PAGE_FULLEXPORT },
         buildPage   = function(pageName, parent, yOffset)
             -- BuildProfilesPage bypasses `parent` entirely and builds directly
             -- onto the live, shared EllesmereUI._scrollFrame -- and, before it
@@ -7497,7 +7496,10 @@ initFrame:SetScript("OnEvent", function(self)
             -- indexing pass. Skip PAGE_PROFILES here; it gets indexed normally
             -- the first time the player actually visits it.
             if EllesmereUI._prebuilding then
-                if pageName == PAGE_SPECOV then
+                if pageName == PAGE_OVERRIDES then
+                    -- Index the spec list only, exactly as before the tabs
+                    -- were merged: the conditional builder was never part of
+                    -- the hidden pre-build pass, and the toggle is chrome.
                     if EllesmereUI.SpecOverrides_BuildListPage then
                         return EllesmereUI.SpecOverrides_BuildListPage(parent, yOffset)
                     end
@@ -7505,24 +7507,30 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 return
             end
-            if pageName == PAGE_SPECOV then
+            if pageName == PAGE_OVERRIDES then
                 CleanupProfilesRoot()
-                if EllesmereUI.SpecOverrides_BuildListPage then
-                    return EllesmereUI.SpecOverrides_BuildListPage(parent, yOffset)
-                end
-                return 200
+                return BuildOverridesPage(parent, yOffset)
             end
-            if pageName == PAGE_CONDOV then
+            if pageName == PAGE_FULLEXPORT then
                 CleanupProfilesRoot()
-                if EllesmereUI.Conditions_BuildListPage then
-                    return EllesmereUI.Conditions_BuildListPage(parent, yOffset)
-                end
-                return 200
+                return BuildFullExportPage(parent, yOffset)
+            end
+            if pageName == PAGE_PRESETS then
+                EllesmereUI._pendingShowPresetsPage = true
+                return BuildProfilesPage(PAGE_PROFILES, parent, yOffset)
             end
             return BuildProfilesPage(pageName, parent, yOffset)
         end,
         onPageCacheRestore = function(pageName)
-            if pageName == PAGE_SPECOV or pageName == PAGE_CONDOV then
+            if pageName == PAGE_FULLEXPORT then
+                -- The Profiles page builds onto the SHARED profiles root, not
+                -- this page's parent, and that root outlives page switches --
+                -- so returning to a cached Full Export page would show the
+                -- profiles content layered over it. Same cleanup the other
+                -- non-profiles tabs do; the page itself is static, so no
+                -- rebuild is needed.
+                CleanupProfilesRoot()
+            elseif pageName == PAGE_OVERRIDES then
                 CleanupProfilesRoot()
                 -- The override list changes while the page is cached; rebuild.
                 C_Timer.After(0, function()
@@ -7531,12 +7539,50 @@ initFrame:SetScript("OnEvent", function(self)
                         EllesmereUI:RefreshPage(true)
                     end
                 end)
+            elseif pageName == PAGE_PRESETS then
+                if EllesmereUI._profilesRoot then
+                    -- Shared root is alive (possibly showing another subpage):
+                    -- flip it to the presets browser directly. An active API
+                    -- import session wins -- re-enter it instead of hiding
+                    -- its import page.
+                    local s = EllesmereUI._apiImportSession
+                    if s and s.state ~= "done" then
+                        if EllesmereUI._ProfilesConsumeApiImport then
+                            EllesmereUI._ProfilesConsumeApiImport()
+                        end
+                    elseif EllesmereUI._ProfilesShowPresetsPage then
+                        EllesmereUI._ProfilesShowPresetsPage()
+                    end
+                else
+                    EllesmereUI._pendingShowPresetsPage = true
+                    C_Timer.After(0, function()
+                        if EllesmereUI:GetActiveModule() == PROFILES_KEY
+                           and EllesmereUI:GetActivePage() == PAGE_PRESETS then
+                            BuildProfilesPage(PAGE_PROFILES, nil, -6)
+                        else
+                            EllesmereUI._pendingShowPresetsPage = nil
+                        end
+                    end)
+                end
             elseif not EllesmereUI._profilesRoot then
                 C_Timer.After(0, function()
                     if EllesmereUI:GetActiveModule() == PROFILES_KEY then
                         BuildProfilesPage(PAGE_PROFILES, nil, -6)
                     end
                 end)
+            else
+                -- Shared root is alive but the Presets tab may have left the
+                -- presets subpage showing; the Profiles tab lands on main.
+                -- An active API import session wins -- re-enter it instead of
+                -- hiding its import page.
+                local s = EllesmereUI._apiImportSession
+                if s and s.state ~= "done" then
+                    if EllesmereUI._ProfilesConsumeApiImport then
+                        EllesmereUI._ProfilesConsumeApiImport()
+                    end
+                elseif EllesmereUI._ProfilesResetToMain then
+                    EllesmereUI._ProfilesResetToMain()
+                end
             end
         end,
     })

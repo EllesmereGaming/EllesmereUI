@@ -332,14 +332,6 @@ local defaults = {
             extraTextY = 0,
             extraTextClassColor = false,
             extraTextAlign = "left",
-            leftTextShortNameLength = 0,
-            leftTextShortNameEllipsis = true,
-            rightTextShortNameLength = 0,
-            rightTextShortNameEllipsis = true,
-            centerTextShortNameLength = 0,
-            centerTextShortNameEllipsis = true,
-            extraTextShortNameLength = 0,
-            extraTextShortNameEllipsis = true,
             bottomTextBar = false,
             bottomTextBarHeight = 16,
             btbPosition = "bottom",
@@ -366,12 +358,6 @@ local defaults = {
             btbCenterY = 0,
             btbCenterClassColor = false,
             btbCenterPowerColor = false,
-            btbLeftShortNameLength = 0,
-            btbLeftShortNameEllipsis = true,
-            btbRightShortNameLength = 0,
-            btbRightShortNameEllipsis = true,
-            btbCenterShortNameLength = 0,
-            btbCenterShortNameEllipsis = true,
             btbClassIcon = "none",
             btbClassIconSize = 14,
             btbClassIconLocation = "left",
@@ -475,6 +461,7 @@ local defaults = {
             leaderIndicatorX = 0,
             leaderIndicatorY = 0,
             healthReverseFill = false,
+            healthVerticalFill = false,
             smoothBars = false,
             powerReverseFill = false,
         },
@@ -585,14 +572,6 @@ local defaults = {
             extraTextY = 0,
             extraTextClassColor = false,
             extraTextAlign = "left",
-            leftTextShortNameLength = 0,
-            leftTextShortNameEllipsis = true,
-            rightTextShortNameLength = 0,
-            rightTextShortNameEllipsis = true,
-            centerTextShortNameLength = 0,
-            centerTextShortNameEllipsis = true,
-            extraTextShortNameLength = 0,
-            extraTextShortNameEllipsis = true,
             bottomTextBar = false,
             bottomTextBarHeight = 16,
             btbPosition = "bottom",
@@ -619,12 +598,6 @@ local defaults = {
             btbCenterY = 0,
             btbCenterClassColor = false,
             btbCenterPowerColor = false,
-            btbLeftShortNameLength = 0,
-            btbLeftShortNameEllipsis = true,
-            btbRightShortNameLength = 0,
-            btbRightShortNameEllipsis = true,
-            btbCenterShortNameLength = 0,
-            btbCenterShortNameEllipsis = true,
             btbClassIcon = "none",
             btbClassIconSize = 14,
             btbClassIconLocation = "left",
@@ -673,6 +646,7 @@ local defaults = {
             leaderIndicatorX = 0,
             leaderIndicatorY = 0,
             healthReverseFill = false,
+            healthVerticalFill = false,
             smoothBars = false,
             powerReverseFill = false,
         },
@@ -725,6 +699,7 @@ local defaults = {
             playerCastbarWidth = 181,
             playerCastbarHeight = 14,
             healthReverseFill = false,
+            healthVerticalFill = false,
             smoothBars = false,
             powerReverseFill = false,
         },
@@ -751,18 +726,13 @@ local defaults = {
             centerTextClassColor = false,
             centerTextColorR = 1, centerTextColorG = 1, centerTextColorB = 1,
             centerTextX = 0, centerTextY = 0,
-            leftTextShortNameLength = 0,
-            leftTextShortNameEllipsis = true,
-            rightTextShortNameLength = 0,
-            rightTextShortNameEllipsis = true,
-            centerTextShortNameLength = 0,
-            centerTextShortNameEllipsis = true,
             borderSize = 1,
             borderColor = { r = 0, g = 0, b = 0 },
             borderTexture = "solid",
             highlightColor = { r = 1, g = 1, b = 1 },
             powerPosition = "none",
             healthReverseFill = false,
+            healthVerticalFill = false,
             smoothBars = false,
         },
         -- Focus Target: independent clone of Target of Target defaults.
@@ -792,18 +762,13 @@ local defaults = {
             centerTextClassColor = false,
             centerTextColorR = 1, centerTextColorG = 1, centerTextColorB = 1,
             centerTextX = 0, centerTextY = 0,
-            leftTextShortNameLength = 0,
-            leftTextShortNameEllipsis = true,
-            rightTextShortNameLength = 0,
-            rightTextShortNameEllipsis = true,
-            centerTextShortNameLength = 0,
-            centerTextShortNameEllipsis = true,
             borderSize = 1,
             borderColor = { r = 0, g = 0, b = 0 },
             borderTexture = "solid",
             highlightColor = { r = 1, g = 1, b = 1 },
             powerPosition = "none",
             healthReverseFill = false,
+            healthVerticalFill = false,
             smoothBars = false,
         },
         pet = {
@@ -829,18 +794,13 @@ local defaults = {
             centerTextClassColor = false,
             centerTextColorR = 1, centerTextColorG = 1, centerTextColorB = 1,
             centerTextX = 0, centerTextY = 0,
-            leftTextShortNameLength = 0,
-            leftTextShortNameEllipsis = true,
-            rightTextShortNameLength = 0,
-            rightTextShortNameEllipsis = true,
-            centerTextShortNameLength = 0,
-            centerTextShortNameEllipsis = true,
             borderSize = 1,
             borderColor = { r = 0, g = 0, b = 0 },
             borderTexture = "solid",
             highlightColor = { r = 1, g = 1, b = 1 },
             powerPosition = "none",
             healthReverseFill = false,
+            healthVerticalFill = false,
             smoothBars = false,
         },
         focus = {
@@ -915,14 +875,6 @@ local defaults = {
             extraTextY = 0,
             extraTextClassColor = false,
             extraTextAlign = "left",
-            leftTextShortNameLength = 0,
-            leftTextShortNameEllipsis = true,
-            rightTextShortNameLength = 0,
-            rightTextShortNameEllipsis = true,
-            centerTextShortNameLength = 0,
-            centerTextShortNameEllipsis = true,
-            extraTextShortNameLength = 0,
-            extraTextShortNameEllipsis = true,
             bottomTextBar = false,
             bottomTextBarHeight = 16,
             btbPosition = "bottom",
@@ -947,12 +899,6 @@ local defaults = {
             btbCenterY = 0,
             btbCenterClassColor = false,
             btbCenterPowerColor = false,
-            btbLeftShortNameLength = 0,
-            btbLeftShortNameEllipsis = true,
-            btbRightShortNameLength = 0,
-            btbRightShortNameEllipsis = true,
-            btbCenterShortNameLength = 0,
-            btbCenterShortNameEllipsis = true,
             btbClassIcon = "none",
             btbClassIconSize = 14,
             btbClassIconLocation = "left",
@@ -1021,6 +967,7 @@ local defaults = {
             raidMarkerX = 0,
             raidMarkerY = 0,
             healthReverseFill = false,
+            healthVerticalFill = false,
             smoothBars = false,
             powerReverseFill = false,
         },
@@ -1120,6 +1067,12 @@ local defaults = {
             simpleBuffSpacing = 1,
             simpleDebuffSpacing = 1,
             textSize = 12,
+            extraTextContent = "none",
+            extraTextSize = 12,
+            extraTextClassColor = false,
+            extraTextColorR = 1, extraTextColorG = 1, extraTextColorB = 1,
+            extraTextX = 0, extraTextY = 0,
+            extraTextAlign = "left",
             leftTextContent = "name",
             leftTextClassColor = false,
             leftTextColorR = 1, leftTextColorG = 1, leftTextColorB = 1,
@@ -1132,12 +1085,6 @@ local defaults = {
             centerTextClassColor = false,
             centerTextColorR = 1, centerTextColorG = 1, centerTextColorB = 1,
             centerTextX = 0, centerTextY = 0,
-            leftTextShortNameLength = 0,
-            leftTextShortNameEllipsis = true,
-            rightTextShortNameLength = 0,
-            rightTextShortNameEllipsis = true,
-            centerTextShortNameLength = 0,
-            centerTextShortNameEllipsis = true,
             borderSize = 1,
             borderColor = { r = 0, g = 0, b = 0 },
             borderTexture = "solid",
@@ -1158,6 +1105,7 @@ local defaults = {
             raidMarkerY = 0,
             bossStackDirection = "down",
             healthReverseFill = false,
+            healthVerticalFill = false,
             smoothBars = false,
         },
         enabledFrames = {
@@ -1389,6 +1337,8 @@ local function ApplyHealthBarTexture(health, unitKey, texKeyOverride)
     health:SetStatusBarTexture(path)
     local hFill = health:GetStatusBarTexture()
     if hFill then UnsnapTex(hFill) end
+    -- The swap replaced the fill object; re-derive rotation for the bar's axis.
+    ns.ApplyFillRotation(health)
 
     -- Power bar: same texture. Walk up from health to find the oUF frame
     -- (health may be parented to a clip container, not the oUF frame directly).
@@ -1574,7 +1524,19 @@ local function AnchorHealthBg(health)
     local tex = health and health.GetStatusBarTexture and health:GetStatusBarTexture()
     if not bg or not tex then return end
     bg:ClearAllPoints()
-    if health.GetReverseFill and health:GetReverseFill() then
+    local reversed = health.GetReverseFill and health:GetReverseFill()
+    -- Vertical fill empties on the TOP (or the BOTTOM when reversed); read the
+    -- axis off the bar itself so this needs no settings lookup.
+    local vert = health.GetOrientation and health:GetOrientation() == "VERTICAL"
+    if vert then
+        if reversed then
+            bg:SetPoint("TOPLEFT", tex, "BOTTOMLEFT", 0, 0)
+            bg:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
+        else
+            bg:SetPoint("TOPLEFT", health, "TOPLEFT", 0, 0)
+            bg:SetPoint("BOTTOMRIGHT", tex, "TOPRIGHT", 0, 0)
+        end
+    elseif reversed then
         bg:SetPoint("TOPLEFT", health, "TOPLEFT", 0, 0)
         bg:SetPoint("BOTTOMRIGHT", tex, "BOTTOMLEFT", 0, 0)
     else
@@ -1617,8 +1579,22 @@ local function UF_SecretSafeHealthColor(self, event, unit)
         or (element.colorClassNPC and not (UnitIsPlayer(unit) or UnitInPartyIsAI(unit)))
         or (element.colorClassPet and UnitPlayerControlled(unit) and not UnitIsPlayer(unit)) then
         local _, class = UnitClass(unit)
-        if issecretvalue(class) then class = nil end
-        color = class and self.colors.class[class]
+        if issecretvalue(class) then
+            -- 12.1 (68914) added SecretWhenUnitIdentityRestricted to UnitClass,
+            -- which is what took class color off focus, focus-target and
+            -- target-of-target: the token can be neither read nor used as a
+            -- table key, so the old lookup degraded to the green reaction tier.
+            -- C_ClassColor.GetClassColor and SetStatusBarColor are BOTH
+            -- documented SecretArguments = "AllowedWhenTainted", so the real
+            -- color still reaches the bar with Lua never inspecting the class.
+            -- Custom class colors cannot apply on this path (they are an
+            -- addon-side table lookup, which is the thing a secret key forbids).
+            if C_ClassColor and C_ClassColor.GetClassColor then
+                color = C_ClassColor.GetClassColor(class)
+            end
+        else
+            color = class and self.colors.class[class]
+        end
         if not color then
             -- Unreadable class: fall to the tiers the lib chain would have
             -- reached had the class branch not matched.
@@ -2173,30 +2149,12 @@ end
 -- Nickname-aware replacement for the stock [name] tag (see ContentToTag). Returns
 -- the nickname when one applies, else the raw unit name -- identical to [name] for
 -- everyone without a nickname.
-oUF.Tags.Methods["eui-name"] = function(unit, realUnit, lenStr, ellipsisStr)
-    local name = ns.ResolveUnitNickname(unit)
-    local maxLen = tonumber(lenStr) or 0
-    if maxLen <= 0 then return name end
-    -- Secret names (enemy target/focus in protected content) cannot be
-    -- inspected: #, sub and concat all throw. Return the secret raw -- the
-    -- display sink accepts it -- so those names render untruncated.
-    if issecretvalue and issecretvalue(name) then return name end
-    -- Truncate by UTF-8 codepoints, never bytes: multibyte names (Cyrillic,
-    -- CJK, accents) must cut on a character boundary, and byte length would
-    -- overcount their character count.
-    local i, chars = 1, 0
-    local len = #name
-    while i <= len do
-        if chars == maxLen then
-            local cut = name:sub(1, i - 1)
-            if ellipsisStr ~= "0" then return cut .. "..." end
-            return cut
-        end
-        local b = name:byte(i)
-        i = i + ((b >= 240 and 4) or (b >= 224 and 3) or (b >= 192 and 2) or 1)
-        chars = chars + 1
-    end
-    return name
+oUF.Tags.Methods["eui-name"] = function(unit)
+    -- Truncation is width-based (the per-slot Width % clamp in the position
+    -- code), never character-based: FontString width boxes ellipsize in the
+    -- renderer, which also works on SECRET enemy names that Lua cannot
+    -- measure or substring.
+    return ns.ResolveUnitNickname(unit)
 end
 oUF.Tags.Events["eui-name"] = "UNIT_NAME_UPDATE"
 
@@ -2658,6 +2616,49 @@ local function ResolveBuffLayout(anchor, growth)
     return m.fp, ia, gx, gy, m.ox, m.oy
 end
 
+-- Anchor Buffs with Debuffs (per-unit debuffAnchorBuffs): buffs render as
+-- the first rows of the debuff stack, so the debuff container must sit a
+-- whole row step past the buff block per visible buff row -- debuffs never
+-- share a row with buffs. Installed as Buffs:PostUpdate by the reload
+-- blocks; config rides element._euiMerge (nil = feature off, zero work
+-- beyond one table read per aura update). Row math mirrors the aura
+-- element's SetPosition grid exactly (size + spacing, maxCols else
+-- width-derived columns), so cropped heights and spacing edits self-heal
+-- on the next aura update without a reload.
+ns.UF_MergedBuffsPostUpdate = function(element)
+    local m = element._euiMerge
+    if not m then return end
+    local deb = m.deb
+    if not deb or deb.num == 0 then return end
+    local rows = 0
+    local n = element.visibleButtons or 0
+    if n > 0 then
+        local width = element.width or element.size or 16
+        local sizeX = width + (element.spacingX or element.spacing or 0)
+        local cols = element.maxCols or math.floor(element:GetWidth() / sizeX + 0.5)
+        if not cols or cols < 1 then cols = 1 end
+        rows = math.ceil(n / cols)
+    end
+    local height = element.height or element.size or 16
+    local rowH = height + (element.spacingY or element.spacing or 0)
+    if element._euiMergeRows == rows and element._euiMergeRowH == rowH then return end
+    element._euiMergeRows = rows
+    element._euiMergeRowH = rowH
+    local shift = rows * rowH
+    if m.gy ~= "UP" then shift = -shift end
+    deb:ClearAllPoints()
+    deb:SetPoint(m.dia, m.parent, m.dfp, m.x, m.y + shift)
+end
+
+-- True when a unit's buffs should ride the debuff stack: toggle on and a
+-- real debuff anchor to join. The toggle OWNS buff visibility -- merged
+-- buffs render even with Buff Display at None (showBuffs false), which is
+-- exactly the state the options auto-select on enable. Per-unit debuff
+-- anchor defaults differ, so callers pass their resolved dAnc.
+ns.UF_MergedAuras = function(settings, dAnc)
+    return settings.debuffAnchorBuffs == true and dAnc ~= "none"
+end
+
 -- Boss "Simple Debuff Display" mode: "none" | "left" | "right".
 -- Tolerates legacy boolean values (true/nil = "left", false = "none") so existing
 -- and imported profiles read correctly without a migration pass. "left"/"right"
@@ -2757,12 +2758,11 @@ local function GetBossHealthTag()
     end
 end
 
--- Build a truncated name tag for the given settings prefix (e.g. "leftText", "btbLeft").
-local function BuildShortNameTag(prefix, settings)
-    local len = settings[prefix .. "ShortNameLength"] or 0
-    if len <= 0 then return "[eui-name]" end
-    local ellipsis = settings[prefix .. "ShortNameEllipsis"] ~= false and "1" or "0"
-    return "[eui-name(" .. len .. "," .. ellipsis .. ")]"
+-- Per-slot Width % (of the slot's computed clamp width; default 100 = the
+-- normal truncation amount, above 100 grants extra room). Applied by the
+-- position code to the slot FontString's width box.
+local function SlotWidthMul(settings, prefix)
+    return (settings[prefix .. "WidthPct"] or 100) / 100
 end
 
 -- Build the per-slot "Name > Target" indicator tag. The separator string is
@@ -2793,14 +2793,14 @@ end
 -- Resolve a leftTextContent / rightTextContent value to an oUF tag string.
 -- content: "name", "both", "curhpshort", "perhp", "perhpnosign", "perhpnum", "none"
 local function ContentToTag(content, prefix, settings)
-    if content == "name" then return BuildShortNameTag(prefix, settings)
+    if content == "name" then return "[eui-name]"
     elseif content == "nametotarget" then
-        return BuildShortNameTag(prefix, settings)
+        return "[eui-name]"
             .. BuildTgtSepTag(prefix, settings) .. "[eui-tgtcol][eui-tgtname]"
     elseif content == "levelname" then
-        return "[eui-level] | " .. BuildShortNameTag(prefix, settings)
+        return "[eui-level] | [eui-name]"
     elseif content == "namelevel" then
-        return BuildShortNameTag(prefix, settings) .. " | [eui-level]"
+        return "[eui-name] | [eui-level]"
     elseif content == "level" then return "[eui-level]"
     elseif content == "both" then return "[curhpshort] | [eui-perhp]%"
     elseif content == "bothdash" then return "[curhpshort] - [eui-perhp]%"
@@ -2888,6 +2888,78 @@ local function ApplyClassIconTexture(tex, classToken, style)
     return true
 end
 
+
+-- Shared portrait element Override (assigned to the 2D texture and 3D model
+-- objects; the class texture keeps its own). The vendored oUF Update only
+-- guid-gates the eventless OnUpdate poll -- EVERY other trigger (onShow
+-- full updates, target-changed sweeps, any unit event) repainted
+-- unconditionally, so heavy combat re-ran SetPortraitTexture + the re-anchor
+-- PostUpdate over and over for the SAME portrayed unit. This Override
+-- repaints only when the portrayed identity or availability actually
+-- changed, on real appearance events (same-guid model/portrait-file
+-- changes), or on an explicit ForceUpdate (mode swaps). Secret guids
+-- (instanced-PvP identities) cannot be compared, so they fail open to
+-- repainting -- exactly the old behavior. The unitIsUnit head-check is
+-- deliberately absent (secret booleans on eventless frames; the gate makes
+-- the resulting repaint-on-any-event dispatch cheap). PostUpdate is called
+-- only after a real repaint: the 2D PostUpdate exists to heal what
+-- SetPortraitTexture resets, and the 3D PostUpdate re-applies zoom after
+-- SetUnit -- neither ran, nothing to heal.
+local function PortraitOverride(self, event, evtUnit)
+    local element = self.Portrait
+    if not element then return end
+    local u = self.unit
+    if not u then return end
+    if element.PreUpdate then element:PreUpdate(u) end
+    local isAvailable = UnitIsConnected(u) and UnitIsVisible(u)
+    local guid = UnitGUID(u)
+    local changed
+    if issecretvalue(guid) or issecretvalue(element.guid) then
+        changed = true
+    else
+        changed = element.guid ~= guid
+    end
+    local hasStateChanged = changed
+        or element.state ~= isAvailable
+        or event == "UNIT_PORTRAIT_UPDATE"
+        or event == "UNIT_MODEL_CHANGED"
+        or event == "ForceUpdate"
+        -- World transitions can reset PlayerModel widget state while the guid
+        -- stays the same; repaint once per zone so 3D portraits never come
+        -- back blank.
+        or event == "PLAYER_ENTERING_WORLD"
+    if hasStateChanged then
+        if element:IsObjectType("PlayerModel") then
+            if not isAvailable then
+                element:SetCamDistanceScale(0.25)
+                element:SetPortraitZoom(0)
+                element:SetPosition(0, 0, 0.25)
+                element:ClearModel()
+                element:SetModel([[Interface\Buttons\TalkToMeQuestionMark.m2]])
+            else
+                local uKey3d = UnitToSettingsKey(u)
+                local uS3d = uKey3d and db.profile[uKey3d]
+                local camScale = ((uS3d and uS3d.portrait3dZoom) or 100) / 100
+                element:ClearModel()
+                element:SetUnit(u)
+                element:SetPortraitZoom(1)
+                element:SetPosition(0, 0, 0)
+                element:SetCamDistanceScale(camScale)
+            end
+        else
+            if isAvailable then
+                SetPortraitTexture(element, u)
+            else
+                element:SetTexture([[Interface\Icons\INV_Misc_QuestionMark]])
+            end
+        end
+        element.guid = guid
+        element.state = isAvailable
+    end
+    if hasStateChanged and element.PostUpdate then
+        return element:PostUpdate(u, hasStateChanged)
+    end
+end
 
 -- Portrait mask and border paths for detached portrait shapes
 local PORTRAIT_MEDIA = "Interface\\AddOns\\EllesmereUI\\media\\portraits\\"
@@ -3244,6 +3316,7 @@ local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, 
         if lc ~= "none" then
             leftFS:SetJustifyH("LEFT")
             PP.Point(leftFS, "LEFT", textOvr, "LEFT", 5 + (s.btbLeftX or 0), s.btbLeftY or 0)
+            PP.Width(leftFS, totalWidth * 0.9 * SlotWidthMul(s, "btbLeft"))
             leftFS:Show()
         else leftFS:Hide() end
 
@@ -3252,6 +3325,7 @@ local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, 
         if rc ~= "none" then
             rightFS:SetJustifyH("RIGHT")
             PP.Point(rightFS, "RIGHT", textOvr, "RIGHT", -5 + (s.btbRightX or 0), s.btbRightY or 0)
+            PP.Width(rightFS, totalWidth * 0.9 * SlotWidthMul(s, "btbRight"))
             rightFS:Show()
         else rightFS:Hide() end
 
@@ -3260,6 +3334,7 @@ local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, 
         if cc ~= "none" then
             centerFS:SetJustifyH("CENTER")
             PP.Point(centerFS, "CENTER", textOvr, "CENTER", s.btbCenterX or 0, s.btbCenterY or 0)
+            PP.Width(centerFS, totalWidth * 0.9 * SlotWidthMul(s, "btbCenter"))
             centerFS:Show()
         else centerFS:Hide() end
 
@@ -3664,6 +3739,41 @@ end
 
 -- ShowFakeFrames / HideFakeFrames removed -- Unlock Mode handles all positioning
 
+-- Fill-texture rotation, DERIVED -- never set on its own, so it can never go
+-- stale against the bar's axis or a texture swap. Two texture families live on
+-- these bars and they want opposite treatment on a vertical bar:
+--
+--   stretch (shield.tga, striped3, blizzard, WHITE8X8, every health texture):
+--     one image scaled to the fill rect. Designed wide-and-short, so on a tall
+--     bar it must be ROTATED or it smears into a stretched mess.
+--   tiled (stripedReversed, the large* stripe sets, striped-maxhp, the modern
+--     absorb): repeats at native pixel size on BOTH axes, so it already reads
+--     correctly at any bar shape. Rotating it fights the tiling and is exactly
+--     what produced the stretched look -- leave these alone.
+--
+-- Tiling is read back off the live fill texture rather than passed in, so this
+-- stays correct no matter which style function last touched the bar.
+function ns.ApplyFillRotation(bar)
+    if not (bar and bar.SetRotatesTexture) then return end
+    local vert = bar.GetOrientation and bar:GetOrientation() == "VERTICAL"
+    local fill = bar.GetStatusBarTexture and bar:GetStatusBarTexture()
+    local tiled = fill and ((fill.GetHorizTile and fill:GetHorizTile())
+                         or (fill.GetVertTile and fill:GetVertTile()))
+    bar:SetRotatesTexture((vert and not tiled) and true or false)
+end
+
+-- Vertical health fill. SetOrientation drives the bar's fill AXIS; the existing
+-- healthReverseFill still flips the direction WITHIN that axis (horizontal:
+-- left-to-right / right-to-left, vertical: bottom-to-top / top-to-bottom).
+-- Exposed on ns so the options preview paints the same way.
+function ns.ApplyHealthOrientation(bar, settings)
+    if not bar then return end
+    local vert = (settings and settings.healthVerticalFill) and true or false
+    bar:SetOrientation(vert and "VERTICAL" or "HORIZONTAL")
+    ns.ApplyFillRotation(bar)
+    return vert
+end
+
 local function CreateHealthBar(frame, unit, height, xOffset, settings, rightInset)
     height = height or settings.healthHeight
     xOffset = xOffset or 0
@@ -3702,6 +3812,7 @@ local function CreateHealthBar(frame, unit, height, xOffset, settings, rightInse
     ApplyHealthBarTexture(health, UnitToSettingsKey(unit))
     ApplyHealthBarAlpha(health, UnitToSettingsKey(unit))
     health:SetReverseFill(settings.healthReverseFill and true or false)
+    ns.ApplyHealthOrientation(health, settings)
     ApplyDarkTheme(health)
 
     -- Smooth bar interpolation (opt-in; defaults off)
@@ -3780,6 +3891,9 @@ local function ApplyAbsorbStyle(absorbBar, style, settings)
         fill:SetVertTile(tiled)
         if mask then fill:AddMaskTexture(mask) end
     end
+    -- New fill object + new tiling state: re-derive rotation (stretch styles
+    -- rotate on a vertical bar, tiled ones must not).
+    ns.ApplyFillRotation(absorbBar)
     local fw = absorbBar._forward
     if fw then
         fw:SetStatusBarTexture(tex)
@@ -3791,6 +3905,7 @@ local function ApplyAbsorbStyle(absorbBar, style, settings)
             fwFill:SetVertTile(tiled)
             if mask then fwFill:AddMaskTexture(mask) end
         end
+        ns.ApplyFillRotation(fw)
     end
 end
 
@@ -3814,6 +3929,7 @@ local function ApplyHealAbsorbStyle(haBar, style, settings)
         fill:SetVertTile(tiled)
         if mask then fill:AddMaskTexture(mask) end
     end
+    ns.ApplyFillRotation(haBar)
 end
 
 -- Two-segment absorb rendering using dynamic clip-frame trickery, so it
@@ -3846,9 +3962,11 @@ end
 -- HealthPrediction.Override so oUF still owns event registration
 -- (UNIT_HEALTH, UNIT_ABSORB_AMOUNT_CHANGED, etc.) and enable/disable.
 
--- Re-anchor existing absorb bars for the current reverse fill state.
--- Called from the live-update path when the user toggles reverse fill.
-local function UpdateAbsorbBarReverseFill(frame, isReversed)
+-- Re-anchor existing absorb bars for the current fill state (reverse + axis).
+-- Called from the live-update path when the user toggles reverse or vertical
+-- fill. `settingsOverride` lets the creation path pass the settings table it
+-- already holds, for frames whose .unit is not resolvable yet.
+local function UpdateAbsorbBarReverseFill(frame, isReversed, settingsOverride)
     if not frame or not frame.HealthPrediction then return end
     local ab = frame.HealthPrediction.damageAbsorb
     if not ab then return end
@@ -3866,14 +3984,116 @@ local function UpdateAbsorbBarReverseFill(frame, isReversed)
     --   overlay = backfill into the filled health from the HP edge (default)
     --   right   = full bar, fill from the frame's right edge
     --   left    = full bar, fill from the frame's left edge
-    local s = GetSettingsForUnit(frame.unit)
+    local s = settingsOverride or GetSettingsForUnit(frame.unit)
     local absorbMode = (s and s.absorbEdgeMode) or "overlay"
     local healMode = (s and s.healAbsorbEdgeMode) or "overlay"
+
+    -- Vertical fill: the whole HP cluster rotates with the health bar. Every
+    -- anchor below is the horizontal layout with its axis swapped -- the health
+    -- fill's RIGHT edge (the "HP edge" the shields and heal absorb hang off)
+    -- becomes its TOP edge, and reverse fill flips it to the BOTTOM edge. The
+    -- edge modes keep their key names: "right" is the far edge of the fill axis
+    -- (top when vertical), "left" the near one (bottom when vertical).
+    local isVert = (s and s.healthVerticalFill) and true or false
+    ab._isVert = isVert
+    local ha = ab._healAbsorb
+    local healClip = ab._healClip
+    -- Indexed, not ipairs: ha can be nil and ipairs would stop at the hole.
+    local axisBars = { ab, fw, ha }
+    for i = 1, 3 do
+        local bar = axisBars[i]
+        if bar then
+            bar:SetOrientation(isVert and "VERTICAL" or "HORIZONTAL")
+            ns.ApplyFillRotation(bar)  -- derived: rotate stretch styles only
+        end
+    end
 
     curClip:ClearAllPoints()
     missClip:ClearAllPoints()
     ab:ClearAllPoints()
     fw:ClearAllPoints()
+
+    if isVert then
+        -- missClip + forward bar always use the overlay layout; in the edge
+        -- modes the full-bar backfill shows the whole absorb and the Override
+        -- hides fw.
+        if isReversed then
+            missClip:SetPoint("TOPLEFT",     hpTex, "BOTTOMLEFT",  0, 1)
+            missClip:SetPoint("BOTTOMRIGHT", hpBar, "BOTTOMRIGHT", 0, 0)
+            fw:SetReverseFill(true)
+            fw:SetPoint("TOPLEFT",  hpTex, "BOTTOMLEFT",  0, 0)
+            fw:SetPoint("TOPRIGHT", hpTex, "BOTTOMRIGHT", 0, 0)
+        else
+            missClip:SetPoint("BOTTOMLEFT", hpTex, "TOPLEFT",  0, -1)
+            missClip:SetPoint("TOPRIGHT",   hpBar, "TOPRIGHT", 0, 0)
+            fw:SetReverseFill(false)
+            fw:SetPoint("BOTTOMLEFT",  hpTex, "TOPLEFT",  0, 0)
+            fw:SetPoint("BOTTOMRIGHT", hpTex, "TOPRIGHT", 0, 0)
+        end
+
+        -- Shield absorb placement.
+        if absorbMode == "right" or absorbMode == "left" then
+            curClip:SetPoint("TOPLEFT",     hpBar, "TOPLEFT",     0, 0)
+            curClip:SetPoint("BOTTOMRIGHT", hpBar, "BOTTOMRIGHT", 0, 0)
+            if absorbMode == "left" then
+                ab:SetReverseFill(false)
+                ab:SetPoint("BOTTOMLEFT",  hpBar, "BOTTOMLEFT",  0, 0)
+                ab:SetPoint("BOTTOMRIGHT", hpBar, "BOTTOMRIGHT", 0, 0)
+            else
+                ab:SetReverseFill(true)
+                ab:SetPoint("TOPLEFT",  hpBar, "TOPLEFT",  0, 0)
+                ab:SetPoint("TOPRIGHT", hpBar, "TOPRIGHT", 0, 0)
+            end
+        elseif isReversed then
+            curClip:SetPoint("TOPLEFT",     hpBar, "TOPLEFT",       0, 0)
+            curClip:SetPoint("BOTTOMRIGHT", hpTex, "BOTTOMRIGHT",   0, 0)
+            ab:SetReverseFill(false)
+            ab:SetPoint("BOTTOMLEFT",  hpBar, "BOTTOMLEFT",  0, 0)
+            ab:SetPoint("BOTTOMRIGHT", hpBar, "BOTTOMRIGHT", 0, 0)
+        else
+            curClip:SetPoint("BOTTOMLEFT", hpBar, "BOTTOMLEFT", 0, 0)
+            curClip:SetPoint("TOPRIGHT",   hpTex, "TOPRIGHT",   0, 0)
+            ab:SetReverseFill(true)
+            ab:SetPoint("TOPLEFT",  hpBar, "TOPLEFT",  0, 0)
+            ab:SetPoint("TOPRIGHT", hpBar, "TOPRIGHT", 0, 0)
+        end
+
+        -- Heal absorb placement (own clip frame, same rules).
+        if healClip then
+            healClip:ClearAllPoints()
+            if healMode == "right" or healMode == "left" then
+                healClip:SetPoint("TOPLEFT",     hpBar, "TOPLEFT",     0, 0)
+                healClip:SetPoint("BOTTOMRIGHT", hpBar, "BOTTOMRIGHT", 0, 0)
+            elseif isReversed then
+                healClip:SetPoint("TOPLEFT",     hpBar, "TOPLEFT",     0, 0)
+                healClip:SetPoint("BOTTOMRIGHT", hpTex, "BOTTOMRIGHT", 0, 0)
+            else
+                healClip:SetPoint("BOTTOMLEFT", hpBar, "BOTTOMLEFT", 0, 0)
+                healClip:SetPoint("TOPRIGHT",   hpTex, "TOPRIGHT",   0, 0)
+            end
+        end
+        if ha then
+            ha:ClearAllPoints()
+            if healMode == "right" then
+                ha:SetReverseFill(true)
+                ha:SetPoint("TOPLEFT",  hpBar, "TOPLEFT",  0, 0)
+                ha:SetPoint("TOPRIGHT", hpBar, "TOPRIGHT", 0, 0)
+            elseif healMode == "left" then
+                ha:SetReverseFill(false)
+                ha:SetPoint("BOTTOMLEFT",  hpBar, "BOTTOMLEFT",  0, 0)
+                ha:SetPoint("BOTTOMRIGHT", hpBar, "BOTTOMRIGHT", 0, 0)
+            elseif isReversed then
+                ha:SetReverseFill(false)
+                ha:SetPoint("BOTTOMLEFT",  hpTex, "BOTTOMLEFT",  0, 0)
+                ha:SetPoint("BOTTOMRIGHT", hpTex, "BOTTOMRIGHT", 0, 0)
+            else
+                ha:SetReverseFill(true)
+                ha:SetPoint("TOPLEFT",  hpTex, "TOPLEFT",  0, 0)
+                ha:SetPoint("TOPRIGHT", hpTex, "TOPRIGHT", 0, 0)
+            end
+        end
+        return
+    end
 
     -- missClip + forward bar always use the overlay layout; in the edge modes
     -- the full-bar backfill shows the whole absorb and the Override hides fw.
@@ -3923,8 +4143,6 @@ local function UpdateAbsorbBarReverseFill(frame, isReversed)
     -- Heal absorb placement (independent of shield absorb). The heal absorb
     -- has its OWN clip frame (ab._healClip) so right/left span the full bar
     -- (filled + missing health) while overlay stays clipped to filled health.
-    local ha = ab._healAbsorb
-    local healClip = ab._healClip
     if healClip then
         healClip:ClearAllPoints()
         if healMode == "right" or healMode == "left" then
@@ -3969,18 +4187,38 @@ ns.UF_GetAbsorbBarPos     = function(s) return (s and s.absorbBarPosition)     o
 ns.UF_GetHealAbsorbBarPos = function(s) return (s and s.healAbsorbBarPosition) or "none" end
 
 -- Anchor/orient a strip bar (Absorb Bar or Heal Absorb Bar). "above*" sit on top
--- of the health bar; "top*" sit inside at its top, drawn just above the absorb
--- texture; "belowAbsorb" (heal bar only) sits flush below the Absorb Bar's bottom
--- edge, derived from the Absorb Bar's POSITION (not its live visibility, so it
--- never shifts up). "*Right" fills from the right edge. `absorbLevel` is the
--- absorb-overlay frame level (inside strips render at +1 above it).
+-- of the health bar; "top*" / "bottom*" sit inside at the matching edge, drawn
+-- just above the absorb texture; "aboveAbsorb" / "belowAbsorb" (heal bar only)
+-- sit flush against the Absorb Bar, derived from its POSITION (not its live
+-- visibility, so they never shift). "*Right" fills from the right edge.
+-- `absorbLevel` is the absorb-overlay frame level (inside strips render at +1).
 ns.UF_ApplyStripBarLayout = function(stripBar, hp, position, height, absorbLevel, absorbPos, absorbHeight)
     if not stripBar or not hp then return end
     stripBar:ClearAllPoints()
     stripBar:SetHeight(PP.Scale(height or 4))
     local insideLevel = (absorbLevel or (hp:GetFrameLevel() + 1)) + 1
-    if position == "belowAbsorb" then
+    if position == "aboveAbsorb" then
         absorbPos = absorbPos or "none"
+        local leftPoint, rightPoint, yOff = "TOPLEFT", "TOPRIGHT", 0
+        if absorbPos == "aboveRight" or absorbPos == "aboveLeft" then
+            yOff = PP.Scale(absorbHeight or 4)
+        elseif absorbPos == "bottomRight" or absorbPos == "bottomLeft" then
+            leftPoint, rightPoint = "BOTTOMLEFT", "BOTTOMRIGHT"
+            yOff = PP.Scale(absorbHeight or 4)
+        end
+        stripBar:SetReverseFill(absorbPos ~= "aboveLeft" and absorbPos ~= "topLeft" and absorbPos ~= "bottomLeft")
+        stripBar:SetPoint("BOTTOMLEFT", hp, leftPoint, 0, yOff)
+        stripBar:SetPoint("BOTTOMRIGHT", hp, rightPoint, 0, yOff)
+        stripBar:SetFrameLevel(insideLevel)
+    elseif position == "belowAbsorb" then
+        absorbPos = absorbPos or "none"
+        if absorbPos == "bottomRight" or absorbPos == "bottomLeft" then
+            stripBar:SetReverseFill(absorbPos == "bottomRight")
+            stripBar:SetPoint("TOPLEFT",  hp, "BOTTOMLEFT",  0, 0)
+            stripBar:SetPoint("TOPRIGHT", hp, "BOTTOMRIGHT", 0, 0)
+            stripBar:SetFrameLevel(insideLevel)
+            return
+        end
         local yOff = 0
         if absorbPos == "topRight" or absorbPos == "topLeft" then
             yOff = -PP.Scale(absorbHeight or 4)
@@ -3993,6 +4231,11 @@ ns.UF_ApplyStripBarLayout = function(stripBar, hp, position, height, absorbLevel
         stripBar:SetReverseFill(position == "topRight")
         stripBar:SetPoint("TOPLEFT",  hp, "TOPLEFT",  0, 0)
         stripBar:SetPoint("TOPRIGHT", hp, "TOPRIGHT", 0, 0)
+        stripBar:SetFrameLevel(insideLevel)
+    elseif position == "bottomRight" or position == "bottomLeft" then
+        stripBar:SetReverseFill(position == "bottomRight")
+        stripBar:SetPoint("BOTTOMLEFT",  hp, "BOTTOMLEFT",  0, 0)
+        stripBar:SetPoint("BOTTOMRIGHT", hp, "BOTTOMRIGHT", 0, 0)
         stripBar:SetFrameLevel(insideLevel)
     else
         stripBar:SetReverseFill(position == "aboveRight")
@@ -4186,18 +4429,36 @@ local function CreateAbsorbBar(frame, unit, settings)
         Override = function(self, event, updUnit)
             if self.unit ~= updUnit then return end
 
-            -- Drive the "Absorb Short" health-text gate(s) on absorb changes: feed
-            -- the raw absorb so the clip reveals/collapses, AND refresh the text in
-            -- LOCKSTEP so the revealed text never flashes the stale "0" (oUF tags
-            -- update on a throttled cycle, so a bare tag lags the synchronous clip
-            -- reveal by a frame). Only the absorb event moves the gate. Runs before
-            -- the bar-style early return so it works with the absorb BAR disabled.
+            -- Incoming-heal prediction is not rendered anywhere on unit frames,
+            -- so its (frequent, healer-cast-driven) events change nothing we
+            -- paint. Absorb and health changes always arrive via their own
+            -- events, so skipping here can never strand a stale bar or gate.
+            if event == "UNIT_HEAL_PREDICTION" then return end
+
+            -- Drive the "Absorb Short" health-text gate(s): feed the raw absorb so
+            -- the clip reveals/collapses, AND refresh the text in LOCKSTEP so the
+            -- revealed text never flashes the stale "0" (oUF tags update on a
+            -- throttled cycle, so a bare tag lags the synchronous clip reveal by a
+            -- frame). Runs before the bar-style early return so it works with the
+            -- absorb BAR disabled.
+            -- The gate moves on EVERY update, not only on the absorb events: on
+            -- volatile units (target/focus/boss/pet) the frame is re-pointed at a
+            -- different unit with no absorb event firing at all (target switch,
+            -- OnShow, ForceUpdate), and a unit that dies drops its shield without
+            -- one either. The TAG re-evaluates on those paths and lands on "0", so
+            -- a gate still held open by the PREVIOUS unit's shield leaves a stuck
+            -- "0" on the frame. The player frame never showed this because its unit
+            -- never changes -- every zero it reaches comes from an absorb event.
+            -- Health events skip the text refresh: the absorb text can only change
+            -- on an absorb event, and that path does its own lockstep SetText.
             -- Secret-safe: the absorb is only fed to SetValue and AbbreviateNumbers,
             -- never compared to zero (SetText takes the same value the tag would).
             -- Each gate feeds its own value source: shield gates use total
-            -- absorbs, heal gates (g._euiHealGate) use total heal absorbs. Both
-            -- absorb events drive the loop; each amount is fetched lazily once.
-            if self._absGate and (event == "UNIT_ABSORB_AMOUNT_CHANGED" or event == "UNIT_HEAL_ABSORB_AMOUNT_CHANGED") then
+            -- absorbs, heal gates (g._euiHealGate) use total heal absorbs. Each
+            -- amount is fetched lazily once per update.
+            if self._absGate then
+                local syncText = (event ~= "UNIT_HEALTH" and event ~= "UNIT_MAXHEALTH"
+                                  and event ~= "UNIT_HEAL_PREDICTION")
                 local shieldAmt, healAmt, fsZone
                 for zone, g in pairs(self._absGate) do
                     if g:IsShown() then
@@ -4210,11 +4471,13 @@ local function CreateAbsorbBar(frame, unit, settings)
                             amt = shieldAmt
                         end
                         g:SetValue(amt)
-                        fsZone = fsZone or { left = self.LeftText, right = self.RightText, center = self.CenterText, extra = self.ExtraText }
-                        local fs = fsZone[zone]
-                        if fs then
-                            local cfg = _G._EUI_AbbrevDecimalCfg
-                            fs:SetText(cfg and AbbreviateNumbers(amt, cfg) or AbbreviateNumbers(amt))
+                        if syncText then
+                            fsZone = fsZone or { left = self.LeftText, right = self.RightText, center = self.CenterText, extra = self.ExtraText }
+                            local fs = fsZone[zone]
+                            if fs then
+                                local cfg = _G._EUI_AbbrevDecimalCfg
+                                fs:SetText(cfg and AbbreviateNumbers(amt, cfg) or AbbreviateNumbers(amt))
+                            end
                         end
                     end
                 end
@@ -4319,8 +4582,13 @@ local function CreateAbsorbBar(frame, unit, settings)
 
             -- Re-anchor when the placement settings change. The key starts
             -- nil, so this also applies the saved placement on first update.
+            -- The fill AXIS is part of the placement now, so it belongs in the
+            -- key: the settings-apply path already re-anchors on a Vertical Fill
+            -- toggle, but including it here keeps this gate self-healing if the
+            -- axis ever changes by some route that path does not cover.
             local absorbMode = (s and s.absorbEdgeMode) or "overlay"
             local edgeKey = absorbMode .. ":" .. ((s and s.healAbsorbEdgeMode) or "overlay")
+                .. ":" .. tostring((s and s.healthVerticalFill) and true or false)
             if ab._lastEdgeKey ~= edgeKey then
                 ab._lastEdgeKey = edgeKey
                 UpdateAbsorbBarReverseFill(self, ab._isReversed)
@@ -4405,6 +4673,12 @@ local function CreateAbsorbBar(frame, unit, settings)
         end,
     }
 
+    -- The anchors set above are the horizontal layout. Hand the whole cluster to
+    -- the shared re-anchor pass so a vertical-fill frame starts out correct
+    -- without waiting for the first settings apply. `settings` is passed through
+    -- because frame.unit is not resolvable this early on every frame.
+    UpdateAbsorbBarReverseFill(frame, isReversed, settings)
+
     return backfillBar
 end
 
@@ -4439,14 +4713,13 @@ function ns.UpdatePowerBorder(power, settings)
     EllesmereUI.ApplyBorderStyle(border, size, c.r, c.g, c.b, alpha, style,
         settings.powerBorderOffsetX, settings.powerBorderOffsetY,
         settings.powerBorderShiftX, settings.powerBorderShiftY, "unitframes", size)
-    if isAttached then
-        local edges = PP.GetBorders(border)
-        if edges then
-            if edges._left then edges._left:SetAlpha(0) end
-            if edges._right then edges._right:SetAlpha(0) end
-            if edges._top then edges._top:SetAlpha(pos == "below" and alpha or 0) end
-            if edges._bottom then edges._bottom:SetAlpha(pos == "above" and alpha or 0) end
-        end
+    local edges = PP.GetBorders(border)
+    if edges then
+        edges._hideLeft = isAttached or nil
+        edges._hideRight = isAttached or nil
+        edges._hideTop = (isAttached and pos == "above") or nil
+        edges._hideBottom = (isAttached and pos == "below") or nil
+        PP.SetBorderSize(border, size)
     end
     local borderLevel = settings.powerBorderBehind
         and math.max(0, power:GetFrameLevel() - 1) or (power:GetFrameLevel() + 5)
@@ -4926,6 +5199,7 @@ local function CreatePortrait(frame, side, frameHeight, unit)
             local cs = ((us and us.portrait3dZoom) or 100) / 100
             self:SetCamDistanceScale(cs)
         end
+        model3D.Override = PortraitOverride
         model3D:Hide()
         backdrop._3d = model3D
         return model3D
@@ -4936,6 +5210,7 @@ local function CreatePortrait(frame, side, frameHeight, unit)
     PP.Point(tex2D, "TOPLEFT", backdrop, "TOPLEFT", 0, 0)
     PP.Point(tex2D, "BOTTOMRIGHT", backdrop, "BOTTOMRIGHT", 0, 0)
     tex2D:SetTexCoord(0.15, 0.85, 0.15, 0.85)
+    tex2D.Override = PortraitOverride
     tex2D:Hide()
 
     -- Class theme icon (static texture, no oUF element needed)
@@ -5660,15 +5935,31 @@ local function CreateCastBar(frame, unit, settings)
         if self._showDuration == false then
             self.Time:SetText("")
             self.Time:Hide()
+            self._timeBucket = nil
             return
         end
         self.Time:Show()
         if durationObject then
+            -- oUF calls this per RENDER FRAME, but the displayed value has
+            -- %.1f precision -- format + SetText only when the displayed
+            -- tenth actually changes (~6x fewer at 60fps, more uncapped).
+            -- Secret durations (other units' casts in combat) cannot be
+            -- floored: fail open to formatting every call, exactly the old
+            -- path (SetFormattedText accepts secrets). The delay branch is
+            -- rare (pushback) and stays unmemoized.
             local duration = durationObject:GetRemainingDuration()
             if self.delay and self.delay ~= 0 then
+                self._timeBucket = nil
                 self.Time:SetFormattedText('%.1f|cffff0000%s%.2f|r', duration, self.channeling and '-' or '+', self.delay)
-            else
+            elseif issecretvalue and issecretvalue(duration) then
+                self._timeBucket = nil
                 self.Time:SetFormattedText('%.1f', duration)
+            else
+                local bucket = math.floor(duration * 10)
+                if bucket ~= self._timeBucket then
+                    self._timeBucket = bucket
+                    self.Time:SetFormattedText('%.1f', duration)
+                end
             end
         end
     end
@@ -6270,10 +6561,24 @@ end
 function ns.ApplyEUIAuraFilter(element, base, settings)
     element.filter = base
     element.FilterAura = ns.EUIAuraFilter
+    -- The aura-element driver reuses per-instance filter verdicts; a filter
+    -- or classification-flag change invalidates them all. needFullUpdate is
+    -- read before any branch touches these tables, so a nil el.all can
+    -- never meet an incremental pass (library and driver both guard).
+    element.all = nil
+    element.active = nil
+    element._allN = nil
+    element.needFullUpdate = true
     local f = element._euiAuraFlags
     if not f then f = {}; element._euiAuraFlags = f end
     f.player, f.raid, f.cc, f.bigDef, f.extDef = ns.ResolveAuraFlags(base, settings)
     f.showLust = (base == "HARMFUL") and settings.showLustDebuff
+    -- Show Tooltip For -> Buffs & Debuffs (per-unit, default on). Element-level
+    -- flag: the element re-applies EnableMouse from it on EVERY button update,
+    -- so it is the only mouse knob that sticks -- per-button calls get
+    -- overwritten by the element's own update pass. Centralized here because
+    -- every element runs through this at creation and on each reload restyle.
+    element.disableMouse = (settings.showAuraTooltips == false) or nil
 end
 
 local function CreateTargetAuras(frame, unit)
@@ -6949,7 +7254,7 @@ local function StyleFullFrame(frame, unit)
                 extraText:SetJustifyH("LEFT")
                 PP.Point(extraText, "LEFT", textOverlay, "LEFT", 5 + exo, eyo)
             end
-            PP.Width(extraText, barW * 0.95)
+            PP.Width(extraText, barW * 0.95 * SlotWidthMul(s, "extraText"))
             extraText:Show()
             ApplyClassColor(extraText, unit, s.extraTextClassColor, s.extraTextColorR, s.extraTextColorG, s.extraTextColorB)
         else extraText:Hide() end
@@ -6960,7 +7265,7 @@ local function StyleFullFrame(frame, unit)
         if cc ~= "none" then
             centerText:SetJustifyH("CENTER")
             PP.Point(centerText, "CENTER", textOverlay, "CENTER", cxo, cyo)
-            PP.Width(centerText, barW * 0.9)
+            PP.Width(centerText, barW * 0.9 * SlotWidthMul(s, "centerText"))
             centerText:Show()
             ApplyClassColor(centerText, unit, s.centerTextClassColor, s.centerTextColorR, s.centerTextColorG, s.centerTextColorB)
         else centerText:Hide() end
@@ -6973,9 +7278,9 @@ local function StyleFullFrame(frame, unit)
             -- Constrain width when opposing right text exists
             if rc ~= "none" then
                 local rightUsed = EstimateUFTextWidth(rc)
-                PP.Width(leftText, math.max(barW - rightUsed - 10, 20))
+                PP.Width(leftText, math.max(barW - rightUsed - 10, 20) * SlotWidthMul(s, "leftText"))
             else
-                PP.Width(leftText, barW * 0.9)
+                PP.Width(leftText, barW * 0.9 * SlotWidthMul(s, "leftText"))
             end
             leftText:Show()
             ApplyClassColor(leftText, unit, s.leftTextClassColor, s.leftTextColorR, s.leftTextColorG, s.leftTextColorB)
@@ -6989,9 +7294,9 @@ local function StyleFullFrame(frame, unit)
             -- Constrain width when opposing left text exists
             if lc ~= "none" then
                 local leftUsed = EstimateUFTextWidth(lc)
-                PP.Width(rightText, math.max(barW - leftUsed - 10, 20))
+                PP.Width(rightText, math.max(barW - leftUsed - 10, 20) * SlotWidthMul(s, "rightText"))
             else
-                PP.Width(rightText, barW * 0.9)
+                PP.Width(rightText, barW * 0.9 * SlotWidthMul(s, "rightText"))
             end
             rightText:Show()
             ApplyClassColor(rightText, unit, s.rightTextClassColor, s.rightTextColorR, s.rightTextColorG, s.rightTextColorB)
@@ -7283,7 +7588,7 @@ local function StyleFocusFrame(frame, unit)
                 extraText:SetJustifyH("LEFT")
                 PP.Point(extraText, "LEFT", textOverlay, "LEFT", 5 + exo, eyo)
             end
-            PP.Width(extraText, barW * 0.95)
+            PP.Width(extraText, barW * 0.95 * SlotWidthMul(s, "extraText"))
             extraText:Show()
             ApplyClassColor(extraText, unit, s.extraTextClassColor, s.extraTextColorR, s.extraTextColorG, s.extraTextColorB)
         else extraText:Hide() end
@@ -7294,7 +7599,7 @@ local function StyleFocusFrame(frame, unit)
         if cc ~= "none" then
             centerText:SetJustifyH("CENTER")
             PP.Point(centerText, "CENTER", textOverlay, "CENTER", cxo, cyo)
-            PP.Width(centerText, barW * 0.9)
+            PP.Width(centerText, barW * 0.9 * SlotWidthMul(s, "centerText"))
             centerText:Show()
             ApplyClassColor(centerText, unit, s.centerTextClassColor, s.centerTextColorR, s.centerTextColorG, s.centerTextColorB)
         else centerText:Hide() end
@@ -7306,9 +7611,9 @@ local function StyleFocusFrame(frame, unit)
             PP.Point(leftText, "LEFT", textOverlay, "LEFT", 5 + lxo, lyo)
             if rc ~= "none" then
                 local rightUsed = EstimateUFTextWidth(rc)
-                PP.Width(leftText, math.max(barW - rightUsed - 10, 20))
+                PP.Width(leftText, math.max(barW - rightUsed - 10, 20) * SlotWidthMul(s, "leftText"))
             else
-                PP.Width(leftText, barW * 0.9)
+                PP.Width(leftText, barW * 0.9 * SlotWidthMul(s, "leftText"))
             end
             leftText:Show()
             ApplyClassColor(leftText, unit, s.leftTextClassColor, s.leftTextColorR, s.leftTextColorG, s.leftTextColorB)
@@ -7321,9 +7626,9 @@ local function StyleFocusFrame(frame, unit)
             PP.Point(rightText, "RIGHT", textOverlay, "RIGHT", -5 + rxo, ryo)
             if lc ~= "none" then
                 local leftUsed = EstimateUFTextWidth(lc)
-                PP.Width(rightText, math.max(barW - leftUsed - 10, 20))
+                PP.Width(rightText, math.max(barW - leftUsed - 10, 20) * SlotWidthMul(s, "rightText"))
             else
-                PP.Width(rightText, barW * 0.9)
+                PP.Width(rightText, barW * 0.9 * SlotWidthMul(s, "rightText"))
             end
             rightText:Show()
             ApplyClassColor(rightText, unit, s.rightTextClassColor, s.rightTextColorR, s.rightTextColorG, s.rightTextColorB)
@@ -7394,6 +7699,7 @@ local function StyleSimpleFrame(frame, unit)
     ApplyHealthBarTexture(health, unitKey, ns.ResolveHealthBarTextureKey(settings, donor))
     ApplyHealthBarAlpha(health, unitKey)
     health:SetReverseFill(settings.healthReverseFill and true or false)
+    ns.ApplyHealthOrientation(health, settings)
     ApplyDarkTheme(health)
 
     frame.Health = health
@@ -7554,7 +7860,7 @@ local function StyleSimpleFrame(frame, unit)
         if cc ~= "none" then
             centerText:SetJustifyH("CENTER")
             PP.Point(centerText, "CENTER", textOverlay, "CENTER", cxo, cyo)
-            PP.Width(centerText, barW * 0.9)
+            PP.Width(centerText, barW * 0.9 * SlotWidthMul(s, "centerText"))
             centerText:Show()
             ApplyClassColor(centerText, unit, s.centerTextClassColor, s.centerTextColorR, s.centerTextColorG, s.centerTextColorB)
         else centerText:Hide() end
@@ -7566,9 +7872,9 @@ local function StyleSimpleFrame(frame, unit)
             PP.Point(leftText, "LEFT", textOverlay, "LEFT", 5 + lxo, lyo)
             if rc ~= "none" then
                 local rightUsed = EstimateUFTextWidth(rc)
-                PP.Width(leftText, math.max(barW - rightUsed - 10, 20))
+                PP.Width(leftText, math.max(barW - rightUsed - 10, 20) * SlotWidthMul(s, "leftText"))
             else
-                PP.Width(leftText, barW * 0.9)
+                PP.Width(leftText, barW * 0.9 * SlotWidthMul(s, "leftText"))
             end
             leftText:Show()
             ApplyClassColor(leftText, unit, s.leftTextClassColor, s.leftTextColorR, s.leftTextColorG, s.leftTextColorB)
@@ -7580,9 +7886,9 @@ local function StyleSimpleFrame(frame, unit)
             PP.Point(rightText, "RIGHT", textOverlay, "RIGHT", -5 + rxo, ryo)
             if lc ~= "none" then
                 local leftUsed = EstimateUFTextWidth(lc)
-                PP.Width(rightText, math.max(barW - leftUsed - 10, 20))
+                PP.Width(rightText, math.max(barW - leftUsed - 10, 20) * SlotWidthMul(s, "rightText"))
             else
-                PP.Width(rightText, barW * 0.9)
+                PP.Width(rightText, barW * 0.9 * SlotWidthMul(s, "rightText"))
             end
             rightText:Show()
             ApplyClassColor(rightText, unit, s.rightTextClassColor, s.rightTextColorR, s.rightTextColorG, s.rightTextColorB)
@@ -7639,6 +7945,7 @@ local function StylePetFrame(frame, unit)
     ApplyHealthBarTexture(health, unitKey, ns.ResolveHealthBarTextureKey(settings, donor))
     ApplyHealthBarAlpha(health, unitKey)
     health:SetReverseFill(settings.healthReverseFill and true or false)
+    ns.ApplyHealthOrientation(health, settings)
     ApplyDarkTheme(health)
 
     frame.Health = health
@@ -7799,7 +8106,7 @@ local function StylePetFrame(frame, unit)
         if cc ~= "none" then
             centerText:SetJustifyH("CENTER")
             PP.Point(centerText, "CENTER", textOverlay, "CENTER", cxo, cyo)
-            PP.Width(centerText, barW * 0.9)
+            PP.Width(centerText, barW * 0.9 * SlotWidthMul(s, "centerText"))
             centerText:Show()
             ApplyClassColor(centerText, unit, s.centerTextClassColor, s.centerTextColorR, s.centerTextColorG, s.centerTextColorB)
         else centerText:Hide() end
@@ -7811,9 +8118,9 @@ local function StylePetFrame(frame, unit)
             PP.Point(leftText, "LEFT", textOverlay, "LEFT", 5 + lxo, lyo)
             if rc ~= "none" then
                 local rightUsed = EstimateUFTextWidth(rc)
-                PP.Width(leftText, math.max(barW - rightUsed - 10, 20))
+                PP.Width(leftText, math.max(barW - rightUsed - 10, 20) * SlotWidthMul(s, "leftText"))
             else
-                PP.Width(leftText, barW * 0.9)
+                PP.Width(leftText, barW * 0.9 * SlotWidthMul(s, "leftText"))
             end
             leftText:Show()
             ApplyClassColor(leftText, unit, s.leftTextClassColor, s.leftTextColorR, s.leftTextColorG, s.leftTextColorB)
@@ -7825,9 +8132,9 @@ local function StylePetFrame(frame, unit)
             PP.Point(rightText, "RIGHT", textOverlay, "RIGHT", -5 + rxo, ryo)
             if lc ~= "none" then
                 local leftUsed = EstimateUFTextWidth(lc)
-                PP.Width(rightText, math.max(barW - leftUsed - 10, 20))
+                PP.Width(rightText, math.max(barW - leftUsed - 10, 20) * SlotWidthMul(s, "rightText"))
             else
-                PP.Width(rightText, barW * 0.9)
+                PP.Width(rightText, barW * 0.9 * SlotWidthMul(s, "rightText"))
             end
             rightText:Show()
             ApplyClassColor(rightText, unit, s.rightTextClassColor, s.rightTextColorR, s.rightTextColorG, s.rightTextColorB)
@@ -7939,6 +8246,7 @@ local function StyleBossFrame(frame, unit)
     local leftContent = settings.leftTextContent or "name"
     local rightContent = settings.rightTextContent or "perhp"
     local centerContent = settings.centerTextContent or "none"
+    local extraContent = settings.extraTextContent or "none"
 
     local leftText = textOverlay:CreateFontString(nil, "OVERLAY")
     SetFSFont(leftText, settings.leftTextSize or settings.textSize or 12)
@@ -7957,6 +8265,15 @@ local function StyleBossFrame(frame, unit)
     centerText:SetWordWrap(false)
     centerText:SetTextColor(1, 1, 1)
     frame.CenterText = centerText
+
+    -- Extra Text: a 4th text zone, identical to the others (same tags + absorb
+    -- gate); it only anchors per extraTextAlign and is capped at 95% of the bar
+    -- width (ellipsis truncation). Mirrors the Main Frames implementation.
+    local extraText = textOverlay:CreateFontString(nil, "OVERLAY")
+    SetFSFont(extraText, settings.extraTextSize or settings.textSize or 12)
+    extraText:SetWordWrap(false)
+    extraText:SetTextColor(1, 1, 1)
+    frame.ExtraText = extraText
 
     frame.NameText = leftText
     frame.HealthValue = rightText
@@ -8019,22 +8336,29 @@ local function StyleBossFrame(frame, unit)
         end
     end
 
-    local function ApplyTextTags(lc, rc, cc)
+    local function ApplyTextTags(lc, rc, cc, ec)
+        -- Callers that predate the Extra Text zone pass 3 args; fall back to
+        -- the stored content so those sites keep working (same as Main Frames).
+        ec = ec or (settings.extraTextContent or "none")
         local ltag = ContentToTag(lc, "leftText", settings)
         local rtag = ContentToTag(rc, "rightText", settings)
         local ctag = ContentToTag(cc, "centerText", settings)
+        local etag = ContentToTag(ec, "extraText", settings)
         if leftText._curTag then frame:Untag(leftText); leftText._curTag = nil end
         if rightText._curTag then frame:Untag(rightText); rightText._curTag = nil end
         if centerText._curTag then frame:Untag(centerText); centerText._curTag = nil end
+        if extraText._curTag then frame:Untag(extraText); extraText._curTag = nil end
         if ltag then frame:Tag(leftText, ltag); leftText._curTag = ltag end
         if rtag then frame:Tag(rightText, rtag); rightText._curTag = rtag end
         if ctag then frame:Tag(centerText, ctag); centerText._curTag = ctag end
+        if etag then frame:Tag(extraText, etag); extraText._curTag = etag end
         ApplyAbsorbGate("left", leftText, lc)
         ApplyAbsorbGate("right", rightText, rc)
         ApplyAbsorbGate("center", centerText, cc)
+        ApplyAbsorbGate("extra", extraText, ec)
         if frame.UpdateTags then frame:UpdateTags() end
     end
-    ApplyTextTags(leftContent, rightContent, centerContent)
+    ApplyTextTags(leftContent, rightContent, centerContent, extraContent)
     frame._applyTextTags = ApplyTextTags
 
     local function ApplyTextPositions(s)
@@ -8051,13 +8375,37 @@ local function StyleBossFrame(frame, unit)
         local cxo = s.centerTextX or 0
         local cyo = s.centerTextY or 0
         local barW = s.frameWidth or 100
+        -- Extra Text: anchored per extraTextAlign (left/right/center). Truncated
+        -- with an ellipsis when the text would exceed 95% of the health bar width
+        -- (SetWordWrap(false) + the capped width below), matching Main Frames.
+        local ec = s.extraTextContent or "none"
+        SetFSFont(extraText, s.extraTextSize or s.textSize or 12)
+        extraText:ClearAllPoints()
+        if ec ~= "none" then
+            local exo = s.extraTextX or 0
+            local eyo = s.extraTextY or 0
+            local ealign = s.extraTextAlign or "left"
+            if ealign == "right" then
+                extraText:SetJustifyH("RIGHT")
+                PP.Point(extraText, "RIGHT", textOverlay, "RIGHT", -5 + exo, eyo)
+            elseif ealign == "center" then
+                extraText:SetJustifyH("CENTER")
+                PP.Point(extraText, "CENTER", textOverlay, "CENTER", exo, eyo)
+            else
+                extraText:SetJustifyH("LEFT")
+                PP.Point(extraText, "LEFT", textOverlay, "LEFT", 5 + exo, eyo)
+            end
+            PP.Width(extraText, barW * 0.95 * SlotWidthMul(s, "extraText"))
+            extraText:Show()
+            ApplyClassColor(extraText, unit, s.extraTextClassColor, s.extraTextColorR, s.extraTextColorG, s.extraTextColorB)
+        else extraText:Hide() end
         -- Each text position renders independently; Center no longer hides Left/Right.
         SetFSFont(centerText, csz)
         centerText:ClearAllPoints()
         if cc ~= "none" then
             centerText:SetJustifyH("CENTER")
             PP.Point(centerText, "CENTER", textOverlay, "CENTER", cxo, cyo)
-            PP.Width(centerText, barW * 0.9)
+            PP.Width(centerText, barW * 0.9 * SlotWidthMul(s, "centerText"))
             centerText:Show()
             ApplyClassColor(centerText, unit, s.centerTextClassColor, s.centerTextColorR, s.centerTextColorG, s.centerTextColorB)
         else centerText:Hide() end
@@ -8069,9 +8417,9 @@ local function StyleBossFrame(frame, unit)
             PP.Point(leftText, "LEFT", textOverlay, "LEFT", 5 + lxo, lyo)
             if rc ~= "none" then
                 local rightUsed = EstimateUFTextWidth(rc)
-                PP.Width(leftText, math.max(barW - rightUsed - 10, 20))
+                PP.Width(leftText, math.max(barW - rightUsed - 10, 20) * SlotWidthMul(s, "leftText"))
             else
-                PP.Width(leftText, barW * 0.9)
+                PP.Width(leftText, barW * 0.9 * SlotWidthMul(s, "leftText"))
             end
             leftText:Show()
             ApplyClassColor(leftText, unit, s.leftTextClassColor, s.leftTextColorR, s.leftTextColorG, s.leftTextColorB)
@@ -8083,9 +8431,9 @@ local function StyleBossFrame(frame, unit)
             PP.Point(rightText, "RIGHT", textOverlay, "RIGHT", -5 + rxo, ryo)
             if lc ~= "none" then
                 local leftUsed = EstimateUFTextWidth(lc)
-                PP.Width(rightText, math.max(barW - leftUsed - 10, 20))
+                PP.Width(rightText, math.max(barW - leftUsed - 10, 20) * SlotWidthMul(s, "rightText"))
             else
-                PP.Width(rightText, barW * 0.9)
+                PP.Width(rightText, barW * 0.9 * SlotWidthMul(s, "rightText"))
             end
             rightText:Show()
             ApplyClassColor(rightText, unit, s.rightTextClassColor, s.rightTextColorR, s.rightTextColorG, s.rightTextColorB)
@@ -8114,42 +8462,13 @@ local function RegisterStylesOnce()
     oUF:RegisterStyle("EllesmerePet", function(frame, unit)
         StylePetFrame(frame, unit)
     end)
-    -- Skip unitIsUnit check in portrait Update for eventless frames to avoid
-    -- secret boolean errors. These frames poll on OnUpdate so redundant
-    -- portrait updates are harmless.
+    -- Eventless frames (TargetTarget/FocusTarget) use the same shared gated
+    -- Override as every other frame: it skips the secret-hazard unitIsUnit
+    -- head-check AND guid-gates the OnUpdate poll, so the poll repaints only
+    -- when the portrayed unit actually changed (see PortraitOverride).
     local function ApplyPortraitOverride(frame)
         if not frame.Portrait then return end
-        frame.Portrait.Override = function(self, event, evtUnit)
-            local element = self.Portrait
-            if not element then return end
-            local u = self.unit
-            if element.PreUpdate then element:PreUpdate(u) end
-            local isAvailable = UnitIsConnected(u) and UnitIsVisible(u)
-            if element:IsObjectType("PlayerModel") then
-                if not isAvailable then
-                    element:SetCamDistanceScale(0.25)
-                    element:SetPortraitZoom(0)
-                    element:SetPosition(0, 0, 0.25)
-                    element:ClearModel()
-                    element:SetModel([[Interface\Buttons\TalkToMeQuestionMark.m2]])
-                else
-                    local uKey3d = UnitToSettingsKey(u)
-                    local uS3d = uKey3d and db.profile[uKey3d]
-                    local camScale = ((uS3d and uS3d.portrait3dZoom) or 100) / 100
-                    element:SetUnit(u)
-                    element:SetPortraitZoom(1)
-                    element:SetPosition(0, 0, 0)
-                    element:SetCamDistanceScale(camScale)
-                end
-            else
-                if isAvailable then
-                    SetPortraitTexture(element, u)
-                else
-                    element:SetTexture([[Interface\Icons\INV_Misc_QuestionMark]])
-                end
-            end
-            if element.PostUpdate then element:PostUpdate(u, isAvailable) end
-        end
+        frame.Portrait.Override = PortraitOverride
     end
     oUF:RegisterStyle("EllesmereTargetTarget", function(frame, unit)
         StyleSimpleFrame(frame, unit)
@@ -8278,7 +8597,43 @@ SpecHasClassPower = function()
     return specID and entry[specID] ~= nil
 end
 
+-- Fixed child-born shells for the class-power event driver and the
+-- class-power castbar watcher. The class-power bar is destroyed and
+-- rebuilt on spec switches through the profile system, whose dispatch
+-- runs under the PARENT addon's execution context -- and the engine
+-- bills a handler's entire call tree to the addon whose context created
+-- the frame, so drivers recreated there would bill the parent's CPU row
+-- for their polling. Creating them ONCE here (child main chunk) and
+-- reconfiguring per build keeps every rebuild attribution-safe.
+ns._cpDriver = CreateFrame("Frame")
+ns._cpDriver:Hide()
+ns._cpCastWatcher = CreateFrame("Frame")
+ns._cpCastWatcher:Hide()
+
+-- 10 Hz anim tickers for the two class-power polls. A per-frame OnUpdate
+-- that early-outs to a 0.1s cadence still pays a full Lua entry every
+-- render frame (pure dispatch tax at high fps); a looping Animation fires
+-- the body at the real cadence and the C engine sleeps between fires.
+-- Created HERE (child main chunk) because the AnimationGroup is the
+-- engine's entry object and bills its creation context. Bodies read a
+-- swappable ns function so per-build closures stay per-build; a ticker
+-- runs only between Start()/Stop() and pauses while its host is hidden.
+ns._cpDriverTick = EllesmereUI.Tick.NewAnimTicker(ns._cpDriver, function()
+    local fn = ns._cpTickFn
+    if fn then fn() end
+    return true
+end, 0.1)
+ns._cpWatchTick = EllesmereUI.Tick.NewAnimTicker(ns._cpCastWatcher, function()
+    local fn = ns._cpWatchFn
+    if fn then fn() end
+    return true
+end, 0.1)
+
 local function DestroyCustomClassPower()
+    ns._cpTickFn = nil
+    ns._cpDriverTick.Stop()
+    ns._cpWatchFn = nil
+    ns._cpWatchTick.Stop()
     if frames._customClassPower then
         frames._customClassPower:Hide()
         -- Unregister events on all children to prevent leaks
@@ -8642,8 +8997,16 @@ local function CreateCustomClassPower(playerFrame, style)
         end
     end
 
-    -- Event driver
-    local eventFrame = CreateFrame("Frame", nil, container)
+    -- Event driver: the shared child-born shell (see ns._cpDriver above),
+    -- fully reset here because the previous spec's build may have left
+    -- registrations or an OnUpdate poll on it.
+    local eventFrame = ns._cpDriver
+    eventFrame:UnregisterAllEvents()
+    eventFrame:SetScript("OnEvent", nil)
+    ns._cpTickFn = nil
+    ns._cpDriverTick.Stop()
+    eventFrame:SetParent(container)
+    eventFrame:Show()
     if isCustom then
         -- Per-resource event registration: only register what each resource
         -- actually needs to avoid unnecessary event traffic.
@@ -8657,13 +9020,11 @@ local function CreateCustomClassPower(playerFrame, style)
                                or powerType == "SWEEPING_STRIKES")
 
         if needsOnUpdate then
-            local elapsed = 0
-            eventFrame:SetScript("OnUpdate", function(_, dt)
-                elapsed = elapsed + dt
-                if elapsed < 0.1 then return end
-                elapsed = 0
-                UpdatePips()
-            end)
+            -- 10 Hz poll on the shared anim ticker (see ns._cpDriverTick):
+            -- same cadence as the old OnUpdate accumulator without the
+            -- per-render-frame entry tax.
+            ns._cpTickFn = UpdatePips
+            ns._cpDriverTick.Start()
         end
 
         eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -9323,9 +9684,7 @@ local function ReloadFrames()
                     if frame.Castbar then
                         local castbarBg = frame.Castbar:GetParent()
                         if settings.showPlayerCastbar then
-                            if not frame:IsElementEnabled("Castbar") then
-                                frame:EnableElement("Castbar")
-                            end
+                            ns.SetCastbarElement(frame, true)
                             if castbarBg then
                                 local cbW = db.profile.player.playerCastbarWidth or 181
                                 local cbH = db.profile.player.playerCastbarHeight or 14
@@ -9406,9 +9765,7 @@ local function ReloadFrames()
                                 end
                             end
                         else
-                            if frame:IsElementEnabled("Castbar") then
-                                frame:DisableElement("Castbar")
-                            end
+                            ns.SetCastbarElement(frame, false)
                             frame.Castbar:Hide()
                             if castbarBg then castbarBg:Hide() end
                         end
@@ -9460,7 +9817,11 @@ local function ReloadFrames()
 
                     -- Live toggle player buffs
                     if frame.Buffs then
-                        if settings.showBuffs then
+                        -- Anchor Buffs with Debuffs forces the element on:
+                        -- the merge owns buff visibility while Buff Display
+                        -- reads None (the option it overrides).
+                        local mergedB = ns.UF_MergedAuras(settings, settings.debuffAnchor or "none")
+                        if settings.showBuffs or mergedB then
                             if not frame:IsElementEnabled("Buffs") then
                                 frame:EnableElement("Buffs")
                             end
@@ -9479,20 +9840,42 @@ local function ReloadFrames()
                                 if cbH <= 0 then cbH = 14 end
                                 buffCbOff = -cbH
                             end
+                            -- Anchor Buffs with Debuffs: buffs become the first
+                            -- rows of the debuff stack -- adopt the debuff
+                            -- anchor/growth/offsets wholesale (the debuff stack
+                            -- shifts past the buff rows; UF_MergedBuffsPostUpdate).
+                            local bOffX = settings.buffOffsetX or 0
+                            local bOffY = settings.buffOffsetY or 0
+                            if mergedB then
+                                local dAncM = settings.debuffAnchor or "none"
+                                bfp, bia, bgx, bgy, box, boy = ResolveBuffLayout(dAncM, settings.debuffGrowth or "auto")
+                                buffCbOff = 0
+                                if (dAncM == "bottomleft" or dAncM == "bottomright") and settings.showPlayerCastbar then
+                                    local cbH = settings.playerCastbarHeight or 0
+                                    if cbH <= 0 then cbH = 14 end
+                                    buffCbOff = -cbH
+                                end
+                                bOffX = settings.debuffOffsetX or 0
+                                bOffY = settings.debuffOffsetY or 0
+                            end
                             -- Only reanchor + ForceUpdate when layout actually changed
                             local buffFilter = ns.ComposeAuraFilter("HELPFUL", settings)
-                            local buffKey = string.format("%s%s%d%d%d%s%d%d%d%d", bia or "", bfp or "", box or 0, boy or 0, buffCbOff, settings.buffGrowth or "auto", settings.maxBuffs or 4, settings.buffSize or 22, settings.buffOffsetX or 0, settings.buffOffsetY or 0) .. "p" .. (settings.buffMaxPerRow or 0) .. "spx" .. (settings.buffSpacingX or 1) .. "spy" .. (settings.buffSpacingY or 1) .. buffFilter
+                            local buffKey = string.format("%s%s%d%d%d%s%d%d%d%d", bia or "", bfp or "", box or 0, boy or 0, buffCbOff, settings.buffGrowth or "auto", settings.maxBuffs or 4, settings.buffSize or 22, bOffX, bOffY) .. "p" .. (settings.buffMaxPerRow or 0) .. "spx" .. (settings.buffSpacingX or 1) .. "spy" .. (settings.buffSpacingY or 1) .. buffFilter .. (settings.showAuraTooltips == false and "ttOff" or "") .. (mergedB and ("M1" .. (settings.debuffGrowth or "auto")) or "")
                             if frame.Buffs._lastBuffKey ~= buffKey then
                                 frame.Buffs._lastBuffKey = buffKey
                                 ns.ApplyEUIAuraFilter(frame.Buffs, "HELPFUL", settings)
                                 frame.Buffs.size = settings.buffSize or 22
                                 frame.Buffs.spacingX = PP.FromPixels(settings.buffSpacingX or 1); frame.Buffs.spacingY = PP.FromPixels(settings.buffSpacingY or 1)
                                 frame.Buffs:ClearAllPoints()
-                                frame.Buffs:SetPoint(bia, frame, bfp, box * 1 + (settings.buffOffsetX or 0), boy * 1 + buffCbOff + (settings.buffOffsetY or 0))
+                                frame.Buffs:SetPoint(bia, frame, bfp, box * 1 + bOffX, boy * 1 + buffCbOff + bOffY)
                                 frame.Buffs.initialAnchor = bia
                                 frame.Buffs.growthX = bgx
                                 frame.Buffs.growthY = bgy
-                                frame.Buffs.maxCols = AuraMaxCols(settings.buffGrowth, settings.maxBuffs or 4, settings.buffMaxPerRow)
+                                -- Merged: wrap like the debuff stack it joins
+                                -- (growth was resolved from the debuff config).
+                                local bColsGrowth = settings.buffGrowth
+                                if mergedB then bColsGrowth = settings.debuffGrowth or "auto" end
+                                frame.Buffs.maxCols = AuraMaxCols(bColsGrowth, settings.maxBuffs or 4, settings.buffMaxPerRow)
                                 if frame.Buffs.ForceUpdate then
                                     frame.Buffs:ForceUpdate()
                                 end
@@ -9530,7 +9913,7 @@ local function ReloadFrames()
                                 debuffCbOff = -cbH
                             end
                             local debuffFilter = ns.ComposeAuraFilter("HARMFUL", settings) .. (settings.showLustDebuff and "|LUST" or "")
-                            local debuffKey = string.format("%s%s%d%d%d%s%d%d%d%d", dia or "", dfp or "", dox or 0, doy or 0, debuffCbOff, settings.debuffGrowth or "auto", settings.maxDebuffs or 10, settings.debuffSize or 22, settings.debuffOffsetX or 0, settings.debuffOffsetY or 0) .. "p" .. (settings.debuffMaxPerRow or 0) .. "spx" .. (settings.debuffSpacingX or 1) .. "spy" .. (settings.debuffSpacingY or 1) .. debuffFilter
+                            local debuffKey = string.format("%s%s%d%d%d%s%d%d%d%d", dia or "", dfp or "", dox or 0, doy or 0, debuffCbOff, settings.debuffGrowth or "auto", settings.maxDebuffs or 10, settings.debuffSize or 22, settings.debuffOffsetX or 0, settings.debuffOffsetY or 0) .. "p" .. (settings.debuffMaxPerRow or 0) .. "spx" .. (settings.debuffSpacingX or 1) .. "spy" .. (settings.debuffSpacingY or 1) .. debuffFilter .. (settings.showAuraTooltips == false and "ttOff" or "") .. (settings.debuffAnchorBuffs and "M1" or "")
                             if frame.Debuffs._lastDebuffKey ~= debuffKey then
                                 frame.Debuffs._lastDebuffKey = debuffKey
                                 ns.ApplyEUIAuraFilter(frame.Debuffs, "HARMFUL", settings)
@@ -9543,6 +9926,31 @@ local function ReloadFrames()
                                 frame.Debuffs.growthX = dgx
                                 frame.Debuffs.growthY = dgy
                                 frame.Debuffs.maxCols = AuraMaxCols(settings.debuffGrowth, settings.maxDebuffs or 10, settings.debuffMaxPerRow)
+                                -- Anchor Buffs with Debuffs: stash this stack's
+                                -- base point for the buff element's PostUpdate,
+                                -- which pushes the stack past the buff rows.
+                                if frame.Buffs then
+                                    if ns.UF_MergedAuras(settings, dAnc) then
+                                        frame.Buffs._euiMerge = {
+                                            deb = frame.Debuffs, parent = frame, dia = dia, dfp = dfp,
+                                            x = dox * 1 + (settings.debuffOffsetX or 0),
+                                            y = doy * 1 + debuffCbOff + (settings.debuffOffsetY or 0),
+                                            gy = dgy,
+                                        }
+                                        frame.Buffs._euiMergeRows = nil
+                                        frame.Buffs.PostUpdate = ns.UF_MergedBuffsPostUpdate
+                                        ns.UF_MergedBuffsPostUpdate(frame.Buffs)
+                                    else
+                                        -- Feature off: leave the element exactly
+                                        -- as stock oUF runs it -- no PostUpdate
+                                        -- installed, zero per-update work.
+                                        frame.Buffs._euiMerge = nil
+                                        frame.Buffs._euiMergeRows = nil
+                                        if frame.Buffs.PostUpdate == ns.UF_MergedBuffsPostUpdate then
+                                            frame.Buffs.PostUpdate = nil
+                                        end
+                                    end
+                                end
                                 if frame.Debuffs.ForceUpdate then
                                     frame.Debuffs:ForceUpdate()
                                 end
@@ -9886,7 +10294,11 @@ local function ReloadFrames()
 
                     -- Buffs
                     if frame.Buffs then
-                        local showBuffs = settings.showBuffs ~= false
+                        -- Anchor Buffs with Debuffs forces the element on:
+                        -- the merge owns buff visibility while Buff Display
+                        -- reads None (the option it overrides).
+                        local mergedB = ns.UF_MergedAuras(settings, settings.debuffAnchor or "bottomleft")
+                        local showBuffs = settings.showBuffs ~= false or mergedB
                         if showBuffs then
                             if not frame:IsElementEnabled("Buffs") then
                                 frame:EnableElement("Buffs")
@@ -9905,19 +10317,41 @@ local function ReloadFrames()
                                     liveCbOff = -cbH
                                 end
                             end
+                            -- Anchor Buffs with Debuffs: buffs become the first
+                            -- rows of the debuff stack -- adopt the debuff
+                            -- anchor/growth/offsets wholesale (the debuff stack
+                            -- shifts past the buff rows; UF_MergedBuffsPostUpdate).
+                            local bOffX = settings.buffOffsetX or 0
+                            local bOffY = settings.buffOffsetY or 0
+                            if mergedB then
+                                local dAncM = settings.debuffAnchor or "bottomleft"
+                                bfp, bia, bgx, bgy, box, boy = ResolveBuffLayout(dAncM, settings.debuffGrowth or "auto")
+                                liveCbOff = 0
+                                if settings.showCastbar ~= false and (dAncM == "bottomleft" or dAncM == "bottomright") then
+                                    local cbH = settings.castbarHeight or 14
+                                    if cbH <= 0 then cbH = 14 end
+                                    liveCbOff = -cbH
+                                end
+                                bOffX = settings.debuffOffsetX or 0
+                                bOffY = settings.debuffOffsetY or 0
+                            end
                             local buffFilter = ns.ComposeAuraFilter("HELPFUL", settings)
-                            local buffKey = string.format("%s%s%d%d%s%d%d%d%d%d", bia or "", bfp or "", box or 0, boy or 0, settings.buffGrowth or "auto", settings.maxBuffs or 20, liveCbOff, settings.buffSize or 22, settings.buffOffsetX or 0, settings.buffOffsetY or 0) .. "p" .. (settings.buffMaxPerRow or 0) .. "spx" .. (settings.buffSpacingX or 1) .. "spy" .. (settings.buffSpacingY or 1) .. buffFilter
+                            local buffKey = string.format("%s%s%d%d%s%d%d%d%d%d", bia or "", bfp or "", box or 0, boy or 0, settings.buffGrowth or "auto", settings.maxBuffs or 20, liveCbOff, settings.buffSize or 22, bOffX, bOffY) .. "p" .. (settings.buffMaxPerRow or 0) .. "spx" .. (settings.buffSpacingX or 1) .. "spy" .. (settings.buffSpacingY or 1) .. buffFilter .. (settings.showAuraTooltips == false and "ttOff" or "") .. (mergedB and ("M1" .. (settings.debuffGrowth or "auto")) or "")
                             if frame.Buffs._lastBuffKey ~= buffKey then
                                 frame.Buffs._lastBuffKey = buffKey
                                 ns.ApplyEUIAuraFilter(frame.Buffs, "HELPFUL", settings)
                                 frame.Buffs.size = settings.buffSize or 22
                                 frame.Buffs.spacingX = PP.FromPixels(settings.buffSpacingX or 1); frame.Buffs.spacingY = PP.FromPixels(settings.buffSpacingY or 1)
                                 frame.Buffs:ClearAllPoints()
-                                frame.Buffs:SetPoint(bia, frame, bfp, box * 1 + (settings.buffOffsetX or 0), boy * 1 + liveCbOff + (settings.buffOffsetY or 0))
+                                frame.Buffs:SetPoint(bia, frame, bfp, box * 1 + bOffX, boy * 1 + liveCbOff + bOffY)
                                 frame.Buffs.initialAnchor = bia
                                 frame.Buffs.growthX = bgx
                                 frame.Buffs.growthY = bgy
-                                frame.Buffs.maxCols = AuraMaxCols(settings.buffGrowth, settings.maxBuffs or 4, settings.buffMaxPerRow)
+                                -- Merged: wrap like the debuff stack it joins
+                                -- (growth was resolved from the debuff config).
+                                local bColsGrowth = settings.buffGrowth
+                                if mergedB then bColsGrowth = settings.debuffGrowth or "auto" end
+                                frame.Buffs.maxCols = AuraMaxCols(bColsGrowth, settings.maxBuffs or 4, settings.buffMaxPerRow)
                                 if frame.Buffs.ForceUpdate then
                                     frame.Buffs:ForceUpdate()
                                 end
@@ -9957,7 +10391,7 @@ local function ReloadFrames()
                                 end
                             end
                             local debuffFilter = ns.ComposeAuraFilter("HARMFUL", settings) .. (settings.showLustDebuff and "|LUST" or "")
-                            local debuffKey = string.format("%s%s%d%d%s%d%d%d%d%d%d", dia or "", dfp or "", dox or 0, doy or 0, settings.debuffGrowth or "auto", settings.maxDebuffs or 20, liveDbCbOff, settings.debuffSize or 22, settings.debuffOffsetX or 0, settings.debuffOffsetY or 0, settings.onlyPlayerDebuffs and 1 or 0) .. "p" .. (settings.debuffMaxPerRow or 0) .. "spx" .. (settings.debuffSpacingX or 1) .. "spy" .. (settings.debuffSpacingY or 1) .. debuffFilter
+                            local debuffKey = string.format("%s%s%d%d%s%d%d%d%d%d%d", dia or "", dfp or "", dox or 0, doy or 0, settings.debuffGrowth or "auto", settings.maxDebuffs or 20, liveDbCbOff, settings.debuffSize or 22, settings.debuffOffsetX or 0, settings.debuffOffsetY or 0, settings.onlyPlayerDebuffs and 1 or 0) .. "p" .. (settings.debuffMaxPerRow or 0) .. "spx" .. (settings.debuffSpacingX or 1) .. "spy" .. (settings.debuffSpacingY or 1) .. debuffFilter .. (settings.showAuraTooltips == false and "ttOff" or "") .. (settings.debuffAnchorBuffs and "M1" or "")
                             if frame.Debuffs._lastDebuffKey ~= debuffKey then
                                 frame.Debuffs._lastDebuffKey = debuffKey
                                 ns.ApplyEUIAuraFilter(frame.Debuffs, "HARMFUL", settings)
@@ -9970,6 +10404,31 @@ local function ReloadFrames()
                                 frame.Debuffs.growthX = dgx
                                 frame.Debuffs.growthY = dgy
                                 frame.Debuffs.maxCols = AuraMaxCols(settings.debuffGrowth, settings.maxDebuffs or 10, settings.debuffMaxPerRow)
+                                -- Anchor Buffs with Debuffs: stash this stack's
+                                -- base point for the buff element's PostUpdate,
+                                -- which pushes the stack past the buff rows.
+                                if frame.Buffs then
+                                    if ns.UF_MergedAuras(settings, dAnc) then
+                                        frame.Buffs._euiMerge = {
+                                            deb = frame.Debuffs, parent = frame, dia = dia, dfp = dfp,
+                                            x = dox * 1 + (settings.debuffOffsetX or 0),
+                                            y = doy * 1 + liveDbCbOff + (settings.debuffOffsetY or 0),
+                                            gy = dgy,
+                                        }
+                                        frame.Buffs._euiMergeRows = nil
+                                        frame.Buffs.PostUpdate = ns.UF_MergedBuffsPostUpdate
+                                        ns.UF_MergedBuffsPostUpdate(frame.Buffs)
+                                    else
+                                        -- Feature off: leave the element exactly
+                                        -- as stock oUF runs it -- no PostUpdate
+                                        -- installed, zero per-update work.
+                                        frame.Buffs._euiMerge = nil
+                                        frame.Buffs._euiMergeRows = nil
+                                        if frame.Buffs.PostUpdate == ns.UF_MergedBuffsPostUpdate then
+                                            frame.Buffs.PostUpdate = nil
+                                        end
+                                    end
+                                end
                                 if frame.Debuffs.ForceUpdate then
                                     frame.Debuffs:ForceUpdate()
                                 end
@@ -10279,7 +10738,7 @@ local function ReloadFrames()
                             end
                         end
                         local debuffFilter = ns.ComposeAuraFilter("HARMFUL", settings) .. (settings.showLustDebuff and "|LUST" or "")
-                        local debuffKey = string.format("%s%s%d%d%s%d%d%d%d%d%d", dia or "", dfp or "", dox or 0, doy or 0, settings.debuffGrowth or "auto", settings.maxDebuffs or 10, focusDbCbOff, settings.debuffSize or 22, settings.debuffOffsetX or 0, settings.debuffOffsetY or 0, settings.onlyPlayerDebuffs and 1 or 0) .. "p" .. (settings.debuffMaxPerRow or 0) .. "spx" .. (settings.debuffSpacingX or 1) .. "spy" .. (settings.debuffSpacingY or 1) .. debuffFilter
+                        local debuffKey = string.format("%s%s%d%d%s%d%d%d%d%d%d", dia or "", dfp or "", dox or 0, doy or 0, settings.debuffGrowth or "auto", settings.maxDebuffs or 10, focusDbCbOff, settings.debuffSize or 22, settings.debuffOffsetX or 0, settings.debuffOffsetY or 0, settings.onlyPlayerDebuffs and 1 or 0) .. "p" .. (settings.debuffMaxPerRow or 0) .. "spx" .. (settings.debuffSpacingX or 1) .. "spy" .. (settings.debuffSpacingY or 1) .. debuffFilter .. (settings.showAuraTooltips == false and "ttOff" or "") .. (settings.debuffAnchorBuffs and "M1" or "")
                         if frame.Debuffs._lastDebuffKey ~= debuffKey then
                             frame.Debuffs._lastDebuffKey = debuffKey
                             ns.ApplyEUIAuraFilter(frame.Debuffs, "HARMFUL", settings)
@@ -10292,6 +10751,31 @@ local function ReloadFrames()
                             frame.Debuffs.growthX = dgx
                             frame.Debuffs.growthY = dgy
                             frame.Debuffs.maxCols = AuraMaxCols(settings.debuffGrowth, settings.maxDebuffs or 10, settings.debuffMaxPerRow)
+                            -- Anchor Buffs with Debuffs: stash this stack's
+                            -- base point for the buff element's PostUpdate,
+                            -- which pushes the stack past the buff rows.
+                            if frame.Buffs then
+                                if ns.UF_MergedAuras(settings, dAnc) then
+                                    frame.Buffs._euiMerge = {
+                                        deb = frame.Debuffs, parent = frame, dia = dia, dfp = dfp,
+                                        x = dox * 1 + (settings.debuffOffsetX or 0),
+                                        y = doy * 1 + focusDbCbOff + (settings.debuffOffsetY or 0),
+                                        gy = dgy,
+                                    }
+                                    frame.Buffs._euiMergeRows = nil
+                                    frame.Buffs.PostUpdate = ns.UF_MergedBuffsPostUpdate
+                                    ns.UF_MergedBuffsPostUpdate(frame.Buffs)
+                                else
+                                    -- Feature off: leave the element exactly
+                                    -- as stock oUF runs it -- no PostUpdate
+                                    -- installed, zero per-update work.
+                                    frame.Buffs._euiMerge = nil
+                                    frame.Buffs._euiMergeRows = nil
+                                    if frame.Buffs.PostUpdate == ns.UF_MergedBuffsPostUpdate then
+                                        frame.Buffs.PostUpdate = nil
+                                    end
+                                end
+                            end
                             if frame.Debuffs.ForceUpdate then
                                 frame.Debuffs:ForceUpdate()
                             end
@@ -10302,7 +10786,11 @@ local function ReloadFrames()
 
                 -- Buffs (focus)
                 if frame.Buffs then
-                    local showBuffs = settings.showBuffs ~= false
+                    -- Anchor Buffs with Debuffs forces the element on: the
+                    -- merge owns buff visibility while Buff Display reads
+                    -- None (the option it overrides).
+                    local mergedB = ns.UF_MergedAuras(settings, settings.debuffAnchor or "bottomleft")
+                    local showBuffs = settings.showBuffs ~= false or mergedB
                     if showBuffs then
                         if not frame:IsElementEnabled("Buffs") then
                             frame:EnableElement("Buffs")
@@ -10321,19 +10809,41 @@ local function ReloadFrames()
                                 focusBfCbOff = -cbH
                             end
                         end
+                        -- Anchor Buffs with Debuffs: buffs become the first
+                        -- rows of the debuff stack -- adopt the debuff
+                        -- anchor/growth/offsets wholesale (the debuff stack
+                        -- shifts past the buff rows; UF_MergedBuffsPostUpdate).
+                        local bOffX = settings.buffOffsetX or 0
+                        local bOffY = settings.buffOffsetY or 0
+                        if mergedB then
+                            local dAncM = settings.debuffAnchor or "bottomleft"
+                            bfp, bia, bgx, bgy, box, boy = ResolveBuffLayout(dAncM, settings.debuffGrowth or "auto")
+                            focusBfCbOff = 0
+                            if settings.showCastbar ~= false and (dAncM == "bottomleft" or dAncM == "bottomright") then
+                                local cbH = settings.castbarHeight or 14
+                                if cbH <= 0 then cbH = 14 end
+                                focusBfCbOff = -cbH
+                            end
+                            bOffX = settings.debuffOffsetX or 0
+                            bOffY = settings.debuffOffsetY or 0
+                        end
                         local buffFilter = ns.ComposeAuraFilter("HELPFUL", settings)
-                        local buffKey = string.format("%s%s%d%d%s%d%d%d%d%d", bia or "", bfp or "", box or 0, boy or 0, settings.buffGrowth or "auto", settings.maxBuffs or 4, focusBfCbOff, settings.buffSize or 22, settings.buffOffsetX or 0, settings.buffOffsetY or 0) .. "p" .. (settings.buffMaxPerRow or 0) .. "spx" .. (settings.buffSpacingX or 1) .. "spy" .. (settings.buffSpacingY or 1) .. buffFilter
+                        local buffKey = string.format("%s%s%d%d%s%d%d%d%d%d", bia or "", bfp or "", box or 0, boy or 0, settings.buffGrowth or "auto", settings.maxBuffs or 4, focusBfCbOff, settings.buffSize or 22, bOffX, bOffY) .. "p" .. (settings.buffMaxPerRow or 0) .. "spx" .. (settings.buffSpacingX or 1) .. "spy" .. (settings.buffSpacingY or 1) .. buffFilter .. (settings.showAuraTooltips == false and "ttOff" or "") .. (mergedB and ("M1" .. (settings.debuffGrowth or "auto")) or "")
                         if frame.Buffs._lastBuffKey ~= buffKey then
                             frame.Buffs._lastBuffKey = buffKey
                             ns.ApplyEUIAuraFilter(frame.Buffs, "HELPFUL", settings)
                             frame.Buffs.size = settings.buffSize or 22
                             frame.Buffs.spacingX = PP.FromPixels(settings.buffSpacingX or 1); frame.Buffs.spacingY = PP.FromPixels(settings.buffSpacingY or 1)
                             frame.Buffs:ClearAllPoints()
-                            frame.Buffs:SetPoint(bia, frame, bfp, box * 1 + (settings.buffOffsetX or 0), boy * 1 + focusBfCbOff + (settings.buffOffsetY or 0))
+                            frame.Buffs:SetPoint(bia, frame, bfp, box * 1 + bOffX, boy * 1 + focusBfCbOff + bOffY)
                             frame.Buffs.initialAnchor = bia
                             frame.Buffs.growthX = bgx
                             frame.Buffs.growthY = bgy
-                            frame.Buffs.maxCols = AuraMaxCols(settings.buffGrowth, settings.maxBuffs or 4, settings.buffMaxPerRow)
+                            -- Merged: wrap like the debuff stack it joins
+                            -- (growth was resolved from the debuff config).
+                            local bColsGrowth = settings.buffGrowth
+                            if mergedB then bColsGrowth = settings.debuffGrowth or "auto" end
+                            frame.Buffs.maxCols = AuraMaxCols(bColsGrowth, settings.maxBuffs or 4, settings.buffMaxPerRow)
                             if frame.Buffs.ForceUpdate then
                                 frame.Buffs:ForceUpdate()
                             end
@@ -10661,7 +11171,7 @@ local function ReloadFrames()
                         -- Physical-pixel icon spacing (folded into the key so a
                         -- spacing change re-anchors the stack on the next refresh).
                         local debuffSpacingVal = ns.GetBossDebuffSpacing(settings, simpleOn)
-                        local debuffKey = string.format("%s%s%d%d%s%d%d%d%d%d%d", dia or "", dfp or "", dox or 0, doy or 0, effGrowth, settings.maxDebuffs or 10, liveDbCbOff, effectiveDebuffSize, dbOffX, dbOffY, settings.onlyPlayerDebuffs and 1 or 0) .. "p" .. (settings.debuffMaxPerRow or 0) .. "sp" .. debuffSpacingVal .. debuffFilter
+                        local debuffKey = string.format("%s%s%d%d%s%d%d%d%d%d%d", dia or "", dfp or "", dox or 0, doy or 0, effGrowth, settings.maxDebuffs or 10, liveDbCbOff, effectiveDebuffSize, dbOffX, dbOffY, settings.onlyPlayerDebuffs and 1 or 0) .. "p" .. (settings.debuffMaxPerRow or 0) .. "sp" .. debuffSpacingVal .. debuffFilter .. (settings.showAuraTooltips == false and "ttOff" or "")
                         if frame.Debuffs._lastDebuffKey ~= debuffKey then
                             frame.Debuffs._lastDebuffKey = debuffKey
                             ns.ApplyEUIAuraFilter(frame.Debuffs, "HARMFUL", settings)
@@ -10753,10 +11263,12 @@ local function ReloadFrames()
                         -- Physical-pixel icon spacing (folded into the key so a
                         -- spacing change re-anchors the column on the next refresh).
                         local buffSpacingVal = ns.GetBossBuffSpacing(settings, simpleBuffOn)
-                        local buffKey = string.format("%s%s%d%d%s%d%d%d%d%d", bia or "", bfp or "", box or 0, boy or 0, bGrowthEff, settings.maxBuffs or 4, bossBfCbOff, effectiveBuffSize, bfOffX, bfOffY) .. "p" .. (settings.buffMaxPerRow or 0) .. "sp" .. buffSpacingVal .. buffFilter
+                        local buffKey = string.format("%s%s%d%d%s%d%d%d%d%d", bia or "", bfp or "", box or 0, boy or 0, bGrowthEff, settings.maxBuffs or 4, bossBfCbOff, effectiveBuffSize, bfOffX, bfOffY) .. "p" .. (settings.buffMaxPerRow or 0) .. "sp" .. buffSpacingVal .. buffFilter .. (settings.showAuraTooltips == false and "ttOff" or "")
                         if frame.Buffs._lastBuffKey ~= buffKey then
                             frame.Buffs._lastBuffKey = buffKey
-                            ns.ApplyEUIAuraFilter(frame.Buffs, "HELPFUL", {})  -- boss buffs: no filtering
+                            -- Boss buffs: no filtering (empty flag set), but the
+                            -- aura-tooltip toggle still travels.
+                            ns.ApplyEUIAuraFilter(frame.Buffs, "HELPFUL", { showAuraTooltips = settings.showAuraTooltips })
                             frame.Buffs.size = effectiveBuffSize
                             frame.Buffs.spacing = PP.FromPixels(buffSpacingVal)
                             frame.Buffs:ClearAllPoints()
@@ -10818,12 +11330,13 @@ local function ReloadFrames()
             -- so this is a no-op unless the user enabled a boss border).
             if unit:match("^boss%d$") then
                 local isT = UnitIsUnit(unit, "target")
-                frame._isTarget = (isT and not issecretvalue(isT)) and true or false
+                frame._isTarget = (not issecretvalue(isT) and isT) and true or false
                 ns.ApplyBossBorderState(frame)
             end
             frame.Health:SetReverseFill(settings.healthReverseFill and true or false)
-            ApplyDarkTheme(frame.Health)
-            UpdateAbsorbBarReverseFill(frame, settings.healthReverseFill and true or false)
+            ns.ApplyHealthOrientation(frame.Health, settings)
+            ApplyDarkTheme(frame.Health)  -- re-anchors health.bg for the new axis
+            UpdateAbsorbBarReverseFill(frame, settings.healthReverseFill and true or false, settings)
             -- Smooth bar interpolation (live toggle without /reload)
             if settings.smoothBars then
                 frame.Health.smoothing = Enum and Enum.StatusBarInterpolation
@@ -11070,6 +11583,38 @@ local function ReloadFrames()
             end
         end
     end
+
+    -- Portrait settings (3D zoom, class style) used to live-apply through the
+    -- ungated ambient portrait repaints; the gated Override skips same-unit
+    -- repaints, so settings changes now force one explicit portrait update
+    -- per frame instead.
+    for _, frame in pairs(frames) do
+        if type(frame) == "table" and frame.Portrait and frame.Portrait.ForceUpdate then
+            frame.Portrait:ForceUpdate()
+        end
+    end
+
+    -- Player Auras stopped polling settings per grid tick; every settings
+    -- path that lands here (fonts, profiles, options) forces their one
+    -- explicit refresh instead.
+    if ns.RefreshPlayerAuras then ns.RefreshPlayerAuras() end
+end
+
+-- Toggle a frame's oUF Castbar element without rewriting Blizzard's cast bar
+-- event registration. oUF silences PlayerCastingBarFrame/PetCastingBarFrame
+-- when the element enables on the player frame and re-arms them when it
+-- disables; the shared helpers keep whatever a standalone cast bar addon set.
+-- On ns (not a new file-scope local) to respect the Lua 200-locals cap.
+function ns.SetCastbarElement(frame, enable)
+    if not frame or not frame.Castbar then return end
+    if (frame:IsElementEnabled("Castbar") and true or false) == (enable and true or false) then return end
+    EllesmereUI.CaptureBlizzCastBarEvents()
+    if enable then
+        frame:EnableElement("Castbar")
+    else
+        frame:DisableElement("Castbar")
+    end
+    EllesmereUI.RestoreBlizzCastBarEvents()
 end
 
 -- Manage Blizzard's player cast bar ownership based on whether UnitFrames is
@@ -11120,9 +11665,13 @@ local function UnitFrame_OnEnter(self)
             -- 3D models don't inherit parent alpha: reveal the portrait too
             local bd3d = self.Portrait and self.Portrait.backdrop and self.Portrait.backdrop._3d
             if bd3d then bd3d:SetAlpha(a) end
-            -- Mini-frame inheritance: the companion frame reveals with us
+            -- Mini-frame inheritance: the companion frame reveals with us.
+            -- Always Show Pet Frame opts the pet out (it is already visible
+            -- and must not pick up the player's fade alpha).
             local mini = ns.UF_MINI_OF and frames[ns.UF_MINI_OF[unitKey]]
-            if mini then mini:SetAlpha(a) end
+            if mini and not (unitKey == "player" and db.profile.pet and db.profile.pet.alwaysShow) then
+                mini:SetAlpha(a)
+            end
         end
     end
     if unit and GameTooltip and GameTooltip_SetDefaultAnchor then
@@ -11178,9 +11727,13 @@ local function UnitFrame_OnLeave(self)
         -- 3D models don't inherit parent alpha: hide/dim the portrait too
         local bd3d = self.Portrait and self.Portrait.backdrop and self.Portrait.backdrop._3d
         if bd3d then bd3d:SetAlpha(leaveAlpha) end
-        -- Mini-frame inheritance: the companion frame hides/dims with us
+        -- Mini-frame inheritance: the companion frame hides/dims with us.
+        -- Always Show Pet Frame opts the pet out (a leave alpha of 0 would
+        -- hide a pet frame that must stay visible).
         local mini = ns.UF_MINI_OF and frames[ns.UF_MINI_OF[unitKey]]
-        if mini then mini:SetAlpha(leaveAlpha) end
+        if mini and not (unitKey == "player" and db.profile.pet and db.profile.pet.alwaysShow) then
+            mini:SetAlpha(leaveAlpha)
+        end
     end
     if self._tooltipTicker then self._tooltipTicker:Cancel(); self._tooltipTicker = nil end
     if GameTooltip and GameTooltip:IsOwned(self) then
@@ -11265,9 +11818,20 @@ function InitializeFrames()
     -- it, so oUF never disables it); "hidden" removes Blizzard's frame too.
     oUF:SetActiveStyle("EllesmerePlayer")
     if playerFrameSource == "eui" then
+        -- Spawning enables the Castbar element, which silences Blizzard's
+        -- player/pet cast bars. Keep whatever a standalone cast bar addon set.
+        EllesmereUI.CaptureBlizzCastBarEvents()
         frames.player = oUF:Spawn("player", "EllesmereUIUnitFrames_Player")
+        EllesmereUI.RestoreBlizzCastBarEvents()
     elseif playerFrameSource == "hidden" then
+        -- Wrapped for the same reason as the spawn above: DisableBlizzard
+        -- unregisters PlayerFrame's cast bar child, and an unregister seen
+        -- outside a capture window is read as a third-party addon claiming the
+        -- frame -- EUI would mark its own silence as somebody else's and never
+        -- hand the bar back.
+        EllesmereUI.CaptureBlizzCastBarEvents()
         oUF:DisableBlizzard("player")
+        EllesmereUI.RestoreBlizzCastBarEvents()
     end
 
     -- Visibility wrapper for the player frame only. Parent the player frame
@@ -11464,7 +12028,8 @@ function InitializeFrames()
 
         -- Stop castbar watcher by default; only re-enabled in the "bottom" branch
         if bar._castbarWatcher then
-            bar._castbarWatcher:SetScript("OnUpdate", nil)
+            ns._cpWatchFn = nil
+            ns._cpWatchTick.Stop()
             bar._castbarWatcher:Hide()
         end
 
@@ -11571,14 +12136,16 @@ function InitializeFrames()
             -- Only run the castbar watcher if the player castbar is enabled
             if db.profile.player.showPlayerCastbar then
                 if not bar._castbarWatcher then
-                    bar._castbarWatcher = CreateFrame("Frame", nil, bar)
+                    -- Shared child-born shell (see ns._cpCastWatcher): a
+                    -- frame created here would be born in whatever context
+                    -- triggered this rebuild and could bill the parent for
+                    -- the 10 Hz poll below.
+                    bar._castbarWatcher = ns._cpCastWatcher
+                    bar._castbarWatcher:SetParent(bar)
                 end
-                local cbElapsed = 0
                 local playerFrame = frames.player
-                bar._castbarWatcher:SetScript("OnUpdate", function(_, dt)
-                    cbElapsed = cbElapsed + dt
-                    if cbElapsed < 0.1 then return end
-                    cbElapsed = 0
+                -- 10 Hz body on the shared anim ticker (see ns._cpWatchTick).
+                ns._cpWatchFn = function()
                     local cb = playerFrame and playerFrame.Castbar
                     local castbarBg = cb and cb:GetParent()
                     local nowVis = castbarBg and castbarBg:IsShown() and db.profile.player.showPlayerCastbar
@@ -11586,8 +12153,9 @@ function InitializeFrames()
                         bar._lastCastVis = nowVis
                         AnchorBottom()
                     end
-                end)
+                end
                 bar._castbarWatcher:Show()
+                ns._cpWatchTick.Start()
             end
             ResizeFrameForClassPower(0)
         end
@@ -11992,10 +12560,12 @@ function InitializeFrames()
             local unit = uf.unit
             local isLeader = UnitIsGroupLeader(unit)
             local isAssist = UnitIsGroupAssistant(unit)
-            if isLeader and not issecretvalue(isLeader) then
+            -- Secrecy check MUST run before any truthiness test: boolean-testing
+            -- a secret errors, so "value and not issecretvalue(value)" crashes.
+            if not issecretvalue(isLeader) and isLeader then
                 tex:SetTexture("Interface\\GroupFrame\\UI-Group-LeaderIcon")
                 tex:Show()
-            elseif isAssist and not issecretvalue(isAssist) then
+            elseif not issecretvalue(isAssist) and isAssist then
                 tex:SetTexture("Interface\\GroupFrame\\UI-Group-AssistantIcon")
                 tex:Show()
             else
@@ -12297,9 +12867,7 @@ function InitializeFrames()
     -- Player castbar: disable oUF element if not wanted (always created now)
     if frames.player and frames.player.Castbar then
         if not db.profile.player.showPlayerCastbar then
-            if frames.player:IsElementEnabled("Castbar") then
-                frames.player:DisableElement("Castbar")
-            end
+            ns.SetCastbarElement(frames.player, false)
             frames.player.Castbar:Hide()
             local castbarBg = frames.player.Castbar:GetParent()
             if castbarBg then castbarBg:Hide() end
@@ -12538,13 +13106,9 @@ function InitializeFrames()
                                     wantsCastbar = s.showCastbar ~= false
                                 end
                                 if wantsCastbar then
-                                    if not frame:IsElementEnabled("Castbar") then
-                                        frame:EnableElement("Castbar")
-                                    end
+                                    ns.SetCastbarElement(frame, true)
                                 else
-                                    if frame:IsElementEnabled("Castbar") then
-                                        frame:DisableElement("Castbar")
-                                    end
+                                    ns.SetCastbarElement(frame, false)
                                     frame.Castbar:Hide()
                                     local castbarBg = frame.Castbar:GetParent()
                                     if castbarBg then castbarBg:Hide() end
@@ -12557,11 +13121,12 @@ function InitializeFrames()
                         if frame:IsShown() then
                             -- Disable oUF elements before hiding to prevent a
                             -- single-frame flash when the unit attribute is cleared
-                            for _, elem in ipairs({"Health", "Power", "Portrait", "Castbar", "Buffs", "Debuffs", "HealthPrediction"}) do
+                            for _, elem in ipairs({"Health", "Power", "Portrait", "Buffs", "Debuffs", "HealthPrediction"}) do
                                 if frame[elem] and frame:IsElementEnabled(elem) then
                                     frame:DisableElement(elem)
                                 end
                             end
+                            ns.SetCastbarElement(frame, false)
                             frame:Hide()
                             frame:SetAttribute("unit", nil)
                         end
@@ -12569,13 +13134,18 @@ function InitializeFrames()
                 end
 
                 local mini = frames[ns.UF_MINI_OF[unitKey]]
+                -- Always Show Pet Frame: the pet opts out of every parent
+                -- visibility inheritance in this pass -- its own unit watch
+                -- alone owns Show/Hide (visible whenever a pet exists).
+                local miniAlways = (unitKey == "player") and db.profile.pet
+                    and db.profile.pet.alwaysShow
 
                 -- The companion mini frame gets its own condition driver
                 -- (parent conditions + its own unit existence), so a
                 -- condition-hidden mini absorbs no clicks either.
                 if mini then
                     local miniWant
-                    if drvSet and EllesmereUI.BuildVisibilityDriverString then
+                    if (not miniAlways) and drvSet and EllesmereUI.BuildVisibilityDriverString then
                         miniWant = EllesmereUI.BuildVisibilityDriverString(
                             "[@" .. ns.UF_MINI_OF[unitKey] .. ",noexists] hide; ", drvSet)
                     end
@@ -12602,7 +13172,7 @@ function InitializeFrames()
                 -- alpha never conflicts with it. Hover reveals mirror in
                 -- the OnEnter/OnLeave handlers.
                 if mini then
-                    mini:SetAlpha(frame:IsShown() and bodyAlpha or 0)
+                    mini:SetAlpha(miniAlways and 1 or (frame:IsShown() and bodyAlpha or 0))
                 end
             elseif frame then
                 -- Parent disabled ("Never" clears enabledFrames): a
@@ -12616,11 +13186,25 @@ function InitializeFrames()
                 end
                 local mini = frames[ns.UF_MINI_OF[unitKey]]
                 if mini then
-                    if not isLocked and mini._euiVisDriver and mini._euiVisDriver ~= "hide" then
-                        RegisterAttributeDriver(mini, "state-visibility", "hide")
-                        mini._euiVisDriver = "hide"
+                    local miniAlways = (unitKey == "player") and db.profile.pet
+                        and db.profile.pet.alwaysShow
+                    if miniAlways then
+                        -- Always Show Pet Frame survives a disabled player
+                        -- frame: unpin any driver so the pet's own unit
+                        -- watch shows it whenever a pet exists.
+                        if not isLocked and mini._euiVisDriver then
+                            UnregisterAttributeDriver(mini, "state-visibility")
+                            RegisterUnitWatch(mini)
+                            mini._euiVisDriver = nil
+                        end
+                        mini:SetAlpha(1)
+                    else
+                        if not isLocked and mini._euiVisDriver and mini._euiVisDriver ~= "hide" then
+                            RegisterAttributeDriver(mini, "state-visibility", "hide")
+                            mini._euiVisDriver = "hide"
+                        end
+                        mini:SetAlpha(0)
                     end
-                    mini:SetAlpha(0)
                 end
             end
         end
@@ -12770,7 +13354,7 @@ function InitializeFrames()
             if f then
                 if f.unifiedBorder then
                     local isT = UnitIsUnit(bUnit, "target")
-                    f._isTarget = (isT and not issecretvalue(isT)) and true or false
+                    f._isTarget = (not issecretvalue(isT) and isT) and true or false
                     ns.ApplyBossBorderState(f)
                 end
                 if s then
@@ -14152,12 +14736,32 @@ function EllesmereUF:OnInitialize()
     -- Blizzard options panel is registered centrally in EllesmereUI.lua
 end
 
-function EllesmereUF:OnEnable()
+-- Enable-body router. OnEnable runs under the parent addon's lifecycle
+-- dispatch, and the engine bills a script handler's whole call tree to
+-- the addon whose execution context created the frame the engine entered
+-- through -- so every frame born inside the build (oUF buttons, event
+-- drivers, castbar watchers) would bill the PARENT's CPU row forever.
+-- Routing the body through this file-scope frame's PLAYER_LOGIN handler
+-- runs the build in this child's context instead. Ordering is safe: the
+-- parent's lifecycle frame registered PLAYER_LOGIN first (parent loads
+-- before children), so OnEnable has always set the pending flag by the
+-- time this frame's handler fires -- within the SAME event dispatch, and
+-- therefore still inside the combat-reload pre-lockdown window.
+local function EnableBody()
     InitializeFrames()
     -- Register with unlock mode synchronously: on a combat reload this runs
     -- inside the pre-lockdown window, so the login position pass can resolve
     -- and place anchored unit frames before SetPoint gets blocked.
     RegisterUFUnlockElements()
+    -- The parent's synchronous PLAYER_LOGIN position pass (EUI_UnlockMode)
+    -- fires BEFORE this router drains, so unit frame elements were not yet
+    -- registered when it ran. Re-fire it now -- still inside the same
+    -- PLAYER_LOGIN dispatch, so anchored unit frames are placed within the
+    -- combat-reload pre-lockdown window exactly as before. The pass is
+    -- re-entrant by design (CDM and the PEW fallback both re-fire it).
+    if EllesmereUI and EllesmereUI._applySavedPositions then
+        EllesmereUI._applySavedPositions()
+    end
     C_Timer.After(0, SetupOptionsPanel)
     C_Timer.After(0, function()
         if EllesmereUI and EllesmereUI.ApplyColorsToOUF then
@@ -14175,8 +14779,35 @@ function EllesmereUF:OnEnable()
             ns.PlayerPA_Apply()
         end
     end)
+end
 
-    -- Incompatible addon detection is handled globally by EllesmereUI
+do
+    local loginFired = false
+    local router = CreateFrame("Frame")
+    router:RegisterEvent("PLAYER_LOGIN")
+    -- Backstop only: PLAYER_LOGIN always fires for a startup-loaded addon,
+    -- but if it were ever missed the next world entry drains the flag.
+    router:RegisterEvent("PLAYER_ENTERING_WORLD")
+    router:SetScript("OnEvent", function(self)
+        self:UnregisterEvent("PLAYER_LOGIN")
+        self:UnregisterEvent("PLAYER_ENTERING_WORLD")
+        loginFired = true
+        if ns._eufEnablePending then
+            ns._eufEnablePending = nil
+            EnableBody()
+        end
+    end)
+
+    function EllesmereUF:OnEnable()
+        if loginFired then
+            -- Runtime re-enable long after login: run directly (rare; any
+            -- parent-context billing lasts only until the next reload).
+            EnableBody()
+        else
+            ns._eufEnablePending = true
+        end
+        -- Incompatible addon detection is handled globally by EllesmereUI
+    end
 end
 
 -------------------------------------------------------------------------------
@@ -14327,6 +14958,28 @@ end
 do
     local olTex
     local curve
+    local racialCurve
+
+    -- RAID_PLAYER_DISPELLABLE only knows class and spec dispels, so it answers
+    -- no for every bleed: nothing a class learns removes one, only the dwarf
+    -- racial does. Without this, "Only Dispellable by You" can never light up
+    -- for a bleed, for anyone. A racial cleans its own caster, so this is the
+    -- player frame's business alone and other units are right to ignore it.
+    -- Bleed only, deliberately: Stoneform also clears poison, disease and
+    -- curse, but a class that dispels those already passes the token, and
+    -- treating a two-minute racial as a dispel would put an overlay on most of
+    -- what a dwarf ever catches.
+    local RACIAL_DISPEL_TYPES = {
+        bleed = { Dwarf = true },  -- Stoneform
+    }
+    -- Shared with the 12.1 container slots (EUI_UnitFrames_AuraContainers.lua),
+    -- which apply the same rule by choosing which slot style stays visible.
+    function ns.UF_RacialClearsDispel(typeKey)
+        local races = RACIAL_DISPEL_TYPES[typeKey]
+        if not races then return false end
+        local _, raceToken = UnitRace("player")
+        return raceToken ~= nil and races[raceToken] == true
+    end
 
     local function RebuildCurve()
         if not (C_CurveUtil and C_CurveUtil.CreateColorCurve) then return end
@@ -14344,6 +14997,24 @@ do
         add(4,  "dispelColorPoison",  0.0,   0.706, 0.286)
         add(9,  "dispelColorBleed",   0.75,  0.15,  0.15)
         add(11, "dispelColorBleed",   0.75,  0.15,  0.15)
+
+        -- Racial detection curve. The type a racial clears carries the user's
+        -- opacity; every other index resolves to alpha 0, so an aura of any
+        -- other type paints nothing. The ALPHA does the branching the addon is
+        -- not allowed to do: the type stays secret and unread, and the RGBA
+        -- goes straight into SetColorTexture/SetVertexColor, never into Lua
+        -- arithmetic. Opacity is baked in here for that reason -- scaling a
+        -- secret alpha afterwards is exactly the arithmetic that throws.
+        local a = (p and p.dispelOverlayOpacity or 100) / 100
+        racialCurve = C_CurveUtil.CreateColorCurve()
+        racialCurve:SetType(Enum.LuaCurveType.Step)
+        local bleedCol = p and p.dispelColorBleed
+        local br, bg, bb = bleedCol and bleedCol.r or 0.75, bleedCol and bleedCol.g or 0.15, bleedCol and bleedCol.b or 0.15
+        local bleedAlpha = ns.UF_RacialClearsDispel("bleed") and a or 0
+        for _, idx in ipairs({ 0, 1, 2, 3, 4, 9 }) do
+            racialCurve:AddPoint(idx, CreateColor(br, bg, bb, 0))
+        end
+        racialCurve:AddPoint(11, CreateColor(br, bg, bb, bleedAlpha))
     end
 
     local function Update()
@@ -14385,19 +15056,49 @@ do
                 break
             end
         end
-        if not found then olTex:Hide(); return end
+
+        -- Racial fallback: the token rejected everything, but a type this
+        -- player's RACE can clear would be rejected even when it is present
+        -- (see RACIAL_DISPEL_TYPES). Re-scan unfiltered and let racialCurve
+        -- decide by alpha -- a non-matching type resolves to 0 and paints
+        -- nothing, so no Lua code ever asks what type this aura is.
+        -- Known limit: this takes the FIRST typed aura, so a bleed sitting
+        -- behind another typed debuff paints nothing rather than wrongly. The
+        -- 12.1 container path has a real per-type slot and no such limit.
+        local racialFound
+        if not found and p.dispelOverlayByMe and ns.UF_RacialClearsDispel("bleed") then
+            for i = 1, 40 do
+                local ad = C_UnitAuras.GetAuraDataByIndex("player", i, "HARMFUL")
+                if not ad then break end
+                if ad.dispelName ~= nil then
+                    racialFound = ad
+                    break
+                end
+            end
+        end
+        if not found and not racialFound then olTex:Hide(); return end
 
         -- Resolve the color through the curve. The components may be secret;
         -- they pass straight into SetColorTexture/SetVertexColor natively.
         if not curve then RebuildCurve() end
         local r, g, b = 0.349, 0.475, 1.0
-        if curve and C_UnitAuras.GetAuraDispelTypeColor then
+        local alpha = (p.dispelOverlayOpacity or 100) / 100
+        if racialFound then
+            -- Alpha comes from the curve (opacity already baked in) and may be
+            -- secret: it is only ever handed to a texture setter below.
+            alpha = 0
+            if racialCurve and C_UnitAuras.GetAuraDispelTypeColor then
+                local col = C_UnitAuras.GetAuraDispelTypeColor("player", racialFound.auraInstanceID, racialCurve)
+                if col then
+                    r, g, b, alpha = col:GetRGBA()
+                end
+            end
+        elseif curve and C_UnitAuras.GetAuraDispelTypeColor then
             local col = C_UnitAuras.GetAuraDispelTypeColor("player", found.auraInstanceID, curve)
             if col then
                 r, g, b = col:GetRGB()
             end
         end
-        local alpha = (p.dispelOverlayOpacity or 100) / 100
 
         olTex:ClearAllPoints()
         olTex:SetVertexColor(1, 1, 1, 1)
