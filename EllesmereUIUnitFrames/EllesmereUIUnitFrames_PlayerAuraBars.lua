@@ -2289,7 +2289,12 @@ local function ReloadCustomDebuffBarImpl(barId)
             end
         end
         if customDebuffParents[barId] then customDebuffParents[barId]:Hide() end
-        customDebuffParents[barId] = nil
+        -- Bar IDs are never reused, so this container/declared-set entry
+        -- will never be looked up again -- drop our own tracking-table
+        -- references (the container itself stays alive engine-side, only
+        -- our addon-side bookkeeping is cleared) to avoid unbounded growth
+        -- of these tables across long sessions of create/delete cycles.
+        customDebuffParents[barId], customDebuffContainers[barId], customDebuffDeclared[barId] = nil, nil, nil
         return
     end
 
