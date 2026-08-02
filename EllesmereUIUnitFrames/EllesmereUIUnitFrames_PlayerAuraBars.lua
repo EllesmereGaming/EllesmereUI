@@ -362,6 +362,18 @@ local function PAB_ApplyExtraText(button, d, style)
     if d.cooldown and not d._pabSwipeHooked then
         d._pabSwipeHooked = true
         hooksecurefunc(d.cooldown, "Show", function() d.cooldown:Hide() end)
+
+        -- Belt-and-suspenders (2026-08-02, after field reports that the
+        -- swipe still reappeared post-instance-change despite the Show
+        -- hook above): SetAlpha(0) is a visibility property Show()/Hide()
+        -- never touch, so it survives whatever internal path Blizzard's
+        -- engine used to make the frame visible again -- unlike the Show
+        -- hook, it doesn't depend on THAT specific method being the one
+        -- Blizzard's engine actually called on that path. Set once, same
+        -- guard as the hook above; a Shown-but-alpha-0 cooldown frame is
+        -- still invisible regardless of which Show-adjacent call re-armed
+        -- it.
+        d.cooldown:SetAlpha(0)
     end
 end
 
