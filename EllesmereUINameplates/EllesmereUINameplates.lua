@@ -2837,14 +2837,19 @@ local frameCache = ns.CreateNameplateFramePool("Frame", UIParent, nil, nil, func
     -- Mask texture: constrains absorb rendering to exact health bar bounds
     -- at the GPU level. Prevents subpixel bleed where absorb textures
     -- extend 1px outside the health bar at certain nameplate positions.
-    local absorbMask = plate.health:CreateMaskTexture()
-    absorbMask:SetAllPoints(plate.health)
-    absorbMask:SetTexture("Interface\\Buttons\\WHITE8X8")
+    local absorbMask
+    if plate.health.CreateMaskTexture then
+        absorbMask = plate.health:CreateMaskTexture()
+        absorbMask:SetAllPoints(plate.health)
+        absorbMask:SetTexture("Interface\\Buttons\\WHITE8X8")
+    end
     plate._absorbMask = absorbMask
 
     plate.absorb = EllesmereUI.SafeCreateFrame("StatusBar", nil, plate.health)
     plate.absorb:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
-    plate.absorb:GetStatusBarTexture():AddMaskTexture(absorbMask)
+    if absorbMask and plate.absorb:GetStatusBarTexture().AddMaskTexture then
+        plate.absorb:GetStatusBarTexture():AddMaskTexture(absorbMask)
+    end
     plate.absorb:SetReverseFill(true)
     plate.absorb:SetPoint("TOPRIGHT", plate.health:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
     plate.absorb:SetPoint("BOTTOMRIGHT", plate.health:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
@@ -2853,7 +2858,9 @@ local frameCache = ns.CreateNameplateFramePool("Frame", UIParent, nil, nil, func
     plate.absorb:SetFrameLevel(plate.health:GetFrameLevel())
     plate.absorbForward = EllesmereUI.SafeCreateFrame("StatusBar", nil, plate.health)
     plate.absorbForward:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
-    plate.absorbForward:GetStatusBarTexture():AddMaskTexture(absorbMask)
+    if absorbMask and plate.absorbForward:GetStatusBarTexture().AddMaskTexture then
+        plate.absorbForward:GetStatusBarTexture():AddMaskTexture(absorbMask)
+    end
     plate.absorbForward:SetReverseFill(false)
     plate.absorbForward:SetPoint("TOPLEFT", plate.health:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
     plate.absorbForward:SetPoint("BOTTOMLEFT", plate.health:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)

@@ -354,9 +354,12 @@ initFrame:SetScript("OnEvent", function(self)
         previewHashLine:Hide()
 
         -- Absorb preview: mask + two StatusBars matching real absorb rendering
-        local absorbMask = health:CreateMaskTexture()
-        absorbMask:SetAllPoints(health)
-        absorbMask:SetTexture("Interface\\Buttons\\WHITE8X8")
+        local absorbMask
+        if health.CreateMaskTexture then
+            absorbMask = health:CreateMaskTexture()
+            absorbMask:SetAllPoints(health)
+            absorbMask:SetTexture("Interface\\Buttons\\WHITE8X8")
+        end
         local previewAbsorb = EllesmereUI.SafeCreateFrame("StatusBar", nil, health)
         previewAbsorb:SetPoint("TOPLEFT", health:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
         previewAbsorb:SetPoint("BOTTOMLEFT", health:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
@@ -384,7 +387,12 @@ initFrame:SetScript("OnEvent", function(self)
             previewAbsorb:SetStatusBarTexture(tex)
             previewAbsorb:SetStatusBarColor(r, g, b, alpha)
             local fill = previewAbsorb:GetStatusBarTexture()
-            if fill then fill:SetDrawLayer("ARTWORK", 1); fill:AddMaskTexture(absorbMask) end
+            if fill then
+                fill:SetDrawLayer("ARTWORK", 1)
+                if absorbMask and fill.AddMaskTexture then
+                    fill:AddMaskTexture(absorbMask)
+                end
+            end
         end
         local function ToggleAbsorbPreview()
             if showAbsorbPreview then

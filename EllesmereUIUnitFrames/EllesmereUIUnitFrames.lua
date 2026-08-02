@@ -5,8 +5,16 @@ local math_floor, math_ceil, math_max, math_min, math_abs =
 local string_format = string.format
 local issecretvalue = issecretvalue
 
-local oUF = ns.oUF or oUF
+local oUF = ns.oUF or _G.EllesmereUF or _G.oUF
 local PP = EllesmereUI.PP
+
+-- The oUF XML is loaded before this file.  If it is absent or failed to load,
+-- stop here rather than dereferencing it in the DisableBlizzard override below.
+-- This also keeps the rest of the UI usable when a packaged copy is incomplete.
+if not oUF then
+    print("|cffff5555EllesmereUI Unit Frames:|r oUF failed to load; unit frames have been disabled.")
+    return
+end
 
 -- Taint-safe override of the embedded lib's DisableBlizzard for the units
 -- this addon disables. The stock version re-parents a disabled Blizzard
@@ -182,11 +190,6 @@ do
             sizes = AllSizes(1, 1, 0, 0),
         },
     })
-end
-
-if not oUF then
-    error("EllesmereUIUnitFrames: oUF library not found! Please install oUF to Libraries\\oUF\\ folder.")
-    return
 end
 
 -- Portrait UNIT_MODEL_CHANGED on eventless frames (TargetTarget) triggers
