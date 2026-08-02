@@ -783,6 +783,17 @@ local function CreateBars()
     local s = PAB()
     if not s then return end -- ns.db not ready yet; TryCreateBars() below retries
 
+    -- Must run before buffCfg/custom-bar spell resolution below: the 10
+    -- curated BM2 presets (Defensives, Offensive CDs, ...) were previously
+    -- only imported when the options page opened (EUI_PlayerAuraBars_
+    -- ManagerPages.lua's PABMP_BuildPage), so a bar referencing a preset
+    -- filter that hadn't been imported yet this session resolved an
+    -- incomplete spell set at login, cached that as its signature, and
+    -- never re-resolved until something else (e.g. opening the Filter
+    -- Editor) forced a signature change. Importing here too closes that
+    -- gap for both the default Buffs bar and every custom buff bar.
+    if ns.PAB_ImportBM2Filters then ns.PAB_ImportBM2Filters() end
+
     HideBlizzardPlayerAuras()
 
     local buffCfg, debuffCfg = DefaultBuffsCfg(s), DefaultDebuffsCfg(s)
