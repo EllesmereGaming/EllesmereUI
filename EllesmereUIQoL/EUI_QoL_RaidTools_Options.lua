@@ -91,7 +91,7 @@ initFrame:SetScript("OnEvent", function(self)
         local kbRow
         kbRow, h = W:DualRow(parent, y,
             { type = "dropdown", text = "Show Raid Tools",
-              tooltip = "A raid control panel with ready check, pull timer and raid markers.",
+              tooltip = "A raid control panel with ready check, pull timer and raid markers. In a raid it only shows while you are the leader or an assistant, since none of its buttons work without that; in a party it always shows.",
               values = { never = "Never", raid = "In Raid Group",
                          group = "In Any Group", always = "Always" },
               order = { "never", "raid", "group", "always" },
