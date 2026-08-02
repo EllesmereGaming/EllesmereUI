@@ -664,6 +664,7 @@ local lastSize = { buffs = nil, debuffs = nil, extdef = nil } -- {w=,h=}, tracks
 local buffsSlotSig -- signature of the default Buffs bar's last-applied resolved spell list (ns.PAB_ResolveSpells), mirrors customBuffSig[barId] for the per-bar slots model
 local RegisterPABUnlock -- forward-declared; defined after CreateBars, called from it
 local ReloadAllCustomBars -- forward-declared; defined after CreateBars (custom bars section), called from it
+local PAB_MaybeRefreshPreview -- forward-declared; assigned in the options-page preview section below, called from every live-apply function so an open bar-detail preview box stays in sync with slider drags without needing to know it exists
 
 -- Grow direction. AK.ApplyContainerLayout only applies growth when BOTH
 -- growthH and growthV are set (verified: `if layout.growthH and
@@ -1196,6 +1197,8 @@ local function ApplyLiveConfig(isBuff)
         local chain = BuildChain("HARMFUL", function(class) return ClassEnabled(class, false, cfg) end, cfg.showAllDebuffs ~= false)
         ApplyGroupConfig(container, chain, declared.debuffs, STYLE_DEBUFFS, grid.effectiveMax, pad)
     end
+
+    if PAB_MaybeRefreshPreview then PAB_MaybeRefreshPreview(isBuff and "buff" or "debuff", "default") end
 end
 ns.PAB_ApplyLiveConfig = ApplyLiveConfig
 
@@ -1245,6 +1248,8 @@ local function ApplyExtDefLiveConfig()
         elementSpacing = pad, lineSpacing = pad,
         groupSpacing = pad, groupLineSpacing = pad,
     })
+
+    if PAB_MaybeRefreshPreview then PAB_MaybeRefreshPreview("buff", "extdef") end
 end
 ns.PAB_ApplyExtDefLiveConfig = ApplyExtDefLiveConfig
 
@@ -2263,6 +2268,7 @@ end
 function ns.PAB_ReloadCustomBuffBar(barId)
     ReloadCustomBuffBarImpl(barId)
     RegisterPABCustomUnlock()
+    if PAB_MaybeRefreshPreview then PAB_MaybeRefreshPreview("buff", barId) end
 end
 
 -- Public hook for the Options UI: (re)builds one custom debuff bar's engine
@@ -2343,6 +2349,7 @@ end
 function ns.PAB_ReloadCustomDebuffBar(barId)
     ReloadCustomDebuffBarImpl(barId)
     RegisterPABCustomUnlock()
+    if PAB_MaybeRefreshPreview then PAB_MaybeRefreshPreview("debuff", barId) end
 end
 
 -- Rebuilds every persisted custom bar's engine state. Called once from
@@ -2361,6 +2368,453 @@ local function ReloadAllCustomBarsImpl()
 end
 ReloadAllCustomBars = ReloadAllCustomBarsImpl
 ns.PAB_ReloadAllCustomBars = ReloadAllCustomBarsImpl
+
+-------------------------------------------------------------------------------
+--  Options-page preview box (2026-08-02, Joel's explicit direction: embedded
+--  inside the bar's own detail page, like Raid Frames' Buff Manager preview
+--  -- NOT an on-screen overlay at the bar's real position like Raid Frames'
+--  own raid-frame preview or Boss Frames' fake-aura preview). Shows FAKE
+--  buffs/debuffs at the bar's REAL configured icon size/grid (iconSize,
+--  iconsPerRow, maxRows, maxTotal -- via the same ComputeGrid used by the
+--  live bar), styled with the bar's real BuildStyle/dispel-color output, so
+--  icon size/count/row-wrap/growth direction/spacing/border/duration+stack
+--  formatting all preview live as the user edits a bar's settings -- no
+--  real aura data involved, no touching of the real bar/container at all.
+--  Debuffs cycle through fake spellIDs carrying real dispel tokens (Magic/
+--  Curse/Poison/Disease/Bleed) so BuildDispelColorMap's border coloring
+--  previews too.
+--
+--  Icons are hand-built Frame/Texture/FontString regions, not AK buttons --
+--  same reasoning as EllesmereUIUnitFrames.lua's Boss Frame
+--  AttachFakeDebuffs/AttachFakeBuffs: AK's AuraContainer has no supported
+--  way to receive synthetic aura data.
+-------------------------------------------------------------------------------
+
+-- Class-appropriate fake buff pool (2026-08-02, Joel: preview should draw
+-- from buffs the player's own class actually has, not a fixed generic
+-- list). Best-effort real, well-known spellIDs per class -- purely cosmetic
+-- (icon texture only, see PreviewSpellIcon's fallback), a wrong/renamed ID
+-- here just shows the generic question-mark icon, nothing else depends on
+-- these being exactly right. Keyed by the class FILE token (UnitClass's
+-- second return, e.g. "PRIEST"/"DEATHKNIGHT") -- verified WoW convention,
+-- not an addon-specific vocabulary.
+local CLASS_PREVIEW_BUFFS = {
+    WARRIOR     = { 6673, 97462, 871, 12975, 1719, 107574, 184364, 118038, 46924, 3411 },
+    PALADIN     = { 465, 6940, 1044, 1022, 31850, 86659, 642, 498, 31884, 105809 },
+    HUNTER      = { 186257, 288613, 19574, 186265, 109304, 5384, 34477, 264735, 193530, 90355 },
+    ROGUE       = { 13750, 1784, 5277, 31224, 1966, 2983, 13877, 121471, 185311, 1856 },
+    PRIEST      = { 21562, 17, 139, 33206, 47788, 586, 47585, 41635, 6346, 64843 },
+    DEATHKNIGHT = { 48792, 48707, 55233, 49039, 51052, 42650, 47568, 194844, 194679, 81256 },
+    SHAMAN      = { 2825, 108271, 79206, 98008, 108281, 8178, 30823, 51490, 16188, 974 },
+    MAGE        = { 1459, 11426, 190319, 45438, 55342, 12042, 108978, 66, 80353, 12051 },
+    WARLOCK     = { 104773, 108416, 111400, 6789, 20707, 89808, 108503, 755, 6229, 5697 },
+    MONK        = { 115203, 122470, 116849, 122783, 115176, 116841, 124682, 116680, 101643, 322507 },
+    DRUID       = { 1126, 774, 22812, 61336, 102342, 106898, 29166, 33891, 192081, 108238 },
+    DEMONHUNTER = { 191427, 198589, 196555, 203720, 196718, 258920, 217832, 195072, 191786, 188501 },
+    EVOKER      = { 364342, 374348, 355936, 357170, 363916, 358267, 370960, 360995, 359816, 370537 },
+}
+
+-- Fallback used when the player's class token isn't recognized (defensive
+-- only -- UnitClass always returns one of the tokens above on a live
+-- character) or CLASS_PREVIEW_BUFFS is somehow missing an entry.
+local PREVIEW_BUFF_SPELLS = { 21562, 1459, 1126, 6673 } -- Fort, Arcane Intellect, Mark of the Wild, Battle Shout
+
+-- External Defensives bar preview (2026-08-02, Joel: should reflect actual
+-- external-defensive-flavored spells, not the player's own class buffs --
+-- these come from OTHER players' classes, so this is a fixed cross-class
+-- pool rather than a UnitClass lookup like CLASS_PREVIEW_BUFFS).
+local EXTDEF_PREVIEW_SPELLS = {
+    33206,  -- Pain Suppression
+    47788,  -- Guardian Spirit
+    102342, -- Ironbark
+    1022,   -- Blessing of Protection
+    6940,   -- Blessing of Sacrifice
+    116849, -- Life Cocoon
+    196718, -- Darkness
+    145629, -- Anti-Magic Zone
+    98008,  -- Spirit Link Totem
+    97462,  -- Rallying Cry
+}
+
+-- Shuffles a fresh copy of `source` (Fisher-Yates), never mutating the
+-- source table itself.
+local function ShuffleCopy(source)
+    local out = {}
+    for i = 1, #source do out[i] = source[i] end
+    for i = #out, 2, -1 do
+        local j = math.random(i)
+        out[i], out[j] = out[j], out[i]
+    end
+    return out
+end
+
+-- Builds a freshly shuffled copy of the player's class buff pool. Called
+-- once per ns.PAB_BuildPreviewBox (NOT on every live-apply refresh -- the
+-- resulting order is stashed on activePreview and reused by every
+-- subsequent RenderPreviewIcons call for that box, so icons don't shuffle
+-- their spell identity out from under the user on every slider tick, only
+-- their style/position/count).
+local function BuildBuffPreviewPool()
+    local _, classToken = UnitClass("player")
+    local source = (classToken and CLASS_PREVIEW_BUFFS[classToken]) or PREVIEW_BUFF_SPELLS
+    return ShuffleCopy(source)
+end
+
+local PREVIEW_DEBUFF_SPELLS = {
+    { id = 122,   dispel = "Magic" },   -- Frost Nova
+    { id = 702,   dispel = "Curse" },   -- Curse of Weakness
+    { id = 2823,  dispel = "Poison" },  -- Deadly Poison
+    { id = 55095, dispel = "Disease" }, -- Frost Fever
+    { id = 772,   dispel = "Bleed" },   -- Rend
+    { id = 6788,  dispel = nil },       -- Weakened Soul -- NOT dispellable, previews the plain base border color (no dispel-type override)
+}
+local PREVIEW_DURATIONS = { 8, 15, 23, 41, 5, 30, 12, 60, 3, 18 }
+local PREVIEW_STACKS = { nil, 3, nil, nil, 2, nil, nil, 5, nil, 1 } -- a few icons show a fake stack count, rest hidden
+
+-- Memoized fake-icon texture lookup, same technique as EUI_RaidFrames_
+-- BuffManager.lua's GetSpellIcon: C_Spell.GetSpellInfo's iconID, falling
+-- back to the generic question-mark icon.
+local previewIconCache = {}
+local function PreviewSpellIcon(spellID)
+    local cached = previewIconCache[spellID]
+    if cached then return cached end
+    local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(spellID)
+    local icon = (info and info.iconID) or 134400
+    previewIconCache[spellID] = icon
+    return icon
+end
+
+-- Identifies which bar-detail pane currently owns the visible preview box
+-- (kind: "buff"/"debuff", id: "default"/"extdef"/a custom bar id), plus
+-- that box's icon pool and the fontPath it was built with -- so a live-
+-- apply hook can re-render in place without the detail pane rebuilding.
+-- Reset to a fresh box every ns.PAB_BuildPreviewBox call, since the owning
+-- detail pane itself is always torn down/rebuilt on structural changes
+-- (switching bars, add/rename/delete) -- same lifecycle as every other
+-- widget BuildCoreFields/BuildDisplayFields places on that pane.
+local activePreview
+
+-- Layer order matches the live bar exactly (AK's own ApplyStyleToRegions):
+-- icon texture (btn, ARTWORK) below border (child frame, level+1) below
+-- duration/stack text (textHost, child frame, level+2, ABOVE the border).
+local function CreatePreviewIcon(box)
+    local btn = CreateFrame("Frame", nil, box)
+    btn.icon = btn:CreateTexture(nil, "ARTWORK")
+    btn.icon:SetAllPoints()
+    btn.border = CreateFrame("Frame", nil, btn)
+    btn.textHost = CreateFrame("Frame", nil, btn)
+    btn.duration = btn.textHost:CreateFontString(nil, "OVERLAY")
+    btn.stack = btn.textHost:CreateFontString(nil, "OVERLAY")
+    return btn
+end
+
+-- Resolves a bar's live cfg + polarity from its (kind,id) identity -- same
+-- shape every other engine-side lookup in this file uses (DefaultBuffsCfg/
+-- DefaultExternalDefensivesCfg/PAB_GetCustomBuffBar/GetCustomDebuffBar).
+local function ResolvePreviewCfg(kind, id)
+    local s = PAB()
+    if not s then return nil end
+    if id == "default" then
+        local isBuff = kind == "buff"
+        return (isBuff and DefaultBuffsCfg(s) or DefaultDebuffsCfg(s)), isBuff
+    elseif id == "extdef" then
+        return DefaultExternalDefensivesCfg(s), true
+    elseif kind == "buff" then
+        return ns.PAB_GetCustomBuffBar(id), true
+    else
+        return ns.PAB_GetCustomDebuffBar(id), false
+    end
+end
+
+-- Options-panel "pixel perfect" compensation (2026-08-02 fix): the whole
+-- options window (EllesmereUI._mainFrame) runs at effective scale
+-- baseScale*userScale (EllesmereUI.GetPopupScale()), while the real PAB
+-- bars are parented directly to UIParent with no extra scale of their own
+-- -- so identical iconSize/padding/border/text-size NUMBERS render visibly
+-- SMALLER inside the options panel than on the real bar whenever that
+-- panel scale is below 1 (the common case, "pixel perfect" scaling is
+-- usually <1). Rather than SetScale the preview box itself (which would
+-- desync it from the sy layout accounting used to place widgets below it),
+-- every size-affecting cfg field is pre-multiplied by 1/GetPopupScale()
+-- before being fed into BuildStyle/ComputeGrid, so the ENTIRE preview
+-- (icon size, padding, border thickness, duration/stack font size and
+-- offsets, box footprint) inflates by exactly the panel's own scale factor
+-- and ends up the same TRUE on-screen size as the live bar -- both the
+-- panel-scale slider and WoW's own UI Scale setting cancel out
+-- algebraically (UIParent's effective scale multiplies both the live bar's
+-- and the panel's on-screen size equally, so only the panel's OWN extra
+-- SetScale factor matters).
+local function PreviewScaleFactor()
+    local s = (EllesmereUI.GetPopupScale and EllesmereUI.GetPopupScale()) or 1
+    if not s or s <= 0 then return 1 end
+    return 1 / s
+end
+
+-- Duplicates BuildStyle's own `or <default>` fallbacks for every field
+-- being scaled (32/5/1/11/0/11/0) since a size can't be scaled without
+-- first resolving what "unset" means -- keep these in sync if BuildStyle's
+-- defaults ever change. Non-size fields (growDirection, iconsPerRow/
+-- maxRows/maxTotal, dispel colors, ...) pass through unchanged.
+local function ScaledPreviewCfg(cfg)
+    local comp = PreviewScaleFactor()
+    if comp == 1 then return cfg end
+    local out = {}
+    for k, v in pairs(cfg) do out[k] = v end
+    out.iconSize = (cfg.iconSize or 32) * comp
+    out.padding = (cfg.padding or 5) * comp
+    out.borderSize = (cfg.borderSize or 1) * comp
+    out.durationTextSize = (cfg.durationTextSize or 11) * comp
+    out.durationOffsetX = (cfg.durationOffsetX or 0) * comp
+    out.durationOffsetY = (cfg.durationOffsetY or 0) * comp
+    out.stackTextSize = (cfg.stackTextSize or 11) * comp
+    out.stackOffsetX = (cfg.stackOffsetX or 0) * comp
+    out.stackOffsetY = (cfg.stackOffsetY or 0) * comp
+    return out
+end
+
+-- Renders (or re-renders in place) the fake icon grid using the bar's
+-- CURRENT cfg -- safe to call on every live slider tick, only touches
+-- plain addon-owned Frame/Texture/FontString regions, never the real bar.
+-- Row/column math mirrors ComputeGrid/BuildContainerSpec's own corner-
+-- anchored flow layout so the preview wraps exactly like the live bar.
+local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, buffPool)
+    cfg = ScaledPreviewCfg(cfg)
+    local style = BuildStyle(isBuff, cfg)
+    local dcMap = (not isBuff) and BuildDispelColorMap(cfg) or nil
+    local grid = ComputeGrid(isBuff, cfg)
+
+    -- The box itself (and therefore the header darken band/divider below
+    -- it, see ns.PAB_BuildPreviewBox) is FIXED at its build-time size
+    -- (2026-08-02, Joel: divider/box should stay put, only the CONTENT
+    -- should change on a live settings edit). Icons are instead centered
+    -- as a BLOCK inside the box's current (unchanging) width/height, using
+    -- box:GetCenter()-relative offsets rather than anchoring to one of the
+    -- box's own corners -- growDirection still decides which edge of that
+    -- centered block fills first (matches the live bar's own fill order),
+    -- it just no longer moves the box/divider around while doing it.
+    local corner = CornerFor(cfg.growDirection or "LEFT")
+    local pad = cfg.padding or 5
+    local iconSize = cfg.iconSize or 32
+    local cols = math.max(1, cfg.iconsPerRow or (isBuff and 11 or 8))
+    local count = grid.effectiveMax
+    local list = isBuff and ((buffPool and #buffPool > 0 and buffPool) or PREVIEW_BUFF_SPELLS) or PREVIEW_DEBUFF_SPELLS
+    local listLen = #list
+
+    local rows = math.max(1, math.ceil(count / cols))
+    local blockW = cols * iconSize + math.max(0, cols - 1) * pad
+    local blockH = rows * iconSize + math.max(0, rows - 1) * pad
+    local halfW, halfH = blockW / 2, blockH / 2
+
+    for i = 1, math.max(count, #icons) do
+        if i <= count then
+            local btn = icons[i]
+            if not btn then
+                btn = CreatePreviewIcon(box)
+                icons[i] = btn
+            end
+
+            local entry = list[((i - 1) % listLen) + 1]
+            local spellID = isBuff and entry or entry.id
+            local dispel = (not isBuff) and entry.dispel or nil
+
+            local col = (i - 1) % cols
+            local row = math.floor((i - 1) / cols)
+            local colStep = (iconSize + pad) * col
+            local rowStep = (iconSize + pad) * row
+            -- btn's own anchor point is `corner` (TOPLEFT/TOPRIGHT, matching
+            -- growDirection), placed at an offset from the box's CENTER --
+            -- see the block-centering comment above `local rows = ...`.
+            local btnX = (corner == "TOPRIGHT") and (halfW - colStep) or (-halfW + colStep)
+            local btnY = halfH - rowStep
+            btn:ClearAllPoints()
+            btn:SetPoint(corner, box, "CENTER", btnX, btnY)
+            btn:SetSize(iconSize, iconSize)
+
+            btn.icon:SetTexture(PreviewSpellIcon(spellID))
+            local z = style.iconZoom or 0.055
+            btn.icon:SetTexCoord(z, 1 - z, z, 1 - z)
+
+            btn.border:SetAllPoints(btn.icon)
+            btn.border:SetFrameLevel(btn:GetFrameLevel() + 1)
+            local PP = EllesmereUI and EllesmereUI.PanelPP
+            if PP and style.border then
+                local br, bg, bb, ba = style.border[1], style.border[2], style.border[3], style.border[4]
+                if dispel and dcMap and dcMap[dispel] then
+                    local c = dcMap[dispel]
+                    br, bg, bb, ba = c.r, c.g, c.b, 1
+                end
+                local size = style.border.size or 1
+                -- PP.CreateBorder is create-ONCE-only -- a second call with a
+                -- different size/color on an already-created host is a
+                -- silent no-op (see EllesmereUI.lua's PP.CreateBorder: early-
+                -- returns the cached container without touching bd.borderSize
+                -- /borderColor). Live border-size/color changes on an
+                -- already-created host must go through PP.UpdateBorder
+                -- instead -- exactly the borderMade branch EllesmereUI_
+                -- AuraKit.lua's own ApplyStyleToRegions uses for the real
+                -- bar's borders. Without this, the preview's border only
+                -- ever "moved" by toggling Hide()/Show() at size 0, never
+                -- actually re-sized above 0 (bug fixed 2026-08-02).
+                if btn.borderMade then
+                    PP.UpdateBorder(btn.border, size, br, bg, bb, ba)
+                elseif PP.CreateBorder then
+                    PP.CreateBorder(btn.border, br, bg, bb, ba, size, "OVERLAY", 7)
+                    btn.borderMade = true
+                end
+                if PP.ShowBorder then PP.ShowBorder(btn.border) else btn.border:Show() end
+            else
+                if PP and PP.HideBorder then PP.HideBorder(btn.border) else btn.border:Hide() end
+            end
+
+            btn.textHost:SetAllPoints(btn)
+            btn.textHost:SetFrameLevel(btn:GetFrameLevel() + 2)
+
+            btn.duration:ClearAllPoints()
+            btn.duration:SetFont(fontPath, style.durationFontSize or 11, "OUTLINE")
+            btn.duration:SetPoint(style.durationPoint or "TOP", btn, style.durationRelPoint or "BOTTOM",
+                style.durationX or 0, style.durationY or 0)
+            local dc = style.durationColor
+            btn.duration:SetTextColor(dc and dc.r or 1, dc and dc.g or 1, dc and dc.b or 1)
+            btn.duration:SetShown(not style.hideDurationText)
+            btn.duration:SetText(PREVIEW_DURATIONS[((i - 1) % #PREVIEW_DURATIONS) + 1])
+
+            btn.stack:ClearAllPoints()
+            btn.stack:SetFont(fontPath, style.stackFontSize or 11, "OUTLINE")
+            btn.stack:SetPoint(style.stackPoint or "TOP", btn, style.stackPoint or "TOP",
+                style.stackX or 0, style.stackY or 0)
+            local sc = style.stackColor
+            btn.stack:SetTextColor(sc and sc.r or 1, sc and sc.g or 1, sc and sc.b or 1)
+            local stackVal = PREVIEW_STACKS[((i - 1) % #PREVIEW_STACKS) + 1]
+            btn.stack:SetShown(style.showStacks ~= false and stackVal ~= nil)
+            if stackVal then btn.stack:SetText(stackVal) end
+
+            btn:Show()
+        elseif icons[i] then
+            icons[i]:Hide()
+        end
+    end
+end
+
+-- Public hook for the Options UI: builds this bar's embedded preview box
+-- entirely OUTSIDE the scrollable settings area (2026-08-02, Joel: the
+-- scrollbar must only scroll the settings fields below, never the preview
+-- itself) -- box, "PREVIEW" label, darkened header band, and divider are
+-- all children of `outerFrame` directly (the detail pane's own top-level,
+-- non-scrolling frame that title/desc already live on), sized to the bar's
+-- REAL configured grid (ComputeGrid, same as the live bar) and horizontally
+-- centered (anchored TOP-to-TOP rather than TOPLEFT).
+--
+-- The "PREVIEW" section-header label is wrapped in a small local
+-- padDiff-compensated + clipped frame (same CONTENT_PAD-vs-20px trick as
+-- EUI_PlayerAuraBars_ManagerPages.lua's WrapCompensatedBody, duplicated in
+-- miniature here rather than shared -- W:SectionHeader assumes a 45px
+-- CONTENT_PAD margin, but this detail pane only reserves 20px) -- the box
+-- itself needs no such compensation since it's positioned via a plain
+-- SetPoint, not a W: widget.
+--
+-- Geometry is FIXED at this build-time call (2026-08-02, Joel: the box and
+-- divider should stay put; only the icon CONTENT inside the box should
+-- change on a live settings edit -- see RenderPreviewIcons' block-centering
+-- comment). Only recomputed when this function runs again, i.e. on a
+-- structural detail-pane rebuild (switching bars/tabs), not on every
+-- live-apply refresh.
+--   outerFrame: the detail pane's own top-level frame (title/desc's parent)
+--   startY: outerFrame-local Y to start placing the PREVIEW label/box at
+--           (the caller's fixed offset below title/desc, e.g. -50)
+--   kind: "buff" or "debuff"
+--   id:   "default" | "extdef" | a custom bar's id
+--   cfg:  the same cfg table the caller already resolved for its own
+--         ApplyBar/field builders
+-- Returns the outerFrame-local Y where the preview area ends -- the caller
+-- passes this straight to WrapCompensatedBody(outerFrame, returnedY) as the
+-- scrollable settings area's own top offset.
+function ns.PAB_BuildPreviewBox(outerFrame, fontPath, startY, kind, id, cfg)
+    local isBuff = kind == "buff"
+    local sy = startY
+
+    local W = EllesmereUI.Widgets
+    if W and W.SectionHeader then
+        local contentPad = EllesmereUI.CONTENT_PAD or 45
+        local padDiff = contentPad - 20
+        local visibleW = outerFrame:GetWidth()
+
+        local hdrClip = CreateFrame("Frame", nil, outerFrame)
+        hdrClip:SetPoint("TOPLEFT", outerFrame, "TOPLEFT", 0, sy)
+        hdrClip:SetSize(math.max(visibleW, 1), 40)
+        hdrClip:SetClipsChildren(true)
+
+        local hdrBody = CreateFrame("Frame", nil, hdrClip)
+        hdrBody:SetPoint("TOPLEFT", hdrClip, "TOPLEFT", -padDiff, 0)
+        hdrBody:SetSize(visibleW + padDiff * 2, 40)
+
+        local _, hh = W:SectionHeader(hdrBody, "PREVIEW", 0)
+        sy = sy - hh
+    end
+
+    -- Sized from the SCALED cfg (see ScaledPreviewCfg/PreviewScaleFactor's
+    -- own doc comment) so the box's footprint matches what
+    -- RenderPreviewIcons actually draws into it.
+    local grid = ComputeGrid(isBuff, ScaledPreviewCfg(cfg))
+    -- +30 (scaled) extra vertical room for duration/stack text rendering
+    -- above/below the icon grid itself -- ComputeGrid's own width/height
+    -- are the icon grid's bounding box only (same as the real bar), text
+    -- can render outside that box depending on Duration/Stacks Position.
+    local boxHeight = grid.height + 30 * PreviewScaleFactor()
+    local box = CreateFrame("Frame", nil, outerFrame)
+    box:SetPoint("TOP", outerFrame, "TOP", 0, sy)
+    box:SetSize(math.max(grid.width, 1), boxHeight)
+
+    local headerBg = outerFrame._pabPreviewHeaderBg
+    if not headerBg then
+        headerBg = outerFrame:CreateTexture(nil, "BACKGROUND")
+        headerBg:SetColorTexture(0, 0, 0, 0.15)
+        outerFrame._pabPreviewHeaderBg = headerBg
+    end
+    headerBg:ClearAllPoints()
+    headerBg:SetPoint("TOPLEFT", outerFrame, "TOPLEFT", 0, 0)
+    headerBg:SetPoint("TOPRIGHT", outerFrame, "TOPRIGHT", 0, 0)
+
+    local divider = outerFrame._pabPreviewDivider
+    if not divider then
+        divider = outerFrame:CreateTexture(nil, "OVERLAY")
+        divider:SetColorTexture(1, 1, 1, 0.10)
+        divider:SetHeight(1)
+        outerFrame._pabPreviewDivider = divider
+    end
+
+    local bottomY = sy - boxHeight - 10
+    headerBg:SetHeight(math.abs(bottomY))
+    divider:ClearAllPoints()
+    divider:SetPoint("TOPLEFT", outerFrame, "TOPLEFT", 0, bottomY)
+    divider:SetPoint("TOPRIGHT", outerFrame, "TOPRIGHT", 0, bottomY)
+
+    local icons = {}
+    -- Shuffled once per box build, not per refresh -- see BuildBuffPreviewPool's
+    -- own doc comment for why (icons shouldn't swap spell identity on every
+    -- slider tick, only their style/position/count). External Defensives
+    -- gets its own cross-class pool (EXTDEF_PREVIEW_SPELLS) instead of the
+    -- player's class buffs -- those auras come from OTHER players' classes.
+    local buffPool
+    if isBuff then
+        buffPool = (id == "extdef") and ShuffleCopy(EXTDEF_PREVIEW_SPELLS) or BuildBuffPreviewPool()
+    end
+    activePreview = { kind = kind, id = id, box = box, icons = icons, fontPath = fontPath, buffPool = buffPool }
+    RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, buffPool)
+
+    return bottomY
+end
+
+-- Piggyback hook, called at the end of every live-apply path (ApplyLiveConfig,
+-- ApplyExtDefLiveConfig, PAB_ReloadCustomBuffBar, PAB_ReloadCustomDebuffBar)
+-- so a currently-open preview box stays in sync with slider drags/dropdown
+-- changes without EUI_PlayerAuraBars_ManagerPages.lua needing to know the
+-- preview exists or wrap its ApplyBar() closures.
+PAB_MaybeRefreshPreview = function(kind, id)
+    if not (activePreview and activePreview.kind == kind and activePreview.id == id) then return end
+    local cfg, isBuff = ResolvePreviewCfg(kind, id)
+    if not cfg then return end
+    RenderPreviewIcons(activePreview.box, activePreview.icons, isBuff, cfg, activePreview.fontPath, activePreview.buffPool)
+end
 
 -------------------------------------------------------------------------------
 --  Lifecycle

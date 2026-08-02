@@ -31,6 +31,15 @@ local function L(s) return EllesmereUI.L and EllesmereUI.L(s) or s end
 
 local TILE_H = 54
 
+-- Forward-declared: defined below (verbatim port of RaidFrames' editor
+-- scroll helper), used by WrapCompensatedBody -- which is itself defined
+-- ABOVE that point in the file -- to give the detail pane's body a real
+-- scrollbar (2026-08-02 fix: the body previously had no scroll mechanism
+-- at all, just silent SetClipsChildren cropping; content taller than the
+-- visible area was simply unreachable, a pre-existing gap that only became
+-- visible once the new preview box pushed settings fields below the fold).
+local AttachEditorScroll
+
 -- Selection state: {kind="buff"|"debuff", id=barId|"default"} or nil.
 local pabSel = { kind = "buff", id = "default" }
 -- Filter Editor's own selected-filter state (independent of pabSel, since
@@ -740,23 +749,40 @@ end
 -- effective left edge still lines up with the visible 20px inset, and clip
 -- the overflow on an outer frame (RaidFrames: "DualRow width compensated
 -- so rows align with the 20px PAD").
+-- 2026-08-02 fix: `clip` is now a real ScrollFrame (was a plain Frame with
+-- SetClipsChildren -- silently cropped any overflow with no way to reach
+-- it, a pre-existing gap that only became visible once the new preview box
+-- pushed settings fields below the fold). Callers MUST call
+-- FinalizeCompensatedBody(body, finalSy) once after building all their
+-- fields, so the scroll child's real height (and therefore the scrollbar's
+-- thumb/track visibility) reflects actual content instead of a guess.
 local function WrapCompensatedBody(parentFrame, topOffset)
     local contentPad = EllesmereUI.CONTENT_PAD or 45
     local PAD = 20 -- matches PABMP_BuildPage's own detail-pane inset
     local padDiff = contentPad - PAD
     local visibleW = parentFrame:GetWidth()
 
-    local clip = CreateFrame("Frame", nil, parentFrame)
-    clip:SetPoint("TOPLEFT", parentFrame, "TOPLEFT", 0, topOffset or 0)
-    clip:SetPoint("BOTTOMRIGHT", parentFrame, "BOTTOMRIGHT", 0, 0)
-    clip:SetClipsChildren(true)
-    clip:SetFrameLevel(parentFrame:GetFrameLevel() + 1)
+    local scroll = CreateFrame("ScrollFrame", nil, parentFrame)
+    scroll:SetPoint("TOPLEFT", parentFrame, "TOPLEFT", 0, topOffset or 0)
+    scroll:SetPoint("BOTTOMRIGHT", parentFrame, "BOTTOMRIGHT", 0, 0)
+    scroll:SetFrameLevel(parentFrame:GetFrameLevel() + 1)
 
-    local body = CreateFrame("Frame", nil, clip)
-    body:SetPoint("TOPLEFT", clip, "TOPLEFT", -padDiff, 0)
-    body:SetSize(visibleW + padDiff * 2, 4000)
+    local body = CreateFrame("Frame", nil, scroll)
+    body:SetPoint("TOPLEFT", scroll, "TOPLEFT", -padDiff, 0)
+    body:SetSize(visibleW + padDiff * 2, 10) -- finalized by FinalizeCompensatedBody
     body._showRowDivider = true
+    scroll:SetScrollChild(body)
+    body._pabUpdateThumb = AttachEditorScroll(scroll, body)
     return body
+end
+
+-- Sizes the scroll child to its real content height and refreshes the
+-- scrollbar's thumb/track visibility. Call once, after all of a detail
+-- pane's fields have been built into `body` and the final sy/by
+-- accumulator value is known.
+local function FinalizeCompensatedBody(body, sy)
+    body:SetHeight(max(10, math.abs(sy) + 20))
+    if body._pabUpdateThumb then body._pabUpdateThumb() end
 end
 
 local function BuildDefaultBarDetail(frame, fontPath, isBuff)
@@ -769,7 +795,7 @@ local function BuildDefaultBarDetail(frame, fontPath, isBuff)
 
     local title = frame:CreateFontString(nil, "OVERLAY")
     title:SetFont(fontPath, 15, "")
-    title:SetPoint("TOPLEFT", frame, "TOPLEFT", 20, 0)
+    title:SetPoint("TOPLEFT", frame, "TOPLEFT", 20, -14)
     title:SetText(isBuff and L("Buffs") or L("Debuffs"))
     title:SetTextColor(1, 1, 1, 0.95)
     local desc = frame:CreateFontString(nil, "OVERLAY")
@@ -778,12 +804,17 @@ local function BuildDefaultBarDetail(frame, fontPath, isBuff)
     desc:SetText(L("Built-in bar. Cannot be deleted."))
     desc:SetTextColor(1, 1, 1, 0.45)
 
-    local body = WrapCompensatedBody(frame, -36)
-    local sy = 0
     local function ApplyBar()
         if ns.PAB_Restyle then ns.PAB_Restyle() end
         if ns.PAB_ApplyLiveConfig then ns.PAB_ApplyLiveConfig(isBuff) end
     end
+
+    local scrollTop = -50
+    if ns.PAB_BuildPreviewBox then
+        scrollTop = ns.PAB_BuildPreviewBox(frame, fontPath, -50, isBuff and "buff" or "debuff", "default", cfg)
+    end
+    local body = WrapCompensatedBody(frame, scrollTop)
+    local sy = 0
 
     if isBuff then
         sy = BuildAssignedBuffsFields(body, fontPath, sy, cfg, ApplyBar)
@@ -795,6 +826,7 @@ local function BuildDefaultBarDetail(frame, fontPath, isBuff)
     if not isBuff then
         sy = BuildDispelColorFields(body, fontPath, sy, cfg, ApplyBar)
     end
+    FinalizeCompensatedBody(body, sy)
 end
 
 -- Third default bar, migrated from the retired standalone
@@ -815,7 +847,7 @@ local function BuildExternalDefensivesBarDetail(frame, fontPath)
 
     local title = frame:CreateFontString(nil, "OVERLAY")
     title:SetFont(fontPath, 15, "")
-    title:SetPoint("TOPLEFT", frame, "TOPLEFT", 20, 0)
+    title:SetPoint("TOPLEFT", frame, "TOPLEFT", 20, -14)
     title:SetText(L("External Defensives"))
     title:SetTextColor(1, 1, 1, 0.95)
     local desc = frame:CreateFontString(nil, "OVERLAY")
@@ -824,15 +856,21 @@ local function BuildExternalDefensivesBarDetail(frame, fontPath)
     desc:SetText(L("Built-in bar. Shows external defensives cast on you (Pain Suppression, Ironbark, etc). Cannot be deleted."))
     desc:SetTextColor(1, 1, 1, 0.45)
 
-    local body = WrapCompensatedBody(frame, -36)
-    local sy = 0
     local function ApplyBar()
         if ns.PAB_Restyle then ns.PAB_Restyle() end
         if ns.PAB_ApplyExtDefLiveConfig then ns.PAB_ApplyExtDefLiveConfig() end
     end
 
+    local scrollTop = -50
+    if ns.PAB_BuildPreviewBox then
+        scrollTop = ns.PAB_BuildPreviewBox(frame, fontPath, -50, "buff", "extdef", cfg)
+    end
+    local body = WrapCompensatedBody(frame, scrollTop)
+    local sy = 0
+
     sy = BuildCoreFields(body, fontPath, sy, cfg, ApplyBar)
     sy = BuildDisplayFields(body, fontPath, sy, cfg, ApplyBar)
+    FinalizeCompensatedBody(body, sy)
 end
 
 -------------------------------------------------------------------------------
@@ -1030,7 +1068,7 @@ end
 local function BuildBarTitle(frame, fontPath, name, subtitle)
     local title = frame:CreateFontString(nil, "OVERLAY")
     title:SetFont(fontPath, 15, "")
-    title:SetPoint("TOPLEFT", frame, "TOPLEFT", 20, 0)
+    title:SetPoint("TOPLEFT", frame, "TOPLEFT", 20, -14)
     title:SetText(name)
     title:SetTextColor(1, 1, 1, 0.95)
     local desc = frame:CreateFontString(nil, "OVERLAY")
@@ -1047,11 +1085,16 @@ local function BuildBuffBarDetail(frame, fontPath, bar)
 
     BuildBarTitle(frame, fontPath, bar.name or L("Buff Bar"), L("Custom buff bar."))
 
-    local body = WrapCompensatedBody(frame, -36)
+    local scrollTop = -50
+    if ns.PAB_BuildPreviewBox then
+        scrollTop = ns.PAB_BuildPreviewBox(frame, fontPath, -50, "buff", bar.id, bar)
+    end
+    local body = WrapCompensatedBody(frame, scrollTop)
     local by = 0
     by = BuildAssignedBuffsFields(body, fontPath, by, bar, ApplyBar)
     by = BuildCoreFields(body, fontPath, by, bar, ApplyBar)
     by = BuildDisplayFields(body, fontPath, by, bar, ApplyBar)
+    FinalizeCompensatedBody(body, by)
 end
 
 -------------------------------------------------------------------------------
@@ -1067,12 +1110,17 @@ local function BuildDebuffBarDetail(frame, fontPath, bar)
 
     BuildBarTitle(frame, fontPath, bar.name or L("Debuff Bar"), L("Custom debuff bar."))
 
-    local body = WrapCompensatedBody(frame, -36)
+    local scrollTop = -50
+    if ns.PAB_BuildPreviewBox then
+        scrollTop = ns.PAB_BuildPreviewBox(frame, fontPath, -50, "debuff", bar.id, bar)
+    end
+    local body = WrapCompensatedBody(frame, scrollTop)
     local by = 0
     by = BuildAssignedDebuffsFields(body, fontPath, by, bar, ApplyBar)
     by = BuildCoreFields(body, fontPath, by, bar, ApplyBar)
     by = BuildDisplayFields(body, fontPath, by, bar, ApplyBar)
     by = BuildDispelColorFields(body, fontPath, by, bar, ApplyBar)
+    FinalizeCompensatedBody(body, by)
 end
 
 -------------------------------------------------------------------------------
@@ -1130,7 +1178,7 @@ end
 -- Standard smooth scroll + thin custom scrollbar (verbatim port of
 -- AttachEditorScroll from EUI_RaidFrames_ManagerPages.lua). Track shows
 -- only on overflow. Returns UpdateThumb and SetScrollTo(v).
-local function AttachEditorScroll(scroll, child, onScroll)
+AttachEditorScroll = function(scroll, child, onScroll)
     local SBAR_W = 4
     local track = CreateFrame("Frame", nil, scroll)
     track:SetPoint("TOPRIGHT", scroll, "TOPRIGHT", -2, -2)
@@ -1793,7 +1841,6 @@ function ns.PABMP_BuildPage(pageName, parent, yOffset)
     local scrollFrame = EllesmereUI._scrollFrame
     if not scrollFrame then return 0 end
     local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("unitFrames")) or "Fonts\\FRIZQT__.TTF"
-    local PP = EllesmereUI.PanelPP
 
     -- Runs every time this page opens, not just when empty: creates any
     -- missing curated presets AND retroactively re-flags already-existing
@@ -1830,28 +1877,12 @@ function ns.PABMP_BuildPage(pageName, parent, yOffset)
         if not ok then pabSel = { kind = "buff", id = "default" } end
     end
 
-    local HEADER_H = 64
-    do
-        local card = CreateFrame("Frame", nil, outerRoot)
-        card:SetPoint("TOPLEFT", outerRoot, "TOPLEFT", 0, 0)
-        card:SetPoint("TOPRIGHT", outerRoot, "TOPRIGHT", 0, 0)
-        card:SetHeight(HEADER_H - 12)
-        card:SetFrameLevel(outerRoot:GetFrameLevel() + 2)
-        local cardBg = card:CreateTexture(nil, "BACKGROUND")
-        cardBg:SetAllPoints()
-        cardBg:SetColorTexture(1, 1, 1, 0.02)
-        if PP then PP.CreateBorder(card, 1, 1, 1, 0.08, 1) end
-        local title = card:CreateFontString(nil, "OVERLAY")
-        title:SetFont(fontPath, 15, "")
-        title:SetPoint("TOPLEFT", card, "TOPLEFT", 16, -12)
-        title:SetText(L("Player Aura Bars"))
-        title:SetTextColor(1, 1, 1, 0.95)
-        local desc = card:CreateFontString(nil, "OVERLAY")
-        desc:SetFont(fontPath, 12, "")
-        desc:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -6)
-        desc:SetText(L("Buff bars track individual spells. Debuff bars track categories."))
-        desc:SetTextColor(1, 1, 1, 0.5)
-    end
+    -- Page-level "Player Aura Bars" header card removed (2026-08-02, Joel:
+    -- it competed visually with the new per-bar preview box now sitting at
+    -- the top of each detail pane). HEADER_H kept at 0 rather than removed
+    -- outright so `root`'s offset math below still reads clearly as "below
+    -- the (now empty) header band".
+    local HEADER_H = 0
 
     local root = CreateFrame("Frame", nil, outerRoot)
     root:SetPoint("TOPLEFT", outerRoot, "TOPLEFT", 0, -HEADER_H)
