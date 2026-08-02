@@ -262,6 +262,14 @@ local function BuildAutoLoggingPage(pageName, parent, yOffset)
         y = y - lustH
     end
 
+    ---------------------------------------------------------------------------
+    --  MAILBOX IMPROVEMENTS
+    ---------------------------------------------------------------------------
+    if _G._EUI_BuildMailSection then
+        local mailH = _G._EUI_BuildMailSection(parent, y, W, EllesmereUI.PP)
+        y = y - mailH
+    end
+
     return math.abs(y - yOffset)
 end
 
