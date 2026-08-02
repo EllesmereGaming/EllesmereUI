@@ -274,12 +274,43 @@ initFrame:SetScript("OnEvent", function(self)
             { type = "label", text = "" }
         );  y = y - h
 
+        -- GROUP BUTTONS
+        --
+        -- One switch per optional action. Ready Check has none: it is the
+        -- reason the panel exists. Turning a button off closes the gap it
+        -- leaves -- the survivors re-flow across the rows.
+        _, h = W:SectionHeader(parent, "GROUP BUTTONS", y);  y = y - h
+
+        local function ButtonToggle(key, text, tooltip)
+            return { type = "toggle", text = text, tooltip = tooltip,
+                     disabled = Disabled,
+                     getValue = function() return Cfg(key) ~= false end,
+                     setValue = function(v)
+                         Set(key, v)
+                         Refresh()
+                     end }
+        end
+
+        _, h = W:DualRow(parent, y,
+            ButtonToggle("showRoleCheck", "Show Role Check",
+                "Shows the Role Check button. Turn it off and the remaining buttons close the gap."),
+            ButtonToggle("showConvert", "Show Convert to Raid",
+                "Shows the Convert to Raid button, which reads Convert to Party while you are in a raid.")
+        );  y = y - h
+        _, h = W:DualRow(parent, y,
+            ButtonToggle("showDisband", "Show Disband",
+                "Shows the Disband button. It always asks before disbanding, but hiding it puts it out of misclick range for good."),
+            { type = "spacer" }
+        );  y = y - h
+
         -- PULL TIMER
         _, h = W:SectionHeader(parent, "PULL TIMER", y);  y = y - h
 
         local PULL_LABELS = { "First Timer", "Second Timer", "Third Timer" }
+        local PULL_TIP = "Countdown length of this pull button, in seconds. Set it to 0 to hide the button; with all three at 0 the whole pull row disappears, Stop included."
         local function PullSlider(i)
-            return { type="slider", text=PULL_LABELS[i], min=1, max=60, step=1,
+            return { type="slider", text=PULL_LABELS[i], min=0, max=60, step=1,
+                     tooltip=PULL_TIP,
                      disabled=Disabled,
                      getValue=function() return PullGet(i) end,
                      setValue=function(v) PullSet(i, v) end }
