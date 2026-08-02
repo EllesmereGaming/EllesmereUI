@@ -230,6 +230,12 @@ local STACK_POINTS = {
     center = { "CENTER", 0 },
 }
 
+local function CK(c)
+    if not c then return "-" end
+    return string.format("%.3f,%.3f,%.3f",
+        c.r or c[1] or 0, c.g or c[2] or 0, c.b or c[3] or 0)
+end
+
 -- Module text pass: fonts through the shared icon-text pipeline (outline slug
 -- rules live there), duration text centered like cooldown countdown text.
 -- Restyles hit every registered button, so SetFont is change-guarded (it
@@ -238,9 +244,11 @@ local STACK_POINTS = {
 -- same as the RF pass). The duration string is ALWAYS fonted, hidden or
 -- not: the engine SetText()s every registered duration string on display
 -- updates, and an unfonted FontString hard-errors inside that engine call
--- (visibility is handled by AuraKit via SetShown).
+-- (visibility is handled by AuraKit via SetShown). Text color is likewise
+-- change-guarded via CK() fingerprints (d.ufDurColor/d.ufStackColor) --
+-- SetTextColor costs real time too, same reasoning as the font guard above.
 local function ApplyUFText(button, d, style)
-    local path = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("unitFrames")) or FALLBACK_FONT
+    local path = style.fontPath or FALLBACK_FONT
     if d.duration then
         local fontKey = path .. "|" .. (style.cdTextSize or 10)
         if d.ufDurFont ~= fontKey then
@@ -248,7 +256,11 @@ local function ApplyUFText(button, d, style)
             EllesmereUI.ApplyIconTextFont(d.duration, path, style.cdTextSize or 10, "unitFrames")
         end
         local c = style.cdTextColor
-        d.duration:SetTextColor(c and c.r or 1, c and c.g or 1, c and c.b or 1)
+        local cKey = CK(c)
+        if d.ufDurColor ~= cKey then
+            d.ufDurColor = cKey
+            d.duration:SetTextColor(c and c.r or 1, c and c.g or 1, c and c.b or 1)
+        end
         -- Anchor change-guarded (stamp AFTER the calls): SetPoint with the
         -- button as the relative frame is policed by the 12.1 button access
         -- restriction while auras are secret; unchanged offsets must make
@@ -267,7 +279,11 @@ local function ApplyUFText(button, d, style)
             EllesmereUI.ApplyIconTextFont(d.stack, path, style.stackSize or 14, "unitFrames")
         end
         local c = style.stackColor
-        d.stack:SetTextColor(c and c.r or 1, c and c.g or 1, c and c.b or 1)
+        local cKey = CK(c)
+        if d.ufStackColor ~= cKey then
+            d.ufStackColor = cKey
+            d.stack:SetTextColor(c and c.r or 1, c and c.g or 1, c and c.b or 1)
+        end
         local sp = STACK_POINTS[style.stackPos or "bottomright"] or STACK_POINTS.bottomright
         local sKey = sp[1] .. "|" .. (sp[2] + (style.stackOffX or 0)) .. "|" .. (style.stackOffY or 0)
         if d.ufStackAnchor ~= sKey then
@@ -302,12 +318,6 @@ local function FP(...)
         end
     end
     return table.concat(t, "|")
-end
-
-local function CK(c)
-    if not c then return "-" end
-    return string.format("%.3f,%.3f,%.3f",
-        c.r or c[1] or 0, c.g or c[2] or 0, c.b or c[3] or 0)
 end
 
 -- Fingerprint of a BUILT style table (BuildStyle is a pure function of the
@@ -444,6 +454,10 @@ local function BuildStyle(unit, base, s, unitFrame)
         -- dispel color itself -- the user palette cannot apply under secrecy
         -- (same documented delta as the RF debuff border).
         dispelBorder = (not isBuff and s.debuffDispelBorder) and true or nil,
+        -- Resolved once per (fingerprint-gated) style rebuild instead of on
+        -- every ApplyUFText call -- GetFontPath's result only changes when
+        -- font settings change, which already forces a fresh style table.
+        fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("unitFrames")) or FALLBACK_FONT,
         applyExtra = ApplyUFText,
     }
 end
