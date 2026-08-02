@@ -394,7 +394,7 @@ No buffs assigned. Right click a button in the preview to assign buffs.
 No death recap available
 No excluded debuffs.
 No patch notes yet.
-No spec macros for 
+No spec macros for
 No spells yet. Add spell IDs above.
 No talent
 No talent reminders configured
@@ -455,6 +455,7 @@ REAGENTS
 Racial
 Raid Tools cannot be toggled by slash command in combat -- use the keybind.
 Raid Tools is disabled in the EllesmereUI options.
+Raid Tools is hidden in a raid without leader or assist -- none of its buttons work there.
 Raids
 Raise Strata
 Re-sync
