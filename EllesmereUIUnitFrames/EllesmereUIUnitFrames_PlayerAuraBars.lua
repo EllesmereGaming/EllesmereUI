@@ -139,7 +139,17 @@ local function ClassEnabled(class, isBuff, cfg)
     return cfg.classFilters and cfg.classFilters[class.skey] == true
 end
 
-local function BuildChain(base, classEnabledFn)
+-- includeCatchAll (default true, matches every pre-existing caller): the
+-- default Debuffs bar and the buff-side {base}-only shortcut both want
+-- "every remaining aura of this polarity" appended after the per-class
+-- groups. Custom Debuff Bars with Show All Debuffs off do NOT want that --
+-- their whole point is to show ONLY the selected classes, but the catch-all
+-- was being appended unconditionally, so a bar restricted to e.g. "Big
+-- Defensive" also rendered every other debuff via the "all" group. Callers
+-- now pass includeCatchAll = false whenever the UI's own "Base Filters
+-- dropdown restricts what's shown" promise (see BuildAssignedDebuffsFields'
+-- tooltip) needs to actually hold.
+local function BuildChain(base, classEnabledFn, includeCatchAll)
     local chain, negations = {}, {}
     local tokenClasses = VisibleTokenClasses()
     local candidateClasses = VisibleCandidateClasses()
@@ -163,12 +173,14 @@ local function BuildChain(base, classEnabledFn)
         end
     end
 
-    -- Catch-all group LAST: everything not claimed by an enabled class,
-    -- negating the full chain built above. Always present -- with zero
-    -- classes enabled this is just { base }, i.e. every aura of that polarity.
-    local allTokens = { base }
-    for n = 1, #negations do allTokens[#allTokens + 1] = negations[n] end
-    chain[#chain + 1] = { key = "all", tokens = allTokens }
+    if includeCatchAll ~= false then
+        -- Catch-all group LAST: everything not claimed by an enabled class,
+        -- negating the full chain built above. With zero classes enabled
+        -- this is just { base }, i.e. every aura of that polarity.
+        local allTokens = { base }
+        for n = 1, #negations do allTokens[#allTokens + 1] = negations[n] end
+        chain[#chain + 1] = { key = "all", tokens = allTokens }
+    end
 
     return chain
 end
@@ -823,7 +835,7 @@ local function CreateBars()
     extDefParent:SetShown(extDefCfg.enabled ~= false)
     lastSize.extdef = { w = extDefGrid.width, h = extDefGrid.height }
 
-    local debuffChain = BuildChain("HARMFUL", function(class) return ClassEnabled(class, false, debuffCfg) end)
+    local debuffChain = BuildChain("HARMFUL", function(class) return ClassEnabled(class, false, debuffCfg) end, debuffCfg.showAllDebuffs ~= false)
 
     -- Single scalar padding (matches the old module's paddingBuffs/
     -- paddingDebuffs) -- feeds ONLY ApplyGroupConfig's per-group
@@ -1181,7 +1193,7 @@ local function ApplyLiveConfig(isBuff)
             end
         end
     else
-        local chain = BuildChain("HARMFUL", function(class) return ClassEnabled(class, false, cfg) end)
+        local chain = BuildChain("HARMFUL", function(class) return ClassEnabled(class, false, cfg) end, cfg.showAllDebuffs ~= false)
         ApplyGroupConfig(container, chain, declared.debuffs, STYLE_DEBUFFS, grid.effectiveMax, pad)
     end
 end
@@ -2298,7 +2310,7 @@ local function ReloadCustomDebuffBarImpl(barId)
     local grid = ComputeGrid(false, bar)
     parent:SetSize(grid.width, grid.height)
 
-    local chain = BuildChain("HARMFUL", function(class) return ClassEnabled(class, false, bar) end)
+    local chain = BuildChain("HARMFUL", function(class) return ClassEnabled(class, false, bar) end, bar.showAllDebuffs ~= false)
     local corner, spec = BuildContainerSpec(parent, bar, grid)
     local pad = bar.padding or 5
 
