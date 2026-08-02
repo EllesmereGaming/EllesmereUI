@@ -204,7 +204,14 @@ function Calc:GetEquippedGear(unit)
     return gear
 end
 
-Calc._tipCache = {}   -- [link] = { track, rank, isCrafted, craftBand, craftMaxIlvl, isVoidforged }
+Calc._tipCache = {}   -- [link] = { track, rank, maxRank, isCrafted, craftBand, craftMaxIlvl, isVoidforged }
+
+-- "Made by <name>" as a Lua pattern, built from the client's own global string
+-- so it matches on every locale. Colour codes are stripped first because the
+-- lines we test have already been through Plain(). Falls back to the enUS literal.
+local CREATED_BY_PATTERN = Plain(ITEM_CREATED_BY or "Made by %s")
+    :gsub("([%^%$%(%)%%%.%[%]%*%+%-%?])", "%%%1")
+    :gsub("%%%%s", ".+")
 
 function Calc:ScanItemLink(link)
     if not link then return nil end
@@ -212,24 +219,36 @@ function Calc:ScanItemLink(link)
     if cached then return cached end
 
     local result = {
-        track = nil, rank = nil,
+        track = nil, rank = nil, maxRank = nil,
         isCrafted = false, craftBand = nil, craftMaxIlvl = nil,
         isVoidforged = false,
     }
 
+    -- Primary source: the upgrade API, which reports the track in the client's
+    -- locale. EllesmereUI.GetUpgradeTrackKey translates it back to the English
+    -- key our season tables use. Tooltip text is only a fallback -- parsing it
+    -- directly is enUS-only and silently mislabels every item on other clients.
+    local apiTrack, apiRank, apiMax = nil, nil, nil
+    if EllesmereUI and EllesmereUI.GetUpgradeTrackKey then
+        apiTrack, apiRank, apiMax = EllesmereUI.GetUpgradeTrackKey(link)
+    end
+
     local lines = GetTooltipLines(link)
-    local foundTrack, foundRank, foundVoid = nil, nil, false
+    local foundTrack, foundRank, foundVoid = apiTrack, apiRank, false
     ForEachTooltipLine(lines, function(text)
         if not foundTrack and text:find("Upgrade Level") then
             local t, r = text:match("Upgrade Level:%s+(%a+)%s+(%d+)/%d+")
             if t then foundTrack = t; foundRank = tonumber(r) end
         end
+        -- enUS-only: no API exposes the Voidforged modifier. On other locales
+        -- this stays false and the ilvl-band fallback covers the max ilvl.
         if not foundVoid and Plain(text):find("Ascendant Voidforged") then
             foundVoid = true
         end
     end)
     result.track = foundTrack
     result.rank  = foundRank
+    result.maxRank = (foundTrack == apiTrack) and apiMax or nil
     result.isVoidforged = foundVoid
 
     -- Only scan the crafted tooltip if no upgrade track was found.
@@ -238,7 +257,9 @@ function Calc:ScanItemLink(link)
         local isCrafted, sawHero, sawMyth = false, false, false
         ForEachTooltipLine(lines, function(raw)
             local t = Plain(raw)
-            if t:find("Crafted") or t:find("Optional Reagents") or t:find("Recrafting") or t:find("Made by") then
+            if t:find(CREATED_BY_PATTERN)
+                or t:find("Crafted") or t:find("Optional Reagents")
+                or t:find("Recrafting") or t:find("Made by") then
                 isCrafted = true
             end
             if t:find("Hero") then sawHero = true end
@@ -258,10 +279,16 @@ function Calc:ScanItemLink(link)
     return result
 end
 
--- Returns: trackName (string|nil), rank (number|nil).
+-- Returns: trackName (string|nil), rank (number|nil), maxRank (number|nil).
 function Calc:GetItemTrackAndRank(link)
     local r = self:ScanItemLink(link)
-    return r and r.track, r and r.rank
+    return r and r.track, r and r.rank, r and r.maxRank
+end
+
+-- Number of ranks in a track: the API's maxLevel when we have it, otherwise the
+-- season table's length. Data.tracks has no Explorer entry, so td may be nil.
+local function TrackMaxRank(td, maxRank)
+    return maxRank or (td and #td.ranks) or 6
 end
 
 -- Shared helper: given an ilvl, returns band ("Myth"/"Hero"/"None") and maxIlvl.
@@ -315,10 +342,10 @@ end
 -- Returns the ilvl gain from the next upgrade step, or nil if already at max.
 -- (Reserved for future use; not currently called by PopulateGear.)
 function Calc:GetNextUpgradeGain(item)
-    local track, rank = self:GetItemTrackAndRank(item.link)
+    local track, rank, maxRank = self:GetItemTrackAndRank(item.link)
     if not track or not rank then return nil end
     local td = Data.tracks[track]
-    if not td or rank >= #td.ranks then return nil end
+    if not td or rank >= TrackMaxRank(td, maxRank) then return nil end
     return (td.ranks[rank + 1] or 0) - (td.ranks[rank] or 0)
 end
 
@@ -344,7 +371,7 @@ end
 -- Non-crafted: trackName, rank, crestCost, maxIlvl
 -- Crafted:     "Crafted", nil, nil, maxIlvl, tierLabel, band
 function Calc:GetItemUpgradeCost(item)
-    local track, rank = self:GetItemTrackAndRank(item.link)
+    local track, rank, maxRank = self:GetItemTrackAndRank(item.link)
 
     if not track then
         local isCrafted, band, tier, maxIlvl = self:GetCraftedInfo(item.link, item.ilvl)
@@ -378,7 +405,7 @@ function Calc:GetItemUpgradeCost(item)
     end
 
     -- Priority 2: raw estimate (upgrader scan not available for this slot).
-    local upgradesLeft = #td.ranks - rank
+    local upgradesLeft = math.max(0, TrackMaxRank(td, maxRank) - (rank or 0))
     return track, rank, upgradesLeft * 20, expectedMax
 end
 
@@ -1244,7 +1271,9 @@ PopulateGear = function()
                 end
             elseif track then
                 local td = Data.tracks[track]
-                totalMissing = totalMissing + ((td and #td.ranks or 6) - (rank or 0))
+                local scan = Calc:ScanItemLink(item.link)
+                local maxRank = TrackMaxRank(td, scan and scan.maxRank)
+                totalMissing = totalMissing + math.max(0, maxRank - (rank or 0))
                 local cn_map = slotCrestMap[item.slot]
                 if cn_map then
                     for cn, amt in pairs(cn_map) do
@@ -1254,8 +1283,8 @@ PopulateGear = function()
                     crestNeeds[td.crestName] = (crestNeeds[td.crestName] or 0) + crestCost
                 end
                 dt = track; dm = maxIlvl or item.ilvl
-                du = rank and (rank .. "/" .. (td and #td.ranks or 6)) or "-"
-                isAtMax = (rank == (td and #td.ranks or 6))
+                du = rank and (rank .. "/" .. maxRank) or "-"
+                isAtMax = (rank == maxRank)
             else
                 if Calc:IsVoidforged(item.link) then
                     dt = "Voidforged"; dm = item.ilvl; du = "Max"; isAtMax = true
@@ -1691,8 +1720,10 @@ end
 -- On PLAYER_LOGIN we call NewDB so our data lives inside EllesmereUIDB.profiles
 -- (the same place Cursor, BattleRes etc store theirs).  Without this, NewDB
 -- wipes EllesmereUIQoLDB and our saved data is lost every session.
--- The first-run filter runs once (guarded by opts.firstRunDone) to auto-hide
+-- The first-run filter runs once (guarded by opts.firstRunV2) to auto-hide
 -- crest tracks that have no upgradeable items on the player's current gear.
+-- The guard is versioned so the bad verdict written by the v1 enUS-only scan
+-- gets discarded and recomputed.
 local _firstRunEvt = CreateFrame("Frame")
 _firstRunEvt:RegisterEvent("PLAYER_LOGIN")
 _firstRunEvt:SetScript("OnEvent", function(self)
@@ -1740,17 +1771,26 @@ _firstRunEvt:SetScript("OnEvent", function(self)
         _optsCache = store.upgradeCalcOpts
     end
     local opts = Opts()
-    if opts.firstRunDone then return end
-    -- Brief delay so the client has fully loaded item data before tooltip scanning.
+    if opts.firstRunV2 then return end
+    -- The v1 auto-filter ran on the old enUS-only tooltip scan, so on every
+    -- other locale it detected no track at all and permanently hid every crest
+    -- row. Wipe that verdict (and the per-slot costs derived from it) before
+    -- re-running the scan against the upgrade API.
+    if opts.firstRunDone then
+        opts.crestFilter = nil
+        Calc:ClearCache()
+    end
+    -- Brief delay so the client has fully loaded item data before scanning.
     C_Timer.After(1.5, function()
         opts.firstRunDone = true
+        opts.firstRunV2   = true
         local tracksNeeded = {}
         for _, slotID in ipairs(Data.equipSlots) do
             local link = GetInventoryItemLink("player", slotID)
             if link then
                 local r = Calc:ScanItemLink(link)
                 local td = r and r.track and Data.tracks[r.track]
-                if td and (r.rank or 0) < #td.ranks then
+                if td and (r.rank or 0) < TrackMaxRank(td, r.maxRank) then
                     tracksNeeded[r.track] = true
                 end
             end

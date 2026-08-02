@@ -5267,10 +5267,11 @@ do
 
                 local label = btn:CreateFontString(nil, "OVERLAY")
                 if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(label, true) end
-                label:SetFont("Fonts\\FRIZQT__.TTF", 11, "")
+                label:SetFont((EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("minimap"))
+                    or "Fonts\\FRIZQT__.TTF", 11, "")
                 label:SetPoint("LEFT", btn, "LEFT", 10, 0)
                 label:SetTextColor(0.9, 0.9, 0.9)
-                label:SetText(item.text)
+                label:SetText(EllesmereUI.L(item.text))
 
                 local itemFn = item.fn
                 btn:SetScript("OnClick", function()
@@ -5327,10 +5328,11 @@ do
 
                 local label = btn:CreateFontString(nil, "OVERLAY")
                 if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(label, true) end
-                label:SetFont("Fonts\\FRIZQT__.TTF", 11, "")
+                label:SetFont((EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("minimap"))
+                    or "Fonts\\FRIZQT__.TTF", 11, "")
                 label:SetPoint("LEFT", btn, "LEFT", 10, 0)
                 label:SetTextColor(0.9, 0.9, 0.9)
-                label:SetText(item.text)
+                label:SetText(EllesmereUI.L(item.text))
 
                 btn:HookScript("OnClick", function() C_Timer.After(0, function() SetMenuVisible(false) end) end)
 

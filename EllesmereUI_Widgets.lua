@@ -642,7 +642,10 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
     MakeBorder(menu, mBrR, mBrG, mBrB, mBrA, PP)
 
     if _moSearchable then
-        local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("options") or "Fonts\\FRIZQT__.TTF"
+        -- Options panel is Expressway-locked by design (EllesmereUI.EXPRESSWAY is
+        -- the locale-aware value: CJK/Cyrillic clients get the system glyph font).
+        -- The user's global font intentionally does not restyle the settings UI.
+        local fontPath = EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF"
         searchEdit = CreateFrame("EditBox", nil, menu)
         searchEdit:SetSize(menuW - 16, SEARCH_H)
         searchEdit:SetPoint("TOP", menu, "TOP", 0, -4)
@@ -1541,16 +1544,38 @@ local function BuildSliderCore(parent, trackW, trackH, thumbSz, inputW, inputH, 
         end
     end
 
+    -- Re-entrancy guard: ClearFocus() below fires OnEditFocusLost, which calls
+    -- straight back in here. Harmless while this only re-set the same value, but
+    -- it would double the refresh sweep added at the end.
+    local committingInput = false
+
     local function CommitInput()
+        if committingInput then return end
+        committingInput = true
         local raw = tonumber(valBox:GetText())
+        local changed = false
         if raw then
             raw = math.max(minVal, math.min(maxVal, raw))
             local snapped = math.max(minVal, math.min(maxVal, math.floor(raw / step + 0.5) * step))
+            changed = snapped ~= currentVal
             setValue(snapped); currentVal = snapped; rawDragVal = snapped; UpdateSliderVisual(snapped)
         else
             valBox:SetText(FormatVal(currentVal))
         end
         valBox:ClearFocus()
+        committingInput = false
+        -- Typing a value has to re-evaluate widget state exactly as finishing a
+        -- drag does, or anything driven by the refresh sweep silently misses the
+        -- change: the "Apply to: All" sync indicator, disabled overlays, and the
+        -- like. EndDrag does this; without it here, dragging a cog slider showed
+        -- "Apply to: All" while typing the same value into the box did not.
+        --
+        -- Only when the value actually changed, so tabbing or clicking away from
+        -- an untouched box stays free. Deferred while any slider is mid-drag, to
+        -- match EndDrag, which only refreshes once every drag has ended.
+        if changed and not EllesmereUI._sliderDragging and EllesmereUI.RefreshPage then
+            EllesmereUI:RefreshPage()
+        end
     end
 
     valBox:SetScript("OnEnterPressed", function() CommitInput() end)
@@ -2340,6 +2365,61 @@ local function AttachLabelHover(parent, label, hoverText)
     hit:SetScript("OnLeave", function() HideWidgetTooltip() end)
     hit:SetMouseClickEnabled(false)
     return hit
+end
+
+-- Deferred label clamp for the row-half regions (DualRow / TripleRow).
+-- Half-region labels get their RIGHT edge bounded against the leftmost
+-- inline item (region._lastInline -- cogs / swatches / eyeballs attach
+-- AFTER the row builder returns, which is why this runs one frame deferred)
+-- or the control itself. Overflowing labels -- long localized strings
+-- especially -- then ellipsize instead of running under the controls, and
+-- the full text surfaces on label hover: folded into the label tooltip when
+-- the row has one (the tooltip hitFrames read region._labelTruncated via
+-- LabelTooltipText), or via a plain reveal hover attached here when not.
+local _labelClampQueue, _labelClampQueued = {}, false
+local function _FlushLabelClamps()
+    _labelClampQueued = false
+    for i = 1, #_labelClampQueue do
+        local region = _labelClampQueue[i]
+        _labelClampQueue[i] = nil
+        local label = region._label
+        local bound = region._lastInline or region._control
+        if label and bound and label:IsShown() then
+            local truncated = false
+            local ll, bl, sw = label:GetLeft(), bound:GetLeft(), label:GetStringWidth()
+            if ll and bl and sw and not (issecretvalue and (issecretvalue(ll) or issecretvalue(bl) or issecretvalue(sw))) then
+                truncated = sw > (bl - 12 - ll) + 0.5
+            end
+            -- Bound only when overflowing (see the builder tails: a right
+            -- anchor stretches the rect and displaces label-edge-anchored
+            -- subtitles on short labels).
+            if truncated then
+                label:SetPoint("RIGHT", bound, "LEFT", -12, 0)
+            end
+            region._labelTruncated = truncated
+            if truncated and not region._labelHasHit and not region._labelRevealHit then
+                region._labelRevealHit = AttachLabelHover(region, label, label:GetText())
+            end
+        end
+    end
+end
+local function QueueLabelClamp(region)
+    if not region._label then return end
+    _labelClampQueue[#_labelClampQueue + 1] = region
+    if not _labelClampQueued then
+        _labelClampQueued = true
+        C_Timer.After(0, _FlushLabelClamps)
+    end
+end
+
+-- Compose a label's hover tooltip: prepend the full label text when the
+-- label is truncated (composite is not a catalog key; the L() inside
+-- ShowWidgetTooltip leaves it untouched).
+local function LabelTooltipText(region, label, tip)
+    if region._labelTruncated then
+        return (label:GetText() or "") .. "\n" .. EllesmereUI.L(tip)
+    end
+    return tip
 end
 
 -- Toggle switch  (pill-shaped, teal when ON, dark when OFF, animated)
@@ -3548,11 +3628,16 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
             region._control = nil
             return
         end
-        -- Label (all types have one)
+        -- Label (all types have one). Single-line so the right-edge clamp
+        -- (QueueLabelClamp) can ellipsize instead of wrapping.
         local label = MakeFont(region, 14, nil, TEXT_WHITE_R, TEXT_WHITE_G, TEXT_WHITE_B)
         PP.Point(label, "LEFT", region, "LEFT", SIDE_PAD, 0)
+        label:SetJustifyH("LEFT")
+        label:SetWordWrap(false)
+        label:SetMaxLines(1)
         label:SetText(EllesmereUI.L(cfg.text or ""))
         region._label = label
+        region._labelHasHit = (cfg.tooltip or cfg.disabledTooltip) and true or false
 
         -- Tooltip on the label text.  For dropdowns the hitFrame is created
         -- after the dropdown button so it can check whether the menu is open.
@@ -3567,7 +3652,11 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
                     local tt = ResolveDisabledTip(cfg)
                     if tt then ShowWidgetTooltip(label, tt) end
                 elseif cfg.tooltip then
-                    ShowWidgetTooltip(label, cfg.tooltip, ttOpts)
+                    ShowWidgetTooltip(label, LabelTooltipText(region, label, cfg.tooltip), ttOpts)
+                elseif region._labelTruncated then
+                    -- Truncated label on a row whose hit exists only for the
+                    -- disabled tooltip: reveal the full text while enabled.
+                    ShowWidgetTooltip(label, label:GetText())
                 end
             end)
             hitFrame:SetScript("OnLeave", function() HideWidgetTooltip() end)
@@ -3677,7 +3766,9 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
                         local tt = ResolveDisabledTip(cfg)
                         if tt then ShowWidgetTooltip(label, tt) end
                     elseif cfg.tooltip and not (ddBtn._ddMenu and ddBtn._ddMenu:IsShown()) then
-                        ShowWidgetTooltip(label, cfg.tooltip, ttOpts)
+                        ShowWidgetTooltip(label, LabelTooltipText(region, label, cfg.tooltip), ttOpts)
+                    elseif region._labelTruncated and not (ddBtn._ddMenu and ddBtn._ddMenu:IsShown()) then
+                        ShowWidgetTooltip(label, label:GetText())
                     end
                 end)
                 hitFrame:SetScript("OnLeave", function() HideWidgetTooltip() end)
@@ -3896,6 +3987,12 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
             ApplyDisabledState()
         end
         region._control = controlAnchor or controlFrame
+        -- Label truncation is deferred (QueueLabelClamp) and the right bound
+        -- is only applied when the label actually overflows: a bound
+        -- stretches the label's rect, and anything anchored to its RIGHT
+        -- edge (inline "(Applies to ...)" subtitles) would slide to the far
+        -- side of the slot on short labels.
+        QueueLabelClamp(region)
     end
 
     BuildHalf(leftRegion, leftCfg)
@@ -3982,7 +4079,12 @@ function WidgetFactory:TripleRow(parent, yOffset, leftCfg, midCfg, rightCfg, spl
         end
         local label = MakeFont(region, 14, nil, TEXT_WHITE_R, TEXT_WHITE_G, TEXT_WHITE_B)
         PP.Point(label, "LEFT", region, "LEFT", SIDE_PAD, 0)
+        label:SetJustifyH("LEFT")
+        label:SetWordWrap(false)
+        label:SetMaxLines(1)
         label:SetText(EllesmereUI.L(cfg.text or ""))
+        region._label = label
+        region._labelHasHit = (cfg.tooltip or cfg.disabledTooltip) and true or false
 
         if (cfg.tooltip or cfg.disabledTooltip) and t ~= "dropdown" then
             local ttOpts = cfg.tooltipOpts
@@ -3995,7 +4097,11 @@ function WidgetFactory:TripleRow(parent, yOffset, leftCfg, midCfg, rightCfg, spl
                     local tt = ResolveDisabledTip(cfg)
                     if tt then ShowWidgetTooltip(label, tt) end
                 elseif cfg.tooltip then
-                    ShowWidgetTooltip(label, cfg.tooltip, ttOpts)
+                    ShowWidgetTooltip(label, LabelTooltipText(region, label, cfg.tooltip), ttOpts)
+                elseif region._labelTruncated then
+                    -- Truncated label on a row whose hit exists only for the
+                    -- disabled tooltip: reveal the full text while enabled.
+                    ShowWidgetTooltip(label, label:GetText())
                 end
             end)
             hitFrame:SetScript("OnLeave", function() HideWidgetTooltip() end)
@@ -4011,7 +4117,7 @@ function WidgetFactory:TripleRow(parent, yOffset, leftCfg, midCfg, rightCfg, spl
             end
         end
 
-        local controlFrame
+        local controlFrame, controlAnchor
         local function ApplyDisabledState()
             if not cfg.disabled then return end
             local off = cfg.disabled()
@@ -4052,6 +4158,7 @@ function WidgetFactory:TripleRow(parent, yOffset, leftCfg, midCfg, rightCfg, spl
                 valBox:SetAlpha(off and 0.3 or 1)
                 if slThumb then slThumb._sliderDisabled = off end
             end
+            controlAnchor = trackFrame
 
         elseif t == "dropdown" then
             local DD_W = cfg.dropdownWidth or 170
@@ -4092,7 +4199,9 @@ function WidgetFactory:TripleRow(parent, yOffset, leftCfg, midCfg, rightCfg, spl
                         local tt = ResolveDisabledTip(cfg)
                         if tt then ShowWidgetTooltip(label, tt) end
                     elseif cfg.tooltip and not (ddBtn._ddMenu and ddBtn._ddMenu:IsShown()) then
-                        ShowWidgetTooltip(label, cfg.tooltip, ttOpts)
+                        ShowWidgetTooltip(label, LabelTooltipText(region, label, cfg.tooltip), ttOpts)
+                    elseif region._labelTruncated and not (ddBtn._ddMenu and ddBtn._ddMenu:IsShown()) then
+                        ShowWidgetTooltip(label, label:GetText())
                     end
                 end)
                 hitFrame:SetScript("OnLeave", function() HideWidgetTooltip() end)
@@ -4209,6 +4318,13 @@ function WidgetFactory:TripleRow(parent, yOffset, leftCfg, midCfg, rightCfg, spl
             RegisterWidgetRefresh(function() ApplyDisabledState() end)
             ApplyDisabledState()
         end
+        region._control = controlAnchor or controlFrame
+        -- Label truncation is deferred (QueueLabelClamp) and the right bound
+        -- is only applied when the label actually overflows: a bound
+        -- stretches the label's rect, and anything anchored to its RIGHT
+        -- edge (inline "(Applies to ...)" subtitles) would slide to the far
+        -- side of the slot on short labels.
+        QueueLabelClamp(region)
     end
 
     BuildThird(leftRegion, leftCfg)
@@ -6321,7 +6437,10 @@ local function BuildMultiApplyDropdown(anchorFrame, opts, flashTargets)
     end
     local checked = _multiApplyCheckedState[cacheKey]
 
-    local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("options") or "Fonts\\FRIZQT__.TTF"
+    -- Options panel is Expressway-locked by design (EllesmereUI.EXPRESSWAY is
+    -- the locale-aware value: CJK/Cyrillic clients get the system glyph font).
+    -- The user's global font intentionally does not restyle the settings UI.
+    local fontPath = EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF"
 
     -- "Apply" button at top -- styled like the footer Reset/Reload buttons (white, muted, fade hover)
     local applyRow = CreateFrame("Button", nil, menu)
@@ -7379,7 +7498,10 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
     ddBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
     local ddBrd = EllesmereUI.MakeBorder(ddBtn, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
     local ddLbl = ddBtn:CreateFontString(nil, "OVERLAY")
-    local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("options") or "Fonts\\FRIZQT__.TTF"
+    -- Options panel is Expressway-locked by design (EllesmereUI.EXPRESSWAY is
+    -- the locale-aware value: CJK/Cyrillic clients get the system glyph font).
+    -- The user's global font intentionally does not restyle the settings UI.
+    local fontPath = EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF"
     ddLbl:SetFont(fontPath, 13, "")
     ddLbl:SetTextColor(1, 1, 1, EllesmereUI.DD_TXT_A)
     ddLbl:SetJustifyH("LEFT")
@@ -8279,7 +8401,10 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
     opts = opts or {}
     local PP = EllesmereUI.PP or EllesmereUI.PanelPP
     local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
-    local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("options") or "Fonts\\FRIZQT__.TTF"
+    -- Options panel is Expressway-locked by design (EllesmereUI.EXPRESSWAY is
+    -- the locale-aware value: CJK/Cyrillic clients get the system glyph font).
+    -- The user's global font intentionally does not restyle the settings UI.
+    local fontPath = EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF"
 
     -- Split movable / fixed, preserving the given order
     local movable, fixedItems = {}, {}

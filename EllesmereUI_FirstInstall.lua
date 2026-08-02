@@ -137,10 +137,15 @@ local function ShowFirstInstallPopup()
 
     -- Popup
     local popup = CreateFrame("Frame", "EUIFirstInstallPopup", dimmer)
-    popup:SetScale(ppScale)
+    popup:SetScale(EllesmereUI.PopupBump(1))
     popup:SetFrameStrata("FULLSCREEN_DIALOG")
     popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
     PP.Size(popup, POPUP_W, POPUP_H)
+    -- This popup is modal and has no Escape route, so it must never exceed the
+    -- display (see ClampPopupToScreen).
+    if EllesmereUI.ClampPopupToScreen then
+        EllesmereUI.ClampPopupToScreen(popup, POPUP_W, POPUP_H)
+    end
     popup:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
     popup:EnableMouse(true)
 

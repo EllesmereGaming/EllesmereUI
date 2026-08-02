@@ -140,6 +140,38 @@ do
                 local clamped = max(0.4, min(blizzScale, 1.15))
                 EllesmereUIDB.ppUIScale = clamped
                 EllesmereUIDB.ppUIScaleAuto = false
+
+                -- Seed the options-panel scale from the display height. The
+                -- panel is deliberately pinned to physical pixels (baseScale =
+                -- GetScreenWidth()/physW) so it holds a constant physical size
+                -- and does NOT follow the UI Scale slider. At 1080p that reads
+                -- fine, but on a 4K screen the same pixel count covers half as
+                -- much of the display: the panel arrives unreadably small and
+                -- the UI Scale slider appears to do nothing to it.
+                --
+                -- 1440p is the reference look: a panel of H units covers
+                -- H*panelScale/physH of the screen, so physH/1440 reproduces
+                -- 1440p's screen fraction on any display, and 4K seeds 1.5 to
+                -- read exactly like a 2K monitor. Floored at 1 so 1080p (which
+                -- runs a slightly larger fraction, uncomplained-about) keeps
+                -- its current size rather than shrinking, then snapped onto the
+                -- dropdown's real steps (see EllesmereUI.SnapPanelScale) -- an
+                -- off-menu value leaves the control reading 100% while the
+                -- panel renders larger.
+                --
+                -- This sits INSIDE the ppUIScale == nil guard on purpose: it is
+                -- the first-install path only. Existing saves never reach here
+                -- (returning users return at scaleKnown above) and are seeded by
+                -- the panel_scale_highdpi_reset_v3 migration instead.
+                if EllesmereUIDB.panelScale == nil then
+                    local _, physH = GetPhysicalScreenSize()
+                    if type(physH) == "number" and physH > 0 then
+                        local seeded = max(1, min(physH / 1440, 2))
+                        EllesmereUIDB.panelScale =
+                            (EllesmereUI and EllesmereUI.SnapPanelScale
+                                and EllesmereUI.SnapPanelScale(seeded)) or seeded
+                    end
+                end
             end
 
             local scale = EllesmereUIDB.ppUIScale

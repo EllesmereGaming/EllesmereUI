@@ -68,7 +68,7 @@ local function ShowTransformsPopup()
         dimTex:SetColorTexture(0, 0, 0, 0.25)
 
         local popup = CreateFrame("Frame", nil, dimmer)
-        popup:SetScale(ppScale)
+        popup:SetScale(EllesmereUI.PopupBump(1))
         popup:SetFrameStrata("FULLSCREEN_DIALOG")
         popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
         popup:SetSize(POPUP_W, POPUP_H)
@@ -222,10 +222,11 @@ local function ShowTransformsPopup()
             EllesmereUIDB.hideTransformItems = EllesmereUIDB.hideTransformItems or {}
             local t = EllesmereUIDB.hideTransformItems
             for _, item in ipairs(data.items) do
-                if transformsStaged[item.key] then
-                    t[item.key] = nil       -- included is the default
+                local staged = transformsStaged[item.key] and true or false
+                if staged == (not item.defaultOff) then
+                    t[item.key] = nil       -- matches the per-key default
                 else
-                    t[item.key] = false     -- stored exclusions only
+                    t[item.key] = staged    -- stored deviations only
                 end
             end
             if EllesmereUI._applyHideTransforms then EllesmereUI._applyHideTransforms() end

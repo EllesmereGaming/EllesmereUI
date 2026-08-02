@@ -4104,8 +4104,8 @@ do
 
         -- Toys
         { key = "aqir",       cat = "toys", label = "Aqir Egg Cluster",          ids = { 318452 } },
-        { key = "atomic",     cat = "toys", label = "Atomically Recalibrator",   ids = { 399502 } },
-        { key = "atomgoblin", cat = "toys", label = "Atomically Regoblinator",   ids = { 1215363 } },
+        { key = "atomic",     cat = "toys", label = "Atomically Recalibrator",   ids = { 399502 },  defaultOff = true },
+        { key = "atomgoblin", cat = "toys", label = "Atomically Regoblinator",   ids = { 1215363 }, defaultOff = true },
         { key = "blight",     cat = "toys", label = "Detoxified Blight Grenade", ids = { 290224 } },
         { key = "witch",      cat = "toys", label = "Lucille's Sewing Needle",   ids = { 279509 } },
         { key = "spraybots",  cat = "toys", label = "Spraybots",                 ids = { 301892, 301893, 301894 } },
@@ -4119,11 +4119,18 @@ do
     -- Runtime lookup: [spellID] = true for every included transform.
     local cTable = {}
 
-    -- Transforms are included by default; the picker stores false to exclude.
+    -- Per-key default: included unless the entry sets defaultOff. The picker
+    -- stores only values that differ from the default, so nil = default.
+    local ITEM_DEFAULT = {}
+    for _, item in ipairs(TRANSFORMS) do
+        ITEM_DEFAULT[item.key] = not item.defaultOff
+    end
+
     local function ItemEnabled(key)
         local t = EllesmereUIDB and EllesmereUIDB.hideTransformItems
-        if t and t[key] == false then return false end
-        return true
+        local v = t and t[key]
+        if v ~= nil then return v end
+        return ITEM_DEFAULT[key] ~= false
     end
 
     local function RebuildList()
@@ -4245,11 +4252,12 @@ do
     EllesmereUI.SetHideTransformItem = function(key, enabled)
         if not EllesmereUIDB then EllesmereUIDB = {} end
         EllesmereUIDB.hideTransformItems = EllesmereUIDB.hideTransformItems or {}
-        -- Included is the default -- store only exclusions, keeping the table sparse.
-        if enabled then
+        -- Store only values that differ from the per-key default, keeping the table sparse.
+        enabled = enabled and true or false
+        if enabled == (ITEM_DEFAULT[key] ~= false) then
             EllesmereUIDB.hideTransformItems[key] = nil
         else
-            EllesmereUIDB.hideTransformItems[key] = false
+            EllesmereUIDB.hideTransformItems[key] = enabled
         end
         ApplyHideTransforms()
     end

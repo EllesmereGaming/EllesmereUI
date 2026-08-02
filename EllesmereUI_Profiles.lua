@@ -1786,7 +1786,7 @@ do
         "tooltipAnchorCursor", "tooltipCursorPosition",
         "tooltipCursorOffsetX", "tooltipCursorOffsetY",
         "tooltipBgColor", "tooltipBgOpacity", "tooltipBorderSize",
-        "showSpellID", "spellIDModifier",
+        "showSpellID", "spellIDModifier", "showIconID", "showItemID",
         "showItemMaxStacks", "itemStackModifier",
         "reskinPopupsMenus", "reskinGameMenu", "reskinQueuePopup",
         "showQueueTimer", "resurrectAcceptGlow",
@@ -1819,6 +1819,7 @@ do
         "reskinDelves",
         "blizzWindowSkinStyles", "blizzWindowModernDefault",
         "blizzWinAccentBar", "blizzWinBarFill", "blizzWinLinks",
+        "thirdPartySkinsOff", "thirdPartySkinAddons",
     })
     -- Window Skins tab: per-window card options
     add({

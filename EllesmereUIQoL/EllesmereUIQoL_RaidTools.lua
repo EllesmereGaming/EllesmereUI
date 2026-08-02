@@ -1078,6 +1078,16 @@ local function ApplySectionPosition(key)
 end
 
 local function ApplyPositions()
+    -- While an unlock session is open UNLOCK MODE owns these frames: it moves
+    -- them live and only writes the result on Save & Exit. A settings pass
+    -- landing mid-session (the options panel hiding/showing flips the preview,
+    -- and a combat-deferred Apply completes on PLAYER_REGEN_ENABLED) would drag
+    -- the window back to the last SAVED spot -- and because Save & Exit derives
+    -- the value it stores from the frame's LIVE bounds, the drag is then
+    -- written back as the old position and lost for good. Same guard Action
+    -- Bars, Aura Reminders and the Cooldown Manager already carry.
+    if EllesmereUI._unlockActive then return end
+
     -- Each shell is positioned only when the Show as choice can put it on
     -- screen; One Window and Only Group & Pull ride pos.Group, Only Markers
     -- rides pos.Markers.
@@ -1250,9 +1260,13 @@ local function RegisterUnlock()
                 return sections[key]
             end,
             getSize  = function()
+                -- Unlock mode sizes the mover overlay in UIParent units, so
+                -- the Window Scale has to be folded in here -- GetWidth is the
+                -- frame's own (unscaled) size.
+                local s = WindowScale()
                 local f = sections[key]
-                if f then return f:GetWidth(), f:GetHeight() end
-                return PANEL_W, 60
+                if f then return f:GetWidth() * s, f:GetHeight() * s end
+                return PANEL_W * s, 60 * s
             end,
             savePos = function(_, point, relPoint, x, y)
                 if not point then return end

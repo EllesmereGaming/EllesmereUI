@@ -7455,10 +7455,11 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(bgUpdateSwatch)
         end
 
-        -- Row 3: Texture | Frame Strata
+        -- Row 3: Texture (+ cog: Blizzard atlas for the class resource) | Frame Strata
         local strataValues = { BACKGROUND = "Background", LOW = "Low", MEDIUM = "Medium", HIGH = "High", DIALOG = "Dialog" }
         local strataOrder = { "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG" }
-        _, h = W:DualRow(parent, y,
+        local texRow
+        texRow, h = W:DualRow(parent, y,
             { type = "dropdown", text = "Texture", values = hbtValues, order = hbtOrder,
               getValue = function()
                   local p = DB(); if not p then return "none" end
@@ -7478,7 +7479,46 @@ initFrame:SetScript("OnEvent", function(self)
                   local p = DB(); if not p then return end
                   p.general.frameStrata = v; SmoothRefresh()
               end }
-        );  y = y - h
+        );
+        -- Cog on Texture: Blizzard atlas fill for the class resource bar
+        do
+            local lrgn = texRow._leftRegion
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Texture Settings",
+                rows = {
+                    { type = "toggle", label = "Blizzard Atlas Class Resource",
+                      tooltip = "Bar-style class resources (Insanity, Maelstrom, Astral Power, etc.) use Blizzard's default player frame bar artwork instead of the texture above.",
+                      get = function()
+                          local p = DB(); return (p and p.secondary.useBlizzardAtlas) or false
+                      end,
+                      set = function(v)
+                          local p = DB(); if not p then return end
+                          p.secondary.useBlizzardAtlas = v
+                          RebuildClass()
+                          if v then
+                              EllesmereUI:ShowConfirmPopup({
+                                  title = "Blizzard Atlas Texture",
+                                  message = "Blizzard's bar artwork is never recolored, so fill color modes and threshold colors will not tint the bar while this is enabled. To keep threshold colors visible, use Recolor Text Instead.",
+                                  confirmText = "Okay",
+                              })
+                          end
+                      end },
+                },
+            })
+            local cogBtn = CreateFrame("Button", nil, lrgn)
+            cogBtn:SetSize(26, 26)
+            cogBtn:SetPoint("RIGHT", lrgn._lastInline or lrgn._control, "LEFT", -8, 0)
+            lrgn._lastInline = cogBtn
+            cogBtn:SetFrameLevel(lrgn:GetFrameLevel() + 5)
+            cogBtn:SetAlpha(0.4)
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+            cogTex:SetAllPoints()
+            cogTex:SetTexture(EllesmereUI.COGS_ICON)
+            cogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
+            cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
+            cogBtn:SetScript("OnClick", function(s) cogShow(s) end)
+        end
+        y = y - h
 
         -- Row 4: Shift Elements if No Resource | Expand Power Bar if No Resource
         local shiftResRow

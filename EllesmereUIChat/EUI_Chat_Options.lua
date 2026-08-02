@@ -101,6 +101,7 @@ initFrame:SetScript("OnEvent", function(self)
               caps = { partyIncludesRaid = false, noMouseover = true, luaDragonriding = true },
               onChanged = function()
                   if ECHAT.ResetIdleTimer then ECHAT.ResetIdleTimer() end
+                  if ECHAT.ApplyIdleFadeHoverMotion then ECHAT.ApplyIdleFadeHoverMotion() end
                   RefreshAll()
               end },
             { type="dropdown", text="Visibility Options",
@@ -464,6 +465,7 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v)
                   Set("idleFadeEnabled", v)
                   if ECHAT.ResetIdleTimer then ECHAT.ResetIdleTimer() end
+                  if ECHAT.ApplyIdleFadeHoverMotion then ECHAT.ApplyIdleFadeHoverMotion() end
                   EllesmereUI:RefreshPage()
               end },
             { type="slider", text="Fade Delay",
@@ -778,6 +780,18 @@ initFrame:SetScript("OnEvent", function(self)
         end
         y = y - h
 
+        -- Row 4: Scroll Button on Chat Panel | (empty)
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Scroll Button on Chat Panel",
+              tooltip="Anchors the Scroll to Bottom button to the bottom-right corner of the chat panel instead of the sidebar.",
+              getValue=function() return Cfg("scrollButtonOnChat") == true end,
+              setValue=function(v)
+                  Set("scrollButtonOnChat", v)
+                  if ECHAT.ApplySidebarIcons then ECHAT.ApplySidebarIcons() end
+                  if ECHAT.ApplySidebarVisibility then ECHAT.ApplySidebarVisibility() end
+              end },
+            { type="label", text="" });  y = y - h
+
         end -- isSidebar
 
         if isTabs then
@@ -829,7 +843,8 @@ initFrame:SetScript("OnEvent", function(self)
                   end })
             y = y - h
 
-            _, h = W:DualRow(parent, y,
+            local tabSizeRow
+            tabSizeRow, h = W:DualRow(parent, y,
                 { type="slider", text="Tab Height", min=18, max=40, step=1,
                   getValue=function() return Cfg("tabHeight") or 24 end,
                   setValue=function(v)
@@ -842,6 +857,34 @@ initFrame:SetScript("OnEvent", function(self)
                       Set("tabInnerPaddingX", v)
                       if ECHAT.ApplyTabLayout then ECHAT.ApplyTabLayout() end
                   end })
+            -- Cog on Inner Padding X: Tab Offset X (applies in both tab modes)
+            do
+                local rrgn = tabSizeRow._rightRegion
+                local _, cogShow = EllesmereUI.BuildCogPopup({
+                    title = "Tab Layout",
+                    rows = {
+                        { type="slider", label="Tab Offset X",
+                          min = -100, max = 100, step = 1,
+                          get=function() return Cfg("tabOffsetX") or 0 end,
+                          set=function(v)
+                              Set("tabOffsetX", v)
+                              if ECHAT.ApplyTabPadding then ECHAT.ApplyTabPadding() end
+                          end },
+                    },
+                })
+                local cogBtn = CreateFrame("Button", nil, rrgn)
+                cogBtn:SetSize(26, 26)
+                cogBtn:SetPoint("RIGHT", rrgn._lastInline or rrgn._control, "LEFT", -8, 0)
+                rrgn._lastInline = cogBtn
+                cogBtn:SetFrameLevel(rrgn:GetFrameLevel() + 5)
+                cogBtn:SetAlpha(0.4)
+                local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+                cogTex:SetAllPoints()
+                cogTex:SetTexture(EllesmereUI.COGS_ICON)
+                cogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
+                cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
+                cogBtn:SetScript("OnClick", function(s) cogShow(s) end)
+            end
             y = y - h
 
             _, h = W:SectionHeader(parent, "TYPOGRAPHY", y); y = y - h

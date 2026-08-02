@@ -166,6 +166,8 @@ local CHAT_DEFAULTS = {
             alignTabsToPanel = false,
             tabHeight = 24,
             tabInnerPaddingX = 12,
+            tabOffsetX = 0,
+            scrollButtonOnChat = false,
             tabBackgroundColor = { r=0.03, g=0.045, b=0.05, a=0.44 },
             tabBackgroundColorActive = { r=0.03, g=0.045, b=0.05, a=0.65 },
             activeUnderline = true,
@@ -265,9 +267,11 @@ _hiddenParent:Hide()
 
 -- Unified fade system: all alpha changes go through a target + lerp.
 local _visChatVisible = true
+-- Strength 100 is a true full hide: alpha 0 plus mouse passthrough over the
+-- whole panel (see SetChatMousePassthrough).
 local function GetIdleFadeAlpha()
     local cfg = ECHAT.DB()
-    local strength = min(cfg.idleFadeStrength or 40, 99)
+    local strength = min(cfg.idleFadeStrength or 40, 100)
     return 1 - (strength / 100)
 end
 local _idleFadeActive = false
@@ -642,8 +646,9 @@ function ECHAT.ApplyExtendedBackground()
         border:SetFrameStrata(showBehind and "BACKGROUND" or "DIALOG")
         -- Solid borders use a child at host + 1, while textured borders render
         -- directly at host level. In behind mode both stay at 0, under the
-        -- extended strip (level 1) and the chat bg.
-        local borderLevel = showBehind and 0 or max(100, cf1:GetFrameLevel() + 20)
+        -- extended strip (level 1) and the chat bg. Cap below 100: the options
+        -- window sits at DIALOG level 100 and must draw over the chat border.
+        local borderLevel = showBehind and 0 or max(96, min(98, cf1:GetFrameLevel() + 20))
         border:SetFrameLevel(borderLevel)
 
         if EllesmereUI.ApplyBorderStyle then
@@ -905,12 +910,24 @@ function ECHAT.ApplySidebarIcons()
     }
     local chainOrder = sbd._iconChainOrder or ECHAT.ResolveSidebarIconOrder()
 
+    -- An alpha-0 sidebar leaves child Buttons hovering and clickable (mouse
+    -- motion is a separate channel from EnableMouse on the live client), so
+    -- invisible icons must be HIDDEN: always in "never" mode, and in
+    -- "mouseover" mode while fully faded out -- shown children would eat the
+    -- hover that is supposed to reveal the sidebar. Both mouseover fade edges
+    -- already re-run this function via ApplyTabPadding, so the shown state
+    -- tracks the fade with no extra wiring.
+    local sbMode = cfg.sidebarVisibility or "always"
+    local sbHidden = sbMode == "never"
+        or (sbMode == "mouseover" and _sidebarFadeTarget == 0 and _sidebarFadeAlpha == 0)
+        or ns._chatPassthrough == true
+
     local anchor = nil
     for _, key in ipairs(chainOrder) do
         local refs = CHAIN_REFS[key]
         local btn = refs and sbd[refs.btn]
         if btn then
-            local shown = cfg[key] ~= false
+            local shown = cfg[key] ~= false and not sbHidden
             btn:SetShown(shown)
             local tail = refs.tail and sbd[refs.tail]
             if tail then tail:SetShown(shown) end
@@ -926,8 +943,14 @@ function ECHAT.ApplySidebarIcons()
         end
     end
 
-    -- Scroll is independent
-    if sbd.scrollBtn then sbd.scrollBtn:SetShown(cfg.showScroll ~= false) end
+    -- Scroll is independent; when anchored to the chat panel it is exempt
+    -- from the hidden-sidebar cutoff.
+    if sbd.scrollBtn then
+        sbd.scrollBtn:SetShown(cfg.showScroll ~= false
+            and (not sbHidden
+                or (cfg.scrollButtonOnChat == true and ns._chatPassthrough ~= true)))
+    end
+    if ECHAT.ApplyScrollButtonPosition then ECHAT.ApplyScrollButtonPosition() end
 
     -- Re-apply free move offsets after chain layout
     if ECHAT.ApplyIconFreeMove then ECHAT.ApplyIconFreeMove() end
@@ -1408,6 +1431,9 @@ function ECHAT.ApplyIconFreeMove()
     -- throughout capture.
     for _, info in ipairs(btns) do
         local btn = CFD(cf1)[info.ref]
+        -- The chat-anchored scroll button lives outside the sidebar chain;
+        -- free move must not capture or re-anchor it.
+        if info.ref == "scrollBtn" and cfg.scrollButtonOnChat then btn = nil end
         if btn then
             btn._freeMoveKey = info.key
             CaptureNatural(btn, sb)
@@ -1419,6 +1445,7 @@ function ECHAT.ApplyIconFreeMove()
     -- offset, so the icons move independently of one another.
     for _, info in ipairs(btns) do
         local btn = CFD(cf1)[info.ref]
+        if info.ref == "scrollBtn" and cfg.scrollButtonOnChat then btn = nil end
         if btn then ApplyIconOffset(btn, sb) end
     end
 end
@@ -1883,11 +1910,282 @@ local function _BuildAlphaCache()
     _alphaFrames._sidebar = cf1 and CFD(cf1).sidebar
     local cfg = ECHAT.DB()
     _alphaFrames._sidebarMode = cfg and cfg.sidebarVisibility or "always"
+    -- Chat-anchored scroll button no longer inherits the sidebar alpha
+    if cfg and cfg.scrollButtonOnChat and cf1 then
+        _alphaFrames._chatScrollBtn = CFD(cf1).scrollBtn
+    end
 end
 
 
+-- Full-hide mouse passthrough. When the chat's effective alpha reaches 0,
+-- every mouse surface over the panel is released so clicks and camera drags
+-- reach the world. Two regimes:
+--   * Idle fade at strength 100: frames stay shown (a fade must render);
+--     both mouse channels are disabled on chat frames 1-10 plus their edit
+--     boxes, scroll bars, static tabs, FontStringContainers and their
+--     line-pool children (temporary windows and dynamic tabs are never
+--     touched), our grips/sidebar/overlay. Hover-wake comes from the
+--     geometric poll below.
+--   * Visibility-hidden (never / combat rules): the whole stack is also
+--     Hide()n outright via SetChatStackShown -- hidden is the only state
+--     the engine cannot route input to.
+-- Original states are captured in the CFD side table and restored exactly
+-- the moment any fade-in begins (new message, Enter, visibility change).
+local _chatPassthrough = false
+
+-- Capture-then-disable / exact-restore for BOTH mouse channels: clicks
+-- (EnableMouse) and motion (EnableMouseMotion -- the channel that blocks
+-- camera right-drag). States live in the CFD side table under `key` and
+-- `key .. "M"`, so we only ever re-enable what we ourselves disabled.
+-- Per-channel capture and restore. EnableMouse/IsMouseEnabled are
+-- COMBINED-channel APIs: chat widgets run split states (click-only line
+-- frames, motion-only containers), and a combined restore flips the wrong
+-- channel -- e.g. re-arming clicks on a natively motion-only frame after
+-- one passthrough cycle. Click and motion are read and written separately.
+local function GetMouseChannels(f)
+    local click
+    if f.IsMouseClickEnabled then click = f:IsMouseClickEnabled()
+    else click = f:IsMouseEnabled() end
+    local motion = f.IsMouseMotionEnabled and f:IsMouseMotionEnabled()
+    return click and true or false, motion and true or false
+end
+local function SetMouseChannels(f, click, motion)
+    if f.SetMouseClickEnabled then f:SetMouseClickEnabled(click)
+    elseif not click then f:EnableMouse(false)
+    else f:EnableMouse(true) end
+    if f.SetMouseMotionEnabled then f:SetMouseMotionEnabled(motion)
+    elseif f.EnableMouseMotion then f:EnableMouseMotion(motion) end
+end
+
+local function PMOff(d, key, f)
+    if not f then return end
+    -- Capture only on first sight (protects the original state for the
+    -- restore), but ASSERT the disable every sweep: Blizzard's message
+    -- pipeline re-enables click on chat widgets while we are engaged, and
+    -- a skipped re-disable leaves an invisible click-only zombie.
+    if d[key] == nil then
+        local click, motion = GetMouseChannels(f)
+        d[key] = click
+        d[key .. "M"] = motion
+    end
+    SetMouseChannels(f, false, false)
+end
+local function PMOn(d, key, f)
+    if f and d[key] ~= nil then
+        SetMouseChannels(f, d[key], d[key .. "M"])
+    end
+    d[key] = nil
+    d[key .. "M"] = nil
+end
+
+-- The SMF's per-line hit-test frames live as children of FontStringContainer
+-- (Blizzard's line pool) and each carries its own mouse state, so the
+-- container toggle alone does not release them. One bounded generation --
+-- direct children only, never recursive -- with per-child state captured on
+-- first sight in a weak side store and restored exactly from it.
+local function PMOffChildren(d, key, parent)
+    if not parent then return end
+    local store = d[key]
+    if not store then store = setmetatable({}, { __mode = "k" }); d[key] = store end
+    local kids = { parent:GetChildren() }
+    for i = 1, #kids do
+        local c = kids[i]
+        -- Capture first sight only; assert the disable every sweep -- the
+        -- SMF re-enables click on its line frames as messages render, and
+        -- these are exactly the frames that shape the dead zone.
+        if not store[c] then
+            local click, motion = GetMouseChannels(c)
+            store[c] = { click, motion }
+        end
+        SetMouseChannels(c, false, false)
+    end
+end
+local function PMOnChildren(d, key, parent)
+    local store = d[key]
+    if not store or not parent then return end
+    local kids = { parent:GetChildren() }
+    for i = 1, #kids do
+        local c = kids[i]
+        local st = store[c]
+        if st then
+            SetMouseChannels(c, st[1], st[2])
+            store[c] = nil
+        end
+    end
+end
+
+-- Frame-level portion, factored out so re-sweeps can run it alone. Capture
+-- happens on first sight only; the disable is asserted on EVERY call, since
+-- Blizzard re-arms click on SMF internals while we are engaged.
+local function PassthroughFrames(on)
+    for i = 1, 10 do
+        local cf = _G["ChatFrame" .. i]
+        local d = cf and CFD(cf)
+        if d and d.bg then
+            local eb = _G["ChatFrame" .. i .. "EditBox"]
+            local tab = _G["ChatFrame" .. i .. "Tab"]
+            if on then
+                PMOff(d, "pmCf", cf)
+                -- The message frame's FontStringContainer is a separate
+                -- mouse surface (hyperlink hit-testing); the parent chat
+                -- frame's mouse state does not cover it, and its line-pool
+                -- children each carry their own.
+                PMOff(d, "pmFsc", cf.FontStringContainer)
+                PMOffChildren(d, "pmFscKids", cf.FontStringContainer)
+                PMOff(d, "pmEb", eb)
+                PMOff(d, "pmScroll", cf.ScrollBar)
+                PMOff(d, "pmTab", tab)
+                PMOff(d, "pmGrip", d.resizeGrip)
+            else
+                PMOn(d, "pmCf", cf)
+                PMOn(d, "pmFsc", cf.FontStringContainer)
+                PMOnChildren(d, "pmFscKids", cf.FontStringContainer)
+                PMOn(d, "pmEb", eb)
+                PMOn(d, "pmScroll", cf.ScrollBar)
+                PMOn(d, "pmTab", tab)
+                PMOn(d, "pmGrip", d.resizeGrip)
+            end
+        end
+    end
+end
+
+-- Hover-wake while fully hidden: a passthrough panel cannot receive mouse
+-- events, so the only way to keep mouseover reveal at fade strength 100 is
+-- a geometric poll -- IsMouseOver() is a pure rect test needing no mouse
+-- state. Runs ONLY while the idle-fade passthrough is engaged (never for
+-- the visibility "never" hard hide, never while visible): one rect test
+-- five times a second, cancelled the moment the chat reveals.
+local _ptWakeTicker
+local function StopPTWake()
+    if _ptWakeTicker then _ptWakeTicker:Cancel(); _ptWakeTicker = nil end
+end
+local function StartPTWake()
+    StopPTWake()
+    _ptWakeTicker = C_Timer.NewTicker(0.2, function()
+        if not _chatPassthrough or not _idleFadeActive or not _visChatVisible then
+            StopPTWake()
+            return
+        end
+        local ov = ns._chatHoverOverlay
+        if ov and ov:IsMouseOver() then
+            StopPTWake()
+            if ECHAT.ResetIdleTimer then ECHAT.ResetIdleTimer() end
+        end
+    end)
+end
+
+-- Hard-hidden visibility states (visibility "never", combat-only modes while
+-- out of combat) hide the chat stack OUTRIGHT. Alpha 0 is not "gone":
+-- Blizzard keeps re-arming click on SMF internals under an alpha-0 chat, but
+-- the engine cannot route any input to a hidden frame. Shown-state is
+-- captured per frame and restored exactly on reveal. Idle fade keeps using
+-- alpha (a fade animation needs rendering); this applies only when the
+-- visibility system itself says hidden.
+local _chromeWasShown = setmetatable({}, { __mode = "k" })
+local _chromeList = {}
+
+local function SetChatStackShown(shown)
+    for i = 1, 20 do
+        local cf = _G["ChatFrame" .. i]
+        local d = cf and CFD(cf)
+        if d and d.bg then
+            if not shown then
+                if cf:IsShown() then d.pmWasShown = true; cf:Hide() end
+            elseif d.pmWasShown then
+                d.pmWasShown = nil
+                cf:Show()
+            end
+        end
+    end
+    local gdm = _G.GeneralDockManager
+    if gdm then
+        if not shown then
+            if gdm:IsShown() then ns._gdmWasShown = true; gdm:Hide() end
+        elseif ns._gdmWasShown then
+            ns._gdmWasShown = nil
+            gdm:Show()
+        end
+    end
+    -- Our own chrome hides outright too; the per-frame remember preserves
+    -- each applier's shown/hidden decision for the reveal.
+    local cf1 = _G.ChatFrame1
+    _chromeList[1] = ns._chatPanelBorder
+    _chromeList[2] = ns._sidebarSeparateBorder
+    _chromeList[3] = ns._chatBgExt
+    _chromeList[4] = ns._tabHostClip
+    _chromeList[5] = ns._chatHoverOverlay
+    _chromeList[6] = cf1 and CFD(cf1).sidebar or nil
+    for i = 1, 6 do
+        local f = _chromeList[i]
+        if f then
+            if not shown then
+                if f:IsShown() then _chromeWasShown[f] = true; f:Hide() end
+            elseif _chromeWasShown[f] then
+                _chromeWasShown[f] = nil
+                f:Show()
+            end
+        end
+        _chromeList[i] = nil
+    end
+end
+
+local function SetChatMousePassthrough(on)
+    if _chatPassthrough == on then return end
+    _chatPassthrough = on
+    ns._chatPassthrough = on
+    PassthroughFrames(on)
+    if on then
+        if not _visChatVisible then SetChatStackShown(false) end
+        local cf1 = _G.ChatFrame1
+        local sb = cf1 and CFD(cf1).sidebar
+        if sb then
+            sb:EnableMouse(false)
+            if sb.EnableMouseMotion then sb:EnableMouseMotion(false) end
+        end
+        if ECHAT.ApplySidebarIcons then ECHAT.ApplySidebarIcons() end
+        -- _visChatVisible excludes the visibility-hidden regimes, where
+        -- hover-wake must not exist.
+        if _idleFadeActive and _visChatVisible
+            and ECHAT.DB().idleFadeEnabled ~= false then
+            StartPTWake()
+        end
+    else
+        StopPTWake()
+        SetChatStackShown(true)
+        -- Our sidebar always runs with motion on (hover fade/reveal); the
+        -- mode-specific click state is re-derived by ApplySidebarVisibility.
+        local cf1 = _G.ChatFrame1
+        local sb = cf1 and CFD(cf1).sidebar
+        if sb and sb.EnableMouseMotion then sb:EnableMouseMotion(true) end
+        if ECHAT.ApplySidebarVisibility then ECHAT.ApplySidebarVisibility() end
+    end
+    if ECHAT.ApplyIdleFadeHoverMotion then ECHAT.ApplyIdleFadeHoverMotion() end
+end
+
+-- Re-assert while engaged: Blizzard re-arms click on SMF internals as
+-- messages render, frames can be skinned after the engagement, and hidden
+-- stacks can be re-shown by dock/temp-window churn. One engagement can last
+-- a whole session (visibility "never" never reveals), so the disable and
+-- the hide are re-asserted on every sweep. Deferred and coalesced to one
+-- sweep per frame, always in our own execution context.
+local _ptSweepQueued = false
+local function PTSweep()
+    _ptSweepQueued = false
+    if not _chatPassthrough then return end
+    PassthroughFrames(true)
+    -- Hard-hidden: re-hide anything Blizzard re-showed (temp window churn,
+    -- dock updates) and anything skinned after the hide.
+    if not _visChatVisible then SetChatStackShown(false) end
+end
+local function RequestPassthroughSweep()
+    if not _chatPassthrough or _ptSweepQueued then return end
+    _ptSweepQueued = true
+    C_Timer.After(0, PTSweep)
+end
+
 local function _ApplyAlpha(alpha)
     _chatAlphaCurrent = alpha
+    SetChatMousePassthrough(alpha <= 0)
     if not _alphaFrames then _BuildAlphaCache() end
     -- Dock manager: once, outside the loop. The tabs are its children and
     -- inherit this alpha -- the original (and only working) way the tab strip
@@ -1934,6 +2232,44 @@ local function _ApplyAlpha(alpha)
             sb:SetAlpha(alpha)
         end
     end
+    -- Chat-anchored scroll button (UIParent-parented, fades with the panel)
+    if _alphaFrames._chatScrollBtn then
+        _alphaFrames._chatScrollBtn:SetAlpha(alpha)
+    end
+end
+
+-- Scroll-to-bottom button seat: bottom of the sidebar (default) or the
+-- bottom-right corner of the chat panel, mirroring the default UI's
+-- jump-to-bottom arrow. The button is ours, so reparenting is safe.
+function ECHAT.ApplyScrollButtonPosition()
+    local cf1 = _G.ChatFrame1
+    local d = cf1 and CFD(cf1)
+    local btn = d and d.scrollBtn
+    if not btn then return end
+    local cfg = ECHAT.DB()
+    -- Seat memo: this runs on every icon-layout pass (including sidebar
+    -- hover edges), and an unchanged seat needs no re-anchor and no alpha
+    -- cache invalidation.
+    local seat = cfg.scrollButtonOnChat and "chat" or "sidebar"
+    if d.scrollSeat == seat then return end
+    d.scrollSeat = seat
+    local sb = d.sidebar
+    btn:ClearAllPoints()
+    if cfg.scrollButtonOnChat and d.bg then
+        btn:SetParent(UIParent)
+        btn:SetFrameStrata(cf1:GetFrameStrata())
+        btn:SetFrameLevel(cf1:GetFrameLevel() + 5)
+        -- Anchor to the message frame, not bg: the unified bg panel includes
+        -- the edit box, so bg's corner sits in the input row.
+        btn:SetPoint("BOTTOMRIGHT", cf1, "BOTTOMRIGHT", 8, -6)
+    elseif sb then
+        btn:SetParent(sb)
+        btn:SetFrameStrata(sb:GetFrameStrata())
+        btn:SetFrameLevel(sb:GetFrameLevel() + 1)
+        btn:SetPoint("BOTTOM", sb, "BOTTOM", 0, 10)
+    end
+    -- Parent changed: the alpha cache decides whether to fade it directly.
+    _alphaFrames = nil
 end
 
 -- Animate alpha toward target over FADE_DURATION
@@ -1947,6 +2283,9 @@ _chatFadeFrame:SetScript("OnUpdate", function(self, dt)
     if _chatAlphaCurrent == _chatAlphaTarget then
         self:Hide()
         _fadeApplyAccum = 0
+        -- The 30Hz throttle below can swallow the last step of a fade; push
+        -- the final value so completion states (especially 0) always land.
+        _ApplyAlpha(_chatAlphaCurrent)
         return
     end
     local fadingIn = _chatAlphaTarget > _chatAlphaCurrent
@@ -3084,16 +3423,17 @@ function ECHAT.ApplyTabPadding()
         local sidebar = cf1 and CFD(cf1).sidebar
         local sidebarActive = sidebar and SidebarParticipatesInLayout(cfg)
         local alignFull = cfg.alignTabsToPanel and not cfg.extendBgBehindTabs and sidebarActive
+        local offX = cfg.tabOffsetX or 0
         gdm:ClearAllPoints()
         if alignFull and not cfg.sidebarRight then
-            gdm:SetPoint("BOTTOMLEFT", sidebar, "TOPLEFT", 0, padding)
-            gdm:SetPoint("BOTTOMRIGHT", bg, "TOPRIGHT", 0, padding)
+            gdm:SetPoint("BOTTOMLEFT", sidebar, "TOPLEFT", offX, padding)
+            gdm:SetPoint("BOTTOMRIGHT", bg, "TOPRIGHT", offX, padding)
         elseif alignFull and cfg.sidebarRight then
-            gdm:SetPoint("BOTTOMLEFT", bg, "TOPLEFT", 0, padding)
-            gdm:SetPoint("BOTTOMRIGHT", sidebar, "TOPRIGHT", 0, padding)
+            gdm:SetPoint("BOTTOMLEFT", bg, "TOPLEFT", offX, padding)
+            gdm:SetPoint("BOTTOMRIGHT", sidebar, "TOPRIGHT", offX, padding)
         else
-            gdm:SetPoint("BOTTOMLEFT", bg, "TOPLEFT", 0, padding)
-            gdm:SetPoint("BOTTOMRIGHT", bg, "TOPRIGHT", 0, padding)
+            gdm:SetPoint("BOTTOMLEFT", bg, "TOPLEFT", offX, padding)
+            gdm:SetPoint("BOTTOMRIGHT", bg, "TOPRIGHT", offX, padding)
         end
     end
     if ECHAT.ApplyExtendedBackground then ECHAT.ApplyExtendedBackground() end
@@ -3314,6 +3654,9 @@ local function SkinChatFrame(cf)
     if not cf or _skinned[cf] then return end
     _skinned[cf] = true
     _alphaFrames = nil
+    -- A frame skinned while the panel is fully hidden must join the
+    -- passthrough set (deferred, so it runs after this skin completes).
+    RequestPassthroughSweep()
     local name = cf:GetName()
     if not name then return end
 
@@ -3360,6 +3703,10 @@ local function SkinChatFrame(cf)
         sidebar:SetScript("OnEnter", function()
             local cfg = ECHAT.DB()
             if cfg.sidebarVisibility == "mouseover" then
+                -- Fade target must be set BEFORE the layout pass: the icon
+                -- shown-state in ApplySidebarIcons reads it to decide whether
+                -- the faded-out cutoff still applies.
+                _sidebarFadeTarget = 1
                 if not _sidebarMouseoverLayoutVisible then
                     _sidebarMouseoverLayoutVisible = true
                     if ECHAT.ApplyTabPadding then
@@ -3368,7 +3715,6 @@ local function SkinChatFrame(cf)
                         ECHAT.ApplyExtendedBackground()
                     end
                 end
-                _sidebarFadeTarget = 1
                 if _sidebarFadeFrame then _sidebarFadeFrame:Show() end
             end
         end)
@@ -3470,7 +3816,9 @@ local function SkinChatFrame(cf)
                 HideSidebarIconTooltip(self)
             end)
 
+            local fcPending
             local function UpdateFriendsCount()
+                fcPending = nil
                 local _, numOnline = BNGetNumFriends()
                 local wowOnline = C_FriendList.GetNumOnlineFriends()
                 friendsCount:SetText(numOnline + wowOnline)
@@ -3481,7 +3829,15 @@ local function SkinChatFrame(cf)
             fcEvents:RegisterEvent("BN_FRIEND_INFO_CHANGED")
             fcEvents:RegisterEvent("FRIENDLIST_UPDATE")
             fcEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
-            fcEvents:SetScript("OnEvent", UpdateFriendsCount)
+            -- BN_FRIEND_INFO_CHANGED storms with big friend lists (presence
+            -- spam), and each recount walks both friend APIs. Coalesce the
+            -- storm into one trailing recount per second; the count still
+            -- converges within 1s of any real change.
+            fcEvents:SetScript("OnEvent", function()
+                if fcPending then return end
+                fcPending = true
+                C_Timer.After(1, UpdateFriendsCount)
+            end)
 
             CFD(cf).friendsCount = friendsCount
             anchor = friendsCount
@@ -4320,9 +4676,12 @@ initFrame:SetScript("OnEvent", function(self)
             if _idleFadeActive then return end
             _idleFadeActive = true
             ECHAT.SetIdleFadeAlpha(GetIdleFadeAlpha())
+            -- Faded: arm the hover-reveal motion overlay.
+            if ECHAT.ApplyIdleFadeHoverMotion then ECHAT.ApplyIdleFadeHoverMotion() end
         end
 
         local function CancelIdleFade()
+            local wasActive = _idleFadeActive
             _idleFadeActive = false
             if idleTimer then
                 idleTimer:Cancel()
@@ -4330,6 +4689,11 @@ initFrame:SetScript("OnEvent", function(self)
             end
             if _visChatVisible then
                 ECHAT.SetIdleFadeAlpha(1)
+            end
+            -- Visible again: the overlay goes inert so the panel area is
+            -- click- and camera-transparent like the default UI.
+            if wasActive and ECHAT.ApplyIdleFadeHoverMotion then
+                ECHAT.ApplyIdleFadeHoverMotion()
             end
         end
 
@@ -4346,6 +4710,9 @@ initFrame:SetScript("OnEvent", function(self)
         -- Idle reset throttle: max once per second.
         local _lastIdleReset = 0
         local function OnActiveMessage()
+            -- New messages can birth new SMF line-pool frames; while the
+            -- panel is fully hidden they must join the passthrough set.
+            RequestPassthroughSweep()
             if not IsIdleApplicable() then return end
             local now = GetTime()
             if now - _lastIdleReset < 1 then return end
@@ -4475,18 +4842,9 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
-        local function OnChatEnter(cf)
-            _hoverCount = _hoverCount + 1
-            UpdateHoverState()
-        end
-        local function OnChatLeave(cf)
-            _hoverCount = max(0, _hoverCount - 1)
-            UpdateHoverState()
-        end
-
-        -- Single invisible overlay covering tabs + bg + sidebar.
-        -- EnableMouseMotion detects hover without blocking clicks.
-        -- Placed at BACKGROUND strata so it never intercepts anything.
+        -- Single invisible overlay covering tabs + bg + sidebar, at
+        -- BACKGROUND strata. Its mouse motion is conditional -- see
+        -- ApplyIdleFadeHoverMotion below.
         do
             local cf1 = _G.ChatFrame1
             local gdm = _G.GeneralDockManager
@@ -4494,18 +4852,54 @@ initFrame:SetScript("OnEvent", function(self)
             local sb = CFD(cf1).sidebar
             if bg1 and gdm then
                 local overlay = CreateFrame("Frame", nil, UIParent)
+                ns._chatHoverOverlay = overlay
                 overlay:SetPoint("TOPLEFT", gdm, "TOPLEFT", sb and -40 or 0, 0)
                 overlay:SetPoint("BOTTOMRIGHT", bg1, "BOTTOMRIGHT", 0, 0)
                 overlay:SetFrameStrata("BACKGROUND")
-                overlay:EnableMouseMotion(true)
+                overlay:EnableMouse(false)
+                -- Peek reveal: motion is live ONLY while idle-faded (see
+                -- ApplyIdleFadeHoverMotion), so an enter here can only mean
+                -- the user moused over the faded chat. Reveal and arm the
+                -- next fade; no OnLeave needed -- the reveal itself turns
+                -- motion back off.
                 overlay:SetScript("OnEnter", function()
-                    _hoverCount = _hoverCount + 1
-                    UpdateHoverState()
+                    if _idleFadeActive and ECHAT.ResetIdleTimer then
+                        ECHAT.ResetIdleTimer()
+                    end
                 end)
-                overlay:SetScript("OnLeave", function()
-                    _hoverCount = max(0, _hoverCount - 1)
-                    UpdateHoverState()
-                end)
+                -- Motion capture is needed ONLY while the chat is idle-faded
+                -- (to catch the hover that reveals it). While the chat is
+                -- visible the overlay must be inert so clicks AND camera
+                -- drags over the panel reach the world exactly like the
+                -- default UI (EnableMouseMotion intercepts right-drag camera
+                -- input even though it passes clicks). Passthrough (full
+                -- hide) keeps it inert too.
+                function ECHAT.ApplyIdleFadeHoverMotion()
+                    local cfg = ECHAT.DB()
+                    local on = cfg.idleFadeEnabled ~= false
+                        and (cfg.visibility or "always") ~= "never"
+                        and ns._chatPassthrough ~= true
+                        and _idleFadeActive
+                    -- Per-channel setters, and click pinned OFF every pass:
+                    -- EnableMouseMotion toggling leaves the click channel
+                    -- armed on this client (field-diagnosed 2026-08-02),
+                    -- which made this overlay an invisible click-catcher
+                    -- over the VISIBLE chat -- clicks and camera dead,
+                    -- undetectable by motion-based probes.
+                    if overlay.SetMouseClickEnabled then
+                        overlay:SetMouseClickEnabled(false)
+                    end
+                    if overlay.SetMouseMotionEnabled then
+                        overlay:SetMouseMotionEnabled(on)
+                    else
+                        overlay:EnableMouseMotion(on)
+                    end
+                    if not on then
+                        _hoverCount = 0
+                        _idleMouseOver = false
+                    end
+                end
+                ECHAT.ApplyIdleFadeHoverMotion()
             end
         end
 

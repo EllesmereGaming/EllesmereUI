@@ -2224,6 +2224,8 @@ initFrame:SetScript("OnEvent", function(self)
             return
         end
         ns._tbbPlaceholderMode = true
+        -- The TBB tick may be idle-asleep; placeholders render from the tick.
+        if ns.WakeTBBTick then ns.WakeTBBTick() end
         local tbb = ns.GetTrackedBuffBars()
         local bars = tbb and tbb.bars
         if not bars then return end
@@ -8800,6 +8802,9 @@ initFrame:SetScript("OnEvent", function(self)
                     local function EnsureSS()
                         if store and not store[spellID] then
                             store[spellID] = ss
+                            -- New per-spell entry: retire memoized resolution
+                            -- results so every icon re-resolves against it.
+                            ns._cdmResGen = (ns._cdmResGen or 0) + 1
                             -- Flip the runtime hot-path gate the moment a
                             -- cooldownID-scoped buff entry is first persisted.
                             if type(spellID) == "string" and string.byte(spellID, 1) == 99
@@ -9083,6 +9088,9 @@ initFrame:SetScript("OnEvent", function(self)
                         end
                         local function sweepProf(prof)
                             if type(prof) ~= "table" then return end
+                            -- Sweeps can delete emptied member entries and the
+                            -- per-spec tier: retire memoized resolution results.
+                            ns._cdmResGen = (ns._cdmResGen or 0) + 1
                             local bsX = prof.barSpells and prof.barSpells[barKey]
                             if allSpecs and bsX and type(bsX.barSettings) == "table" then
                                 for _, k in ipairs(keys) do bsX.barSettings[k] = nil end
@@ -9102,7 +9110,11 @@ initFrame:SetScript("OnEvent", function(self)
                         if allSpecs then
                             if not bdSel then return end
                             local abs = bdSel.barSpellSettings
-                            if not abs then abs = {}; bdSel.barSpellSettings = abs end
+                            if not abs then
+                                abs = {}; bdSel.barSpellSettings = abs
+                                -- New tier table: chained results are stale.
+                                ns._cdmResGen = (ns._cdmResGen or 0) + 1
+                            end
                             applyWrite(abs, val)
                             AB.FlipSessionGates(abs)
                             local spAll = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
@@ -9120,7 +9132,11 @@ initFrame:SetScript("OnEvent", function(self)
                             -- No-op (and no refresh) when All Specs isn't active.
                             AB.RunBarUnapply(keys, true)
                             local bs = sd.barSettings
-                            if not bs then bs = {}; sd.barSettings = bs end
+                            if not bs then
+                                bs = {}; sd.barSettings = bs
+                                -- New tier table: chained results are stale.
+                                ns._cdmResGen = (ns._cdmResGen or 0) + 1
+                            end
                             ns.ChainSettings(bs, bdSel and bdSel.barSpellSettings)
                             applyWrite(bs, val)
                             AB.FlipSessionGates(bs)
@@ -9205,6 +9221,8 @@ initFrame:SetScript("OnEvent", function(self)
                             else
                                 sd.barSettings = nil
                             end
+                            -- Tier table dropped: chained results are stale.
+                            ns._cdmResGen = (ns._cdmResGen or 0) + 1
                         end
                         if touchesCas and ns.GetCustomActiveState and ns.ResolveCustomActiveKey then
                             -- Remove still-equal stamped values from one cas entry.
@@ -16103,7 +16121,7 @@ initFrame:SetScript("OnEvent", function(self)
                     -- the only visible reading is "specs of this character".
                     -- Kept to one line: the subtitle has room for two before it
                     -- runs into the Check All / Uncheck All row.
-                    subtitle    = "Choose which specs sync with " .. srcName .. ", including your alts' specs (the source is always included)",
+                    subtitle    = EllesmereUI.Lf("Choose which specs sync with %1$s, including your alts' specs (the source is always included)", srcName),
                     confirmText = "Sync",
                     specs       = specs,
                     lockedSpecs = { [sourceKey] = "This is the spec you're syncing from -- it's always included." },
@@ -16117,7 +16135,7 @@ initFrame:SetScript("OnEvent", function(self)
                             -- sync, and confirming with one spec ticked is the
                             -- natural first guess at "sync FROM this spec".
                             if ns.ClearRPTSync then ns.ClearRPTSync() end
-                            EllesmereUI.Print("|cff0cd29fEllesmereUI CDM:|r Sync cleared -- only one spec was selected. Tick at least two specs (including other characters' specs) to sync between them.")
+                            EllesmereUI.Print("|cff0cd29fEllesmereUI CDM:|r " .. EllesmereUI.L("Sync cleared -- only one spec was selected. Tick at least two specs (including other characters' specs) to sync between them."))
                             EllesmereUI:RefreshPage(true)
                             return
                         end
@@ -16127,7 +16145,7 @@ initFrame:SetScript("OnEvent", function(self)
                         -- not, so every spec keeps its own ordering. Reported as
                         -- a bug ("some were right, some were wrong order"), so
                         -- it is stated where the subtitle has no room for it.
-                        EllesmereUI.Print(("|cff0cd29fEllesmereUI CDM:|r Syncing generic CDs/buffs across %d specs. Icon order is not synced -- each spec keeps its own arrangement."):format(cnt))
+                        EllesmereUI.Print("|cff0cd29fEllesmereUI CDM:|r " .. EllesmereUI.Lf("Syncing generic CDs/buffs across %d specs. Icon order is not synced -- each spec keeps its own arrangement.", cnt))
                         EllesmereUI:RefreshPage(true)
                     end,
                 })
@@ -16165,7 +16183,7 @@ initFrame:SetScript("OnEvent", function(self)
                         -- Announced for the same reason as the setup path: the
                         -- sync is discarded here, not merely left unchanged.
                         if ns.ClearRPTSync then ns.ClearRPTSync() end
-                        EllesmereUI.Print("|cff0cd29fEllesmereUI CDM:|r Sync cleared -- fewer than two specs remained selected.")
+                        EllesmereUI.Print("|cff0cd29fEllesmereUI CDM:|r " .. EllesmereUI.L("Sync cleared -- fewer than two specs remained selected."))
                         EllesmereUI:RefreshPage(true)
                         return
                     end
@@ -19023,7 +19041,13 @@ initFrame:SetScript("OnEvent", function(self)
                       BD().chargesOnly = v and true or nil
                       ns.BuildAllCDMBars(); Refresh()
                   end },
-                { type="label", text="" });  y = y - h
+                { type="toggle", text="Hide Charge Count at 0",
+                  tooltip="Hide the charge number while a spell has no charges left, instead of showing a 0. The number returns as soon as a charge comes back.",
+                  getValue=function() return BD().hideZeroChargeText == true end,
+                  setValue=function(v)
+                      BD().hideZeroChargeText = v and true or nil
+                      ns.BuildAllCDMBars(); Refresh()
+                  end });  y = y - h
         end
 
         _, h = W:Spacer(parent, y, 8);  y = y - h
@@ -19157,7 +19181,21 @@ initFrame:SetScript("OnEvent", function(self)
                 { type="dropdown", text="Pandemic Glow",
                   values=PAN_GLOW_VALUES, order=PAN_GLOW_ORDER,
                   getValue=function()
-                      if pandemicOff() then return 0 end
+                      -- nil means NEVER CONFIGURED, which renders as Blizzard
+                      -- Default (-1), not None (0). The three built-in bars never
+                      -- seed pandemicGlow, while every template that does seed it
+                      -- ships true + style -1 (custom bars
+                      -- EllesmereUICdmSpellPicker.lua ~1916, tracking bars
+                      -- EllesmereUICdmBuffBars.lua ~313). Reporting nil as None
+                      -- made this control claim the glow was already off while
+                      -- Blizzard's PandemicIcon was plainly still drawing -- and
+                      -- because the dropdown already showed the value the user
+                      -- wanted, picking it fired no change, so there was no way to
+                      -- turn the glow off at all (reported against a tracked Fire
+                      -- Breath buff). Only an explicit false is None.
+                      local pg = BD().pandemicGlow
+                      if pg == false then return 0 end
+                      if pg == nil then return -1 end
                       local raw = BD().pandemicGlowStyle
                       if type(raw) ~= "number" then return 1 end
                       return raw

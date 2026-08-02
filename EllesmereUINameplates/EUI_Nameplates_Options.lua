@@ -1064,9 +1064,11 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- Cropped icons (mirror the runtime): rectangular height (80% of
             -- width) + matching texcoord trim. Off by default.
-            local debuffCrop = DBVal("debuffCropIcons") or defaults.debuffCropIcons
-            local buffCrop   = DBVal("buffCropIcons")   or defaults.buffCropIcons
-            local ccCrop     = DBVal("ccCropIcons")     or defaults.ccCropIcons
+            -- ns.GetAuraCrop returns the height FACTOR (truthy number) when
+            -- cropped, so the preview follows the Adjust Crop slider exactly.
+            local debuffCrop = ns.GetAuraCrop("debuffs")
+            local buffCrop   = ns.GetAuraCrop("buffs")
+            local ccCrop     = ns.GetAuraCrop("ccs")
             local debuffH = ns.GetAuraCropHeight(debuffCrop, debuffSz)
             local buffH   = ns.GetAuraCropHeight(buffCrop, buffSz)
             local ccH     = ns.GetAuraCropHeight(ccCrop, ccSz)
@@ -2393,6 +2395,14 @@ initFrame:SetScript("OnEvent", function(self)
         local function friendlyPlayersOff() return DBVal("showFriendlyPlayers") == false end
         local function friendlyPlateOff() return friendlyPlayersOff() or DBVal("friendlyNameOnly") ~= false end
         local function nameOnlyOff() return friendlyPlayersOff() or DBVal("friendlyNameOnly") == false end
+        -- The title renders INLINE with the name (one string), so it takes the
+        -- name's own font, size and color. Everything below the name -- the
+        -- guild line -- is what the size / color / bracket controls style, so
+        -- they gate on a mode that actually includes the guild.
+        local function subtitleGuildOff()
+            local m = DBVal("friendlyBelowName") or "none"
+            return friendlyPlayersOff() or (m ~= "guild" and m ~= "both")
+        end
 
         local friendlyRow
         _, h = W:DualRow(parent, y,
@@ -2589,6 +2599,123 @@ initFrame:SetScript("OnEvent", function(self)
             classSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             EllesmereUI.RegisterWidgetRefresh(refreshNameSwatches)
             refreshNameSwatches()
+        end
+
+        ---------------------------------------------------------------
+        --  Subtitle Text: the title renders inline with the name, the guild
+        --  on its own line below. The colour pair styles the guild line
+        --  only -- the inline title is part of the name string and so takes
+        --  the name's own colour.
+        ---------------------------------------------------------------
+        -- Custom / Class pair, house multiSwatch convention: clicking the
+        -- INACTIVE custom swatch only selects custom mode; clicking it again
+        -- opens the picker. The inactive one dims, both grey out together.
+        local function MakeGuildColorSwatches()
+            return {
+                { tooltip = "Custom Color", hasAlpha = false,
+                  getValue = function()
+                      local c = DBVal("friendlyBelowNameColor") or defaults.friendlyBelowNameColor
+                      return c.r, c.g, c.b
+                  end,
+                  setValue = function(r, g, b)
+                      DB().friendlyBelowNameColor = { r = r, g = g, b = b }
+                      if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
+                  end,
+                  onClick = function(self)
+                      if DBVal("friendlyBelowNameClassColor") == true then
+                          DB().friendlyBelowNameClassColor = false
+                          if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
+                          EllesmereUI:RefreshPage()
+                          return
+                      end
+                      if self._eabOrigClick then self._eabOrigClick(self) end
+                  end,
+                  refreshAlpha = function()
+                      if subtitleGuildOff() then return 0.15 end
+                      return (DBVal("friendlyBelowNameClassColor") == true) and 0.3 or 1
+                  end },
+                { tooltip = "Class Color", hasAlpha = false,
+                  getValue = function()
+                      local _, ct = UnitClass("player")
+                      local cc = ct and C_ClassColor and C_ClassColor.GetClassColor(ct)
+                      if cc then return cc.r, cc.g, cc.b end
+                      return 1, 1, 1
+                  end,
+                  setValue = function() end,
+                  onClick = function()
+                      DB().friendlyBelowNameClassColor = true
+                      if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
+                      EllesmereUI:RefreshPage()
+                  end,
+                  refreshAlpha = function()
+                      if subtitleGuildOff() then return 0.15 end
+                      return (DBVal("friendlyBelowNameClassColor") == true) and 1 or 0.3
+                  end },
+            }
+        end
+
+        local subtitleRow
+        subtitleRow, h = W:DualRow(parent, y,
+            { type="dropdown", text="Subtitle Text",
+              tooltip="Show the player's title inline with their name, and/or their guild on a line below it, on friendly nameplates.",
+              disabled=friendlyPlayersOff,
+              disabledTooltip="Show EUI Friendly Player Nameplates",
+              values={ none="None", title="Player Title", guild="Guild Name", both="Title & Guild" },
+              order={ "none", "title", "guild", "both" },
+              getValue=function() return DBVal("friendlyBelowName") or "none" end,
+              setValue=function(v)
+                DB().friendlyBelowName = v
+                if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
+                EllesmereUI:RefreshPage()
+              end },
+            { type="multiSwatch", text="Guild Text Color",
+              disabled=subtitleGuildOff,
+              disabledTooltip=function()
+                  if friendlyPlayersOff() then return "Show EUI Friendly Player Nameplates" end
+                  return "This option requires Subtitle Text to include the Guild Name"
+              end,
+              rawTooltip=function() return not friendlyPlayersOff() end,
+              swatches = MakeGuildColorSwatches() });  y = y - h
+
+        -- Subtitle Text inline cog (guild bracket toggle)
+        do
+            local subCogOwner
+            local _, ShowSubtitlePopup = EllesmereUI.BuildCogPopup({
+                title = "Subtitle Text Settings",
+                rows = {
+                    { type = "toggle", label = "Show <> Around Guild",
+                      get = function() return DBVal("friendlyBelowNameGuildBrackets") ~= false end,
+                      set = function(v)
+                        DB().friendlyBelowNameGuildBrackets = v and true or false
+                        if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
+                      end },
+                },
+            })
+
+            local rgn = subtitleRow._leftRegion
+            local btn = CreateFrame("Button", nil, rgn)
+            btn:SetSize(26, 26)
+            btn:SetPoint("RIGHT", rgn._control, "LEFT", -8, 0)
+            btn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            btn:SetAlpha(subtitleGuildOff() and 0.15 or 0.4)
+            local tex = btn:CreateTexture(nil, "OVERLAY")
+            tex:SetAllPoints(); tex:SetTexture(COGS_ICON)
+            btn:SetScript("OnEnter", function(self)
+                if subtitleGuildOff() then
+                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("This option requires Subtitle Text to include the Guild Name"))
+                else self:SetAlpha(0.7) end
+            end)
+            btn:SetScript("OnLeave", function(self)
+                EllesmereUI.HideWidgetTooltip()
+                if subCogOwner ~= self then self:SetAlpha(subtitleGuildOff() and 0.15 or 0.4) end
+            end)
+            btn:SetScript("OnClick", function(self)
+                if subtitleGuildOff() then return end
+                ShowSubtitlePopup(self)
+            end)
+            EllesmereUI.RegisterWidgetRefresh(function()
+                if subCogOwner ~= btn then btn:SetAlpha(subtitleGuildOff() and 0.15 or 0.4) end
+            end)
         end
 
         local npcRow
@@ -5167,12 +5294,72 @@ initFrame:SetScript("OnEvent", function(self)
                 pf._cropLabel = cropLabel
                 local cropToggle, _, cropToggleSnap = EllesmereUI.BuildToggleControl(pf, pf:GetFrameLevel() + 5,
                     function() return pf._cropGet and pf._cropGet() or false end,
-                    function(v) if pf._cropSet then pf._cropSet(v) end end,
+                    function(v)
+                        if pf._cropSet then pf._cropSet(v) end
+                        -- The Adjust Crop slider (below) rides this toggle's state.
+                        if pf._cropPctSyncDisabled then pf._cropPctSyncDisabled() end
+                    end,
                     { sizeRatio = 0.8, noAnim = true })
                 cropToggle:SetPoint("RIGHT", pf, "TOPRIGHT", -SIDE_PAD, G_ROW_Y - GROWTH_ROW_H / 2)
                 cropToggle:Hide()
                 pf._cropToggle = cropToggle
                 pf._cropToggleSnap = cropToggleSnap
+
+                -- Optional "Adjust Crop" slider row (own row, directly below
+                -- Cropped Icons; wired via pf._cropPctGet / pf._cropPctSet).
+                -- Per-side trim percentage; 10 is the classic fixed crop.
+                -- Blocked + dimmed while Cropped Icons is off, following the
+                -- standard disabled-inline-control pattern.
+                local cpLabel = MakeFont(pf, 12, nil, 1, 1, 1)
+                cpLabel:SetAlpha(0.6); cpLabel:SetText(EllesmereUI.L("Adjust Crop"))
+                cpLabel:Hide()
+                pf._cropPctLabel = cpLabel
+                local cpHover = CreateFrame("Frame", nil, pf)
+                cpHover:SetFrameLevel(pf:GetFrameLevel() + 10)
+                cpHover:SetAllPoints(cpLabel)
+                cpHover:EnableMouse(true)
+                cpHover:Hide()
+                cpHover:SetScript("OnEnter", function(self)
+                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("How much is trimmed from the icon's top and bottom, as a percentage per side. 10% is the classic cropped look."), { width = 230 })
+                end)
+                cpHover:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                pf._cropPctHover = cpHover
+                -- Narrower track than the standard rows: the "Adjust Crop"
+                -- label is wider than Size/Spacing and would run under a
+                -- full-width track. The right edge stays aligned (the track
+                -- start shifts right by the same amount in the reposition).
+                local cpTrack, cpValBox = BuildSliderCore(pf, SLIDER_W - 26, 4, 12, INPUT_W, SLIDER_H, 11, SL_INPUT_A,
+                    5, 25, 1,
+                    function() return pf._cropPctGet and pf._cropPctGet() or 10 end,
+                    function(v) if pf._cropPctSet then pf._cropPctSet(v) end end, true)
+                cpTrack:Hide(); cpValBox:Hide()
+                pf._cropPctTrack = cpTrack; pf._cropPctValBox = cpValBox
+                -- Blocking overlay for the disabled state (covers track + input).
+                local cpBlock = CreateFrame("Frame", nil, pf)
+                cpBlock:SetFrameLevel(pf:GetFrameLevel() + 20)
+                cpBlock:EnableMouse(true)
+                cpBlock:Hide()
+                cpBlock:SetScript("OnEnter", function(self)
+                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip("Cropped Icons"))
+                end)
+                cpBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                pf._cropPctBlock = cpBlock
+                -- Dim/undim + block per the crop toggle's current value; called
+                -- on every popup show and whenever the crop toggle flips.
+                pf._cropPctSyncDisabled = function()
+                    if not cpTrack:IsShown() then
+                        cpBlock:Hide()
+                        return
+                    end
+                    local on = pf._cropGet and pf._cropGet() and true or false
+                    local a = on and 1 or 0.3
+                    cpTrack:SetAlpha(a); cpValBox:SetAlpha(a)
+                    cpLabel:SetAlpha(on and 0.6 or 0.25)
+                    cpBlock:ClearAllPoints()
+                    cpBlock:SetPoint("TOPLEFT", cpTrack, "TOPLEFT", 0, 4)
+                    cpBlock:SetPoint("BOTTOMRIGHT", cpValBox, "BOTTOMRIGHT", 0, -4)
+                    cpBlock:SetShown(not on)
+                end
 
                 -- Optional "Wrap" toggle row (own row, like Cropped Icons). Used by
                 -- the truncating text elements (enemy name, cast name/target, health
@@ -5263,6 +5450,7 @@ initFrame:SetScript("OnEvent", function(self)
             local hasCrop = opts.cropGet ~= nil
             local hasWrap = opts.wrapGet ~= nil
             local hasRaiseStrata = opts.raiseStrataGet ~= nil
+            local hasCropPct = opts.cropPctGet ~= nil
             if hasSize then
                 -- Rebuild size slider if range changed
                 local sStep = opts.sizeStep or 1
@@ -5379,6 +5567,24 @@ initFrame:SetScript("OnEvent", function(self)
                 cogPopup._cropToggle:Hide()
             end
 
+            -- Show/hide Adjust Crop row (slider, directly below Cropped Icons)
+            if hasCropPct then
+                cogPopup._cropPctGet = opts.cropPctGet
+                cogPopup._cropPctSet = opts.cropPctSet
+                cogPopup._cropPctLabel:Show()
+                cogPopup._cropPctTrack:Show()
+                cogPopup._cropPctValBox:Show()
+                cogPopup._cropPctHover:Show()
+            else
+                cogPopup._cropPctGet = nil
+                cogPopup._cropPctSet = nil
+                cogPopup._cropPctLabel:Hide()
+                cogPopup._cropPctTrack:Hide()
+                cogPopup._cropPctValBox:Hide()
+                cogPopup._cropPctHover:Hide()
+                cogPopup._cropPctBlock:Hide()
+            end
+
             -- Show/hide Wrap row (its own row, like Cropped Icons)
             if hasWrap then
                 cogPopup._wrapGet = opts.wrapGet
@@ -5474,6 +5680,23 @@ initFrame:SetScript("OnEvent", function(self)
                 p._cropLabel:SetPoint("LEFT", p, "TOPLEFT", SPAD, cropY - GRH / 2)
                 p._cropToggle:ClearAllPoints()
                 p._cropToggle:SetPoint("RIGHT", p, "TOPRIGHT", -SPAD, cropY - GRH / 2)
+                -- Adjust Crop sits in the row directly below Cropped Icons; the
+                -- slider anchorRow handles label + track + input box, then the
+                -- disabled sync dims/blocks it per the toggle's current state.
+                if hasCropPct then
+                    -- Manual anchoring instead of anchorRow: the track starts
+                    -- 26px further right (it was built 26px narrower) so the
+                    -- wider "Adjust Crop" label never runs underneath it while
+                    -- the track's right edge stays aligned with the other rows.
+                    local cpy = rowY(#seq + 2 + extraRows)
+                    p._cropPctLabel:ClearAllPoints()
+                    p._cropPctLabel:SetPoint("LEFT", p, "TOPLEFT", SPAD, cpy - SH / 2)
+                    p._cropPctTrack:ClearAllPoints()
+                    p._cropPctTrack:SetPoint("TOPLEFT", p, "TOPLEFT", SLEFT + 26, cpy - 2)
+                    p._cropPctValBox:ClearAllPoints()
+                    p._cropPctValBox:SetPoint("TOPRIGHT", p, "TOPRIGHT", -SPAD, cpy)
+                    if p._cropPctSyncDisabled then p._cropPctSyncDisabled() end
+                end
                 -- Wrap sits in its own row, like Cropped Icons: below the
                 -- Grow/toggle band when present, else after the data rows.
                 -- (No cog uses both Wrap and Cropped Icons, so they never collide.)
@@ -5488,6 +5711,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if hasRaiseStrata then
                     local rsRowIndex = #seq + 1 + extraRows
                     if hasCrop or hasWrap then rsRowIndex = rsRowIndex + 1 end
+                    if hasCropPct then rsRowIndex = rsRowIndex + 1 end
                     local rsY = rowY(rsRowIndex)
                     p._rsLabel:ClearAllPoints()
                     p._rsLabel:SetPoint("LEFT", p, "TOPLEFT", SPAD, rsY - GRH / 2)
@@ -5500,6 +5724,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if hasWidth then
                     local widthRowIndex = #seq + 1 + extraRows
                     if hasCrop or hasWrap then widthRowIndex = widthRowIndex + 1 end
+                    if hasCropPct then widthRowIndex = widthRowIndex + 1 end
                     anchorRow(p._wLabel, p._wTrack, p._wValBox, rowY(widthRowIndex))
                 end
             end
@@ -5529,6 +5754,8 @@ initFrame:SetScript("OnEvent", function(self)
                 if hasToggle then h = h + gap + p._GROWTH_ROW_H end
                 -- Cropped Icons always occupies its own extra row.
                 if hasCrop then h = h + gap + p._GROWTH_ROW_H end
+                -- Adjust Crop (slider) occupies its own extra row below it.
+                if hasCropPct then h = h + gap + rowH end
                 -- Wrap occupies its own extra row.
                 if hasWrap then h = h + gap + p._GROWTH_ROW_H end
                 -- Raise Strata occupies its own extra row.
@@ -5986,6 +6213,12 @@ initFrame:SetScript("OnEvent", function(self)
                 if cropKey then
                     opts.cropGet = function() return DBVal(cropKey) or defaults[cropKey] end
                     opts.cropSet = function(v) DB()[cropKey] = v; RefreshAllSlots(); UpdatePreview() end
+                    -- Adjust Crop: per-side trim percentage for the cropped mode.
+                    local cropPctKey = (element == "debuffs" and "debuffCropPercent")
+                        or (element == "buffs" and "buffCropPercent")
+                        or "ccCropPercent"
+                    opts.cropPctGet = function() return DBVal(cropPctKey) or 10 end
+                    opts.cropPctSet = function(v) DB()[cropPctKey] = v; RefreshAllSlots(); UpdatePreview() end
                 end
                 -- Rare/Quest Indicator: "Show In Instances" lifts the
                 -- open-world-only gates (UpdateClassification render gate +

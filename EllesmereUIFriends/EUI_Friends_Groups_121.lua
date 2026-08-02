@@ -370,7 +370,7 @@ local function PromptDeleteGroup(name)
     if not EllesmereUI.ShowConfirmPopup then return end
     EllesmereUI:ShowConfirmPopup({
         title       = "Delete Friend Group",
-        message     = format("Delete group \"%s\"?\nFriends in this group will be moved to the default list.", name),
+        message     = EllesmereUI.Lf("Delete group \"%s\"?\nFriends in this group will be moved to the default list.", name),
         confirmText = "Delete",
         cancelText  = "Cancel",
         onConfirm   = function() DeleteGroup(name) end,
@@ -399,17 +399,17 @@ local function OpenGroupMenu(anchorFrame, accountInfo)
     MenuUtil.CreateContextMenu(anchorFrame, function(_owner, root)
         local ar, ag, ab = AccentRGB()
         root:CreateTitle(format("|cff%02x%02x%02x%s|r", ar * 255, ag * 255, ab * 255,
-            "EUI Friend Groups"))
+            EllesmereUI.L("EUI Friend Groups")))
 
         -- Favorites are Blizzard's own bucket and always render there.
         if accountInfo.isFavorite then
-            root:CreateTitle("Favorites are managed by Battle.net")
+            root:CreateTitle(EllesmereUI.L("Favorites are managed by Battle.net"))
             return
         end
 
-        local addLabel = current and "Move to Group" or "Add to Group"
+        local addLabel = EllesmereUI.L(current and "Move to Group" or "Add to Group")
         local addTo = root:CreateButton(addLabel)
-        addTo:CreateButton("|cff00ff00+|r Add New Group", function()
+        addTo:CreateButton("|cff00ff00+|r " .. EllesmereUI.L("Add New Group"), function()
             PromptNewGroup(tag, bnetID)
         end)
         if #fg.friendGroups > 0 then
@@ -425,7 +425,7 @@ local function OpenGroupMenu(anchorFrame, accountInfo)
             end
         end
 
-        local removeBtn = root:CreateButton("Remove from Group", function()
+        local removeBtn = root:CreateButton(EllesmereUI.L("Remove from Group"), function()
             SetFriendGroupByTag(tag, nil)
             RebuildGroups("direct")
         end)
