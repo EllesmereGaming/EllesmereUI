@@ -5533,7 +5533,8 @@ local function CreateCastBar(frame, unit, settings)
     -- fill texture) so the OVERLAY border sits above the ARTWORK fill.
     -- Drawing on castbarBg would put the border behind the fill because
     -- castbar is a child of castbarBg and draws above it.
-    PP.CreateBorder(castbar, 0, 0, 0, 1, 1, "OVERLAY", 0)
+    -- Border size is inherited from the frame.
+    PP.CreateBorder(castbar, 0, 0, 0, 1, settings.borderSize or 0, "OVERLAY", 0)
 
 
     -- Three-zone cast bar text layout matching nameplates:
