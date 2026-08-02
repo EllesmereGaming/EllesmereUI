@@ -146,14 +146,19 @@ initFrame:SetScript("OnEvent", function(self)
     ---------------------------------------------------------------------------
     local BAR_BUTTON_PREFIXES = {
         [1] = "ActionButton",
-        [2] = "MultiBarBottomLeftButton",
-        [3] = "MultiBarBottomRightButton",
-        [4] = "MultiBarRightButton",
-        [5] = "MultiBarLeftButton",
-        [6] = "MultiBar5Button",
-        [7] = "MultiBar6Button",
-        [8] = "MultiBar7Button",
+        [2] = "MultiBarBottomRightButton",
+        [3] = "MultiBarBottomLeftButton",
+        [4] = "MultiBarLeftButton",
+        [5] = "MultiBarRightButton",
     }
+    local BAR_BUTTON_OFFSETS = { 0, 48, 60, 36, 24, 12 }
+    local function GetMappedActionButton(barIdx, buttonIdx)
+        local offset = BAR_BUTTON_OFFSETS[barIdx]
+        local eabButton = offset and _G["EABButton" .. (offset + buttonIdx)]
+        if eabButton then return eabButton end
+        local prefix = BAR_BUTTON_PREFIXES[barIdx]
+        return prefix and _G[prefix .. buttonIdx] or nil
+    end
 
     -- Action bar shape masks/borders (for preview rendering)
     local AB_SHAPE_MEDIA = "Interface\\AddOns\\EllesmereUI\\media\\portraits\\"
@@ -176,12 +181,12 @@ initFrame:SetScript("OnEvent", function(self)
         square = AB_SHAPE_MEDIA .. "square_border.tga",
     }
 
-    -- Action bar entries (1-8) are stable. CDM bar entries are built dynamically
+    -- Action bar entries (1-6) are stable. CDM bar entries are built dynamically
     -- via BuildBGTargetList because the user can add extra cooldown/utility/buff
     -- bars beyond the defaults.
     local BG_ACTION_BAR_LABELS = {
         [1] = "Action Bar 1 (Main)", [2] = "Action Bar 2", [3] = "Action Bar 3", [4] = "Action Bar 4",
-        [5] = "Action Bar 5", [6] = "Action Bar 6", [7] = "Action Bar 7", [8] = "Action Bar 8",
+        [5] = "Action Bar 5", [6] = "Action Bar 6",
     }
 
     -- Backward-compat normalizer: legacy installs saved selectedBar as 101/102
@@ -190,14 +195,15 @@ initFrame:SetScript("OnEvent", function(self)
     local function NormalizeSelectedBar(sel)
         if sel == 101 then return "cooldowns" end
         if sel == 102 then return "utility" end
+        if type(sel) == "number" and (sel < 1 or sel > 6) then return 1 end
         return sel
     end
 
     -- Build the live dropdown list. Returns an array of
     -- { value, label } entries in display order:
     --   1. CDM bars from p.cdmBars.bars (default + extras, skipping ghost/custom_buff)
-    --   2. Action bars 1-8
-    -- "value" is a string for CDM bars (the bar key) or an integer 1-8 for action bars.
+    --   2. Action bars 1-6
+    -- "value" is a string for CDM bars (the bar key) or an integer 1-6 for action bars.
     local function BuildBGTargetList()
         local list = {}
         local p = ns.ECME and ns.ECME.db and ns.ECME.db.profile
@@ -212,7 +218,7 @@ initFrame:SetScript("OnEvent", function(self)
                 end
             end
         end
-        for i = 1, 8 do
+        for i = 1, 6 do
             list[#list + 1] = { value = i, label = EllesmereUI.L(BG_ACTION_BAR_LABELS[i]) }
         end
         return list
@@ -613,9 +619,7 @@ initFrame:SetScript("OnEvent", function(self)
 
     -- Get the icon texture from a real Blizzard action button
     local function GetActionButtonIcon(barIdx, slot)
-        local prefix = BAR_BUTTON_PREFIXES[barIdx]
-        if not prefix then return nil end
-        local btn = _G[prefix .. slot]
+        local btn = GetMappedActionButton(barIdx, slot)
         if not btn then return nil end
         local icon = btn.icon or btn.Icon
         if icon and icon.GetTexture then return icon:GetTexture() end
@@ -623,7 +627,7 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     -- Check if a specific bar target uses a custom shape (not "none"/"cropped").
-    -- barIdx can be a number 1-8 (action bar) or a string (CDM bar key).
+    -- barIdx can be a number 1-6 (action bar) or a string (CDM bar key).
     local function BarHasCustomShape(barIdx)
         barIdx = NormalizeSelectedBar(barIdx)
         if type(barIdx) == "string" then
@@ -633,7 +637,7 @@ initFrame:SetScript("OnEvent", function(self)
             end
             return false
         end
-        local barKeys = { "MainBar", "Bar2", "Bar3", "Bar4", "Bar5", "Bar6", "Bar7", "Bar8" }
+        local barKeys = { "MainBar", "Bar2", "Bar3", "Bar4", "Bar5", "Bar6" }
         local barKey = barKeys[barIdx]
         if not barKey then return false end
         local ok, EAB = pcall(EllesmereUI.Lite.GetAddon, "EllesmereUIActionBars")
@@ -816,8 +820,7 @@ initFrame:SetScript("OnEvent", function(self)
                         mode = "ACTIVE",
                         onlyInCombat = false,
                     }
-                    local prefix = BAR_BUTTON_PREFIXES[barIdx]
-                    local realBtn = prefix and _G[prefix .. btnIdx]
+                    local realBtn = GetMappedActionButton(barIdx, btnIdx)
                     if realBtn and realBtn.action then
                         local aType, aID = GetActionInfo(realBtn.action)
                         if aType == "spell" and aID then
@@ -943,12 +946,12 @@ initFrame:SetScript("OnEvent", function(self)
             local sel = NormalizeSelectedBar(bgData.selectedBar or 1)
             local isCDMBar = (type(sel) == "string")
             -- For CDM bars: cdmBarKey is the bar key string. For action bars:
-            -- barIdx is the integer 1-8 used for prefix lookup.
+            -- barIdx is the integer 1-6 used for action-button lookup.
             local cdmBarKey = isCDMBar and sel or nil
             local barIdx = isCDMBar and nil or sel
             local ok, EAB_ADDON = pcall(EllesmereUI.Lite.GetAddon, "EllesmereUIActionBars")
             if not ok then EAB_ADDON = nil end
-            local barKeyList = { "MainBar", "Bar2", "Bar3", "Bar4", "Bar5", "Bar6", "Bar7", "Bar8" }
+            local barKeyList = { "MainBar", "Bar2", "Bar3", "Bar4", "Bar5", "Bar6" }
             local barKeyStr = (not isCDMBar) and (barKeyList[barIdx] or "MainBar") or nil
             local barSettings = nil
             if barKeyStr and EAB_ADDON and EAB_ADDON.db and EAB_ADDON.db.profile then
@@ -969,7 +972,6 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 if NUM_BUTTONS == 0 then NUM_BUTTONS = 1 end
             end
-            local prefix = (not isCDMBar) and (BAR_BUTTON_PREFIXES[barIdx] or "ActionButton") or nil
 
             -- Dropdown at top
             local DD_H = 34
@@ -1074,7 +1076,7 @@ initFrame:SetScript("OnEvent", function(self)
                     realBtnH = realBtnW
                 end
             else
-                local btn1 = _G[prefix .. "1"]
+                local btn1 = GetMappedActionButton(barIdx, 1)
                 realBtnW = (btn1 and btn1:GetWidth() or 36)
                 realBtnH = (btn1 and btn1:GetHeight() or 36)
             end
@@ -1174,7 +1176,7 @@ initFrame:SetScript("OnEvent", function(self)
                     local cdmIcons = ns.cdmBarIcons and ns.cdmBarIcons[cdmBarKey]
                     realBtn = cdmIcons and cdmIcons[i]
                 else
-                    realBtn = prefix and _G[prefix .. i]
+                    realBtn = GetMappedActionButton(barIdx, i)
                 end
                 -- Preset / custom / racial / trinket / custom-buff icons can't be
                 -- glow-assigned; their button is left inert (no hover, clicks do nothing).
@@ -1563,8 +1565,7 @@ initFrame:SetScript("OnEvent", function(self)
                             if sid then btnSpellName = C_Spell.GetSpellName(sid) or btnSpellName end
                         end
                     else
-                        local prefix = BAR_BUTTON_PREFIXES[curBar]
-                        local realBtn = prefix and _G[prefix .. curBtn]
+                        local realBtn = GetMappedActionButton(curBar, curBtn)
                         if realBtn and realBtn.action then
                             local aType, aID = GetActionInfo(realBtn.action)
                             if aType == "spell" and aID then

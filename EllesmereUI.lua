@@ -7913,7 +7913,8 @@ local function CreateMainFrame()
         EllesmereUI._addonToggleInit = true
         EllesmereUI.IsAddonEnabled = function(name)
             if C_AddOns and C_AddOns.GetAddOnEnableState then
-                return C_AddOns.GetAddOnEnableState(name) > 0
+                local char = UnitName("player")
+                return char and C_AddOns.GetAddOnEnableState(name, char) > 0
             end
             return true
         end
@@ -8018,13 +8019,15 @@ local function CreateMainFrame()
                     confirmText = enabled and "Disable & Reload" or "Enable & Reload",
                     cancelText  = "Cancel",
                     onConfirm   = function()
+                        local char = UnitName("player")
+                        if not char then return end
                         if folder == "EllesmereUIBags" and EllesmereUIDB then
                             EllesmereUIDB.bagsUserChosen = true
                         end
                         if enabled then
-                            C_AddOns.DisableAddOn(folder)
+                            C_AddOns.DisableAddOn(folder, char)
                         else
-                            C_AddOns.EnableAddOn(folder)
+                            C_AddOns.EnableAddOn(folder, char)
                         end
                         ReloadUI()
                     end,

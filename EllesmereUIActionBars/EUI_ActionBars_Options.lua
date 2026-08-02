@@ -83,8 +83,8 @@ initFrame:SetScript("OnEvent", function(self)
 
     -- First actual button of a bar, used to read its default size. Prefers our
     -- own EABButton; falls back to the native Blizzard button. Returns nil for
-    -- custom bars (Bar9/Bar10), which have no native button -- callers default
-    -- the size. (Avoids concatenating a nil buttonPrefix.)
+    -- a custom bar with no native button -- callers default the size. (Avoids
+    -- concatenating a nil buttonPrefix.)
     local function FirstBarButton(key)
         local eb = ns.barButtons and ns.barButtons[key]
         if eb and eb[1] then return eb[1] end
@@ -300,9 +300,8 @@ initFrame:SetScript("OnEvent", function(self)
     local function BuildLivePreview(parent, yOff)
         local barKey  = SelectedKey()
         local barInfo = BAR_LOOKUP[barKey]
-        -- Skip visibility-only / data bars (no button count). Custom bars
-        -- (Bar9/Bar10) have a count but no native buttonPrefix, so key the guard
-        -- off count -- they render from our own EABButtons like any action bar.
+        -- Skip visibility-only / data bars (no button count). A custom bar can
+        -- have a count but no native buttonPrefix, so key the guard off count.
         if not barInfo or not barInfo.count then
             activePreview = nil
             return 0
@@ -1170,8 +1169,6 @@ initFrame:SetScript("OnEvent", function(self)
         Bar4     = "Bar 4",
         Bar5     = "Bar 5",
         Bar6     = "Bar 6",
-        Bar7     = "Bar 7",
-        Bar8     = "Bar 8",
         StanceBar = "Stance",
         PetBar   = "Pet",
         MicroBar = "Micro",
@@ -1664,31 +1661,6 @@ initFrame:SetScript("OnEvent", function(self)
 
         local function BgDisabled()
             return not SB().bgEnabled
-        end
-
-        -----------------------------------------------------------------------
-        --  Bar 10 / Moonkin Form caution
-        -----------------------------------------------------------------------
-        -- Action page 10 (the slots Bar 10 displays) is the Druid Moonkin Form
-        -- bonus bar, so a Druid editing Bar 10 also edits their Moonkin Form
-        -- bar and vice versa. Surface that at the top of the page so it is not
-        -- a surprise. Shown for all classes; the text self-qualifies to Druids.
-        if SelectedKey() == "Bar10" then
-            local PP = EllesmereUI.PanelPP
-            local PAD = EllesmereUI.CONTENT_PAD
-            local warnW = parent:GetWidth() - PAD * 2
-            y = y - 5  -- 5px spacing above the caution
-            local warnHost = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
-            PP.Point(warnHost, "TOPLEFT", parent, "TOPLEFT", PAD, y)
-            local warnFS = EllesmereUI.MakeFont(warnHost, 14, nil, 1, 0.82, 0)
-            warnFS:SetWidth(warnW)
-            warnFS:SetWordWrap(true)
-            warnFS:SetJustifyH("CENTER")
-            warnFS:SetPoint("TOPLEFT", warnHost, "TOPLEFT", 0, 0)
-            warnFS:SetText(EllesmereUI.L("This Action Bar is also used as the Moonkin Form bar.\nChanging spells on a Druid for this bar will also change them on your Moonkin Form bar."))
-            local warnH = math.ceil(warnFS:GetStringHeight()) + 4
-            PP.Size(warnHost, warnW, warnH)
-            y = y - (warnH + 12)
         end
 
         -----------------------------------------------------------------------
@@ -3769,9 +3741,7 @@ initFrame:SetScript("OnEvent", function(self)
                   getValue=function() return EAB.db.profile.showBlizzIconBg or false end,
                   setValue=function(v)
                       EAB.db.profile.showBlizzIconBg = v
-                      for _, info in ipairs(ns.BAR_CONFIG or {}) do
-                          EAB:ApplyIconBackgroundForBar(info.key)
-                      end
+                      EAB:ApplyIconBackgroundForAllBars()
                       EllesmereUI:RefreshPage()
                   end },
                 { type="toggle", text="Show Cooldown Numbers",
@@ -3797,9 +3767,7 @@ initFrame:SetScript("OnEvent", function(self)
                           get=function() return math.floor((EAB.db.profile.blizzIconBgAlpha or 1) * 100 + 0.5) end,
                           set=function(v)
                               EAB.db.profile.blizzIconBgAlpha = v / 100
-                              for _, info in ipairs(ns.BAR_CONFIG or {}) do
-                                  EAB:ApplyIconBackgroundForBar(info.key)
-                              end
+                              EAB:ApplyIconBackgroundForAllBars()
                           end },
                     },
                 })
@@ -4199,7 +4167,7 @@ initFrame:SetScript("OnEvent", function(self)
             BuildBarBackgroundSection()
 
             -------------------------------------------------------------------
-            --  PAGING (MainBar + Bars 2-8 only, not Stance/Pet/Micro/Bag)
+            --  PAGING (MainBar + Bars 2-6 only, not Stance/Pet/Micro/Bag)
             -------------------------------------------------------------------
             do
                 local selKey = SelectedKey()
@@ -4213,7 +4181,7 @@ initFrame:SetScript("OnEvent", function(self)
                     local PG_STATES = EAB_VT.PAGING_STATES or {}
                     local BKP = EAB_VT.BAR_KEY_TO_PAGE or {}
 
-                    -- Build dropdown values: None, Bar 1-8
+                    -- Build dropdown values: Default, Bars 1-6
                     local pagingValues = { none = "Default" }
                     local pagingOrder = { "none" }
                     local barList = {
@@ -4223,10 +4191,6 @@ initFrame:SetScript("OnEvent", function(self)
                         { key = "Bar4",    label = "Action Bar 4" },
                         { key = "Bar5",    label = "Action Bar 5" },
                         { key = "Bar6",    label = "Action Bar 6" },
-                        { key = "Bar7",    label = "Action Bar 7" },
-                        { key = "Bar8",    label = "Action Bar 8" },
-                        { key = "Bar9",    label = "Action Bar 9" },
-                        { key = "Bar10",   label = "Action Bar 10" },
                     }
                     for _, bl in ipairs(barList) do
                         -- Skip self (can't page a bar to itself)
@@ -5127,10 +5091,6 @@ initFrame:SetScript("OnEvent", function(self)
                     ShowEditOverlay(v)
                 end,
                 function(key)
-                    -- Bar9/Bar10 default to Hidden visibility, but must stay
-                    -- selectable in this dropdown so the user can pick and
-                    -- configure them -- never show the disabled effect on them.
-                    if key == "Bar9" or key == "Bar10" then return nil end
                     if not IsBarEnabled(key) then return EllesmereUI.DisabledTooltip("this action bar") end
                 end
             )
@@ -5192,12 +5152,9 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.MakeStyledButton(qkbBtn, "Quick Keybind Mode (/kb)", 14,
                 EllesmereUI.WB_COLOURS, function()
                     if InCombatLockdown() then return end
-                    if not C_AddOns.IsAddOnLoaded("Blizzard_QuickKeybind") then
-                        C_AddOns.LoadAddOn("Blizzard_QuickKeybind")
-                    end
-                    if QuickKeybindFrame then
+                    if EllesmereUI.ToggleQuickBindMode then
                         EllesmereUI:Toggle()
-                        QuickKeybindFrame:Show()
+                        EllesmereUI.ToggleQuickBindMode(true)
                     end
                 end)
 
@@ -5369,22 +5326,14 @@ initFrame:SetScript("OnEvent", function(self)
 
     -- Proc glow preview: supports FlipBook + procedural glow engines
     local function GetNthActionButtonIcon(n)
-        -- Find the Nth action button with an assigned spell across bars 1-8
+        -- Find the Nth action button with an assigned spell across bars 1-6
         n = n or 1
-        local BAR_CONFIG = {
-            { prefix = "ActionButton", count = 12 },
-            { prefix = "MultiBarBottomLeftButton", count = 12 },
-            { prefix = "MultiBarBottomRightButton", count = 12 },
-            { prefix = "MultiBarRightButton", count = 12 },
-            { prefix = "MultiBarLeftButton", count = 12 },
-            { prefix = "MultiBar5Button", count = 12 },
-            { prefix = "MultiBar6Button", count = 12 },
-            { prefix = "MultiBar7Button", count = 12 },
-        }
+        local barKeys = { "MainBar", "Bar2", "Bar3", "Bar4", "Bar5", "Bar6" }
         local found = 0
-        for _, bar in ipairs(BAR_CONFIG) do
-            for i = 1, bar.count do
-                local btn = _G[bar.prefix .. i]
+        for _, barKey in ipairs(barKeys) do
+            local buttons = ns.barButtons and ns.barButtons[barKey]
+            for i = 1, 12 do
+                local btn = buttons and buttons[i]
                 if btn and btn.icon then
                     local tex = btn.icon:GetTexture()
                     if tex and tex ~= 0 and tex ~= "" and tex ~= 136235 then

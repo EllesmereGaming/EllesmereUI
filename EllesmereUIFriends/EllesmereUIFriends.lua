@@ -1400,14 +1400,18 @@ local function SkinFriendsFrame()
         local _sizeApplied = false
         local function ApplySize()
             if _sizeApplied then return end
-            _sizeApplied = true
             frame:SetWidth(origW - 40)
             frame:SetHeight(origH + EXTRA_H)
             FriendsListFrame:SetHeight(origListH + EXTRA_H)
-            -- Reposition Blizzard's ScrollBox to our list pane area
-            FriendsListFrame.ScrollBox:ClearAllPoints()
-            FriendsListFrame.ScrollBox:SetPoint("TOPLEFT", frame, "TOPLEFT", LIST_LEFT, LIST_TOP)
-            FriendsListFrame.ScrollBox:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", LIST_RIGHT, LIST_BOTTOM)
+            -- Retail uses a ScrollBox; older clients use the legacy scroll frame.
+            local friendsScroll = FriendsListFrame.ScrollBox
+                or _G.FriendsFrameFriendsScrollFrame
+                or _G.FriendsListFrameScrollFrame
+            if friendsScroll then
+                friendsScroll:ClearAllPoints()
+                friendsScroll:SetPoint("TOPLEFT", frame, "TOPLEFT", LIST_LEFT, LIST_TOP)
+                friendsScroll:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", LIST_RIGHT, LIST_BOTTOM)
+            end
             -- Match other sub-tab content frames
             local function FitToListPane(f)
                 if not f then return end
@@ -1479,6 +1483,7 @@ local function SkinFriendsFrame()
                 if raf.Bg then raf.Bg:Hide() end
                 if raf.NineSlice then raf.NineSlice:Hide() end
             end
+            _sizeApplied = true
         end
 
         hooksecurefunc(frame, "Show", function()

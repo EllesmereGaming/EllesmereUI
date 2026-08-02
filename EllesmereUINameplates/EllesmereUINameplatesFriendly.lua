@@ -1,6 +1,7 @@
 local addon, ns = ...
 
 if not ns then return end
+if ns.isLegacyNameplates then return end
 
 local GetFont = ns.GetFont
 local GetNPOutline = ns.GetNPOutline
@@ -496,7 +497,7 @@ end
 --  These fire synchronously inside Blizzard's nameplate creation, BEFORE
 --  NAME_PLATE_UNIT_ADDED reaches any addon event handler.
 -------------------------------------------------------------------------------
-hooksecurefunc(NamePlateDriverFrame, "OnNamePlateAdded", function(_, unit)
+local function OnBlizzardNamePlateAdded(_, unit)
     if not unit or unit == "preview" then return end
     if UnitCanAttack("player", unit) then return end
     if UnitIsUnit(unit, "player") then return end
@@ -549,9 +550,9 @@ hooksecurefunc(NamePlateDriverFrame, "OnNamePlateAdded", function(_, unit)
             end
         end
     end
-end)
+end
 
-hooksecurefunc(NamePlateDriverFrame, "OnNamePlateRemoved", function(_, unit)
+local function OnBlizzardNamePlateRemoved(_, unit)
     -- Guard: Blizzard settings panel can fire this with "preview" which is not a valid unit
     if not unit or not unit:find("^nameplate") then return end
     -- Clean up NPC overlay if present
@@ -563,12 +564,24 @@ hooksecurefunc(NamePlateDriverFrame, "OnNamePlateRemoved", function(_, unit)
     if modifiedUFs[unit] then
         RestoreBlizzardUF(unit)
     end
-end)
+end
+
+-- Some clients/backports expose C_NamePlate without the retail
+-- NamePlateDriverFrame methods.  Passing a missing method to hooksecurefunc
+-- raises a load-time Usage error and prevents the rest of this file loading.
+if NamePlateDriverFrame then
+    if type(NamePlateDriverFrame.OnNamePlateAdded) == "function" then
+        hooksecurefunc(NamePlateDriverFrame, "OnNamePlateAdded", OnBlizzardNamePlateAdded)
+    end
+    if type(NamePlateDriverFrame.OnNamePlateRemoved) == "function" then
+        hooksecurefunc(NamePlateDriverFrame, "OnNamePlateRemoved", OnBlizzardNamePlateRemoved)
+    end
+end
 
 -------------------------------------------------------------------------------
 --  Frame pool for custom friendly plates
 -------------------------------------------------------------------------------
-local friendlyFrameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(plate)
+local friendlyFrameCache = ns.CreateNameplateFramePool("Frame", UIParent, nil, nil, function(plate)
     plate:SetFlattensRenderLayers(true)
 
     plate.health = EllesmereUI.SafeCreateFrame("StatusBar", nil, plate)
@@ -1321,7 +1334,9 @@ end
 -- Re-sweep after NamePlateDriverFrame.UpdateNamePlateOptions fires.
 -- TRP3 hooks this and calls UpdateAllNamePlates which can reset our
 -- suppression on friendly plates. Debounced to batch multiple calls.
-if C_AddOns.IsAddOnLoaded("totalRP3") or C_AddOns.DoesAddOnExist("totalRP3") then
+if NamePlateDriverFrame
+    and type(NamePlateDriverFrame.UpdateNamePlateOptions) == "function"
+    and (C_AddOns.IsAddOnLoaded("totalRP3") or C_AddOns.DoesAddOnExist("totalRP3")) then
     local _npOptsPending = false
     hooksecurefunc(NamePlateDriverFrame, "UpdateNamePlateOptions", function()
         if _npOptsPending then return end
@@ -1337,7 +1352,7 @@ end
 -- fires (CVar / display / nameplate-options changes), wiping our name-only size.
 -- Re-assert it for everyone (the TRP3 branch above only runs when TRP3 is loaded).
 -- Font objects only -- safe, debounced, no CVar feedback.
-if NamePlateDriverFrame and NamePlateDriverFrame.UpdateNamePlateOptions then
+if NamePlateDriverFrame and type(NamePlateDriverFrame.UpdateNamePlateOptions) == "function" then
     hooksecurefunc(NamePlateDriverFrame, "UpdateNamePlateOptions", function()
         ScheduleNameSizeReapply()
     end)

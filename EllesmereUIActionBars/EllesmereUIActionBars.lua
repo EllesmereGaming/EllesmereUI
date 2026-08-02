@@ -91,11 +91,13 @@ local NUM_ACTIONBAR_BUTTONS = NUM_ACTIONBAR_BUTTONS or 12
 ns.NATIVE_STANCE_BUTTON_PREFIX = _G.ShapeshiftButton1 and "ShapeshiftButton" or "StanceButton"
 ns.NATIVE_STANCE_BAR_NAME = _G.ShapeshiftBarFrame and "ShapeshiftBarFrame" or "StanceBar"
 
--- Wrath's XML creates the stance artwork as named global regions rather than
--- assigning the Retail-era fields consumed by the shared styling pipeline.
--- Normalize those references on the native button without replacing any
--- secure scripts or click behavior.
-function ns.NormalizeStanceButtonRegions(btn)
+-- Wrath's XML creates action-button artwork as named global regions rather
+-- than assigning the Retail-era fields consumed by the shared styling
+-- pipeline. Normalize those references without replacing any secure scripts
+-- or click behavior. This is needed for both native stance buttons and EAB's
+-- ActionBarButtonTemplate buttons; notably, the named Border region is the
+-- oversized green item-quality glow shown after an item is dropped.
+function ns.NormalizeActionButtonRegions(btn)
     if not btn or not btn.GetName then return end
     local name = btn:GetName()
     if not name then return end
@@ -126,28 +128,15 @@ local BAR_CONFIG = {
     --   CalculateAction path 1: action = ID + (page - 1) * 12.
     -- Keyboard input flows through Blizzard's native MultiActionButtonDown/Up
     -- so UseAction receives isKeyPress=true (required for press-and-hold casting).
-    { key = "Bar2",      label = "Action Bar 2",        barID = 2,  count = 12, blizzBtnPrefix = "MultiBarBottomLeftButton",   blizzFrame = "MultiBarBottomLeft",  nativeActionPage = 6 },
-    { key = "Bar3",      label = "Action Bar 3",        barID = 3,  count = 12, blizzBtnPrefix = "MultiBarBottomRightButton",  blizzFrame = "MultiBarBottomRight", nativeActionPage = 5 },
-    { key = "Bar4",      label = "Action Bar 4",        barID = 4,  count = 12, blizzBtnPrefix = "MultiBarRightButton",        blizzFrame = "MultiBarRight",       nativeActionPage = 3 },
-    { key = "Bar5",      label = "Action Bar 5",        barID = 5,  count = 12, blizzBtnPrefix = "MultiBarLeftButton",         blizzFrame = "MultiBarLeft",        nativeActionPage = 4 },
-    -- WotLK has no MultiBar5-7 and only exposes action slots 1-120.  Use the
-    -- remaining real action pages for Bars 6-8 instead of Retail-only pages
-    -- 13-15 (slots 145-180), which render but reject every drop on 3.3.5.
-    { key = "Bar6",      label = "Action Bar 6",        barID = 0,  count = 12, customPage = 7 },
-    { key = "Bar7",      label = "Action Bar 7",        barID = 0,  count = 12, customPage = 8 },
-    { key = "Bar8",      label = "Action Bar 8",        barID = 0,  count = 12, customPage = 9 },
-    -- Bar9 / Bar10: additional bars with NO native Blizzard frame. Like Bars
-    -- 6-8, they use our own EABButton<slot> buttons and page via the
-    -- explicit-action + _childupdate-eab-page system. Bar9 maps to action page 2
-    -- (slots 13-24) so converts see those spells appear (already
-    -- in the per-character action slots, no re-placing) once Bar9 is enabled.
-    -- Bar10 maps to action page 10 (slots 109-120). The only native-specific
-    -- difference is keybinds: these pages have no Blizzard binding commands, so
-    -- their keys route through SetOverrideBindingClick using the EUI_BAR9/10_BUTTON
-    -- commands defined in Bindings.xml. customPage = the action page these slots
-    -- live on.
-    { key = "Bar9",      label = "Action Bar 9",        barID = 0,  count = 12, customPage = 2 },
-    { key = "Bar10",     label = "Action Bar 10",       barID = 0,  count = 12, customPage = 10 },
+    -- Match ElvUI's six-bar contract exactly.  The display number is not the
+    -- Blizzard page number: Bars 2-5 intentionally reuse the corresponding
+    -- native multibar buttons/bindings, while Bar 6 owns page 2.  Pages 7-10
+    -- remain free for class bonus-bar paging.
+    { key = "Bar2",      label = "Action Bar 2",        barID = 2,  count = 12, blizzBtnPrefix = "MultiBarBottomRightButton",  blizzFrame = "MultiBarBottomRight", nativeActionPage = 5 },
+    { key = "Bar3",      label = "Action Bar 3",        barID = 3,  count = 12, blizzBtnPrefix = "MultiBarBottomLeftButton",   blizzFrame = "MultiBarBottomLeft",  nativeActionPage = 6 },
+    { key = "Bar4",      label = "Action Bar 4",        barID = 4,  count = 12, blizzBtnPrefix = "MultiBarLeftButton",         blizzFrame = "MultiBarLeft",        nativeActionPage = 4 },
+    { key = "Bar5",      label = "Action Bar 5",        barID = 5,  count = 12, blizzBtnPrefix = "MultiBarRightButton",        blizzFrame = "MultiBarRight",       nativeActionPage = 3 },
+    { key = "Bar6",      label = "Action Bar 6",        barID = 0,  count = 12, customPage = 2 },
     { key = "StanceBar", label = "Stance Bar",          barID = 0,  count = 10, blizzBtnPrefix = ns.NATIVE_STANCE_BUTTON_PREFIX, blizzFrame = ns.NATIVE_STANCE_BAR_NAME, isStance = true },
     { key = "PetBar",    label = "Pet Bar",             barID = 0,  count = 10, blizzBtnPrefix = "PetActionButton",            blizzFrame = "PetActionBar", isPetBar = true },
 }
@@ -553,18 +542,6 @@ for _, info in ipairs(BAR_CONFIG) do
         targetWidth = 0,
         targetHeight = 0,
     }
-end
-
--- Bar9/Bar10 are optional extra bars -- default to the "Hidden" visibility mode
--- (barVisibility = "never" + alwaysHidden, exactly what the Visibility dropdown's
--- Hidden option sets) so they never show for users who don't use them. The user
--- switches Visibility to "Always" (or any mode) to surface them.
-for _, k in ipairs({ "Bar9", "Bar10" }) do
-    local b = defaults.profile.bars[k]
-    if b then
-        b.barVisibility = "never"
-        b.alwaysHidden  = true
-    end
 end
 
 for _, info in ipairs(EXTRA_BARS) do
@@ -1675,25 +1652,19 @@ local barBaseSize = {}  -- [barKey] = { w, h } original button size before any s
 -- These MUST match Blizzard's internal action slot assignments for each
 -- button prefix.  Confirmed via warcraft.wiki.gg/wiki/ActionSlot:
 --   ActionButton1-12           slots 1-12  (paged via state driver)
---   MultiBarBottomLeftButton   slots 61-72
---   MultiBarBottomRightButton  slots 49-60
---   MultiBarRightButton        slots 25-36
---   MultiBarLeftButton         slots 37-48
---   Custom Bar6                slots 73-84  (action page 7)
---   Custom Bar7                slots 85-96  (action page 8)
---   Custom Bar8                slots 97-108 (action page 9)
+--   Bar 2 / MultiBarBottomRight slots 49-60 (action page 5)
+--   Bar 3 / MultiBarBottomLeft  slots 61-72 (action page 6)
+--   Bar 4 / MultiBarLeft        slots 37-48 (action page 4)
+--   Bar 5 / MultiBarRight       slots 25-36 (action page 3)
+--   Custom Bar 6                slots 13-24 (action page 2)
 -- Stance bar: uses StanceButton1-10 (not action slots)
 local BAR_SLOT_OFFSETS = {
     MainBar = 0,    -- slots 1-12 (paged)
-    Bar2 = 60,      -- slots 61-72  (MultiBarBottomLeft)
-    Bar3 = 48,      -- slots 49-60  (MultiBarBottomRight)
-    Bar4 = 24,      -- slots 25-36  (MultiBarRight)
-    Bar5 = 36,      -- slots 37-48  (MultiBarLeft)
-    Bar6 = 72,      -- slots 73-84   (action page 7 -- custom bar)
-    Bar7 = 84,      -- slots 85-96   (action page 8 -- custom bar)
-    Bar8 = 96,      -- slots 97-108  (action page 9 -- custom bar)
-    Bar9 = 12,      -- slots 13-24   (action page 2 -- custom bar)
-    Bar10 = 108,    -- slots 109-120 (action page 10 -- custom bar, no native frame)
+    Bar2 = 48,      -- slots 49-60  (MultiBarBottomRight)
+    Bar3 = 60,      -- slots 61-72  (MultiBarBottomLeft)
+    Bar4 = 36,      -- slots 37-48  (MultiBarLeft)
+    Bar5 = 24,      -- slots 25-36  (MultiBarRight)
+    Bar6 = 12,      -- slots 13-24  (action page 2 -- custom bar)
 }
 
 local function GetButtonAction(btn)
@@ -1729,36 +1700,23 @@ ns.GetButtonAction = GetButtonAction
 -- Blizzard internal numbering (not our sequential bar IDs).
 local BINDING_MAP = {
     MainBar = "ACTIONBUTTON",
-    Bar2 = "MULTIACTIONBAR1BUTTON",
-    Bar3 = "MULTIACTIONBAR2BUTTON",
-    Bar4 = "MULTIACTIONBAR3BUTTON",
-    Bar5 = "MULTIACTIONBAR4BUTTON",
-    Bar6 = "EUI_BAR6_BUTTON",
-    Bar7 = "EUI_BAR7_BUTTON",
-    Bar8 = "EUI_BAR8_BUTTON",
-    -- Bars 6-10 have no native binding commands; these custom commands are
-    -- defined in Bindings.xml and routed via SetOverrideBindingClick (the keypress
-    -- clicks our button, which reads the paged "action" attr).
-    Bar9 = "EUI_BAR9_BUTTON",
-    Bar10 = "EUI_BAR10_BUTTON",
+    Bar2 = "MULTIACTIONBAR2BUTTON",
+    Bar3 = "MULTIACTIONBAR1BUTTON",
+    Bar4 = "MULTIACTIONBAR4BUTTON",
+    Bar5 = "MULTIACTIONBAR3BUTTON",
+    -- Use ElvUI's command name so switching between the addons preserves Bar 6
+    -- bindings. It is routed to our page-2 buttons via SetOverrideBindingClick.
+    Bar6 = "ELVUIBAR6BUTTON",
     StanceBar = "SHAPESHIFTBUTTON",
     PetBar = "BONUSACTIONBUTTON",
 }
 
--- Readable labels for the custom Bar6-10 binding commands declared in
+-- Readable labels for the ElvUI-compatible Bar 6 binding commands declared in
 -- Bindings.xml. Global writes only (no file-scope locals). The keybind UI reads
 -- BINDING_HEADER_<header> for the section title and BINDING_NAME_<command> per row.
-_G.BINDING_HEADER_EUI_BAR6  = "EllesmereUI Action Bar 6"
-_G.BINDING_HEADER_EUI_BAR7  = "EllesmereUI Action Bar 7"
-_G.BINDING_HEADER_EUI_BAR8  = "EllesmereUI Action Bar 8"
-_G.BINDING_HEADER_EUI_BAR9  = "EllesmereUI Action Bar 9"
-_G.BINDING_HEADER_EUI_BAR10 = "EllesmereUI Action Bar 10"
+_G.BINDING_HEADER_ELVUIBAR6 = "Action Bar 6"
 for i = 1, 12 do
-    _G["BINDING_NAME_EUI_BAR6_BUTTON"  .. i] = "Action Bar 6 Button "  .. i
-    _G["BINDING_NAME_EUI_BAR7_BUTTON"  .. i] = "Action Bar 7 Button "  .. i
-    _G["BINDING_NAME_EUI_BAR8_BUTTON"  .. i] = "Action Bar 8 Button "  .. i
-    _G["BINDING_NAME_EUI_BAR9_BUTTON"  .. i] = "Action Bar 9 Button "  .. i
-    _G["BINDING_NAME_EUI_BAR10_BUTTON" .. i] = "Action Bar 10 Button " .. i
+    _G["BINDING_NAME_ELVUIBAR6BUTTON" .. i] = "Action Bar 6 Button " .. i
 end
 
 -- Flyout system lives in EUI_ActionBars_Flyout.lua (loaded after this file).
@@ -1860,7 +1818,7 @@ local function GetOrCreateButton(slot, parent, info, index, skipProtected)
     if info.isStance then
         -- Stance bar: reuse Blizzard buttons (own secure stance handling)
         btn = _G[ns.NATIVE_STANCE_BUTTON_PREFIX .. index]
-        ns.NormalizeStanceButtonRegions(btn)
+        ns.NormalizeActionButtonRegions(btn)
         if btn and not skipProtected then
             EUI.API.SetSecureAttr(btn, "statehidden", nil)
             ReRegisterButtonEvents(btn, "stance")
@@ -1881,6 +1839,7 @@ local function GetOrCreateButton(slot, parent, info, index, skipProtected)
             -- We handle button art ourselves in MakeButtonSquare/ApplyPushedTextures.
             btn.UpdateButtonArt = function() end
         end
+        ns.NormalizeActionButtonRegions(btn)
         btn:UnregisterEvent("ACTIONBAR_SLOT_CHANGED")
         btn:UnregisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
         btn:UnregisterEvent("ACTIONBAR_UPDATE_STATE")
@@ -1963,9 +1922,12 @@ end
 
 local NUM_AB_PAGES = NUM_ACTIONBAR_PAGES or 6
 
--- Hybrid keybind routing: empower spells use SetOverrideBindingClick so our
--- buttons' pressAndHoldAction/typerelease handle hold-and-release. Non-empower
--- spells use SetOverrideBinding to native commands for press-and-hold repeat.
+-- Keybinds are routed through our secure buttons. Blizzard's native action
+-- buttons are hidden and detached by HideBlizzardBars(), so dispatching a
+-- binding through ACTIONBUTTONn/MULTIACTIONBARnBUTTONn can execute a native
+-- button whose page no longer matches the EAB button displayed to the player.
+-- Clicking the EAB button makes the binding use the same explicit "action"
+-- attribute that drives its icon, tooltip, cooldown, and mouse click.
 
 -- Safe API wrappers: 12.0.5 may move these globals to C_ActionBar.
 -- Stored on EAB_VTABLE to avoid 200-local Lua 5.1 limit.
@@ -1982,14 +1944,13 @@ end
 -------------------------------------------------------------------------------
 --  Configurable Paging System
 --  Allows per-bar paging based on modifier keys and class forms/stances.
---  When paging config is empty, bars behave exactly as before (zero impact).
+--  When paging config is empty, the MainBar uses ElvUI-compatible class pages.
 -------------------------------------------------------------------------------
 
 -- All paging data stored on EAB_VTABLE to avoid 200-local Lua 5.1 limit.
 EAB_VTABLE.BAR_KEY_TO_PAGE = {
-    MainBar = 1,  Bar2 = 6,  Bar3 = 5,  Bar4 = 3,
-    Bar5 = 4,     Bar6 = 7,  Bar7 = 8,  Bar8 = 9,
-    Bar9 = 2,     Bar10 = 10,
+    MainBar = 1, Bar2 = 5, Bar3 = 6,
+    Bar4 = 4, Bar5 = 3, Bar6 = 2,
 }
 EAB_VTABLE.PAGING_STATES = {
     modifier = {
@@ -2011,10 +1972,15 @@ EAB_VTABLE.PAGING_STATES = {
         },
         ROGUE = {
             { id = "stealth", macro = "[bonusbar:1]", label = "Stealth" },
+            { id = "shadowdance", macro = "[form:3]", label = "Shadow Dance" },
         },
         WARRIOR = {
             { id = "battle",    macro = "[bonusbar:1]", label = "Battle Stance" },
             { id = "defensive", macro = "[bonusbar:2]", label = "Defensive Stance" },
+            { id = "berserker", macro = "[bonusbar:3]", label = "Berserker Stance" },
+        },
+        PRIEST = {
+            { id = "shadow", macro = "[bonusbar:1]", label = "Shadowform" },
         },
         EVOKER = {
             { id = "soar", macro = "[bonusbar:1]", label = "Soar" },
@@ -2040,12 +2006,21 @@ function EAB_VTABLE.BuildPagingConditions(barKey, pagingConfig, defaultPage)
             parts[#parts + 1] = state.macro .. " " .. page
         end
     end
-    -- Class defaults: MainBar falls back to hardcoded form pages for
-    -- unconfigured (nil) states so setting a modifier doesn't break forms.
-    -- false = explicitly disabled by user ("None"), nil = unconfigured.
+    if barKey == "MainBar" then
+        parts[#parts + 1] = "[bonusbar:5] 11"
+        for i = 2, NUM_AB_PAGES do
+            parts[#parts + 1] = "[bar:" .. i .. "] " .. i
+        end
+    end
+    -- Class defaults: MainBar falls back to ElvUI's form pages for
+    -- unconfigured (nil) states so setting another condition doesn't break
+    -- forms. false = explicitly disabled by user ("None"). These follow the
+    -- native manual-page clauses, matching ElvUI's resolution order.
     local CLASS_DEFAULTS = {
-        DRUID  = { prowl = 7, cat = 7, tree = 8, bear = 9, moonkin = 10 },
-        ROGUE  = { stealth = 7 },
+        DRUID   = { prowl = 8, cat = 7, tree = 8, bear = 9, moonkin = 10 },
+        ROGUE   = { stealth = 7, shadowdance = 7 },
+        WARRIOR = { battle = 7, defensive = 8, berserker = 9 },
+        PRIEST  = { shadow = 7 },
     }
     local classStates = PG.class[class]
     if classStates then
@@ -2058,12 +2033,6 @@ function EAB_VTABLE.BuildPagingConditions(barKey, pagingConfig, defaultPage)
                 parts[#parts + 1] = state.macro .. " " .. defs[state.id]
             end
             -- page == false: explicitly disabled, skip
-        end
-    end
-    if barKey == "MainBar" then
-        parts[#parts + 1] = "[bonusbar:5] 11"
-        for i = 2, NUM_AB_PAGES do
-            parts[#parts + 1] = "[bar:" .. i .. "] " .. i
         end
     end
     -- Target conditions come after bonusbar/bar so dragonriding and manual
@@ -2113,9 +2082,13 @@ local function GetClassPagingConditions()
 
     -- Class-specific form paging (page 1 only, per the ordering above)
     if class == "DRUID" then
-        conditions = conditions .. "[bonusbar:1,stealth] 7; [bonusbar:1] 7; [bonusbar:3] 9; [bonusbar:4] 10; "
-    elseif class == "ROGUE" then
+        conditions = conditions .. "[bonusbar:1,nostealth] 7; [bonusbar:1,stealth] 8; [bonusbar:2] 8; [bonusbar:3] 9; [bonusbar:4] 10; "
+    elseif class == "WARRIOR" then
+        conditions = conditions .. "[bonusbar:1] 7; [bonusbar:2] 8; [bonusbar:3] 9; "
+    elseif class == "PRIEST" then
         conditions = conditions .. "[bonusbar:1] 7; "
+    elseif class == "ROGUE" then
+        conditions = conditions .. "[bonusbar:1] 7; [form:3] 7; "
     end
 
     -- Default: page 1
@@ -2447,6 +2420,9 @@ local function CreateBarFrame(info)
             -- No custom paging: use hardcoded class defaults (zero impact)
             pagingConditions = GetClassPagingConditions()
         end
+        -- Retain the exact driver string so the post-setup reconciliation can
+        -- resolve the live page again after class/stance data finishes loading.
+        frame._eabPagingConditions = pagingConditions
 
         -- Mark MainBar as the override bar target so the override controller
         -- propagates vehicle/override/petbattle state changes.
@@ -2477,7 +2453,7 @@ local function CreateBarFrame(info)
         RegisterStateDriver(frame, "page", pagingConditions)
     end
 
-    -- Bars 2-5 (nativeActionPage) and Bars 6-10 (customPage): buttons have static
+    -- Bars 2-5 (nativeActionPage) and Bar 6 (customPage): buttons have static
     -- action attributes set in SetupBar that already point at the bar's default
     -- page. When custom paging is configured, a state driver + ChildUpdate
     -- recalculates each button's action attr on page change -- identical machinery
@@ -2566,6 +2542,7 @@ function ns.RebuildBarPaging(barKey)
         end
         -- Force re-evaluation by unregistering first
         UnregisterStateDriver(frame, "page")
+        frame._eabPagingConditions = pagingConditions
         RegisterStateDriver(frame, "page", pagingConditions)
     elseif info.nativeActionPage or info.customPage then
         local defaultPage = info.nativeActionPage or info.customPage
@@ -2646,7 +2623,7 @@ local function SetupBar(info, skipProtected)
         for i = 1, info.count do
             local btn = _G[ns.NATIVE_STANCE_BUTTON_PREFIX .. i]
             if btn then
-                ns.NormalizeStanceButtonRegions(btn)
+                ns.NormalizeActionButtonRegions(btn)
                 if not skipProtected then
                     ApplyShapeHitRects(btn, buttonShape)
                     EUI.API.SetSecureAttr(btn, "statehidden", nil)
@@ -5931,6 +5908,12 @@ function EAB:ApplyIconBackgroundForBar(barKey)
     end
 end
 
+function EAB:ApplyIconBackgroundForAllBars()
+    for _, info in ipairs(BAR_CONFIG) do
+        self:ApplyIconBackgroundForBar(info.key)
+    end
+end
+
 -------------------------------------------------------------------------------
 --  Always Show Buttons
 -------------------------------------------------------------------------------
@@ -6079,6 +6062,50 @@ function EAB_VTABLE.MainBarPageSync.InstallAll()
     for _, btn in ipairs(buttons) do
         EAB_VTABLE.MainBarPageSync.InstallButton(btn)
     end
+end
+
+-- Reconcile the MainBar header's resolved page with every button's protected
+-- action attribute. On a fresh login the Warrior bonus-bar state can be
+-- evaluated before the buttons are parented to the header: the header reaches
+-- page 7/8/9, but its first ChildUpdate has no children to update. Visual code
+-- then reads the header page while secure clicks still read the stale button
+-- action, producing a correct icon that casts the page-1 spell. /reload avoids
+-- the race because the stance state is already populated.
+function EAB_VTABLE.MainBarPageSync.ForceSecureActionSync()
+    if InCombatLockdown() then return false end
+    local frame = barFrames["MainBar"]
+    local buttons = barButtons["MainBar"]
+    if not frame or not buttons then return false end
+
+    local page
+    local conditions = frame._eabPagingConditions
+    if conditions and SecureCmdOptionParse then
+        page = tonumber(SecureCmdOptionParse(conditions))
+    end
+    page = page or tonumber(frame:GetAttribute("actionpage"))
+        or tonumber(frame:GetAttribute("state-page")) or 1
+
+    -- Keep the header's page attribute in sync through the restricted
+    -- environment. ChildUpdate is available to the frame's secure handler
+    -- snippets (_onstate-page, _onattributechanged), but not to code invoked
+    -- with Execute() on Wrath 3.3.5; calling it here raises a restricted
+    -- execution error. The out-of-combat button pass below is the authoritative
+    -- reconciliation and writes the protected action attributes directly.
+    frame:Execute(([[
+        local page = %d
+        self:SetAttribute("actionpage", page)
+    ]]):format(page))
+
+    -- Change each secure action immediately, then repaint so the visual state
+    -- and executable state are verified from the same slot.
+    for i, btn in ipairs(buttons) do
+        -- Direct out-of-combat write is intentional as the final invariant. It
+        -- also covers a button parented after the header's initial state
+        -- evaluation.
+        btn:SetAttribute("action", i + (page - 1) * NUM_ACTIONBAR_BUTTONS)
+        if btn.UpdateAction then btn:UpdateAction() end
+    end
+    return true
 end
 
 function EAB_VTABLE.MainBarPageSync.InstallButton(btn)
@@ -6703,7 +6730,7 @@ end
 --  Bar type rules:
 --    MainBar (bar 1):  Stays visible during vehicle/override (paging handles
 --                      showing the correct actions).  Hides during pet battle.
---    Bars 2-8:         Hide during vehicle UI, pet battle, and override bar
+--    Bars 2-6:         Hide during vehicle UI, pet battle, and override bar
 --                      (only bar 1 pages to show override/vehicle actions).
 --    StanceBar:        Hide during vehicle UI and pet battle.
 --    PetBar:           Hide during pet battle.  Only show when the player has
@@ -7774,50 +7801,17 @@ end
 --  Pushed-State Flash
 --  SetOverrideBinding routes keybinds to native engine commands (ACTIONBUTTON1
 --  etc.) so the engine fires the action directly without clicking our buttons.
---  Our buttons never enter PUSHED state from keyboard.  Fix: hook UseAction
---  to show PushedTexture, global keyup watcher to hide all active textures.
+--  Our buttons never enter PUSHED state from keyboard.  Mirror Blizzard's
+--  ActionButtonDown/Up callbacks to show and hide PushedTexture.
 -------------------------------------------------------------------------------
 do
     local _pushedHooked = false
-    local _activePushed = {}  -- btn -> true
-    local _activePushedN = 0
-    local _btnKeys = {}       -- btn -> { k1, k2 } (reused, no alloc per press)
-    local _pollFrame
     function EAB:HookPushedFlash()
         if _pushedHooked then return end
         _pushedHooked = true
-        _pollFrame = ns.TakeShell()
-        _pollFrame:SetScript("OnUpdate", function()
-            if _activePushedN == 0 then
-                _pollFrame:Hide()
-                return
-            end
-            for btn in pairs(_activePushed) do
-                local keys = _btnKeys[btn]
-                local held = false
-                if keys then
-                    for i = 1, #keys do
-                        if IsKeyDown(keys[i]) then held = true; break end
-                    end
-                end
-                if not held then
-                    if btn.PushedTexture then btn.PushedTexture:Hide() end
-                    _activePushed[btn] = nil
-                    _activePushedN = _activePushedN - 1
-                end
-            end
-            if _activePushedN == 0 then _pollFrame:Hide() end
-        end)
-        _pollFrame:Hide()
         -- ActionButtonDown fires on key press regardless of "cast on key down"
         -- CVar. This ensures pushed texture shows while the key is held for
         -- both key-down and key-up casting modes.
-        -- Extract base key from compound binding (e.g. "SHIFT-1" → "1",
-        -- "CTRL-Q" → "Q"). IsKeyDown only accepts raw key names.
-        local function BaseKey(binding)
-            if not binding then return nil end
-            return binding:match("[^%-]+$")
-        end
         local function ShowPushedForSlot(slot)
             local prof = EAB.db and EAB.db.profile
             if not prof then return end
@@ -7826,22 +7820,18 @@ do
             if not btn or not btn.PushedTexture then return end
             local cmd = btn.commandName
             if not cmd then return end
-            local k1, k2 = GetBindingKey(cmd)
-            if not k1 then return end
-            local keys = _btnKeys[btn]
-            if not keys then keys = {}; _btnKeys[btn] = keys end
-            keys[1] = BaseKey(k1); keys[2] = BaseKey(k2); keys[3] = nil
+            if not GetBindingKey(cmd) then return end
             btn.PushedTexture:Show()
-            if not _activePushed[btn] then
-                _activePushed[btn] = true
-                _activePushedN = _activePushedN + 1
-            end
-            _pollFrame:Show()
+        end
+        local function HidePushedForSlot(slot)
+            local btn = allButtons[slot]
+            if btn and btn.PushedTexture then btn.PushedTexture:Hide() end
         end
         -- ActionButtonDown/MultiActionButtonDown fire on key press regardless
         -- of "cast on key down" CVar. This ensures pushed texture shows while
         -- the key is held for both key-down and key-up casting modes.
         hooksecurefunc("ActionButtonDown", function(id) ShowPushedForSlot(id) end)
+        hooksecurefunc("ActionButtonUp", function(id) HidePushedForSlot(id) end)
         if MultiActionButtonDown then
             local multiBarPage = {
                 MultiBarBottomLeft  = 6,
@@ -7858,6 +7848,14 @@ do
                 local slot = (page - 1) * 12 + id
                 ShowPushedForSlot(slot)
             end)
+            if MultiActionButtonUp then
+                hooksecurefunc("MultiActionButtonUp", function(barName, id)
+                    local page = multiBarPage[barName]
+                    if not page then return end
+                    local slot = (page - 1) * 12 + id
+                    HidePushedForSlot(slot)
+                end)
+            end
         end
     end
 end
@@ -8903,17 +8901,15 @@ end
 
 -------------------------------------------------------------------------------
 --  Keybind System
---  Hybrid routing: empower/flyout slots use SetOverrideBindingClick so our
---  buttons' pressAndHoldAction/typerelease handle hold-and-release. All other
---  slots use SetOverrideBinding to native commands (ACTIONBUTTON1, etc.) so
---  the engine handles press-and-hold repeat casting natively.
+--  EAB-owned action buttons use click overrides so keyboard input resolves
+--  through the same explicit action slot as the displayed button. Native
+--  stance and pet buttons retain their native command routing.
 -------------------------------------------------------------------------------
 local _bindState = { housingCleared = false }
 
--- Binding owner frame: single frame owns all override bindings so they
--- can be cleared/reapplied as a unit. Bindings route to native commands
--- (ACTIONBUTTON1, etc.) so the engine's hold-to-cast and empowered spell
--- systems work natively without pressAndHoldAction/typerelease attrs.
+-- Binding owner frame: single frame owns all override bindings so they can be
+-- cleared/reapplied as a unit. Bindings click the EAB secure buttons, ensuring
+-- keyboard input and the displayed action always resolve through the same slot.
 local _eabBindOwner = CreateFrame("Frame", "EAB_BindOwner", UIParent)
 
 -- Returns true when the override bindings were (re)applied, false when the
@@ -8951,42 +8947,12 @@ local function UpdateKeybinds()
         local prefix = BINDING_MAP[info.key]
         local btns = barButtons[info.key]
         if prefix and btns then
-            -- Custom modifier/form paging lives only in our private secure
-            -- state driver, which never moves Blizzard's GetActionBarPage().
-            -- Native engine commands (ACTIONBUTTONn / MULTIACTIONBARxBUTTONn)
-            -- resolve against Blizzard's page, so on a custom-paged bar the
-            -- keybind would fire the un-paged slot while the icon (our explicit
-            -- "action" attr) repages. Route those bars' keybinds through the
-            -- button (SetOverrideBindingClick) so the keypress reads our paged
-            -- "action" attr -- exactly what empower/flyout already do, and what
-            -- ElvUI/Bartender do for every button via LibActionButton.
-            --
-            -- Class-default form paging (Druid/Rogue) is NOT custom paging: it
-            -- rides on bonusbar, a native engine concept that ACTIONBUTTONn
-            -- resolves correctly on its own, so the icon and the native keybind
-            -- already agree in every form. Routing those bars through the button
-            -- instead only costs us press-and-hold repeat casting (a synthetic
-            -- click never reaches UseAction with isKeyPress=true), which is why
-            -- it must stay on the native command -- only genuine user-configured
-            -- paging (bs.paging) needs the click route.
-            local bs = EAB and EAB.db and EAB.db.profile and EAB.db.profile.bars[info.key]
-            local barHasCustomPaging = (bs and bs.paging and next(bs.paging) ~= nil) and true or false
             for i, btn in ipairs(btns) do
                 if btn then
                     local cmd = prefix .. i
                     local k1, k2 = GetBindingKey(cmd)
-                    -- Empower spells need SetOverrideBindingClick so our
-                    -- button's pressAndHoldAction/typerelease handle the
-                    -- hold-and-release. Non-empower spells use native
-                    -- SetOverrideBinding for press-and-hold repeat casting --
-                    -- EXCEPT on custom-paged bars (see above), which must also
-                    -- route through the button so the keybind tracks the page.
                     local slot = btn:GetAttribute("action")
-                    -- Custom bars (Bars 6-10) have no native binding command, so
-                    -- their keys MUST route through the button (SetOverrideBindingClick);
-                    -- SetOverrideBinding to a non-existent command would do nothing.
-                    -- isPH tracks empower/flyout separately from useClick: on a
-                    -- custom-paged bar useClick is always true, but the secure
+                    -- isPH is retained in the signature because the secure
                     -- empower snippet still needs a re-trigger when a slot's
                     -- press-and-hold state flips.
                     local isPH = false
@@ -9007,7 +8973,12 @@ local function UpdateKeybinds()
                             end
                         end
                     end
-                    local useClick = isPH or barHasCustomPaging or (info.customPage ~= nil)
+                    -- Every regular action is an EAB-owned secure button with
+                    -- an explicit action attribute. Always click that button;
+                    -- native binding commands target the hidden Blizzard
+                    -- buttons and can therefore cast a different slot. Stance
+                    -- and pet bars reuse Blizzard's native buttons unchanged.
+                    local useClick = not info.isStance and not info.isPetBar
                     k1 = k1 or false
                     k2 = k2 or false
                     if sig[n + 1] ~= k1 or sig[n + 2] ~= k2
@@ -9345,6 +9316,7 @@ local function ApplyAll()
 
     if not inCombat then
         EAB_VTABLE.MainBarPageSync.InstallAll()
+        EAB_VTABLE.MainBarPageSync.ForceSecureActionSync()
     end
 
     for _, info in ipairs(BAR_CONFIG) do
@@ -9843,6 +9815,11 @@ end
 --  Initialization
 -------------------------------------------------------------------------------
 function EAB:OnInitialize()
+    -- Populate the live binding table before buttons and override routes are
+    -- built. On Wrath this is not guaranteed to have happened for a newly
+    -- loaded addon, particularly when character-specific bindings are active.
+    LoadBindings(GetCurrentBindingSet())
+
     -- Detect first install BEFORE AceDB creates the saved variable.
     -- We use a dedicated flag so "Reset to Defaults" also re-captures.
     local rawDB = EllesmereUIActionBarsDB
@@ -10101,12 +10078,8 @@ function EAB:OnInitialize()
 
     SLASH_EABQUICKKEYBIND1 = "/kb"
     SlashCmdList["EABQUICKKEYBIND"] = function(msg)
-        if InCombatLockdown() then return end
-        if not C_AddOns.IsAddOnLoaded("Blizzard_QuickKeybind") then
-            C_AddOns.LoadAddOn("Blizzard_QuickKeybind")
-        end
-        if QuickKeybindFrame then
-            QuickKeybindFrame:Show()
+        if EllesmereUI and EllesmereUI.ToggleQuickBindMode then
+            EllesmereUI.ToggleQuickBindMode()
         end
     end
 
@@ -10971,6 +10944,9 @@ function EAB:FinishSetup()
     end)
     self:RegisterEvent("UPDATE_SHAPESHIFT_FORM", function()
         self:UpdateHousingVisibility()
+        C_Timer_After(0, function()
+            EAB_VTABLE.MainBarPageSync.ForceSecureActionSync()
+        end)
     end)
     -- Dragonriding visibility modes on the managed non-secure bars:
     -- capability edge plus the airborne edge (probed at load in
@@ -13800,9 +13776,7 @@ _quickKeybindState.GetDimOverlay = function()
     dim:SetFrameStrata("HIGH")
     dim:SetFrameLevel(0)
     dim:SetAllPoints(UIParent)
-    dim:EnableMouse(false)
-    dim:SetMouseClickEnabled(false)
-    dim:SetMouseMotionEnabled(false)
+    SafeEnableMouse(dim, false)
     local tex = dim:CreateTexture(nil, "BACKGROUND")
     tex:SetAllPoints()
     tex:SetTexture(0, 0, 0, 0.40)
@@ -13889,6 +13863,24 @@ local function EAB_QuickKeybindClose()
     EAB_UpdateQuickKeybindButtons(false)
     _quickKeybindState.UpdateMacroButtons(false)
     _quickKeybindState.FinishClose()
+end
+
+-- Wrath has no Blizzard_QuickKeybind addon.  The native EllesmereUI binder
+-- uses these entry points to retain the bar surfacing/dimming behavior which
+-- the Retail QuickKeybind frame normally drives.
+function EllesmereUI.ActionBarsQuickBindPresentation(show)
+    if InCombatLockdown() then return false end
+    if show then
+        _quickKeybindState.closePending = false
+        _quickKeybindState.open = true
+        EAB_UpdateQuickKeybindVisibility(true)
+        _quickKeybindState.ShowDim()
+    else
+        _quickKeybindState.open = false
+        _quickKeybindState.HideDim()
+        EAB_UpdateQuickKeybindVisibility(false)
+    end
+    return true
 end
 
 -- Defer hook until QuickKeybindFrame exists (it loads after PLAYER_LOGIN).

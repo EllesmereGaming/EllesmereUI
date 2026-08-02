@@ -191,7 +191,9 @@ local function ShowRaidFramesPopup()
         EllesmereUIDB.raidFramesIntroShown = true
         if disable then
             if C_AddOns and C_AddOns.DisableAddOn then
-                C_AddOns.DisableAddOn(RF_FOLDER)
+                local char = UnitName("player")
+                if not char then return end
+                C_AddOns.DisableAddOn(RF_FOLDER, char)
             end
             ReloadUI()
             return

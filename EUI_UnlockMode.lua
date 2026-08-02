@@ -603,10 +603,6 @@ EllesmereUI._ELEMENT_SETTINGS_MAP = {
     ["Bar4"]      = { module = "EllesmereUIActionBars",          page = "Bar Display",                  sectionName = "LAYOUT",  preSelectFn = SelectActionBar("Bar4"),      highlightText = "Icon Size" },
     ["Bar5"]      = { module = "EllesmereUIActionBars",          page = "Bar Display",                  sectionName = "LAYOUT",  preSelectFn = SelectActionBar("Bar5"),      highlightText = "Icon Size" },
     ["Bar6"]      = { module = "EllesmereUIActionBars",          page = "Bar Display",                  sectionName = "LAYOUT",  preSelectFn = SelectActionBar("Bar6"),      highlightText = "Icon Size" },
-    ["Bar7"]      = { module = "EllesmereUIActionBars",          page = "Bar Display",                  sectionName = "LAYOUT",  preSelectFn = SelectActionBar("Bar7"),      highlightText = "Icon Size" },
-    ["Bar8"]      = { module = "EllesmereUIActionBars",          page = "Bar Display",                  sectionName = "LAYOUT",  preSelectFn = SelectActionBar("Bar8"),      highlightText = "Icon Size" },
-    ["Bar9"]      = { module = "EllesmereUIActionBars",          page = "Bar Display",                  sectionName = "LAYOUT",  preSelectFn = SelectActionBar("Bar9"),      highlightText = "Icon Size" },
-    ["Bar10"]     = { module = "EllesmereUIActionBars",          page = "Bar Display",                  sectionName = "LAYOUT",  preSelectFn = SelectActionBar("Bar10"),     highlightText = "Icon Size" },
     ["StanceBar"] = { module = "EllesmereUIActionBars",          page = "Bar Display",                  sectionName = "LAYOUT",  preSelectFn = SelectActionBar("StanceBar"), highlightText = "Icon Size" },
     ["PetBar"]    = { module = "EllesmereUIActionBars",          page = "Bar Display",                  sectionName = "LAYOUT",  preSelectFn = SelectActionBar("PetBar"),    highlightText = "Icon Size" },
     ["XPBar"]     = { module = "EllesmereUIActionBars",          page = "Bar Display",                  sectionName = "LAYOUT",  preSelectFn = SelectActionBar("XPBar"),     highlightText = "Icon Size" },
@@ -6046,10 +6042,10 @@ local function CreateMover(barKey)
     -- Determine if this element can be anchored to other elements
     local canAnchorTo = not (elem and elem.noAnchorTo)
 
-    -- Grow direction: action bars 1-8 and CDM bars (both horizontal and vertical)
+    -- Grow direction: action bars 1-6 and CDM bars (both horizontal and vertical)
     local _GROW_KEYS = {
         MainBar = true, Bar2 = true, Bar3 = true, Bar4 = true,
-        Bar5 = true, Bar6 = true, Bar7 = true, Bar8 = true,
+        Bar5 = true, Bar6 = true,
         StanceBar = true, PetBar = true,
         ERB_TotemBar = true,   -- totem bar: align active icons left/right/center
     }
@@ -9951,7 +9947,7 @@ local function SnapshotPositions()
     local eab = EllesmereUI.Lite.GetAddon("EllesmereUIActionBars", true)
     local abBars = eab and eab.db and eab.db.profile and eab.db.profile.bars
     if abBars then
-        local abGrowKeys = { MainBar=1, Bar2=1, Bar3=1, Bar4=1, Bar5=1, Bar6=1, Bar7=1, Bar8=1 }
+        local abGrowKeys = { MainBar=1, Bar2=1, Bar3=1, Bar4=1, Bar5=1, Bar6=1 }
         for bk, cfg in pairs(abBars) do
             if abGrowKeys[bk] then
                 snapshotGrowDirs[bk] = cfg.growDirection or false

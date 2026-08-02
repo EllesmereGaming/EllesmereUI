@@ -14,6 +14,7 @@ local availability = {}     -- cooldownID -> { isKnown = boolean, activeSpellID 
 local runtimeState = {}     -- cooldownID -> { cooldownStart, cooldownDuration, cooldownEnabled, auraActive, auraStacks, auraDuration, auraExpiration }
 local categories = {}       -- categoryID -> array of cooldownIDs
 local adapters = {}         -- cooldownID -> native adapter frame
+local internalCooldownIDsByAura = {} -- proc aura spellID -> array of cooldownIDs
 
 -- The renderer expects the objects returned by itemFramePool to be real,
 -- anchorable frames.  A Lua table can expose GetSpellID/cooldownInfo, but it
@@ -49,6 +50,10 @@ local function ValidateDefinition(def)
 
     if not def.category then return false, "Missing category" end
     if not def.trackingType then return false, "Missing trackingType" end
+    if def.internalCooldown ~= nil
+        and (type(def.internalCooldown) ~= "number" or def.internalCooldown < 0) then
+        return false, "internalCooldown must be a non-negative number"
+    end
 
     if def.trackingType == "cooldown" and not def.spellID then return false, "Tracking type cooldown requires spellID" end
     if def.trackingType == "aura" and not (def.spellID or def.auraSpellID) then return false, "Tracking type aura requires spellID or auraSpellID" end
@@ -291,10 +296,14 @@ local function RefreshAdapterVisual(frame)
     local isKnown = avail and avail.isKnown or false
     local isAura = def.trackingType == "aura"
         or def.trackingType == "cooldown_and_aura"
+    -- Buff-viewer adapters represent aura presence only.  A trinket's ICD is
+    -- still retained as cooldown metadata, but it must not keep the tracked-
+    -- buff icon visible after the proc aura fades (or make the ICD swipe
+    -- replace the buff-duration swipe).
     local isActive = isKnown and (not isAura or (state and state.auraActive))
     local wasActive = frame._adapterActive == true
     frame._adapterActive = isActive and true or false
-    frame.wasSetFromAura = isAura and isActive or false
+    frame.wasSetFromAura = isAura and state and state.auraActive or false
 
     if isActive then frame:Show() else frame:Hide() end
 
@@ -325,6 +334,46 @@ local function GetOrCreateAdapter(cdID)
     return adapters[cdID]
 end
 
+local function IsInternalCooldownActive(state, now)
+    return state
+        and state.internalCooldownExpiration
+        and state.internalCooldownExpiration > now
+end
+
+local function StartInternalCooldown(cdID, startTime)
+    local def = definitions[cdID]
+    local duration = def and def.internalCooldown or 0
+    if duration <= 0 then return end
+
+    local state = runtimeState[cdID] or {}
+    local start = startTime or GetTime()
+    local expiration = start + duration
+    state.cooldownStart = start
+    state.cooldownDuration = duration
+    state.cooldownEnabled = true
+    state.internalCooldownExpiration = expiration
+    runtimeState[cdID] = state
+
+    if adapters[cdID] then RefreshAdapterVisual(adapters[cdID]) end
+
+    if C_Timer and C_Timer.After then
+        local delay = expiration - GetTime()
+        if delay < 0 then delay = 0 end
+        C_Timer.After(delay, function()
+            local current = runtimeState[cdID]
+            -- A refreshed proc replaces the expiration.  Its older timer must
+            -- not clear the newer internal cooldown.
+            if current and current.internalCooldownExpiration == expiration then
+                current.cooldownStart = 0
+                current.cooldownDuration = 0
+                current.cooldownEnabled = false
+                current.internalCooldownExpiration = nil
+                if adapters[cdID] then RefreshAdapterVisual(adapters[cdID]) end
+            end
+        end)
+    end
+end
+
 -- Registers a logical ability definition into the system.
 -- The cooldownID MUST be globally unique across ALL classes and items.
 -- It acts as a stable handle for UI components (like drag-and-drop or saves).
@@ -336,6 +385,12 @@ function C_CooldownViewer.RegisterDefinition(def)
     end
 
     definitions[def.cooldownID] = def
+
+    if (def.internalCooldown or 0) > 0 then
+        local auraSpellID = def.auraSpellID or def.spellID
+        internalCooldownIDsByAura[auraSpellID] = internalCooldownIDsByAura[auraSpellID] or {}
+        table.insert(internalCooldownIDsByAura[auraSpellID], def.cooldownID)
+    end
 
     categories[def.category] = categories[def.category] or {}
     table.insert(categories[def.category], def.cooldownID)
@@ -395,6 +450,7 @@ function C_CooldownViewer.GetCooldownViewerCooldownInfo(cooldownID)
         auraDuration = state and state.auraDuration or 0,
         auraExpiration = state and state.auraExpiration or 0,
         auraStacks = state and state.auraStacks or 0,
+        internalCooldownDuration = def.internalCooldown,
     }
 end
 
@@ -482,7 +538,8 @@ local function ReevaluateState()
 
         if avail and avail.isKnown then
             local spellID = avail.activeSpellID
-            if def.trackingType == "cooldown" or def.trackingType == "cooldown_and_aura" then
+            if (def.trackingType == "cooldown" or def.trackingType == "cooldown_and_aura")
+                and not def.internalCooldown then
                 if spellID then
                     local start, duration, enabled = GetSpellCooldown(spellID)
                     state.cooldownStart = start or 0
@@ -491,17 +548,40 @@ local function ReevaluateState()
                 end
             end
 
+            if def.internalCooldown and not IsInternalCooldownActive(state, GetTime()) then
+                state.cooldownStart = 0
+                state.cooldownDuration = 0
+                state.cooldownEnabled = false
+                state.internalCooldownExpiration = nil
+            end
+
             if def.trackingType == "aura" or def.trackingType == "cooldown_and_aura" then
                 local auraID = avail.activeAuraSpellID
                 if auraID then
+                    local wasAuraActive = state.auraActive == true
                     local aura = GetCachedAura(auraID)
                     if aura then
                         state.auraActive = true
                         state.auraDuration = aura.duration
                         state.auraExpiration = aura.expirationTime
                         state.auraStacks = aura.count
+                        -- CLEU normally starts ICDs at the exact proc event.
+                        -- This fallback recovers a proc already active at login
+                        -- or after an event gap, using the aura's start time.
+                        if def.internalCooldown and def.internalCooldown > 0
+                            and not wasAuraActive
+                            and not IsInternalCooldownActive(state, GetTime()) then
+                            local auraStart = GetTime()
+                            if aura.duration > 0 and aura.expirationTime > 0 then
+                                auraStart = aura.expirationTime - aura.duration
+                            end
+                            StartInternalCooldown(cdID, auraStart)
+                        end
                     else
                         state.auraActive = false
+                        state.auraDuration = 0
+                        state.auraExpiration = 0
+                        state.auraStacks = 0
                     end
                 end
             end
@@ -511,6 +591,7 @@ local function ReevaluateState()
             state.cooldownDuration = 0
             state.cooldownEnabled = false
             state.auraActive = false
+            state.internalCooldownExpiration = nil
         end
 
         runtimeState[cdID] = state
@@ -522,6 +603,18 @@ local function ReevaluateState()
     end
 end
 
+-- The parent framework's PLAYER_LOGIN frame is created before this child
+-- addon loads.  Once the compatibility layer moved into the child addon, that
+-- framework frame could run the CDM's OnEnable before this tracker's own
+-- PLAYER_LOGIN callback, leaving the first bar build with an empty availability
+-- map.  Expose an explicit synchronous refresh so CDM initialization and
+-- equipment rebuilds never depend on event-frame dispatch order.
+function ns.RefreshCooldownViewerCompatibility()
+    UpdateAuraCache()
+    ReevaluateAvailability()
+    ReevaluateState()
+end
+
 -- Event Handling
 tracker:RegisterEvent("PLAYER_LOGIN")
 tracker:RegisterEvent("SPELLS_CHANGED")
@@ -530,15 +623,13 @@ tracker:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
 tracker:RegisterEvent("PLAYER_ENTERING_WORLD")
 tracker:RegisterEvent("UNIT_AURA")
 tracker:RegisterEvent("SPELL_UPDATE_COOLDOWN")
+tracker:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
 
 tracker:SetScript("OnEvent", function(self, event, ...)
     if event == "PLAYER_LOGIN" or event == "SPELLS_CHANGED" or event == "PLAYER_TALENT_UPDATE" or event == "PLAYER_EQUIPMENT_CHANGED" then
-        ReevaluateAvailability()
-        ReevaluateState()
+        ns.RefreshCooldownViewerCompatibility()
     elseif event == "PLAYER_ENTERING_WORLD" then
-        UpdateAuraCache()
-        ReevaluateAvailability()
-        ReevaluateState()
+        ns.RefreshCooldownViewerCompatibility()
     elseif event == "UNIT_AURA" then
         local unit = ...
         if unit == "player" then
@@ -547,6 +638,21 @@ tracker:SetScript("OnEvent", function(self, event, ...)
         end
     elseif event == "SPELL_UPDATE_COOLDOWN" then
         ReevaluateState()
+    elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
+        local _, subEvent, _, _, _, destinationGUID, _, _, spellID = ...
+        if destinationGUID == UnitGUID("player")
+            and (subEvent == "SPELL_AURA_APPLIED" or subEvent == "SPELL_AURA_REFRESH") then
+            local cooldownIDs = internalCooldownIDsByAura[spellID]
+            if cooldownIDs then
+                local now = GetTime()
+                for _, cooldownID in ipairs(cooldownIDs) do
+                    local avail = availability[cooldownID]
+                    if avail and avail.isKnown then
+                        StartInternalCooldown(cooldownID, now)
+                    end
+                end
+            end
+        end
     end
 end)
 

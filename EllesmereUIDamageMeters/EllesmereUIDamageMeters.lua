@@ -6,6 +6,18 @@
 local _, ns = ...
 local EUI = EllesmereUI
 
+-- The current implementation is a frontend for Retail's C_DamageMeter API.
+-- Wrath has neither the API nor its enums, so do not partially initialize the
+-- module there.  Keep the selected backend on the shared namespace so a Skada
+-- adapter can replace this gate without changing the UI files later.
+local hasBlizzardDamageMeter = C_DamageMeter
+    and Enum
+    and Enum.DamageMeterType
+    and Enum.DamageMeterSessionType
+
+ns.DamageMeterBackend = hasBlizzardDamageMeter and "blizzard" or "none"
+if not hasBlizzardDamageMeter then return end
+
 -------------------------------------------------------------------------------
 --  Profiler: zero cost when off, /dmprof to toggle.
 -------------------------------------------------------------------------------

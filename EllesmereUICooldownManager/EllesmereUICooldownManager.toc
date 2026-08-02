@@ -9,6 +9,13 @@
 ## SavedVariables: EllesmereUICooldownManagerDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 
+# WotLK Cooldown Viewer compatibility and definitions
+Compatibility\CooldownViewer.lua
+Compatibility\CDMData\Shared.lua
+Compatibility\CDMData\AuraTracker.lua
+Compatibility\CDMData\DeathKnight.lua
+Compatibility\CDMData\Warrior.lua
+
 # Main Lua
 EllesmereUICooldownManager.lua
 EllesmereUICdmHooks.lua

@@ -133,12 +133,14 @@ qolFrame:SetScript("OnEvent", function(self)
 
         EllesmereUI._applyAutoUnwrap = function() end
 
-        hooksecurefunc("MainMenuMicroButton_ShowAlert", function(_, text)
-            if not (EllesmereUIDB and EllesmereUIDB.autoUnwrapCollections) then return end
-            if text == COLLECTION_UNOPENED_PLURAL or text == COLLECTION_UNOPENED_SINGULAR then
-                DismissCollectionAlerts()
-            end
-        end)
+        if type(MainMenuMicroButton_ShowAlert) == "function" then
+            hooksecurefunc("MainMenuMicroButton_ShowAlert", function(_, text)
+                if not (EllesmereUIDB and EllesmereUIDB.autoUnwrapCollections) then return end
+                if text == COLLECTION_UNOPENED_PLURAL or text == COLLECTION_UNOPENED_SINGULAR then
+                    DismissCollectionAlerts()
+                end
+            end)
+        end
 
         local f = EllesmereUI.SafeCreateFrame("Frame")
         f:RegisterEvent("PLAYER_LOGIN")
@@ -4061,4 +4063,3 @@ do
         InstallHook()
     end)
 end
-

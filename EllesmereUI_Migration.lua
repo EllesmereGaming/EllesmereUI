@@ -1954,10 +1954,10 @@ EllesmereUI.RegisterMigration({
         local targets = { "EllesmereUIMinimap", "EllesmereUIFriends", "EllesmereUIQuestTracker" }
         local disabled = {}
         for _, name in ipairs(targets) do
-            local state = C_AddOns.GetAddOnEnableState(name)
+            local state = C_AddOns.GetAddOnEnableState(name, char)
             if state ~= 0 then
                 if C_AddOns.DisableAddOn then
-                    C_AddOns.DisableAddOn(name)
+                    C_AddOns.DisableAddOn(name, char)
                     disabled[#disabled + 1] = name
                 end
             end
@@ -2532,7 +2532,7 @@ EllesmereUI.RegisterMigration({
         if abBars then
             local AB_KEYS = {
                 MainBar = true, Bar2 = true, Bar3 = true, Bar4 = true,
-                Bar5 = true, Bar6 = true, Bar7 = true, Bar8 = true,
+                Bar5 = true, Bar6 = true,
             }
             for barKey, cfg in pairs(abBars) do
                 if AB_KEYS[barKey] then

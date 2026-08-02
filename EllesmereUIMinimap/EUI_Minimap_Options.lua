@@ -1366,8 +1366,7 @@ initFrame:SetScript("OnEvent", function(self)
                       set = function(v)
                           local m = MinimapDB(); if not m then return end
                           m.coordsScale = v
-                          local cf = _G._EBS_CoordFrame
-                          if cf then cf:SetScale(v) end
+                          RefreshMinimap()
                       end },
                     { type = "slider", label = "X Offset", min = -500, max = 500, step = 1,
                       get = function() local m = MinimapDB(); return m and m.coordsBelowOffsetX or 0 end,

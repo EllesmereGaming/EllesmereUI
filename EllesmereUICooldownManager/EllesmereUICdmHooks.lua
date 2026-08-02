@@ -3230,6 +3230,11 @@ end
 local _trinketFrames = {}
 ns._trinketFrames = _trinketFrames
 local _trinketItemCache = { [13] = nil, [14] = nil }
+-- Synthetic proc ICDs started by an actual equipment change. Kept outside
+-- the lazily-created slot frames so equipping a trinket before its bar is
+-- built still preserves the correct remaining ICD.
+local _trinketEquipICDs = {}
+local _trinketEquipICDArmed = false
 
 local function GetOrCreateTrinketFrame(slotID)
     local f = _trinketFrames[slotID]
@@ -3332,7 +3337,17 @@ local function UpdateTrinketFrame(slotID)
     if icon and f._tex then f._tex:SetTexture(icon) end
     local _, spellID = C_Item.GetItemSpell(itemID)
     f._trinketSpellID = spellID
-    if slotID ~= 13 and slotID ~= 14 then
+    if slotID == 13 or slotID == 14 then
+        -- A trinket slot is an explicit bar assignment, so always render the
+        -- equipped item.  Trying to classify Use:/Equip: effects first made
+        -- passive trinkets disappear from the live bar while their preview
+        -- remained visible.  Polling an equipped passive trinket's cooldown is
+        -- safe (it simply reports no cooldown), while on-use trinkets now track
+        -- without relying on tooltip text or item-spell cache timing.
+        f._trinketIsOnUse = spellID and spellID > 0 or false
+        f._slotScanPending = nil
+        return
+    else
         -- User-added equipment slot: the use effect usually comes from an
         -- ENCHANT (engineering tinkers like Nitro Boosts), which exists only
         -- on the equipped INSTANCE -- the base item has no use spell, so the
@@ -3366,51 +3381,159 @@ local function UpdateTrinketFrame(slotID)
         end
         return
     end
-    local isRealOnUse = false
-    local scanConclusive = false
-    if spellID and spellID > 0 then
-        local locale = GetLocale()
-        if locale == "enUS" or locale == "enGB" then
-            local tipData = C_TooltipInfo and C_TooltipInfo.GetItemByID(itemID)
-            if tipData and tipData.lines then
-                scanConclusive = true
-                for _, tipLine in ipairs(tipData.lines) do
-                    local lt = tipLine.leftText
-                    if lt and lt:find("Cooldown%)") then
-                        local cdStr = lt:match("%((.+Cooldown)%)")
-                        if cdStr then
-                            local totalSec = 0
-                            for num, unit in cdStr:gmatch("(%d+)%s*(%a+)") do
-                                local n = tonumber(num)
-                                if n then
-                                    local u = unit:lower()
-                                    if u == "min" then totalSec = totalSec + n * 60
-                                    elseif u == "sec" then totalSec = totalSec + n
-                                    elseif u == "hr" or u == "hour" then totalSec = totalSec + n * 3600
-                                    end
-                                end
-                            end
-                            if totalSec >= 10 then isRealOnUse = true end
-                        end
-                    end
-                end
-            end
-        else
-            isRealOnUse = true
-            scanConclusive = true
-        end
-    else
-        scanConclusive = (spellID == nil or spellID == 0)
-    end
-    if scanConclusive then
-        f._trinketIsOnUse = isRealOnUse
-    end
 end
 ns.UpdateTrinketFrame = UpdateTrinketFrame
 
+-- Match the equipped trinket against the WotLK proc database and capture the
+-- proc aura's start time.  The equipment cooldown API never reports passive
+-- internal cooldowns, so the slot frame has to own that timer itself.
+local function UpdateTrinketProcState(slotID)
+    local f = _trinketFrames[slotID]
+    if not f or (slotID ~= 13 and slotID ~= 14) then return false end
+
+    local data = EUI_CDM_AuraTrackerTrinketData
+    local itemID = _trinketItemCache[slotID]
+        or GetInventoryItemID("player", slotID)
+    local procIDs = data and data.itemToProc and itemID
+        and data.itemToProc[itemID]
+    if not procIDs then return false end
+
+    local function IsTrackedProc(spellID)
+        if type(procIDs) == "number" then return spellID == procIDs end
+        for _, procID in ipairs(procIDs) do
+            if spellID == procID then return true end
+        end
+        return false
+    end
+
+    for index = 1, 40 do
+        local name, _, _, _, _, duration, expirationTime, _, _, _, auraSpellID =
+            UnitAura("player", index, "HELPFUL")
+        if not name then break end
+        if auraSpellID and IsTrackedProc(auraSpellID) then
+            local icd = data.procCooldowns and data.procCooldowns[auraSpellID]
+            if icd == nil then icd = data.defaultInternalCooldown end
+            if icd and icd > 0 then
+                local now = GetTime()
+                local auraStart = now
+                if duration and duration > 0 and expirationTime and expirationTime > 0 then
+                    auraStart = expirationTime - duration
+                elseif f._trinketProcSpellID == auraSpellID
+                       and f._trinketProcExpiration
+                       and f._trinketProcExpiration > now then
+                    -- A timeless aura provides no stable start timestamp. Keep
+                    -- the timer already started for this application instead of
+                    -- extending it on every unrelated UNIT_AURA event.
+                    return true
+                end
+                -- UNIT_AURA can fire repeatedly while the same proc is active;
+                -- only a genuinely new application should restart its ICD.
+                if f._trinketProcSpellID ~= auraSpellID
+                   or f._trinketProcAuraStart ~= auraStart then
+                    f._trinketProcSpellID = auraSpellID
+                    f._trinketProcAuraStart = auraStart
+                    f._trinketProcStart = auraStart
+                    f._trinketProcDuration = icd
+                    f._trinketProcExpiration = auraStart + icd
+                end
+                return true
+            end
+        end
+    end
+    return false
+end
+
+-- Equipping an item-backed proc trinket starts that proc's full ICD.  This is
+-- deliberately restricted to slots 13/14 AND AuraTracker's item->proc data:
+-- equipment enchants/tinkers are discovered from the equipped instance and
+-- must not receive a synthetic proc ICD here.  Moving a trinket between the
+-- two slots produces an equipment change for its destination and therefore
+-- correctly restarts the timer.
+local function StartTrinketEquipICD(slotID)
+    -- Ignore equipment-cache churn during the loading screen. Existing items
+    -- at login were not newly equipped this session and must not receive a
+    -- fresh synthetic ICD.
+    if not _trinketEquipICDArmed then return false end
+    if slotID ~= 13 and slotID ~= 14 then return false end
+
+    local data = EUI_CDM_AuraTrackerTrinketData
+    local itemID = GetInventoryItemID("player", slotID)
+    local procIDs = data and data.itemToProc and itemID
+        and data.itemToProc[itemID]
+    if not procIDs then
+        _trinketEquipICDs[slotID] = nil
+        return false
+    end
+
+    local function ProcICD(procSpellID)
+        local duration = data.procCooldowns and data.procCooldowns[procSpellID]
+        if duration == nil then duration = data.defaultInternalCooldown end
+        return tonumber(duration) or 0
+    end
+
+    -- Multi-proc trinkets are unavailable until their longest proc ICD is
+    -- ready. Explicit zeroes remain zero; only missing entries use the default.
+    local duration = 0
+    if type(procIDs) == "number" then
+        duration = ProcICD(procIDs)
+    else
+        for _, procSpellID in ipairs(procIDs) do
+            local candidate = ProcICD(procSpellID)
+            if candidate > duration then duration = candidate end
+        end
+    end
+    if duration <= 0 then
+        _trinketEquipICDs[slotID] = nil
+        return false
+    end
+
+    local now = GetTime()
+    _trinketEquipICDs[slotID] = {
+        start = now,
+        duration = duration,
+        expiration = now + duration,
+    }
+
+    -- An aura from the previously equipped item must not shorten the new
+    -- item's full equip ICD if it lingers through the equipment event.
+    local f = _trinketFrames[slotID]
+    if f then
+        f._trinketProcSpellID = nil
+        f._trinketProcAuraStart = nil
+        f._trinketProcStart = nil
+        f._trinketProcDuration = nil
+        f._trinketProcExpiration = nil
+    end
+    return true
+end
+
 local function UpdateTrinketCooldown(slotID)
     local f = _trinketFrames[slotID]
-    if not f or not f._trinketIsOnUse then return false end
+    if not f then return false end
+
+    local now = GetTime()
+    if f._trinketProcExpiration and f._trinketProcExpiration > now
+       and f._trinketProcStart and f._trinketProcDuration then
+        f._cooldown:SetCooldown(f._trinketProcStart, f._trinketProcDuration)
+        if f._tex then f._tex:SetDesaturated(true) end
+        return true
+    elseif f._trinketProcExpiration then
+        f._trinketProcSpellID = nil
+        f._trinketProcAuraStart = nil
+        f._trinketProcStart = nil
+        f._trinketProcDuration = nil
+        f._trinketProcExpiration = nil
+    end
+
+    local equipICD = _trinketEquipICDs[slotID]
+    if equipICD and equipICD.expiration > now then
+        f._cooldown:SetCooldown(equipICD.start, equipICD.duration)
+        if f._tex then f._tex:SetDesaturated(true) end
+        return true
+    elseif equipICD then
+        _trinketEquipICDs[slotID] = nil
+    end
+
     local start, dur, enable = GetInventoryItemCooldown("player", slotID)
     if start and dur and dur > 1.5 and enable == 1 then
         f._cooldown:SetCooldown(start, dur)
@@ -3428,9 +3551,9 @@ local _trinketEventFrame = EllesmereUI.SafeCreateFrame("Frame")
 _trinketEventFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
 _trinketEventFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
 _trinketEventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
--- True when a slot frame's on-use detection needs another pass: trinkets whose
--- item has a spell the tooltip scan couldn't confirm yet, and user-added slots
--- whose instance tooltip wasn't cached (enchant/tinker lines).
+_trinketEventFrame:RegisterEvent("UNIT_AURA")
+-- True when a user-added equipment slot needs another tooltip-data pass.
+-- Trinket slots do not depend on tooltip classification anymore.
 local function SlotScanIncomplete(f)
     return (f._trinketSpellID and not f._trinketIsOnUse) or f._slotScanPending
 end
@@ -3438,9 +3561,20 @@ end
 _trinketEventFrame:SetScript("OnEvent", function(_, event, arg1)
     if event == "PLAYER_EQUIPMENT_CHANGED" then
         if arg1 == 13 or arg1 == 14 or _trinketFrames[arg1] then
-            UpdateTrinketFrame(arg1)
-            if ns.QueueReanchor then ns.QueueReanchor() end
             local f = _trinketFrames[arg1]
+            if f then
+                f._trinketProcSpellID = nil
+                f._trinketProcAuraStart = nil
+                f._trinketProcStart = nil
+                f._trinketProcDuration = nil
+                f._trinketProcExpiration = nil
+            end
+            UpdateTrinketFrame(arg1)
+            UpdateTrinketProcState(arg1)
+            StartTrinketEquipICD(arg1)
+            UpdateTrinketCooldown(arg1)
+            if ns.QueueReanchor then ns.QueueReanchor() end
+            f = _trinketFrames[arg1]
             if f and SlotScanIncomplete(f) then
                 local slot = arg1
                 C_Timer.After(1, function()
@@ -3450,8 +3584,13 @@ _trinketEventFrame:SetScript("OnEvent", function(_, event, arg1)
             end
         end
     elseif event == "PLAYER_ENTERING_WORLD" then
+        _trinketEquipICDArmed = true
         UpdateTrinketFrame(13)
         UpdateTrinketFrame(14)
+        UpdateTrinketProcState(13)
+        UpdateTrinketProcState(14)
+        UpdateTrinketCooldown(13)
+        UpdateTrinketCooldown(14)
         for slot in pairs(_trinketFrames) do
             if slot ~= 13 and slot ~= 14 then UpdateTrinketFrame(slot) end
         end
@@ -3470,11 +3609,16 @@ _trinketEventFrame:SetScript("OnEvent", function(_, event, arg1)
                 if ns.QueueReanchor then ns.QueueReanchor() end
             end)
         end
-    elseif event == "SPELL_UPDATE_COOLDOWN" then
-        for slot, f in pairs(_trinketFrames) do
-            if f._trinketIsOnUse then
+    elseif event == "UNIT_AURA" then
+        if arg1 == "player" then
+            for slot in pairs(_trinketFrames) do
+                UpdateTrinketProcState(slot)
                 UpdateTrinketCooldown(slot)
             end
+        end
+    elseif event == "SPELL_UPDATE_COOLDOWN" then
+        for slot in pairs(_trinketFrames) do
+            UpdateTrinketCooldown(slot)
         end
     end
 end)
@@ -3668,13 +3812,25 @@ if C_CurveUtil and C_CurveUtil.CreateCurve then
     _desatCurve:AddPoint(0.001, 1)
 end
 
+local function SetTextureDesaturation(tex, amount)
+    if not tex then return end
+    if tex.SetDesaturation then
+        tex:SetDesaturation(amount or 0)
+    elseif tex.SetDesaturated then
+        -- Legacy clients expose only the boolean Texture:SetDesaturated API.
+        -- This fallback cannot receive a secret curve value because those
+        -- clients do not provide C_CurveUtil/EvaluateRemainingDuration.
+        tex:SetDesaturated((amount or 0) ~= 0)
+    end
+end
+
 local function ApplySpellDesaturation(f, durObj)
     if not f._tex then return end
     if durObj and _desatCurve and durObj.EvaluateRemainingDuration then
         local val = durObj:EvaluateRemainingDuration(_desatCurve, 0)
-        f._tex:SetDesaturation(val or 0)
+        SetTextureDesaturation(f._tex, val or 0)
     else
-        f._tex:SetDesaturation(0)
+        SetTextureDesaturation(f._tex, 0)
     end
 end
 
@@ -4042,7 +4198,7 @@ local function ProcessPresetCooldowns()
                     local cdInfo = C_Spell.GetSpellCooldown and C_Spell.GetSpellCooldown(sid)
                     local onRealCD = cdInfo and cdInfo.isActive and not cdInfo.isOnGCD
                     if cdInfo and cdInfo.isOnGCD and not onRealCD then
-                        if f._tex then f._tex:SetDesaturation(0) end
+                        SetTextureDesaturation(f._tex, 0)
                     else
                         ApplySpellDesaturation(f, durObj)
                     end
@@ -5464,6 +5620,7 @@ local function CollectAndReanchor()
                             local tf = _trinketFrames[slot]
                             if not tf then tf = GetOrCreateTrinketFrame(slot) end
                             UpdateTrinketFrame(slot)
+                            UpdateTrinketProcState(slot)
                             -- Show Passive Trinkets covers the trinket slots only;
                             -- user-added slots auto-hide without a use effect.
                             local showPassive = (slot == 13 or slot == 14)
@@ -5597,7 +5754,7 @@ local function CollectAndReanchor()
                                         cd:SetAllPoints(); cd:SetDrawEdge(false); cd:SetDrawBling(false)
                                         cd:SetHideCountdownNumbers(true)
                                         cd:SetScript("OnCooldownDone", function()
-                                            if f._tex then f._tex:SetDesaturation(0) end
+                                            SetTextureDesaturation(f._tex, 0)
                                         end)
                                         f.Cooldown = cd; f._cooldown = cd
                                         f._isRacialFrame = isRacial or nil

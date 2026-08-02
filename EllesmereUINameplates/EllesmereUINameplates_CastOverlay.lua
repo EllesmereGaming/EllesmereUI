@@ -1,6 +1,7 @@
 local addon, ns = ...
 
 if not ns then return end
+if ns.isLegacyNameplates then return end
 
 -- Casts In Front of Nameplates (castOverlayEnabled, default off).
 --

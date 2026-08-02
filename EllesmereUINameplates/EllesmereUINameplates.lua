@@ -2,6 +2,11 @@ local addon, ns = ...
 
 local ENP = EllesmereUI.Lite.NewAddon("EllesmereUINameplates")
 
+-- Pre-Cataclysm nameplates are anonymous WorldFrame children: there is no
+-- C_NamePlate namespace, nameplate unit tokens, or NAME_PLATE_UNIT_* events.
+-- EllesmereUINameplates_Legacy.lua supplies that client's native-frame backend.
+ns.isLegacyNameplates = (select(4, GetBuildInfo()) or 0) <= 30300
+
 -- Profile alias: set in OnInitialize, nil before that.
 -- Getters fall back to defaults when p is nil (brief window before init).
 local p
@@ -63,7 +68,11 @@ end
 local function GetNPOutline()
     -- Already slug-gated at the source (GetFontOutlineFlag); SetFSFont also
     -- gates the explicit-flag path, so aura literals are covered too.
-    return (EllesmereUI and EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("nameplates")) or "OUTLINE, SLUG"
+    local flag = (EllesmereUI and EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("nameplates")) or "OUTLINE, SLUG"
+    if ns.isLegacyNameplates and EllesmereUI and EllesmereUI.StripSlugFlag then
+        flag = EllesmereUI.StripSlugFlag(flag)
+    end
+    return flag
 end
 local function GetNPUseShadow()
     return not EllesmereUI or not EllesmereUI.GetFontUseShadow or EllesmereUI.GetFontUseShadow("nameplates")
@@ -74,6 +83,9 @@ local function SetFSFont(fs, size, flags)
   -- "Never Show Slug": gate the explicit-flag path here so hardcoded aura
   -- "OUTLINE, SLUG" literals drop the slug too (body text is already gated).
   if EllesmereUI and EllesmereUI.SlugFlag then f = EllesmereUI.SlugFlag(f) end
+  if ns.isLegacyNameplates and EllesmereUI and EllesmereUI.StripSlugFlag then
+    f = EllesmereUI.StripSlugFlag(f)
+  end
   -- 12.0.7: drop shadows only render from a FontObject; prime before SetFont.
   if EllesmereUI and EllesmereUI.PrimeFontShadow then
     EllesmereUI.PrimeFontShadow(fs, f == "")
@@ -87,6 +99,52 @@ ns.GetNPUseShadow = GetNPUseShadow
 ns.SetFSFont = SetFSFont
 ns.plates = {}
 _G.EllesmereNameplates_NS = ns
+
+-- Frame pools were added after the 3.3.5 client.  Keep the small subset of
+-- the retail pool API used by this addon local to the nameplate module so the
+-- addon can load on clients that do not provide CreateFramePool.
+function ns.CreateNameplateFramePool(frameType, parent, template, resetter, initializer)
+    if CreateFramePool then
+        return CreateFramePool(frameType, parent, template, resetter, false, initializer)
+    end
+
+    local pool = {
+        frameType = frameType,
+        parent = parent,
+        template = template,
+        active = {},
+        inactive = {},
+    }
+
+    function pool:Acquire()
+        local frame = table.remove(self.inactive)
+        if not frame then
+            frame = EllesmereUI.SafeCreateFrame(self.frameType, nil, self.parent, self.template)
+            if initializer then initializer(frame) end
+        end
+        self.active[frame] = true
+        frame:Show()
+        return frame
+    end
+
+    function pool:Release(frame)
+        if not frame or not self.active[frame] then return end
+        self.active[frame] = nil
+        if resetter then
+            resetter(self, frame)
+        else
+            frame:Hide()
+            frame:ClearAllPoints()
+        end
+        self.inactive[#self.inactive + 1] = frame
+    end
+
+    function pool:EnumerateActive()
+        return next, self.active, nil
+    end
+
+    return pool
+end
 
 -- External weak-keyed table for nameplate Y-offset state (never write custom
 -- keys onto Blizzard C_NamePlate frames -- causes taint).
@@ -2316,8 +2374,10 @@ do
             local watcher = EllesmereUI.SafeCreateFrame("Frame")
             watcher:RegisterEvent("PLAYER_LOGIN")
             watcher:RegisterEvent("PLAYER_ENTERING_WORLD")
-            watcher:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
-            watcher:RegisterEvent("TRAIT_CONFIG_UPDATED")
+            if not ns.isLegacyNameplates then
+                watcher:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+                watcher:RegisterEvent("TRAIT_CONFIG_UPDATED")
+            end
             watcher:RegisterEvent("PLAYER_TALENT_UPDATE")
             watcher:SetScript("OnEvent", function()
                 local new = Resolve()
@@ -2754,7 +2814,7 @@ ns.EnsureTargetOverlay = function(plate)
     plate.targetClipBg:Hide()
 end
 
-local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(plate)
+local frameCache = ns.CreateNameplateFramePool("Frame", UIParent, nil, nil, function(plate)
     plate:SetFlattensRenderLayers(true)
     plate.health = EllesmereUI.SafeCreateFrame("StatusBar", nil, plate)
     plate.health:SetFrameLevel(10)
@@ -3454,7 +3514,7 @@ end)
 -- frame to the inactive list, ready for instant reuse.
 do
     local prewarmFrame = EllesmereUI.SafeCreateFrame("Frame")
-    prewarmFrame:RegisterEvent("PLAYER_LOGIN")
+    if not ns.isLegacyNameplates then prewarmFrame:RegisterEvent("PLAYER_LOGIN") end
     prewarmFrame:SetScript("OnEvent", function(self)
         self:UnregisterAllEvents()
         C_Timer.After(2, function()
@@ -3677,6 +3737,10 @@ function ns.RefreshAllSettings()
     -- profile table (spec-linked profiles). All color lookups via _C()
     -- read from this local.
     p = ENP.db.profile
+    if ns.isLegacyNameplates then
+        if ns.LegacyRefreshAll then ns.LegacyRefreshAll() end
+        return
+    end
     -- Bump the appearance generation so SetUnit re-runs ApplyAppearance
     -- on each plate. Without this bump, cache-hit re-spawns would skip
     -- the static appearance work and the new settings wouldn't apply.
@@ -4004,9 +4068,11 @@ local function SetupAuraCVars()
     if NamePlateDriverFrame then
         NamePlateDriverFrame:UnregisterEvent("DISPLAY_SIZE_CHANGED")
         NamePlateDriverFrame:UnregisterEvent("CVAR_UPDATE")
-        hooksecurefunc(NamePlateDriverFrame, "UpdateNamePlateOptions", ApplyNamePlateClickArea)
+        if type(NamePlateDriverFrame.UpdateNamePlateOptions) == "function" then
+            hooksecurefunc(NamePlateDriverFrame, "UpdateNamePlateOptions", ApplyNamePlateClickArea)
+        end
         -- Suppress Blizzard class resource bar setup on our nameplates
-        if NamePlateDriverFrame.SetupClassNameplateBars then
+        if type(NamePlateDriverFrame.SetupClassNameplateBars) == "function" then
             hooksecurefunc(NamePlateDriverFrame, "SetupClassNameplateBars", function(self)
                 if self.classNamePlatePowerBar then
                     self.classNamePlatePowerBar:Hide()
@@ -4025,13 +4091,15 @@ local function SetupAuraCVars()
         -- Hook OnNamePlateAdded to suppress Blizzard UnitFrame as early as
         -- possible before our NAME_PLATE_UNIT_ADDED fires.  This prevents
         -- the initial layout pass from affecting nameplate bounds.
-        hooksecurefunc(NamePlateDriverFrame, "OnNamePlateAdded", function(_, addedUnit)
-            if addedUnit == "preview" then return end
-            local np = C_NamePlate.GetNamePlateForUnit(addedUnit)
-            if np and addedUnit and UnitCanAttack("player", addedUnit) then
-                ns.HideBlizzardFrame(np, addedUnit)
-            end
-        end)
+        if type(NamePlateDriverFrame.OnNamePlateAdded) == "function" then
+            hooksecurefunc(NamePlateDriverFrame, "OnNamePlateAdded", function(_, addedUnit)
+                if addedUnit == "preview" then return end
+                local np = C_NamePlate.GetNamePlateForUnit(addedUnit)
+                if np and addedUnit and UnitCanAttack("player", addedUnit) then
+                    ns.HideBlizzardFrame(np, addedUnit)
+                end
+            end)
+        end
     end
     ns.ApplyNamePlateClickArea = ApplyNamePlateClickArea
 end
@@ -4867,6 +4935,7 @@ end
 
 -- Called at startup and when the setting changes
 ApplyClassPowerSetting = function()
+    if ns.isLegacyNameplates then return end
     if GetShowClassPower() then
         EnableClassPowerWatcher()
     else
@@ -8977,6 +9046,7 @@ end
 -------------------------------------------------------------------------------
 do
     local castDispatcher = EllesmereUI.SafeCreateFrame("Frame")
+    if not ns.isLegacyNameplates then
     castDispatcher:RegisterEvent("UNIT_SPELLCAST_START")
     castDispatcher:RegisterEvent("UNIT_SPELLCAST_DELAYED")
     castDispatcher:RegisterEvent("UNIT_SPELLCAST_STOP")
@@ -8990,6 +9060,7 @@ do
     castDispatcher:RegisterEvent("UNIT_SPELLCAST_EMPOWER_STOP")
     castDispatcher:RegisterEvent("UNIT_SPELLCAST_INTERRUPTIBLE")
     castDispatcher:RegisterEvent("UNIT_SPELLCAST_NOT_INTERRUPTIBLE")
+    end
     castDispatcher:SetScript("OnEvent", function(_, event, unit, ...)
         local plate = ns.plates[unit]
         if not plate then return end
@@ -9000,6 +9071,7 @@ do
 end
 
 local manager = EllesmereUI.SafeCreateFrame("Frame")
+if not ns.isLegacyNameplates then
 manager:RegisterEvent("NAME_PLATE_UNIT_ADDED")
 manager:RegisterEvent("NAME_PLATE_UNIT_REMOVED")
 manager:RegisterEvent("PLAYER_TARGET_CHANGED")
@@ -9010,6 +9082,7 @@ manager:RegisterEvent("PLAYER_REGEN_DISABLED")
 manager:RegisterEvent("PLAYER_REGEN_ENABLED")
 manager:RegisterEvent("DISPLAY_SIZE_CHANGED")
 manager:RegisterEvent("UI_SCALE_CHANGED")
+end
 
 local pendingUnits = {}
 ns.pendingUnits = pendingUnits
@@ -9111,12 +9184,14 @@ local function RefreshThreatContextAndPlateColors()
     end
 end
 
-factionFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-factionFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-factionFrame:RegisterEvent("PLAYER_DIFFICULTY_CHANGED")
-factionFrame:RegisterEvent("ROLE_CHANGED_INFORM")
-factionFrame:RegisterEvent("PLAYER_ROLES_ASSIGNED")
-factionFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
+if not ns.isLegacyNameplates then
+    factionFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+    factionFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+    factionFrame:RegisterEvent("PLAYER_DIFFICULTY_CHANGED")
+    factionFrame:RegisterEvent("ROLE_CHANGED_INFORM")
+    factionFrame:RegisterEvent("PLAYER_ROLES_ASSIGNED")
+    factionFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
+end
 factionFrame:SetScript("OnEvent", function(_, event, unit)
     if event == "PLAYER_ENTERING_WORLD"
     or event == "ZONE_CHANGED_NEW_AREA"
@@ -9527,7 +9602,7 @@ do
 
     -- Also handle spec changes that happen before the UI is ever opened
     local specLoginFrame = EllesmereUI.SafeCreateFrame("Frame")
-    specLoginFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+    if not ns.isLegacyNameplates then specLoginFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED") end
     specLoginFrame:SetScript("OnEvent", function(_, event, unit)
         if unit ~= "player" then return end
         -- Re-read profile reference: spec swap may have changed the
@@ -9573,6 +9648,10 @@ function npAddon:OnEnable()
     -- to a different table between OnInitialize and OnEnable.
     p = ENP.db.profile
     RawSetTex = (PP and PP.RawSetTexture) or function(t, v) t:SetTexture(v) end
+    if ns.isLegacyNameplates then
+        if ns.LegacyEnable then ns.LegacyEnable() end
+        return
+    end
     SetupAuraCVars()
     ApplyClassPowerSetting()
     -- Apply spec-assigned preset on login (before UI is opened)

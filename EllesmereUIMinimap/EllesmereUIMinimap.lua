@@ -2694,7 +2694,15 @@ function ShowFriendsTooltip(anchor)
             row.zone:SetFont(font, 10, "")
 
             local cc = e.class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[e.class]
-            local colored = cc and cc:WrapTextInColorCode(e.name) or e.name
+            local colored = e.name
+            if cc then
+                if cc.WrapTextInColorCode then
+                    colored = cc:WrapTextInColorCode(e.name)
+                else
+                    colored = format("|cff%02x%02x%02x%s|r",
+                        (cc.r or 1) * 255, (cc.g or 1) * 255, (cc.b or 1) * 255, e.name)
+                end
+            end
             -- BNet friends: show battle tag before the in-game name, e.g. "Bigmacz (Unholyftw)"
             if e.bnetTag then
                 colored = "|cffffd100" .. e.bnetTag .. "|r (" .. colored .. ")"
@@ -4122,7 +4130,7 @@ local function ApplyMinimap()
     -- It is also the SQUARE mouse surface: the Minimap's own hit region stays
     -- circular, so wheel zoom handled on the Minimap dies in the square skin's
     -- corners -- the overlay covers the full rect and handles the wheel there.
-    if not GetFFD(minimap).pingBlocker then
+    if minimap.SetPassThroughButtons and not GetFFD(minimap).pingBlocker then
         local blocker = EllesmereUI.SafeCreateFrame("Frame", nil, minimap)
         blocker:SetAllPoints()
         blocker:SetFrameLevel(minimap:GetFrameLevel() + 10)
@@ -4160,6 +4168,30 @@ local function ApplyMinimap()
             if EBS._HVRevealMapHover then EBS._HVRevealMapHover() end
         end)
         GetFFD(minimap).pingBlocker = blocker
+    elseif not minimap.SetPassThroughButtons and not GetFFD(minimap).legacyMouseHooks then
+        -- Wrath-era clients cannot selectively pass mouse buttons through an
+        -- overlay. Hook the Minimap itself so ordinary left/right clicks keep
+        -- their native behavior while middle-click and wheel zoom still work.
+        minimap:HookScript("OnMouseUp", function(_, btn)
+            if btn == "MiddleButton" and EBS._ToggleMicroMenu then
+                local mp = EBS.db and EBS.db.profile and EBS.db.profile.minimap
+                if mp and mp.openMicroMenuOnMiddleClick == false then return end
+                EBS._ToggleMicroMenu()
+            end
+        end)
+        minimap:HookScript("OnMouseWheel", function(_, delta)
+            local mp = EBS.db and EBS.db.profile and EBS.db.profile.minimap
+            if not mp or not mp.scrollZoom then return end
+            local zoom = minimap:GetZoom()
+            if delta > 0 then
+                zoom = min(zoom + 1, 5)
+            else
+                zoom = max(zoom - 1, 0)
+            end
+            minimap:SetZoom(zoom)
+            SaveZoomLevel()
+        end)
+        GetFFD(minimap).legacyMouseHooks = true
     end
 
     -- Hide default decorations
@@ -4302,8 +4334,11 @@ local function ApplyMinimap()
     local mapSize = p.mapSize or 140
     minimap:SetSize(mapSize, mapSize)
     -- Shape mask
-    local maskID = isCircle and 186178 or 130937
-    minimap:SetMaskTexture(maskID)
+    -- Use texture paths rather than retail file IDs. Wrath's texture loader
+    -- does not resolve those numeric IDs (notably 130937 / WHITE8X8), which
+    -- makes SetMaskTexture abort the entire minimap setup.
+    local maskTexture = isCircle and "Textures\\MinimapMask" or "Interface\\Buttons\\WHITE8X8"
+    minimap:SetMaskTexture(maskTexture)
     -- Custom housing overlay: our own texture behind the minimap that shows
     -- the housing indoor map when Blizzard hides the real minimap content.
     -- Fully owned by us, no Blizzard frame manipulation.
@@ -4322,7 +4357,7 @@ local function ApplyMinimap()
         if isCircle then
             local mask = frame:CreateMaskTexture()
             mask:SetAllPoints(frame)
-            mask:SetTexture(maskID)
+            mask:SetTexture(maskTexture)
             tex:AddMaskTexture(mask)
             frame._mask = mask
         end
@@ -4375,7 +4410,7 @@ local function ApplyMinimap()
         if frame then
             frame:SetFrameLevel(minimap:GetFrameLevel() + 1)
             if frame._mask then
-                frame._mask:SetTexture(maskID)
+                frame._mask:SetTexture(maskTexture)
             elseif not isCircle and frame._mask then
                 -- Switched to square, remove mask
             end
@@ -4734,7 +4769,6 @@ local function ApplyMinimap()
     -- Coordinates -- mode (never/hover/always) + anchor position around the map
     if not coordFrame then
         coordFrame = minimap:CreateFontString(nil, "OVERLAY")
-        ApplyMinimapFont(coordFrame, 11)
         coordFrame:SetTextColor(1, 1, 1, 0.9)
     end
     local coordsMode, coordsPos = GetCoordsModePos(p)
@@ -4743,7 +4777,9 @@ local function ApplyMinimap()
     local cpy = p and p.coordsBelowOffsetY or 0
     coordFrame:ClearAllPoints()
     coordFrame:SetPoint(cpAnchor[1], minimap, cpAnchor[2], cpAnchor[3] + cpx, cpAnchor[4] + cpy)
-    coordFrame:SetScale(p and p.coordsScale or 1.0)
+    -- FontStrings do not expose SetScale on legacy clients (notably 3.3.5).
+    -- Scale the font itself so the option behaves consistently on both APIs.
+    ApplyMinimapFont(coordFrame, 11 * (p and p.coordsScale or 1.0))
     _G._EBS_CoordFrame = coordFrame
     if not coordTicker then
         coordTicker = EllesmereUI.SafeCreateFrame("Frame")  -- kept for Show/Hide API
@@ -5036,7 +5072,7 @@ local function ApplyMinimap()
     do
         local blocker = GetFFD(minimap).pingBlocker
         if blocker then blocker:EnableMouseWheel(p.scrollZoom and true or false) end
-        minimap:EnableMouseWheel(false)
+        minimap:EnableMouseWheel(not blocker and p.scrollZoom and true or false)
     end
 
     -- Restore saved zoom level on first activation
@@ -5310,14 +5346,14 @@ do
                 -- The restore branch MUST match the transport set above --
                 -- restoring a mismatched type silently reverts the 12.1
                 -- macro transport on the first combat exit.
+                -- EnableMouse is not exposed to restricted state snippets;
+                -- clearing the action type is sufficient to suppress clicks.
                 RegisterStateDriver(btn, "combatlock", "[combat] combat; nocombat")
                 btn:SetAttribute("_onstate-combatlock", ([[
                     if newstate == 'combat' then
                         self:SetAttribute('*type1', nil)
-                        self:EnableMouse(false)
                     else
                         self:SetAttribute('*type1', '%s')
-                        self:EnableMouse(true)
                     end
                 ]]):format(secureType))
 

@@ -236,17 +236,19 @@ do
         if not EllesmereUIDB then EllesmereUIDB = {} end
         if EllesmereUIDB.bagsUserChosen then return end
         if not C_AddOns or not C_AddOns.GetAddOnEnableState then return end
+        local char = UnitName("player")
+        if not char then return end
         -- If we previously auto-disabled bags but the user re-enabled it
         -- (via Blizzard addon list or any other means), respect their choice.
-        local bagsEnabled = C_AddOns.GetAddOnEnableState("EllesmereUIBags") > 0
+        local bagsEnabled = C_AddOns.GetAddOnEnableState("EllesmereUIBags", char) > 0
         if EllesmereUIDB.bagsAutoDisabled and bagsEnabled then
             EllesmereUIDB.bagsUserChosen = true
             EllesmereUIDB.bagsAutoDisabled = nil
             return
         end
         for _, name in ipairs(BAG_ADDONS) do
-            if C_AddOns.GetAddOnEnableState(name) > 0 then
-                C_AddOns.DisableAddOn("EllesmereUIBags")
+            if C_AddOns.GetAddOnEnableState(name, char) > 0 then
+                C_AddOns.DisableAddOn("EllesmereUIBags", char)
                 EllesmereUIDB.bagsAutoDisabled = true
                 return
             end

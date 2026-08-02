@@ -4287,7 +4287,7 @@ initFrame:SetScript("OnEvent", function(self)
                 overlay:SetPoint("TOPLEFT", gdm, "TOPLEFT", sb and -40 or 0, 0)
                 overlay:SetPoint("BOTTOMRIGHT", bg1, "BOTTOMRIGHT", 0, 0)
                 overlay:SetFrameStrata("BACKGROUND")
-                overlay:EnableMouseMotion(true)
+                overlay:SetMouseMotionEnabled(true)
                 overlay:SetScript("OnEnter", function()
                     _hoverCount = _hoverCount + 1
                     UpdateHoverState()

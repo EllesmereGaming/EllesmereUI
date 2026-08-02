@@ -11,6 +11,7 @@
 
 # Main Luas
 EllesmereUINameplates.lua
+EllesmereUINameplates_Legacy.lua
 EUI_Nameplates_AuraContainers.lua
 EllesmereUINameplatesFriendly.lua
 EllesmereUINameplates_CastOverlay.lua

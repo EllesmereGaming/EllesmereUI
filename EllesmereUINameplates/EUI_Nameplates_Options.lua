@@ -10203,7 +10203,7 @@ initFrame:SetScript("OnEvent", function(self)
     ---------------------------------------------------------------------------
     -- Rebuild preview when spec changes (class resource pips may appear/disappear)
     local npOptSpecFrame = EllesmereUI.SafeCreateFrame("Frame")
-    npOptSpecFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+    if not ns.isLegacyNameplates then npOptSpecFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED") end
     npOptSpecFrame:SetScript("OnEvent", function(_, _, unit)
         if unit ~= "player" then return end
         -- Only invalidate + rebuild when the panel is actually open.

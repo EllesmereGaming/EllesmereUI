@@ -5,6 +5,53 @@ _G.EllesmereUI._deferredInits = _G.EllesmereUI._deferredInits or {}
 EUI = EUI or {}
 EUI.API = EUI.API or {}
 
+-- Retail's friend-list namespace replaced the legacy global APIs.  Keep the
+-- modern call sites usable on 3.3.5 while preserving Retail's implementation
+-- when it exists.
+C_FriendList = C_FriendList or {}
+if not C_FriendList.GetNumFriends then
+    function C_FriendList.GetNumFriends()
+        local total = GetNumFriends and GetNumFriends()
+        return total or 0
+    end
+end
+if not C_FriendList.GetNumOnlineFriends then
+    function C_FriendList.GetNumOnlineFriends()
+        local _, online = GetNumFriends and GetNumFriends()
+        return online or 0
+    end
+end
+if not C_FriendList.GetFriendInfoByIndex then
+    function C_FriendList.GetFriendInfoByIndex(index)
+        if not GetFriendInfo then return nil end
+        local name, level, className, area, connected, status, note = GetFriendInfo(index)
+        if not name then return nil end
+        return {
+            name = name,
+            level = level,
+            className = className,
+            area = area,
+            connected = connected,
+            afk = status == CHAT_FLAG_AFK or status == "AFK",
+            dnd = status == CHAT_FLAG_DND or status == "DND",
+            notes = note,
+        }
+    end
+end
+
+-- IsEncounterInProgress was added after Wrath. Boss unit presence plus combat
+-- is the closest legacy equivalent and is sufficient for visibility rules.
+if not IsEncounterInProgress then
+    function IsEncounterInProgress()
+        if not UnitAffectingCombat then return false end
+        for i = 1, 4 do
+            local unit = "boss" .. i
+            if UnitExists(unit) and UnitAffectingCombat(unit) then return true end
+        end
+        return false
+    end
+end
+
 if not Mixin then
     function Mixin(target, ...)
         for i = 1, select("#", ...) do
@@ -244,6 +291,15 @@ C_CVar = C_CVar or {}
 local CVarMap = {
     cameraDistanceMaxZoomFactor = "cameraDistanceMaxFactor",
 }
+
+-- Retail owns this CVar; the 3.3.5 client does not. Register the compatibility
+-- setting so the Action Bars toggle persists and cooldown text defaults on.
+if RegisterCVar then
+    local ok, value = pcall(GetCVar, "countdownForCooldowns")
+    if not ok or value == nil or value == "" then
+        pcall(RegisterCVar, "countdownForCooldowns", "1")
+    end
+end
 
 if not C_CVar.GetCVar then
     C_CVar.GetCVar = function(name)

@@ -561,6 +561,15 @@ end
 
 local function GetSecondaryResource()
     local _, classFile = UnitClass("player")
+
+    -- Class Resource Bars are supported only for resources that exist on the
+    -- 3.3.5 client.  Keep this gate before any specialization, form, or power
+    -- API calls so unsupported classes (notably Warlocks, whose Soul Shards
+    -- are inventory items in Wrath) cannot enter retail-only resource paths.
+    if classFile ~= "DRUID" and classFile ~= "ROGUE" and classFile ~= "DEATHKNIGHT" then
+        return nil
+    end
+
     local spec = GetSpecialization()
     local form = GetShapeshiftFormID()
 

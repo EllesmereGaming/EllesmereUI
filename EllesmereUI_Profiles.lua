@@ -203,7 +203,7 @@ local KEY_PREFIX_FOLDER = {
 -- child carries a stamped folder, so the resolver must know them.
 local AB_BAREWORD = {
     MainBar=true, Bar2=true, Bar3=true, Bar4=true, Bar5=true, Bar6=true,
-    Bar7=true, Bar8=true, StanceBar=true, PetBar=true, XPBar=true, RepBar=true,
+    StanceBar=true, PetBar=true, XPBar=true, RepBar=true,
     ExtraActionButton=true, EncounterBar=true, QueueStatus=true,
     MicroBar=true, BagBar=true,
 }
@@ -5262,15 +5262,17 @@ function EllesmereUI.ImportProfileSilent(opts)
     -- pack shipped default ON instead of ending up in neither set.
     if disable and C_AddOns and C_AddOns.EnableAddOn then
         local exists = C_AddOns.DoesAddOnExist
+        local char = UnitName("player")
+        if not char then return false, "Unable to determine the current character." end
         local seen = {}
         local function apply(folder)
             if seen[folder] then return end
             seen[folder] = true
             if exists and not exists(folder) then return end
             if disable[folder] then
-                C_AddOns.DisableAddOn(folder)
+                C_AddOns.DisableAddOn(folder, char)
             else
-                C_AddOns.EnableAddOn(folder)
+                C_AddOns.EnableAddOn(folder, char)
             end
         end
         for _, e in ipairs(ADDON_DB_MAP) do

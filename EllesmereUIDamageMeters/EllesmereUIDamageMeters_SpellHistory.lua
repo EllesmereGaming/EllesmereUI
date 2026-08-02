@@ -8,6 +8,10 @@
 local _, ns = ...
 local EUI = EllesmereUI
 
+-- The main file selects the data backend.  On Wrath there is no supported
+-- backend yet; Skada support will opt in here once its adapter is available.
+if ns.DamageMeterBackend == "none" then return end
+
 -------------------------------------------------------------------------------
 --  Constants
 -------------------------------------------------------------------------------

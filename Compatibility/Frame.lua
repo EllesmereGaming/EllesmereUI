@@ -10,8 +10,217 @@ function EUI.API.SetSecureAttr(frame, name, value)
     end
 end
 
+-- OnCooldownDone does not exist on the 3.3.5 Cooldown widget.  Keep one shared
+-- driver for all compatibility cooldowns instead of putting an OnUpdate script
+-- (or a separate timer) on every icon.  Entries are added by the SetCooldown
+-- wrapper below and removed when the cooldown is cleared, replaced, or expires.
+local cooldownDoneWatch = setmetatable({}, { __mode = "k" })
+local cooldownTextWatch = setmetatable({}, { __mode = "k" })
+local cooldownDoneSnapshot = {}
+local cooldownDoneDriver = CreateFrame("Frame")
+cooldownDoneDriver:Hide()
+
+local function ReportCooldownDoneError(err)
+    local handler = geterrorhandler and geterrorhandler()
+    if handler then handler(err) end
+end
+
+local function RunCooldownDoneCallback(callback, cooldown)
+    local ok, err = pcall(callback, cooldown)
+    if not ok then ReportCooldownDoneError(err) end
+end
+
+local function HasCooldownDoneHandler(cooldown)
+    local hooks = cooldown._euiOnCooldownDoneHooks
+    return cooldown._euiOnCooldownDone ~= nil or (hooks and #hooks > 0)
+end
+
+local function CooldownNumbersEnabled(cooldown)
+    if cooldown._euiHideCountdownNumbers then return false end
+    return not GetCVarBool or GetCVarBool("countdownForCooldowns")
+end
+
+local function FormatCooldownRemaining(remaining)
+    if remaining >= 86400 then return math.ceil(remaining / 86400) .. "d" end
+    if remaining >= 3600 then return math.ceil(remaining / 3600) .. "h" end
+    if remaining >= 60 then return math.ceil(remaining / 60) .. "m" end
+    if remaining >= 10 then return tostring(math.ceil(remaining)) end
+    return string.format("%.1f", remaining)
+end
+
+local function EnsureCooldownText(cooldown)
+    if cooldown._euiCooldownText or not cooldown.CreateFontString then
+        return cooldown._euiCooldownText
+    end
+    local text = cooldown:CreateFontString(nil, "OVERLAY")
+    text:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 12, "OUTLINE")
+    text:SetPoint("CENTER", cooldown, "CENTER", 0, 0)
+    text:SetJustifyH("CENTER")
+    text:SetJustifyV("MIDDLE")
+    text:Hide()
+    cooldown._euiCooldownText = text
+    return text
+end
+
+local function RefreshCooldownText(cooldown, now)
+    local text = cooldown._euiCooldownText
+    local finish = cooldown._euiCooldownFinish
+    local remaining = finish and (finish - now) or 0
+    -- Match the modern widget's useful behavior: do not put countdown numbers
+    -- over the global cooldown, and obey both the widget flag and Blizzard CVar.
+    if text and remaining > 1.5 and CooldownNumbersEnabled(cooldown) then
+        text:SetText(FormatCooldownRemaining(remaining))
+        text:Show()
+        return true
+    end
+    if text then text:Hide() end
+    return remaining > 0
+end
+
+cooldownDoneDriver:SetScript("OnUpdate", function(self)
+    local now = GetTime()
+    local count = 0
+
+    -- Callbacks can clear/restart cooldowns and therefore mutate the watch table.
+    -- Traverse a stable snapshot so Lua 5.1's next() cannot be invalidated.
+    for cooldown in pairs(cooldownDoneWatch) do
+        count = count + 1
+        cooldownDoneSnapshot[count] = cooldown
+    end
+    for i = count + 1, #cooldownDoneSnapshot do
+        cooldownDoneSnapshot[i] = nil
+    end
+
+    for i = 1, count do
+        local cooldown = cooldownDoneSnapshot[i]
+        cooldownDoneSnapshot[i] = nil
+        local finish = cooldownDoneWatch[cooldown]
+        if finish and now >= finish then
+            -- Remove first: a callback that starts a new cooldown must be able to
+            -- register its new finish time without this pass erasing it afterward.
+            cooldownDoneWatch[cooldown] = nil
+            cooldown._euiCooldownFinish = nil
+            local callback = cooldown._euiOnCooldownDone
+            if callback then RunCooldownDoneCallback(callback, cooldown) end
+            local hooks = cooldown._euiOnCooldownDoneHooks
+            if hooks then
+                -- HookScript callbacks are persistent and run in registration order.
+                for hookIndex = 1, #hooks do
+                    RunCooldownDoneCallback(hooks[hookIndex], cooldown)
+                end
+            end
+        end
+    end
+
+    for cooldown in pairs(cooldownTextWatch) do
+        if not RefreshCooldownText(cooldown, now) then
+            cooldownTextWatch[cooldown] = nil
+        end
+    end
+
+    if not next(cooldownDoneWatch) and not next(cooldownTextWatch) then self:Hide() end
+end)
+
 local function ApplyCooldownCompat(target)
     if not target then return end
+
+    -- Emulate the retail Cooldown widget's completion script with real expiry
+    -- tracking.  SetScript/HookScript are intercepted only for OnCooldownDone;
+    -- every script supported by the legacy widget still goes to the native API.
+    if not target._euiCooldownDoneCompat then
+        target._euiCooldownDoneCompat = true
+        local nativeSetCooldown = target.SetCooldown
+        local nativeSetScript = target.SetScript
+        local nativeHookScript = target.HookScript
+        local nativeGetScript = target.GetScript
+        local nativeHasScript = target.HasScript
+
+        if nativeSetCooldown then
+            target.SetCooldown = function(self, start, duration, ...)
+                nativeSetCooldown(self, start, duration, ...)
+                start = tonumber(start) or 0
+                duration = tonumber(duration) or 0
+                if start > 0 and duration > 0 then
+                    EnsureCooldownText(self)
+                    local modRate = tonumber((...)) or 1
+                    if modRate <= 0 then modRate = 1 end
+                    self._euiCooldownFinish = start + (duration / modRate)
+                    cooldownTextWatch[self] = self._euiCooldownFinish
+                    RefreshCooldownText(self, GetTime())
+                    cooldownDoneDriver:Show()
+                    if HasCooldownDoneHandler(self)
+                       and self._euiCooldownFinish > GetTime() then
+                        cooldownDoneWatch[self] = self._euiCooldownFinish
+                        cooldownDoneDriver:Show()
+                    else
+                        cooldownDoneWatch[self] = nil
+                    end
+                else
+                    self._euiCooldownFinish = nil
+                    cooldownDoneWatch[self] = nil
+                    cooldownTextWatch[self] = nil
+                    if self._euiCooldownText then self._euiCooldownText:Hide() end
+                    if not next(cooldownDoneWatch) and not next(cooldownTextWatch) then cooldownDoneDriver:Hide() end
+                end
+            end
+        end
+
+        target.SetScript = function(self, scriptName, callback)
+            if scriptName == "OnCooldownDone" then
+                if callback ~= nil and type(callback) ~= "function" then
+                    error("Usage: SetScript(\"OnCooldownDone\", function or nil)", 2)
+                end
+                self._euiOnCooldownDone = callback
+                local finish = self._euiCooldownFinish
+                if HasCooldownDoneHandler(self) and finish and finish > GetTime() then
+                    cooldownDoneWatch[self] = finish
+                    cooldownDoneDriver:Show()
+                elseif not HasCooldownDoneHandler(self) then
+                    cooldownDoneWatch[self] = nil
+                    if not next(cooldownDoneWatch) and not next(cooldownTextWatch) then cooldownDoneDriver:Hide() end
+                end
+                return
+            end
+            return nativeSetScript(self, scriptName, callback)
+        end
+
+        target.HookScript = function(self, scriptName, callback)
+            if scriptName == "OnCooldownDone" then
+                if type(callback) ~= "function" then
+                    error("Usage: HookScript(\"OnCooldownDone\", function)", 2)
+                end
+                local hooks = self._euiOnCooldownDoneHooks
+                if not hooks then
+                    hooks = {}
+                    self._euiOnCooldownDoneHooks = hooks
+                end
+                hooks[#hooks + 1] = callback
+                local finish = self._euiCooldownFinish
+                if finish and finish > GetTime() then
+                    cooldownDoneWatch[self] = finish
+                    cooldownDoneDriver:Show()
+                end
+                return
+            end
+            return nativeHookScript(self, scriptName, callback)
+        end
+
+        if nativeGetScript then
+            target.GetScript = function(self, scriptName)
+                if scriptName == "OnCooldownDone" then
+                    return self._euiOnCooldownDone
+                end
+                return nativeGetScript(self, scriptName)
+            end
+        end
+        if nativeHasScript then
+            target.HasScript = function(self, scriptName)
+                if scriptName == "OnCooldownDone" then return true end
+                return nativeHasScript(self, scriptName)
+            end
+        end
+    end
+
     if not target.SetCooldownFromDurationObject then
         target.SetCooldownFromDurationObject = function(self, durObj)
             if not durObj then
@@ -50,7 +259,19 @@ local function ApplyCooldownCompat(target)
     if not target.GetDrawEdge then target.GetDrawEdge = function(self) return self._euiDrawEdge ~= false end end
     if not target.SetDrawSwipe then target.SetDrawSwipe = function(self, draw) self._euiDrawSwipe = draw and true or false end end
     if not target.GetDrawSwipe then target.GetDrawSwipe = function(self) return self._euiDrawSwipe ~= false end end
-    if not target.SetHideCountdownNumbers then target.SetHideCountdownNumbers = function(self, hide) self._euiHideCountdownNumbers = hide and true or false end end
+    if not target.SetHideCountdownNumbers then
+        target.SetHideCountdownNumbers = function(self, hide)
+            self._euiHideCountdownNumbers = hide and true or false
+            if self._euiCooldownFinish and self._euiCooldownFinish > GetTime() then
+                EnsureCooldownText(self)
+                cooldownTextWatch[self] = self._euiCooldownFinish
+                RefreshCooldownText(self, GetTime())
+                cooldownDoneDriver:Show()
+            elseif self._euiCooldownText then
+                self._euiCooldownText:Hide()
+            end
+        end
+    end
     if not target.GetHideCountdownNumbers then target.GetHideCountdownNumbers = function(self) return self._euiHideCountdownNumbers == true end end
     if not target.SetBlingTexture then target.SetBlingTexture = function(self, tex) self._euiBlingTexture = tex end end
     if not target.SetEdgeTexture then target.SetEdgeTexture = function(self, tex) self._euiEdgeTexture = tex end end

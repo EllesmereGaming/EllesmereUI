@@ -4,6 +4,8 @@
 --  All settings are live (no Edit Mode, no reload required).
 -------------------------------------------------------------------------------
 local _, ns = ...
+if ns.DamageMeterBackend == "none" then return end
+
 local EDM = ns.EDM
 
 local initFrame = EllesmereUI.SafeCreateFrame("Frame")

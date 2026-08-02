@@ -11,7 +11,7 @@ local StartNativeGlow = function(...) if ns.StartNativeGlow then return ns.Start
 local StopNativeGlow  = function(...) if ns.StopNativeGlow then return ns.StopNativeGlow(...) end end
 
 -- Slot offsets per bar index (matches EllesmereUIActionBars BAR_SLOT_OFFSETS)
-local BAR_OFFSETS = { 0, 60, 48, 24, 36, 144, 156, 168 }
+local BAR_OFFSETS = { 0, 48, 60, 36, 24, 12 }
 
 -------------------------------------------------------------------------------
 --  Button Lookup
@@ -25,13 +25,10 @@ local function GetActionBarButton(barIdx, btnIdx)
     if btn then return btn end
     local BLIZZ_PREFIXES = {
         "ActionButton",
-        "MultiBarBottomLeftButton",
         "MultiBarBottomRightButton",
-        "MultiBarRightButton",
+        "MultiBarBottomLeftButton",
         "MultiBarLeftButton",
-        "MultiBar5Button",
-        "MultiBar6Button",
-        "MultiBar7Button",
+        "MultiBarRightButton",
     }
     if barIdx >= 1 and barIdx <= #BLIZZ_PREFIXES then
         btn = _G[BLIZZ_PREFIXES[barIdx] .. btnIdx]

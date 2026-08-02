@@ -122,7 +122,8 @@ do
             end)
             btn:SetScript("OnClick", function()
                 local disable = C_AddOns and C_AddOns.DisableAddOn or DisableAddOn
-                if disable then disable("EllesmereUICooldownManager") end
+                local char = UnitName("player")
+                if disable and char then disable("EllesmereUICooldownManager", char) end
                 ReloadUI()
             end)
         end
@@ -1904,17 +1905,14 @@ ns.CDM_BAR_ROOTS = {
 -------------------------------------------------------------------------------
 local blizzBarNames = {
     [1] = "ActionButton",
-    [2] = "MultiBarBottomLeftButton",
-    [3] = "MultiBarBottomRightButton",
-    [4] = "MultiBarRightButton",
-    [5] = "MultiBarLeftButton",
-    [6] = "MultiBar5Button",
-    [7] = "MultiBar6Button",
-    [8] = "MultiBar7Button",
+    [2] = "MultiBarBottomRightButton",
+    [3] = "MultiBarBottomLeftButton",
+    [4] = "MultiBarLeftButton",
+    [5] = "MultiBarRightButton",
 }
 
 -- EAB slot offsets match BAR_SLOT_OFFSETS in EllesmereUIActionBars.lua
-local eabSlotOffsets = { 0, 60, 48, 24, 36, 144, 156, 168 }
+local eabSlotOffsets = { 0, 48, 60, 36, 24, 12 }
 
 local actionButtonCache = {}
 
@@ -7114,13 +7112,11 @@ ns.GetBarData = GetBarData
 -- Action bar slot -> binding name map. Non-bar-1 entries listed first so that
 -- if a spell appears on multiple bars, the more specific bar wins over bar 1.
 local _barBindingDefs = {
-    { prefix = "MULTIACTIONBAR1BUTTON", startSlot = 61  },  -- bar 2 bottom left
-    { prefix = "MULTIACTIONBAR2BUTTON", startSlot = 49  },  -- bar 3 bottom right
-    { prefix = "MULTIACTIONBAR3BUTTON", startSlot = 25  },  -- bar 4 right
-    { prefix = "MULTIACTIONBAR4BUTTON", startSlot = 37  },  -- bar 5 left
-    { prefix = "MULTIACTIONBAR5BUTTON", startSlot = 145 },  -- bar 6
-    { prefix = "MULTIACTIONBAR6BUTTON", startSlot = 157 },  -- bar 7
-    { prefix = "MULTIACTIONBAR7BUTTON", startSlot = 169 },  -- bar 8
+    { prefix = "MULTIACTIONBAR2BUTTON", startSlot = 49 },  -- bar 2 / page 5
+    { prefix = "MULTIACTIONBAR1BUTTON", startSlot = 61 },  -- bar 3 / page 6
+    { prefix = "MULTIACTIONBAR4BUTTON", startSlot = 37 },  -- bar 4 / page 4
+    { prefix = "MULTIACTIONBAR3BUTTON", startSlot = 25 },  -- bar 5 / page 3
+    { prefix = "ELVUIBAR6BUTTON",       startSlot = 13 },  -- bar 6 / page 2
     { prefix = "ACTIONBUTTON",          startSlot = 1   },  -- bar 1 (last = lowest priority)
 }
 
@@ -8372,6 +8368,14 @@ end
 local _cdmSetupStarted = false
 
 function ECME:OnEnable()
+    -- The Lite lifecycle frame predates the child-owned WotLK CDM polyfill,
+    -- so its PLAYER_LOGIN handler runs first.  Prime definitions and equipped
+    -- trinket availability synchronously before the first bar build instead
+    -- of waiting for the polyfill's later PLAYER_LOGIN callback.
+    if ns.RefreshCooldownViewerCompatibility then
+        ns.RefreshCooldownViewerCompatibility()
+    end
+
     -- Cache player race/class for trinket/racial/potion tracking
     _playerRace = select(2, UnitRace("player"))
     _playerClass = select(2, UnitClass("player"))
@@ -8618,6 +8622,19 @@ function ECME:CDMFinishSetup()
 
     -- Hook Blizzard CDM viewer pools (route map already built by FullCDMRebuild)
     ns.SetupViewerHooks()
+
+    -- A cold login can reach the initial build before the player spellbook is
+    -- populated.  Racials are custom frames, so merely reanchoring after the
+    -- viewer pools wake up cannot create the missing frame.  Run one settled
+    -- pass after setup: ResolveActiveRacial now sees the live spellbook and the
+    -- full rebuild both normalizes class-variant racials and injects the frame.
+    -- On /reload the result is already resolved; the one extra pass is harmless
+    -- and keeps the cold-login and reload initialization paths identical.
+    C_Timer.After(0, function()
+        if _cdmSetupStarted and ECME.db then
+            ns.FullCDMRebuild("login_racial_reconcile")
+        end
+    end)
 
     -- FocusKick: install nameplate event proxy + initial position
     EnsureFocusKickProxy()
@@ -9079,6 +9096,11 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
     end
     if event == "PLAYER_EQUIPMENT_CHANGED" then
         if InCombatLockdown() then return end
+        -- Refresh the compatibility catalog before rebuilding.  This also
+        -- makes trinket swaps independent of event-frame dispatch order.
+        if ns.RefreshCooldownViewerCompatibility then
+            ns.RefreshCooldownViewerCompatibility()
+        end
         BuildAllCDMBars()
         if ns.QueueReanchor then ns.QueueReanchor() end
         return
@@ -9183,6 +9205,16 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
     if event == "SPELLS_CHANGED" then
         CheckSpecChange()
         ns._spellsReadyForApply = true
+        -- SPELLS_CHANGED may be the first point on a cold login at which
+        -- class-variant racial spells are queryable.  If the resolved ID
+        -- changes, rebuild immediately so the stored racial slot and its
+        -- custom frame use the live spell rather than the early fallback.
+        local previousRacial = _activeRacialSpellID
+        local resolvedRacial = ResolveActiveRacial()
+        if previousRacial ~= resolvedRacial and _cdmSetupStarted then
+            ns.FullCDMRebuild("racial_resolved")
+            return
+        end
         -- Engine spell data changed (spec-swap churn tail, druid form swap,
         -- talent/spell overrides). The variant-expanded diversion maps and
         -- the memoized cdID->bar routes were derived from the PREVIOUS

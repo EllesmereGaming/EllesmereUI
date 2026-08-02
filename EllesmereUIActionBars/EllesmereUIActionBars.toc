@@ -11,13 +11,14 @@
 
 # Main Luas
 EllesmereUIActionBars.lua
+EUI_ActionBars_QuickBind.lua
 EUI_ActionBars_Presentation.lua
 EUI_ActionBars_Flyout.lua
 
 # Options
 EUI_ActionBars_Options.lua
 
-# Note: Bindings.xml (custom Bar9/Bar10 keybind commands) is intentionally NOT
+# Note: Bindings.xml (the ElvUI-compatible Bar 6 keybind commands) is intentionally NOT
 # listed here -- WoW auto-loads a file named Bindings.xml from the addon root.
 # Listing it would load it a second time through the UI-XML parser ("Unrecognized
 # XML: Binding").

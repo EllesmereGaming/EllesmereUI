@@ -13,7 +13,7 @@ Libs\LibStub\LibStub.lua
 Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
 Libs\LibSharedMedia-3.0\LibSharedMedia-3.0.lua
 Libs\LibDeflate\LibDeflate.lua
-Libs\LibKeystone\LibKeystone.lua
+
 
 # Core Polyfills for WotLK 3.3.5
 Compatibility\API.lua
@@ -24,8 +24,6 @@ Compatibility\Atlas.lua
 Compatibility\Secure.lua
 Compatibility\Layout.lua
 Compatibility\Timer.lua
-Compatibility\CooldownViewer.lua
-Compatibility\CDMData\DeathKnight.lua
 
 # Lightweight addon framework (replaces Ace3)
 EllesmereUI_Lite.lua
