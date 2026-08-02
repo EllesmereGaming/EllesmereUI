@@ -20,6 +20,8 @@ EllesmereUIQoL_TeleportPrompt.lua
 EllesmereUIQoL_Shifter.lua
 EllesmereUIQoL_MovementAlert.lua
 EllesmereUIQoL_RaidTools.lua
+EllesmereUIQoL_PremadeFilter.lua
+EllesmereUIQoL_PremadeFilterDisplay.lua
 EUI_UpgradeCalc.lua
 
 # Options
@@ -30,4 +32,5 @@ EUI_QoL_AutoLogging_Options.lua
 EUI_QoL_Shifter_Options.lua
 EUI_QoL_MovementAlert_Options.lua
 EUI_QoL_RaidTools_Options.lua
+EUI_QoL_PremadeFilter_Options.lua
 EUI_UpgradeCalc_Options.lua

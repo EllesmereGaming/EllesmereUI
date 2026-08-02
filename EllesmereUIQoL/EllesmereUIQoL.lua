@@ -1488,6 +1488,38 @@ qolFrame:SetScript("OnEvent", function(self)
 
     ---------------------------------------------------------------------------
     --  Persistent LFG Signup Note
+    --
+    --  !! TAINT WARNING - read before touching this block !!
+    --  Opt-in and off by default, so the exposure below only exists for users
+    --  who deliberately enable the toggle. Latent on accounts that never do.
+    --
+    --  THE DANGER (confirmed by analysis 2026-08-01). When enabled, SyncPatch
+    --  raw-replaces the LFGListApplicationDialog_Show global. Blizzard's secure
+    --  sign-up click path reads that global as a function value
+    --  (LFGListSearchPanel_SignUp, Blizzard LFGList.lua:2861), so the whole
+    --  sign-up flow runs tainted and everything it writes stays tainted - the
+    --  dialog fields and the StaticPopupSpecial queue. LFGListSearchPanel_OnEvent
+    --  later reads that queue back (StaticPopupSpecial_Hide, LFGList.lua:2228)
+    --  immediately before LFGListSearchPanel_UpdateResultList (2231), so
+    --  Blizzard's own result-list rebuilds then run tainted too. With 12.0
+    --  secret values that means throws inside Blizzard's sort comparator (3973),
+    --  the row initialisers (3187) and the tooltip (4195) - all blamed on
+    --  EllesmereUIQoL, with the premade filter completely uninvolved.
+    --
+    --  WHY IT CANNOT BE REIMPLEMENTED TAINT-FREE. The obvious fix - hooksecurefunc
+    --  plus restoring the text with SetText - is impossible:
+    --    * the note editbox is a secure editbox: its OnLoad does
+    --      StoreSecureReference() + SetSecurityDisableSetText() (Blizzard
+    --      LFGList.xml ~1991-1992). That is one-way; no re-enable API exists.
+    --    * its GetText is secret-returning (SecretReturnsForAspect in
+    --      SimpleEditBoxAPIDocumentation), so the text cannot be read out either.
+    --    * the note text never passes through Lua on sign-up:
+    --      LFGListApplicationDialogSignUpButton_OnClick calls
+    --      C_LFGList.ApplyToGroup(resultID, tank, healer, damager) with no text
+    --      argument, and C_LFGList exposes ClearApplicationTextFields but no
+    --      corresponding setter.
+    --  The only real alternatives are living with the taint (current state,
+    --  opt-in) or retiring the feature outright.
     ---------------------------------------------------------------------------
     do
         local vanilla = LFGListApplicationDialog_Show
