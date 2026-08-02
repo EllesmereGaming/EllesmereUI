@@ -352,6 +352,11 @@ qolFrame:SetScript("OnEvent", function(self)
                 -- linger in the bag) aren't opened over / re-opened while looting.
                 containerFrame:RegisterEvent("LOOT_OPENED")
                 containerFrame:RegisterEvent("LOOT_CLOSED")
+                -- Resume opens deferred while the player was casting. Without
+                -- these the deferral would stall until the next bag update.
+                containerFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+                containerFrame:RegisterUnitEvent("UNIT_SPELLCAST_STOP", "player")
+                containerFrame:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_STOP", "player")
                 if not _cacheBuilt then
                     _scanBag = BACKPACK_CONTAINER
                     _scanSlot = 1
@@ -394,10 +399,22 @@ qolFrame:SetScript("OnEvent", function(self)
         -- anything progressed -- that subsumes nested containers (a bag yielding
         -- more bags) and lingering payout containers without ever running a
         -- second concurrent chain. _openBusy guards the whole cycle.
+        -- Using a container item CANCELS whatever the player is casting -- the
+        -- engine treats it as an interrupting action, and it does so silently.
+        -- An auto-open that fires mid-cast therefore eats mounts, ports, and
+        -- every other hardcast, with no error and nothing on screen tying it to
+        -- this addon. A cast is transient, so defer rather than blacklist: the
+        -- cycle resumes from the spellcast events registered above.
+        local function PlayerIsCasting()
+            return (UnitCastingInfo and UnitCastingInfo("player") ~= nil)
+                or (UnitChannelInfo and UnitChannelInfo("player") ~= nil)
+        end
+
         ScanAndOpen = function(skipMerchantGate)
             if not _cacheBuilt then return end
             if not IsEnabled() then return end
             if InCombatLockdown() then return end
+            if PlayerIsCasting() then _missedScan = true; return end
             if not skipMerchantGate and MerchantOpen() then return end
             -- A loot window is up (payout container lingering): LOOT_CLOSED
             -- restarts a clean cycle once it has left the bag.
@@ -456,6 +473,10 @@ qolFrame:SetScript("OnEvent", function(self)
                 if myGen ~= _cycleGen then return end
                 if idx > #toOpen then return finish() end
                 if not IsEnabled() or InCombatLockdown() or MerchantOpen() then return finish() end
+                -- Re-checked per step, not just at cycle entry: a cycle paces
+                -- itself across several seconds of timers, so a cast can start
+                -- long after the entry gate passed.
+                if PlayerIsCasting() then _missedScan = true; return finish() end
                 -- Loot window opened mid-cycle: stop; LOOT_CLOSED restarts cleanly.
                 if _lootOpen then return finish() end
                 local item = toOpen[idx]
@@ -605,6 +626,17 @@ qolFrame:SetScript("OnEvent", function(self)
             end
             if event == "BAG_UPDATE_DELAYED" then
                 RequestScan()
+                return
+            end
+            if event == "UNIT_SPELLCAST_SUCCEEDED" or event == "UNIT_SPELLCAST_STOP"
+                or event == "UNIT_SPELLCAST_CHANNEL_STOP" then
+                -- Resume only when the casting gate actually deferred something.
+                -- These fire for every instant cast as well, and walking the
+                -- bags on each would be constant overhead during combat.
+                if _missedScan and not _openBusy then
+                    _missedScan = false
+                    C_Timer.After(0.1, function() ScanAndOpen(false) end)
+                end
                 return
             end
             -- MERCHANT_CLOSED: the interaction is over but the frame may not
