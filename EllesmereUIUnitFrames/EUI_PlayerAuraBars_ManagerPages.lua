@@ -762,6 +762,16 @@ end
 -- FinalizeCompensatedBody(body, finalSy) once after building all their
 -- fields, so the scroll child's real height (and therefore the scrollbar's
 -- thumb/track visibility) reflects actual content instead of a guess.
+-- 2026-08-03 fix: restructured to put the padDiff shift on `scroll` itself
+-- (matching RaidFrames' ns.DMP_BuildPage settingsScroll line-for-line) instead
+-- of on `body` inside an unshifted scroll. Both are mathematically equivalent
+-- for where DualRow/SectionHeader content ends up (verified via /fstack +
+-- a full frame-tree dump: both put rows at parentFrame_left + PAD) -- but
+-- Joel measured a REAL ~30px visual difference in-game (PAB ~50px, RaidFrames
+-- Debuff Manager ~20px) that this math could not explain and multiple manual
+-- measurements confirmed. Rather than keep guessing why the two structurally-
+-- different-but-equivalent approaches render differently, this mirrors DM's
+-- approach exactly since that one is confirmed correct.
 local function WrapCompensatedBody(parentFrame, topOffset)
     local contentPad = EllesmereUI.CONTENT_PAD or 45
     local PAD = 20 -- matches PABMP_BuildPage's own detail-pane inset
@@ -769,16 +779,39 @@ local function WrapCompensatedBody(parentFrame, topOffset)
     local visibleW = parentFrame:GetWidth()
 
     local scroll = CreateFrame("ScrollFrame", nil, parentFrame)
-    scroll:SetPoint("TOPLEFT", parentFrame, "TOPLEFT", 0, topOffset or 0)
-    scroll:SetPoint("BOTTOMRIGHT", parentFrame, "BOTTOMRIGHT", 0, 0)
+    scroll:SetPoint("TOPLEFT", parentFrame, "TOPLEFT", -padDiff, topOffset or 0)
+    scroll:SetPoint("BOTTOMRIGHT", parentFrame, "BOTTOMRIGHT", padDiff, 0)
     scroll:SetFrameLevel(parentFrame:GetFrameLevel() + 1)
+    scroll:SetClipsChildren(true)
 
     local body = CreateFrame("Frame", nil, scroll)
-    body:SetPoint("TOPLEFT", scroll, "TOPLEFT", -padDiff, 0)
     body:SetSize(visibleW + padDiff * 2, 10) -- finalized by FinalizeCompensatedBody
     body._showRowDivider = true
     scroll:SetScrollChild(body)
-    body._pabUpdateThumb = AttachEditorScroll(scroll, body)
+    body._pabUpdateThumb = AttachEditorScroll(scroll, body, nil, padDiff + 2)
+
+    -- Every WrapCompensatedBody call in this file immediately follows a
+    -- PAB_BuildPreviewBox call on the same `parentFrame` (see the four
+    -- BuildXDetail functions below) -- registering here, instead of at each
+    -- call site, keeps the preview's live-resize wiring in one place. Reanchors
+    -- this scroll frame's top edge whenever PAB_MaybeRefreshPreview resizes
+    -- the preview box above it (Icons Per Row/Max Rows/Max Total/Icon Size/
+    -- Row Spacing change), so the settings area below never overlaps a grown
+    -- box or leaves a stale gap under a shrunk one -- and refreshes the
+    -- scrollbar thumb/track right after, since MaxScroll()/UpdateThumb read
+    -- scroll:GetHeight() live and would otherwise stay stale (wrong thumb
+    -- size, or a track that should now show/hide) until the next scroll
+    -- interaction. Registered last (after body._pabUpdateThumb exists) so
+    -- the closure can call it.
+    if ns.PAB_SetPreviewResizeHandler then
+        ns.PAB_SetPreviewResizeHandler(function(newTopOffset)
+            scroll:ClearAllPoints()
+            scroll:SetPoint("TOPLEFT", parentFrame, "TOPLEFT", -padDiff, newTopOffset)
+            scroll:SetPoint("BOTTOMRIGHT", parentFrame, "BOTTOMRIGHT", padDiff, 0)
+            if body._pabUpdateThumb then body._pabUpdateThumb() end
+        end)
+    end
+
     return body
 end
 
@@ -1184,11 +1217,19 @@ end
 -- Standard smooth scroll + thin custom scrollbar (verbatim port of
 -- AttachEditorScroll from EUI_RaidFrames_ManagerPages.lua). Track shows
 -- only on overflow. Returns UpdateThumb and SetScrollTo(v).
-AttachEditorScroll = function(scroll, child, onScroll)
+-- rightInset (optional, default 2): distance from `scroll`'s OWN right edge
+-- to the track. Only WrapCompensatedBody's call needs a bigger value here --
+-- since 2026-08-03 its `scroll` extends padDiff (~25px) past the pane's true
+-- visible right edge (mirrors RaidFrames' settingsScroll), so the default 2
+-- would land the track deep inside the sidebar instead of near the visible
+-- edge. The other two callers (Filter Editor's plain, unshifted scrolls)
+-- keep the default.
+AttachEditorScroll = function(scroll, child, onScroll, rightInset)
+    rightInset = rightInset or 2
     local SBAR_W = 4
     local track = CreateFrame("Frame", nil, scroll)
-    track:SetPoint("TOPRIGHT", scroll, "TOPRIGHT", -2, -2)
-    track:SetPoint("BOTTOMRIGHT", scroll, "BOTTOMRIGHT", -2, 2)
+    track:SetPoint("TOPRIGHT", scroll, "TOPRIGHT", -rightInset, -2)
+    track:SetPoint("BOTTOMRIGHT", scroll, "BOTTOMRIGHT", -rightInset, 2)
     track:SetWidth(SBAR_W)
     track:SetFrameLevel(scroll:GetFrameLevel() + 5)
     do local tx = track:CreateTexture(nil, "BACKGROUND"); tx:SetAllPoints(); tx:SetColorTexture(1, 1, 1, 0.05) end

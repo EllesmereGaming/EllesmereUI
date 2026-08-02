@@ -2740,12 +2740,19 @@ end
 -- itself needs no such compensation since it's positioned via a plain
 -- SetPoint, not a W: widget.
 --
--- Geometry is FIXED at this build-time call (2026-08-02, Joel: the box and
--- divider should stay put; only the icon CONTENT inside the box should
--- change on a live settings edit -- see RenderPreviewIcons' block-centering
--- comment). Only recomputed when this function runs again, i.e. on a
--- structural detail-pane rebuild (switching bars/tabs), not on every
--- live-apply refresh.
+-- Geometry (box size, header darken band, divider Y, and the caller's
+-- scroll-area top offset via the onResize hook -- see PAB_MaybeRefreshPreview
+-- below) is recomputed on every live-apply refresh too, not just here at
+-- build time -- a row/column/icon-count change (Icons Per Row, Max Rows, Max
+-- Total, Icon Size, Row Spacing, ...) changes the grid's real footprint, and
+-- a box that stayed the old size would either clip the new icons (grid grew)
+-- or leave a stale gap above the settings fields (grid shrank) until the
+-- next structural rebuild (switching bars/tabs). 2026-08-02: Joel originally
+-- had this fixed at build-time only ("box and divider should stay put") to
+-- avoid the settings fields below jumping around on every slider tick --
+-- that still holds for icon CONTENT (see RenderPreviewIcons' block-centering
+-- comment, unchanged), just not for the box's own footprint, which must
+-- track the grid it's supposed to contain.
 --   outerFrame: the detail pane's own top-level frame (title/desc's parent)
 --   startY: outerFrame-local Y to start placing the PREVIEW label/box at
 --           (the caller's fixed offset below title/desc, e.g. -50)
@@ -2766,13 +2773,19 @@ function ns.PAB_BuildPreviewBox(outerFrame, fontPath, startY, kind, id, cfg)
         local padDiff = contentPad - 20
         local visibleW = outerFrame:GetWidth()
 
+        -- 2026-08-03: shift lives on the clipping frame itself (hdrClip),
+        -- not on hdrBody inside it -- mirrors WrapCompensatedBody's own fix
+        -- in EUI_PlayerAuraBars_ManagerPages.lua (see that file's doc
+        -- comment: a "shift the child instead of the clip frame" structure
+        -- that's mathematically equivalent measured a real ~30px extra gap
+        -- in-game vs RaidFrames' reference, which shifts the clip/scroll
+        -- frame itself).
         local hdrClip = CreateFrame("Frame", nil, outerFrame)
-        hdrClip:SetPoint("TOPLEFT", outerFrame, "TOPLEFT", 0, sy)
-        hdrClip:SetSize(math.max(visibleW, 1), 40)
+        hdrClip:SetPoint("TOPLEFT", outerFrame, "TOPLEFT", -padDiff, sy)
+        hdrClip:SetSize(math.max(visibleW, 1) + padDiff * 2, 40)
         hdrClip:SetClipsChildren(true)
 
         local hdrBody = CreateFrame("Frame", nil, hdrClip)
-        hdrBody:SetPoint("TOPLEFT", hdrClip, "TOPLEFT", -padDiff, 0)
         hdrBody:SetSize(visibleW + padDiff * 2, 40)
 
         local _, hh = W:SectionHeader(hdrBody, "PREVIEW", 0)
@@ -2826,10 +2839,24 @@ function ns.PAB_BuildPreviewBox(outerFrame, fontPath, startY, kind, id, cfg)
     if isBuff then
         buffPool = (id == "extdef") and ShuffleCopy(EXTDEF_PREVIEW_SPELLS) or BuildBuffPreviewPool()
     end
-    activePreview = { kind = kind, id = id, box = box, icons = icons, fontPath = fontPath, buffPool = buffPool }
+    activePreview = {
+        kind = kind, id = id, box = box, icons = icons, fontPath = fontPath, buffPool = buffPool,
+        outerFrame = outerFrame, boxTopY = sy, headerBg = headerBg, divider = divider,
+    }
     RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, buffPool)
 
     return bottomY
+end
+
+-- Registers a callback the caller's WrapCompensatedBody (EUI_PlayerAuraBars_
+-- ManagerPages.lua) uses to reposition its scroll frame's top edge whenever
+-- PAB_MaybeRefreshPreview resizes the box below -- see that function's doc
+-- comment for why the box's footprint isn't fixed at build time anymore.
+-- Set on activePreview (not a standalone module-level var) so a callback
+-- from a since-torn-down detail pane can never fire against the wrong
+-- pane's box after a tab switch rebuilds activePreview.
+function ns.PAB_SetPreviewResizeHandler(fn)
+    if activePreview then activePreview.onResize = fn end
 end
 
 -- Piggyback hook, called at the end of every live-apply path (ApplyLiveConfig,
@@ -2841,6 +2868,26 @@ PAB_MaybeRefreshPreview = function(kind, id)
     if not (activePreview and activePreview.kind == kind and activePreview.id == id) then return end
     local cfg, isBuff = ResolvePreviewCfg(kind, id)
     if not cfg then return end
+
+    -- Re-derive the box's footprint from the SAME scaled grid RenderPreviewIcons
+    -- is about to draw into, exactly mirroring PAB_BuildPreviewBox's own
+    -- boxHeight/bottomY math (kept in sync manually -- see that function's
+    -- doc comment for why this can't just be skipped/left build-time-only).
+    local grid = ComputeGrid(isBuff, ScaledPreviewCfg(cfg))
+    local boxHeight = grid.height + 30 * PreviewScaleFactor()
+    activePreview.box:SetSize(math.max(grid.width, 1), boxHeight)
+
+    local bottomY = activePreview.boxTopY - boxHeight - 10
+    if activePreview.headerBg then
+        activePreview.headerBg:SetHeight(math.abs(bottomY))
+    end
+    if activePreview.divider and activePreview.outerFrame then
+        activePreview.divider:ClearAllPoints()
+        activePreview.divider:SetPoint("TOPLEFT", activePreview.outerFrame, "TOPLEFT", 0, bottomY)
+        activePreview.divider:SetPoint("TOPRIGHT", activePreview.outerFrame, "TOPRIGHT", 0, bottomY)
+    end
+    if activePreview.onResize then activePreview.onResize(bottomY) end
+
     RenderPreviewIcons(activePreview.box, activePreview.icons, isBuff, cfg, activePreview.fontPath, activePreview.buffPool)
 end
 
