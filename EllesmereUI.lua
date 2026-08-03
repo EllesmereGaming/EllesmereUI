@@ -8872,7 +8872,9 @@ local function CreateMainFrame()
         for _, c in ipairs(ch) do c:Hide(); c:SetParent(nil) end
         local rg = { contentHeaderFrame:GetRegions() }
         for _, r in ipairs(rg) do
-            if r ~= contentHeaderBg and r ~= contentHeaderDiv then r:Hide(); r:SetParent(nil) end
+            -- Textures and font strings cannot have a nil parent on this
+            -- client.  Keep discarded regions on the hidden cache stash.
+            if r ~= contentHeaderBg and r ~= contentHeaderDiv then r:Hide(); r:SetParent(_chStash) end
         end
         contentHeaderFrame:Hide()
         contentHeaderFrame:SetHeight(1)
@@ -8930,7 +8932,9 @@ local function CreateMainFrame()
     local function InvalidateContentHeaderCache()
         for key, entry in pairs(_contentHeaderCache) do
             for _, c in ipairs(entry.children) do c:Hide(); c:SetParent(nil) end
-            for _, r in ipairs(entry.regions) do r:Hide(); r:SetParent(nil) end
+            -- Cached regions already live on _chStash; leave them parented
+            -- there because textures/font strings reject SetParent(nil).
+            for _, r in ipairs(entry.regions) do r:Hide(); r:SetParent(_chStash) end
             _contentHeaderCache[key] = nil
         end
     end

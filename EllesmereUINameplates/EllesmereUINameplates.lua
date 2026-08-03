@@ -90,7 +90,13 @@ local function SetFSFont(fs, size, flags)
   if EllesmereUI and EllesmereUI.PrimeFontShadow then
     EllesmereUI.PrimeFontShadow(fs, f == "")
   end
-  fs:SetFont(GetFont(), size or 11, f)
+  -- SetFont returns false/nil when an older client cannot load the configured
+  -- font (notably some OTF and newer TTF variants).  A FontString with no
+  -- successful font assignment hard-errors as soon as SetText is called, so
+  -- always leave it with Blizzard's built-in font as a safe fallback.
+  if not fs:SetFont(GetFont(), size or 11, f) then
+    fs:SetFont("Fonts\\FRIZQT__.TTF", size or 11, f)
+  end
 end
 
 ns.GetFont = GetFont

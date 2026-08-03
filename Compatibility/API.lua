@@ -398,6 +398,23 @@ if not C_SpellBook then
     end
 end
 
+-- Retail spell-ownership globals do not exist on the 3.3.5 client.  A number
+-- of modules use these before falling back to the other one, so provide both
+-- names rather than requiring every call site to special-case legacy clients.
+-- C_SpellBook's compatibility implementation above uses the legacy spellbook
+-- link lookup and is the authoritative check here.
+if not IsSpellKnown then
+    function IsSpellKnown(spell)
+        return C_SpellBook.IsSpellKnown(spell)
+    end
+end
+
+if not IsPlayerSpell then
+    function IsPlayerSpell(spell)
+        return C_SpellBook.IsSpellKnown(spell)
+    end
+end
+
 -- Load Equipment Set Module immediately if present
 if not EquipmentManager_GetLocationData then
     pcall(LoadAddOn, "Blizzard_EquipmentManager")

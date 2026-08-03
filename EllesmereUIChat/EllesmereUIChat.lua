@@ -1978,6 +1978,77 @@ end
 
 local copyDimmer
 
+-- ScrollingEditBoxTemplate is a retail-only template.  Build the small subset
+-- used by the copy popup from widgets available in the 3.3.5 client.
+local function CreateCopyTextBox(parent)
+    local holder = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
+    local scroll = EllesmereUI.SafeCreateFrame("ScrollFrame", nil, holder)
+    scroll:SetAllPoints(holder)
+    scroll:EnableMouseWheel(true)
+
+    local editBox = EllesmereUI.SafeCreateFrame("EditBox", nil, scroll)
+    editBox:SetMultiLine(true)
+    editBox:SetAutoFocus(false)
+    editBox:EnableMouse(true)
+    editBox:SetWidth(1)
+    editBox:SetHeight(1)
+    scroll:SetScrollChild(editBox)
+
+    local function UpdateEditBoxSize()
+        local width = scroll:GetWidth()
+        if width and width > 1 then editBox:SetWidth(width) end
+        local contentHeight = editBox:GetHeight() or 1
+        local viewHeight = scroll:GetHeight() or 1
+        if contentHeight < viewHeight then editBox:SetHeight(viewHeight) end
+    end
+
+    scroll:SetScript("OnSizeChanged", UpdateEditBoxSize)
+    scroll:SetScript("OnMouseWheel", function(self, delta)
+        local value = self:GetVerticalScroll() - (delta * 30)
+        local range = self:GetVerticalScrollRange() or 0
+        self:SetVerticalScroll(max(0, min(range, value)))
+    end)
+    editBox:SetScript("OnTextChanged", UpdateEditBoxSize)
+    editBox:SetScript("OnCursorChanged", function(_, _, y, _, height)
+        local offset = scroll:GetVerticalScroll()
+        local viewHeight = scroll:GetHeight()
+        if not viewHeight then return end
+        local cursorTop = -y
+        local cursorBottom = cursorTop + height
+        if cursorTop < offset then
+            scroll:SetVerticalScroll(max(0, cursorTop))
+        elseif cursorBottom > offset + viewHeight then
+            scroll:SetVerticalScroll(cursorBottom - viewHeight)
+        end
+    end)
+
+    function holder:GetEditBox() return editBox end
+    function holder:GetScrollBox() return scroll end
+    function holder:SetText(value)
+        editBox:SetText(value or "")
+        editBox:SetCursorPosition(0)
+        scroll:SetVerticalScroll(0)
+        UpdateEditBoxSize()
+    end
+    function scroll:GetVisibleExtentPercentage()
+        local viewHeight = self:GetHeight() or 0
+        local range = self:GetVerticalScrollRange() or 0
+        if viewHeight + range <= 0 then return 1 end
+        return viewHeight / (viewHeight + range)
+    end
+    function scroll:GetScrollPercentage()
+        local range = self:GetVerticalScrollRange() or 0
+        if range <= 0 then return 0 end
+        return self:GetVerticalScroll() / range
+    end
+    function scroll:SetScrollPercentage(value)
+        local range = self:GetVerticalScrollRange() or 0
+        self:SetVerticalScroll(max(0, min(1, value or 0)) * range)
+    end
+
+    return holder
+end
+
 local function ShowCopyPopup(text)
     if not EUI.EnsureLoaded then return end
     EUI:EnsureLoaded()
@@ -2008,8 +2079,8 @@ local function ShowCopyPopup(text)
         bg:SetAllPoints()
         EUI.MakeBorder(popup, 1, 1, 1, 0.15, EUI.PanelPP)
 
-        -- ScrollingEditBox (Blizzard template: scrolling + selection built-in)
-        local textBox = EllesmereUI.SafeCreateFrame("Frame", nil, popup, "ScrollingEditBoxTemplate")
+        -- Scrolling multiline edit box with selection support.
+        local textBox = CreateCopyTextBox(popup)
         textBox:SetPoint("TOPLEFT", popup, "TOPLEFT", 20, -20)
         textBox:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", -20, 60)
 

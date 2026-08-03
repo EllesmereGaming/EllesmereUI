@@ -32,6 +32,32 @@ local function TexturePath(texture)
     return type(path) == "string" and lower(path) or nil
 end
 
+-- Blizzard refreshes legacy nameplate regions directly and may restore the
+-- native name/level FontStrings after we skin the plate.  Keep those regions
+-- transparent permanently: their text is still readable through GetText(), so
+-- they remain the authoritative source for our replacement FontStrings.
+local function SuppressSourceFont(fs)
+    if not fs then return end
+    fs:Hide()
+    fs:SetAlpha(0)
+    if fs._euiAlphaSuppressed or not hooksecurefunc then return end
+    fs._euiAlphaSuppressed = true
+    hooksecurefunc(fs, "Show", function(self)
+        if not self._euiForcingHidden then
+            self._euiForcingHidden = true
+            self:Hide()
+            self._euiForcingHidden = nil
+        end
+    end)
+    hooksecurefunc(fs, "SetAlpha", function(self, alpha)
+        if alpha ~= 0 and not self._euiForcingAlpha then
+            self._euiForcingAlpha = true
+            self:SetAlpha(0)
+            self._euiForcingAlpha = nil
+        end
+    end)
+end
+
 local function IsLegacyNameplate(frame)
     if not frame or frame == WorldFrame or frame:GetParent() ~= WorldFrame then return false end
     local bars, fonts, signature = 0, 0, false
@@ -155,7 +181,13 @@ local function ApplyReactionColor(state, r, g, b)
     state.health:SetStatusBarColor(r, g, b)
     state.applyingColor = false
     if state.name then state.name:SetTextColor(r, g, b) end
-    local nameOnly = state.isFriendly and db.friendlyNameOnly ~= false
+    -- `friendlyNameOnly` is a friendly-player option.  Legacy nameplates have
+    -- no unit token, so reaction color alone cannot distinguish a friendly
+    -- player from a friendly/attackable NPC (training dummies are a common
+    -- example).  Hiding by color made valid NPC health bars appear to be
+    -- missing.  Keep the bar visible unless this backend can positively
+    -- identify the plate as a player in the future.
+    local nameOnly = state.isFriendlyPlayer == true and db.friendlyNameOnly ~= false
     state.health:SetAlpha(nameOnly and 0 or 1)
     if state.cast then state.cast:SetAlpha(nameOnly and 0 or 1) end
     if state.healthText then
@@ -193,7 +225,7 @@ end
 
 local function RefreshAppearance(state)
     local db, health = DB(), state.health
-    for _, fs in ipairs(state.sourceFonts) do fs:SetAlpha(0) end
+    for _, fs in ipairs(state.sourceFonts) do SuppressSourceFont(fs) end
     for _, texture in ipairs(state.hiddenArt) do texture:SetAlpha(0) end
     local width = ns.GetHealthBarWidth and ns.GetHealthBarWidth() or 120
     local height = ns.GetHealthBarHeight and ns.GetHealthBarHeight() or 12
@@ -246,6 +278,10 @@ end
 
 local function RefreshValues(state)
     if not state.frame:IsShown() then return end
+    -- The 3.3.5 engine can mutate native nameplate regions from C without
+    -- passing through Lua method hooks.  Reassert suppression on each driver
+    -- update so Blizzard's own white name/level text cannot reappear.
+    for _, fs in ipairs(state.sourceFonts) do SuppressSourceFont(fs) end
     local minimum, maximum = state.health:GetMinMaxValues()
     local value = state.health:GetValue()
     if state.value ~= value or state.maximum ~= maximum then
@@ -268,15 +304,17 @@ local function Skin(frame)
         levelSource = levelSource, raidIcon = raidIcon, sourceFonts = fonts, hiddenArt = hiddenArt }
     state.nativeR, state.nativeG, state.nativeB = health:GetStatusBarColor()
     plates[frame] = state
-    for _, fs in ipairs(fonts) do fs:SetAlpha(0) end
+    for _, fs in ipairs(fonts) do SuppressSourceFont(fs) end
 
     state.bg = health:CreateTexture(nil, "BACKGROUND")
     state.bg:SetTexture(WHITE)
     state.bg:SetAllPoints(health)
     state.healthBorder = CreateBorder(health)
-    state.name = frame:CreateFontString(nil, "OVERLAY")
-    state.level = frame:CreateFontString(nil, "OVERLAY")
-    state.healthText = frame:CreateFontString(nil, "OVERLAY")
+    -- Prime with a built-in FontObject as an additional legacy-client safety
+    -- net; SetFSFont replaces it with the configured font when supported.
+    state.name = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    state.level = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    state.healthText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     if cast then
         state.castBorder = CreateBorder(cast)
         state.castBg = cast:CreateTexture(nil, "BACKGROUND")

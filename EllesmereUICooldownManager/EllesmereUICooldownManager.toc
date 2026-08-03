@@ -15,6 +15,7 @@ Compatibility\CDMData\Shared.lua
 Compatibility\CDMData\AuraTracker.lua
 Compatibility\CDMData\DeathKnight.lua
 Compatibility\CDMData\Warrior.lua
+Compatibility\CDMData\Paladin.lua
 
 # Main Lua
 EllesmereUICooldownManager.lua
