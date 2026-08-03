@@ -1563,6 +1563,35 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v) Set("showCooldowns", v); Refresh() end })
         y = y - h
 
+        -- Hub art is radial-only: the fan and grid layouts put a real entry at
+        -- the centre, so there is nothing for it to sit in.
+        local hubIconOff = function()
+            return radialOnly() or Cfg("hubIcon") ~= true
+        end
+        row, h = W:DualRow(parent, y,
+            { type="toggle", text="Logo In Center",
+              disabled=radialOnly, disabledTooltip="the Radial layout",
+              getValue=function() return Cfg("hubIcon") == true end,
+              -- Rebuild, not Refresh: this gates the two sliders below it.
+              setValue=function(v) Set("hubIcon", v); RebuildPage() end },
+            { type="slider", text="Logo Size",
+              disabled=hubIconOff, disabledTooltip="Logo In Center",
+              min=16, max=120, step=1,
+              getValue=function() return Cfg("hubIconSize") or 46 end,
+              setValue=function(v) Set("hubIconSize", v); Refresh() end })
+        y = y - h
+
+        row, h = W:DualRow(parent, y,
+            -- The centre text draws over the logo, so this is the control that
+            -- keeps the name readable rather than pure decoration.
+            { type="slider", text="Logo Opacity",
+              disabled=hubIconOff, disabledTooltip="Logo In Center",
+              min=0.05, max=1.0, step=0.01,
+              getValue=function() return Cfg("hubIconAlpha") or 0.55 end,
+              setValue=function(v) Set("hubIconAlpha", v); Refresh() end },
+            { type="spacer" })
+        y = y - h
+
         -- Swatch and the toggle that overrides it share a row, in that order --
         -- the ActionBars interactions row does the same (EUI_ActionBars_Options
         -- .lua:5569). A lone colorpicker cfg makes DualRow build a full-width

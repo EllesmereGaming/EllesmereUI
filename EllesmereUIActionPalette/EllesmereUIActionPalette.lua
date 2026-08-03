@@ -129,6 +129,13 @@ local DB_DEFAULTS = {
         flickFade     = 0.10,        -- seconds the fade itself takes
 
         -- Appearance
+        -- Hub art. The default is a small additive star; hubIcon swaps it for
+        -- the EllesmereUI logo. Radial only -- the fan and grid layouts put a
+        -- real entry at the centre, so the hub draws no art there at all.
+        hubIcon       = false,
+        hubIconSize   = 46,
+        hubIconAlpha  = 0.55,
+
         showLabels    = true,
         showHubText   = true,
         showNeedle    = true,
@@ -1029,6 +1036,16 @@ function ns.CreateWheelView(parent, opts)
     hub.dot:SetSize(26, 26)
     hub.dot:SetAlpha(0.5)
 
+    -- The logo alternative to the star. Left on the default blend mode, unlike
+    -- the star: this is real artwork with its own alpha, and ADD would wash out
+    -- its dark areas into whatever is behind the wheel. It stays on ARTWORK so
+    -- the hub's OVERLAY text still reads on top of it.
+    hub.logo = hub:CreateTexture(nil, "ARTWORK")
+    hub.logo:SetTexture((EllesmereUI.MEDIA_PATH or "Interface\\AddOns\\EllesmereUI\\media\\")
+                        .. "eg-logo.tga")
+    hub.logo:SetPoint("CENTER")
+    hub.logo:Hide()
+
     -- Needle: a thin bar whose center is placed halfway out along the
     -- selected direction and rotated to match it, so it reads as a pointer
     -- emanating from the hub.
@@ -1177,7 +1194,22 @@ function WheelView:Layout(ringIndex)
     -- In fan modes the centre of the frame is occupied by the selected entry,
     -- so the hub's disc would sit under it and its caption on top of it. Drop
     -- the disc and hang the caption clear of the strip instead.
-    hub.dot:SetShown(not fan)
+    -- Exactly one piece of hub art, and only where the centre is empty.
+    local useLogo = p.hubIcon == true
+    hub.dot:SetShown(not fan and not useLogo)
+    hub.logo:SetShown(not fan and useLogo)
+    if not fan and useLogo then
+        -- Scaled by whatever the view scaled its geometry by, recovered from
+        -- the icon size Geom actually handed back. The options preview fits the
+        -- ring to its panel, and a hub drawn at the profile's literal pixel
+        -- size would swamp a ring that had been shrunk to two-thirds.
+        local _, viewIcon = self:Geom()
+        local base = p.iconSize or 44
+        local k = (base > 0) and (viewIcon / base) or 1
+        local sz = max(8, (p.hubIconSize or 46) * k)
+        hub.logo:SetSize(sz, sz)
+        hub.logo:SetAlpha(min(1, max(0, p.hubIconAlpha or 0.55)))
+    end
     self:PlaceHubText()
     hub.text:SetText(ring.name or ("Ring " .. ringIndex))
     hub.text:SetTextColor(0.8, 0.8, 0.8)
