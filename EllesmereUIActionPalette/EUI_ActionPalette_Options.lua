@@ -1,9 +1,9 @@
 -------------------------------------------------------------------------------
---  EUI_RadialWheel_Options.lua  --  Settings page for the Radial Wheel
+--  EUI_ActionPalette_Options.lua  --  Settings page for the Action Palette
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
 
-local PAGE_DISPLAY = "Radial Wheel"
+local PAGE_DISPLAY = "Action Palette"
 local BINDING_PREFIX = "EUI_RADIAL"
 local MAX_RINGS = 6
 
@@ -15,10 +15,10 @@ initFrame:SetScript("OnEvent", function(self)
     if not EllesmereUI or not EllesmereUI.RegisterModule then return end
 
     local db
-    C_Timer.After(0, function() db = _G._ERW_AceDB end)
+    C_Timer.After(0, function() db = _G._EAP_AceDB end)
 
     local function DB()
-        if not db then db = _G._ERW_AceDB end
+        if not db then db = _G._EAP_AceDB end
         return db and db.profile
     end
 
@@ -33,12 +33,12 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     local function Refresh()
-        if _G._ERW_Apply then _G._ERW_Apply() end
+        if _G._EAP_Apply then _G._EAP_Apply() end
         if EllesmereUI.RefreshPage then EllesmereUI:RefreshPage() end
     end
 
     local function RebuildPage()
-        if _G._ERW_Apply then _G._ERW_Apply() end
+        if _G._EAP_Apply then _G._EAP_Apply() end
         if EllesmereUI.RefreshPage then EllesmereUI:RefreshPage(true) end
     end
 
@@ -91,7 +91,7 @@ initFrame:SetScript("OnEvent", function(self)
         if _G.UIErrorsFrame then
             UIErrorsFrame:AddMessage(msg, 1.0, 0.3, 0.3, 1.0)
         else
-            EllesmereUI.Print("|cff0cd29fRadial Wheel:|r " .. msg)
+            EllesmereUI.Print("|cff0cd29fAction Palette:|r " .. msg)
         end
     end
 
@@ -104,7 +104,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- SaveBindings raises "can't be done in combat" and SetBinding would
         -- then be half-applied, so nothing is touched until combat drops.
         if InCombatLockdown() then
-            Complain("Radial Wheel: keybinds can't be changed in combat.")
+            Complain("Action Palette: keybinds can't be changed in combat.")
             RebuildPage()
             return
         end
@@ -123,13 +123,13 @@ initFrame:SetScript("OnEvent", function(self)
                 -- Put the primary back. oldK2 was never cleared, so there is
                 -- nothing to restore for it.
                 if oldK1 then SetBinding(oldK1, action) end
-                Complain("Radial Wheel: " .. (GetBindingText(chord) or chord)
+                Complain("Action Palette: " .. (GetBindingText(chord) or chord)
                     .. " could not be bound.")
             elseif stolenFrom and stolenFrom ~= "" and stolenFrom ~= action then
                 -- SetBinding steals the key silently; say so, because the
                 -- displaced binding is often something the user cares about.
                 local label = _G["BINDING_NAME_" .. stolenFrom] or stolenFrom
-                EllesmereUI.Print("|cff0cd29fRadial Wheel:|r took "
+                EllesmereUI.Print("|cff0cd29fAction Palette:|r took "
                     .. (GetBindingText(chord) or chord) .. " from |cffffd100"
                     .. label .. "|r.")
             end
@@ -210,13 +210,13 @@ initFrame:SetScript("OnEvent", function(self)
 
     local function StartListening(ring)
         if InCombatLockdown() then
-            Complain("Radial Wheel: keybinds can't be changed in combat.")
+            Complain("Action Palette: keybinds can't be changed in combat.")
             return
         end
         listenRing = ring
 
         local f = EnsureCaptureFrame()
-        f.msg:SetText("Press a key or mouse button for |cff0cd29fRadial Wheel "
+        f.msg:SetText("Press a key or mouse button for |cff0cd29fAction Palette "
             .. ring .. "|r\n|cff888888Modifiers work with any button "
             .. "(Alt + Left Click, Shift + Wheel, ...)\n"
             .. "Esc cancels  \194\183  Delete unbinds"
@@ -1280,7 +1280,7 @@ initFrame:SetScript("OnEvent", function(self)
         local centerValues = { CURSOR = "At Cursor", SCREEN = "Fixed Position" }
         local centerOrder  = { "CURSOR", "SCREEN" }
 
-        local layoutValues = { RADIAL = "Radial Wheel", FAN_H = "Fan (Horizontal)",
+        local layoutValues = { RADIAL = "Radial", FAN_H = "Fan (Horizontal)",
                                FAN_V = "Fan (Vertical)", GRID = "Grid" }
         local layoutOrder  = { "RADIAL", "FAN_H", "FAN_V", "GRID" }
 
@@ -1291,7 +1291,7 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = W:SectionHeader(parent, "GENERAL", y); y = y - h
 
         row, h = W:DualRow(parent, y,
-            { type="toggle", text="Enable Radial Wheel",
+            { type="toggle", text="Enable Action Palette",
               getValue=function() return Cfg("enabled") ~= false end,
               setValue=function(v) Set("enabled", v); RebuildPage() end },
             { type="slider", text="Number of Rings",
@@ -1427,7 +1427,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- "Ring Radius" is truncated, so the setting stops being readable.
         row, h = W:DualRow(parent, y,
             { type="slider", text="Ring Radius",
-              disabled=radialOnly, disabledTooltip="the Radial Wheel layout",
+              disabled=radialOnly, disabledTooltip="the Radial layout",
               min=50, max=220, step=1,
               getValue=function() return Cfg("radius") or 96 end,
               setValue=function(v) Set("radius", v); Refresh() end },
@@ -1443,7 +1443,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- an arc that has somewhere to point.
         row, h = W:DualRow(parent, y,
             { type="slider", text="Arc Span",
-              disabled=radialOnly, disabledTooltip="the Radial Wheel layout",
+              disabled=radialOnly, disabledTooltip="the Radial layout",
               min=30, max=360, step=5,
               getValue=function() return Cfg("arcSpan") or 360 end,
               setValue=function(v) Set("arcSpan", v); Refresh() end },
@@ -1461,7 +1461,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- Floor of 8, not 0: the dead zone is what makes "release without
             -- steering" a cancel, and at 0 there is no cancel region at all.
             { type="slider", text="Dead Zone",
-              disabled=radialOnly, disabledTooltip="the Radial Wheel layout",
+              disabled=radialOnly, disabledTooltip="the Radial layout",
               min=8, max=80, step=1,
               getValue=function() return Cfg("deadZone") or 24 end,
               setValue=function(v) Set("deadZone", v); Refresh() end },
@@ -1543,7 +1543,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- Radial only, and not merely because it would look cramped: the
             -- fan never draws per-slot labels at all.
             { type="toggle", text="Show Slot Labels",
-              disabled=radialOnly, disabledTooltip="the Radial Wheel layout",
+              disabled=radialOnly, disabledTooltip="the Radial layout",
               getValue=function() return Cfg("showLabels") ~= false end,
               setValue=function(v) Set("showLabels", v); Refresh() end },
             { type="toggle", text="Show Center Text",
@@ -1554,7 +1554,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         row, h = W:DualRow(parent, y,
             { type="toggle", text="Show Direction Needle",
-              disabled=radialOnly, disabledTooltip="the Radial Wheel layout",
+              disabled=radialOnly, disabledTooltip="the Radial layout",
               getValue=function() return Cfg("showNeedle") ~= false end,
               setValue=function(v) Set("showNeedle", v); Refresh() end },
             { type="toggle", text="Show Cooldowns",
@@ -1616,7 +1616,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- gesture before anything appears. Selection is live the whole
             -- time, so nothing is lost by waiting.
             { type="toggle", text="Flick-Ahead",
-              disabled=radialOnly, disabledTooltip="the Radial Wheel layout",
+              disabled=radialOnly, disabledTooltip="the Radial layout",
               getValue=function() return Cfg("flickAhead") ~= false end,
               -- Rebuild: the toggle gates the delay slider beside it.
               setValue=function(v) Set("flickAhead", v); RebuildPage() end },
@@ -1638,26 +1638,26 @@ initFrame:SetScript("OnEvent", function(self)
     ---------------------------------------------------------------------------
     --  Register the module
     ---------------------------------------------------------------------------
-    EllesmereUI:RegisterModule("EllesmereUIRadialWheel", {
-        title       = "Radial Wheel",
-        description = "Hold a keybind to open a radial action wheel; steer with the mouse and release to fire.",
+    EllesmereUI:RegisterModule("EllesmereUIActionPalette", {
+        title       = "Action Palette",
+        description = "Hold a keybind to open a palette of actions; point or scroll to choose, release to fire.",
         pages       = { PAGE_DISPLAY },
         buildPage   = BuildPage,
         onReset     = function()
             -- Lite DB stores data at
-            -- EllesmereUIDB.profiles[X].addons.EllesmereUIRadialWheel
+            -- EllesmereUIDB.profiles[X].addons.EllesmereUIActionPalette
             if EllesmereUIDB and EllesmereUIDB.profiles then
                 local profile = EllesmereUIDB.activeProfile or "Default"
                 local p = EllesmereUIDB.profiles[profile]
-                if p and p.addons and p.addons.EllesmereUIRadialWheel then
-                    wipe(p.addons.EllesmereUIRadialWheel)
+                if p and p.addons and p.addons.EllesmereUIActionPalette then
+                    wipe(p.addons.EllesmereUIActionPalette)
                 end
             end
-            local target = _G._ERW_AceDB
+            local target = _G._EAP_AceDB
             if target and target.profile and ns.DB_DEFAULTS then
                 EllesmereUI.Lite.DeepMergeDefaults(target.profile, ns.DB_DEFAULTS.profile)
             end
-            if _G._ERW_Apply then _G._ERW_Apply() end
+            if _G._EAP_Apply then _G._EAP_Apply() end
         end,
     })
 end)

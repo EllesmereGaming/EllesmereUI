@@ -115,7 +115,7 @@ local REFRESH_FNS = {
     EllesmereUIMythicTimer       = { "_EMT_Apply" },
     EllesmereUIDamageMeters      = { "_EDM_Apply" },
     EllesmereUIDataBars          = { "_EDB_Apply" },
-    EllesmereUIRadialWheel       = { "_ERW_Apply" },
+    EllesmereUIActionPalette       = { "_EAP_Apply" },
     EllesmereUIAuraBuffReminders = { "_EABR_RequestRefresh", "_EABR_ApplyUnlockPos" },
     -- Folder is capture/apply-blacklisted (see FOLDER_BLACKLIST); this entry
     -- is insurance so a key that slips through any future path can never hit

@@ -1,9 +1,22 @@
 -------------------------------------------------------------------------------
---  EllesmereUIRadialWheel.lua  --  radial action wheel for EllesmereUI
+--  EllesmereUIActionPalette.lua  --  hold-to-open action palette for EllesmereUI
 --
---  Hold a keybind -> a ring of slots fans out around the cursor. Steer the
---  mouse toward a slot to select it, release the key to fire it. Releasing
---  while the cursor is still inside the dead zone cancels.
+--  Hold a keybind -> a set of slots appears. Choose one, release the key to
+--  fire it. Releasing without having chosen cancels.
+--
+--  One ring of actions, drawn and steered four ways:
+--
+--    RADIAL  an arc of `arcSpan` degrees (360 being the full wheel), steered by
+--            the ANGLE from the centre. Wedges are unbounded in depth, so the
+--            gesture is a flick rather than a click.
+--    FAN_H   a horizontal strip. Scroll-steered it cycles a compressed window
+--    FAN_V   past a fixed centre; pointer-steered it is a GRID one entry deep.
+--    GRID    every entry at a fixed cell, the nearest one zoomed.
+--
+--  The layouts differ in INPUT MODEL -- angle, scroll-cycle, pointer-nearest --
+--  which is why they are separate rather than parameters of one another. The
+--  arc is the exception: it is a parameter of the angular model, and RADIAL is
+--  simply its 360-degree case.
 --
 --  Activation is fully secure and taint-free. Each ring owns one hidden
 --  SecureActionButtonTemplate button; the ring's keybind is routed to that
@@ -22,7 +35,7 @@
 --  updates, which are deferred to PLAYER_REGEN_ENABLED when in combat.
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
-local ERW = EllesmereUI.Lite.NewAddon(ADDON_NAME)
+local EAP = EllesmereUI.Lite.NewAddon(ADDON_NAME)
 
 -- Upvalues
 local floor, ceil, min, max, abs = math.floor, math.ceil, math.min, math.max, math.abs
@@ -71,8 +84,9 @@ local DB_DEFAULTS = {
         -- a coverflow strip scrubbed with the mouse wheel, which keeps working
         -- while the right button is held to steer the camera and the cursor is
         -- therefore frozen.
-        layout      = "RADIAL",      -- RADIAL | FAN_H | FAN_V | GRID
-        gridColumns = 4,
+        layout          = "RADIAL",  -- RADIAL | FAN_H | FAN_V | GRID
+        gridAutoColumns = true,      -- near-square, sized to what the ring holds
+        gridColumns     = 4,         -- used only when gridAutoColumns is off
 
         -- Arc. 360 is the full wheel. Anything less fans the entries across a
         -- sector centred on arcRotation (0 = straight up, growing clockwise),
@@ -533,7 +547,7 @@ function WheelView:SlotCount()    return self.slotCount end
 function WheelView:ShownCount()   return self.shownCount end
 function WheelView:GetSlotWidget(index) return self.widgets[index] end
 
--- RADIAL | FAN_H | FAN_V. A view may pin its own mode (the options preview
+-- RADIAL | FAN_H | FAN_V | GRID. A view may pin its own mode (the options preview
 -- pins one so the page can show either without changing what the user plays
 -- with); everything else follows the profile.
 function WheelView:LayoutMode()
@@ -725,6 +739,19 @@ end
 -- deselects. This is the grid's cancel: it has no dead zone to release inside.
 local GRID_REACH = 1.0
 
+-- Columns for a grid the user has not pinned. Near-square, because the whole
+-- point of a grid is to shorten the WORST pointer travel, and that is minimised
+-- when the two axes are balanced: nine entries want 3x3, not 4 + 4 + 1.
+--
+-- The remainder check is the one refinement on ceil(sqrt). A final row holding a
+-- single entry reads as a mistake rather than a layout, and widening by one
+-- column always absorbs it -- 3 becomes one row of three, 7 becomes 4 + 3.
+local function AutoGridColumns(shown)
+    local cols = ceil(sqrt(shown))
+    if cols < shown and shown % cols == 1 then cols = cols + 1 end
+    return min(MAX_SLOTS, max(1, cols))
+end
+
 -- A pointer-steered fan IS a grid one entry deep, so it resolves here rather
 -- than in a parallel 1D implementation: FAN_H is a single row, FAN_V a single
 -- column. Only the scroll-steered fan needs geometry of its own, because it
@@ -737,7 +764,12 @@ function WheelView:GridDims()
     if mode == "FAN_H" then return shown, 1 end
     if mode == "FAN_V" then return 1, shown end
 
-    local cols = min(MAX_SLOTS, max(1, floor((p and p.gridColumns) or 4)))
+    local cols
+    if not p or p.gridAutoColumns ~= false then
+        cols = AutoGridColumns(shown)
+    else
+        cols = min(MAX_SLOTS, max(1, floor(p.gridColumns or 4)))
+    end
     if cols > shown then cols = shown end
     return cols, ceil(shown / cols)
 end
@@ -1275,7 +1307,7 @@ end
 -------------------------------------------------------------------------------
 local function CreateWheel()
     if liveView then return liveView end
-    liveView = ns.CreateWheelView(UIParent, { frameName = "EUIRadialWheelFrame" })
+    liveView = ns.CreateWheelView(UIParent, { frameName = "EUIActionPaletteFrame" })
     local f = liveView:GetFrame()
     f:SetFrameStrata(LIVE_STRATA)
     f:Hide()
@@ -1298,7 +1330,7 @@ end
 local scrollCatcher
 local function EnsureScrollCatcher()
     if scrollCatcher then return scrollCatcher end
-    local f = CreateFrame("Frame", "EUIRadialWheelScrollCatcher", UIParent)
+    local f = CreateFrame("Frame", "EUIActionPaletteScrollCatcher", UIParent)
     f:SetAllPoints(UIParent)
     f:SetFrameStrata(LIVE_STRATA)
     f:SetFrameLevel(1)
@@ -1481,7 +1513,7 @@ local function GetSecureButton(index)
     local btn = secureButtons[index]
     if btn then return btn end
 
-    btn = CreateFrame("Button", "EUIRadialWheelButton" .. index, UIParent,
+    btn = CreateFrame("Button", "EUIActionPaletteButton" .. index, UIParent,
         "SecureActionButtonTemplate")
     btn._ring = index
     btn:RegisterForClicks("AnyDown", "AnyUp")
@@ -1582,23 +1614,35 @@ function ns.Refresh()
 end
 
 -- Options-panel entry point, matching the suite's _G._<PREFIX>_ convention.
-_G._ERW_Apply = ns.Refresh
+_G._EAP_Apply = ns.Refresh
 
 -------------------------------------------------------------------------------
 --  Lifecycle
 -------------------------------------------------------------------------------
-function ERW:OnInitialize()
-    db = EllesmereUI.Lite.NewDB("EllesmereUIRadialWheelDB", DB_DEFAULTS)
-    _G._ERW_AceDB = db
+-- This module was called Radial Wheel until it grew layouts that are not
+-- wheels. Adopt the old saved variable wholesale before AceDB ever sees the new
+-- name: handing over the TABLE keeps profiles, per-character selection and
+-- every ring exactly as they were, where copying only the profile would drop
+-- the rest. Clearing the old global afterwards is what makes this run once.
+local function MigrateLegacySV()
+    if _G.EllesmereUIActionPaletteDB or not _G.EllesmereUIRadialWheelDB then return end
+    _G.EllesmereUIActionPaletteDB = _G.EllesmereUIRadialWheelDB
+    _G.EllesmereUIRadialWheelDB = nil
+end
+
+function EAP:OnInitialize()
+    MigrateLegacySV()
+    db = EllesmereUI.Lite.NewDB("EllesmereUIActionPaletteDB", DB_DEFAULTS)
+    _G._EAP_AceDB = db
     ns.db = db
 
-    _G.BINDING_HEADER_EUI_RADIAL = "EllesmereUI Radial Wheel"
+    _G.BINDING_HEADER_EUI_RADIAL = "EllesmereUI Action Palette"
     for i = 1, MAX_RINGS do
-        _G["BINDING_NAME_" .. BINDING_PREFIX .. i] = "Open Radial Wheel " .. i
+        _G["BINDING_NAME_" .. BINDING_PREFIX .. i] = "Open Action Palette " .. i
     end
 end
 
-function ERW:OnEnable()
+function EAP:OnEnable()
     local p = P()
     if not p then return end
 
@@ -1626,10 +1670,15 @@ end
 -------------------------------------------------------------------------------
 -- Rings are built in the options page's own preview now, so there is nothing
 -- left for the command to toggle -- it just points the way.
-_G.SLASH_EUIRADIALWHEEL1 = "/euirw"
-_G.SLASH_EUIRADIALWHEEL2 = "/euiradial"
-SlashCmdList.EUIRADIALWHEEL = function()
-    EllesmereUI.Print("|cff0cd29fRadial Wheel:|r configure rings on the "
-        .. "|cffffd100Radial Wheel|r options page -- pick the ring, then drag "
+-- The two radial-era commands stay registered as aliases: they are muscle
+-- memory by now, and a slash command that silently stops existing after a
+-- rename reads as the module having been removed.
+_G.SLASH_EUIACTIONPALETTE1 = "/euiap"
+_G.SLASH_EUIACTIONPALETTE2 = "/euipalette"
+_G.SLASH_EUIACTIONPALETTE3 = "/euirw"
+_G.SLASH_EUIACTIONPALETTE4 = "/euiradial"
+SlashCmdList.EUIACTIONPALETTE = function()
+    EllesmereUI.Print("|cff0cd29fAction Palette:|r configure rings on the "
+        .. "|cffffd100Action Palette|r options page -- pick the ring, then drag "
         .. "actions onto the preview.")
 end
