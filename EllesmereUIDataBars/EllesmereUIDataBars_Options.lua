@@ -2966,6 +2966,7 @@ initFrame:SetScript("OnEvent", function(self)
                           Apply()
                       end },
                     MkToggle("Show Icon", "showIcon", "Shows the currency icon next to the amount."),
+                    MkToggleOn("Show Description", "showDescription", "Shows the currency's description text in the tooltip. Turn off for a compact tooltip with just the name and the amount."),
                 }
             end
 

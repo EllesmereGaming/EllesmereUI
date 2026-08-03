@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: Lightweight quality of life tools and enhancements.
 ## Author: Ellesmere
-## Version: 8.6.5
+## Version: 8.7.4
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIQoLDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
@@ -31,7 +31,3 @@ EUI_QoL_Shifter_Options.lua
 EUI_QoL_MovementAlert_Options.lua
 EUI_QoL_RaidTools_Options.lua
 EUI_UpgradeCalc_Options.lua
-
-# Note: Bindings.xml is intentionally NOT listed here -- WoW auto-loads a file
-# named Bindings.xml from the addon root. Listing it makes the client parse it a
-# second time as ordinary UI XML, where <Binding> is not a valid element.

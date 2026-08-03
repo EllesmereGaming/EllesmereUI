@@ -388,6 +388,10 @@ EllesmereUI._MovementBarTextures = {
 -- SetCountdownFont takes the NAME of a named font object, and StyleSlot
 -- re-points this one at the user's font/size.
 local movementCdFont = CreateFont("EUI_MovementAlertCdFont")
+-- A fresh font object has no font file; give it one immediately so text
+-- attached to it can render before the first StyleSlot pass re-points it
+-- at the user's font and size.
+movementCdFont:SetFont(FALLBACK_FONT, 24, "OUTLINE")
 
 local displayPool = {}
 local activeSlotCount = 0
@@ -419,6 +423,14 @@ local function CreateDisplaySlot()
     if slot.icon.cooldown.SetCountdownFont then
         slot.icon.cooldown:SetCountdownFont("EUI_MovementAlertCdFont")
     end
+    -- Own countdown text for icon mode: the engine numbers on a plain
+    -- Cooldown widget only render when the user's countdownForCooldowns
+    -- CVar is on, so the poll drives this FontString instead. The engine
+    -- numbers remain only for secret durations (which Lua cannot format).
+    slot.icon.timeText = slot.icon.cooldown:CreateFontString(nil, "OVERLAY")
+    slot.icon.timeText:SetFontObject(movementCdFont)
+    slot.icon.timeText:SetPoint("CENTER")
+    slot.icon.timeText:SetText("")
     slot.icon:Hide()
 
     slot.bar = CreateFrame("StatusBar", nil, slot)
@@ -473,6 +485,7 @@ local function StyleSlot(slot)
         slot.text:SetFont(FALLBACK_FONT, fontSize, outline)
     end
     slot.text:SetTextColor(tR, tG, tB)
+    slot.icon.timeText:SetTextColor(tR, tG, tB)
 
     local barH = math.max(12, math.floor(frameH * 0.5))
     local barW = frameW - (ma.barShowIcon ~= false and (barH + 8) or 0) - 10
@@ -985,26 +998,43 @@ local function ShowMovementSlot(index, cdInfo, spellEntry, duration)
 
     slot.text:Hide(); slot.icon:Hide(); slot.bar:Hide()
 
-    if cdInfo and cdInfo.timeUntilEndOfStartRecovery then
+    -- Start-recovery branch. GetSpellCooldown's timeUntilEndOfStartRecovery
+    -- is ALWAYS present as a number on this client (0 outside an actual
+    -- start-recovery window), so it must be gated on a POSITIVE value --
+    -- plain truthiness hijacked EVERY render into this branch, which is why
+    -- icon mode never drew its cooldown swipe or number. Secret check comes
+    -- first (relational compares on secret numbers throw); a secret recovery
+    -- falls through to the main path, whose engine sinks accept secrets.
+    local recov = cdInfo and cdInfo.timeUntilEndOfStartRecovery
+    if issecretvalue and issecretvalue(recov) then recov = nil end
+    if type(recov) == "number" and recov > 0 then
         if displayMode == "icon" and spellIcon then
             slot.icon.tex:SetTexture(spellIcon)
-            slot.icon.cooldown:Clear()
-            slot.icon.cooldown:SetHideCountdownNumbers(false)
+            -- Recharge swipe: derived from the entry's recharge duration
+            -- (same source the bar branch scales by).
+            local rechDur = spellEntry.rechargeDuration or 0
+            if rechDur > 0 then
+                slot.icon.cooldown:SetCooldown(GetTime() - (rechDur - recov), rechDur)
+            else
+                slot.icon.cooldown:Clear()
+            end
+            slot.icon.cooldown:SetHideCountdownNumbers(true)
+            slot.icon.timeText:SetFormattedText("%." .. precision .. "f", recov)
             slot.icon:Show()
         elseif displayMode == "bar" then
             local rechDur = spellEntry.rechargeDuration or 0
             slot.bar:SetMinMaxValues(0, rechDur)
-            slot.bar:SetValue(cdInfo.timeUntilEndOfStartRecovery)
+            slot.bar:SetValue(recov)
             local r, g, b = ResolveAlertColor("textColor", "textColorUseClass")
             slot.bar:SetStatusBarColor(r, g, b)
             slot.bar.text:SetShown(ma.barShowDuration ~= false)
             if ma.barShowDuration ~= false then
-                slot.bar.text:SetFormattedText("%." .. precision .. "f", cdInfo.timeUntilEndOfStartRecovery)
+                slot.bar.text:SetFormattedText("%." .. precision .. "f", recov)
             end
             if ma.barShowIcon ~= false and spellIcon then slot.bar.icon:SetTexture(spellIcon); slot.bar.icon:Show() else slot.bar.icon:Hide() end
             slot.bar:Show()
         else
-            slot.text:SetFormattedText(fmtStr, cdInfo.timeUntilEndOfStartRecovery)
+            slot.text:SetFormattedText(fmtStr, recov)
             slot.text:Show()
         end
         slot:Show()
@@ -1042,30 +1072,77 @@ local function ShowMovementSlot(index, cdInfo, spellEntry, duration)
     if displayMode == "icon" then
         if spellIcon then
             slot.icon.tex:SetTexture(spellIcon)
+            -- Single-argument form: every proven duration-object consumer in
+            -- the suite calls it this way; the extra boolean is not part of
+            -- the working pattern.
             if duration and slot.icon.cooldown.SetCooldownFromDurationObject then
-                slot.icon.cooldown:SetCooldownFromDurationObject(duration, true)
+                slot.icon.cooldown:SetCooldownFromDurationObject(duration)
             else
                 slot.icon.cooldown:SetCooldown(cdStart, cdDuration, cdModRate)
             end
-            slot.icon.cooldown:SetHideCountdownNumbers(false)
+            if hasSecretDuration then
+                -- Secret timing: only the engine can render the number.
+                slot.icon.cooldown:SetHideCountdownNumbers(false)
+                slot.icon.timeText:SetText("")
+            else
+                -- Our own countdown text: the engine numbers only render
+                -- when the countdownForCooldowns CVar is on, which most
+                -- users have off -- the poll refreshes this every tick.
+                slot.icon.cooldown:SetHideCountdownNumbers(true)
+                slot.icon.timeText:SetFormattedText("%." .. precision .. "f", cdRemaining)
+            end
             slot.icon:Show()
         else
-            slot.text:SetFormattedText(fmtStr, cdRemaining)
+            -- Icon mode with no icon falls back to text, so it needs the same
+            -- sentinel guard as the text branch below.
+            if type(cdRemaining) == "boolean" then
+                slot.text:SetText("No " .. spellName)
+            else
+                slot.text:SetFormattedText(fmtStr, cdRemaining)
+            end
             slot.text:Show()
         end
     elseif displayMode == "bar" then
-        slot.bar:SetMinMaxValues(0, cdDuration)
-        slot.bar:SetValue(cdRemaining)
         local r, g, b = ResolveAlertColor("textColor", "textColorUseClass")
         slot.bar:SetStatusBarColor(r, g, b)
-        slot.bar.text:SetShown(ma.barShowDuration ~= false)
-        if ma.barShowDuration ~= false then
-            slot.bar.text:SetFormattedText("%." .. precision .. "f", cdRemaining)
+        if type(cdRemaining) == "boolean" then
+            -- Unreadable remaining (see the text branch): show a full bar so the
+            -- alert still reads as "unavailable" instead of an empty one, which
+            -- would look like the cooldown had just finished.
+            slot.bar:SetMinMaxValues(0, 1)
+            slot.bar:SetValue(1)
+            slot.bar.text:SetShown(false)
+        else
+            slot.bar:SetMinMaxValues(0, cdDuration)
+            slot.bar:SetValue(cdRemaining)
+            slot.bar.text:SetShown(ma.barShowDuration ~= false)
+            if ma.barShowDuration ~= false then
+                slot.bar.text:SetFormattedText("%." .. precision .. "f", cdRemaining)
+            end
         end
         if ma.barShowIcon ~= false and spellIcon then slot.bar.icon:SetTexture(spellIcon); slot.bar.icon:Show() else slot.bar.icon:Hide() end
         slot.bar:Show()
     else -- any text mode (text_nd / text_dn / legacy "text")
-        slot.text:SetFormattedText(fmtStr, cdRemaining)
+        if type(cdRemaining) == "boolean" then
+            -- The cdInfo fallback stores a BOOLEAN sentinel when the cooldown is
+            -- secret, because Lua cannot compute a remaining from secret
+            -- start/duration. Feeding that to a "%.1f" renders 0.0, which reads
+            -- as "ready" -- the exact opposite of what the alert means, and what
+            -- made the countdown appear to reset the instant combat started in
+            -- instanced content. Drop the number instead: the alert still says
+            -- the ability is unavailable, which is the part that matters.
+            --
+            -- Only the sentinel is special-cased. A genuine secret NUMBER is
+            -- passed straight through, because SetFormattedText is
+            -- AllowedWhenTainted and the engine renders the real value from it.
+            -- Sentinel test is type-based, NOT `== true`: the Duration-object
+            -- path above stores a raw SECRET number in cdRemaining, and
+            -- equality against a secret is not a comparison we ever risk;
+            -- type() is secret-safe and the sentinel is a plain boolean.
+            slot.text:SetText("No " .. spellName)
+        else
+            slot.text:SetFormattedText(fmtStr, cdRemaining)
+        end
         slot.text:Show()
     end
 
@@ -1087,6 +1164,7 @@ local function ShowBuffActiveSlot(index, spellEntry)
         slot.icon.tex:SetTexture(spellIcon)
         slot.icon.cooldown:Clear()
         slot.icon.cooldown:SetHideCountdownNumbers(true)
+        slot.icon.timeText:SetText("")
         slot.icon:Show()
     elseif displayMode == "bar" then
         slot.bar:SetMinMaxValues(0, 1); slot.bar:SetValue(1)
@@ -1298,7 +1376,7 @@ local function PreviewTick()
     local shown = EllesmereUI._mainFrame and EllesmereUI._mainFrame:IsShown()
     local onPage = shown
         and EllesmereUI.GetActiveModule and EllesmereUI:GetActiveModule() == "EllesmereUIQoL"
-        and EllesmereUI.GetActivePage and EllesmereUI:GetActivePage() == "Movement Alerts"
+        and EllesmereUI.GetActivePage and EllesmereUI:GetActivePage() == "MoveAlert"
     if not ma or not onPage then StopMovementPreview(); return end
 
     local now = GetTime()

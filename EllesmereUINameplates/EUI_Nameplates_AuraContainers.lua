@@ -91,9 +91,15 @@ end
 
 local function CropCoords(cropped)
     if cropped then
-        -- Horizontal zoom 0.08; vertical trimmed so 80%-height icons never
-        -- squish the artwork (mirrors ns.SetAuraIconCrop).
-        return { 0.08, 0.92, 0.164, 0.836 }
+        -- Horizontal zoom 0.08; vertical span scaled to the cropped aspect so
+        -- the artwork never squishes (same math as ns.SetAuraIconCrop).
+        -- `cropped` carries the height factor from GetAuraCrop (Adjust Crop
+        -- slider); plain true from a legacy caller falls back to the classic
+        -- 0.80, which reproduces the old fixed coords exactly (0.164/0.836).
+        local factor = (type(cropped) == "number") and cropped or 0.80
+        local vSpan = (1 - 2 * 0.08) * factor
+        local v0 = 0.5 - vSpan / 2
+        return { 0.08, 0.92, v0, 1 - v0 }
     end
     return { 0.08, 0.92, 0.08, 0.92 }
 end
@@ -107,7 +113,10 @@ end
 local function NPHeight(kind, size)
     local cropped = ns.GetAuraCrop and ns.GetAuraCrop(kind == "cc" and "ccs" or kind)
     if cropped and ns.GetAuraCropHeight then
-        return ns.GetAuraCropHeight(cropped, size), true
+        -- Second return is GetAuraCrop's value itself (the height factor,
+        -- truthy) so CropCoords can derive matching texcoords; truth-testing
+        -- callers behave exactly as with the old literal `true`.
+        return ns.GetAuraCropHeight(cropped, size), cropped
     end
     return size, false
 end
@@ -820,7 +829,7 @@ end
 
 local function TopAnchorFor(plate)
     local topElement = (ns.GetTextSlot and ns.GetTextSlot("textSlotTop")) or "none"
-    if topElement == "enemyName" then return plate.name or plate.health end
+    if ns.IsNameElement and ns.IsNameElement(topElement) then return plate.name or plate.health end
     if topElement == "healthNumber" then return plate.hpNumber or plate.health end
     if topElement ~= "none" then return plate.hpText or plate.health end
     return plate.health, true -- health-anchored: add class power push

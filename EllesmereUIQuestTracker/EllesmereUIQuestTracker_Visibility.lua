@@ -83,8 +83,13 @@ end
 -- during an encounter. _inEncounter is driven by ENCOUNTER_START/END below.
 -------------------------------------------------------------------------------
 local _inEncounter = false
+-- Instance type cached on the zone events below: GetInstanceInfo per
+-- evaluation showed up in idle profiles (the shared mouseover scan calls
+-- ShouldAutoHide at 6.7 Hz). Pure Lua-side caching of our own evaluation
+-- input -- no frame writes, no hooks, nothing the tracker taint rules cover.
+local _instanceType = select(2, GetInstanceInfo()) or "none"
 local function ShouldAutoHide()
-    local _, instanceType = GetInstanceInfo()
+    local instanceType = _instanceType
     if instanceType == "arena" then return true end
     if instanceType == "raid" then
         local cfg = EQT.DB()
@@ -524,6 +529,9 @@ function EQT.InitVisibility()
             -- Clear stale encounter state from a missed ENCOUNTER_END.
             _inEncounter = false
         end
+        -- Refresh the cached instance type on every edge here (zone changes
+        -- carry it; the encounter events ride along harmlessly).
+        _instanceType = select(2, GetInstanceInfo()) or "none"
         UpdateVisibility()
         SyncBGToTracker()
     end)

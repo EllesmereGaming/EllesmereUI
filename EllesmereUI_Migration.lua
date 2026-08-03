@@ -4366,3 +4366,68 @@ EllesmereUI.RegisterMigration({
         end
     end,
 })
+
+-- The options panel is pinned to physical pixels (baseScale =
+-- GetScreenWidth()/physW) so it holds a constant physical size and does NOT
+-- follow the UI Scale slider. That reads fine at 1080p, but above it the same
+-- pixel count covers far less of the screen: the panel arrives small and the
+-- UI Scale slider appears to do nothing to it. New installs seed panelScale
+-- from the display height in EllesmereUI_Startup.lua; this brings existing
+-- displays onto the same value.
+--
+-- 1440p is the reference: a panel of H units covers H*panelScale/physH of the
+-- screen, so physH/1440 reproduces 1440p's screen fraction anywhere. 4K seeds
+-- 1.5 and reads exactly like a 2K monitor.
+--
+-- The two halves are deliberately asymmetric, because "the user picked this"
+-- means different things above and below the reference:
+--
+--   ABOVE 1440p -- ONE-TIME RESET, overwriting whatever is stored. On these
+--   displays the old default (1.0) rendered the panel at a fraction of the
+--   reference size, so a raised value there is a WORKAROUND for that bug, not
+--   a preference, and leaving it would strand the user on a stale compensation
+--   now that the default is correct (and oversized, since popups no longer
+--   scale quadratically with it). Migrations stamp done and never run again,
+--   so this fires exactly once; anything chosen afterwards is kept forever.
+--
+--   AT OR BELOW 1440p -- nothing was ever broken, the seed is 1.0 anyway, and a
+--   stored value can only be a genuine preference. Left alone, except for
+--   residue from a v1 seed (physH/1080) that went out in pre-release branch
+--   builds and never in a release: a value matching v1's output ON a save
+--   carrying v1's stamp is that seed's leftover rather than a choice.
+EllesmereUI.RegisterMigration({
+    id          = "panel_scale_highdpi_reset_v3",
+    scope       = "global",
+    description = "Reset the options-panel scale on displays above 1440p to the corrected default, and seed it elsewhere.",
+    body        = function(ctx)
+        local db = ctx.db
+        if not db then return end
+        local _, physH = GetPhysicalScreenSize()
+        if type(physH) ~= "number" or physH <= 0 then return end
+        -- Snap BEFORE the reset test, not after. The dropdown only offers fixed
+        -- steps, so an off-menu seed (1600p lands on 1.111) leaves the control
+        -- reading "Normal (100%)" while the panel renders larger, and the user
+        -- is snapped the moment they open it. Testing the SNAPPED value also
+        -- keeps the reset honest: a display close enough to the reference that
+        -- it rounds back to 1.00 has nothing to correct, so it must not fire
+        -- the overwrite branch and clobber a genuine preference.
+        local seeded = math.max(1, math.min(physH / 1440, 2))
+        if EllesmereUI.SnapPanelScale then seeded = EllesmereUI.SnapPanelScale(seeded) end
+
+        if seeded > 1 then
+            -- Above the reference: one-time reset (see above).
+            db.panelScale = seeded
+            return
+        end
+
+        -- At or below the reference: only fill in an unset/default value, or
+        -- clear v1 residue.
+        local cur = db.panelScale
+        local isDefault = (cur == nil or cur == 1.0)
+        local v1Ran = db._migrations and db._migrations.panel_scale_highdpi_seed_v1
+        local oldSeed = math.max(1, math.min(physH / 1080, 2))
+        local isV1Residue = v1Ran and cur ~= nil and math.abs(cur - oldSeed) < 0.001
+        if not isDefault and not isV1Residue then return end
+        if seeded ~= (cur or 1.0) then db.panelScale = seeded end
+    end,
+})

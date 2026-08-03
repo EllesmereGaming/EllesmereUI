@@ -213,7 +213,7 @@ ns.BLOCK_DEFAULTS = {
     micromenu  = { disableBlizzardMicroMenu = false, hideSocialText = false, charStatsTooltip = false, socialTooltip = false, mainMenuSpacing = 4, iconSpacing = 2,
                    menu = true, guild = true, social = true, char = true, spell = true, ach = true, quest = true, lfg = true,
                    pvp = true, housing = true, journal = true, pet = true, shop = true, help = true },
-    currency   = { currencyId = nil, showIcon = true },
+    currency   = { currencyId = nil, showIcon = true, showDescription = true },
     greatvault = {},
     audio      = { channel = "master" },
     spacer     = {},
@@ -713,6 +713,13 @@ do
     local COL_GAP = 18
     local TOKEN_GAP = 8
     local FONT_SIZE = 12
+    -- TOOLTIP is the topmost strata, so height inside it is decided by frame
+    -- level alone -- and a frame created straight under UIParent starts at the
+    -- bottom of it. That is why a unit tooltip (hovering a player through a
+    -- bar block, or any addon tooltip anchored nearby) drew over this one.
+    -- Sit far above Blizzard's tooltips; the overlay hosts stack on top of
+    -- this (see Tip_Show).
+    local TIP_LEVEL = 900
 
     -- Interactive rows: a pool of secure spell buttons overlaid on rows that
     -- declared an action (Tip_AddActionDouble). Casting mechanism matches the
@@ -746,6 +753,7 @@ do
         if tip then return tip end
         tip = CreateFrame("Frame", "EllesmereUIDataBarsTip", UIParent)
         tip:SetFrameStrata("TOOLTIP")
+        tip:SetFrameLevel(TIP_LEVEL)
         tip:SetClampedToScreen(true)
         tip:Hide()
         local bg = tip:CreateTexture(nil, "BACKGROUND")
@@ -807,7 +815,7 @@ do
         if actionHost then return actionHost end
         actionHost = CreateFrame("Frame", "EllesmereUIDataBarsTipActions", UIParent, "SecureHandlerStateTemplate")
         actionHost:SetFrameStrata("TOOLTIP")
-        actionHost:SetFrameLevel(250)
+        actionHost:SetFrameLevel(TIP_LEVEL + 10)
         actionHost:SetAllPoints(tip)
         -- No clickable overlays in combat, ever: the driver hides the host
         -- securely the instant lockdown starts and re-shows it on regen for
@@ -861,7 +869,7 @@ do
         local b = actionPool[activeActions]
         if not b then
             b = CreateFrame("Button", nil, EnsureActionHost(), "SecureActionButtonTemplate")
-            b:SetFrameLevel(250)
+            b:SetFrameLevel(TIP_LEVEL + 10)
             b:EnableMouse(true)
             -- AnyUp only + useOnKeyDown=false: registering both click phases
             -- lets the ActionButtonUseKeyDown CVar fire the cast twice, and
@@ -920,6 +928,12 @@ do
     -- |c..|r codes; callers pass the normal color through the left-color args.
     local function PlaceRowOverlay(b, i, innerW)
         local d, row = data[i], rows[i]
+        -- Re-stated per placement, not just at creation: the tip's own level
+        -- can be raised on any show (Tip_Show), and a pooled button that kept
+        -- the old base would sink under the tip's background. Never lowered --
+        -- the secure pool sits higher still, on its own host.
+        local want = tip:GetFrameLevel() + 5
+        if b:GetFrameLevel() < want then b:SetFrameLevel(want) end
         b:ClearAllPoints()
         b:SetPoint("TOPLEFT", tip, "TOPLEFT", PAD, d._y)
         b:SetSize(max(1, innerW), max(1, d._h))
@@ -1125,9 +1139,26 @@ do
 
     function ns.Tip_Show()
         if not tip or not owner then return end
+        -- Re-check the height contest on every show: GameTooltip's level is not
+        -- a constant (Blizzard raises it, and tooltip addons reparent/restack
+        -- it), so a level picked once at creation can be overtaken later. Only
+        -- ever raises -- TIP_LEVEL is the floor.
+        do
+            local lvl = TIP_LEVEL
+            local gt = GameTooltip and GameTooltip.GetFrameLevel and GameTooltip:GetFrameLevel()
+            if gt and gt >= lvl then lvl = gt + 10 end
+            if tip:GetFrameLevel() < lvl then tip:SetFrameLevel(lvl) end
+        end
         local maxLeft, maxRight, totalH = 0, 0, 0
         local anyRight = false
         local colCount = 0
+        -- Wrapped rows (prose: currency descriptions) are measured but NOT
+        -- laid out in this pass. They carry no right text, so they own the
+        -- whole inner width -- but that width is only known once the rows
+        -- that DO have a right column have been measured. Sizing them here
+        -- against their own wrap cap instead is what used to leave a dead
+        -- right gutter beside the prose, as wide as the widest right value.
+        local maxWrap, anyWrap = 0, false
         wipe(colW)
         for i = 1, dataCount do
             local d = data[i]
@@ -1138,20 +1169,22 @@ do
             -- row's FIRST use can be a plain line.
             ns.SetFont(row.right, FONT_SIZE)
             -- Rows are pooled: reset wrap state every pass so a wrapped row
-            -- reused as a plain one measures naturally again.
-            if d.wrap then
-                row.left:SetWordWrap(true)
-                row.left:SetWidth(d.wrap)
-            else
-                row.left:SetWordWrap(false)
-                row.left:SetWidth(0)
-            end
+            -- reused as a plain one measures naturally again. Wrapped rows
+            -- measure UNWRAPPED here -- GetStringWidth then reports the
+            -- natural one-line width, which is what the cap applies to.
+            row.left:SetWordWrap(false)
+            row.left:SetWidth(0)
             row.left:SetText(d.l)
             row.left:SetTextColor(d.lr or 1, d.lg or 1, d.lb or 1, 1)
             row.left:Show()
             local lw = row.left:GetStringWidth() or 0
-            if d.wrap and lw > d.wrap then lw = d.wrap end
-            if lw > maxLeft then maxLeft = lw end
+            if d.wrap then
+                anyWrap = true
+                if lw > d.wrap then lw = d.wrap end
+                if lw > maxWrap then maxWrap = lw end
+            elseif lw > maxLeft then
+                maxLeft = lw
+            end
             if d.r then
                 anyRight = true
                 row.right:SetText(d.r)
@@ -1183,18 +1216,21 @@ do
             HideCols(row, (d.ncols or 0) + 1)
             -- Row height covers whichever of the three shapes the row uses, so
             -- a token taller than its label cannot bleed into the next row.
-            local h = row.left:GetStringHeight() or FONT_SIZE
-            if d.r then
-                local rh = row.right:GetStringHeight() or 0
-                if rh > h then h = rh end
+            -- A wrapped row's height depends on the width it ends up with, so
+            -- it is filled in below; totalH is summed once both kinds are in.
+            if not d.wrap then
+                local h = row.left:GetStringHeight() or FONT_SIZE
+                if d.r then
+                    local rh = row.right:GetStringHeight() or 0
+                    if rh > h then h = rh end
+                end
+                if colH > h then h = colH end
+                -- Clickable (or pad-marked) rows carry 2px of breathing room
+                -- above and below the text; the padded band is the rect the
+                -- overlay button and its hover wash cover.
+                if d.action or d.actionToy or d.actionMacro or d._padBand then h = h + 4 end
+                d._h = h
             end
-            if colH > h then h = colH end
-            -- Clickable (or pad-marked) rows carry 2px of breathing room
-            -- above and below the text; the padded band is the rect the
-            -- overlay button and its hover wash cover.
-            if d.action or d.actionToy or d.actionMacro or d._padBand then h = h + 4 end
-            totalH = totalH + h + (i > 1 and ROW_GAP or 0)
-            d._h = h
         end
         for i = dataCount + 1, #rows do
             rows[i].left:Hide()
@@ -1212,6 +1248,30 @@ do
 
         local innerW = maxLeft
         if anyRight then innerW = maxLeft + COL_GAP + maxRight end
+        -- Prose spans the whole inner width rather than stopping where the
+        -- left column of the value rows ends -- no dead gutter beside it, and
+        -- it wraps into fewer, fuller lines. It only widens the tip when its
+        -- own capped width exceeds what the other rows already need.
+        if anyWrap then
+            if maxWrap > innerW then innerW = maxWrap end
+            for i = 1, dataCount do
+                local d = data[i]
+                if d.wrap then
+                    local left = rows[i].left
+                    left:SetWordWrap(true)
+                    left:SetWidth(innerW)
+                    local h = left:GetStringHeight() or FONT_SIZE
+                    if d.action or d.actionToy or d.actionMacro or d._padBand then h = h + 4 end
+                    d._h = h
+                end
+            end
+        end
+        for i = 1, dataCount do
+            local d = data[i]
+            d._h = d._h or FONT_SIZE
+            totalH = totalH + d._h + (i > 1 and ROW_GAP or 0)
+        end
+
         local w = innerW + PAD * 2
         local h = totalH + PAD * 2
         tip:SetSize(max(60, w), max(24, h))
@@ -1267,6 +1327,10 @@ do
                         local host = EnsureActionHost()
                         host:ClearAllPoints()
                         host:SetAllPoints(tip)
+                        -- Follow the tip up if it was raised above a
+                        -- higher-than-expected GameTooltip this show.
+                        local hw = tip:GetFrameLevel() + 10
+                        if host:GetFrameLevel() < hw then host:SetFrameLevel(hw) end
                     end
                     local b = AcquireActionButton()
                     -- Pooled reuse swaps type + payload; the unused payload is

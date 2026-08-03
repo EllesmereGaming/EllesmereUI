@@ -130,9 +130,10 @@ initFrame:SetScript("OnEvent", function(self)
           PERCENT = "Percent",
           COUNT = "Count / Total",
           COUNT_PERCENT = "Count / Total + %",
+          COUNT_REMAINING = "Count / Total + Remaining",
           REMAINING = "Remaining Count",
         }
-        local forcesTextOrder = { "PERCENT", "COUNT", "COUNT_PERCENT", "REMAINING" }
+        local forcesTextOrder = { "PERCENT", "COUNT", "COUNT_PERCENT", "COUNT_REMAINING", "REMAINING" }
 
         -- ── DISPLAY ──────────────────────────────────────────────────────
         _, h = W:SectionHeader(parent, "DISPLAY", y); y = y - h

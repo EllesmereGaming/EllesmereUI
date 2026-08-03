@@ -140,6 +140,7 @@ ns._pandemicHooked = _pandemicHooked
 local function _PandemicShow(self)
     _pandemicState[self] = true
     ns._btDirty = true
+    if ns.ArmBuffTicker then ns.ArmBuffTicker() end
     -- Hide Blizzard's PandemicIcon unless "Blizzard Default" (-1).
     -- Custom glow styles (>0) replace it; None (0/false) suppresses it.
     local fc = ns._ecmeFC and ns._ecmeFC[self]
@@ -156,6 +157,7 @@ end
 local function _PandemicHide(self)
     _pandemicState[self] = nil
     ns._btDirty = true
+    if ns.ArmBuffTicker then ns.ArmBuffTicker() end
 end
 
 -- Installed LAZILY from the buff tick, per icon, only when that icon's bar
@@ -900,6 +902,86 @@ end
 local tbbFrames  = {}
 local tbbTickFrame
 local _tbbRebuildPending = false
+-- Assignment memo gate: the cfg->frame pairing only changes when the viewer
+-- pool's composition changes (aura events, pool Acquire, rebuilds, spec/cache
+-- invalidation), so the tick reuses the last pairing until an edge marks this
+-- dirty. Starts dirty so the first tick always pairs.
+local _tbbAssignDirty = true
+local _tbbAssignedFor
+
+-- TBB idle sleeper. UpdateTrackedBuffBarTimers counts consecutive ticks where
+-- nothing is live (no active/fallback aura, no self-timed window, no running
+-- cooldown bar, no placeholder preview); after ~2s it parks the tick frame
+-- (OnUpdate stops entirely) and this frame listens for the cheap edges that
+-- can make a bar live again. Any edge (or a rebuild) restarts the tick.
+-- Lust from other players and the Time Spiral glow arm outside these events,
+-- so their arm sites call Wake directly.
+local _tbbWake = CreateFrame("Frame")
+_tbbWake._idleTicks = 0
+function _tbbWake.Sleep()
+    if tbbTickFrame then tbbTickFrame:Hide() end
+    -- Deliberately NO SPELL_UPDATE_COOLDOWN here: it fires steadily even at
+    -- idle and would defeat the sleep. A tracked spell's cooldown can only
+    -- START via a player cast (item use and shapeshift included), which the
+    -- cast event covers; a RUNNING cooldown keeps the tick awake by liveness.
+    _tbbWake:RegisterUnitEvent("UNIT_AURA", "player")
+    _tbbWake:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+    _tbbWake:RegisterEvent("PLAYER_REGEN_DISABLED")
+end
+function _tbbWake.Wake()
+    _tbbWake:UnregisterAllEvents()
+    -- Stay subscribed to the aura edge while AWAKE: pool composition can only
+    -- change with a player aura event or a pool Acquire (hooked separately),
+    -- and these are what retire the assignment memo between ticks.
+    _tbbWake:RegisterUnitEvent("UNIT_AURA", "player")
+    _tbbWake._idleTicks = 0
+    _tbbAssignDirty = true
+    if _tbbWake._enabled and tbbTickFrame then tbbTickFrame:Show() end
+end
+-- UNIT_AURA fires steadily in group/follower content (allies buffing the
+-- player), and every false wake buys ~0.5s of full ticking. This probe
+-- answers "could any bar actually be live?" in a few reads WITHOUT waking:
+-- an active viewer frame, or a live player aura for a fallback-class config.
+-- Casts and combat entry skip the probe -- they are rare at idle and are the
+-- legitimate start edges for self-timed/cooldown bars the probe cannot see.
+function _tbbWake.Probe()
+    if ns._tbbPlaceholderMode then return true end
+    local viewer = _G["BuffBarCooldownViewer"]
+    if viewer and viewer.itemFramePool then
+        for frame in viewer.itemFramePool:EnumerateActive() do
+            if frame.IsActive and frame:IsActive() then return true end
+        end
+    end
+    if not (ECME and ECME.db) then return true end
+    local tbb = ns.GetTrackedBuffBars and ns.GetTrackedBuffBars()
+    local bars = tbb and tbb.bars
+    if bars and C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
+        for _, cfg in ipairs(bars) do
+            if cfg.enabled ~= false and not cfg.spellIDs and not cfg.popularKey
+               and cfg.trackType ~= "cooldown"
+               and cfg.spellID and cfg.spellID > 0 then
+                if C_UnitAuras.GetPlayerAuraBySpellID(cfg.spellID)
+                   or (cfg.baseSpellID and cfg.baseSpellID > 0
+                       and C_UnitAuras.GetPlayerAuraBySpellID(cfg.baseSpellID)) then
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+function _tbbWake.OnEvent(_, event)
+    -- Awake: this is the composition edge that retires the assignment memo.
+    -- Just mark and let the next tick re-pair -- no probe, no state change.
+    if tbbTickFrame and tbbTickFrame:IsShown() then
+        _tbbAssignDirty = true
+        return
+    end
+    if event == "UNIT_AURA" and not _tbbWake.Probe() then return end
+    _tbbWake.Wake()
+end
+_tbbWake:SetScript("OnEvent", _tbbWake.OnEvent)
+ns.WakeTBBTick = _tbbWake.Wake
 
 function ns.GetTBBFrame(idx) return tbbFrames[idx] end
 
@@ -2760,6 +2842,9 @@ function ns.InvalidateTBBFrameCache()
     _findChildGeneration = _findChildGeneration + 1
     wipe(_findChildCache)
     wipe(_tbbStickyFrame)
+    -- Every structural edge already funnels here (pool Acquire, spec swap,
+    -- rebuilds): the assignment memo retires with the caches.
+    _tbbAssignDirty = true
 end
 
 local function FindChild(cfg)
@@ -2842,6 +2927,17 @@ end
 
 local function AssignFramesToConfigs(bars)
     local assignment = _tbbAssignment
+    -- Memo: the pairing only moves on composition edges (player aura events,
+    -- pool Acquire, cache invalidation, rebuilds -- all of which set the
+    -- dirty flag), so the ~60Hz tick reuses the last map instead of
+    -- re-enumerating the pool and re-resolving canonical ids every frame.
+    -- The bars-table identity check is the belt for spec swaps that replace
+    -- the table without passing an invalidation site.
+    if not _tbbAssignDirty and _tbbAssignedFor == bars then
+        return assignment
+    end
+    _tbbAssignDirty = false
+    _tbbAssignedFor = bars
     wipe(assignment)
     if not bars then return assignment end
 
@@ -3513,6 +3609,7 @@ local function _ensureLustListener(enable)
                 if present and not _satedPresent and not isFull
                     and GetTime() >= _lustZoneGuard then
                     _lustExpiry = GetTime() + 40  -- rising edge: lust just went out
+                    _tbbWake.Wake()  -- lust can come from other players: no local cast/aura edge is guaranteed
                     -- Drive any Custom Auras (icon) lust display sharing this edge.
                     if ns.SignalLustCast then ns.SignalLustCast() end
                 end
@@ -3600,9 +3697,10 @@ local function _UpdateSelfTimedBar(bar, cfg, expiry, duration)
     elseif bar._timerText then
         bar._timerText:Hide()
     end
+    return true  -- window active: keep the tick awake
 end
 local function UpdateLustBar(bar, cfg)
-    _UpdateSelfTimedBar(bar, cfg, _lustExpiry, 40)
+    return _UpdateSelfTimedBar(bar, cfg, _lustExpiry, 40)
 end
 
 -------------------------------------------------------------------------------
@@ -3671,6 +3769,7 @@ local function _ensureTimeSpiralListener(enable)
                     if not TIME_SPIRAL_TRIGGERS[sid] then return end
                     if GetTime() < _ts.suppressUntil then return end
                     _ts.expiry = GetTime() + TIME_SPIRAL_DURATION  -- free move just granted
+                    _tbbWake.Wake()  -- glow edge is outside the sleeper's wake events
                     -- Drive any Custom Auras (icon) display sharing this edge.
                     if ns.SignalTimeSpiralCast then ns.SignalTimeSpiralCast() end
                 elseif event == "SPELL_ACTIVATION_OVERLAY_GLOW_HIDE" then
@@ -4670,6 +4769,10 @@ function ns.UpdateTrackedBuffBarTimers()
     local bars = tbb.bars
     if not bars then if MD then MD("TBBTick") end return end
 
+    -- Liveness for the idle sleeper: set by any branch below that is actually
+    -- animating or tracking something this tick.
+    local tickLive = false
+
     -- Profile-wide smooth-fill switches, resolved once per tick for every
     -- fill site (absent buffs key = enabled; absent cooldowns key = OFF).
     local sm = ns.GetTBBSmoothSettings and ns.GetTBBSmoothSettings()
@@ -4687,6 +4790,9 @@ function ns.UpdateTrackedBuffBarTimers()
         if am ~= "EllesmereUICooldownManager" or ap ~= "Tracking Bars" then
             ns._tbbPlaceholderMode = false
             if ns.HideTBBPlaceholders then ns.HideTBBPlaceholders() end
+            -- Auras may have moved while the placeholder preview was up:
+            -- re-pair on the first real mirror tick.
+            _tbbAssignDirty = true
         end
     end
 
@@ -4701,6 +4807,7 @@ function ns.UpdateTrackedBuffBarTimers()
         if not bar or not bar._tbbReady then
             -- skip
         elseif ns._tbbPlaceholderMode then
+            tickLive = true
             if not bar:IsShown() then bar:Show() end
         elseif cfg.enabled == false then
             bar:Hide()
@@ -4710,18 +4817,22 @@ function ns.UpdateTrackedBuffBarTimers()
             HideTBBBarForCombat(bar)
         elseif cfg.popularKey == "bloodlust" then
             -- Self-driven 40s lust bar; no Blizzard frame to mirror.
-            UpdateLustBar(bar, cfg)
+            if UpdateLustBar(bar, cfg) then tickLive = true end
         elseif cfg.popularKey == "timespiral" then
             -- Self-driven 10s Time Spiral "Free Move" bar; glow-armed, no frame.
-            _UpdateSelfTimedBar(bar, cfg, _ts.expiry, TIME_SPIRAL_DURATION)
+            if _UpdateSelfTimedBar(bar, cfg, _ts.expiry, TIME_SPIRAL_DURATION) then tickLive = true end
         elseif cfg.popularKey and _potionDur[cfg.popularKey] then
             -- Self-cast potion preset: hardcoded window off the spell-cast edge,
             -- no aura tracking / no Blizzard frame to mirror.
-            _UpdateSelfTimedBar(bar, cfg, _potionExpiry[cfg.popularKey] or 0,
-                _potionDur[cfg.popularKey])
+            if _UpdateSelfTimedBar(bar, cfg, _potionExpiry[cfg.popularKey] or 0,
+                _potionDur[cfg.popularKey]) then tickLive = true end
         elseif cfg.trackType == "cooldown" then
             -- Spell-cooldown tracking: self-driven, no Blizzard frame/aura.
             _UpdateCooldownBar(bar, cfg)
+            -- Live while an engine handle drives the fill OR the bar is on
+            -- screen (covers the secret-timing mirror drain and always-shown
+            -- bars, both of which need per-tick updates).
+            if bar._cdDurObj or bar:IsShown() then tickLive = true end
         else
             local blzChild = assignment[cfg]
             if blzChild then ns.HookPandemicState(blzChild) end
@@ -4761,7 +4872,14 @@ function ns.UpdateTrackedBuffBarTimers()
                 if not fbAura and cfg.baseSpellID and cfg.baseSpellID > 0 then
                     fbAura = C_UnitAuras.GetPlayerAuraBySpellID(cfg.baseSpellID)
                 end
+                -- Fallback driving = the viewer has not bound this aura yet,
+                -- and Blizzard's late-bind can land WITHOUT a fresh player
+                -- aura event. Keep the assignment memo dirty while any
+                -- fallback is live so the next tick re-pairs the moment the
+                -- frame appears (restores stacks/pandemic from mirror mode).
+                if fbAura then _tbbAssignDirty = true end
             end
+            if isActive or fbAura then tickLive = true end
 
             -- Read Blizzard's StatusBar (the data source for fill/timer)
             local blizzBar = blzChild and blzChild.Bar
@@ -5118,9 +5236,13 @@ function ns.UpdateTrackedBuffBarTimers()
                     if sb then sb:SetMinMaxValues(0, 1); sb:SetValue(0) end
                     if bar._timerText then bar._timerText:Hide() end
                     if bar._spark then bar._spark:Hide() end
-                else
+                elseif bar:IsShown() then
+                    -- Clear the name latch on the hide EDGE only: clearing it
+                    -- every hidden tick made the deferred name fill below
+                    -- re-resolve the spell via C_Spell.GetSpellInfo every
+                    -- tick for every hidden bar.
                     bar._nameSet = nil
-                    if bar:IsShown() then bar:Hide() end
+                    bar:Hide()
                 end
             end
         end
@@ -5147,7 +5269,10 @@ function ns.UpdateTrackedBuffBarTimers()
     -- their renderer; both paths use AnchorTBBSparkState's scalar signature so
     -- unchanged anchors do no native layout work and allocate nothing.
     for _, bar in ipairs(tbbFrames) do
-        if bar and bar._spark and bar._spark:IsShown() and bar._bar then
+        -- bar:IsShown() gate: a child spark's own shown flag stays latched
+        -- true after its parent bar Hides, so without this the loop keeps
+        -- anchoring sparks of hidden bars every tick forever.
+        if bar and bar:IsShown() and bar._spark and bar._spark:IsShown() and bar._bar then
             if not bar._chargeHashFillActive then
                 local anchor = (bar._gradientActive and bar._gradClip)
                     or bar._cachedOurFillTex
@@ -5176,6 +5301,18 @@ function ns.UpdateTrackedBuffBarTimers()
                 f:SetAlpha(tgt)
             end
         end
+    end
+
+    -- Idle sleeper: after ~0.5s of ticks with nothing live, park the OnUpdate
+    -- entirely and let the wake listeners re-arm it. The settle window lets
+    -- smooth fills and the opacity lerp converge (both ease within ~0.35s)
+    -- before updates stop; kept short so wake-event bursts stay cheap.
+    if tickLive then
+        _tbbWake._idleTicks = 0
+    elseif tbbTickFrame and tbbTickFrame:IsShown() then
+        local n = _tbbWake._idleTicks + 1
+        _tbbWake._idleTicks = n
+        if n >= 30 then _tbbWake.Sleep() end
     end
     if ns._MemDelta then ns._MemDelta("TBBTick") end
 end
@@ -5213,6 +5350,8 @@ function ns.BuildTrackedBuffBars()
         for i = 1, #tbbFrames do
             if tbbFrames[i] then tbbFrames[i]:Hide() end
         end
+        _tbbWake._enabled = false
+        _tbbWake:UnregisterAllEvents()
         if tbbTickFrame then tbbTickFrame:Hide() end
         return
     end
@@ -5365,7 +5504,10 @@ function ns.BuildTrackedBuffBars()
         end
     end
 
-    -- Tick frame (every frame -- bar fill + spark need smooth updates)
+    -- Tick frame (every frame while anything is live -- bar fill + spark need
+    -- smooth updates; the idle sleeper in UpdateTrackedBuffBarTimers parks it
+    -- when nothing is)
+    _tbbWake._enabled = anyEnabled and true or false
     if anyEnabled then
         if not tbbTickFrame then
             tbbTickFrame = ns.TakeShell()
@@ -5378,9 +5520,10 @@ function ns.BuildTrackedBuffBars()
                 ns.UpdateTrackedBuffBarTimers()
             end)
         end
-        tbbTickFrame:Show()
-    elseif tbbTickFrame then
-        tbbTickFrame:Hide()
+        _tbbWake.Wake()
+    else
+        _tbbWake:UnregisterAllEvents()
+        if tbbTickFrame then tbbTickFrame:Hide() end
     end
 
     -- Start/stop the player-only Sated-debuff listener that drives the lust

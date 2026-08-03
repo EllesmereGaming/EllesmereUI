@@ -22,24 +22,40 @@ local kickSpellsByClass = {
 
 local activeKickSpell
 
+-- A summoned demon's interrupt beats anything the player bank still reports.
+--
+-- The two banks were previously treated as one pool and the loop kept the LAST
+-- match, so resolution depended on this table's ORDER rather than on what the
+-- player can actually cast. A Demonology Warlock with a Felguard out has Axe
+-- Toss as their only interrupt, but a later Warlock entry also answered as
+-- known, overwrote it, and left the cast bar reading the cooldown of a spell
+-- that never fires. Kicking changed nothing on screen: the bar stayed tinted
+-- "interrupt ready" and the kick-prediction tick, which reads the same spell,
+-- was wrong for the same reason. Other specs were unaffected because only one
+-- of their entries ever answers.
+--
+-- Last-match is preserved WITHIN each bank so no other class's resolution
+-- changes; only the pet-over-player precedence is new.
 local function RefreshKickAbility()
     local playerClass = UnitClassBase("player")
     local classKicks = kickSpellsByClass[playerClass]
     activeKickSpell = nil
     if not classKicks then return end
+    local petHit, playerHit
     for i = 1, #classKicks do
         local spellId = classKicks[i]
         if C_SpellBook and C_SpellBook.IsSpellKnownOrInSpellBook then
-            local known = C_SpellBook.IsSpellKnownOrInSpellBook(spellId)
-            local petKnown = Enum and Enum.SpellBookSpellBank
-                and C_SpellBook.IsSpellKnownOrInSpellBook(spellId, Enum.SpellBookSpellBank.Pet)
-            if known or petKnown then
-                activeKickSpell = spellId
+            if Enum and Enum.SpellBookSpellBank
+                and C_SpellBook.IsSpellKnownOrInSpellBook(spellId, Enum.SpellBookSpellBank.Pet) then
+                petHit = spellId
+            elseif C_SpellBook.IsSpellKnownOrInSpellBook(spellId) then
+                playerHit = spellId
             end
         elseif IsSpellKnown and IsSpellKnown(spellId) then
-            activeKickSpell = spellId
+            playerHit = spellId
         end
     end
+    activeKickSpell = petHit or playerHit
 end
 
 local function ComputeCastBarTint(readyTint, baseTint)
@@ -180,6 +196,15 @@ end
 local kickFrame = CreateFrame("Frame")
 kickFrame:RegisterEvent("PLAYER_LOGIN")
 kickFrame:RegisterEvent("SPELLS_CHANGED")
+-- Swapping demons swaps the interrupt (Felguard's Axe Toss vs Felhunter's Spell
+-- Lock), and the resolution above now reads the pet bank, so it has to re-run
+-- when the pet changes. SPELLS_CHANGED covers most swaps but is not guaranteed
+-- for every summon, and a stale pick here is invisible until the user kicks.
+if kickFrame.RegisterUnitEvent then
+    kickFrame:RegisterUnitEvent("UNIT_PET", "player")
+else
+    kickFrame:RegisterEvent("UNIT_PET")
+end
 kickFrame:SetScript("OnEvent", function()
     RefreshKickAbility()
 end)

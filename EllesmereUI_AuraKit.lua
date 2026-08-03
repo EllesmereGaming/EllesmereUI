@@ -78,6 +78,8 @@ end
 -- on seconds, so this is a banded NumericRuleFormatter. Seconds round UP so
 -- the text never reads 0 while time remains; larger units floor, matching
 -- the legacy text exactly at the 60s boundary ("1m" at 60, "59" at 59).
+-- The one-second Up bucket AT 60 exists for the sub-second crossing INTO
+-- the minute -- see the note inside the breakpoint table.
 ------------------------------------------------------------------------------
 
 local durationFormatter
@@ -96,7 +98,16 @@ local function BuildRuleDurationFormatter()
     -- rejected or default-rounded depending on validation strictness.)
     local ok = pcall(formatter.SetBreakpoints, formatter, {
         { threshold = 0,     format = "%d",  step = 1, rounding = Up },
-        { threshold = 60,    format = "%dm", step = 1, rounding = Down, components = { { div = 60 } } },
+        -- Minute-boundary catcher (field report: text flashed "0" just under
+        -- a minute). Seconds round UP, so a raw value in (59, 60) can reach
+        -- 60 and land at this threshold; the old Down bucket here floored the
+        -- raw back to 0 -> "0m" for a moment. Up in this one-second band
+        -- yields exactly 1 -> "1m". The Down bucket resumes at 61, so every
+        -- later reading keeps the legacy floored text unchanged ("1m" until
+        -- 120, "59m" until the hour). Down never rounds ACROSS a threshold,
+        -- so no other unit boundary has this collision.
+        { threshold = 60,    format = "%dm", step = 1, rounding = Up,   components = { { div = 60 } } },
+        { threshold = 61,    format = "%dm", step = 1, rounding = Down, components = { { div = 60 } } },
         { threshold = 3600,  format = "%dh", step = 1, rounding = Down, components = { { div = 3600 } } },
         { threshold = 86400, format = "%dd", step = 1, rounding = Down, components = { { div = 86400 } } },
     })

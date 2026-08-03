@@ -269,6 +269,56 @@ local POWER_COLORS = setmetatable({}, { __index = function(_, powerKey)
     return nil
 end })
 
+-- Blizzard player-frame power-bar atlas per power token, validated at
+-- runtime via GetAtlasInfo: unknown tokens (special bars like Stagger or
+-- Ironfur) and atlases missing on this client fall back to the regular bar
+-- texture, so an atlas rename can never render broken art. Lives on ns:
+-- this chunk sits at Lua 5.1's 200-local cap.
+ns._crAtlasSuffix = {
+    MANA = "Mana", RAGE = "Rage", FOCUS = "Focus", ENERGY = "Energy",
+    RUNIC_POWER = "RunicPower", LUNAR_POWER = "AstralPower",
+    MAELSTROM = "Maelstrom", INSANITY = "Insanity", FURY = "Fury",
+    PAIN = "Pain",
+}
+-- Tint sink for atlas-mode fills: stands in for the fill texture at the
+-- live recolor sites so threshold/band/base tints go nowhere while the
+-- surrounding logic (text recoloring, curve evaluation) keeps running.
+ns._atlasNoTint = { SetVertexColor = function() end }
+ns._crAtlasClass = {
+    DEATHKNIGHT = "DeathKnight", DEMONHUNTER = "DemonHunter",
+    DRUID = "Druid", EVOKER = "Evoker", HUNTER = "Hunter", MAGE = "Mage",
+    MONK = "Monk", PALADIN = "Paladin", PRIEST = "Priest", ROGUE = "Rogue",
+    SHAMAN = "Shaman", WARLOCK = "Warlock", WARRIOR = "Warrior",
+}
+function ns.GetBlizzardPowerAtlas(powerKey)
+    local resolved = ResolvePowerKey(powerKey) or powerKey
+    local suffix = ns._crAtlasSuffix[resolved]
+    local dbg = { power = powerKey, resolved = resolved, suffix = suffix }
+    _G._ERB_AtlasDebug = dbg
+    if not suffix or not (C_Texture and C_Texture.GetAtlasInfo) then return nil end
+    -- Midnight family first ("Unit_Druid_AstralPower_Fill", read off the
+    -- default player frame), then classless and legacy HUD spellings; every
+    -- candidate is validated so a miss falls back to the regular texture.
+    local _, classFile = UnitClass("player")
+    local classToken = classFile and ns._crAtlasClass[classFile]
+    local candidates = {}
+    if classToken then
+        candidates[#candidates + 1] = "Unit_" .. classToken .. "_" .. suffix .. "_Fill"
+    end
+    candidates[#candidates + 1] = "Unit_" .. suffix .. "_Fill"
+    candidates[#candidates + 1] = "UI-HUD-UnitFrame-Player-PortraitOff-Bar-" .. suffix
+    candidates[#candidates + 1] = "UI-HUD-UnitFrame-Player-PortraitOn-Bar-" .. suffix
+    dbg.tried = candidates
+    for i = 1, #candidates do
+        local name = candidates[i]
+        if C_Texture.GetAtlasInfo(name) then
+            dbg.hit = name
+            return name
+        end
+    end
+    return nil
+end
+
 -- Dark theme fill/background COLOUR comes from the global per-profile Dark Mode
 -- palette (EllesmereUI.GetDarkModeFill / GetDarkModeBg), fetched live at each use.
 -- Resource Bars keep their OWN alpha below -- the Dark Mode opacity sliders apply
@@ -1147,6 +1197,7 @@ local DEFAULTS = {
             borderR     = 0, borderG = 0, borderB = 0, borderA = 1,
             borderTexture = "solid",
             darkTheme   = false,
+            useBlizzardAtlas = false,  -- bar-style class resources use Blizzard's player-frame power atlas as the fill
             classColored = true,
             resourceColored = false,  -- "Class Resource Color" fill mode (per-spec resource/power color); takes precedence over classColored when on
             fillR       = 0.95, fillG = 0.90, fillB = 0.60, fillA = 1,
@@ -2757,6 +2808,26 @@ end
 -- vInset (optional): amount to shrink each tick vertically at the top and
 -- bottom, so hash lines sit inside the border instead of spanning over it. Default
 -- 0. Callers pass borderSize * PP.mult.
+-- Hide a tick cache from OUTSIDE ApplyResourceBarTicks -- the branch switches
+-- do this (pips / runes / Ironfur / Ignore Pain hide the BAR ticks, and the
+-- bar branch hides the PIP ticks).
+--
+-- Dropping the owner's memos is the load-bearing half. ApplyResourceBarTicks
+-- early-returns whenever none of its layout inputs changed, and
+-- UpdateSecondaryResource gates its re-apply on _hashApplied -- so hiding the
+-- textures behind both their backs left the next IDENTICAL call a no-op and
+-- the ticks never came back. That is the reported Balance Druid bug: shift to
+-- cat/bear (pip branch hides the bar ticks), shift back to Moonkin (same
+-- resource, same max, same width -> memo hit -> nothing redrawn), hash lines
+-- gone until /reload. Runs only on the branch-switch edge, never per update.
+local function HideResourceBarTicks(tickCache, owner)
+    for i = 1, #tickCache do tickCache[i]:Hide() end
+    if owner then
+        owner._tickState = nil     -- ApplyResourceBarTicks' layout memo
+        owner._hashApplied = nil   -- UpdateSecondaryResource's re-apply gate
+    end
+end
+
 local function ApplyResourceBarTicks(sb, maxVal, tickStr, tickCache, hashWidth, hashR, hashG, hashB, hashA, hashIsPercent, maxRenderVal, vInset)
     -- UNIT_POWER_FREQUENT drives this several times a second for as long as power
     -- regenerates, but the tick layout is a pure function of the arguments below
@@ -3383,7 +3454,7 @@ local function BuildBars()
             -- Hide all pips, runes, and pip tick marks
             for i = 1, #pips do if pips[i] then pips[i]:Hide() end end
             for i = 1, #runeFrames do if runeFrames[i] then runeFrames[i]:Hide() end end
-            for i = 1, #secondaryPipTicks do secondaryPipTicks[i]:Hide() end
+            HideResourceBarTicks(secondaryPipTicks, secondaryFrame)
             ERB.ApplyGapFills(secondaryFrame, nil, 0, isVertical, isReversed, sp)  -- no pips -> hide any gap fills
 
             if not secondaryBar then
@@ -3460,18 +3531,36 @@ local function BuildBars()
                 secondaryBar:GetStatusBarTexture():SetVertexColor(sp.fillR, sp.fillG, sp.fillB, 1)
                 secondaryBar._bg:SetColorTexture(sp.bgR, sp.bgG, sp.bgB, sp.bgA)
             end
+            -- Blizzard atlas fill: swapped in AFTER the tint chain because the
+            -- atlas art is pre-colored (every color mode above is overridden
+            -- to white), and SetStatusBarTexture resets orientation and vertex
+            -- color. No atlas for this power = the ApplyBarTexture fill and
+            -- its tints above stay untouched.
+            secondaryBar._atlasFill = nil
+            if sp.useBlizzardAtlas then
+                local atlas = ns.GetBlizzardPowerAtlas(cachedSecondary.power)
+                if atlas then
+                    secondaryBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
+                    secondaryBar:GetStatusBarTexture():SetAtlas(atlas, true)
+                    ApplyBarOrientation(secondaryBar, pipOri)
+                    secondaryBar:GetStatusBarTexture():SetVertexColor(1, 1, 1, 1)
+                    -- An active atlas fill is never tinted: every live
+                    -- recolor path must check this stamp.
+                    secondaryBar._atlasFill = true
+                end
+            end
             ns.ApplyFillOpacity(secondaryBar, pipOri, sp.fillOpacity)
             secondaryBar:ApplyBorder(0, 0, 0, 0, 0)
             if cachedSecondary.power == "IRONFUR_BAR" then
                 -- Guardian Ironfur: no static threshold hash lines; the moving
                 -- per-cast hash lines are drawn live in UpdateIronfurBar.
-                for i = 1, #secondaryBarTicks do secondaryBarTicks[i]:Hide() end
+                HideResourceBarTicks(secondaryBarTicks, secondaryBar)
                 EnsureIronfurOverlay(secondaryBar)
             elseif cachedSecondary.power == "IGNOREPAIN_BAR" then
                 -- Prot Ignore Pain: no static threshold hash lines (the absorb value
                 -- is secret, so value-positioned hashes are meaningless; the moving
                 -- duration hash line is drawn separately via IP.UpdateHash).
-                for i = 1, #secondaryBarTicks do secondaryBarTicks[i]:Hide() end
+                HideResourceBarTicks(secondaryBarTicks, secondaryBar)
             else
                 -- Resolve hash lines from thresholdSpecs entry (falls back to legacy tickValues)
                 local _buildTsEntry = ResolveThresholdSpecEntry(sp)
@@ -3565,7 +3654,7 @@ local function BuildBars()
             end
             for i = 7, #pips do if pips[i] then pips[i]:Hide() end end
             if secondaryBar then secondaryBar:Hide() end
-            for i = 1, #secondaryBarTicks do secondaryBarTicks[i]:Hide() end
+            HideResourceBarTicks(secondaryBarTicks, secondaryBar)
             -- Hash lines for rune-type resources (drawn on secondaryFrame)
             local _runeTsEntry = ResolveThresholdSpecEntry(sp)
             local _runeTickStr = (_runeTsEntry and _runeTsEntry.hashValues ~= "") and _runeTsEntry.hashValues or nil
@@ -3629,7 +3718,7 @@ local function BuildBars()
             ERB.ApplyGapFills(secondaryFrame, slots, maxPts, isVertical, isReversed, sp)
             for i = 1, #runeFrames do if runeFrames[i] then runeFrames[i]:Hide() end end
             if secondaryBar then secondaryBar:Hide() end
-            for i = 1, #secondaryBarTicks do secondaryBarTicks[i]:Hide() end
+            HideResourceBarTicks(secondaryBarTicks, secondaryBar)
             -- Hash lines for pip-type resources (drawn on secondaryFrame)
             local _pipTsEntry = ResolveThresholdSpecEntry(sp)
             local _pipTickStr = (_pipTsEntry and _pipTsEntry.hashValues ~= "") and _pipTsEntry.hashValues or nil
@@ -4490,6 +4579,9 @@ IP.HookViewerFS = function(frame, appFS)
                 IP.viewerFrame = nil
                 IP.viewerFS = nil
                 IP.value = nil
+                -- Recapture on the next text tick: the pool rebuild that
+                -- recycled this frame has already re-homed the IP icon.
+                IP.nextScan = 0
                 return
             end
             -- Secrets pass through raw (SetText renders them);
@@ -4520,22 +4612,27 @@ end
 -- carry the stack FontString at frame.Applications.Applications; Tracked
 -- Bars carry it at frame.Icon.Applications (the same child the EUI CDM
 -- buff bars read stacks from). Whichever has IP wins.
-IP.ScanViewer = function()
-    if IP.viewerFrame then return end
+-- force: rescan even while a capture is held (used when the captured FS has
+-- gone invisible -- the capture may be stranded on a released pool frame).
+-- A forced scan that finds nothing leaves the current capture in place.
+IP.ScanViewer = function(force)
+    if IP.viewerFrame and not force then return end
     local function scanPool(viewer, resolve)
         if not viewer or not viewer.itemFramePool then return end
         for frame in viewer.itemFramePool:EnumerateActive() do
             if IP.FrameSpellID(frame) == IP.SPELL then
                 local fs = resolve(frame)
-                if fs then IP.HookViewerFS(frame, fs) end
+                if fs then IP.HookViewerFS(frame, fs); return true end
                 return
             end
         end
     end
-    scanPool(_G.BuffIconCooldownViewer, function(f)
+    local hit = scanPool(_G.BuffIconCooldownViewer, function(f)
         return f.Applications and f.Applications.Applications
     end)
-    if not IP.viewerFrame then
+    -- Icon viewer wins; the bar viewer is only consulted when the icon scan
+    -- captured nothing this pass (a held stale capture must not block it).
+    if not hit and (not IP.viewerFrame or force) then
         scanPool(_G.BuffBarCooldownViewer, function(f)
             return f.Icon and f.Icon.Applications
         end)
@@ -4557,10 +4654,16 @@ IP.UpdateText = function()
         end
         return
     end
-    -- Lazy (re)scan for the Blizzard tracked-buff IP icon (2s throttle)
-    if not IP.viewerFrame and GetTime() >= IP.nextScan then
+    -- Lazy (re)scan for the Blizzard tracked-buff IP icon (2s throttle).
+    -- Also rescan while the captured FS is invisible: a viewer pool rebuild
+    -- (tracked buffs proccing/expiring, e.g. Thunder Blast) can strand the
+    -- capture on a released, hidden frame that never fires SetText to flag
+    -- the recycling. The icon lives on in another pool frame, and without
+    -- this the text sits blank until the orphan happens to be reused.
+    local staleFS = IP.viewerFS and not IP.viewerFS:IsVisible()
+    if (not IP.viewerFrame or staleFS) and GetTime() >= IP.nextScan then
         IP.nextScan = GetTime() + 2
-        IP.ScanViewer()
+        IP.ScanViewer(staleFS)
     end
     -- The captured viewer value is usually a SECRET number (type() says
     -- "number" and truthiness works, but comparisons/format error). SetText
@@ -4620,8 +4723,8 @@ local function UpdateSecondaryResource()
     -- UNIT_POWER_UPDATE, UNIT_POWER_FREQUENT, UNIT_AURA,
     -- UNIT_SPELLCAST_SUCCEEDED and the 10fps safety poll -- and most of those
     -- fire without the resource having changed at all. Measured 2026-07-26:
-    -- 300 hits / 9 misses over ~15s of casting, and this function's share of a
-    -- Perfy trace fell from 12.2% to 2.9%.
+    -- 300 hits / 9 misses over ~15s of casting, and this function's share of
+    -- the profiled trace fell from 12.2% to 2.9%.
     --
     -- Deliberately skipped when the bar tracks a buff for colouring: that state
     -- changes on aura events while the value stands still, so an early-out
@@ -5037,7 +5140,7 @@ local function UpdateSecondaryResource()
                     end
                     if _spTextInstead then
                         local lastR, lastG, lastB = secondaryBar._lastStaggerR, secondaryBar._lastStaggerG, secondaryBar._lastStaggerB
-                        if lastR ~= r or lastG ~= g or lastB ~= b then
+                        if not secondaryBar._atlasFill and (lastR ~= r or lastG ~= g or lastB ~= b) then
                             secondaryBar._lastStaggerR, secondaryBar._lastStaggerG, secondaryBar._lastStaggerB = r, g, b
                             secondaryBar:GetStatusBarTexture():SetVertexColor(r, g, b, a)
                         end
@@ -5047,7 +5150,7 @@ local function UpdateSecondaryResource()
                         local fr, fg, fb = r, g, b
                         if trig then fr, fg, fb = tcr, tcg, tcb end
                         local lastR, lastG, lastB = secondaryBar._lastStaggerR, secondaryBar._lastStaggerG, secondaryBar._lastStaggerB
-                        if lastR ~= fr or lastG ~= fg or lastB ~= fb then
+                        if not secondaryBar._atlasFill and (lastR ~= fr or lastG ~= fg or lastB ~= fb) then
                             secondaryBar._lastStaggerR, secondaryBar._lastStaggerG, secondaryBar._lastStaggerB = fr, fg, fb
                             secondaryBar:GetStatusBarTexture():SetVertexColor(fr, fg, fb, 1)
                         end
@@ -5105,6 +5208,11 @@ local function UpdateSecondaryResource()
             -- at or above thresholdCount treated as a percent value.
             if powerType ~= "BREWMASTER_STAGGER" or sp.darkTheme then
                 local ft = secondaryBar:GetStatusBarTexture()
+                -- An active atlas fill is never tinted: route every fill
+                -- SetVertexColor below into the no-op sink. Text recoloring
+                -- still runs, and the special-power branches (Ignore Pain,
+                -- Devourer, Stagger) can never be atlased.
+                if ft and secondaryBar._atlasFill then ft = ns._atlasNoTint end
                 if ft then
                     -- Hide the Ignore Pain band/threshold overlays by default; the
                     -- IP branch below re-shows exactly the layers it needs. Any other
@@ -8654,21 +8762,19 @@ function ERB:OnInitialize()
         if not pp then return 0 end
         local mode = pp.shiftElementsIfNoPower
         if mode ~= "Up" and mode ~= "Down" then return 0 end
-        -- Fires whenever the power bar leaves an empty slot: globally disabled,
-        -- disabled for the CURRENT spec via the spec picker, disabled for the
-        -- CURRENT DRUID FORM via the per-form toggles, or the spec has no
-        -- primary power. The power frame is created unconditionally and kept at
-        -- full height / zero alpha when not shown, so anchored children and the
-        -- shift magnitude (target height) stay correct. Only an enabled,
-        -- spec-allowed, form-allowed bar that actually has power suppresses the
-        -- shift.
+        -- Fires whenever the power bar leaves an empty slot. IsPowerBarHidden()
+        -- is the single source of truth for that -- the same predicate the
+        -- visibility pass and the "Resource Text" gate consult -- so the shift
+        -- can never disagree with what is actually on screen. Hand-rolling the
+        -- clauses here is what stranded the empty slot under "Hide Power Bar if
+        -- Resource": that hide path lives only in the visibility pass, so the
+        -- shift kept treating the bar as present. Every future power-hiding
+        -- condition now reaches the shift for free by landing in that helper.
         --
-        -- No isClassResource argument here: the Moonkin exemption belongs to the
-        -- class resource bar, not the power bar -- again matching the visibility
-        -- pass verbatim. Non-druids short-circuit inside the helper.
-        if pp.enabled ~= false and not IsSpecDisabled(pp)
-           and not _G._ERB_BarHiddenByForm(pp)
-           and GetPrimaryPowerType() then return 0 end
+        -- The power frame is created unconditionally and kept at full height /
+        -- zero alpha when not shown, so anchored children and the shift
+        -- magnitude (target height) stay correct in every hidden case.
+        if not IsPowerBarHidden() then return 0 end
         return (mode == "Up") and 1 or -1
     end
     -- Consulted inside ApplyAnchorPosition. Returns 0 while unlock mode is

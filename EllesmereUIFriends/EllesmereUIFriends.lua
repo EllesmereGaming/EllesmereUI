@@ -97,19 +97,22 @@ end
 local pendingApply = false
 local ApplyAll  -- forward declaration
 
-local function QueueApplyAll()
-    if pendingApply then return end
-    pendingApply = true
-end
-
 local combatFrame = CreateFrame("Frame")
-combatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-combatFrame:SetScript("OnEvent", function()
+combatFrame:SetScript("OnEvent", function(self)
+    self:UnregisterEvent("PLAYER_REGEN_ENABLED")
     if pendingApply then
         pendingApply = false
         ApplyAll()
     end
 end)
+
+-- The regen listener is armed only while an apply is actually pending, so the
+-- frame costs nothing across ordinary combat.
+local function QueueApplyAll()
+    if pendingApply then return end
+    pendingApply = true
+    combatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+end
 
 -- Hide all textures on a frame (used by one-time skinning passes)
 local function StripTextures(f)
@@ -2131,9 +2134,16 @@ local function SkinFriendsFrame()
                 if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
             end)
 
+            -- Status changes only repaint the orb, so the listener runs only
+            -- while the panel is shown; the Show hook repaints once on open to
+            -- catch flag changes made while it was closed.
             local statusEvt = CreateFrame("Frame")
-            statusEvt:RegisterEvent("PLAYER_FLAGS_CHANGED")
             statusEvt:SetScript("OnEvent", function() UpdatePlayerOrb() end)
+            if frame:IsShown() then
+                statusEvt:RegisterEvent("PLAYER_FLAGS_CHANGED")
+            end
+            GetFFD(frame).statusEvt = statusEvt
+            GetFFD(frame).updatePlayerOrb = UpdatePlayerOrb
 
             GetFFD(frame).statusOrb = orbBtn
 
@@ -2693,10 +2703,11 @@ local function SkinFriendsFrame()
 
     -- Auto-accept group invites from friends
     local _autoAcceptHideStatic = false
+    -- GROUP_ROSTER_UPDATE is armed only between an auto-accept and its popup
+    -- cleanup; the branch below never did anything outside that window.
     local autoAcceptFrame = CreateFrame("Frame")
     autoAcceptFrame:RegisterEvent("PARTY_INVITE_REQUEST")
-    autoAcceptFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
-    autoAcceptFrame:SetScript("OnEvent", function(_, event, _, _, _, _, _, _, inviterGUID)
+    autoAcceptFrame:SetScript("OnEvent", function(self, event, _, _, _, _, _, _, inviterGUID)
         if event == "PARTY_INVITE_REQUEST" then
             local fp5 = EBS.db and EBS.db.profile and EBS.db.profile.friends
             if not fp5 or not fp5.autoAcceptFriendInvites then return end
@@ -2714,9 +2725,11 @@ local function SkinFriendsFrame()
             if isFriend then
                 AcceptGroup()
                 _autoAcceptHideStatic = true
+                self:RegisterEvent("GROUP_ROSTER_UPDATE")
             end
         elseif event == "GROUP_ROSTER_UPDATE" and _autoAcceptHideStatic then
             _autoAcceptHideStatic = false
+            self:UnregisterEvent("GROUP_ROSTER_UPDATE")
             StaticPopup_Hide("PARTY_INVITE")
             if LFGInvitePopup then
                 StaticPopupSpecial_Hide(LFGInvitePopup)
@@ -2727,11 +2740,18 @@ local function SkinFriendsFrame()
     -- Show/Hide hooks
     hooksecurefunc(frame, "Hide", function()
         UnregisterFriendsEvents()
+        local fd = GetFFD(frame)
+        if fd.statusEvt then fd.statusEvt:UnregisterAllEvents() end
     end)
     hooksecurefunc(frame, "Show", function()
         RegisterFriendsEvents()
         RefreshFriendCache()
         MarkSkinDirty()
+        local fd = GetFFD(frame)
+        if fd.statusEvt then
+            fd.statusEvt:RegisterEvent("PLAYER_FLAGS_CHANGED")
+            if fd.updatePlayerOrb then fd.updatePlayerOrb() end
+        end
     end)
 
     ---------------------------------------------------------------------------
@@ -3254,21 +3274,54 @@ function EBS:OnInitialize()
     _G._EFR_ApplyFriends         = ApplyFriends
     _G._EFR_ProcessFriendButtons = ProcessFriendButtons
 
-    -- Register visibility updater + mouseover target
-    if EllesmereUI.RegisterVisibilityUpdater then
-        EllesmereUI.RegisterVisibilityUpdater(UpdateFriendsVisibility)
-    end
+    -- Register the visibility updater + mouseover target only while the
+    -- panel is shown. Both registries invoke our closures on this addon's
+    -- time (the dispatcher fan-out on every visibility event, the shared
+    -- mouseover scan every 0.15s), and with the panel closed both calls are
+    -- provable no-ops: the updater early-outs on IsShown and the proxy has
+    -- no rect. A closed friends list must cost nothing.
+    local visProxy
     if EllesmereUI.RegisterMouseoverTarget then
-        local proxy = CreateFrame("Frame")
-        proxy.IsShown    = function() return FriendsFrame and FriendsFrame:IsShown() end
-        proxy.IsMouseOver = function() return FriendsFrame and FriendsFrame:IsMouseOver() end
-        proxy.SetAlpha   = function(_, a2) if FriendsFrame then FriendsFrame:SetAlpha(a2) end end
-        EllesmereUI.RegisterMouseoverTarget(proxy, function()
-            local p2 = EBS.db and EBS.db.profile and EBS.db.profile.friends
-            if not (p2 and p2.enabled) then return false end
-            -- Hover-gated sets only reveal while their conditions pass
-            return EllesmereUI.VisWantsMouseover(p2, "visibility")
-        end)
+        visProxy = CreateFrame("Frame")
+        visProxy.IsShown     = function() return FriendsFrame and FriendsFrame:IsShown() end
+        visProxy.IsMouseOver = function() return FriendsFrame and FriendsFrame:IsMouseOver() end
+        visProxy.SetAlpha    = function(_, a2) if FriendsFrame then FriendsFrame:SetAlpha(a2) end end
+    end
+    local function VisWantsHover()
+        local p2 = EBS.db and EBS.db.profile and EBS.db.profile.friends
+        if not (p2 and p2.enabled) then return false end
+        -- Hover-gated sets only reveal while their conditions pass
+        return EllesmereUI.VisWantsMouseover(p2, "visibility")
+    end
+    local visRegistered = false
+    local function RegisterVis()
+        if visRegistered then return end
+        visRegistered = true
+        if EllesmereUI.RegisterVisibilityUpdater then
+            EllesmereUI.RegisterVisibilityUpdater(UpdateFriendsVisibility)
+        end
+        if visProxy then
+            EllesmereUI.RegisterMouseoverTarget(visProxy, VisWantsHover)
+        end
+    end
+    local function UnregisterVis()
+        if not visRegistered then return end
+        visRegistered = false
+        if EllesmereUI.UnregisterVisibilityUpdater then
+            EllesmereUI.UnregisterVisibilityUpdater(UpdateFriendsVisibility)
+        end
+        if visProxy and EllesmereUI.UnregisterMouseoverTarget then
+            EllesmereUI.UnregisterMouseoverTarget(visProxy)
+        end
+    end
+    if FriendsFrame then
+        hooksecurefunc(FriendsFrame, "Show", RegisterVis)
+        hooksecurefunc(FriendsFrame, "Hide", UnregisterVis)
+        if FriendsFrame:IsShown() then RegisterVis() end
+    else
+        -- Frame not created yet (12.1 load-on-demand Social UI): keep the
+        -- always-registered behavior; both closures early-out safely there.
+        RegisterVis()
     end
 end
 

@@ -332,6 +332,27 @@ local function IsGearCategory(catIdx)
     return _gearCatSet[catIdx]
 end
 
+-- Item-management panels (mail, trade, auction house, bank, guild bank)
+-- take one real bag slot at a time, so a merged button only ever
+-- hands over the single slot behind it: a merged count of 3 mails as 1.
+-- Duplicates are left unmerged while any of them is open, so every slot is
+-- reachable. Players who keep duplicates deliberately apart can also turn
+-- merging off outright (bagMergeDuplicates).
+local _openItemPanels = {}
+local _anyItemPanelOpen = false
+-- Unmerge state the CURRENT painted layout was built with. MergeDuplicates
+-- stamps it; the bags OnShow compares against it so a flip that happened while
+-- the bags were hidden still repaints (closing a mailbox hides both at once).
+local _paintedPanelOpen = false
+-- Returns true when the aggregate state flipped, so the caller can refresh.
+local function SetItemPanelOpen(key, open)
+    _openItemPanels[key] = open or nil
+    local any = next(_openItemPanels) ~= nil
+    if any == _anyItemPanelOpen then return false end
+    _anyItemPanelOpen = any
+    return true
+end
+
 -- Merge duplicate non-gear items by itemLink within an already-ordered list.
 -- itemLink encodes stats/bonuses, so items with different stats stay separate.
 -- Must run AFTER ApplySavedOrder so the first occurrence in visual order wins.
@@ -340,6 +361,10 @@ local function MergeDuplicates(items)
     -- Clear stale _mergedCount from prior merge passes in the same refresh
     -- (the same data table can be merged in multiple sections: category + pinned/recent)
     for _, data in ipairs(items) do data._mergedCount = nil end
+    -- Record what this paint was built with, so the bags OnShow can tell that
+    -- the state changed while they were hidden and repaint (see OnShow).
+    _paintedPanelOpen = _anyItemPanelOpen
+    if _anyItemPanelOpen or BP().bagMergeDuplicates == false then return items end
     local seen = {}
     local out = {}
     for _, data in ipairs(items) do
@@ -2086,6 +2111,7 @@ local function GetOrCreateSlot(idx)
         if button ~= "LeftButton" and button ~= "RightButton" then return end
         if not IsShiftKeyDown() then return end
         if selectedCategoryIndex == -1 or selectedCategoryIndex == -2 then return end
+        if _anyItemPanelOpen or BP().bagMergeDuplicates == false then return end
         local bagID = self:GetParent():GetID()
         local slotID = self:GetID()
         if not bagID or not slotID or slotID == 0 then return end
@@ -4882,7 +4908,7 @@ function EUI_Bags:RefreshInventory()
     C_NewItems.ClearAll()
 
     -- 1. Gather items from all bags (0-4 + reagent bag 5)
-    local _t0Scan = ProfBegin("BagScan")
+    local _t0Scan = 0 -- PROF: ProfBegin("BagScan")
     ReleaseAllSlotTables()
     local tempItems = {}
     local emptySlots = {}
@@ -4960,7 +4986,7 @@ function EUI_Bags:RefreshInventory()
             end
         end
     end
-    ProfEnd("BagScan", _t0Scan)
+    if _t0Scan > 0 then ProfEnd("BagScan", _t0Scan) end
 
     -- 1b. Detect manual item swaps and update saved visual order
     local isAllItems = selectedCategoryIndex == 0 and not selectedGroupName
@@ -4978,9 +5004,9 @@ function EUI_Bags:RefreshInventory()
     end
 
     -- 2. Classify all items and get counts
-    local _t0Classify = ProfBegin("ClassifyAll")
+    local _t0Classify = 0 -- PROF: ProfBegin("ClassifyAll")
     local categoryCounts, totalCount = EUI_CategoryManager:ClassifyAll(tempItems)
-    ProfEnd("ClassifyAll", _t0Classify)
+    if _t0Classify > 0 then ProfEnd("ClassifyAll", _t0Classify) end
 
     -- 2a. Snapshot slot->category mapping for partial refresh
     wipe(_slotCategories)
@@ -5022,16 +5048,16 @@ function EUI_Bags:RefreshInventory()
     end
 
     -- 3. Update sidebar
-    local _t0Sidebar = ProfBegin("BuildSidebarButtons")
+    local _t0Sidebar = 0 -- PROF: ProfBegin("BuildSidebarButtons")
     BuildSidebarButtons(categoryCounts, totalCount)
-    ProfEnd("BuildSidebarButtons", _t0Sidebar)
+    if _t0Sidebar > 0 then ProfEnd("BuildSidebarButtons", _t0Sidebar) end
 
     -- Cache counts for partial refresh
     _lastCatCounts = categoryCounts
     _lastTotalCount = totalCount
 
     -- 4. Filter items by selected category/group + search
-    local _t0Filter = ProfBegin("FilterAndSort")
+    local _t0Filter = 0 -- PROF: ProfBegin("FilterAndSort")
     local isRecentView = recentCatIdx and selectedCategoryIndex == recentCatIdx
     local isPinnedView = pinnedCatIdx and selectedCategoryIndex == pinnedCatIdx
     local filterSet = nil  -- nil = show all
@@ -5091,10 +5117,10 @@ function EUI_Bags:RefreshInventory()
         wipe(_pendingResortGroups)
     end
 
-    ProfEnd("FilterAndSort", _t0Filter)
+    if _t0Filter > 0 then ProfEnd("FilterAndSort", _t0Filter) end
 
     -- 5. Render grid into scroll child
-    local _t0GridSetup = ProfBegin("GridSetup")
+    local _t0GridSetup = 0 -- PROF: ProfBegin("GridSetup")
     for _, btn in pairs(itemSlots) do
         if btn.ProfessionQualityOverlay then btn.ProfessionQualityOverlay:SetAlpha(0) end
         if btn.IconOverlay then btn.IconOverlay:SetAlpha(0); btn.IconOverlay:Hide() end
@@ -5234,7 +5260,7 @@ function EUI_Bags:RefreshInventory()
         end
     end
 
-    ProfEnd("GridSetup", _t0GridSetup)
+    if _t0GridSetup > 0 then ProfEnd("GridSetup", _t0GridSetup) end
 
     if selectedCategoryIndex == -1 or selectedCategoryIndex == -2 then
         -- "OneBag"/"MultiBag" view: Pinned Items (display-only) + bag section(s)
@@ -5450,7 +5476,7 @@ function EUI_Bags:RefreshInventory()
             hdr:Show()
             curY = curY - 22
             for i, data in ipairs(slotList) do
-                local _t0RB = ProfBegin("RenderButton")
+                local _t0RB = 0 -- PROF: ProfBegin("RenderButton")
                 slotIdx = slotIdx + 1
                 local btn = GetOrCreateSlot(slotIdx)
                 if btn then  -- nil during combat (avoids minting tainted secure buttons)
@@ -5459,7 +5485,7 @@ function EUI_Bags:RefreshInventory()
                     local row = math.floor((i - 1) / columns)
                     RenderButton(btn, data, slotIdx, col, row, startX, curY, columns, true)
                 end
-                ProfEnd("RenderButton", _t0RB)
+                if _t0RB > 0 then ProfEnd("RenderButton", _t0RB) end
             end
             local rows = math.ceil(#slotList / columns)
             curY = curY - (rows * (SLOT_SIZE + SPACING)) - 6
@@ -5528,7 +5554,7 @@ function EUI_Bags:RefreshInventory()
             curY = curY - 22
 
             for i, data in ipairs(reagentSlotList) do
-                local _t0RB = ProfBegin("RenderButton")
+                local _t0RB = 0 -- PROF: ProfBegin("RenderButton")
                 slotIdx = slotIdx + 1
                 local btn = GetOrCreateSlot(slotIdx)
                 if btn then  -- nil during combat (avoids minting tainted secure buttons)
@@ -5537,7 +5563,7 @@ function EUI_Bags:RefreshInventory()
                     local row = math.floor((i - 1) / columns)
                     RenderButton(btn, data, slotIdx, col, row, startX, curY, columns, true)
                 end
-                ProfEnd("RenderButton", _t0RB)
+                if _t0RB > 0 then ProfEnd("RenderButton", _t0RB) end
             end
             local reagRows = math.ceil(#reagentSlotList / columns)
             curY = curY - (reagRows * (SLOT_SIZE + SPACING))
@@ -5572,7 +5598,7 @@ function EUI_Bags:RefreshInventory()
         local function RenderItemBlock(blockItems)
             local n = #blockItems
             for j, data in ipairs(blockItems) do
-                local _t0RB = ProfBegin("RenderButton")
+                local _t0RB = 0 -- PROF: ProfBegin("RenderButton")
                 slotIdx = slotIdx + 1
                 local btn = GetOrCreateSlot(slotIdx)
                 if btn then  -- nil during combat (avoids minting tainted secure buttons)
@@ -5581,7 +5607,7 @@ function EUI_Bags:RefreshInventory()
                     local row = math.floor((j - 1) / columns)
                     RenderButton(btn, data, slotIdx, col, row, startX, curY, columns)
                 end
-                ProfEnd("RenderButton", _t0RB)
+                if _t0RB > 0 then ProfEnd("RenderButton", _t0RB) end
             end
             local remainder = n % columns
             local padCount
@@ -5729,7 +5755,7 @@ function EUI_Bags:RefreshInventory()
             end
 
             for j, data in ipairs(sectionItems) do
-                local _t0RB = ProfBegin("RenderButton")
+                local _t0RB = 0 -- PROF: ProfBegin("RenderButton")
                 slotIdx = slotIdx + 1
                 local btn = GetOrCreateSlot(slotIdx)
                 if btn then
@@ -5738,7 +5764,7 @@ function EUI_Bags:RefreshInventory()
                     local row = math.floor((j - 1) / columns)
                     RenderButton(btn, data, slotIdx, col, row, startX, curY, columns)
                 end
-                ProfEnd("RenderButton", _t0RB)
+                if _t0RB > 0 then ProfEnd("RenderButton", _t0RB) end
             end
 
             -- Pin "+" button: a regular empty slot with a "+" overlay on top
@@ -5906,7 +5932,7 @@ function EUI_Bags:RefreshInventory()
                 curY = curY - 22
 
                 for j, data in ipairs(memberItems) do
-                    local _t0RB = ProfBegin("RenderButton")
+                    local _t0RB = 0 -- PROF: ProfBegin("RenderButton")
                     slotIdx = slotIdx + 1
                     local btn = GetOrCreateSlot(slotIdx)
                     if btn then
@@ -5915,7 +5941,7 @@ function EUI_Bags:RefreshInventory()
                         local row = math.floor((j - 1) / columns)
                         RenderButton(btn, data, slotIdx, col, row, startX, curY, columns)
                     end
-                    ProfEnd("RenderButton", _t0RB)
+                    if _t0RB > 0 then ProfEnd("RenderButton", _t0RB) end
                 end
 
                 -- Assign "+" per member sub-section in group view
@@ -6086,7 +6112,7 @@ function EUI_Bags:RefreshInventory()
 
             local itemCount = #displayItems
             for i, data in ipairs(displayItems) do
-                local _t0RB = ProfBegin("RenderButton")
+                local _t0RB = 0 -- PROF: ProfBegin("RenderButton")
                 slotIdx = slotIdx + 1
                 local btn = GetOrCreateSlot(slotIdx)
                 if btn then
@@ -6095,7 +6121,7 @@ function EUI_Bags:RefreshInventory()
                     local row = math.floor((i - 1) / columns)
                     RenderButton(btn, data, slotIdx, col, row, startX, curY, columns)
                 end
-                ProfEnd("RenderButton", _t0RB)
+                if _t0RB > 0 then ProfEnd("RenderButton", _t0RB) end
             end
 
             local remainder = itemCount % columns
@@ -6451,6 +6477,15 @@ local function StartAddon()
 
     EUI_Bags:HookScript("OnShow", function()
         CaptureTrackedGold()
+        -- Repaint if the unmerge state changed while we were hidden. The
+        -- flag-flip refresh is gated on IsVisible, and closing a mailbox hides
+        -- the bags in the same breath, so the un-flip repaint was thrown away
+        -- and the next open still showed the split slots. Cheap: one boolean
+        -- compare, and RefreshInventory only runs when the state actually
+        -- differs from what is currently painted.
+        if _paintedPanelOpen ~= _anyItemPanelOpen then
+            EUI_Bags:RefreshInventory()
+        end
     end)
 
     EUI_Bags:HookScript("OnHide", function()
@@ -6664,6 +6699,54 @@ local function StartAddon()
     -- Replays a refresh that was deferred during combat (secure-button taint guard).
     EUI_Bags:RegisterEvent("PLAYER_REGEN_ENABLED")
 
+    -- Panels that move items one bag slot at a time (see SetItemPanelOpen).
+    local ITEM_PANEL_EVENTS = {
+        -- No MAIL_SHOW: opening the mailbox lands on the Inbox, which never
+        -- takes items OUT of the bags, so unmerging there churns the layout
+        -- for nothing. Only the Send Mail tab matters -- hooked below.
+        -- MAIL_CLOSED stays as a belt so the flag cannot stick if the frame
+        -- goes away without its OnHide running.
+        MAIL_CLOSED           = { "sendmail",  false },
+        TRADE_SHOW            = { "trade",     true  },
+        TRADE_CLOSED          = { "trade",     false },
+        AUCTION_HOUSE_SHOW    = { "auction",   true  },
+        AUCTION_HOUSE_CLOSED  = { "auction",   false },
+        BANKFRAME_OPENED      = { "bank",      true  },
+        BANKFRAME_CLOSED      = { "bank",      false },
+        GUILDBANKFRAME_OPENED = { "guildbank", true  },
+        GUILDBANKFRAME_CLOSED = { "guildbank", false },
+    }
+    -- pcall belt: RegisterEvent on a name the client no longer knows is a HARD
+    -- error, and this loop runs BEFORE the OnEvent wiring below -- an invalid
+    -- name here killed the rest of StartAddon and shipped a bags window with
+    -- no event handler at all (field-caught: VOID_STORAGE_OPEN, removed with
+    -- Warbands, froze the whole refresh pipeline). A panel event lost to a
+    -- future patch rename must degrade to "that panel doesn't unmerge", never
+    -- to a dead bags addon.
+    for evt in pairs(ITEM_PANEL_EVENTS) do
+        local ok = pcall(EUI_Bags.RegisterEvent, EUI_Bags, evt)
+        if not ok then ITEM_PANEL_EVENTS[evt] = nil end
+    end
+
+    -- Send Mail is driven off the frame, not MAIL_SHOW, so switching tabs
+    -- inside an open mailbox flips the state too -- an event fired once at
+    -- mailbox-open cannot see that. Blizzard_MailFrame is DefaultState:enabled
+    -- with no LoadOnDemand, so the frame exists by now; the guard is belt.
+    local function HookSendMail(frame)
+        if not frame or not frame.HookScript then return end
+        local function flip(open)
+            if SetItemPanelOpen("sendmail", open) and EUI_Bags:IsVisible() then
+                EUI_Bags:RefreshInventory()
+            end
+        end
+        frame:HookScript("OnShow", function() flip(true) end)
+        frame:HookScript("OnHide", function() flip(false) end)
+        -- Already on the Send Mail tab when we hooked (a /reload with the
+        -- mailbox open): OnShow has been and gone, so seed from live state.
+        if frame:IsShown() then flip(true) end
+    end
+    HookSendMail(_G.SendMailFrame)
+
     -- Pre-warm the secure item-button pool while out of combat. Creating a
     -- ContainerFrameItemButtonTemplate button during combat lockdown taints it,
     -- which gets UseContainerItem() blocked in M+/Delves. Building all the
@@ -6765,6 +6848,15 @@ local function StartAddon()
                 if EUI_BagsReagent:IsVisible() and EUI_BagsReagent.RefreshInventory then
                     EUI_BagsReagent:RefreshInventory()
                 end
+            end
+            return
+        end
+        local panel = ITEM_PANEL_EVENTS[event]
+        if panel then
+            -- Tracked even while the bags are hidden: the panel that opens them
+            -- (OpenAllBags) can fire in either order with this event.
+            if SetItemPanelOpen(panel[1], panel[2]) and EUI_Bags:IsVisible() then
+                EUI_Bags:RefreshInventory()
             end
             return
         end
