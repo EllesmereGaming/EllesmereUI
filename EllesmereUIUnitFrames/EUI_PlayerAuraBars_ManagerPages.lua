@@ -66,6 +66,32 @@ local AURA_POINT_ORDER = {
 local GROW_DIR_VALUES = { LEFT = "Left", RIGHT = "Right" }
 local GROW_DIR_ORDER = { "LEFT", "RIGHT" }
 
+-- Native AuraContainerSortMethod/AuraContainerSortDirection enum names
+-- (in-game dump, 2026-08-03: AuraContainerSortMethod = {Default=0,
+-- BigDefensive=1, UnitFrameDebuff=2, ImportantOnly=3, Expiration=4,
+-- ExpirationOnly=5, Name=6, NameOnly=7, AuraInstanceIDOnly=8},
+-- AuraContainerSortDirection = {Normal=0, Reverse=1}). Curated down
+-- (2026-08-03, Joel) to the 4 values whose names are unambiguous for an
+-- aura bar -- BigDefensive/UnitFrameDebuff/ExpirationOnly/NameOnly/
+-- AuraInstanceIDOnly read as narrower, other-UI-specific variants and are
+-- deliberately left out of this dropdown (their exact behavior isn't
+-- documented anywhere in this repo either way).
+--
+-- "Important" (native key ImportantOnly) is buffs have no dispel-type
+-- concept, so the preview simulation (RenderPreviewIcons' SortPreviewList)
+-- treats it as a no-op for buffs, same as Default -- hidden from the buff-
+-- side dropdown entirely rather than shown as a dead option (2026-08-03,
+-- Joel).
+local SORT_METHOD_VALUES_DEBUFF = {
+    Default = "Default", ImportantOnly = "Important",
+    Expiration = "Expiration", Name = "Name",
+}
+local SORT_METHOD_ORDER_DEBUFF = { "Default", "Expiration", "Name", "ImportantOnly" }
+local SORT_METHOD_VALUES_BUFF = { Default = "Default", Expiration = "Expiration", Name = "Name" }
+local SORT_METHOD_ORDER_BUFF = { "Default", "Expiration", "Name" }
+local SORT_DIR_VALUES = { Normal = "Normal", Reverse = "Reverse" }
+local SORT_DIR_ORDER = { "Normal", "Reverse" }
+
 local DISPEL_COLOR_ROWS = {
     { key = "dispelColorMagic",   label = "Magic",   fallback = { 0.349, 0.475, 1.0 } },
     { key = "dispelColorCurse",   label = "Curse",   fallback = { 0.636, 0.0, 0.64 } },
@@ -502,13 +528,23 @@ local function BuildAssignedDebuffsFields(frame, fontPath, sy, cfg, apply)
 end
 
 -- "Core": Icon Size (+Icon Zoom cog) | Growth Direction;
+--         Sort Method | Sort Direction;
 --         Duration [+expand][swatch][toggle] | Stacks [+expand][swatch][toggle].
 -- Shared by every bar (default + custom, buff + debuff) -- growDirection
 -- is generic (BuildContainerSpec doesn't care about slots vs. groups).
-local function BuildCoreFields(frame, fontPath, sy, cfg, apply)
+-- isBuff picks the Sort Method option set: "Important" (native ImportantOnly)
+-- is hidden on the buff side, see SORT_METHOD_VALUES_BUFF's doc comment.
+local function BuildCoreFields(frame, fontPath, sy, cfg, apply, isBuff)
     local W = EllesmereUI.Widgets
     local PP = EllesmereUI.PanelPP
     local _, hh = 0, 0
+    local sortValues = isBuff and SORT_METHOD_VALUES_BUFF or SORT_METHOD_VALUES_DEBUFF
+    local sortOrder = isBuff and SORT_METHOD_ORDER_BUFF or SORT_METHOD_ORDER_DEBUFF
+    local function GetSortMethod()
+        local v = cfg.sortMethod or "Default"
+        if isBuff and v == "ImportantOnly" then v = "Default" end
+        return v
+    end
 
     _, hh = W:SectionHeader(frame, "CORE", sy); sy = sy - hh
 
@@ -524,6 +560,21 @@ local function BuildCoreFields(frame, fontPath, sy, cfg, apply)
             values = GROW_DIR_VALUES, order = GROW_DIR_ORDER,
             getValue = function() return cfg.growDirection or "LEFT" end,
             setValue = function(v) cfg.growDirection = v; apply() end
+        }
+    ); sy = sy - hh
+
+    _, hh = W:DualRow(frame, sy,
+        {
+            type = "dropdown", text = "Sort Method",
+            values = sortValues, order = sortOrder,
+            getValue = GetSortMethod,
+            setValue = function(v) cfg.sortMethod = v; apply() end
+        },
+        {
+            type = "dropdown", text = "Sort Direction",
+            values = SORT_DIR_VALUES, order = SORT_DIR_ORDER,
+            getValue = function() return cfg.sortDirection or "Normal" end,
+            setValue = function(v) cfg.sortDirection = v; apply() end
         }
     ); sy = sy - hh
     do
@@ -860,7 +911,7 @@ local function BuildDefaultBarDetail(frame, fontPath, isBuff)
     else
         sy = BuildAssignedDebuffsFields(body, fontPath, sy, cfg, ApplyBar)
     end
-    sy = BuildCoreFields(body, fontPath, sy, cfg, ApplyBar)
+    sy = BuildCoreFields(body, fontPath, sy, cfg, ApplyBar, isBuff)
     sy = BuildDisplayFields(body, fontPath, sy, cfg, ApplyBar)
     if not isBuff then
         sy = BuildDispelColorFields(body, fontPath, sy, cfg, ApplyBar)
@@ -907,7 +958,7 @@ local function BuildExternalDefensivesBarDetail(frame, fontPath)
     local body = WrapCompensatedBody(frame, scrollTop)
     local sy = 0
 
-    sy = BuildCoreFields(body, fontPath, sy, cfg, ApplyBar)
+    sy = BuildCoreFields(body, fontPath, sy, cfg, ApplyBar, true)
     sy = BuildDisplayFields(body, fontPath, sy, cfg, ApplyBar)
     FinalizeCompensatedBody(body, sy)
 end
@@ -1131,7 +1182,7 @@ local function BuildBuffBarDetail(frame, fontPath, bar)
     local body = WrapCompensatedBody(frame, scrollTop)
     local by = 0
     by = BuildAssignedBuffsFields(body, fontPath, by, bar, ApplyBar)
-    by = BuildCoreFields(body, fontPath, by, bar, ApplyBar)
+    by = BuildCoreFields(body, fontPath, by, bar, ApplyBar, true)
     by = BuildDisplayFields(body, fontPath, by, bar, ApplyBar)
     FinalizeCompensatedBody(body, by)
 end
@@ -1156,7 +1207,7 @@ local function BuildDebuffBarDetail(frame, fontPath, bar)
     local body = WrapCompensatedBody(frame, scrollTop)
     local by = 0
     by = BuildAssignedDebuffsFields(body, fontPath, by, bar, ApplyBar)
-    by = BuildCoreFields(body, fontPath, by, bar, ApplyBar)
+    by = BuildCoreFields(body, fontPath, by, bar, ApplyBar, false)
     by = BuildDisplayFields(body, fontPath, by, bar, ApplyBar)
     by = BuildDispelColorFields(body, fontPath, by, bar, ApplyBar)
     FinalizeCompensatedBody(body, by)

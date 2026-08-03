@@ -495,12 +495,39 @@ end
 -- toggling the SAME class on/off again is always correct since its own
 -- filter never needs to change, only its maxFrameCount.
 --
+-- Resolves a bar cfg's sortMethod/sortDirection into the native
+-- AuraContainerSortMethod/AuraContainerSortDirection enum values (globals,
+-- confirmed in-game 2026-08-03: AuraContainerSortMethod = {Default=0,
+-- BigDefensive=1, UnitFrameDebuff=2, ImportantOnly=3, Expiration=4,
+-- ExpirationOnly=5, Name=6, NameOnly=7, AuraInstanceIDOnly=8},
+-- AuraContainerSortDirection = {Normal=0, Reverse=1}). Default=0 and
+-- Normal=0 are valid values, not "unset" -- callers must compare against
+-- nil, never truthiness (same requirement the Nameplates module's own
+-- sort wiring documents).
+local function ResolveSortMethod(cfg)
+    local key = cfg.sortMethod or "Default"
+    return AuraContainerSortMethod and AuraContainerSortMethod[key]
+end
+local function ResolveSortDirection(cfg)
+    local key = (cfg.sortDirection == "Reverse") and "Reverse" or "Normal"
+    return AuraContainerSortDirection and AuraContainerSortDirection[key]
+end
+
 -- declaredSet is a per-container registry of every group key ever declared
 -- on that container: declared.debuffs for the default Debuffs bar/every
 -- custom Debuff Bar (class-token chain), declared.buffs for the default
 -- Buffs bar's single "Show All Buffs" catch-all group (see CreateBars'
 -- doc comment for why buffs still need ONE group alongside their slots).
-local function ApplyGroupConfig(container, chain, declaredSet, styleKey, effectiveMax, gap, rowGap)
+--
+-- cfg is the bar's own settings table (buffCfg/debuffCfg/a custom bar entry)
+-- -- read-only here, only used to resolve sortMethod/sortDirection so every
+-- chain group on this container gets the bar's configured sort. The direct
+-- setter (SetAuraGroupSortMethod, unlike AddAuraGroup's sortMethod field)
+-- requires both values non-nil, so it's re-applied every pass, same as
+-- MaxFrameCount/Layout below.
+local function ApplyGroupConfig(container, chain, declaredSet, styleKey, effectiveMax, gap, rowGap, cfg)
+    local sortMethod = ResolveSortMethod(cfg)
+    local sortDirection = ResolveSortDirection(cfg)
     -- elementSpacing = gap between icons in the same row; lineSpacing = gap
     -- between wrapped rows within a group; group*Spacing = gap to the NEXT
     -- group on the same container. elementSpacing/groupSpacing stay tied to
@@ -533,11 +560,16 @@ local function ApplyGroupConfig(container, chain, declaredSet, styleKey, effecti
                 style = styleKey,
                 maxFrameCount = 0, -- real count applied right below, matches the sibling module's declare-then-set order
                 candidateFilters = candidateFilters,
+                sortMethod = sortMethod,
+                sortDirection = sortDirection,
             })
             declaredSet[link.key] = true
         end
         container:SetAuraGroupMaxFrameCount(link.key, effectiveMax)
         container:SetAuraGroupLayout(link.key, layout)
+        if sortMethod ~= nil and sortDirection ~= nil then
+            container:SetAuraGroupSortMethod(link.key, sortMethod, sortDirection)
+        end
     end
 
     -- Zero out any previously-declared group that fell out of the active
@@ -929,7 +961,7 @@ local function CreateBars()
         buffsContainer = container
         declared.buffs = {}
         if buffCfg.showAllBuffs ~= false then
-            ApplyGroupConfig(container, buffAllChain, declared.buffs, STYLE_BUFFS, buffGrid.effectiveMax, buffPad, buffGrid.rowGap)
+            ApplyGroupConfig(container, buffAllChain, declared.buffs, STYLE_BUFFS, buffGrid.effectiveMax, buffPad, buffGrid.rowGap, buffCfg)
         end
         if #buffSpells > 0 then
             local includeMap = {}
@@ -940,6 +972,8 @@ local function CreateBars()
                 style = STYLE_BUFFS,
                 maxFrameCount = buffGrid.effectiveMax,
                 candidateFilters = { includeSpellIDs = includeMap },
+                sortMethod = ResolveSortMethod(buffCfg),
+                sortDirection = ResolveSortDirection(buffCfg),
             })
             container:SetAuraGroupLayout("spells", {
                 elementSpacing = buffPad, lineSpacing = buffGrid.rowGap,
@@ -951,7 +985,7 @@ local function CreateBars()
     AK.RequestContainer(debuffsParent, "player", debuffSpec, function(container)
         debuffsContainer = container
         declared.debuffs = {}
-        ApplyGroupConfig(container, debuffChain, declared.debuffs, STYLE_DEBUFFS, debuffGrid.effectiveMax, debuffPad, debuffGrid.rowGap)
+        ApplyGroupConfig(container, debuffChain, declared.debuffs, STYLE_DEBUFFS, debuffGrid.effectiveMax, debuffPad, debuffGrid.rowGap, debuffCfg)
     end)
 
     -- External Defensives: fixed engine classification, not a user-selected
@@ -971,6 +1005,8 @@ local function CreateBars()
             filter = { "HELPFUL", "EXTERNAL_DEFENSIVE" },
             style = STYLE_EXTDEF,
             maxFrameCount = extDefGrid.effectiveMax,
+            sortMethod = ResolveSortMethod(extDefCfg),
+            sortDirection = ResolveSortDirection(extDefCfg),
         })
         container:SetAuraGroupLayout("extdef", {
             elementSpacing = extDefPad, lineSpacing = extDefGrid.rowGap,
@@ -1182,7 +1218,7 @@ local function ApplyLiveConfig(isBuff)
                 buffsContainer = newContainer
                 declared.buffs = {}
                 if cfg.showAllBuffs ~= false then
-                    ApplyGroupConfig(newContainer, allChain, declared.buffs, STYLE_BUFFS, grid.effectiveMax, pad, grid.rowGap)
+                    ApplyGroupConfig(newContainer, allChain, declared.buffs, STYLE_BUFFS, grid.effectiveMax, pad, grid.rowGap, cfg)
                 end
                 if #spells > 0 then
                     local includeMap = {}
@@ -1193,6 +1229,8 @@ local function ApplyLiveConfig(isBuff)
                         style = STYLE_BUFFS,
                         maxFrameCount = grid.effectiveMax,
                         candidateFilters = { includeSpellIDs = includeMap },
+                        sortMethod = ResolveSortMethod(cfg),
+                        sortDirection = ResolveSortDirection(cfg),
                     })
                     newContainer:SetAuraGroupLayout("spells", {
                         elementSpacing = pad, lineSpacing = grid.rowGap,
@@ -1209,19 +1247,23 @@ local function ApplyLiveConfig(isBuff)
             -- `allChain` is empty, so this single call covers both on
             -- and off without a separate branch. The spells group (if
             -- declared) isn't part of that chain-based path, so its
-            -- maxFrameCount/layout are refreshed here directly.
-            ApplyGroupConfig(container, allChain, declared.buffs, STYLE_BUFFS, grid.effectiveMax, pad, grid.rowGap)
+            -- maxFrameCount/layout/sort are refreshed here directly.
+            ApplyGroupConfig(container, allChain, declared.buffs, STYLE_BUFFS, grid.effectiveMax, pad, grid.rowGap, cfg)
             if declared.buffs.spells then
                 container:SetAuraGroupMaxFrameCount("spells", grid.effectiveMax)
                 container:SetAuraGroupLayout("spells", {
                     elementSpacing = pad, lineSpacing = grid.rowGap,
                     groupSpacing = pad, groupLineSpacing = grid.rowGap,
                 })
+                local sortMethod, sortDirection = ResolveSortMethod(cfg), ResolveSortDirection(cfg)
+                if sortMethod ~= nil and sortDirection ~= nil then
+                    container:SetAuraGroupSortMethod("spells", sortMethod, sortDirection)
+                end
             end
         end
     else
         local chain = BuildChain("HARMFUL", function(class) return ClassEnabled(class, false, cfg) end, cfg.showAllDebuffs ~= false)
-        ApplyGroupConfig(container, chain, declared.debuffs, STYLE_DEBUFFS, grid.effectiveMax, pad, grid.rowGap)
+        ApplyGroupConfig(container, chain, declared.debuffs, STYLE_DEBUFFS, grid.effectiveMax, pad, grid.rowGap, cfg)
     end
 
     if PAB_MaybeRefreshPreview then PAB_MaybeRefreshPreview(isBuff and "buff" or "debuff", "default") end
@@ -1274,6 +1316,12 @@ local function ApplyExtDefLiveConfig()
         elementSpacing = pad, lineSpacing = grid.rowGap,
         groupSpacing = pad, groupLineSpacing = grid.rowGap,
     })
+    do
+        local sortMethod, sortDirection = ResolveSortMethod(cfg), ResolveSortDirection(cfg)
+        if sortMethod ~= nil and sortDirection ~= nil then
+            container:SetAuraGroupSortMethod("extdef", sortMethod, sortDirection)
+        end
+    end
 
     if PAB_MaybeRefreshPreview then PAB_MaybeRefreshPreview("buff", "extdef") end
 end
@@ -2257,9 +2305,13 @@ local function ReloadCustomBuffBarImpl(barId)
                     elementSpacing = livePad, lineSpacing = grid.rowGap,
                     groupSpacing = livePad, groupLineSpacing = grid.rowGap,
                 })
+                local sortMethod, sortDirection = ResolveSortMethod(bar), ResolveSortDirection(bar)
+                if sortMethod ~= nil and sortDirection ~= nil then
+                    container:SetAuraGroupSortMethod("spells", sortMethod, sortDirection)
+                end
             end
             customBuffDeclared[barId] = customBuffDeclared[barId] or {}
-            ApplyGroupConfig(container, allChain, customBuffDeclared[barId], styleKey, grid.effectiveMax, bar.padding or 5, grid.rowGap)
+            ApplyGroupConfig(container, allChain, customBuffDeclared[barId], styleKey, grid.effectiveMax, bar.padding or 5, grid.rowGap, bar)
             return -- nothing structural to rebuild
         end
         AK.ReleaseContainer(container) -- safe: dedicated container, see doc comment above
@@ -2272,7 +2324,7 @@ local function ReloadCustomBuffBarImpl(barId)
         customBuffContainers[barId] = container
         customBuffSig[barId] = sig
         customBuffDeclared[barId] = {}
-        ApplyGroupConfig(container, allChain, customBuffDeclared[barId], styleKey, grid.effectiveMax, pad, grid.rowGap)
+        ApplyGroupConfig(container, allChain, customBuffDeclared[barId], styleKey, grid.effectiveMax, pad, grid.rowGap, bar)
         if #spells > 0 then
             local includeMap = {}
             for i = 1, #spells do includeMap[spells[i]] = true end
@@ -2282,6 +2334,8 @@ local function ReloadCustomBuffBarImpl(barId)
                 style = styleKey,
                 maxFrameCount = grid.effectiveMax,
                 candidateFilters = { includeSpellIDs = includeMap },
+                sortMethod = ResolveSortMethod(bar),
+                sortDirection = ResolveSortDirection(bar),
             })
             container:SetAuraGroupLayout("spells", {
                 elementSpacing = pad, lineSpacing = grid.rowGap,
@@ -2355,7 +2409,7 @@ local function ReloadCustomDebuffBarImpl(barId)
         AK.RequestContainer(parent, "player", spec, function(container)
             customDebuffContainers[barId] = container
             customDebuffDeclared[barId] = {}
-            ApplyGroupConfig(container, chain, customDebuffDeclared[barId], styleKey, grid.effectiveMax, pad, grid.rowGap)
+            ApplyGroupConfig(container, chain, customDebuffDeclared[barId], styleKey, grid.effectiveMax, pad, grid.rowGap, bar)
         end)
     else
         local container = customDebuffContainers[barId]
@@ -2368,7 +2422,7 @@ local function ReloadCustomDebuffBarImpl(barId)
         end
         AK.SetContainerPadding(container, 0, 0, 0, 0)
         AK.SetContainerRowWidth(container, grid.rowWidth)
-        ApplyGroupConfig(container, chain, customDebuffDeclared[barId], styleKey, grid.effectiveMax, pad, grid.rowGap)
+        ApplyGroupConfig(container, chain, customDebuffDeclared[barId], styleKey, grid.effectiveMax, pad, grid.rowGap, bar)
     end
 end
 
@@ -2510,6 +2564,85 @@ local function PreviewSpellIcon(spellID)
     return icon
 end
 
+-- Same memoization for the preview's "Name" sort simulation below.
+local previewNameCache = {}
+local function PreviewSpellName(spellID)
+    local cached = previewNameCache[spellID]
+    if cached then return cached end
+    local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(spellID)
+    local name = (info and info.name) or ""
+    previewNameCache[spellID] = name
+    return name
+end
+
+-- Best-effort preview simulation of the 4 curated sort methods (Default/
+-- Expiration/Name/ImportantOnly, see EUI_PlayerAuraBars_ManagerPages.lua's
+-- SORT_METHOD_VALUES). Blizzard's own AuraContainerSortMethod semantics
+-- aren't documented anywhere accessible -- this is an ASSUMPTION about
+-- what each name implies, not a verified match to the live engine's actual
+-- ordering: Expiration = ascending fake duration (soonest first), Name =
+-- alphabetical spell name, ImportantOnly = dispellable debuffs first (buffs
+-- have no dispel concept, so it's a no-op there, same as Default).
+-- `sortDirection == "Reverse"` flips every comparison -- including under
+-- Default, since we don't know whether the real engine's Default ordering
+-- itself respects direction; best-effort here is to at least reverse the
+-- pool's own order rather than silently ignore the direction toggle (bug
+-- fixed 2026-08-03: Default previously ignored `reverse` entirely, so
+-- flipping only Sort Direction with Sort Method left at Default produced
+-- no visible preview change). Never mutates `list` -- returns a fresh
+-- array so callers can index it exactly like the original.
+local function SortPreviewList(list, isBuff, cfg)
+    local method = cfg.sortMethod or "Default"
+    local reverse = cfg.sortDirection == "Reverse"
+    if method == "Default" then
+        if not reverse then return list end
+        local out = {}
+        local n = #list
+        for i = 1, n do out[i] = list[n - i + 1] end
+        return out
+    end
+
+    local tagged = {}
+    for i = 1, #list do tagged[i] = { entry = list[i], idx = i } end
+
+    if method == "Expiration" then
+        table.sort(tagged, function(a, b)
+            local da = PREVIEW_DURATIONS[((a.idx - 1) % #PREVIEW_DURATIONS) + 1]
+            local db = PREVIEW_DURATIONS[((b.idx - 1) % #PREVIEW_DURATIONS) + 1]
+            if da ~= db then
+                if reverse then return da > db end
+                return da < db
+            end
+            return a.idx < b.idx
+        end)
+    elseif method == "Name" then
+        table.sort(tagged, function(a, b)
+            local sa = isBuff and a.entry or a.entry.id
+            local sb = isBuff and b.entry or b.entry.id
+            local na, nb = PreviewSpellName(sa), PreviewSpellName(sb)
+            if na ~= nb then
+                if reverse then return na > nb end
+                return na < nb
+            end
+            return a.idx < b.idx
+        end)
+    elseif method == "ImportantOnly" and not isBuff then
+        table.sort(tagged, function(a, b)
+            local ka = (a.entry.dispel ~= nil) and 0 or 1
+            local kb = (b.entry.dispel ~= nil) and 0 or 1
+            if ka ~= kb then
+                if reverse then return ka > kb end
+                return ka < kb
+            end
+            return a.idx < b.idx
+        end)
+    end
+
+    local out = {}
+    for i = 1, #tagged do out[i] = tagged[i].entry end
+    return out
+end
+
 -- Identifies which bar-detail pane currently owns the visible preview box
 -- (kind: "buff"/"debuff", id: "default"/"extdef"/a custom bar id), plus
 -- that box's icon pool and the fontPath it was built with -- so a live-
@@ -2626,6 +2759,7 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, buffPool)
     local cols = math.max(1, cfg.iconsPerRow or (isBuff and 11 or 8))
     local count = grid.effectiveMax
     local list = isBuff and ((buffPool and #buffPool > 0 and buffPool) or PREVIEW_BUFF_SPELLS) or PREVIEW_DEBUFF_SPELLS
+    list = SortPreviewList(list, isBuff, cfg)
     local listLen = #list
 
     local rows = math.max(1, math.ceil(count / cols))
