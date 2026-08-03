@@ -3190,29 +3190,53 @@ function ns.PAB_BuildPreviewBox(outerFrame, fontPath, startY, kind, id, cfg)
     local isBuff = kind == "buff"
     local sy = startY
 
-    local W = EllesmereUI.Widgets
-    if W and W.SectionHeader then
+    do
         local contentPad = EllesmereUI.CONTENT_PAD or 45
         local padDiff = contentPad - 20
         local visibleW = outerFrame:GetWidth()
+        -- 2026-08-03 (Joel: too much dead space between the title/desc and
+        -- the actual preview box): was W:SectionHeader, a shared widget
+        -- fixed at 40px tall with its label anchored 8px from the BOTTOM of
+        -- that block -- meant for spacing consistency among stacked option
+        -- rows elsewhere, not this floating title/desc/box context, and it
+        -- left ~20px of pure blank padding above the "PREVIEW" text with
+        -- nothing else needing that room here. Replaced with a lightweight,
+        -- purpose-built label + separator at a fraction of the height,
+        -- matching SectionHeader's own look (EllesmereUI.TEXT_SECTION/
+        -- BORDER_COLOR, both already exposed on the shared EllesmereUI
+        -- table) without touching the shared widget file.
+        local hdrH = 18
 
-        -- 2026-08-03: shift lives on the clipping frame itself (hdrClip),
-        -- not on hdrBody inside it -- mirrors WrapCompensatedBody's own fix
-        -- in EUI_PlayerAuraBars_ManagerPages.lua (see that file's doc
-        -- comment: a "shift the child instead of the clip frame" structure
-        -- that's mathematically equivalent measured a real ~30px extra gap
+        -- Shift lives on the clipping frame itself (hdrClip), not on
+        -- hdrBody inside it -- mirrors WrapCompensatedBody's own fix in
+        -- EUI_PlayerAuraBars_ManagerPages.lua (see that file's doc comment:
+        -- a "shift the child instead of the clip frame" structure that's
+        -- mathematically equivalent measured a real ~30px extra gap
         -- in-game vs RaidFrames' reference, which shifts the clip/scroll
         -- frame itself).
         local hdrClip = CreateFrame("Frame", nil, outerFrame)
         hdrClip:SetPoint("TOPLEFT", outerFrame, "TOPLEFT", -padDiff, sy)
-        hdrClip:SetSize(math.max(visibleW, 1) + padDiff * 2, 40)
+        hdrClip:SetSize(math.max(visibleW, 1) + padDiff * 2, hdrH)
         hdrClip:SetClipsChildren(true)
 
         local hdrBody = CreateFrame("Frame", nil, hdrClip)
-        hdrBody:SetSize(visibleW + padDiff * 2, 40)
+        hdrBody:SetSize(visibleW + padDiff * 2, hdrH)
 
-        local _, hh = W:SectionHeader(hdrBody, "PREVIEW", 0)
-        sy = sy - hh
+        local TS = EllesmereUI.TEXT_SECTION or { r = 0.5, g = 0.5, b = 0.5, a = 1 }
+        local label = hdrBody:CreateFontString(nil, "OVERLAY")
+        label:SetFont(fontPath, 12, "")
+        label:SetTextColor(TS.r, TS.g, TS.b, TS.a or 1)
+        label:SetPoint("BOTTOMLEFT", hdrBody, "BOTTOMLEFT", contentPad, 0)
+        label:SetText(EllesmereUI.L("PREVIEW"))
+
+        local BC = EllesmereUI.BORDER_COLOR or { r = 1, g = 1, b = 1 }
+        local sep = hdrBody:CreateTexture(nil, "ARTWORK")
+        sep:SetColorTexture(BC.r, BC.g, BC.b, 0.02)
+        sep:SetHeight(1)
+        sep:SetPoint("BOTTOMLEFT", hdrBody, "BOTTOMLEFT", contentPad, 0)
+        sep:SetPoint("BOTTOMRIGHT", hdrBody, "BOTTOMRIGHT", -contentPad, 0)
+
+        sy = sy - hdrH
     end
 
     -- Sized from the SCALED cfg (see ScaledPreviewCfg/PreviewScaleFactor's
