@@ -77,18 +77,17 @@ local GROW_DIR_ORDER = { "LEFT", "RIGHT" }
 -- deliberately left out of this dropdown (their exact behavior isn't
 -- documented anywhere in this repo either way).
 --
--- "Important" (native key ImportantOnly) is buffs have no dispel-type
--- concept, so the preview simulation (RenderPreviewIcons' SortPreviewList)
--- treats it as a no-op for buffs, same as Default -- hidden from the buff-
--- side dropdown entirely rather than shown as a dead option (2026-08-03,
--- Joel).
-local SORT_METHOD_VALUES_DEBUFF = {
+-- "Important" (native key ImportantOnly) sorts by `C_Spell.IsSpellImportant`
+-- (verified 2026-08-03 against Blizzard's PTR source, AuraUtil.lua's
+-- ImportantOnlyAuraCompare) -- a native per-spell flag, not dispel-type-
+-- based and not debuff-specific, so it's equally meaningful for buffs.
+-- (Originally hidden from the buff-side dropdown under a wrong assumption
+-- that it meant "dispellable debuffs first"; corrected, now shared.)
+local SORT_METHOD_VALUES = {
     Default = "Default", ImportantOnly = "Important",
     Expiration = "Expiration", Name = "Name",
 }
-local SORT_METHOD_ORDER_DEBUFF = { "Default", "Expiration", "Name", "ImportantOnly" }
-local SORT_METHOD_VALUES_BUFF = { Default = "Default", Expiration = "Expiration", Name = "Name" }
-local SORT_METHOD_ORDER_BUFF = { "Default", "Expiration", "Name" }
+local SORT_METHOD_ORDER = { "Default", "Expiration", "Name", "ImportantOnly" }
 local SORT_DIR_VALUES = { Normal = "Normal", Reverse = "Reverse" }
 local SORT_DIR_ORDER = { "Normal", "Reverse" }
 
@@ -532,19 +531,13 @@ end
 --         Duration [+expand][swatch][toggle] | Stacks [+expand][swatch][toggle].
 -- Shared by every bar (default + custom, buff + debuff) -- growDirection
 -- is generic (BuildContainerSpec doesn't care about slots vs. groups).
--- isBuff picks the Sort Method option set: "Important" (native ImportantOnly)
--- is hidden on the buff side, see SORT_METHOD_VALUES_BUFF's doc comment.
+-- isBuff is currently unused here (Sort Method's option set is now shared
+-- between buffs/debuffs, see SORT_METHOD_VALUES' doc comment) but kept for
+-- callers/future per-polarity fields.
 local function BuildCoreFields(frame, fontPath, sy, cfg, apply, isBuff)
     local W = EllesmereUI.Widgets
     local PP = EllesmereUI.PanelPP
     local _, hh = 0, 0
-    local sortValues = isBuff and SORT_METHOD_VALUES_BUFF or SORT_METHOD_VALUES_DEBUFF
-    local sortOrder = isBuff and SORT_METHOD_ORDER_BUFF or SORT_METHOD_ORDER_DEBUFF
-    local function GetSortMethod()
-        local v = cfg.sortMethod or "Default"
-        if isBuff and v == "ImportantOnly" then v = "Default" end
-        return v
-    end
 
     _, hh = W:SectionHeader(frame, "CORE", sy); sy = sy - hh
 
@@ -566,8 +559,8 @@ local function BuildCoreFields(frame, fontPath, sy, cfg, apply, isBuff)
     _, hh = W:DualRow(frame, sy,
         {
             type = "dropdown", text = "Sort Method",
-            values = sortValues, order = sortOrder,
-            getValue = GetSortMethod,
+            values = SORT_METHOD_VALUES, order = SORT_METHOD_ORDER,
+            getValue = function() return cfg.sortMethod or "Default" end,
             setValue = function(v) cfg.sortMethod = v; apply() end
         },
         {

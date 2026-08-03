@@ -2577,13 +2577,19 @@ end
 
 -- Best-effort preview simulation of the 4 curated sort methods (Default/
 -- Expiration/Name/ImportantOnly, see EUI_PlayerAuraBars_ManagerPages.lua's
--- SORT_METHOD_VALUES). Blizzard's own AuraContainerSortMethod semantics
--- aren't documented anywhere accessible -- this is an ASSUMPTION about
--- what each name implies, not a verified match to the live engine's actual
--- ordering: Expiration = ascending fake duration (soonest first), Name =
--- alphabetical spell name, ImportantOnly = dispellable debuffs first (buffs
--- have no dispel concept, so it's a no-op there, same as Default).
--- `sortDirection == "Reverse"` flips every comparison -- including under
+-- SORT_METHOD_VALUES). Verified 2026-08-03 against Blizzard's actual PTR
+-- source (Gethe/wow-ui-source, ptr branch, AuraUtil.lua's
+-- ExpirationAuraCompare/NameAuraCompare/ImportantOnlyAuraCompare): Expiration
+-- = ascending expirationTime, Name = alphabetical spell name,
+-- ImportantOnly = `C_Spell.IsSpellImportant(spellId)` first -- a native
+-- per-spell flag, NOT dispel-type-based, and NOT debuff-specific (applies
+-- equally to buffs; corrects an earlier wrong assumption that treated it as
+-- "dispellable debuffs first" and no-opped it for buffs). The real engine's
+-- comparators also weight player-cast/priority/canApplyAura ahead of the
+-- named criterion and always tie-break on auraInstanceID -- not reproduced
+-- here, since the preview's fake entries have no equivalent concepts; this
+-- remains a simplified approximation of relative ORDER, not a byte-exact
+-- match. `sortDirection == "Reverse"` flips every comparison -- including under
 -- Default, since we don't know whether the real engine's Default ordering
 -- itself respects direction; best-effort here is to at least reverse the
 -- pool's own order rather than silently ignore the direction toggle (bug
@@ -2626,13 +2632,15 @@ local function SortPreviewList(list, isBuff, cfg)
             end
             return a.idx < b.idx
         end)
-    elseif method == "ImportantOnly" and not isBuff then
+    elseif method == "ImportantOnly" then
         table.sort(tagged, function(a, b)
-            local ka = (a.entry.dispel ~= nil) and 0 or 1
-            local kb = (b.entry.dispel ~= nil) and 0 or 1
-            if ka ~= kb then
-                if reverse then return ka > kb end
-                return ka < kb
+            local sa = isBuff and a.entry or a.entry.id
+            local sb = isBuff and b.entry or b.entry.id
+            local ia = (C_Spell and C_Spell.IsSpellImportant and C_Spell.IsSpellImportant(sa)) and 0 or 1
+            local ib = (C_Spell and C_Spell.IsSpellImportant and C_Spell.IsSpellImportant(sb)) and 0 or 1
+            if ia ~= ib then
+                if reverse then return ia > ib end
+                return ia < ib
             end
             return a.idx < b.idx
         end)
