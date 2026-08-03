@@ -123,6 +123,11 @@ local function CFD(cf)
 end
 EllesmereUI._chatCFD = CFD
 
+local function IsStaticDocked(cf)
+    if not cf then return false end
+    return cf.isStaticDocked or (cf.isDocked and not cf.isTemporary)
+end
+
 local CHAT_DEFAULTS = {
     profile = {
         chat = {
@@ -2457,7 +2462,7 @@ local function UpdateTabStyle(tab)
     -- Per-axis shift, tuned empirically against the rendered result (the
     -- tab's fractional physical position makes the axes round differently):
     -- 0 right / 2 up lands the visuals level and gapped at the tested scale.
-    local isDyn = chatFrame.isDocked and not chatFrame.isStaticDocked
+    local isDyn = chatFrame.isDocked and not IsStaticDocked(chatFrame)
     local visShiftX = isDyn and 0 or 0
     local visShiftY = isDyn and (2 * onePhysPx) or 0
     local visShift = visShiftX + visShiftY * 1000  -- change-detection key
@@ -2604,7 +2609,7 @@ function ECHAT.PositionTabHosts()
             local n = cf and cf:GetName()
             local tab = n and _G[n .. "Tab"]
             local d = tab and CFD(tab)
-            if d and d.skinned and cf.isStaticDocked and d.hostW then
+            if d and d.skinned and IsStaticDocked(cf) and d.hostW then
                 local function Place(host)
                     if not host then return end
                     host:ClearAllPoints()
@@ -2924,7 +2929,7 @@ function ECHAT.ApplyTabSpacing()
     for _, cf in ipairs(GENERAL_CHAT_DOCK.DOCKED_CHAT_FRAMES) do
         local n = cf and cf:GetName()
         local tab = n and _G[n .. "Tab"]
-        if tab and tab:IsShown() and cf.isStaticDocked then
+        if tab and tab:IsShown() and IsStaticDocked(cf) then
             if prev then
                 tab:ClearAllPoints()
                 tab:SetPoint("LEFT", prev, "RIGHT", spacing, 0)
@@ -2967,7 +2972,7 @@ function ECHAT.ApplyTabLayout()
             -- names on Midnight (rendered width of secret text is a secret
             -- number; arithmetic on it is a hard error -- field report:
             -- ChatFrame11Tab), so the issecretvalue guard stays as the belt.
-            if fs and fs.GetStringWidth and cfOwner and cfOwner.isStaticDocked then
+            if fs and fs.GetStringWidth and cfOwner and IsStaticDocked(cfOwner) then
                 local w = fs:GetStringWidth()
                 if w and not (issecretvalue and issecretvalue(w)) then
                     local tabW = max(40, ceil(w + paddingX * 2))
@@ -2984,7 +2989,7 @@ function ECHAT.ApplyTabLayout()
             -- passes only -- this replaced the per-tab SetPoint hook, whose
             -- body ran inside the secure temp-window creation chain and
             -- tainted UpdateHeader's secret width math (2026-07-21).
-            if cfOwner and cfOwner.isDocked and not cfOwner.isStaticDocked then
+            if cfOwner and cfOwner.isDocked and not IsStaticDocked(cfOwner) then
                 local pt, rel, relPt, x, y = tab:GetPoint(1)
                 -- A docked temp WHISPER tab whose target is secret (in
                 -- instances / M+) has SECRET geometry: comparing pt/relPt or
