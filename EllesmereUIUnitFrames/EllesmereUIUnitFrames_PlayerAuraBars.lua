@@ -513,6 +513,34 @@ local function ResolveSortDirection(cfg)
     return AuraContainerSortDirection and AuraContainerSortDirection[key]
 end
 
+-- "Has Duration" (Assigned Buffs filter, 2026-08-03) -- buffs-only, native
+-- `candidateFilters.maxDuration` (verified against Blizzard's actual PTR
+-- source, Gethe/wow-ui-source ptr branch, Blizzard_AuraContainerUtil.lua:
+-- "Max duration filters implicitly always filter out permanent auras" --
+-- `auraData.duration > maxDuration or auraData.duration == 0` excludes the
+-- aura). `math.huge` as the cap means the `>` half of that check never
+-- trips, so this ONLY excludes permanent (duration=0) buffs, regardless of
+-- how long a timed buff's duration actually is.
+local function BuffCandidateExtras(cfg)
+    if cfg and cfg.hasDuration then
+        return { maxDuration = math.huge }
+    end
+    return nil
+end
+
+-- Merges `extra`'s keys onto a copy of `base` (nil-safe both ways). Used to
+-- combine a chain-link's own candidateFilters (e.g. debuff class token) with
+-- BuffCandidateExtras' maxDuration -- both may be nil, either alone, or both
+-- present at once.
+local function MergeCandidateFilters(base, extra)
+    if not extra then return base end
+    if not base then return extra end
+    local out = {}
+    for k, v in pairs(base) do out[k] = v end
+    for k, v in pairs(extra) do out[k] = v end
+    return out
+end
+
 -- declaredSet is a per-container registry of every group key ever declared
 -- on that container: declared.debuffs for the default Debuffs bar/every
 -- custom Debuff Bar (class-token chain), declared.buffs for the default
@@ -525,7 +553,16 @@ end
 -- setter (SetAuraGroupSortMethod, unlike AddAuraGroup's sortMethod field)
 -- requires both values non-nil, so it's re-applied every pass, same as
 -- MaxFrameCount/Layout below.
-local function ApplyGroupConfig(container, chain, declaredSet, styleKey, effectiveMax, gap, rowGap, cfg)
+--
+-- extraCand (optional): additional candidateFilters merged onto every
+-- chain-link's own candidateFilters (see MergeCandidateFilters above) --
+-- used to thread BuffCandidateExtras' maxDuration onto the Buffs catch-all
+-- chain without affecting Debuffs' class-token chains, which pass nil here.
+-- Like sortMethod/sortDirection, re-applied live every pass via
+-- SetAuraGroupCandidateFilters -- candidateFilters are NOT immutably fixed
+-- at declaration once a live setter is used (only the group's FILTER STRING
+-- is; see the doc comment above this function).
+local function ApplyGroupConfig(container, chain, declaredSet, styleKey, effectiveMax, gap, rowGap, cfg, extraCand)
     local sortMethod = ResolveSortMethod(cfg)
     local sortDirection = ResolveSortDirection(cfg)
     -- elementSpacing = gap between icons in the same row; lineSpacing = gap
@@ -549,11 +586,12 @@ local function ApplyGroupConfig(container, chain, declaredSet, styleKey, effecti
     for i = 1, #chain do
         local link = chain[i]
         active[link.key] = true
+        local candidateFilters
+        if link.cand then
+            candidateFilters = { [link.cand] = true }
+        end
+        candidateFilters = MergeCandidateFilters(candidateFilters, extraCand)
         if not declaredSet[link.key] then
-            local candidateFilters
-            if link.cand then
-                candidateFilters = { [link.cand] = true }
-            end
             AK.AddGroupToContainer(container, {
                 key = link.key,
                 filter = link.tokens,
@@ -567,6 +605,7 @@ local function ApplyGroupConfig(container, chain, declaredSet, styleKey, effecti
         end
         container:SetAuraGroupMaxFrameCount(link.key, effectiveMax)
         container:SetAuraGroupLayout(link.key, layout)
+        container:SetAuraGroupCandidateFilters(link.key, candidateFilters)
         if sortMethod ~= nil and sortDirection ~= nil then
             container:SetAuraGroupSortMethod(link.key, sortMethod, sortDirection)
         end
@@ -961,7 +1000,7 @@ local function CreateBars()
         buffsContainer = container
         declared.buffs = {}
         if buffCfg.showAllBuffs ~= false then
-            ApplyGroupConfig(container, buffAllChain, declared.buffs, STYLE_BUFFS, buffGrid.effectiveMax, buffPad, buffGrid.rowGap, buffCfg)
+            ApplyGroupConfig(container, buffAllChain, declared.buffs, STYLE_BUFFS, buffGrid.effectiveMax, buffPad, buffGrid.rowGap, buffCfg, BuffCandidateExtras(buffCfg))
         end
         if #buffSpells > 0 then
             local includeMap = {}
@@ -971,7 +1010,7 @@ local function CreateBars()
                 filter = { "HELPFUL" },
                 style = STYLE_BUFFS,
                 maxFrameCount = buffGrid.effectiveMax,
-                candidateFilters = { includeSpellIDs = includeMap },
+                candidateFilters = MergeCandidateFilters({ includeSpellIDs = includeMap }, BuffCandidateExtras(buffCfg)),
                 sortMethod = ResolveSortMethod(buffCfg),
                 sortDirection = ResolveSortDirection(buffCfg),
             })
@@ -1218,7 +1257,7 @@ local function ApplyLiveConfig(isBuff)
                 buffsContainer = newContainer
                 declared.buffs = {}
                 if cfg.showAllBuffs ~= false then
-                    ApplyGroupConfig(newContainer, allChain, declared.buffs, STYLE_BUFFS, grid.effectiveMax, pad, grid.rowGap, cfg)
+                    ApplyGroupConfig(newContainer, allChain, declared.buffs, STYLE_BUFFS, grid.effectiveMax, pad, grid.rowGap, cfg, BuffCandidateExtras(cfg))
                 end
                 if #spells > 0 then
                     local includeMap = {}
@@ -1228,7 +1267,7 @@ local function ApplyLiveConfig(isBuff)
                         filter = { "HELPFUL" },
                         style = STYLE_BUFFS,
                         maxFrameCount = grid.effectiveMax,
-                        candidateFilters = { includeSpellIDs = includeMap },
+                        candidateFilters = MergeCandidateFilters({ includeSpellIDs = includeMap }, BuffCandidateExtras(cfg)),
                         sortMethod = ResolveSortMethod(cfg),
                         sortDirection = ResolveSortDirection(cfg),
                     })
@@ -1248,13 +1287,17 @@ local function ApplyLiveConfig(isBuff)
             -- and off without a separate branch. The spells group (if
             -- declared) isn't part of that chain-based path, so its
             -- maxFrameCount/layout/sort are refreshed here directly.
-            ApplyGroupConfig(container, allChain, declared.buffs, STYLE_BUFFS, grid.effectiveMax, pad, grid.rowGap, cfg)
+            ApplyGroupConfig(container, allChain, declared.buffs, STYLE_BUFFS, grid.effectiveMax, pad, grid.rowGap, cfg, BuffCandidateExtras(cfg))
             if declared.buffs.spells then
                 container:SetAuraGroupMaxFrameCount("spells", grid.effectiveMax)
                 container:SetAuraGroupLayout("spells", {
                     elementSpacing = pad, lineSpacing = grid.rowGap,
                     groupSpacing = pad, groupLineSpacing = grid.rowGap,
                 })
+                local liveIncludeMap = {}
+                for i = 1, #spells do liveIncludeMap[spells[i]] = true end
+                container:SetAuraGroupCandidateFilters("spells",
+                    MergeCandidateFilters({ includeSpellIDs = liveIncludeMap }, BuffCandidateExtras(cfg)))
                 local sortMethod, sortDirection = ResolveSortMethod(cfg), ResolveSortDirection(cfg)
                 if sortMethod ~= nil and sortDirection ~= nil then
                     container:SetAuraGroupSortMethod("spells", sortMethod, sortDirection)
@@ -2305,13 +2348,17 @@ local function ReloadCustomBuffBarImpl(barId)
                     elementSpacing = livePad, lineSpacing = grid.rowGap,
                     groupSpacing = livePad, groupLineSpacing = grid.rowGap,
                 })
+                local liveIncludeMap = {}
+                for i = 1, #spells do liveIncludeMap[spells[i]] = true end
+                container:SetAuraGroupCandidateFilters("spells",
+                    MergeCandidateFilters({ includeSpellIDs = liveIncludeMap }, BuffCandidateExtras(bar)))
                 local sortMethod, sortDirection = ResolveSortMethod(bar), ResolveSortDirection(bar)
                 if sortMethod ~= nil and sortDirection ~= nil then
                     container:SetAuraGroupSortMethod("spells", sortMethod, sortDirection)
                 end
             end
             customBuffDeclared[barId] = customBuffDeclared[barId] or {}
-            ApplyGroupConfig(container, allChain, customBuffDeclared[barId], styleKey, grid.effectiveMax, bar.padding or 5, grid.rowGap, bar)
+            ApplyGroupConfig(container, allChain, customBuffDeclared[barId], styleKey, grid.effectiveMax, bar.padding or 5, grid.rowGap, bar, BuffCandidateExtras(bar))
             return -- nothing structural to rebuild
         end
         AK.ReleaseContainer(container) -- safe: dedicated container, see doc comment above
@@ -2324,7 +2371,7 @@ local function ReloadCustomBuffBarImpl(barId)
         customBuffContainers[barId] = container
         customBuffSig[barId] = sig
         customBuffDeclared[barId] = {}
-        ApplyGroupConfig(container, allChain, customBuffDeclared[barId], styleKey, grid.effectiveMax, pad, grid.rowGap, bar)
+        ApplyGroupConfig(container, allChain, customBuffDeclared[barId], styleKey, grid.effectiveMax, pad, grid.rowGap, bar, BuffCandidateExtras(bar))
         if #spells > 0 then
             local includeMap = {}
             for i = 1, #spells do includeMap[spells[i]] = true end
@@ -2333,7 +2380,7 @@ local function ReloadCustomBuffBarImpl(barId)
                 filter = { "HELPFUL" },
                 style = styleKey,
                 maxFrameCount = grid.effectiveMax,
-                candidateFilters = { includeSpellIDs = includeMap },
+                candidateFilters = MergeCandidateFilters({ includeSpellIDs = includeMap }, BuffCandidateExtras(bar)),
                 sortMethod = ResolveSortMethod(bar),
                 sortDirection = ResolveSortDirection(bar),
             })

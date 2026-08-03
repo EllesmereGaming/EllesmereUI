@@ -133,6 +133,21 @@ end
 -- entries (e.g. two user-created filters both left at the "New Filter"
 -- default, or duplicate presets from an earlier import-migration bug) --
 -- first (lowest id, i.e. oldest) entry per name wins.
+-- Alphabetical, case-insensitive by name (2026-08-03, Joel: editable
+-- filters should always list alphabetically) -- applied to both the
+-- Filters assignment dropdown (via DedupedFilterItems below) and the
+-- Filter Editor's own sidebar (ns.PABMP_ShowFilterEditor). Always returns
+-- a FRESH copy -- ns.PAB_Filters() hands back the live persisted list
+-- (EllesmereUIUnitFrames_PlayerAuraBars.lua's ns.PAB_Filters, `store.list`
+-- directly), so sorting in place would silently reorder SavedVariables
+-- every time the editor is opened.
+local function SortFiltersByName(list)
+    local out = {}
+    for i = 1, #list do out[i] = list[i] end
+    table.sort(out, function(a, b) return (a.name or ""):lower() < (b.name or ""):lower() end)
+    return out
+end
+
 local function DedupedFilterItems()
     local filters = (ns.PAB_Filters and ns.PAB_Filters()) or {}
     local seenNames, out = {}, {}
@@ -143,7 +158,7 @@ local function DedupedFilterItems()
             out[#out + 1] = f
         end
     end
-    return out
+    return SortFiltersByName(out)
 end
 
 -- Custom buff bar sidebar tile subtitle -- was a flat "N spells" (the
@@ -170,9 +185,9 @@ local function BuildBuffBarSubtitle(bar)
 
     if bar.showAllBuffs ~= false then
         if extraCount > 0 then
-            return L("Show All Buffs") .. " + " .. extraCount .. " " .. L("spells")
+            return L("All Buffs") .. " + " .. extraCount .. " " .. L("spells")
         end
-        return L("Show All Buffs")
+        return L("All Buffs")
     end
 
     local names, totalSelected = {}, 0
@@ -247,44 +262,69 @@ local function BuildAssignedBuffsFields(frame, fontPath, sy, cfg, apply)
 
     _, hh = W:SectionHeader(frame, "ASSIGNED BUFFS", sy); sy = sy - hh
 
-    -- "Show All Buffs" + "Filters": mirrors BuildAssignedDebuffsFields'
-    -- Show All Debuffs/Base Filters row exactly (same blocking-overlay
-    -- pattern AND, since 2026-08-02, the same "nil == on" default -- see
-    -- CreateBars'/ApplyLiveConfig's own `~= false` checks). The stored
-    -- value is written directly rather than normalized to nil/true, same
-    -- as showAllDebuffs' own setValue now does.
-    local safRow
-    safRow, hh = W:DualRow(frame, sy,
-        {
-            type = "toggle", text = "Show All Buffs",
-            tooltip = "Show every buff. The Filters dropdown is ignored while this is on.",
-            getValue = function() return cfg.showAllBuffs ~= false end,
-            setValue = function(v)
-                cfg.showAllBuffs = v
-                apply()
-                EllesmereUI:RefreshPage(true)
-            end
-        },
+    -- "Filters": single unified checkbox dropdown (2026-08-03 redesign,
+    -- Joel). Was a separate "Show All Buffs" toggle blocking a whole
+    -- second "Filters" dropdown via an overlay frame -- now folded into
+    -- ONE dropdown as pinned, non-editable pseudo-filter rows above a
+    -- divider, followed by the real (user-editable) PAB_Filters entries:
+    --
+    --   Edit Filters          (pinned top action, unchanged)
+    --   [ ] All Buffs         (key PAB_ALL_BUFFS_KEY -> cfg.showAllBuffs, never locked)
+    --   [ ] Has Duration      (key PAB_HAS_DURATION_KEY -> cfg.hasDuration, locked while All Buffs is on)
+    --   ------------------- (isHeader, blank label -- plain divider line)
+    --   [ ] <real filters, alphabetical>  (locked while All Buffs is on)
+    --
+    -- "All Buffs" replaces the old standalone toggle 1:1 (same cfg field,
+    -- same "nil == on" default). "Has Duration" is new: native
+    -- `candidateFilters.maxDuration` (see BuffCandidateExtras in
+    -- EllesmereUIUnitFrames_PlayerAuraBars.lua) -- excludes permanent
+    -- (duration=0) buffs from whatever this bar is already showing.
+    -- Neither pseudo-filter is a real ns.PAB_Filters() entry, so neither
+    -- appears in the Filter Editor sidebar.
+    --
+    -- Locking uses BuildVisOptsCBDropdown's existing item.lockedFn/
+    -- item.lockedTooltip (greys the row, blocks its click, tooltip on
+    -- hover) -- an already-generic, pre-existing mechanism (used elsewhere
+    -- for rows whose availability depends on another selection), not a
+    -- new addition to the shared widget. Kept for the same reason the old
+    -- toggle blocked the dropdown: while All Buffs is on, every other
+    -- entry here is redundant (All Buffs already shows everything).
+    local ffRow
+    ffRow, hh = W:DualRow(frame, sy,
         {
             type = "dropdown", text = "Filters",
             values = { __placeholder = "..." }, order = { "__placeholder" },
             getValue = function() return "__placeholder" end, setValue = function() end
-        }
+        },
+        { type = "label", text = "" }
     ); sy = sy - hh
 
-    -- RIGHT: Filters checkbox dropdown, "Edit Filters" pinned top action.
+    local PAB_ALL_BUFFS_KEY, PAB_HAS_DURATION_KEY = "__allBuffs", "__hasDuration"
+
+    -- LEFT: Filters checkbox dropdown, "Edit Filters" pinned top action.
     do
-        local rgn = safRow._rightRegion
+        local rgn = ffRow._leftRegion
         if rgn._control then rgn._control:Hide() end
+        local function AllBuffsOn() return cfg.showAllBuffs ~= false end
+        local function LockedWhileAllBuffs() return AllBuffsOn() end
         local function FilterItems()
             local filters = DedupedFilterItems()
             local items = {
                 { isTopAction = true, label = "Edit Filters", onClick = function()
                     ns.PABMP_ShowFilterEditor()
                 end },
+                { key = PAB_ALL_BUFFS_KEY, label = "All Buffs",
+                  tooltip = "Show every buff. Every other entry here is ignored while this is on." },
+                { key = PAB_HAS_DURATION_KEY, label = "Has Duration",
+                  tooltip = "Only show buffs with a duration (hides permanent buffs).",
+                  lockedFn = LockedWhileAllBuffs,
+                  lockedTooltip = function() return EllesmereUI.DisabledTooltip("All Buffs", "disabled") end },
+                { isHeader = true, label = "" },
             }
             for i = 1, #filters do
-                items[#items + 1] = { key = filters[i].id, label = filters[i].name }
+                items[#items + 1] = { key = filters[i].id, label = filters[i].name,
+                    lockedFn = LockedWhileAllBuffs,
+                    lockedTooltip = function() return EllesmereUI.DisabledTooltip("All Buffs", "disabled") end }
             end
             return items
         end
@@ -292,10 +332,24 @@ local function BuildAssignedBuffsFields(frame, fontPath, sy, cfg, apply)
             rgn, 190, rgn:GetFrameLevel() + 2,
             FilterItems,
             function(k)
+                if k == PAB_ALL_BUFFS_KEY then return AllBuffsOn() end
+                if k == PAB_HAS_DURATION_KEY then return cfg.hasDuration == true end
                 cfg.filters = cfg.filters or {}
                 return cfg.filters[k] == true
             end,
             function(k, v)
+                if k == PAB_ALL_BUFFS_KEY then
+                    cfg.showAllBuffs = v
+                    apply()
+                    EllesmereUI:RefreshPage(true)
+                    return
+                end
+                if k == PAB_HAS_DURATION_KEY then
+                    cfg.hasDuration = v or nil
+                    apply()
+                    EllesmereUI:RefreshPage()
+                    return
+                end
                 cfg.filters = cfg.filters or {}
                 cfg.filters[k] = v or nil
                 apply()
@@ -310,25 +364,6 @@ local function BuildAssignedBuffsFields(frame, fontPath, sy, cfg, apply)
         PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
         rgn._control = cbDD; rgn._lastInline = nil
         EllesmereUI.RegisterWidgetRefresh(cbRefresh)
-
-        -- Blocked while Show All Buffs is on (canonical blocking-overlay
-        -- pattern for a conditionally-interactive inline control, mirrors
-        -- BuildAssignedDebuffsFields' Base Filters block).
-        local block = CreateFrame("Frame", nil, cbDD)
-        block:SetAllPoints()
-        block:SetFrameLevel(cbDD:GetFrameLevel() + 10)
-        block:EnableMouse(true)
-        block:SetScript("OnEnter", function()
-            EllesmereUI.ShowWidgetTooltip(cbDD, EllesmereUI.DisabledTooltip("Show All Buffs", "disabled"))
-        end)
-        block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-        local function UpdateState()
-            local allOn = cfg.showAllBuffs ~= false
-            cbDD:SetAlpha(allOn and 0.4 or 1)
-            block:SetShown(allOn)
-        end
-        EllesmereUI.RegisterWidgetRefresh(UpdateState)
-        UpdateState()
     end
 
     -- "Extra Spells": moved to its own row below Show All Buffs/Filters,
@@ -1355,7 +1390,7 @@ end
 
 function ns.PABMP_ShowFilterEditor()
     if ns._pabFilterEditor then ns._pabFilterEditor:Hide(); ns._pabFilterEditor = nil end
-    local filters = (ns.PAB_Filters and ns.PAB_Filters()) or {}
+    local filters = SortFiltersByName((ns.PAB_Filters and ns.PAB_Filters()) or {})
     local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("unitFrames")) or "Fonts\\FRIZQT__.TTF"
     local ar, ag, ab = 1, 0.82, 0.30
     if EllesmereUI.GetAccentColor then ar, ag, ab = EllesmereUI.GetAccentColor() end
