@@ -773,7 +773,12 @@ function WheelView:GridDims()
 
     local cols
     if not p or p.gridAutoColumns ~= false then
-        cols = AutoGridColumns(shown)
+        -- Counted from the REAL entries, not from `shown`. An interactive view
+        -- draws one extra wedge for the trailing "+", and letting that tip the
+        -- column count would make the editor lay a ring out differently from
+        -- the way it is played -- six actions previewing as 4 + 3 while the
+        -- live palette drew 3 + 3.
+        cols = AutoGridColumns(max(1, self.slotCount or shown))
     else
         cols = min(MAX_SLOTS, max(1, floor(p.gridColumns or 4)))
     end

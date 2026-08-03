@@ -1483,11 +1483,24 @@ initFrame:SetScript("OnEvent", function(self)
               -- Rebuild, not Refresh: pointer steering retires three of the
               -- sliders below, so the row states are built from this.
               setValue=function(v) Set("fanInput", v); RebuildPage() end },
-            { type="slider", text="Grid Columns",
+            { type="toggle", text="Auto Columns",
               disabled=gridOnly, disabledTooltip="the Grid layout",
+              getValue=function() return Cfg("gridAutoColumns") ~= false end,
+              -- Rebuild, not Refresh: this is what decides whether the column
+              -- slider below means anything.
+              setValue=function(v) Set("gridAutoColumns", v); RebuildPage() end })
+        y = y - h
+
+        row, h = W:DualRow(parent, y,
+            { type="slider", text="Grid Columns",
+              disabled=function()
+                  return gridOnly() or Cfg("gridAutoColumns") ~= false
+              end,
+              disabledTooltip="Auto Columns to be off",
               min=1, max=8, step=1,
               getValue=function() return Cfg("gridColumns") or 4 end,
-              setValue=function(v) Set("gridColumns", v); Refresh() end })
+              setValue=function(v) Set("gridColumns", v); Refresh() end },
+            { type="spacer" })
         y = y - h
 
         row, h = W:DualRow(parent, y,
