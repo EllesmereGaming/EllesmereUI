@@ -2546,6 +2546,17 @@ local CLASS_PREVIEW_BUFFS = {
 -- character) or CLASS_PREVIEW_BUFFS is somehow missing an entry.
 local PREVIEW_BUFF_SPELLS = { 21562, 1459, 1126, 6673 } -- Fort, Arcane Intellect, Mark of the Wild, Battle Shout
 
+-- Cross-class/consumable buffs for the "All Buffs" preview fill (2026-08-03,
+-- Joel: "random aus allen möglichen Buffs... + Zusatzbuffs" -- All Buffs has
+-- no finite spell list, real raid buffs come from every class plus food/
+-- flask/world-buff-style consumables, not just the player's own class).
+-- Same 4 spell IDs EUI_RaidFrames_BuffManager2.lua's curated "consumables"
+-- preset already uses (class="ALL" entries, maintainer-verified data,
+-- 2026-07-21) -- duplicated here rather than cross-addon-referenced, since
+-- RaidFrames' ns table isn't shared with this addon and isn't guaranteed
+-- to even be loaded.
+local EXTRA_WORLD_PREVIEW_BUFFS = { 1236998, 1236616, 1239479, 1236994 }
+
 -- External Defensives bar preview (2026-08-02, Joel: should reflect actual
 -- external-defensive-flavored spells, not the player's own class buffs --
 -- these come from OTHER players' classes, so this is a fixed cross-class
@@ -2575,18 +2586,36 @@ local function ShuffleCopy(source)
     return out
 end
 
--- Builds a freshly shuffled copy of the player's class buff pool. Called
+-- Builds a freshly shuffled copy of the "All Buffs" preview pool. Called
 -- once per ns.PAB_BuildPreviewBox (NOT on every live-apply refresh -- the
 -- resulting order is stashed on activePreview and reused by every
 -- subsequent RenderPreviewIcons call for that box, so icons don't shuffle
 -- their spell identity out from under the user on every slider tick, only
 -- their style/position/count).
+--
+-- 2026-08-03 (Joel): was just the player's OWN class's 10 buffs, cycling
+-- via modulo once a bar had more icon slots than that -- looked repetitive
+-- for anything above ~10 icons and didn't represent what All Buffs
+-- actually shows (every OTHER unit's buffs too, not just the player's
+-- class). Now combines every class's curated CLASS_PREVIEW_BUFFS list
+-- (13 classes x 10 = 130 entries) plus EXTRA_WORLD_PREVIEW_BUFFS'
+-- consumables, giving enough distinct icons to fill even the largest
+-- configured grid (maxTotal defaults to 32) without visible repeats.
 local function BuildBuffPreviewPool()
-    local _, classToken = UnitClass("player")
-    local source = (classToken and CLASS_PREVIEW_BUFFS[classToken]) or PREVIEW_BUFF_SPELLS
-    return ShuffleCopy(source)
+    local combined = {}
+    for _, spells in pairs(CLASS_PREVIEW_BUFFS) do
+        for i = 1, #spells do combined[#combined + 1] = spells[i] end
+    end
+    for i = 1, #EXTRA_WORLD_PREVIEW_BUFFS do combined[#combined + 1] = EXTRA_WORLD_PREVIEW_BUFFS[i] end
+    if #combined == 0 then combined = PREVIEW_BUFF_SPELLS end
+    return ShuffleCopy(combined)
 end
 
+-- Expanded 2026-08-03 (Joel-supplied list, mostly recent Mythic+/dungeon
+-- trash debuffs) from the original 6 entries -- unlike CLASS_PREVIEW_BUFFS,
+-- there was no existing verified debuff catalog anywhere in this repo to
+-- draw from, so this list came directly from Joel rather than being
+-- independently sourced.
 local PREVIEW_DEBUFF_SPELLS = {
     { id = 122,   dispel = "Magic" },   -- Frost Nova
     { id = 702,   dispel = "Curse" },   -- Curse of Weakness
@@ -2594,9 +2623,80 @@ local PREVIEW_DEBUFF_SPELLS = {
     { id = 55095, dispel = "Disease" }, -- Frost Fever
     { id = 772,   dispel = "Bleed" },   -- Rend
     { id = 6788,  dispel = nil },       -- Weakened Soul -- NOT dispellable, previews the plain base border color (no dispel-type override)
+    -- Magic
+    { id = 434083, dispel = "Magic" }, -- Lightning Bolt Volley
+    { id = 426735, dispel = "Magic" }, -- Void Rift
+    { id = 428161, dispel = "Magic" }, -- Frost Shock
+    { id = 409465, dispel = "Magic" }, -- Astral Bomb
+    { id = 397911, dispel = "Magic" }, -- Mystic Vapors
+    { id = 385963, dispel = "Magic" }, -- Burnout
+    { id = 387564, dispel = "Magic" }, -- Arcane Eruption
+    { id = 372749, dispel = "Magic" }, -- Ice Cutter
+    { id = 369365, dispel = "Magic" }, -- Curse of Stone (Magic)
+    { id = 388777, dispel = "Magic" }, -- Arcane Vulnerability
+    -- Curse
+    { id = 381692, dispel = "Curse" }, -- Decaying Strength
+    { id = 377488, dispel = "Curse" }, -- Cursed Blood
+    { id = 384978, dispel = "Curse" }, -- Hextrick Totem
+    { id = 328664, dispel = "Curse" }, -- Curse of Desolation
+    { id = 322817, dispel = "Curse" }, -- Lingering Curse
+    { id = 340288, dispel = "Curse" }, -- Curse of Obliteration
+    { id = 426308, dispel = "Curse" }, -- Void Curse
+    { id = 433443, dispel = "Curse" }, -- Shadow Curse
+    { id = 373509, dispel = "Curse" }, -- Withering Curse
+    { id = 375602, dispel = "Curse" }, -- Curse of Decay
+    -- Disease
+    { id = 373391, dispel = "Disease" }, -- Choking Rotcloud
+    { id = 374389, dispel = "Disease" }, -- Rotting Sickness
+    { id = 409492, dispel = "Disease" }, -- Diseased Bite
+    { id = 322486, dispel = "Disease" }, -- Plague Rot
+    { id = 321821, dispel = "Disease" }, -- Viral Contagion
+    { id = 330868, dispel = "Disease" }, -- Festering Rot
+    { id = 325552, dispel = "Disease" }, -- Necrotic Rot
+    { id = 345245, dispel = "Disease" }, -- Putrid Bile
+    { id = 426660, dispel = "Disease" }, -- Diseased Claws
+    { id = 209858, dispel = "Disease" }, -- Necrotic Rot (different id, same name)
+    -- Poison
+    { id = 322358, dispel = "Poison" }, -- Venomous Spit
+    { id = 324859, dispel = "Poison" }, -- Toxic Pool
+    { id = 373614, dispel = "Poison" }, -- Decaying Venom
+    { id = 385039, dispel = "Poison" }, -- Venom Strike
+    { id = 376149, dispel = "Poison" }, -- Poisoned Spear
+    { id = 384620, dispel = "Poison" }, -- Noxious Stench
+    { id = 326092, dispel = "Poison" }, -- Poison Bolt
+    { id = 257483, dispel = "Poison" }, -- Pile of Bones (Poison)
+    { id = 381664, dispel = "Poison" }, -- Toxic Trap
+    { id = 428019, dispel = "Poison" }, -- Poisoned Fang
+    -- Bleed
+    { id = 196497, dispel = "Bleed" }, -- Ravenous Leap
+    { id = 257775, dispel = "Bleed" }, -- Gushing Wound
+    { id = 381379, dispel = "Bleed" }, -- Jagged Bite
+    { id = 373735, dispel = "Bleed" }, -- Bloody Bite
+    { id = 391191, dispel = "Bleed" }, -- Savage Peck
+    { id = 372718, dispel = "Bleed" }, -- Rending Slash
+    { id = 385356, dispel = "Bleed" }, -- Tear Flesh
+    { id = 328181, dispel = "Bleed" }, -- Jagged Quarrel
+    { id = 381514, dispel = "Bleed" }, -- Serrated Strike
+    { id = 424414, dispel = "Bleed" }, -- Brutal Rend
+    -- No dispel type
+    { id = 240559, dispel = nil }, -- Grievous Wound
+    { id = 226512, dispel = nil }, -- Sanguine Ichor
+    { id = 257908, dispel = nil }, -- Oozing Leftovers
+    { id = 268008, dispel = nil }, -- Snake Charm
+    { id = 274358, dispel = nil }, -- Rending Maul
+    { id = 320788, dispel = nil }, -- Frozen Binds
+    { id = 323043, dispel = nil }, -- Blood Barrier
+    { id = 373429, dispel = nil }, -- Gash Frenzy
+    { id = 424889, dispel = nil }, -- Brutal Strike
 }
 local PREVIEW_DURATIONS = { 8, 15, 23, 41, 5, 30, 12, 60, 3, 18 }
 local PREVIEW_STACKS = { nil, 3, nil, nil, 2, nil, nil, 5, nil, 1 } -- a few icons show a fake stack count, rest hidden
+
+-- Shuffled once per box build, same reasoning as BuildBuffPreviewPool's own
+-- doc comment (icons shouldn't swap identity on every slider tick).
+local function BuildDebuffPreviewPool()
+    return ShuffleCopy(PREVIEW_DEBUFF_SPELLS)
+end
 
 -- Memoized fake-icon texture lookup, same technique as EUI_RaidFrames_
 -- BuffManager.lua's GetSpellIcon: C_Spell.GetSpellInfo's iconID, falling
@@ -2885,7 +2985,10 @@ local function BuildPreviewSlots(isBuff, cfg, list, listLen, count)
     return slots
 end
 
-local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, buffPool)
+-- `pool` (2026-08-03 renamed from buffPool -- now shuffled once per box
+-- build for BOTH polarities, see BuildBuffPreviewPool/BuildDebuffPreviewPool)
+-- is the box's own stable, pre-shuffled fake-icon pool.
+local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
     cfg = ScaledPreviewCfg(cfg)
     local style = BuildStyle(isBuff, cfg)
     local dcMap = (not isBuff) and BuildDispelColorMap(cfg) or nil
@@ -2906,7 +3009,7 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, buffPool)
     local iconSize = cfg.iconSize or 32
     local cols = math.max(1, cfg.iconsPerRow or (isBuff and 11 or 8))
     local count = grid.effectiveMax
-    local list = isBuff and ((buffPool and #buffPool > 0 and buffPool) or PREVIEW_BUFF_SPELLS) or PREVIEW_DEBUFF_SPELLS
+    local list = (pool and #pool > 0 and pool) or (isBuff and PREVIEW_BUFF_SPELLS or PREVIEW_DEBUFF_SPELLS)
     list = SortPreviewList(list, isBuff, cfg)
     local listLen = #list
     local slots = BuildPreviewSlots(isBuff, cfg, list, listLen, count)
@@ -3150,15 +3253,19 @@ function ns.PAB_BuildPreviewBox(outerFrame, fontPath, startY, kind, id, cfg)
     -- slider tick, only their style/position/count). External Defensives
     -- gets its own cross-class pool (EXTDEF_PREVIEW_SPELLS) instead of the
     -- player's class buffs -- those auras come from OTHER players' classes.
-    local buffPool
+    -- Debuffs get BuildDebuffPreviewPool() (2026-08-03, same shuffle-once
+    -- treatment extended to the debuff side).
+    local pool
     if isBuff then
-        buffPool = (id == "extdef") and ShuffleCopy(EXTDEF_PREVIEW_SPELLS) or BuildBuffPreviewPool()
+        pool = (id == "extdef") and ShuffleCopy(EXTDEF_PREVIEW_SPELLS) or BuildBuffPreviewPool()
+    else
+        pool = BuildDebuffPreviewPool()
     end
     activePreview = {
-        kind = kind, id = id, box = box, icons = icons, fontPath = fontPath, buffPool = buffPool,
+        kind = kind, id = id, box = box, icons = icons, fontPath = fontPath, pool = pool,
         outerFrame = outerFrame, boxTopY = sy, headerBg = headerBg, divider = divider,
     }
-    RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, buffPool)
+    RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
 
     return bottomY
 end
@@ -3203,7 +3310,7 @@ PAB_MaybeRefreshPreview = function(kind, id)
     end
     if activePreview.onResize then activePreview.onResize(bottomY) end
 
-    RenderPreviewIcons(activePreview.box, activePreview.icons, isBuff, cfg, activePreview.fontPath, activePreview.buffPool)
+    RenderPreviewIcons(activePreview.box, activePreview.icons, isBuff, cfg, activePreview.fontPath, activePreview.pool)
 end
 
 -------------------------------------------------------------------------------
