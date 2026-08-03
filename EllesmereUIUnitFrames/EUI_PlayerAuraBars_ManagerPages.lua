@@ -270,7 +270,8 @@ local function BuildAssignedBuffsFields(frame, fontPath, sy, cfg, apply)
     --
     --   Edit Filters          (pinned top action, unchanged)
     --   [ ] All Buffs         (key PAB_ALL_BUFFS_KEY -> cfg.showAllBuffs, never locked)
-    --   [ ] Has Duration      (key PAB_HAS_DURATION_KEY -> cfg.hasDuration, locked while All Buffs is on)
+    --   [ ] Has Duration      (key PAB_HAS_DURATION_KEY -> cfg.hasDuration, NEVER locked either --
+    --                          see below, it narrows All Buffs too, unlike real filters)
     --   ------------------- (isHeader, blank label -- plain divider line)
     --   [ ] <real filters, alphabetical>  (locked while All Buffs is on)
     --
@@ -278,17 +279,28 @@ local function BuildAssignedBuffsFields(frame, fontPath, sy, cfg, apply)
     -- same "nil == on" default). "Has Duration" is new: native
     -- `candidateFilters.maxDuration` (see BuffCandidateExtras in
     -- EllesmereUIUnitFrames_PlayerAuraBars.lua) -- excludes permanent
-    -- (duration=0) buffs from whatever this bar is already showing.
-    -- Neither pseudo-filter is a real ns.PAB_Filters() entry, so neither
-    -- appears in the Filter Editor sidebar.
+    -- (duration=0) buffs from whatever this bar is already showing,
+    -- INCLUDING the All Buffs catch-all itself (BuffCandidateExtras is
+    -- merged onto every active buff group, not just the "spells" one) --
+    -- so unlike real Filters/Extra Spells, it must stay usable while All
+    -- Buffs is on (2026-08-03 fix: it was wrongly locked alongside real
+    -- filters, making it impossible to ever select). Neither pseudo-filter
+    -- is a real ns.PAB_Filters() entry, so neither appears in the Filter
+    -- Editor sidebar.
     --
-    -- Locking uses BuildVisOptsCBDropdown's existing item.lockedFn/
-    -- item.lockedTooltip (greys the row, blocks its click, tooltip on
-    -- hover) -- an already-generic, pre-existing mechanism (used elsewhere
-    -- for rows whose availability depends on another selection), not a
-    -- new addition to the shared widget. Kept for the same reason the old
-    -- toggle blocked the dropdown: while All Buffs is on, every other
-    -- entry here is redundant (All Buffs already shows everything).
+    -- Locking (real filters only) uses BuildVisOptsCBDropdown's existing
+    -- item.lockedFn/item.lockedTooltip (greys the row, blocks its click,
+    -- tooltip on hover) -- an already-generic, pre-existing mechanism (used
+    -- elsewhere for rows whose availability depends on another selection),
+    -- not a new addition to the shared widget. Kept for the same reason the
+    -- old toggle blocked the dropdown: while All Buffs is on, a real
+    -- filter's spell selection is redundant (All Buffs already shows
+    -- everything) -- Has Duration's exclusion is NOT redundant, hence the
+    -- exemption above.
+    --
+    -- Extra Spells (direct SpellIDs) shares this same row (2026-08-03,
+    -- Joel: "Filters [XYZ] | Extra Spells [XYZ]") -- see the RIGHT-region
+    -- block below.
     local ffRow
     ffRow, hh = W:DualRow(frame, sy,
         {
@@ -296,7 +308,11 @@ local function BuildAssignedBuffsFields(frame, fontPath, sy, cfg, apply)
             values = { __placeholder = "..." }, order = { "__placeholder" },
             getValue = function() return "__placeholder" end, setValue = function() end
         },
-        { type = "label", text = "" }
+        {
+            type = "dropdown", text = "Extra Spells",
+            values = { __placeholder = "..." }, order = { "__placeholder" },
+            getValue = function() return "__placeholder" end, setValue = function() end
+        }
     ); sy = sy - hh
 
     local PAB_ALL_BUFFS_KEY, PAB_HAS_DURATION_KEY = "__allBuffs", "__hasDuration"
@@ -314,11 +330,9 @@ local function BuildAssignedBuffsFields(frame, fontPath, sy, cfg, apply)
                     ns.PABMP_ShowFilterEditor()
                 end },
                 { key = PAB_ALL_BUFFS_KEY, label = "All Buffs",
-                  tooltip = "Show every buff. Every other entry here is ignored while this is on." },
+                  tooltip = "Show every buff. Filters/Extra Spells are ignored while this is on." },
                 { key = PAB_HAS_DURATION_KEY, label = "Has Duration",
-                  tooltip = "Only show buffs with a duration (hides permanent buffs).",
-                  lockedFn = LockedWhileAllBuffs,
-                  lockedTooltip = function() return EllesmereUI.DisabledTooltip("All Buffs", "disabled") end },
+                  tooltip = "Only show buffs with a duration (hides permanent buffs)." },
                 { isHeader = true, label = "" },
             }
             for i = 1, #filters do
@@ -340,6 +354,16 @@ local function BuildAssignedBuffsFields(frame, fontPath, sy, cfg, apply)
             function(k, v)
                 if k == PAB_ALL_BUFFS_KEY then
                     cfg.showAllBuffs = v
+                    if v then
+                        -- Turning All Buffs on deselects every real editable
+                        -- filter (2026-08-03, Joel) -- they'd be locked/
+                        -- redundant anyway while it's on, this just keeps
+                        -- the stored selection from lying dormant. Extra
+                        -- Spells and Has Duration are untouched: neither is
+                        -- an "editable filter" and both stay meaningful
+                        -- alongside All Buffs.
+                        cfg.filters = nil
+                    end
                     apply()
                     EllesmereUI:RefreshPage(true)
                     return
@@ -366,23 +390,11 @@ local function BuildAssignedBuffsFields(frame, fontPath, sy, cfg, apply)
         EllesmereUI.RegisterWidgetRefresh(cbRefresh)
     end
 
-    -- "Extra Spells": moved to its own row below Show All Buffs/Filters,
-    -- paired with a blank spacer label (same spacer convention as
-    -- BuildDisplayFields' Icons Per Row).
-    local exRow
-    exRow, hh = W:DualRow(frame, sy,
-        {
-            type = "dropdown", text = "Extra Spells",
-            values = { __placeholder = "..." }, order = { "__placeholder" },
-            getValue = function() return "__placeholder" end, setValue = function() end
-        },
-        { type = "label", text = "" }
-    ); sy = sy - hh
-
-    -- Extra Spells checkbox dropdown (direct cfg.spells only, see doc
-    -- comment above for why there is no "Presets" group here).
+    -- RIGHT: Extra Spells checkbox dropdown (direct cfg.spells only, see
+    -- doc comment above for why there is no "Presets" group here). Shares
+    -- ffRow with Filters (2026-08-03 redesign) instead of its own row.
     do
-        local rgn = exRow._leftRegion
+        local rgn = ffRow._rightRegion
         if rgn._control then rgn._control:Hide() end
         local function HasDirect(id)
             local sp = cfg.spells
