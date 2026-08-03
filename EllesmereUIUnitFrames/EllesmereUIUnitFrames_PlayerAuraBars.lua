@@ -2808,41 +2808,67 @@ local function HasAnyTrue(map)
     return false
 end
 
--- True when this bar has a "catch-all" content source that would actually
--- render SOMETHING beyond its Extra Spells (buffs: All Buffs on or any
--- Filter selected; debuffs: Show All Debuffs on or any Base Filter class
--- selected). Deliberately does NOT consult Extra Spells/ns.PAB_ResolveSpells
--- -- those are handled as their own always-shown real-icon slots in
--- BuildPreviewSlots below, independent of whether a catch-all/filter source
--- exists. Mirrors the exact conditions ApplyLiveConfig/ReloadCustom*BarImpl
--- use to decide whether to declare their catch-all-or-class-token chain
--- groups at all (2026-08-03: debuffs' BuildChain, unlike an earlier session
--- note, DOES fully respect showAllDebuffs+classFilters via includeCatchAll
--- -- re-verified against the current code, not the stale assumption).
+-- True when the FILLER portion (whatever's left after real resolved spells,
+-- see BuildPreviewSlots) should show fake example icons rather than an
+-- empty placeholder. Buffs: ONLY All Buffs justifies fake filler -- it has
+-- no finite spell list, so "more buffs than we can show" is a fair
+-- approximation. Real Filters/Extra Spells DON'T (2026-08-03 fix, Joel:
+-- "nur Icons zeigen, die laut Filter ausgewählt wurden") -- they resolve to
+-- a concrete, finite spell set (ns.PAB_ResolveSpells, used directly in
+-- BuildPreviewSlots below as real icons), so anything beyond that count is
+-- genuinely empty capacity, not more content pretending to exist. Debuffs
+-- have no per-spell resolution for class filters (they're AURA FILTER
+-- STRING/category tokens, not a concrete spell list), so both Show All
+-- Debuffs and any Base Filter class still justify fake filler there --
+-- mirrors the exact condition ApplyLiveConfig/ReloadCustomDebuffBarImpl use
+-- via BuildChain's includeCatchAll (2026-08-03: re-verified against the
+-- current code -- debuffs CAN show truly nothing, contrary to an earlier,
+-- stale session note).
 local function HasFillerSource(isBuff, cfg)
     if isBuff then
-        return cfg.showAllBuffs ~= false or HasAnyTrue(cfg.filters)
+        return cfg.showAllBuffs ~= false
     end
     return cfg.showAllDebuffs ~= false or HasAnyTrue(cfg.classFilters)
 end
 
--- Builds one descriptor per icon slot (length `count`): {kind="extra",
--- spellID=} for a buff bar's real, always-shown Extra Spells (2026-08-03,
--- Joel: Extra Spells should always appear in the preview using their REAL
--- icon, with enough room, instead of being folded into the generic fake
--- pool like everything else) -- these occupy the TRAILING slots, in
--- cfg.spells' own order. Every slot before them is {kind="fake", entry=}
--- (the existing cosmetic example-icon behavior) when HasFillerSource is
--- true, or {kind="placeholder"} when there's genuinely nothing else
--- configured. Debuffs have no Extra Spells concept, so every slot is
--- fake-or-placeholder there.
---
--- Extra Spells occupy the LEADING slots (2026-08-03 fix, Joel: they were
--- trailing, wanted at the front instead), in cfg.spells' own order; filler
--- (fake-or-placeholder) fills whatever's left after them.
+-- Builds one descriptor per icon slot (length `count`). Buffs: the bar's
+-- REAL resolved spells (ns.PAB_ResolveSpells -- Filters' enabled spells +
+-- Extra Spells, deliberately NOT including All Buffs, which has no finite
+-- list) occupy the LEADING slots as {kind="extra", spellID=}, each with its
+-- own real icon rather than the generic fake pool (2026-08-03, Joel: both
+-- "Extra Spells always visible" and "only Filter-selected spells shown,
+-- padded with placeholders" folded into the same mechanism -- a Filter
+-- selection and an Extra Spell are equally "real content" from the
+-- preview's point of view). Whatever's left is {kind="fake", entry=} when
+-- HasFillerSource is true (All Buffs on), or {kind="placeholder"}
+-- otherwise -- e.g. 4 resolved spells with room for 8 icons and All Buffs
+-- off renders 4 real icons + 4 placeholders, never 4 fake ones. Debuffs
+-- have no per-spell resolution, so every slot is fake-or-placeholder there.
+-- ns.PAB_ResolveSpells dedupes by SPELL ID, but a filter's `alts` (rank/
+-- alternate spell IDs for the same visual buff, see PAB_AllPresetSpells'
+-- doc comment) resolve to DIFFERENT spell IDs sharing the SAME icon --
+-- e.g. Mark of the Wild's rank alts would otherwise render as the same
+-- icon twice in a row. 2026-08-03 fix (Joel: "manche Icons werden noch
+-- doppelt gezeigt"): dedupe the preview's own real-spell list by ICON
+-- TEXTURE, keeping the first (lowest spell ID, since ResolveSpells already
+-- sorts numerically) occurrence per distinct icon. Preview-only -- the
+-- real bar never has this problem, since it shows actual active aura
+-- instances on the player, not an enumeration of every possible spell ID.
+local function DedupeByIcon(ids)
+    local seenIcons, out = {}, {}
+    for i = 1, #ids do
+        local icon = PreviewSpellIcon(ids[i])
+        if not seenIcons[icon] then
+            seenIcons[icon] = true
+            out[#out + 1] = ids[i]
+        end
+    end
+    return out
+end
+
 local function BuildPreviewSlots(isBuff, cfg, list, listLen, count)
     local hasFiller = HasFillerSource(isBuff, cfg)
-    local extraIDs = isBuff and cfg.spells or nil
+    local extraIDs = isBuff and DedupeByIcon(ns.PAB_ResolveSpells(cfg)) or nil
     local numExtra = extraIDs and math.min(#extraIDs, count) or 0
     local numFiller = count - numExtra
     local slots = {}
