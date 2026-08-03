@@ -27,6 +27,7 @@ local ERW = EllesmereUI.Lite.NewAddon(ADDON_NAME)
 -- Upvalues
 local floor, min, max, abs = math.floor, math.min, math.max, math.abs
 local sin, cos, atan2, sqrt, pi = math.sin, math.cos, math.atan2, math.sqrt, math.pi
+local log = math.log
 local tonumber, type, select = tonumber, type, select
 local tinsert, tremove = table.insert, table.remove
 local GetCursorInfo, ClearCursor = GetCursorInfo, ClearCursor
@@ -66,11 +67,30 @@ local DB_DEFAULTS = {
         posX        = 0,
         posY        = 0,
 
+        -- Layout. RADIAL steers with the cursor's angle; the two FAN modes are
+        -- a coverflow strip scrubbed with the mouse wheel, which keeps working
+        -- while the right button is held to steer the camera and the cursor is
+        -- therefore frozen.
+        layout      = "RADIAL",      -- RADIAL | FAN_H | FAN_V
+
         -- Geometry
         radius      = 96,
         iconSize    = 44,
         deadZone    = 24,
         scale       = 1.0,
+
+        -- Fan geometry. Both decays are per-step multipliers away from the
+        -- centre, so one number describes the whole falloff. The floors keep
+        -- distant entries legible instead of letting them vanish, and matter
+        -- most on the options preview, which draws the whole ring at once.
+        fanVisible    = 3,           -- entries drawn each side of the centre
+        fanGap        = 10,
+        fanScaleDecay = 0.72,
+        fanAlphaDecay = 0.62,
+        fanMinScale   = 0.30,
+        fanMinAlpha   = 0.12,
+        fanAnimTime   = 0.10,        -- seconds for the strip to settle
+        fanInvert     = false,       -- flip which way a scroll tick travels
 
         -- Appearance
         showLabels    = true,
@@ -373,7 +393,7 @@ end
 ns.SlotFromCursor = SlotFromCursor
 
 -------------------------------------------------------------------------------
---  Ring view  --  the renderer, instanced
+--  Wheel view  --  the renderer, instanced
 --
 --  Two instances exist: the live wheel and the options-page preview. Sharing
 --  one renderer is the whole point of the split -- the preview's wedge order,
@@ -400,14 +420,18 @@ local OPEN_TIMEOUT = 30
 local SEL_BORDER = 2
 local IDLE_BORDER = 1
 
-local function ApplySlotVisual(widget, selected)
+-- zoom overrides the selected-slot magnification. The fan modes pass 1: there
+-- the centre entry is already the largest by construction, and scaling it
+-- further would break the strip's spacing, which is measured in the parent's
+-- unscaled space.
+local function ApplySlotVisual(widget, selected, zoom)
     local p = P()
     local r, g, b = SelectColor()
     local t = selected and SEL_BORDER or IDLE_BORDER
     widget.border:SetPoint("TOPLEFT", widget, "TOPLEFT", -t, t)
     widget.border:SetPoint("BOTTOMRIGHT", widget, "BOTTOMRIGHT", t, -t)
     if selected then
-        widget:SetScale(p and p.selectedZoom or 1.15)
+        widget:SetScale(zoom or (p and p.selectedZoom) or 1.15)
         widget.border:SetVertexColor(r, g, b, 1)
         widget.bg:SetVertexColor(r * 0.22, g * 0.22, b * 0.22, min(1, (p and p.bgAlpha or 0.65) + 0.25))
         widget.icon:SetVertexColor(1, 1, 1)
@@ -464,8 +488,8 @@ local function CreateSlotWidget(view, index)
     return w
 end
 
-local RingView = {}
-local RingViewMeta = { __index = RingView }
+local WheelView = {}
+local WheelViewMeta = { __index = WheelView }
 
 local function DefaultGeom()
     local p = P()
@@ -476,18 +500,281 @@ end
 -- radius, iconSize, deadZone for this view. Called through a plain function
 -- call, never `opts.geom and opts.geom()` -- an `and` expression is truncated
 -- to one value and would drop iconSize and deadZone on the floor.
-function RingView:Geom()
+function WheelView:Geom()
     return (self.opts.geom or DefaultGeom)()
 end
 
-function RingView:GetFrame()     return self.frame end
-function RingView:GetRingIndex() return self.ringIndex end
-function RingView:GetSelection() return self.selection end
-function RingView:SlotCount()    return self.slotCount end
-function RingView:ShownCount()   return self.shownCount end
-function RingView:GetSlotWidget(index) return self.widgets[index] end
+function WheelView:GetFrame()     return self.frame end
+function WheelView:GetRingIndex() return self.ringIndex end
+function WheelView:GetSelection() return self.selection end
+function WheelView:SlotCount()    return self.slotCount end
+function WheelView:ShownCount()   return self.shownCount end
+function WheelView:GetSlotWidget(index) return self.widgets[index] end
 
-function ns.CreateRingView(parent, opts)
+-- RADIAL | FAN_H | FAN_V. A view may pin its own mode (the options preview
+-- pins one so the page can show either without changing what the user plays
+-- with); everything else follows the profile.
+function WheelView:LayoutMode()
+    local p = P()
+    return self.opts.layout or (p and p.layout) or "RADIAL"
+end
+
+function WheelView:IsFan()
+    return self:LayoutMode() ~= "RADIAL"
+end
+
+-------------------------------------------------------------------------------
+--  Fan layout
+--
+--  A coverflow strip: the selected entry sits at the centre at full size, and
+--  its neighbours shrink and fade by a fixed per-step ratio. Selection is
+--  whatever is centred, so there is no hit test at all -- the mouse wheel
+--  scrubs the strip and the centre is the answer.
+--
+--  Distance from the centre is the INTEGRAL of the scale curve plus a constant
+--  gap rather than a sum of discrete steps. Two reasons: the spacing then
+--  derives from the sizes it separates, so the strip tapers instead of leaving
+--  shrunken icons floating in dead space; and it stays defined for fractional
+--  offsets, which is what lets the strip slide smoothly between slots.
+-------------------------------------------------------------------------------
+
+-- Editor floors. The options preview draws the whole ring at once and every
+-- entry in it is a drag target, so the live floors -- which are tuned to let
+-- distant entries fade away -- would leave the ends of a long strip both
+-- unreadable and hard to hit.
+local FAN_EDIT_MIN_SCALE = 0.45
+local FAN_EDIT_MIN_ALPHA = 0.45
+
+-- Signed distance is applied by the caller; k is always >= 0 here.
+--
+-- minScale is not optional cosmetics: scale stops shrinking at the floor, so
+-- spacing has to stop shrinking there too. Integrating the raw curve past that
+-- point keeps closing the gaps under icons that have stopped getting smaller,
+-- and they overlap. Past the knee the strip is therefore evenly spaced at the
+-- floored size.
+local function FanOffset(k, size, gap, decay, minScale)
+    -- decay ~= 1 makes the integral degenerate (and 1 means "no falloff", so
+    -- even spacing is the right answer anyway).
+    if decay >= 0.999 then return (size + gap) * k end
+    local lnd = -log(decay)
+
+    minScale = minScale or 0
+    if minScale <= 0 then return size * (1 - decay ^ k) / lnd + gap * k end
+
+    -- decay ^ knee == minScale, which is what makes the two branches meet.
+    local knee = log(minScale) / log(decay)
+    if k <= knee then return size * (1 - decay ^ k) / lnd + gap * k end
+    return size * (1 - minScale) / lnd + gap * knee
+           + (size * minScale + gap) * (k - knee)
+end
+
+-- Half-length of the editor's strip: centre to the outer edge of the last
+-- entry, at the editor's own floors. Exported so the options preview can fit a
+-- strip to the panel without duplicating any of the constants above.
+function ns.FanReach(count, iconSize, gap, decay)
+    return FanOffset(count, iconSize, gap, decay, FAN_EDIT_MIN_SCALE) + iconSize
+end
+
+-- Position every widget from self.fanVisual, the CONTINUOUS centre. Called
+-- from Layout and from every animation step; it never repaints icons, so it is
+-- cheap enough to run each frame while the strip settles.
+function WheelView:ApplyFanGeometry()
+    local p = P()
+    if not p or not self:IsFan() then return end
+
+    local shown = self.shownCount
+    if shown < 1 then return end
+
+    local _, iconSize = self:Geom()
+    local gap    = p.fanGap or 10
+    -- Clamped away from 0: FanOffset takes log(decay), which a saved value of
+    -- zero would turn into a division by negative infinity.
+    local decay  = min(1, max(0.05, p.fanScaleDecay or 0.72))
+    local aDecay = min(1, max(0.05, p.fanAlphaDecay or 0.62))
+    local minS   = p.fanMinScale or 0.30
+    local minA   = p.fanMinAlpha or 0.12
+    if self.opts.interactive then
+        minS = max(minS, FAN_EDIT_MIN_SCALE)
+        minA = max(minA, FAN_EDIT_MIN_ALPHA)
+    end
+    local horiz  = self:LayoutMode() == "FAN_H"
+    -- An interactive view draws the whole ring: the editor cannot let a slot
+    -- be unreachable, so nothing is culled there and the floors carry it.
+    local window = self.opts.interactive and shown or (p.fanVisible or 3)
+
+    local frame  = self.frame
+    local center = self.fanVisual or 1
+    local half   = shown / 2
+
+    for i = 1, shown do
+        local w = self.widgets[i]
+        -- Shortest cyclic path, so wrapping past the end slides forward
+        -- instead of rewinding the whole strip.
+        local d = (i - center) % shown
+        if d > half then d = d - shown end
+
+        local k = abs(d)
+        if k > window + 0.5 then
+            w:Hide()
+        else
+            local s   = max(minS, decay ^ k)
+            local off = FanOffset(k, iconSize, gap, decay, minS)
+            if d < 0 then off = -off end
+
+            w:SetAlpha(max(minA, aDecay ^ k))
+            -- Depth is size, not scale: SetPoint offsets are read in the
+            -- widget's own scaled space, so scaling here would silently
+            -- multiply the spacing computed above.
+            w:SetSize(iconSize * s, iconSize * s)
+            w:ClearAllPoints()
+            if horiz then
+                w:SetPoint("CENTER", frame, "CENTER", off, 0)
+            else
+                w:SetPoint("CENTER", frame, "CENTER", 0, -off)
+            end
+            w:Show()
+        end
+    end
+end
+
+-- Centre the strip on a slot with no animation. The options preview uses this
+-- to follow the entry the user has clicked.
+function WheelView:SetFanCenter(index)
+    if not index or self.shownCount < 1 then return end
+    self.fanTarget = index
+    self.fanVisual = index
+    self:ApplyFanGeometry()
+    self:SetSelection(index)
+end
+
+-- One scroll tick. delta is +1 toward later slots, -1 toward earlier ones.
+function WheelView:FanScroll(delta)
+    local shown = self.shownCount
+    if shown < 1 then return end
+
+    if not self.fanTarget then
+        -- The strip opens with NOTHING selected, and the first tick is what
+        -- enters it. That preserves the radial's contract exactly: release
+        -- without steering cancels. Wrapping afterwards cycles real entries
+        -- only, so the cancel state is never scrolled back into.
+        --
+        -- fanVisual is left alone: it already sits on entry 1 from Open, so a
+        -- forward tick just lights that entry up rather than shunting the
+        -- strip a step and sliding it back.
+        -- 0, not `shown`, for a backward first tick: fanTarget is an unbounded
+        -- accumulator that the animation follows literally, and 0 is one step
+        -- back from entry 1, where `shown` would be a full lap forward. The
+        -- selection modulo below maps 0 onto the last entry either way.
+        self.fanTarget = (delta > 0) and 1 or 0
+    else
+        self.fanTarget = self.fanTarget + delta
+    end
+end
+
+-- Advance the settle animation and publish the centred entry as the selection.
+-- The LOGICAL index moves the instant the tick arrives; only the geometry is
+-- interpolated. A release mid-animation therefore always fires what the user
+-- last scrolled to, never whatever the strip happens to be sliding past.
+function WheelView:AdvanceFan(elapsed)
+    local shown = self.shownCount
+    if shown < 1 then
+        self:SetSelection(nil)
+        return
+    end
+
+    local target = self.fanTarget or 1
+    local cur    = self.fanVisual or target
+    if cur ~= target then
+        local p = P()
+        local t = (p and p.fanAnimTime) or 0.10
+        if t <= 0 then
+            cur = target
+        else
+            cur = cur + (target - cur) * min(1, (elapsed or 0) / t)
+            -- Snap the tail: an asymptote would keep this view dirty forever.
+            if abs(target - cur) < 0.001 then cur = target end
+        end
+        self.fanVisual = cur
+        self:ApplyFanGeometry()
+    end
+
+    if self.fanTarget then
+        self:SetSelection(((self.fanTarget - 1) % shown) + 1)
+    else
+        self:SetSelection(nil)
+    end
+end
+
+-- This view's centre as a delta from UIParent's centre, in UIParent-logical
+-- units. Both sides are converted through their effective scales because the
+-- strip carries the user's own Scale setting while UIParent carries the game's.
+function WheelView:ScreenOffset()
+    local frame = self.frame
+    local cx, cy = frame:GetCenter()
+    if not cx then return 0, 0 end
+    local ux, uy = UIParent:GetCenter()
+    if not ux then return 0, 0 end
+
+    local k = frame:GetEffectiveScale() / UIParent:GetEffectiveScale()
+    return cx * k - ux, cy * k - uy
+end
+
+-- Hang the caption on the side that faces the middle of the screen, so a strip
+-- opened near an edge writes inward -- where there is room -- instead of off
+-- the edge. Justification follows, always hugging the icon it belongs to: the
+-- text grows away from the strip, never back across it.
+--
+-- Called after the frame is POSITIONED, not from Layout alone: in cursor mode
+-- the strip lands somewhere new on every open, so the quadrant is only known
+-- once PositionWheel has run.
+function WheelView:PlaceHubText()
+    local hub  = self.hub
+    local mode = self:LayoutMode()
+    local _, iconSize = self:Geom()
+
+    hub.text:ClearAllPoints()
+    hub.hint:ClearAllPoints()
+
+    if mode == "RADIAL" then
+        hub.text:SetJustifyH("CENTER")
+        hub.text:SetPoint("CENTER", hub, "CENTER", 0, 0)
+        hub.hint:SetPoint("TOP", hub.text, "BOTTOM", 0, -2)
+        return
+    end
+
+    local pad = iconSize * 0.5 + 14
+    -- The editor is pinned rather than quadrant-tested: its block sits wherever
+    -- the options page happens to be scrolled to, and a caption that jumped
+    -- sides as the user scrolled would read as a glitch.
+    local dx, dy = 0, 0
+    if not self.opts.interactive then dx, dy = self:ScreenOffset() end
+
+    if mode == "FAN_H" then
+        -- Below the middle of the screen -> caption above the strip.
+        hub.text:SetJustifyH("CENTER")
+        if dy < 0 then
+            hub.text:SetPoint("BOTTOM", hub, "CENTER", 0, pad)
+            hub.hint:SetPoint("BOTTOM", hub.text, "TOP", 0, 2)
+        else
+            hub.text:SetPoint("TOP", hub, "CENTER", 0, -pad)
+            hub.hint:SetPoint("TOP", hub.text, "BOTTOM", 0, -2)
+        end
+    else
+        -- Right of the middle of the screen -> caption to the LEFT, right
+        -- justified so its last character sits against the icon.
+        if dx > 0 then
+            hub.text:SetJustifyH("RIGHT")
+            hub.text:SetPoint("RIGHT", hub, "CENTER", -pad, 0)
+            hub.hint:SetPoint("TOPRIGHT", hub.text, "BOTTOMRIGHT", 0, -2)
+        else
+            hub.text:SetJustifyH("LEFT")
+            hub.text:SetPoint("LEFT", hub, "CENTER", pad, 0)
+            hub.hint:SetPoint("TOPLEFT", hub.text, "BOTTOMLEFT", 0, -2)
+        end
+    end
+end
+
+function ns.CreateWheelView(parent, opts)
     local view = setmetatable({
         opts      = opts or {},
         widgets   = {},
@@ -497,7 +784,7 @@ function ns.CreateRingView(parent, opts)
         -- Only the live wheel arms the movement gate (see HitTest); anything
         -- else is steered from the moment it exists.
         _steered  = true,
-    }, RingViewMeta)
+    }, WheelViewMeta)
 
     local frame = CreateFrame("Frame", view.opts.frameName, parent)
     frame:SetSize(1, 1)
@@ -542,7 +829,7 @@ function ns.CreateRingView(parent, opts)
 end
 
 -- Lay the ring out and paint every widget from the stored slot data.
-function RingView:Layout(ringIndex)
+function WheelView:Layout(ringIndex)
     -- Clamped because a view's ring index outlives a decrease of ringCount, and
     -- EnsureRing would otherwise re-create a ring the user can no longer bind.
     ringIndex = min(RingCount(), max(1, ringIndex or self.ringIndex or 1))
@@ -561,14 +848,30 @@ function RingView:Layout(ringIndex)
 
     local step = shown > 0 and (TWO_PI / shown) or 0
     local radius, iconSize = self:Geom()
+    local fan = self:IsFan()
 
     local frame = self.frame
     -- p.scale is the user's live sizing; a fitted preview supplies its own
     -- geometry instead and must not be scaled a second time.
     if not opts.interactive then frame:SetScale(p.scale or 1) end
-    -- Sized generously so labels and the selected-slot zoom never clip.
-    local span = (radius + iconSize) * 2 + 40
-    frame:SetSize(span, span)
+    if fan then
+        local window = opts.interactive and shown or (p.fanVisible or 3)
+        local reach  = FanOffset(window, iconSize, p.fanGap or 10,
+                                 p.fanScaleDecay or 0.72,
+                                 opts.interactive and FAN_EDIT_MIN_SCALE
+                                                   or (p.fanMinScale or 0.30)) + iconSize
+        local along  = reach * 2 + 40
+        local across = iconSize + 60      -- room for the hub caption
+        if self:LayoutMode() == "FAN_H" then
+            frame:SetSize(along, across)
+        else
+            frame:SetSize(across, along)
+        end
+    else
+        -- Sized generously so labels and the selected-slot zoom never clip.
+        local span = (radius + iconSize) * 2 + 40
+        frame:SetSize(span, span)
+    end
 
     local showLabels = opts.showLabels
     if showLabels == nil then showLabels = p.showLabels end
@@ -578,10 +881,15 @@ function RingView:Layout(ringIndex)
     for i = 1, MAX_SLOTS do
         local w = self.widgets[i]
         if i <= shown then
-            local a = (i - 1) * step
-            w:ClearAllPoints()
-            w:SetPoint("CENTER", frame, "CENTER", radius * sin(a), radius * cos(a))
-            w:SetSize(iconSize, iconSize)
+            -- Switching modes leaves the other mode's depth cues behind.
+            w:SetAlpha(1)
+            w:SetScale(1)
+            if not fan then
+                local a = (i - 1) * step
+                w:ClearAllPoints()
+                w:SetPoint("CENTER", frame, "CENTER", radius * sin(a), radius * cos(a))
+                w:SetSize(iconSize, iconSize)
+            end
             w:EnableMouse(opts.interactive == true)
 
             local slot = ring.slots[i]
@@ -593,8 +901,12 @@ function RingView:Layout(ringIndex)
             w.icon:SetTexture(icon or QUESTION_MARK)
             w.icon:SetShown(not placeholder)
             w.plus:SetShown(placeholder)
-            w.label:SetText((showLabels and name) or "")
-            w.label:SetShown((showLabels and name ~= nil) or false)
+            -- The fan never labels its entries: at strip spacing the captions
+            -- of neighbouring icons collide, and the centre entry -- the only
+            -- one that can be fired -- is already named on the hub.
+            local wantLabel = showLabels and not fan and name ~= nil
+            w.label:SetText((wantLabel and name) or "")
+            w.label:SetShown(wantLabel or false)
 
             if showCooldowns and slot then
                 local start, duration, enable = SlotCooldown(slot)
@@ -621,8 +933,15 @@ function RingView:Layout(ringIndex)
     -- stale by construction; callers that want it back re-apply it afterwards.
     self.selection = nil
 
+    if fan then self:ApplyFanGeometry() end
+
     local hub = self.hub
     hub.needle:SetShown(false)
+    -- In fan modes the centre of the frame is occupied by the selected entry,
+    -- so the hub's disc would sit under it and its caption on top of it. Drop
+    -- the disc and hang the caption clear of the strip instead.
+    hub.dot:SetShown(not fan)
+    self:PlaceHubText()
     hub.text:SetText(ring.name or ("Ring " .. ringIndex))
     hub.text:SetTextColor(0.8, 0.8, 0.8)
 
@@ -640,7 +959,7 @@ end
 
 -- Paint selection state. Called from OnUpdate whenever the hovered slot
 -- changes, and once from Open so the initial state is drawn.
-function RingView:SetSelection(index)
+function WheelView:SetSelection(index)
     if self.selection == index then return end
 
     local widgets = self.widgets
@@ -654,7 +973,7 @@ function RingView:SetSelection(index)
 
     if index then
         local w = widgets[index]
-        ApplySlotVisual(w, true)
+        ApplySlotVisual(w, true, self:IsFan() and 1 or nil)
 
         local ring = EnsureRing(self.ringIndex)
         local slot = ring and ring.slots[index]
@@ -663,7 +982,8 @@ function RingView:SetSelection(index)
         hub.text:SetText(name or (w.isPlaceholder and "Add Action") or ("Slot " .. index))
         hub.text:SetTextColor(r, g, b)
 
-        if p and p.showNeedle then
+        -- The needle points along a wedge angle; the fan has no angles.
+        if p and p.showNeedle and not self:IsFan() then
             local radius, iconSize, deadZone = self:Geom()
             local a = (index - 1) * (TWO_PI / self.shownCount)
             local mid = (deadZone + radius - iconSize * 0.5) * 0.5
@@ -683,7 +1003,7 @@ end
 
 -- Baseline for the movement gate in HitTest. Read AFTER the frame is placed so
 -- the scale used here is the one the hit test will use.
-function RingView:ArmMovementGate()
+function WheelView:ArmMovementGate()
     local es = self.frame:GetEffectiveScale()
     local x, y = GetCursorPosition()
     self._gateX, self._gateY = x / es, y / es
@@ -695,7 +1015,7 @@ end
 -- "open and release without moving" a cancel in FIXED-POSITION mode, where the
 -- cursor starts at some arbitrary point on the ring rather than at the center
 -- and would otherwise have a slot pre-selected the instant the wheel opens.
-function RingView:HitTest()
+function WheelView:HitTest()
     local shown = self.shownCount
     if shown < 1 then return nil end
     local _, _, deadZone = self:Geom()
@@ -731,19 +1051,57 @@ end
 -------------------------------------------------------------------------------
 local function CreateWheel()
     if liveView then return liveView end
-    liveView = ns.CreateRingView(UIParent, { frameName = "EUIRadialWheelFrame" })
+    liveView = ns.CreateWheelView(UIParent, { frameName = "EUIRadialWheelFrame" })
     local f = liveView:GetFrame()
     f:SetFrameStrata(LIVE_STRATA)
     f:Hide()
     return liveView
 end
 
-local function OnWheelUpdate()
+-- Scroll capture. The wheel is camera zoom by default, so the fan modes have
+-- to take it while the strip is open. A frame only sees OnMouseWheel when the
+-- cursor is over it, and in CURSOR mode the strip is drawn AT the cursor -- but
+-- the cursor can also be parked anywhere in SCREEN mode, so the catcher is
+-- full-screen rather than the strip itself.
+--
+-- An override binding on MOUSEWHEELUP/DOWN would be the other way to do this,
+-- and is not an option: those are protected and could not be claimed at open
+-- time in combat, which is exactly when the wheel gets used.
+--
+-- Mouse WHEEL only, never EnableMouse: a full-screen mouse-enabled frame would
+-- sit between the player and the world, and would swallow the very button
+-- presses the secure activation path depends on.
+local scrollCatcher
+local function EnsureScrollCatcher()
+    if scrollCatcher then return scrollCatcher end
+    local f = CreateFrame("Frame", "EUIRadialWheelScrollCatcher", UIParent)
+    f:SetAllPoints(UIParent)
+    f:SetFrameStrata(LIVE_STRATA)
+    f:SetFrameLevel(1)
+    f:EnableMouseWheel(true)
+    f:SetScript("OnMouseWheel", function(_, delta)
+        if not liveView or not liveView:IsFan() then return end
+        local p = P()
+        if p and p.fanInvert then delta = -delta end
+        -- Scrolling up travels toward earlier entries, which is the direction
+        -- they are drawn in for FAN_V and the natural reading order for FAN_H.
+        liveView:FanScroll(delta > 0 and -1 or 1)
+    end)
+    f:Hide()
+    scrollCatcher = f
+    return f
+end
+
+local function OnWheelUpdate(_, elapsed)
     if GetTime() - openedAt > OPEN_TIMEOUT then
         ns.Close()
         return
     end
-    liveView:SetSelection(liveView:HitTest())
+    if liveView:IsFan() then
+        liveView:AdvanceFan(elapsed)
+    else
+        liveView:SetSelection(liveView:HitTest())
+    end
 end
 
 -- forceFixed: ignore CURSOR mode and place the wheel at its fixed position.
@@ -772,10 +1130,26 @@ function ns.Open(ringIndex)
     CreateWheel()
     liveView:Layout(ringIndex)
     PositionWheel()
+    -- After PositionWheel, never before: which side the caption hangs on is
+    -- decided by where on the screen this open actually landed, and in cursor
+    -- mode that is different every time.
+    liveView:PlaceHubText()
 
     openedAt = GetTime()
-    liveView:ArmMovementGate()
-    liveView:SetSelection(liveView:HitTest())
+
+    if liveView:IsFan() then
+        -- Open with no selection at all: the first scroll tick is what enters
+        -- the strip, so releasing without scrolling cancels, exactly as
+        -- releasing inside the dead zone does in RADIAL.
+        liveView.fanTarget = nil
+        liveView.fanVisual = 1
+        liveView:ApplyFanGeometry()
+        liveView:SetSelection(nil)
+        EnsureScrollCatcher():Show()
+    else
+        liveView:ArmMovementGate()
+        liveView:SetSelection(liveView:HitTest())
+    end
 
     local wheel = liveView:GetFrame()
     wheel:SetScript("OnUpdate", OnWheelUpdate)
@@ -788,6 +1162,8 @@ function ns.Close()
     if not wheel:IsShown() then return end
     wheel:SetScript("OnUpdate", nil)
     wheel:Hide()
+    if scrollCatcher then scrollCatcher:Hide() end
+    liveView.fanTarget = nil
     liveView:SetSelection(nil)
 end
 

@@ -283,7 +283,7 @@ initFrame:SetScript("OnEvent", function(self)
     ---------------------------------------------------------------------------
     --  Ring preview
     --
-    --  The live wheel's own renderer (ns.CreateRingView), scaled down to fit the
+    --  The live wheel's own renderer (ns.CreateWheelView), scaled down to fit the
     --  panel and made interactive: drop an action on the trailing "+" to append
     --  it, drag icons between wedges to reorder, right-click to remove. Because
     --  it is the same renderer, the arrangement here is literally the one the
@@ -295,8 +295,25 @@ initFrame:SetScript("OnEvent", function(self)
     --  re-parented and re-anchored on every build.
     ---------------------------------------------------------------------------
     local PREVIEW_H    = 280   -- height the block claims in the page layout
-    local PREVIEW_SPAN = 110   -- largest radius + iconSize the block can hold
+    -- Largest radius + iconSize the block can hold. Half of PREVIEW_H less a
+    -- margin: the preview turns slot labels off, so the ring only has to clear
+    -- the block's own edges rather than leave room for captions under it.
+    local PREVIEW_SPAN = 124
     local previewBlock, previewView
+
+    -- Half-extent the block can give a fan, along the axis that fan runs on.
+    -- A horizontal strip gets the block's width, which is the panel's content
+    -- width and much larger than any radius; a vertical one is bounded by
+    -- PREVIEW_H and is the tighter of the two by a wide margin.
+    local function FanSpan(layout)
+        if layout == "FAN_V" then return PREVIEW_H * 0.5 - 24 end
+        local w = previewBlock and previewBlock:GetWidth() or 0
+        -- The block is anchored on both sides, so its width is unresolved on
+        -- the very first build. Layout re-runs on every Refresh, so a fallback
+        -- here corrects itself rather than sticking.
+        if w < 100 then w = 460 end
+        return w * 0.5 - 24
+    end
 
     -- Fit, don't crop: the live radius reaches 220, which is wider than the
     -- panel. Scaling radius, icon and dead zone by one factor keeps the
@@ -305,7 +322,26 @@ initFrame:SetScript("OnEvent", function(self)
         local radius   = Cfg("radius") or 96
         local iconSize = Cfg("iconSize") or 44
         local deadZone = Cfg("deadZone") or 24
-        local k = math.min(1, PREVIEW_SPAN / (radius + iconSize))
+        local layout = Cfg("layout") or "RADIAL"
+        local k
+        if layout ~= "RADIAL" then
+            -- A fan's extent is the length of the strip, not the radius of a
+            -- ring, so that is what has to be fitted. The preview draws EVERY
+            -- slot -- an editor cannot leave one unreachable -- plus the
+            -- trailing "+", and nothing is culled, so the reach is measured
+            -- over that whole count.
+            local ring = Ring(editRing)
+            local n = (ring and #ring.slots or 0) + 1
+            local reach = ns.FanReach(n, iconSize, Cfg("fanGap") or 10,
+                                      Cfg("fanScaleDecay") or 0.72)
+            -- Against the budget of the axis the strip actually runs along, NOT
+            -- PREVIEW_SPAN: that is a RADIUS budget, and measuring a strip's
+            -- half-LENGTH against it shrank the icons to about a third of the
+            -- size the block had room for.
+            k = math.min(1, FanSpan(layout) / reach)
+        else
+            k = math.min(1, PREVIEW_SPAN / (radius + iconSize))
+        end
         return radius * k, iconSize * k, deadZone * k
     end
 
@@ -982,6 +1018,37 @@ initFrame:SetScript("OnEvent", function(self)
         ShowPickerCategories()
     end
 
+    -- Which slot the cursor is over, for the reorder drag. The live wheel's own
+    -- HitTest answers this from the angle to the hub, which only means anything
+    -- on a circle -- in a fan it would report a wedge the user is nowhere near.
+    -- Nearest widget CENTRE is the layout-agnostic form of the same question,
+    -- and it also follows the strip while it slides.
+    local function PreviewDropTarget()
+        if not previewView:IsFan() then return previewView:HitTest() end
+
+        local shown = previewView:ShownCount()
+        if shown < 1 then return nil end
+
+        local mx, my = GetCursorPosition()
+        local best, bestDist
+        for i = 1, shown do
+            local w = previewView:GetSlotWidget(i)
+            -- Not folded into an `and`: that truncates to one value and would
+            -- drop cy on the floor.
+            local cx, cy
+            if w:IsShown() then cx, cy = w:GetCenter() end
+            if cx then
+                -- GetCenter is in the widget's own scaled space; the cursor is
+                -- in screen units, so the scale has to be applied to compare.
+                local es = w:GetEffectiveScale()
+                local dx, dy = mx - cx * es, my - cy * es
+                local d = dx * dx + dy * dy
+                if not bestDist or d < bestDist then best, bestDist = i, d end
+            end
+        end
+        return best
+    end
+
     local function EndPreviewDrag()
         if dragFrom then
             local w = previewView:GetSlotWidget(dragFrom)
@@ -1069,7 +1136,7 @@ initFrame:SetScript("OnEvent", function(self)
             bg:SetAllPoints()
             bg:SetColorTexture(0, 0, 0, 0.18)
 
-            previewView = ns.CreateRingView(previewBlock, {
+            previewView = ns.CreateWheelView(previewBlock, {
                 interactive = true,
                 geom        = PreviewGeom,
                 -- Labels would collide at the fitted scale, and the hub plus the
@@ -1103,10 +1170,9 @@ initFrame:SetScript("OnEvent", function(self)
                     w:SetFrameLevel(previewView:GetFrame():GetFrameLevel() + 20)
                     GameTooltip:Hide()
                 end
-                -- The wedge under the cursor, found with the same hit test the
-                -- live wheel steers with. The "+" wedge resolves to the last
-                -- real slot, so dropping there means "move to the end".
-                local hit = previewView:HitTest()
+                -- The wedge under the cursor. The "+" wedge resolves to the
+                -- last real slot, so dropping there means "move to the end".
+                local hit = PreviewDropTarget()
                 -- n can reach 0 mid-drag -- right-click removes while the left
                 -- button is still held -- and min(hit, 0) is 0, which is TRUTHY
                 -- in Lua and would index widget 0.
@@ -1158,6 +1224,10 @@ initFrame:SetScript("OnEvent", function(self)
         previewBlock._dim:SetShown(Cfg("enabled") == false)
         previewBlock:Show()
         previewView:Layout(editRing)
+        -- A freshly laid out strip sits at its default centre, which is a
+        -- position between entries rather than on one. Park it on the first
+        -- slot so the preview opens looking like the strip in play does.
+        if previewView:IsFan() then previewView:SetFanCenter(1) end
 
         return PREVIEW_H
     end
@@ -1179,6 +1249,10 @@ initFrame:SetScript("OnEvent", function(self)
 
         local centerValues = { CURSOR = "At Cursor", SCREEN = "Fixed Position" }
         local centerOrder  = { "CURSOR", "SCREEN" }
+
+        local layoutValues = { RADIAL = "Radial Wheel", FAN_H = "Fan (Horizontal)",
+                               FAN_V = "Fan (Vertical)" }
+        local layoutOrder  = { "RADIAL", "FAN_H", "FAN_V" }
 
         -- ── GENERAL ──────────────────────────────────────────────────────
         _, h = W:SectionHeader(parent, "GENERAL", y); y = y - h
@@ -1250,6 +1324,30 @@ initFrame:SetScript("OnEvent", function(self)
         local fixedOnly = function()
             return Disabled() or (Cfg("centerMode") or "CURSOR") ~= "SCREEN"
         end
+
+        -- A fan has no ring, no angle and no centre to steer away from, so the
+        -- settings that describe those are dead in it -- and the radial has no
+        -- strip, so the fan's own settings are dead in turn. Both sets stay
+        -- visible and disabled rather than disappearing: a control that
+        -- vanishes when a dropdown moves reads as a bug.
+        local radialOnly = function()
+            return Disabled() or (Cfg("layout") or "RADIAL") ~= "RADIAL"
+        end
+        local fanOnly = function()
+            return Disabled() or (Cfg("layout") or "RADIAL") == "RADIAL"
+        end
+
+        row, h = W:DualRow(parent, y,
+            { type="dropdown", text="Layout",
+              disabled=Disabled, disabledTooltip="the module",
+              values=layoutValues, order=layoutOrder,
+              getValue=function() return Cfg("layout") or "RADIAL" end,
+              -- Rebuild, not Refresh: this is what decides which of the two
+              -- sets of controls below is live.
+              setValue=function(v) Set("layout", v); RebuildPage() end },
+            { type="spacer" })
+        y = y - h
+
         row, h = W:DropdownWithOffsets(parent, y,
             { type="dropdown", text="Opens",
               disabled=Disabled, disabledTooltip="the module",
@@ -1272,7 +1370,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- "Ring Radius" is truncated, so the setting stops being readable.
         row, h = W:DualRow(parent, y,
             { type="slider", text="Ring Radius",
-              disabled=Disabled, disabledTooltip="the module",
+              disabled=radialOnly, disabledTooltip="the Radial Wheel layout",
               min=50, max=220, step=1,
               getValue=function() return Cfg("radius") or 96 end,
               setValue=function(v) Set("radius", v); Refresh() end },
@@ -1287,7 +1385,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- Floor of 8, not 0: the dead zone is what makes "release without
             -- steering" a cancel, and at 0 there is no cancel region at all.
             { type="slider", text="Dead Zone",
-              disabled=Disabled, disabledTooltip="the module",
+              disabled=radialOnly, disabledTooltip="the Radial Wheel layout",
               min=8, max=80, step=1,
               getValue=function() return Cfg("deadZone") or 24 end,
               setValue=function(v) Set("deadZone", v); Refresh() end },
@@ -1298,12 +1396,61 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v) Set("scale", v); Refresh() end })
         y = y - h
 
+        -- ── FAN LAYOUT ───────────────────────────────────────────────────
+        _, h = W:SectionHeader(parent, "FAN LAYOUT", y); y = y - h
+
+        row, h = W:DualRow(parent, y,
+            -- How much of the strip is drawn at all. Neighbours past this many
+            -- steps are hidden rather than shrunk further.
+            { type="slider", text="Visible Each Side",
+              disabled=fanOnly, disabledTooltip="a Fan layout",
+              min=1, max=6, step=1,
+              getValue=function() return Cfg("fanVisible") or 3 end,
+              setValue=function(v) Set("fanVisible", v); Refresh() end },
+            { type="slider", text="Entry Gap",
+              disabled=fanOnly, disabledTooltip="a Fan layout",
+              min=0, max=40, step=1,
+              getValue=function() return Cfg("fanGap") or 10 end,
+              setValue=function(v) Set("fanGap", v); Refresh() end })
+        y = y - h
+
+        -- The two falloffs are per-STEP ratios, not absolutes: 0.72 means each
+        -- entry out from the centre is 72% of the one before it.
+        row, h = W:DualRow(parent, y,
+            { type="slider", text="Size Falloff",
+              disabled=fanOnly, disabledTooltip="a Fan layout",
+              min=0.40, max=0.95, step=0.01,
+              getValue=function() return Cfg("fanScaleDecay") or 0.72 end,
+              setValue=function(v) Set("fanScaleDecay", v); Refresh() end },
+            { type="slider", text="Fade Falloff",
+              disabled=fanOnly, disabledTooltip="a Fan layout",
+              min=0.20, max=0.95, step=0.01,
+              getValue=function() return Cfg("fanAlphaDecay") or 0.62 end,
+              setValue=function(v) Set("fanAlphaDecay", v); Refresh() end })
+        y = y - h
+
+        row, h = W:DualRow(parent, y,
+            -- How long the strip takes to slide to the entry that was scrolled
+            -- to. 0 snaps; the selection itself moves on the tick either way.
+            { type="slider", text="Settle Time",
+              disabled=fanOnly, disabledTooltip="a Fan layout",
+              min=0, max=0.40, step=0.01,
+              getValue=function() return Cfg("fanAnimTime") or 0.10 end,
+              setValue=function(v) Set("fanAnimTime", v); Refresh() end },
+            { type="toggle", text="Invert Scroll",
+              disabled=fanOnly, disabledTooltip="a Fan layout",
+              getValue=function() return Cfg("fanInvert") == true end,
+              setValue=function(v) Set("fanInvert", v); Refresh() end })
+        y = y - h
+
         -- ── APPEARANCE ───────────────────────────────────────────────────
         _, h = W:SectionHeader(parent, "APPEARANCE", y); y = y - h
 
         row, h = W:DualRow(parent, y,
+            -- Radial only, and not merely because it would look cramped: the
+            -- fan never draws per-slot labels at all.
             { type="toggle", text="Show Slot Labels",
-              disabled=Disabled, disabledTooltip="the module",
+              disabled=radialOnly, disabledTooltip="the Radial Wheel layout",
               getValue=function() return Cfg("showLabels") ~= false end,
               setValue=function(v) Set("showLabels", v); Refresh() end },
             { type="toggle", text="Show Center Text",
@@ -1314,7 +1461,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         row, h = W:DualRow(parent, y,
             { type="toggle", text="Show Direction Needle",
-              disabled=Disabled, disabledTooltip="the module",
+              disabled=radialOnly, disabledTooltip="the Radial Wheel layout",
               getValue=function() return Cfg("showNeedle") ~= false end,
               setValue=function(v) Set("showNeedle", v); Refresh() end },
             { type="toggle", text="Show Cooldowns",
