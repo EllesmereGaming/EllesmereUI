@@ -3038,18 +3038,50 @@ local function BuildPreviewSlots(isBuff, cfg, list, listLen, count)
     -- real slots, so skipping them left the sort controls looking dead.
     -- SortPreviewList already handles plain buff spellID arrays (the shape
     -- extraIDs is in), same as the fake buff pool.
-    local extraIDs = isBuff and SortPreviewList(DedupeByIcon(BuildMixedRealSpells(cfg)), isBuff, cfg) or nil
-    local numExtra = extraIDs and math.min(#extraIDs, count) or 0
+    --
+    -- SELECT before SORT (2026-08-03 fix, Joel: changing Sort Method/
+    -- Direction shouldn't "remix" which icons show, only their order):
+    -- with more resolved+deduped spells than icon slots, sorting the FULL
+    -- list first and truncating afterward meant a different sort put a
+    -- different subset into the surviving first `count` -- i.e. changing
+    -- sort could swap which spells appear, not just their order. Truncate
+    -- to `count` on the stable, sort-independent mixed order FIRST, then
+    -- sort only that fixed selection for display order.
+    local mixed = isBuff and DedupeByIcon(BuildMixedRealSpells(cfg)) or nil
+    local extraIDs
+    if mixed then
+        local numSelected = math.min(#mixed, count)
+        local selected = {}
+        for i = 1, numSelected do selected[i] = mixed[i] end
+        extraIDs = SortPreviewList(selected, isBuff, cfg)
+    end
+    local numExtra = extraIDs and #extraIDs or 0
     local numFiller = count - numExtra
     local slots = {}
     for i = 1, numExtra do
         slots[i] = { kind = "extra", spellID = extraIDs[i] }
     end
-    for i = 1, numFiller do
+    if numFiller > 0 then
         if hasFiller then
-            slots[numExtra + i] = { kind = "fake", entry = list[((i - 1) % listLen) + 1] }
+            -- Same select-before-sort fix as the real extra icons above
+            -- (2026-08-03, Joel: applies to All Buffs' fake filler too):
+            -- select the fixed filler slice from `list` (stable, shuffled
+            -- once per box build, NOT sorted) first, then sort only that
+            -- selection -- so Sort Method/Direction reorders the SAME fake
+            -- icons already showing instead of pulling different ones in
+            -- from elsewhere in the pool.
+            local fillerSelected = {}
+            for i = 1, numFiller do
+                fillerSelected[i] = list[((i - 1) % listLen) + 1]
+            end
+            fillerSelected = SortPreviewList(fillerSelected, isBuff, cfg)
+            for i = 1, numFiller do
+                slots[numExtra + i] = { kind = "fake", entry = fillerSelected[i] }
+            end
         else
-            slots[numExtra + i] = { kind = "placeholder" }
+            for i = 1, numFiller do
+                slots[numExtra + i] = { kind = "placeholder" }
+            end
         end
     end
     return slots
@@ -3079,8 +3111,15 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
     local iconSize = cfg.iconSize or 32
     local cols = math.max(1, cfg.iconsPerRow or (isBuff and 11 or 8))
     local count = grid.effectiveMax
+    -- NOT sorted here anymore (2026-08-03 fix, same "select before sort"
+    -- reasoning as the real extra icons below): `list` is much larger than
+    -- `count` (the fake pools are 134/66 entries), so sorting the WHOLE
+    -- pool before BuildPreviewSlots selects its filler slice would let a
+    -- sort change pull a DIFFERENT subset of fake icons into view, not
+    -- just reorder the ones already showing. BuildPreviewSlots now selects
+    -- the fixed filler slice from this stable, shuffled-once-per-box-build
+    -- order FIRST, then sorts only that selection.
     local list = (pool and #pool > 0 and pool) or (isBuff and PREVIEW_BUFF_SPELLS or PREVIEW_DEBUFF_SPELLS)
-    list = SortPreviewList(list, isBuff, cfg)
     local listLen = #list
     local slots = BuildPreviewSlots(isBuff, cfg, list, listLen, count)
 
