@@ -14652,12 +14652,122 @@ _blizzMovableLogoutFrame:SetScript("OnEvent", function()
     end
 end)
 
+-------------------------------------------------------------------------------
+--  Encounter Bar anchor normalization (one-shot)
+--  A custom-positioned Encounter Bar drifts sideways during play: the frame is
+--  a layout frame that resizes to its widget content, and when the user drags
+--  it, Edit Mode saves whatever corner anchor StopMovingOrSizing produced
+--  (e.g. BOTTOMLEFT). Outside Edit Mode nothing re-centers a custom-positioned
+--  bar (WidgetsLayout only calls UIParent_ManageFramePositions for the default
+--  position), so every content width change shifts the visible widgets around
+--  the pinned corner, roughly half the width delta per change. Edit Mode
+--  "fixes" it on open only because RefreshEncounterBar pins minimumWidth 230
+--  and re-lays-out, which is why users see it snap back there.
+--
+--  Rewriting the saved anchor to the horizontally-centered BOTTOM point makes
+--  width changes symmetric so the content stays put, and height growth extends
+--  upward instead of toward the action bars. The on-screen position is
+--  preserved: offsets are recomputed from the 230x30 envelope Edit Mode pins
+--  while the user places the bar (EditModeAccountSettingsMixin:
+--  RefreshEncounterBar), which is the size the anchor was captured against.
+--  The EncounterBar system has no Edit Mode scale setting, so offsets are 1:1.
+--
+--  Like the CDM module's Edit Mode enforcement, SaveLayouts runs at most once,
+--  during init, never at runtime (a runtime save triggers a layout reapply
+--  from addon code, which taints Blizzard frame state).
+-------------------------------------------------------------------------------
+do  -- scoped block: the AB main chunk sits at Lua's 200-local cap, so the
+    -- helper lives on ns and its constants stay local to this block
+local ENCOUNTER_EM_W, ENCOUNTER_EM_H = 230, 30
+local ENCOUNTER_CORNER_FROM_CENTER = {
+    TOPLEFT     = { -ENCOUNTER_EM_W / 2,  ENCOUNTER_EM_H / 2 },
+    LEFT        = { -ENCOUNTER_EM_W / 2,  0 },
+    BOTTOMLEFT  = { -ENCOUNTER_EM_W / 2, -ENCOUNTER_EM_H / 2 },
+    TOPRIGHT    = {  ENCOUNTER_EM_W / 2,  ENCOUNTER_EM_H / 2 },
+    RIGHT       = {  ENCOUNTER_EM_W / 2,  0 },
+    BOTTOMRIGHT = {  ENCOUNTER_EM_W / 2, -ENCOUNTER_EM_H / 2 },
+}
+
+local _encounterAnchorsNormalized = false
+function ns.NormalizeEncounterBarAnchors()
+    if _encounterAnchorsNormalized then return end
+    if not (C_EditMode and C_EditMode.GetLayouts and C_EditMode.SaveLayouts
+            and Enum and Enum.EditModeSystem and Enum.EditModeSystem.EncounterBar) then
+        return
+    end
+    -- Layout data populates on EDIT_MODE_LAYOUTS_UPDATED at login (see
+    -- ApplyPresetEditMode in EllesmereUI_Profiles.lua); accountSettings is the
+    -- readiness signal. SaveLayouts also triggers a layout reapply, which must
+    -- not run in combat (mid-combat reload). Either way, retry when the
+    -- blocking condition clears.
+    local waitEvent
+    if not (EditModeManagerFrame and EditModeManagerFrame.accountSettings) then
+        waitEvent = "EDIT_MODE_LAYOUTS_UPDATED"
+    elseif InCombatLockdown() then
+        waitEvent = "PLAYER_REGEN_ENABLED"
+    end
+    if waitEvent then
+        local waiter = CreateFrame("Frame")
+        waiter:RegisterEvent(waitEvent)
+        waiter:SetScript("OnEvent", function(self)
+            self:UnregisterEvent(waitEvent)
+            self:SetScript("OnEvent", nil)
+            ns.NormalizeEncounterBarAnchors()
+        end)
+        return
+    end
+    _encounterAnchorsNormalized = true
+    local ok, layoutInfo = pcall(C_EditMode.GetLayouts)
+    if not ok or type(layoutInfo) ~= "table" or type(layoutInfo.layouts) ~= "table" then return end
+
+    local presetType = Enum.EditModeLayoutType and Enum.EditModeLayoutType.Preset
+    local changed = false
+    for _, layout in ipairs(layoutInfo.layouts) do
+        if layout.layoutType ~= presetType and type(layout.systems) == "table" then
+            for _, sysInfo in ipairs(layout.systems) do
+                if sysInfo.system == Enum.EditModeSystem.EncounterBar
+                    and not sysInfo.isInDefaultPosition
+                    and not sysInfo.anchorInfo2
+                    and type(sysInfo.anchorInfo) == "table" then
+                    local a = sysInfo.anchorInfo
+                    local corner = ENCOUNTER_CORNER_FROM_CENTER[a.point]
+                    if corner and (a.relativeTo == "UIParent" or not a.relativeTo) then
+                        a.point = "BOTTOM"
+                        a.offsetX = a.offsetX - corner[1]
+                        a.offsetY = a.offsetY - corner[2] - ENCOUNTER_EM_H / 2
+                        changed = true
+                    end
+                end
+            end
+        end
+    end
+    if not changed then return end
+
+    -- SaveLayouts expects the combined view the game uses internally: Blizzard's
+    -- built-in presets first, then the saved layouts, with activeLayout indexed
+    -- into that combined list (same convention as ApplyPresetEditMode in
+    -- EllesmereUI_Profiles.lua). GetLayouts already reports activeLayout in
+    -- combined space, so it passes through unchanged.
+    if EditModePresetLayoutManager and EditModePresetLayoutManager.GetCopyOfPresetLayouts then
+        local combined = EditModePresetLayoutManager:GetCopyOfPresetLayouts()
+        if type(combined) == "table" then
+            for _, l in ipairs(layoutInfo.layouts) do
+                combined[#combined + 1] = l
+            end
+            layoutInfo.layouts = combined
+        end
+    end
+    pcall(C_EditMode.SaveLayouts, layoutInfo)
+end
+end  -- scoped block
+
 local function SetupBlizzardMovableFrames()
     for _, info in ipairs(EXTRA_BARS) do
         if info.isBlizzardMovable then
-            -- EncounterBar: position fully owned by Blizzard Edit Mode.
+            -- EncounterBar: position fully owned by Blizzard Edit Mode. We only
+            -- repair drift-prone corner anchors in the saved layout data.
             if info.key == "EncounterBar" then
-                -- no-op: let Blizzard own position entirely
+                ns.NormalizeEncounterBarAnchors()
             else
                 SetupBlizzardMovableFrame(info.key)
             end
