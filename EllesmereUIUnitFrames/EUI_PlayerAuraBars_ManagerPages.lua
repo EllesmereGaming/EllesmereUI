@@ -843,6 +843,217 @@ local function BuildDispelColorFields(frame, fontPath, sy, cfg, apply)
 end
 
 -------------------------------------------------------------------------------
+--  Icon Effects Per-Filter (debuffs only) -- ported from Raid Frames'
+--  BuildFxEffects (EUI_RaidFrames_ManagerPages.lua), NOT shared code. Each
+--  cfg.fxList entry: a Filters set (ns.PAB_FxClassItems -- PAB's debuff
+--  category vocabulary keyed by the lowercase engine group key, plus a
+--  synthetic "all" catch-all) + optional Icon Glow + Border override + Size
+--  override. The engine side (EllesmereUIUnitFrames_PlayerAuraBars.lua)
+--  matches the FIRST active block whose filters include a button's
+--  category -- see PAB_ApplyDmFx/PAB_FxBlockFor there.
+-------------------------------------------------------------------------------
+
+local function BuildFxEffects(frame, sy, cfg, apply)
+    local W = EllesmereUI.Widgets
+    local PP = EllesmereUI.PanelPP
+    if not (W and PP) then return sy end
+    local hh
+    local MEDIA_MP = "Interface\\AddOns\\EllesmereUI\\media\\icons\\"
+
+    local list = cfg.fxList or {}
+
+    local GLOW_VALUES = { [0] = "None" }
+    local GLOW_ORDER = { 0 }
+    local Styles = EllesmereUI.Glows and EllesmereUI.Glows.STYLES
+    if Styles then
+        for i, entry in ipairs(Styles) do
+            if not entry.shapeGlow then
+                GLOW_VALUES[i] = entry.name
+                GLOW_ORDER[#GLOW_ORDER + 1] = i
+            end
+        end
+    end
+
+    -- One "ICON EFFECTS" section block per list entry.
+    for bi = 1, #list do
+        local e = list[bi]
+        if not e.filters then e.filters = {} end
+
+        local hdrRgn
+        hdrRgn, hh = W:SectionHeader(frame, "ICON EFFECTS", sy); sy = sy - hh
+        -- Remove X right after the section title text
+        if hdrRgn then
+            local del = CreateFrame("Button", nil, hdrRgn)
+            del:SetSize(14, 14)
+            if hdrRgn._label then
+                del:SetPoint("LEFT", hdrRgn._label, "RIGHT", 8, 0)
+            else
+                del:SetPoint("BOTTOMRIGHT", hdrRgn, "BOTTOMRIGHT", 0, 6)
+            end
+            del:SetFrameLevel(hdrRgn:GetFrameLevel() + 2)
+            del:SetAlpha(0.5)
+            local dx = del:CreateTexture(nil, "OVERLAY")
+            dx:SetAllPoints()
+            if dx.SetSnapToPixelGrid then dx:SetSnapToPixelGrid(false); dx:SetTexelSnappingBias(0) end
+            dx:SetTexture(MEDIA_MP .. "eui-close.png")
+            del:SetScript("OnEnter", function(self)
+                self:SetAlpha(0.9)
+                EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Delete"))
+            end)
+            del:SetScript("OnLeave", function(self)
+                self:SetAlpha(0.5)
+                EllesmereUI.HideWidgetTooltip()
+            end)
+            local blockIdx = bi
+            del:SetScript("OnClick", function()
+                table.remove(list, blockIdx)
+                apply()
+                EllesmereUI:RefreshPage(true)
+            end)
+        end
+
+        -- Row 1: Filters | Icon Glow (+ class/custom swatches)
+        local row
+        row, hh = W:DualRow(frame, sy,
+            { type = "dropdown", text = "Filters",
+              values = { __placeholder = "..." }, order = { "__placeholder" },
+              getValue = function() return "__placeholder" end,
+              setValue = function() end },
+            { type = "dropdown", text = "Icon Glow",
+              values = GLOW_VALUES, order = GLOW_ORDER,
+              getValue = function() return e.glowType or 0 end,
+              setValue = function(v) e.glowType = v; apply(); EllesmereUI:RefreshPage() end }); sy = sy - hh
+        do
+            local rgn = row._leftRegion
+            if rgn._control then rgn._control:Hide() end
+            local items = ns.PAB_FxClassItems and ns.PAB_FxClassItems() or {}
+            local cbDD, cbRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                rgn, 190, rgn:GetFrameLevel() + 2, items,
+                function(k) return e.filters[k] == true end,
+                function(k, v)
+                    e.filters[k] = v or nil
+                    apply()
+                    EllesmereUI:RefreshPage()
+                end)
+            PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
+            rgn._control = cbDD; rgn._lastInline = nil
+            if cbRefresh then EllesmereUI.RegisterWidgetRefresh(cbRefresh) end
+        end
+        do
+            local rgn = row._rightRegion
+            local ctrl = rgn._control
+
+            local classSwatch, updateClassSwatch = EllesmereUI.BuildColorSwatch(
+                rgn, row:GetFrameLevel() + 3,
+                function()
+                    local _, classFile = UnitClass("player")
+                    local cc = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
+                    if cc then return cc.r, cc.g, cc.b end
+                    return 1, 0.82, 0
+                end,
+                function() end,
+                false, 20)
+            PP.Point(classSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
+            classSwatch:SetScript("OnClick", function()
+                e.glowClassColor = true; apply(); EllesmereUI:RefreshPage()
+            end)
+            classSwatch:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(classSwatch, "Class Colored")
+            end)
+            classSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            local glowSwatch, updateGlowSwatch = EllesmereUI.BuildColorSwatch(
+                rgn, row:GetFrameLevel() + 3,
+                function() return e.glowR or 1.0, e.glowG or 0.776, e.glowB or 0.376 end,
+                function(r, g, b)
+                    e.glowR, e.glowG, e.glowB = r, g, b
+                    apply()
+                end,
+                false, 20)
+            PP.Point(glowSwatch, "RIGHT", classSwatch, "LEFT", -8, 0)
+            glowSwatch:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(glowSwatch, "Custom Colored")
+            end)
+            glowSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            -- Click the dimmed custom swatch to switch back from class color.
+            local origGlowClick = glowSwatch:GetScript("OnClick")
+            glowSwatch:SetScript("OnClick", function(self, ...)
+                if e.glowClassColor then
+                    e.glowClassColor = false; apply(); EllesmereUI:RefreshPage()
+                    return
+                end
+                if (e.glowType or 0) == 0 then return end
+                if origGlowClick then origGlowClick(self, ...) end
+            end)
+
+            local function UpdateFxGlowState()
+                local noGlow = (e.glowType or 0) == 0
+                local isClassColored = e.glowClassColor
+                glowSwatch:SetAlpha((isClassColored or noGlow) and 0.3 or 1)
+                classSwatch:SetAlpha((isClassColored and not noGlow) and 1 or 0.3)
+            end
+            EllesmereUI.RegisterWidgetRefresh(function() updateGlowSwatch(); updateClassSwatch(); UpdateFxGlowState() end)
+            UpdateFxGlowState()
+        end
+
+        -- Row 2: Border (+ swatch) | Size (icon size for the matched
+        -- filters; 0 = the bar's own icon size).
+        local bRow
+        bRow, hh = W:DualRow(frame, sy,
+            { type = "slider", text = "Border", min = 0, max = 4, step = 1, trackWidth = 120,
+              getValue = function() return e.borderSize or 0 end,
+              setValue = function(v) e.borderSize = v; apply() end },
+            { type = "slider", text = "Size", min = 0, max = 60, step = 1, trackWidth = 120,
+              getValue = function() return e.size or 0 end,
+              setValue = function(v)
+                  e.size = (v and v > 0) and v or nil
+                  apply()
+              end }); sy = sy - hh
+        do
+            local rgn = bRow._leftRegion
+            local swatch = EllesmereUI.BuildColorSwatch(rgn, bRow:GetFrameLevel() + 3,
+                function()
+                    local c = e.borderColor or { r = 0, g = 0, b = 0 }
+                    return c.r or 0, c.g or 0, c.b or 0, 1
+                end,
+                function(r, g, b)
+                    e.borderColor = { r = r, g = g, b = b }
+                    apply()
+                end, false, 20)
+            swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = swatch
+        end
+    end
+
+    -- "Add Icon Effects Per-Filter" accent text link (centered)
+    do
+        local ar, ag, ab = 1, 0.82, 0.30
+        if EllesmereUI.GetAccentColor then ar, ag, ab = EllesmereUI.GetAccentColor() end
+        local addBtn = CreateFrame("Button", nil, frame)
+        addBtn:SetHeight(22)
+        addBtn:SetPoint("TOP", frame, "TOP", 0, sy - 17)
+        addBtn:SetFrameLevel(frame:GetFrameLevel() + 2)
+        local lbl = addBtn:CreateFontString(nil, "OVERLAY")
+        local fp = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("unitFrames")) or "Fonts\\FRIZQT__.TTF"
+        lbl:SetFont(fp, 16, "")
+        lbl:SetPoint("CENTER", addBtn, "CENTER", 0, 0)
+        lbl:SetText(EllesmereUI.L("Add Icon Effects Per-Filter"))
+        lbl:SetTextColor(ar, ag, ab)
+        lbl:SetAlpha(0.9)
+        addBtn:SetWidth(lbl:GetStringWidth() + 8)
+        addBtn:SetScript("OnEnter", function() lbl:SetAlpha(1) end)
+        addBtn:SetScript("OnLeave", function() lbl:SetAlpha(0.9) end)
+        addBtn:SetScript("OnClick", function()
+            cfg.fxList = cfg.fxList or {}
+            cfg.fxList[#cfg.fxList + 1] = { filters = {} }
+            EllesmereUI:RefreshPage(true)
+        end)
+        sy = sy - 17 - 22 - 8
+    end
+    return sy
+end
+
+-------------------------------------------------------------------------------
 --  Default bar detail (Buffs / Debuffs -- fixed identity, not deletable)
 -------------------------------------------------------------------------------
 
@@ -968,6 +1179,7 @@ local function BuildDefaultBarDetail(frame, fontPath, isBuff)
     sy = BuildDisplayFields(body, fontPath, sy, cfg, ApplyBar)
     if not isBuff then
         sy = BuildDispelColorFields(body, fontPath, sy, cfg, ApplyBar)
+        sy = BuildFxEffects(body, sy, cfg, ApplyBar)
     end
     FinalizeCompensatedBody(body, sy)
 end
@@ -1263,6 +1475,7 @@ local function BuildDebuffBarDetail(frame, fontPath, bar)
     by = BuildCoreFields(body, fontPath, by, bar, ApplyBar, false)
     by = BuildDisplayFields(body, fontPath, by, bar, ApplyBar)
     by = BuildDispelColorFields(body, fontPath, by, bar, ApplyBar)
+    by = BuildFxEffects(body, by, bar, ApplyBar)
     FinalizeCompensatedBody(body, by)
 end
 

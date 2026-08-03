@@ -39,12 +39,17 @@ end
 -------------------------------------------------------------------------------
 --  Shared class vocabulary (from EUI_UnitFrames_AuraContainers.lua)
 --
---  Player Aura Bars excludes "raid" and "raidcombat" (roster-context tokens
---  that don't apply to a standalone player-only display) -- confirmed with
---  Joel 2026-07-29. Every other class from the shared tables is offered.
+--  "raid"/"raidcombat" were excluded 2026-07-29 (assumed roster-context
+--  tokens that don't apply to a standalone player-only display) -- reversed
+--  2026-08-03 (Joel, for Icon Effects Per-Filter parity with Raid Frames'
+--  own "Raid"/"Raid In Combat" filters): RAID/RAID_IN_COMBAT are per-aura
+--  flags (Blizzard's own raid-frame debuff curation baked into the aura
+--  definition itself), not roster-size-dependent, so they filter
+--  meaningfully even solo. Now wired up as real, functional debuff
+--  categories exactly like every other class here.
 -------------------------------------------------------------------------------
 
-local HIDDEN_CLASSES = { raid = true, raidcombat = true }
+local HIDDEN_CLASSES = {}
 
 local function VisibleTokenClasses()
     local uf = ns.UF_TokenClasses
@@ -74,19 +79,75 @@ end
 -- my own pick, not sourced from existing UI text -- flag if different
 -- wording is wanted.
 local CLASS_LABELS = {
-    Dispellable       = { "Dispellable",       "Shows only auras with a dispel type you can dispel" },
+    Dispellable       = { "Dispellable By You", "Shows only auras with a dispel type you can dispel" },
     CrowdControl      = { "Crowd Control",      "Shows only crowd-control auras" },
     BigDefensive      = { "Big Defensive",      "Shows only major defensive cooldowns" },
     ExternalDefensive = { "External Defensive", "Shows only external defensive cooldowns cast on the unit" },
     Cancelable        = { "Cancelable",         "Shows only buffs that can be canceled" },
     Stealable         = { "Stealable",          "Shows only buffs you can spellsteal or purge" },
-    BossAura          = { "Boss Auras",         "Shows only debuffs applied by bosses" },
-    RoleAura          = { "Role Auras",         "Shows only debuffs flagged for your role" },
-    PriorityAura      = { "Priority",           "Shows only priority debuffs" },
+    BossAura          = { "Boss Debuffs",       "Shows only debuffs applied by bosses" },
+    RoleAura          = { "Role Debuffs",       "Shows only debuffs flagged for your role" },
+    -- "Important" (2026-08-03, renamed from "Priority" for parity with Raid
+    -- Frames' own wording for this same isPriorityAura flag).
+    PriorityAura      = { "Important",          "Shows only priority debuffs" },
     NonPlayer         = { "Not Cast By You",    "Shows only debuffs not applied by you" }, -- ASSUMPTION, see note above
+    -- Any debuff carrying a dispel type, regardless of whether YOU can
+    -- remove it -- distinct from "Dispellable By You" above. Mirrors Raid
+    -- Frames' "Dispels" filter.
+    DispelTyped       = { "Dispels", "Shows any debuff with a dispel type (Magic, Curse, Disease, Poison, Bleed), even if you cannot remove it" },
+    Raid              = { "Raid",            "Shows only debuffs from Blizzard's curated raid-frame debuff set" },
+    RaidInCombat      = { "Raid In Combat",  "Shows only the stricter in-combat subset of the raid set" },
 }
 
+-- Curated debuff filter list (2026-08-03, Joel): exact parity with Raid
+-- Frames' own debuff filter vocabulary and order (EUI_RaidFrames_
+-- ManagerPages.lua's TILE_FILTER_ITEMS) -- both PAB's Base Filters (display
+-- restriction, ns.PAB_ClassItems) and Icon Effects Filters (fx targeting,
+-- ns.PAB_FxClassItems) dropdowns show this SAME curated, ordered set now,
+-- replacing the previous "every visible class" generic enumeration (which
+-- exposed Big Defensive/External Defensive/Not Cast By You -- concepts with
+-- no Raid Frames debuff equivalent -- and omitted Raid/Raid In Combat
+-- entirely). Values are the lowercase ENGINE keys (TOKEN_CLASSES/
+-- CANDIDATE_CLASSES' .key), resolved to either .key or .skey per dropdown
+-- by ClassByKey below. Big Defensive/External Defensive/Not Cast By You
+-- remain fully functional (BuildChain/ClassEnabled still read them) for any
+-- profile that already has them set -- just no longer offered as a fresh
+-- pick in either dropdown.
+local DEBUFF_FILTER_ORDER = {
+    "priority", "cc", "bossaura", "roleaura", "raid", "raidcombat", "dispellable", "dispeltyped",
+}
+
+local function ClassByKey(key)
+    local uf = ns.UF_TokenClasses
+    if uf then
+        for i = 1, #uf do if uf[i].key == key then return uf[i] end end
+    end
+    local cc = ns.UF_CandidateClasses
+    if cc then
+        for i = 1, #cc do if cc[i].key == key then return cc[i] end end
+    end
+end
+
 function ns.PAB_ClassItems(isBuff)
+    if not isBuff then
+        local items = {}
+        for i = 1, #DEBUFF_FILTER_ORDER do
+            local class = ClassByKey(DEBUFF_FILTER_ORDER[i])
+            if class then
+                local meta = CLASS_LABELS[class.skey]
+                items[#items + 1] = {
+                    key = class.skey,
+                    label = meta and meta[1] or class.skey,
+                    tooltip = meta and meta[2] or nil,
+                }
+            end
+        end
+        return items
+    end
+
+    -- Buffs: unchanged generic enumeration (kept for signature
+    -- compatibility -- ns.PAB_ClassItems is never actually called with
+    -- isBuff=true today, buffs use their own Filters/Extra Spells model).
     local items = {}
     local tokenClasses = VisibleTokenClasses()
     local candidateClasses = VisibleCandidateClasses()
@@ -94,7 +155,10 @@ function ns.PAB_ClassItems(isBuff)
     local function AddAll(list)
         for i = 1, #list do
             local class = list[i]
-            if not ((class.buffOnly and not isBuff) or (class.debuffOnly and isBuff)) then
+            -- isBuff is always true in this branch (isBuff==false already
+            -- returned above), so the original ((buffOnly and not isBuff) or
+            -- (debuffOnly and isBuff)) exclusion simplifies to just debuffOnly.
+            if not class.debuffOnly then
                 local meta = CLASS_LABELS[class.skey]
                 items[#items + 1] = {
                     key = class.skey,
@@ -107,6 +171,164 @@ function ns.PAB_ClassItems(isBuff)
     AddAll(tokenClasses)
     AddAll(candidateClasses)
     return items
+end
+
+-------------------------------------------------------------------------------
+--  Icon Effects Per-Filter (debuffs only) -- ported from Raid Frames'
+--  DebuffManager fxList system (EUI_RaidFrames_DebuffManager.lua /
+--  EUI_RaidFrames_AuraContainers.lua), NOT shared code (same "adapted, not
+--  shared" precedent as BuildChain/ClassEnabled below). Each cfg.fxList
+--  entry pairs a set of debuff-category filters with an optional Icon Glow,
+--  Border override, and Size override; the FIRST entry whose filters
+--  include a button's category wins.
+--
+--  Unlike Raid Frames' independent/overlapping category records, PAB's
+--  debuff classes are a mutual-exclusion chain (BuildChain below) -- every
+--  displayed debuff icon already belongs to exactly ONE engine group key
+--  (a class's .key, or "all" for the catch-all), so matching here is a
+--  single dictionary lookup, not a search across overlapping records.
+-------------------------------------------------------------------------------
+
+local function PAB_FxEntryActive(e)
+    return e.filters ~= nil and next(e.filters) ~= nil
+        and (((e.glowType or 0) > 0) or ((e.borderSize or 0) > 0)
+            or ((tonumber(e.size) or 0) > 0))
+end
+
+local function PAB_FxListView(list)
+    if not list then return nil end
+    local out
+    for i = 1, #list do
+        if PAB_FxEntryActive(list[i]) then
+            out = out or {}
+            out[#out + 1] = list[i]
+        end
+    end
+    return out
+end
+
+-- First ACTIVE block whose filters include `cat` wins (list is already
+-- pre-filtered to active-only blocks by PAB_FxListView/style.fxList).
+local function PAB_FxBlockFor(list, cat)
+    if not (list and cat) then return nil end
+    for i = 1, #list do
+        local f = list[i].filters
+        if f and f[cat] then return list[i] end
+    end
+end
+
+-- Per-filter Size resolution for one engine group key: the first ACTIVE
+-- block matching `cat` wins outright, same rule PAB_ApplyDmFx uses for
+-- glow/border, so a later block's Size never reaches a category an earlier
+-- block already claimed.
+local function PAB_FxSizeFor(list, cat)
+    if not list then return nil end
+    for i = 1, #list do
+        local e = list[i]
+        if PAB_FxEntryActive(e) then
+            local f = e.filters
+            if f and f[cat] then
+                local sz = tonumber(e.size)
+                if sz and sz > 0 then return sz end
+                return nil
+            end
+        end
+    end
+end
+
+-- Filter vocabulary for the Icon Effects UI (debuffs only): the same
+-- curated DEBUFF_FILTER_ORDER list ns.PAB_ClassItems(false) uses, but keyed
+-- by the lowercase ENGINE group key (class.key, e.g. "bossaura") instead of
+-- the CamelCase classFilters key (class.skey, e.g. "BossAura") -- fxList
+-- blocks match against d.dmCat, which is stamped with class.key (see
+-- ApplyGroupConfig's extraInit below). No catch-all "all" entry, matching
+-- Raid Frames' own TILE_FILTER_ITEMS (which has none either).
+function ns.PAB_FxClassItems()
+    local items = {}
+    for i = 1, #DEBUFF_FILTER_ORDER do
+        local class = ClassByKey(DEBUFF_FILTER_ORDER[i])
+        if class then
+            local meta = CLASS_LABELS[class.skey]
+            items[#items + 1] = {
+                key = class.key,
+                label = meta and meta[1] or class.key,
+                tooltip = meta and meta[2] or nil,
+            }
+        end
+    end
+    return items
+end
+
+-- Ported from Raid Frames' ApplyDmFx (EUI_RaidFrames_AuraContainers.lua):
+-- Icon Glow (EllesmereUI.Glows overlay) + Border override (EllesmereUI.PP),
+-- keyed off the button's stamped category (d.dmCat, set once at creation by
+-- ApplyGroupConfig's extraInit, see below). Cheap no-op for buffs
+-- (style.fxList is never set on a buff style) and for debuff buttons whose
+-- category matches no active block.
+local function PAB_ApplyDmFx(button, d, style)
+    local cat = d.dmCat
+    local e = style.fxList and PAB_FxBlockFor(style.fxList, cat) or nil
+
+    -- Icon Glow
+    local Glows = EllesmereUI.Glows
+    local gType = (e and e.glowType) or 0
+    if gType > 0 and Glows and Glows.RestrictionSafeStyle then
+        gType = Glows.RestrictionSafeStyle(gType)
+    end
+    local gov = d.pabFxGlow
+    if gType > 0 and Glows and Glows.StartGlow then
+        if not gov then
+            gov = CreateFrame("Frame", nil, button)
+            gov:SetAllPoints(button)
+            -- Above both the base border and the fx border override, below
+            -- the dispel ring and text -- same level ladder Raid Frames'
+            -- ApplyDmFx uses (border < fx border < glow < dispel ring < text).
+            local base = (d.borderHost and d.borderHost:GetFrameLevel())
+                or (button:GetFrameLevel() + 1)
+            gov:SetFrameLevel(base + 2)
+            gov:EnableMouse(false)
+            d.pabFxGlow = gov
+        end
+        gov:Show()
+        local cr, cg, cb = e.glowR or 1.0, e.glowG or 0.776, e.glowB or 0.376
+        if e.glowClassColor then
+            local _, classFile = UnitClass("player")
+            local cc = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
+            if cc then cr, cg, cb = cc.r, cc.g, cc.b end
+        end
+        local sz = style.width or 18
+        if (not gov._euiGlowActive) or gov._fxStyle ~= gType or gov._fxW ~= sz
+           or gov._fxCR ~= cr or gov._fxCG ~= cg or gov._fxCB ~= cb then
+            Glows.StartGlow(gov, gType, sz, cr, cg, cb)
+            gov._fxStyle, gov._fxW = gType, sz
+            gov._fxCR, gov._fxCG, gov._fxCB = cr, cg, cb
+        end
+    elseif gov then
+        if gov._euiGlowActive and Glows and Glows.StopGlow then Glows.StopGlow(gov) end
+        gov:Hide()
+    end
+
+    -- Border override
+    local PP = EllesmereUI.PP
+    local bSize = (e and e.borderSize) or 0
+    if bSize > 0 and PP then
+        local host = d.pabFxBdr
+        if not host then
+            host = CreateFrame("Frame", nil, button)
+            host:SetAllPoints(button)
+            local base = (d.borderHost and d.borderHost:GetFrameLevel())
+                or (button:GetFrameLevel() + 1)
+            host:SetFrameLevel(base + 1)
+            host:EnableMouse(false)
+            PP.CreateBorder(host, 0, 0, 0, 1, 1)
+            d.pabFxBdr = host
+        end
+        local bc = e.borderColor or { r = 0, g = 0, b = 0 }
+        PP.UpdateBorder(host, bSize, bc.r or 0, bc.g or 0, bc.b or 0, 1)
+        host:Show()
+    elseif d.pabFxBdr then
+        d.pabFxBdr:Hide()
+    end
 end
 
 -------------------------------------------------------------------------------
@@ -169,7 +391,7 @@ local function BuildChain(base, classEnabledFn, includeCatchAll)
         if classEnabledFn(class) then
             local tokens = { base }
             for n = 1, #negations do tokens[#tokens + 1] = negations[n] end
-            chain[#chain + 1] = { key = class.key, tokens = tokens, cand = class.cand }
+            chain[#chain + 1] = { key = class.key, tokens = tokens, cand = class.cand, candValue = class.candValue }
         end
     end
 
@@ -382,6 +604,12 @@ local function PAB_ApplyExtraText(button, d, style)
         -- it.
         d.cooldown:SetAlpha(0)
     end
+
+    -- Icon Effects Per-Filter (debuffs only): flag-gated so buff buttons,
+    -- which never carry style.fxList or fx overlay frames, pay zero cost.
+    if style.fxList or d.pabFxGlow or d.pabFxBdr then
+        PAB_ApplyDmFx(button, d, style)
+    end
 end
 
 local function BuildStyle(isBuff, cfg)
@@ -470,6 +698,10 @@ local function BuildStyle(isBuff, cfg)
         style.dispelBorderPx = borderSize
         style.dispelColorMap = dcMap
         style.dispelColorFP = dcFP
+
+        -- Icon Effects Per-Filter: debuffs only (buffs never get style.fxList,
+        -- so PAB_ApplyDmFx's gate in PAB_ApplyExtraText stays a cheap no-op).
+        style.fxList = PAB_FxListView(cfg.fxList)
     end
 
     return style
@@ -562,6 +794,33 @@ end
 -- SetAuraGroupCandidateFilters -- candidateFilters are NOT immutably fixed
 -- at declaration once a live setter is used (only the group's FILTER STRING
 -- is; see the doc comment above this function).
+-- Icon Effects Per-Filter Size override: PAB's icon size is entirely
+-- style-driven (ApplyStyleToRegions's button:SetSize(style.width,
+-- style.height), EllesmereUI_AuraKit.lua -- a group's own elementWidth/
+-- Height in SetAuraGroupLayout feeds the FLOW MATH only, confirmed by that
+-- file's own doc comment, and never resizes the button itself). A
+-- per-category size therefore needs its OWN style key, not a group-layout
+-- tweak (mirrors Raid Frames' DebuffManager EnsureBaseSizeStyle). Keyed by
+-- size alone (not size+category): any two categories overridden to the same
+-- size can share one variant, since the variant is just the bar's base
+-- style with width/height swapped -- everything else (border, dispel
+-- colors, fxList, applyExtra) rides along unchanged via the shallow copy.
+-- Rebuilt unconditionally every ApplyGroupConfig pass (cheap: settings-apply
+-- frequency, not per-frame) rather than fingerprint-cached, matching this
+-- file's existing BuildStyle+RestyleSoon convention elsewhere.
+local function EnsurePabSizedStyle(baseKey, size)
+    local base = AK.styles[baseKey]
+    if not base then return baseKey end
+    local variantKey = baseKey .. ":sz" .. tostring(size)
+    local v = {}
+    for k, val in pairs(base) do v[k] = val end
+    v.width = size
+    v.height = size
+    AK.styles[variantKey] = v
+    AK.RestyleSoon(variantKey)
+    return variantKey
+end
+
 local function ApplyGroupConfig(container, chain, declaredSet, styleKey, effectiveMax, gap, rowGap, cfg, extraCand)
     local sortMethod = ResolveSortMethod(cfg)
     local sortDirection = ResolveSortDirection(cfg)
@@ -585,29 +844,48 @@ local function ApplyGroupConfig(container, chain, declaredSet, styleKey, effecti
     local active = {}
     for i = 1, #chain do
         local link = chain[i]
-        active[link.key] = true
+        -- Icon Effects Per-Filter Size override (debuffs only -- cfg.fxList
+        -- is nil for buffs, so szOv is always nil there and effKey ==
+        -- link.key, identical to before this feature existed).
+        local szOv = PAB_FxSizeFor(cfg.fxList, link.key)
+        local effKey = szOv and (link.key .. "|sz") or link.key
+        local linkStyleKey = szOv and EnsurePabSizedStyle(styleKey, szOv) or styleKey
+        active[effKey] = true
         local candidateFilters
         if link.cand then
-            candidateFilters = { [link.cand] = true }
+            candidateFilters = { [link.cand] = link.candValue or true }
         end
         candidateFilters = MergeCandidateFilters(candidateFilters, extraCand)
-        if not declaredSet[link.key] then
+        if not declaredSet[effKey] then
+            local catKey = link.key
             AK.AddGroupToContainer(container, {
-                key = link.key,
+                key = effKey,
                 filter = link.tokens,
-                style = styleKey,
+                style = linkStyleKey,
                 maxFrameCount = 0, -- real count applied right below, matches the sibling module's declare-then-set order
                 candidateFilters = candidateFilters,
                 sortMethod = sortMethod,
                 sortDirection = sortDirection,
+                -- Icon Effects Per-Filter: stamps this button's category
+                -- (matched against fxList blocks by PAB_ApplyDmFx) and arms
+                -- the glow/border overlay inside the one legal creation
+                -- window, mirroring Raid Frames' DebuffManager tile
+                -- extraInit (style.applyExtra runs BEFORE extraInit at
+                -- creation, verified in EllesmereUI_AuraKit.lua's
+                -- MakeInitializer -- so the first applyExtra pass sees
+                -- d.dmCat == nil harmlessly, and this re-arms it right after).
+                extraInit = function(button, d, style)
+                    d.dmCat = catKey
+                    PAB_ApplyDmFx(button, d, style)
+                end,
             })
-            declaredSet[link.key] = true
+            declaredSet[effKey] = true
         end
-        container:SetAuraGroupMaxFrameCount(link.key, effectiveMax)
-        container:SetAuraGroupLayout(link.key, layout)
-        container:SetAuraGroupCandidateFilters(link.key, candidateFilters)
+        container:SetAuraGroupMaxFrameCount(effKey, effectiveMax)
+        container:SetAuraGroupLayout(effKey, layout)
+        container:SetAuraGroupCandidateFilters(effKey, candidateFilters)
         if sortMethod ~= nil and sortDirection ~= nil then
-            container:SetAuraGroupSortMethod(link.key, sortMethod, sortDirection)
+            container:SetAuraGroupSortMethod(effKey, sortMethod, sortDirection)
         end
     end
 
@@ -648,8 +926,40 @@ end
 -- module's tighter `4*iconSize + 3*spacing` formula, which never had this
 -- trailing pad). Affects every PAB bar's rendered box size, not just that
 -- one -- Joel asked to see this applied before deciding whether to keep it.
+-- Confirmed real bug, not preview-only (2026-08-03, Joel asked to check):
+-- the live bar's parent frame is sized via this same function
+-- (`parent:SetSize(grid.width, grid.height)`, e.g. line ~1500/1619/2586/
+-- 2727), computed purely from the bar's uniform cfg.iconSize -- an Icon
+-- Effects Size override on one category renders THAT category's icons
+-- bigger via a separate sized style variant (EnsurePabSizedStyle), but the
+-- surrounding frame/box never grows to match, so the oversized icons simply
+-- overflow the frame's bounds (also throwing off the CENTER-anchor
+-- recompensation math a few lines below every grid.width/height use, which
+-- assumes this size is accurate). Since the container is a FLOW layout
+-- mixing possibly-different per-group icon sizes, there is no way to
+-- compute an exact box footprint ahead of time (it's data-dependent -- which
+-- specific auras are showing right now) -- the same "static worst-case
+-- capacity reservation" spirit maxTotal/rows*cols already use here, so the
+-- box is sized for the LARGEST icon that could ever appear (base iconSize,
+-- or any active fx block's Size override, whichever is bigger) rather than
+-- the base size alone. Same fix serves the preview box (RenderPreviewIcons/
+-- PAB_BuildPreviewBox both call this same function).
+local function MaxIconSizeFor(isBuff, cfg)
+    local size = cfg.iconSize or 32
+    if not isBuff and cfg.fxList then
+        local list = PAB_FxListView(cfg.fxList)
+        if list then
+            for i = 1, #list do
+                local sz = tonumber(list[i].size)
+                if sz and sz > size then size = sz end
+            end
+        end
+    end
+    return size
+end
+
 local function ComputeGrid(isBuff, cfg)
-    local iconSize = cfg.iconSize or 32
+    local iconSize = MaxIconSizeFor(isBuff, cfg)
     local pad = cfg.padding or 5
     local rowGap = cfg.rowSpacing or pad
     local cols = math.max(1, cfg.iconsPerRow or (isBuff and 11 or 8))
@@ -2899,6 +3209,24 @@ local function ScaledPreviewCfg(cfg)
     out.stackTextSize = (cfg.stackTextSize or 11) * comp
     out.stackOffsetX = (cfg.stackOffsetX or 0) * comp
     out.stackOffsetY = (cfg.stackOffsetY or 0) * comp
+    -- Icon Effects Per-Filter Size overrides need the same panel-scale
+    -- compensation as iconSize above -- a per-block shallow copy (never
+    -- mutating the real saved fxList/its filters/borderColor sub-tables)
+    -- with just `.size` rescaled, so the preview's box footprint (see
+    -- ComputeGrid's MaxIconSizeFor) and the actual fake-icon SetSize call
+    -- (RenderPreviewIcons/ApplyPreviewFx) both read the correct on-screen
+    -- pixel value.
+    if cfg.fxList then
+        local scaledFx = {}
+        for i = 1, #cfg.fxList do
+            local e = cfg.fxList[i]
+            local se = {}
+            for k, v in pairs(e) do se[k] = v end
+            if se.size then se.size = se.size * comp end
+            scaledFx[i] = se
+        end
+        out.fxList = scaledFx
+    end
     return out
 end
 
@@ -3087,6 +3415,74 @@ local function BuildPreviewSlots(isBuff, cfg, list, listLen, count)
     return slots
 end
 
+-- Icon Effects Per-Filter preview: applies a matched fx block's Glow/Border/
+-- Size directly to a fake preview icon. Unlike the live PAB_ApplyDmFx, these
+-- are plain addon-owned frames (CreatePreviewIcon), never secure engine
+-- buttons -- no creation-window/taint restriction applies, so glow/border
+-- hosts are lazily created wherever this first runs, and Glows.StartGlow is
+-- called directly (no RestrictionSafeStyle gate -- that gate exists only
+-- for the real, combat-lockdown-able aura buttons). `e` is nil when no
+-- active fx block matches this icon's assigned preview category (or for
+-- buffs/placeholder slots, which never carry one) -- clears any fx left
+-- over from a previous render of this reused icon frame.
+local function ApplyPreviewFx(btn, e)
+    local Glows = EllesmereUI.Glows
+    local gType = (e and e.glowType) or 0
+    local gov = btn.fxGlow
+    if gType > 0 and Glows and Glows.StartGlow then
+        if not gov then
+            gov = CreateFrame("Frame", nil, btn)
+            gov:SetAllPoints(btn)
+            gov:SetFrameLevel(btn.border:GetFrameLevel() + 2)
+            gov:EnableMouse(false)
+            btn.fxGlow = gov
+        end
+        gov:Show()
+        local cr, cg, cb = e.glowR or 1.0, e.glowG or 0.776, e.glowB or 0.376
+        if e.glowClassColor then
+            local _, classFile = UnitClass("player")
+            local cc = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
+            if cc then cr, cg, cb = cc.r, cc.g, cc.b end
+        end
+        local sz = btn:GetWidth() or 18
+        if (not gov._euiGlowActive) or gov._fxStyle ~= gType or gov._fxW ~= sz
+           or gov._fxCR ~= cr or gov._fxCG ~= cg or gov._fxCB ~= cb then
+            Glows.StartGlow(gov, gType, sz, cr, cg, cb)
+            gov._fxStyle, gov._fxW = gType, sz
+            gov._fxCR, gov._fxCG, gov._fxCB = cr, cg, cb
+        end
+    elseif gov then
+        if gov._euiGlowActive and Glows and Glows.StopGlow then Glows.StopGlow(gov) end
+        gov:Hide()
+    end
+
+    local PP = EllesmereUI.PP
+    local bSize = (e and e.borderSize) or 0
+    if bSize > 0 and PP then
+        local host = btn.fxBorder
+        if not host then
+            host = CreateFrame("Frame", nil, btn)
+            host:SetAllPoints(btn)
+            host:SetFrameLevel(btn.border:GetFrameLevel() + 1)
+            host:EnableMouse(false)
+            PP.CreateBorder(host, 0, 0, 0, 1, 1)
+            btn.fxBorder = host
+        end
+        local bc = e.borderColor or { r = 0, g = 0, b = 0 }
+        PP.UpdateBorder(host, bSize, bc.r or 0, bc.g or 0, bc.b or 0, 1)
+        host:Show()
+    elseif btn.fxBorder then
+        btn.fxBorder:Hide()
+    end
+
+    -- Size override is NOT applied here (2026-08-03, moved out): it now
+    -- feeds directly into RenderPreviewIcons' own per-icon flow-packing
+    -- layout (slotSize/colOffset/rowYOffset), which needs to know each
+    -- icon's real footprint BEFORE positioning any of them -- applying it
+    -- here, after the anchor is already placed, would either be redundant
+    -- with that or (if this ran first) invisible to the layout math.
+end
+
 -- `pool` (2026-08-03 renamed from buffPool -- now shuffled once per box
 -- build for BOTH polarities, see BuildBuffPreviewPool/BuildDebuffPreviewPool)
 -- is the box's own stable, pre-shuffled fake-icon pool.
@@ -3123,9 +3519,78 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
     local listLen = #list
     local slots = BuildPreviewSlots(isBuff, cfg, list, listLen, count)
 
+    -- Icon Effects Per-Filter preview (debuffs only): deliberately NOT tied
+    -- to the bar's own active Base Filters/Show All Debuffs state (2026-08-
+    -- 03 fix, Joel: "you won't normally select the same category in both
+    -- places" -- requiring a matching Base Filter meant the preview usually
+    -- showed nothing, since the two dropdowns serve different purposes and
+    -- aren't meant to be set identically). Instead, every ACTIVE fx block
+    -- claims 1-2 fake icon slots outright, regardless of which categories
+    -- are actually enabled for display -- a simple "here's what this
+    -- configured effect looks like" demonstration, not a claim that these
+    -- specific icons represent that category on a real bar (which the fake
+    -- pool has no Blizzard boss/role/priority/... flags to support anyway).
+    local fxBySlot
+    if not isBuff then
+        local fxListView = PAB_FxListView(cfg.fxList)
+        if fxListView and #fxListView > 0 then
+            local fakeIdx = {}
+            for i = 1, #slots do
+                if slots[i].kind == "fake" then fakeIdx[#fakeIdx + 1] = i end
+            end
+            local nFake = #fakeIdx
+            if nFake > 0 then
+                fxBySlot = {}
+                for bi = 1, #fxListView do
+                    local perBlock = math.min(2, nFake)
+                    for k = 1, perBlock do
+                        local pos = ((bi - 1) * 2 + (k - 1)) % nFake + 1
+                        fxBySlot[fakeIdx[pos]] = fxListView[bi]
+                    end
+                end
+            end
+        end
+    end
+
     local rows = math.max(1, math.ceil(count / cols))
-    local blockW = cols * iconSize + math.max(0, cols - 1) * pad
-    local blockH = rows * iconSize + math.max(0, rows - 1) * rowGap
+
+    -- Real per-icon flow packing (2026-08-03 fix, Joel: the earlier uniform
+    -- `cellSize` reservation stopped the oversized-icon overlap but left too
+    -- much gap around every OTHER, normal-sized icon -- every cell paid the
+    -- worst-case size even when only one icon in the whole grid needed it).
+    -- Each slot's OWN actual render size (its fx Size override, or the
+    -- bar's base iconSize) now drives its own footprint directly, so
+    -- spacing between normal icons stays tight and only an oversized icon's
+    -- immediate neighbors get pushed out -- true flow-layout behavior
+    -- rather than a uniform cell grid.
+    local slotSize = {}
+    for i = 1, count do
+        local e = fxBySlot and fxBySlot[i]
+        local sz = e and tonumber(e.size)
+        slotSize[i] = (sz and sz > 0) and sz or iconSize
+    end
+
+    local rowWidth, rowHeight, colOffset, rowYOffset = {}, {}, {}, {}
+    do
+        local runningX, runningY = {}, 0
+        for r = 0, rows - 1 do runningX[r] = 0 end
+        for i = 1, count do
+            local r = math.floor((i - 1) / cols)
+            colOffset[i] = runningX[r]
+            runningX[r] = runningX[r] + slotSize[i] + pad
+            rowHeight[r] = math.max(rowHeight[r] or 0, slotSize[i])
+        end
+        for r = 0, rows - 1 do
+            rowWidth[r] = math.max(0, runningX[r] - pad) -- drop the trailing gap
+        end
+        for r = 0, rows - 1 do
+            rowYOffset[r] = runningY
+            runningY = runningY + (rowHeight[r] or 0) + rowGap
+        end
+    end
+    local blockW = 0
+    for r = 0, rows - 1 do blockW = math.max(blockW, rowWidth[r] or 0) end
+    local blockH = math.max(0, (rowYOffset[rows - 1] or 0) + (rowHeight[rows - 1] or 0))
     local halfW, halfH = blockW / 2, blockH / 2
 
     for i = 1, math.max(count, #icons) do
@@ -3136,10 +3601,9 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
                 icons[i] = btn
             end
 
-            local col = (i - 1) % cols
             local row = math.floor((i - 1) / cols)
-            local colStep = (iconSize + pad) * col
-            local rowStep = (iconSize + rowGap) * row
+            local colStep = colOffset[i]
+            local rowStep = rowYOffset[row]
             -- btn's own anchor point is `corner` (TOPLEFT/TOPRIGHT, matching
             -- growDirection), placed at an offset from the box's CENTER --
             -- see the block-centering comment above `local rows = ...`.
@@ -3147,7 +3611,7 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
             local btnY = halfH - rowStep
             btn:ClearAllPoints()
             btn:SetPoint(corner, box, "CENTER", btnX, btnY)
-            btn:SetSize(iconSize, iconSize)
+            btn:SetSize(slotSize[i], slotSize[i])
 
             local slot = slots[i]
             local dispel
@@ -3242,6 +3706,11 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
                 btn.stack:SetShown(style.showStacks ~= false and stackVal ~= nil)
                 if stackVal then btn.stack:SetText(stackVal) end
             end
+
+            -- Icon Effects Per-Filter preview: nil clears any fx left over on
+            -- a reused icon frame from a previous render (slot not claimed
+            -- this pass, or block removed/deactivated).
+            ApplyPreviewFx(btn, fxBySlot and fxBySlot[i])
 
             btn:Show()
         elseif icons[i] then

@@ -72,11 +72,26 @@ local TOKEN_CLASSES = {
     { key = "nonplayer",   token = "!PLAYER",                 skey = "NonPlayer",
       neg = "PLAYER", debuffOnly = true, playerUnitOnly = true },
 }
+-- Any debuff carrying a dispel type (Magic/Curse/Disease/Poison/Bleed),
+-- regardless of whether the PLAYER can remove it -- distinct from
+-- "dispellable" above (RAID_PLAYER_DISPELLABLE, dispellable-by-you only).
+-- Same native set Raid Frames' DebuffManager already verified against
+-- Blizzard's PTR source (EUI_RaidFrames_DebuffManager.lua's TYPED_DEBUFFS) --
+-- kept as this module's own copy rather than a cross-addon reference.
+local TYPED_DEBUFF_TYPES = { Magic = true, Curse = true, Disease = true, Poison = true, Bleed = true }
+
 local CANDIDATE_CLASSES = {
     { key = "bossaura", cand = "isBossAura",     skey = "BossAura",     debuffOnly = true },
     { key = "roleaura", cand = "isRoleAura",     skey = "RoleAura",     debuffOnly = true },
     { key = "priority", cand = "isPriorityAura", skey = "PriorityAura", debuffOnly = true },
     { key = "steal",    cand = "isStealable",    skey = "Stealable",    buffOnly = true },
+    -- candValue: unlike the boolean candidate classes above, includeDispelTypes
+    -- takes a SET table, not `true` -- BuildChain/ApplyGroupConfig/DeclareElementGroup
+    -- (this file) and PAB's own equivalents thread candValue through and use
+    -- `groupCand[cand] = candValue or true` at apply time so both shapes work
+    -- through the same mechanism.
+    { key = "dispeltyped", cand = "includeDispelTypes", candValue = TYPED_DEBUFF_TYPES,
+      skey = "DispelTyped", debuffOnly = true },
 }
 
 -- Shared with EllesmereUIUnitFrames_PlayerAuraBars.lua: same class vocabulary,
@@ -114,7 +129,7 @@ local function BuildChain(base, isBuff, s, unit)
         if ClassEnabled(class, isBuff, s, unit) then
             local tokens = { base }
             for n = 1, #negations do tokens[#tokens + 1] = negations[n] end
-            chain[#chain + 1] = { key = class.key, tokens = tokens, cand = class.cand }
+            chain[#chain + 1] = { key = class.key, tokens = tokens, cand = class.cand, candValue = class.candValue }
         end
     end
     return chain
@@ -350,7 +365,7 @@ end
 -- element's declared-set registry. Used at creation and by the additive
 -- reload path (AddAuraGroup on an existing container is combat-legal --
 -- probe T1/T1b).
-local function DeclareElementGroup(container, declared, styleKey, base, key, tokens, cand, own)
+local function DeclareElementGroup(container, declared, styleKey, base, key, tokens, cand, own, candValue)
     local eff = EffKey(key, own)
     local ftokens = tokens
     if own then
@@ -361,7 +376,7 @@ local function DeclareElementGroup(container, declared, styleKey, base, key, tok
     AK.AddGroupToContainer(container, {
         key = eff, filter = ftokens, maxFrameCount = 0, style = styleKey,
     })
-    declared[eff] = { cand = cand or false }
+    declared[eff] = { cand = cand or false, candValue = candValue }
 end
 
 -- Explicit either/or (never `cond and a or b`: a falsy setting must not fall
@@ -617,7 +632,7 @@ local function ApplyGroupConfig(container, unit, base, s, chain, own, declared)
                 if cand then
                     for k, v in pairs(cand) do groupCand[k] = v end
                 end
-                groupCand[info.cand] = true
+                groupCand[info.cand] = info.candValue or true
             end
             container:SetAuraGroupCandidateFilters(eff, groupCand)
             container:SetAuraGroupLayout(eff, layout)
@@ -966,7 +981,7 @@ function ns.UF_ReloadAuraContainers(frame, unit)
             for i = 1, #chain do
                 local c = chain[i]
                 if not declared[EffKey(c.key, own)] then
-                    DeclareElementGroup(container, declared, key, base, c.key, c.tokens, c.cand, own)
+                    DeclareElementGroup(container, declared, key, base, c.key, c.tokens, c.cand, own, c.candValue)
                 end
             end
             force = true
@@ -1099,7 +1114,7 @@ local function BuildUnitContainers(frame, unit)
         for i = 1, #chain do
             local c = chain[i]
             if not declared[EffKey(c.key, own)] then
-                DeclareElementGroup(entry[field], declared, styleKey, base, c.key, c.tokens, c.cand, own)
+                DeclareElementGroup(entry[field], declared, styleKey, base, c.key, c.tokens, c.cand, own, c.candValue)
                 return "again"
             end
         end
