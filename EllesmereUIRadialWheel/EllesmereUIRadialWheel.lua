@@ -25,7 +25,7 @@ local ADDON_NAME, ns = ...
 local ERW = EllesmereUI.Lite.NewAddon(ADDON_NAME)
 
 -- Upvalues
-local floor, min, max, abs = math.floor, math.min, math.max, math.abs
+local floor, ceil, min, max, abs = math.floor, math.ceil, math.min, math.max, math.abs
 local sin, cos, atan2, sqrt, pi = math.sin, math.cos, math.atan2, math.sqrt, math.pi
 local log = math.log
 local tonumber, type, select = tonumber, type, select
@@ -71,7 +71,15 @@ local DB_DEFAULTS = {
         -- a coverflow strip scrubbed with the mouse wheel, which keeps working
         -- while the right button is held to steer the camera and the cursor is
         -- therefore frozen.
-        layout      = "RADIAL",      -- RADIAL | FAN_H | FAN_V
+        layout      = "RADIAL",      -- RADIAL | FAN_H | FAN_V | GRID
+        gridColumns = 4,
+
+        -- Arc. 360 is the full wheel. Anything less fans the entries across a
+        -- sector centred on arcRotation (0 = straight up, growing clockwise),
+        -- which keeps a ring clear of a screen edge and gives a nested ring
+        -- somewhere to open that does not cover its parent.
+        arcSpan     = 360,           -- degrees, 30..360
+        arcRotation = 0,             -- degrees, direction the arc is centred on
 
         -- Geometry
         radius      = 96,
@@ -91,6 +99,20 @@ local DB_DEFAULTS = {
         fanMinAlpha   = 0.12,
         fanAnimTime   = 0.10,        -- seconds for the strip to settle
         fanInvert     = false,       -- flip which way a scroll tick travels
+
+        -- How a fan is steered. SCROLL cycles a window of the ring past a fixed
+        -- centre. CURSOR lays the WHOLE ring out at fixed positions and zooms
+        -- whichever entry the pointer is nearest, so it needs no wheel at all.
+        fanInput      = "SCROLL",    -- SCROLL | CURSOR
+
+        -- Flick-ahead. The radial's wedges are unbounded in depth, so a gesture
+        -- can be finished before the ring has even faded in. Holding it back for
+        -- a moment lets an expert flick without a menu ever appearing, while a
+        -- hesitant press still gets the full display. Selection is live the
+        -- whole time -- only the drawing waits.
+        flickAhead    = true,
+        flickDelay    = 0.12,        -- seconds held before the ring fades in
+        flickFade     = 0.10,        -- seconds the fade itself takes
 
         -- Appearance
         showLabels    = true,
@@ -523,6 +545,47 @@ function WheelView:IsFan()
     return self:LayoutMode() ~= "RADIAL"
 end
 
+function WheelView:IsGrid()
+    return self:LayoutMode() == "GRID"
+end
+
+-- Angular step and starting angle for the radial layout, both clockwise from
+-- straight up. Returns the step, the angle of slot 1, and whether this is a
+-- full circle.
+--
+-- A full circle divides by the entry count and wraps: the last entry's far side
+-- is the first entry's near side, so there is no seam. An arc divides by count
+-- MINUS ONE instead, which puts the first and last entries ON its ends rather
+-- than leaving a step-wide gap at the seam that belongs to no entry at all.
+function WheelView:ArcGeom(shown)
+    local p = P()
+    local deg  = min(360, max(30, (p and p.arcSpan) or 360))
+    local rot  = ((p and p.arcRotation) or 0) * pi / 180
+
+    if deg >= 359.5 then
+        return (shown > 0) and (TWO_PI / shown) or 0, rot, true
+    end
+
+    local span = deg * pi / 180
+    local step = (shown > 1) and (span / (shown - 1)) or 0
+    return step, rot - span * 0.5, false
+end
+
+-- A cursor-steered fan: every entry drawn at a fixed position, the nearest one
+-- zoomed. The editor follows the profile here like everything else, so what it
+-- lays out stays the arrangement the user actually plays with.
+function WheelView:IsHoverFan()
+    if self:IsGrid() or not self:IsFan() then return false end
+    local p = P()
+    return (p and p.fanInput or "SCROLL") == "CURSOR"
+end
+
+-- Everything steered by pointing at a fixed arrangement, as opposed to the
+-- scroll fan's moving one. These all share the grid's geometry and its update.
+function WheelView:IsPointerLayout()
+    return self:IsGrid() or self:IsHoverFan()
+end
+
 -------------------------------------------------------------------------------
 --  Fan layout
 --
@@ -573,6 +636,12 @@ end
 -- strip to the panel without duplicating any of the constants above.
 function ns.FanReach(count, iconSize, gap, decay)
     return FanOffset(count, iconSize, gap, decay, FAN_EDIT_MIN_SCALE) + iconSize
+end
+
+-- The same measurement for a hover fan, which is evenly spaced at full pitch
+-- because its zoomed entry is drawn at 1.0 and must not overlap its neighbours.
+function ns.FanHoverReach(count, iconSize, gap)
+    return count * 0.5 * (iconSize + gap) + iconSize * 0.5
 end
 
 -- Position every widget from self.fanVisual, the CONTINUOUS centre. Called
@@ -635,6 +704,118 @@ function WheelView:ApplyFanGeometry()
             w:Show()
         end
     end
+end
+
+-------------------------------------------------------------------------------
+--  Grid
+--
+--  Every entry at a fixed cell, the one nearest the pointer zoomed, everything
+--  else falling off by distance. A pointer-steered FAN is this same layout one
+--  entry deep -- FAN_H is a single row, FAN_V a single column -- so both route
+--  here rather than into a parallel 1D implementation. This is
+--  the mode that scales -- pointer travel to the worst entry grows with the
+--  SQUARE ROOT of the count rather than linearly, and a fixed 2D arrangement is
+--  far easier to build muscle memory against than a position along a line.
+--
+--  Rows are centred individually, so a short final row sits under the middle of
+--  the one above it instead of hanging off the left edge.
+-------------------------------------------------------------------------------
+
+-- How far from EVERY entry, in cells, the pointer may stray before the grid
+-- deselects. This is the grid's cancel: it has no dead zone to release inside.
+local GRID_REACH = 1.0
+
+-- A pointer-steered fan IS a grid one entry deep, so it resolves here rather
+-- than in a parallel 1D implementation: FAN_H is a single row, FAN_V a single
+-- column. Only the scroll-steered fan needs geometry of its own, because it
+-- cycles a compressed window rather than showing fixed positions.
+function WheelView:GridDims()
+    local p = P()
+    local shown = max(1, self.shownCount)
+
+    local mode = self:LayoutMode()
+    if mode == "FAN_H" then return shown, 1 end
+    if mode == "FAN_V" then return 1, shown end
+
+    local cols = min(MAX_SLOTS, max(1, floor((p and p.gridColumns) or 4)))
+    if cols > shown then cols = shown end
+    return cols, ceil(shown / cols)
+end
+
+-- Centre-relative position of slot i, in the frame's own units.
+function WheelView:GridBase(i, cols, rows, pitch)
+    local r = floor((i - 1) / cols)
+    local c = (i - 1) % cols
+    local inRow = min(cols, self.shownCount - r * cols)
+    return (c - (inRow - 1) * 0.5) * pitch, -(r - (rows - 1) * 0.5) * pitch
+end
+
+-- Lay the grid out and select the entry nearest the pointer. noPointer draws it
+-- evenly with nothing selected, which is what Layout and the editor want.
+function WheelView:AdvanceGrid(noPointer)
+    local p = P()
+    local shown = self.shownCount
+    if not p or shown < 1 then
+        self:SetSelection(nil)
+        return
+    end
+
+    local _, iconSize = self:Geom()
+    local pitch  = iconSize + (p.fanGap or 10)
+    local decay  = min(1, max(0.05, p.fanScaleDecay or 0.72))
+    local aDecay = min(1, max(0.05, p.fanAlphaDecay or 0.62))
+    local minS   = p.fanMinScale or 0.30
+    local minA   = p.fanMinAlpha or 0.12
+    if self.opts.interactive then
+        minS = max(minS, FAN_EDIT_MIN_SCALE)
+        minA = max(minA, FAN_EDIT_MIN_ALPHA)
+    end
+
+    local cols, rows = self:GridDims()
+    local frame = self.frame
+
+    -- Pointer offset from the grid's centre, or nil while the movement gate is
+    -- still armed -- without it an entry is selected the instant the grid opens
+    -- and "open and release" would fire instead of cancelling.
+    local dx, dy
+    local fx, fy = frame:GetCenter()
+    if fx and not noPointer then
+        local es = frame:GetEffectiveScale()
+        local mx, my = GetCursorPosition()
+        mx, my = mx / es, my / es
+        if not self._steered
+           and (abs(mx - self._gateX) >= 1 or abs(my - self._gateY) >= 1) then
+            self._steered = true
+        end
+        if self._steered then dx, dy = mx - fx, my - fy end
+    end
+
+    local best, bestK
+    for i = 1, shown do
+        local w = self.widgets[i]
+        local bx, by = self:GridBase(i, cols, rows, pitch)
+
+        -- Falloff is the true 2D distance, in cells. A grid has no privileged
+        -- axis, so projecting onto one -- as the strip does -- would make the
+        -- zoom respond to sideways movement it should ignore.
+        local s, a = max(minS, decay), 1
+        if dx then
+            local ox, oy = (dx - bx) / pitch, (dy - by) / pitch
+            local k = sqrt(ox * ox + oy * oy)
+            s = max(minS, decay ^ k)
+            a = max(minA, aDecay ^ k)
+            if not bestK or k < bestK then best, bestK = i, k end
+        end
+
+        w:SetAlpha(a)
+        w:SetSize(iconSize * s, iconSize * s)
+        w:ClearAllPoints()
+        w:SetPoint("CENTER", frame, "CENTER", bx, by)
+        w:Show()
+    end
+
+    if bestK and bestK > GRID_REACH then best = nil end
+    self:SetSelection(best)
 end
 
 -- Centre the strip on a slot with no animation. The options preview uses this
@@ -742,14 +923,24 @@ function WheelView:PlaceHubText()
         return
     end
 
+    -- Half the extent the caption has to clear on its own axis. A strip is one
+    -- entry deep, but a grid is as deep as it has rows.
     local pad = iconSize * 0.5 + 14
+    if mode == "GRID" then
+        local p = P()
+        local _, rows = self:GridDims()
+        pad = rows * (iconSize + ((p and p.fanGap) or 10)) * 0.5 + 14
+    end
     -- The editor is pinned rather than quadrant-tested: its block sits wherever
     -- the options page happens to be scrolled to, and a caption that jumped
     -- sides as the user scrolled would read as a glitch.
     local dx, dy = 0, 0
     if not self.opts.interactive then dx, dy = self:ScreenOffset() end
 
-    if mode == "FAN_H" then
+    -- A grid captions like a horizontal strip: it is as wide as it is tall, so
+    -- there is no side with obviously more room, and above/below keeps the text
+    -- clear of every cell rather than only of the middle column.
+    if mode == "FAN_H" or mode == "GRID" then
         -- Below the middle of the screen -> caption above the strip.
         hub.text:SetJustifyH("CENTER")
         if dy < 0 then
@@ -846,7 +1037,7 @@ function WheelView:Layout(ringIndex)
     local shown = (opts.interactive and n < MAX_SLOTS) and (n + 1) or n
     self.slotCount, self.shownCount = n, shown
 
-    local step = shown > 0 and (TWO_PI / shown) or 0
+    local step, arcStart = self:ArcGeom(shown)
     local radius, iconSize = self:Geom()
     local fan = self:IsFan()
 
@@ -854,12 +1045,19 @@ function WheelView:Layout(ringIndex)
     -- p.scale is the user's live sizing; a fitted preview supplies its own
     -- geometry instead and must not be scaled a second time.
     if not opts.interactive then frame:SetScale(p.scale or 1) end
-    if fan then
+    if self:IsPointerLayout() then
+        -- One sizing rule for the grid and both pointer-steered strips: a strip
+        -- is just a grid one entry deep, so GridDims has already reduced it to
+        -- the same cols/rows the extent is measured from.
+        local pitch = iconSize + (p.fanGap or 10)
+        local cols, rows = self:GridDims()
+        frame:SetSize(cols * pitch + 40, rows * pitch + 60)
+    elseif fan then
         local window = opts.interactive and shown or (p.fanVisible or 3)
-        local reach  = FanOffset(window, iconSize, p.fanGap or 10,
-                                 p.fanScaleDecay or 0.72,
-                                 opts.interactive and FAN_EDIT_MIN_SCALE
-                                                   or (p.fanMinScale or 0.30)) + iconSize
+        local reach = FanOffset(window, iconSize, p.fanGap or 10,
+                                p.fanScaleDecay or 0.72,
+                                opts.interactive and FAN_EDIT_MIN_SCALE
+                                                  or (p.fanMinScale or 0.30)) + iconSize
         local along  = reach * 2 + 40
         local across = iconSize + 60      -- room for the hub caption
         if self:LayoutMode() == "FAN_H" then
@@ -885,7 +1083,7 @@ function WheelView:Layout(ringIndex)
             w:SetAlpha(1)
             w:SetScale(1)
             if not fan then
-                local a = (i - 1) * step
+                local a = arcStart + (i - 1) * step
                 w:ClearAllPoints()
                 w:SetPoint("CENTER", frame, "CENTER", radius * sin(a), radius * cos(a))
                 w:SetSize(iconSize, iconSize)
@@ -933,7 +1131,14 @@ function WheelView:Layout(ringIndex)
     -- stale by construction; callers that want it back re-apply it afterwards.
     self.selection = nil
 
-    if fan then self:ApplyFanGeometry() end
+    if self:IsPointerLayout() then
+        self:AdvanceGrid(true)
+        -- AdvanceGrid publishes a selection; Layout's contract is that it does
+        -- not, and the caller re-applies one afterwards.
+        self.selection = nil
+    elseif fan then
+        self:ApplyFanGeometry()
+    end
 
     local hub = self.hub
     hub.needle:SetShown(false)
@@ -985,7 +1190,8 @@ function WheelView:SetSelection(index)
         -- The needle points along a wedge angle; the fan has no angles.
         if p and p.showNeedle and not self:IsFan() then
             local radius, iconSize, deadZone = self:Geom()
-            local a = (index - 1) * (TWO_PI / self.shownCount)
+            local step, arcStart = self:ArcGeom(self.shownCount)
+            local a = arcStart + (index - 1) * step
             local mid = (deadZone + radius - iconSize * 0.5) * 0.5
             hub.needle:ClearAllPoints()
             hub.needle:SetPoint("CENTER", hub, "CENTER", mid * sin(a), mid * cos(a))
@@ -1042,8 +1248,26 @@ function WheelView:HitTest()
     local theta = atan2(dx, dy)
     if theta < 0 then theta = theta + TWO_PI end
 
-    local step = TWO_PI / shown
-    return (floor(theta / step + 0.5) % shown) + 1
+    local step, arcStart, full = self:ArcGeom(shown)
+    if step == 0 then return 1 end
+
+    local rel = theta - arcStart
+    if full then return (floor(rel / step + 0.5) % shown) + 1 end
+
+    -- Resolved into [0, TWO_PI) from the arc's start, NOT into (-pi, pi]: an arc
+    -- may span up to a full turn, so an offset of more than half a turn is a
+    -- legitimate position near its end rather than a negative one near its
+    -- start. Folding it would silently amputate everything past 180 degrees.
+    rel = rel % TWO_PI
+
+    -- The arc owns half a step past its last entry, the same width every
+    -- interior entry gets. Beyond that is a miss, not a clamp: outside the arc
+    -- is the only place its cancel can live once the dead zone has been left.
+    if rel > (shown - 1) * step + step * 0.5 then return nil end
+
+    local idx = floor(rel / step + 0.5) + 1
+    if idx < 1 or idx > shown then return nil end
+    return idx
 end
 
 -------------------------------------------------------------------------------
@@ -1092,12 +1316,43 @@ local function EnsureScrollCatcher()
     return f
 end
 
+-- Flick-ahead. The ring is held invisible for a moment after the key goes down
+-- and then fades in, so a gesture finished inside that window never summons a
+-- menu at all. It is a DRAWING delay only: the frame is shown and its OnUpdate
+-- is running the whole time, so the selection a fast flick lands on is exactly
+-- the one a slow one would have.
+--
+-- Radial only. A fan has to be read before it can be steered, and a scroll fan
+-- cannot even be entered without seeing where the strip starts.
+local function UpdateFlickAlpha()
+    local p = P()
+    local frame = liveView:GetFrame()
+    if not p or not p.flickAhead or liveView:IsFan() then
+        frame:SetAlpha(1)
+        return
+    end
+
+    local delay = p.flickDelay or 0.12
+    local fade  = p.flickFade or 0.10
+    local t = GetTime() - openedAt
+    if t <= delay then
+        frame:SetAlpha(0)
+    elseif fade <= 0 or t >= delay + fade then
+        frame:SetAlpha(1)
+    else
+        frame:SetAlpha((t - delay) / fade)
+    end
+end
+
 local function OnWheelUpdate(_, elapsed)
     if GetTime() - openedAt > OPEN_TIMEOUT then
         ns.Close()
         return
     end
-    if liveView:IsFan() then
+    UpdateFlickAlpha()
+    if liveView:IsPointerLayout() then
+        liveView:AdvanceGrid()
+    elseif liveView:IsFan() then
         liveView:AdvanceFan(elapsed)
     else
         liveView:SetSelection(liveView:HitTest())
@@ -1137,7 +1392,13 @@ function ns.Open(ringIndex)
 
     openedAt = GetTime()
 
-    if liveView:IsFan() then
+    if liveView:IsPointerLayout() then
+        -- Nothing selected until the pointer moves, and straying more than a
+        -- cell from every entry deselects again -- these layouts' dead zone.
+        liveView:ArmMovementGate()
+        liveView:AdvanceGrid(true)
+        liveView:SetSelection(nil)
+    elseif liveView:IsFan() then
         -- Open with no selection at all: the first scroll tick is what enters
         -- the strip, so releasing without scrolling cancels, exactly as
         -- releasing inside the dead zone does in RADIAL.
@@ -1152,6 +1413,9 @@ function ns.Open(ringIndex)
     end
 
     local wheel = liveView:GetFrame()
+    -- Applied before the first frame rather than left to OnUpdate: the wheel is
+    -- shown on this one, and the previous open's alpha would flash through.
+    UpdateFlickAlpha()
     wheel:SetScript("OnUpdate", OnWheelUpdate)
     wheel:Show()
 end

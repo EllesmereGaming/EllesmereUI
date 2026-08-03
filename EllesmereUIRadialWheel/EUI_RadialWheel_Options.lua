@@ -324,7 +324,25 @@ initFrame:SetScript("OnEvent", function(self)
         local deadZone = Cfg("deadZone") or 24
         local layout = Cfg("layout") or "RADIAL"
         local k
-        if layout ~= "RADIAL" then
+        if layout == "GRID" then
+            -- The grid is the one layout bounded on BOTH axes, so both budgets
+            -- have to be met: the block's width across the columns, and its
+            -- height down the rows.
+            local ring = Ring(editRing)
+            local n = (ring and #ring.slots or 0) + 1
+            local cols, rows
+            if previewView then cols, rows = previewView:GridDims() end
+            -- The view answers from its last Layout, so it has nothing to say
+            -- until the first one has run.
+            if not cols or rows < 1 then
+                cols = math.min(Cfg("gridColumns") or 4, n)
+                rows = math.ceil(n / cols)
+            end
+            local pitch = iconSize + (Cfg("fanGap") or 10)
+            k = math.min(1,
+                FanSpan("FAN_H") / (cols * pitch * 0.5),
+                (PREVIEW_H * 0.5 - 24) / (rows * pitch * 0.5))
+        elseif layout ~= "RADIAL" then
             -- A fan's extent is the length of the strip, not the radius of a
             -- ring, so that is what has to be fitted. The preview draws EVERY
             -- slot -- an editor cannot leave one unreachable -- plus the
@@ -332,8 +350,15 @@ initFrame:SetScript("OnEvent", function(self)
             -- over that whole count.
             local ring = Ring(editRing)
             local n = (ring and #ring.slots or 0) + 1
-            local reach = ns.FanReach(n, iconSize, Cfg("fanGap") or 10,
-                                      Cfg("fanScaleDecay") or 0.72)
+            local reach
+            if (Cfg("fanInput") or "SCROLL") == "CURSOR" then
+                -- A pointer-steered fan is evenly spaced at full pitch, so its
+                -- reach grows much faster than a coverflow strip's.
+                reach = ns.FanHoverReach(n, iconSize, Cfg("fanGap") or 10)
+            else
+                reach = ns.FanReach(n, iconSize, Cfg("fanGap") or 10,
+                                    Cfg("fanScaleDecay") or 0.72)
+            end
             -- Against the budget of the axis the strip actually runs along, NOT
             -- PREVIEW_SPAN: that is a RADIUS budget, and measuring a strip's
             -- half-LENGTH against it shrank the icons to about a third of the
@@ -1226,8 +1251,13 @@ initFrame:SetScript("OnEvent", function(self)
         previewView:Layout(editRing)
         -- A freshly laid out strip sits at its default centre, which is a
         -- position between entries rather than on one. Park it on the first
-        -- slot so the preview opens looking like the strip in play does.
-        if previewView:IsFan() then previewView:SetFanCenter(1) end
+        -- slot so the preview opens looking like the strip in play does. Only a
+        -- SCROLLED strip has a centre at all: the grid and the pointer-steered
+        -- fan draw every entry at a fixed position and select by proximity.
+        if previewView:IsFan() and not previewView:IsGrid()
+           and not previewView:IsHoverFan() then
+            previewView:SetFanCenter(1)
+        end
 
         return PREVIEW_H
     end
@@ -1251,8 +1281,11 @@ initFrame:SetScript("OnEvent", function(self)
         local centerOrder  = { "CURSOR", "SCREEN" }
 
         local layoutValues = { RADIAL = "Radial Wheel", FAN_H = "Fan (Horizontal)",
-                               FAN_V = "Fan (Vertical)" }
-        local layoutOrder  = { "RADIAL", "FAN_H", "FAN_V" }
+                               FAN_V = "Fan (Vertical)", GRID = "Grid" }
+        local layoutOrder  = { "RADIAL", "FAN_H", "FAN_V", "GRID" }
+
+        local fanInputValues = { SCROLL = "Mouse Wheel", CURSOR = "Pointer" }
+        local fanInputOrder  = { "SCROLL", "CURSOR" }
 
         -- ── GENERAL ──────────────────────────────────────────────────────
         _, h = W:SectionHeader(parent, "GENERAL", y); y = y - h
@@ -1327,14 +1360,38 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- A fan has no ring, no angle and no centre to steer away from, so the
         -- settings that describe those are dead in it -- and the radial has no
-        -- strip, so the fan's own settings are dead in turn. Both sets stay
+        -- strip, so the fan's own settings are dead in turn. Every set stays
         -- visible and disabled rather than disappearing: a control that
         -- vanishes when a dropdown moves reads as a bug.
+        --
+        -- Four predicates, because the layouts do not partition cleanly: the
+        -- grid shares the strip's spacing and falloff settings but steers like
+        -- nothing else, and a pointer-steered fan has no scrolling to describe.
+        local function LayoutMode() return Cfg("layout") or "RADIAL" end
+        local function IsFanLayout()
+            local l = LayoutMode()
+            return l == "FAN_H" or l == "FAN_V"
+        end
+
         local radialOnly = function()
-            return Disabled() or (Cfg("layout") or "RADIAL") ~= "RADIAL"
+            return Disabled() or LayoutMode() ~= "RADIAL"
+        end
+        -- Anything laid out as icons at a fixed pitch: both fans and the grid.
+        local stripOnly = function()
+            return Disabled() or LayoutMode() == "RADIAL"
         end
         local fanOnly = function()
-            return Disabled() or (Cfg("layout") or "RADIAL") == "RADIAL"
+            return Disabled() or not IsFanLayout()
+        end
+        -- The window-and-scroll settings: a pointer-steered fan draws the whole
+        -- ring at fixed positions, so it culls nothing, animates nothing and
+        -- has no wheel direction to invert.
+        local scrollFanOnly = function()
+            return Disabled() or not IsFanLayout()
+                or (Cfg("fanInput") or "SCROLL") ~= "SCROLL"
+        end
+        local gridOnly = function()
+            return Disabled() or LayoutMode() ~= "GRID"
         end
 
         row, h = W:DualRow(parent, y,
@@ -1381,6 +1438,25 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v) Set("iconSize", v); Refresh() end })
         y = y - h
 
+        -- 360 is the full wheel, and a rotation of a full circle is a no-op --
+        -- so the rotation only becomes live once the span has been narrowed to
+        -- an arc that has somewhere to point.
+        row, h = W:DualRow(parent, y,
+            { type="slider", text="Arc Span",
+              disabled=radialOnly, disabledTooltip="the Radial Wheel layout",
+              min=30, max=360, step=5,
+              getValue=function() return Cfg("arcSpan") or 360 end,
+              setValue=function(v) Set("arcSpan", v); Refresh() end },
+            { type="slider", text="Arc Rotation",
+              disabled=function()
+                  return radialOnly() or (Cfg("arcSpan") or 360) >= 360
+              end,
+              disabledTooltip="an Arc Span below 360",
+              min=-180, max=180, step=5,
+              getValue=function() return Cfg("arcRotation") or 0 end,
+              setValue=function(v) Set("arcRotation", v); Refresh() end })
+        y = y - h
+
         row, h = W:DualRow(parent, y,
             -- Floor of 8, not 0: the dead zone is what makes "release without
             -- steering" a cancel, and at 0 there is no cancel region at all.
@@ -1396,19 +1472,36 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v) Set("scale", v); Refresh() end })
         y = y - h
 
-        -- ── FAN LAYOUT ───────────────────────────────────────────────────
-        _, h = W:SectionHeader(parent, "FAN LAYOUT", y); y = y - h
+        -- ── FAN & GRID ───────────────────────────────────────────────────
+        _, h = W:SectionHeader(parent, "FAN & GRID", y); y = y - h
+
+        row, h = W:DualRow(parent, y,
+            { type="dropdown", text="Steering",
+              disabled=fanOnly, disabledTooltip="a Fan layout",
+              values=fanInputValues, order=fanInputOrder,
+              getValue=function() return Cfg("fanInput") or "SCROLL" end,
+              -- Rebuild, not Refresh: pointer steering retires three of the
+              -- sliders below, so the row states are built from this.
+              setValue=function(v) Set("fanInput", v); RebuildPage() end },
+            { type="slider", text="Grid Columns",
+              disabled=gridOnly, disabledTooltip="the Grid layout",
+              min=1, max=8, step=1,
+              getValue=function() return Cfg("gridColumns") or 4 end,
+              setValue=function(v) Set("gridColumns", v); Refresh() end })
+        y = y - h
 
         row, h = W:DualRow(parent, y,
             -- How much of the strip is drawn at all. Neighbours past this many
             -- steps are hidden rather than shrunk further.
             { type="slider", text="Visible Each Side",
-              disabled=fanOnly, disabledTooltip="a Fan layout",
+              disabled=scrollFanOnly, disabledTooltip="a scroll-steered Fan layout",
               min=1, max=6, step=1,
               getValue=function() return Cfg("fanVisible") or 3 end,
               setValue=function(v) Set("fanVisible", v); Refresh() end },
+            -- Gap and both falloffs describe the spacing between entries laid
+            -- out at a fixed pitch, which the grid does as much as a fan.
             { type="slider", text="Entry Gap",
-              disabled=fanOnly, disabledTooltip="a Fan layout",
+              disabled=stripOnly, disabledTooltip="a Fan or Grid layout",
               min=0, max=40, step=1,
               getValue=function() return Cfg("fanGap") or 10 end,
               setValue=function(v) Set("fanGap", v); Refresh() end })
@@ -1418,12 +1511,12 @@ initFrame:SetScript("OnEvent", function(self)
         -- entry out from the centre is 72% of the one before it.
         row, h = W:DualRow(parent, y,
             { type="slider", text="Size Falloff",
-              disabled=fanOnly, disabledTooltip="a Fan layout",
+              disabled=stripOnly, disabledTooltip="a Fan or Grid layout",
               min=0.40, max=0.95, step=0.01,
               getValue=function() return Cfg("fanScaleDecay") or 0.72 end,
               setValue=function(v) Set("fanScaleDecay", v); Refresh() end },
             { type="slider", text="Fade Falloff",
-              disabled=fanOnly, disabledTooltip="a Fan layout",
+              disabled=stripOnly, disabledTooltip="a Fan or Grid layout",
               min=0.20, max=0.95, step=0.01,
               getValue=function() return Cfg("fanAlphaDecay") or 0.62 end,
               setValue=function(v) Set("fanAlphaDecay", v); Refresh() end })
@@ -1433,12 +1526,12 @@ initFrame:SetScript("OnEvent", function(self)
             -- How long the strip takes to slide to the entry that was scrolled
             -- to. 0 snaps; the selection itself moves on the tick either way.
             { type="slider", text="Settle Time",
-              disabled=fanOnly, disabledTooltip="a Fan layout",
+              disabled=scrollFanOnly, disabledTooltip="a scroll-steered Fan layout",
               min=0, max=0.40, step=0.01,
               getValue=function() return Cfg("fanAnimTime") or 0.10 end,
               setValue=function(v) Set("fanAnimTime", v); Refresh() end },
             { type="toggle", text="Invert Scroll",
-              disabled=fanOnly, disabledTooltip="a Fan layout",
+              disabled=scrollFanOnly, disabledTooltip="a scroll-steered Fan layout",
               getValue=function() return Cfg("fanInvert") == true end,
               setValue=function(v) Set("fanInvert", v); Refresh() end })
         y = y - h
@@ -1510,6 +1603,31 @@ initFrame:SetScript("OnEvent", function(self)
               min=1.0, max=1.6, step=0.01,
               getValue=function() return Cfg("selectedZoom") or 1.15 end,
               setValue=function(v) Set("selectedZoom", v); Refresh() end })
+        y = y - h
+
+        -- ── FLICK-AHEAD ──────────────────────────────────────────────────
+        -- Its own section rather than another APPEARANCE row: this is about
+        -- WHEN the ring is drawn, not what it looks like, and the delay is the
+        -- one setting on the page a user has to be told the purpose of.
+        _, h = W:SectionHeader(parent, "FLICK-AHEAD", y); y = y - h
+
+        row, h = W:DualRow(parent, y,
+            -- Holding the ring back for a moment lets an expert finish a
+            -- gesture before anything appears. Selection is live the whole
+            -- time, so nothing is lost by waiting.
+            { type="toggle", text="Flick-Ahead",
+              disabled=radialOnly, disabledTooltip="the Radial Wheel layout",
+              getValue=function() return Cfg("flickAhead") ~= false end,
+              -- Rebuild: the toggle gates the delay slider beside it.
+              setValue=function(v) Set("flickAhead", v); RebuildPage() end },
+            { type="slider", text="Flick Delay",
+              disabled=function()
+                  return radialOnly() or Cfg("flickAhead") == false
+              end,
+              disabledTooltip="Flick-Ahead",
+              min=0, max=0.40, step=0.01,
+              getValue=function() return Cfg("flickDelay") or 0.12 end,
+              setValue=function(v) Set("flickDelay", v); Refresh() end })
         y = y - h
 
         _, h = W:Spacer(parent, y, 10); y = y - h
