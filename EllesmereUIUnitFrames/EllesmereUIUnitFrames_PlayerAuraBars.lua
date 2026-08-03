@@ -2715,6 +2715,16 @@ local function CreatePreviewIcon(box)
     local btn = CreateFrame("Frame", nil, box)
     btn.icon = btn:CreateTexture(nil, "ARTWORK")
     btn.icon:SetAllPoints()
+    -- "Nothing configured" placeholder (2026-08-03, Joel): a red X centered
+    -- over the icon's flat grey fill, shown instead of a fake spell icon
+    -- when the bar's real config would show zero buffs (Show All Buffs off,
+    -- no Filters/Extra Spells resolved) -- see the noneConfigured check in
+    -- RenderPreviewIcons. Reuses the existing close/X media icon rather
+    -- than adding a new asset.
+    btn.placeholder = btn:CreateTexture(nil, "OVERLAY")
+    btn.placeholder:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.png")
+    btn.placeholder:SetVertexColor(1, 0.2, 0.2, 1)
+    btn.placeholder:Hide()
     btn.border = CreateFrame("Frame", nil, btn)
     btn.textHost = CreateFrame("Frame", nil, btn)
     btn.duration = btn.textHost:CreateFontString(nil, "OVERLAY")
@@ -2792,6 +2802,63 @@ end
 -- plain addon-owned Frame/Texture/FontString regions, never the real bar.
 -- Row/column math mirrors ComputeGrid/BuildContainerSpec's own corner-
 -- anchored flow layout so the preview wraps exactly like the live bar.
+local function HasAnyTrue(map)
+    if not map then return false end
+    for _, v in pairs(map) do if v then return true end end
+    return false
+end
+
+-- True when this bar has a "catch-all" content source that would actually
+-- render SOMETHING beyond its Extra Spells (buffs: All Buffs on or any
+-- Filter selected; debuffs: Show All Debuffs on or any Base Filter class
+-- selected). Deliberately does NOT consult Extra Spells/ns.PAB_ResolveSpells
+-- -- those are handled as their own always-shown real-icon slots in
+-- BuildPreviewSlots below, independent of whether a catch-all/filter source
+-- exists. Mirrors the exact conditions ApplyLiveConfig/ReloadCustom*BarImpl
+-- use to decide whether to declare their catch-all-or-class-token chain
+-- groups at all (2026-08-03: debuffs' BuildChain, unlike an earlier session
+-- note, DOES fully respect showAllDebuffs+classFilters via includeCatchAll
+-- -- re-verified against the current code, not the stale assumption).
+local function HasFillerSource(isBuff, cfg)
+    if isBuff then
+        return cfg.showAllBuffs ~= false or HasAnyTrue(cfg.filters)
+    end
+    return cfg.showAllDebuffs ~= false or HasAnyTrue(cfg.classFilters)
+end
+
+-- Builds one descriptor per icon slot (length `count`): {kind="extra",
+-- spellID=} for a buff bar's real, always-shown Extra Spells (2026-08-03,
+-- Joel: Extra Spells should always appear in the preview using their REAL
+-- icon, with enough room, instead of being folded into the generic fake
+-- pool like everything else) -- these occupy the TRAILING slots, in
+-- cfg.spells' own order. Every slot before them is {kind="fake", entry=}
+-- (the existing cosmetic example-icon behavior) when HasFillerSource is
+-- true, or {kind="placeholder"} when there's genuinely nothing else
+-- configured. Debuffs have no Extra Spells concept, so every slot is
+-- fake-or-placeholder there.
+--
+-- Extra Spells occupy the LEADING slots (2026-08-03 fix, Joel: they were
+-- trailing, wanted at the front instead), in cfg.spells' own order; filler
+-- (fake-or-placeholder) fills whatever's left after them.
+local function BuildPreviewSlots(isBuff, cfg, list, listLen, count)
+    local hasFiller = HasFillerSource(isBuff, cfg)
+    local extraIDs = isBuff and cfg.spells or nil
+    local numExtra = extraIDs and math.min(#extraIDs, count) or 0
+    local numFiller = count - numExtra
+    local slots = {}
+    for i = 1, numExtra do
+        slots[i] = { kind = "extra", spellID = extraIDs[i] }
+    end
+    for i = 1, numFiller do
+        if hasFiller then
+            slots[numExtra + i] = { kind = "fake", entry = list[((i - 1) % listLen) + 1] }
+        else
+            slots[numExtra + i] = { kind = "placeholder" }
+        end
+    end
+    return slots
+end
+
 local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, buffPool)
     cfg = ScaledPreviewCfg(cfg)
     local style = BuildStyle(isBuff, cfg)
@@ -2816,6 +2883,7 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, buffPool)
     local list = isBuff and ((buffPool and #buffPool > 0 and buffPool) or PREVIEW_BUFF_SPELLS) or PREVIEW_DEBUFF_SPELLS
     list = SortPreviewList(list, isBuff, cfg)
     local listLen = #list
+    local slots = BuildPreviewSlots(isBuff, cfg, list, listLen, count)
 
     local rows = math.max(1, math.ceil(count / cols))
     local blockW = cols * iconSize + math.max(0, cols - 1) * pad
@@ -2830,10 +2898,6 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, buffPool)
                 icons[i] = btn
             end
 
-            local entry = list[((i - 1) % listLen) + 1]
-            local spellID = isBuff and entry or entry.id
-            local dispel = (not isBuff) and entry.dispel or nil
-
             local col = (i - 1) % cols
             local row = math.floor((i - 1) / cols)
             local colStep = (iconSize + pad) * col
@@ -2847,9 +2911,43 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, buffPool)
             btn:SetPoint(corner, box, "CENTER", btnX, btnY)
             btn:SetSize(iconSize, iconSize)
 
-            btn.icon:SetTexture(PreviewSpellIcon(spellID))
-            local z = style.iconZoom or 0.055
-            btn.icon:SetTexCoord(z, 1 - z, z, 1 - z)
+            local slot = slots[i]
+            local dispel
+
+            if slot.kind == "placeholder" then
+                -- Flat grey box + centered red X (see CreatePreviewIcon's
+                -- doc comment) instead of a fake spell icon -- nothing
+                -- would actually render on the real bar here, so the
+                -- preview shouldn't imply otherwise with example buffs.
+                -- Border still draws (2026-08-03, Joel) -- only the icon
+                -- texture and duration/stack text are placeholder-specific.
+                btn.icon:SetTexture(nil)
+                btn.icon:SetColorTexture(0.16, 0.16, 0.16, 1)
+                btn.placeholder:ClearAllPoints()
+                local inset = iconSize * 0.2
+                btn.placeholder:SetPoint("TOPLEFT", btn.icon, "TOPLEFT", inset, -inset)
+                btn.placeholder:SetPoint("BOTTOMRIGHT", btn.icon, "BOTTOMRIGHT", -inset, inset)
+                btn.placeholder:Show()
+                btn.textHost:Hide()
+            else
+                btn.placeholder:Hide()
+                btn.textHost:Show()
+
+                local spellID
+                if slot.kind == "extra" then
+                    -- Real Extra Spell: always its own actual icon, never
+                    -- folded into the fake cycling pool.
+                    spellID = slot.spellID
+                else -- "fake"
+                    local entry = slot.entry
+                    spellID = isBuff and entry or entry.id
+                    dispel = (not isBuff) and entry.dispel or nil
+                end
+
+                btn.icon:SetTexture(PreviewSpellIcon(spellID))
+                local z = style.iconZoom or 0.055
+                btn.icon:SetTexCoord(z, 1 - z, z, 1 - z)
+            end
 
             btn.border:SetAllPoints(btn.icon)
             btn.border:SetFrameLevel(btn:GetFrameLevel() + 1)
@@ -2883,27 +2981,29 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, buffPool)
                 if PP and PP.HideBorder then PP.HideBorder(btn.border) else btn.border:Hide() end
             end
 
-            btn.textHost:SetAllPoints(btn)
-            btn.textHost:SetFrameLevel(btn:GetFrameLevel() + 2)
+            if slot.kind ~= "placeholder" then
+                btn.textHost:SetAllPoints(btn)
+                btn.textHost:SetFrameLevel(btn:GetFrameLevel() + 2)
 
-            btn.duration:ClearAllPoints()
-            btn.duration:SetFont(fontPath, style.durationFontSize or 11, "OUTLINE")
-            btn.duration:SetPoint(style.durationPoint or "TOP", btn, style.durationRelPoint or "BOTTOM",
-                style.durationX or 0, style.durationY or 0)
-            local dc = style.durationColor
-            btn.duration:SetTextColor(dc and dc.r or 1, dc and dc.g or 1, dc and dc.b or 1)
-            btn.duration:SetShown(not style.hideDurationText)
-            btn.duration:SetText(PREVIEW_DURATIONS[((i - 1) % #PREVIEW_DURATIONS) + 1])
+                btn.duration:ClearAllPoints()
+                btn.duration:SetFont(fontPath, style.durationFontSize or 11, "OUTLINE")
+                btn.duration:SetPoint(style.durationPoint or "TOP", btn, style.durationRelPoint or "BOTTOM",
+                    style.durationX or 0, style.durationY or 0)
+                local dc = style.durationColor
+                btn.duration:SetTextColor(dc and dc.r or 1, dc and dc.g or 1, dc and dc.b or 1)
+                btn.duration:SetShown(not style.hideDurationText)
+                btn.duration:SetText(PREVIEW_DURATIONS[((i - 1) % #PREVIEW_DURATIONS) + 1])
 
-            btn.stack:ClearAllPoints()
-            btn.stack:SetFont(fontPath, style.stackFontSize or 11, "OUTLINE")
-            btn.stack:SetPoint(style.stackPoint or "TOP", btn, style.stackPoint or "TOP",
-                style.stackX or 0, style.stackY or 0)
-            local sc = style.stackColor
-            btn.stack:SetTextColor(sc and sc.r or 1, sc and sc.g or 1, sc and sc.b or 1)
-            local stackVal = PREVIEW_STACKS[((i - 1) % #PREVIEW_STACKS) + 1]
-            btn.stack:SetShown(style.showStacks ~= false and stackVal ~= nil)
-            if stackVal then btn.stack:SetText(stackVal) end
+                btn.stack:ClearAllPoints()
+                btn.stack:SetFont(fontPath, style.stackFontSize or 11, "OUTLINE")
+                btn.stack:SetPoint(style.stackPoint or "TOP", btn, style.stackPoint or "TOP",
+                    style.stackX or 0, style.stackY or 0)
+                local sc = style.stackColor
+                btn.stack:SetTextColor(sc and sc.r or 1, sc and sc.g or 1, sc and sc.b or 1)
+                local stackVal = PREVIEW_STACKS[((i - 1) % #PREVIEW_STACKS) + 1]
+                btn.stack:SetShown(style.showStacks ~= false and stackVal ~= nil)
+                if stackVal then btn.stack:SetText(stackVal) end
+            end
 
             btn:Show()
         elseif icons[i] then
