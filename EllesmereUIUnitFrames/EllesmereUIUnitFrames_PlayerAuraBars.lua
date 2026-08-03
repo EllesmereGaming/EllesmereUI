@@ -2971,9 +2971,74 @@ local function DedupeByIcon(ids)
     return out
 end
 
+-- ns.PAB_ResolveSpells unions every selected Filter's + Extra Spells' ids
+-- into ONE set, sorted purely numerically by spell id. With more resolved
+-- spells than available icon slots, BuildPreviewSlots truncates to the
+-- first `count` -- which, sorted by raw id, means whichever selected
+-- Filter happens to contain the lowest-numbered spells wins the visible
+-- slots outright, and every OTHER selected Filter (plus Extra Spells)
+-- never appears at all. 2026-08-03 fix (Joel: "wenn mehrere Filter gewählt
+-- sind, sollte die Preview aus einer Mischung... bestehen"): interleave
+-- round-robin ACROSS sources (each selected Filter is its own source, Extra
+-- Spells is one more) instead of a flat numeric sort, so truncation always
+-- samples a bit of everything rather than exhausting one source first.
+-- Deterministic (no math.random) on purpose -- unlike the fake buff/debuff
+-- pools, this must NOT reshuffle on every live-apply refresh, and a stable
+-- interleave achieves that without needing to stash shuffle state on
+-- activePreview the way BuildBuffPreviewPool does.
+local function BuildMixedRealSpells(cfg)
+    local sources = {}
+    if cfg.filters then
+        local allFilters = ns.PAB_Filters and ns.PAB_Filters()
+        if allFilters then
+            for i = 1, #allFilters do
+                local f = allFilters[i]
+                if cfg.filters[f.id] then
+                    local ids = {}
+                    for id, on in pairs(f.spells) do
+                        if on then ids[#ids + 1] = id end
+                    end
+                    if #ids > 0 then
+                        table.sort(ids)
+                        sources[#sources + 1] = ids
+                    end
+                end
+            end
+        end
+    end
+    if cfg.spells and #cfg.spells > 0 then
+        local extra = {}
+        for i = 1, #cfg.spells do extra[i] = cfg.spells[i] end
+        sources[#sources + 1] = extra
+    end
+
+    local out = {}
+    local idx = 1
+    while true do
+        local addedAny = false
+        for s = 1, #sources do
+            local id = sources[s][idx]
+            if id then
+                out[#out + 1] = id
+                addedAny = true
+            end
+        end
+        if not addedAny then break end
+        idx = idx + 1
+    end
+    return out
+end
+
 local function BuildPreviewSlots(isBuff, cfg, list, listLen, count)
     local hasFiller = HasFillerSource(isBuff, cfg)
-    local extraIDs = isBuff and DedupeByIcon(ns.PAB_ResolveSpells(cfg)) or nil
+    -- Sort Method/Direction must apply to the REAL extra icons too, not
+    -- just the fake filler pool (2026-08-03 fix, Joel: "Sort Method und
+    -- Sort Direction funktioniert aber nicht wenn ich nicht Show All Buffs
+    -- aktiv habe") -- with All Buffs off, content is mostly/only these
+    -- real slots, so skipping them left the sort controls looking dead.
+    -- SortPreviewList already handles plain buff spellID arrays (the shape
+    -- extraIDs is in), same as the fake buff pool.
+    local extraIDs = isBuff and SortPreviewList(DedupeByIcon(BuildMixedRealSpells(cfg)), isBuff, cfg) or nil
     local numExtra = extraIDs and math.min(#extraIDs, count) or 0
     local numFiller = count - numExtra
     local slots = {}
