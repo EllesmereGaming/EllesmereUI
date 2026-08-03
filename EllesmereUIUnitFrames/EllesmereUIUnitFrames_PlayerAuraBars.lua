@@ -2599,8 +2599,13 @@ end
 -- actually shows (every OTHER unit's buffs too, not just the player's
 -- class). Now combines every class's curated CLASS_PREVIEW_BUFFS list
 -- (13 classes x 10 = 130 entries) plus EXTRA_WORLD_PREVIEW_BUFFS'
--- consumables, giving enough distinct icons to fill even the largest
--- configured grid (maxTotal defaults to 32) without visible repeats.
+-- consumables (134 total), shuffled together with no class priority --
+-- Joel: show as many of the combined real class-buff pool as fit, only
+-- falling back to something else ("notfalls") if the pool itself runs out,
+-- which in practice never happens (134 is far larger than any configured
+-- grid, maxTotal defaults to 32). A brief own-class-first variant was
+-- tried and reverted the same session -- flat/uniform across all classes
+-- is what's wanted.
 local function BuildBuffPreviewPool()
     local combined = {}
     for _, spells in pairs(CLASS_PREVIEW_BUFFS) do
