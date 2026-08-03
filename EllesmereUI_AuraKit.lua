@@ -231,7 +231,7 @@ local function ApplyStyleToRegions(button, style)
             d.akStackAnchor = sKey
         end
         local c = style.stackColor
-        if c then d.stack:SetTextColor(c[1], c[2], c[3], c[4] or 1) end
+        if c then d.stack:SetTextColor(c.r, c.g, c.b, c.a or 1) end
     end
 
     if d.duration then
