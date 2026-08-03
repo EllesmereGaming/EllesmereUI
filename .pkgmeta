@@ -16,6 +16,7 @@ move-folders:
   EllesmereUI/EllesmereUINameplates: EllesmereUINameplates
   EllesmereUI/EllesmereUIQoL: EllesmereUIQoL
   EllesmereUI/EllesmereUIQuestTracker: EllesmereUIQuestTracker
+  EllesmereUI/EllesmereUIRadialWheel: EllesmereUIRadialWheel
   EllesmereUI/EllesmereUIRaidFrames: EllesmereUIRaidFrames
   EllesmereUI/EllesmereUIResourceBars: EllesmereUIResourceBars
   EllesmereUI/EllesmereUIUnitFrames: EllesmereUIUnitFrames
