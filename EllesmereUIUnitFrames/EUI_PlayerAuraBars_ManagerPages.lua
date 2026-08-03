@@ -752,6 +752,25 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply)
         rgn._lastInline = swatch
         EllesmereUI.RegisterWidgetRefresh(updateSwatch)
     end
+    do
+        -- Row Spacing moved here from Icons Per Row's cog (2026-08-03,
+        -- Joel) -- it's spacing between rows, same family as Spacing
+        -- (icon-to-icon gap), not a grid-size concern like Icons Per Row/
+        -- Max Rows/Max Total.
+        local rgn = borderRow._rightRegion
+        local _, cogShow = EllesmereUI.BuildCogPopup({
+            title = "Spacing",
+            rows = {
+                -- nil = auto (follows Spacing/padding, same as before this
+                -- field existed) -- default shown here mirrors the current
+                -- Spacing value rather than a fixed number, per Joel's request.
+                { type = "slider", label = "Row Spacing", min = 0, max = 20, step = 1,
+                  get = function() return cfg.rowSpacing or cfg.padding or 4 end,
+                  set = function(v) cfg.rowSpacing = v; apply() end },
+            },
+        })
+        ns._PAMakeCogBtn(rgn, cogShow)
+    end
 
     local rowRow
     rowRow, hh = W:DualRow(frame, sy,
@@ -777,12 +796,6 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply)
                 { type = "slider", label = "Max Total", min = 1, max = 40, step = 1,
                   get = function() return cfg.maxTotal or 32 end,
                   set = function(v) cfg.maxTotal = v; apply() end },
-                -- nil = auto (follows Spacing/padding, same as before this
-                -- field existed) -- default shown here mirrors the current
-                -- Spacing value rather than a fixed number, per Joel's request.
-                { type = "slider", label = "Row Spacing", min = 0, max = 20, step = 1,
-                  get = function() return cfg.rowSpacing or cfg.padding or 4 end,
-                  set = function(v) cfg.rowSpacing = v; apply() end },
             },
         })
         ns._PAMakeCogBtn(rgn, cogShow)
