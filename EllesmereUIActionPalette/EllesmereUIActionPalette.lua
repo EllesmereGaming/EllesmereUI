@@ -4,13 +4,14 @@
 --  Hold a keybind -> a set of slots appears. Choose one, release the key to
 --  fire it. Releasing without having chosen cancels.
 --
---  One ring of actions, drawn and steered four ways:
+--  One ring of actions, drawn and steered three ways:
 --
 --    RADIAL  an arc of `arcSpan` degrees (360 being the full wheel), steered by
 --            the ANGLE from the centre. Wedges are unbounded in depth, so the
 --            gesture is a flick rather than a click.
---    FAN_H   a horizontal strip. Scroll-steered it cycles a compressed window
---    FAN_V   past a fixed centre; pointer-steered it is a GRID one entry deep.
+--    FAN     a strip running along one axis, horizontal or vertical by
+--            `fanOrientation`. Scroll-steered it cycles a compressed window
+--            past a fixed centre; pointer-steered it is a GRID one entry deep.
 --    GRID    every entry at a fixed cell, the nearest one zoomed.
 --
 --  The layouts differ in INPUT MODEL -- angle, scroll-cycle, pointer-nearest --
@@ -84,11 +85,13 @@ local DB_DEFAULTS = {
         posX        = 0,
         posY        = 0,
 
-        -- Layout. RADIAL steers with the cursor's angle; the two FAN modes are
-        -- a coverflow strip scrubbed with the mouse wheel, which keeps working
-        -- while the right button is held to steer the camera and the cursor is
-        -- therefore frozen.
-        layout          = "RADIAL",  -- RADIAL | FAN_H | FAN_V | GRID
+        -- Layout. RADIAL steers with the cursor's angle; FAN is a coverflow
+        -- strip scrubbed with the mouse wheel, which keeps working while the
+        -- right button is held to steer the camera and the cursor is therefore
+        -- frozen. Orientation is a property of the strip, not a layout of its
+        -- own: the two axes differ only in which way the entries run.
+        layout          = "RADIAL",  -- RADIAL | FAN | GRID
+        fanOrientation  = "HORIZONTAL",  -- HORIZONTAL | VERTICAL
         gridAutoColumns = true,      -- near-square, sized to what the ring holds
         gridColumns     = 4,         -- used only when gridAutoColumns is off
 
@@ -578,12 +581,21 @@ function WheelView:SlotCount()    return self.slotCount end
 function WheelView:ShownCount()   return self.shownCount end
 function WheelView:GetSlotWidget(index) return self.widgets[index] end
 
--- RADIAL | FAN_H | FAN_V | GRID. A view may pin its own mode (the options preview
+-- RADIAL | FAN | GRID. A view may pin its own mode (the options preview
 -- pins one so the page can show either without changing what the user plays
 -- with); everything else follows the profile.
 function WheelView:LayoutMode()
     local p = P()
     return self.opts.layout or (p and p.layout) or "RADIAL"
+end
+
+-- Which way a fan runs. Every axis-dependent decision in the file reads this
+-- one predicate, so a strip is one layout with an orientation rather than two
+-- layouts that happen to share every setting. Meaningless outside a fan, where
+-- callers do not ask.
+function WheelView:FanHoriz()
+    local p = P()
+    return not p or p.fanOrientation ~= "VERTICAL"
 end
 
 function WheelView:IsFan()
@@ -711,7 +723,7 @@ function WheelView:ApplyFanGeometry()
         minS = max(minS, FAN_EDIT_MIN_SCALE)
         minA = max(minA, FAN_EDIT_MIN_ALPHA)
     end
-    local horiz  = self:LayoutMode() == "FAN_H"
+    local horiz  = self:FanHoriz()
     -- An interactive view draws the whole ring: the editor cannot let a slot
     -- be unreachable, so nothing is culled there and the floors carry it.
     local window = self.opts.interactive and shown or (p.fanVisible or 3)
@@ -756,11 +768,12 @@ end
 --
 --  Every entry at a fixed cell, the one nearest the pointer zoomed, everything
 --  else falling off by distance. A pointer-steered FAN is this same layout one
---  entry deep -- FAN_H is a single row, FAN_V a single column -- so both route
---  here rather than into a parallel 1D implementation. This is
---  the mode that scales -- pointer travel to the worst entry grows with the
---  SQUARE ROOT of the count rather than linearly, and a fixed 2D arrangement is
---  far easier to build muscle memory against than a position along a line.
+--  entry deep -- a single row when it runs horizontally, a single column when
+--  it runs vertically -- so it routes here rather than into a parallel 1D
+--  implementation. This is the mode that scales -- pointer travel to the worst
+--  entry grows with the SQUARE ROOT of the count rather than linearly, and a
+--  fixed 2D arrangement is far easier to build muscle memory against than a
+--  position along a line.
 --
 --  Rows are centred individually, so a short final row sits under the middle of
 --  the one above it instead of hanging off the left edge.
@@ -784,9 +797,10 @@ local function AutoGridColumns(shown)
 end
 
 -- A pointer-steered fan IS a grid one entry deep, so it resolves here rather
--- than in a parallel 1D implementation: FAN_H is a single row, FAN_V a single
--- column. Only the scroll-steered fan needs geometry of its own, because it
--- cycles a compressed window rather than showing fixed positions.
+-- than in a parallel 1D implementation: a horizontal strip is a single row, a
+-- vertical one a single column. Only the scroll-steered fan needs geometry of
+-- its own, because it cycles a compressed window rather than showing fixed
+-- positions.
 -- shownOverride lets a caller ask what the grid WOULD be for some other entry
 -- count. PushRing needs exactly that: it runs while the palette is closed, when
 -- shownCount still describes whatever was drawn last.
@@ -795,8 +809,10 @@ function WheelView:GridDims(shownOverride)
     local shown = max(1, shownOverride or self.shownCount)
 
     local mode = self:LayoutMode()
-    if mode == "FAN_H" then return shown, 1 end
-    if mode == "FAN_V" then return 1, shown end
+    if mode == "FAN" then
+        if self:FanHoriz() then return shown, 1 end
+        return 1, shown
+    end
 
     local cols
     if not p or p.gridAutoColumns ~= false then
@@ -1000,7 +1016,7 @@ function WheelView:PlaceHubText()
     -- A grid captions like a horizontal strip: it is as wide as it is tall, so
     -- there is no side with obviously more room, and above/below keeps the text
     -- clear of every cell rather than only of the middle column.
-    if mode == "FAN_H" or mode == "GRID" then
+    if mode == "GRID" or (mode == "FAN" and self:FanHoriz()) then
         -- Below the middle of the screen -> caption above the strip.
         hub.text:SetJustifyH("CENTER")
         if dy < 0 then
@@ -1130,7 +1146,7 @@ function WheelView:Layout(ringIndex)
                                                   or (p.fanMinScale or 0.30)) + iconSize
         local along  = reach * 2 + 40
         local across = iconSize + 60      -- room for the hub caption
-        if self:LayoutMode() == "FAN_H" then
+        if self:FanHoriz() then
             frame:SetSize(along, across)
         else
             frame:SetSize(across, along)
@@ -1409,7 +1425,8 @@ local SNIPPET_WHEEL = [==[
     local delta = offset
     if self:GetAttribute("eapInvert") then delta = -delta end
     -- Scrolling up travels toward earlier entries, the direction they are drawn
-    -- in for FAN_V and the natural reading order for FAN_H.
+    -- in for a vertical strip, and the natural reading order for a horizontal
+    -- one.
     local step = -1
     if delta <= 0 then step = 1 end
 
@@ -2065,9 +2082,21 @@ local function MigrateLegacySV()
     _G.EllesmereUIRadialWheelDB = nil
 end
 
+-- The horizontal and vertical strips were once two layouts. They differed only
+-- in which axis they ran along, so they are now one layout with an orientation.
+-- Only the ACTIVE profile is converted, which is all that is needed: every path
+-- that changes profiles reloads the UI, so a profile becomes active only by
+-- passing through here first.
+local function MigrateFanLayout(p)
+    if p.layout ~= "FAN_H" and p.layout ~= "FAN_V" then return end
+    p.fanOrientation = p.layout == "FAN_V" and "VERTICAL" or "HORIZONTAL"
+    p.layout = "FAN"
+end
+
 function EAP:OnInitialize()
     MigrateLegacySV()
     db = EllesmereUI.Lite.NewDB("EllesmereUIActionPaletteDB", DB_DEFAULTS)
+    MigrateFanLayout(db.profile)
     _G._EAP_AceDB = db
     ns.db = db
 

@@ -305,8 +305,8 @@ initFrame:SetScript("OnEvent", function(self)
     -- A horizontal strip gets the block's width, which is the panel's content
     -- width and much larger than any radius; a vertical one is bounded by
     -- PREVIEW_H and is the tighter of the two by a wide margin.
-    local function FanSpan(layout)
-        if layout == "FAN_V" then return PREVIEW_H * 0.5 - 24 end
+    local function FanSpan(vertical)
+        if vertical then return PREVIEW_H * 0.5 - 24 end
         local w = previewBlock and previewBlock:GetWidth() or 0
         -- The block is anchored on both sides, so its width is unresolved on
         -- the very first build. Layout re-runs on every Refresh, so a fallback
@@ -340,7 +340,7 @@ initFrame:SetScript("OnEvent", function(self)
             end
             local pitch = iconSize + (Cfg("fanGap") or 10)
             k = math.min(1,
-                FanSpan("FAN_H") / (cols * pitch * 0.5),
+                FanSpan(false) / (cols * pitch * 0.5),
                 (PREVIEW_H * 0.5 - 24) / (rows * pitch * 0.5))
         elseif layout ~= "RADIAL" then
             -- A fan's extent is the length of the strip, not the radius of a
@@ -363,7 +363,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- PREVIEW_SPAN: that is a RADIUS budget, and measuring a strip's
             -- half-LENGTH against it shrank the icons to about a third of the
             -- size the block had room for.
-            k = math.min(1, FanSpan(layout) / reach)
+            k = math.min(1, FanSpan(Cfg("fanOrientation") == "VERTICAL") / reach)
         else
             k = math.min(1, PREVIEW_SPAN / (radius + iconSize))
         end
@@ -1280,9 +1280,11 @@ initFrame:SetScript("OnEvent", function(self)
         local centerValues = { CURSOR = "At Cursor", SCREEN = "Fixed Position" }
         local centerOrder  = { "CURSOR", "SCREEN" }
 
-        local layoutValues = { RADIAL = "Radial", FAN_H = "Fan (Horizontal)",
-                               FAN_V = "Fan (Vertical)", GRID = "Grid" }
-        local layoutOrder  = { "RADIAL", "FAN_H", "FAN_V", "GRID" }
+        local layoutValues = { RADIAL = "Radial", FAN = "Fan", GRID = "Grid" }
+        local layoutOrder  = { "RADIAL", "FAN", "GRID" }
+
+        local orientValues = { HORIZONTAL = "Horizontal", VERTICAL = "Vertical" }
+        local orientOrder  = { "HORIZONTAL", "VERTICAL" }
 
         local fanInputValues = { SCROLL = "Mouse Wheel", CURSOR = "Pointer" }
         local fanInputOrder  = { "SCROLL", "CURSOR" }
@@ -1368,10 +1370,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- grid shares the strip's spacing and falloff settings but steers like
         -- nothing else, and a pointer-steered fan has no scrolling to describe.
         local function LayoutMode() return Cfg("layout") or "RADIAL" end
-        local function IsFanLayout()
-            local l = LayoutMode()
-            return l == "FAN_H" or l == "FAN_V"
-        end
+        local function IsFanLayout() return LayoutMode() == "FAN" end
 
         local radialOnly = function()
             return Disabled() or LayoutMode() ~= "RADIAL"
@@ -1402,7 +1401,11 @@ initFrame:SetScript("OnEvent", function(self)
               -- Rebuild, not Refresh: this is what decides which of the two
               -- sets of controls below is live.
               setValue=function(v) Set("layout", v); RebuildPage() end },
-            { type="spacer" })
+            { type="dropdown", text="Fan Direction",
+              disabled=fanOnly, disabledTooltip="a Fan layout",
+              values=orientValues, order=orientOrder,
+              getValue=function() return Cfg("fanOrientation") or "HORIZONTAL" end,
+              setValue=function(v) Set("fanOrientation", v); Refresh() end })
         y = y - h
 
         row, h = W:DropdownWithOffsets(parent, y,
