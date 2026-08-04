@@ -73,11 +73,25 @@ local MAX_SLOTS = 12
 -- outside the grid -- and eight is where all of those stop being readable.
 local MAX_CHILDREN = 8
 
--- How far past its own ring a nested arc may be pushed before the children are
--- left to overlap instead. A narrow parent sector is answered by moving the
--- children outward (see ChildGeom), which is unbounded arithmetic: twelve
--- entries each holding eight would otherwise land them off the screen.
-local CHILD_RADIUS_MAX_K = 3
+-- How many concentric rings a nested arc's children may spill into before a
+-- crowded claim just packs its last ring tighter than one child pitch. A
+-- narrow parent sector is answered by adding a ring one child pitch further
+-- out (see ChildGeom), not by pushing the existing ring out to some unbounded
+-- radius -- eight entries squeezed into a ten-degree sector used to land a
+-- ring three times the width of the palette itself. The cap keeps that answer
+-- bounded on both sides: the live view and the snippet only ever carry
+-- MAX_CHILD_ROWS worth of ring attributes, so a claim that would need a fifth
+-- ring degrades by crowding the fourth instead of drifting the two out of
+-- step with each other.
+local MAX_CHILD_ROWS = 4
+
+-- How many rect gates a single claim's REGION may be built from. One box
+-- (HALO, whose ring already sits close enough round its parent that the old
+-- bounding box was the true shape) up to three (every other style: the
+-- parent's own cell, the nest's own tight box, and a corridor one child cell
+-- wide connecting them) -- see the "Arming gates" section and CorridorBox
+-- below for what fills these in.
+local REGION_MAX = 3
 
 -- The binding ACTION name, and it keeps the module's first name for good. WoW
 -- stores a keybind against this string, so renaming it would unbind every
@@ -138,8 +152,10 @@ local DB_DEFAULTS = {
         -- NEAREST the parent cell wins, and that is decided by the cell's
         -- position rather than by anything the user has to think about.
         nestSide         = "POSITIVE", -- POSITIVE | NEGATIVE (above/right, below/left)
-        -- Where a GRID puts a nest. A strip ignores this: one entry deep, it has
-        -- only ever one answer, which is to break out across itself.
+        -- Where a GRID puts a nest. A strip ignores this: one row or column has
+        -- no interior to lay a lane, halo, or beside-block into, so it always
+        -- builds a small block of its own, centred on the parent and broken out
+        -- across the strip.
         --   PERIMETER  a lane just outside the block, shared by every nest
         --   HALO       the eight positions around the parent, block faded behind
         --   POPOUT     the nested palette as a block of its own, alongside
@@ -342,10 +358,17 @@ ns.BoundPaletteCount = BoundPaletteCount
 --  to be nested.
 --
 --  ONE level. The child region is carved out of the parent entry's own region,
---  and there is no second region to carve out of that: a release is resolved
---  from the final cursor position alone, so parents and children have to
---  partition the plane between them. A palette slot INSIDE a nested palette is
---  therefore drawn but fires nothing.
+--  and there is no second region to carve out of that: parents and children
+--  partition the plane between them, and a palette slot INSIDE a nested
+--  palette is therefore drawn but fires nothing.
+--
+--  A CLAIM's cells only answer at all once the cursor has gone through the
+--  claim's own parent entry first, and stop answering once it leaves the
+--  claim's ground -- see ArmedClaim, EnsureGates and the two gate frames every
+--  claim gets. That is PATH-dependent, so the final cursor position alone is
+--  no longer the whole answer: which claim, if any, is armed is state the
+--  secure sandbox has to carry across the hold, which is what the gates are
+--  for.
 -------------------------------------------------------------------------------
 
 -- The palette a slot opens, or nil for a slot that fires an action.
@@ -409,6 +432,7 @@ local function SelectColor()
 end
 ns.SelectColor = SelectColor
 ns.MAX_SLOTS = MAX_SLOTS
+ns.REGION_MAX = REGION_MAX
 ns.MAX_PALETTES = MAX_PALETTES
 ns.MAX_BOUND_PALETTES = MAX_BOUND_PALETTES
 ns.MAX_CHILDREN = MAX_CHILDREN
@@ -670,6 +694,11 @@ local secureHeader
 -- same reason: ns.Close drops its binding, and that is defined long before the
 -- secure activation section builds it.
 local cancelButton
+-- One secure button per BOUND palette, indexed the same way. Declared here for
+-- the same reason as the three above: PaletteView:ArmedClaim reads a claim's
+-- armed state off a palette's own button, and that is defined long before the
+-- secure activation section builds any of them.
+local secureButtons = {}
 local openedAt = 0
 
 -- A held key whose up-event never reaches us (alt-tab, /reload prompt, a
@@ -823,6 +852,65 @@ function PaletteView:Pitch()
     return iconSize + ((p and p.fanGap) or 10)
 end
 
+-------------------------------------------------------------------------------
+--  A claim's true ground, as a small set of rects rather than one bounding
+--  box -- see the "Arming gates" section further down for what these feed.
+--  Shared by both the ARC claims (ChildGeom) and the block-layout ones
+--  (CellChildGeom): a nest that breaks out of its parent on one side leaves a
+--  bounding box across the two swallowing whatever plain ground of the block
+--  sits between them, which is exactly the "dim never backs out" complaint.
+--  The true shape is instead the parent's own cell, the nest's own tight box,
+--  and a narrow corridor connecting the two -- standing on the block's own
+--  ground either side of that corridor is standing outside the nest.
+-------------------------------------------------------------------------------
+
+-- Tight bounding box around a set of child boxes, with no parent box folded
+-- in -- unlike the old single-rect scheme, this is meant to be paired with a
+-- SEPARATE parent box and corridor rather than merged with them.
+local function NestBBox(cells)
+    local first = cells[1]
+    local x0, x1 = first.x - first.hw, first.x + first.hw
+    local y0, y1 = first.y - first.hh, first.y + first.hh
+    for j = 2, #cells do
+        local b = cells[j]
+        x0, x1 = min(x0, b.x - b.hw), max(x1, b.x + b.hw)
+        y0, y1 = min(y0, b.y - b.hh), max(y1, b.y + b.hh)
+    end
+    return { x = (x0 + x1) * 0.5, y = (y0 + y1) * 0.5,
+             hw = (x1 - x0) * 0.5, hh = (y1 - y0) * 0.5 }
+end
+
+-- The rect connecting a claim's parent box to its nest box, that lets
+-- crossing the gap between them count as staying on the claim's own ground.
+-- axis is the axis the nest's own cells spread ALONG -- every style that
+-- hangs its nest off one side of the parent already tags its claim with
+-- this, the same convention HaloNest opts out of by setting neither axis nor
+-- sign. The corridor runs along the OTHER axis, in the direction sign says
+-- the nest lies.
+--
+-- As WIDE as the wider of the parent cell or the nest box, not one child
+-- cell: a natural diagonal reach from the parent toward the nest's own
+-- centre drifts outside a one-cell-wide band long before it arrives, and
+-- once LeaveSnippet's true-shape test actually runs (see EnsureGates) that
+-- reads as having left the claim -- the nest vanishing mid-reach. minWidth
+-- is only a floor, for the degenerate case of a single-cell nest whose box
+-- is no wider than the corridor itself would otherwise be.
+local function CorridorBox(parentBox, nest, axis, sign, minWidth)
+    local along, away = "x", "y"
+    local hAlong, hAway = "hw", "hh"
+    if axis ~= "X" then along, away, hAlong, hAway = "y", "x", "hh", "hw" end
+
+    local pEdge = parentBox[away] + sign * parentBox[hAway]
+    local nEdge = nest[away] - sign * nest[hAway]
+    local lo, hi = min(pEdge, nEdge), max(pEdge, nEdge)
+
+    local box = {}
+    box[along] = parentBox[along]
+    box[hAlong] = max(minWidth * 0.5, parentBox[hAlong], nest[hAlong])
+    box[away], box[hAway] = (lo + hi) * 0.5, max(0, (hi - lo) * 0.5)
+    return box
+end
+
 -- Nested geometry for one palette. Returns an array of CLAIMS -- one per slot
 -- that opens a palette -- or nil when nothing in it nests:
 --
@@ -830,10 +918,13 @@ end
 --   palette  the palette index they come from
 --   slots    the child slots themselves, already capped at MAX_CHILDREN
 --   n        how many
---   angle    the parent entry's own angle          } arc only
---   start    the angle of child 1 (the CENTRE of its sector)
---   step     one child sector, radians
---   radius   where the children are drawn
+--   angle    the parent entry's own angle                     } arc only
+--   half     the half-angle of the claim's whole angular room }
+--   rows     concentric rings of children, hugging the arc's own ring;
+--            { radius, step, n, base, start, lo, hi } each -- start is the
+--            CENTRE angle of that ring's first child, lo/hi the radial band
+--            it answers to, hi nil on the outermost ring    } arc only
+--   radius   the outermost ring's radius, for sizing the frame } arc only
 --   band     the distance at which the children take over from the parent
 --   cells    one box per child, { x, y, hw, hh }   } block layouts only
 --   axis     the axis its run travels on, X or Y
@@ -851,12 +942,17 @@ end
 -- regions must therefore partition the plane. Two neighbouring parents each
 -- claiming a quarter turn would overlap, and the overlap would be unresolvable.
 --
--- A sector too narrow for its children is answered by pushing them further OUT,
--- where the same angle buys more room, rather than by widening into a
--- neighbour's sector. arcChildOverflow = MIDPOINT trades that away: the arc
--- grows to the midpoint between this claim and the next one either side, which
--- borrows depth from the plain entries in between -- a long flick through the
--- borrowed angles then fires a child instead of the entry it points at.
+-- A sector too narrow for its children is answered by RINGING them: a claim's
+-- children hug the arc's own ring, spaced roughly a child pitch apart, and a
+-- ring that cannot fit them all in the angular room it has spills the rest
+-- into a second ring one child pitch further out rather than growing the
+-- ring's radius until the angle buys enough room -- which is unbounded, and
+-- used to put children on a claim with several of them a screen-width past
+-- the arc they were supposed to hang off. arcChildOverflow = MIDPOINT widens
+-- the angular room instead: the claim grows to the midpoint between it and
+-- the next one either side, which borrows depth from the plain entries in
+-- between -- a long flick through the borrowed angles then fires a child
+-- instead of the entry it points at.
 function PaletteView:ChildGeom(shown, palette)
     local p = P()
     if not p or not palette or shown < 1 then return nil end
@@ -891,12 +987,11 @@ function PaletteView:ChildGeom(shown, palette)
 
     local step, arcStart, full = self:ArcGeom(shown)
     local radius, iconSize = self:Geom()
-    local pitch  = self:Pitch()
     -- Scaled by whatever this view scaled its geometry by, recovered from the
     -- icon size Geom handed back -- the same recovery the hub logo makes. The
-    -- radius and the pitch already carry that factor; a band read at its literal
-    -- profile size would not, and the options preview would then draw its nests
-    -- at full distance around a palette fitted to two-thirds.
+    -- radius already carries that factor; a band read at its literal profile
+    -- size would not, and the options preview would then draw its nests at
+    -- full distance around a palette fitted to two-thirds.
     local base = p.iconSize or 44
     local k = (base > 0) and (iconSize / base) or 1
     local band = max(0, p.nestBand or 40) * k
@@ -914,12 +1009,17 @@ function PaletteView:ChildGeom(shown, palette)
     -- Angles for all of them before any of them is sized: an overflowing claim
     -- measures against the claim either side of it, and half of those sit later
     -- in the array.
-    for k = 1, count do
-        claims[k].angle = arcStart + (claims[k].parent - 1) * step
+    for i = 1, count do
+        claims[i].angle = arcStart + (claims[i].parent - 1) * step
     end
 
-    for k = 1, count do
-        local c = claims[k]
+    -- Both icons' halves plus the gap, so the band the user sets is the space
+    -- actually seen between the palette's own ring and the first ring of
+    -- children -- the ring every claim's children start hugging from.
+    local inner = radius + iconSize * 0.5 + childIcon * 0.5 + band
+
+    for i = 1, count do
+        local c = claims[i]
         local half = step * 0.5
         if overflow then
             -- Out to the midpoint with the nearest claimant either side. A lone
@@ -927,9 +1027,9 @@ function PaletteView:ChildGeom(shown, palette)
             -- cap stops it; on an open arc the ends are free space.
             half = capHalf
             if count > 1 then
-                local nxt  = claims[k + 1] and claims[k + 1].angle
+                local nxt  = claims[i + 1] and claims[i + 1].angle
                     or (full and (claims[1].angle + TWO_PI))
-                local prev = claims[k - 1] and claims[k - 1].angle
+                local prev = claims[i - 1] and claims[i - 1].angle
                     or (full and (claims[count].angle - TWO_PI))
                 if nxt  then half = min(half, (nxt - c.angle) * 0.5) end
                 if prev then half = min(half, (c.angle - prev) * 0.5) end
@@ -938,25 +1038,108 @@ function PaletteView:ChildGeom(shown, palette)
             half = max(half, step * 0.5)
         end
 
-        c.step  = (half * 2) / c.n
-        c.start = c.angle - half + c.step * 0.5
-        c.icon  = childIcon
-        -- Both icons' halves plus the gap, so the band the user sets is the
-        -- space they actually see between the two rings.
-        local inner = radius + iconSize * 0.5 + childIcon * 0.5 + band
-        -- Far enough out that neighbouring children are a full pitch apart at
-        -- this angular step. Clamped, because a narrow sector divided by eight
-        -- is unbounded arithmetic and would put the children off the screen;
-        -- past the clamp they overlap, and the answer is MIDPOINT or fewer
-        -- entries rather than a palette drawn a thousand units wide.
-        local want = (c.step > 0) and (childPitch / c.step) or inner
-        c.radius = min(max(inner, want), inner * CHILD_RADIUS_MAX_K)
-        -- Halfway across the gap: clear of the parent's own icon, short of its
-        -- children. The parent entry keeps everything inside this.
+        c.icon = childIcon
+        c.half = half
+        -- The parent's own icon edge -- from here out to c.band is the ground
+        -- between the parent and its rings. Kept for anything past this that
+        -- measures the claim's own angular room; the polar disarm test built
+        -- below (c.band and c.rows, read by LeaveSnippet) is what decides
+        -- whether that ground is live.
+        c.corridorLo = radius + iconSize * 0.5
+        -- Halfway across the gap: clear of the parent's own icon, short of the
+        -- first ring of children. The parent entry keeps everything inside
+        -- this.
         c.band = radius + iconSize * 0.5 + band * 0.5
+
+        -- Ring the children rather than pushing them out: each ring sits one
+        -- child pitch further out than the last, its children spaced roughly a
+        -- pitch apart along it, and a ring with no room left for the rest
+        -- spills them into the next ring instead of growing its own radius.
+        -- MAX_CHILD_ROWS caps how many rings a claim may spill into -- past it
+        -- the last ring simply takes everyone still waiting, however crowded
+        -- that makes it, which is the same trade the old radius clamp made
+        -- except it no longer drifts the children away from the arc to make
+        -- it.
+        local rows, placed, ri = {}, 0, 0
+        while placed < c.n and ri < MAX_CHILD_ROWS do
+            local rr = inner + ri * childPitch
+            -- The arc length one child pitch buys at this ring's radius, in
+            -- radians -- further out, the same angle spans more distance, so
+            -- fewer degrees are needed to keep neighbours a pitch apart.
+            local angStep = childPitch / rr
+            local capacity = (ri == MAX_CHILD_ROWS - 1) and (c.n - placed)
+                or max(1, floor((half * 2) / angStep + 1e-6) + 1)
+            local m = min(c.n - placed, capacity)
+            rows[#rows + 1] = { radius = rr, step = angStep, n = m, base = placed,
+                                 start = c.angle - (m - 1) * 0.5 * angStep }
+            placed = placed + m
+            ri = ri + 1
+        end
+        -- The boundary between two rings is their midpoint radius: past it,
+        -- the further ring's children are the nearer ones underfoot. The
+        -- first ring's inner edge is c.band, the parent/child hand-off
+        -- already computed above; the last ring has no outer edge at all.
+        rows[1].lo = c.band
+        for r = 2, #rows do
+            local mid = (rows[r - 1].radius + rows[r].radius) * 0.5
+            rows[r - 1].hi, rows[r].lo = mid, mid
+        end
+        c.rows = rows
+        -- The outermost ring's radius, so Layout can size the frame to hold
+        -- every ring rather than just the first.
+        c.radius = rows[#rows].radius
+
+        -- The parent's own icon box, for the arming gate (see EnsureGates)
+        -- and the disarm test alike -- standing on it always counts as this
+        -- claim's ground. ChildRingPos wants c.rows, which is why this waits
+        -- until here rather than running alongside the loop above.
+        local px, py = radius * sin(c.angle), radius * cos(c.angle)
+        c.parentBox = { x = px, y = py, hw = iconSize * 0.5, hh = iconSize * 0.5 }
+
+        -- What the disarm test actually decides an arc claim's ground by is
+        -- polar -- c.band and c.rows below, the same numbers the release
+        -- branch's ANGULAR path already tests the cursor against. The rects
+        -- built here are only EVENT surfaces for the real gate frames, which
+        -- can only ever be rects: generous rather than tight is fine for
+        -- them, because the geometric test that decides whether leaving one
+        -- actually disarms never trusts their bounds, only the wedge.
+        local ringBoxes = {}
+        for j = 1, c.n do
+            local r, a = self:ChildRingPos(c, j)
+            local cx, cy = r * sin(a), r * cos(a)
+            ringBoxes[j] = { x = cx, y = cy, hw = c.icon * 0.5, hh = c.icon * 0.5 }
+        end
+        local nest = NestBBox(ringBoxes)
+
+        -- The corridor's break-out direction is whichever screen axis the
+        -- parent's own radial position leans further along -- an
+        -- approximation of "straight out from the centre", which is all a
+        -- rect can ever be for a wedge.
+        local axis, sign
+        if abs(px) >= abs(py) then axis, sign = "Y", (px >= 0) and 1 or -1
+        else axis, sign = "X", (py >= 0) and 1 or -1 end
+        local corridor = CorridorBox(c.parentBox, nest, axis, sign, childPitch)
+
+        c.regions = { c.parentBox, nest, corridor }
     end
 
     return claims
+end
+
+-- An arc claim's j-th child (1-based across the whole claim, not just one
+-- ring) -> the radius and angle it is drawn at. Read by the drawing and by
+-- the needle's direction; HitTest walks the rings the other way, from a
+-- radius to a ring, but lands on this same row.start/row.step to turn the
+-- local index it finds back into the child it belongs to.
+function PaletteView:ChildRingPos(c, j)
+    local rows = c.rows
+    for r = 1, #rows do
+        local row = rows[r]
+        if j <= row.n then
+            return row.radius, row.start + (j - 1) * row.step
+        end
+        j = j - row.n
+    end
 end
 
 -- Angular step and starting angle for the arc layout, both clockwise from
@@ -1153,8 +1336,15 @@ local GRID_REACH = 1.0
 -- What the block behind an open nest is pushed back to, for the styles that put
 -- their children over it. Enough to read as "that layer is not the one you are
 -- on" while still showing the shape of what you came from.
-local NEST_DIM_ALPHA = 0.25
-local NEST_DIM_SCALE = 0.8
+--
+-- Pushed further than before now that a nest only dims once its gate is
+-- actually armed (see ArmedClaim): the block used to fade on a geometric guess
+-- that the cursor was somewhere on the way to a nest, so a strong dim there
+-- would have punished a flick that only grazed the corridor. Arming means the
+-- cursor has gone through the parent entry itself, which is worth a clearer
+-- break between "the nest you are in" and "the palette behind it".
+local NEST_DIM_ALPHA = 0.15
+local NEST_DIM_SCALE = 0.7
 
 -- The margin, in pitches, around a scroll-steered strip that the pointer may
 -- travel inside before it deselects. This is that layout's cancel, and it is
@@ -1359,9 +1549,10 @@ function PaletteView:NestMetrics(shown)
     -- pointer leaving the parent enters the nest without crossing dead ground.
     m.depth = m.childIcon + m.band
     -- A strip has no interior to displace and no corner to wrap, so the styles
-    -- that rearrange a block have nothing to rearrange: it always breaks out
-    -- perpendicular, which is the whole of what a strip's nest can be.
-    if cols <= 1 or rows <= 1 then m.style = "PERIMETER" end
+    -- that rearrange a block have nothing to rearrange: it is always a small
+    -- block of its own, centred on the parent and broken out perpendicular to
+    -- the strip, whatever gridNestStyle asks for.
+    if cols <= 1 or rows <= 1 then m.style = "STRIP" end
     return m
 end
 
@@ -1430,6 +1621,11 @@ function PaletteView:PerimeterNest(claims, shown, m)
         end
 
         c.icon = childIcon
+        -- Along the lane, a caption is drawn at CHILD pitch rather than at the
+        -- pitch the palette's own entries get, so two neighbouring captions
+        -- overlap long before their icons do. Unlabelled, like every other
+        -- style's nest.
+        c.label = false
         c.axis, c.sign = pick.axis, pick.sign
         c.t0 = pick.t
     end
@@ -1556,6 +1752,72 @@ function PaletteView:PopoutNest(claims, shown, m)
     return claims
 end
 
+-- (D) A single row or column's nest: a small block of its own, centred on the
+-- parent's own place along the strip and broken out perpendicular to it. A
+-- strip has only the one line every parent already sits on, so there is no
+-- "far corner" for POPOUT's lean to find and no interior for PERIMETER's lane
+-- to run around -- the crowding that style solves by stacking rows never
+-- arises here, because every claim already owns a stretch of the line to
+-- itself the moment it owns a parent cell. nestSide answers the side question
+-- in POPOUT's place.
+function PaletteView:StripCellNest(claims, shown, m)
+    -- rows <= 1 means the strip runs along X, so its nests break out along Y;
+    -- cols <= 1 is the other way round. NestMetrics only reaches this style
+    -- when one of the two is true.
+    local axis = (m.rows <= 1) and "X" or "Y"
+    local sign = m.positive and 1 or -1
+    local out  = m.icon * 0.5 + m.band + m.childIcon * 0.5
+
+    for i = 1, #claims do
+        local c = claims[i]
+        local bx, by = self:GridBase(c.parent, m.cols, m.rows, m.pitch, shown)
+        c.icon = m.childIcon
+        -- Packed at child pitch like every other nest style's captions, a run
+        -- of them along a strip collides just as readily as PERIMETER's lane
+        -- does, so this style goes unlabelled too.
+        c.label = false
+        c.axis, c.sign = axis, sign
+        c._bx, c._by = bx, by
+        -- Position along the strip's own axis, so two claims that are close
+        -- together can be told apart from two that are not.
+        c.t0 = (axis == "X") and bx or by
+    end
+
+    for i = 1, #claims do
+        local c = claims[i]
+        -- Half the room this claim's block may spread into along the strip:
+        -- out to the midpoint with the nearest OTHER nest's own parent. A
+        -- strip is a straight line, not PERIMETER's closed loop, so this is a
+        -- plain distance rather than a distance around a wrap -- but the
+        -- answer it feeds into cols is the same one: a crowded nest gives up
+        -- columns and grows another row instead of colliding with its
+        -- neighbour.
+        local room = math.huge
+        for j = 1, #claims do
+            if j ~= i then room = min(room, abs(claims[j].t0 - c.t0) * 0.5) end
+        end
+        local ccols = min(MAX_SLOTS, max(1, ceil(sqrt(c.n))))
+        if room < math.huge then
+            ccols = min(ccols, max(1, floor(room * 2 / m.childPitch)))
+        end
+
+        c.cells = {}
+        for j = 1, c.n do
+            local cr  = floor((j - 1) / ccols)
+            local cc  = (j - 1) % ccols
+            local row = min(ccols, c.n - cr * ccols)
+            local a = (cc - (row - 1) * 0.5) * m.childPitch
+            local d = out + cr * m.childPitch
+            local x, y
+            if axis == "X" then x, y = c._bx + a, c._by + sign * d
+            else x, y = c._bx + sign * d, c._by + a end
+            c.cells[j] = { x = x, y = y,
+                           hw = m.childPitch * 0.5, hh = m.childPitch * 0.5 }
+        end
+    end
+    return claims
+end
+
 -- A scroll-steered strip's nest. The wheel decides which entry is selected and
 -- that entry is always the one drawn at the CENTRE, so its children break out
 -- across the strip from there -- the same perpendicular row a pointer-steered
@@ -1603,7 +1865,9 @@ end
 -- is a grid one entry deep.
 function PaletteView:CellChildGeom(claims, shown)
     local m = self:NestMetrics(shown)
-    if m.style == "HALO" then
+    if m.style == "STRIP" then
+        self:StripCellNest(claims, shown, m)
+    elseif m.style == "HALO" then
         self:HaloNest(claims, shown, m)
     elseif m.style == "POPOUT" then
         self:PopoutNest(claims, shown, m)
@@ -1616,37 +1880,63 @@ function PaletteView:CellChildGeom(claims, shown)
     -- of it that belongs to no cell of its own, and a nest that vanished halfway
     -- through the reach for it could not be reached at all.
     --
-    -- VISIBILITY ONLY. Nothing here decides what a release fires: the corridor
-    -- runs over the block's own entries, and an entry under it stays exactly as
-    -- selectable as it was.
+    -- c.regions also doubles as the claim's REGION gates (see EnsureGates):
+    -- the rects a secure OnLeave watches, geometrically, to know the cursor
+    -- has actually left this nest's ground, parent cell and all. c.parentBox
+    -- is the other one, the claim's own cell alone -- the gate whose OnEnter
+    -- arms it in the first place. Nothing here decides what a release FIRES,
+    -- only what is drawn and what is armable: an entry under either box stays
+    -- exactly as selectable as it was.
+    --
+    -- HALO sets neither axis nor sign -- its ring surrounds the parent on
+    -- every side, so there is no one direction to run a corridor in, and the
+    -- old single bounding box (parent cell plus every ring position) is
+    -- already close enough to the true shape that a second rect buys
+    -- nothing: the neighbour centres HaloNest leaves clear of the ring stay
+    -- clear of this box too. Every other style hangs its nest off ONE side
+    -- of the parent, so a box across the two would swallow whatever plain
+    -- ground of the block lies between them -- the dim-never-backs-out
+    -- complaint. Those get the true union instead: the parent's own cell,
+    -- the nest's own tight box, and a corridor one child cell wide
+    -- connecting them, so standing on the block's own ground either side of
+    -- that corridor is standing outside the nest.
     for i = 1, #claims do
         local c = claims[i]
         local bx, by = self:GridBase(c.parent, m.cols, m.rows, m.pitch, shown)
-        local x0, x1 = bx - m.pitch * 0.5, bx + m.pitch * 0.5
-        local y0, y1 = by - m.pitch * 0.5, by + m.pitch * 0.5
-        for j = 1, c.n do
-            local b = c.cells[j]
-            x0, x1 = min(x0, b.x - b.hw), max(x1, b.x + b.hw)
-            y0, y1 = min(y0, b.y - b.hh), max(y1, b.y + b.hh)
+        c.parentBox = { x = bx, y = by, hw = m.pitch * 0.5, hh = m.pitch * 0.5 }
+
+        if c.axis then
+            local nest = NestBBox(c.cells)
+            local corridor = CorridorBox(c.parentBox, nest, c.axis, c.sign, m.childPitch)
+            c.regions = { c.parentBox, nest, corridor }
+        else
+            local x0, x1 = bx - m.pitch * 0.5, bx + m.pitch * 0.5
+            local y0, y1 = by - m.pitch * 0.5, by + m.pitch * 0.5
+            for j = 1, c.n do
+                local b = c.cells[j]
+                x0, x1 = min(x0, b.x - b.hw), max(x1, b.x + b.hw)
+                y0, y1 = min(y0, b.y - b.hh), max(y1, b.y + b.hh)
+            end
+            c.regions = { { x = (x0 + x1) * 0.5, y = (y0 + y1) * 0.5,
+                            hw = (x1 - x0) * 0.5, hh = (y1 - y0) * 0.5 } }
         end
-        c.open = { x = (x0 + x1) * 0.5, y = (y0 + y1) * 0.5,
-                   hw = (x1 - x0) * 0.5, hh = (y1 - y0) * 0.5 }
     end
     return claims
 end
 
--- The nested cell whose box holds this offset, in cell order so that boxes which
--- overlap still answer once. Read by the drawing; the snippet carries the same
--- walk over the same numbers.
-function PaletteView:NestHit(dx, dy)
-    local claims = self.claims
-    for k = 1, (claims and #claims or 0) do
-        local c = claims[k]
-        for j = 1, (c.cells and c.n or 0) do
-            local b = c.cells[j]
-            if abs(dx - b.x) <= b.hw and abs(dy - b.y) <= b.hh then
-                return c.base + j, c
-            end
+-- The nested cell whose box holds this offset, WITHIN THE ARMED CLAIM only.
+-- Read by the drawing; the snippet carries the same test over the same
+-- numbers, gated the same way -- see ArmedClaim and the release branch of
+-- SNIPPET_PRE. An unarmed claim answers nothing here at all: the whole point
+-- of arming is that a nest's ground is not live until the cursor has actually
+-- passed through the entry that opens it.
+function PaletteView:NestHit(dx, dy, armed)
+    local c = armed and self.claims and self.claims[armed]
+    if not c or not c.cells then return end
+    for j = 1, c.n do
+        local b = c.cells[j]
+        if abs(dx - b.x) <= b.hw and abs(dy - b.y) <= b.hh then
+            return c.base + j, c
         end
     end
 end
@@ -1696,9 +1986,16 @@ function PaletteView:AdvanceGrid(noPointer)
     -- what the block holds underneath -- which is what lets a halo sit over the
     -- entries around its parent. Outside every box, the block answers as though
     -- the nest were not there, so leaving a run in any direction leaves the nest.
+    --
+    -- ONLY the armed claim, though: this is the pass-through rule. A nest
+    -- earns the right to answer here by having actually had the cursor pass
+    -- over its parent entry first -- see ArmedClaim and the gate frames
+    -- EnsureGates builds. An unarmed claim's ground answers as though it held
+    -- no nest at all, which is exactly what lets two claims share ground
+    -- without one springing open behind the other's back.
     local best, bestK
-    self._nestX, self._nestY = dx, dy
-    if dx then best = self:NestHit(dx, dy) end
+    local armed = self:ArmedClaim()
+    if dx then best = self:NestHit(dx, dy, armed) end
 
     -- Nearest of the palette's own, once the nests have declined. Past
     -- GRID_REACH cells from every one of them nothing is selected -- this
@@ -2303,9 +2600,8 @@ function PaletteView:Layout(paletteIndex)
                     -- view that never steers -- a static frame -- shows.
                     w:SetPoint("CENTER", frame, "CENTER", c.cells[j].x, c.cells[j].y)
                 else
-                    local a = c.start + (j - 1) * c.step
-                    w:SetPoint("CENTER", frame, "CENTER",
-                               c.radius * sin(a), c.radius * cos(a))
+                    local r, a = self:ChildRingPos(c, j)
+                    w:SetPoint("CENTER", frame, "CENTER", r * sin(a), r * cos(a))
                 end
                 w:SetSize(c.icon, c.icon)
                 w:EnableMouse(false)
@@ -2404,11 +2700,34 @@ function PaletteView:CellSlot(index)
     return nil
 end
 
--- Which nest is open. One at a time, and only while the cursor is on its parent
--- or on one of its own entries -- every nest drawn at once would bury the
--- palette it hangs off. The hit test does NOT consult this: a release is
--- resolved from the cursor alone, so a flick that outruns the drawing still
--- fires the child it pointed at. Same bargain flick-ahead already makes.
+-- Which claim, if any, the secure button says a gate has armed -- the claim
+-- index NestHit, HitTest and UpdateNestShown all key their nest off, and the
+-- same index the release branch of SNIPPET_PRE tests against. Reading an
+-- attribute off a protected frame is unrestricted even in combat, so this
+-- works whether or not the player can currently write one.
+--
+-- nil for any view with no secure button of its own -- an interactive view
+-- (the options preview) draws no nests at all (ChildGeom answers nil for it),
+-- so the claims table this would index into does not exist regardless.
+function PaletteView:ArmedClaim()
+    local btn = not self.opts.interactive and secureButtons[self.paletteIndex]
+    return btn and tonumber(btn:GetAttribute("eapArmed")) or nil
+end
+
+-- Which nest is open. One at a time -- every nest drawn at once would bury the
+-- palette it hangs off. Selection landing exactly on a claim's parent or one
+-- of its own entries is enough on its own, for every layout including the
+-- scroll fan's wheel-picked one, which never arms a gate at all and has no
+-- other way in here. Past that, ARC and the block layouts (GRID and the
+-- pointer-steered fan) fall back to whichever claim the secure button says is
+-- armed -- see ArmedClaim -- which is what keeps a nest open across the ground
+-- between its parent and its children without two neighbouring claims fighting
+-- over ground they both think they own: only the one the cursor actually
+-- entered through answers here at all.
+--
+-- The live hit test consults the same armed claim now (see NestHit and
+-- HitTest), so what is drawn and what a release fires can no longer disagree
+-- about which nest, if either, is live.
 function PaletteView:UpdateNestShown(index)
     local claims = self.claims
     if not claims then return end
@@ -2422,21 +2741,11 @@ function PaletteView:UpdateNestShown(index)
         end
     end
 
-    -- Still on the way there. A nest set down clear of the block has ground in
-    -- front of it that belongs to the block's own entries, and closing on the
-    -- first step across it would put the nest out of reach of the very gesture
-    -- that opens it. The corridor decides only what is DRAWN -- the entries
-    -- under it keep firing exactly as they did.
-    local nx, ny = self._nestX, self._nestY
-    if not open and nx then
-        for k = 1, #claims do
-            local o = claims[k].open
-            if o and abs(nx - o.x) <= o.hw and abs(ny - o.y) <= o.hh then
-                open = claims[k]
-                break
-            end
-        end
+    if not open then
+        local armed = self:ArmedClaim()
+        if armed then open = claims[armed] end
     end
+
     if self._openClaim == open then return end
     self._openClaim = open
 
@@ -2487,7 +2796,9 @@ function PaletteView:SetSelection(index)
             local radius, iconSize, deadZone = self:Geom()
             local step, arcStart = self:ArcGeom(self.shownCount)
             local a = arcStart + (index - 1) * step
-            if claim then a = claim.start + (childIndex - 1) * claim.step end
+            -- A block layout's claim has no rings -- its needle direction, if
+            -- it drew one, would come from cells rather than an angle.
+            if claim and claim.rows then a = select(2, self:ChildRingPos(claim, childIndex)) end
             local mid = (deadZone + radius - iconSize * 0.5) * 0.5
             hub.needle:ClearAllPoints()
             hub.needle:SetPoint("CENTER", hub, "CENTER", mid * sin(a), mid * cos(a))
@@ -2543,17 +2854,32 @@ function PaletteView:HitTest()
     local theta = atan2(dx, dy)
     if theta < 0 then theta = theta + TWO_PI end
 
-    -- Nested entries before anything else. With overflow allowed a child sector
-    -- reaches past its parent's own, so answering the parent first would settle
-    -- the question before the child was ever considered. The claims are
-    -- disjoint, so at most one of them can match.
+    -- The armed claim's rings, and no other's. With overflow allowed a child
+    -- sector reaches past its parent's own, so answering the parent first
+    -- would settle the question before the child was ever considered -- but
+    -- that only matters for the ONE claim the cursor has actually armed by
+    -- passing through its parent entry; every other claim's ground answers as
+    -- though it held no nest at all. See ArmedClaim.
     local claims = self.claims
-    for k = 1, (claims and #claims or 0) do
-        local c = claims[k]
-        if c.base and dist >= c.band and c.step > 0 then
-            local rel = (theta - c.start + c.step * 0.5) % TWO_PI
-            if rel < c.n * c.step then
-                return c.base + floor(rel / c.step) + 1
+    local armed = self:ArmedClaim()
+    local c = armed and claims and claims[armed]
+    if c and c.base and dist >= c.band then
+        -- Which ring dist falls in -- lo/hi are set so consecutive rings
+        -- share a boundary at their midpoint radius, and the last ring's
+        -- hi is nil, i.e. everything past the second-to-last ring's
+        -- midpoint. A miss here (angularly outside the ring it landed in)
+        -- falls out of the claim entirely rather than trying another
+        -- ring: the rings partition the RADIUS, not the angle.
+        for r = 1, #c.rows do
+            local row = c.rows[r]
+            if dist >= row.lo and (not row.hi or dist < row.hi) then
+                if row.step > 0 then
+                    local rel = (theta - row.start + row.step * 0.5) % TWO_PI
+                    if rel < row.n * row.step then
+                        return c.base + row.base + floor(rel / row.step) + 1
+                    end
+                end
+                break
             end
         end
     end
@@ -2830,7 +3156,6 @@ end
 -------------------------------------------------------------------------------
 --  Secure activation
 -------------------------------------------------------------------------------
-local secureButtons = {}
 local bindOwner
 
 -- Which steering model the snippet must use, by the same reading of the profile
@@ -2943,6 +3268,89 @@ local SNIPPET_PRE = [==[
                 self:SetAttribute("eapGY", y * ui:GetHeight())
             end
         end
+
+        -- Nothing armed until the cursor actually enters a claim's own gate --
+        -- see the release branch below, and ArmedClaim on the live side. A
+        -- fresh press has to start from scratch: an armed claim that survived
+        -- from the previous open would let a release fire a nest the palette
+        -- had not even drawn yet.
+        self:SetAttribute("eapArmed", nil)
+        -- One transcript per hold -- see EnterSnippet and LeaveSnippet. Reset
+        -- here rather than at the release, so "/euiap trace" after a close
+        -- still shows what THAT hold's gates did rather than an empty string.
+        self:SetAttribute("eapGTrace", nil)
+        -- Place every gate this palette pushed a box for, in the same origin
+        -- the release below measures against -- cursor mode takes the point
+        -- just captured above, fixed mode UIParent's centre plus the offset.
+        -- Parent gates go up shown, every claim's -- exclusive arming (see
+        -- EnterSnippet) only hides another claim's parent gate WHILE
+        -- something else is armed, and nothing is armed at a fresh press.
+        -- Region gates go down hidden, since nothing is armed yet either.
+        -- ArmedClaim and the gates' own OnEnter/OnLeave take it from here for
+        -- as long as the key stays held.
+        if ui then
+            local ox, oy
+            if self:GetAttribute("eapFixed") then
+                ox = ui:GetWidth() * 0.5 + (tonumber(self:GetAttribute("eapPosX")) or 0)
+                oy = ui:GetHeight() * 0.5 + (tonumber(self:GetAttribute("eapPosY")) or 0)
+            else
+                ox = tonumber(self:GetAttribute("eapGX"))
+                oy = tonumber(self:GetAttribute("eapGY"))
+            end
+            if ox then
+                local s = tonumber(self:GetAttribute("eapScale")) or 1
+                if s <= 0 then s = 1 end
+                local gm = tonumber(self:GetAttribute("eapGateMax")) or 0
+                for k = 1, gm do
+                    local phw = tonumber(self:GetAttribute("eapPOHW" .. k))
+                    local pgate = self:GetFrameRef("pgate" .. k)
+                    if phw and pgate then
+                        local pox = tonumber(self:GetAttribute("eapPOX" .. k)) or 0
+                        local poy = tonumber(self:GetAttribute("eapPOY" .. k)) or 0
+                        local phh = tonumber(self:GetAttribute("eapPOHH" .. k)) or 0
+                        pgate:ClearAllPoints()
+                        pgate:SetPoint("BOTTOMLEFT", ui, "BOTTOMLEFT",
+                            ox + (pox - phw) * s, oy + (poy - phh) * s)
+                        pgate:SetWidth(phw * 2 * s)
+                        pgate:SetHeight(phh * 2 * s)
+                        pgate:Show()
+                    elseif pgate then
+                        -- No claim at this slot this open. Cleared, not just
+                        -- hidden: EnterSnippet and LeaveSnippet both Show()
+                        -- gates by claim index without re-checking that the
+                        -- index still has a box, so a rect left anchored from
+                        -- a longer set of nests would go on answering for
+                        -- ground this open does not hold at all.
+                        pgate:ClearAllPoints()
+                        pgate:Hide()
+                    end
+
+                    for r = 1, __REGION_MAX__ do
+                        local rgate = self:GetFrameRef("rgate" .. k .. "_" .. r)
+                        local rhw = tonumber(self:GetAttribute("eapROHW" .. k .. "_" .. r))
+                        if rgate and rhw then
+                            local rox = tonumber(self:GetAttribute("eapROX" .. k .. "_" .. r)) or 0
+                            local roy = tonumber(self:GetAttribute("eapROY" .. k .. "_" .. r)) or 0
+                            local rhh = tonumber(self:GetAttribute("eapROHH" .. k .. "_" .. r)) or 0
+                            rgate:ClearAllPoints()
+                            rgate:SetPoint("BOTTOMLEFT", ui, "BOTTOMLEFT",
+                                ox + (rox - rhw) * s, oy + (roy - rhh) * s)
+                            rgate:SetWidth(rhw * 2 * s)
+                            rgate:SetHeight(rhh * 2 * s)
+                            rgate:Hide()
+                        elseif rgate then
+                            -- Same hygiene as the parent gate above: this
+                            -- claim has fewer regions this open than it once
+                            -- did (or none at all), so nothing may answer for
+                            -- the rect this rgate used to cover.
+                            rgate:ClearAllPoints()
+                            rgate:Hide()
+                        end
+                    end
+                end
+            end
+        end
+
         if mode == "SCROLL" and catcher then
             -- 1, not nil: the strip opens centred on its first entry and that
             -- entry is selected from the outset. See the wheel snippet.
@@ -2967,10 +3375,10 @@ local SNIPPET_PRE = [==[
 
     local n = tonumber(self:GetAttribute("eapShown")) or 0
     if n < 1 then self:SetAttribute("eapWhy", "noslots") return nil, 1 end
-    -- Every cell, the palette's own entries and the nested ones after them. The
-    -- nested ones are always live, whether or not the palette has drawn them --
-    -- there is no state here to say which nest was open, and the drawing is a
-    -- consequence of the cursor rather than a gate on it.
+    -- Every cell, the palette's own entries and the nested ones after them.
+    -- Which of the nested ones, if any, may actually be picked below is
+    -- eapArmed's business -- see the ANGULAR and POINTER branches -- rather
+    -- than something decided here.
     local total = tonumber(self:GetAttribute("eapTotal")) or n
 
     local idx
@@ -3103,21 +3511,30 @@ local SNIPPET_PRE = [==[
             local pitch = tonumber(self:GetAttribute("eapPitch")) or 1
             if pitch <= 0 then pitch = 1 end
 
-            -- Nested cells first, and by CONTAINMENT: a half-extent is what
-            -- marks a cell as one. Inside a box, that child regardless of what
-            -- the block holds underneath; outside every box, the block answers
-            -- as though the nest were not there. In index order, so two boxes
-            -- that overlap still have one answer -- the same walk the palette
-            -- draws with, which is the requirement, disjointness not being one.
-            for i = n + 1, total do
-                local hw = tonumber(self:GetAttribute("eapHW" .. i))
-                if hw then
-                    local bx = tonumber(self:GetAttribute("eapBX" .. i)) or 0
-                    local by = tonumber(self:GetAttribute("eapBY" .. i)) or 0
-                    local hh = tonumber(self:GetAttribute("eapHH" .. i)) or 0
-                    if abs(dx - bx) <= hw and abs(dy - by) <= hh then
-                        idx = i
-                        break
+            -- The armed claim's cells first, and by CONTAINMENT: a half-extent
+            -- is what marks a cell as one. Inside a box, that child regardless
+            -- of what the block holds underneath; outside every box, the block
+            -- answers as though the nest were not there. eapArmed is what a
+            -- gate frame's OnEnter/OnLeave has kept current for as long as the
+            -- key has been held -- see EnsureGates and the press branch above --
+            -- so a claim the cursor never actually entered through its parent
+            -- has no cells tested here at all, however close the pointer now
+            -- sits to where they are drawn.
+            local armed = tonumber(self:GetAttribute("eapArmed"))
+            if armed then
+                local base = tonumber(self:GetAttribute("eapGBase" .. armed)) or 0
+                local num = tonumber(self:GetAttribute("eapGNum" .. armed)) or 0
+                for j = 1, num do
+                    local i = base + j
+                    local hw = tonumber(self:GetAttribute("eapHW" .. i))
+                    if hw then
+                        local bx = tonumber(self:GetAttribute("eapBX" .. i)) or 0
+                        local by = tonumber(self:GetAttribute("eapBY" .. i)) or 0
+                        local hh = tonumber(self:GetAttribute("eapHH" .. i)) or 0
+                        if abs(dx - bx) <= hw and abs(dy - by) <= hh then
+                            idx = i
+                            break
+                        end
                     end
                 end
             end
@@ -3154,22 +3571,38 @@ local SNIPPET_PRE = [==[
             if theta < 0 then theta = theta + 360 end
             self:SetAttribute("eapTheta", theta)
 
-            -- Nested entries first. A child sector can reach past its parent's
-            -- own when overflow is allowed, so answering the parent first would
-            -- settle the question before the child was ever considered. The
-            -- claims are disjoint, so at most one of them can match.
-            local claims = tonumber(self:GetAttribute("eapClaims")) or 0
-            for k = 1, claims do
-                local band = tonumber(self:GetAttribute("eapCBand" .. k))
-                local cstep = tonumber(self:GetAttribute("eapCStepDeg" .. k)) or 0
-                local cn = tonumber(self:GetAttribute("eapCN" .. k)) or 0
-                if band and dist >= band and cstep > 0 and cn > 0 then
-                    local crel = (theta
-                        - (tonumber(self:GetAttribute("eapCStartDeg" .. k)) or 0)) % 360
-                    if crel < cn * cstep then
-                        idx = (tonumber(self:GetAttribute("eapCBase" .. k)) or 0)
-                              + floor(crel / cstep) + 1
-                        break
+            -- The armed claim's rings, and no other's -- see the note above the
+            -- POINTER branch's own use of eapArmed, and ArmedClaim on the live
+            -- side. A child sector can reach past its parent's own when
+            -- overflow is allowed, which is exactly the ground a neighbouring
+            -- claim used to be able to steal before the cursor had ever gone
+            -- through its own parent to earn it.
+            local armed = tonumber(self:GetAttribute("eapArmed"))
+            if armed then
+                local band = tonumber(self:GetAttribute("eapCBand" .. armed))
+                if band and dist >= band then
+                    -- Which ring dist falls in -- Lo/Hi partition the RADIUS,
+                    -- not the angle, so a ring that matches the radius but
+                    -- misses the angle is the claim missing outright, not a
+                    -- reason to try the next ring out.
+                    local rows = tonumber(self:GetAttribute("eapCRows" .. armed)) or 0
+                    for r = 1, rows do
+                        local tag = "eapCR" .. armed .. "_" .. r
+                        local lo = tonumber(self:GetAttribute(tag .. "Lo"))
+                        local hi = tonumber(self:GetAttribute(tag .. "Hi"))
+                        if lo and dist >= lo and (not hi or dist < hi) then
+                            local cstep = tonumber(self:GetAttribute(tag .. "StepDeg")) or 0
+                            local cn = tonumber(self:GetAttribute(tag .. "N")) or 0
+                            if cstep > 0 and cn > 0 then
+                                local crel = (theta
+                                    - (tonumber(self:GetAttribute(tag .. "StartDeg")) or 0)) % 360
+                                if crel < cn * cstep then
+                                    idx = (tonumber(self:GetAttribute(tag .. "Base")) or 0)
+                                          + floor(crel / cstep) + 1
+                                end
+                            end
+                            break
+                        end
                     end
                 end
             end
@@ -3226,6 +3659,10 @@ local SNIPPET_PRE = [==[
     self:SetAttribute("eapWhy", "fire")
     return nil, 1
 ]==]
+-- REGION_MAX is baked in by plain substitution rather than string.format:
+-- the body above is full of %, the modulo operator, and format would choke
+-- on every one of them that is not itself a substitution.
+SNIPPET_PRE = SNIPPET_PRE:gsub("__REGION_MAX__", tostring(REGION_MAX))
 
 -- Leaves nothing armed: the next press has to choose again from scratch.
 local SNIPPET_POST = [==[
@@ -3241,7 +3678,26 @@ local SNIPPET_POST = [==[
     -- Hand ESCAPE back to the game menu.
     local cancel = self:GetFrameRef("cancel")
     if cancel then cancel:ClearBindings() end
+
+    -- Every gate this palette owns, hidden and disarmed on every close --
+    -- including the cancels above, for the same reason the catcher is handled
+    -- unconditionally here. Nothing may leak into the next press: a region
+    -- gate left shown from this hold would still be over its old ground the
+    -- next time the palette opens somewhere else entirely, at least until the
+    -- press branch repositions it, and eapArmed itself would let a release on
+    -- the very next open fire a claim the cursor never went near this time.
+    self:SetAttribute("eapArmed", nil)
+    local gm = tonumber(self:GetAttribute("eapGateMax")) or 0
+    for k = 1, gm do
+        local pgate = self:GetFrameRef("pgate" .. k)
+        if pgate then pgate:Hide() end
+        for r = 1, __REGION_MAX__ do
+            local rgate = self:GetFrameRef("rgate" .. k .. "_" .. r)
+            if rgate then rgate:Hide() end
+        end
+    end
 ]==]
+SNIPPET_POST = SNIPPET_POST:gsub("__REGION_MAX__", tostring(REGION_MAX))
 
 -- ESCAPE while a palette is open. It cannot be an insecure key handler: the
 -- release that follows is resolved inside the snippet, and only secure code may
@@ -3291,6 +3747,343 @@ local function EnsureCancelButton()
 
     cancelButton = btn
     return btn
+end
+
+-------------------------------------------------------------------------------
+--  Arming gates -- the pass-through rule, and the exclusive-ground rule
+--
+--  A nest's cells only answer a release once the cursor has actually entered
+--  the claim's own parent entry, and stop answering only once it has left
+--  the claim's WHOLE ground -- parent cell, nest, and the corridor between --
+--  not merely one rect of it. That is state that has to survive the entire
+--  hold, which the release snippet cannot do on its own -- it only ever sees
+--  the final position -- so it is kept on the secure button itself, as
+--  eapArmed, and maintained by protected frames per claim reacting to real
+--  mouse movement:
+--
+--    PARENT gate    covers the claim's own entry. OnEnter arms the claim,
+--                   hides every OTHER claim's parent gate, and shows this
+--                   claim's REGION gates.
+--    REGION gates    up to REGION_MAX rects covering the claim's true ground
+--                   -- see CorridorBox and CellChildGeom/ChildGeom for what
+--                   they are. OnLeave of ANY of them does NOT blindly
+--                   disarm: moving between two of a claim's own region rects
+--                   also fires OnLeave (see below), so the snippet instead
+--                   measures the cursor against the claim's FULL region,
+--                   geometrically, and disarms only when it is genuinely
+--                   outside all of it. Disarming re-shows every OTHER
+--                   claim's parent gate and hides this claim's own regions.
+--
+--  Parent gates sit at a HIGHER frame level than region gates, and every
+--  region gate of a claim sits at the SAME level as its siblings. WoW's mouse
+--  focus is exclusive and topmost-wins -- exactly one frame holds it at a
+--  time -- which is what both rules lean on:
+--
+--    Exclusive arming.  While claim A is armed, every OTHER claim's parent
+--    gate is hidden, so brushing past a neighbour's cell cannot steal focus
+--    from A's own ground no matter how close the two sit -- the in-game
+--    complaint this fixes was two adjacent Halo rings swapping back and
+--    forth on the slightest movement. A hidden gate cannot receive OnEnter,
+--    so B stays unarmable until A's OnLeave test actually disarms it and
+--    re-shows B's gate -- and because Show() does not synthesise a motion
+--    event, a gate shown under a cursor that is not currently moving does
+--    NOT retroactively arm: the pointer has to move again first. That is
+--    deliberate, not a bug -- it is the same "only real motion arms
+--    anything" rule the parent gate itself already lives by.
+--
+--    Same-claim focus hand-off.  Moving from one of a claim's own region
+--    rects to a sibling rect of the SAME claim still fires the first one's
+--    OnLeave (focus left THAT frame), which is why the geometric re-test
+--    exists: it finds the cursor inside the sibling rect and answers "still
+--    in", so nothing is disarmed and neither rect is hidden. Nothing needs a
+--    reference to any gate but its own here, because the button (eapArmed)
+--    is the only shared state -- every gate reads and writes through it.
+--
+--  Built and positioned only out of combat, alongside PushPalette's geometry:
+--  SecureHandlerSetFrameRef and SecureHandlerWrapScript are themselves
+--  ordinary insecure calls, and PushPalette already refuses to run in combat
+--  for the same reason. Positioning happens in the press branch of
+--  SNIPPET_PRE instead, because only that branch knows where this particular
+--  press's palette actually opened.
+-------------------------------------------------------------------------------
+
+-- self:GetFrameRef("btn") is the palette's own secure button; every gate
+-- carries that one reference back, however many palettes and claims exist,
+-- because the header they are all wrapped through is shared. k is baked into
+-- the snippet text rather than read off an attribute: each gate only ever
+-- needs to know its OWN claim index, never anyone else's, so there is nothing
+-- for a shared body to look up.
+local function EnterSnippet(k)
+    return ([==[
+        local btn = self:GetFrameRef("btn")
+        if btn then
+            btn:SetAttribute("eapArmed", %d)
+            -- A bounded transcript of every arm/disarm this hold, read by
+            -- "/euiap trace" -- see the matching append in LeaveSnippet. Cheap
+            -- enough to leave in always: two attribute reads and a string
+            -- append per gate crossing, and it is the only record of what the
+            -- gates actually did once a symptom cannot be reproduced offline.
+            local tr = (btn:GetAttribute("eapGTrace") or "") .. "E" .. %d .. ";"
+            if #tr > 160 then tr = tr:sub(#tr - 160 + 1) end
+            btn:SetAttribute("eapGTrace", tr)
+            -- Exclusive ground: every OTHER claim's parent gate goes dark
+            -- while this one is armed, so nothing but leaving this claim's
+            -- own region (see LeaveSnippet) can hand focus to a neighbour.
+            local gm = tonumber(btn:GetAttribute("eapGateMax")) or 0
+            for i = 1, gm do
+                if i ~= %d then
+                    local other = btn:GetFrameRef("pgate" .. i)
+                    if other then other:Hide() end
+                end
+            end
+            for r = 1, %d do
+                local region = btn:GetFrameRef("rgate" .. %d .. "_" .. r)
+                -- Only a region this open actually pushed a box for: the
+                -- press branch clears an unboxed rgate's points but this is
+                -- the loop that decides whether it is shown at all, and
+                -- showing one anyway would put a live gate over whatever
+                -- rect it was left at by an earlier, longer-lived open.
+                if region and btn:GetAttribute("eapROHW" .. %d .. "_" .. r) then
+                    region:Show()
+                end
+            end
+        end
+    ]==]):format(k, k, k, REGION_MAX, k, k)
+end
+
+-- Runs on the OnLeave of any one of claim k's region rects. Does not trust
+-- "I lost focus" to mean "the claim is left" -- a claim can own several of
+-- these rects, and moving between two of its own fires this too -- so it
+-- re-measures the cursor against the claim's WHOLE region before deciding.
+-- The maths mirrors the release branch of SNIPPET_PRE: same origin, same
+-- scale, same units, because this and that answer the identical question
+-- ("where is the cursor in the palette's own space") from two different
+-- places and must not drift apart.
+-- Built with plain substitution rather than string.format: the body below
+-- has a real modulo operator in it (`% 360`), which format would choke on
+-- as an invalid conversion.
+--
+-- The whole chain is wrapped in its own parentheses, not merely the string
+-- literal at its head: gsub returns the substitution count as a SECOND
+-- value, and an unparenthesised tail call in a return statement hands both
+-- of them back. EnsureGates calls this as the LAST argument to
+-- SecureHandlerWrapScript, so that stray count would have landed in
+-- postBody -- which SecureHandlerWrapScript rejects outright unless it is a
+-- string or nil, aborting the wrap (and, uncaught, the rest of EnsureGates'
+-- loop past it) with "Invalid post-handler body" the moment any claim's
+-- first region gate was ever built.
+local function LeaveSnippet(k)
+    return (([==[
+        local btn = self:GetFrameRef("btn")
+        local armed = btn and tonumber(btn:GetAttribute("eapArmed"))
+        if armed ~= __ARMED_K__ then
+            self:Hide()
+            return
+        end
+        -- Past here armed == this claim's own index, so every attribute
+        -- lookup below reads THROUGH the runtime value rather than through
+        -- another baked-in literal -- one less place for a claim's own
+        -- number to have to agree with itself.
+
+        local inside = false
+        local ui = self:GetFrameRef("ui")
+        if ui then
+            local x, y = ui:GetMousePosition()
+            if x then
+                local w, h = ui:GetWidth(), ui:GetHeight()
+                local cx, cy = x * w, y * h
+                local s = tonumber(btn:GetAttribute("eapScale")) or 1
+                if s <= 0 then s = 1 end
+                local ox, oy
+                if btn:GetAttribute("eapFixed") then
+                    ox = w * 0.5 + (tonumber(btn:GetAttribute("eapPosX")) or 0)
+                    oy = h * 0.5 + (tonumber(btn:GetAttribute("eapPosY")) or 0)
+                else
+                    ox = tonumber(btn:GetAttribute("eapGX"))
+                    oy = tonumber(btn:GetAttribute("eapGY"))
+                end
+                if ox then
+                    local dx, dy = (cx - ox) / s, (cy - oy) / s
+
+                    -- Deliberately no inflation: a margin here that the gate
+                    -- FRAMES do not also carry (they are sized to these exact
+                    -- eapRO*/eapPO* numbers by the press branch above, with no
+                    -- slack of their own) creates a dead zone rather than
+                    -- softening anything. A cursor crossing the frame's own
+                    -- un-inflated edge fires this test right there, finding
+                    -- "still inside" thanks to the margin, and leaves no gate
+                    -- behind to fire a SECOND OnLeave once the cursor actually
+                    -- clears the inflated boundary -- so that stale verdict
+                    -- never gets revisited, and the claim stays armed however
+                    -- far the cursor drifts past it afterwards. Real
+                    -- hysteresis would need the frames themselves inflated to
+                    -- match, which is a larger change than this fix calls
+                    -- for.
+
+                    -- The parent's own cell always counts.
+                    local phw = tonumber(btn:GetAttribute("eapPOHW" .. armed))
+                    if phw then
+                        local pox = tonumber(btn:GetAttribute("eapPOX" .. armed)) or 0
+                        local poy = tonumber(btn:GetAttribute("eapPOY" .. armed)) or 0
+                        local phh = tonumber(btn:GetAttribute("eapPOHH" .. armed)) or 0
+                        if abs(dx - pox) <= phw and abs(dy - poy) <= phh then
+                            inside = true
+                        end
+                    end
+
+                    -- An ARC claim's true ground is polar, not the rects the
+                    -- gate frames use for event coverage -- those are
+                    -- generous on purpose (see CorridorBox), so the actual
+                    -- decision here is the same band/ring test the release
+                    -- branch's ANGULAR path already makes.
+                    if not inside and btn:GetAttribute("eapMode") == "ANGULAR" then
+                        local dist = (dx * dx + dy * dy) ^ 0.5
+                        local band = tonumber(btn:GetAttribute("eapCBand" .. armed))
+                        if band and dist >= band then
+                            local theta = atan2(dx, dy)
+                            if theta < 0 then theta = theta + 360 end
+                            local rows = tonumber(btn:GetAttribute("eapCRows" .. armed)) or 0
+                            for r = 1, rows do
+                                local tag = "eapCR" .. armed .. "_" .. r
+                                local lo = tonumber(btn:GetAttribute(tag .. "Lo"))
+                                local hi = tonumber(btn:GetAttribute(tag .. "Hi"))
+                                if lo and dist >= lo and (not hi or dist < hi) then
+                                    local cstep = tonumber(btn:GetAttribute(tag .. "StepDeg")) or 0
+                                    local cn = tonumber(btn:GetAttribute(tag .. "N")) or 0
+                                    if cstep > 0 and cn > 0 then
+                                        local crel = (theta
+                                            - (tonumber(btn:GetAttribute(tag .. "StartDeg")) or 0)) % 360
+                                        if crel < cn * cstep then inside = true end
+                                    end
+                                    break
+                                end
+                            end
+                        end
+                    elseif not inside then
+                        for r = 1, __REGION_MAX__ do
+                            local rhw = tonumber(btn:GetAttribute("eapROHW" .. armed .. "_" .. r))
+                            if rhw then
+                                local rox = tonumber(btn:GetAttribute("eapROX" .. armed .. "_" .. r)) or 0
+                                local roy = tonumber(btn:GetAttribute("eapROY" .. armed .. "_" .. r)) or 0
+                                local rhh = tonumber(btn:GetAttribute("eapROHH" .. armed .. "_" .. r)) or 0
+                                if abs(dx - rox) <= rhw and abs(dy - roy) <= rhh then
+                                    inside = true
+                                    break
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        do
+            -- See the matching append in EnterSnippet -- one transcript per
+            -- hold, shared across every claim's gates because eapGTrace lives
+            -- on the button, not on any one gate.
+            local tr = (btn:GetAttribute("eapGTrace") or "") ..
+                "L" .. __ARMED_K__ .. (inside and ":in;" or ":out;")
+            if #tr > 160 then tr = tr:sub(#tr - 160 + 1) end
+            btn:SetAttribute("eapGTrace", tr)
+        end
+
+        if not inside then
+            btn:SetAttribute("eapArmed", nil)
+            local gm = tonumber(btn:GetAttribute("eapGateMax")) or 0
+            for i = 1, gm do
+                local other = btn:GetFrameRef("pgate" .. i)
+                -- Only a slot that still has a claim this open: see the
+                -- matching note in EnterSnippet's own Show() loop.
+                if other and btn:GetAttribute("eapPOHW" .. i) then other:Show() end
+            end
+            for r = 1, __REGION_MAX__ do
+                local region = btn:GetFrameRef("rgate" .. armed .. "_" .. r)
+                if region then region:Hide() end
+            end
+        end
+    ]==]):gsub("__ARMED_K__", tostring(k)):gsub("__REGION_MAX__", tostring(REGION_MAX)))
+end
+
+-- One parent gate and up to REGION_MAX region gates per possible claim,
+-- pooled per palette and built the first time that palette is pushed.
+-- MAX_SLOTS of each is the most a palette could ever need -- one claim per
+-- slot -- so building all of them up front avoids re-wrapping scripts every
+-- time a profile edit changes which slots actually nest; PushPalette only
+-- ever repositions and re-shows or hides what is already there.
+local gatePools = {}
+
+local function EnsureGates(index, btn)
+    local pool = gatePools[index]
+    if pool then return pool end
+    pool = { pgate = {}, rgate = {} }
+    gatePools[index] = pool
+
+    for k = 1, MAX_SLOTS do
+        local pgate = CreateFrame("Frame", "EUIActionPaletteButton" .. index .. "PGate" .. k,
+            UIParent, "SecureHandlerEnterLeaveTemplate")
+        pgate:SetFrameStrata(LIVE_STRATA)
+        pgate:SetFrameLevel(20)
+        pgate:SetMouseClickEnabled(false)
+        pgate:SetMouseMotionEnabled(true)
+        pgate:Hide()
+
+        SecureHandlerSetFrameRef(pgate, "btn", btn)
+        SecureHandlerSetFrameRef(pgate, "ui", UIParent)
+        SecureHandlerWrapScript(pgate, "OnEnter", EnsureSecureHeader(), EnterSnippet(k))
+        -- The parent gate's own rect is exactly the claim's own cell, and a
+        -- region's true ground always CONTAINS that cell (CellChildGeom
+        -- builds every region starting from the parent cell's own extent and
+        -- only ever growing it outward) -- so a region gate never sits
+        -- ABOVE the parent gate anywhere the parent gate does not already
+        -- cover, only alongside or beyond it. Wherever a region does not
+        -- extend past the parent cell at all -- HALO skipping a ring
+        -- position a plain neighbour already occupies is the everyday case
+        -- of this -- leaving the parent cell in exactly that direction
+        -- leaves NO gate underneath at all, and the topmost-wins focus
+        -- model this depends on hands focus straight to nothing without
+        -- ever touching a region gate's own OnLeave. Wrapping this gate's
+        -- OnLeave with the identical true-ground re-test closes that gap:
+        -- every way OUT of the claim now runs the same check, whether the
+        -- last gate under the cursor was the parent's or one of its
+        -- regions'.
+        SecureHandlerWrapScript(pgate, "OnLeave", EnsureSecureHeader(), LeaveSnippet(k))
+
+        -- The button carries its own reference to every gate too, so the press
+        -- branch of SNIPPET_PRE -- which only knows claim indices and boxes,
+        -- never the frames themselves until it asks -- can place and size them.
+        SecureHandlerSetFrameRef(btn, "pgate" .. k, pgate)
+
+        pool.pgate[k] = pgate
+        pool.rgate[k] = {}
+        for r = 1, REGION_MAX do
+            local rgate = CreateFrame("Frame", "EUIActionPaletteButton" .. index .. "RGate" .. k .. "_" .. r,
+                UIParent, "SecureHandlerEnterLeaveTemplate")
+            rgate:SetFrameStrata(LIVE_STRATA)
+            rgate:SetFrameLevel(10)
+            rgate:SetMouseClickEnabled(false)
+            rgate:SetMouseMotionEnabled(true)
+            rgate:Hide()
+
+            SecureHandlerSetFrameRef(rgate, "btn", btn)
+            SecureHandlerSetFrameRef(rgate, "ui", UIParent)
+            -- OnEnter carries no test of its own -- LeaveSnippet is the whole
+            -- story for a region gate -- but it still has to be wrapped here,
+            -- empty body and all. SecureHandlers.lua's own OnEnter/OnLeave
+            -- wrapper only ever raises "_wrapentered" from INSIDE the OnEnter
+            -- wrap (Wrapped_OnEnter), and Wrapped_OnLeave refuses to run
+            -- LeaveSnippet at all unless that flag is already up. Leaving
+            -- this gate's OnEnter unwrapped left the flag permanently down,
+            -- so the disarm test below never ran even once -- a claim that
+            -- ever armed stayed armed for the rest of the hold, which is the
+            -- stuck-dim and stuck-nest both come from.
+            SecureHandlerWrapScript(rgate, "OnEnter", EnsureSecureHeader(), "")
+            SecureHandlerWrapScript(rgate, "OnLeave", EnsureSecureHeader(), LeaveSnippet(k))
+
+            SecureHandlerSetFrameRef(btn, "rgate" .. k .. "_" .. r, rgate)
+            pool.rgate[k][r] = rgate
+        end
+    end
+    return pool
 end
 
 local function OnPreClick(self, _, down)
@@ -3371,6 +4164,12 @@ local function PushPalette(index)
     local btn = secureButtons[index]
     local palette = EnsurePalette(index)
     if not p or not btn or not palette or not liveView then return end
+
+    -- The arming gates. Built once per palette, out of combat like everything
+    -- else here; reused and merely repositioned on every later push. See the
+    -- "Arming gates" section above GetSecureButton for what they are for.
+    EnsureGates(index, btn)
+    btn:SetAttribute("eapGateMax", MAX_SLOTS)
 
     for i = 1, MAX_SLOTS do
         local slot = palette.slots[i]
@@ -3503,6 +4302,31 @@ local function PushPalette(index)
     pushedCells[index] = total
     btn:SetAttribute("eapTotal", total)
 
+    -- One claim-index -> cell-range mapping, the parent's own arming box, and
+    -- up to REGION_MAX region boxes, for every possible claim slot -- cleared
+    -- past #claims the same way the gates themselves get cleared, so a claim
+    -- that stopped nesting cannot leave its gate armable over ground that no
+    -- longer holds anything. Keyed by CLAIM INDEX rather than by parent slot,
+    -- the same index eapCBand and friends already use below, so eapArmed
+    -- means one thing everywhere it is read regardless of layout.
+    for k = 1, MAX_SLOTS do
+        local c = claims and claims[k]
+        btn:SetAttribute("eapGBase" .. k, c and c.base)
+        btn:SetAttribute("eapGNum" .. k, c and c.n)
+        local pb = c and c.parentBox
+        btn:SetAttribute("eapPOX" .. k, pb and pb.x)
+        btn:SetAttribute("eapPOY" .. k, pb and pb.y)
+        btn:SetAttribute("eapPOHW" .. k, pb and pb.hw)
+        btn:SetAttribute("eapPOHH" .. k, pb and pb.hh)
+        for r = 1, REGION_MAX do
+            local rb = c and c.regions and c.regions[r]
+            btn:SetAttribute("eapROX" .. k .. "_" .. r, rb and rb.x)
+            btn:SetAttribute("eapROY" .. k .. "_" .. r, rb and rb.y)
+            btn:SetAttribute("eapROHW" .. k .. "_" .. r, rb and rb.hw)
+            btn:SetAttribute("eapROHH" .. k .. "_" .. r, rb and rb.hh)
+        end
+    end
+
     -- A scroll-steered strip reaches its nests through the entry the WHEEL is
     -- on, not through the cursor: the wheel says which nest, and the cursor only
     -- says which of its children. One lookup per entry that nests, so the
@@ -3523,9 +4347,12 @@ local function PushPalette(index)
         end
     end
 
-    -- One ANGULAR claim per slot that opens a palette. Angles in degrees, and
-    -- the start is the EDGE of child 1's sector rather than its centre, so the
-    -- snippet's test is a plain division with no half-step to remember.
+    -- One ANGULAR claim per slot that opens a palette, and one RING per claim
+    -- past MAX_CHILD_ROWS never happens (ChildGeom caps there too), so every
+    -- claim's rings fit in this fixed span of attributes. Angles in degrees,
+    -- and a ring's start is the EDGE of its first child's sector rather than
+    -- its centre, so the snippet's test is a plain division with no half-step
+    -- to remember.
     --
     -- A block layout's nests need none of this: they were pushed as ordinary
     -- cells above, and the nearest-cell search finds them without being told
@@ -3533,12 +4360,21 @@ local function PushPalette(index)
     local angular = (model == "ANGULAR") and claims or nil
     for k = 1, MAX_SLOTS do
         local c = angular and angular[k]
-        btn:SetAttribute("eapCBase" .. k, c and c.base)
-        btn:SetAttribute("eapCN" .. k, c and c.n)
         btn:SetAttribute("eapCBand" .. k, c and c.band)
-        btn:SetAttribute("eapCStepDeg" .. k, c and (c.step * 180 / pi))
-        btn:SetAttribute("eapCStartDeg" .. k,
-            c and ((((c.start - c.step * 0.5) * 180 / pi) % 360)))
+        btn:SetAttribute("eapCRows" .. k, c and #c.rows)
+        for r = 1, MAX_CHILD_ROWS do
+            local row = c and c.rows[r]
+            local tag = "eapCR" .. k .. "_" .. r
+            btn:SetAttribute(tag .. "Lo", row and row.lo)
+            btn:SetAttribute(tag .. "Hi", row and row.hi)
+            btn:SetAttribute(tag .. "N", row and row.n)
+            -- Absolute: the cell index this ring's first child lands on, so the
+            -- snippet adds nothing but the local offset it works out itself.
+            btn:SetAttribute(tag .. "Base", row and (c.base + row.base))
+            btn:SetAttribute(tag .. "StepDeg", row and (row.step * 180 / pi))
+            btn:SetAttribute(tag .. "StartDeg",
+                row and ((((row.start - row.step * 0.5) * 180 / pi) % 360)))
+        end
     end
     btn:SetAttribute("eapClaims", angular and #angular or 0)
 end
@@ -3716,6 +4552,27 @@ _G.SLASH_EUIACTIONPALETTE4 = "/euiradial"
 --   fire        attributes were written; anything wrong past here is Blizzard's
 --               side of the click
 SlashCmdList.EUIACTIONPALETTE = function(msg)
+    -- "/euiap gates" reports the arming gates' own transcript -- eapArmed as
+    -- it stands right now, and eapGTrace, the "E<k>" / "L<k>:in" / "L<k>:out"
+    -- record EnterSnippet and LeaveSnippet append to on every real gate
+    -- crossing this hold (see both for the format). Bounded to the last 160
+    -- characters on the button itself, so this is reading exactly what the
+    -- gates did rather than a guess reconstructed after the fact -- the
+    -- thing to run after a nest misbehaves in a way the offline harness
+    -- cannot reproduce.
+    if type(msg) == "string" and msg:lower():find("gates") then
+        for i = 1, BoundPaletteCount() do
+            local btn = secureButtons[i]
+            if btn then
+                EllesmereUI.Print(("|cff0cd29fPalette %d|r armed=%s"):format(
+                    i, tostring(btn:GetAttribute("eapArmed"))))
+                EllesmereUI.Print("  " .. (btn:GetAttribute("eapGTrace") or "(no gate crossings this hold)"))
+            else
+                EllesmereUI.Print(("|cff0cd29fPalette %d|r no secure button"):format(i))
+            end
+        end
+        return
+    end
     if type(msg) == "string" and msg:lower():find("trace") then
         for i = 1, BoundPaletteCount() do
             local btn = secureButtons[i]

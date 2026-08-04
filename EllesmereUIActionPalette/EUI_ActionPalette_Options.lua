@@ -1343,7 +1343,7 @@ initFrame:SetScript("OnEvent", function(self)
         local centerOrder  = { "CURSOR", "SCREEN" }
 
         local layoutValues = { ARC = "Arc", FAN = "Fan", GRID = "Grid" }
-        local layoutOrder  = { "ARC", "FAN", "GRID" }
+        local layoutOrder  = { "GRID", "FAN", "ARC" }
 
         local orientValues = { HORIZONTAL = "Horizontal", VERTICAL = "Vertical" }
         local orientOrder  = { "HORIZONTAL", "VERTICAL" }
