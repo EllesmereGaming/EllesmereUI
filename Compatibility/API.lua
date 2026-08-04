@@ -5,6 +5,18 @@ _G.EllesmereUI._deferredInits = _G.EllesmereUI._deferredInits or {}
 EUI = EUI or {}
 EUI.API = EUI.API or {}
 
+-- securecallfunction was introduced after Wrath.  Legacy clients do not have
+-- the protected-call boundary it provides, but addon code still needs the same
+-- calling convention and return values.
+if not securecallfunction then
+    function securecallfunction(func, ...)
+        if type(func) ~= "function" then
+            error("bad argument #1 to 'securecallfunction' (function expected)", 2)
+        end
+        return func(...)
+    end
+end
+
 -- Retail's friend-list namespace replaced the legacy global APIs.  Keep the
 -- modern call sites usable on 3.3.5 while preserving Retail's implementation
 -- when it exists.

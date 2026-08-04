@@ -416,6 +416,14 @@ function EUI.API.ApplyFrameCompat(frame)
             if self.EnableMouse then self:EnableMouse(enabled) end
         end
     end
+    -- Retail can let selected mouse buttons fall through a mouse-enabled
+    -- region.  Wrath has no equivalent API, so retain the requested buttons
+    -- for introspection and otherwise degrade safely.
+    if not frame.SetPassThroughButtons then
+        frame.SetPassThroughButtons = function(self, ...)
+            self._euiPassThroughButtons = {...}
+        end
+    end
     if not frame.SetScaleToFit then frame.SetScaleToFit = function(self) end end
     if not frame.GetScaledRect then frame.GetScaledRect = function(self) return self:GetRect() end end
     if not frame.SetIgnoreParentScale then frame.SetIgnoreParentScale = function(self, ignore) end end
@@ -684,6 +692,11 @@ local function PatchWidgetMetatable(obj)
         if not idx.RegisterUnitEvent then
             idx.RegisterUnitEvent = function(self, event, ...)
                 return self:RegisterEvent(event)
+            end
+        end
+        if not idx.SetPassThroughButtons then
+            idx.SetPassThroughButtons = function(self, ...)
+                self._euiPassThroughButtons = {...}
             end
         end
         if not idx.SetColorTexture then
