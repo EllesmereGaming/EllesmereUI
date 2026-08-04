@@ -5,6 +5,18 @@ _G.EllesmereUI._deferredInits = _G.EllesmereUI._deferredInits or {}
 EUI = EUI or {}
 EUI.API = EUI.API or {}
 
+-- securecallfunction was introduced after Wrath.  Legacy clients do not have
+-- the protected-call boundary it provides, but addon code still needs the same
+-- calling convention and return values.
+if not securecallfunction then
+    function securecallfunction(func, ...)
+        if type(func) ~= "function" then
+            error("bad argument #1 to 'securecallfunction' (function expected)", 2)
+        end
+        return func(...)
+    end
+end
+
 -- Retail's friend-list namespace replaced the legacy global APIs.  Keep the
 -- modern call sites usable on 3.3.5 while preserving Retail's implementation
 -- when it exists.
@@ -885,7 +897,13 @@ if not C_Item then
     end
 
     C_Item.GetItemSpell = function(item)
-        return GetItemSpell(item)
+        local spellName, spellID = GetItemSpell(item)
+        -- Some 3.3.5 clients return empty strings instead of nil when an item
+        -- has no spell.  Match the modern C_Item contract and ensure callers
+        -- never receive a string where they expect a numeric spell ID.
+        if spellName == "" then spellName = nil end
+        spellID = tonumber(spellID)
+        return spellName, spellID
     end
 
     C_Item.GetItemQualityByID = function(itemLink)

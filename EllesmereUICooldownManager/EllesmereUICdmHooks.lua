@@ -3335,7 +3335,8 @@ local function UpdateTrinketFrame(slotID)
     end
     local icon = C_Item.GetItemIconByID(itemID)
     if icon and f._tex then f._tex:SetTexture(icon) end
-    local _, spellID = C_Item.GetItemSpell(itemID)
+    local _, rawSpellID = C_Item.GetItemSpell(itemID)
+    local spellID = tonumber(rawSpellID)
     f._trinketSpellID = spellID
     if slotID == 13 or slotID == 14 then
         -- A trinket slot is an explicit bar assignment, so always render the
