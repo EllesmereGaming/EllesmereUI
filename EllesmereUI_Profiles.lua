@@ -15,6 +15,7 @@
 -------------------------------------------------------------------------------
 
 local EllesmereUI = _G.EllesmereUI
+local Spec = EUI and EUI.Spec
 
 -------------------------------------------------------------------------------
 --  LibDeflate reference (loaded before us via TOC)
@@ -895,8 +896,8 @@ end
 --
 --  Resolution order:
 --    1. Cached spec from lastSpecByChar (reliable across sessions)
---    2. Live GetSpecialization() API (available after ADDON_LOADED for
---       returning characters, may be nil for brand-new characters)
+--    2. Live EUI.Spec detection (available after ADDON_LOADED for returning
+--       characters, may be nil for brand-new characters)
 --
 --  Returns: targetProfileName, resolvedSpecID, charKey  -- or nil if no
 --           spec assignment exists or spec cannot be resolved yet.
@@ -916,13 +917,10 @@ local function ResolveSpecProfile()
 
     -- Fall back to live API if no cached value
     if not resolvedSpecID then
-        local specIdx = GetSpecialization and GetSpecialization()
-        if specIdx and specIdx > 0 then
-            local liveSpecID = GetSpecializationInfo(specIdx)
-            if liveSpecID then
-                resolvedSpecID = liveSpecID
-                EllesmereUIDB.lastSpecByChar[charKey] = resolvedSpecID
-            end
+        local liveSpecID = Spec and Spec:GetCurrentID()
+        if liveSpecID then
+            resolvedSpecID = liveSpecID
+            EllesmereUIDB.lastSpecByChar[charKey] = resolvedSpecID
         end
     end
 
@@ -2262,18 +2260,14 @@ function EllesmereUI.GetCDMSpecInfo()
     local sa = EllesmereUIDB and EllesmereUIDB.spellAssignments
     local specProfiles = sa and sa.specProfiles or {}
     local result = {}
-    local numSpecs = GetNumSpecializations and GetNumSpecializations() or 0
-    for i = 1, numSpecs do
-        local specID, sName, _, sIcon = GetSpecializationInfo(i)
-        if specID then
-            local key = tostring(specID)
-            result[#result + 1] = {
-                key     = key,
-                name    = sName or ("Spec " .. key),
-                icon    = sIcon,
-                hasData = specProfiles[key] ~= nil,
-            }
-        end
+    for _, info in ipairs(Spec and Spec:GetList() or {}) do
+        local key = tostring(info.id)
+        result[#result + 1] = {
+            key     = key,
+            name    = info.name or ("Spec " .. key),
+            icon    = info.icon,
+            hasData = specProfiles[key] ~= nil,
+        }
     end
     return result
 end
@@ -2329,10 +2323,12 @@ function EllesmereUI.GetImportedCDMSpecInfo(importedSpellAssignments)
     for specKey in pairs(specProfiles) do
         local specID = tonumber(specKey)
         local name, icon
-        if specID and specID > 0 and GetSpecializationInfoByID then
-            local _, sName, _, sIcon = GetSpecializationInfoByID(specID)
-            name = sName
-            icon = sIcon
+        if specID and specID > 0 and Spec then
+            local info = Spec:GetInfoByID(specID)
+            if info then
+                name = info.name
+                icon = info.icon
+            end
         end
         result[#result + 1] = {
             key     = specKey,
@@ -2957,11 +2953,7 @@ function EllesmereUI.ImportProfile(importStr, profileName)
     -- profile may auto-apply. The auto-apply gate (specLocked) is finalized AFTER
     -- any auto-assign below, since assigning the current spec to this profile makes
     -- activating it correct rather than locked.
-    local curSpecID
-    do
-        local si = GetSpecialization and GetSpecialization() or 0
-        curSpecID = si and si > 0 and GetSpecializationInfo(si) or nil
-    end
+    local curSpecID = Spec and Spec:GetCurrentID()
 
     if payload.type == "full" then
         -- Merge import: start from the current profile and overlay imported
@@ -3804,6 +3796,8 @@ do
 
     specFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
     specFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+    specFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
+    specFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
     specFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
     specFrame:SetScript("OnEvent", function(_, event, unit)
         ---------------------------------------------------------------
@@ -3865,9 +3859,7 @@ do
         ---------------------------------------------------------------
         --  Resolve the current spec via live API
         ---------------------------------------------------------------
-        local specIdx = GetSpecialization and GetSpecialization() or 0
-        local specID = specIdx and specIdx > 0
-            and GetSpecializationInfo(specIdx) or nil
+        local specID = Spec and Spec:GetCurrentID()
 
         if not specID then
             -- Spec info not available yet (common on brand new characters).
@@ -3877,9 +3869,7 @@ do
                 local attempts = 0
                 specRetryTimer = C_Timer.NewTicker(1, function(ticker)
                     attempts = attempts + 1
-                    local idx = GetSpecialization and GetSpecialization() or 0
-                    local sid = idx and idx > 0
-                        and GetSpecializationInfo(idx) or nil
+                    local sid = Spec and Spec:GetCurrentID()
                     if sid then
                         ticker:Cancel()
                         specRetryTimer = nil

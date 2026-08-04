@@ -220,27 +220,39 @@ end
 
 -- C_SpecializationInfo
 C_SpecializationInfo = C_SpecializationInfo or {}
-C_SpecializationInfo.GetSpecialization = function()
-    local maxPoints = -1
-    local activeSpec = 1
-    for i = 1, 3 do
-        local _, _, pointsSpent = GetTalentTabInfo(i)
-        if pointsSpent and pointsSpent > maxPoints then
-            maxPoints = pointsSpent
-            activeSpec = i
-        end
+if not C_SpecializationInfo.GetSpecialization then
+    C_SpecializationInfo.GetSpecialization = function()
+        local info = EUI.Spec and EUI.Spec:GetCurrent()
+        return info and info.index
     end
-    return activeSpec
 end
 
-C_SpecializationInfo.GetSpecializationInfo = function(specIndex)
-    local _, class = UnitClass("player")
-    local name, icon, pointsSpent = GetTalentTabInfo(specIndex or 1)
-    return specIndex, name or "Spec", "", icon or "Interface\\Icons\\INV_Misc_QuestionMark", "DAMAGER", 1
+if not C_SpecializationInfo.GetSpecializationInfo then
+    C_SpecializationInfo.GetSpecializationInfo = function(specIndex)
+        local info = EUI.Spec and EUI.Spec:GetInfo(specIndex or 1)
+        if not info then return end
+        return info.id, info.name, "", info.icon or "Interface\\Icons\\INV_Misc_QuestionMark",
+            info.role or "DAMAGER", 1, info.classToken
+    end
 end
 
 GetSpecialization = GetSpecialization or C_SpecializationInfo.GetSpecialization
 GetSpecializationInfo = GetSpecializationInfo or C_SpecializationInfo.GetSpecializationInfo
+GetNumSpecializations = GetNumSpecializations or function()
+    return EUI.Spec and EUI.Spec:GetNum() or 0
+end
+GetSpecializationInfoByID = GetSpecializationInfoByID or function(specID)
+    local info = EUI.Spec and EUI.Spec:GetInfoByID(specID)
+    if not info then return end
+    return info.id, info.name, "", info.icon or "Interface\\Icons\\INV_Misc_QuestionMark",
+        info.role or "DAMAGER", 1, info.classToken
+end
+GetSpecializationInfoForClassID = GetSpecializationInfoForClassID or function(classID, specIndex)
+    local info = EUI.Spec and EUI.Spec:GetInfoForClassID(classID, specIndex)
+    if not info then return end
+    return info.id, info.name, "", info.icon or "Interface\\Icons\\INV_Misc_QuestionMark",
+        info.role or "DAMAGER", 1, info.classToken
+end
 if not GetSpecializationRole then
     GetSpecializationRole = function(specIndex)
         local role = select(5, C_SpecializationInfo.GetSpecializationInfo(specIndex or (GetSpecialization and GetSpecialization())))
