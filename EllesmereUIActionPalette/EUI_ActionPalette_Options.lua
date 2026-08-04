@@ -1517,7 +1517,15 @@ initFrame:SetScript("OnEvent", function(self)
                   return gridOnly() or Cfg("gridAutoColumns") ~= false
               end,
               disabledTooltip="Auto Columns to be off",
-              min=1, max=8, step=1,
+              -- The top of the travel is the slot cap, not an arbitrary 8. A
+              -- grid never draws more columns than it has entries, so asking
+              -- for the most a palette can ever hold is how you say "one row",
+              -- and it stays one row as entries are added. Column 1 is already
+              -- the transpose of that, so both single-file layouts are on the
+              -- one slider and neither needs a sentinel value.
+              tooltip="How many entries a row of the grid holds. 1 stacks them into a single column; "
+                      ..(ns.MAX_SLOTS or 12).." -- the most slots a palette can hold -- lays them out in a single row.",
+              min=1, max=(ns.MAX_SLOTS or 12), step=1,
               getValue=function() return Cfg("gridColumns") or 4 end,
               setValue=function(v) Set("gridColumns", v); Refresh() end },
             { type="spacer" })
