@@ -783,14 +783,15 @@ end
 -- deselects. This is the grid's cancel: it has no dead zone to release inside.
 local GRID_REACH = 1.0
 
--- How far ACROSS a scroll-steered strip, in pitches, the pointer may travel
--- before it deselects. This is that layout's cancel, and it is the same gesture
--- the grid cancels with -- throw the pointer clear of the icons -- rather than
--- a rule of its own to learn.
+-- The margin, in pitches, around a scroll-steered strip that the pointer may
+-- travel inside before it deselects. This is that layout's cancel, and it is
+-- the same gesture the grid cancels with -- throw the pointer clear of the
+-- icons -- rather than a rule of its own to learn.
 --
--- ACROSS only, never along: the strip runs along its own axis, so a movement
--- that way is toward its other entries and reads as steering. Perpendicular
--- movement leads nowhere the strip can go, which is what makes it unambiguous.
+-- Clear in ANY direction, but not the same distance in each: the box is this
+-- margin across the strip and the strip's own drawn length plus the margin
+-- along it. A strip is long one way and thin the other, and leaving it means
+-- passing its edge, wherever that edge happens to be.
 --
 -- Measured from where the pointer was when the palette opened, not from the
 -- strip, so it means the same thing in Fixed Position mode, where the strip is
@@ -938,6 +939,21 @@ function WheelView:SetFanCenter(index)
     self:SetSelection(index)
 end
 
+-- Half the drawn strip, along its own axis, out to the far edge of the last
+-- visible entry. Sizes the frame and bounds the cancel, from one number: a
+-- second copy of this would drift the moment either falloff setting moved.
+function WheelView:FanHalfLength()
+    local p = P()
+    local _, iconSize = self:Geom()
+    local shown = self.shownCount
+    -- The editor culls nothing, so its strip is as long as the ring is.
+    local window = self.opts.interactive and shown or ((p and p.fanVisible) or 3)
+    local minS = self.opts.interactive and FAN_EDIT_MIN_SCALE
+                                        or ((p and p.fanMinScale) or 0.30)
+    return FanOffset(window, iconSize, (p and p.fanGap) or 10,
+                     (p and p.fanScaleDecay) or 0.72, minS) + iconSize
+end
+
 -- Has the pointer been thrown clear of the strip? Answers false for any view
 -- with no gate origin -- the options preview, which has no pointer gesture at
 -- all -- so only the live palette can be cancelled this way.
@@ -947,13 +963,11 @@ function WheelView:FanCancelled()
     local _, iconSize = self:Geom()
     local es = self.frame:GetEffectiveScale()
     local mx, my = GetCursorPosition()
-    local across
-    if self:FanHoriz() then
-        across = my / es - self._gateY
-    else
-        across = mx / es - self._gateX
-    end
-    return abs(across) > FAN_CANCEL_REACH * (iconSize + ((p and p.fanGap) or 10))
+    local along, across = mx / es - self._gateX, my / es - self._gateY
+    if not self:FanHoriz() then along, across = across, along end
+
+    local margin = FAN_CANCEL_REACH * (iconSize + ((p and p.fanGap) or 10))
+    return abs(across) > margin or abs(along) > self:FanHalfLength() + margin
 end
 
 -- Advance the settle animation and publish the centred entry as the selection.
@@ -1179,12 +1193,7 @@ function WheelView:Layout(ringIndex)
         local cols, rows = self:GridDims()
         frame:SetSize(cols * pitch + 40, rows * pitch + 60)
     elseif fan then
-        local window = opts.interactive and shown or (p.fanVisible or 3)
-        local reach = FanOffset(window, iconSize, p.fanGap or 10,
-                                p.fanScaleDecay or 0.72,
-                                opts.interactive and FAN_EDIT_MIN_SCALE
-                                                  or (p.fanMinScale or 0.30)) + iconSize
-        local along  = reach * 2 + 40
+        local along  = self:FanHalfLength() * 2 + 40
         local across = iconSize + 60      -- room for the hub caption
         if self:FanHoriz() then
             frame:SetSize(along, across)
@@ -1771,27 +1780,28 @@ local SNIPPET_PRE = [==[
         end
 
         -- Thrown clear of the strip -> cancel. This is the wheel's counterpart
-        -- to the grid's out-of-reach, and it is measured ACROSS the strip only,
-        -- from where the pointer was when the palette opened. The live view
-        -- draws exactly this rule, so a strip showing nothing selected fires
-        -- nothing.
+        -- to the grid's out-of-reach: past the strip in ANY direction, measured
+        -- from where the pointer was when the palette opened. The box is as
+        -- long as the strip is drawn and only a margin wide, because that is
+        -- the shape of the thing being left. The live view applies exactly this
+        -- rule, so a strip showing nothing selected fires nothing.
         local gx = tonumber(self:GetAttribute("eapGX"))
         local gy = tonumber(self:GetAttribute("eapGY"))
-        if gx and ui then
+        -- No geometry pushed -> no box to test against, so the release stands.
+        -- Firing what the user steered to is the safer of the two failures.
+        local margin = tonumber(self:GetAttribute("eapFanMargin"))
+        local half = tonumber(self:GetAttribute("eapFanHalf"))
+        if gx and ui and margin and half then
             local x, y = ui:GetMousePosition()
             if x then
                 local s = tonumber(self:GetAttribute("eapScale")) or 1
                 if s <= 0 then s = 1 end
+                local along  = (x * ui:GetWidth() - gx) / s
                 local across = (y * ui:GetHeight() - gy) / s
                 if not self:GetAttribute("eapFanHoriz") then
-                    across = (x * ui:GetWidth() - gx) / s
+                    along, across = across, along
                 end
-                -- No pitch pushed -> no cancel radius to test against, so the
-                -- release stands. Firing what the user steered to is the safer
-                -- of the two failures.
-                local pitch = tonumber(self:GetAttribute("eapFanPitch"))
-                local reach = tonumber(self:GetAttribute("eapFanCancel"))
-                if pitch and reach and abs(across) > pitch * reach then
+                if abs(across) > margin or abs(along) > half + margin then
                     self:SetAttribute("eapWhy", "thrownclear") return nil, 1
                 end
             end
@@ -2057,12 +2067,14 @@ local function PushRing(index)
         btn:SetAttribute("eapReach", GRID_REACH)
     end
 
-    -- The scroll fan's cancel geometry. Only the across-axis matters, so this is
-    -- one pitch and one flag rather than the pointer layouts' table of cells.
+    -- The scroll fan's cancel box: a margin across, the drawn strip plus that
+    -- same margin along, and the axis it runs on. Three numbers rather than the
+    -- pointer layouts' table of cells, the strip having only one axis to steer.
     if model == "SCROLL" then
         local _, iconSize = liveView:Geom()
-        btn:SetAttribute("eapFanPitch", iconSize + (p.fanGap or 10))
-        btn:SetAttribute("eapFanCancel", FAN_CANCEL_REACH)
+        btn:SetAttribute("eapFanMargin",
+                         FAN_CANCEL_REACH * (iconSize + (p.fanGap or 10)))
+        btn:SetAttribute("eapFanHalf", liveView:FanHalfLength())
         btn:SetAttribute("eapFanHoriz", liveView:FanHoriz())
     end
     btn:SetAttribute("eapDeadZone", deadZone)
