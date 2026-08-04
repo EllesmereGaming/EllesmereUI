@@ -783,6 +783,25 @@ end
 -- deselects. This is the grid's cancel: it has no dead zone to release inside.
 local GRID_REACH = 1.0
 
+-- How far ACROSS a scroll-steered strip, in pitches, the pointer may travel
+-- before it deselects. This is that layout's cancel, and it is the same gesture
+-- the grid cancels with -- throw the pointer clear of the icons -- rather than
+-- a rule of its own to learn.
+--
+-- ACROSS only, never along: the strip runs along its own axis, so a movement
+-- that way is toward its other entries and reads as steering. Perpendicular
+-- movement leads nowhere the strip can go, which is what makes it unambiguous.
+--
+-- Measured from where the pointer was when the palette opened, not from the
+-- strip, so it means the same thing in Fixed Position mode, where the strip is
+-- somewhere else on the screen entirely.
+--
+-- Note what this does NOT cover: while the right button holds the camera the
+-- cursor is frozen, so it cannot travel and the strip cannot be cancelled --
+-- and camera steering is the case this layout exists for. A player who wants
+-- out of a strip opened mid-turn has to let the camera go first.
+local FAN_CANCEL_REACH = 1.5
+
 -- Columns for a grid the user has not pinned. Near-square, because the whole
 -- point of a grid is to shorten the WORST pointer travel, and that is minimised
 -- when the two axes are balanced: nine entries want 3x3, not 4 + 4 + 1.
@@ -919,6 +938,24 @@ function WheelView:SetFanCenter(index)
     self:SetSelection(index)
 end
 
+-- Has the pointer been thrown clear of the strip? Answers false for any view
+-- with no gate origin -- the options preview, which has no pointer gesture at
+-- all -- so only the live palette can be cancelled this way.
+function WheelView:FanCancelled()
+    if not self._gateX then return false end
+    local p = P()
+    local _, iconSize = self:Geom()
+    local es = self.frame:GetEffectiveScale()
+    local mx, my = GetCursorPosition()
+    local across
+    if self:FanHoriz() then
+        across = my / es - self._gateY
+    else
+        across = mx / es - self._gateX
+    end
+    return abs(across) > FAN_CANCEL_REACH * (iconSize + ((p and p.fanGap) or 10))
+end
+
 -- Advance the settle animation and publish the centred entry as the selection.
 -- The LOGICAL index moves the instant the tick arrives; only the geometry is
 -- interpolated. A release mid-animation therefore always fires what the user
@@ -955,7 +992,10 @@ function WheelView:AdvanceFan(elapsed)
         self:ApplyFanGeometry()
     end
 
-    if self.fanTarget then
+    -- The geometry above still ran: the strip keeps sliding to wherever the
+    -- wheel has left it while the pointer is clear of it, so bringing the
+    -- pointer back shows the entry that would fire, already settled.
+    if self.fanTarget and not self:FanCancelled() then
         self:SetSelection(((self.fanTarget - 1) % shown) + 1)
     else
         self:SetSelection(nil)
@@ -1430,18 +1470,10 @@ local SNIPPET_WHEEL = [==[
     local step = -1
     if delta <= 0 then step = 1 end
 
-    local t = tonumber(self:GetAttribute("eapFanTarget"))
-    if t then
-        t = t + step
-    else
-        -- The strip opens with NOTHING selected and the first tick enters it,
-        -- so releasing without scrolling cancels. 0, not n, for a backward first
-        -- tick: this is an unbounded accumulator the animation follows
-        -- literally, and 0 is one step back from entry 1 where n would be a full
-        -- lap forward. The selection modulo maps both onto the last entry.
-        t = 1
-        if step < 0 then t = 0 end
-    end
+    -- The press seeds this at 1, the entry the strip opens centred on, so every
+    -- tick is a plain step from wherever the strip already is. The `or 1` is for
+    -- a tick that arrives with no press behind it at all.
+    local t = (tonumber(self:GetAttribute("eapFanTarget")) or 1) + step
     self:SetAttribute("eapFanTarget", t)
     return false
 ]==]
@@ -1543,13 +1575,19 @@ function ns.Open(ringIndex)
         liveView:AdvanceGrid(true)
         liveView:SetSelection(nil)
     elseif liveView:IsFan() then
-        -- Open with no selection at all: the first scroll tick is what enters
-        -- the strip, so releasing without scrolling cancels, exactly as
-        -- releasing inside the dead zone does in RADIAL.
-        liveView.fanTarget = nil
+        -- Open with the centred entry ALREADY selected, so the entry the strip
+        -- opens on costs no ticks at all and the first tick moves by one. The
+        -- strip used to open on nothing and be entered by that first tick, which
+        -- made its own starting entry the one entry that could not be chosen
+        -- without scrolling off it and back. Cancelling is FanCancelled's job
+        -- now -- throw the pointer clear of the strip.
+        liveView:ArmMovementGate()
+        liveView.fanTarget = 1
         liveView.fanVisual = 1
         liveView:ApplyFanGeometry()
-        liveView:SetSelection(nil)
+        -- Guarded: an empty ring has no entry 1 to select, and painting one
+        -- would caption the hub with a slot that is not drawn.
+        liveView:SetSelection(liveView:ShownCount() > 0 and 1 or nil)
     else
         liveView:ArmMovementGate()
         liveView:SetSelection(liveView:HitTest())
@@ -1573,7 +1611,17 @@ function ns.Close()
     -- ones that never get a key-up at all -- the open timeout, a zone change --
     -- and only out of combat, the frame being protected. In combat the wheel
     -- snippet hides it on the next stray tick instead.
-    if scrollCatcher and not InCombatLockdown() then scrollCatcher:Hide() end
+    -- Clearing the accumulator matters as much as hiding it. The strip now
+    -- opens with entry 1 seeded, so a key-up that arrives after one of these
+    -- unattended closes -- the open timeout, a zone change -- would otherwise
+    -- fire that entry with nothing on screen. In combat the write is not
+    -- allowed and the seed stands; the release is still bounded by the ring
+    -- that was pushed, and the timeout is long enough that a key held that far
+    -- past a close is not an ordinary gesture.
+    if scrollCatcher and not InCombatLockdown() then
+        scrollCatcher:SetAttribute("eapFanTarget", nil)
+        scrollCatcher:Hide()
+    end
     liveView.fanTarget = nil
     liveView:SetSelection(nil)
 end
@@ -1690,7 +1738,9 @@ local SNIPPET_PRE = [==[
             end
         end
         if mode == "SCROLL" and catcher then
-            catcher:SetAttribute("eapFanTarget", nil)
+            -- 1, not nil: the strip opens centred on its first entry and that
+            -- entry is selected from the outset. See the wheel snippet.
+            catcher:SetAttribute("eapFanTarget", 1)
             catcher:SetAttribute("eapShown", self:GetAttribute("eapShown"))
             catcher:SetAttribute("eapInvert", self:GetAttribute("eapInvert"))
             catcher:SetAttribute("eapOpen", 1)
@@ -1715,9 +1765,36 @@ local SNIPPET_PRE = [==[
         local ft = tonumber(catcher:GetAttribute("eapFanTarget"))
         self:SetAttribute("eapRel", ft)
         if not ft then
-            -- Opened and released without a single tick: nothing was ever
-            -- selected, so this cancels, exactly as the dead zone does.
+            -- The press seeds the accumulator, so this can only mean the press
+            -- never reached the catcher. Nothing was steered; cancel.
             self:SetAttribute("eapWhy", "unscrolled") return nil, 1
+        end
+
+        -- Thrown clear of the strip -> cancel. This is the wheel's counterpart
+        -- to the grid's out-of-reach, and it is measured ACROSS the strip only,
+        -- from where the pointer was when the palette opened. The live view
+        -- draws exactly this rule, so a strip showing nothing selected fires
+        -- nothing.
+        local gx = tonumber(self:GetAttribute("eapGX"))
+        local gy = tonumber(self:GetAttribute("eapGY"))
+        if gx and ui then
+            local x, y = ui:GetMousePosition()
+            if x then
+                local s = tonumber(self:GetAttribute("eapScale")) or 1
+                if s <= 0 then s = 1 end
+                local across = (y * ui:GetHeight() - gy) / s
+                if not self:GetAttribute("eapFanHoriz") then
+                    across = (x * ui:GetWidth() - gx) / s
+                end
+                -- No pitch pushed -> no cancel radius to test against, so the
+                -- release stands. Firing what the user steered to is the safer
+                -- of the two failures.
+                local pitch = tonumber(self:GetAttribute("eapFanPitch"))
+                local reach = tonumber(self:GetAttribute("eapFanCancel"))
+                if pitch and reach and abs(across) > pitch * reach then
+                    self:SetAttribute("eapWhy", "thrownclear") return nil, 1
+                end
+            end
         end
         idx = ((ft - 1) % n) + 1
     else
@@ -1979,6 +2056,15 @@ local function PushRing(index)
         btn:SetAttribute("eapPitch", pitch)
         btn:SetAttribute("eapReach", GRID_REACH)
     end
+
+    -- The scroll fan's cancel geometry. Only the across-axis matters, so this is
+    -- one pitch and one flag rather than the pointer layouts' table of cells.
+    if model == "SCROLL" then
+        local _, iconSize = liveView:Geom()
+        btn:SetAttribute("eapFanPitch", iconSize + (p.fanGap or 10))
+        btn:SetAttribute("eapFanCancel", FAN_CANCEL_REACH)
+        btn:SetAttribute("eapFanHoriz", liveView:FanHoriz())
+    end
     btn:SetAttribute("eapDeadZone", deadZone)
     -- Degrees, not the radians ArcGeom deals in. The sandbox whitelists WoW's
     -- GLOBAL atan2 (RestrictedEnvironment.lua:60), which answers in DEGREES --
@@ -2152,7 +2238,8 @@ _G.SLASH_EUIACTIONPALETTE4 = "/euiradial"
 -- combat included. eapWhy is the step it stopped at:
 --
 --   pressed     the release never ran at all
---   unscrolled  a scroll fan released without a single wheel tick
+--   unscrolled  a scroll fan whose accumulator was never seeded by the press
+--   thrownclear a scroll fan whose pointer was carried clear of the strip
 --   nocatcher   a scroll fan with no scroll catcher reachable
 --   noslots     the ring was pushed as empty
 --   nohandle    no UIParent handle
