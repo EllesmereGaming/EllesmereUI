@@ -389,21 +389,7 @@ initFrame:SetScript("OnEvent", function(self)
     local ICONS_PATH = "Interface\\AddOns\\EllesmereUI\\media\\icons\\"
     local CLASS_FULL_SPRITE_BASE = ICONS_PATH .. "class-full\\"
 
-    local CLASS_FULL_COORDS = {
-        WARRIOR     = { 0,     0.125, 0,     0.125 },
-        MAGE        = { 0.125, 0.25,  0,     0.125 },
-        ROGUE       = { 0.25,  0.375, 0,     0.125 },
-        DRUID       = { 0.375, 0.5,   0,     0.125 },
-        EVOKER      = { 0.5,   0.625, 0,     0.125 },
-        HUNTER      = { 0,     0.125, 0.125, 0.25  },
-        SHAMAN      = { 0.125, 0.25,  0.125, 0.25  },
-        PRIEST      = { 0.25,  0.375, 0.125, 0.25  },
-        WARLOCK     = { 0.375, 0.5,   0.125, 0.25  },
-        PALADIN     = { 0,     0.125, 0.25,  0.375 },
-        DEATHKNIGHT = { 0.125, 0.25,  0.25,  0.375 },
-        MONK        = { 0.25,  0.375, 0.25,  0.375 },
-        DEMONHUNTER = { 0.375, 0.5,   0.25,  0.375 },
-    }
+    local CLASS_FULL_COORDS = EllesmereUI.CLASS_ICON_SPRITE_COORDS
 
     local classIconValues = {
         ["none"]="None", ["modern"]="Modern",
@@ -4017,6 +4003,12 @@ initFrame:SetScript("OnEvent", function(self)
         leaderIndicatorPosition= { player=true, target=true },
         leaderIndicatorX       = { player=true, target=true },
         leaderIndicatorY       = { player=true, target=true },
+        eliteIndicatorEnabled  = { target=true },
+        eliteIndicatorSize     = { target=true },
+        eliteIndicatorPosition = { target=true },
+        eliteIndicatorX        = { target=true },
+        eliteIndicatorY        = { target=true },
+        eliteIndicatorShowInInstances = { target=true },
         buffAnchor           = { player=true, target=true, focus=true },
         buffGrowth           = { player=true, target=true, focus=true },
         maxBuffs             = { player=true, target=true, focus=true },
@@ -4995,19 +4987,21 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(function() updateBorderSwatch() end)
         end
 
-        -- Row 4: Show Tooltip | Frame Strata
-        local ufStrataValues = { BACKGROUND = "Background", LOW = "Low", MEDIUM = "Medium", HIGH = "High", DIALOG = "Dialog" }
-        local ufStrataOrder = { "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG" }
-        _, h = W:DualRow(parent, y,
-            { type="toggle", text="Show Tooltip",
-              getValue=function() return SVal("showUnitTooltip", true) end,
-              setValue=function(v)
-                  local keys = GROUP_UNIT_ORDER or {"player", "target", "focus"}
-                  for _, key in ipairs(keys) do
-                      UNIT_DB_MAP[key]().showUnitTooltip = v
-                  end
-                  ReloadAndUpdate()
-              end },
+        -- Row 4: Show Tooltip For (checkbox-dropdown) | Frame Strata
+        -- "Show Tooltip For" is a pure VIEW over the existing per-unit
+        -- showUnitTooltip key (Unit Frame item) plus the new per-unit
+        -- showAuraTooltips key (Buffs & Debuffs item, default on = the
+        -- old always-shown behavior). Zero migration; both setters write
+        -- EVERY unit key so the choice covers all frames including boss.
+        local ufStrataValues = EllesmereUI.FRAME_STRATA_LABELS
+        local ufStrataOrder = EllesmereUI.FRAME_STRATA_ORDER_BASE
+        local tipStrataRow
+        tipStrataRow, h = W:DualRow(parent, y,
+            { type="dropdown", text="Show Tooltip For",
+              tooltip="Choose which tooltips appear on hover. Affects all unit frames, including boss frames.",
+              values={ ["_placeholder"]="..." }, order={ "_placeholder" },
+              getValue=function() return "_placeholder" end,
+              setValue=function() end },
             { type="dropdown", text="Frame Strata",
               tooltip="Controls the order that overlapping elements display in. Set higher to show above other elements.",
               values = ufStrataValues, order = ufStrataOrder,
@@ -5021,8 +5015,8 @@ initFrame:SetScript("OnEvent", function(self)
         do
             local strataRgn = _
             if strataRgn and strataRgn._rightRegion then strataRgn = strataRgn._rightRegion end
-            local barStrataValues = { BACKGROUND = "Background", LOW = "Low", MEDIUM = "Medium", HIGH = "High", DIALOG = "Dialog" }
-            local barStrataOrder = { "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG" }
+            local barStrataValues = EllesmereUI.FRAME_STRATA_LABELS
+            local barStrataOrder = EllesmereUI.FRAME_STRATA_ORDER_BASE
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Detached Bar Stratas",
                 rows = {
@@ -10614,8 +10608,8 @@ initFrame:SetScript("OnEvent", function(self)
             -- Inline eyeball: preview a magic dispel overlay on the top player preview.
             do
                 local rgn = dispelRow._leftRegion
-                local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-                local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+                local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+                local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
                 local eyeBtn = CreateFrame("Button", nil, rgn)
                 eyeBtn:SetSize(26, 26)
                 eyeBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
@@ -10705,8 +10699,8 @@ initFrame:SetScript("OnEvent", function(self)
             bottomright = "Bottom Right",
         }
         local paPosOrder = { "none", "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright" }
-        local paGrowValues = { RIGHT = "Right", LEFT = "Left", UP = "Up", DOWN = "Down" }
-        local paGrowOrder = { "RIGHT", "LEFT", "UP", "DOWN" }
+        local paGrowValues = EllesmereUI.GROW_DIR_VALUES_BASE
+        local paGrowOrder = EllesmereUI.GROW_DIR_ORDER_BASE
 
         local function GetDefaultPaGrow(pos)
             if pos == "right" or pos == "topright" or pos == "bottomright" then return "LEFT" end
@@ -11075,8 +11069,8 @@ initFrame:SetScript("OnEvent", function(self)
         -- heal absorb is shown in isolation. State is a session-only runtime flag.
         do
             local rgn = healAbsorbRow._leftRegion
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+            local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+            local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
             local eyeBtn = CreateFrame("Button", nil, rgn)
             eyeBtn:SetSize(26, 26)
             eyeBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
@@ -11400,8 +11394,8 @@ initFrame:SetScript("OnEvent", function(self)
         -- (player + target only -- the focus row is dimmed with a tooltip)
         if SVisible("combatIndicatorStyle") then
             local ciRgn = sharedAddRow1._leftRegion
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+            local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+            local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
             local eyeBtn = CreateFrame("Button", nil, ciRgn)
             eyeBtn:SetSize(26, 26)
             eyeBtn:SetPoint("RIGHT", ciRgn._lastInline or ciRgn._control, "LEFT", -8, 0)
@@ -11733,6 +11727,63 @@ initFrame:SetScript("OnEvent", function(self)
                 "Apply Leader Indicator to all Frames")
             BuildLeaderSync(sharedAddRow5._rightRegion, "leaderIndicatorSize", 16,
                 "Apply Leader Icon Size to all Frames")
+        end
+
+        -- Row 5b: Elite/Rare Indicator toggle (+ inline Show-in-Instances cog)
+        -- | Elite Icon Size slider + inline directions cog (X/Y). Target only:
+        -- classification is a property of the unit being looked at. Same
+        -- controls as the Leader Indicator row above; the badge atlases match
+        -- the nameplates classification icons.
+        if selectedUnit == "target" then
+            local function eliteIndOff()
+                return SValSupported("eliteIndicatorEnabled", false) ~= true
+            end
+            local eliteRow
+            eliteRow, h = W:DualRow(parent, y,
+                { type="toggle", text="Elite/Rare Indicator",
+                  tooltip="Shows the nameplate-style dragon badge on elite, rare elite, and rare targets.",
+                  getValue=function() return SValSupported("eliteIndicatorEnabled", false) == true end,
+                  setValue=function(v)
+                      SSetSupported("eliteIndicatorEnabled", v)
+                      EllesmereUI:RefreshPage()
+                  end },
+                { type="slider", text="Elite Icon Size", min=8, max=48, step=1,
+                  disabled=eliteIndOff, disabledTooltip="Elite/Rare Indicator",
+                  getValue=function() return SValSupported("eliteIndicatorSize", 16) end,
+                  setValue=function(v) SSetSupported("eliteIndicatorSize", v) end });  y = y - h
+            SApplySupport(eliteRow._leftRegion, "eliteIndicatorEnabled")
+            SApplySupport(eliteRow._rightRegion, "eliteIndicatorSize")
+            do
+                local _, eliteInstCogShow = EllesmereUI.BuildCogPopup({
+                    title = "Elite/Rare Indicator",
+                    rows = {
+                        { type="toggle", label="Show in Instances",
+                          tooltip="Also show the badge in dungeons and raids, where most enemies are elite.",
+                          get=function() return SValSupported("eliteIndicatorShowInInstances", false) == true end,
+                          set=function(v) SSetSupported("eliteIndicatorShowInInstances", v) end },
+                    },
+                })
+                MakeCogBtn(eliteRow._leftRegion, eliteInstCogShow, nil, nil, eliteIndOff)
+            end
+            do
+                local elitePosValues = { ["topleft"]="Top Left", ["topright"]="Top Right", ["bottomleft"]="Bottom Left", ["bottomright"]="Bottom Right", ["portrait"]="Portrait" }
+                local elitePosOrder = { "topleft", "topright", "bottomleft", "bottomright", "portrait" }
+                local _, elitePosCogShow = EllesmereUI.BuildCogPopup({
+                    title = "Elite/Rare Indicator Settings",
+                    rows = {
+                        { type="dropdown", label="Position", values=elitePosValues, order=elitePosOrder,
+                          get=function() return SValSupported("eliteIndicatorPosition", "topleft") end,
+                          set=function(v) SSetSupported("eliteIndicatorPosition", v) end },
+                        { type="slider", label="X Offset", min=-200, max=200, step=1,
+                          get=function() return SValSupported("eliteIndicatorX", 0) end,
+                          set=function(v) SSetSupported("eliteIndicatorX", v) end },
+                        { type="slider", label="Y Offset", min=-200, max=200, step=1,
+                          get=function() return SValSupported("eliteIndicatorY", 0) end,
+                          set=function(v) SSetSupported("eliteIndicatorY", v) end },
+                    },
+                })
+                MakeCogBtn(eliteRow._rightRegion, elitePosCogShow, nil, nil, eliteIndOff)
+            end
         end
 
         -------------------------------------------------------------------
@@ -12201,8 +12252,8 @@ initFrame:SetScript("OnEvent", function(self)
                 -- as the main frames "Frame Strata" dropdown; overrides the global
                 -- strata for THIS frame only. Inherits the global value until set
                 -- (getter falls back to db.profile.frameStrata).
-                local miniStrataValues = { BACKGROUND = "Background", LOW = "Low", MEDIUM = "Medium", HIGH = "High", DIALOG = "Dialog" }
-                local miniStrataOrder = { "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG" }
+                local miniStrataValues = EllesmereUI.FRAME_STRATA_LABELS
+                local miniStrataOrder = EllesmereUI.FRAME_STRATA_ORDER_BASE
                 rightSlot = { type="dropdown", text="Strata",
                     tooltip="Overrides the Frame Strata set in the main frames for this frame only. Controls the order that overlapping frames display in; set higher to show above other frames.",
                     values = miniStrataValues, order = miniStrataOrder,

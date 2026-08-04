@@ -1144,9 +1144,7 @@ initFrame:SetScript("OnEvent", function(self)
             local startY = gridTopY
 
             -- Disable WoW's automatic pixel snapping on a texture
-            local function UnsnapTex(tex)
-                if tex.SetSnapToPixelGrid then tex:SetSnapToPixelGrid(false); tex:SetTexelSnappingBias(0) end
-            end
+            local UnsnapTex = EllesmereUI.PP.DisablePixelSnap
 
             -- Clear button frame refs from previous build
             wipe(_glowBtnFrames)
@@ -1640,9 +1638,8 @@ initFrame:SetScript("OnEvent", function(self)
 
                     -- Eyeball preview toggle (on left region of glow type row)
                     do
-                        local EYE_MEDIA = "Interface\\AddOns\\EllesmereUI\\media\\icons\\"
-                        local EYE_VIS   = EYE_MEDIA .. "eui-visible.png"
-                        local EYE_INVIS = EYE_MEDIA .. "eui-invisible.png"
+                        local EYE_VIS   = EllesmereUI.EYE_VISIBLE_ICON
+                        local EYE_INVIS = EllesmereUI.EYE_INVISIBLE_ICON
                         local leftRgn = glowRow._leftRegion
                         if leftRgn and leftRgn._control then
                             local eyeBtn = CreateFrame("Button", nil, leftRgn)
@@ -5416,11 +5413,8 @@ initFrame:SetScript("OnEvent", function(self)
         barStrataRow, h = W:DualRow(parent, y,
             { type = "dropdown", text = "Bar Strata",
               tooltip = "Screen layer the bar renders on; changing a grouped bar changes its whole group.",
-              values = { BACKGROUND = "Background", LOW = "Low", MEDIUM = "Medium",
-                         HIGH = "High", DIALOG = "Dialog", FULLSCREEN = "Fullscreen",
-                         FULLSCREEN_DIALOG = "Fullscreen Dialog", TOOLTIP = "Tooltip" },
-              order = { "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG",
-                        "FULLSCREEN", "FULLSCREEN_DIALOG", "TOOLTIP" },
+              values = EllesmereUI.FRAME_STRATA_LABELS,
+              order = EllesmereUI.FRAME_STRATA_ORDER_FULL,
               getValue = function() local bd = SelectedTBB(); return bd and bd.strata or "MEDIUM" end,
               setValue = function(v)
                   local bd = SelectedTBB(); if not bd then return end
@@ -6101,8 +6095,8 @@ initFrame:SetScript("OnEvent", function(self)
     ---------------------------------------------------------------------------
     --  CDM Bars page
     ---------------------------------------------------------------------------
-    local growValues = { RIGHT = "Right", LEFT = "Left", DOWN = "Down", UP = "Up" }
-    local growOrder  = { "RIGHT", "LEFT", "DOWN", "UP" }
+    local growValues = EllesmereUI.GROW_DIR_VALUES_BASE
+    local growOrder  = { "RIGHT", "LEFT", "DOWN", "UP" } -- this dropdown's own sequence (DOWN before UP)
     local durationPositionValues = {
         center = "Center",
         top = "Above Icon",
@@ -6371,10 +6365,41 @@ initFrame:SetScript("OnEvent", function(self)
         if not sd then return sd end
         if sd.assignedSpells then
             -- Normalize overrides to base IDs and deduplicate in one pass.
+            -- EXCEPTION: user-typed custom spell IDs (sd.customSpellIDs) are
+            -- EXACT identities. The tag, the Phase 3 injection lookup and the
+            -- duration keys are all keyed by the typed id, and on a spec where
+            -- the player KNOWS the spell GetBaseSpell can map it to a different
+            -- (often unresolvable) base id, severing the entry from its tag --
+            -- the entry then renders as a blank icon and the injection skips it
+            -- (Survival Hatchet Toss 193265 -> 56641). Tagged entries keep the
+            -- typed id, and an entry that IS such a base form heals back to its
+            -- tagged custom id so already-severed saved data self-repairs.
+            local customN = sd.customSpellIDs
+            local customByBase
+            if customN then
+                for cid in pairs(customN) do
+                    if type(cid) == "number" and cid > 0 then
+                        local cb = NormalizeToBase(cid)
+                        if cb ~= cid then
+                            customByBase = customByBase or {}
+                            customByBase[cb] = cid
+                        end
+                    end
+                end
+            end
             local seen = {}
             local writeIdx = 1
             for readIdx = 1, #sd.assignedSpells do
-                local sid = NormalizeToBase(sd.assignedSpells[readIdx])
+                local raw = sd.assignedSpells[readIdx]
+                local sid
+                if customN and customN[raw] then
+                    sid = raw
+                else
+                    sid = NormalizeToBase(raw)
+                    if customByBase and customByBase[sid] then
+                        sid = customByBase[sid]
+                    end
+                end
                 if not seen[sid] then
                     seen[sid] = true
                     sd.assignedSpells[writeIdx] = sid
@@ -7096,11 +7121,21 @@ initFrame:SetScript("OnEvent", function(self)
             end
             local sdChk = ns.GetBarSpellData(barKey)
             if sdChk and sdChk.assignedSpells then
-                for _, existing in ipairs(sdChk.assignedSpells) do
-                    if existing == sid then
-                        SetStatus("Already tracked")
-                        return
+                -- Variant-aware, mirroring AddTrackedSpell's own dedup. An
+                -- exact-only check lets a variant-duplicate through, which
+                -- AddTrackedSpell then silently refuses AFTER the custom tag
+                -- below is written (orphaned tag, nothing rendered).
+                local dup
+                if ns.FindVariantIndexInList then
+                    dup = ns.FindVariantIndexInList(sdChk.assignedSpells, sid)
+                else
+                    for _, existing in ipairs(sdChk.assignedSpells) do
+                        if existing == sid then dup = true; break end
                     end
+                end
+                if dup then
+                    SetStatus("Already tracked")
+                    return
                 end
             end
             if withDuration and dur then
@@ -12741,14 +12776,24 @@ initFrame:SetScript("OnEvent", function(self)
                         end
                         dur = math.floor(dur)
                     end
-                    -- Check if already tracked
+                    -- Check if already tracked. Variant-aware, mirroring
+                    -- AddTrackedSpell's own dedup: an exact-only check lets a
+                    -- variant-duplicate through, which AddTrackedSpell then
+                    -- silently refuses AFTER the custom tag below is written
+                    -- (orphaned tag, nothing rendered).
                     local sdChk = bd and ns.GetBarSpellData(bd.key)
                     if sdChk and sdChk.assignedSpells then
-                        for _, existing in ipairs(sdChk.assignedSpells) do
-                            if existing == sid then
-                                SetStatus("Already tracked")
-                                return
+                        local dup
+                        if ns.FindVariantIndexInList then
+                            dup = ns.FindVariantIndexInList(sdChk.assignedSpells, sid)
+                        else
+                            for _, existing in ipairs(sdChk.assignedSpells) do
+                                if existing == sid then dup = true; break end
                             end
+                        end
+                        if dup then
+                            SetStatus("Already tracked")
+                            return
                         end
                     end
                     -- Store duration for custom aura bars
@@ -17716,6 +17761,24 @@ initFrame:SetScript("OnEvent", function(self)
                     spellValues["__none"] = "(no spells on bar)"
                     spellOrder[#spellOrder + 1] = "__none"
                 end
+                -- The stored selection can outlive its spell: removing the kick
+                -- from the bar empties assignedSpells while
+                -- focusKickInterruptSpellID keeps pointing at it. With no label
+                -- for that key the dropdown falls back to rendering the key
+                -- itself, so the row displayed a bare spell id (field report:
+                -- "47528"). Give it a NAME but deliberately do NOT add it to
+                -- spellOrder -- it must not appear as a selectable option on a
+                -- bar that no longer holds it.
+                local selSid = BD and BD() and BD().focusKickInterruptSpellID
+                if selSid then
+                    local selKey = tostring(selSid)
+                    if not spellValues[selKey] then
+                        local selInfo = C_Spell and C_Spell.GetSpellInfo
+                            and C_Spell.GetSpellInfo(selSid)
+                        spellValues[selKey] = (selInfo and selInfo.name)
+                            or ("Spell " .. selKey)
+                    end
+                end
             end
             RebuildSpellOptions()
 
@@ -19321,11 +19384,8 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = W:DualRow(parent, y,
             { type = "dropdown", text = "Bar Strata",
               tooltip = "Screen layer this bar and its icons render on.",
-              values = { BACKGROUND = "Background", LOW = "Low", MEDIUM = "Medium",
-                         HIGH = "High", DIALOG = "Dialog", FULLSCREEN = "Fullscreen",
-                         FULLSCREEN_DIALOG = "Fullscreen Dialog", TOOLTIP = "Tooltip" },
-              order = { "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG",
-                        "FULLSCREEN", "FULLSCREEN_DIALOG", "TOOLTIP" },
+              values = EllesmereUI.FRAME_STRATA_LABELS,
+              order = EllesmereUI.FRAME_STRATA_ORDER_FULL,
               getValue = function() return BD().barStrata or "MEDIUM" end,
               setValue = function(v)
                   BD().barStrata = v
@@ -19651,65 +19711,4 @@ initFrame:SetScript("OnEvent", function(self)
         EllesmereUI:ShowModule("EllesmereUICooldownManager")
     end
 
-
-
-    -- Debug: /cdmpassive <spellID> -- checks why a spell is or isn't in the picker
-    SLASH_CDMPASSIVE1 = "/cdmpassive"
-    SlashCmdList.CDMPASSIVE = function(msg)
-        local sid = tonumber(msg)
-        if not sid then print("|cffff0000Usage: /cdmpassive <spellID>|r") return end
-        local name = C_Spell.GetSpellName(sid) or "?"
-        local isPassive = C_Spell.IsSpellPassive and C_Spell.IsSpellPassive(sid)
-        local baseCd = C_Spell.GetSpellBaseCooldown and C_Spell.GetSpellBaseCooldown(sid)
-        local charges = C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(sid)
-        local maxCh = charges and charges.maxCharges or 0
-        print("|cff00ccff[CDM Passive Debug]|r " .. name .. " (" .. sid .. ")")
-        print("  IsSpellPassive: " .. tostring(isPassive))
-        print("  GetSpellBaseCooldown: " .. tostring(baseCd))
-        print("  maxCharges: " .. tostring(maxCh))
-        -- Check all CDM categories for this spell
-        if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet then
-            for cat = 0, 3 do
-                local allIDs = C_CooldownViewer.GetCooldownViewerCategorySet(cat, true) or {}
-                local knownIDs = C_CooldownViewer.GetCooldownViewerCategorySet(cat, false) or {}
-                local knownSet = {}
-                for _, id in ipairs(knownIDs) do knownSet[id] = true end
-                for _, cdID in ipairs(allIDs) do
-                    local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
-                    if info then
-                        local infoSid = info.spellID
-                        if info.overrideSpellID and info.overrideSpellID > 0 then infoSid = info.overrideSpellID end
-                        if info.linkedSpellID and info.linkedSpellID > 0 then infoSid = info.linkedSpellID end
-                        if infoSid == sid or info.spellID == sid then
-                            print("  Found in cat " .. cat .. " cdID=" .. cdID .. " known=" .. tostring(knownSet[cdID] or false))
-                        end
-                    end
-                end
-            end
-        end
-        -- Check viewer children
-        local viewers = { "EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer", "BuffBarCooldownViewer" }
-        for _, vn in ipairs(viewers) do
-            local vf = _G[vn]
-            if vf then
-                for i = 1, vf:GetNumChildren() do
-                    local child = select(i, vf:GetChildren())
-                    if child then
-                        local csid
-                        if child.GetSpellID then
-                            local ok, v = pcall(child.GetSpellID, child)
-                            if ok and v then csid = v end
-                        end
-                        if not csid and child.GetAuraSpellID then
-                            local ok, v = pcall(child.GetAuraSpellID, child)
-                            if ok and v then csid = v end
-                        end
-                        if csid == sid then
-                            print("  Viewer child in " .. vn .. " index=" .. i)
-                        end
-                    end
-                end
-            end
-        end
-    end
 end)

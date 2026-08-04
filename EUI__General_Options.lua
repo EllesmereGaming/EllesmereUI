@@ -520,6 +520,71 @@ end
 -------------------------------------------------------------------------------
 EllesmereUI._WHATSNEW_PATCHES = {
     {
+        version = "8.7.5",
+        heroes = {
+            {
+                -- Perf + swipe-latency story: nothing to open, renders static.
+                module = "Action Bars",
+                title  = "Performance & Instant Swipes",
+                desc   = "Another deep performance pass across the action bar engine, and cooldown swipes now start the moment you press the key instead of waiting on the server, with a fix for swipes starting late while spamming a keybind.",
+            },
+            {
+                module = "Blizz UI Enhanced",
+                title  = "Loot Reskin Suite",
+                desc   = "The whole loot window collection in EllesmereUI style: the loot window with quality-colored icon borders and a clean hover, the need / greed roll popups, the pending-rolls window, and loot toasts with quality strips, and a scale slider.",
+                nav    = { module = "EllesmereUIBlizzardSkin", page = "Blizzard Window Skins" },
+            },
+        },
+        features = {
+            {
+                module = "Action Bars",
+                title  = "Auto-Paging Opt-Outs",
+                desc   = "Keep Bar 1 put through forms, stances, and skyriding",
+                nav    = { module = "EllesmereUIActionBars", page = "Bar Display", section = "PAGING", highlight = "Disable Form Paging" },
+            },
+            {
+                -- The window-skin style cards are hand-built chrome with no
+                -- highlightable rows: page-only nav for all four.
+                module = "Blizz UI Enhanced",
+                title  = "Group Invite Popup Reskin",
+                desc   = "The group invite dialogs, role checks included",
+                nav    = { module = "EllesmereUIBlizzardSkin", page = "Blizzard Window Skins" },
+            },
+            {
+                module = "Party Mode",
+                title  = "Spinning Action Bars",
+                desc   = "Buttons orbit their bars; speed slider in the cog",
+                nav    = { module = "EllesmereUIPartyMode", page = "Party Mode", highlight = "Spinning Action Bars" },
+            },
+            {
+                module = "Quality of Life",
+                title  = "Raid Tools Grow Direction",
+                desc   = "Pick which way the windows open from the icon",
+                nav    = { module = "EllesmereUIQoL", page = "Raid Tools", section = "GENERAL", highlight = "Menu Grow Direction" },
+            },
+            {
+                module = "Unit Frames",
+                title  = "Elite/Rare Indicator",
+                desc   = "Dragon badge on elite and rare targets",
+                nav    = { module = "EllesmereUIUnitFrames", page = "Main Frames", section = "EXTRAS", highlight = "Elite/Rare Indicator",
+                           preSelect = function()
+                               if EllesmereUI._setUnitFrameUnit then EllesmereUI._setUnitFrameUnit("target") end
+                           end },
+            },
+        },
+        fixes = {
+            { module = "Action Bars", text = "Buttons no longer stay red out of range while you stand in melee" },
+            { module = "Action Bars", text = "Empowered spells no longer revert to Press-and-Tap after a loading screen" },
+            { module = "Action Bars", text = "Dragging a spell in combat now reveals empty slots with Always Show Buttons off" },
+            { module = "Blizz UI Enhanced", text = "Great Vault now wears the shared Window Skins border and buttons" },
+            { module = "Chat", text = "Tab chrome no longer draws over the maximized world map" },
+            { module = "Cooldown Manager", text = "Focus Kick cast sound no longer goes silent after loading screens" },
+            { module = "Localization", text = "Updated Traditional Chinese, Simplified Chinese, German, and Korean translations" },
+            { module = "Quality of Life", text = "FPS optimizer now sets Spell Density to Essential as intended" },
+            { module = "Raid Frames", text = "Layout no longer drifts after leaving a raid with a custom raid-size override" },
+        },
+    },
+    {
         version = "8.7.4",
         heroes = {
             {
@@ -1078,20 +1143,7 @@ EllesmereUI._WHATSNEW_PATCHES = {
             { module = "Unit Frames", text = "Boss frames now have the same 4th Extra Text zone as other frames, with its own content, size, color, alignment and offsets, plus a Max Per Row slider in the Simple Display buff and debuff layout menus." },
         },
     },
-    {
-        version = "8.6.3",
-        mini = true,
-        fixes = {
-            { module = "Cooldown Manager", text = "Reordering a buff that shares its spell with another tracked ability, such as Diabolic Ritual, now moves the live bar instead of only the options preview." },
-            { module = "Cooldown Manager", text = "Blizzard's own tracked buff bars no longer reappear over Tracked Buff Bars in combat; the suppression now re-asserts itself whatever moved them, including Edit Mode layout passes and other addons." },
-            { module = "General", text = "Custom fonts from a SharedMedia font addon now apply reliably. When that addon finished loading after EllesmereUI, text could stay on the default font for the rest of the session, most visibly on action bars." },
-            { module = "General", text = "Added the missing French translations for the latency block's bandwidth labels, plus a large pass of new German translations." },
-            { module = "Resource Bars", text = "Destruction Warlock soul shard fragments display and drain again. Partial shards were invisible in combat and did not deplete out of combat." },
-            { module = "Unit Frames", text = "The External Defensives frame no longer breaks when Duration Format is set to anything other than Blizzard Default. Those custom formats now display correctly." },
-        },
-    },
 }
-
 
 -------------------------------------------------------------------------------
 --  FCT font -- handled by EllesmereUI_Startup.lua which runs earlier.
@@ -1198,11 +1250,15 @@ initFrame:SetScript("OnEvent", function(self)
             { "graphicsTextureResolution",  "2" },
             { "graphicsSpellDensity",       "0" },
             { "graphicsProjectedTextures",  "1" },
-            { "graphicsViewDistance",        "1" },
-            { "graphicsEnvironmentDetail",  "1" },
-            { "graphicsGroundClutter",      "1" },
+            { "graphicsViewDistance",        "0" },
+            { "graphicsEnvironmentDetail",  "0" },
+            { "graphicsGroundClutter",      "0" },
             { "RAIDsettingsEnabled",        "0" },
             { "ResampleAlwaysSharpen",      "1" },
+            -- Audio: reverb runs a full effect bus over the mix when enabled.
+            -- Disabling it trims audio DSP work and keeps spell and
+            -- interrupt cues dry and crisp.
+            { "Sound_EnableReverb",         "0" },
         }
 
         local function ApplyOptimizedGfx()
@@ -1215,6 +1271,15 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 backup["Contrast"] = GetCVar("Contrast")
                 EllesmereUIDB.gfxBackup = backup
+            else
+                -- Backfill CVars added to the list after the user's original
+                -- snapshot (e.g. the audio CVars), so Restore covers them too.
+                local backup = EllesmereUIDB.gfxBackup
+                for _, entry in ipairs(OPTIMIZED_CVARS) do
+                    if backup[entry[1]] == nil then
+                        backup[entry[1]] = GetCVar(entry[1])
+                    end
+                end
             end
             -- Apply optimized CVars
             for _, entry in ipairs(OPTIMIZED_CVARS) do
@@ -1321,7 +1386,8 @@ initFrame:SetScript("OnEvent", function(self)
                         .. "Ground Clutter - Reduced to 1\n"
                         .. "Raid/Dungeon Settings - Uses same settings everywhere\n"
                         .. "Resample Sharpening - Enabled (crisper image)\n"
-                        .. "Contrast - Boosted by +10 (if currently 55 or below)\n\n"
+                        .. "Contrast - Boosted by +10 (if currently 55 or below)\n"
+                        .. "Enable Reverb - Disabled (spell and interrupt audio cues stay crisp)\n\n"
                         .. "These settings prioritize frame rate and visual clarity over environmental detail. Textures stay high quality so your character and the world still look perfect.",
                 })
             end)
@@ -2242,11 +2308,7 @@ initFrame:SetScript("OnEvent", function(self)
     ---------------------------------------------------------------------------
     --  Colors Page
     ---------------------------------------------------------------------------
-    local CLASS_ORDER = {
-        "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST",
-        "DEATHKNIGHT", "SHAMAN", "MAGE", "WARLOCK", "MONK",
-        "DRUID", "DEMONHUNTER", "EVOKER",
-    }
+    local CLASS_ORDER = EllesmereUI.CLASS_TOKEN_ORDER
     local CLASS_LABELS = {
         WARRIOR = "Warrior", PALADIN = "Paladin", HUNTER = "Hunter",
         ROGUE = "Rogue", PRIEST = "Priest", DEATHKNIGHT = "Death Knight",
@@ -4079,7 +4141,7 @@ initFrame:SetScript("OnEvent", function(self)
             local HDR_H      = 72
             local COL_HDR_H  = 28
             -- The optional Auto Assign toggle stacks below the
-            -- count/Include-layout row and adds a row of height.
+            -- count row and adds a row of height.
             local nFooterStack = (hasSpecAssign and 1 or 0)
             local FOOTER_H   = 50 + nFooterStack * 24
             local READY_R, READY_G, READY_B = 0.196, 0.737, 0.325
@@ -4246,6 +4308,20 @@ initFrame:SetScript("OnEvent", function(self)
             local stringHasBlizzSkin = (payload and payload.data
                 and type(payload.data.blizzSkinGlobals) == "table") or false
             local includeWindowSkinsImport = false
+            -- "Global Settings": the exporter's global appearance (fonts,
+            -- custom colours, dark mode, accent) and UI scale. Presence in
+            -- the string is the exporter's deliberate include; this toggle
+            -- is the recipient's opt-out. Defaults ON when carried; the row
+            -- is inert when the string has none.
+            local stringHasGlobals = false
+            do
+                local d = payload and payload.data
+                if d then
+                    stringHasGlobals = d.fonts ~= nil or d.customColors ~= nil
+                        or d.darkMode ~= nil or d.euiAccent ~= nil or d.uiScale ~= nil
+                end
+            end
+            local includeGlobalsImport = stringHasGlobals
             local autoAssignImport = false       -- "Auto Assign to Specs" toggle (default off)
             local importVisuals = {}
             local importCountFs
@@ -4627,8 +4703,8 @@ initFrame:SetScript("OnEvent", function(self)
             if footerDiv.SetSnapToPixelGrid then footerDiv:SetSnapToPixelGrid(false); footerDiv:SetTexelSnappingBias(0) end
 
             importCountFs = EllesmereUI.MakeFont(footerFrame, 12, nil, 1, 1, 1, 0.40)
-            -- With any secondary toggle present the footer carries stacked rows, so
-            -- the count + "Include layout" sit on the upper row; otherwise they stay
+            -- With the Auto Assign toggle present the footer carries a second
+            -- row, so the count sits on the upper row; otherwise it stays
             -- vertically centered as before.
             if nFooterStack > 0 then
                 PP.Point(importCountFs, "TOPLEFT", footerFrame, "TOPLEFT", SIDE_PAD, -16)
@@ -4638,144 +4714,19 @@ initFrame:SetScript("OnEvent", function(self)
             importCountFs:SetJustifyH("LEFT")
             RefreshImportCount()
 
-            -- "Include layout" toggle: off = don't import any anchor/size-match
-            -- relationships (your existing layout is left untouched).
-            local layoutChkBtn
-            do
-                local ilBtn = CreateFrame("Button", nil, footerFrame)
-                ilBtn:SetSize(150, 24)
-                PP.Point(ilBtn, "LEFT", importCountFs, "RIGHT", 24, 0)
-                local box = CreateFrame("Frame", nil, ilBtn)
-                box:SetSize(CHK_SZ, CHK_SZ)
-                box:SetPoint("LEFT", ilBtn, "LEFT", 0, 0)
-                local bg = box:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints()
-                bg:SetColorTexture(0.12, 0.12, 0.14, 1)
-                EllesmereUI.MakeBorder(box, 0.25, 0.25, 0.28, 0.6, PP)
-                local mark = box:CreateTexture(nil, "ARTWORK")
-                mark:SetPoint("TOPLEFT", box, "TOPLEFT", 3, -3)
-                mark:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -3, 3)
-                mark:SetColorTexture(EG.r, EG.g, EG.b, 1)
-                local lbl = EllesmereUI.MakeFont(ilBtn, 12, nil, 1, 1, 1, 0.6)
-                lbl:SetPoint("LEFT", box, "RIGHT", 6, 0)
-                lbl:SetText(EllesmereUI.L("Include layout"))
-                -- Fit the button to box + label so the next toggle's anchor
-                -- doesn't inherit this frame's dead space as a visible gap.
-                ilBtn:SetWidth(CHK_SZ + 6 + math.ceil(lbl:GetStringWidth()))
-                local function vis() mark:SetShown(includeLayoutImport) end
-                vis()
-                ilBtn:SetScript("OnClick", function() includeLayoutImport = not includeLayoutImport; vis() end)
-                ilBtn:SetScript("OnEnter", function()
-                    EllesmereUI.ShowWidgetTooltip(ilBtn, EllesmereUI.L("Import the anchor & size-match relationships from this profile. Off = keep your own layout; only the selected modules' own positions/settings come in."))
-                end)
-                ilBtn:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                layoutChkBtn = ilBtn
-            end
-
-            -- "Include Overrides" toggle beside Include layout: all-or-nothing
-            -- (2026-07-20 redesign). On = the sharer's complete override
-            -- system replaces yours. Grayed out when the string carries none.
-            if layoutChkBtn then
-                local ovBtn = CreateFrame("Button", nil, footerFrame)
-                ovBtn:SetSize(170, 24)
-                PP.Point(ovBtn, "LEFT", layoutChkBtn, "RIGHT", 16, 0)
-                local box = CreateFrame("Frame", nil, ovBtn)
-                box:SetSize(CHK_SZ, CHK_SZ)
-                box:SetPoint("LEFT", ovBtn, "LEFT", 0, 0)
-                local bg = box:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints()
-                bg:SetColorTexture(0.12, 0.12, 0.14, 1)
-                EllesmereUI.MakeBorder(box, 0.25, 0.25, 0.28, 0.6, PP)
-                local mark = box:CreateTexture(nil, "ARTWORK")
-                mark:SetPoint("TOPLEFT", box, "TOPLEFT", 3, -3)
-                mark:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -3, 3)
-                mark:SetColorTexture(EG.r, EG.g, EG.b, 1)
-                local lbl = EllesmereUI.MakeFont(ovBtn, 12, nil, 1, 1, 1, 0.6)
-                lbl:SetPoint("LEFT", box, "RIGHT", 6, 0)
-                lbl:SetText(EllesmereUI.L("Include Overrides"))
-                ovBtn:SetWidth(CHK_SZ + 6 + math.ceil(lbl:GetStringWidth()))
-                if stringHasOverrides then
-                    local function vis() mark:SetShown(includeOverridesImport) end
-                    vis()
-                    ovBtn:SetScript("OnClick", function() includeOverridesImport = not includeOverridesImport; vis() end)
-                    ovBtn:SetScript("OnEnter", function()
-                        EllesmereUI.ShowWidgetTooltip(ovBtn, EllesmereUI.L("Import the sharer's complete override setup: spec and conditional override values, groups, their custom Unlock Mode layouts, and Buff Manager overrides. This replaces ALL of your own overrides. Off = keep yours untouched."))
-                    end)
-                    ovBtn:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                else
-                    mark:Hide()
-                    ovBtn:SetAlpha(0.35)
-                    ovBtn:SetScript("OnEnter", function()
-                        EllesmereUI.ShowWidgetTooltip(ovBtn, EllesmereUI.L("This profile string does not carry any override data."))
-                    end)
-                    ovBtn:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                end
-
-                -- "Include Window Skins" beside Include Overrides: applies the
-                -- sharer's Blizz UI Enhanced account-global settings (Window
-                -- Skins + Tooltips, Menus & Popups tabs). Confirmation-gated
-                -- on enable -- these keys overwrite the recipient across ALL
-                -- profiles. Grayed out when the string carries no bundle.
-                local wsBtn = CreateFrame("Button", nil, footerFrame)
-                wsBtn:SetSize(170, 24)
-                PP.Point(wsBtn, "LEFT", ovBtn, "RIGHT", 16, 0)
-                local wsBox = CreateFrame("Frame", nil, wsBtn)
-                wsBox:SetSize(CHK_SZ, CHK_SZ)
-                wsBox:SetPoint("LEFT", wsBtn, "LEFT", 0, 0)
-                local wsBg = wsBox:CreateTexture(nil, "BACKGROUND"); wsBg:SetAllPoints()
-                wsBg:SetColorTexture(0.12, 0.12, 0.14, 1)
-                EllesmereUI.MakeBorder(wsBox, 0.25, 0.25, 0.28, 0.6, PP)
-                local wsMark = wsBox:CreateTexture(nil, "ARTWORK")
-                wsMark:SetPoint("TOPLEFT", wsBox, "TOPLEFT", 3, -3)
-                wsMark:SetPoint("BOTTOMRIGHT", wsBox, "BOTTOMRIGHT", -3, 3)
-                wsMark:SetColorTexture(EG.r, EG.g, EG.b, 1)
-                local wsLbl = EllesmereUI.MakeFont(wsBtn, 12, nil, 1, 1, 1, 0.6)
-                wsLbl:SetPoint("LEFT", wsBox, "RIGHT", 6, 0)
-                wsLbl:SetText(EllesmereUI.L("Include Window Skins"))
-                wsBtn:SetWidth(CHK_SZ + 6 + math.ceil(wsLbl:GetStringWidth()))
-                if stringHasBlizzSkin then
-                    local function vis() wsMark:SetShown(includeWindowSkinsImport) end
-                    vis()
-                    wsBtn:SetScript("OnClick", function()
-                        if includeWindowSkinsImport then
-                            includeWindowSkinsImport = false
-                            vis()
-                            return
-                        end
-                        EllesmereUI:ShowConfirmPopup({
-                            title       = EllesmereUI.L("Overwrite Window & Tooltip Settings?"),
-                            message     = EllesmereUI.L("This will replace YOUR Blizz UI Enhanced settings (the Window Skins and Tooltips, Menus & Popups tabs) with the sharer's, across ALL of your profiles. Your current settings on those two tabs cannot be recovered afterward."),
-                            confirmText = EllesmereUI.L("OK"),
-                            cancelText  = EllesmereUI.L("Cancel"),
-                            onConfirm   = function()
-                                includeWindowSkinsImport = true
-                                vis()
-                            end,
-                        })
-                    end)
-                    wsBtn:SetScript("OnEnter", function()
-                        EllesmereUI.ShowWidgetTooltip(wsBtn, EllesmereUI.L("Apply the sharer's Blizz UI Enhanced Window Skins and Tooltips, Menus & Popups settings. These are account-wide and will overwrite yours across ALL profiles. Off = keep your own."))
-                    end)
-                    wsBtn:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                else
-                    wsMark:Hide()
-                    wsBtn:SetAlpha(0.35)
-                    wsBtn:SetScript("OnEnter", function()
-                        EllesmereUI.ShowWidgetTooltip(wsBtn, EllesmereUI.L("This profile string does not carry any Window & Tooltip Skins settings."))
-                    end)
-                    wsBtn:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                end
-            end
-
-            -- Secondary toggles stack downward from the Include-layout row.
-            local lastFooterStack = layoutChkBtn
+            -- The Overrides / Unlock Mode Layout / Global Settings / Window
+            -- Skins includes live in the "Include:" dropdown beside the
+            -- Import button (built after it, mirroring the export footer).
+            -- Only Auto Assign stays inline, stacked below the count row.
 
             -- "Auto Assign to Specs" toggle: only shown when the string carries
             -- spec->profile assignments. Off (default) = the recipient's own spec
             -- assignments are left untouched. On = each spec the profile was
             -- assigned to on export is pointed at this newly imported profile.
-            if hasSpecAssign and layoutChkBtn then
+            if hasSpecAssign then
                 local aaBtn = CreateFrame("Button", nil, footerFrame)
                 aaBtn:SetSize(180, 24)
-                PP.Point(aaBtn, "TOPLEFT", lastFooterStack, "BOTTOMLEFT", 0, -4)
+                PP.Point(aaBtn, "TOPLEFT", importCountFs, "BOTTOMLEFT", 0, -8)
                 local box = CreateFrame("Frame", nil, aaBtn)
                 box:SetSize(CHK_SZ, CHK_SZ)
                 box:SetPoint("LEFT", aaBtn, "LEFT", 0, 0)
@@ -4796,7 +4747,6 @@ initFrame:SetScript("OnEvent", function(self)
                     EllesmereUI.ShowWidgetTooltip(aaBtn, EllesmereUI.L("Assign this profile to the same specializations it was assigned to on export. Off = your current spec assignments stay as they are."))
                 end)
                 aaBtn:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                lastFooterStack = aaBtn
             end
 
             local IMP_BTN_W = 180
@@ -4814,6 +4764,137 @@ initFrame:SetScript("OnEvent", function(self)
             impLbl:SetAlpha(0.7)
             impLbl:SetPoint("CENTER")
             impLbl:SetText(EllesmereUI.L("Import Selected Addons"))
+
+            -- "Include:" checkbox dropdown -- the same four rows as the
+            -- export footer's (Overrides / Unlock Mode Layout / Global
+            -- Settings / Window & Tooltip Skins), sitting immediately left
+            -- of the Import button. Rows whose data the string does not
+            -- carry are inert and excluded from the summary; Window Skins
+            -- keeps its confirmation gate on enable.
+            do
+                local ddBtn, ddLabelFS = MakeDropdown(footerFrame, 190, IMP_BTN_H, function() return "" end)
+                PP.Point(ddBtn, "RIGHT", importBtn, "LEFT", -12, 0)
+
+                local incLbl = EllesmereUI.MakeFont(footerFrame, 12, nil, 1, 1, 1, 0.6)
+                PP.Point(incLbl, "RIGHT", ddBtn, "LEFT", -8, 0)
+                incLbl:SetText(EllesmereUI.L("Include:"))
+
+                local rowDefs = {
+                    { label = "Overrides", sum = "Overrides",
+                      enabled = stringHasOverrides,
+                      offTip = "This profile string does not carry any override data.",
+                      tip   = "Import the sharer's complete override setup: spec and conditional override values, groups, their custom Unlock Mode layouts, and Buff Manager overrides. This replaces ALL of your own overrides. Off = keep yours untouched.",
+                      get   = function() return includeOverridesImport end,
+                      set   = function() includeOverridesImport = not includeOverridesImport end },
+                    { label = "Unlock Mode Layout", sum = "Layout",
+                      enabled = true,
+                      tip   = "Import the anchor & size-match relationships from this profile. Off = keep your own layout; only the selected modules' own positions/settings come in.",
+                      get   = function() return includeLayoutImport end,
+                      set   = function() includeLayoutImport = not includeLayoutImport end },
+                    { label = "Global Settings", sum = "Globals",
+                      enabled = stringHasGlobals,
+                      offTip = "This profile string does not carry any global settings.",
+                      tip   = "Apply the sharer's fonts, custom colours, dark mode, accent colour and UI scale. Off = keep your own global look and scale; only the selected modules' settings come in.",
+                      get   = function() return includeGlobalsImport end,
+                      set   = function() includeGlobalsImport = not includeGlobalsImport end },
+                    { label = "Window & Tooltip Skins", sum = "Window Skins",
+                      enabled = stringHasBlizzSkin,
+                      offTip = "This profile string does not carry any Window & Tooltip Skins settings.",
+                      tip   = "Apply the sharer's Blizz UI Enhanced Window Skins and Tooltips, Menus & Popups settings. These are account-wide and will overwrite yours across ALL profiles. Off = keep your own.",
+                      get   = function() return includeWindowSkinsImport end,
+                      set   = function(refresh)
+                          if includeWindowSkinsImport then
+                              includeWindowSkinsImport = false
+                              return
+                          end
+                          EllesmereUI:ShowConfirmPopup({
+                              title       = EllesmereUI.L("Overwrite Window & Tooltip Settings?"),
+                              message     = EllesmereUI.L("This will replace YOUR Blizz UI Enhanced settings (the Window Skins and Tooltips, Menus & Popups tabs) with the sharer's, across ALL of your profiles. Your current settings on those two tabs cannot be recovered afterward."),
+                              confirmText = EllesmereUI.L("OK"),
+                              cancelText  = EllesmereUI.L("Cancel"),
+                              onConfirm   = function()
+                                  includeWindowSkinsImport = true
+                                  if refresh then refresh() end
+                              end,
+                          })
+                      end },
+                }
+
+                local function Summary()
+                    local parts, total = {}, 0
+                    for _, def in ipairs(rowDefs) do
+                        if def.enabled then
+                            total = total + 1
+                            if def.get() then parts[#parts + 1] = EllesmereUI.L(def.sum) end
+                        end
+                    end
+                    if #parts == 0 then return EllesmereUI.L("Nothing Extra") end
+                    if #parts == total then return EllesmereUI.L("Everything") end
+                    return table.concat(parts, ", ")
+                end
+                local function RefreshSummary() ddLabelFS:SetText(Summary()) end
+
+                local menu = MakeDropdownMenu(ddBtn, 240)
+                menu:SetSize(240, #rowDefs * 26 + 8)
+                local marks = {}
+                local function RefreshMenu()
+                    for i, def in ipairs(rowDefs) do
+                        marks[i]:SetShown(def.enabled and def.get())
+                    end
+                end
+                local function RefreshAll() RefreshMenu(); RefreshSummary() end
+                for i, def in ipairs(rowDefs) do
+                    local row = CreateFrame("Button", nil, menu)
+                    row:SetHeight(26)
+                    row:SetPoint("TOPLEFT", menu, "TOPLEFT", 4, -(4 + (i - 1) * 26))
+                    row:SetPoint("RIGHT", menu, "RIGHT", -4, 0)
+                    row:SetFrameLevel(menu:GetFrameLevel() + 1)
+                    local hl = row:CreateTexture(nil, "ARTWORK")
+                    hl:SetAllPoints(); hl:SetColorTexture(1, 1, 1, 1); hl:SetAlpha(0)
+                    local box = CreateFrame("Frame", nil, row)
+                    box:SetSize(CHK_SZ, CHK_SZ)
+                    box:SetPoint("LEFT", row, "LEFT", 6, 0)
+                    local bbg = box:CreateTexture(nil, "BACKGROUND"); bbg:SetAllPoints()
+                    bbg:SetColorTexture(0.12, 0.12, 0.14, 1)
+                    EllesmereUI.MakeBorder(box, 0.25, 0.25, 0.28, 0.6, PP)
+                    local mark = box:CreateTexture(nil, "ARTWORK")
+                    mark:SetPoint("TOPLEFT", box, "TOPLEFT", 3, -3)
+                    mark:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -3, 3)
+                    mark:SetColorTexture(EG.r, EG.g, EG.b, 1)
+                    marks[i] = mark
+                    local lbl = EllesmereUI.MakeFont(row, 12, nil, 1, 1, 1, 0.7)
+                    lbl:SetPoint("LEFT", box, "RIGHT", 8, 0)
+                    lbl:SetText(EllesmereUI.L(def.label))
+                    if def.enabled then
+                        row:SetScript("OnEnter", function()
+                            hl:SetAlpha(0.05)
+                            EllesmereUI.ShowWidgetTooltip(row, EllesmereUI.L(def.tip))
+                        end)
+                        row:SetScript("OnLeave", function()
+                            hl:SetAlpha(0)
+                            EllesmereUI.HideWidgetTooltip()
+                        end)
+                        row:SetScript("OnClick", function()
+                            def.set(RefreshAll)
+                            RefreshAll()
+                        end)
+                    else
+                        row:SetAlpha(0.35)
+                        row:SetScript("OnEnter", function()
+                            EllesmereUI.ShowWidgetTooltip(row, EllesmereUI.L(def.offTip))
+                        end)
+                        row:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                    end
+                end
+                -- HookScript: MakeDropdownMenu owns OnShow (scale + outside-
+                -- click close); our mark refresh rides alongside it.
+                menu:HookScript("OnShow", RefreshMenu)
+                ddBtn:SetScript("OnClick", function()
+                    RefreshSummary()
+                    if menu:IsShown() then menu:Hide() else RefreshMenu(); menu:Show() end
+                end)
+                RefreshSummary()
+            end
 
             local impProgress, impTarget = 0, 0
             local IMP_FADE = 0.1
@@ -4929,18 +5010,27 @@ initFrame:SetScript("OnEvent", function(self)
                     -- Meta is transient -- never overlay/persist it into the profile.
                     filteredPayload.data.unlockLayoutMeta = nil
                 end
-                -- fonts, customColors, euiAccent are profile-global appearance the
-                -- module checkboxes can't gate. On a partial import keep the
-                -- recipient's by dropping them (a nil leaves the base copy intact).
-                if isPartialImport and filteredPayload and filteredPayload.data then
+                -- Global appearance (fonts, customColors, darkMode, euiAccent)
+                -- and scale ride under the Include dropdown's "Global
+                -- Settings" row (default on when the string carries them):
+                -- unchecked strips them all so the merge keeps the
+                -- recipient's look. Module deselection alone never strips
+                -- them -- the store merge takes each key only when present,
+                -- and a string exported without globals simply lacks them.
+                if filteredPayload and filteredPayload.data and not includeGlobalsImport then
                     filteredPayload.data.fonts        = nil
                     filteredPayload.data.customColors = nil
+                    filteredPayload.data.darkMode     = nil
                     filteredPayload.data.euiAccent    = nil
+                    filteredPayload.data.uiScale      = nil
+                    filteredPayload.data.applyUIScale = nil
+                end
+                if isPartialImport and filteredPayload and filteredPayload.data then
                     -- Overrides (values AND forks) are governed solely by the
                     -- Include Overrides checkbox since the 2026-07-20
                     -- all-or-nothing redesign -- module deselection no longer
-                    -- strips them here. partialImport still gates appearance
-                    -- (above) and legacy import-default behavior.
+                    -- strips them here. partialImport gates the override
+                    -- legacy keep-mine default at the store merge.
                     filteredPayload.data.partialImport = true
                 end
                 -- The unlock-layer FORKS are whole cross-module position

@@ -312,9 +312,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- Disable WoW's automatic pixel snapping on a texture (prevents sub-pixel jitter vs borders)
-        local function UnsnapTex(tex)
-            if tex.SetSnapToPixelGrid then tex:SetSnapToPixelGrid(false); tex:SetTexelSnappingBias(0) end
-        end
+        local UnsnapTex = EllesmereUI.PP.DisablePixelSnap
 
         -- Health bar the central anchor for everything
         local health = CreateFrame("StatusBar", nil, pf)
@@ -2969,8 +2967,8 @@ initFrame:SetScript("OnEvent", function(self)
         -- enemy nameplates marking the clickable area, so the sliders can be
         -- dialled in visually. Runtime-only; auto-hides when the panel closes.
         do
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+            local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+            local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
             local leftRgn = hitboxRow._leftRegion
             local eyeBtn = CreateFrame("Button", nil, leftRgn)
             eyeBtn:SetSize(26, 26)
@@ -3576,8 +3574,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Eye icon: show/hide dispel glow on preview buff icons
         do
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+            local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+            local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
             local leftRgn = dispelGlowRow._leftRegion
             local eyeBtn = CreateFrame("Button", nil, leftRgn)
             eyeBtn:SetSize(26, 26)
@@ -4914,8 +4912,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Eye icon: toggle absorb preview on the preview nameplate
         do
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+            local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+            local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
             local rgn = bgHoverRow._rightRegion
             local eyeBtn = CreateFrame("Button", nil, rgn)
             eyeBtn:SetSize(26, 26)
@@ -6358,8 +6356,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Eye icon that follows whichever Core Positions dropdown has "Raid Marker"
         do
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+            local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+            local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
             local eyeBtn = CreateFrame("Button", nil, parent)
             eyeBtn:SetSize(26, 26)
             eyeBtn:SetFrameLevel(parent:GetFrameLevel() + 10)
@@ -6403,8 +6401,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Eye icon that follows whichever Core Positions dropdown has "Rare/Quest Indicator"
         do
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+            local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+            local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
             local eyeBtn = CreateFrame("Button", nil, parent)
             eyeBtn:SetSize(26, 26)
             eyeBtn:SetFrameLevel(parent:GetFrameLevel() + 10)
@@ -7738,8 +7736,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Eye icon to the left of the Target Glow Style dropdown to toggle glow on preview
         do
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+            local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+            local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
             local leftRgn = targetGlowRow._leftRegion
             local eyeBtn = CreateFrame("Button", nil, leftRgn)
             eyeBtn:SetSize(26, 26)

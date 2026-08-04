@@ -21,54 +21,7 @@ local COMPARE_DUNGEON = "DUNGEON"
 local COMPARE_LEVEL = "LEVEL"
 local COMPARE_LEVEL_AFFIX = "LEVEL_AFFIX"
 
-local TEXTURE_BASE = "Interface\\AddOns\\EllesmereUI\\media\\textures\\"
-local barTextures = {
-    ["none"]          = nil,
-    ["melli"]         = TEXTURE_BASE .. "melli.tga",
-    ["beautiful"]     = TEXTURE_BASE .. "beautiful.tga",
-    ["plating"]       = TEXTURE_BASE .. "plating.tga",
-    ["atrocity"]      = TEXTURE_BASE .. "atrocity.tga",
-    ["divide"]        = TEXTURE_BASE .. "divide.tga",
-    ["glass"]         = TEXTURE_BASE .. "glass.tga",
-    ["fade-right"]    = TEXTURE_BASE .. "fade-right.tga",
-    ["thin-line-top"] = TEXTURE_BASE .. "thin-line-top.tga",
-    ["thin-line-bottom"] = TEXTURE_BASE .. "thin-line-bottom.tga",
-    ["fade"]          = TEXTURE_BASE .. "fade.tga",
-    ["gradient-lr"]   = TEXTURE_BASE .. "gradient-lr.tga",
-    ["gradient-rl"]   = TEXTURE_BASE .. "gradient-rl.tga",
-    ["gradient-bt"]   = TEXTURE_BASE .. "gradient-bt.tga",
-    ["gradient-tb"]   = TEXTURE_BASE .. "gradient-tb.tga",
-    ["matte"]         = TEXTURE_BASE .. "matte.tga",
-    ["sheer"]         = TEXTURE_BASE .. "sheer.tga",
-}
-local barTextureOrder = {
-    "none", "melli", "atrocity",
-    "fade", "fade-right",
-    "thin-line-top", "thin-line-bottom",
-    "beautiful", "plating",
-    "divide", "glass",
-    "gradient-lr", "gradient-rl", "gradient-bt", "gradient-tb",
-    "matte", "sheer",
-}
-local barTextureNames = {
-    ["none"]          = "None",
-    ["melli"]         = "Melli (ElvUI)",
-    ["beautiful"]     = "Beautiful",
-    ["plating"]       = "Plating",
-    ["atrocity"]      = "Atrocity",
-    ["divide"]        = "Divide",
-    ["glass"]         = "Glass",
-    ["fade-right"]    = "Fade Right",
-    ["thin-line-top"] = "Thin Line Top",
-    ["thin-line-bottom"] = "Thin Line Bottom",
-    ["fade"]          = "Fade",
-    ["gradient-lr"]   = "Gradient Right",
-    ["gradient-rl"]   = "Gradient Left",
-    ["gradient-bt"]   = "Gradient Up",
-    ["gradient-tb"]   = "Gradient Down",
-    ["matte"]         = "Matte",
-    ["sheer"]         = "Sheer",
-}
+local barTextures, barTextureNames, barTextureOrder = EllesmereUI.BuildBarTextureTables()
 ns.barTextures = barTextures
 ns.barTextureOrder = barTextureOrder
 ns.barTextureNames = barTextureNames
@@ -93,14 +46,7 @@ local function ApplyBarTexture(tex, texKey, r, g, b, a)
     end
 end
 
-local function CopyTable(src)
-    if type(src) ~= "table" then return src end
-    local out = {}
-    for key, value in pairs(src) do
-        out[key] = type(value) == "table" and CopyTable(value) or value
-    end
-    return out
-end
+local CopyTable = EllesmereUI.Lite.DeepCopy
 
 
 local function CalculateBonusTimers(maxTime, affixes)

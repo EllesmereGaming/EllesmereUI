@@ -9667,7 +9667,7 @@ local function CreateHUD(parent)
 
         local FADE_DUR = 0.1
         local progress, target = 0, 0
-        local function lerp(a, b, t) return a + (b - a) * t end
+        local lerp = EllesmereUI.lerp
         local function Apply(t)
             local c = EllesmereUI.ELLESMERE_GREEN or eg
             lbl:SetTextColor(c.r, c.g, c.b, lerp(0.7, 1, t))
@@ -11992,39 +11992,4 @@ do
     end)
 end
 
--------------------------------------------------------------------------------
---  /euicdmdbg -- TEMPORARY CDM anchor-chain diagnostic (2026-07-16): prints
---  the runtime state of the CDM viewer anchor chain (ERB_ClassResource ->
---  utility -> cooldowns -> buffs) so a screenshot pinpoints where anchor
---  resolution fails. Read-only. Remove after the incident.
--------------------------------------------------------------------------------
-SLASH_EUICDMDBG1 = "/euicdmdbg"
-SlashCmdList.EUICDMDBG = function()
-    local function P(msg) print("|cff0cd29fEUI CDMDBG|r " .. msg) end
-    local act = EllesmereUI.SpecOverrides_UnlockActive
-        and EllesmereUI.SpecOverrides_UnlockActive() or "?"
-    P("s.active=" .. tostring(act) .. "  unlockActive=" .. tostring(EllesmereUI._unlockModeActive))
-    local anchors = EllesmereUIDB and EllesmereUIDB.unlockAnchors or {}
-    for _, key in ipairs({ "ERB_ClassResource", "CDM_utility", "CDM_cooldowns", "CDM_buffs" }) do
-        local elem = registeredElements[key]
-        local f = GetBarFrame and GetBarFrame(key) or nil
-        if not f and elem and elem.getFrame then f = elem.getFrame() end
-        local a = anchors[key]
-        local hidden = elem and elem.isHidden and elem.isHidden(key)
-        P(("%s: reg=%s hidden=%s frame=%s shown=%s L=%s B=%s W=%s H=%s -> anchor=%s side=%s"):format(
-            key, tostring(elem ~= nil), tostring(hidden),
-            tostring(f ~= nil), tostring(f and f:IsShown()),
-            tostring(f and f.GetLeft and f:GetLeft() and math.floor(f:GetLeft() + 0.5)),
-            tostring(f and f.GetBottom and f:GetBottom() and math.floor(f:GetBottom() + 0.5)),
-            tostring(f and math.floor((f:GetWidth() or 0) + 0.5)),
-            tostring(f and math.floor((f:GetHeight() or 0) + 0.5)),
-            tostring(a and a.target), tostring(a and a.side)))
-    end
-    local cdmp = EllesmereUI._cdmBarPositions
-    for _, bk in ipairs({ "cooldowns", "utility", "buffs" }) do
-        local p = cdmp and cdmp[bk]
-        P(("cdmPos[%s]: point=%s x=%s y=%s"):format(bk,
-            tostring(p and p.point), tostring(p and p.x), tostring(p and p.y)))
-    end
-end
 end  -- end deferred init

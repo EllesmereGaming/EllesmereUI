@@ -407,6 +407,9 @@ local function FormatTime(s)
     local sec = math.floor(s % 60)
     return string.format("%d:%02d", m, sec)
 end
+-- Shared with the Bloodlust tracker (identical display contract; this file
+-- loads first). select() form: this file never binds the vararg table.
+select(2, ...).FormatTime = FormatTime
 
 local _lastCountText, _lastDurText, _lastCountColor
 local function _setCount(s, isZero)

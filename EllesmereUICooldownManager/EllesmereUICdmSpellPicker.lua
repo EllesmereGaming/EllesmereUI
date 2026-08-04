@@ -358,6 +358,14 @@ function ns.AddSpellToBar(barKey, spellID)
     end
     local frame = cdmBarFrames[barKey]
     if frame then frame._blizzCache = nil; frame._prevVisibleCount = nil end
+    -- FocusKick arms its proxies on bar CONTENT, and nothing re-runs that when
+    -- the content changes here: adding the interrupt to an empty kick bar left
+    -- the cast sound unarmed until an unrelated rebuild (a spec change or a
+    -- loading screen) happened to run it. Field-reported as "added the spell,
+    -- still no sound; took a portal and it started working".
+    if barKey == ns.FOCUSKICK_BAR_KEY and ns.RefreshFocusKickProxies then
+        ns.RefreshFocusKickProxies("spell-added")
+    end
     return true
 end
 
@@ -415,6 +423,12 @@ function ns.RemoveSpellFromBar(barKey, spellID)
     end
     local frame = cdmBarFrames[barKey]
     if frame then frame._blizzCache = nil; frame._prevVisibleCount = nil end
+    -- Same reason as AddSpellToBar: emptying the kick bar must re-evaluate the
+    -- proxies. The cast sound survives an empty bar when an explicit interrupt
+    -- spell is set, so this is a re-evaluation, not an unconditional teardown.
+    if barKey == ns.FOCUSKICK_BAR_KEY and ns.RefreshFocusKickProxies then
+        ns.RefreshFocusKickProxies("spell-removed")
+    end
     return removed
 end
 

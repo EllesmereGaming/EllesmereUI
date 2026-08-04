@@ -262,7 +262,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Row 3: one scale for the whole feature -- both shells and the
         -- collapsed icon wear it, whichever windows the Show as choice puts
-        -- on screen.
+        -- on screen | which way the windows extend from the collapsed icon.
         _, h = W:DualRow(parent, y,
             { type = "slider", text = "Window Scale", min = 0.5, max = 2.0, step = 0.05,
               disabled = Disabled,
@@ -271,7 +271,17 @@ initFrame:SetScript("OnEvent", function(self)
                   Set("scale", v)
                   Refresh()
               end },
-            { type = "label", text = "" }
+            { type = "dropdown", text = "Menu Grow Direction",
+              tooltip = "Which way the windows extend from the collapsed icon when they open.",
+              disabled = Disabled,
+              values = { downright = "Down Right", upright = "Up Right",
+                         downleft = "Down Left", upleft = "Up Left" },
+              order = { "downright", "upright", "downleft", "upleft" },
+              getValue = function() return Cfg("growDir") or "downright" end,
+              setValue = function(v)
+                  Set("growDir", v)
+                  Refresh()
+              end }
         );  y = y - h
 
         -- PULL TIMER

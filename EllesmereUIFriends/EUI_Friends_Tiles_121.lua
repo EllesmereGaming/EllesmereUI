@@ -114,21 +114,7 @@ local CLASS_ICON_SPRITE_TEX = {}
 for _, style in ipairs({ "modern", "dark", "light", "clean" }) do
     CLASS_ICON_SPRITE_TEX[style] = CLASS_ICON_SPRITE_BASE .. style .. ".tga"
 end
-local CLASS_SPRITE_COORDS = {
-    WARRIOR     = { 0,     0.125, 0,     0.125 },
-    MAGE        = { 0.125, 0.25,  0,     0.125 },
-    ROGUE       = { 0.25,  0.375, 0,     0.125 },
-    DRUID       = { 0.375, 0.5,   0,     0.125 },
-    EVOKER      = { 0.5,   0.625, 0,     0.125 },
-    HUNTER      = { 0,     0.125, 0.125, 0.25  },
-    SHAMAN      = { 0.125, 0.25,  0.125, 0.25  },
-    PRIEST      = { 0.25,  0.375, 0.125, 0.25  },
-    WARLOCK     = { 0.375, 0.5,   0.125, 0.25  },
-    PALADIN     = { 0,     0.125, 0.25,  0.375 },
-    DEATHKNIGHT = { 0.125, 0.25,  0.25,  0.375 },
-    MONK        = { 0.25,  0.375, 0.25,  0.375 },
-    DEMONHUNTER = { 0.375, 0.5,   0.25,  0.375 },
-}
+local CLASS_SPRITE_COORDS = EllesmereUI.CLASS_ICON_SPRITE_COORDS
 
 local MINI_DISPLAY = {
     namerica = "North America", samerica = "South America",
@@ -336,16 +322,7 @@ end
 -------------------------------------------------------------------------------
 --  Per-paint passes
 -------------------------------------------------------------------------------
-local _classColorCodes = {}
-local function ClassColorCode(classFile)
-    local code = _classColorCodes[classFile]
-    if code then return code end
-    local cc = RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
-    if not cc then return nil end
-    code = format("|cff%02x%02x%02x", cc.r * 255, cc.g * 255, cc.b * 255)
-    _classColorCodes[classFile] = code
-    return code
-end
+local ClassColorCode = _G._EFR_ClassColorCode
 
 -- Line 1: the Battle.net account name on its own.
 local function BuildName(accountInfo)

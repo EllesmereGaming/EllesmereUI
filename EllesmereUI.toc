@@ -2,7 +2,7 @@
 ## Title: |cff0cd29fEllesmereUI|r
 ## Notes: Shared framework for the EllesmereUI addon suite
 ## Author: Ellesmere
-## Version: 8.7.4
+## Version: 8.7.5
 ## SavedVariables: EllesmereUIDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 ## X-Curse-Project-ID: 1477613
@@ -34,9 +34,6 @@ Locales\ptBR.lua
 Locales\ruRU.lua
 Locales\zhCN.lua
 Locales\zhTW.lua
-
-# Translation harvester (/euiloc dev tool; inert until invoked)
-EllesmereUI_LocaleDev.lua
 
 # One-time data migration (runs before child addons init)
 EllesmereUI_Migration.lua

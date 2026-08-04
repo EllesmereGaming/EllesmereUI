@@ -14,27 +14,9 @@ local CreateFrame = CreateFrame
 local UnitAffectingCombat = UnitAffectingCombat
 local GetTime = GetTime
 
--- Bar texture table (shared with options via ns)
-local EDR_TEX_BASE = "Interface\\AddOns\\EllesmereUI\\media\\textures\\"
-ns.EDR_BAR_TEXTURES = {
-    ["none"]          = nil,
-    ["melli"]         = EDR_TEX_BASE .. "melli.tga",
-    ["beautiful"]     = EDR_TEX_BASE .. "beautiful.tga",
-    ["plating"]       = EDR_TEX_BASE .. "plating.tga",
-    ["atrocity"]      = EDR_TEX_BASE .. "atrocity.tga",
-    ["divide"]        = EDR_TEX_BASE .. "divide.tga",
-    ["glass"]         = EDR_TEX_BASE .. "glass.tga",
-    ["fade-right"]    = EDR_TEX_BASE .. "fade-right.tga",
-    ["thin-line-top"]    = EDR_TEX_BASE .. "thin-line-top.tga",
-    ["thin-line-bottom"] = EDR_TEX_BASE .. "thin-line-bottom.tga",
-    ["fade"]          = EDR_TEX_BASE .. "fade.tga",
-    ["gradient-lr"]   = EDR_TEX_BASE .. "gradient-lr.tga",
-    ["gradient-rl"]   = EDR_TEX_BASE .. "gradient-rl.tga",
-    ["gradient-bt"]   = EDR_TEX_BASE .. "gradient-bt.tga",
-    ["gradient-tb"]   = EDR_TEX_BASE .. "gradient-tb.tga",
-    ["matte"]         = EDR_TEX_BASE .. "matte.tga",
-    ["sheer"]         = EDR_TEX_BASE .. "sheer.tga",
-}
+-- Bar texture table (shared with options via ns); paths only -- the
+-- options file builds its own names/order pair from the same catalogue.
+ns.EDR_BAR_TEXTURES = (EllesmereUI.BuildBarTextureTables())
 
 -- Constants
 local SPELL = {

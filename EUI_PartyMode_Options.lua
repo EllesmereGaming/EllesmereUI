@@ -249,6 +249,54 @@ do
             nil
         );  y = y - h
 
+        -- Row 3b: Spinning Action Bars (+ speed cog)
+        -- The behaviour lives in EllesmereUIActionBars (ns.PartySpin_Refresh);
+        -- this page owns only the shared EllesmereUIDB keys, so the option is a
+        -- harmless no-op when that addon is disabled.
+        do
+            local spinRow
+            spinRow, h = W:Toggle(parent, "Spinning Action Bars", y,
+                function() return EllesmereUIDB and EllesmereUIDB.partyModeSpinBars or false end,
+                function(v)
+                    if not EllesmereUIDB then EllesmereUIDB = {} end
+                    EllesmereUIDB.partyModeSpinBars = v
+                    if EllesmereUI.PartySpin_Refresh then EllesmereUI.PartySpin_Refresh() end
+                end,
+                "Slowly orbits your action bar buttons around each bar's centre while Party Mode is active. The buttons stay upright, so clicking, cooldowns and keybinds are unaffected. Pauses in combat, where moving a button is blocked."
+            );  y = y - h
+            do
+                local _, cogShow = EllesmereUI.BuildCogPopup({
+                    title = "Spin",
+                    rows = {
+                        { type="slider", label="Speed", min=0, max=720, step=10,
+                          tooltip="Degrees per second. 360 is one full turn a second; 0 parks the bars where they are.",
+                          get=function()
+                              local v = EllesmereUIDB and EllesmereUIDB.partyModeSpinSpeed
+                              if v == nil then v = 120 end
+                              return v
+                          end,
+                          set=function(v)
+                              if not EllesmereUIDB then EllesmereUIDB = {} end
+                              EllesmereUIDB.partyModeSpinSpeed = v
+                          end },
+                    },
+                })
+                local cogBtn = CreateFrame("Button", nil, spinRow)
+                cogBtn:SetSize(26, 26)
+                -- Canonical inline-cog spacing: the toggle control is 40 wide
+                -- at RIGHT -20, and cogs sit 9px left of the control's edge
+                -- (same as the General options rows).
+                cogBtn:SetPoint("RIGHT", spinRow, "RIGHT", -20 - 40 - 9, 0)
+                cogBtn:SetFrameLevel(spinRow:GetFrameLevel() + 5)
+                cogBtn:SetAlpha(0.4)
+                local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+                cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
+                cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+                cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+                cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
+            end
+        end
+
         -- Row 4: Play Sound on Party Mode (dropdown; shares the whisper
         -- alert catalogue incl. SharedMedia, with per-item preview icons)
         do

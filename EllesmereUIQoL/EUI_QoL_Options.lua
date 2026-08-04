@@ -1390,8 +1390,8 @@ initFrame:SetScript("OnEvent", function(self)
             if durCogInitOff then durCogBlock:Show() else durCogBlock:Hide() end
 
             -- Eye icon to toggle durability warning preview (left of cog)
-            local EYE_VISIBLE   = EllesmereUI.MEDIA_PATH .. "icons\\eui-visible.png"
-            local EYE_INVISIBLE = EllesmereUI.MEDIA_PATH .. "icons\\eui-invisible.png"
+            local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+            local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
             local durPreviewShown = false
             local eyeBtn = CreateFrame("Button", nil, leftRgn)
             eyeBtn:SetSize(26, 26)

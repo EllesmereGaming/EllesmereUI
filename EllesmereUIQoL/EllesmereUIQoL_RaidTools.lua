@@ -974,6 +974,18 @@ end
 --  Layout / position / mode
 -------------------------------------------------------------------------------
 
+-- Menu Grow Direction -> which corner of the primary shell the collapsed
+-- icon occupies. The icon is the piece the user parks, so the corner it
+-- rides decides which way the windows appear to grow from it on expand:
+-- icon at TOPLEFT = windows extend down-right (the original behaviour),
+-- icon at BOTTOMLEFT = up-right, and so on.
+local ICON_CORNER = {
+    downright = "TOPLEFT",
+    upright   = "BOTTOMLEFT",
+    downleft  = "TOPRIGHT",
+    upleft    = "BOTTOMRIGHT",
+}
+
 -- Show-as arrangement. OOC only (Apply gates); the holders are plain frames,
 -- so the re-parent is an ordinary SetParent.
 local function ApplyLayout()
@@ -1020,10 +1032,12 @@ local function ApplyLayout()
 
     -- The collapsed icon rides the shell the mode actually shows: Markers-only
     -- anchors (and scales, see Apply) to the Markers shell, everything else to
-    -- Group & Pull.
+    -- Group & Pull. Which CORNER it rides is the Menu Grow Direction setting
+    -- (see ICON_CORNER above).
+    local corner = ICON_CORNER[p and p.growDir] or "TOPLEFT"
     iconBtn:ClearAllPoints()
-    iconBtn:SetPoint("TOPLEFT",
-        (showAs == "markers") and winMarkers or winGroup, "TOPLEFT", 0, 0)
+    iconBtn:SetPoint(corner,
+        (showAs == "markers") and winMarkers or winGroup, corner, 0, 0)
 
     -- Heights just moved: re-crop the backdrop art so it covers instead of
     -- stretches (the skins hook SetHeight for this; our heights only ever

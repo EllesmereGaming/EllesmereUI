@@ -1731,9 +1731,8 @@ initFrame:SetScript("OnEvent", function(self)
                 rows = {
                     { type = "dropdown", label = "Bar Strata",
                       tooltip = "Screen layer this bar renders on. Raise it to draw over other frames, lower it to sit behind them.",
-                      values = { BACKGROUND = "Background", LOW = "Low",
-                                 MEDIUM = "Medium", HIGH = "High", DIALOG = "Dialog" },
-                      order = { "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG" },
+                      values = EllesmereUI.FRAME_STRATA_LABELS,
+                      order = EllesmereUI.FRAME_STRATA_ORDER_BASE,
                       get = function()
                           local c = ns.GetBar(barId)
                           return (c and c.barStrata) or "MEDIUM"

@@ -51,13 +51,7 @@ initFrame:SetScript("OnEvent", function(self)
     end
     local function DDB()  local p = DB(); return p and p.display end
 
-    local PREVIEW_TEXT_ANCHORS = {
-        BOTTOM = { "TOP",    "BOTTOM" },
-        TOP    = { "BOTTOM", "TOP"    },
-        CENTER = { "CENTER", "CENTER" },
-        LEFT   = { "RIGHT",  "LEFT"   },
-        RIGHT  = { "LEFT",   "RIGHT"  },
-    }
+    local PREVIEW_TEXT_ANCHORS = _G._EABR_TEXT_ANCHORS
     local function GetPreviewTextAnchor(d)
         local m = PREVIEW_TEXT_ANCHORS[(d and d.textAnchor) or "BOTTOM"] or PREVIEW_TEXT_ANCHORS.BOTTOM
         return m[1], m[2]
@@ -1556,8 +1550,8 @@ initFrame:SetScript("OnEvent", function(self)
             cogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
 
             -- Eye icon toggles a live preview (left of cog)
-            local EYE_VISIBLE   = EllesmereUI.MEDIA_PATH .. "icons\\eui-visible.png"
-            local EYE_INVISIBLE = EllesmereUI.MEDIA_PATH .. "icons\\eui-invisible.png"
+            local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+            local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
             local eyeBtn = CreateFrame("Button", nil, leftRgn)
             eyeBtn:SetSize(26, 26)
             eyeBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)

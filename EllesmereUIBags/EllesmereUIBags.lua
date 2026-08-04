@@ -169,127 +169,6 @@ local function AbbrevDungeon(mapID)
 end
 
 -------------------------------------------------------------------------------
---  Profiler: zero cost when off, /bagprof to toggle.
---  C_AddOnProfiler for per-frame totals, debugprofilestop for breakdown.
--------------------------------------------------------------------------------
-local ProfBegin, ProfEnd
-do
-    local _profData, _profActive = {}, false
-    local dps = debugprofilestop
-    local _addonName = "EllesmereUIBags"
-    local _frameCount = 0
-    local _totalAddonMs = 0
-    local _peakAddonMs = 0
-    local _startTime = 0
-
-    -- Per-frame tracking using GetTime() to detect frame boundaries
-    local _curFrameLabels = {}
-    local _curFrameTotal = 0
-    local _curFrameTime = 0
-    local _peakFrameLabels = {}
-    local _peakFrameTotal = 0
-
-    ProfBegin = function(label)
-        if not _profActive then return 0 end
-        return dps()
-    end
-    ProfEnd = function(label, t0)
-        if not _profActive then return end
-        local elapsed = dps() - t0
-        -- Detect frame boundary: finalize previous frame on new GetTime()
-        local now = GetTime()
-        if now ~= _curFrameTime then
-            if _curFrameTotal > _peakFrameTotal then
-                _peakFrameTotal = _curFrameTotal
-                wipe(_peakFrameLabels)
-                for k, v in pairs(_curFrameLabels) do _peakFrameLabels[k] = v end
-            end
-            wipe(_curFrameLabels)
-            _curFrameTotal = 0
-            _curFrameTime = now
-        end
-        local d = _profData[label]
-        if not d then d = { n = 0, total = 0 }; _profData[label] = d end
-        d.n = d.n + 1
-        d.total = d.total + elapsed
-        _curFrameLabels[label] = (_curFrameLabels[label] or 0) + elapsed
-        _curFrameTotal = _curFrameTotal + elapsed
-    end
-
-    -- OnUpdate only for C_AddOnProfiler addon total (authoritative reference)
-    local _peakAddonFrameMs = 0  -- C_AddOnProfiler value for the peak instrumented frame
-    local profFrame = CreateFrame("Frame")
-    profFrame:Hide()
-    profFrame:SetScript("OnUpdate", function()
-        if not _profActive then profFrame:Hide(); return end
-        if not C_AddOnProfiler or not C_AddOnProfiler.GetAddOnMetric then return end
-        local addonMs = C_AddOnProfiler.GetAddOnMetric(
-            _addonName, Enum.AddOnProfilerMetric.LastTime) or 0
-        _frameCount = _frameCount + 1
-        _totalAddonMs = _totalAddonMs + addonMs
-        if addonMs > _peakAddonMs then _peakAddonMs = addonMs end
-    end)
-
-    local function ResetProf()
-        wipe(_profData); wipe(_curFrameLabels); wipe(_peakFrameLabels)
-        _frameCount = 0; _totalAddonMs = 0; _peakAddonMs = 0
-        _peakAddonFrameMs = 0; _peakFrameTotal = 0
-        _curFrameTotal = 0; _curFrameTime = 0; _startTime = 0
-    end
-
-    SLASH_BAGPROF1 = "/bagprof"
-    SlashCmdList["BAGPROF"] = function(msg)
-        if msg == "reset" then
-            ResetProf()
-            print("|cff00ccffBagProf:|r data cleared")
-            return
-        end
-        _profActive = not _profActive
-        if _profActive then
-            ResetProf()
-            _startTime = GetTime()
-            profFrame:Show()
-            print("|cff00ccffBagProf:|r ON -- type /bagprof again to stop")
-        else
-            profFrame:Hide()
-            -- Finalize last frame
-            if _curFrameTotal > _peakFrameTotal then
-                _peakFrameTotal = _curFrameTotal
-                wipe(_peakFrameLabels)
-                for k, v in pairs(_curFrameLabels) do _peakFrameLabels[k] = v end
-            end
-            local dur = GetTime() - _startTime
-            local avgAddon = _frameCount > 0
-                and (_totalAddonMs / _frameCount) or 0
-            print("|cff00ccffBagProf Report:|r  "
-                .. _frameCount .. " frames, " .. format("%.1f", dur) .. "s")
-            print(format(
-                "  |cff00ccffAddon Peak:|r  %.3f ms", _peakAddonMs))
-            -- Peak frame breakdown: scale proportionally to C_AddOnProfiler peak
-            local scale = (_peakFrameTotal > 0) and (_peakAddonMs / _peakFrameTotal) or 1
-            local sorted = {}
-            local scaledTotal = 0
-            for label, ms in pairs(_peakFrameLabels) do
-                local scaled = ms * scale
-                sorted[#sorted + 1] = { label = label, ms = scaled }
-                scaledTotal = scaledTotal + scaled
-            end
-            table.sort(sorted, function(a, b) return a.ms > b.ms end)
-            print(format("  %-30s %10s %8s", "Label", "ms", "%"))
-            for _, e in ipairs(sorted) do
-                local pct = _peakAddonMs > 0 and (e.ms / _peakAddonMs * 100) or 0
-                print(format("  %-30s %10.3f %7.1f%%", e.label, e.ms, pct))
-            end
-            local gap = _peakAddonMs - scaledTotal
-            if gap > 0.05 then
-                local pct = gap / _peakAddonMs * 100
-                print(format("  %-30s %10.3f %7.1f%%", "Unaccounted", gap, pct))
-            end
-        end
-    end
-end
-
--------------------------------------------------------------------------------
 --  Sidebar constants
 -------------------------------------------------------------------------------
 local SIDEBAR_W_EXPANDED  = 160
@@ -4908,7 +4787,6 @@ function EUI_Bags:RefreshInventory()
     C_NewItems.ClearAll()
 
     -- 1. Gather items from all bags (0-4 + reagent bag 5)
-    local _t0Scan = 0 -- PROF: ProfBegin("BagScan")
     ReleaseAllSlotTables()
     local tempItems = {}
     local emptySlots = {}
@@ -4986,7 +4864,6 @@ function EUI_Bags:RefreshInventory()
             end
         end
     end
-    if _t0Scan > 0 then ProfEnd("BagScan", _t0Scan) end
 
     -- 1b. Detect manual item swaps and update saved visual order
     local isAllItems = selectedCategoryIndex == 0 and not selectedGroupName
@@ -5004,9 +4881,7 @@ function EUI_Bags:RefreshInventory()
     end
 
     -- 2. Classify all items and get counts
-    local _t0Classify = 0 -- PROF: ProfBegin("ClassifyAll")
     local categoryCounts, totalCount = EUI_CategoryManager:ClassifyAll(tempItems)
-    if _t0Classify > 0 then ProfEnd("ClassifyAll", _t0Classify) end
 
     -- 2a. Snapshot slot->category mapping for partial refresh
     wipe(_slotCategories)
@@ -5048,16 +4923,13 @@ function EUI_Bags:RefreshInventory()
     end
 
     -- 3. Update sidebar
-    local _t0Sidebar = 0 -- PROF: ProfBegin("BuildSidebarButtons")
     BuildSidebarButtons(categoryCounts, totalCount)
-    if _t0Sidebar > 0 then ProfEnd("BuildSidebarButtons", _t0Sidebar) end
 
     -- Cache counts for partial refresh
     _lastCatCounts = categoryCounts
     _lastTotalCount = totalCount
 
     -- 4. Filter items by selected category/group + search
-    local _t0Filter = 0 -- PROF: ProfBegin("FilterAndSort")
     local isRecentView = recentCatIdx and selectedCategoryIndex == recentCatIdx
     local isPinnedView = pinnedCatIdx and selectedCategoryIndex == pinnedCatIdx
     local filterSet = nil  -- nil = show all
@@ -5117,10 +4989,8 @@ function EUI_Bags:RefreshInventory()
         wipe(_pendingResortGroups)
     end
 
-    if _t0Filter > 0 then ProfEnd("FilterAndSort", _t0Filter) end
 
     -- 5. Render grid into scroll child
-    local _t0GridSetup = 0 -- PROF: ProfBegin("GridSetup")
     for _, btn in pairs(itemSlots) do
         if btn.ProfessionQualityOverlay then btn.ProfessionQualityOverlay:SetAlpha(0) end
         if btn.IconOverlay then btn.IconOverlay:SetAlpha(0); btn.IconOverlay:Hide() end
@@ -5260,7 +5130,6 @@ function EUI_Bags:RefreshInventory()
         end
     end
 
-    if _t0GridSetup > 0 then ProfEnd("GridSetup", _t0GridSetup) end
 
     if selectedCategoryIndex == -1 or selectedCategoryIndex == -2 then
         -- "OneBag"/"MultiBag" view: Pinned Items (display-only) + bag section(s)
@@ -5476,7 +5345,6 @@ function EUI_Bags:RefreshInventory()
             hdr:Show()
             curY = curY - 22
             for i, data in ipairs(slotList) do
-                local _t0RB = 0 -- PROF: ProfBegin("RenderButton")
                 slotIdx = slotIdx + 1
                 local btn = GetOrCreateSlot(slotIdx)
                 if btn then  -- nil during combat (avoids minting tainted secure buttons)
@@ -5485,7 +5353,6 @@ function EUI_Bags:RefreshInventory()
                     local row = math.floor((i - 1) / columns)
                     RenderButton(btn, data, slotIdx, col, row, startX, curY, columns, true)
                 end
-                if _t0RB > 0 then ProfEnd("RenderButton", _t0RB) end
             end
             local rows = math.ceil(#slotList / columns)
             curY = curY - (rows * (SLOT_SIZE + SPACING)) - 6
@@ -5554,7 +5421,6 @@ function EUI_Bags:RefreshInventory()
             curY = curY - 22
 
             for i, data in ipairs(reagentSlotList) do
-                local _t0RB = 0 -- PROF: ProfBegin("RenderButton")
                 slotIdx = slotIdx + 1
                 local btn = GetOrCreateSlot(slotIdx)
                 if btn then  -- nil during combat (avoids minting tainted secure buttons)
@@ -5563,7 +5429,6 @@ function EUI_Bags:RefreshInventory()
                     local row = math.floor((i - 1) / columns)
                     RenderButton(btn, data, slotIdx, col, row, startX, curY, columns, true)
                 end
-                if _t0RB > 0 then ProfEnd("RenderButton", _t0RB) end
             end
             local reagRows = math.ceil(#reagentSlotList / columns)
             curY = curY - (reagRows * (SLOT_SIZE + SPACING))
@@ -5598,7 +5463,6 @@ function EUI_Bags:RefreshInventory()
         local function RenderItemBlock(blockItems)
             local n = #blockItems
             for j, data in ipairs(blockItems) do
-                local _t0RB = 0 -- PROF: ProfBegin("RenderButton")
                 slotIdx = slotIdx + 1
                 local btn = GetOrCreateSlot(slotIdx)
                 if btn then  -- nil during combat (avoids minting tainted secure buttons)
@@ -5607,7 +5471,6 @@ function EUI_Bags:RefreshInventory()
                     local row = math.floor((j - 1) / columns)
                     RenderButton(btn, data, slotIdx, col, row, startX, curY, columns)
                 end
-                if _t0RB > 0 then ProfEnd("RenderButton", _t0RB) end
             end
             local remainder = n % columns
             local padCount
@@ -5755,7 +5618,6 @@ function EUI_Bags:RefreshInventory()
             end
 
             for j, data in ipairs(sectionItems) do
-                local _t0RB = 0 -- PROF: ProfBegin("RenderButton")
                 slotIdx = slotIdx + 1
                 local btn = GetOrCreateSlot(slotIdx)
                 if btn then
@@ -5764,7 +5626,6 @@ function EUI_Bags:RefreshInventory()
                     local row = math.floor((j - 1) / columns)
                     RenderButton(btn, data, slotIdx, col, row, startX, curY, columns)
                 end
-                if _t0RB > 0 then ProfEnd("RenderButton", _t0RB) end
             end
 
             -- Pin "+" button: a regular empty slot with a "+" overlay on top
@@ -5932,7 +5793,6 @@ function EUI_Bags:RefreshInventory()
                 curY = curY - 22
 
                 for j, data in ipairs(memberItems) do
-                    local _t0RB = 0 -- PROF: ProfBegin("RenderButton")
                     slotIdx = slotIdx + 1
                     local btn = GetOrCreateSlot(slotIdx)
                     if btn then
@@ -5941,7 +5801,6 @@ function EUI_Bags:RefreshInventory()
                         local row = math.floor((j - 1) / columns)
                         RenderButton(btn, data, slotIdx, col, row, startX, curY, columns)
                     end
-                    if _t0RB > 0 then ProfEnd("RenderButton", _t0RB) end
                 end
 
                 -- Assign "+" per member sub-section in group view
@@ -6112,7 +5971,6 @@ function EUI_Bags:RefreshInventory()
 
             local itemCount = #displayItems
             for i, data in ipairs(displayItems) do
-                local _t0RB = 0 -- PROF: ProfBegin("RenderButton")
                 slotIdx = slotIdx + 1
                 local btn = GetOrCreateSlot(slotIdx)
                 if btn then
@@ -6121,7 +5979,6 @@ function EUI_Bags:RefreshInventory()
                     local row = math.floor((i - 1) / columns)
                     RenderButton(btn, data, slotIdx, col, row, startX, curY, columns)
                 end
-                if _t0RB > 0 then ProfEnd("RenderButton", _t0RB) end
             end
 
             local remainder = itemCount % columns

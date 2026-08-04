@@ -332,54 +332,8 @@ movementFrame:Hide()
 -- Texture" dropdown uses (EllesmereUICooldownManager\EllesmereUICdmBuffBars.lua);
 -- the options page appends SharedMedia statusbar textures into these tables.
 -- Rendering resolves through ResolveTexturePath ("none" = flat WHITE8x8).
-local BAR_TEX_BASE = "Interface\\AddOns\\EllesmereUI\\media\\textures\\"
-local BAR_TEXTURES = {
-    ["none"]          = nil,
-    ["melli"]         = BAR_TEX_BASE .. "melli.tga",
-    ["beautiful"]     = BAR_TEX_BASE .. "beautiful.tga",
-    ["plating"]       = BAR_TEX_BASE .. "plating.tga",
-    ["atrocity"]      = BAR_TEX_BASE .. "atrocity.tga",
-    ["divide"]        = BAR_TEX_BASE .. "divide.tga",
-    ["glass"]         = BAR_TEX_BASE .. "glass.tga",
-    ["fade-right"]    = BAR_TEX_BASE .. "fade-right.tga",
-    ["thin-line-top"]    = BAR_TEX_BASE .. "thin-line-top.tga",
-    ["thin-line-bottom"] = BAR_TEX_BASE .. "thin-line-bottom.tga",
-    ["fade"]          = BAR_TEX_BASE .. "fade.tga",
-    ["gradient-lr"]   = BAR_TEX_BASE .. "gradient-lr.tga",
-    ["gradient-rl"]   = BAR_TEX_BASE .. "gradient-rl.tga",
-    ["gradient-bt"]   = BAR_TEX_BASE .. "gradient-bt.tga",
-    ["gradient-tb"]   = BAR_TEX_BASE .. "gradient-tb.tga",
-    ["matte"]         = BAR_TEX_BASE .. "matte.tga",
-    ["sheer"]         = BAR_TEX_BASE .. "sheer.tga",
-}
-local BAR_TEXTURE_ORDER = {
-    "none", "melli", "atrocity",
-    "fade", "fade-right",
-    "thin-line-top", "thin-line-bottom",
-    "beautiful", "plating",
-    "divide", "glass",
-    "gradient-lr", "gradient-rl", "gradient-bt", "gradient-tb",
-    "matte", "sheer",
-}
-local BAR_TEXTURE_NAMES = {
-    ["none"]        = "None",
-    ["melli"]       = "Melli (ElvUI)",
-    ["beautiful"]   = "Beautiful",
-    ["plating"]     = "Plating",
-    ["atrocity"]    = "Atrocity",
-    ["divide"]      = "Divide",
-    ["glass"]       = "Glass",
-    ["fade-right"]  = "Fade Right",
-    ["thin-line-top"]    = "Thin Line Top",
-    ["thin-line-bottom"] = "Thin Line Bottom",
-    ["fade"]        = "Fade",
-    ["gradient-lr"] = "Gradient Right",
-    ["gradient-rl"] = "Gradient Left",
-    ["gradient-bt"] = "Gradient Up",
-    ["gradient-tb"] = "Gradient Down",
-    ["matte"]       = "Matte",
-    ["sheer"]       = "Sheer",
-}
+local BAR_TEXTURES, BAR_TEXTURE_NAMES, BAR_TEXTURE_ORDER =
+    EllesmereUI.BuildBarTextureTables()
 EllesmereUI._MovementBarTextures = {
     lookup = BAR_TEXTURES, order = BAR_TEXTURE_ORDER, names = BAR_TEXTURE_NAMES,
 }

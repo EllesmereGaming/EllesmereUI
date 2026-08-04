@@ -780,21 +780,7 @@ local CLASS_ICON_SPRITE_TEX = {}
 for _, style in ipairs({ "modern", "dark", "light", "clean" }) do
     CLASS_ICON_SPRITE_TEX[style] = CLASS_ICON_SPRITE_BASE .. style .. ".tga"
 end
-local CLASS_SPRITE_COORDS = {
-    WARRIOR     = { 0,     0.125, 0,     0.125 },
-    MAGE        = { 0.125, 0.25,  0,     0.125 },
-    ROGUE       = { 0.25,  0.375, 0,     0.125 },
-    DRUID       = { 0.375, 0.5,   0,     0.125 },
-    EVOKER      = { 0.5,   0.625, 0,     0.125 },
-    HUNTER      = { 0,     0.125, 0.125, 0.25  },
-    SHAMAN      = { 0.125, 0.25,  0.125, 0.25  },
-    PRIEST      = { 0.25,  0.375, 0.125, 0.25  },
-    WARLOCK     = { 0.375, 0.5,   0.125, 0.25  },
-    PALADIN     = { 0,     0.125, 0.25,  0.375 },
-    DEATHKNIGHT = { 0.125, 0.25,  0.25,  0.375 },
-    MONK        = { 0.25,  0.375, 0.25,  0.375 },
-    DEMONHUNTER = { 0.375, 0.5,   0.25,  0.375 },
-}
+local CLASS_SPRITE_COORDS = EllesmereUI.CLASS_ICON_SPRITE_COORDS
 
 local MINI_DISPLAY = {
     namerica = "North America", samerica = "South America",
@@ -847,16 +833,7 @@ local function GetClassFile(accountInfo)
     return nil
 end
 
-local _classColorCodes = {}
-local function ClassColorCode(classFile)
-    local code = _classColorCodes[classFile]
-    if code then return code end
-    local cc = RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
-    if not cc then return nil end
-    code = format("|cff%02x%02x%02x", cc.r * 255, cc.g * 255, cc.b * 255)
-    _classColorCodes[classFile] = code
-    return code
-end
+local ClassColorCode = _G._EFR_ClassColorCode
 
 -- Playing this WoW project right now (drives class icon, faction wash).
 local function IsSameProjectOnline(gi)
@@ -2174,96 +2151,6 @@ end
 -- Exposed for the options page and for the module reset path.
 _G._EFR_ApplyGroups   = ApplyGroups
 _G._EFR_RebuildGroups = RebuildGroups
-
--------------------------------------------------------------------------------
---  /euifg -- diagnostic dump for the 12.1 grouping overlay
--------------------------------------------------------------------------------
-SLASH_EUIFG1 = "/euifg"
-SlashCmdList.EUIFG = function()
-    local function say(fmt, ...)
-        print("|cff0cd29fEUI Groups|r " .. string.format(fmt, ...))
-    end
-
-    local view = GetView()
-    say("SocialUIFrame=%s  view=%s  viewShown=%s  hooked=%s",
-        tostring(SocialUIFrame ~= nil), tostring(view ~= nil),
-        tostring(view and view:IsShown()), tostring(viewHooked))
-    say("groupsEnabled=%s  socialAvailable=%s  IsActive=%s",
-        tostring(GroupsEnabled()), tostring(IsSocialUIAvailable()), tostring(IsActive()))
-
-    if not ourScrollBox then
-        say("our ScrollBox: NOT CREATED")
-    else
-        say("our ScrollBox: shown=%s  w=%.1f h=%.1f  strata=%s level=%d",
-            tostring(ourScrollBox:IsShown()),
-            ourScrollBox:GetWidth() or -1, ourScrollBox:GetHeight() or -1,
-            tostring(ourScrollBox:GetFrameStrata()), ourScrollBox:GetFrameLevel() or -1)
-        local dp = ourScrollBox:GetDataProvider()
-        -- Long-form on purpose: a size of 0 is the interesting answer here and
-        -- an `and/or` chain would report it as the "missing" sentinel instead.
-        local size = -1
-        if dp and dp.GetSize then
-            size = dp:GetSize(TreeDataProviderConstants.ExcludeCollapsed)
-        end
-        local frames = 0
-        for _ in ourScrollBox:EnumerateFrames() do frames = frames + 1 end
-        say("provider nodes(visible)=%s  acquired frames=%d", tostring(size), frames)
-
-        local st = ourScrollBox.ScrollTarget or (ourScrollBox.GetScrollTarget and ourScrollBox:GetScrollTarget())
-        if st then
-            say("ScrollTarget: shown=%s alpha=%.2f w=%.1f h=%.1f strata=%s level=%d",
-                tostring(st:IsShown()), st:GetAlpha() or -1,
-                st:GetWidth() or -1, st:GetHeight() or -1,
-                tostring(st:GetFrameStrata()), st:GetFrameLevel() or -1)
-        else
-            say("ScrollTarget: NOT FOUND")
-        end
-
-        -- Dump the first acquired element: if the list is populated but blank,
-        -- the answer is in this line.
-        for _, f in ourScrollBox:EnumerateFrames() do
-            local top = f:GetTop()
-            say("card1: shown=%s alpha=%.2f w=%.1f h=%.1f strata=%s level=%d top=%s",
-                tostring(f:IsShown()), f:GetAlpha() or -1,
-                f:GetWidth() or -1, f:GetHeight() or -1,
-                tostring(f:GetFrameStrata()), f:GetFrameLevel() or -1,
-                top and string.format("%.1f", top) or "nil")
-            local bg = f.Background
-            if bg then
-                say("card1.Background(blizz): shown=%s alpha=%.2f",
-                    tostring(bg:IsShown()), bg:GetAlpha() or -1)
-            end
-            local td = FFD[f]
-            if td and td.tileSkinned then
-                say("card1 tile: name=%q info=%q",
-                    (td.name:GetText() or ""):sub(1, 40),
-                    (td.info:GetText() or ""):sub(1, 40))
-                say("card1 tile: tileBg=%s faction=%s icon=%s orb=%s partyBtn=%s",
-                    tostring(td.tileBg:IsShown()), tostring(td.factionBg:IsShown()),
-                    tostring(td.classIcon:IsShown()), tostring(td.orb:IsShown()),
-                    tostring(f.PartyButton ~= nil and f.PartyButton:IsShown()))
-            else
-                say("card1 tile: NOT SKINNED")
-            end
-            break
-        end
-    end
-
-    if view then
-        say("view: strata=%s level=%d", tostring(view:GetFrameStrata()), view:GetFrameLevel() or -1)
-        local sb = view.ScrollBox
-        if sb then
-            say("blizz ScrollBox: alpha=%.2f points=%d suppressed=%s",
-                sb:GetAlpha() or -1, sb:GetNumPoints() or -1, tostring(blizSuppressed))
-        end
-        say("TopDivider=%s BottomDivider=%s",
-            tostring(view.TopDivider ~= nil), tostring(view.BottomDivider ~= nil))
-    end
-
-    local fg = GetFriendGroupsGlobal()
-    say("groups=%d  order=%d  BNGetNumFriends=%d",
-        #fg.friendGroups, #fg.friendGroupOrder, BNGetNumFriends and BNGetNumFriends() or -1)
-end
 
 -------------------------------------------------------------------------------
 --  Options section (12.1 only; the Friends page calls this if it exists)

@@ -108,110 +108,6 @@ do
 end
 
 -------------------------------------------------------------------------------
---  Profiler: zero cost when off, /erfprof to toggle.
--------------------------------------------------------------------------------
-do
-    local _profData, _profActive = {}, false
-    local dps = debugprofilestop
-    local _addonName = "EllesmereUIRaidFrames"
-    local _frameCount = 0
-    local _totalAddonMs = 0
-    local _peakAddonMs = 0
-    local _startTime = 0
-    local _curFrameLabels = {}
-    local _curFrameTotal = 0
-    local _curFrameTime = 0
-    local _peakFrameLabels = {}
-    local _peakFrameTotal = 0
-
-    ns.ProfBegin = function(label)
-        if not _profActive then return 0 end
-        return dps()
-    end
-    ns.ProfEnd = function(label, t0)
-        if not _profActive then return end
-        local elapsed = dps() - t0
-        local now = GetTime()
-        if now ~= _curFrameTime then
-            if _curFrameTotal > _peakFrameTotal then
-                _peakFrameTotal = _curFrameTotal
-                wipe(_peakFrameLabels)
-                for k, v in pairs(_curFrameLabels) do _peakFrameLabels[k] = v end
-            end
-            wipe(_curFrameLabels)
-            _curFrameTotal = 0
-            _curFrameTime = now
-        end
-        local d = _profData[label]
-        if not d then d = { n = 0, total = 0 }; _profData[label] = d end
-        d.n = d.n + 1
-        d.total = d.total + elapsed
-        _curFrameLabels[label] = (_curFrameLabels[label] or 0) + elapsed
-        _curFrameTotal = _curFrameTotal + elapsed
-    end
-
-    local profFrame = CreateFrame("Frame")
-    profFrame:Hide()
-    profFrame:SetScript("OnUpdate", function()
-        if not _profActive then profFrame:Hide(); return end
-        if not C_AddOnProfiler or not C_AddOnProfiler.GetAddOnMetric then return end
-        local addonMs = C_AddOnProfiler.GetAddOnMetric(
-            _addonName, Enum.AddOnProfilerMetric.LastTime) or 0
-        _frameCount = _frameCount + 1
-        _totalAddonMs = _totalAddonMs + addonMs
-        if addonMs > _peakAddonMs then _peakAddonMs = addonMs end
-    end)
-
-    local function ResetProf()
-        wipe(_profData); wipe(_curFrameLabels); wipe(_peakFrameLabels)
-        _frameCount = 0; _totalAddonMs = 0; _peakAddonMs = 0
-        _peakFrameTotal = 0; _curFrameTotal = 0; _curFrameTime = 0; _startTime = 0
-    end
-
-    SLASH_ERFPROF1 = "/erfprof"
-    SlashCmdList["ERFPROF"] = function(msg)
-        if msg == "reset" then
-            ResetProf()
-            print("|cff00ccffERFProf:|r data cleared")
-            return
-        end
-        _profActive = not _profActive
-        if _profActive then
-            ResetProf()
-            _startTime = GetTime()
-            profFrame:Show()
-            print("|cff00ccffERFProf:|r ON -- type /erfprof again to stop")
-        else
-            profFrame:Hide()
-            if _curFrameTotal > _peakFrameTotal then
-                _peakFrameTotal = _curFrameTotal
-                wipe(_peakFrameLabels)
-                for k, v in pairs(_curFrameLabels) do _peakFrameLabels[k] = v end
-            end
-            local dur = GetTime() - _startTime
-            local avgAddon = _frameCount > 0
-                and (_totalAddonMs / _frameCount) or 0
-            print("|cff00ccffERFProf Report:|r  "
-                .. _frameCount .. " frames, " .. format("%.1f", dur) .. "s")
-            print(format("  |cff00ccffAddon Peak:|r  %.3f ms   |cff00ccffAvg:|r %.3f ms", _peakAddonMs, avgAddon))
-            local scale = (_peakFrameTotal > 0) and (_peakAddonMs / _peakFrameTotal) or 1
-            local sorted = {}
-            for label, ms in pairs(_peakFrameLabels) do
-                local scaled = ms * scale
-                local d = _profData[label]
-                local avg = (d and _frameCount > 0) and (d.total / _frameCount) or 0
-                sorted[#sorted + 1] = { label = label, peak = scaled, avg = avg }
-            end
-            table.sort(sorted, function(a, b) return a.avg > b.avg end)
-            print(format("  %-30s %10s %10s", "Label", "avg ms", "peak ms"))
-            for _, e in ipairs(sorted) do
-                print(format("  %-30s %10.3f %10.3f", e.label, e.avg, e.peak))
-            end
-        end
-    end
-end
-
--------------------------------------------------------------------------------
 --  Locals & upvalues
 -------------------------------------------------------------------------------
 local PP           = nil  -- set in OnEnable once parent is ready
@@ -336,6 +232,8 @@ local ROLE_ICON_STYLES = {
         DAMAGER = ROLE_MEDIA .. "dps.png",
     },
 }
+-- Read-only share with the options file's style preview (this file loads first).
+ns.ROLE_ICON_STYLES = ROLE_ICON_STYLES
 
 local function ApplyRoleIcon(texture, role, style)
     -- style is supplied by the caller from its own settings context (the party
@@ -415,21 +313,7 @@ local THREAT_ACTIVE = { [2] = true, [3] = true }
 -- Combat indicator media + class sprite coords (shared with the Unit Frames
 -- combat icon assets). Kept on `ns` to avoid the Lua 5.1 chunk local cap.
 ns._COMBAT_MEDIA = "Interface\\AddOns\\EllesmereUI\\media\\combat\\"
-ns._COMBAT_CLASS_COORDS = {
-    WARRIOR     = { 0,     0.125, 0,     0.125 },
-    MAGE        = { 0.125, 0.25,  0,     0.125 },
-    ROGUE       = { 0.25,  0.375, 0,     0.125 },
-    DRUID       = { 0.375, 0.5,   0,     0.125 },
-    EVOKER      = { 0.5,   0.625, 0,     0.125 },
-    HUNTER      = { 0,     0.125, 0.125, 0.25  },
-    SHAMAN      = { 0.125, 0.25,  0.125, 0.25  },
-    PRIEST      = { 0.25,  0.375, 0.125, 0.25  },
-    WARLOCK     = { 0.375, 0.5,   0.125, 0.25  },
-    PALADIN     = { 0,     0.125, 0.25,  0.375 },
-    DEATHKNIGHT = { 0.125, 0.25,  0.25,  0.375 },
-    MONK        = { 0.25,  0.375, 0.25,  0.375 },
-    DEMONHUNTER = { 0.375, 0.5,   0.25,  0.375 },
-}
+ns._COMBAT_CLASS_COORDS = EllesmereUI.CLASS_ICON_SPRITE_COORDS
 
 -------------------------------------------------------------------------------
 --  Default settings
@@ -1162,67 +1046,14 @@ local healthBarTextureNames = {}
 local healthBarTextureOrder = {}
 
 local function InitHealthBarTextures()
-    local TEX_BASE = "Interface\\AddOns\\EllesmereUI\\media\\textures\\"
-    -- Built-in textures (matches DM/UF texture set)
-    healthBarTextures["none"]             = "Interface\\Buttons\\WHITE8X8"
-    healthBarTextures["melli"]            = TEX_BASE .. "melli.tga"
-    healthBarTextures["atrocity"]         = TEX_BASE .. "atrocity.tga"
-    healthBarTextures["beautiful"]        = TEX_BASE .. "beautiful.tga"
-    healthBarTextures["plating"]          = TEX_BASE .. "plating.tga"
-    healthBarTextures["divide"]           = TEX_BASE .. "divide.tga"
-    healthBarTextures["glass"]            = TEX_BASE .. "glass.tga"
-    healthBarTextures["fade"]             = TEX_BASE .. "fade.tga"
-    healthBarTextures["fade-right"]       = TEX_BASE .. "fade-right.tga"
-    healthBarTextures["thin-line-top"]    = TEX_BASE .. "thin-line-top.tga"
-    healthBarTextures["thin-line-bottom"] = TEX_BASE .. "thin-line-bottom.tga"
-    healthBarTextures["gradient-lr"]      = TEX_BASE .. "gradient-lr.tga"
-    healthBarTextures["gradient-rl"]      = TEX_BASE .. "gradient-rl.tga"
-    healthBarTextures["gradient-bt"]      = TEX_BASE .. "gradient-bt.tga"
-    healthBarTextures["gradient-tb"]      = TEX_BASE .. "gradient-tb.tga"
-    healthBarTextures["matte"]            = TEX_BASE .. "matte.tga"
-    healthBarTextures["sheer"]            = TEX_BASE .. "sheer.tga"
-    healthBarTextures["blinkii-diamonds"] = TEX_BASE .. "blinkii-diamonds.tga"
-    healthBarTextures["kringel-window"]   = TEX_BASE .. "kringel-window.tga"
-
-    healthBarTextureNames["none"]             = "None"
-    healthBarTextureNames["melli"]            = "Melli (ElvUI)"
-    healthBarTextureNames["atrocity"]         = "Atrocity"
-    healthBarTextureNames["beautiful"]        = "Beautiful"
-    healthBarTextureNames["plating"]          = "Plating"
-    healthBarTextureNames["divide"]           = "Divide"
-    healthBarTextureNames["glass"]            = "Glass"
-    healthBarTextureNames["fade"]             = "Fade"
-    healthBarTextureNames["fade-right"]       = "Fade Right"
-    healthBarTextureNames["thin-line-top"]    = "Thin Line Top"
-    healthBarTextureNames["thin-line-bottom"] = "Thin Line Bottom"
-    healthBarTextureNames["gradient-lr"]      = "Gradient Right"
-    healthBarTextureNames["gradient-rl"]      = "Gradient Left"
-    healthBarTextureNames["gradient-bt"]      = "Gradient Up"
-    healthBarTextureNames["gradient-tb"]      = "Gradient Down"
-    healthBarTextureNames["matte"]            = "Matte"
-    healthBarTextureNames["sheer"]            = "Sheer"
-    healthBarTextureNames["blinkii-diamonds"] = "Blinkii Diamonds"
-    healthBarTextureNames["kringel-window"]   = "Kringel Window"
-
-    healthBarTextureOrder[1]  = "none"
-    healthBarTextureOrder[2]  = "melli"
-    healthBarTextureOrder[3]  = "atrocity"
-    healthBarTextureOrder[4]  = "fade"
-    healthBarTextureOrder[5]  = "fade-right"
-    healthBarTextureOrder[6]  = "thin-line-top"
-    healthBarTextureOrder[7]  = "thin-line-bottom"
-    healthBarTextureOrder[8]  = "beautiful"
-    healthBarTextureOrder[9]  = "plating"
-    healthBarTextureOrder[10] = "divide"
-    healthBarTextureOrder[11] = "glass"
-    healthBarTextureOrder[12] = "gradient-lr"
-    healthBarTextureOrder[13] = "gradient-rl"
-    healthBarTextureOrder[14] = "gradient-bt"
-    healthBarTextureOrder[15] = "gradient-tb"
-    healthBarTextureOrder[16] = "matte"
-    healthBarTextureOrder[17] = "sheer"
-    healthBarTextureOrder[18] = "blinkii-diamonds"
-    healthBarTextureOrder[19] = "kringel-window"
+    -- Seed from the shared catalogue INTO the existing file-scope tables
+    -- (their identity is load-bearing: resolver closures capture them).
+    local t, n, o = EllesmereUI.BuildBarTextureTables(true)
+    for k, v in pairs(t) do healthBarTextures[k] = v end
+    for k, v in pairs(n) do healthBarTextureNames[k] = v end
+    for i, k in ipairs(o) do healthBarTextureOrder[i] = k end
+    -- RF-only divergence: "none" is a real solid texture here, not nil.
+    healthBarTextures["none"] = "Interface\\Buttons\\WHITE8X8"
 
     -- Append SharedMedia textures after built-ins
     if EllesmereUI.AppendSharedMediaTextures then
@@ -3189,10 +3020,6 @@ local function StyleButton(button)
     if d.styled then return end
     d.styled = true
 
-    -- Section markers: name where per-button creation time goes in login
-    -- captures (/erfprof login). Zero cost while the profiler is off.
-    local tSB = 0 -- PROF: ns.ProfBegin("SB:core")
-
     -- Register our unit buttons so the free right-click camera watcher can tell
     -- when the cursor is over an EUI raid/party frame (direct IsMouseOver test).
     -- These are SecureGroupHeader/SecureUnitButton frames (Blizzard-owned), so
@@ -3317,14 +3144,10 @@ local function StyleButton(button)
         tnb:Hide()
     end
 
-    if tSB > 0 then ns.ProfEnd("SB:core", tSB) end
 
     -- Absorb shields
-    tSB = 0 -- PROF: ns.ProfBegin("SB:absorbs")
     CreateAbsorbBar(button, health)
-    if tSB > 0 then ns.ProfEnd("SB:absorbs", tSB) end
 
-    tSB = 0 -- PROF: ns.ProfBegin("SB:bordersDispel")
     -- Border frame
     local bdrFrame = CreateFrame("Frame", nil, button)
     bdrFrame:SetAllPoints(button)
@@ -3474,8 +3297,6 @@ local function StyleButton(button)
     end
     AnchorDispelIcon()
     d.AnchorDispelIcon = AnchorDispelIcon
-    if tSB > 0 then ns.ProfEnd("SB:bordersDispel", tSB) end
-    tSB = 0 -- PROF: ns.ProfBegin("SB:texts")
 
     -- Text carrier: name + health text sit in the text band (ns.LVL_TEXT) --
     -- above every border including the hover/target raise, below the aura
@@ -3593,8 +3414,6 @@ local function StyleButton(button)
     end
     AnchorStatusText()
     d.AnchorStatusText = AnchorStatusText
-    if tSB > 0 then ns.ProfEnd("SB:texts", tSB) end
-    tSB = 0 -- PROF: ns.ProfBegin("SB:indicators")
 
     -- Role icon. Carrier sits in the text band (ns.LVL_AURA - 1 = ns.LVL_TEXT,
     -- same as the name/health text): above every border including the
@@ -3738,8 +3557,6 @@ local function StyleButton(button)
     end
     AnchorCombatIcon()
     d.AnchorCombatIcon = AnchorCombatIcon
-    if tSB > 0 then ns.ProfEnd("SB:indicators", tSB) end
-    tSB = 0 -- PROF: ns.ProfBegin("SB:debuffPool")
 
     -- Debuff icons (pre-created, anchored dynamically)
     d.debuffIcons = {}
@@ -3938,8 +3755,6 @@ local function StyleButton(button)
     end
     AnchorDebuffs()
     d.AnchorDebuffs = AnchorDebuffs
-    if tSB > 0 then ns.ProfEnd("SB:debuffPool", tSB) end
-    tSB = 0 -- PROF: ns.ProfBegin("SB:defPool")
 
     -- Defensive/external icon pool (same structure as debuff icons)
     local DEF_CAP = 4
@@ -4047,8 +3862,6 @@ local function StyleButton(button)
     end
     AnchorDefensives()
     d.AnchorDefensives = AnchorDefensives
-    if tSB > 0 then ns.ProfEnd("SB:defPool", tSB) end
-    tSB = 0 -- PROF: ns.ProfBegin("SB:tail")
 
     -- Anchor name text based on position setting
     -- Uses two-point anchoring (LEFT+RIGHT) for width constraint, with
@@ -4434,7 +4247,6 @@ local function StyleButton(button)
     if ns.RFC_SetupButton then
         ns.RFC_SetupButton(button, health, d)
     end
-    if tSB > 0 then ns.ProfEnd("SB:tail", tSB) end
 end
 
 -------------------------------------------------------------------------------
@@ -6322,7 +6134,6 @@ end
 --  Unit-to-button mapping
 -------------------------------------------------------------------------------
 local function RebuildUnitMap()
-    local t0 = 0 -- PROF: ns.ProfBegin("RebuildUnitMap")
     wipe(unitToButton)
     for _, btn in ipairs(allButtons) do
         if btn:IsVisible() then
@@ -6349,7 +6160,6 @@ local function RebuildUnitMap()
             end
         end
     end
-    if t0 > 0 then ns.ProfEnd("RebuildUnitMap", t0) end
 end
 
 -------------------------------------------------------------------------------
@@ -6369,7 +6179,6 @@ end
 ns._paintGen = 0
 local function UpdateAllButtons()
     if previewActive then return end  -- real buttons hidden during preview
-    local t0 = 0 -- PROF: ns.ProfBegin("UpdateAllButtons")
     local now, gen = GetTime(), ns._paintGen
     for _, btn in ipairs(allButtons) do
         local u = btn:GetAttribute("unit")
@@ -6388,7 +6197,6 @@ local function UpdateAllButtons()
             end
         end
     end
-    if t0 > 0 then ns.ProfEnd("UpdateAllButtons", t0) end
 end
 
 -- Full per-button refresh for a freshly (re)assigned unit. Mirrors the
@@ -7512,23 +7320,6 @@ do
     FB.eventFrame = ev
 end
 
--- Temporary diagnostic: /euifb dumps the slot controller's driver states and
--- the per-button layout. Remove once friendly boss frames are confirmed live.
-SLASH_EUIFB1 = "/euifb"
-SlashCmdList.EUIFB = function()
-    print("|cff00d2ffFB|r active:", FB.ShouldBeActive(), "built:", FB.built or false,
-        "rangeSpell:", FB.rangeSpell or "none")
-    if not FB.built then return end
-    local c = FB.controller
-    print("  container shown:", FB.container:IsShown(),
-        "inraid:", c and tostring(c:GetAttribute("state-inraid")) or "no controller")
-    for i = 1, 5 do
-        local b = FB.buttons[i]
-        print(("  slot%d shown=%s unit=%s | fb%d=%s"):format(
-            i, tostring(b:IsShown()), tostring(b:GetAttribute("unit")),
-            i, c and tostring(c:GetAttribute("state-fb" .. i)) or "?"))
-    end
-end
 end -- FB scope block
 
 -------------------------------------------------------------------------------
@@ -8416,7 +8207,6 @@ ns._BuildHeaderSet = function(merge)
         ns._sizeTierDirtyInCombat = true
         return
     end
-    local tb = 0 -- PROF: ns.ProfBegin("BuildHeaderSet")
 
     local s = db.profile
 
@@ -8551,7 +8341,6 @@ ns._BuildHeaderSet = function(merge)
 
     -- Freshly built headers need the current sort attributes.
     ApplySortToHeaders()
-    if tb > 0 then ns.ProfEnd("BuildHeaderSet", tb) end
 end
 
 local function CreateHeaders()
@@ -9628,6 +9417,17 @@ ns._ApplyTierOffset = function()
     if not x then return end
     containerFrame:ClearAllPoints()
     containerFrame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", PixelSnap(x), PixelSnap(y))
+    -- Hidden container (frames not shown -- solo, party, or just left the
+    -- raid): LayoutGroups no longer runs for it, so re-derive the SIZE here
+    -- too. Left alone, the dormant container keeps the LAST raid tier's
+    -- footprint, and unlock mode's mover reads live container geometry: the
+    -- control appears at a stale spot with a stale box, and a drag-save
+    -- there stores a center measured on the wrong footprint (off by half
+    -- the width delta -- the "whole layout drifted left after a raid"
+    -- corruption). While shown, LayoutGroups owns the size as before.
+    if not containerFrame:IsShown() then
+        containerFrame:SetSize(tw, th)
+    end
 end
 
 -- TEMP DEBUG (read-only, prints only): diagnose the vertical-group-growth
@@ -9848,20 +9648,16 @@ end
 -- Seed / full re-evaluation of every assigned unit (enable, roster change,
 -- phase change). Kept as RangeUpdate (forward-declared) for existing callers.
 RangeUpdate = function()
-    local t0 = 0 -- PROF: ns.ProfBegin("RangeUpdate")
     for unit, btn in pairs(unitToButton) do UpdateButtonRange(unit, btn) end
     for unit, btn in pairs(ns._partyUnitToButton) do UpdateButtonRange(unit, btn) end
     for unit, btn in pairs(ns._xfUnitToButton) do UpdateButtonRange(unit, btn) end
-    if t0 > 0 then ns.ProfEnd("RangeUpdate", t0) end
 end
 ns._RangeSeedAll = RangeUpdate
 
 local function RangeRefineAll()
-    local t0 = 0 -- PROF: ns.ProfBegin("RangeRefine")
     for unit, btn in pairs(unitToButton) do RefineButtonRange(unit, btn) end
     for unit, btn in pairs(ns._partyUnitToButton) do RefineButtonRange(unit, btn) end
     for unit, btn in pairs(ns._xfUnitToButton) do RefineButtonRange(unit, btn) end
-    if t0 > 0 then ns.ProfEnd("RangeRefine", t0) end
 end
 
 function StartRangeTicker()
@@ -9896,7 +9692,6 @@ end  -- range fading section (do-block keeps its locals out of the 200-cap)
 local ghostTicker = nil
 
 local function GhostAuraCheck()
-    local t0 = 0 -- PROF: ns.ProfBegin("GhostAuraCheck")
     local function checkUnit(unit, btn)
         local d = GetFFD(btn)
         if not UnitIsVisible(unit) or not UnitIsConnected(unit) then
@@ -9935,7 +9730,6 @@ local function GhostAuraCheck()
     for unit, btn in pairs(unitToButton) do checkUnit(unit, btn) end
     for unit, btn in pairs(ns._partyUnitToButton) do checkUnit(unit, btn) end
     for unit, btn in pairs(ns._xfUnitToButton) do checkUnit(unit, btn) end
-    if t0 > 0 then ns.ProfEnd("GhostAuraCheck", t0) end
 end
 
 local function StartGhostTicker()
@@ -10167,9 +9961,7 @@ local function OnEvent(self, event, arg1, ...)
         end
         ns._rosterDirtyInCombat = nil
         ns._sizeTierDirtyInCombat = nil
-        local t0 = 0 -- PROF: ns.ProfBegin("Visibility:REGEN")
         UpdateVisibility()
-        if t0 > 0 then ns.ProfEnd("Visibility:REGEN", t0) end
         ns._UpdatePartyVisibility()
         if rosterDirty or sizeTierDirty then
             if framesVisible then
@@ -10177,14 +9969,15 @@ local function OnEvent(self, event, arg1, ...)
                     -- Size tier crossed during combat: full reload now safe
                     ReloadFrames()
                 else
-                    t0 = 0 -- PROF: ns.ProfBegin("LayoutGroups:REGEN")
                     LayoutGroups()
-                    if t0 > 0 then ns.ProfEnd("LayoutGroups:REGEN", t0) end
                 end
-                -- Same-dimension tier changes take the LayoutGroups branch;
-                -- reapply offset so the container lands at the correct tier.
-                if ns._ApplyTierOffset then ns._ApplyTierOffset() end
             end
+            -- Same-dimension tier changes take the LayoutGroups branch;
+            -- reapply offset so the container lands at the correct tier.
+            -- Outside the framesVisible gate for the same reason as the
+            -- roster path: a raid left mid-combat must still re-base the
+            -- now-hidden container once combat ends.
+            if ns._ApplyTierOffset then ns._ApplyTierOffset() end
             if ns._partyFramesVisible then
                 ns._LayoutPartyFrames()
             end
@@ -10227,7 +10020,6 @@ local function OnEvent(self, event, arg1, ...)
             end
             -- Rebuild unit maps during combat so new/moved members get events.
             if framesVisible then
-                local t0 = 0 -- PROF: ns.ProfBegin("RebuildUnitMap:COMBAT")
                 wipe(unitToButton)
                 for _, btn in ipairs(allButtons) do
                     if btn:IsVisible() then
@@ -10241,7 +10033,6 @@ local function OnEvent(self, event, arg1, ...)
                         end
                     end
                 end
-                if t0 > 0 then ns.ProfEnd("RebuildUnitMap:COMBAT", t0) end
             end
             -- Party frames: rebuild unit map during combat
             if ns._partyFramesVisible then
@@ -10267,7 +10058,6 @@ local function OnEvent(self, event, arg1, ...)
             if not ns._crPaintTimer and (framesVisible or ns._partyFramesVisible) then
                 ns._crPaintTimer = C_Timer.NewTimer(0, function()
                     ns._crPaintTimer = nil
-                    local t1 = 0 -- PROF: ns.ProfBegin("UpdateAll:COMBAT_ROSTER")
                     if framesVisible then
                         for _, btn in ipairs(allButtons) do
                             local u = btn:GetAttribute("unit")
@@ -10298,7 +10088,6 @@ local function OnEvent(self, event, arg1, ...)
                             end
                         end
                     end
-                    if t1 > 0 then ns.ProfEnd("UpdateAll:COMBAT_ROSTER", t1) end
                 end)
             end
             return
@@ -10321,9 +10110,7 @@ local function OnEvent(self, event, arg1, ...)
             local tierChanged = (newW ~= ns._activeSizeW or newH ~= ns._activeSizeH)
             local wasVis = framesVisible
             ns._visForceRebuild = nil
-            local t0 = 0 -- PROF: ns.ProfBegin("Visibility:ROSTER")
             UpdateVisibility()
-            if t0 > 0 then ns.ProfEnd("Visibility:ROSTER", t0) end
             ns._UpdatePartyVisibility()
             if framesVisible then
                 if tierChanged then
@@ -10333,9 +10120,7 @@ local function OnEvent(self, event, arg1, ...)
                 elseif not wasVis then
                     -- Hidden->visible transition: UpdateVisibility already ran the
                     -- full rebuild (RebuildUnitMap + UpdateAllButtons); just lay out.
-                    t0 = 0 -- PROF: ns.ProfBegin("LayoutGroups:ROSTER")
                     LayoutGroups()
-                    if t0 > 0 then ns.ProfEnd("LayoutGroups:ROSTER", t0) end
                 else
                     -- Already visible, same tier: light refresh only. Aura
                     -- full-rescans are intentionally skipped (hook + UNIT_AURA
@@ -10345,20 +10130,23 @@ local function OnEvent(self, event, arg1, ...)
                     for _, btn in ipairs(allButtons) do
                         if btn:IsVisible() and btn:GetAttribute("unit") then UpdateButton(btn) end
                     end
-                    t0 = 0 -- PROF: ns.ProfBegin("LayoutGroups:ROSTER")
                     LayoutGroups()
-                    if t0 > 0 then ns.ProfEnd("LayoutGroups:ROSTER", t0) end
                 end
-                -- Re-derive the growth-corner anchor after any roster-driven
-                -- layout. tierChanged above compares frame DIMENSIONS, so two
-                -- tiers sharing a size (fresh tiers copy the base 20-man size)
-                -- take the bare-LayoutGroups branches even when their offsets
-                -- or growth differ -- without this, a roster that refined from
-                -- an early undercount (streaming subgroup data at join) left
-                -- the container stuck on the small-tier position until the
-                -- next full reload. Cheap, idempotent, self-gates on combat.
-                if ns._ApplyTierOffset then ns._ApplyTierOffset() end
             end
+            -- Re-derive the growth-corner anchor after any roster-driven
+            -- layout. tierChanged above compares frame DIMENSIONS, so two
+            -- tiers sharing a size (fresh tiers copy the base 20-man size)
+            -- take the bare-LayoutGroups branches even when their offsets
+            -- or growth differ -- without this, a roster that refined from
+            -- an early undercount (streaming subgroup data at join) left
+            -- the container stuck on the small-tier position until the
+            -- next full reload. Cheap, idempotent, self-gates on combat.
+            -- Deliberately OUTSIDE the framesVisible gate: leaving the raid
+            -- hides the frames, and the dormant container must still be
+            -- re-based off the raid tier's position/size (it re-derives the
+            -- size itself while hidden) or unlock mode shows and saves
+            -- against the stale raid-tier geometry.
+            if ns._ApplyTierOffset then ns._ApplyTierOffset() end
             if ns._partyFramesVisible then
                 ns._LayoutPartyFrames()
             end
@@ -10370,9 +10158,7 @@ local function OnEvent(self, event, arg1, ...)
         -- Standard ~40yd range change for this unit (event-driven, debounced).
         local btn = unitToButton[arg1] or ns._partyUnitToButton[arg1]
         if btn then
-            local t0 = 0 -- PROF: ns.ProfBegin("RangeEvent")
             ns._UpdateButtonRange(arg1, btn)
-            if t0 > 0 then ns.ProfEnd("RangeEvent", t0) end
         end
     elseif event == "UNIT_PHASE" then
         -- Phasing doesn't fire UNIT_IN_RANGE_UPDATE; re-evaluate all (rare).
@@ -10380,21 +10166,16 @@ local function OnEvent(self, event, arg1, ...)
     elseif event == "UNIT_HEALTH" then
         local btn = unitToButton[arg1] or ns._partyUnitToButton[arg1]
         if btn then
-            local t0 = 0 -- PROF: ns.ProfBegin("UpdateButton:HEALTH")
             ns._UpdateButtonHealth(btn)
-            if t0 > 0 then ns.ProfEnd("UpdateButton:HEALTH", t0) end
         end
     elseif event == "UNIT_MAXHEALTH" then
         local btn = unitToButton[arg1] or ns._partyUnitToButton[arg1]
         if btn then
-            local t0 = 0 -- PROF: ns.ProfBegin("UpdateButton:MAXHEALTH")
             ns._UpdateButtonHealth(btn)
-            if t0 > 0 then ns.ProfEnd("UpdateButton:MAXHEALTH", t0) end
         end
     elseif event == "UNIT_POWER_UPDATE" then
         local btn = unitToButton[arg1] or ns._partyUnitToButton[arg1]
         if btn and GetFFD(btn).power then
-            local t0 = 0 -- PROF: ns.ProfBegin("PowerUpdate")
             local d = GetFFD(btn)
             local pType = UnitPowerType(arg1) or 0
             -- Percent-based, secret-safe (see UpdateButton power block).
@@ -10413,7 +10194,6 @@ local function OnEvent(self, event, arg1, ...)
                     d._pwBgTintF = f
                 end
             end
-            if t0 > 0 then ns.ProfEnd("PowerUpdate", t0) end
         end
     elseif event == "UNIT_AURA" then
         local btn = unitToButton[arg1] or ns._partyUnitToButton[arg1]
@@ -10421,15 +10201,11 @@ local function OnEvent(self, event, arg1, ...)
             if EllesmereUI.IS_121 then
                 -- 12.1: aura displays are engine-driven containers; the absorb
                 -- overlay (aura-granted shields) is the only consumer left here.
-                local t0 = 0 -- PROF: ns.ProfBegin("UpdateAbsorb:AURA")
                 UpdateAbsorb(btn, arg1)
-                if t0 > 0 then ns.ProfEnd("UpdateAbsorb:AURA", t0) end
             else
             local updateInfo = ...
             -- Dispel border is the dispel signal: never throttled, always now.
-            local t0 = 0 -- PROF: ns.ProfBegin("UpdateDispelBorder")
             UpdateDispelBorder(btn, arg1, updateInfo)
-            if t0 > 0 then ns.ProfEnd("UpdateDispelBorder", t0) end
             -- Informational aura icons: immediate under the per-frame budget; a
             -- single-frame flood spills the overflow to the drain ticker, which
             -- full-rescans current state a few frames later (lossless).
@@ -10438,19 +10214,13 @@ local function OnEvent(self, event, arg1, ...)
             if ns._auraFrameN < ns._auraBudget then
                 ns._auraFrameN = ns._auraFrameN + 1
                 if ns._auraDirty[arg1] then ns._auraDirty[arg1] = nil; ns._auraDirtyN = ns._auraDirtyN - 1 end
-                t0 = 0 -- PROF: ns.ProfBegin("UpdateDebuffs")
                 UpdateDebuffs(btn, arg1, updateInfo)
-                if t0 > 0 then ns.ProfEnd("UpdateDebuffs", t0) end
-                t0 = 0 -- PROF: ns.ProfBegin("UpdateDefensives")
                 UpdateDefensives(btn, arg1, updateInfo)
-                if t0 > 0 then ns.ProfEnd("UpdateDefensives", t0) end
                 -- No UpdateAbsorb on the aura stream: the dedicated absorb
                 -- events (branch below) are a strict superset for everything
                 -- the absorb bars render. See _FlushUnitAuras.
                 if ns.BM_UpdateIndicators then
-                    t0 = 0 -- PROF: ns.ProfBegin("BM_UpdateIndicators")
                     ns.BM_UpdateIndicators(btn, arg1, db, updateInfo)
-                    if t0 > 0 then ns.ProfEnd("BM_UpdateIndicators", t0) end
                 end
             elseif not ns._auraDirty[arg1] then
                 ns._auraDirty[arg1] = true
@@ -10463,9 +10233,7 @@ local function OnEvent(self, event, arg1, ...)
         or event == "UNIT_HEAL_PREDICTION" or event == "UNIT_MAX_HEALTH_MODIFIERS_CHANGED" then
         local btn = unitToButton[arg1] or ns._partyUnitToButton[arg1]
         if btn then
-            local t0 = 0 -- PROF: ns.ProfBegin("UpdateAbsorb:OTHER")
             UpdateAbsorb(btn, arg1)
-            if t0 > 0 then ns.ProfEnd("UpdateAbsorb:OTHER", t0) end
             if event == "UNIT_HEAL_ABSORB_AMOUNT_CHANGED" then ns.UpdateHealAbsorbTextFor(btn, arg1) end
         end
     elseif event == "UNIT_NAME_UPDATE" then
@@ -10502,7 +10270,6 @@ local function OnEvent(self, event, arg1, ...)
     elseif event == "UNIT_THREAT_LIST_UPDATE" or event == "UNIT_THREAT_SITUATION_UPDATE" then
         local btn = unitToButton[arg1] or ns._partyUnitToButton[arg1]
         if btn then
-            local t0 = 0 -- PROF: ns.ProfBegin("ThreatUpdate")
             local d = GetFFD(btn)
             if d.threatFrame then
                 local bs = db.profile.threatBorderSize or 0
@@ -10518,7 +10285,6 @@ local function OnEvent(self, event, arg1, ...)
                     d.threatFrame:Hide()
                 end
             end
-            if t0 > 0 then ns.ProfEnd("ThreatUpdate", t0) end
         end
     elseif event == "UNIT_FLAGS" then
         local btn = unitToButton[arg1] or ns._partyUnitToButton[arg1]
@@ -10534,7 +10300,6 @@ local function OnEvent(self, event, arg1, ...)
         end
     elseif event == "PARTY_MEMBER_ENABLE" or event == "PARTY_MEMBER_DISABLE" then
         -- Only status text / health color changes (online/offline)
-        local t0 = 0 -- PROF: ns.ProfBegin("UpdateAll:PARTY_MEMBER")
         if not previewActive then
             for _, btn in ipairs(allButtons) do
                 local u = btn:GetAttribute("unit")
@@ -10547,17 +10312,11 @@ local function OnEvent(self, event, arg1, ...)
                 if u and btn:IsVisible() then UpdateButton(btn) end
             end
         end
-        if t0 > 0 then ns.ProfEnd("UpdateAll:PARTY_MEMBER", t0) end
     elseif event == "RAID_TARGET_UPDATE" then
-        local t0 = 0 -- PROF: ns.ProfBegin("UpdateRaidMarkers")
         ns._UpdateRaidMarkers()
-        if t0 > 0 then ns.ProfEnd("UpdateRaidMarkers", t0) end
     elseif event == "PLAYER_TARGET_CHANGED" then
-        local t0 = 0 -- PROF: ns.ProfBegin("UpdateTargetBorders")
         ns._UpdateTargetBorders()
-        if t0 > 0 then ns.ProfEnd("UpdateTargetBorders", t0) end
     elseif event == "READY_CHECK" then
-        local t0 = 0 -- PROF: ns.ProfBegin("ReadyCheck:START")
         readyCheckActive = true
         for _, btn in ipairs(allButtons) do
             local u = btn:GetAttribute("unit")
@@ -10567,7 +10326,6 @@ local function OnEvent(self, event, arg1, ...)
             local u = btn:GetAttribute("unit")
             if u and btn:IsVisible() then UpdateReadyCheck(btn, u) end
         end
-        if t0 > 0 then ns.ProfEnd("ReadyCheck:START", t0) end
     elseif event == "READY_CHECK_CONFIRM" then
         local btn = unitToButton[arg1] or ns._partyUnitToButton[arg1]
         if btn then UpdateReadyCheck(btn, arg1) end
@@ -10653,9 +10411,7 @@ local function OnEvent(self, event, arg1, ...)
                 ns._sizeTierDirtyInCombat = true
                 return
             end
-            local t0 = 0 -- PROF: ns.ProfBegin("Visibility:PEW")
             UpdateVisibility()
-            if t0 > 0 then ns.ProfEnd("Visibility:PEW", t0) end
             ns._UpdatePartyVisibility()
             if framesVisible then
                 -- Full reload ONLY when the size tier actually changed across
@@ -10677,18 +10433,14 @@ local function OnEvent(self, event, arg1, ...)
                     if newOv ~= ns._activeTierOverride then tierChanged = true end
                 end
                 if tierChanged then
-                    t0 = 0 -- PROF: ns.ProfBegin("ReloadFrames:PEW")
                     ReloadFrames()
-                    if t0 > 0 then ns.ProfEnd("ReloadFrames:PEW", t0) end
                 else
-                    t0 = 0 -- PROF: ns.ProfBegin("PEWLightHeal")
                     for unit, btn in pairs(unitToButton) do
                         RegisterPrivateAuras(btn, unit)
                     end
                     RangeUpdate()
                     if ns.FB_Apply then ns.FB_Apply() end
                     if ns.XF_Apply then ns.XF_Apply() end
-                    if t0 > 0 then ns.ProfEnd("PEWLightHeal", t0) end
                 end
             end
             if ns._partyFramesVisible then
@@ -11873,11 +11625,7 @@ end
 --  can see their settings applied without needing a real group.
 -------------------------------------------------------------------------------
 local previewActive = false
-ns._PV_CLASS_TOKENS = {
-    "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST",
-    "DEATHKNIGHT", "SHAMAN", "MAGE", "WARLOCK", "MONK",
-    "DRUID", "DEMONHUNTER", "EVOKER",
-}
+ns._PV_CLASS_TOKENS = EllesmereUI.CLASS_TOKEN_ORDER
 ns._PV_TANK_CLASSES   = { "WARRIOR", "PALADIN", "DEATHKNIGHT", "MONK", "DRUID", "DEMONHUNTER" }
 ns._PV_HEALER_CLASSES = { "PRIEST", "PALADIN", "SHAMAN", "MONK", "DRUID", "EVOKER" }
 ns._PV_DPS_CLASSES    = ns._PV_CLASS_TOKENS
@@ -11900,11 +11648,6 @@ ns._PV_NAMES = {
 }
 ns._PV_DISPEL_DB_ICONS = {
     Magic = 135735, Curse = 132291, Disease = 237535, Poison = 132106, [""] = 4547635,
-}
-ns._PV_CLASS_POWER = {
-    WARRIOR = "RAGE", PALADIN = "MANA", HUNTER = "FOCUS", ROGUE = "ENERGY",
-    PRIEST = "MANA", DEATHKNIGHT = "RUNIC_POWER", SHAMAN = "MANA", MAGE = "MANA",
-    WARLOCK = "MANA", MONK = "ENERGY", DRUID = "MANA", DEMONHUNTER = "FURY", EVOKER = "MANA",
 }
 ns._PV_DEBUFF_ICONS = { 135813, 136139, 132090, 136197, 135849, 136188 }
 ns._pvActiveAuras = {}
@@ -14334,7 +14077,7 @@ local function ApplyPreviewData(f, index)
             f._power:SetMinMaxValues(0, 100)
             f._power:SetValue(pwPct)
             f._powerPct = pwPct
-            local pwToken = ns._PV_CLASS_POWER[classToken] or "MANA"
+            local pwToken = EllesmereUI.CLASS_POWER_MAP[classToken] or "MANA"
             local pc = EllesmereUI.GetPowerColor and EllesmereUI.GetPowerColor(pwToken)
             if pc then
                 f._power:SetStatusBarColor(pc.r, pc.g, pc.b, 1)
@@ -14362,7 +14105,7 @@ local function ApplyPreviewData(f, index)
             f._powerBg:Hide()
         else
             local bgc = EllesmereUI.GetPowerColor and s.powerBgPowerColored
-                and EllesmereUI.GetPowerColor(ns._PV_CLASS_POWER[classToken] or "MANA")
+                and EllesmereUI.GetPowerColor(EllesmereUI.CLASS_POWER_MAP[classToken] or "MANA")
             local pf = bgc and EllesmereUI.GetPowerBgDarkenFactor() or 1
             bgc = bgc or s.powerBgColor
             f._powerBg:SetColorTexture(((bgc or {}).r or 0) * pf, ((bgc or {}).g or 0) * pf, ((bgc or {}).b or 0) * pf, (s.powerBgDarkness or 70) / 100)
@@ -16972,60 +16715,6 @@ function ERF:OnEnable()
     -- Init options module if it loaded before us
     if ns._InitEUIModule then
         C_Timer.After(0, ns._InitEUIModule)
-    end
-end
-
--------------------------------------------------------------------------------
---  TEMP DEBUG: /euiparty -- dumps the live geometry/state of the party self
---  button and the five header children (shown, alpha, size, health bar shown/
---  height/value/texture, power shown). Run while frames look broken to
---  pinpoint whether the health bar is hidden, zero-height, textureless or
---  value-zero. Remove after the resize investigation.
--------------------------------------------------------------------------------
-do
-    local function SafeStr(v)
-        if v == nil then return "nil" end
-        if issecretvalue and issecretvalue(v) then return "SECRET" end
-        return tostring(v)
-    end
-    SLASH_EUIPARTY1 = "/euiparty"
-    SlashCmdList["EUIPARTY"] = function()
-        print("|cff0cd29fEUI party debug|r pvActive=" .. tostring(ns._partyPvActive and true or false)
-            .. "  visible=" .. tostring(ns._partyFramesVisible)
-            .. "  inGroup=" .. tostring(IsInGroup()) .. "  members=" .. tostring(GetNumGroupMembers()))
-        local hd = ns._partyHeader
-        if hd then
-            print(("  header shown=%s w=%.0f h=%.0f kids=%d | sortMethod=%s nameList=%s groupFilter=%s groupBy=%s")
-                :format(tostring(hd:IsShown()), hd:GetWidth() or 0, hd:GetHeight() or 0,
-                    hd:GetNumChildren() or 0,
-                    tostring(hd:GetAttribute("sortMethod")), tostring(hd:GetAttribute("nameList")),
-                    tostring(hd:GetAttribute("groupFilter")), tostring(hd:GetAttribute("groupBy"))))
-            print(("  header showParty=%s showPlayer=%s showSolo=%s point=%s xOff=%s yOff=%s")
-                :format(tostring(hd:GetAttribute("showParty")), tostring(hd:GetAttribute("showPlayer")),
-                    tostring(hd:GetAttribute("showSolo")), tostring(hd:GetAttribute("point")),
-                    tostring(hd:GetAttribute("xOffset")), tostring(hd:GetAttribute("yOffset"))))
-        end
-        local function dump(tag, btn)
-            if not btn then return end
-            local d = GetFFD(btn)
-            local h = d and d.health
-            local fill = h and h:GetStatusBarTexture()
-            print(("  %s shown=%s alpha=%.2f w=%.0f h=%.0f | health shown=%s hh=%.1f val=%s tex=%s | power shown=%s")
-                :format(tag, tostring(btn:IsShown()), btn:GetAlpha(),
-                    btn:GetWidth() or 0, btn:GetHeight() or 0,
-                    tostring(h and h:IsShown()), h and h:GetHeight() or -1,
-                    SafeStr(h and h:GetValue()), SafeStr(fill and fill:GetTexture()),
-                    tostring(d and d.power and d.power:IsShown())))
-        end
-        dump("self", ns._partySelfButton)
-        if ns._partyHeader then
-            for i = 1, 5 do
-                local btn = ns._partyHeader[i]
-                if btn then
-                    dump("hdr" .. i .. " u=" .. tostring(btn:GetAttribute("unit")), btn)
-                end
-            end
-        end
     end
 end
 

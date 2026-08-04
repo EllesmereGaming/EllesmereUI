@@ -7,110 +7,6 @@ local _, ns = ...
 local EUI = EllesmereUI
 
 -------------------------------------------------------------------------------
---  Profiler: zero cost when off, /dmprof to toggle.
--------------------------------------------------------------------------------
-do
-    local _profData, _profActive = {}, false
-    local dps = debugprofilestop
-    local _addonName = "EllesmereUIDamageMeters"
-    local _frameCount = 0
-    local _totalAddonMs = 0
-    local _peakAddonMs = 0
-    local _startTime = 0
-    local _curFrameLabels = {}
-    local _curFrameTotal = 0
-    local _curFrameTime = 0
-    local _peakFrameLabels = {}
-    local _peakFrameTotal = 0
-
-    ns.ProfBegin = function(label)
-        if not _profActive then return 0 end
-        return dps()
-    end
-    ns.ProfEnd = function(label, t0)
-        if not _profActive then return end
-        local elapsed = dps() - t0
-        local now = GetTime()
-        if now ~= _curFrameTime then
-            if _curFrameTotal > _peakFrameTotal then
-                _peakFrameTotal = _curFrameTotal
-                wipe(_peakFrameLabels)
-                for k, v in pairs(_curFrameLabels) do _peakFrameLabels[k] = v end
-            end
-            wipe(_curFrameLabels)
-            _curFrameTotal = 0
-            _curFrameTime = now
-        end
-        local d = _profData[label]
-        if not d then d = { n = 0, total = 0 }; _profData[label] = d end
-        d.n = d.n + 1
-        d.total = d.total + elapsed
-        _curFrameLabels[label] = (_curFrameLabels[label] or 0) + elapsed
-        _curFrameTotal = _curFrameTotal + elapsed
-    end
-
-    local profFrame = CreateFrame("Frame")
-    profFrame:Hide()
-    profFrame:SetScript("OnUpdate", function()
-        if not _profActive then profFrame:Hide(); return end
-        if not C_AddOnProfiler or not C_AddOnProfiler.GetAddOnMetric then return end
-        local addonMs = C_AddOnProfiler.GetAddOnMetric(
-            _addonName, Enum.AddOnProfilerMetric.LastTime) or 0
-        _frameCount = _frameCount + 1
-        _totalAddonMs = _totalAddonMs + addonMs
-        if addonMs > _peakAddonMs then _peakAddonMs = addonMs end
-    end)
-
-    local function ResetProf()
-        wipe(_profData); wipe(_curFrameLabels); wipe(_peakFrameLabels)
-        _frameCount = 0; _totalAddonMs = 0; _peakAddonMs = 0
-        _peakFrameTotal = 0; _curFrameTotal = 0; _curFrameTime = 0; _startTime = 0
-    end
-
-    SLASH_DMPROF1 = "/dmprof"
-    SlashCmdList["DMPROF"] = function(msg)
-        if msg == "reset" then
-            ResetProf()
-            print("|cff00ccffDMProf:|r data cleared")
-            return
-        end
-        _profActive = not _profActive
-        if _profActive then
-            ResetProf()
-            _startTime = GetTime()
-            profFrame:Show()
-            print("|cff00ccffDMProf:|r ON -- type /dmprof again to stop")
-        else
-            profFrame:Hide()
-            if _curFrameTotal > _peakFrameTotal then
-                _peakFrameTotal = _curFrameTotal
-                wipe(_peakFrameLabels)
-                for k, v in pairs(_curFrameLabels) do _peakFrameLabels[k] = v end
-            end
-            local dur = GetTime() - _startTime
-            local avgAddon = _frameCount > 0
-                and (_totalAddonMs / _frameCount) or 0
-            print("|cff00ccffDMProf Report:|r  "
-                .. _frameCount .. " frames, " .. format("%.1f", dur) .. "s")
-            print(format("  |cff00ccffAddon Peak:|r  %.3f ms   |cff00ccffAvg:|r %.3f ms", _peakAddonMs, avgAddon))
-            local scale = (_peakFrameTotal > 0) and (_peakAddonMs / _peakFrameTotal) or 1
-            local sorted = {}
-            for label, ms in pairs(_peakFrameLabels) do
-                local scaled = ms * scale
-                local d = _profData[label]
-                local avg = (d and _frameCount > 0) and (d.total / _frameCount) or 0
-                sorted[#sorted + 1] = { label = label, peak = scaled, avg = avg }
-            end
-            table.sort(sorted, function(a, b) return a.avg > b.avg end)
-            print(format("  %-30s %10s %10s", "Label", "avg ms", "peak ms"))
-            for _, e in ipairs(sorted) do
-                print(format("  %-30s %10.3f %10.3f", e.label, e.avg, e.peak))
-            end
-        end
-    end
-end
-
--------------------------------------------------------------------------------
 --  Constants
 -------------------------------------------------------------------------------
 local BAR_POOL_SIZE     = 40
@@ -778,7 +674,6 @@ instanceFrame:RegisterEvent("DAMAGE_METER_RESET")
 instanceFrame:RegisterEvent("DAMAGE_METER_COMBAT_SESSION_UPDATED")
 instanceFrame:RegisterEvent("DAMAGE_METER_CURRENT_SESSION_UPDATED")
 instanceFrame:SetScript("OnEvent", function(_, event)
-    local t0 = 0 -- PROF: ns.ProfBegin("Instance:" .. event)
     if event == "CHALLENGE_MODE_START" then
         if C_DamageMeter and C_DamageMeter.ResetAllCombatSessions then
             C_DamageMeter.ResetAllCombatSessions()
@@ -938,7 +833,6 @@ instanceFrame:SetScript("OnEvent", function(_, event)
             for _, w in ipairs(_windows) do w.Refresh() end
         end)
     end
-    if t0 > 0 then ns.ProfEnd("Instance:" .. event, t0) end
 end)
 
 -------------------------------------------------------------------------------
@@ -988,58 +882,8 @@ end
 -------------------------------------------------------------------------------
 --  Bar texture tables
 -------------------------------------------------------------------------------
-local DM_TEX_BASE = "Interface\\AddOns\\EllesmereUI\\media\\textures\\"
-local DM_BAR_TEXTURES = {
-    ["none"]          = nil,
-    ["melli"]         = DM_TEX_BASE .. "melli.tga",
-    ["beautiful"]     = DM_TEX_BASE .. "beautiful.tga",
-    ["plating"]       = DM_TEX_BASE .. "plating.tga",
-    ["atrocity"]      = DM_TEX_BASE .. "atrocity.tga",
-    ["divide"]        = DM_TEX_BASE .. "divide.tga",
-    ["glass"]         = DM_TEX_BASE .. "glass.tga",
-    ["fade-right"]    = DM_TEX_BASE .. "fade-right.tga",
-    ["thin-line-top"]    = DM_TEX_BASE .. "thin-line-top.tga",
-    ["thin-line-bottom"] = DM_TEX_BASE .. "thin-line-bottom.tga",
-    ["fade"]          = DM_TEX_BASE .. "fade.tga",
-    ["gradient-lr"]   = DM_TEX_BASE .. "gradient-lr.tga",
-    ["gradient-rl"]   = DM_TEX_BASE .. "gradient-rl.tga",
-    ["gradient-bt"]   = DM_TEX_BASE .. "gradient-bt.tga",
-    ["gradient-tb"]   = DM_TEX_BASE .. "gradient-tb.tga",
-    ["matte"]         = DM_TEX_BASE .. "matte.tga",
-    ["sheer"]         = DM_TEX_BASE .. "sheer.tga",
-    ["blinkii-diamonds"] = DM_TEX_BASE .. "blinkii-diamonds.tga",
-    ["kringel-window"]   = DM_TEX_BASE .. "kringel-window.tga",
-}
-local DM_BAR_TEXTURE_ORDER = {
-    "none", "melli", "atrocity",
-    "fade", "fade-right", "thin-line-top", "thin-line-bottom",
-    "beautiful", "plating",
-    "divide", "glass",
-    "gradient-lr", "gradient-rl", "gradient-bt", "gradient-tb",
-    "matte", "sheer",
-    "blinkii-diamonds", "kringel-window",
-}
-local DM_BAR_TEXTURE_NAMES = {
-    ["none"]        = "None",
-    ["melli"]       = "Melli (ElvUI)",
-    ["beautiful"]   = "Beautiful",
-    ["plating"]     = "Plating",
-    ["atrocity"]    = "Atrocity",
-    ["divide"]      = "Divide",
-    ["glass"]       = "Glass",
-    ["fade-right"]  = "Fade Right",
-    ["thin-line-top"]    = "Thin Line Top",
-    ["thin-line-bottom"] = "Thin Line Bottom",
-    ["fade"]        = "Fade",
-    ["gradient-lr"] = "Gradient Right",
-    ["gradient-rl"] = "Gradient Left",
-    ["gradient-bt"] = "Gradient Up",
-    ["gradient-tb"] = "Gradient Down",
-    ["matte"]       = "Matte",
-    ["sheer"]       = "Sheer",
-    ["blinkii-diamonds"] = "Blinkii Diamonds",
-    ["kringel-window"]   = "Kringel Window",
-}
+local DM_BAR_TEXTURES, DM_BAR_TEXTURE_NAMES, DM_BAR_TEXTURE_ORDER =
+    EllesmereUI.BuildBarTextureTables(true)
 _G._EDM_BarTextures     = DM_BAR_TEXTURES
 _G._EDM_BarTextureOrder = DM_BAR_TEXTURE_ORDER
 _G._EDM_BarTextureNames = DM_BAR_TEXTURE_NAMES
@@ -1292,21 +1136,7 @@ local CLASS_ICON_SPRITE_TEX = {}
 for _, style in ipairs({"modern", "dark", "light", "clean"}) do
     CLASS_ICON_SPRITE_TEX[style] = CLASS_ICON_SPRITE_BASE .. style .. ".tga"
 end
-local CLASS_SPRITE_COORDS = {
-    WARRIOR     = { 0,     0.125, 0,     0.125 },
-    MAGE        = { 0.125, 0.25,  0,     0.125 },
-    ROGUE       = { 0.25,  0.375, 0,     0.125 },
-    DRUID       = { 0.375, 0.5,   0,     0.125 },
-    EVOKER      = { 0.5,   0.625, 0,     0.125 },
-    HUNTER      = { 0,     0.125, 0.125, 0.25  },
-    SHAMAN      = { 0.125, 0.25,  0.125, 0.25  },
-    PRIEST      = { 0.25,  0.375, 0.125, 0.25  },
-    WARLOCK     = { 0.375, 0.5,   0.125, 0.25  },
-    PALADIN     = { 0,     0.125, 0.25,  0.375 },
-    DEATHKNIGHT = { 0.125, 0.25,  0.25,  0.375 },
-    MONK        = { 0.25,  0.375, 0.25,  0.375 },
-    DEMONHUNTER = { 0.375, 0.5,   0.25,  0.375 },
-}
+local CLASS_SPRITE_COORDS = EllesmereUI.CLASS_ICON_SPRITE_COORDS
 
 local ICON_STYLE_VALUES = {
     none     = "None",
@@ -1983,13 +1813,11 @@ end
 local _hoverPollFrame = CreateFrame("Frame")
 _hoverPollFrame:Hide()
 _hoverPollFrame:SetScript("OnUpdate", function()
-    local t0 = 0 -- PROF: ns.ProfBegin("TooltipPoll")
-    if not _activeRow then ns.ProfEnd("TooltipPoll", t0); return end
+    if not _activeRow then return end
     if not _ttVisible and _activeRow._win then
         local W = _activeRow._win
         ShowBarTooltip(_activeRow, W.curSession, W.curSessionID, W.curDMType)
     end
-    if t0 > 0 then ns.ProfEnd("TooltipPoll", t0) end
 end)
 
 -------------------------------------------------------------------------------
@@ -3376,21 +3204,18 @@ local function CreateDMWindow(winIdx)
         local fadeSpeed = 1 / 0.12; local fadeAlpha = 0; local fadeTarget = 0
         local fadeFrame2 = CreateFrame("Frame"); fadeFrame2:Hide()
         fadeFrame2:SetScript("OnUpdate", function(self, dt)
-            local t0 = 0 -- PROF: ns.ProfBegin("HoverFade")
             local step = fadeSpeed * dt
             fadeAlpha = fadeTarget > fadeAlpha and math.min(fadeTarget, fadeAlpha + step) or math.max(fadeTarget, fadeAlpha - step)
             if math.abs(fadeAlpha - fadeTarget) < 0.001 then fadeAlpha = fadeTarget end
             if W.resizeGrip and not W.windowLocked and not W.resizeGrip:IsMouseOver() then W.resizeGrip:SetAlpha(fadeAlpha * 0.3) end
             if W.lockBtn and not W.lockBtn:IsMouseOver() then W.lockBtn:SetAlpha(fadeAlpha * 0.3) end
             if fadeAlpha == fadeTarget then self:Hide() end
-            if t0 > 0 then ns.ProfEnd("HoverFade", t0) end
         end)
         local function FadeIn() fadeTarget = 1; fadeFrame2:Show() end
         local function FadeOut() fadeTarget = 0; fadeFrame2:Show() end
         local wasOver = false
         local hoverTicker  -- forward ref
         local function HoverPoll()
-            local t0 = 0 -- PROF: ns.ProfBegin("HoverPoll")
             local over = frame:IsMouseOver() or (W.resizeGrip and W.resizeGrip:IsMouseOver()) or (W.lockBtn and W.lockBtn:IsMouseOver())
             if over and not wasOver then
                 wasOver = true; W.isHovered = true
@@ -3401,7 +3226,6 @@ local function CreateDMWindow(winIdx)
                 -- Stop polling until next OnEnter
                 if hoverTicker then hoverTicker:Cancel(); hoverTicker = nil end
             end
-            if t0 > 0 then ns.ProfEnd("HoverPoll", t0) end
         end
         local function StartHoverPoll()
             if hoverTicker then return end
@@ -3788,9 +3612,7 @@ local function CreateDMWindow(winIdx)
         end
         W.visibleCount = count
 
-        local t2 = 0 -- PROF: ns.ProfBegin("UpdateSticky")
         W.UpdateSticky(W._barSources, count)
-        if t2 > 0 then ns.ProfEnd("UpdateSticky", t2) end
 
 
 
@@ -3804,9 +3626,7 @@ local function CreateDMWindow(winIdx)
         if winIdx == 1 then UpdateSATimerText() end
 
         if W.sourceOpen then
-            local t3 = 0 -- PROF: ns.ProfBegin("RefreshBreakdown")
             W.RefreshBreakdown()
-            if t3 > 0 then ns.ProfEnd("RefreshBreakdown", t3) end
         end
 
     end
@@ -3853,7 +3673,6 @@ local function CreateDMWindow(winIdx)
     function W.Refresh()
         if not frame then return end
 
-        local t0 = 0 -- PROF: ns.ProfBegin("Refresh:API")
         local apiStart = debugprofilestop()
         local session
         if W.curSessionID and C_DamageMeter and C_DamageMeter.GetCombatSessionFromID then
@@ -3863,19 +3682,14 @@ local function CreateDMWindow(winIdx)
             session = C_DamageMeter.GetCombatSessionFromType(W.curSession, W.curDMType)
         end
         local apiMs = debugprofilestop() - apiStart
-        if t0 > 0 then ns.ProfEnd("Refresh:API", t0) end
 
         -- If API spiked, defer UI work to next frame so peaks don't stack
         if apiMs > PEAK_BUDGET then
             C_Timer.After(0, function()
-                local t1 = 0 -- PROF: ns.ProfBegin("RefreshUI")
                 RefreshUI(session)
-                if t1 > 0 then ns.ProfEnd("RefreshUI", t1) end
             end)
         else
-            local t1 = 0 -- PROF: ns.ProfBegin("RefreshUI")
             RefreshUI(session)
-            if t1 > 0 then ns.ProfEnd("RefreshUI", t1) end
         end
 
     end
@@ -5087,7 +4901,6 @@ local function StopTimerTicker()
 end
 
 local function SharedRefreshTick()
-    local t0 = 0 -- PROF: ns.ProfBegin("SharedRefreshTick")
     -- Player out of combat but group still fighting (player died mid-pull)
     if _needsFinalRefresh then
         local groupDone = not IsGroupInCombat()
@@ -5105,7 +4918,6 @@ local function SharedRefreshTick()
             for _, w in ipairs(_windows) do w.Refresh() end
             if _sharedTicker then _sharedTicker:Cancel(); _sharedTicker = nil end
             StopTimerTicker()
-            if t0 > 0 then ns.ProfEnd("SharedRefreshTick", t0) end
             return
         end
         -- Group still fighting: fall through to normal refresh
@@ -5114,11 +4926,9 @@ local function SharedRefreshTick()
         -- Combat fully ended or state lost: stop ticking
         if _sharedTicker then _sharedTicker:Cancel(); _sharedTicker = nil end
         StopTimerTicker()
-        if t0 > 0 then ns.ProfEnd("SharedRefreshTick", t0) end
         return
     end
     for _, w in ipairs(_windows) do w.Refresh() end
-    if t0 > 0 then ns.ProfEnd("SharedRefreshTick", t0) end
 end
 
 -- Only active during combat to avoid idle CPU cost.
@@ -5193,7 +5003,6 @@ combatFrame:SetScript("OnEvent", function(_, event, ...)
         if _inCombat or _sharedTicker or not IsInInstance() then return end
         local unit = ...
         if not unit or not (unit:match("^raid") or unit:match("^party")) then return end
-        local t0 = 0 -- PROF: ns.ProfBegin("Combat:UNIT_FLAGS")
         -- Group member entered combat before us: start polling so bars populate
         if IsGroupInCombat() then
             _combatEndTime = 0
@@ -5206,7 +5015,6 @@ combatFrame:SetScript("OnEvent", function(_, event, ...)
             _combatGen = _combatGen + 1
             StartSharedTicker()
         end
-        if t0 > 0 then ns.ProfEnd("Combat:UNIT_FLAGS", t0) end
         return
     end
     if event == "ENCOUNTER_START" then
@@ -5266,9 +5074,8 @@ combatFrame:SetScript("OnEvent", function(_, event, ...)
         return
     end
     if event == "PLAYER_REGEN_DISABLED" then
-        local t0 = 0 -- PROF: ns.ProfBegin("Combat:REGEN_DISABLED")
         -- Ignore post-match cleanup combat after a PvP match ends
-        if _G._EUIDM_PvpBlocked and _G._EUIDM_PvpBlocked() then ns.ProfEnd("Combat:REGEN_DISABLED", t0); return end
+        if _G._EUIDM_PvpBlocked and _G._EUIDM_PvpBlocked() then return end
         _combatGen = _combatGen + 1
         if next(_feignDeathGUIDs) then wipe(_feignDeathGUIDs) end -- new segment: stale feign tags would mis-filter real deaths
         _inCombat = true
@@ -5280,12 +5087,10 @@ combatFrame:SetScript("OnEvent", function(_, event, ...)
         if _targetsCache then wipe(_targetsCache) end
         StartSharedTicker()
         ns.AutoCurrentOnCombat()
-        if t0 > 0 then ns.ProfEnd("Combat:REGEN_DISABLED", t0) end
     else
-        local t0 = 0 -- PROF: ns.ProfBegin("Combat:REGEN_ENABLED")
         _regenTimestamp = GetTime()
         -- Feign Death + group still fighting: keep timer running
-        if UnitIsFeignDeath and UnitIsFeignDeath("player") and IsGroupInCombat() then ns.ProfEnd("Combat:REGEN_ENABLED", t0); return end
+        if UnitIsFeignDeath and UnitIsFeignDeath("player") and IsGroupInCombat() then return end
         _ttLastGUID = nil
         if _targetsCache then wipe(_targetsCache) end
         -- Check if group is still fighting (player died but boss alive)
@@ -5307,7 +5112,6 @@ combatFrame:SetScript("OnEvent", function(_, event, ...)
         C_Timer.After(0.5, function()
             for _, w in ipairs(_windows) do w.Refresh() end
         end)
-        if t0 > 0 then ns.ProfEnd("Combat:REGEN_ENABLED", t0) end
     end
 end)
 

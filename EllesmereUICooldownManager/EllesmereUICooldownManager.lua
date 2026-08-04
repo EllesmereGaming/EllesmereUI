@@ -1826,13 +1826,7 @@ local function BuildAvailableSpellPool()
     return known
 end
 
---- Deep-copy a table (simple values + nested tables, no metatables/functions)
-local function DeepCopy(src)
-    if type(src) ~= "table" then return src end
-    local copy = {}
-    for k, v in pairs(src) do copy[k] = DeepCopy(v) end
-    return copy
-end
+local DeepCopy = EllesmereUI.Lite.DeepCopy
 
 --- Save the current spec's non-spell per-spec data.
 --- Spell data lives directly in the global store via ns.GetBarSpellData()
@@ -3332,7 +3326,6 @@ function ns.ParkSecondaryBuffViewer(frame)
         local function QueueRepark(self, method)
             local c = _ecmeFC[self]
             if not c or not c.hidden or c.parkGuard or c.restoring or c.parkQueued then return end
-            ns.NoteBuffViewerUnpark(method)
             c.parkQueued = true
             C_Timer.After(0, function()
                 c.parkQueued = nil
@@ -3377,32 +3370,11 @@ function ns.CheckSecondaryBuffViewerPark()
     -- far offscreen top-left IS parked.
     if pt == "TOPLEFT" and (rel == UIParent or rel == nil) and relPt == "TOPLEFT"
        and x and x < -9990 and y and y > 9990 then
-        fc.driftNoted = nil
         return
-    end
-    -- Counted on the edge, not per tick: a combat drift cannot be re-parked
-    -- until PLAYER_REGEN_ENABLED, so this path repeats at 10 Hz until then.
-    if not fc.driftNoted then
-        fc.driftNoted = true
-        ns.NoteBuffViewerUnpark("ticker")
     end
     -- In combat this re-asserts alpha 0 and defers the park itself; the frame
     -- is protected, so alpha is the only lever until PLAYER_REGEN_ENABLED.
     ns.ParkSecondaryBuffViewer(frame)
-end
-
--- Un-park bookkeeping for /cdmbb. The count alone answers "is the park still
--- coming undone in the field"; watch mode adds the caller so a third-party
--- mover names itself.
-function ns.NoteBuffViewerUnpark(method)
-    ns._bbUnparkCount = (ns._bbUnparkCount or 0) + 1
-    ns._bbUnparkLast = method
-    if not ns._cdmbbWatch then return end
-    local now = GetTime()
-    if now - (ns._bbWatchLast or 0) < 1 then return end
-    ns._bbWatchLast = now
-    print("|cff0cd29f[CDM]|r unpark via " .. tostring(method) .. ":")
-    print(debugstack(3, 4, 0))
 end
 
 -- Park integrity for visibility-hidden cursor bars, driven by the CDM buff
@@ -6561,50 +6533,8 @@ ns.EnsureFocusKickProxy = EnsureFocusKickProxy
 
 -- Sound dropdown data: built-in EllesmereUI sounds + LibSharedMedia sounds
 -- appended at runtime via EllesmereUI.AppendSharedMediaSounds.
-local _SOUNDS_DIR = "Interface\\AddOns\\EllesmereUI\\media\\sounds\\"
-local FOCUSKICK_SOUND_PATHS = {
-    ["none"]      = nil,
-    ["airhorn"]   = _SOUNDS_DIR .. "AirHorn.ogg",
-    ["banana"]    = _SOUNDS_DIR .. "BananaPeelSlip.ogg",
-    ["bikehorn"]  = _SOUNDS_DIR .. "BikeHorn.ogg",
-    ["bite"]      = _SOUNDS_DIR .. "Bite.ogg",
-    ["boxing"]    = _SOUNDS_DIR .. "BoxingArenaSound.ogg",
-    ["catmeow"]   = _SOUNDS_DIR .. "CatMeow.ogg",
-    ["catmeow2"]  = _SOUNDS_DIR .. "CatMeow2.ogg",
-    ["gunshot"]   = _SOUNDS_DIR .. "FrontalsGunshot.wav",
-    ["glass"]     = _SOUNDS_DIR .. "Glass.mp3",
-    ["kaching"]   = _SOUNDS_DIR .. "Kaching.ogg",
-    ["phone"]     = _SOUNDS_DIR .. "Phone.ogg",
-    ["robotblip"] = _SOUNDS_DIR .. "RobotBlip.ogg",
-    ["sonar"]     = _SOUNDS_DIR .. "Sonar.ogg",
-    ["siren"]     = _SOUNDS_DIR .. "WarningSiren.ogg",
-    ["water"]     = _SOUNDS_DIR .. "WaterDrop.ogg",
-    ["wilhelm"]   = _SOUNDS_DIR .. "Wilhelm.ogg",
-}
-local FOCUSKICK_SOUND_NAMES = {
-    ["none"]      = "None",
-    ["airhorn"]   = "Air Horn",
-    ["banana"]    = "Banana Peel Slip",
-    ["bikehorn"]  = "Bike Horn",
-    ["bite"]      = "Bite",
-    ["boxing"]    = "Boxing Arena",
-    ["catmeow"]   = "Cat Meow",
-    ["catmeow2"]  = "Cat Meow 2",
-    ["gunshot"]   = "Frontals Gunshot",
-    ["glass"]     = "Glass",
-    ["kaching"]   = "Kaching",
-    ["phone"]     = "Phone",
-    ["robotblip"] = "Robot Blip",
-    ["sonar"]     = "Sonar",
-    ["siren"]     = "Warning Siren",
-    ["water"]     = "Water Drop",
-    ["wilhelm"]   = "Wilhelm",
-}
-local FOCUSKICK_SOUND_ORDER = {
-    "none", "airhorn", "banana", "bikehorn", "bite", "boxing", "catmeow",
-    "catmeow2", "gunshot", "glass", "kaching", "phone", "robotblip", "sonar",
-    "siren", "water", "wilhelm",
-}
+local FOCUSKICK_SOUND_PATHS, FOCUSKICK_SOUND_NAMES, FOCUSKICK_SOUND_ORDER =
+    EllesmereUI.BuildAlertSoundTables()
 ns.FOCUSKICK_SOUND_PATHS = FOCUSKICK_SOUND_PATHS
 ns.FOCUSKICK_SOUND_NAMES = FOCUSKICK_SOUND_NAMES
 ns.FOCUSKICK_SOUND_ORDER = FOCUSKICK_SOUND_ORDER
@@ -6615,7 +6545,20 @@ ns.FOCUSKICK_SOUND_ORDER = FOCUSKICK_SOUND_ORDER
 -- token follows focus changes automatically.
 local _focusCastProxy
 local function RefreshFocusCastProxyUnit()
-    if not _focusCastProxy then return end
+    if not _focusCastProxy then
+        -- The proxy does not exist yet, so there is no unit to re-point. That
+        -- happens whenever the bar had no assigned spell the last time the
+        -- arming ran: RefreshFocusKickProxies only builds the proxy on its
+        -- hasContent branch, and its ONLY two callers are setup and the tail of
+        -- BuildAllCDMBars. Adding a spell in the options writes assignedSpells
+        -- without re-arming anything, so the sound stayed dead with the bar
+        -- fully populated -- field-confirmed by the probe reporting
+        -- spells=1(1 pos) alongside sound=NOT CREATED at the same instant.
+        -- Returning here was what made the state unrecoverable without a
+        -- rebuild; run the full refresh so this path can create it.
+        if ns.RefreshFocusKickProxies then ns.RefreshFocusKickProxies() end
+        return
+    end
     local unit = GetFocusKickUnit()
     _focusCastProxy:UnregisterAllEvents()
     _focusCastProxy:RegisterUnitEvent("UNIT_SPELLCAST_START", unit)
@@ -7041,8 +6984,18 @@ ns.EnsureFocusReminderProxy = EnsureFocusReminderProxy
 function ns.RefreshFocusKickProxies()
     local bd = barDataByKey and barDataByKey[FOCUSKICK_BAR_KEY]
     local hasContent = false
+    -- "No spell data available" is NOT the same as "the bar is empty".
+    -- GetBarSpellData returns nil while the active spec key is unresolved
+    -- (not specKey or specKey == "0"), which is exactly the state during a
+    -- loading screen. Treating that as empty ran the teardown below and
+    -- UNREGISTERED a perfectly good proxy, which is the field report of the
+    -- sound dying after a port or a zone change and only coming back when
+    -- something else rebuilt the bars. When the store is not ready we now
+    -- leave the proxy exactly as it is; the next rebuild arms it properly.
+    local storeReady, soundWanted = true, false
     if bd and bd.enabled ~= false then
         local sd = ns.GetBarSpellData and ns.GetBarSpellData(FOCUSKICK_BAR_KEY)
+        if not sd then storeReady = false end
         local spells = sd and sd.assignedSpells
         if spells then
             for _, sid in ipairs(spells) do
@@ -7052,13 +7005,50 @@ function ns.RefreshFocusKickProxies()
                 end
             end
         end
+        -- The cast SOUND has a weaker requirement than the rest of the family.
+        -- Its handler needs a configured sound and an interrupt spell id to run
+        -- the "is my kick ready" check against; the bar's assigned spells are
+        -- only the FALLBACK source for that id, so an explicit
+        -- focusKickInterruptSpellID satisfies it alone. Gating the sound on
+        -- hasContent made a legitimate setup impossible: the focus-cast sound
+        -- WITHOUT the kick icon on the focus bar.
+        local sk = bd.focusCastSoundKey
+        if sk and sk ~= "none" then
+            local pick = bd.focusKickInterruptSpellID
+            soundWanted = (type(pick) == "number" and pick > 0) or hasContent
+        end
     end
+
+    if not hasContent and not storeReady then
+        -- Spell store unresolved: hold the current state rather than tearing
+        -- down something that may still be correct, and COME BACK. Arming is
+        -- otherwise a one-shot -- its only callers are setup and the tail of
+        -- BuildAllCDMBars -- so a login or zone where the spec key has not
+        -- resolved yet leaves the proxy unbuilt for the whole session, with a
+        -- fully populated bar. Field-confirmed: spells=1(1 pos) alongside
+        -- sound=NOT CREATED, cured only by a spec change (which reruns
+        -- BuildAllCDMBars).
+        --
+        -- An explicit interrupt spell id lives on the bar data, not in the
+        -- spell store, so the sound can arm right now even though the store is
+        -- still unresolved. Only the bar-content dependent parts have to wait.
+        if soundWanted then EnsureFocusCastProxy() end
+        -- One pending retry at a time, self-cancelling.
+        if not ns._fkRearmPending then
+            ns._fkRearmPending = true
+            C_Timer.After(2, function()
+                ns._fkRearmPending = nil
+                if ns.RefreshFocusKickProxies then ns.RefreshFocusKickProxies() end
+            end)
+        end
+        return
+    end
+    -- Icon-bearing parts of the family keep the original bar-content gate.
     if hasContent then
         EnsureFocusKickProxy()
         ApplyFocusKickAnchor()
         EnsureFocusReminderProxy()
         RefreshFocusReminders()
-        EnsureFocusCastProxy()
     else
         if _focusKickProxy then
             _focusKickProxy:UnregisterAllEvents()
@@ -7069,9 +7059,12 @@ function ns.RefreshFocusKickProxies()
             _focusReminderProxy:UnregisterAllEvents()
             HideAllFocusReminders()
         end
-        if _focusCastProxy then
-            _focusCastProxy:UnregisterAllEvents()
-        end
+    end
+
+    if soundWanted then
+        EnsureFocusCastProxy()
+    elseif _focusCastProxy then
+        _focusCastProxy:UnregisterAllEvents()
     end
 end
 
@@ -8978,6 +8971,22 @@ function ECME:CDMFinishSetup()
     -- FocusKick family (anchor proxy + plate watcher, reminder text, cast
     -- sound): demand-gated -- an EMPTY kick bar installs nothing at all.
     ns.RefreshFocusKickProxies()
+    -- ...and again after every loading screen. Demand-gating makes arming a
+    -- one-shot, so any pass that runs before the spell store resolves leaves
+    -- the cast-sound proxy unbuilt until something unrelated rebuilds the bars
+    -- (a spec change, or opening the options). That is the reported "sound
+    -- stops working after I port" and it never recovers on its own. The
+    -- refresh is cheap and idempotent: it early-returns when the bar is empty
+    -- and re-registers the same events when it is not.
+    do
+        local fkRearm = CreateFrame("Frame")
+        fkRearm:RegisterEvent("PLAYER_ENTERING_WORLD")
+        fkRearm:SetScript("OnEvent", function()
+            C_Timer.After(2, function()
+                if ns.RefreshFocusKickProxies then ns.RefreshFocusKickProxies() end
+            end)
+        end)
+    end
     -- SharedMedia sounds feed the options dropdowns; append regardless.
     if EllesmereUI.AppendSharedMediaSounds then
         EllesmereUI.AppendSharedMediaSounds(
@@ -9600,822 +9609,4 @@ SlashCmdList.ECME = function(msg)
     end
 end
 
--------------------------------------------------------------------------------
--- /cdmbb -- state of Blizzard's BuffBarCooldownViewer.
--- Answers "why are Blizzard's tracking bars drawing on top of mine": while
--- Tracked Buff Bars own the display the viewer should read alpha 0 and sit
--- parked at -10000, 10000. A real on-screen anchor means something re-anchored
--- it and the park did not heal.
--------------------------------------------------------------------------------
-SLASH_CDMBB1 = "/cdmbb"
-SlashCmdList.CDMBB = function(msg)
-    local function P(s) print("|cff0cd29f[CDM]|r " .. s) end
-    if msg and msg:lower():match("watch") then
-        ns._cdmbbWatch = not ns._cdmbbWatch or nil
-        P("unpark watch " .. (ns._cdmbbWatch and "ON -- move/zone/fight and watch for 'unpark via'"
-            or "OFF"))
-        return
-    end
-    local frame = _G[BLIZZ_CDM_FRAMES_SECONDARY.buffs]
-    if not frame then P("BuffBarCooldownViewer does not exist") return end
-    local cb = ECME.db and ECME.db.profile and ECME.db.profile.cdmBars
-    local fc = _ecmeFC[frame]
-    P(string.format("hideBlizzard=%s useBlizzardBuffBars=%s suppressed=%s parkPending=%s",
-        tostring(cb and cb.hideBlizzard), tostring(cb and cb.useBlizzardBuffBars),
-        tostring(fc and fc.hidden or false), tostring(ns._secondaryParkPending or false)))
-    -- A nonzero count with the park intact means it came undone and healed;
-    -- that is the case a single-moment dump cannot show.
-    P(string.format("unparks=%d lastMover=%s watch=%s",
-        ns._bbUnparkCount or 0, tostring(ns._bbUnparkLast or "none"),
-        tostring(ns._cdmbbWatch or false)))
-    P(string.format("shown=%s alpha=%.2f effective=%.2f",
-        tostring(frame:IsShown()), frame:GetAlpha(), frame:GetEffectiveAlpha()))
-    local n = frame:GetNumPoints()
-    if n == 0 then P("points: none") end
-    for i = 1, n do
-        local pt, rel, relPt, x, y = frame:GetPoint(i)
-        P(string.format("point %d: %s -> %s %s (%.0f, %.0f)", i, tostring(pt),
-            tostring(rel and rel.GetName and rel:GetName()), tostring(relPt),
-            x or 0, y or 0))
-    end
-end
-
--------------------------------------------------------------------------------
--- /cdmdbg -- snapshot of the CDM routing pipeline at a given moment.
--- Dumps:
---   1. Stored assignedSpells per bar (default + custom + ghost)
---   2. _cdidRouteMap aggregated by target bar (which cooldownIDs route where)
---   3. Currently visible cdmBarIcons per bar (what the user actually sees)
--- Used to debug "preview shows X spells but the bar shows Y icons" type
--- mismatches between the stored data, the route map, and the render output.
--------------------------------------------------------------------------------
-SLASH_CDMDBG1 = "/cdmdbg"
-SlashCmdList.CDMDBG = function()
-    local ACCENT = "|cff0cd29f"
-    local DIM    = "|cff7f7f7f"
-    local OFF    = "|r"
-    local function P(s) print(ACCENT .. "[CDM]" .. OFF .. " " .. s) end
-
-    local p = ECME.db and ECME.db.profile
-    if not p or not p.cdmBars then P("no profile") return end
-
-    local specKey = ns.GetActiveSpecKey()
-    P("=== CDM DEBUG SNAPSHOT (spec " .. tostring(specKey) .. ") ===")
-
-    -- 1. Stored assignedSpells per bar
-    P(ACCENT .. "--- Stored assignedSpells ---" .. OFF)
-    for _, bd in ipairs(p.cdmBars.bars) do
-        if bd.enabled then
-            local sd = ns.GetBarSpellData(bd.key)
-            local list = sd and sd.assignedSpells
-            local count = list and #list or 0
-            local kind
-            if bd.isGhostBar then kind = "ghost"
-            elseif bd.key == "cooldowns" or bd.key == "utility" or bd.key == "buffs" then kind = "default"
-            elseif bd.barType == "custom_buff" then kind = "custom_buff"
-            else kind = "custom" end
-            local label = string.format("[%s] %s (%d)", kind, bd.key, count)
-            if count > 0 then
-                local preview = {}
-                for i = 1, math.min(count, 6) do
-                    local sid = list[i]
-                    local name = sid and C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(sid) or "?"
-                    preview[i] = tostring(sid) .. ":" .. tostring(name)
-                end
-                if count > 6 then preview[#preview + 1] = "..." end
-                P(label .. "  " .. DIM .. table.concat(preview, ", ") .. OFF)
-            else
-                P(label .. "  " .. DIM .. "(empty)" .. OFF)
-            end
-        end
-    end
-
-    -- 2. Route map aggregated
-    P(ACCENT .. "--- _cdidRouteMap aggregated by target ---" .. OFF)
-    local rm = ns._cdidRouteMap
-    if rm then
-        local byBar = {}
-        local total = 0
-        for cdID, barKey in pairs(rm) do
-            if not byBar[barKey] then byBar[barKey] = {} end
-            byBar[barKey][#byBar[barKey] + 1] = cdID
-            total = total + 1
-        end
-        P("total routed cdIDs: " .. total)
-        for barKey, cdIDs in pairs(byBar) do
-            P(string.format("  -> %s : %d cdIDs", barKey, #cdIDs))
-        end
-    else
-        P("(no _cdidRouteMap)")
-    end
-
-    -- 3. Currently visible icons per bar
-    P(ACCENT .. "--- cdmBarIcons (what's actually rendered) ---" .. OFF)
-    if ns.cdmBarIcons then
-        for barKey, icons in pairs(ns.cdmBarIcons) do
-            local count = #icons
-            if count > 0 then
-                local preview = {}
-                local fcCache = ns._ecmeFC
-                for i = 1, count do
-                    local icon = icons[i]
-                    local fc = fcCache and fcCache[icon]
-                    local sid = (fc and fc.spellID) or 0
-                    local name = sid and sid > 0 and C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(sid) or "?"
-                    local vis = (icon and icon.IsShown and icon:IsShown()) and "" or "(hidden)"
-                    preview[i] = tostring(sid) .. ":" .. tostring(name) .. vis
-                end
-                P(string.format("[%s] %d icons  %s%s%s", barKey, count, DIM, table.concat(preview, ", "), OFF))
-            end
-        end
-    end
-
-    -- 4. What EnumerateCDMViewerSpells returns RIGHT NOW
-    P(ACCENT .. "--- EnumerateCDMViewerSpells (CD/util pools) ---" .. OFF)
-    if ns.EnumerateCDMViewerSpells then
-        local entries = ns.EnumerateCDMViewerSpells(false)
-        P("count: " .. #entries)
-        for i, e in ipairs(entries) do
-            local name = e.sid and C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(e.sid) or "?"
-            P(string.format("  [%d] sid=%d cdID=%s viewer=%s name=%s",
-                i, e.sid, tostring(e.cdID), tostring(e.viewerName), tostring(name)))
-        end
-    end
-
-    -- 5. Raw frame walk: for each frame in Essential/Utility/Buff pools, dump
-    --    cdID, GetSpellID, info.spellID, info.overrideSpellID, canonical,
-    --    plus the stale-frame verdict fields: whether the cdID is in the
-    --    engine's CURRENT learned cooldown set, whether the frame still
-    --    carries cooldownInfo (the IsFrameIncluded trigger for hidden
-    --    frames), and which bar our claim cache has it on.
-    P(ACCENT .. "--- Raw viewer pool walk ---" .. OFF)
-    local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
-    -- Engine truth for the CURRENT spec/form state: the union of every
-    -- category's learned cooldownIDs. A pool frame whose cdID is NOT in
-    -- this set is a leftover from a previous spec/form state.
-    local learnedSet = {}
-    if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet
-       and Enum and Enum.CooldownViewerCategory then
-        for _, cat in pairs(Enum.CooldownViewerCategory) do
-            local ok, ids = pcall(C_CooldownViewer.GetCooldownViewerCategorySet, cat, false)
-            if ok and type(ids) == "table" then
-                for _, id in ipairs(ids) do learnedSet[id] = true end
-            end
-        end
-    end
-    for _, vName in ipairs({ "EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer" }) do
-        local v = _G[vName]
-        local count = 0
-        if v and v.itemFramePool and v.itemFramePool.EnumerateActive then
-            for frame in v.itemFramePool:EnumerateActive() do
-                count = count + 1
-                local cdID = frame.cooldownID
-                local frameSid = (type(frame.GetSpellID) == "function") and frame:GetSpellID() or nil
-                local infoSpellID, infoOverride = nil, nil
-                if cdID and gci then
-                    local info = gci(cdID)
-                    if info then
-                        infoSpellID = info.spellID
-                        infoOverride = info.overrideSpellID
-                    end
-                end
-                local canonical = ns.GetCanonicalSpellIDForFrame and ns.GetCanonicalSpellIDForFrame(frame) or nil
-                local canonName = canonical and C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(canonical) or "?"
-                local fc = ns._ecmeFC and ns._ecmeFC[frame]
-                -- Render state: effective alpha (secret-guarded) + what the
-                -- frame's first point anchors to (our bar container name via
-                -- reverse lookup, else the region's own name).
-                local alpha = frame:GetAlpha()
-                if issecretvalue and issecretvalue(alpha) then alpha = -1 end
-                local _, relTo = frame:GetPoint(1)
-                local relName = nil
-                if relTo then
-                    for bk2, bf2 in pairs(cdmBarFrames) do
-                        if bf2 == relTo then relName = "EUIbar:" .. bk2 break end
-                    end
-                    if not relName then
-                        relName = (relTo.GetName and relTo:GetName()) or "?"
-                    end
-                end
-                P(string.format("  [%s#%d] cdID=%s frameSID=%s info.sID=%s info.ovrSID=%s canon=%s (%s) shown=%s cdInfo=%s inSet=%s bar=%s alpha=%.2f ptTo=%s",
-                    vName, count, tostring(cdID), tostring(frameSid),
-                    tostring(infoSpellID), tostring(infoOverride),
-                    tostring(canonical), tostring(canonName), tostring(frame:IsShown()),
-                    tostring(frame.cooldownInfo ~= nil),
-                    tostring(cdID ~= nil and learnedSet[cdID] == true),
-                    tostring(fc and fc.barKey), alpha, tostring(relName)))
-            end
-        end
-        P(string.format("[%s] active count: %d", vName, count))
-    end
-
-    -- 6. Variant family + migration simulation for Beacon of Light (53563)
-    P(ACCENT .. "--- Beacon of Light variant family ---" .. OFF)
-    local beaconID = 53563
-    local function ShowVariant(label, sid)
-        if not sid then return end
-        local name = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(sid) or "?"
-        P(string.format("  %s: %d (%s)", label, sid, tostring(name)))
-    end
-    ShowVariant("self", beaconID)
-    if C_Spell and C_Spell.GetBaseSpell then
-        ShowVariant("base", C_Spell.GetBaseSpell(beaconID))
-    end
-    if C_Spell and C_Spell.GetOverrideSpell then
-        ShowVariant("override", C_Spell.GetOverrideSpell(beaconID))
-    end
-
-    -- Reverse: what other spells have 53563 in their family?
-    P(ACCENT .. "--- Reverse variant lookups (does X resolve to Beacon?) ---" .. OFF)
-    local function CheckSpell(sid)
-        if not sid or sid <= 0 then return end
-        local base, override = nil, nil
-        if C_Spell and C_Spell.GetBaseSpell then base = C_Spell.GetBaseSpell(sid) end
-        if C_Spell and C_Spell.GetOverrideSpell then override = C_Spell.GetOverrideSpell(sid) end
-        if base == beaconID or override == beaconID then
-            local name = C_Spell.GetSpellName(sid) or "?"
-            P(string.format("  %d (%s) -> base=%s override=%s", sid, name, tostring(base), tostring(override)))
-        end
-    end
-    -- Check all currently assigned spells in cooldowns + utility + ghost
-    local sp = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
-    local sk = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
-    local prof = sp and sk and sp[sk]
-    if prof and prof.barSpells then
-        for barKey, bs in pairs(prof.barSpells) do
-            if bs and bs.assignedSpells then
-                for _, sid in ipairs(bs.assignedSpells) do
-                    CheckSpell(sid)
-                end
-            end
-        end
-    end
-
-    -- 7. Run the migration's exact lookup logic against Beacon of Light
-    P(ACCENT .. "--- Migration lookup simulation for Beacon of Light ---" .. OFF)
-    if prof and ns.StoreVariantValue and ns.ResolveVariantValue then
-        local assignedSet = {}
-        for barKey, bs in pairs(prof.barSpells) do
-            -- mimic the migration's "real CD/util bars" filter
-            if barKey == "cooldowns" or barKey == "utility" then
-                if bs and bs.assignedSpells then
-                    for _, sid in ipairs(bs.assignedSpells) do
-                        ns.StoreVariantValue(assignedSet, sid, true, false)
-                    end
-                end
-            end
-        end
-        local existingGhost = {}
-        local ghostBs = prof.barSpells.__ghost_cd
-        if ghostBs and ghostBs.assignedSpells then
-            for _, sid in ipairs(ghostBs.assignedSpells) do
-                ns.StoreVariantValue(existingGhost, sid, true, false)
-            end
-        end
-        local isAssigned = ns.ResolveVariantValue(assignedSet, beaconID)
-        local isGhosted  = ns.ResolveVariantValue(existingGhost, beaconID)
-        P(string.format("  isAssigned(53563)=%s  isGhosted(53563)=%s",
-            tostring(isAssigned), tostring(isGhosted)))
-        -- Also dump assignedSet keys to see if 53563 is keyed in there
-        local assignedKeys = {}
-        for k in pairs(assignedSet) do assignedKeys[#assignedKeys+1] = k end
-        table.sort(assignedKeys)
-        P("  assignedSet keys: " .. table.concat(assignedKeys, ", "))
-        local ghostKeys = {}
-        for k in pairs(existingGhost) do ghostKeys[#ghostKeys+1] = k end
-        table.sort(ghostKeys)
-        P("  existingGhost keys: " .. table.concat(ghostKeys, ", "))
-    end
-
-    P("=== END SNAPSHOT ===")
-end
-
--------------------------------------------------------------------------------
--- /euiorder -- focused talent-swap order probe (TEMP DEBUG). For each CD/util
--- bar, dumps the stored assignedSpells order and the rendered order with each
--- icon's sortOrder. sortOrder 99999 (= [end]) means the spell wasn't found in
--- assignedSpells and got sorted to the end (spillover). Run before/after a
--- talent swap to see whether a re-talented spell keeps its slot.
--------------------------------------------------------------------------------
-SLASH_EUIORDER1 = "/euiorder"
-SlashCmdList.EUIORDER = function()
-    local ACCENT = "|cff0cd29f"; local DIM = "|cff7f7f7f"; local BAD = "|cffff5555"; local OFF = "|r"
-    local function P(s) print(ACCENT .. "[Order]" .. OFF .. " " .. s) end
-    local function NM(sid)
-        if type(sid) ~= "number" or sid <= 0 then return tostring(sid) end
-        local n = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(sid)
-        return sid .. ":" .. tostring(n or "?")
-    end
-    local p = ECME.db and ECME.db.profile
-    if not p or not p.cdmBars then P("no profile") return end
-    for _, bd in ipairs(p.cdmBars.bars) do
-        if bd.enabled and not bd.isGhostBar
-           and bd.barType ~= "buffs" and bd.barType ~= "custom_buff" and bd.key ~= "buffs" then
-            local sd = ns.GetBarSpellData(bd.key)
-            local list = sd and sd.assignedSpells
-            local parts = {}
-            if list then for i, sid in ipairs(list) do parts[i] = i .. ")" .. NM(sid) end end
-            P(ACCENT .. bd.key .. OFF .. " assigned(" .. (list and #list or 0) .. "): "
-                .. (next(parts) and table.concat(parts, "  ") or (DIM .. "(empty)" .. OFF)))
-            local icons = ns.cdmBarIcons and ns.cdmBarIcons[bd.key]
-            local rparts = {}
-            if icons then
-                for i = 1, #icons do
-                    local fc = ns._ecmeFC and ns._ecmeFC[icons[i]]
-                    local sid = fc and fc.spellID
-                    local so = fc and fc.sortOrder
-                    rparts[i] = i .. ")" .. NM(sid) .. ":so=" .. tostring(so) .. ((so == 99999) and (BAD .. "[end]" .. OFF) or "")
-                end
-            end
-            P("   rendered(" .. (icons and #icons or 0) .. "): "
-                .. (next(rparts) and table.concat(rparts, "  ") or (DIM .. "(none)" .. OFF)))
-            -- Per-icon identity probes: every id the OrderKeyFor chain can match
-            -- against the spellOrder map, so a wrong sortOrder can be traced to
-            -- the exact colliding/missing probe.
-            if icons then
-                local fso = C_SpellBook and C_SpellBook.FindSpellOverrideByID
-                for i = 1, #icons do
-                    local frame = icons[i]
-                    local fc = ns._ecmeFC and ns._ecmeFC[frame]
-                    local sid = fc and fc.spellID
-                    local ovr = (fso and type(sid) == "number" and sid > 0) and fso(sid) or nil
-                    local gbase = (C_Spell and C_Spell.GetBaseSpell and type(sid) == "number" and sid > 0)
-                        and C_Spell.GetBaseSpell(sid) or nil
-                    local canon = ns.GetCanonicalSpellIDForFrame and ns.GetCanonicalSpellIDForFrame(frame) or nil
-                    local linked = ""
-                    if fc and fc.linkedSpellIDs then
-                        local lp = {}
-                        for _, lid in ipairs(fc.linkedSpellIDs) do lp[#lp + 1] = tostring(lid) end
-                        linked = table.concat(lp, "/")
-                    end
-                    P(string.format("   probe %d) sid=%s base=%s fOvr=%s gBase=%s canon=%s rsv=%s linked=[%s] cdID=%s LI=%s so=%s",
-                        i, tostring(sid), tostring(fc and fc.baseSpellID), tostring(ovr),
-                        tostring(gbase), tostring(canon), tostring(fc and fc.resolvedSid), linked,
-                        tostring(frame.cooldownID), tostring(frame.layoutIndex),
-                        tostring(fc and fc.sortOrder)))
-                end
-            end
-            -- The bar's cached spellOrder map (id -> assignedSpells idx). Two ids
-            -- landing on the same idx, or a rendered sid absent here, IS the bug.
-            local container = cdmBarFrames[bd.key]
-            local om = container and container._cachedSpellOrder
-            if om and next(om) then
-                local entries = {}
-                for id, idx in pairs(om) do entries[#entries + 1] = { id = id, idx = idx } end
-                table.sort(entries, function(a, b)
-                    if a.idx ~= b.idx then return a.idx < b.idx end
-                    return a.id < b.id
-                end)
-                local mp = {}
-                for _, e in ipairs(entries) do mp[#mp + 1] = e.idx .. "<-" .. NM(e.id) end
-                P("   orderMap: " .. DIM .. table.concat(mp, "  ") .. OFF)
-            else
-                P("   orderMap: " .. DIM .. "(empty/stale)" .. OFF)
-            end
-        end
-    end
-end
-
--------------------------------------------------------------------------------
--- /cdmbuffid -- default buffs bar identity-collapse probe.
---
--- Adding drag-to-reorder to the DEFAULT buffs bar hinges on ONE question: for
--- each buff, does the id the PREVIEW + per-icon SETTINGS use (canonical /
--- GetSpellID-derived, == slot._previewSpellID / ResolveBuffSettingsKey) collapse
--- to the same number as the id the SEED + SORT use (fc.spellID, which the layout
--- writes as baseSpellID or spellID and which EnsureBarOrderSeeded persists)? If
--- a transform/override buff derives two different ids, a drag in the options
--- preview targets a different entry than the one the render path orders -- a
--- silent wrong-icon reorder. The probe also reports whether the preview slot
--- indices line up with the rendered-icon indices (they won't when inactive
--- tracked buffs exist -- the default-bar index-space mismatch).
---
--- Run on a spec with active transform/override buffs (e.g. Holy Paladin) and
--- read the OK / DIVERGE and ALIGNED / MISALIGNED verdicts.
--------------------------------------------------------------------------------
-SLASH_CDMBUFFID1 = "/cdmbuffid"
-SLASH_CDMBUFFID2 = "/cdmbid"
-SlashCmdList.CDMBUFFID = function(msg)
-    local ACCENT = "|cff0cd29f"
-    local DIM    = "|cff7f7f7f"
-    local BAD    = "|cffff5555"
-    local GOOD   = "|cff55ff55"
-    local OFF    = "|r"
-    local function P(s) print(ACCENT .. "[CDMBUFFID]" .. OFF .. " " .. s) end
-
-    -- Live buff GetSpellID is a secret value while the aura is active; guard
-    -- every numeric so the probe never compares or prints a secret.
-    local function IsSecret(v) return issecretvalue and issecretvalue(v) end
-    local function SN(v)
-        if v == nil then return "nil" end
-        if IsSecret(v) then return "<secret>" end
-        return tostring(v)
-    end
-    local function NM(sid)
-        if not sid or IsSecret(sid) or type(sid) ~= "number" or sid <= 0 then return "?" end
-        return (C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(sid)) or "?"
-    end
-
-    local specKey = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
-    -- Bump on every probe change: an unchanged dump is otherwise ambiguous
-    -- between "the fix did nothing" and "the new file never loaded".
-    P("=== DEFAULT BUFFS BAR ID PROBE (spec " .. tostring(specKey) .. ") probe=v4 ===")
-
-    -- A. Stored order state for the buffs bar (what reorder would manipulate).
-    local sd = ns.GetBarSpellData and ns.GetBarSpellData("buffs")
-    local assigned = sd and sd.assignedSpells
-    P(ACCENT .. "--- stored assignedSpells (\"buffs\") ---" .. OFF)
-    if assigned and #assigned > 0 then
-        for i, sid in ipairs(assigned) do
-            P(string.format("  [%d] %s (%s)", i, SN(sid), NM(sid)))
-        end
-    else
-        P("  " .. DIM .. "(empty -- not yet seeded; reorder seeds from rendered icons)" .. OFF)
-    end
-
-    -- B. Preview source: viewer enumeration (active + inactive). This is the
-    --    order + id space the options grid is built from. e.sid == the id the
-    --    preview slot and per-icon settings key off.
-    local enumByCdID    = {}   -- cdID -> enum index
-    local enumSidByCdID = {}   -- cdID -> canonical sid
-    local enumCount     = 0
-    local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
-    -- This section works with NOTHING currently rendering, so it is the one to
-    -- read for a replacing-talent icon report (Hellcaller Wither). "icon=" is the
-    -- form an inactive placeholder paints, straight from the runtime resolver: it
-    -- differing from sid= is the override bridge firing.
-    local nBridged = 0
-    P(ACCENT .. "--- EnumerateCDMViewerSpells(true) [preview + settings id = e.sid] ---" .. OFF)
-    if ns.EnumerateCDMViewerSpells then
-        local entries = ns.EnumerateCDMViewerSpells(true)
-        P("  count: " .. #entries)
-        for i, e in ipairs(entries) do
-            if e.cdID ~= nil then
-                enumByCdID[e.cdID]    = i
-                enumSidByCdID[e.cdID] = e.sid
-                enumCount = enumCount + 1
-            end
-            local infoSpell, infoOvr, linked
-            if e.cdID ~= nil and gci then
-                local info = gci(e.cdID)
-                if info then
-                    infoSpell, infoOvr = info.spellID, info.overrideSpellID
-                    if info.linkedSpellIDs and #info.linkedSpellIDs > 0 then
-                        local t = {}
-                        for _, lid in ipairs(info.linkedSpellIDs) do t[#t + 1] = SN(lid) end
-                        linked = table.concat(t, ",")
-                    end
-                end
-            end
-            local iconSID = ns.ResolvePlaceholderIconSID
-                and ns.ResolvePlaceholderIconSID(e.sid, e.cdID) or e.sid
-            local bridgeTag = ""
-            if type(iconSID) == "number" and type(e.sid) == "number" and iconSID ~= e.sid then
-                nBridged = nBridged + 1
-                bridgeTag = "  " .. GOOD .. "BRIDGED" .. OFF
-            end
-            -- Print the TEXTURE id too, not just the spell name. A reporter
-            -- quotes the icon they can see, and two ids can share a name while
-            -- carrying different art (Wither's castable and its DoT aura), so a
-            -- name-only line cannot tell a right icon from a wrong one.
-            local _GT = C_Spell and C_Spell.GetSpellTexture
-            local texNow = _GT and _GT(iconSID)
-            P(string.format("  [%d] sid=%s cdID=%s info.sID=%s info.ovr=%s linked=%s icon=%s(%s) tex=%s name=%s%s",
-                i, SN(e.sid), SN(e.cdID), SN(infoSpell), SN(infoOvr),
-                linked or "none", SN(iconSID), NM(iconSID), SN(texNow), NM(e.sid), bridgeTag))
-        end
-        P(string.format("  placeholder icon bridge: %d of %d entries resolve to a replacing spell",
-            nBridged, #entries))
-
-        -- Why a non-bridge happened. The bridge resolves an aura NAME against the
-        -- spellbook, so when it silently does nothing the useful facts are how
-        -- many names the scan saw and what each variant's name looked up to. A
-        -- scan count of 0 means the walk itself failed; a name that maps to
-        -- nothing means the book lists the replacement under a different name.
-        if ns.CdmBookNameCount and ns.CdmBookIDForName then
-            P(string.format("  spellbook name map: %d names", ns.CdmBookNameCount()))
-            for i, e in ipairs(entries) do
-                local info = e.cdID ~= nil and gci and gci(e.cdID) or nil
-                if info and info.linkedSpellIDs and #info.linkedSpellIDs > 0 then
-                    local parts = {}
-                    local function Look(id, tag)
-                        local nm2 = NM(id)
-                        parts[#parts + 1] = string.format("%s %s(%s)->book=%s",
-                            tag, SN(id), tostring(nm2), SN(ns.CdmBookIDForName(nm2)))
-                    end
-                    Look(e.sid, "self")
-                    for _, lid in ipairs(info.linkedSpellIDs) do Look(lid, "link") end
-                    P("    [" .. i .. "] " .. table.concat(parts, "  "))
-                end
-            end
-        end
-    end
-
-    -- B2. Focused identity battery: /cdmbuffid <cdID|spellID>.
-    --
-    -- For a slot whose variants live in linkedSpellIDs rather than the spellbook
-    -- override table (Destruction Immolate lists Wither's aura 445474 as a link,
-    -- with overrideSpellID == spellID), the question the runtime must answer is
-    -- WHICH linked form the player currently has. This runs every identity API
-    -- against the slot's ids and one level of expansion, so the answer is visible
-    -- rather than guessed. Prints only this section to keep the output readable.
-    local focusList
-    if msg then
-        for n in msg:gmatch("%d+") do
-            focusList = focusList or {}
-            focusList[#focusList + 1] = tonumber(n)
-        end
-    end
-    if focusList then
-        local GB  = C_Spell and C_Spell.GetBaseSpell
-        local GOS = C_Spell and C_Spell.GetOverrideSpell
-        local FO  = C_SpellBook and C_SpellBook.FindSpellOverrideByID
-        P(ACCENT .. "=== IDENTITY BATTERY for " .. table.concat(focusList, ", ") .. " ===" .. OFF)
-
-        -- Hero talent tree: the whole question is whether the replacing talent is
-        -- active, so state it outright instead of inferring it from ids.
-        -- GetSubTreeInfo needs the ACTIVE config id; passing nil silently yields
-        -- nothing, which is why an earlier run could only print the raw number.
-        local heroName
-        if C_ClassTalents and C_ClassTalents.GetActiveHeroTalentSpec then
-            local ok, hid = pcall(C_ClassTalents.GetActiveHeroTalentSpec)
-            if ok and hid then
-                heroName = tostring(hid)
-                local cfg
-                if C_ClassTalents.GetActiveConfigID then
-                    local ok2, c = pcall(C_ClassTalents.GetActiveConfigID)
-                    if ok2 then cfg = c end
-                end
-                if cfg and C_Traits and C_Traits.GetSubTreeInfo then
-                    local ok3, st = pcall(C_Traits.GetSubTreeInfo, cfg, hid)
-                    if ok3 and st and st.name then heroName = st.name .. " (" .. hid .. ")" end
-                end
-            end
-        end
-        P("  active hero talent tree: " .. (heroName or (BAD .. "unknown/none" .. OFF)))
-
-        local seen, queue = {}, {}
-        local function Push(id, why)
-            if type(id) ~= "number" or id <= 0 or IsSecret(id) or seen[id] then return end
-            seen[id] = true
-            queue[#queue + 1] = { id = id, why = why }
-        end
-
-        -- Each argument is a cooldownID if the viewer knows it, else a raw
-        -- spellID. Passing castable ids explicitly is the point: an aura id has
-        -- no API path back to the spell that applies it, so the castable form
-        -- (Immolate 348 / Wither 445468) can only enter the set by hand.
-        local slotCandidates
-        for _, focus in ipairs(focusList) do
-            local info = gci and gci(focus)
-            if info then
-                P("  " .. focus .. " -> cooldownID")
-                Push(info.spellID, "info.spellID of " .. focus)
-                Push(info.overrideSpellID, "info.overrideSpellID of " .. focus)
-                slotCandidates = slotCandidates or {}
-                slotCandidates[#slotCandidates + 1] = info.spellID
-                if info.linkedSpellIDs then
-                    for _, lid in ipairs(info.linkedSpellIDs) do
-                        Push(lid, "linkedSpellID of " .. focus)
-                        slotCandidates[#slotCandidates + 1] = lid
-                    end
-                end
-                local esid = enumSidByCdID[focus]
-                if esid then Push(esid, "enumerated sid of " .. focus) end
-            else
-                P("  " .. focus .. " -> spellID")
-                Push(focus, "argument")
-            end
-        end
-
-        -- One level of expansion: the castable form that owns a replacement often
-        -- is NOT in the slot's own id set, and that is exactly where the override
-        -- link lives (castable Immolate 348 -> Wither 445468).
-        local n0 = #queue
-        for i = 1, n0 do
-            local id = queue[i].id
-            Push(GB and GB(id), "base of " .. id)
-            Push(GOS and GOS(id), "override of " .. id)
-            Push(FO and FO(id), "findOverride of " .. id)
-        end
-
-        for _, e in ipairs(queue) do
-            local id = e.id
-            local isPlayer = IsPlayerSpell and IsPlayerSpell(id)
-            local known    = C_SpellBook and C_SpellBook.IsSpellKnown
-                             and C_SpellBook.IsSpellKnown(id)
-            local knownOvr
-            if C_SpellBook and C_SpellBook.IsSpellKnownOrOverridesKnown then
-                local ok, v = pcall(C_SpellBook.IsSpellKnownOrOverridesKnown, id)
-                if ok then knownOvr = v end
-            end
-            local inBook
-            if C_SpellBook and C_SpellBook.FindSpellBookSlotForSpell then
-                local ok, v = pcall(C_SpellBook.FindSpellBookSlotForSpell, id)
-                if ok and v then inBook = true end
-            end
-            -- REPLACED marks the live-form test: a spell whose override is some
-            -- OTHER spell is one you no longer cast in that form. Do not read
-            -- player= for this -- a replaced base still reports player=true while
-            -- its replacement reports false, so that field points the wrong way.
-            local liveOvr = FO and FO(id)
-            local tag = (type(liveOvr) == "number" and liveOvr ~= id)
-                and (GOOD .. " <<REPLACED BY " .. NM(liveOvr) .. OFF) or ""
-            P(string.format("  %s (%s) [%s]  base=%s ovr=%s findOvr=%s player=%s known=%s knownOrOvr=%s book=%s%s",
-                SN(id), NM(id), e.why,
-                SN(GB and GB(id)), SN(GOS and GOS(id)), SN(FO and FO(id)),
-                tostring(isPlayer or false), tostring(known or false),
-                tostring(knownOvr or false), tostring(inBook or false), tag))
-        end
-        P("  " .. DIM .. "Read: an id marked REPLACED BY names the form actually cast." .. OFF)
-
-        -- B3. What the shipped bridge sees for this slot. Deliberately calls the
-        -- real helpers rather than reimplementing the lookup, so the probe cannot
-        -- drift from the runtime and quietly report on code that is not running.
-        if slotCandidates and #slotCandidates > 0 then
-            P(ACCENT .. "--- icon bridge (aura -> castable by name) ---" .. OFF)
-
-            -- Do the variants even carry different art? Equal textures would mean
-            -- there is nothing here to fix and the bridge is chasing a non-problem.
-            local GT = C_Spell and C_Spell.GetSpellTexture
-            local texLine = {}
-            for _, cid in ipairs(slotCandidates) do
-                texLine[#texLine + 1] = string.format("%s(%s)=tex%s", SN(cid), NM(cid), SN(GT and GT(cid)))
-            end
-            P("  candidate art: " .. table.concat(texLine, "  "))
-
-            if ns.CdmBookNameCount and ns.CdmBookIDForName then
-                P("  spellbook name map: " .. ns.CdmBookNameCount() .. " names")
-                for _, cid in ipairs(slotCandidates) do
-                    local nm = NM(cid)
-                    local castable = ns.CdmBookIDForName(nm)
-                    local ovr = (castable and FO) and FO(castable) or nil
-                    P(string.format("  %s (%s) -> book=%s -> override=%s(%s)",
-                        SN(cid), tostring(nm), SN(castable), SN(ovr), NM(ovr)))
-                end
-            end
-            for _, focus in ipairs(focusList) do
-                if gci and gci(focus) and ns.ResolvePlaceholderIconSID then
-                    local esid = enumSidByCdID[focus]
-                    if esid then
-                        local painted = ns.ResolvePlaceholderIconSID(esid, focus)
-                        local tag = (painted ~= esid) and ("  " .. GOOD .. "BRIDGED" .. OFF) or ""
-                        P(string.format("  slot %s paints %s(%s)%s",
-                            SN(focus), SN(painted), NM(painted), tag))
-                    end
-                end
-            end
-        end
-        P(ACCENT .. "=== END BATTERY ===" .. OFF)
-        return
-    end
-
-    -- C. Live rendered icons: walk cdmBarIcons["buffs"] in render order and
-    --    compare SEED/SORT id (fc.spellID) vs PREVIEW/SETTINGS id (canonical),
-    --    and render order vs preview-enum order.
-    P(ACCENT .. "--- live cdmBarIcons[\"buffs\"] [seed + sort id = fc.spellID] ---" .. OFF)
-    local fcCache  = ns._ecmeFC
-    local icons    = ns.cdmBarIcons and ns.cdmBarIcons["buffs"]
-    local nDiverge, nTotal = 0, 0
-    local lastEnumIdx, orderAligned = 0, true
-    if icons and #icons > 0 then
-        for j = 1, #icons do
-            local frame = icons[j]
-            if frame then
-                nTotal = nTotal + 1
-                local fc      = fcCache and fcCache[frame]
-                local fcSpell = fc and fc.spellID
-                local fcBase  = fc and fc.baseSpellID
-                local cdID    = frame.cooldownID
-                local canon   = ns.GetCanonicalSpellIDForFrame and ns.GetCanonicalSpellIDForFrame(frame)
-                local enumIdx = (cdID ~= nil) and enumByCdID[cdID] or nil
-
-                -- id-collapse verdict: seed/sort (fcSpell) vs preview/settings (canon)
-                local verdict
-                if IsSecret(fcSpell) or IsSecret(canon) then
-                    verdict = BAD .. "SECRET" .. OFF; nDiverge = nDiverge + 1
-                elseif type(fcSpell) == "number" and type(canon) == "number" and fcSpell == canon then
-                    verdict = GOOD .. "OK" .. OFF
-                else
-                    verdict = BAD .. "DIVERGE" .. OFF; nDiverge = nDiverge + 1
-                end
-
-                -- raw cooldownInfo for context (helps explain a divergence)
-                local infoSpell, infoOvr
-                if cdID ~= nil and gci then
-                    local info = gci(cdID)
-                    if info then infoSpell = info.spellID; infoOvr = info.overrideSpellID end
-                end
-
-                -- order-alignment: render order should follow preview-enum order
-                local enumTag
-                if enumIdx then
-                    if enumIdx < lastEnumIdx then orderAligned = false end
-                    lastEnumIdx = enumIdx
-                    enumTag = "enumIdx=" .. enumIdx
-                else
-                    enumTag = BAD .. "no-enum(custom/injected?)" .. OFF
-                end
-
-                -- Live override bridge + the form an inactive placeholder paints.
-                -- A hero-talent slot reports its pre-talent id while inactive
-                -- (Hellcaller: info.sID=348 Immolate, fOvr=445468 Wither), so an
-                -- fOvr that differs from canon is the bridge working, and ph=
-                -- should match fOvr rather than canon.
-                local fOvr
-                if type(canon) == "number" and not IsSecret(canon) and canon > 0
-                   and C_SpellBook and C_SpellBook.FindSpellOverrideByID then
-                    fOvr = C_SpellBook.FindSpellOverrideByID(canon)
-                end
-                local phTag = frame._isPlaceholderFrame
-                    and (" ph=" .. SN(frame._phSpellID) .. "(" .. NM(frame._phSpellID) .. ")") or ""
-
-                local shown = frame.IsShown and frame:IsShown()
-                P(string.format("  render#%d %s  fc.spellID=%s fc.base=%s canon=%s fOvr=%s | cdID=%s info.sID=%s info.ovr=%s | %s shown=%s name=%s%s",
-                    j, verdict, SN(fcSpell), SN(fcBase), SN(canon), SN(fOvr),
-                    SN(cdID), SN(infoSpell), SN(infoOvr), enumTag, tostring(shown), NM(canon), phTag))
-            end
-        end
-    else
-        P("  " .. DIM .. "(no live buff icons -- be on a spec with buffs currently up)" .. OFF)
-    end
-
-    -- D. Conclusion.
-    P(ACCENT .. "--- verdict ---" .. OFF)
-    P(string.format("  rendered icons=%d  diverge=%d  preview entries=%d", nTotal, nDiverge, enumCount))
-    if nTotal == 0 then
-        P("  " .. DIM .. "inconclusive for id-collapse: no rendered buffs to sample" .. OFF)
-        P("  " .. DIM .. "(the icon bridge above does NOT need rendered buffs -- read that line instead)" .. OFF)
-    elseif nDiverge == 0 then
-        P("  " .. GOOD .. "id-collapse: ALL buffs agree (seed/sort == preview/settings). Default-bar reorder is safe with the simple approach." .. OFF)
-    else
-        P("  " .. BAD .. string.format("id-collapse: %d buff(s) DIVERGE -- those need a canonical-id reconcile before drag is trustworthy on the default bar.", nDiverge) .. OFF)
-    end
-    if nTotal > 0 then
-        if enumCount > nTotal then
-            P("  " .. BAD .. string.format("index-space: preview shows %d entries but only %d render -> preview slot index != assignedSpells index. Default-bar drag must map by spellID, not raw slot index.", enumCount, nTotal) .. OFF)
-        else
-            P("  " .. GOOD .. "index-space: preview entry count == rendered count (no inactive stragglers right now)." .. OFF)
-        end
-        P("  render-order vs preview-order: " .. (orderAligned and (GOOD .. "ALIGNED" .. OFF) or (BAD .. "MISALIGNED" .. OFF)))
-    end
-
-    -- E. Display-order match simulation (stable-key format: "c"..cooldownID for
-    --    Blizzard buffs, "s"..spellID for customs). A MISS means that buff sorts
-    --    to the END -- the "reorder messes up while active" symptom. With the
-    --    cooldownID fix, a buff's active frame and its placeholder share one key,
-    --    so every buff should HIT regardless of proc state.
-    P(ACCENT .. "--- buffDisplayOrder match (stable-key sort simulation) ---" .. OFF)
-    local sdBuf2 = ns.GetBarSpellData and ns.GetBarSpellData("buffs")
-    local order = sdBuf2 and sdBuf2.buffDisplayOrder
-    if not order or #order == 0 then
-        P("  " .. DIM .. "(buffDisplayOrder empty -- reorder the default bar once first, then re-run)" .. OFF)
-    elseif type(order[1]) == "number" then
-        P("  " .. DIM .. "(stale numeric format -- open CDM options once to re-seed, then re-run)" .. OFF)
-    else
-        local gci2 = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
-        local orderIdx = {}
-        for i, key in ipairs(order) do
-            if orderIdx[key] == nil then orderIdx[key] = i end
-            local nm, pfx, num = "?", string.sub(key, 1, 1), tonumber(string.sub(key, 2))
-            if pfx == "s" then
-                nm = NM(num)
-            elseif pfx == "c" and num and gci2 then
-                local info = gci2(num)
-                nm = (info and info.spellID) and NM(info.spellID) or "?"
-            end
-            P(string.format("  stored[%d] = %s (%s)", i, key, nm))
-        end
-        if icons then
-            local nMiss = 0
-            for j = 1, #icons do
-                local frame = icons[j]
-                if frame then
-                    local fc = fcCache and fcCache[frame]
-                    local fcSpell = fc and fc.spellID
-                    local cd = frame.cooldownID
-                    local key
-                    if type(cd) == "number" then key = "c" .. cd
-                    elseif fcSpell then key = "s" .. fcSpell end
-                    local hit = key and orderIdx[key]
-                    local tag
-                    if hit then
-                        tag = GOOD .. "HIT@" .. hit .. OFF
-                    else
-                        tag = BAD .. "MISS->end" .. OFF
-                        nMiss = nMiss + 1
-                    end
-                    P(string.format("  render#%d %s  key=%s cdID=%s fc.spellID=%s",
-                        j, tag, tostring(key), SN(cd), SN(fcSpell)))
-                end
-            end
-            if nMiss > 0 then
-                P("  " .. BAD .. string.format("%d live buff(s) MISS -> jump to end. Order key still not stable.", nMiss) .. OFF)
-            else
-                P("  " .. GOOD .. "all live buffs match the stored order (stable across active/inactive)." .. OFF)
-            end
-        end
-    end
-    P("=== END PROBE ===")
-end
 

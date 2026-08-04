@@ -617,61 +617,8 @@ function ns.HideCustomBorder(plate)
 end
 
 -- Health bar texture overlay tables (stored on ns to avoid local count pressure)
-do
-    local TB = "Interface\\AddOns\\EllesmereUI\\media\\textures\\"
-    ns.healthBarTextures = {
-        ["none"]          = nil,
-        ["melli"]         = TB .. "melli.tga",
-        ["beautiful"]     = TB .. "beautiful.tga",
-        ["plating"]       = TB .. "plating.tga",
-        ["atrocity"]      = TB .. "atrocity.tga",
-        ["divide"]        = TB .. "divide.tga",
-        ["glass"]         = TB .. "glass.tga",
-        ["fade-right"]    = TB .. "fade-right.tga",
-        ["thin-line-top"]    = TB .. "thin-line-top.tga",
-        ["thin-line-bottom"] = TB .. "thin-line-bottom.tga",
-        ["fade"]          = TB .. "fade.tga",
-        ["gradient-lr"]   = TB .. "gradient-lr.tga",
-        ["gradient-rl"]   = TB .. "gradient-rl.tga",
-        ["gradient-bt"]   = TB .. "gradient-bt.tga",
-        ["gradient-tb"]   = TB .. "gradient-tb.tga",
-        ["matte"]         = TB .. "matte.tga",
-        ["sheer"]         = TB .. "sheer.tga",
-        ["blinkii-diamonds"] = TB .. "blinkii-diamonds.tga",
-        ["kringel-window"]   = TB .. "kringel-window.tga",
-    }
-    ns.healthBarTextureOrder = {
-        "none", "melli", "atrocity",
-        "fade", "fade-right",
-        "thin-line-top", "thin-line-bottom",
-        "beautiful", "plating",
-        "divide", "glass",
-        "gradient-lr", "gradient-rl", "gradient-bt", "gradient-tb",
-        "matte", "sheer",
-        "blinkii-diamonds", "kringel-window",
-    }
-    ns.healthBarTextureNames = {
-        ["none"]        = "None",
-        ["melli"]       = "Melli (ElvUI)",
-        ["beautiful"]   = "Beautiful",
-        ["plating"]     = "Plating",
-        ["atrocity"]    = "Atrocity",
-        ["divide"]      = "Divide",
-        ["glass"]       = "Glass",
-        ["fade-right"]  = "Fade Right",
-        ["thin-line-top"]    = "Thin Line Top",
-        ["thin-line-bottom"] = "Thin Line Bottom",
-        ["fade"]        = "Fade",
-        ["gradient-lr"] = "Gradient Right",
-        ["gradient-rl"] = "Gradient Left",
-        ["gradient-bt"] = "Gradient Up",
-        ["gradient-tb"] = "Gradient Down",
-        ["matte"]       = "Matte",
-        ["sheer"]       = "Sheer",
-        ["blinkii-diamonds"] = "Blinkii Diamonds",
-        ["kringel-window"]   = "Kringel Window",
-    }
-end
+ns.healthBarTextures, ns.healthBarTextureNames, ns.healthBarTextureOrder =
+    EllesmereUI.BuildBarTextureTables(true)
 
 local function NoTintFlag(db, key)
     local v = db and db[key]
@@ -9893,43 +9840,4 @@ do
         end
     end
 
-    -- /euirangedbg: user-invoked one-shot diagnostic (same role as
-    -- /cdmdbg). Prints every link in the chain so a single paste names the
-    -- failure: setting, driver, target plate, ladder rungs, and each
-    -- rung's live IsSpellInRange answer (SECRET called out explicitly).
-    SLASH_EUIRANGEDBG1 = "/euirangedbg"
-    SlashCmdList.EUIRANGEDBG = function()
-        local function out(msg) print("|cffD05B38[RangeText]|r " .. msg) end
-        out("enabled=" .. tostring(p and p.rangeTextEnabled)
-            .. " driver=" .. tostring(RT.drv and RT.drv:IsShown() or false)
-            .. " targetPlate=" .. tostring(ns._cachedTargetPlate ~= nil)
-            .. " attached=" .. tostring(RT.plate ~= nil)
-            .. " text=" .. tostring(RT.fs and RT.fs:IsShown() and RT.fs:GetText() or "hidden"))
-        if RT.fs then
-            -- Geometry/visibility chain: IsVisible false with IsShown true
-            -- means a hidden ancestor; a nil rect means the anchor never
-            -- resolved; width 0 means the font never applied.
-            out(("fs visible=%s rect=%s,%s strW=%s alpha=%s")
-                :format(tostring(RT.fs:IsVisible()),
-                    tostring(RT.fs:GetLeft()), tostring(RT.fs:GetBottom()),
-                    tostring(RT.fs:GetStringWidth()),
-                    tostring(RT.fs:GetAlpha())))
-        end
-        if RT.carrier then
-            out(("carrier visible=%s level=%s strata=%s scale=%s")
-                :format(tostring(RT.carrier:IsVisible()),
-                    tostring(RT.carrier:GetFrameLevel()),
-                    tostring(RT.carrier:GetFrameStrata()),
-                    tostring(RT.carrier:GetEffectiveScale())))
-        end
-        local tp = ns._cachedTargetPlate
-        if tp then
-            out(("plate level=%s strata=%s healthLevel=%s rightSlot=%s")
-                :format(tostring(tp:GetFrameLevel()), tostring(tp:GetFrameStrata()),
-                    tostring(tp.health and tp.health:GetFrameLevel()),
-                    tostring(GetTextSlot("textSlotRight"))))
-        end
-        local unit = ns._cachedTargetPlate and ns._cachedTargetPlate.unit
-        EllesmereUI.Range_DebugDump(unit, out)
-    end
 end

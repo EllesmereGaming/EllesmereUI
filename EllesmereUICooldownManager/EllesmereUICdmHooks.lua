@@ -1466,16 +1466,6 @@ do
     end)
 end
 
--- Diagnostic: /cdmreadydbg toggles a one-line print at each CD-ready sound FIRE
--- (live spellID, name, base id, bar, charge state) so a "fires while spamming"
--- report can be traced to the exact spell and reason. Off by default; the print
--- is gated on the flag so it is zero cost unless toggled on.
-ns._cdReadySoundDebug = false
-SLASH_CDMREADYDBG1 = "/cdmreadydbg"
-SlashCmdList.CDMREADYDBG = function()
-    ns._cdReadySoundDebug = not ns._cdReadySoundDebug
-    print("|cff0cd29f[CDReady]|r debug " .. (ns._cdReadySoundDebug and "ON" or "OFF"))
-end
 
 -- Reject armed->ready spans shorter than this: a real cooldown arms the moment
 -- the spell is used, so a sub-GCD-length arm can only be a transient misread
@@ -1515,23 +1505,13 @@ local function CdReadyIsChargeSpell(liveSid)
     return ci ~= nil and (ci.maxCharges or 0) > 1
 end
 
--- Single play point for both drivers: throttled, always disarms, carries the
--- /cdmreadydbg print (src names which driver won the edge).
+-- Single play point for both drivers: throttled, always disarms.
 local function PlayCdReadySound(fd, key, liveSid, sid, bk, src)
     fd._cdReadyArmed = false
     local now = GetTime()
     local last = fd._cdReadySoundAt
     if last and (now - last) < CD_READY_SOUND_GAP then return end
     fd._cdReadySoundAt = now
-    if ns._cdReadySoundDebug then
-        local nm = (C_Spell.GetSpellName and C_Spell.GetSpellName(liveSid)) or "?"
-        local ci = C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(liveSid)
-        print(string.format(
-            "|cff0cd29f[CDReady]|r FIRE(%s) live=%s '%s' base=%s bar=%s maxCharges=%s chargeRecharging=%s",
-            tostring(src), tostring(liveSid), tostring(nm), tostring(sid), tostring(bk),
-            ci and tostring(ci.maxCharges) or "-",
-            ci and tostring(ci.isActive) or "-"))
-    end
     local path = ns.FOCUSKICK_SOUND_PATHS and ns.FOCUSKICK_SOUND_PATHS[key]
     if path then PlaySoundFile(path, "Master") end
 end
@@ -2160,34 +2140,6 @@ local function TryHookSwiftmend(frame, fd)
     if SwiftmendEnabled() then iconWidget:SetVertexColor(1, 1, 1) end
 end
 
--- Temporary diagnostic for the "keep Swiftmend bright" report: dumps every
--- CDM frame currently resolving to Swiftmend plus its hook state.
-SLASH_CDMSMDBG1 = "/cdmsmdbg"
-SlashCmdList.CDMSMDBG = function()
-    local n, hookedN = 0, 0
-    for frame, fd in pairs(hookFrameData) do
-        local dispSID, baseSID = ResolveFrameSpellID(frame)
-        if dispSID and issecretvalue(dispSID) then dispSID = nil end
-        if baseSID and issecretvalue(baseSID) then baseSID = nil end
-        if dispSID == SWIFTMEND_SID or baseSID == SWIFTMEND_SID then
-            n = n + 1
-            if fd._smVCHooked then hookedN = hookedN + 1 end
-            local col = "?"
-            local tex = fd.tex
-            if tex and tex.GetVertexColor then
-                local r, g, b = tex:GetVertexColor()
-                if r and not issecretvalue(r) then
-                    col = string.format("%.2f %.2f %.2f", r, g, b)
-                end
-            end
-            print(("|cff0cd29f[SMDBG]|r sid=%s/%s hooked=%s vc=%s shown=%s"):format(
-                tostring(dispSID), tostring(baseSID), tostring(fd._smVCHooked or false),
-                col, tostring(frame:IsShown())))
-        end
-    end
-    print(("|cff0cd29f[SMDBG]|r swiftmend frames=%d hooked=%d druid=%s enabled=%s"):format(
-        n, hookedN, tostring(_isDruid), tostring(SwiftmendEnabled())))
-end
 
 -------------------------------------------------------------------------------
 --  Per-spell Custom Icon
@@ -5155,52 +5107,6 @@ ns._MarkPresetCdDirty = function()
     if ns.ArmBuffTicker then ns.ArmBuffTicker() end
 end
 
--- TEMP DEBUG: /cdmcc -- dumps why the "Show Charges" custom-spell count is / is
--- not displaying. Remove once diagnosed.
-SLASH_EUICDMCC1 = "/cdmcc"
-SlashCmdList["EUICDMCC"] = function()
-    local function p(...) print("|cff66ccff[EUICC]|r", ...) end
-    local function safe(v)
-        if issecretvalue and issecretvalue(v) then return "<secret>" end
-        return tostring(v)
-    end
-    p("gate _cdmAnyCustomForceCount =", tostring(ns._cdmAnyCustomForceCount),
-      "| dirty =", tostring(_presetCdDirty))
-    p("APIs: GetSpellCharges=", tostring(C_Spell and C_Spell.GetSpellCharges ~= nil),
-      "GetSpellDisplayCount=", tostring(C_Spell and C_Spell.GetSpellDisplayCount ~= nil),
-      "GetSpellCastCount=", tostring(C_Spell and C_Spell.GetSpellCastCount ~= nil))
-    local count = 0
-    for fkey, f in pairs(_presetFrames) do
-        if f._isCustomSpellFrame and not f._isCustomBuffFrame then
-            count = count + 1
-            local sid = f._cachedPresetSID
-            if not sid then local m = fkey:match(":(%d+)$"); sid = m and tonumber(m) end
-            local fc = _ecmeFC[f]
-            local bk = fc and fc.barKey
-            local sd = bk and ns.GetBarSpellData and ns.GetBarSpellData(bk)
-            local flag = sd and sd.customSpellForceCount and sd.customSpellForceCount[sid]
-            local ci = sid and C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(sid)
-            local disp = sid and C_Spell.GetSpellDisplayCount and C_Spell.GetSpellDisplayCount(sid)
-            local cast = sid and C_Spell.GetSpellCastCount and C_Spell.GetSpellCastCount(sid)
-            p(string.format("[%s] %s | bk=%s shown=%s flag=%s",
-                tostring(sid), tostring(sid and C_Spell.GetSpellName(sid)),
-                tostring(bk), tostring(f:IsShown()), tostring(flag)))
-            local nEff = (ci and disp) or cast
-            local tok, tstr
-            if C_StringUtil and C_StringUtil.TruncateWhenZero then
-                tok, tstr = pcall(C_StringUtil.TruncateWhenZero, nEff)
-            end
-            p(string.format("   forceCountTbl=%s charges=%s displayCount=%s castCount=%s",
-                tostring(sd and sd.customSpellForceCount ~= nil),
-                tostring(ci ~= nil), safe(disp), safe(cast)))
-            p(string.format("   TruncateWhenZero: ok=%s -> %s | text=%s textShown=%s",
-                tostring(tok), safe(tstr),
-                tostring(f._castCountText ~= nil),
-                tostring(f._castCountText and f._castCountText:IsShown())))
-        end
-    end
-    if count == 0 then p("NO custom spell frames present (add one to a CD/utility bar first)") end
-end
 
 -- "Hide Items if Missing": detect when a tracked consumable's bag presence
 -- flips (acquired or fully used up) for any bar that opted in, and queue a

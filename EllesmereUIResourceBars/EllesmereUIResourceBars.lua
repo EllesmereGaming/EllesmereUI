@@ -254,20 +254,45 @@ end
 
 -- Power color lookup: resolves all keys through EUI's global color system.
 -- Falls back to class color if no power color exists for the key.
-local POWER_COLORS = setmetatable({}, { __index = function(_, powerKey)
+-- MEMOIZED (memory pass 2026-08-03): a plain __index never caches, so every
+-- lookup in the bar update paths built a fresh {r,g,b} -- ~170KB/min of pure
+-- churn for values that only change with the palette. Resolved entries are
+-- rawset into the table (hits never re-enter this function); nil results
+-- (parent not ready yet) are NOT cached so early-login lookups retry. The
+-- memo's ONE input is the parent palette; see the invalidation hook below.
+local POWER_COLORS = setmetatable({}, { __index = function(t, powerKey)
     if not EllesmereUI then return nil end
     local key = ResolvePowerKey(powerKey)
     if key and EllesmereUI.GetPowerColor then
         local c = EllesmereUI.GetPowerColor(key)
-        if c then return { c.r, c.g, c.b } end
+        if c then
+            local v = { c.r, c.g, c.b }
+            rawset(t, powerKey, v)
+            return v
+        end
     end
     if EllesmereUI.GetClassColor then
         local _, classFile = UnitClass("player")
         local cc = classFile and EllesmereUI.GetClassColor(classFile)
-        if cc then return { cc.r, cc.g, cc.b } end
+        if cc then
+            local v = { cc.r, cc.g, cc.b }
+            rawset(t, powerKey, v)
+            return v
+        end
     end
     return nil
 end })
+-- Memo invalidation (rule 6 -- the invalidation names its one input):
+-- ApplyColorsToOUF is the parent's universal "colours changed" entry point
+-- (swatch edits, resets, the global-mode toggle, Pull Colors From, profile
+-- switches all route through it), so dropping the cache there covers every
+-- palette edge. Repaint timing is unchanged: bars always recolored on their
+-- next update tick, exactly as the uncached lookup did.
+if EllesmereUI and hooksecurefunc then
+    hooksecurefunc(EllesmereUI, "ApplyColorsToOUF", function()
+        table.wipe(POWER_COLORS)
+    end)
+end
 
 -- Blizzard player-frame power-bar atlas per power token, validated at
 -- runtime via GetAtlasInfo: unknown tokens (special bars like Stagger or
@@ -1442,12 +1467,6 @@ local function GetAccent()
     local eg = EllesmereUI and EllesmereUI.ELLESMERE_GREEN
     if eg then return eg.r, eg.g, eg.b end
     return 12/255, 210/255, 157/255
-end
-
-local function FormatNumber(n)
-    if n >= 1e6 then return format("%.1fM", n / 1e6) end
-    if n >= 1e3 then return format("%.1fK", n / 1e3) end
-    return tostring(floor(n))
 end
 
 local function IsVerticalOrientation(ori)
@@ -6250,60 +6269,12 @@ end, 0.05)
 -------------------------------------------------------------------------------
 --  Bar Textures (shared with options)
 -------------------------------------------------------------------------------
-local TEX_BASE = "Interface\\AddOns\\EllesmereUI\\media\\textures\\"
-local CAST_BAR_TEXTURES = {
-    ["none"]          = nil,
-    ["blizzard"]      = "ATLAS",
-    ["melli"]         = TEX_BASE .. "melli.tga",
-    ["beautiful"]     = TEX_BASE .. "beautiful.tga",
-    ["plating"]       = TEX_BASE .. "plating.tga",
-    ["atrocity"]      = TEX_BASE .. "atrocity.tga",
-    ["divide"]        = TEX_BASE .. "divide.tga",
-    ["glass"]         = TEX_BASE .. "glass.tga",
-    ["fade-right"]    = TEX_BASE .. "fade-right.tga",
-    ["thin-line-top"]    = TEX_BASE .. "thin-line-top.tga",
-    ["thin-line-bottom"] = TEX_BASE .. "thin-line-bottom.tga",
-    ["fade"]          = TEX_BASE .. "fade.tga",
-    ["gradient-lr"]   = TEX_BASE .. "gradient-lr.tga",
-    ["gradient-rl"]   = TEX_BASE .. "gradient-rl.tga",
-    ["gradient-bt"]   = TEX_BASE .. "gradient-bt.tga",
-    ["gradient-tb"]   = TEX_BASE .. "gradient-tb.tga",
-    ["matte"]         = TEX_BASE .. "matte.tga",
-    ["sheer"]         = TEX_BASE .. "sheer.tga",
-    ["blinkii-diamonds"] = TEX_BASE .. "blinkii-diamonds.tga",
-    ["kringel-window"]   = TEX_BASE .. "kringel-window.tga",
-}
-local CAST_BAR_TEXTURE_ORDER = {
-    "none", "blizzard", "melli", "atrocity",
-    "fade", "fade-right", "thin-line-top", "thin-line-bottom",
-    "beautiful", "plating",
-    "divide", "glass",
-    "gradient-lr", "gradient-rl", "gradient-bt", "gradient-tb",
-    "matte", "sheer",
-    "blinkii-diamonds", "kringel-window",
-}
-local CAST_BAR_TEXTURE_NAMES = {
-    ["none"]        = "None",
-    ["blizzard"]    = "Blizzard",
-    ["melli"]       = "Melli (ElvUI)",
-    ["beautiful"]   = "Beautiful",
-    ["plating"]     = "Plating",
-    ["atrocity"]    = "Atrocity",
-    ["divide"]      = "Divide",
-    ["glass"]       = "Glass",
-    ["fade-right"]  = "Fade Right",
-    ["thin-line-top"]    = "Thin Line Top",
-    ["thin-line-bottom"] = "Thin Line Bottom",
-    ["fade"]        = "Fade",
-    ["gradient-lr"] = "Gradient Right",
-    ["gradient-rl"] = "Gradient Left",
-    ["gradient-bt"] = "Gradient Up",
-    ["gradient-tb"] = "Gradient Down",
-    ["matte"]       = "Matte",
-    ["sheer"]       = "Sheer",
-    ["blinkii-diamonds"] = "Blinkii Diamonds",
-    ["kringel-window"]   = "Kringel Window",
-}
+local CAST_BAR_TEXTURES, CAST_BAR_TEXTURE_NAMES, CAST_BAR_TEXTURE_ORDER =
+    EllesmereUI.BuildBarTextureTables(true)
+-- Cast-bar-only extra entry: Blizzard's own atlas fill, second in the list.
+CAST_BAR_TEXTURES["blizzard"] = "ATLAS"
+CAST_BAR_TEXTURE_NAMES["blizzard"] = "Blizzard"
+table.insert(CAST_BAR_TEXTURE_ORDER, 2, "blizzard")
 -- Expose for options
 _G._ERB_CastBarTextures     = CAST_BAR_TEXTURES
 _G._ERB_CastBarTextureOrder = CAST_BAR_TEXTURE_ORDER
@@ -6312,58 +6283,8 @@ _G._ERB_CastBarTextureNames = CAST_BAR_TEXTURE_NAMES
 -------------------------------------------------------------------------------
 --  Health/Power bar texture tables (shared with options dropdown)
 -------------------------------------------------------------------------------
-local BAR_TEX_BASE = "Interface\\AddOns\\EllesmereUI\\media\\textures\\"
-local BAR_TEXTURES = {
-    ["none"]          = nil,
-    ["melli"]         = BAR_TEX_BASE .. "melli.tga",
-    ["beautiful"]     = BAR_TEX_BASE .. "beautiful.tga",
-    ["plating"]       = BAR_TEX_BASE .. "plating.tga",
-    ["atrocity"]      = BAR_TEX_BASE .. "atrocity.tga",
-    ["divide"]        = BAR_TEX_BASE .. "divide.tga",
-    ["glass"]         = BAR_TEX_BASE .. "glass.tga",
-    ["fade-right"]    = BAR_TEX_BASE .. "fade-right.tga",
-    ["thin-line-top"]    = BAR_TEX_BASE .. "thin-line-top.tga",
-    ["thin-line-bottom"] = BAR_TEX_BASE .. "thin-line-bottom.tga",
-    ["fade"]          = BAR_TEX_BASE .. "fade.tga",
-    ["gradient-lr"]   = BAR_TEX_BASE .. "gradient-lr.tga",
-    ["gradient-rl"]   = BAR_TEX_BASE .. "gradient-rl.tga",
-    ["gradient-bt"]   = BAR_TEX_BASE .. "gradient-bt.tga",
-    ["gradient-tb"]   = BAR_TEX_BASE .. "gradient-tb.tga",
-    ["matte"]         = BAR_TEX_BASE .. "matte.tga",
-    ["sheer"]         = BAR_TEX_BASE .. "sheer.tga",
-    ["blinkii-diamonds"] = BAR_TEX_BASE .. "blinkii-diamonds.tga",
-    ["kringel-window"]   = BAR_TEX_BASE .. "kringel-window.tga",
-}
-local BAR_TEXTURE_ORDER = {
-    "none", "melli", "atrocity",
-    "fade", "fade-right", "thin-line-top", "thin-line-bottom",
-    "beautiful", "plating",
-    "divide", "glass",
-    "gradient-lr", "gradient-rl", "gradient-bt", "gradient-tb",
-    "matte", "sheer",
-    "blinkii-diamonds", "kringel-window",
-}
-local BAR_TEXTURE_NAMES = {
-    ["none"]        = "None",
-    ["melli"]       = "Melli (ElvUI)",
-    ["beautiful"]   = "Beautiful",
-    ["plating"]     = "Plating",
-    ["atrocity"]    = "Atrocity",
-    ["divide"]      = "Divide",
-    ["glass"]       = "Glass",
-    ["fade-right"]  = "Fade Right",
-    ["thin-line-top"]    = "Thin Line Top",
-    ["thin-line-bottom"] = "Thin Line Bottom",
-    ["fade"]        = "Fade",
-    ["gradient-lr"] = "Gradient Right",
-    ["gradient-rl"] = "Gradient Left",
-    ["gradient-bt"] = "Gradient Up",
-    ["gradient-tb"] = "Gradient Down",
-    ["matte"]       = "Matte",
-    ["sheer"]       = "Sheer",
-    ["blinkii-diamonds"] = "Blinkii Diamonds",
-    ["kringel-window"]   = "Kringel Window",
-}
+local BAR_TEXTURES, BAR_TEXTURE_NAMES, BAR_TEXTURE_ORDER =
+    EllesmereUI.BuildBarTextureTables(true)
 _G._ERB_BarTextures     = BAR_TEXTURES
 _G._ERB_BarTextureOrder = BAR_TEXTURE_ORDER
 _G._ERB_BarTextureNames = BAR_TEXTURE_NAMES
@@ -8994,74 +8915,3 @@ SlashCmdList.ERB = function(msg)
     end
 end
 
--- Diagnostic: /euibuff <spellID> reports the 3 detection tiers (byID / byName /
--- byCV = Cooldown Manager). /euibuff watch <spellID> monitors those tiers live
--- (prints on change -- good for secret procs that fire no UNIT_AURA), /euibuff
--- stop ends it. /euibuff with no id dumps every buff the Cooldown Manager is
--- tracking (all viewers). Run while the buff is up.
-SLASH_EUIBUFF1 = "/euibuff"
-SlashCmdList["EUIBUFF"] = function(msg)
-	msg = msg or ""
-	local word = (msg:match("^%s*(%a+)") or ""):lower()
-	if word == "watch" or word == "stop" then
-		if _G._euibuffWatch then
-			_G._euibuffWatch:Cancel(); _G._euibuffWatch = nil
-		end
-		local wid = tonumber(msg:match("%d+"))
-		if word == "stop" or not wid then
-			print("|cff55ccffEUIBuff|r watch stopped"); return
-		end
-		local wnm = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(wid) or nil
-		print(("|cff55ccffEUIBuff|r watching %s (%s) -- /euibuff stop to end"):format(tostring(wid), tostring(wnm)))
-		local last
-		_G._euibuffWatch = C_Timer.NewTicker(0.2, function()
-			local ok1, a1 = pcall(C_UnitAuras.GetPlayerAuraBySpellID, wid)
-			local byID = (ok1 and a1 ~= nil) and true or false
-			local byName = false
-			if wnm then
-				local ok2, a2 = pcall(C_UnitAuras.GetAuraDataBySpellName, "player", wnm, "HELPFUL"); byName = (ok2 and a2 ~= nil) and
-				true or false
-			end
-			local byCV = BuffActiveViaCooldownViewer(wid, wnm)
-			local sig = tostring(byID) .. tostring(byName) .. tostring(byCV)
-			if sig ~= last then
-				last = sig
-				print(("|cff55ccffEUIBuff|r %s: byID=%s byName=%s byCV=%s => %s"):format(tostring(wid),
-					tostring(byID), tostring(byName), tostring(byCV),
-					(byID or byName or byCV) and "|cff44ff44UP|r" or "|cffff5555down|r"))
-			end
-		end)
-		return
-	end
-	local id = tonumber(msg:match("%d+"))
-	if not id then
-		local g = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
-		for _, n in ipairs({ "EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer", "BuffBarCooldownViewer" }) do
-			local f = _G[n]
-			if f and f.itemFramePool and g then
-				for fr in f.itemFramePool:EnumerateActive() do
-					local i = fr.cooldownID and g(fr.cooldownID)
-					if i then
-						print(("|cff55ccff%s|r shown=%s id=%s %s ovr=%s"):format(n, tostring(fr:IsShown()),
-							tostring(i.spellID), tostring(i.spellID and C_Spell.GetSpellName(i.spellID)),
-							tostring(i.overrideSpellID)))
-					end
-				end
-			end
-		end
-		print("|cff888888/euibuff <spellID> to test; /euibuff watch <spellID> to monitor live|r")
-		return
-	end
-	local nm = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id) or nil
-	local ok1, a1 = pcall(C_UnitAuras.GetPlayerAuraBySpellID, id)
-	local byID = (ok1 and a1 ~= nil) and true or false
-	local byName = false
-	if nm then
-		local ok2, a2 = pcall(C_UnitAuras.GetAuraDataBySpellName, "player", nm, "HELPFUL"); byName = (ok2 and a2 ~= nil) and
-		true or false
-	end
-	local byCV = BuffActiveViaCooldownViewer(id, nm)
-	print(("|cff55ccffEUIBuff|r %s (%s): byID=%s byName=%s byCV=%s => %s"):format(tostring(id), tostring(nm),
-		tostring(byID), tostring(byName), tostring(byCV),
-		(byID or byName or byCV) and "|cff44ff44YES|r" or "|cffff5555NO|r"))
-end

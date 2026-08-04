@@ -476,33 +476,12 @@ initFrame:SetScript("OnEvent", function(self)
     }
     local healthColorOrder = { "class", "dark", "classic", "custom", "customDynamic" }
 
-    local namePositionValues = {
-        ["topleft"]    = "Top Left",
-        ["top"]        = "Top",
-        ["topright"]   = "Top Right",
-        ["left"]       = "Left",
-        ["center"]     = "Center",
-        ["right"]      = "Right",
-        ["bottomleft"] = "Bottom Left",
-        ["bottom"]     = "Bottom",
-        ["bottomright"] = "Bottom Right",
-    }
-    local namePositionOrder = { "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright" }
+    local namePositionValues = EllesmereUI.POSITION_GRID_VALUES
+    local namePositionOrder = EllesmereUI.POSITION_GRID_ORDER
 
     -- Name Position offers an extra "None" (hides the name entirely). Health Text
     -- Position reuses the base tables above, so keep "None" out of the shared set.
-    local namePositionValuesName = {
-        ["topleft"]    = "Top Left",
-        ["top"]        = "Top",
-        ["topright"]   = "Top Right",
-        ["left"]       = "Left",
-        ["center"]     = "Center",
-        ["right"]      = "Right",
-        ["bottomleft"] = "Bottom Left",
-        ["bottom"]     = "Bottom",
-        ["bottomright"] = "Bottom Right",
-        ["none"]       = "None",
-    }
+    local namePositionValuesName = EllesmereUI.POSITION_GRID_VALUES_NONE
     local namePositionOrderName = { "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright", "none" }
 
     local healthTextValues = {
@@ -740,8 +719,8 @@ initFrame:SetScript("OnEvent", function(self)
         -- Built for both raid and party pages; the animation reads the active
         -- preview frame set at runtime via ns.PvActiveFrames().
         do
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+            local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+            local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
             -- Animation state lives on ns (single shared ticker) so the raid and
             -- party eyeball builds drive the same animation and start/stop works
             -- across both. ns._healthAnimActive is the truth read by the renderer.
@@ -1281,8 +1260,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Eyeball: toggle shield/heal-absorb effects on the preview frames.
         do
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+            local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+            local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
 
             -- Find the section label FontString
             local abLabel
@@ -1853,8 +1832,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Power bar animation (same pattern as health; serves raid + party).
         do
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+            local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+            local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
             -- Shared anim state on ns (single ticker, resolves active preview).
             ns._powerAnimState = ns._powerAnimState or {}
 
@@ -2542,8 +2521,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Eyeball: toggle indicator visibility on preview (raid + party)
         do
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+            local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+            local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
 
             -- Find the section label FontString
             local indLabel
@@ -2614,16 +2593,7 @@ initFrame:SetScript("OnEvent", function(self)
         end  -- close do (indicators eyeball)
 
         -- Row 1: Role Icon Style | Role Icon Size
-        local ROLE_MEDIA = "Interface\\AddOns\\EllesmereUIRaidFrames\\Media\\"
-        local RI_STYLES = {
-            modern = { _isTexture = true, TANK = ROLE_MEDIA .. "tank-modern.png", HEALER = ROLE_MEDIA .. "healer-modern.png", DAMAGER = ROLE_MEDIA .. "dps-modern.png" },
-            modernCircle = { TANK = "UI-LFG-RoleIcon-Tank", HEALER = "UI-LFG-RoleIcon-Healer", DAMAGER = "UI-LFG-RoleIcon-DPS" },
-            styled = { TANK = "UI-LFG-RoleIcon-Tank-Background", HEALER = "UI-LFG-RoleIcon-Healer-Background", DAMAGER = "UI-LFG-RoleIcon-DPS-Background" },
-            classicCircle = { TANK = "UI-LFG-RoleIcon-Tank-Micro-GroupFinder", HEALER = "UI-LFG-RoleIcon-Healer-Micro-GroupFinder", DAMAGER = "UI-LFG-RoleIcon-DPS-Micro-GroupFinder" },
-            classic = { TANK = "roleicon-tiny-tank", HEALER = "roleicon-tiny-healer", DAMAGER = "roleicon-tiny-dps" },
-            blizzDefault = { TANK = "GM-icon-role-tank", HEALER = "GM-icon-role-healer", DAMAGER = "GM-icon-role-dps" },
-            blizzLight = { _isTexture = true, TANK = ROLE_MEDIA .. "tank.png", HEALER = ROLE_MEDIA .. "healer.png", DAMAGER = ROLE_MEDIA .. "dps.png" },
-        }
+        local RI_STYLES = ns.ROLE_ICON_STYLES
         local playerRole = UnitGroupRolesAssigned("player")
         if playerRole == "NONE" then
             local specIdx = GetSpecialization()
@@ -2724,7 +2694,7 @@ initFrame:SetScript("OnEvent", function(self)
             bottom      = "Bottom",
             bottomright = "Bottom Right",
         }
-        local rolePositionOrder = { "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright" }
+        local rolePositionOrder = EllesmereUI.POSITION_GRID_ORDER
         local roleRow2
         roleRow2, h = W:DualRow(parent, y,
             { type="dropdown", text="Role Position", values=rolePositionValues, order=rolePositionOrder,
@@ -2851,7 +2821,7 @@ initFrame:SetScript("OnEvent", function(self)
             bottom      = "Bottom",
             bottomright = "Bottom Right",
         }
-        local readyCheckPositionOrder = { "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright" }
+        local readyCheckPositionOrder = EllesmereUI.POSITION_GRID_ORDER
         local rcRow
         rcRow, h = W:DualRow(parent, y,
             { type="dropdown", text="Ready Check / Summon / Rez", values=readyCheckPositionValues, order=readyCheckPositionOrder,
@@ -3208,8 +3178,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Eyeball: toggle dispel visibility on preview (raid + party)
         do
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+            local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+            local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
 
             local dispLabel
             for _, rgn in ipairs({ dispelHeader:GetRegions() }) do
@@ -3428,8 +3398,8 @@ initFrame:SetScript("OnEvent", function(self)
             bottomright = "Bottom Right",
         }
         local dispLocOrder = { "same", "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright" }
-        local dispGrowValues = { RIGHT = "Right", LEFT = "Left", UP = "Up", DOWN = "Down", CENTER = "Center" }
-        local dispGrowOrder = { "RIGHT", "LEFT", "UP", "DOWN", "CENTER" }
+        local dispGrowValues = EllesmereUI.GROW_DIR_VALUES_FULL
+        local dispGrowOrder = EllesmereUI.GROW_DIR_ORDER_FULL
         local function GetDefaultDispGrow(pos)
             if pos == "right" or pos == "topright" or pos == "bottomright" then return "LEFT" end
             if pos == "left" or pos == "topleft" or pos == "bottomleft" then return "RIGHT" end
@@ -4235,8 +4205,8 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- Eyeball: toggle targeted spells visibility on the raid preview
             do
-                local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-                local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+                local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+                local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
                 local tsLabel
                 for _, rgn in ipairs({ tsHeader:GetRegions() }) do
                     if rgn.GetText and EllesmereUI.EnKey(rgn:GetText()) == "TARGETED SPELLS" then
@@ -4337,10 +4307,10 @@ initFrame:SetScript("OnEvent", function(self)
                 bottom      = "Bottom",
                 bottomright = "Bottom Right",
             }
-            local tsPositionOrder = { "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright" }
+            local tsPositionOrder = EllesmereUI.POSITION_GRID_ORDER
 
-            local tsGrowValues = { RIGHT = "Right", LEFT = "Left", UP = "Up", DOWN = "Down", CENTER = "Center" }
-            local tsGrowOrder = { "RIGHT", "LEFT", "UP", "DOWN", "CENTER" }
+            local tsGrowValues = EllesmereUI.GROW_DIR_VALUES_FULL
+            local tsGrowOrder = EllesmereUI.GROW_DIR_ORDER_FULL
 
             local function GetDefaultTSGrow(pos)
                 if pos == "right" or pos == "topright" or pos == "bottomright" then return "LEFT" end
@@ -4553,8 +4523,8 @@ initFrame:SetScript("OnEvent", function(self)
             local CUSTOM_TIERS = { 10, 15, 25, 30 }
             local TIER_LABELS = { [10] = "10 Man", [15] = "15 Man", [25] = "25 Man", [30] = "30 Man" }
             local overrides = db.profile.raidSizeOverrides
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+            local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+            local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
             local CLOSE_ICON    = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.png"
 
             for _, tier in ipairs(CUSTOM_TIERS) do
@@ -5631,8 +5601,8 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- Eyeball: toggle targeted spells visibility on the party preview
             do
-                local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-                local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+                local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+                local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
                 local tsLabel
                 for _, rgn in ipairs({ tsHeader:GetRegions() }) do
                     if rgn.GetText and EllesmereUI.EnKey(rgn:GetText()) == "TARGETED SPELLS" then
@@ -5733,10 +5703,10 @@ initFrame:SetScript("OnEvent", function(self)
                 bottom      = "Bottom",
                 bottomright = "Bottom Right",
             }
-            local tsPositionOrder = { "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright" }
+            local tsPositionOrder = EllesmereUI.POSITION_GRID_ORDER
 
-            local tsGrowValues = { RIGHT = "Right", LEFT = "Left", UP = "Up", DOWN = "Down", CENTER = "Center" }
-            local tsGrowOrder = { "RIGHT", "LEFT", "UP", "DOWN", "CENTER" }
+            local tsGrowValues = EllesmereUI.GROW_DIR_VALUES_FULL
+            local tsGrowOrder = EllesmereUI.GROW_DIR_ORDER_FULL
 
             local function GetDefaultTSGrow(pos)
                 if pos == "right" or pos == "topright" or pos == "bottomright" then return "LEFT" end
@@ -5872,8 +5842,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Eyeball: toggle defensive visibility on preview (raid + party)
         do
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+            local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+            local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
             local defLabel
             for _, rgn in ipairs({ defHeader:GetRegions() }) do
                 if rgn.GetText and EllesmereUI.EnKey(rgn:GetText()) == "DEFENSIVES & EXTERNALS" then
@@ -5939,10 +5909,10 @@ initFrame:SetScript("OnEvent", function(self)
             bottom      = "Bottom",
             bottomright = "Bottom Right",
         }
-        local defPosOrder = { "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright" }
+        local defPosOrder = EllesmereUI.POSITION_GRID_ORDER
 
-        local defGrowValues = { RIGHT = "Right", LEFT = "Left", UP = "Up", DOWN = "Down", CENTER = "Center" }
-        local defGrowOrder = { "RIGHT", "LEFT", "UP", "DOWN", "CENTER" }
+        local defGrowValues = EllesmereUI.GROW_DIR_VALUES_FULL
+        local defGrowOrder = EllesmereUI.GROW_DIR_ORDER_FULL
 
         local function GetDefaultDefGrow(pos)
             if pos == "right" or pos == "topright" or pos == "bottomright" then return "LEFT" end
@@ -6146,8 +6116,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Eyeball: toggle private aura visibility on preview (raid + party)
         do
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+            local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+            local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
             local paLabel
             for _, rgn in ipairs({ paHeader:GetRegions() }) do
                 if rgn.GetText and EllesmereUI.EnKey(rgn:GetText()) == "PRIVATE AURAS" then
@@ -6210,8 +6180,8 @@ initFrame:SetScript("OnEvent", function(self)
             bottomright = "Bottom Right",
         }
         local paPosOrder = { "none", "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright" }
-        local paGrowValues = { RIGHT = "Right", LEFT = "Left", UP = "Up", DOWN = "Down" }
-        local paGrowOrder = { "RIGHT", "LEFT", "UP", "DOWN" }
+        local paGrowValues = EllesmereUI.GROW_DIR_VALUES_BASE
+        local paGrowOrder = EllesmereUI.GROW_DIR_ORDER_BASE
 
         local function GetDefaultPaGrow(pos)
             if pos == "right" or pos == "topright" or pos == "bottomright" then return "LEFT" end
@@ -6300,8 +6270,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Eyeball: toggle debuff visibility on preview (raid + party)
         do
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+            local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+            local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
             local dbLabel
             for _, rgn in ipairs({ debuffHeader:GetRegions() }) do
                 if rgn.GetText and EllesmereUI.EnKey(rgn:GetText()) == "DEBUFF DISPLAY" then
@@ -6381,12 +6351,12 @@ initFrame:SetScript("OnEvent", function(self)
             bottom      = "Bottom",
             bottomright = "Bottom Right",
         }
-        local debuffPositionOrder = { "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright" }
+        local debuffPositionOrder = EllesmereUI.POSITION_GRID_ORDER
 
-        local debuffGrowValues = { RIGHT = "Right", LEFT = "Left", UP = "Up", DOWN = "Down", CENTER = "Center" }
-        local debuffGrowOrder = { "RIGHT", "LEFT", "UP", "DOWN", "CENTER" }
-		local debuffWrapValues = { RIGHT = "Right", LEFT = "Left", UP = "Up", DOWN = "Down" }
-        local debuffWrapOrder = { "RIGHT", "LEFT", "UP", "DOWN" }
+        local debuffGrowValues = EllesmereUI.GROW_DIR_VALUES_FULL
+        local debuffGrowOrder = EllesmereUI.GROW_DIR_ORDER_FULL
+		local debuffWrapValues = EllesmereUI.GROW_DIR_VALUES_BASE
+        local debuffWrapOrder = EllesmereUI.GROW_DIR_ORDER_BASE
 
         local function GetDefaultDebuffGrow(pos)
             if pos == "right" or pos == "topright" or pos == "bottomright" then return "LEFT" end

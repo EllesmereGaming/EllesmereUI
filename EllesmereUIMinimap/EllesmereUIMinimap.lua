@@ -3331,24 +3331,6 @@ local function MO_Refresh(p)
         MO_HookFrame(Minimap)
         for i = 1, #_moButtons do MO_HookFrame(_moButtons[i]) end
         MO_Evaluate()
-        -- Diagnostic for "stack stuck visible" reports: dumps the mouseover
-        -- state so a stuck screenshot can tell us WHICH mechanism failed
-        -- (our state says shown vs a foreign alpha write, what OverAny sees).
-        if not SlashCmdList.EUIMO then
-            SLASH_EUIMO1 = "/euimo"
-            SlashCmdList.EUIMO = function()
-                print(format("EUI MO: active=%s overAny=%s mapOver=%s hideTimer=%s",
-                    tostring(_moActive), tostring(MO_OverAny()),
-                    tostring(Minimap and Minimap:IsMouseOver()),
-                    tostring(_moHideTimer ~= nil)))
-                for i = 1, #_moButtons do
-                    local b = _moButtons[i]
-                    print(format("  %d. %s shown=%s alpha=%.2f over=%s",
-                        i, b:GetName() or "(unnamed)", tostring(b:IsShown()),
-                        b:GetAlpha() or 0, tostring(b:IsMouseOver())))
-                end
-            end
-        end
     else
         MO_CancelHide()
         -- Restore full alpha (harmless on buttons hidden by hideExtraBtns).
@@ -5405,58 +5387,6 @@ do
         self:UnregisterEvent("PLAYER_LOGIN")
         CreateMenuFrame()
     end)
-end
-
--- Debug: /euiblock -- after 3 seconds, print every click-enabled frame under
--- the cursor, INCLUDING motion-disabled ones that /fstack cannot see (those
--- are the invisible click-blockers).
-SLASH_EUIBLOCK1 = "/euiblock"
-SlashCmdList.EUIBLOCK = function()
-    print("|cff0cd29fEllesmereUI:|r hover the blocked spot -- scanning in 3 seconds...")
-    -- Frame state on protected frames comes back as secret booleans in
-    -- Midnight and boolean-testing those throws, so each frame's probe runs
-    -- under pcall and secret/forbidden frames are simply skipped.
-    local function Probe(fr)
-        if fr:IsForbidden() or not fr:IsVisible() or not fr:IsMouseOver() then return end
-        if not (fr.IsMouseClickEnabled and fr:IsMouseClickEnabled()) then return end
-        return (fr:GetDebugName() or "?"), tostring(fr:IsMouseMotionEnabled())
-    end
-    C_Timer.After(3, function()
-        print("|cff0cd29fEllesmereUI:|r click-enabled frames under the cursor:")
-        local f = EnumerateFrames()
-        local n = 0
-        while f do
-            local okc, name, motion = pcall(Probe, f)
-            if okc and name then
-                n = n + 1
-                print(format("  %s  (motion: %s)", name, motion))
-            end
-            f = EnumerateFrames(f)
-        end
-        print(format("|cff0cd29fEllesmereUI:|r %d frame(s).", n))
-    end)
-end
-
--- Debug: /euimap -- dump every direct Minimap child with its size, state and
--- the atlases of its Default-state regions, to identify anonymous Blizzard
--- widgets (like the guild banner) that need suppression.
-SLASH_EUIMAP1 = "/euimap"
-SlashCmdList.EUIMAP = function()
-    print("|cff0cd29fEllesmereUI:|r Minimap children:")
-    for i, child in ipairs({ Minimap:GetChildren() }) do
-        local okc, line = pcall(function()
-            local d = child.Default
-            local a1 = d and d.Background and d.Background.GetAtlas and d.Background:GetAtlas()
-            local a2 = d and d.Border and d.Border.GetAtlas and d.Border:GetAtlas()
-            local w, h = child:GetSize()
-            return format("  %d. %s  %.0fx%.0f  shown:%s click:%s  atlas:%s / %s",
-                i, child:GetDebugName() or "?", w or 0, h or 0,
-                tostring(child:IsShown()),
-                tostring(child.IsMouseClickEnabled and child:IsMouseClickEnabled()),
-                tostring(a1), tostring(a2))
-        end)
-        if okc and line then print(line) end
-    end
 end
 
 function EBS:OnInitialize()

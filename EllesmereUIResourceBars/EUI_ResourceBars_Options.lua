@@ -138,11 +138,7 @@ initFrame:SetScript("OnEvent", function(self)
     --  of PixelUtil, which snaps to screen pixels and can disagree with the
     --  preview's own pixel grid at certain panel scales.
     ---------------------------------------------------------------------------
-    local function UnsnapTex(tex)
-        if tex.SetSnapToPixelGrid then
-            tex:SetSnapToPixelGrid(false); tex:SetTexelSnappingBias(0)
-        end
-    end
+    local UnsnapTex = EllesmereUI.PP.DisablePixelSnap
 
     -- Snap helper created per-preview-build so it reads the correct effective scale
     local _previewSnap  -- set in _previewHeaderBuilder
@@ -7607,8 +7603,8 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- Row 3: Texture (+ cog: Blizzard atlas for the class resource) | Frame Strata
-        local strataValues = { BACKGROUND = "Background", LOW = "Low", MEDIUM = "Medium", HIGH = "High", DIALOG = "Dialog" }
-        local strataOrder = { "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG" }
+        local strataValues = EllesmereUI.FRAME_STRATA_LABELS
+        local strataOrder = EllesmereUI.FRAME_STRATA_ORDER_BASE
         local texRow
         texRow, h = W:DualRow(parent, y,
             { type = "dropdown", text = "Texture", values = hbtValues, order = hbtOrder,
@@ -8478,8 +8474,8 @@ initFrame:SetScript("OnEvent", function(self)
         castSection, h = W:SectionHeader(parent, "LAYOUT", y);  y = y - h
 
         -- Strata dropdown values for the Cast Bar Frame Strata control.
-        local cbStrataValues = { BACKGROUND = "Background", LOW = "Low", MEDIUM = "Medium", HIGH = "High", DIALOG = "Dialog" }
-        local cbStrataOrder = { "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG" }
+        local cbStrataValues = EllesmereUI.FRAME_STRATA_LABELS
+        local cbStrataOrder = EllesmereUI.FRAME_STRATA_ORDER_BASE
 
         -- Row 1: Enable Player Cast Bar | Frame Strata
         local castEnableRow
@@ -9284,11 +9280,7 @@ initFrame:SetScript("OnEvent", function(self)
         local layoutSection
         layoutSection, h = W:SectionHeader(parent, "LAYOUT", y);  y = y - h
 
-        local ALL_CLASSES = {
-            "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST",
-            "DEATHKNIGHT", "SHAMAN", "MAGE", "WARLOCK", "MONK",
-            "DRUID", "DEMONHUNTER", "EVOKER",
-        }
+        local ALL_CLASSES = EllesmereUI.CLASS_TOKEN_ORDER
 
         -- Row 1: Enabled Classes dropdown | Icon Size (+ spacing cog)
         local row1
@@ -9538,8 +9530,8 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- Row 4: Frame Strata | Orientation
-        local tmStrataValues = { BACKGROUND = "Background", LOW = "Low", MEDIUM = "Medium", HIGH = "High", DIALOG = "Dialog" }
-        local tmStrataOrder = { "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG" }
+        local tmStrataValues = EllesmereUI.FRAME_STRATA_LABELS
+        local tmStrataOrder = EllesmereUI.FRAME_STRATA_ORDER_BASE
         _, h = W:DualRow(parent, y,
             { type = "dropdown", text = "Frame Strata",
               tooltip = "Controls the order that overlapping elements display in. Set higher to show above other elements.",
@@ -9613,8 +9605,8 @@ initFrame:SetScript("OnEvent", function(self)
         local _sec
         _sec, h = W:SectionHeader(parent, "LAYOUT", y);  y = y - h
 
-        local gStrataValues = { BACKGROUND = "Background", LOW = "Low", MEDIUM = "Medium", HIGH = "High", DIALOG = "Dialog" }
-        local gStrataOrder = { "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG" }
+        local gStrataValues = EllesmereUI.FRAME_STRATA_LABELS
+        local gStrataOrder = EllesmereUI.FRAME_STRATA_ORDER_BASE
 
         -- Row: Enable GCD Bar (+ position cog) | Frame Strata
         local enableRow

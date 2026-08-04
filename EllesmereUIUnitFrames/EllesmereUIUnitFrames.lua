@@ -659,6 +659,12 @@ local defaults = {
             leaderIndicatorPosition = "topleft",
             leaderIndicatorX = 0,
             leaderIndicatorY = 0,
+            eliteIndicatorEnabled = false,
+            eliteIndicatorSize = 16,
+            eliteIndicatorPosition = "topleft",
+            eliteIndicatorX = 0,
+            eliteIndicatorY = 0,
+            eliteIndicatorShowInInstances = false,
             healthReverseFill = false,
             healthVerticalFill = false,
             smoothBars = false,
@@ -1273,59 +1279,8 @@ local function UnsnapTex(tex)
 end
 
 -- Health bar texture overlay lookup
-local TEXTURE_BASE = "Interface\\AddOns\\EllesmereUI\\media\\textures\\"
-local healthBarTextures = {
-    ["none"]          = nil,
-    ["melli"]         = TEXTURE_BASE .. "melli.tga",
-    ["beautiful"]     = TEXTURE_BASE .. "beautiful.tga",
-    ["plating"]       = TEXTURE_BASE .. "plating.tga",
-    ["atrocity"]      = TEXTURE_BASE .. "atrocity.tga",
-    ["divide"]        = TEXTURE_BASE .. "divide.tga",
-    ["glass"]         = TEXTURE_BASE .. "glass.tga",
-    ["fade-right"]    = TEXTURE_BASE .. "fade-right.tga",
-    ["thin-line-top"]    = TEXTURE_BASE .. "thin-line-top.tga",
-    ["thin-line-bottom"] = TEXTURE_BASE .. "thin-line-bottom.tga",
-    ["fade"]          = TEXTURE_BASE .. "fade.tga",
-    ["gradient-lr"]   = TEXTURE_BASE .. "gradient-lr.tga",
-    ["gradient-rl"]   = TEXTURE_BASE .. "gradient-rl.tga",
-    ["gradient-bt"]   = TEXTURE_BASE .. "gradient-bt.tga",
-    ["gradient-tb"]   = TEXTURE_BASE .. "gradient-tb.tga",
-    ["matte"]         = TEXTURE_BASE .. "matte.tga",
-    ["sheer"]         = TEXTURE_BASE .. "sheer.tga",
-    ["blinkii-diamonds"] = TEXTURE_BASE .. "blinkii-diamonds.tga",
-    ["kringel-window"]   = TEXTURE_BASE .. "kringel-window.tga",
-}
-local healthBarTextureOrder = {
-    "none", "melli", "atrocity",
-    "fade", "fade-right",
-    "thin-line-top", "thin-line-bottom",
-    "beautiful", "plating",
-    "divide", "glass",
-    "gradient-lr", "gradient-rl", "gradient-bt", "gradient-tb",
-    "matte", "sheer",
-    "blinkii-diamonds", "kringel-window",
-}
-local healthBarTextureNames = {
-    ["none"]        = "None",
-    ["melli"]       = "Melli (ElvUI)",
-    ["beautiful"]   = "Beautiful",
-    ["plating"]     = "Plating",
-    ["atrocity"]    = "Atrocity",
-    ["divide"]      = "Divide",
-    ["glass"]       = "Glass",
-    ["fade-right"]  = "Fade Right",
-    ["thin-line-top"]    = "Thin Line Top",
-    ["thin-line-bottom"] = "Thin Line Bottom",
-    ["fade"]        = "Fade",
-    ["gradient-lr"] = "Gradient Right",
-    ["gradient-rl"] = "Gradient Left",
-    ["gradient-bt"] = "Gradient Up",
-    ["gradient-tb"] = "Gradient Down",
-    ["matte"]       = "Matte",
-    ["sheer"]       = "Sheer",
-    ["blinkii-diamonds"] = "Blinkii Diamonds",
-    ["kringel-window"]   = "Kringel Window",
-}
+local healthBarTextures, healthBarTextureNames, healthBarTextureOrder =
+    EllesmereUI.BuildBarTextureTables(true)
 ns.healthBarTextures = healthBarTextures
 ns.healthBarTextureOrder = healthBarTextureOrder
 ns.healthBarTextureNames = healthBarTextureNames
@@ -2820,21 +2775,7 @@ end
 
 local UF_ICONS_PATH = "Interface\\AddOns\\EllesmereUI\\media\\icons\\"
 local CLASS_FULL_SPRITE_BASE = UF_ICONS_PATH .. "class-full\\"
-local CLASS_FULL_COORDS = {
-    WARRIOR     = { 0,     0.125, 0,     0.125 },
-    MAGE        = { 0.125, 0.25,  0,     0.125 },
-    ROGUE       = { 0.25,  0.375, 0,     0.125 },
-    DRUID       = { 0.375, 0.5,   0,     0.125 },
-    EVOKER      = { 0.5,   0.625, 0,     0.125 },
-    HUNTER      = { 0,     0.125, 0.125, 0.25  },
-    SHAMAN      = { 0.125, 0.25,  0.125, 0.25  },
-    PRIEST      = { 0.25,  0.375, 0.125, 0.25  },
-    WARLOCK     = { 0.375, 0.5,   0.125, 0.25  },
-    PALADIN     = { 0,     0.125, 0.25,  0.375 },
-    DEATHKNIGHT = { 0.125, 0.25,  0.25,  0.375 },
-    MONK        = { 0.25,  0.375, 0.25,  0.375 },
-    DEMONHUNTER = { 0.375, 0.5,   0.25,  0.375 },
-}
+local CLASS_FULL_COORDS = EllesmereUI.CLASS_ICON_SPRITE_COORDS
 
 -- Helper: apply class icon from sprite sheet
 local function ApplyClassIconTexture(tex, classToken, style)
@@ -5316,37 +5257,43 @@ local function HideUnitFrameKickTick(castbar)
         castbar._kickTicker = nil
     end
 end
+-- Hoisted defaults for the zero-alloc paint below: these were inline table
+-- literals allocated on EVERY call whenever the setting was absent (the
+-- common case), on a function that runs per castbar update.
+local UF_KICK_READY_TINT = { r = 0.92, g = 0.35, b = 0.20 }
+local UF_UNINTERRUPT_GREY = { r = 0.5, g = 0.5, b = 0.5 }
 local function ApplyUnitFrameCastColor(castbar)
     if not castbar or not castbar.castTintLayer then return end
     local settings = castbar._eufSettings
     local ownerUnit = castbar.__owner and castbar.__owner.unit
-    local cc
+    -- Zero-alloc (memory pass 2026-08-03): this built up to three throwaway
+    -- color tables per call (two default literals + the blended kick tint).
+    -- Same values flow as scalars; the vertex push is unchanged.
+    local r, g, b
     if settings and settings.castbarClassColored and ownerUnit == "player" then
-        if ownerUnit then
-            local _, classToken = UnitClass(ownerUnit)
-            if issecretvalue(classToken) then classToken = nil end
-            if classToken and EllesmereUI.GetClassColor then
-                cc = EllesmereUI.GetClassColor(classToken)
-            end
+        local _, classToken = UnitClass(ownerUnit)
+        if issecretvalue(classToken) then classToken = nil end
+        if classToken and EllesmereUI.GetClassColor then
+            local cc = EllesmereUI.GetClassColor(classToken)
+            if cc then r, g, b = cc.r, cc.g, cc.b end
         end
     end
-    if not cc then
+    if not r then
         local baseTint = (settings and settings.castbarFillColor) or GetCastbarColor()
         if IsKickCastbarUnit(ownerUnit) then
-            local readyTint = (settings and settings.castbarInterruptReadyColor) or { r = 0.92, g = 0.35, b = 0.20 }
-            local cr, cg, cb = ComputeCastBarTint(readyTint, baseTint)
-            cc = { r = cr, g = cg, b = cb }
+            local readyTint = (settings and settings.castbarInterruptReadyColor) or UF_KICK_READY_TINT
+            r, g, b = ComputeCastBarTint(readyTint, baseTint)
         else
-            cc = baseTint
+            r, g, b = baseTint.r, baseTint.g, baseTint.b
         end
     end
-    castbar.castTintLayer:SetVertexColor(cc.r, cc.g, cc.b)
+    castbar.castTintLayer:SetVertexColor(r, g, b)
     if castbar._shieldedTint then
         -- Uninterruptible overlay colour (customizable; defaults to the
         -- previously-hardcoded grey). The overlay's alpha is toggled from the
         -- secret "not interruptible" flag, so the colour is always set and only
         -- becomes visible on uninterruptible casts.
-        local uc = (settings and settings.castbarUninterruptibleColor) or { r = 0.5, g = 0.5, b = 0.5 }
+        local uc = (settings and settings.castbarUninterruptibleColor) or UF_UNINTERRUPT_GREY
         castbar._shieldedTint:SetVertexColor(uc.r, uc.g, uc.b)
         local uninterruptible = GetCastbarUninterruptible(castbar)
         -- Visible alpha honors Fill Opacity (castbar._fillOp, nil at 100);
@@ -11343,6 +11290,11 @@ local function ReloadFrames()
         frames.target._applyLeaderIndicator()
     end
 
+    -- Refresh elite/rare indicator on the target frame after settings change
+    if frames.target and frames.target._applyEliteIndicator then
+        frames.target._applyEliteIndicator()
+    end
+
     ---------------------------------------------------------------------------
     --  Live-update raid target marker icon (size / alignment / X / Y / enabled)
     --  for player, target, focus, and boss frames.  Uses oUF's EnableElement /
@@ -12430,6 +12382,109 @@ function InitializeFrames()
                 for i = 1, #_leaderUnits do _leaderRefresh(_leaderUnits[i]) end
             end)
         end
+    end
+
+    -- Elite/Rare indicator (classification badge on the target frame), driven
+    -- the same way as the leader indicator above: own events, own refresh,
+    -- own show/hide. The atlas mapping matches the nameplates classification
+    -- badges exactly, so the two features read as one system. Show in
+    -- Instances (default off) keeps it quiet in dungeons and raids, where
+    -- most enemies are elite.
+    do
+        local function _eliteAtlas(c)
+            if c == "elite" or c == "worldboss" then
+                return "nameplates-icon-elite-gold"
+            elseif c == "rareelite" then
+                return "nameplates-icon-elite-silver"
+            elseif c == "rare" then
+                return "nameplates-icon-rareelite"
+            end
+        end
+
+        local _eliteFrames = {}
+        local eliteEvents
+
+        local function _eliteRefresh(uf)
+            local s = uf and uf._eliteSettings
+            if not (uf and uf._eliteIndicator and s) then return end
+            local tex = uf._eliteIndicator
+            if s.eliteIndicatorEnabled ~= true then tex:Hide(); return end
+            if not s.eliteIndicatorShowInInstances and IsInInstance() then
+                tex:Hide(); return
+            end
+            local c = UnitClassification(uf.unit)
+            -- Secrecy check MUST run before any comparison, same rule as the
+            -- leader checks above.
+            local atlas = (not issecretvalue(c)) and _eliteAtlas(c) or nil
+            if atlas then
+                tex:SetAtlas(atlas)
+                tex:Show()
+            else
+                tex:Hide()
+            end
+        end
+
+        -- Events are registered only while the feature is enabled somewhere
+        -- (zero cost while off) and re-armed from every settings apply.
+        local function _eliteArmEvents()
+            local on = false
+            for i = 1, #_eliteFrames do
+                local s = _eliteFrames[i]._eliteSettings
+                if s and s.eliteIndicatorEnabled == true then on = true; break end
+            end
+            if on then
+                if not eliteEvents then
+                    eliteEvents = CreateFrame("Frame")
+                    eliteEvents:SetScript("OnEvent", function()
+                        for i = 1, #_eliteFrames do _eliteRefresh(_eliteFrames[i]) end
+                    end)
+                end
+                eliteEvents:RegisterEvent("PLAYER_TARGET_CHANGED")
+                eliteEvents:RegisterUnitEvent("UNIT_CLASSIFICATION_CHANGED", "target")
+                eliteEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
+            elseif eliteEvents then
+                eliteEvents:UnregisterAllEvents()
+            end
+        end
+
+        local function _setupEliteIndicator(uf, settings)
+            if not (uf and uf.Health and settings) then return end
+            if not uf._eliteIndicator then
+                -- Same parent and layer choice as the leader crown above.
+                local par = uf._textOverlay or uf
+                local tex = par:CreateTexture(nil, "OVERLAY", nil, 7)
+                tex:Hide()
+                uf._eliteIndicator = tex
+                _eliteFrames[#_eliteFrames + 1] = uf
+            end
+            uf._eliteSettings = settings
+
+            local function ApplyEliteIndicator()
+                local sz  = settings.eliteIndicatorSize or 16
+                local pos = settings.eliteIndicatorPosition or "topleft"
+                local ox  = settings.eliteIndicatorX or 0
+                local oy  = settings.eliteIndicatorY or 0
+                local tex = uf._eliteIndicator
+                tex:SetSize(sz, sz)
+                tex:ClearAllPoints()
+                if pos == "portrait" and uf.Portrait and uf.Portrait.backdrop then
+                    tex:SetPoint("CENTER", uf.Portrait.backdrop, "CENTER", ox, oy)
+                else
+                    local anchor =
+                        (pos == "topright"    and "TOPRIGHT")    or
+                        (pos == "bottomleft"  and "BOTTOMLEFT")  or
+                        (pos == "bottomright" and "BOTTOMRIGHT") or
+                        "TOPLEFT"
+                    tex:SetPoint(anchor, uf.Health or uf, anchor, ox, oy)
+                end
+                _eliteArmEvents()
+                _eliteRefresh(uf)
+            end
+            uf._applyEliteIndicator = ApplyEliteIndicator
+            ApplyEliteIndicator()
+        end
+
+        _setupEliteIndicator(frames.target, db.profile.target)
     end
 
     local petFrameSource = ns.GetUnitFrameSource("pet")
