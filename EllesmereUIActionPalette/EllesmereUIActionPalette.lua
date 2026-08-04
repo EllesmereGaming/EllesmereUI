@@ -1283,45 +1283,46 @@ local function PerimeterSpan(HX, HY, R)
     return sx, sy, arc, 2 * (sx + sy) + 4 * arc
 end
 
+-- Also returns the OUTWARD normal, which is how a nest deep enough to need a
+-- second row finds where to put it: one row further out along the normal keeps
+-- the rows square with each other on a straight edge and fanned around a corner.
 local function PerimeterPoint(t, HX, HY, R)
     local sx, sy, arc, L = PerimeterSpan(HX, HY, R)
     t = t % L
-    if t < sx then return -HX + R + t, HY, "X", 1 end
+    if t < sx then return -HX + R + t, HY, "X", 1, 0, 1 end
     t = t - sx
     if t < arc then
         local a = t / R
         -- Half a turn each: a cell more than halfway round a corner belongs to
         -- the side it is heading onto, so its box lies across the run it is
         -- about to join rather than across the one it has left.
-        local ax, sg = "X", 1
-        if a >= pi * 0.25 then ax = "Y" end
-        return HX - R + R * sin(a), HY - R + R * cos(a), ax, sg
+        local ax = (a >= pi * 0.25) and "Y" or "X"
+        return HX - R + R * sin(a), HY - R + R * cos(a), ax, 1, sin(a), cos(a)
     end
     t = t - arc
-    if t < sy then return HX, HY - R - t, "Y", 1 end
+    if t < sy then return HX, HY - R - t, "Y", 1, 1, 0 end
     t = t - sy
     if t < arc then
         local a = t / R
         local ax, sg = "Y", 1
         if a >= pi * 0.25 then ax, sg = "X", -1 end
-        return HX - R + R * cos(a), -HY + R - R * sin(a), ax, sg
+        return HX - R + R * cos(a), -HY + R - R * sin(a), ax, sg, cos(a), -sin(a)
     end
     t = t - arc
-    if t < sx then return HX - R - t, -HY, "X", -1 end
+    if t < sx then return HX - R - t, -HY, "X", -1, 0, -1 end
     t = t - sx
     if t < arc then
         local a = t / R
-        local ax, sg = "X", -1
-        if a >= pi * 0.25 then ax = "Y" end
-        return -HX + R - R * sin(a), -HY + R - R * cos(a), ax, sg
+        local ax = (a >= pi * 0.25) and "Y" or "X"
+        return -HX + R - R * sin(a), -HY + R - R * cos(a), ax, -1, -sin(a), -cos(a)
     end
     t = t - arc
-    if t < sy then return -HX, -HY + R + t, "Y", -1 end
+    if t < sy then return -HX, -HY + R + t, "Y", -1, -1, 0 end
     t = t - sy
     local a = t / R
     local ax, sg = "Y", -1
     if a >= pi * 0.25 then ax, sg = "X", 1 end
-    return -HX + R - R * cos(a), HY - R + R * sin(a), ax, sg
+    return -HX + R - R * cos(a), HY - R + R * sin(a), ax, sg, -cos(a), sin(a)
 end
 
 -- Everything the three styles measure from. Sizes are scaled by whatever this
@@ -1386,20 +1387,8 @@ function PaletteView:PerimeterNest(claims, shown, m)
     local R = min(m.depth * 0.5, min(HX, HY) * 0.5)
     local sx, sy, arc, L = PerimeterSpan(HX, HY, R)
 
-    -- Shrunk to fit rather than truncated if the nests together want more than
-    -- the whole perimeter. Rare -- it takes several full nests on a small block
-    -- -- and a crowded band still reaches everything, where a dropped run would
-    -- leave entries with no way to be selected at all.
-    local want = 0
-    for i = 1, #claims do want = want + claims[i].n * m.childPitch end
     local childPitch, childIcon = m.childPitch, m.childIcon
-    if want > L then
-        local squeeze = L / want
-        childPitch = childPitch * squeeze
-        childIcon  = min(childIcon, childPitch - m.gap * squeeze)
-    end
 
-    local order = {}
     for i = 1, #claims do
         local c = claims[i]
         local r   = floor((c.parent - 1) / m.cols)
@@ -1442,40 +1431,40 @@ function PaletteView:PerimeterNest(claims, shown, m)
 
         c.icon = childIcon
         c.axis, c.sign = pick.axis, pick.sign
-        c.w  = c.n * childPitch
         c.t0 = pick.t
-        order[#order + 1] = c
     end
 
-    -- Packed along the perimeter in the order they meet it, each preferring to
-    -- sit centred on its own parent. Forward pass opens the overlaps, backward
-    -- pass closes the wrap the forward pass may have pushed past the seam; with
-    -- the total known to fit, one of each settles it.
-    table.sort(order, function(a, b) return a.t0 < b.t0 end)
-    local cur
-    for i = 1, #order do
-        local c = order[i]
-        c.s = c.t0 - c.w * 0.5
-        if cur and c.s < cur then c.s = cur end
-        cur = c.s + c.w
-    end
-    if #order > 0 then
-        local limit = order[1].s + L
-        for i = #order, 1, -1 do
-            local c = order[i]
-            if c.s + c.w > limit then c.s = limit - c.w end
-            limit = c.s
+    -- How much of the lane each nest may take: out to the halfway point with the
+    -- nearest OTHER nest along it. A nest is always centred on its own parent --
+    -- it is reached by going through that parent, so anywhere else to put it is
+    -- somewhere the user did not aim -- and what gives instead, when two of them
+    -- would collide, is the number of cells per row. A crowded nest becomes a
+    -- compact block above its parent rather than a long row shoved sideways.
+    for i = 1, #claims do
+        local c = claims[i]
+        local room = L * 0.5
+        for j = 1, #claims do
+            if j ~= i then
+                local d = abs(claims[j].t0 - c.t0) % L
+                room = min(room, min(d, L - d) * 0.5)
+            end
         end
-    end
-
-    for i = 1, #order do
-        local c = order[i]
+        local cols = min(c.n, max(1, floor(room * 2 / childPitch)))
         c.cells = {}
         for j = 1, c.n do
-            local x, y, axis = PerimeterPoint(c.s + (j - 0.5) * childPitch,
-                                              HX, HY, R)
-            c.cells[j] = RunBox(x, y, axis, childPitch, m.depth)
+            local cr  = floor((j - 1) / cols)
+            local cc  = (j - 1) % cols
+            local inRow = min(cols, c.n - cr * cols)
+            local t = c.t0 + (cc - (inRow - 1) * 0.5) * childPitch
+            local x, y, axis, _, nx, ny = PerimeterPoint(t, HX, HY, R)
+            -- Rows past the first sit one row further out along the outward
+            -- normal, which keeps them square on a straight edge and fanned
+            -- around a corner.
+            local outw = cr * (childIcon + m.gap)
+            c.cells[j] = RunBox(x + nx * outw, y + ny * outw,
+                                axis, childPitch, m.depth)
         end
+
     end
     return claims
 end
@@ -1487,9 +1476,14 @@ end
 function PaletteView:HaloNest(claims, shown, m)
     -- Three boxes across must stay inside one pitch either side, or a
     -- neighbouring entry's own centre would fall inside the halo and become
-    -- unselectable while the halo is up.
-    local hp = m.pitch * 0.5
-    local icon = min(m.childIcon, hp - m.gap * 0.5)
+    -- unselectable while the halo is up. That caps the ring at two thirds of a
+    -- pitch, and the ring is pushed right out to it: the parent icon sits in the
+    -- middle at full size and a ring any tighter has its children touching it.
+    local hp = m.pitch * 0.62
+    -- Small enough that a full-size parent still has clear ground around it,
+    -- which is the whole read of this style -- children AROUND an entry, not
+    -- crowding it.
+    local icon = min(m.childIcon, hp * 0.62)
     for i = 1, #claims do
         local c = claims[i]
         local bx, by = self:GridBase(c.parent, m.cols, m.rows, m.pitch, shown)
@@ -1497,6 +1491,13 @@ function PaletteView:HaloNest(claims, shown, m)
         -- out of one edge of the block, so there is no "other side" for the hub
         -- caption to move to and it keeps the placement it would have had.
         c.icon, c.dim = icon, true
+        -- The parent draws back to leave the ring somewhere to be. It keeps its
+        -- full colour, unlike the rest of the block: it is what the ring is
+        -- about, and dimming it would leave nothing saying which entry opened.
+        c.parentScale = 0.6
+        -- Eight captions around one icon are eight captions on top of each
+        -- other. At this size the icon is the whole of what can be read.
+        c.label = false
         c.cells = {}
         for j = 1, min(c.n, #HALO_DIRS) do
             local d = HALO_DIRS[j]
@@ -1578,6 +1579,10 @@ function PaletteView:StripNest(claims, shown)
         local c = claims[i]
         c.icon = m.childIcon
         c.axis, c.sign = axis, sign
+        -- Unlabelled, like the strip's own entries: at strip spacing the
+        -- captions of neighbouring icons collide, and a nest is drawn at the
+        -- same spacing or tighter.
+        c.label = false
         c.cells = {}
         for j = 1, c.n do
             local a = (j - (c.n + 1) * 0.5) * m.childPitch
@@ -1598,9 +1603,36 @@ end
 -- is a grid one entry deep.
 function PaletteView:CellChildGeom(claims, shown)
     local m = self:NestMetrics(shown)
-    if m.style == "HALO"   then return self:HaloNest(claims, shown, m) end
-    if m.style == "POPOUT" then return self:PopoutNest(claims, shown, m) end
-    return self:PerimeterNest(claims, shown, m)
+    if m.style == "HALO" then
+        self:HaloNest(claims, shown, m)
+    elseif m.style == "POPOUT" then
+        self:PopoutNest(claims, shown, m)
+    else
+        self:PerimeterNest(claims, shown, m)
+    end
+
+    -- The ground between a parent and its children, so that crossing it keeps
+    -- the nest on screen. A nest sitting clear of the block has a gap in front
+    -- of it that belongs to no cell of its own, and a nest that vanished halfway
+    -- through the reach for it could not be reached at all.
+    --
+    -- VISIBILITY ONLY. Nothing here decides what a release fires: the corridor
+    -- runs over the block's own entries, and an entry under it stays exactly as
+    -- selectable as it was.
+    for i = 1, #claims do
+        local c = claims[i]
+        local bx, by = self:GridBase(c.parent, m.cols, m.rows, m.pitch, shown)
+        local x0, x1 = bx - m.pitch * 0.5, bx + m.pitch * 0.5
+        local y0, y1 = by - m.pitch * 0.5, by + m.pitch * 0.5
+        for j = 1, c.n do
+            local b = c.cells[j]
+            x0, x1 = min(x0, b.x - b.hw), max(x1, b.x + b.hw)
+            y0, y1 = min(y0, b.y - b.hh), max(y1, b.y + b.hh)
+        end
+        c.open = { x = (x0 + x1) * 0.5, y = (y0 + y1) * 0.5,
+                   hw = (x1 - x0) * 0.5, hh = (y1 - y0) * 0.5 }
+    end
+    return claims
 end
 
 -- The nested cell whose box holds this offset, in cell order so that boxes which
@@ -1665,6 +1697,7 @@ function PaletteView:AdvanceGrid(noPointer)
     -- entries around its parent. Outside every box, the block answers as though
     -- the nest were not there, so leaving a run in any direction leaves the nest.
     local best, bestK
+    self._nestX, self._nestY = dx, dy
     if dx then best = self:NestHit(dx, dy) end
 
     -- Nearest of the palette's own, once the nests have declined. Past
@@ -1707,10 +1740,17 @@ function PaletteView:AdvanceGrid(noPointer)
             s = max(minS, decay ^ k)
             a = max(minA, aDecay ^ k)
         end
-        -- The entry a nest hangs off keeps its own size and colour: it is what
-        -- the nest is about, and dimming it would leave nothing on screen saying
-        -- which entry was opened.
-        if open and i ~= open.parent then s, a = s * shrink, a * dim end
+        -- The entry a nest hangs off keeps its colour: it is what the nest is
+        -- about, and dimming it would leave nothing on screen saying which entry
+        -- was opened. It may still draw back to make room -- the halo needs the
+        -- ground its parent would otherwise be standing on.
+        if open then
+            if i ~= open.parent then
+                s, a = s * shrink, a * dim
+            elseif open.parentScale then
+                s = s * open.parentScale
+            end
+        end
 
         w:SetAlpha(a)
         w.baseSize = iconSize * s
@@ -2269,7 +2309,8 @@ function PaletteView:Layout(paletteIndex)
                 end
                 w:SetSize(c.icon, c.icon)
                 w:EnableMouse(false)
-                PaintCell(w, c.slots[j], false, showLabels, showCooldowns, true)
+                PaintCell(w, c.slots[j], false, showLabels, showCooldowns,
+                          c.label ~= false)
                 -- Hidden until its parent is pointed at -- see UpdateNestShown.
                 w:Hide()
             end
@@ -2378,6 +2419,22 @@ function PaletteView:UpdateNestShown(index)
         if index and c.base
            and (index == c.parent or (index > c.base and index <= c.base + c.n)) then
             open = c
+        end
+    end
+
+    -- Still on the way there. A nest set down clear of the block has ground in
+    -- front of it that belongs to the block's own entries, and closing on the
+    -- first step across it would put the nest out of reach of the very gesture
+    -- that opens it. The corridor decides only what is DRAWN -- the entries
+    -- under it keep firing exactly as they did.
+    local nx, ny = self._nestX, self._nestY
+    if not open and nx then
+        for k = 1, #claims do
+            local o = claims[k].open
+            if o and abs(nx - o.x) <= o.hw and abs(ny - o.y) <= o.hh then
+                open = claims[k]
+                break
+            end
         end
     end
     if self._openClaim == open then return end
