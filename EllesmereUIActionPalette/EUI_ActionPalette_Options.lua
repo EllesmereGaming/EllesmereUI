@@ -1465,6 +1465,21 @@ initFrame:SetScript("OnEvent", function(self)
         local gridOnly = function()
             return Disabled() or LayoutMode() ~= "GRID"
         end
+        -- A scroll-steered fan does not nest yet: its entries are a cycling
+        -- window rather than fixed positions, so a nest has no lattice to hang
+        -- off and the cursor axis it would use is the one that cancels.
+        local nestless = function()   -- true when the control is DEAD, as with arcOnly above
+            return Disabled() or (IsFanLayout()
+                and (Cfg("fanInput") or "SCROLL") == "SCROLL")
+        end
+        -- Where a nest sits is only a question when the sides are equidistant.
+        -- On a grid the side NEAREST the entry wins and this never comes up --
+        -- unless the grid is one row, which is a strip by another name.
+        local nestSideDead = function()
+            if nestless() then return true end
+            if LayoutMode() == "ARC" then return true end
+            return false
+        end
 
         row, h = W:DualRow(parent, y,
             { type="dropdown", text="Layout",
@@ -1558,10 +1573,10 @@ initFrame:SetScript("OnEvent", function(self)
             -- The gap between the two rings' icons, not a radius, so what the
             -- number says is what the eye measures.
             { type="slider", text="Nest Distance",
-              disabled=arcOnly, disabledTooltip="the Arc layout",
+              disabled=nestless, disabledTooltip="a layout that can nest",
               min=0, max=160, step=1,
-              getValue=function() return Cfg("arcChildBand") or 40 end,
-              setValue=function(v) Set("arcChildBand", v); Refresh() end },
+              getValue=function() return Cfg("nestBand") or 40 end,
+              setValue=function(v) Set("nestBand", v); Refresh() end },
             -- Contained: a nest may only use the sector its own entry already
             -- owns, so no other entry's gesture changes at all. Overflowing: it
             -- grows out to the midpoint with the next nest either side, which
@@ -1589,10 +1604,27 @@ initFrame:SetScript("OnEvent", function(self)
             -- subordinate to the entry it opens from. Drawing only: the sectors
             -- are angular, so this changes nothing about what a release picks.
             { type="slider", text="Nest Icon Size",
-              disabled=arcOnly, disabledTooltip="the Arc layout",
+              disabled=nestless, disabledTooltip="a layout that can nest",
               min=0.4, max=1.0, step=0.05,
-              getValue=function() return Cfg("arcChildScale") or 0.8 end,
-              setValue=function(v) Set("arcChildScale", v); Refresh() end })
+              getValue=function() return Cfg("nestScale") or 0.8 end,
+              setValue=function(v) Set("nestScale", v); Refresh() end })
+        y = y - h
+
+        -- Named for the axis in front of the user rather than for the sign it
+        -- stores: "above" and "right" are the same choice to the code and two
+        -- quite different sentences to read.
+        local vertical = IsFanLayout() and Cfg("fanOrientation") == "VERTICAL"
+        local sideValues = vertical
+            and { POSITIVE = "Right", NEGATIVE = "Left" }
+            or  { POSITIVE = "Above", NEGATIVE = "Below" }
+
+        row, h = W:DualRow(parent, y,
+            { type="dropdown", text="Nest Side",
+              disabled=nestSideDead,
+              disabledTooltip="the Grid or a pointer-steered Fan",
+              values=sideValues, order={ "POSITIVE", "NEGATIVE" },
+              getValue=function() return Cfg("nestSide") or "POSITIVE" end,
+              setValue=function(v) Set("nestSide", v); Refresh() end })
         y = y - h
 
         _, h = W:SectionHeader(parent, "FAN & GRID", y); y = y - h
