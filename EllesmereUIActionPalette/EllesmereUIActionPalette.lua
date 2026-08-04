@@ -5,11 +5,11 @@
 --  fire it. Releasing without having chosen cancels, and so does ESCAPE, which
 --  every layout answers to for as long as it is open.
 --
---  One ring of actions, drawn and steered three ways:
+--  One palette of actions, drawn and steered three ways:
 --
---    RADIAL  an arc of `arcSpan` degrees (360 being the full wheel), steered by
---            the ANGLE from the centre. Wedges are unbounded in depth, so the
---            gesture is a flick rather than a click.
+--    ARC     entries spread over `arcSpan` degrees, steered by the ANGLE from
+--            the centre. The sectors are unbounded in depth, so the gesture is
+--            a flick rather than a click. A span of 360 is the whole turn.
 --    FAN     a strip running along one axis, horizontal or vertical by
 --            `fanOrientation`. Scroll-steered it cycles a compressed window
 --            past a fixed centre; pointer-steered it is a GRID one entry deep.
@@ -17,18 +17,18 @@
 --
 --  The layouts differ in INPUT MODEL -- angle, scroll-cycle, pointer-nearest --
 --  which is why they are separate rather than parameters of one another. The
---  arc is the exception: it is a parameter of the angular model, and RADIAL is
---  simply its 360-degree case.
+--  span is the exception: it is a parameter of the angular model, so the full
+--  turn the module opened life as is simply the arc's 360-degree case.
 --
---  Each ring owns one hidden SecureActionButtonTemplate button; the ring's
+--  Each palette owns one hidden SecureActionButtonTemplate button; the palette's
 --  keybind is routed to it with SetOverrideBindingClick, and it is registered
 --  for "AnyDown","AnyUp":
 --
---    key DOWN -> our PreClick opens the wheel; a secure snippet wrapped around
+--    key DOWN -> our PreClick opens the palette; a secure snippet wrapped around
 --                OnClick clears "type", so the press itself fires nothing
---    key UP   -> the snippet works out which wedge the cursor is on and writes
+--    key UP   -> the snippet works out which entry the cursor is on and writes
 --                that slot's action attributes, the secure handler performs the
---                cast, and our PostClick closes the wheel
+--                cast, and our PostClick closes the palette
 --
 --  The choosing has to happen inside the snippet because an addon may not write
 --  attributes to a protected frame during combat -- see the Secure activation
@@ -37,8 +37,8 @@
 --  from Lua and therefore only fire out of combat.
 --
 --  Protected calls in this file, all of them deferred to PLAYER_REGEN_ENABLED
---  when in combat: the override-binding updates, and PushRing's writes of the
---  ring's contents onto the secure buttons.
+--  when in combat: the override-binding updates, and PushPalette's writes of a
+--  palette's contents onto the secure buttons.
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
 local EAP = EllesmereUI.Lite.NewAddon(ADDON_NAME)
@@ -58,15 +58,19 @@ local GetTime = GetTime
 local TWO_PI = pi * 2
 local QUESTION_MARK = "Interface\\Icons\\INV_Misc_QuestionMark"
 
--- Ring / slot limits. MAX_RINGS must match the number of <Binding> entries in
--- Bindings.xml -- a ring with no declared binding can never be opened.
-local MAX_RINGS = 6
+-- Palette / slot limits. MAX_PALETTES must match the number of <Binding> entries
+-- in Bindings.xml -- a palette with no declared binding can never be opened.
+local MAX_PALETTES = 6
 local MAX_SLOTS = 12
 
+-- The binding ACTION name, and it keeps the module's first name for good. WoW
+-- stores a keybind against this string, so renaming it would unbind every
+-- palette every user has set. The name is never shown: BINDING_NAME_<action>
+-- below is what the Keybindings page reads.
 local BINDING_PREFIX = "EUI_RADIAL"
 
 -- DIALOG is also the options window's strata (EllesmereUI.lua:7126), which is
--- fine: the wheel only exists on screen while a key is held.
+-- fine: the palette only exists on screen while a key is held.
 local LIVE_STRATA = "DIALOG"
 
 -------------------------------------------------------------------------------
@@ -77,28 +81,28 @@ local DB_DEFAULTS = {
         enabled     = true,
 
         -- Placement. posX/posY are a UIParent-LOGICAL delta from UIParent's
-        -- center, i.e. independent of the wheel's own scale -- the same
+        -- center, i.e. independent of the palette's own scale -- the same
         -- convention MythicTimer's standalonePos uses
-        -- (EllesmereUIMythicTimer.lua:2651). PositionWheel divides by scale at
+        -- (EllesmereUIMythicTimer.lua:2651). PositionPalette divides by scale at
         -- apply time, because SetPoint offsets live in the frame's own scaled
-        -- space; without that, changing Scale would also move the wheel.
+        -- space; without that, changing Scale would also move the palette.
         centerMode  = "CURSOR",      -- CURSOR | SCREEN
         posX        = 0,
         posY        = 0,
 
-        -- Layout. RADIAL steers with the cursor's angle; FAN is a coverflow
+        -- Layout. ARC steers with the cursor's angle; FAN is a coverflow
         -- strip scrubbed with the mouse wheel, which keeps working while the
         -- right button is held to steer the camera and the cursor is therefore
         -- frozen. Orientation is a property of the strip, not a layout of its
         -- own: the two axes differ only in which way the entries run.
-        layout          = "RADIAL",  -- RADIAL | FAN | GRID
+        layout          = "ARC",  -- ARC | FAN | GRID
         fanOrientation  = "HORIZONTAL",  -- HORIZONTAL | VERTICAL
-        gridAutoColumns = true,      -- near-square, sized to what the ring holds
+        gridAutoColumns = true,      -- near-square, sized to what the palette holds
         gridColumns     = 4,         -- used only when gridAutoColumns is off
 
-        -- Arc. 360 is the full wheel. Anything less fans the entries across a
+        -- Arc. 360 is a full turn. Anything less fans the entries across a
         -- sector centred on arcRotation (0 = straight up, growing clockwise),
-        -- which keeps a ring clear of a screen edge and gives a nested ring
+        -- which keeps a palette clear of a screen edge and gives a nested palette
         -- somewhere to open that does not cover its parent.
         arcSpan     = 360,           -- degrees, 30..360
         arcRotation = 0,             -- degrees, direction the arc is centred on
@@ -112,7 +116,7 @@ local DB_DEFAULTS = {
         -- Fan geometry. Both decays are per-step multipliers away from the
         -- centre, so one number describes the whole falloff. The floors keep
         -- distant entries legible instead of letting them vanish, and matter
-        -- most on the options preview, which draws the whole ring at once.
+        -- most on the options preview, which draws the whole palette at once.
         fanVisible    = 3,           -- entries drawn each side of the centre
         fanGap        = 10,
         fanScaleDecay = 0.72,
@@ -122,23 +126,23 @@ local DB_DEFAULTS = {
         fanAnimTime   = 0.10,        -- seconds for the strip to settle
         fanInvert     = false,       -- flip which way a scroll tick travels
 
-        -- How a fan is steered. SCROLL cycles a window of the ring past a fixed
-        -- centre. CURSOR lays the WHOLE ring out at fixed positions and zooms
+        -- How a fan is steered. SCROLL cycles a window of the palette past a fixed
+        -- centre. CURSOR lays the WHOLE palette out at fixed positions and zooms
         -- whichever entry the pointer is nearest, so it needs no wheel at all.
         fanInput      = "SCROLL",    -- SCROLL | CURSOR
 
-        -- Flick-ahead. The radial's wedges are unbounded in depth, so a gesture
-        -- can be finished before the ring has even faded in. Holding it back for
+        -- Flick-ahead. The arc's entries are unbounded in depth, so a gesture
+        -- can be finished before the palette has even faded in. Holding it back for
         -- a moment lets an expert flick without a menu ever appearing, while a
         -- hesitant press still gets the full display. Selection is live the
         -- whole time -- only the drawing waits.
         flickAhead    = true,
-        flickDelay    = 0.12,        -- seconds held before the ring fades in
+        flickDelay    = 0.12,        -- seconds held before the palette fades in
         flickFade     = 0.10,        -- seconds the fade itself takes
 
         -- Appearance
         -- Hub art. The default is a small additive star; hubIcon swaps it for
-        -- the EllesmereUI logo. Radial only -- the fan and grid layouts put a
+        -- the EllesmereUI logo. Arc only -- the fan and grid layouts put a
         -- real entry at the centre, so the hub draws no art there at all.
         hubIcon       = false,
         hubIconSize   = 46,
@@ -153,83 +157,132 @@ local DB_DEFAULTS = {
         selectColor   = { 0.047, 0.824, 0.624 },  -- EllesmereUI teal (#0cd29f)
         useClassColor = false,
 
-        ringCount   = 1,
-        -- ring.slots is a DENSE, ORDERED array: the ring auto-sizes to what the
-        -- user has actually assigned, so three actions means three big wedges
-        -- rather than three icons and five dead gaps. Order is the wedge order,
+        paletteCount   = 1,
+        -- palette.slots is a DENSE, ORDERED array: the palette auto-sizes to what the
+        -- user has actually assigned, so three actions means three big entries
+        -- rather than three icons and five dead gaps. Order is the entry order,
         -- clockwise from 12 o'clock, and is what the editor reorders.
-        rings = {
-            [1] = { name = "Ring 1", slots = {} },
+        palettes = {
+            [1] = { name = "Palette 1", slots = {} },
         },
     },
 }
 ns.DB_DEFAULTS = DB_DEFAULTS
 
-local db
-local function P()
-    return db and db.profile
+-- Names the module has outgrown, converted in place. The defaults have already
+-- been merged in by the time this runs, so each of these takes the old value
+-- wholesale rather than merging it: whatever the defaults seeded under the new
+-- name is a fresh empty, never something to keep. Clearing the old key is what
+-- makes a second run a no-op.
+local function MigrateNames(p)
+    -- The horizontal and vertical strips were once two layouts. They differed
+    -- only in which axis they ran along, so they are one layout with an
+    -- orientation now.
+    if p.layout == "FAN_H" or p.layout == "FAN_V" then
+        p.fanOrientation = p.layout == "FAN_V" and "VERTICAL" or "HORIZONTAL"
+        p.layout = "FAN"
+    end
+
+    -- RADIAL was what the arc was called while a full circle was the only thing
+    -- it could draw. The layout is unchanged; only the word for it is.
+    if p.layout == "RADIAL" then p.layout = "ARC" end
+
+    -- A set of actions was a "ring" for the same reason, and stopped being one
+    -- the moment it could be drawn as a strip or a grid.
+    if p.rings then p.palettes, p.rings = p.rings, nil end
+    if p.ringCount then p.paletteCount, p.ringCount = p.ringCount, nil end
+    -- Auto-generated names only. A palette the user has named keeps its name.
+    for i, palette in pairs(p.palettes or {}) do
+        if palette.name == "Ring " .. i then palette.name = "Palette " .. i end
+    end
 end
 
--- Rings past the first are created on demand: the defaults table only seeds
--- ring 1, so DeepMergeDefaults never has to know how many the user wants.
-local function EnsureRing(index)
-    local p = P()
-    if not p or index < 1 or index > MAX_RINGS then return nil end
-    if not p.rings then p.rings = {} end
-    local ring = p.rings[index]
-    if not ring then
-        ring = { name = "Ring " .. index, slots = {} }
-        p.rings[index] = ring
+local db
+
+-- Every profile is converted on FIRST TOUCH rather than once at load. Switching
+-- profile repoints db.profile at a different table without reloading the UI
+-- (EllesmereUI_Profiles.lua:745), and a per-spec profile is resolved only after
+-- OnInitialize has run -- so migrating "the profile that was active at load"
+-- would leave both of those unconverted, reading the default-seeded empty
+-- palette while the user's own sat under the old key. Worse, the next login
+-- would then migrate over the top of whatever they had edited in the meantime.
+--
+-- Weak keys: the memo must not keep a profile table alive after the profile
+-- itself is deleted.
+local migrated = setmetatable({}, { __mode = "k" })
+local function P()
+    local p = db and db.profile
+    if p and not migrated[p] then
+        migrated[p] = true
+        MigrateNames(p)
     end
-    if type(ring.slots) ~= "table" then ring.slots = {} end
+    return p
+end
+-- Exported so the options page reads the profile through the same accessor
+-- rather than reaching into db.profile itself, which would skip the migration
+-- above on whichever side happened to touch a switched-in profile first.
+ns.Profile = P
+
+-- Palettes past the first are created on demand: the defaults table only seeds
+-- palette 1, so DeepMergeDefaults never has to know how many the user wants.
+local function EnsurePalette(index)
+    local p = P()
+    if not p or index < 1 or index > MAX_PALETTES then return nil end
+    if not p.palettes then p.palettes = {} end
+    local palette = p.palettes[index]
+    if not palette then
+        palette = { name = "Palette " .. index, slots = {} }
+        p.palettes[index] = palette
+    end
+    if type(palette.slots) ~= "table" then palette.slots = {} end
 
     -- Self-healing compaction. The array must have no holes for #slots to be
     -- meaningful, and a hole is exactly what a cleared slot used to leave
     -- behind under the old fixed-slot-count model. Also enforces MAX_SLOTS.
     local dense, n = {}, 0
     for i = 1, MAX_SLOTS do
-        local slot = ring.slots[i]
+        local slot = palette.slots[i]
         if slot and slot.kind then
             n = n + 1
             dense[n] = slot
         end
     end
-    ring.slots = dense
-    ring.slotCount = nil   -- retired: the count is now derived from #slots
-    return ring
+    palette.slots = dense
+    palette.slotCount = nil   -- retired: the count is now derived from #slots
+    return palette
 end
-ns.EnsureRing = EnsureRing
+ns.EnsurePalette = EnsurePalette
 
 -- Ordered mutations. All three keep the array dense so #slots stays the
--- authoritative wedge count.
-function ns.AddSlot(ring, slot)
-    if not ring or not slot then return nil end
-    if #ring.slots >= MAX_SLOTS then return nil end
-    ring.slots[#ring.slots + 1] = slot
-    return #ring.slots
+-- authoritative entry count.
+function ns.AddSlot(palette, slot)
+    if not palette or not slot then return nil end
+    if #palette.slots >= MAX_SLOTS then return nil end
+    palette.slots[#palette.slots + 1] = slot
+    return #palette.slots
 end
 
-function ns.RemoveSlot(ring, index)
-    if not ring or not ring.slots[index] then return false end
-    tremove(ring.slots, index)
+function ns.RemoveSlot(palette, index)
+    if not palette or not palette.slots[index] then return false end
+    tremove(palette.slots, index)
     return true
 end
 
 -- Move, not swap: dragging an icon between two others should insert it there
 -- and shuffle the rest along, which is what a reorder is.
-function ns.MoveSlot(ring, from, to)
-    if not ring then return false end
-    local n = #ring.slots
+function ns.MoveSlot(palette, from, to)
+    if not palette then return false end
+    local n = #palette.slots
     if from == to or from < 1 or from > n or to < 1 or to > n then return false end
-    tinsert(ring.slots, to, tremove(ring.slots, from))
+    tinsert(palette.slots, to, tremove(palette.slots, from))
     return true
 end
 
-local function RingCount()
+local function PaletteCount()
     local p = P()
-    return min(MAX_RINGS, max(1, (p and p.ringCount) or 1))
+    return min(MAX_PALETTES, max(1, (p and p.paletteCount) or 1))
 end
-ns.RingCount = RingCount
+ns.PaletteCount = PaletteCount
 
 local function SelectColor()
     local p = P()
@@ -410,7 +463,7 @@ local function SlotCooldown(slot)
 end
 
 -- Build a slot table from whatever is on the cursor. Returns nil when the
--- cursor holds something the wheel can't fire.
+-- cursor holds something the palette can't fire.
 local function SlotFromCursor()
     local cursorType, a, b, c = GetCursorInfo()
     if not cursorType then return nil end
@@ -460,20 +513,20 @@ end
 ns.SlotFromCursor = SlotFromCursor
 
 -------------------------------------------------------------------------------
---  Wheel view  --  the renderer, instanced
+--  Palette view  --  the renderer, instanced
 --
---  Two instances exist: the live wheel and the options-page preview. Sharing
---  one renderer is the whole point of the split -- the preview's wedge order,
---  angles and hit test ARE the live wheel's, so what the user arranges in the
+--  Two instances exist: the live palette and the options-page preview. Sharing
+--  one renderer is the whole point of the split -- the preview's entry order,
+--  angles and hit test ARE the live palette's, so what the user arranges in the
 --  panel is exactly what they steer at in play.
 --
 --  A view owns its container frame, the center hub, and a pool of MAX_SLOTS
---  slot widgets. It does NOT own interaction: the live wheel drives itself from
+--  slot widgets. It does NOT own interaction: the live palette drives itself from
 --  ns.Open/ns.Close, and the preview installs its own scripts on the widgets it
 --  gets back from GetSlotWidget.
 -------------------------------------------------------------------------------
 local views = {}            -- every view, live and preview
-local liveView              -- the wheel the keybinds open
+local liveView              -- the palette the keybinds open
 -- Declared up here, not beside EnsureScrollCatcher: AdvanceFan reads the fan
 -- index straight off it, and that is defined long before the catcher is built.
 local scrollCatcher
@@ -485,34 +538,50 @@ local cancelButton
 local openedAt = 0
 
 -- A held key whose up-event never reaches us (alt-tab, /reload prompt, a
--- taxi takeoff) would otherwise leave the wheel on screen forever.
+-- taxi takeoff) would otherwise leave the palette on screen forever.
 local OPEN_TIMEOUT = 30
 
 -- Selection is drawn with two cues only: the icon border takes the selection
--- color and thickens, and the wedge scales up. No additive glow -- at ring
--- scale it bloomed over the neighbouring wedges and made the border it was
--- supposed to emphasise harder to read.
+-- color and thickens, and the entry grows. No additive glow -- at palette scale
+-- it bloomed over the neighbouring entries and made the border it was supposed
+-- to emphasise harder to read.
 local SEL_BORDER = 2
 local IDLE_BORDER = 1
 
--- zoom overrides the selected-slot magnification. The fan modes pass 1: there
--- the centre entry is already the largest by construction, and scaling it
--- further would break the strip's spacing, which is measured in the parent's
--- unscaled space.
-local function ApplySlotVisual(widget, selected, zoom)
+-- The magnification a selected entry is drawn at.
+local function SelectedZoom()
+    local p = P()
+    return max(1, (p and p.selectedZoom) or 1.15)
+end
+
+-- Magnification is applied to the entry's SIZE, never its scale. SetPoint
+-- offsets are read in the widget's own scaled space, so scaling an entry also
+-- multiplies the offset it is anchored at -- and in the arc that offset carries
+-- the radius, so selecting an entry threw it outward, out from under the very
+-- cursor that had selected it, and the two states then flickered against each
+-- other. Growing it in place moves nothing.
+--
+-- widget.baseSize is the unzoomed size the layout wants, published by whichever
+-- geometry pass last placed the entry. The strip and the grid rewrite their
+-- sizes every frame, so they apply the zoom themselves as they go; this is what
+-- carries it across a selection CHANGE, which is all the arc ever needs.
+local function ApplySlotVisual(widget, selected)
     local p = P()
     local r, g, b = SelectColor()
     local t = selected and SEL_BORDER or IDLE_BORDER
     widget.border:SetPoint("TOPLEFT", widget, "TOPLEFT", -t, t)
     widget.border:SetPoint("BOTTOMRIGHT", widget, "BOTTOMRIGHT", t, -t)
+    local base = widget.baseSize
+    if base then
+        local z = selected and SelectedZoom() or 1
+        widget:SetSize(base * z, base * z)
+    end
     if selected then
-        widget:SetScale(zoom or (p and p.selectedZoom) or 1.15)
         widget.border:SetVertexColor(r, g, b, 1)
         widget.bg:SetVertexColor(r * 0.22, g * 0.22, b * 0.22, min(1, (p and p.bgAlpha or 0.65) + 0.25))
         widget.icon:SetVertexColor(1, 1, 1)
         widget.label:SetTextColor(r, g, b)
     else
-        widget:SetScale(1)
         widget.border:SetVertexColor(0, 0, 0, 0.9)
         widget.bg:SetVertexColor(0.05, 0.05, 0.06, p and p.bgAlpha or 0.65)
         widget.icon:SetVertexColor(0.72, 0.72, 0.72)
@@ -552,7 +621,7 @@ local function CreateSlotWidget(view, index)
     w.label:SetWidth(96)
     w.label:SetWordWrap(false)
 
-    -- The "+" affordance for an interactive view's trailing placeholder wedge.
+    -- The "+" affordance for an interactive view's trailing placeholder entry.
     -- Created unconditionally; Layout is what decides whether it is ever shown.
     w.plus = w:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     w.plus:SetPoint("CENTER")
@@ -563,8 +632,8 @@ local function CreateSlotWidget(view, index)
     return w
 end
 
-local WheelView = {}
-local WheelViewMeta = { __index = WheelView }
+local PaletteView = {}
+local PaletteViewMeta = { __index = PaletteView }
 
 local function DefaultGeom()
     local p = P()
@@ -575,43 +644,43 @@ end
 -- radius, iconSize, deadZone for this view. Called through a plain function
 -- call, never `opts.geom and opts.geom()` -- an `and` expression is truncated
 -- to one value and would drop iconSize and deadZone on the floor.
-function WheelView:Geom()
+function PaletteView:Geom()
     return (self.opts.geom or DefaultGeom)()
 end
 
-function WheelView:GetFrame()     return self.frame end
-function WheelView:GetRingIndex() return self.ringIndex end
-function WheelView:GetSelection() return self.selection end
-function WheelView:SlotCount()    return self.slotCount end
-function WheelView:ShownCount()   return self.shownCount end
-function WheelView:GetSlotWidget(index) return self.widgets[index] end
+function PaletteView:GetFrame()     return self.frame end
+function PaletteView:GetPaletteIndex() return self.paletteIndex end
+function PaletteView:GetSelection() return self.selection end
+function PaletteView:SlotCount()    return self.slotCount end
+function PaletteView:ShownCount()   return self.shownCount end
+function PaletteView:GetSlotWidget(index) return self.widgets[index] end
 
--- RADIAL | FAN | GRID. A view may pin its own mode (the options preview
+-- ARC | FAN | GRID. A view may pin its own mode (the options preview
 -- pins one so the page can show either without changing what the user plays
 -- with); everything else follows the profile.
-function WheelView:LayoutMode()
+function PaletteView:LayoutMode()
     local p = P()
-    return self.opts.layout or (p and p.layout) or "RADIAL"
+    return self.opts.layout or (p and p.layout) or "ARC"
 end
 
 -- Which way a fan runs. Every axis-dependent decision in the file reads this
 -- one predicate, so a strip is one layout with an orientation rather than two
 -- layouts that happen to share every setting. Meaningless outside a fan, where
 -- callers do not ask.
-function WheelView:FanHoriz()
+function PaletteView:FanHoriz()
     local p = P()
     return not p or p.fanOrientation ~= "VERTICAL"
 end
 
-function WheelView:IsFan()
-    return self:LayoutMode() ~= "RADIAL"
+function PaletteView:IsFan()
+    return self:LayoutMode() ~= "ARC"
 end
 
-function WheelView:IsGrid()
+function PaletteView:IsGrid()
     return self:LayoutMode() == "GRID"
 end
 
--- Angular step and starting angle for the radial layout, both clockwise from
+-- Angular step and starting angle for the arc layout, both clockwise from
 -- straight up. Returns the step, the angle of slot 1, and whether this is a
 -- full circle.
 --
@@ -619,7 +688,7 @@ end
 -- is the first entry's near side, so there is no seam. An arc divides by count
 -- MINUS ONE instead, which puts the first and last entries ON its ends rather
 -- than leaving a step-wide gap at the seam that belongs to no entry at all.
-function WheelView:ArcGeom(shown)
+function PaletteView:ArcGeom(shown)
     local p = P()
     local deg  = min(360, max(30, (p and p.arcSpan) or 360))
     local rot  = ((p and p.arcRotation) or 0) * pi / 180
@@ -636,7 +705,7 @@ end
 -- A cursor-steered fan: every entry drawn at a fixed position, the nearest one
 -- zoomed. The editor follows the profile here like everything else, so what it
 -- lays out stays the arrangement the user actually plays with.
-function WheelView:IsHoverFan()
+function PaletteView:IsHoverFan()
     if self:IsGrid() or not self:IsFan() then return false end
     local p = P()
     return (p and p.fanInput or "SCROLL") == "CURSOR"
@@ -644,7 +713,7 @@ end
 
 -- Everything steered by pointing at a fixed arrangement, as opposed to the
 -- scroll fan's moving one. These all share the grid's geometry and its update.
-function WheelView:IsPointerLayout()
+function PaletteView:IsPointerLayout()
     return self:IsGrid() or self:IsHoverFan()
 end
 
@@ -663,7 +732,7 @@ end
 --  offsets, which is what lets the strip slide smoothly between slots.
 -------------------------------------------------------------------------------
 
--- Editor floors. The options preview draws the whole ring at once and every
+-- Editor floors. The options preview draws the whole palette at once and every
 -- entry in it is a drag target, so the live floors -- which are tuned to let
 -- distant entries fade away -- would leave the ends of a long strip both
 -- unreadable and hard to hit.
@@ -697,19 +766,20 @@ end
 -- entry, at the editor's own floors. Exported so the options preview can fit a
 -- strip to the panel without duplicating any of the constants above.
 function ns.FanReach(count, iconSize, gap, decay)
-    return FanOffset(count, iconSize, gap, decay, FAN_EDIT_MIN_SCALE) + iconSize
+    return FanOffset(count, iconSize, gap, decay, FAN_EDIT_MIN_SCALE)
+           + iconSize + iconSize * (SelectedZoom() - 1) * 0.5
 end
 
 -- The same measurement for a hover fan, which is evenly spaced at full pitch
 -- because its zoomed entry is drawn at 1.0 and must not overlap its neighbours.
 function ns.FanHoverReach(count, iconSize, gap)
-    return count * 0.5 * (iconSize + gap) + iconSize * 0.5
+    return count * 0.5 * (iconSize + gap) + iconSize * 0.5 * SelectedZoom()
 end
 
 -- Position every widget from self.fanVisual, the CONTINUOUS centre. Called
 -- from Layout and from every animation step; it never repaints icons, so it is
 -- cheap enough to run each frame while the strip settles.
-function WheelView:ApplyFanGeometry()
+function PaletteView:ApplyFanGeometry()
     local p = P()
     if not p or not self:IsFan() then return end
 
@@ -729,13 +799,21 @@ function WheelView:ApplyFanGeometry()
         minA = max(minA, FAN_EDIT_MIN_ALPHA)
     end
     local horiz  = self:FanHoriz()
-    -- An interactive view draws the whole ring: the editor cannot let a slot
+    -- An interactive view draws the whole palette: the editor cannot let a slot
     -- be unreachable, so nothing is culled there and the floors carry it.
     local window = self.opts.interactive and shown or (p.fanVisible or 3)
 
     local frame  = self.frame
     local center = self.fanVisual or 1
     local half   = shown / 2
+
+    -- Half the width the selected entry gains, added to every offset past the
+    -- centre so magnifying it cannot close the gaps under its neighbours. A
+    -- CONSTANT, applied whichever entry is selected: making it follow the
+    -- selection would reflow the whole strip on every step.
+    local zoom  = SelectedZoom()
+    local extra = iconSize * (zoom - 1) * 0.5
+    local sel   = self.selection
 
     for i = 1, shown do
         local w = self.widgets[i]
@@ -750,13 +828,18 @@ function WheelView:ApplyFanGeometry()
         else
             local s   = max(minS, decay ^ k)
             local off = FanOffset(k, iconSize, gap, decay, minS)
+            if k > 0 then off = off + extra end
             if d < 0 then off = -off end
 
             w:SetAlpha(max(minA, aDecay ^ k))
             -- Depth is size, not scale: SetPoint offsets are read in the
             -- widget's own scaled space, so scaling here would silently
-            -- multiply the spacing computed above.
-            w:SetSize(iconSize * s, iconSize * s)
+            -- multiply the spacing computed above. The selected entry is
+            -- magnified in the same breath, because these sizes are rewritten
+            -- on every animation step and would erase a zoom applied elsewhere.
+            local z = (i == sel) and zoom or 1
+            w.baseSize = iconSize * s
+            w:SetSize(iconSize * s * z, iconSize * s * z)
             w:ClearAllPoints()
             if horiz then
                 w:SetPoint("CENTER", frame, "CENTER", off, 0)
@@ -840,9 +923,9 @@ end
 -- its own, because it cycles a compressed window rather than showing fixed
 -- positions.
 -- shownOverride lets a caller ask what the grid WOULD be for some other entry
--- count. PushRing needs exactly that: it runs while the palette is closed, when
--- shownCount still describes whatever was drawn last.
-function WheelView:GridDims(shownOverride)
+-- count. PushPalette needs exactly that: it runs while the palette is closed,
+-- when shownCount still describes whatever was drawn last.
+function PaletteView:GridDims(shownOverride)
     local p = P()
     local shown = max(1, shownOverride or self.shownCount)
 
@@ -855,8 +938,8 @@ function WheelView:GridDims(shownOverride)
     local cols
     if not p or p.gridAutoColumns ~= false then
         -- Counted from the REAL entries, not from `shown`. An interactive view
-        -- draws one extra wedge for the trailing "+", and letting that tip the
-        -- column count would make the editor lay a ring out differently from
+        -- draws one extra entry for the trailing "+", and letting that tip the
+        -- column count would make the editor lay a palette out differently from
         -- the way it is played -- six actions previewing as 4 + 3 while the
         -- live palette drew 3 + 3.
         cols = AutoGridColumns(max(1, shownOverride or self.slotCount or shown))
@@ -868,7 +951,7 @@ function WheelView:GridDims(shownOverride)
 end
 
 -- Centre-relative position of slot i, in the frame's own units.
-function WheelView:GridBase(i, cols, rows, pitch, shownOverride)
+function PaletteView:GridBase(i, cols, rows, pitch, shownOverride)
     local r = floor((i - 1) / cols)
     local c = (i - 1) % cols
     local inRow = min(cols, (shownOverride or self.shownCount) - r * cols)
@@ -877,7 +960,7 @@ end
 
 -- Lay the grid out and select the entry nearest the pointer. noPointer draws it
 -- evenly with nothing selected, which is what Layout and the editor want.
-function WheelView:AdvanceGrid(noPointer)
+function PaletteView:AdvanceGrid(noPointer)
     local p = P()
     local shown = self.shownCount
     if not p or shown < 1 then
@@ -937,6 +1020,7 @@ function WheelView:AdvanceGrid(noPointer)
         end
 
         w:SetAlpha(a)
+        w.baseSize = iconSize * s
         w:SetSize(iconSize * s, iconSize * s)
         w:ClearAllPoints()
         w:SetPoint("CENTER", frame, "CENTER", bx, by)
@@ -944,12 +1028,20 @@ function WheelView:AdvanceGrid(noPointer)
     end
 
     if bestK and bestK > GRID_REACH then best = nil end
+    -- Magnify the chosen cell where it stands. Applied here rather than left to
+    -- the selection paint because the sizes above are rewritten every frame,
+    -- which would erase a zoom applied only when the selection changed.
+    if best then
+        local w = self.widgets[best]
+        local z = SelectedZoom()
+        w:SetSize(w.baseSize * z, w.baseSize * z)
+    end
     self:SetSelection(best)
 end
 
 -- Centre the strip on a slot with no animation. The options preview uses this
 -- to follow the entry the user has clicked.
-function WheelView:SetFanCenter(index)
+function PaletteView:SetFanCenter(index)
     if not index or self.shownCount < 1 then return end
     self.fanTarget = index
     self.fanVisual = index
@@ -960,16 +1052,21 @@ end
 -- Half the drawn strip, along its own axis, out to the far edge of the last
 -- visible entry. Sizes the frame and bounds the cancel, from one number: a
 -- second copy of this would drift the moment either falloff setting moved.
-function WheelView:FanHalfLength()
+function PaletteView:FanHalfLength()
     local p = P()
     local _, iconSize = self:Geom()
     local shown = self.shownCount
-    -- The editor culls nothing, so its strip is as long as the ring is.
+    -- The editor culls nothing, so its strip is as long as the palette is.
     local window = self.opts.interactive and shown or ((p and p.fanVisible) or 3)
     local minS = self.opts.interactive and FAN_EDIT_MIN_SCALE
                                         or ((p and p.fanMinScale) or 0.30)
+    -- Plus the room ApplyFanGeometry leaves for the selected entry to grow into,
+    -- which every offset past the centre carries. Left out, the frame would be
+    -- narrower than the strip drawn in it and the cancel box would sit inside
+    -- the last entry rather than beyond it.
     return FanOffset(window, iconSize, (p and p.fanGap) or 10,
-                     (p and p.fanScaleDecay) or 0.72, minS) + iconSize
+                     (p and p.fanScaleDecay) or 0.72, minS)
+           + iconSize + iconSize * (SelectedZoom() - 1) * 0.5
 end
 
 -- How far the pointer has been carried toward leaving the strip: 0 while it is
@@ -979,7 +1076,7 @@ end
 --
 -- The cancel and the fade read this one number, so the strip is at its dimmest
 -- exactly where a release stops firing anything.
-function WheelView:FanCancelProgress()
+function PaletteView:FanCancelProgress()
     if not self._gateX then return 0 end
     local p = P()
     local _, iconSize = self:Geom()
@@ -994,7 +1091,7 @@ function WheelView:FanCancelProgress()
 end
 
 -- Has the pointer been thrown clear of the strip?
-function WheelView:FanCancelled()
+function PaletteView:FanCancelled()
     return self:FanCancelProgress() > 1
 end
 
@@ -1002,7 +1099,7 @@ end
 -- the cancel box. It never reaches zero: a strip the player has left still has
 -- to be findable, because bringing the pointer back re-selects the entry it is
 -- centred on.
-function WheelView:FanCancelAlpha()
+function PaletteView:FanCancelAlpha()
     local k = self:FanCancelProgress()
     if k <= FAN_FADE_START then return 1 end
     if k >= 1 then return FAN_FADE_MIN end
@@ -1014,7 +1111,7 @@ end
 -- The LOGICAL index moves the instant the tick arrives; only the geometry is
 -- interpolated. A release mid-animation therefore always fires what the user
 -- last scrolled to, never whatever the strip happens to be sliding past.
-function WheelView:AdvanceFan(elapsed)
+function PaletteView:AdvanceFan(elapsed)
     local shown = self.shownCount
     if shown < 1 then
         self:SetSelection(nil)
@@ -1028,6 +1125,16 @@ function WheelView:AdvanceFan(elapsed)
     -- (the options preview) keep driving fanTarget themselves.
     if self.opts.live and scrollCatcher then
         self.fanTarget = tonumber(scrollCatcher:GetAttribute("eapFanTarget"))
+    end
+
+    -- Published BEFORE the geometry below, which magnifies whichever entry is
+    -- selected as it places it. The strip keeps sliding to wherever the wheel
+    -- has left it while the pointer is clear of it, so bringing the pointer back
+    -- shows the entry that would fire, already settled.
+    if self.fanTarget and not self:FanCancelled() then
+        self:SetSelection(((self.fanTarget - 1) % shown) + 1)
+    else
+        self:SetSelection(nil)
     end
 
     local target = self.fanTarget or 1
@@ -1045,21 +1152,12 @@ function WheelView:AdvanceFan(elapsed)
         self.fanVisual = cur
         self:ApplyFanGeometry()
     end
-
-    -- The geometry above still ran: the strip keeps sliding to wherever the
-    -- wheel has left it while the pointer is clear of it, so bringing the
-    -- pointer back shows the entry that would fire, already settled.
-    if self.fanTarget and not self:FanCancelled() then
-        self:SetSelection(((self.fanTarget - 1) % shown) + 1)
-    else
-        self:SetSelection(nil)
-    end
 end
 
 -- This view's centre as a delta from UIParent's centre, in UIParent-logical
 -- units. Both sides are converted through their effective scales because the
 -- strip carries the user's own Scale setting while UIParent carries the game's.
-function WheelView:ScreenOffset()
+function PaletteView:ScreenOffset()
     local frame = self.frame
     local cx, cy = frame:GetCenter()
     if not cx then return 0, 0 end
@@ -1077,8 +1175,8 @@ end
 --
 -- Called after the frame is POSITIONED, not from Layout alone: in cursor mode
 -- the strip lands somewhere new on every open, so the quadrant is only known
--- once PositionWheel has run.
-function WheelView:PlaceHubText()
+-- once PositionPalette has run.
+function PaletteView:PlaceHubText()
     local hub  = self.hub
     local mode = self:LayoutMode()
     local _, iconSize = self:Geom()
@@ -1086,7 +1184,7 @@ function WheelView:PlaceHubText()
     hub.text:ClearAllPoints()
     hub.hint:ClearAllPoints()
 
-    if mode == "RADIAL" then
+    if mode == "ARC" then
         hub.text:SetJustifyH("CENTER")
         hub.text:SetPoint("CENTER", hub, "CENTER", 0, 0)
         hub.hint:SetPoint("TOP", hub.text, "BOTTOM", 0, -2)
@@ -1135,24 +1233,24 @@ function WheelView:PlaceHubText()
     end
 end
 
-function ns.CreateWheelView(parent, opts)
+function ns.CreatePaletteView(parent, opts)
     local view = setmetatable({
         opts      = opts or {},
         widgets   = {},
-        ringIndex = 1,
+        paletteIndex = 1,
         slotCount = 0,
         shownCount = 0,
-        -- Only the live wheel arms the movement gate (see HitTest); anything
+        -- Only the live palette arms the movement gate (see HitTest); anything
         -- else is steered from the moment it exists.
         _steered  = true,
-    }, WheelViewMeta)
+    }, PaletteViewMeta)
 
     local frame = CreateFrame("Frame", view.opts.frameName, parent)
     frame:SetSize(1, 1)
     frame:EnableMouse(false)
     view.frame = frame
 
-    -- Hub: the center disc. Shows the selected action's name, or the ring
+    -- Hub: the center disc. Shows the selected action's name, or the palette
     -- name when nothing is selected, which is also the "release now cancels"
     -- signal.
     local hub = CreateFrame("Frame", nil, frame)
@@ -1169,7 +1267,7 @@ function ns.CreateWheelView(parent, opts)
 
     -- The logo alternative to the star. Left on the default blend mode, unlike
     -- the star: this is real artwork with its own alpha, and ADD would wash out
-    -- its dark areas into whatever is behind the wheel. It stays on ARTWORK so
+    -- its dark areas into whatever is behind the palette. It stays on ARTWORK so
     -- the hub's OVERLAY text still reads on top of it.
     hub.logo = hub:CreateTexture(nil, "ARTWORK")
     hub.logo:SetTexture((EllesmereUI.MEDIA_PATH or "Interface\\AddOns\\EllesmereUI\\media\\")
@@ -1199,21 +1297,21 @@ function ns.CreateWheelView(parent, opts)
     return view
 end
 
--- Lay the ring out and paint every widget from the stored slot data.
-function WheelView:Layout(ringIndex)
-    -- Clamped because a view's ring index outlives a decrease of ringCount, and
-    -- EnsureRing would otherwise re-create a ring the user can no longer bind.
-    ringIndex = min(RingCount(), max(1, ringIndex or self.ringIndex or 1))
-    local p, ring = P(), EnsureRing(ringIndex)
-    if not p or not ring then return end
+-- Lay the palette out and paint every widget from the stored slot data.
+function PaletteView:Layout(paletteIndex)
+    -- Clamped because a view's palette index outlives a decrease of paletteCount, and
+    -- EnsurePalette would otherwise re-create a palette the user can no longer bind.
+    paletteIndex = min(PaletteCount(), max(1, paletteIndex or self.paletteIndex or 1))
+    local p, palette = P(), EnsurePalette(paletteIndex)
+    if not p or not palette then return end
 
     local opts = self.opts
-    self.ringIndex = ringIndex
-    -- Derived, never stored: the ring is exactly as big as what is on it.
-    local n = #ring.slots
-    -- An interactive view draws one wedge more than the ring holds: the "+"
-    -- placeholder. It is a real wedge, so adding an action visibly re-fans the
-    -- ring instead of filling a gap that was reserved for it all along.
+    self.paletteIndex = paletteIndex
+    -- Derived, never stored: the palette is exactly as big as what is on it.
+    local n = #palette.slots
+    -- An interactive view draws one entry more than the palette holds: the "+"
+    -- placeholder. It is a real entry, so adding an action visibly re-fans the
+    -- palette instead of filling a gap that was reserved for it all along.
     local shown = (opts.interactive and n < MAX_SLOTS) and (n + 1) or n
     self.slotCount, self.shownCount = n, shown
 
@@ -1257,6 +1355,9 @@ function WheelView:Layout(ringIndex)
             -- Switching modes leaves the other mode's depth cues behind.
             w:SetAlpha(1)
             w:SetScale(1)
+            -- The size a selection zoom is measured from. The strip and the grid
+            -- publish their own, entry by entry, in the geometry passes below.
+            w.baseSize = iconSize
             if not fan then
                 local a = arcStart + (i - 1) * step
                 w:ClearAllPoints()
@@ -1265,7 +1366,7 @@ function WheelView:Layout(ringIndex)
             end
             w:EnableMouse(opts.interactive == true)
 
-            local slot = ring.slots[i]
+            local slot = palette.slots[i]
             -- Only reachable on an interactive view: shown == n otherwise.
             local placeholder = (slot == nil)
             w.isPlaceholder = placeholder
@@ -1330,8 +1431,8 @@ function WheelView:Layout(ringIndex)
     if not fan and useLogo then
         -- Scaled by whatever the view scaled its geometry by, recovered from
         -- the icon size Geom actually handed back. The options preview fits the
-        -- ring to its panel, and a hub drawn at the profile's literal pixel
-        -- size would swamp a ring that had been shrunk to two-thirds.
+        -- palette to its panel, and a hub drawn at the profile's literal pixel
+        -- size would swamp a palette that had been shrunk to two-thirds.
         local _, viewIcon = self:Geom()
         local base = p.iconSize or 44
         local k = (base > 0) and (viewIcon / base) or 1
@@ -1340,24 +1441,24 @@ function WheelView:Layout(ringIndex)
         hub.logo:SetAlpha(min(1, max(0, p.hubIconAlpha or 0.55)))
     end
     self:PlaceHubText()
-    hub.text:SetText(ring.name or ("Ring " .. ringIndex))
+    hub.text:SetText(palette.name or ("Palette " .. paletteIndex))
     hub.text:SetTextColor(0.8, 0.8, 0.8)
 
     if opts.hintText then
         hub.hint:SetText(opts.hintText(n) or "")
     elseif n == 0 then
-        -- An empty ring is a real state now, and a bare hub with no explanation
+        -- An empty palette is a real state now, and a bare hub with no explanation
         -- looks like a bug rather than "you haven't filled this in yet".
         hub.hint:SetText("no actions assigned")
     else
-        local k1 = GetBindingKey(BINDING_PREFIX .. ringIndex)
+        local k1 = GetBindingKey(BINDING_PREFIX .. paletteIndex)
         hub.hint:SetText(p.showHubText and (k1 or "") or "")
     end
 end
 
 -- Paint selection state. Called from OnUpdate whenever the hovered slot
 -- changes, and once from Open so the initial state is drawn.
-function WheelView:SetSelection(index)
+function PaletteView:SetSelection(index)
     if self.selection == index then return end
 
     local widgets = self.widgets
@@ -1371,16 +1472,16 @@ function WheelView:SetSelection(index)
 
     if index then
         local w = widgets[index]
-        ApplySlotVisual(w, true, self:IsFan() and 1 or nil)
+        ApplySlotVisual(w, true)
 
-        local ring = EnsureRing(self.ringIndex)
-        local slot = ring and ring.slots[index]
+        local palette = EnsurePalette(self.paletteIndex)
+        local slot = palette and palette.slots[index]
         local _, name = SlotDisplay(slot)
         local r, g, b = SelectColor()
         hub.text:SetText(name or (w.isPlaceholder and "Add Action") or ("Slot " .. index))
         hub.text:SetTextColor(r, g, b)
 
-        -- The needle points along a wedge angle; the fan has no angles.
+        -- The needle points along a entry angle; the fan has no angles.
         if p and p.showNeedle and not self:IsFan() then
             local radius, iconSize, deadZone = self:Geom()
             local step, arcStart = self:ArcGeom(self.shownCount)
@@ -1393,8 +1494,8 @@ function WheelView:SetSelection(index)
             hub.needle:Show()
         end
     else
-        local ring = EnsureRing(self.ringIndex)
-        hub.text:SetText((ring and ring.name) or "")
+        local palette = EnsurePalette(self.paletteIndex)
+        hub.text:SetText((palette and palette.name) or "")
         hub.text:SetTextColor(0.8, 0.8, 0.8)
         hub.needle:Hide()
     end
@@ -1402,19 +1503,19 @@ end
 
 -- Baseline for the movement gate in HitTest. Read AFTER the frame is placed so
 -- the scale used here is the one the hit test will use.
-function WheelView:ArmMovementGate()
+function PaletteView:ArmMovementGate()
     local es = self.frame:GetEffectiveScale()
     local x, y = GetCursorPosition()
     self._gateX, self._gateY = x / es, y / es
     self._steered = false
 end
 
--- Cursor -> wedge index. nil inside the dead zone, and -- while the movement
+-- Cursor -> entry index. nil inside the dead zone, and -- while the movement
 -- gate is armed -- until the cursor has actually moved. The gate is what makes
 -- "open and release without moving" a cancel in FIXED-POSITION mode, where the
--- cursor starts at some arbitrary point on the ring rather than at the center
--- and would otherwise have a slot pre-selected the instant the wheel opens.
-function WheelView:HitTest()
+-- cursor starts at some arbitrary point on the palette rather than at the center
+-- and would otherwise have a slot pre-selected the instant the palette opens.
+function PaletteView:HitTest()
     local shown = self.shownCount
     if shown < 1 then return nil end
     local _, _, deadZone = self:Geom()
@@ -1464,11 +1565,11 @@ function WheelView:HitTest()
 end
 
 -------------------------------------------------------------------------------
---  The live wheel
+--  The live palette
 -------------------------------------------------------------------------------
-local function CreateWheel()
+local function CreateLiveView()
     if liveView then return liveView end
-    liveView = ns.CreateWheelView(UIParent, { frameName = "EUIActionPaletteFrame", live = true })
+    liveView = ns.CreatePaletteView(UIParent, { frameName = "EUIActionPaletteFrame", live = true })
     local f = liveView:GetFrame()
     f:SetFrameStrata(LIVE_STRATA)
     f:Hide()
@@ -1483,7 +1584,7 @@ end
 --
 -- An override binding on MOUSEWHEELUP/DOWN would be the other way to do this,
 -- and is not an option: those are protected and could not be claimed at open
--- time in combat, which is exactly when the wheel gets used.
+-- time in combat, which is exactly when the palette gets used.
 --
 -- Mouse WHEEL only, never EnableMouse: a full-screen mouse-enabled frame would
 -- sit between the player and the world, and would swallow the very button
@@ -1541,13 +1642,13 @@ local function EnsureScrollCatcher()
     return f
 end
 
--- Flick-ahead. The ring is held invisible for a moment after the key goes down
+-- Flick-ahead. The palette is held invisible for a moment after the key goes down
 -- and then fades in, so a gesture finished inside that window never summons a
 -- menu at all. It is a DRAWING delay only: the frame is shown and its OnUpdate
 -- is running the whole time, so the selection a fast flick lands on is exactly
 -- the one a slow one would have.
 --
--- Radial only. A fan has to be read before it can be steered, and a scroll fan
+-- Arc only. A fan has to be read before it can be steered, and a scroll fan
 -- cannot even be entered without seeing where the strip starts.
 local function FlickAlpha()
     local p = P()
@@ -1564,7 +1665,7 @@ end
 -- One alpha for the whole palette, so the flick-ahead fade-in and the
 -- cancel fade cannot fight over the frame. Only the scroll-steered strip has a
 -- cancel box to approach; the others answer 1.
-local function UpdateWheelAlpha()
+local function UpdatePaletteAlpha()
     local a = FlickAlpha()
     if liveView:IsFan() and not liveView:IsPointerLayout() then
         a = a * liveView:FanCancelAlpha()
@@ -1572,7 +1673,7 @@ local function UpdateWheelAlpha()
     liveView:GetFrame():SetAlpha(a)
 end
 
-local function OnWheelUpdate(_, elapsed)
+local function OnPaletteUpdate(_, elapsed)
     if GetTime() - openedAt > OPEN_TIMEOUT then
         ns.Close()
         return
@@ -1586,36 +1687,36 @@ local function OnWheelUpdate(_, elapsed)
     end
     -- After the steering, not before: the cancel fade reads the same pointer
     -- position the selection was just decided from.
-    UpdateWheelAlpha()
+    UpdatePaletteAlpha()
 end
 
--- forceFixed: ignore CURSOR mode and place the wheel at its fixed position.
+-- forceFixed: ignore CURSOR mode and place the palette at its fixed position.
 -- Nothing passes it since the full-screen editor was retired; it stays because
 -- on-screen drag positioning is being reworked and needs exactly this. Fixed
 -- Position mode itself goes through the same branch via p.centerMode.
-local function PositionWheel(forceFixed)
+local function PositionPalette(forceFixed)
     local p = P()
-    local wheel = liveView:GetFrame()
-    wheel:ClearAllPoints()
+    local palette = liveView:GetFrame()
+    palette:ClearAllPoints()
     if forceFixed or p.centerMode == "SCREEN" then
         local s = p.scale or 1
         if s == 0 then s = 1 end
-        wheel:SetPoint("CENTER", UIParent, "CENTER", (p.posX or 0) / s, (p.posY or 0) / s)
+        palette:SetPoint("CENTER", UIParent, "CENTER", (p.posX or 0) / s, (p.posY or 0) / s)
     else
-        local es = wheel:GetEffectiveScale()
+        local es = palette:GetEffectiveScale()
         local x, y = GetCursorPosition()
-        wheel:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x / es, y / es)
+        palette:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x / es, y / es)
     end
 end
 
-function ns.Open(ringIndex)
+function ns.Open(paletteIndex)
     local p = P()
     if not p or not p.enabled then return end
 
-    CreateWheel()
-    liveView:Layout(ringIndex)
-    PositionWheel()
-    -- After PositionWheel, never before: which side the caption hangs on is
+    CreateLiveView()
+    liveView:Layout(paletteIndex)
+    PositionPalette()
+    -- After PositionPalette, never before: which side the caption hangs on is
     -- decided by where on the screen this open actually landed, and in cursor
     -- mode that is different every time.
     liveView:PlaceHubText()
@@ -1639,7 +1740,7 @@ function ns.Open(ringIndex)
         liveView.fanTarget = 1
         liveView.fanVisual = 1
         liveView:ApplyFanGeometry()
-        -- Guarded: an empty ring has no entry 1 to select, and painting one
+        -- Guarded: an empty palette has no entry 1 to select, and painting one
         -- would caption the hub with a slot that is not drawn.
         liveView:SetSelection(liveView:ShownCount() > 0 and 1 or nil)
     else
@@ -1647,12 +1748,12 @@ function ns.Open(ringIndex)
         liveView:SetSelection(liveView:HitTest())
     end
 
-    local wheel = liveView:GetFrame()
-    -- Applied before the first frame rather than left to OnUpdate: the wheel is
+    local palette = liveView:GetFrame()
+    -- Applied before the first frame rather than left to OnUpdate: the palette is
     -- shown on this one, and the previous open's alpha would flash through.
-    UpdateWheelAlpha()
-    wheel:SetScript("OnUpdate", OnWheelUpdate)
-    wheel:Show()
+    UpdatePaletteAlpha()
+    palette:SetScript("OnUpdate", OnPaletteUpdate)
+    palette:Show()
 end
 
 -- ESCAPE belongs to the game menu again. The release snippet drops this binding
@@ -1672,22 +1773,22 @@ end
 
 function ns.Close()
     if not liveView then return end
-    local wheel = liveView:GetFrame()
-    if not wheel:IsShown() then
+    local palette = liveView:GetFrame()
+    if not palette:IsShown() then
         ReleaseEscape()
         return
     end
-    wheel:SetScript("OnUpdate", nil)
-    wheel:Hide()
+    palette:SetScript("OnUpdate", nil)
+    palette:Hide()
     -- The PostClick snippet hides this on every normal close. This covers the
     -- ones that never get a key-up at all -- the open timeout, a zone change --
-    -- and only out of combat, the frame being protected. In combat the wheel
+    -- and only out of combat, the frame being protected. In combat the palette
     -- snippet hides it on the next stray tick instead.
     -- Clearing the accumulator matters as much as hiding it. The strip now
     -- opens with entry 1 seeded, so a key-up that arrives after one of these
     -- unattended closes -- the open timeout, a zone change -- would otherwise
     -- fire that entry with nothing on screen. In combat the write is not
-    -- allowed and the seed stands; the release is still bounded by the ring
+    -- allowed and the seed stands; the release is still bounded by the palette
     -- that was pushed, and the timeout is long enough that a key held that far
     -- past a close is not an ordinary gesture.
     if scrollCatcher and not InCombatLockdown() then
@@ -1703,8 +1804,8 @@ end
 function ns.CurrentSlot()
     local selection = liveView and liveView:GetSelection()
     if not selection then return nil end
-    local ring = EnsureRing(liveView:GetRingIndex())
-    return ring and ring.slots[selection]
+    local palette = EnsurePalette(liveView:GetPaletteIndex())
+    return palette and palette.slots[selection]
 end
 
 -------------------------------------------------------------------------------
@@ -1716,7 +1817,8 @@ local bindOwner
 -- Which steering model the snippet must use, by the same reading of the profile
 -- the live view does:
 --
---   ANGULAR  RADIAL, full wheel or arc -- chosen by the angle from the centre.
+--   ANGULAR  ARC, whether it spans a full turn or a sector of one -- chosen
+--            by the angle from the centre.
 --   POINTER  GRID, and either fan on pointer input -- the entry nearest the
 --            cursor wins. A pointer fan is a grid one entry deep, so it is the
 --            same search and the same pushed cell positions.
@@ -1725,8 +1827,8 @@ local bindOwner
 --            so the snippet reads the index the wheel handler left behind.
 local function LayoutModel()
     local p = P()
-    local layout = (p and p.layout) or "RADIAL"
-    if layout == "RADIAL" then return "ANGULAR" end
+    local layout = (p and p.layout) or "ARC"
+    if layout == "ARC" then return "ANGULAR" end
     if layout == "GRID" then return "POINTER" end
     return ((p and p.fanInput) or "SCROLL") == "CURSOR" and "POINTER" or "SCROLL"
 end
@@ -1760,27 +1862,28 @@ end
 --
 -- The sandbox has no GetCursorPosition, so the cursor is read with
 -- GetMousePosition on a frame handle. That measures against UIParent, NOT
--- against the wheel, for two independent reasons:
+-- against the palette, for two independent reasons:
 --
 --   * GetMousePosition goes through GetHandleFrame, which refuses a handle to an
---     unprotected frame while in combat (RestrictedFrames.lua:84). The wheel is
+--     unprotected frame while in combat (RestrictedFrames.lua:84). The palette is
 --     an ordinary addon frame, so its handle is rejected exactly when we need it.
 --   * It returns nil when the cursor lies outside the frame's rect
---     (RestrictedFrames.lua:317). Layout sizes the wheel to a finite box around
---     the ring, so measuring against it would put a hard edge on a gesture that
---     is deliberately unbounded in depth: a long flick would highlight a wedge
---     and then fire nothing. Against a fixed-position wheel the cursor could
+--     (RestrictedFrames.lua:317). Layout sizes the palette to a finite box
+--     around its entries, so measuring against it would put a hard edge on a
+--     gesture that is deliberately unbounded in depth: a long flick would
+--     highlight an entry and then fire nothing. Against a fixed-position
+--     palette the cursor could
 --     start outside that box entirely.
 --
--- UIParent is protected, covers the screen, and never moves. The wheel's centre
+-- UIParent is protected, covers the screen, and never moves. The palette's centre
 -- is therefore derived rather than measured: in fixed-position mode it is
 -- UIParent's centre plus the configured offset, and in cursor mode it is
--- wherever the cursor was when the wheel opened -- which is the position the
--- press captured, since PositionWheel ran in our PreClick just before this.
+-- wherever the cursor was when the palette opened -- which is the position the
+-- press captured, since PositionPalette ran in our PreClick just before this.
 --
 -- GetMousePosition reports a [0,1] fraction of the frame measured from its
 -- bottom-left, so scaling by UIParent's size gives UIParent units, and dividing
--- by the wheel's own scale converts to the units radius and deadZone use.
+-- by the palette's own scale converts to the units radius and deadZone use.
 -- sqrt is not on the sandbox whitelist; ^0.5 is the same thing.
 --
 -- All angles in here are DEGREES, and the step and start are handed over
@@ -1789,7 +1892,7 @@ end
 -- degrees also means the wrap is an exact 360 rather than a written-out 2*pi
 -- (`pi` is not on the whitelist), which removes a real trap: a 2*pi literal
 -- short by 1e-13 disagrees with HitTest's math.pi*2 often enough to land the
--- other side of the +0.5 rounding on a wedge boundary -- 735 disagreements
+-- other side of the +0.5 rounding on a entry boundary -- 735 disagreements
 -- across a 2.7M-position sweep, all of them exactly on an edge.
 local SNIPPET_PRE = [==[
     local ui = self:GetFrameRef("ui")
@@ -1802,7 +1905,7 @@ local SNIPPET_PRE = [==[
         self:SetAttribute("eapIdx", nil)
         -- Claim ESCAPE for as long as this palette is up, and clear whatever a
         -- previous open left on the flag. The binding is owned by the cancel
-        -- button, not by us: every ring binds the same key to the same button,
+        -- button, not by us: every palette binds the same key to the same button,
         -- and one owner means one binding to drop however the palette closes.
         -- Every layout gets this -- the flag is read before any of the steering
         -- below, so escaping out is one rule, not three.
@@ -1810,8 +1913,8 @@ local SNIPPET_PRE = [==[
         if cancel then
             cancel:SetBindingClick(true, "ESCAPE", cancel, "LeftButton")
         end
-        -- Kept on the button, not in a snippet global: every ring shares one
-        -- header, so a global would let ring 2's press reset ring 1's origin.
+        -- Kept on the button, not in a snippet global: every palette shares one
+        -- header, so a global would let palette 2's press reset palette 1's origin.
         self:SetAttribute("eapGX", nil)
         self:SetAttribute("eapGY", nil)
         if ui then
@@ -1861,7 +1964,7 @@ local SNIPPET_PRE = [==[
             self:SetAttribute("eapWhy", "unscrolled") return nil, 1
         end
 
-        -- Thrown clear of the strip -> cancel. This is the wheel's counterpart
+        -- Thrown clear of the strip -> cancel. This is the strip's counterpart
         -- to the grid's out-of-reach: past the strip in ANY direction, measured
         -- from where the pointer was when the palette opened. The box is as
         -- long as the strip is drawn and only a margin wide, because that is
@@ -1899,7 +2002,7 @@ local SNIPPET_PRE = [==[
         local gx = tonumber(self:GetAttribute("eapGX"))
         local gy = tonumber(self:GetAttribute("eapGY"))
 
-        -- SetPoint offsets are read in the wheel's own scaled space, so the
+        -- SetPoint offsets are read in the palette's own scaled space, so the
         -- centre sits exactly posX/posY UIParent units from UIParent's centre;
         -- the scale only converts the distance from there.
         local s = tonumber(self:GetAttribute("eapScale")) or 1
@@ -1908,16 +2011,16 @@ local SNIPPET_PRE = [==[
         -- Opening under the cursor would otherwise arrive with an entry already
         -- chosen; nothing counts until the pointer has actually moved.
         --
-        -- Divided by the scale so this is one WHEEL unit, the same unit the live
+        -- Divided by the scale so this is one PALETTE unit, the same unit the live
         -- views measure their gate in. Comparing raw UIParent units against 1
-        -- agreed with them only at scale 1: at scale 2 a move the wheel still
+        -- agreed with them only at scale 1: at scale 2 a move the palette still
         -- counted as stationary was already past the snippet's threshold, and
-        -- the release fired an entry the wheel was drawing as unselected.
+        -- the release fired an entry the palette was drawing as unselected.
         --
         -- This does not latch, where the live views set _steered on the first
         -- movement and never re-arm. The snippet only ever sees the release, so
         -- a gesture that wanders off and returns to within a unit of where it
-        -- started cancels here while the wheel still shows an entry selected.
+        -- started cancels here while the palette still shows an entry selected.
         -- It errs toward cancelling rather than firing something unintended.
         if gx and abs(cx - gx) / s < 1 and abs(cy - gy) / s < 1 then
             self:SetAttribute("eapWhy", "unmoved") return nil, 1
@@ -2063,7 +2166,7 @@ local function EnsureCancelButton()
     -- Down only: ESCAPE should take effect the instant it is pressed, and a
     -- second run on the up edge would only re-raise a flag that is already set.
     btn:RegisterForClicks("AnyDown")
-    -- Parked like the ring buttons: invisible, unclickable by mouse, and shown,
+    -- Parked like the palette buttons: invisible, unclickable by mouse, and shown,
     -- because an override-binding click has to reach a live button.
     btn:EnableMouse(false)
     btn:SetSize(1, 1)
@@ -2081,7 +2184,7 @@ end
 
 local function OnPreClick(self, _, down)
     if down then
-        ns.Open(self._ring)
+        ns.Open(self._palette)
         return
     end
     -- Nothing to commit here any more: all three steering models are resolved
@@ -2104,7 +2207,7 @@ local function GetSecureButton(index)
 
     btn = CreateFrame("Button", "EUIActionPaletteButton" .. index, UIParent,
         "SecureActionButtonTemplate")
-    btn._ring = index
+    btn._palette = index
     btn:RegisterForClicks("AnyDown", "AnyUp")
 
     -- SecureActionButton_OnClick performs the action on exactly one edge
@@ -2114,8 +2217,8 @@ local function GetSecureButton(index)
     --
     -- Left unset, useOnKeyDown follows the ActionButtonUseKeyDown CVar, which
     -- is on by default -- so the DOWN edge would be the acting one. DOWN is
-    -- where we open the wheel and clear "type", so it fires nothing, and UP is
-    -- then skipped entirely: PreClick and PostClick still run, so the wheel
+    -- where we open the palette and clear "type", so it fires nothing, and UP is
+    -- then skipped entirely: PreClick and PostClick still run, so the palette
     -- opens and closes normally while no action is ever performed. Pinning the
     -- attribute keeps the acting edge on UP whatever the CVar says.
     btn:SetAttribute("useOnKeyDown", false)
@@ -2130,7 +2233,7 @@ local function GetSecureButton(index)
     btn:SetScript("PreClick", OnPreClick)
     btn:SetScript("PostClick", OnPostClick)
 
-    -- The snippet measures the cursor against the wheel, so it needs a handle to
+    -- The snippet measures the cursor against the palette, so it needs a handle to
     -- it. Wrapped around OnClick rather than PreClick: PreClick is ours, and the
     -- wrap has to run inside the very click that goes on to fire the action.
     SecureHandlerSetFrameRef(btn, "ui", UIParent)
@@ -2143,32 +2246,32 @@ local function GetSecureButton(index)
     return btn
 end
 
--- Hand the sandbox everything it needs to choose a wedge. Out of combat only:
+-- Hand the sandbox everything it needs to choose a entry. Out of combat only:
 -- these are ordinary insecure writes to a protected frame, which is precisely
--- what combat forbids. A ring edited mid-fight keeps firing its previous
+-- what combat forbids. A palette edited mid-fight keeps firing its previous
 -- contents until the fight ends -- the same bargain the override bindings make.
-local function PushRing(index)
+local function PushPalette(index)
     if InCombatLockdown() then return end
     local p = P()
     local btn = secureButtons[index]
-    local ring = EnsureRing(index)
-    if not p or not btn or not ring or not liveView then return end
+    local palette = EnsurePalette(index)
+    if not p or not btn or not palette or not liveView then return end
 
     for i = 1, MAX_SLOTS do
-        local aType, aKey, aVal = ResolveAction(ring.slots[i])
+        local aType, aKey, aVal = ResolveAction(palette.slots[i])
         btn:SetAttribute("eapT" .. i, aType)
         btn:SetAttribute("eapK" .. i, aKey)
         btn:SetAttribute("eapV" .. i, aVal)
     end
 
-    -- The live wheel draws exactly the ring's entries -- the trailing "+" wedge
-    -- is the editor's -- so #slots is the count the snippet must divide by, and
+    -- The live palette draws exactly what the palette holds -- the trailing "+"
+    -- entry is the editor's -- so #slots is the count the snippet divides by, and
     -- ArcGeom is asked for the geometry rather than the snippet re-deriving it.
-    local n = #ring.slots
+    local n = #palette.slots
     local step, arcStart, full = liveView:ArcGeom(n)
     local _, _, deadZone = liveView:Geom()
-    -- Where the wheel's centre will be, so the snippet can work in UIParent
-    -- units without a handle to the wheel itself. Cursor mode has no fixed
+    -- Where the palette's centre will be, so the snippet can work in UIParent
+    -- units without a handle to the palette itself. Cursor mode has no fixed
     -- centre, so the snippet takes the opening cursor position instead.
     btn:SetAttribute("eapFixed", p.centerMode == "SCREEN")
     btn:SetAttribute("eapPosX", p.posX or 0)
@@ -2218,7 +2321,7 @@ local function PushRing(index)
     -- GLOBAL atan2 (RestrictedEnvironment.lua:60), which answers in DEGREES --
     -- where HitTest upvalues math.atan2, which answers in radians. Treating the
     -- sandbox's as radians silently rotated every selection: a release aimed at
-    -- one wedge fired its neighbour, and a release near the arc's edge missed
+    -- one entry fired its neighbour, and a release near the arc's edge missed
     -- entirely. Converting here keeps the one conversion in Lua, where the unit
     -- is named, and lets the snippet wrap on an exact 360.
     btn:SetAttribute("eapStepDeg", step * 180 / pi)
@@ -2226,8 +2329,8 @@ local function PushRing(index)
     btn:SetAttribute("eapFull", full)
 end
 
-local function PushAllRings()
-    for i = 1, RingCount() do PushRing(i) end
+local function PushAllPalettes()
+    for i = 1, PaletteCount() do PushPalette(i) end
 end
 
 local bindingsDirty = false
@@ -2248,7 +2351,7 @@ function ns.UpdateBindings()
     if not p then return end
 
     local sig = p.enabled and "on" or "off"
-    local count = RingCount()
+    local count = PaletteCount()
     for i = 1, count do
         local k1, k2 = GetBindingKey(BINDING_PREFIX .. i)
         sig = sig .. "|" .. (k1 or "") .. "/" .. (k2 or "")
@@ -2278,12 +2381,12 @@ end
 -- that are actually on screen.
 function ns.Refresh()
     ns.UpdateBindings()
-    PushAllRings()
+    PushAllPalettes()
 
     if liveView and liveView:GetFrame():IsShown() then
         -- Read the selection before Layout, which clears it.
         local keep = liveView:GetSelection()
-        liveView:Layout(liveView:GetRingIndex())
+        liveView:Layout(liveView:GetPaletteIndex())
         local n = liveView:SlotCount()
         liveView:SetSelection(keep and n > 0 and min(keep, n) or nil)
     end
@@ -2294,7 +2397,7 @@ function ns.Refresh()
     for i = 1, #views do
         local v = views[i]
         if v ~= liveView and v:GetFrame():IsVisible() then
-            v:Layout(v:GetRingIndex())
+            v:Layout(v:GetPaletteIndex())
         end
     end
 end
@@ -2308,7 +2411,7 @@ _G._EAP_Apply = ns.Refresh
 -- This module was called Radial Wheel until it grew layouts that are not
 -- wheels. Adopt the old saved variable wholesale before AceDB ever sees the new
 -- name: handing over the TABLE keeps profiles, per-character selection and
--- every ring exactly as they were, where copying only the profile would drop
+-- every palette exactly as they were, where copying only the profile would drop
 -- the rest. Clearing the old global afterwards is what makes this run once.
 local function MigrateLegacySV()
     if _G.EllesmereUIActionPaletteDB or not _G.EllesmereUIRadialWheelDB then return end
@@ -2316,26 +2419,16 @@ local function MigrateLegacySV()
     _G.EllesmereUIRadialWheelDB = nil
 end
 
--- The horizontal and vertical strips were once two layouts. They differed only
--- in which axis they ran along, so they are now one layout with an orientation.
--- Only the ACTIVE profile is converted, which is all that is needed: every path
--- that changes profiles reloads the UI, so a profile becomes active only by
--- passing through here first.
-local function MigrateFanLayout(p)
-    if p.layout ~= "FAN_H" and p.layout ~= "FAN_V" then return end
-    p.fanOrientation = p.layout == "FAN_V" and "VERTICAL" or "HORIZONTAL"
-    p.layout = "FAN"
-end
-
 function EAP:OnInitialize()
     MigrateLegacySV()
     db = EllesmereUI.Lite.NewDB("EllesmereUIActionPaletteDB", DB_DEFAULTS)
-    MigrateFanLayout(db.profile)
+    -- The profile itself is converted by P(), on first touch, so that switching
+    -- profile mid-session converts the incoming one too. See MigrateNames.
     _G._EAP_AceDB = db
     ns.db = db
 
     _G.BINDING_HEADER_EUI_RADIAL = "EllesmereUI Action Palette"
-    for i = 1, MAX_RINGS do
+    for i = 1, MAX_PALETTES do
         _G["BINDING_NAME_" .. BINDING_PREFIX .. i] = "Open Action Palette " .. i
     end
 end
@@ -2345,38 +2438,38 @@ function EAP:OnEnable()
     if not p then return end
 
     -- Deliberately NOT gated on p.enabled. The module can be switched on from
-    -- the options panel mid-session, and if the wheel and these three
+    -- the options panel mid-session, and if the palette and these three
     -- handlers only existed for a session that started enabled, that session
-    -- would run without combat-deferred rebinding or stuck-wheel cleanup
+    -- would run without combat-deferred rebinding or stuck-palette cleanup
     -- until a reload. Disabled costs nothing: UpdateBindings registers no
-    -- keys, so nothing can open the wheel.
-    for i = 1, RingCount() do EnsureRing(i) end
-    CreateWheel()
+    -- keys, so nothing can open the palette.
+    for i = 1, PaletteCount() do EnsurePalette(i) end
+    CreateLiveView()
     EnsureScrollCatcher()
     ns.UpdateBindings()
-    PushAllRings()
+    PushAllPalettes()
 
     self:RegisterEvent("UPDATE_BINDINGS", function() ns.UpdateBindings() end)
     self:RegisterEvent("PLAYER_REGEN_ENABLED", function()
         if bindingsDirty then ns.UpdateBindings() end
-        -- Unconditional: any ring edited during the fight was skipped by
-        -- PushRing, and the sandbox is still holding the old contents.
-        PushAllRings()
+        -- Unconditional: any palette edited during the fight was skipped by
+        -- PushPalette, and the sandbox is still holding the old contents.
+        PushAllPalettes()
         -- A palette that closed unattended mid-fight could not give ESCAPE
         -- back at the time. Now it can.
         if not liveView:GetFrame():IsShown() then ReleaseEscape() end
     end)
     -- A zone change while the key is held (portals, taxi) can swallow the
-    -- key-up; drop the wheel rather than leave it stuck.
+    -- key-up; drop the palette rather than leave it stuck.
     self:RegisterEvent("PLAYER_ENTERING_WORLD", function() ns.Close() end)
 end
 
 -------------------------------------------------------------------------------
 --  Slash command
 -------------------------------------------------------------------------------
--- Rings are built in the options page's own preview now, so there is nothing
+-- Palettes are built in the options page's own preview now, so there is nothing
 -- left for the command to toggle -- it just points the way.
--- The two radial-era commands stay registered as aliases: they are muscle
+-- The two arc-era commands stay registered as aliases: they are muscle
 -- memory by now, and a slash command that silently stops existing after a
 -- rename reads as the module having been removed.
 _G.SLASH_EUIACTIONPALETTE1 = "/euiap"
@@ -2393,7 +2486,7 @@ _G.SLASH_EUIACTIONPALETTE4 = "/euiradial"
 --   unscrolled  a scroll fan whose accumulator was never seeded by the press
 --   thrownclear a scroll fan whose pointer was carried clear of the strip
 --   nocatcher   a scroll fan with no scroll catcher reachable
---   noslots     the ring was pushed as empty
+--   noslots     the palette was pushed as empty
 --   nohandle    no UIParent handle
 --   offscreen   GetMousePosition returned nil
 --   unmoved     the cursor never left the opening point
@@ -2401,12 +2494,12 @@ _G.SLASH_EUIACTIONPALETTE4 = "/euiradial"
 --   deadzone    inside the dead zone
 --   noidx       an angle outside the arc
 --   outofreach  pointer layouts: further than eapReach cells from every entry
---   emptyslot   that wedge has no action pushed
+--   emptyslot   that entry has no action pushed
 --   fire        attributes were written; anything wrong past here is Blizzard's
 --               side of the click
 SlashCmdList.EUIACTIONPALETTE = function(msg)
     if type(msg) == "string" and msg:lower():find("trace") then
-        for i = 1, RingCount() do
+        for i = 1, PaletteCount() do
             local btn = secureButtons[i]
             if btn then
                 -- Degrees, because the arc is configured in degrees: whether a
@@ -2423,7 +2516,7 @@ SlashCmdList.EUIACTIONPALETTE = function(msg)
                 local bound = full and "n/a"
                     or string.format("%.1f", (n - 1) * step + step * 0.5)
 
-                EllesmereUI.Print(("|cff0cd29fRing %d|r why=%s idx=%s shown=%s mode=%s"):format(
+                EllesmereUI.Print(("|cff0cd29fPalette %d|r why=%s idx=%s shown=%s mode=%s"):format(
                     i, tostring(btn:GetAttribute("eapWhy")),
                     tostring(btn:GetAttribute("eapIdx")), n,
                     tostring(btn:GetAttribute("eapMode"))))
@@ -2438,12 +2531,12 @@ SlashCmdList.EUIACTIONPALETTE = function(msg)
                     tostring(btn:GetAttribute("eapT1")),
                     tostring(btn:GetAttribute("eapV1"))))
             else
-                EllesmereUI.Print(("|cff0cd29fRing %d|r no secure button"):format(i))
+                EllesmereUI.Print(("|cff0cd29fPalette %d|r no secure button"):format(i))
             end
         end
         return
     end
-    EllesmereUI.Print("|cff0cd29fAction Palette:|r configure rings on the "
-        .. "|cffffd100Action Palette|r options page -- pick the ring, then drag "
+    EllesmereUI.Print("|cff0cd29fAction Palette:|r configure palettes on the "
+        .. "|cffffd100Action Palette|r options page -- pick the palette, then drag "
         .. "actions onto the preview.")
 end

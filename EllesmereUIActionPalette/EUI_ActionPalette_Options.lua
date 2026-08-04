@@ -5,7 +5,7 @@ local ADDON_NAME, ns = ...
 
 local PAGE_DISPLAY = "Action Palette"
 local BINDING_PREFIX = "EUI_RADIAL"
-local MAX_RINGS = 6
+local MAX_PALETTES = 6
 
 local initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
@@ -17,8 +17,13 @@ initFrame:SetScript("OnEvent", function(self)
     local db
     C_Timer.After(0, function() db = _G._EAP_AceDB end)
 
+    -- Through ns.Profile, not db.profile: the module converts a profile's
+    -- retired key names on first touch, and reading the table directly here
+    -- would skip that whenever the panel is the first to see a profile the user
+    -- has just switched to. The db local is still kept for the reset handler.
     local function DB()
         if not db then db = _G._EAP_AceDB end
+        if ns.Profile then return ns.Profile() end
         return db and db.profile
     end
 
@@ -42,16 +47,16 @@ initFrame:SetScript("OnEvent", function(self)
         if EllesmereUI.RefreshPage then EllesmereUI:RefreshPage(true) end
     end
 
-    -- Which ring the RING SETUP section is editing. Transient: the editor is a
-    -- panel-session concept, not a saved setting.
-    local editRing = 1
+    -- Which palette the PALETTE SETUP section is editing. Transient: the editor
+    -- is a panel-session concept, not a saved setting.
+    local editPalette = 1
 
-    local function RingCount()
-        return math.min(MAX_RINGS, math.max(1, Cfg("ringCount") or 1))
+    local function PaletteCount()
+        return math.min(MAX_PALETTES, math.max(1, Cfg("paletteCount") or 1))
     end
 
-    local function Ring(index)
-        return ns.EnsureRing and ns.EnsureRing(index or editRing)
+    local function Palette(index)
+        return ns.EnsurePalette and ns.EnsurePalette(index or editPalette)
     end
 
     ---------------------------------------------------------------------------
@@ -62,9 +67,9 @@ initFrame:SetScript("OnEvent", function(self)
     --  routing it separately. That keeps ONE source of truth: this picker and
     --  Blizzard's Keybindings page edit the same binding, GetBindingKey keeps
     --  driving ns.UpdateBindings, and the SaveBindings call fires
-    --  UPDATE_BINDINGS so the wheel re-routes its override binding by itself.
+    --  UPDATE_BINDINGS so the palette re-routes its override binding by itself.
     ---------------------------------------------------------------------------
-    local listenRing = nil
+    local listenPalette = nil
     local captureFrame = nil
 
     -- Combat-safe teardown. SetPropagateKeyboardInput carries restrictions and
@@ -73,8 +78,8 @@ initFrame:SetScript("OnEvent", function(self)
     -- because EllesmereUI hides its options window on PLAYER_REGEN_DISABLED
     -- and that OnHide calls us.
     local function StopListening()
-        local wasListening = listenRing ~= nil
-        listenRing = nil
+        local wasListening = listenPalette ~= nil
+        listenPalette = nil
         if captureFrame then
             pcall(captureFrame.SetPropagateKeyboardInput, captureFrame, true)
             captureFrame:EnableKeyboard(false)
@@ -95,11 +100,11 @@ initFrame:SetScript("OnEvent", function(self)
         end
     end
 
-    -- chord = a binding string to assign, or nil to leave the ring unbound.
+    -- chord = a binding string to assign, or nil to leave the palette unbound.
     local function CommitKey(chord)
-        local ring = listenRing
+        local palette = listenPalette
         StopListening()
-        if not ring then return end
+        if not palette then return end
 
         -- SaveBindings raises "can't be done in combat" and SetBinding would
         -- then be half-applied, so nothing is touched until combat drops.
@@ -109,7 +114,7 @@ initFrame:SetScript("OnEvent", function(self)
             return
         end
 
-        local action = BINDING_PREFIX .. ring
+        local action = BINDING_PREFIX .. palette
         local stolenFrom = chord and GetBindingAction(chord) or nil
         local oldK1, oldK2 = GetBindingKey(action)
 
@@ -134,7 +139,7 @@ initFrame:SetScript("OnEvent", function(self)
                     .. label .. "|r.")
             end
         else
-            -- Unbind: this one clears every key the ring holds, which is what
+            -- Unbind: this one clears every key the palette holds, which is what
             -- "unbind" means.
             if oldK1 then SetBinding(oldK1, nil) end
             if oldK2 then SetBinding(oldK2, nil) end
@@ -208,16 +213,16 @@ initFrame:SetScript("OnEvent", function(self)
         return f
     end
 
-    local function StartListening(ring)
+    local function StartListening(palette)
         if InCombatLockdown() then
             Complain("Action Palette: keybinds can't be changed in combat.")
             return
         end
-        listenRing = ring
+        listenPalette = palette
 
         local f = EnsureCaptureFrame()
         f.msg:SetText("Press a key or mouse button for |cff0cd29fAction Palette "
-            .. ring .. "|r\n|cff888888Modifiers work with any button "
+            .. palette .. "|r\n|cff888888Modifiers work with any button "
             .. "(Alt + Left Click, Shift + Wheel, ...)\n"
             .. "Esc cancels  \194\183  Delete unbinds"
             .. "  \194\183  plain left/right click cancels|r")
@@ -254,24 +259,24 @@ initFrame:SetScript("OnEvent", function(self)
     --
     -- Signature-guarded, and that guard is not an optimisation: UPDATE_BINDINGS
     -- fires on every override-binding registration anywhere in the suite (the
-    -- wheel's own UpdateBindings included), and dropping the whole options
+    -- palette's own UpdateBindings included), and dropping the whole options
     -- page cache on each of those would rebuild the visible page over and
     -- over. Only a change to OUR six keys is of any interest here.
     local lastKeySig = nil
-    local function RingKeySignature()
+    local function PaletteKeySignature()
         local sig = ""
-        for i = 1, MAX_RINGS do
+        for i = 1, MAX_PALETTES do
             local k1, k2 = GetBindingKey(BINDING_PREFIX .. i)
             sig = sig .. "|" .. (k1 or "") .. "/" .. (k2 or "")
         end
         return sig
     end
-    lastKeySig = RingKeySignature()
+    lastKeySig = PaletteKeySignature()
 
     local bindWatcher = CreateFrame("Frame")
     bindWatcher:RegisterEvent("UPDATE_BINDINGS")
     bindWatcher:SetScript("OnEvent", function()
-        local sig = RingKeySignature()
+        local sig = PaletteKeySignature()
         if sig == lastKeySig then return end
         lastKeySig = sig
         if EllesmereUI.InvalidatePageCache then EllesmereUI:InvalidatePageCache() end
@@ -281,11 +286,11 @@ initFrame:SetScript("OnEvent", function(self)
     end)
 
     ---------------------------------------------------------------------------
-    --  Ring preview
+    --  Palette preview
     --
-    --  The live wheel's own renderer (ns.CreateWheelView), scaled down to fit the
+    --  The live palette's own renderer (ns.CreatePaletteView), scaled down to fit the
     --  panel and made interactive: drop an action on the trailing "+" to append
-    --  it, drag icons between wedges to reorder, right-click to remove. Because
+    --  it, drag icons between entries to reorder, right-click to remove. Because
     --  it is the same renderer, the arrangement here is literally the one the
     --  user steers at in play.
     --
@@ -296,16 +301,15 @@ initFrame:SetScript("OnEvent", function(self)
     ---------------------------------------------------------------------------
     local PREVIEW_H    = 280   -- height the block claims in the page layout
     -- Largest radius + iconSize the block can hold. Half of PREVIEW_H less a
-    -- margin: the preview turns slot labels off, so the ring only has to clear
+    -- margin: the preview turns slot labels off, so the palette only has to clear
     -- the block's own edges rather than leave room for captions under it.
     local PREVIEW_SPAN = 124
     local previewBlock, previewView
 
-    -- Half-extent the block can give a fan, along the axis that fan runs on.
-    -- A horizontal strip gets the block's width, which is the panel's content
-    -- width and much larger than any radius; a vertical one is bounded by
-    -- PREVIEW_H and is the tighter of the two by a wide margin.
-    local function FanSpan(vertical)
+    -- Half-extent the block can give a layout on one axis. The block is as wide
+    -- as the panel's content and only PREVIEW_H tall, so the two budgets differ
+    -- by a wide margin and every layout has to be measured against both.
+    local function BlockSpan(vertical)
         if vertical then return PREVIEW_H * 0.5 - 24 end
         local w = previewBlock and previewBlock:GetWidth() or 0
         -- The block is anchored on both sides, so its width is unresolved on
@@ -315,21 +319,33 @@ initFrame:SetScript("OnEvent", function(self)
         return w * 0.5 - 24
     end
 
-    -- Fit, don't crop: the live radius reaches 220, which is wider than the
-    -- panel. Scaling radius, icon and dead zone by one factor keeps the
-    -- proportions the user chose, so a tight ring still previews as a tight one.
+    -- How far the preview may magnify a layout that does not fill the block on
+    -- its own. Fitting used to be a shrink-only rule, which left a short strip
+    -- or a small grid as a row of thumbnails in the middle of a 280px block
+    -- while the arc -- whose radius alone nearly fills it -- previewed at very
+    -- nearly its real size. Growing is capped rather than free: this is still a
+    -- preview of a palette the user steers at some other size, and a two-entry
+    -- strip blown up to fill the block would misrepresent it.
+    local PREVIEW_MAX_ZOOM = 2.0
+
+    -- Fit to the block, don't crop: the live radius reaches 220, which is wider
+    -- than the panel, and a two-entry strip is far narrower than it. Scaling
+    -- radius, icon and dead zone by one factor keeps the proportions the user
+    -- chose, so a tight arc still previews as a tight one.
     local function PreviewGeom()
         local radius   = Cfg("radius") or 96
         local iconSize = Cfg("iconSize") or 44
         local deadZone = Cfg("deadZone") or 24
-        local layout = Cfg("layout") or "RADIAL"
+        local layout = Cfg("layout") or "ARC"
+        -- Half the width a selected entry reaches, which every budget has to
+        -- leave room for: the preview magnifies whatever the cursor is over.
+        local zoom = Cfg("selectedZoom") or 1.15
         local k
         if layout == "GRID" then
-            -- The grid is the one layout bounded on BOTH axes, so both budgets
-            -- have to be met: the block's width across the columns, and its
-            -- height down the rows.
-            local ring = Ring(editRing)
-            local n = (ring and #ring.slots or 0) + 1
+            -- The grid is bounded on BOTH axes, so both budgets have to be met:
+            -- the block's width across the columns, and its height down the rows.
+            local palette = Palette(editPalette)
+            local n = (palette and #palette.slots or 0) + 1
             local cols, rows
             if previewView then cols, rows = previewView:GridDims() end
             -- The view answers from its last Layout, so it has nothing to say
@@ -339,17 +355,16 @@ initFrame:SetScript("OnEvent", function(self)
                 rows = math.ceil(n / cols)
             end
             local pitch = iconSize + (Cfg("fanGap") or 10)
-            k = math.min(1,
-                FanSpan(false) / (cols * pitch * 0.5),
-                (PREVIEW_H * 0.5 - 24) / (rows * pitch * 0.5))
-        elseif layout ~= "RADIAL" then
-            -- A fan's extent is the length of the strip, not the radius of a
-            -- ring, so that is what has to be fitted. The preview draws EVERY
-            -- slot -- an editor cannot leave one unreachable -- plus the
-            -- trailing "+", and nothing is culled, so the reach is measured
-            -- over that whole count.
-            local ring = Ring(editRing)
-            local n = (ring and #ring.slots or 0) + 1
+            k = math.min(PREVIEW_MAX_ZOOM,
+                BlockSpan(false) / (cols * pitch * 0.5 + iconSize * (zoom - 1) * 0.5),
+                BlockSpan(true) / (rows * pitch * 0.5 + iconSize * (zoom - 1) * 0.5))
+        elseif layout ~= "ARC" then
+            -- A fan's extent is the length of the strip rather than a radius, so
+            -- that is what has to be fitted. The preview draws EVERY slot -- an
+            -- editor cannot leave one unreachable -- plus the trailing "+", and
+            -- nothing is culled, so the reach is measured over that whole count.
+            local palette = Palette(editPalette)
+            local n = (palette and #palette.slots or 0) + 1
             local reach
             if (Cfg("fanInput") or "SCROLL") == "CURSOR" then
                 -- A pointer-steered fan is evenly spaced at full pitch, so its
@@ -359,13 +374,15 @@ initFrame:SetScript("OnEvent", function(self)
                 reach = ns.FanReach(n, iconSize, Cfg("fanGap") or 10,
                                     Cfg("fanScaleDecay") or 0.72)
             end
-            -- Against the budget of the axis the strip actually runs along, NOT
-            -- PREVIEW_SPAN: that is a RADIUS budget, and measuring a strip's
-            -- half-LENGTH against it shrank the icons to about a third of the
-            -- size the block had room for.
-            k = math.min(1, FanSpan(Cfg("fanOrientation") == "VERTICAL") / reach)
+            local vertical = Cfg("fanOrientation") == "VERTICAL"
+            -- Both axes, not just the one the strip runs along: a short strip
+            -- fits its own length several times over, and without the crossways
+            -- budget it would grow until the icons ran out of the block.
+            k = math.min(PREVIEW_MAX_ZOOM,
+                BlockSpan(vertical) / reach,
+                BlockSpan(not vertical) / (iconSize * 0.5 * zoom))
         else
-            k = math.min(1, PREVIEW_SPAN / (radius + iconSize))
+            k = math.min(PREVIEW_MAX_ZOOM, PREVIEW_SPAN / (radius + iconSize))
         end
         return radius * k, iconSize * k, deadZone * k
     end
@@ -377,8 +394,8 @@ initFrame:SetScript("OnEvent", function(self)
     local dragFrom, dragStartX, dragStartY, dragging, dragTarget
 
     local function PreviewTooltip(widget)
-        local ring = Ring(editRing)
-        local slot = ring and ring.slots[widget.index]
+        local palette = Palette(editPalette)
+        local slot = palette and palette.slots[widget.index]
         GameTooltip:SetOwner(widget, "ANCHOR_RIGHT")
         if slot then
             local _, name = ns.SlotDisplay(slot)
@@ -402,13 +419,13 @@ initFrame:SetScript("OnEvent", function(self)
     -- Place whatever is on the cursor. An empty cursor is not an error: a bare
     -- left-click on a slot should do nothing at all, cursor untouched.
     local function PreviewPlace(widget)
-        local ring = Ring(editRing)
-        local slot = ring and ns.SlotFromCursor()
+        local palette = Palette(editPalette)
+        local slot = palette and ns.SlotFromCursor()
         if not slot then return end
         if widget.isPlaceholder then
-            if not ns.AddSlot(ring, slot) then return end
+            if not ns.AddSlot(palette, slot) then return end
         else
-            ring.slots[widget.index] = slot
+            palette.slots[widget.index] = slot
         end
         ClearCursor()
         Refresh()
@@ -417,8 +434,8 @@ initFrame:SetScript("OnEvent", function(self)
     ---------------------------------------------------------------------------
     --  Action picker
     --
-    --  Left-clicking the "+" wedge with an empty cursor opens a category menu,
-    --  then that category's actions; choosing one appends a slot to the ring
+    --  Left-clicking the "+" entry with an empty cursor opens a category menu,
+    --  then that category's actions; choosing one appends a slot to the palette
     --  being edited. Dropping an action from the cursor still works, but it
     --  cannot be the only route: opening the spellbook closes the options
     --  window, so there is no way to get a spell onto the cursor while the
@@ -452,7 +469,7 @@ initFrame:SetScript("OnEvent", function(self)
     --  user's saved Collections filters as a side effect and several are
     --  protected, so the filtering happens in Lua here. That is also why the
     --  ID-based getters are preferred: the index-based ones walk the journals'
-    --  currently FILTERED lists, so what the wheel offers would otherwise
+    --  currently FILTERED lists, so what the palette offers would otherwise
     --  depend on what the user last typed in the Collections search box.
     ---------------------------------------------------------------------------
     local function SpellEntries()
@@ -530,7 +547,7 @@ initFrame:SetScript("OnEvent", function(self)
             for slot = 1, C_Container.GetContainerNumSlots(bag) do
                 local info = C_Container.GetContainerItemInfo(bag, slot)
                 local itemID = info and info.itemID
-                -- Only items with a use effect. The wheel fires "/use item:<id>",
+                -- Only items with a use effect. The palette fires "/use item:<id>",
                 -- so an item without one is a slot that can never do anything.
                 if itemID and not seen[itemID] and info.itemName
                    and C_Item.GetItemSpell(itemID) then
@@ -543,7 +560,7 @@ initFrame:SetScript("OnEvent", function(self)
         for bag = Enum.BagIndex.Backpack, NUM_BAG_SLOTS do ScanBag(bag) end
         -- The reagent bag is outside that range and easy to forget, but it is
         -- where a lot of players keep their potions and phials -- exactly the
-        -- items someone puts on a wheel.
+        -- items someone puts on a palette.
         ScanBag(Enum.BagIndex.ReagentBag)
         return out
     end
@@ -621,16 +638,16 @@ initFrame:SetScript("OnEvent", function(self)
 
     -- Returns true when a slot was actually appended.
     local function AssignEntry(entry)
-        local ring = Ring(editRing)
+        local palette = Palette(editPalette)
         -- The stored slot is a COPY: the entry belongs to the cached list, and
-        -- handing that one table to two wedges would alias a single saved slot
+        -- handing that one table to two entries would alias a single saved slot
         -- into both of them.
         local slot = {}
         for k, v in pairs(entry.slot) do slot[k] = v end
-        -- ns.AddSlot refuses a full ring. Unreachable from here -- a full ring
+        -- ns.AddSlot refuses a full palette. Unreachable from here -- a full palette
         -- draws no "+" to click -- but the refusal must not fall through into a
         -- Refresh that has nothing to show.
-        if not (ring and ns.AddSlot(ring, slot)) then return false end
+        if not (palette and ns.AddSlot(palette, slot)) then return false end
         HidePicker()
         Refresh()
         return true
@@ -1043,9 +1060,9 @@ initFrame:SetScript("OnEvent", function(self)
         ShowPickerCategories()
     end
 
-    -- Which slot the cursor is over, for the reorder drag. The live wheel's own
+    -- Which slot the cursor is over, for the reorder drag. The live palette's own
     -- HitTest answers this from the angle to the hub, which only means anything
-    -- on a circle -- in a fan it would report a wedge the user is nowhere near.
+    -- on a circle -- in a fan it would report a entry the user is nowhere near.
     -- Nearest widget CENTRE is the layout-agnostic form of the same question,
     -- and it also follows the strip while it slides.
     local function PreviewDropTarget()
@@ -1091,7 +1108,7 @@ initFrame:SetScript("OnEvent", function(self)
 
             w:SetScript("OnEnter", function(self)
                 if dragging then return end
-                -- Reuse the selection paint: hovering a wedge in the panel looks
+                -- Reuse the selection paint: hovering an entry in the panel looks
                 -- exactly like steering onto it in play.
                 previewView:SetSelection(self.index)
                 PreviewTooltip(self)
@@ -1105,11 +1122,11 @@ initFrame:SetScript("OnEvent", function(self)
             w:SetScript("OnClick", function(self, button)
                 if button == "RightButton" then
                     if self.isPlaceholder then return end
-                    local ring = Ring(editRing)
-                    if ring and ns.RemoveSlot(ring, self.index) then Refresh() end
+                    local palette = Palette(editPalette)
+                    if palette and ns.RemoveSlot(palette, self.index) then Refresh() end
                     return
                 end
-                -- A loaded cursor still means "place this here" on every wedge;
+                -- A loaded cursor still means "place this here" on every entry;
                 -- the picker is the empty-cursor path on the "+" only.
                 if self.isPlaceholder and not GetCursorInfo() then
                     TogglePicker(self)
@@ -1136,8 +1153,8 @@ initFrame:SetScript("OnEvent", function(self)
                 local from, to, moved = dragFrom, dragTarget, dragging
                 EndPreviewDrag()
                 if not moved or not to then return end
-                local ring = Ring(editRing)
-                if ring and ns.MoveSlot(ring, from, to) then Refresh() end
+                local palette = Palette(editPalette)
+                if palette and ns.MoveSlot(palette, from, to) then Refresh() end
             end)
         end
     end
@@ -1149,7 +1166,7 @@ initFrame:SetScript("OnEvent", function(self)
         local PP = EllesmereUI.PanelPP
         local CONTENT_PAD = EllesmereUI.CONTENT_PAD or 45
 
-        -- A rebuild re-fans the ring, so the wedge the picker is anchored to may
+        -- A rebuild re-fans the palette, so the entry the picker is anchored to may
         -- not be the "+" any more -- and an already-open menu would then be
         -- pointing at an unrelated slot.
         HidePicker()
@@ -1161,7 +1178,7 @@ initFrame:SetScript("OnEvent", function(self)
             bg:SetAllPoints()
             bg:SetColorTexture(0, 0, 0, 0.18)
 
-            previewView = ns.CreateWheelView(previewBlock, {
+            previewView = ns.CreatePaletteView(previewBlock, {
                 interactive = true,
                 geom        = PreviewGeom,
                 -- Labels would collide at the fitted scale, and the hub plus the
@@ -1171,8 +1188,8 @@ initFrame:SetScript("OnEvent", function(self)
                 -- on a settings page is only noise.
                 showCooldowns = false,
                 -- Kept short on purpose: the hub line is drawn centered inside a
-                -- ring only ~75px in radius, and anything longer runs under the
-                -- wedges at 3 and 9 o'clock. The rest is in the slot tooltips.
+                -- an arc only ~75px in radius, and anything longer runs under the
+                -- entries at 3 and 9 o'clock. The rest is in the slot tooltips.
                 hintText    = function(n)
                     if n == 0 then return "click + to add an action" end
                     return "drag to reorder"
@@ -1195,7 +1212,7 @@ initFrame:SetScript("OnEvent", function(self)
                     w:SetFrameLevel(previewView:GetFrame():GetFrameLevel() + 20)
                     GameTooltip:Hide()
                 end
-                -- The wedge under the cursor. The "+" wedge resolves to the
+                -- The entry under the cursor. The "+" entry resolves to the
                 -- last real slot, so dropping there means "move to the end".
                 local hit = PreviewDropTarget()
                 -- n can reach 0 mid-drag -- right-click removes while the left
@@ -1226,7 +1243,7 @@ initFrame:SetScript("OnEvent", function(self)
             dimTex:SetColorTexture(0.06, 0.08, 0.10, 0.70)
             dim:SetScript("OnEnter", function(self)
                 if EllesmereUI.ShowWidgetTooltip then
-                    EllesmereUI.ShowWidgetTooltip(self, "Enable the module to edit rings.")
+                    EllesmereUI.ShowWidgetTooltip(self, "Enable the module to edit palettes.")
                 end
             end)
             dim:SetScript("OnLeave", function()
@@ -1248,7 +1265,7 @@ initFrame:SetScript("OnEvent", function(self)
         previewBlock._dim:SetFrameLevel(previewBlock:GetFrameLevel() + 30)
         previewBlock._dim:SetShown(Cfg("enabled") == false)
         previewBlock:Show()
-        previewView:Layout(editRing)
+        previewView:Layout(editPalette)
         -- A freshly laid out strip sits at its default centre, which is a
         -- position between entries rather than on one. Park it on the first
         -- slot so the preview opens looking like the strip in play does. Only a
@@ -1280,8 +1297,8 @@ initFrame:SetScript("OnEvent", function(self)
         local centerValues = { CURSOR = "At Cursor", SCREEN = "Fixed Position" }
         local centerOrder  = { "CURSOR", "SCREEN" }
 
-        local layoutValues = { RADIAL = "Radial", FAN = "Fan", GRID = "Grid" }
-        local layoutOrder  = { "RADIAL", "FAN", "GRID" }
+        local layoutValues = { ARC = "Arc", FAN = "Fan", GRID = "Grid" }
+        local layoutOrder  = { "ARC", "FAN", "GRID" }
 
         local orientValues = { HORIZONTAL = "Horizontal", VERTICAL = "Vertical" }
         local orientOrder  = { "HORIZONTAL", "VERTICAL" }
@@ -1296,54 +1313,54 @@ initFrame:SetScript("OnEvent", function(self)
             { type="toggle", text="Enable Action Palette",
               getValue=function() return Cfg("enabled") ~= false end,
               setValue=function(v) Set("enabled", v); RebuildPage() end },
-            { type="slider", text="Number of Rings",
+            { type="slider", text="Number of Palettes",
               disabled=Disabled, disabledTooltip="the module",
-              min=1, max=MAX_RINGS, step=1,
-              getValue=function() return RingCount() end,
+              min=1, max=MAX_PALETTES, step=1,
+              getValue=function() return PaletteCount() end,
               setValue=function(v)
-                  Set("ringCount", v)
-                  if editRing > v then editRing = v end
-                  for i = 1, v do Ring(i) end
+                  Set("paletteCount", v)
+                  if editPalette > v then editPalette = v end
+                  for i = 1, v do Palette(i) end
                   RebuildPage()
               end })
         y = y - h
 
-        -- ── RING SETUP ───────────────────────────────────────────────────
-        _, h = W:SectionHeader(parent, "RING SETUP", y); y = y - h
+        -- ── PALETTE SETUP ───────────────────────────────────────────────────
+        _, h = W:SectionHeader(parent, "PALETTE SETUP", y); y = y - h
 
-        local ringValues, ringOrder = {}, {}
-        for i = 1, RingCount() do
-            local r = Ring(i)
-            ringValues[i] = (r and r.name) or ("Ring " .. i)
-            ringOrder[#ringOrder + 1] = i
+        local paletteValues, paletteOrder = {}, {}
+        for i = 1, PaletteCount() do
+            local r = Palette(i)
+            paletteValues[i] = (r and r.name) or ("Palette " .. i)
+            paletteOrder[#paletteOrder + 1] = i
         end
 
-        local keyForEditRing = GetBindingKey(BINDING_PREFIX .. editRing)
+        local keyForEditPalette = GetBindingKey(BINDING_PREFIX .. editPalette)
 
         row, h = W:DualRow(parent, y,
-            -- noCapture: which ring the preview is pointed at is panel-session
+            -- noCapture: which palette the preview is pointed at is panel-session
             -- state, not a setting, so it must not be banked as a per-spec
             -- override by the Spec Overrides capture pass.
-            { type="dropdown", text="Editing Ring", noCapture=true,
+            { type="dropdown", text="Editing Palette", noCapture=true,
               disabled=Disabled, disabledTooltip="the module",
-              values=ringValues, order=ringOrder,
-              getValue=function() return editRing end,
+              values=paletteValues, order=paletteOrder,
+              getValue=function() return editPalette end,
               setValue=function(v)
-                  editRing = v
+                  editPalette = v
                   -- Full rebuild, not a preview relayout: the keybind button's
-                  -- label is baked in at build time from THIS ring's key.
+                  -- label is baked in at build time from THIS palette's key.
                   RebuildPage()
               end },
             -- buttonText is consumed as a literal string, so the label is
             -- resolved at build time. Both things that can change it --
-            -- committing a key and switching the edited ring -- rebuild the
+            -- committing a key and switching the edited palette -- rebuild the
             -- page, so it cannot go stale while the panel is open.
-            { type="labeledButton", text="Ring Keybind",
+            { type="labeledButton", text="Palette Keybind",
               disabled=Disabled, disabledTooltip="the module",
-              buttonText=(listenRing == editRing) and "Press a key..."
-                  or (keyForEditRing and (GetBindingText(keyForEditRing) or keyForEditRing)
+              buttonText=(listenPalette == editPalette) and "Press a key..."
+                  or (keyForEditPalette and (GetBindingText(keyForEditPalette) or keyForEditPalette)
                       or "Click to Bind"),
-              onClick=function() StartListening(editRing) end })
+              onClick=function() StartListening(editPalette) end })
         y = y - h
 
         y = y - BuildPreview(parent, y)
@@ -1352,16 +1369,16 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = W:SectionHeader(parent, "PLACEMENT & SIZE", y); y = y - h
 
         -- The X/Y offsets ride along with the mode dropdown because they only
-        -- mean anything in Fixed Position mode -- in cursor mode the wheel
+        -- mean anything in Fixed Position mode -- in cursor mode the palette
         -- opens wherever the mouse is. They are also the ONLY way to place the
-        -- wheel: the on-screen drag editor is gone, and this module is not yet
+        -- palette: the on-screen drag editor is gone, and this module is not yet
         -- registered with Unlock Mode.
         local fixedOnly = function()
             return Disabled() or (Cfg("centerMode") or "CURSOR") ~= "SCREEN"
         end
 
-        -- A fan has no ring, no angle and no centre to steer away from, so the
-        -- settings that describe those are dead in it -- and the radial has no
+        -- A fan has no radius, no angle and no centre to steer away from, so the
+        -- settings that describe those are dead in it -- and the arc has no
         -- strip, so the fan's own settings are dead in turn. Every set stays
         -- visible and disabled rather than disappearing: a control that
         -- vanishes when a dropdown moves reads as a bug.
@@ -1369,21 +1386,21 @@ initFrame:SetScript("OnEvent", function(self)
         -- Four predicates, because the layouts do not partition cleanly: the
         -- grid shares the strip's spacing and falloff settings but steers like
         -- nothing else, and a pointer-steered fan has no scrolling to describe.
-        local function LayoutMode() return Cfg("layout") or "RADIAL" end
+        local function LayoutMode() return Cfg("layout") or "ARC" end
         local function IsFanLayout() return LayoutMode() == "FAN" end
 
-        local radialOnly = function()
-            return Disabled() or LayoutMode() ~= "RADIAL"
+        local arcOnly = function()
+            return Disabled() or LayoutMode() ~= "ARC"
         end
         -- Anything laid out as icons at a fixed pitch: both fans and the grid.
         local stripOnly = function()
-            return Disabled() or LayoutMode() == "RADIAL"
+            return Disabled() or LayoutMode() == "ARC"
         end
         local fanOnly = function()
             return Disabled() or not IsFanLayout()
         end
         -- The window-and-scroll settings: a pointer-steered fan draws the whole
-        -- ring at fixed positions, so it culls nothing, animates nothing and
+        -- palette at fixed positions, so it culls nothing, animates nothing and
         -- has no wheel direction to invert.
         local scrollFanOnly = function()
             return Disabled() or not IsFanLayout()
@@ -1397,7 +1414,7 @@ initFrame:SetScript("OnEvent", function(self)
             { type="dropdown", text="Layout",
               disabled=Disabled, disabledTooltip="the module",
               values=layoutValues, order=layoutOrder,
-              getValue=function() return Cfg("layout") or "RADIAL" end,
+              getValue=function() return Cfg("layout") or "ARC" end,
               -- Rebuild, not Refresh: this is what decides which of the two
               -- sets of controls below is live.
               setValue=function(v) Set("layout", v); RebuildPage() end },
@@ -1427,10 +1444,10 @@ initFrame:SetScript("OnEvent", function(self)
         y = y - h
 
         -- Two per row, not three: at a third of the row width a label like
-        -- "Ring Radius" is truncated, so the setting stops being readable.
+        -- "Background Opacity" is truncated, so the setting stops being readable.
         row, h = W:DualRow(parent, y,
-            { type="slider", text="Ring Radius",
-              disabled=radialOnly, disabledTooltip="the Radial layout",
+            { type="slider", text="Arc Radius",
+              disabled=arcOnly, disabledTooltip="the Arc layout",
               min=50, max=220, step=1,
               getValue=function() return Cfg("radius") or 96 end,
               setValue=function(v) Set("radius", v); Refresh() end },
@@ -1441,18 +1458,18 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v) Set("iconSize", v); Refresh() end })
         y = y - h
 
-        -- 360 is the full wheel, and a rotation of a full circle is a no-op --
+        -- 360 is a full turn, and a rotation of a full circle is a no-op --
         -- so the rotation only becomes live once the span has been narrowed to
         -- an arc that has somewhere to point.
         row, h = W:DualRow(parent, y,
             { type="slider", text="Arc Span",
-              disabled=radialOnly, disabledTooltip="the Radial layout",
+              disabled=arcOnly, disabledTooltip="the Arc layout",
               min=30, max=360, step=5,
               getValue=function() return Cfg("arcSpan") or 360 end,
               setValue=function(v) Set("arcSpan", v); Refresh() end },
             { type="slider", text="Arc Rotation",
               disabled=function()
-                  return radialOnly() or (Cfg("arcSpan") or 360) >= 360
+                  return arcOnly() or (Cfg("arcSpan") or 360) >= 360
               end,
               disabledTooltip="an Arc Span below 360",
               min=-180, max=180, step=5,
@@ -1464,7 +1481,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- Floor of 8, not 0: the dead zone is what makes "release without
             -- steering" a cancel, and at 0 there is no cancel region at all.
             { type="slider", text="Dead Zone",
-              disabled=radialOnly, disabledTooltip="the Radial layout",
+              disabled=arcOnly, disabledTooltip="the Arc layout",
               min=8, max=80, step=1,
               getValue=function() return Cfg("deadZone") or 24 end,
               setValue=function(v) Set("deadZone", v); Refresh() end },
@@ -1556,10 +1573,10 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = W:SectionHeader(parent, "APPEARANCE", y); y = y - h
 
         row, h = W:DualRow(parent, y,
-            -- Radial only, and not merely because it would look cramped: the
+            -- Arc only, and not merely because it would look cramped: the
             -- fan never draws per-slot labels at all.
             { type="toggle", text="Show Slot Labels",
-              disabled=radialOnly, disabledTooltip="the Radial layout",
+              disabled=arcOnly, disabledTooltip="the Arc layout",
               getValue=function() return Cfg("showLabels") ~= false end,
               setValue=function(v) Set("showLabels", v); Refresh() end },
             { type="toggle", text="Show Center Text",
@@ -1570,7 +1587,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         row, h = W:DualRow(parent, y,
             { type="toggle", text="Show Direction Needle",
-              disabled=radialOnly, disabledTooltip="the Radial layout",
+              disabled=arcOnly, disabledTooltip="the Arc layout",
               getValue=function() return Cfg("showNeedle") ~= false end,
               setValue=function(v) Set("showNeedle", v); Refresh() end },
             { type="toggle", text="Show Cooldowns",
@@ -1579,14 +1596,14 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v) Set("showCooldowns", v); Refresh() end })
         y = y - h
 
-        -- Hub art is radial-only: the fan and grid layouts put a real entry at
+        -- Hub art is arc-only: the fan and grid layouts put a real entry at
         -- the centre, so there is nothing for it to sit in.
         local hubIconOff = function()
-            return radialOnly() or Cfg("hubIcon") ~= true
+            return arcOnly() or Cfg("hubIcon") ~= true
         end
         row, h = W:DualRow(parent, y,
             { type="toggle", text="Logo In Center",
-              disabled=radialOnly, disabledTooltip="the Radial layout",
+              disabled=arcOnly, disabledTooltip="the Arc layout",
               getValue=function() return Cfg("hubIcon") == true end,
               -- Rebuild, not Refresh: this gates the two sliders below it.
               setValue=function(v) Set("hubIcon", v); RebuildPage() end },
@@ -1652,22 +1669,22 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- ── FLICK-AHEAD ──────────────────────────────────────────────────
         -- Its own section rather than another APPEARANCE row: this is about
-        -- WHEN the ring is drawn, not what it looks like, and the delay is the
+        -- WHEN the palette is drawn, not what it looks like, and the delay is the
         -- one setting on the page a user has to be told the purpose of.
         _, h = W:SectionHeader(parent, "FLICK-AHEAD", y); y = y - h
 
         row, h = W:DualRow(parent, y,
-            -- Holding the ring back for a moment lets an expert finish a
+            -- Holding the palette back for a moment lets an expert finish a
             -- gesture before anything appears. Selection is live the whole
             -- time, so nothing is lost by waiting.
             { type="toggle", text="Flick-Ahead",
-              disabled=radialOnly, disabledTooltip="the Radial layout",
+              disabled=arcOnly, disabledTooltip="the Arc layout",
               getValue=function() return Cfg("flickAhead") ~= false end,
               -- Rebuild: the toggle gates the delay slider beside it.
               setValue=function(v) Set("flickAhead", v); RebuildPage() end },
             { type="slider", text="Flick Delay",
               disabled=function()
-                  return radialOnly() or Cfg("flickAhead") == false
+                  return arcOnly() or Cfg("flickAhead") == false
               end,
               disabledTooltip="Flick-Ahead",
               min=0, max=0.40, step=0.01,
