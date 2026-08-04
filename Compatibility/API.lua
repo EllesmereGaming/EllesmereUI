@@ -873,7 +873,13 @@ if not C_Item then
     end
 
     C_Item.GetItemSpell = function(item)
-        return GetItemSpell(item)
+        local spellName, spellID = GetItemSpell(item)
+        -- Some 3.3.5 clients return empty strings instead of nil when an item
+        -- has no spell.  Match the modern C_Item contract and ensure callers
+        -- never receive a string where they expect a numeric spell ID.
+        if spellName == "" then spellName = nil end
+        spellID = tonumber(spellID)
+        return spellName, spellID
     end
 
     C_Item.GetItemQualityByID = function(itemLink)
