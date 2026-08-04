@@ -514,33 +514,39 @@ local function ReadLive(fkey)
     return t[SegKey(t, segs[#segs])]
 end
 
---- True when the fkey's path resolves to a REGISTERED DEFAULT in the owning
---- module's defaults table (same walk as ReadLive, against _profileDefaults).
---- A stored NIL_SENT ("key removed") for such a key can never be legitimate
---- state: the Lite defaults merge guarantees the key exists live at every
---- login, so honoring the removal strips a key module code reads RAW under
---- the completeness contract -- e.g. the new-char SetFont crash, where an
---- imported store carried NIL_SENT for the resource bar text size (banked on
---- the exporter's machine by the pre-guard disabled-module harvest bug) and
---- every spec apply nilled the live key after the login merge had filled it.
---- Apply sites skip those writes; the next boundary harvest then banks live
---- (the default) over the marker, so poisoned stores self-heal.
-local function HasRegisteredDefault(fkey)
+--- The fkey's REGISTERED DEFAULT from the owning module's defaults table
+--- (same walk as ReadLive, against _profileDefaults), nil when none exists.
+--- A stored NIL_SENT ("key removed") for a defaults-backed key can never be
+--- an honorable removal: the Lite defaults merge guarantees the key exists
+--- live at every login, so writing the nil strips a key module code reads
+--- RAW under the completeness contract -- e.g. the new-char SetFont crash,
+--- where an imported store carried NIL_SENT for the resource bar text size
+--- and every spec apply nilled the live key after the login merge had
+--- filled it. Apply sites therefore substitute THIS value for a NIL_SENT on
+--- a defaults-backed key -- the exact live state a logout/login round trip
+--- produces. Merely SKIPPING the write (the old guard) left whatever sat
+--- live in place, which broke tri-state keys the options UI clears with
+--- `= nil`: the class-resource bar's Custom fill mode removes
+--- resourceColored, the override stores NIL_SENT for it, and after the
+--- Default view wrote the recorded default (true) live the skip could never
+--- clear it again -- the spec's custom colour showed as the class resource
+--- colour forever (the Ellipsis soul-bar revert).
+local function ReadRegisteredDefault(fkey)
     local folder, path = SplitFKey(fkey)
-    if not folder or not path then return false end
+    if not folder or not path then return nil end
     local reg = EllesmereUI.Lite and EllesmereUI.Lite._dbRegistry
-    if not reg then return false end
+    if not reg then return nil end
     local t
     for _, db in ipairs(reg) do
         if db.folder == folder then t = db._profileDefaults; break end
     end
-    if type(t) ~= "table" then return false end
+    if type(t) ~= "table" then return nil end
     local segs = { strsplit(PS, path) }
     for i = 1, #segs - 1 do
         t = t[SegKey(t, segs[i])]
-        if type(t) ~= "table" then return false end
+        if type(t) ~= "table" then return nil end
     end
-    return t[SegKey(t, segs[#segs])] ~= nil
+    return t[SegKey(t, segs[#segs])]
 end
 
 local function WriteLive(fkey, v)
@@ -868,16 +874,16 @@ local function WriteSpecValues(specID)
                 if v == nil then v = def end
                 if v == NIL_SENT then v = nil end
                 -- Key-removal markers are honored ONLY for keys with no
-                -- registered default: for defaults-backed keys the marker is
-                -- harvest residue (see HasRegisteredDefault) and writing the
-                -- nil strips a key consumers read raw. Skip; live keeps the
-                -- merged default and the next harvest self-heals the store.
-                local nilPoison = (v == nil) and HasRegisteredDefault(fkey)
+                -- registered default: for defaults-backed keys apply the
+                -- registered default VALUE instead (see
+                -- ReadRegisteredDefault -- skipping left stale live values
+                -- unremovable).
+                if v == nil then v = ReadRegisteredDefault(fkey) end
                 local cur = ReadLive(fkey)
                 -- Table values are never written or compared (a stored table
                 -- reference NEVER equals live -> phantom "write" + a full
                 -- module refresh on every apply).
-                if not nilPoison and type(v) ~= "table" and type(cur) ~= "table" and cur ~= v then
+                if type(v) ~= "table" and type(cur) ~= "table" and cur ~= v then
                     if WriteLive(fkey, v) then
                         local folder = SplitFKey(fkey)
                         if folder then
@@ -912,8 +918,11 @@ local function WriteDefaultValues()
             if not BlacklistedFKey(fkey) and not MatchOwnedFKey(fkey) then
                 local v = def
                 if v == NIL_SENT then v = nil end
-                -- Same defaults-backed nil-poison skip as WriteSpecValues.
-                if not ((v == nil) and HasRegisteredDefault(fkey)) and ReadLive(fkey) ~= v then
+                -- Same defaults-backed registered-default substitution as
+                -- WriteSpecValues (plus its table guards).
+                if v == nil then v = ReadRegisteredDefault(fkey) end
+                local cur = ReadLive(fkey)
+                if type(v) ~= "table" and type(cur) ~= "table" and cur ~= v then
                     if WriteLive(fkey, v) then
                         local folder = SplitFKey(fkey)
                         if folder then
@@ -3152,13 +3161,14 @@ function Cond.WriteValues(gid, forSession)
                 local v = def
                 if map and map[fkey] ~= nil then v = map[fkey] end
                 if v == NIL_SENT then v = nil end
-                -- Same defaults-backed nil-poison skip as WriteSpecValues.
-                local nilPoison = (v == nil) and HasRegisteredDefault(fkey)
+                -- Same defaults-backed registered-default substitution as
+                -- WriteSpecValues.
+                if v == nil then v = ReadRegisteredDefault(fkey) end
                 local cur = ReadLive(fkey)
                 -- Table values are never written or compared (a stored table
                 -- reference NEVER equals live, so it would register a "write"
                 -- and force a full module refresh on EVERY transition).
-                if not nilPoison and type(v) ~= "table" and type(cur) ~= "table" and cur ~= v then
+                if type(v) ~= "table" and type(cur) ~= "table" and cur ~= v then
                     if WriteLive(fkey, v) then
                         local folder = SplitFKey(fkey)
                         if folder then
@@ -3188,7 +3198,7 @@ end
 --- match-owned size keys are never applied from here, a SPEC-owned fkey
 --- belongs to the spec system (spec wins at runtime -- live is its value,
 --- not ours), an unloaded module cannot be written, and a NIL_SENT marker on
---- a defaults-backed key is harvest residue, not a real removal.
+--- a defaults-backed key restores as the registered default value.
 --- touched: folder-set accumulator; the caller refreshes once.
 function Cond.RestoreEntryDefaults(entry, touched)
     local def = entry.values and entry.values.default
@@ -3197,9 +3207,9 @@ function Cond.RestoreEntryDefaults(entry, touched)
         if not BlacklistedFKey(fkey) and not MatchOwnedFKey(fkey)
            and not EntryOwning(fkey) and FKeyLoaded(fkey) then
             local v = (dv == NIL_SENT) and nil or dv
-            local nilPoison = (v == nil) and HasRegisteredDefault(fkey)
+            if v == nil then v = ReadRegisteredDefault(fkey) end
             local cur = ReadLive(fkey)
-            if not nilPoison and type(v) ~= "table" and type(cur) ~= "table"
+            if type(v) ~= "table" and type(cur) ~= "table"
                and cur ~= v then
                 if WriteLive(fkey, v) then
                     local folder = SplitFKey(fkey)
@@ -7089,10 +7099,11 @@ local function PruneOrphanEntries()
             if not BlacklistedFKey(fkey) and FKeyLoaded(fkey) then
                 local v = def
                 if v == NIL_SENT then v = nil end
-                -- Same defaults-backed nil-poison skip as WriteSpecValues.
-                local nilPoison = (v == nil) and HasRegisteredDefault(fkey)
+                -- Same defaults-backed registered-default substitution as
+                -- WriteSpecValues.
+                if v == nil then v = ReadRegisteredDefault(fkey) end
                 local cur = ReadLive(fkey)
-                if not nilPoison and type(v) ~= "table" and type(cur) ~= "table" and cur ~= v then
+                if type(v) ~= "table" and type(cur) ~= "table" and cur ~= v then
                     if WriteLive(fkey, v) then
                         local folder = SplitFKey(fkey)
                         if folder then

@@ -5104,7 +5104,12 @@ initFrame:SetScript("OnEvent", function(self)
                       local c = cfg(); if not c then return end
                       local inCustom = (not c.resourceColored) and (c.classColored == false)
                       if not inCustom then
-                          c.resourceColored = nil
+                          -- false, not nil: a key REMOVAL harvests into spec
+                          -- overrides as a NIL_SENT marker, and markers on
+                          -- defaults-backed keys apply as the registered
+                          -- default -- storing false keeps the override a
+                          -- plain scalar (the soul-bar colour revert).
+                          c.resourceColored = false
                           c.classColored = false; RebuildClass()
                           EllesmereUI:RefreshPage()
                           return
@@ -5126,7 +5131,7 @@ initFrame:SetScript("OnEvent", function(self)
                   setValue = function() end,
                   onClick = function()
                       local c = cfg(); if not c then return end
-                      c.resourceColored = nil
+                      c.resourceColored = false   -- false, not nil (see Custom swatch)
                       c.classColored = true; RebuildClass()
                       EllesmereUI:RefreshPage()
                   end,
