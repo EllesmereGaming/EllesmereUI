@@ -66,21 +66,36 @@ WSkin:AddCallback("Skin_Talent", function()
 	WSkin:CreateBackdrop(PlayerTalentFrameScrollFrame, "Default")
 	WSkin:HandleScrollBar(PlayerTalentFrameScrollFrameScrollBar)
 
-	for i = 1, MAX_NUM_TALENTS do
-		local talent = _G["PlayerTalentFrameTalent"..i]
-		local icon = _G["PlayerTalentFrameTalent"..i.."IconTexture"]
+	hooksecurefunc("PlayerTalentFrame_Update", function()
+		-- Get the active talent tab (1, 2, or 3) selected by the user
+		local tabIndex = PlayerTalentFrame.selectedTab or 1
 
-		if talent then
-			WSkin:StripTextures(talent)
-			WSkin:CreateBackdrop(talent, "Default")
+		for i = 1, MAX_NUM_TALENTS do
+			local talent = _G["PlayerTalentFrameTalent"..i]
+			local icon = _G["PlayerTalentFrameTalent"..i.."IconTexture"]
 
-			if icon then
-				WSkin:SetInside(icon)
-				icon:SetTexCoord(unpack(TEXCOORDS))
-				icon:SetDrawLayer("ARTWORK")
+			if talent then
+				-- Pull data directly from the WOTLK client engine API instead of the texture object
+				local _, iconTexturePath = GetTalentInfo(tabIndex, i)
+
+				WSkin:StripTextures(talent)
+				WSkin:CreateBackdrop(talent, "Default")
+				talent:SetFrameLevel(talent:GetParent():GetFrameLevel() + 2)
+
+				if icon then
+					-- Safely apply the asset path retrieved from the engine
+					if iconTexturePath then
+						icon:SetTexture(iconTexturePath)
+					end
+					
+					WSkin:SetInside(icon)
+					icon:SetTexCoord(unpack(TEXCOORDS))
+					icon:SetDrawLayer("ARTWORK")
+				end
 			end
 		end
-	end
+	end)
+
 
 	for i = 1, 4 do
 		WSkin:HandleTab(_G["PlayerTalentFrameTab"..i])
