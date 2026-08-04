@@ -18,21 +18,25 @@
 --  arc is the exception: it is a parameter of the angular model, and RADIAL is
 --  simply its 360-degree case.
 --
---  Activation is fully secure and taint-free. Each ring owns one hidden
---  SecureActionButtonTemplate button; the ring's keybind is routed to that
---  button with SetOverrideBindingClick, and the button is registered for
---  "AnyDown","AnyUp":
+--  Each ring owns one hidden SecureActionButtonTemplate button; the ring's
+--  keybind is routed to it with SetOverrideBindingClick, and it is registered
+--  for "AnyDown","AnyUp":
 --
---    key DOWN -> PreClick clears "type" (so the press itself fires nothing)
---                and opens the wheel
---    key UP   -> PreClick writes the hovered slot's action attributes, the
---                secure handler performs the cast, PostClick closes the wheel
+--    key DOWN -> our PreClick opens the wheel; a secure snippet wrapped around
+--                OnClick clears "type", so the press itself fires nothing
+--    key UP   -> the snippet works out which wedge the cursor is on and writes
+--                that slot's action attributes, the secure handler performs the
+--                cast, and our PostClick closes the wheel
 --
---  Writing attributes from insecure code is unrestricted -- what matters is
---  that the click originates from hardware, which it does. Nothing in this
---  path calls a protected function, so it works identically in and out of
---  combat. The only protected calls in the file are the override-binding
---  updates, which are deferred to PLAYER_REGEN_ENABLED when in combat.
+--  The choosing has to happen inside the snippet because an addon may not write
+--  attributes to a protected frame during combat -- see the Secure activation
+--  section for the blocked-action this design was built around. Only the
+--  angular layouts are steered in the snippet so far; the others still commit
+--  from Lua and therefore only fire out of combat.
+--
+--  Protected calls in this file, all of them deferred to PLAYER_REGEN_ENABLED
+--  when in combat: the override-binding updates, and PushRing's writes of the
+--  ring's contents onto the secure buttons.
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
 local EAP = EllesmereUI.Lite.NewAddon(ADDON_NAME)
@@ -363,6 +367,21 @@ ns.SlotDisplay = SlotDisplay
 -- Cooldown source per kind. Returns start, duration, enable -- handed to
 -- CooldownFrame_Set verbatim, never compared or arithmetic'd, so secret
 -- cooldown values stay untouched.
+-- Returns EITHER a duration object (spells, mounts) OR start, duration, enable
+-- (items, toys). Two shapes because only spells have a secret-safe getter.
+--
+-- Spell cooldowns must not go through C_Spell.GetSpellCooldown: it is flagged
+-- SecretWhenCooldownsRestricted (SpellDocumentation.lua:252), so once cooldowns
+-- are restricted its startTime and duration come back as SECRET numbers. Our
+-- execution is an addon's and therefore tainted, and CooldownFrame_Set opens with
+-- `start > 0 and duration > 0` (Cooldown.lua:3) -- comparing a secret from
+-- tainted execution throws, which is what filled the log with 17 errors on the
+-- first in-combat open. C_Spell.GetSpellCooldownDuration returns an opaque
+-- duration object instead: it is AllowedWhenTainted, and it goes straight into
+-- the widget C-side, so nothing here ever reads a secret.
+--
+-- Items keep the plain numeric path -- C_Item.GetItemCooldown carries no secret
+-- flag and there is no duration-object equivalent for items.
 local function SlotCooldown(slot)
     if not slot then return nil end
     local k = slot.kind
@@ -375,11 +394,12 @@ local function SlotCooldown(slot)
         else
             id = slot.id
         end
-        local info = id and C_Spell.GetSpellCooldown(id)
-        if info then return info.startTime, info.duration, info.isEnabled end
+        if id and C_Spell.GetSpellCooldownDuration then
+            return C_Spell.GetSpellCooldownDuration(id)
+        end
     elseif k == "item" or k == "toy" then
         if slot.id and C_Item.GetItemCooldown then
-            return C_Item.GetItemCooldown(slot.id)
+            return nil, C_Item.GetItemCooldown(slot.id)
         end
     end
     return nil
@@ -450,6 +470,10 @@ ns.SlotFromCursor = SlotFromCursor
 -------------------------------------------------------------------------------
 local views = {}            -- every view, live and preview
 local liveView              -- the wheel the keybinds open
+-- Declared up here, not beside EnsureScrollCatcher: AdvanceFan reads the fan
+-- index straight off it, and that is defined long before the catcher is built.
+local scrollCatcher
+local secureHeader
 local openedAt = 0
 
 -- A held key whose up-event never reaches us (alt-tab, /reload prompt, a
@@ -763,9 +787,12 @@ end
 -- than in a parallel 1D implementation: FAN_H is a single row, FAN_V a single
 -- column. Only the scroll-steered fan needs geometry of its own, because it
 -- cycles a compressed window rather than showing fixed positions.
-function WheelView:GridDims()
+-- shownOverride lets a caller ask what the grid WOULD be for some other entry
+-- count. PushRing needs exactly that: it runs while the palette is closed, when
+-- shownCount still describes whatever was drawn last.
+function WheelView:GridDims(shownOverride)
     local p = P()
-    local shown = max(1, self.shownCount)
+    local shown = max(1, shownOverride or self.shownCount)
 
     local mode = self:LayoutMode()
     if mode == "FAN_H" then return shown, 1 end
@@ -778,7 +805,7 @@ function WheelView:GridDims()
         -- column count would make the editor lay a ring out differently from
         -- the way it is played -- six actions previewing as 4 + 3 while the
         -- live palette drew 3 + 3.
-        cols = AutoGridColumns(max(1, self.slotCount or shown))
+        cols = AutoGridColumns(max(1, shownOverride or self.slotCount or shown))
     else
         cols = min(MAX_SLOTS, max(1, floor(p.gridColumns or 4)))
     end
@@ -787,10 +814,10 @@ function WheelView:GridDims()
 end
 
 -- Centre-relative position of slot i, in the frame's own units.
-function WheelView:GridBase(i, cols, rows, pitch)
+function WheelView:GridBase(i, cols, rows, pitch, shownOverride)
     local r = floor((i - 1) / cols)
     local c = (i - 1) % cols
-    local inRow = min(cols, self.shownCount - r * cols)
+    local inRow = min(cols, (shownOverride or self.shownCount) - r * cols)
     return (c - (inRow - 1) * 0.5) * pitch, -(r - (rows - 1) * 0.5) * pitch
 end
 
@@ -845,7 +872,11 @@ function WheelView:AdvanceGrid(noPointer)
         local s, a = max(minS, decay), 1
         if dx then
             local ox, oy = (dx - bx) / pitch, (dy - by) / pitch
-            local k = sqrt(ox * ox + oy * oy)
+            -- ^0.5, not sqrt: the snippet has no sqrt and must use the power
+            -- form, and the two are not bit-identical in Lua 5.1. Matching them
+            -- keeps a cursor exactly on the reach boundary from selecting one
+            -- entry on screen and firing another.
+            local k = (ox * ox + oy * oy) ^ 0.5
             s = max(minS, decay ^ k)
             a = max(minA, aDecay ^ k)
             if not bestK or k < bestK then best, bestK = i, k end
@@ -872,30 +903,6 @@ function WheelView:SetFanCenter(index)
     self:SetSelection(index)
 end
 
--- One scroll tick. delta is +1 toward later slots, -1 toward earlier ones.
-function WheelView:FanScroll(delta)
-    local shown = self.shownCount
-    if shown < 1 then return end
-
-    if not self.fanTarget then
-        -- The strip opens with NOTHING selected, and the first tick is what
-        -- enters it. That preserves the radial's contract exactly: release
-        -- without steering cancels. Wrapping afterwards cycles real entries
-        -- only, so the cancel state is never scrolled back into.
-        --
-        -- fanVisual is left alone: it already sits on entry 1 from Open, so a
-        -- forward tick just lights that entry up rather than shunting the
-        -- strip a step and sliding it back.
-        -- 0, not `shown`, for a backward first tick: fanTarget is an unbounded
-        -- accumulator that the animation follows literally, and 0 is one step
-        -- back from entry 1, where `shown` would be a full lap forward. The
-        -- selection modulo below maps 0 onto the last entry either way.
-        self.fanTarget = (delta > 0) and 1 or 0
-    else
-        self.fanTarget = self.fanTarget + delta
-    end
-end
-
 -- Advance the settle animation and publish the centred entry as the selection.
 -- The LOGICAL index moves the instant the tick arrives; only the geometry is
 -- interpolated. A release mid-animation therefore always fires what the user
@@ -905,6 +912,15 @@ function WheelView:AdvanceFan(elapsed)
     if shown < 1 then
         self:SetSelection(nil)
         return
+    end
+
+    -- The live strip's index is owned by the secure snippet: an addon may not
+    -- write a secure button's attributes in combat, so the mouse wheel is
+    -- handled in the sandbox and left here to be read. Reading an attribute
+    -- from Lua is unrestricted, so this works in combat and out. Other views
+    -- (the options preview) keep driving fanTarget themselves.
+    if self.opts.live and scrollCatcher then
+        self.fanTarget = tonumber(scrollCatcher:GetAttribute("eapFanTarget"))
     end
 
     local target = self.fanTarget or 1
@@ -1161,8 +1177,11 @@ function WheelView:Layout(ringIndex)
             w.label:SetShown(wantLabel or false)
 
             if showCooldowns and slot then
-                local start, duration, enable = SlotCooldown(slot)
-                if start then
+                local durObj, start, duration, enable = SlotCooldown(slot)
+                if durObj then
+                    -- clearIfZero defaults true, so an idle spell clears itself.
+                    w.cd:SetCooldownFromDurationObject(durObj)
+                elseif start then
                     CooldownFrame_Set(w.cd, start, duration, enable)
                 else
                     w.cd:Clear()
@@ -1344,7 +1363,7 @@ end
 -------------------------------------------------------------------------------
 local function CreateWheel()
     if liveView then return liveView end
-    liveView = ns.CreateWheelView(UIParent, { frameName = "EUIActionPaletteFrame" })
+    liveView = ns.CreateWheelView(UIParent, { frameName = "EUIActionPaletteFrame", live = true })
     local f = liveView:GetFrame()
     f:SetFrameStrata(LIVE_STRATA)
     f:Hide()
@@ -1364,22 +1383,61 @@ end
 -- Mouse WHEEL only, never EnableMouse: a full-screen mouse-enabled frame would
 -- sit between the player and the world, and would swallow the very button
 -- presses the secure activation path depends on.
-local scrollCatcher
+local function EnsureSecureHeader()
+    if not secureHeader then
+        secureHeader = CreateFrame("Frame", "EUIActionPaletteSecureHeader",
+            UIParent, "SecureHandlerBaseTemplate")
+    end
+    return secureHeader
+end
+
+-- One wheel tick. This is the ONLY place the strip's index is advanced: the Lua
+-- handler that used to do it is gone, because an addon may not write these
+-- attributes once the player is in combat. The options preview does not scroll
+-- at all -- it jumps with SetFanCenter -- so nothing else needs the old path.
+local SNIPPET_WHEEL = [==[
+    if not self:GetAttribute("eapOpen") then
+        -- Nothing has this open, so it must stop eating camera zoom. This is the
+        -- self-heal for a palette that never saw its key-up -- a zone change or
+        -- a taxi swallowing the release -- and it costs one notch of zoom.
+        self:Hide()
+        return false
+    end
+    local n = tonumber(self:GetAttribute("eapShown")) or 0
+    if n < 1 then return false end
+
+    local delta = offset
+    if self:GetAttribute("eapInvert") then delta = -delta end
+    -- Scrolling up travels toward earlier entries, the direction they are drawn
+    -- in for FAN_V and the natural reading order for FAN_H.
+    local step = -1
+    if delta <= 0 then step = 1 end
+
+    local t = tonumber(self:GetAttribute("eapFanTarget"))
+    if t then
+        t = t + step
+    else
+        -- The strip opens with NOTHING selected and the first tick enters it,
+        -- so releasing without scrolling cancels. 0, not n, for a backward first
+        -- tick: this is an unbounded accumulator the animation follows
+        -- literally, and 0 is one step back from entry 1 where n would be a full
+        -- lap forward. The selection modulo maps both onto the last entry.
+        t = 1
+        if step < 0 then t = 0 end
+    end
+    self:SetAttribute("eapFanTarget", t)
+    return false
+]==]
+
 local function EnsureScrollCatcher()
     if scrollCatcher then return scrollCatcher end
-    local f = CreateFrame("Frame", "EUIActionPaletteScrollCatcher", UIParent)
+    local f = CreateFrame("Frame", "EUIActionPaletteScrollCatcher", UIParent,
+        "SecureHandlerBaseTemplate")
     f:SetAllPoints(UIParent)
     f:SetFrameStrata(LIVE_STRATA)
     f:SetFrameLevel(1)
     f:EnableMouseWheel(true)
-    f:SetScript("OnMouseWheel", function(_, delta)
-        if not liveView or not liveView:IsFan() then return end
-        local p = P()
-        if p and p.fanInvert then delta = -delta end
-        -- Scrolling up travels toward earlier entries, which is the direction
-        -- they are drawn in for FAN_V and the natural reading order for FAN_H.
-        liveView:FanScroll(delta > 0 and -1 or 1)
-    end)
+    SecureHandlerWrapScript(f, "OnMouseWheel", EnsureSecureHeader(), SNIPPET_WHEEL)
     f:Hide()
     scrollCatcher = f
     return f
@@ -1475,7 +1533,6 @@ function ns.Open(ringIndex)
         liveView.fanVisual = 1
         liveView:ApplyFanGeometry()
         liveView:SetSelection(nil)
-        EnsureScrollCatcher():Show()
     else
         liveView:ArmMovementGate()
         liveView:SetSelection(liveView:HitTest())
@@ -1495,7 +1552,11 @@ function ns.Close()
     if not wheel:IsShown() then return end
     wheel:SetScript("OnUpdate", nil)
     wheel:Hide()
-    if scrollCatcher then scrollCatcher:Hide() end
+    -- The PostClick snippet hides this on every normal close. This covers the
+    -- ones that never get a key-up at all -- the open timeout, a zone change --
+    -- and only out of combat, the frame being protected. In combat the wheel
+    -- snippet hides it on the next stray tick instead.
+    if scrollCatcher and not InCombatLockdown() then scrollCatcher:Hide() end
     liveView.fanTarget = nil
     liveView:SetSelection(nil)
 end
@@ -1514,35 +1575,287 @@ end
 local secureButtons = {}
 local bindOwner
 
+-- Which steering model the snippet must use, by the same reading of the profile
+-- the live view does:
+--
+--   ANGULAR  RADIAL, full wheel or arc -- chosen by the angle from the centre.
+--   POINTER  GRID, and either fan on pointer input -- the entry nearest the
+--            cursor wins. A pointer fan is a grid one entry deep, so it is the
+--            same search and the same pushed cell positions.
+--   SCROLL   a scroll-steered fan. Its selection is an accumulator driven by
+--            the mouse wheel rather than anything derivable from the cursor,
+--            so the snippet reads the index the wheel handler left behind.
+local function LayoutModel()
+    local p = P()
+    local layout = (p and p.layout) or "RADIAL"
+    if layout == "RADIAL" then return "ANGULAR" end
+    if layout == "GRID" then return "POINTER" end
+    return ((p and p.fanInput) or "SCROLL") == "CURSOR" and "POINTER" or "SCROLL"
+end
+
+-- Which slot a release fires is decided by where the cursor is at that instant,
+-- so the decision cannot be made in Lua. Writing the chosen action onto the
+-- button from an insecure PreClick fails as soon as the player is in combat:
+--
+--   ADDON_ACTION_BLOCKED  tried to call the protected function
+--   'EUIActionPaletteButton1:SetAttribute()'
+--
+-- Confirmed in-game. Note that SimpleFrameAPIDocumentation.lua does NOT flag
+-- SetAttribute with IsProtectedFunction the way it flags ClearAttribute: that
+-- flag marks methods that are protected unconditionally, and says nothing about
+-- the separate rule that bites here -- a protected frame, written by tainted
+-- code, during combat. Do not move this back into Lua on the strength of it.
+--
+-- So the choosing happens inside a secure snippet. Code in the restricted
+-- environment is secure, and its SetAttribute calls are not blocked. Everything
+-- the snippet needs is pushed onto the button as ordinary attributes while out
+-- of combat, including the arc geometry ArcGeom already works out -- the snippet
+-- does no layout maths of its own, which is what stops it drifting away from
+-- HitTest as the layout options change.
+--
+-- A snippet body is compiled against a fixed parameter list, not as a vararg
+-- function: Wrapped_Click builds the pre-body with the signature
+-- "self,button,down" and the post-body with "self,message,button,down"
+-- (SecureHandlers.lua:275,287). So those names are already locals here, and
+-- `local button, down = ...` is a compile error -- "cannot use '...' outside a
+-- vararg function" -- which surfaces only when the snippet first runs in-game.
+--
+-- The sandbox has no GetCursorPosition, so the cursor is read with
+-- GetMousePosition on a frame handle. That measures against UIParent, NOT
+-- against the wheel, for two independent reasons:
+--
+--   * GetMousePosition goes through GetHandleFrame, which refuses a handle to an
+--     unprotected frame while in combat (RestrictedFrames.lua:84). The wheel is
+--     an ordinary addon frame, so its handle is rejected exactly when we need it.
+--   * It returns nil when the cursor lies outside the frame's rect
+--     (RestrictedFrames.lua:317). Layout sizes the wheel to a finite box around
+--     the ring, so measuring against it would put a hard edge on a gesture that
+--     is deliberately unbounded in depth: a long flick would highlight a wedge
+--     and then fire nothing. Against a fixed-position wheel the cursor could
+--     start outside that box entirely.
+--
+-- UIParent is protected, covers the screen, and never moves. The wheel's centre
+-- is therefore derived rather than measured: in fixed-position mode it is
+-- UIParent's centre plus the configured offset, and in cursor mode it is
+-- wherever the cursor was when the wheel opened -- which is the position the
+-- press captured, since PositionWheel ran in our PreClick just before this.
+--
+-- GetMousePosition reports a [0,1] fraction of the frame measured from its
+-- bottom-left, so scaling by UIParent's size gives UIParent units, and dividing
+-- by the wheel's own scale converts to the units radius and deadZone use.
+-- sqrt is not on the sandbox whitelist; ^0.5 is the same thing.
+--
+-- All angles in here are DEGREES, and the step and start are handed over
+-- already converted. The sandbox's atan2 is WoW's global one, which answers in
+-- degrees; math.atan2, which HitTest upvalues, answers in radians. Working in
+-- degrees also means the wrap is an exact 360 rather than a written-out 2*pi
+-- (`pi` is not on the whitelist), which removes a real trap: a 2*pi literal
+-- short by 1e-13 disagrees with HitTest's math.pi*2 often enough to land the
+-- other side of the +0.5 rounding on a wedge boundary -- 735 disagreements
+-- across a 2.7M-position sweep, all of them exactly on an edge.
+local SNIPPET_PRE = [==[
+    local ui = self:GetFrameRef("ui")
+    local mode = self:GetAttribute("eapMode")
+    local catcher = self:GetFrameRef("catcher")
+
+    if down then
+        self:SetAttribute("eapWhy", "pressed")
+        self:SetAttribute("eapIdx", nil)
+        -- Kept on the button, not in a snippet global: every ring shares one
+        -- header, so a global would let ring 2's press reset ring 1's origin.
+        self:SetAttribute("eapGX", nil)
+        self:SetAttribute("eapGY", nil)
+        if ui then
+            local x, y = ui:GetMousePosition()
+            if x then
+                self:SetAttribute("eapGX", x * ui:GetWidth())
+                self:SetAttribute("eapGY", y * ui:GetHeight())
+            end
+        end
+        if mode == "SCROLL" and catcher then
+            catcher:SetAttribute("eapFanTarget", nil)
+            catcher:SetAttribute("eapShown", self:GetAttribute("eapShown"))
+            catcher:SetAttribute("eapInvert", self:GetAttribute("eapInvert"))
+            catcher:SetAttribute("eapOpen", 1)
+            catcher:Show()
+        end
+        self:SetAttribute("type", nil)
+        return nil, 1
+    end
+
+    self:SetAttribute("type", nil)
+
+    local n = tonumber(self:GetAttribute("eapShown")) or 0
+    if n < 1 then self:SetAttribute("eapWhy", "noslots") return nil, 1 end
+
+    local idx
+    if mode == "SCROLL" then
+        -- The wheel snippet has been keeping the accumulator; the cursor plays
+        -- no part in this layout, so none of the pointer work below applies.
+        if not catcher then
+            self:SetAttribute("eapWhy", "nocatcher") return nil, 1
+        end
+        local ft = tonumber(catcher:GetAttribute("eapFanTarget"))
+        self:SetAttribute("eapRel", ft)
+        if not ft then
+            -- Opened and released without a single tick: nothing was ever
+            -- selected, so this cancels, exactly as the dead zone does.
+            self:SetAttribute("eapWhy", "unscrolled") return nil, 1
+        end
+        idx = ((ft - 1) % n) + 1
+    else
+        if not ui then self:SetAttribute("eapWhy", "nohandle") return nil, 1 end
+        local x, y = ui:GetMousePosition()
+        if not x then self:SetAttribute("eapWhy", "offscreen") return nil, 1 end
+        local w, h = ui:GetWidth(), ui:GetHeight()
+        local cx, cy = x * w, y * h
+
+        local gx = tonumber(self:GetAttribute("eapGX"))
+        local gy = tonumber(self:GetAttribute("eapGY"))
+
+        -- SetPoint offsets are read in the wheel's own scaled space, so the
+        -- centre sits exactly posX/posY UIParent units from UIParent's centre;
+        -- the scale only converts the distance from there.
+        local s = tonumber(self:GetAttribute("eapScale")) or 1
+        if s <= 0 then s = 1 end
+
+        -- Opening under the cursor would otherwise arrive with an entry already
+        -- chosen; nothing counts until the pointer has actually moved.
+        --
+        -- Divided by the scale so this is one WHEEL unit, the same unit the live
+        -- views measure their gate in. Comparing raw UIParent units against 1
+        -- agreed with them only at scale 1: at scale 2 a move the wheel still
+        -- counted as stationary was already past the snippet's threshold, and
+        -- the release fired an entry the wheel was drawing as unselected.
+        --
+        -- This does not latch, where the live views set _steered on the first
+        -- movement and never re-arm. The snippet only ever sees the release, so
+        -- a gesture that wanders off and returns to within a unit of where it
+        -- started cancels here while the wheel still shows an entry selected.
+        -- It errs toward cancelling rather than firing something unintended.
+        if gx and abs(cx - gx) / s < 1 and abs(cy - gy) / s < 1 then
+            self:SetAttribute("eapWhy", "unmoved") return nil, 1
+        end
+
+        local ox, oy
+        if self:GetAttribute("eapFixed") then
+            ox = w * 0.5 + (tonumber(self:GetAttribute("eapPosX")) or 0)
+            oy = h * 0.5 + (tonumber(self:GetAttribute("eapPosY")) or 0)
+        elseif gx then
+            ox, oy = gx, gy
+        else
+            self:SetAttribute("eapWhy", "noorigin") return nil, 1
+        end
+        local dx, dy = (cx - ox) / s, (cy - oy) / s
+        self:SetAttribute("eapDX", dx)
+        self:SetAttribute("eapDY", dy)
+
+        if mode == "POINTER" then
+            -- Nearest cell, by true 2D distance in cells. A grid has no
+            -- privileged axis, so projecting onto one would let sideways
+            -- movement change the choice. Past eapReach cells from every entry
+            -- nothing is selected -- that is this layout's cancel, and it has no
+            -- dead zone: the centre of a grid can hold an entry, so cancelling
+            -- there would make the middle of an odd-sized grid unfireable.
+            local pitch = tonumber(self:GetAttribute("eapPitch")) or 1
+            if pitch <= 0 then pitch = 1 end
+            local bestK
+            for i = 1, n do
+                local bx = tonumber(self:GetAttribute("eapBX" .. i))
+                local by = tonumber(self:GetAttribute("eapBY" .. i))
+                if bx then
+                    local px, py = (dx - bx) / pitch, (dy - by) / pitch
+                    local k = (px * px + py * py) ^ 0.5
+                    if not bestK or k < bestK then idx, bestK = i, k end
+                end
+            end
+            self:SetAttribute("eapRel", bestK)
+            if bestK and bestK > (tonumber(self:GetAttribute("eapReach")) or 1) then
+                idx = nil
+            end
+            if not idx then
+                self:SetAttribute("eapIdx", nil)
+                self:SetAttribute("eapWhy", "outofreach") return nil, 1
+            end
+        else
+            local dz = tonumber(self:GetAttribute("eapDeadZone")) or 24
+            if (dx * dx + dy * dy) ^ 0.5 < dz then
+                self:SetAttribute("eapWhy", "deadzone") return nil, 1
+            end
+
+            local step = tonumber(self:GetAttribute("eapStepDeg")) or 0
+            if step == 0 then
+                idx = 1
+            else
+                local theta = atan2(dx, dy)
+                if theta < 0 then theta = theta + 360 end
+                local rel = theta - (tonumber(self:GetAttribute("eapStartDeg")) or 0)
+                self:SetAttribute("eapTheta", theta)
+                self:SetAttribute("eapRel", rel)
+                if self:GetAttribute("eapFull") then
+                    idx = (floor(rel / step + 0.5) % n) + 1
+                else
+                    rel = rel % 360
+                    if rel <= (n - 1) * step + step * 0.5 then
+                        idx = floor(rel / step + 0.5) + 1
+                    end
+                end
+            end
+        end
+    end
+
+    self:SetAttribute("eapIdx", idx)
+    if not idx or idx < 1 or idx > n then
+        self:SetAttribute("eapWhy", "noidx") return nil, 1
+    end
+
+    local t = self:GetAttribute("eapT" .. idx)
+    if not t then self:SetAttribute("eapWhy", "emptyslot") return nil, 1 end
+
+    -- Clear every action key before writing this slot's, so no earlier slot's
+    -- value can outlive it: type="macro" reads "macro" before it falls through
+    -- to "macrotext", and type="spell" would reuse a stale "spell" happily.
+    self:SetAttribute("spell", nil)
+    self:SetAttribute("item", nil)
+    self:SetAttribute("macro", nil)
+    self:SetAttribute("macrotext", nil)
+    self:SetAttribute("toy", nil)
+
+    self:SetAttribute(self:GetAttribute("eapK" .. idx), self:GetAttribute("eapV" .. idx))
+    self:SetAttribute("type", t)
+    self:SetAttribute("eapWhy", "fire")
+    return nil, 1
+]==]
+
+-- Leaves nothing armed: the next press has to choose again from scratch.
+local SNIPPET_POST = [==[
+    if down then return end
+    self:SetAttribute("type", nil)
+    -- Every close funnels through here, including the cancels that returned
+    -- early above, so the catcher stops eating camera zoom on all of them.
+    local catcher = self:GetFrameRef("catcher")
+    if catcher then
+        catcher:SetAttribute("eapOpen", nil)
+        catcher:Hide()
+    end
+]==]
+
 local function OnPreClick(self, _, down)
     if down then
-        -- The press must never fire an action: clear the type before the
-        -- secure handler reads it, then open the wheel.
-        self:SetAttribute("type", nil)
         ns.Open(self._ring)
-    else
-        -- The release is the activation. Commit the hovered slot so the
-        -- secure handler picks it up on this very click.
-        local slot = ns.CurrentSlot()
-        local aType, aKey, aVal, clearKey = ResolveAction(slot)
-        if aType then
-            if clearKey then self:SetAttribute(clearKey, nil) end
-            self:SetAttribute(aKey, aVal)
-            self:SetAttribute("type", aType)
-        else
-            self:SetAttribute("type", nil)
-        end
-        self._pendingInsecure = (not aType) and slot or nil
+        return
     end
+    -- Nothing to commit here any more: all three steering models are resolved
+    -- by the snippet, which is the only place allowed to write these attributes
+    -- once the player is in combat.
 end
 
 local function OnPostClick(self, _, down)
     if down then return end
-    if self._pendingInsecure then
-        FireInsecure(self._pendingInsecure)
-        self._pendingInsecure = nil
-    end
-    self:SetAttribute("type", nil)
+    -- Battle pets have no secure action type at all, so they still fire from
+    -- here, off the Lua-side selection. Summoning one is not protected.
+    local slot = ns.CurrentSlot()
+    if slot and slot.kind == "battlepet" then FireInsecure(slot) end
     ns.Close()
 end
 
@@ -1578,8 +1891,92 @@ local function GetSecureButton(index)
     btn:SetScript("PreClick", OnPreClick)
     btn:SetScript("PostClick", OnPostClick)
 
+    -- The snippet measures the cursor against the wheel, so it needs a handle to
+    -- it. Wrapped around OnClick rather than PreClick: PreClick is ours, and the
+    -- wrap has to run inside the very click that goes on to fire the action.
+    SecureHandlerSetFrameRef(btn, "ui", UIParent)
+    SecureHandlerSetFrameRef(btn, "catcher", EnsureScrollCatcher())
+    SecureHandlerWrapScript(btn, "OnClick", EnsureSecureHeader(),
+        SNIPPET_PRE, SNIPPET_POST)
+
     secureButtons[index] = btn
     return btn
+end
+
+-- Hand the sandbox everything it needs to choose a wedge. Out of combat only:
+-- these are ordinary insecure writes to a protected frame, which is precisely
+-- what combat forbids. A ring edited mid-fight keeps firing its previous
+-- contents until the fight ends -- the same bargain the override bindings make.
+local function PushRing(index)
+    if InCombatLockdown() then return end
+    local p = P()
+    local btn = secureButtons[index]
+    local ring = EnsureRing(index)
+    if not p or not btn or not ring or not liveView then return end
+
+    for i = 1, MAX_SLOTS do
+        local aType, aKey, aVal = ResolveAction(ring.slots[i])
+        btn:SetAttribute("eapT" .. i, aType)
+        btn:SetAttribute("eapK" .. i, aKey)
+        btn:SetAttribute("eapV" .. i, aVal)
+    end
+
+    -- The live wheel draws exactly the ring's entries -- the trailing "+" wedge
+    -- is the editor's -- so #slots is the count the snippet must divide by, and
+    -- ArcGeom is asked for the geometry rather than the snippet re-deriving it.
+    local n = #ring.slots
+    local step, arcStart, full = liveView:ArcGeom(n)
+    local _, _, deadZone = liveView:Geom()
+    -- Where the wheel's centre will be, so the snippet can work in UIParent
+    -- units without a handle to the wheel itself. Cursor mode has no fixed
+    -- centre, so the snippet takes the opening cursor position instead.
+    btn:SetAttribute("eapFixed", p.centerMode == "SCREEN")
+    btn:SetAttribute("eapPosX", p.posX or 0)
+    btn:SetAttribute("eapPosY", p.posY or 0)
+    btn:SetAttribute("eapScale", p.scale or 1)
+
+    local model = LayoutModel()
+    btn:SetAttribute("eapMode", model)
+    btn:SetAttribute("eapShown", n)
+    btn:SetAttribute("eapInvert", p.fanInvert == true)
+
+    -- Pointer layouts: the cell centres, worked out here rather than in the
+    -- snippet. GridDims and GridBase already encode the auto-column rule and the
+    -- short-final-row centring, and re-deriving either in the sandbox would give
+    -- the palette a second, drifting copy of the layout -- the same mistake the
+    -- angular path avoids by pushing ArcGeom's answer.
+    if model == "POINTER" then
+        local _, iconSize = liveView:Geom()
+        local pitch = iconSize + (p.fanGap or 10)
+        local cols, rows = liveView:GridDims(n)
+        for i = 1, MAX_SLOTS do
+            if i <= n then
+                local bx, by = liveView:GridBase(i, cols, rows, pitch, n)
+                btn:SetAttribute("eapBX" .. i, bx)
+                btn:SetAttribute("eapBY" .. i, by)
+            else
+                btn:SetAttribute("eapBX" .. i, nil)
+                btn:SetAttribute("eapBY" .. i, nil)
+            end
+        end
+        btn:SetAttribute("eapPitch", pitch)
+        btn:SetAttribute("eapReach", GRID_REACH)
+    end
+    btn:SetAttribute("eapDeadZone", deadZone)
+    -- Degrees, not the radians ArcGeom deals in. The sandbox whitelists WoW's
+    -- GLOBAL atan2 (RestrictedEnvironment.lua:60), which answers in DEGREES --
+    -- where HitTest upvalues math.atan2, which answers in radians. Treating the
+    -- sandbox's as radians silently rotated every selection: a release aimed at
+    -- one wedge fired its neighbour, and a release near the arc's edge missed
+    -- entirely. Converting here keeps the one conversion in Lua, where the unit
+    -- is named, and lets the snippet wrap on an exact 360.
+    btn:SetAttribute("eapStepDeg", step * 180 / pi)
+    btn:SetAttribute("eapStartDeg", arcStart * 180 / pi)
+    btn:SetAttribute("eapFull", full)
+end
+
+local function PushAllRings()
+    for i = 1, RingCount() do PushRing(i) end
 end
 
 local bindingsDirty = false
@@ -1630,6 +2027,7 @@ end
 -- that are actually on screen.
 function ns.Refresh()
     ns.UpdateBindings()
+    PushAllRings()
 
     if liveView and liveView:GetFrame():IsShown() then
         -- Read the selection before Layout, which clears it.
@@ -1691,11 +2089,16 @@ function EAP:OnEnable()
     -- keys, so nothing can open the wheel.
     for i = 1, RingCount() do EnsureRing(i) end
     CreateWheel()
+    EnsureScrollCatcher()
     ns.UpdateBindings()
+    PushAllRings()
 
     self:RegisterEvent("UPDATE_BINDINGS", function() ns.UpdateBindings() end)
     self:RegisterEvent("PLAYER_REGEN_ENABLED", function()
         if bindingsDirty then ns.UpdateBindings() end
+        -- Unconditional: any ring edited during the fight was skipped by
+        -- PushRing, and the sandbox is still holding the old contents.
+        PushAllRings()
     end)
     -- A zone change while the key is held (portals, taxi) can swallow the
     -- key-up; drop the wheel rather than leave it stuck.
@@ -1714,7 +2117,64 @@ _G.SLASH_EUIACTIONPALETTE1 = "/euiap"
 _G.SLASH_EUIACTIONPALETTE2 = "/euipalette"
 _G.SLASH_EUIACTIONPALETTE3 = "/euirw"
 _G.SLASH_EUIACTIONPALETTE4 = "/euiradial"
-SlashCmdList.EUIACTIONPALETTE = function()
+-- "/euiap trace" reports what the snippet decided on the last release. The
+-- snippet cannot print -- there is no output in the restricted environment --
+-- so it leaves its reasoning in attributes, which Lua may read at any time,
+-- combat included. eapWhy is the step it stopped at:
+--
+--   pressed     the release never ran at all
+--   unscrolled  a scroll fan released without a single wheel tick
+--   nocatcher   a scroll fan with no scroll catcher reachable
+--   noslots     the ring was pushed as empty
+--   nohandle    no UIParent handle
+--   offscreen   GetMousePosition returned nil
+--   unmoved     the cursor never left the opening point
+--   noorigin    cursor mode with no captured origin
+--   deadzone    inside the dead zone
+--   noidx       an angle outside the arc
+--   outofreach  pointer layouts: further than eapReach cells from every entry
+--   emptyslot   that wedge has no action pushed
+--   fire        attributes were written; anything wrong past here is Blizzard's
+--               side of the click
+SlashCmdList.EUIACTIONPALETTE = function(msg)
+    if type(msg) == "string" and msg:lower():find("trace") then
+        for i = 1, RingCount() do
+            local btn = secureButtons[i]
+            if btn then
+                -- Degrees, because the arc is configured in degrees: whether a
+                -- miss was legitimate is only obvious next to the arc's own
+                -- extent, and radians make that a mental conversion.
+                local function deg(key)
+                    local v = tonumber(btn:GetAttribute(key))
+                    return v and string.format("%.1f", v) or "nil"
+                end
+                local n     = tonumber(btn:GetAttribute("eapShown")) or 0
+                local step  = tonumber(btn:GetAttribute("eapStepDeg")) or 0
+                local full  = btn:GetAttribute("eapFull")
+                -- The far edge the arc branch tests against.
+                local bound = full and "n/a"
+                    or string.format("%.1f", (n - 1) * step + step * 0.5)
+
+                EllesmereUI.Print(("|cff0cd29fRing %d|r why=%s idx=%s shown=%s mode=%s"):format(
+                    i, tostring(btn:GetAttribute("eapWhy")),
+                    tostring(btn:GetAttribute("eapIdx")), n,
+                    tostring(btn:GetAttribute("eapMode"))))
+                EllesmereUI.Print(("  full=%s step=%s start=%s theta=%s rel=%s bound=%s"):format(
+                    tostring(full), deg("eapStepDeg"), deg("eapStartDeg"),
+                    deg("eapTheta"), deg("eapRel"), bound))
+                EllesmereUI.Print(("  dx=%s dy=%s fixed=%s scale=%s type1=%s val1=%s"):format(
+                    tostring(btn:GetAttribute("eapDX")),
+                    tostring(btn:GetAttribute("eapDY")),
+                    tostring(btn:GetAttribute("eapFixed")),
+                    tostring(btn:GetAttribute("eapScale")),
+                    tostring(btn:GetAttribute("eapT1")),
+                    tostring(btn:GetAttribute("eapV1"))))
+            else
+                EllesmereUI.Print(("|cff0cd29fRing %d|r no secure button"):format(i))
+            end
+        end
+        return
+    end
     EllesmereUI.Print("|cff0cd29fAction Palette:|r configure rings on the "
         .. "|cffffd100Action Palette|r options page -- pick the ring, then drag "
         .. "actions onto the preview.")
