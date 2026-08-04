@@ -2,7 +2,7 @@
 --  EllesmereUIAuraBuffReminders.lua
 --  Complete AuraBuff Reminders: Raid Buffs, Auras, Consumables
 --  Clickable SecureActionButton icons with combat-aware tracking
---  Blizzard 12.0 Midnight non-secret spell support
+--  WotLK (3.3.5) spell support
 -------------------------------------------------------------------------------
 
 local ADDON_NAME = ...
@@ -321,52 +321,25 @@ end
 --  even during combat lockdown.
 -------------------------------------------------------------------------------
 local NON_SECRET_SPELL_IDS = {
-    -- Preservation Evoker
-    [355941]=true, [363502]=true, [364343]=true, [366155]=true,
-    [367364]=true, [373267]=true, [376788]=true,
-    -- Augmentation Evoker
-    [360827]=true, [395152]=true, [410089]=true, [410263]=true,
-    [410686]=true, [413984]=true,
-    -- Resto Druid
-    [774]=true, [8936]=true, [33763]=true, [48438]=true, [155777]=true,
-    -- Disc Priest
-    [17]=true, [194384]=true, [1253593]=true,
-    -- Holy Priest
-    [139]=true, [41635]=true, [77489]=true,
-    -- Mistweaver Monk
-    [115175]=true, [119611]=true, [124682]=true, [450769]=true,
-    -- Restoration Shaman
-    [974]=true, [383648]=true, [61295]=true,
-    -- Holy Paladin
-    [53563]=true, [156322]=true, [156910]=true, [1244893]=true,
-    -- Long-term Raid Buffs
-    [1126]=true, [1459]=true, [6673]=true, [21562]=true, [369459]=true,
-    [462854]=true, [474754]=true,
-    -- Alternate buff IDs (talent variants that provide the same effect)
-    [432661]=true, [432778]=true,
-    -- Devotion Aura (465) is ContextuallySecret in Midnight 12.0; not whitelisted.
-    -- Blessing of the Bronze Auras
-    [381732]=true, [381741]=true, [381746]=true, [381748]=true,
-    [381749]=true, [381750]=true, [381751]=true, [381752]=true,
-    [381753]=true, [381754]=true, [381756]=true, [381757]=true,
-    [381758]=true,
-    -- Long-term Self Buffs (Paladin Rites)
-    [433568]=true, [433583]=true,
+    -- WotLK Raid Buffs
+    [48469]=true, [48161]=true, [48162]=true, [42995]=true, [43002]=true,
+    [47436]=true, [25898]=true, [20217]=true, [48934]=true, [19740]=true,
+    -- Warrior Stances
+    [2457]=true, [2458]=true, [71]=true,
+    -- Shadowform
+    [15473]=true,
+    -- Paladin Auras
+    [48942]=true, [54043]=true, [19746]=true, [32223]=true, [19891]=true,
+    -- Righteous Fury
+    [25780]=true,
+    -- Shaman Shields
+    [49281]=true, [57960]=true, [49284]=true,
+    -- Shaman Imbues
+    [58790]=true, [58804]=true, [51730]=true, [58796]=true,
     -- Rogue Poisons
-    [2823]=true, [8679]=true, [3408]=true, [5761]=true,
-    [315584]=true, [381637]=true, [381664]=true,
-    -- Shaman Imbuements
-    [319773]=true, [319778]=true, [382021]=true, [382022]=true,
-    [457496]=true, [457481]=true, [462757]=true, [462742]=true,
-    -- Resource-like Auras
-    [205473]=true, [260286]=true,
-    -- Cooldowns
-    [8690]=true, [20608]=true,
-    -- Midnight Flasks (PvE and PvP variants; non-secret in 12.0)
-    [1235110]=true, [1235108]=true, [1235111]=true, [1235057]=true, [1239355]=true,
-    [1235113]=true, [1235114]=true, [1235115]=true, [1235116]=true,
-    -- Partnered Trinket (Emerald Coach's Whistle)
-    [383798]=true, [389581]=true,
+    [57973]=true, [57968]=true, [57975]=true, [3408]=true, [5761]=true, [26785]=true,
+    -- WotLK Flasks
+    [53755]=true, [53760]=true, [54212]=true, [53758]=true,
 }
 
 -------------------------------------------------------------------------------
@@ -405,7 +378,7 @@ end
 
 -- Pre-combat snapshot for ownOnRaid buffs (Source of Magic, Blistering Scales).
 local _preCombatOwnOnRaidCache = {}  -- [spellID] = true/false
-local _ownOnRaidIDs = { 369459, 360827, 474754 }  -- Source of Magic, Blistering Scales, Symbiotic Relationship
+local _ownOnRaidIDs = {}  -- No ownOnRaid auras in WotLK
 local SnapshotOwnOnRaidBuffs  -- forward declaration; defined after _unitHasBuffFromPlayer
 
 -- Pre-allocated scratch tables for hot per-Refresh functions (avoids GC churn)
@@ -854,11 +827,11 @@ end
 local BUFF_BENEFICIARIES = {
     intellect = {
         MAGE = true, WARLOCK = true, PRIEST = true, DRUID = true,
-        SHAMAN = true, MONK = true, EVOKER = true, PALADIN = true,
+        SHAMAN = true, PALADIN = true,
     },
     attackPower = {
         WARRIOR = true, ROGUE = true, HUNTER = true, DEATHKNIGHT = true,
-        PALADIN = true, MONK = true, DRUID = true, DEMONHUNTER = true, SHAMAN = true,
+        PALADIN = true, DRUID = true, SHAMAN = true,
     },
 }
 
@@ -893,78 +866,42 @@ EABR.WeaponEnchants = function()
 end
 
 local RAID_BUFFS = {
-    { key="motw",   class="DRUID",   name="Mark of the Wild",       castSpell=1126,   buffIDs={1126,432661},    check="raid" },
-    { key="bshout", class="WARRIOR", name="Battle Shout",           castSpell=6673,   buffIDs={6673},    check="raid", benefit="attackPower" },
-    { key="fort",   class="PRIEST",  name="Power Word: Fortitude",  castSpell=21562,  buffIDs={21562},   check="raid" },
-    { key="ai",     class="MAGE",    name="Arcane Intellect",       castSpell=1459,   buffIDs={1459,432778},    check="raid", benefit="intellect" },
-    { key="bronze", class="EVOKER",  name="Blessing of the Bronze", castSpell=364342,
-      buffIDs={381732,381741,381746,381748,381749,381750,381751,381752,381753,381754,381756,381757,381758},
-      check="raid" },
-    { key="sky",    class="SHAMAN",  name="Skyfury",                castSpell=462854, buffIDs={462854},  check="raid" },
-    -- Hunter's Mark: disabled (under maintenance)
-    -- { key="hmark",  class="HUNTER",  name="Hunter's Mark",          castSpell=257284, buffIDs={257284},  check="huntersMark" },
+    { key="motw",   class="DRUID",   name="Mark of the Wild",       castSpell=48469,  buffIDs={48469},   check="raid" },
+    { key="fort",   class="PRIEST",  name="Power Word: Fortitude",  castSpell=48161,  buffIDs={48161,48162},   check="raid" },
+    { key="ai",     class="MAGE",    name="Arcane Intellect",       castSpell=42995,  buffIDs={42995,43002},   check="raid", benefit="intellect" },
+    { key="bshout", class="WARRIOR", name="Battle Shout",           castSpell=47436,  buffIDs={47436},   check="raid", benefit="attackPower" },
+    { key="bok",    class="PALADIN", name="Blessing of Kings",      castSpell=25898,  buffIDs={25898,20217},   check="raid" },
+    { key="bom",    class="PALADIN", name="Blessing of Might",      castSpell=48934,  buffIDs={48934,19740},   check="raid", benefit="attackPower" },
 }
 
 -------------------------------------------------------------------------------
 --  SPELL DATA Auras (some non-secret, some still OOC-only)
 -------------------------------------------------------------------------------
 local AURAS = {
-    -- Symbiotic Relationship: player gets a buff when active (group only)
-    { key="symbiotic",  class="DRUID",   name="Symbiotic Relationship", castSpell=474750, buffIDs={474754},
-      check="player", combatOk=false, requireGroup=true },
     -- Warrior stances: shapeshift forms (detected via the stance bar, not auras), OOC only.
-    -- Arms -> Battle Stance; Fury -> Berserker Stance; Prot -> Defensive Stance. The reminder
-    -- hides once the desired stance is active and is suppressed entirely if it isn't known.
-    { key="battle_stance",  class="WARRIOR", name="Battle Stance",   castSpell=386164, buffIDs={386164},
+    { key="battle_stance",  class="WARRIOR", name="Battle Stance",   castSpell=2457, buffIDs={2457},
       check="player", specs={71}, combatOk=false, isStance=true },
-    { key="berserk_stance", class="WARRIOR", name="Berserker Stance", castSpell=386196, buffIDs={386196},
+    { key="berserk_stance", class="WARRIOR", name="Berserker Stance", castSpell=2458, buffIDs={2458},
       check="player", specs={72}, combatOk=false, isStance=true },
-    { key="def_stance",  class="WARRIOR", name="Defensive Stance",  castSpell=386208, buffIDs={386208},
+    { key="def_stance",  class="WARRIOR", name="Defensive Stance",  castSpell=71, buffIDs={71},
       check="player", specs={73}, combatOk=false, isStance=true },
-    -- Shadowform: OOC only. Void Form (194249) also satisfies the check.
-    -- shapeshiftIndex=1: fallback for PvP instances where aura API is restricted.
-    { key="shadowform", class="PRIEST",  name="Shadowform",        castSpell=232698, buffIDs={232698, 194249},
+    -- Shadowform: OOC only.
+    { key="shadowform", class="PRIEST",  name="Shadowform",        castSpell=15473, buffIDs={15473},
       check="player", specs={258}, combatOk=false, shapeshiftIndex=1 },
-    -- Paladin Aura: in dungeons/raids only Devotion satisfies; elsewhere any aura works
-    -- noPvP: Devotion Aura is ContextuallySecret in PvP even out of combat
-    { key="devo_aura",  class="PALADIN", name="Devotion Aura",     castSpell=465,
-      buffIDs={465, 32223, 317920}, instanceBuffIDs={465},
-      check="player", combatOk=false, noPvP=true },
-    -- Beacon of Light: standalone IsSpellOverlayed system (not checked by CollectAuras)
-    { key="bol",        class="PALADIN", name="Beacon of Light",   castSpell=53563,  buffIDs={53563},
-      standalone=true, notIfKnown=200025 },
-    -- Beacon of Faith: standalone IsSpellOverlayed system (not checked by CollectAuras)
-    { key="bof",        class="PALADIN", name="Beacon of Faith",   castSpell=156910, buffIDs={156910},
-      standalone=true },
-    -- Source of Magic: non-secret (369459) applied to a specific healer,
-    -- not the caster; check if player's cast exists on any group member.
-    { key="som",        class="EVOKER",  name="Source of Magic",   castSpell=369459, buffIDs={369459},
-      check="ownOnRaid", combatOk=true, requireInstanceGroup=true },
-    -- Blistering Scales: requireTalent omitted (Regenerative Chitin is a passive modifier).
-    { key="blistering_scales", class="EVOKER", name="Blistering Scales", castSpell=360827,
-      buffIDs={360827}, check="ownOnRaid", combatOk=true,
-      requireInstanceGroup=true },
-    -- Bestow Weyrnstone: OOC only. Tracks target aura, not the one on self.
-    { key="bestow_weyrnstone", class="EVOKER", name="Bestow Weyrnstone", castSpell=408233,
-      buffIDs={410318}, check="ownOnRaid", combatOk=false,
-      specs={1473}, requireInstanceGroup=true },
-    -- Timelessness: OOC only.
-    { key="timelessness", class="EVOKER", name="Timelessness", castSpell=412710,
-      buffIDs={412710}, check="ownOnRaid", combatOk=false,
-      specs={1473}, requireInstanceGroup=true },
+    -- Paladin Auras: Devotion Aura or any active aura
+    { key="devo_aura",  class="PALADIN", name="Devotion Aura",     castSpell=48942,
+      buffIDs={48942, 54043, 19746, 32223, 19891}, instanceBuffIDs={48942},
+      check="player", combatOk=false },
+    -- Righteous Fury (Prot Paladin threat)
+    { key="righteous_fury", class="PALADIN", name="Righteous Fury", castSpell=25780, buffIDs={25780},
+      check="player", specs={66}, combatOk=false },
 }
 
 -------------------------------------------------------------------------------
---  Healthstone / Soulstone / Partnered Trinket tracking
+--  Healthstone tracking
 -------------------------------------------------------------------------------
--- Healthstone: check if player has one in bags (itemID 5512)
-local HEALTHSTONE_ITEM_IDS = { 5512, 224464 }  -- Healthstone, Demonic Healthstone
-
--- Partnered Trinket: Emerald Coaches Whistle (buff 383798, icon 134157, 60 min)
-local PARTNERED_TRINKET = {
-    key = "coaches_whistle", name = "Emerald Coach's Whistle",
-    buffID = 389581, buffIDs = {389581, 383798}, icon = 134157, duration = 3600,
-}
+-- Healthstone: check if player has one in bags (itemID 36892)
+local HEALTHSTONE_ITEM_IDS = { 36892 }  -- Fel Healthstone (WotLK)
 
 -- Pet tracking: classes that summon permanent pets
 local PET_CLASSES = { HUNTER = true, WARLOCK = true, DEATHKNIGHT = true, MAGE = true }
@@ -973,11 +910,9 @@ local PET_CLASSES = { HUNTER = true, WARLOCK = true, DEATHKNIGHT = true, MAGE = 
 -- instead of generic weapon oils/stones. If the player knows ANY of these,
 -- the weapon enchant reminder is suppressed for them.
 local _IMBUE_EXCLUDE_SPELLS = {
-    382021,  -- Earthliving Weapon (Shaman)
-    318038,  -- Flametongue Weapon (Shaman)
-    33757,   -- Windfury Weapon (Shaman)
-    433583,  -- Rite of Adjuration (Paladin Lightsmith)
-    433568,  -- Rite of Sanctification (Paladin Lightsmith)
+    51730,   -- Earthliving Weapon (Shaman)
+    58790,   -- Flametongue Weapon (Shaman)
+    58804,   -- Windfury Weapon (Shaman)
 }
 
 -------------------------------------------------------------------------------
@@ -987,224 +922,96 @@ local _IMBUE_EXCLUDE_SPELLS = {
 -- Lethal and non-lethal categories match WoW's internal classification.
 local ROGUE_POISONS = {
     -- Lethal poisons (mutually exclusive per slot).
-    -- Deadly first (core Assa poison), then talented, then other base.
-    { key="deadly",     name="Deadly Poison",     castSpell=2823,   cat="lethal" },
-    { key="amplifying", name="Amplifying Poison", castSpell=381664, cat="lethal" },
-    { key="instant",    name="Instant Poison",    castSpell=315584, cat="lethal" },
-    { key="wound",      name="Wound Poison",      castSpell=8679,   cat="lethal" },
+    { key="deadly",     name="Deadly Poison",     castSpell=57973,  cat="lethal" },
+    { key="instant",    name="Instant Poison",    castSpell=57968,  cat="lethal" },
+    { key="wound",      name="Wound Poison",      castSpell=57975,  cat="lethal" },
     -- Non-lethal poisons (mutually exclusive per slot).
-    { key="numbing",    name="Numbing Poison",    castSpell=5761,   cat="nonlethal" },
-    { key="atrophic",   name="Atrophic Poison",   castSpell=381637, cat="nonlethal" },
     { key="crippling",  name="Crippling Poison",  castSpell=3408,   cat="nonlethal" },
+    { key="mindnumbing", name="Mind-numbing Poison", castSpell=5761, cat="nonlethal" },
+    { key="anesthetic", name="Anesthetic Poison", castSpell=26785,  cat="nonlethal" },
 }
--- Dragon-Tempered Blades (381801): allows 2 of each poison category
-local DTB_SPELL_ID = 381801
+-- No Dragon-Tempered Blades in WotLK
+local DTB_SPELL_ID = nil
 
--- Paladin Rites (non-secret in 12.0)
-local PALADIN_RITES = {
-    { key="rite_adj",  name="Rite of Adjuration",     castSpell=433583, buffIDs={433583}, wepEnchID={7144} },
-    { key="rite_sanc", name="Rite of Sanctification",  castSpell=433568, buffIDs={433568}, wepEnchID={7143} },
-}
-
-
-
--- Shaman Imbues (non-secret in 12.0)
+-- Shaman Imbues (WotLK)
 local SHAMAN_IMBUES = {
-    { key="flametongue", name="Flametongue Weapon", castSpell=318038, buffIDs={319778}, wepEnchID={5400} },
-    { key="windfury",    name="Windfury Weapon",    castSpell=33757,  buffIDs={319773},  wepEnchID={5401} },
-    { key="earthliving", name="Earthliving Weapon", castSpell=382021, buffIDs={382021, 382022}, wepEnchID={6498} },
-    { key="tidecaller",  name="Tidecaller's Guard", castSpell=457496, buffIDs={457496, 457481}, wepEnchID={7528} },
-    { key="tstrike",     name="Thunderstrike Ward", castSpell=462757, buffIDs={462757, 462742}, wepEnchID={7587} },
+    { key="flametongue", name="Flametongue Weapon", castSpell=58790, buffIDs={58790}, wepEnchID={3781} },
+    { key="windfury",    name="Windfury Weapon",    castSpell=58804, buffIDs={58804}, wepEnchID={3787} },
+    { key="earthliving", name="Earthliving Weapon", castSpell=51730, buffIDs={51730}, wepEnchID={3345} },
+    { key="frostbrand",  name="Frostbrand Weapon",  castSpell=58796, buffIDs={58796}, wepEnchID={3784} },
 }
 
--- Shaman Shields: three entries based on Elemental Orbit (383010) talent.
--- With Orbit: Earth Shield self-buff (383648) + Lightning/Water Shield both needed.
--- Without Orbit: any of Earth/Lightning/Water Shield on self.
--- Resolve the correct shield cast spell based on spec.
--- Resto (264) -> Water Shield (52127), others -> Lightning Shield (192106).
+-- Shaman Shields: WotLK has Lightning Shield, Water Shield, Earth Shield.
+-- No Elemental Orbit talent in WotLK.
 local function ShamanShieldCastSpell()
     local specIdx = GetSpecialization and GetSpecialization() or 0
     local specID = specIdx and specIdx > 0 and GetSpecializationInfo(specIdx) or 0
-    return (specID == 264) and 52127 or 192106
+    return (specID == 264) and 57960 or 49281  -- Water Shield (Resto) or Lightning Shield
 end
 
 local SHAMAN_SHIELDS = {
-    { key="es_orbit", name="Earth Shield (Self)",
-      castSpell=974, buffIDs={383648}, requireTalent=383010,
-      check="player" },
-    { key="ls_ws_orbit", name="Lightning/Water Shield",
-      castSpellFn=ShamanShieldCastSpell, buffIDs={192106, 52127}, requireTalent=383010,
-      check="player" },
     { key="shield_basic", name="Shield",
-      castSpellFn=ShamanShieldCastSpell, buffIDs={974, 192106, 52127}, excludeTalent=383010,
+      castSpellFn=ShamanShieldCastSpell, buffIDs={49281, 57960, 49284},
       check="player" },
 }
 
--- Weapon Enchant Items (temporary weapon enchants applied from items)
--- weaponType: BLADED, BLUNT, RANGED, NEUTRAL (NEUTRAL fits any weapon)
+-- Weapon Enchant Items (temporary weapon enchants applied from items) - WotLK
 local WEAPON_ENCHANT_ITEMS = {
-    -- Midnight
-    {itemID=237367, name="Refulgent Weightstone",     weaponType="BLUNT",   icon=7548939},
-    {itemID=237369, name="Refulgent Weightstone",     weaponType="BLUNT",   icon=7548939},
-    {itemID=237370, name="Refulgent Whetstone",       weaponType="BLADED",  icon=7548942},
-    {itemID=237371, name="Refulgent Whetstone",       weaponType="BLADED",  icon=7548942},
-    {itemID=257749, name="Laced Zoomshots",           weaponType="RANGED",  icon=249176},
-    {itemID=257750, name="Laced Zoomshots",           weaponType="RANGED",  icon=249176},
-    {itemID=257751, name="Weighted Boomshots",        weaponType="RANGED",  icon=249175},
-    {itemID=257752, name="Weighted Boomshots",        weaponType="RANGED",  icon=249175},
-    {itemID=243733, name="Thalassian Phoenix Oil",    weaponType="NEUTRAL", icon=7548987},
-    {itemID=243734, name="Thalassian Phoenix Oil",    weaponType="NEUTRAL", icon=7548987},
-    {itemID=243735, name="Oil of Dawn",               weaponType="NEUTRAL", icon=7548985},
-    {itemID=243736, name="Oil of Dawn",               weaponType="NEUTRAL", icon=7548985},
-    {itemID=243737, name="Smuggler's Enchanted Edge", weaponType="NEUTRAL", icon=7548986},
-    {itemID=243738, name="Smuggler's Enchanted Edge", weaponType="NEUTRAL", icon=7548986},
-    -- TWW
-    {itemID=222504, name="Ironclaw Whetstone",     weaponType="BLADED",  icon=3622195},
-    {itemID=222503, name="Ironclaw Whetstone",     weaponType="BLADED",  icon=3622195},
-    {itemID=222502, name="Ironclaw Whetstone",     weaponType="BLADED",  icon=3622195},
-    {itemID=222510, name="Ironclaw Weightstone",   weaponType="BLUNT",   icon=3622199},
-    {itemID=222509, name="Ironclaw Weightstone",   weaponType="BLUNT",   icon=3622199},
-    {itemID=222508, name="Ironclaw Weightstone",   weaponType="BLUNT",   icon=3622199},
-    {itemID=224107, name="Algari Mana Oil",        weaponType="NEUTRAL", icon=609892},
-    {itemID=224106, name="Algari Mana Oil",        weaponType="NEUTRAL", icon=609892},
-    {itemID=224105, name="Algari Mana Oil",        weaponType="NEUTRAL", icon=609892},
-    {itemID=224113, name="Oil of Deep Toxins",     weaponType="NEUTRAL", icon=609897},
-    {itemID=224112, name="Oil of Deep Toxins",     weaponType="NEUTRAL", icon=609897},
-    {itemID=224111, name="Oil of Deep Toxins",     weaponType="NEUTRAL", icon=609897},
-    {itemID=224110, name="Oil of Beledar's Grace", weaponType="NEUTRAL", icon=609896},
-    {itemID=224109, name="Oil of Beledar's Grace", weaponType="NEUTRAL", icon=609896},
-    {itemID=224108, name="Oil of Beledar's Grace", weaponType="NEUTRAL", icon=609896},
-    {itemID=220156, name="Bubbling Wax",           weaponType="NEUTRAL", icon=133778},
+    -- WotLK Whetstones and Weight Stones
+    {itemID=28421, name="Adamantite Weightstone",     weaponType="BLUNT",   icon=136000},
+    {itemID=28420, name="Fel Weightstone",            weaponType="BLUNT",   icon=136000},
+    {itemID=23529, name="Adamantite Sharpening Stone", weaponType="BLADED", icon=136000},
+    {itemID=23528, name="Fel Sharpening Stone",       weaponType="BLADED",  icon=136000},
 }
 
--- Flask Items (Midnight) each flask has multiple item IDs across quality ranks + fleeting variants
+-- Flask Items (WotLK)
 local FLASK_ITEMS = {
-    { key="blood_knights",         buffID=1235110, name="Flask of the Blood Knights",
-      items={241324, 241325, 245931, 245930} },
-    { key="magisters",             buffID=1235108, name="Flask of the Magisters",
-      items={241322, 241323, 245933, 245932} },
-    { key="shattered_sun",         buffID=1235111, name="Flask of the Shattered Sun",
-      items={241326, 241327, 245929, 245928} },
-    { key="thalassian_resistance", buffID=1235057, name="Flask of Thalassian Resistance",
-      items={241320, 241321, 245926, 245927} },
-    { key="thalassian_horror", buffID=1239355, name="Vicious Thalassian Flask of Honor",
-      items={241334} },
+    { key="frost_wyrm",      buffID=53755, name="Flask of the Frost Wyrm",
+      items={46376} },
+    { key="endless_rage",    buffID=53760, name="Flask of Endless Rage",
+      items={46377} },
+    { key="pure_mojo",       buffID=54212, name="Flask of Pure Mojo",
+      items={46378} },
+    { key="stoneblood",      buffID=53758, name="Flask of Stoneblood",
+      items={46379} },
 }
 local FLASK_BUFF_ID_SET = {}
 local FLASK_NAME_SET = {}
 for _, f in ipairs(FLASK_ITEMS) do
     FLASK_BUFF_ID_SET[f.buffID] = true
-    -- Build name set from localized spell names (works in all languages)
-    local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(f.buffID)
-    local locName = info and info.name
-    if locName then FLASK_NAME_SET[locName] = true end
-    FLASK_NAME_SET[f.name] = true  -- English fallback
-end
--- TWW flask buff IDs (detection only, so we don't false-positive when a
--- player still has a TWW flask active)
-for _, id in ipairs({432473, 432021, 431974, 431973, 431972, 431971}) do
-    FLASK_BUFF_ID_SET[id] = true
-end
--- PvP-morphed Midnight flask buff IDs (Blizzard replaces the PvE buff ID with
--- a separate PvP variant inside arenas and battlegrounds)
-for _, id in ipairs({1235113, 1235114, 1235115, 1235116}) do
-    FLASK_BUFF_ID_SET[id] = true
+    FLASK_NAME_SET[f.name] = true
 end
 
--- Food Items (Midnight)
+-- Food Items (WotLK)
 local FOOD_ITEMS = {
-    { key="royal_roast",           itemID=242275, name="Royal Roast" },
-    { key="impossibly_royal_roast", itemID=255847, name="Impossibly Royal Roast" },
-    { key="flora_frenzy",          itemID=255848, name="Flora Frenzy" },
-    { key="champions_bento",       itemID=242274, name="Champion's Bento" },
-    { key="warped_wise_wings",     itemID=242285, name="Warped Wise Wings" },
-    { key="void_kissed_fish_rolls", itemID=242284, name="Void-Kissed Fish Rolls" },
-    { key="sun_seared_lumifin",    itemID=242283, name="Sun-Seared Lumifin" },
-    { key="null_and_void_plate",   itemID=242282, name="Null and Void Plate" },
-    { key="glitter_skewers",       itemID=242281, name="Glitter Skewers" },
-    { key="fel_kissed_filet",      itemID=242286, name="Fel-Kissed Filet" },
-    { key="buttered_root_crab",    itemID=242280, name="Buttered Root Crab" },
-    { key="arcano_cutlets",        itemID=242287, name="Arcano Cutlets" },
-    { key="tasty_smoked_tetra",    itemID=242278, name="Tasty Smoked Tetra" },
-    { key="crimson_calamari",      itemID=242277, name="Crimson Calamari" },
-    { key="braised_blood_hunter",  itemID=242276, name="Braised Blood Hunter" },
-    { key="harandar_celebration",  itemID=255846, name="Harandar Celebration" },
-    { key="silvermoon_parade",     itemID=255845, name="Silvermoon Parade" },
-    { key="queldorei_medley",      itemID=242272, name="Quel'dorei Medley" },
-    { key="blooming_feast",        itemID=242273, name="Blooming Feast" },
-    { key="sunwell_delight",       itemID=242293, name="Sunwell Delight" },
-    { key="hearthflame_supper",    itemID=242295, name="Hearthflame Supper" },
-    { key="fried_bloomtail",       itemID=242291, name="Fried Bloomtail" },
-    { key="felberry_figs",         itemID=242294, name="Felberry Figs" },
-    { key="eversong_pudding",      itemID=242292, name="Eversong Pudding" },
-    { key="bloodthistle_wrapped_cutlets", itemID=242296, name="Bloodthistle-wrapped Cutlets" },
-    { key="wise_tails",            itemID=242290, name="Wise Tails" },
-    { key="twilight_anglers_medley", itemID=242288, name="Twilight Angler's Medley" },
-    { key="spellfire_filet",       itemID=242289, name="Spellfire Filet" },
-    { key="spiced_biscuits",       itemID=242304, name="Spiced Biscuits" },
-    { key="silvermoon_standard",   itemID=242305, name="Silvermoon Standard" },
-    { key="quick_sandwich",        itemID=242307, name="Quick Sandwich" },
-    { key="portable_snack",        itemID=242308, name="Portable Snack" },
-    { key="mana_infused_stew",     itemID=242303, name="Mana-Infused Stew" },
-    { key="foragers_medley",       itemID=242306, name="Forager's Medley" },
-    { key="farstrider_rations",    itemID=242309, name="Farstrider Rations" },
-    { key="bloom_skewers",         itemID=242302, name="Bloom Skewers" },
-    -- Hearty Food Items
-    { key="hearty_royal_roast",            itemID=242747, name="Hearty Royal Roast" },
-    { key="hearty_impossibly_royal_roast",  itemID=268679, name="Hearty Impossibly Royal Roast" },
-    { key="hearty_flora_frenzy",            itemID=268680, name="Hearty Flora Frenzy" },
-    { key="hearty_champions_bento",         itemID=242746, name="Hearty Champion's Bento" },
-    { key="hearty_warped_wise_wings",       itemID=242757, name="Hearty Warped Wise Wings" },
-    { key="hearty_void_kissed_fish_rolls",  itemID=242756, name="Hearty Void-Kissed Fish Rolls" },
-    { key="hearty_sun_seared_lumifin",      itemID=242755, name="Hearty Sun-Seared Lumifin" },
-    { key="hearty_null_and_void_plate",     itemID=242754, name="Hearty Null and Void Plate" },
-    { key="hearty_glitter_skewers",         itemID=242753, name="Hearty Glitter Skewers" },
-    { key="hearty_fel_kissed_filet",        itemID=242758, name="Hearty Fel-Kissed Filet" },
-    { key="hearty_buttered_root_crab",      itemID=242752, name="Hearty Buttered Root Crab" },
-    { key="hearty_arcano_cutlets",          itemID=242759, name="Hearty Arcano Cutlets" },
-    { key="hearty_tasty_smoked_tetra",      itemID=242750, name="Hearty Tasty Smoked Tetra" },
-    { key="hearty_crimson_calamari",        itemID=242749, name="Hearty Crimson Calamari" },
-    { key="hearty_braised_blood_hunter",    itemID=242748, name="Hearty Braised Blood Hunter" },
-    { key="hearty_harandar_celebration",    itemID=266996, name="Hearty Harandar Celebration" },
-    { key="hearty_silvermoon_parade",       itemID=266985, name="Hearty Silvermoon Parade" },
-    { key="hearty_queldorei_medley",        itemID=242744, name="Hearty Quel'dorei Medley" },
-    { key="hearty_blooming_feast",          itemID=242745, name="Hearty Blooming Feast" },
-    { key="hearty_sunwell_delight",         itemID=242765, name="Hearty Sunwell Delight" },
-    { key="hearty_hearthflame_supper",      itemID=242767, name="Hearty Hearthflame Supper" },
-    { key="hearty_fried_bloomtail",         itemID=242763, name="Hearty Fried Bloomtail" },
-    { key="hearty_felberry_figs",           itemID=242766, name="Hearty Felberry Figs" },
-    { key="hearty_eversong_pudding",        itemID=242764, name="Hearty Eversong Pudding" },
-    { key="hearty_bloodthistle_wrapped_cutlets", itemID=242768, name="Hearty Bloodthistle-Wrapped Cutlets" },
-    { key="hearty_wise_tails",              itemID=242762, name="Hearty Wise Tails" },
-    { key="hearty_twilight_anglers_medley", itemID=242760, name="Hearty Twilight Angler's Medley" },
-    { key="hearty_spellfire_filet",         itemID=242761, name="Hearty Spellfire Filet" },
-    { key="hearty_spiced_biscuits",         itemID=242771, name="Hearty Spiced Biscuits" },
-    { key="hearty_silvermoon_standard",     itemID=242772, name="Hearty Silvermoon Standard" },
-    { key="hearty_quick_sandwich",          itemID=242774, name="Hearty Quick Sandwich" },
-    { key="hearty_portable_snack",          itemID=242775, name="Hearty Portable Snack" },
-    { key="hearty_mana_infused_stew",       itemID=242770, name="Hearty Mana-Infused Stew" },
-    { key="hearty_foragers_medley",         itemID=242773, name="Hearty Forager's Medley" },
-    { key="hearty_farstrider_rations",      itemID=242776, name="Hearty Farstrider Rations" },
-    { key="hearty_bloom_skewers",           itemID=242769, name="Hearty Bloom Skewers" },
+    { key="fish_feast",           itemID=43015, name="Fish Feast" },
+    { key="dragonfin_filet",      itemID=43000, name="Dragonfin Filet" },
+    { key="firecracker_salmon",   itemID=34767, name="Firecracker Salmon" },
+    { key="tender_shoveltusk",    itemID=34755, name="Tender Shoveltusk Steak" },
+    { key="snapper_extreme",      itemID=42996, name="Snapper Extreme" },
+    { key="mega_mammoth_meal",    itemID=34754, name="Mega Mammoth Meal" },
+    { key="imperial_manta_steak", itemID=34769, name="Imperial Manta Steak" },
+    { key="very_burnt_worg",      itemID=34757, name="Very Burnt Worg" },
+    { key="spiced_worm_burger",   itemID=34756, name="Spiced Worm Burger" },
+    { key="rhinolicious_wormsteak", itemID=42994, name="Rhinolicious Wormsteak" },
+    { key="blackened_dragonfin",  itemID=42999, name="Blackened Dragonfin" },
+    { key="cuttlesteak",          itemID=42998, name="Cuttlesteak" },
 }
 
--- Weapon Enchant dropdown choices (name best itemID lookup at runtime)
+-- Weapon Enchant dropdown choices (WotLK)
 local WEAPON_ENCHANT_CHOICES = {
-    { key="thalassian_phoenix_oil",  name="Thalassian Phoenix Oil" },
-    { key="smugglers_enchanted_edge", name="Smuggler's Enchanted Edge" },
-    { key="oil_of_dawn",             name="Oil of Dawn" },
-    { key="refulgent_weightstone",   name="Refulgent Weightstone" },
-    { key="refulgent_whetstone",     name="Refulgent Whetstone" },
-    { key="laced_zoomshots",         name="Laced Zoomshots" },
-    { key="weighted_boomshots",      name="Weighted Boomshots" },
+    { key="adamantite_weightstone",   name="Adamantite Weightstone" },
+    { key="adamantite_sharpening",    name="Adamantite Sharpening Stone" },
+    { key="fel_weightstone",          name="Fel Weightstone" },
+    { key="fel_sharpening",           name="Fel Sharpening Stone" },
 }
 
--- Augment Runes (item IDs inlined at usage site in CollectConsumables)
-local RUNE_BUFF_IDS = {1264426, 453250, 1234969, 1242347, 393438, 347901}
+-- No Augment Runes in WotLK
+local RUNE_BUFF_IDS = {}
 
--- Inky Black Potion
-local INKY_BLACK_ITEM = 124640
-local INKY_BLACK_BUFF = 185394  -- "Inky Blackness" buff (icon 136122); detected by aura scan, see PlayerHasInkyBlackness
+-- No Inky Black Potion in WotLK
+local INKY_BLACK_ITEM = nil
+local INKY_BLACK_BUFF = nil
 
 -------------------------------------------------------------------------------
 --  Helpers: Well Fed / Flask buff detection (by name, not spell ID secret)
@@ -1454,11 +1261,8 @@ function EABR.ResolveConsumables()
     local lufd = db.profile and db.profile.lastUsedFood or nil
     local luwe = db.profile and db.profile.lastUsedWeaponEnchant or nil
 
-    -- Augment Rune: void preferred over ethereal; nil if neither in bags.
-    local runeItem = nil
-    if CachedGetItemCount(259085) > 0 then runeItem = 259085
-    elseif CachedGetItemCount(243191) > 0 then runeItem = 243191 end
-    R.rune.itemID = runeItem
+    -- No Augment Runes in WotLK
+    R.rune.itemID = nil
 
     -- Flask: resolve a display item even when out of stock (shown desaturated).
     local flaskItemID = FindFlaskItem(pf, luf)
@@ -1526,8 +1330,8 @@ function EABR.ResolveConsumables()
         r.itemID = bestItemID
     end
 
-    -- Inky Black Potion: constant item; only availability is bag-derived.
-    R.inky.hasPotion = CachedGetItemCount(INKY_BLACK_ITEM) > 0
+    -- No Inky Black Potion in WotLK
+    R.inky.hasPotion = false
 
     -- Healthstone: constant texture; only availability is bag-derived.
     local hasStone = false
@@ -1610,38 +1414,32 @@ local defaults = {
             showOthersMissing = true,
             scale = 1.0,
             enabled = {
-                motw=true, bshout=true, fort=true, ai=true, bronze=true, sky=true, hmark=true,
+                motw=true, bshout=true, fort=true, ai=true, bok=true, bom=true,
             },
         },
         auras = {
             showNonInstanced = true,
             scale = 1.0,
             enabled = {
-                symbiotic=true, battle_stance=true, def_stance=true, berserk_stance=true, shadowform=true,
-                devo_aura=true, bol=true, bof=true, som=true, blistering_scales=true, 
-                bestow_weyrnstone=true, timelessness=true,
+                battle_stance=true, def_stance=true, berserk_stance=true, shadowform=true,
+                devo_aura=true, righteous_fury=true,
             },
         },
         consumables = {
             showSpecialsNonInstanced = true,
             scale = 1.0,
             enabled = {
-                deadly=true, instant=true, wound=true, amplifying=true,
-                crippling=true, numbing=true, atrophic=true,
-                rite_adj=true, rite_sanc=true,
-                flametongue=true, windfury=true, earthliving=true, tstrike=true,
+                deadly=true, instant=true, wound=true,
+                crippling=true, mindnumbing=true, anesthetic=true,
+                flametongue=true, windfury=true, earthliving=true, frostbrand=true,
                 ls=true, ws=true, es=true,
-                augment_rune=true,
                 weapon_enchant=true,
-                inky_black=true,
                 flask=true,
                 food=true,
             },
             preferredFlask = "last_used",
             preferredFood = "last_used",
             preferredWeaponEnchant = "last_used",
-            runeDisplayMode = "mythic",
-            inkyBlackZones = "",
         },
         unlockPos = nil,
         talentReminders = {},  -- array of {zoneIDs={}, zoneNames={}, spellID=number, spellName=string, showNotNeeded=bool}
@@ -2295,7 +2093,7 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
                         end
                     end
                 end
-                local hasDTB = IsPlayerSpell(DTB_SPELL_ID)
+                local hasDTB = DTB_SPELL_ID and IsPlayerSpell(DTB_SPELL_ID)
                 local reqL = min(knownL, hasDTB and 2 or 1)
                 local reqNL = min(knownNL, hasDTB and 2 or 1)
                 if missingL and activeL < reqL then
@@ -2313,30 +2111,6 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
                     e.cat = "consumable"; e.data = missingNL; e.scale = co.scale or 1.0
                     e.dismissKey = "consumable:rogue_nonlethal"
                     missing[#missing+1] = e
-                end
-            end
-
-            -- Paladin Rites
-            if playerClass == "PALADIN" then
-                for _, rite in ipairs(PALADIN_RITES) do
-                    if co.enabled[rite.key] and Known(rite.castSpell) then
-                        local hasMH, mhExpire = EABR.WeaponEnchants()
-                        local show = false
-                        if not hasMH then
-                            show = true
-                        elseif mhExpire and mhExpire > 0 and IsUnderDuration(3600, mhExpire / 1000 + GetTime()) then
-                            show = true
-                        end
-                        if show then
-                            local e = AcquireEntry()
-                            e.mode = "spell"; e.spellID = rite.castSpell
-                            e.label = ShortLabel(_G._EABR_SpellName(rite.castSpell, rite.name))
-                            e.cat = "consumable"; e.data = rite; e.scale = co.scale or 1.0
-                            e.dismissKey = "consumable:" .. rite.key
-                            missing[#missing+1] = e
-                            break -- rites are mutually exclusive weapon enchants
-                        end
-                    end
                 end
             end
 
@@ -2403,35 +2177,8 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
             end
         end -- end specialsActive
 
-        -- === INSTANCE-ONLY CONSUMABLES (runes, weapon enchants, flask, food, inky black) ===
+        -- === INSTANCE-ONLY CONSUMABLES (weapon enchants, flask, food) ===
         if inInstance then
-
-        -- Augment Runes (display mode: mythic, heroic_mythic, or all)
-        if co.enabled.augment_rune then
-            local runeMode = co.runeDisplayMode or "mythic"
-            local showRune = false
-            if runeMode == "mythic" then
-                showRune = InMythicZeroDungeonOrMythicRaid()
-            elseif runeMode == "heroic_mythic" then
-                showRune = InHeroicOrMythicContent()
-            elseif runeMode == "all" then
-                showRune = InRealInstancedContent()
-            end
-            if showRune then
-                local hasRuneBuff = InMythicPlusKey() or PlayerHasAuraByID(RUNE_BUFF_IDS)
-                if not hasRuneBuff then
-                    local runeItem = EABR._resolved.rune.itemID
-                    if runeItem then
-                        local e = AcquireEntry()
-                        e.mode = "item"; e.itemID = runeItem
-                        e.texture = GetItemIcon(runeItem); e.label = EllesmereUI.L(ShortLabel("Augment Rune"))
-                        e.cat = "consumable"; e.scale = co.scale or 1.0
-                        e.dismissKey = "consumable:rune"
-                        missing[#missing+1] = e
-                    end
-                end
-            end
-        end
 
         -- Consumables (weapon enchants, flask, food) only in Mythic dungeons
         -- (M0/M+) and Normal/Heroic/Mythic raids (fixed 16 or flex 233).
@@ -2523,52 +2270,8 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
         end
         end -- InConsumableContent
 
-        -- Inky Black Potion (zone-specific)
-        if co.enabled.inky_black then
-            local zones = co.inkyBlackZones or ""
-            if zones ~= "" then
-                -- Cache parsed zone set on the string itself
-                if not co._inkyZoneSet or co._inkyZoneSrc ~= zones then
-                    local s = {}
-                    for zid in zones:gmatch("[^,%s]+") do s[zid] = true end
-                    co._inkyZoneSet = s
-                    co._inkyZoneSrc = zones
-                end
-                local currentZone = tostring(C_Map.GetBestMapForUnit("player") or 0)
-                if co._inkyZoneSet[currentZone] then
-                    local hasPotion = EABR._resolved.inky.hasPotion
-                    -- Detect the "Inky Blackness" buff by scanning auras (see PlayerHasInkyBlackness),
-                    -- mirroring flask/food. Suppressed in M+/PvP there since the aura is unreadable.
-                    if not PlayerHasInkyBlackness() and hasPotion then
-                        local e = AcquireEntry()
-                        e.mode = "item"; e.itemID = INKY_BLACK_ITEM
-                        e.texture = GetItemIcon(INKY_BLACK_ITEM)
-                        e.label = EllesmereUI.L(ShortLabel("Inky Black Potion"))
-                        e.cat = "consumable"; e.scale = co.scale or 1.0
-                        e.dismissKey = "consumable:inky_black"
-                        missing[#missing+1] = e
-                    end
-                end
-            end
-        end
         end -- end inInstance
     end -- end not inCombat
-
-    -- Earth Shield self-buff (383648): combat-safe, only with Elemental Orbit.
-    if specialsActive and playerClass == "SHAMAN" then
-        local esOrbit = SHAMAN_SHIELDS[1]  -- es_orbit entry
-        if co.enabled[esOrbit.key] ~= false and Known(esOrbit.castSpell)
-           and esOrbit.requireTalent and Known(esOrbit.requireTalent) then
-            if not PlayerHasAuraByID(esOrbit.buffIDs) then
-                local e = AcquireEntry()
-                e.mode = "spell"; e.spellID = esOrbit.castSpell
-                e.label = ShortLabel(esOrbit.name, "SHAMAN_SHIELD")
-                e.cat = "consumable"; e.data = esOrbit; e.scale = co.scale or 1.0
-                e.dismissKey = "consumable:" .. esOrbit.key
-                missing[#missing+1] = e
-            end
-        end
-    end
 
     ---------------------------------------------------------------------------
     --  Healthstone in bags (OOC only, instance + group)
@@ -2600,27 +2303,6 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
                 e.label = EllesmereUI.L("HS")
                 e.cat = "consumable"; e.scale = co.scale or 1.0
                 e.dismissKey = "consumable:healthstone"
-                missing[#missing+1] = e
-            end
-        end
-    end
-
-    ---------------------------------------------------------------------------
-    --  Partnered Trinket: Emerald Coach's Whistle (combat-safe via snapshot)
-    ---------------------------------------------------------------------------
-    do
-        local co = db.profile.consumables
-        if co and co.enabled and co.enabled.coaches_whistle ~= false
-           and inInstance and _cachedDiffID ~= 208
-           and (IsInGroup() or IsInRaid())
-           and (GetInventoryItemID("player", 13) == 193718 or GetInventoryItemID("player", 14) == 193718) then
-            local hasBuff = PlayerHasAuraByID(PARTNERED_TRINKET.buffIDs)
-            if not hasBuff then
-                local e = AcquireEntry()
-                e.mode = "texture"; e.texture = PARTNERED_TRINKET.icon
-                e.label = EllesmereUI.L("Whistle")
-                e.cat = "consumable"; e.scale = co.scale or 1.0
-                e.dismissKey = "consumable:coaches_whistle"
                 missing[#missing+1] = e
             end
         end
@@ -3513,7 +3195,6 @@ function EABR:OnEnable()
     _G._EABR_RAID_BUFFS = RAID_BUFFS
     _G._EABR_AURAS = AURAS
     _G._EABR_ROGUE_POISONS = ROGUE_POISONS
-    _G._EABR_PALADIN_RITES = PALADIN_RITES
     _G._EABR_SHAMAN_IMBUES = SHAMAN_IMBUES
     _G._EABR_SHAMAN_SHIELDS = SHAMAN_SHIELDS
     _G._EABR_WEAPON_ENCHANT_ITEMS = WEAPON_ENCHANT_ITEMS
@@ -3773,7 +3454,7 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
         -- Only flag Hunter's Mark needed if the target doesn't already have it
         _huntersMarkNeeded = true
         if C_UnitAuras and C_UnitAuras.GetUnitAuraBySpellID
-            and UnitExists("target") and C_UnitAuras.GetUnitAuraBySpellID("target", 257284) then
+            and UnitExists("target") and C_UnitAuras.GetUnitAuraBySpellID("target", 53338) then
             _huntersMarkNeeded = false
         end
         -- Hide secure buttons BEFORE setting combat flag (HideAllIcons
@@ -3809,7 +3490,7 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
 
     if e == "UNIT_SPELLCAST_SUCCEEDED" then
         -- arg1 = unit ("player"), arg2 = castGUID, arg3 = spellID
-        if arg3 == 257284 then
+        if arg3 == 53338 then
             _huntersMarkNeeded = false
             RequestRefresh()
         end
