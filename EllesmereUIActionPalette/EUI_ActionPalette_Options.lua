@@ -1465,20 +1465,24 @@ initFrame:SetScript("OnEvent", function(self)
         local gridOnly = function()
             return Disabled() or LayoutMode() ~= "GRID"
         end
-        -- A scroll-steered fan does not nest yet: its entries are a cycling
-        -- window rather than fixed positions, so a nest has no lattice to hang
-        -- off and the cursor axis it would use is the one that cancels.
+        -- Every layout nests. Kept as a predicate of its own because the reason
+        -- a control is dead is worth saying separately from what it is dead for.
         local nestless = function()   -- true when the control is DEAD, as with arcOnly above
-            return Disabled() or (IsFanLayout()
-                and (Cfg("fanInput") or "SCROLL") == "SCROLL")
+            return Disabled()
         end
-        -- Where a nest sits is only a question when the sides are equidistant.
-        -- On a grid the side NEAREST the entry wins and this never comes up --
-        -- unless the grid is one row, which is a strip by another name.
+        -- Where a nest sits is only a question when the sides are equidistant --
+        -- which is every strip, both of whose long sides are. On a grid the side
+        -- NEAREST the entry wins, except under Popout, where a middle entry has
+        -- no nearest side and this answers for it. The arc has no sides at all.
         local nestSideDead = function()
             if nestless() then return true end
             if LayoutMode() == "ARC" then return true end
             return false
+        end
+        -- Only a grid has an interior and corners to arrange around; a strip
+        -- ignores the setting outright.
+        local gridNestDead = function()
+            return nestless() or LayoutMode() ~= "GRID"
         end
 
         row, h = W:DualRow(parent, y,
@@ -1566,14 +1570,14 @@ initFrame:SetScript("OnEvent", function(self)
         -- ── FAN & GRID ───────────────────────────────────────────────────
         _, h = W:SectionHeader(parent, "NESTED PALETTES", y); y = y - h
 
-        -- Nesting is drawn one level further out from the hub, so all of this
-        -- describes the arc. The other layouts nest along their own lattice and
-        -- take none of it.
+        -- Distance and icon size are common to every layout. The two below them
+        -- are the arc's alone: it is the only layout that carves its nests out
+        -- of angles rather than setting them down in boxes.
         row, h = W:DualRow(parent, y,
             -- The gap between the two rings' icons, not a radius, so what the
             -- number says is what the eye measures.
             { type="slider", text="Nest Distance",
-              disabled=nestless, disabledTooltip="a layout that can nest",
+              disabled=nestless, disabledTooltip="the module",
               min=0, max=160, step=1,
               getValue=function() return Cfg("nestBand") or 40 end,
               setValue=function(v) Set("nestBand", v); Refresh() end },
@@ -1604,7 +1608,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- subordinate to the entry it opens from. Drawing only: the sectors
             -- are angular, so this changes nothing about what a release picks.
             { type="slider", text="Nest Icon Size",
-              disabled=nestless, disabledTooltip="a layout that can nest",
+              disabled=nestless, disabledTooltip="the module",
               min=0.4, max=1.0, step=0.05,
               getValue=function() return Cfg("nestScale") or 0.8 end,
               setValue=function(v) Set("nestScale", v); Refresh() end })
@@ -1621,10 +1625,25 @@ initFrame:SetScript("OnEvent", function(self)
         row, h = W:DualRow(parent, y,
             { type="dropdown", text="Nest Side",
               disabled=nestSideDead,
-              disabledTooltip="the Grid or a pointer-steered Fan",
+              disabledTooltip="the Grid or a Fan layout",
               values=sideValues, order={ "POSITIVE", "NEGATIVE" },
               getValue=function() return Cfg("nestSide") or "POSITIVE" end,
-              setValue=function(v) Set("nestSide", v); Refresh() end })
+              setValue=function(v) Set("nestSide", v); Refresh() end },
+            -- Grid only. A strip is one entry deep, so it has only ever the one
+            -- answer -- break out across itself -- and offering it three would
+            -- be offering the same thing three times.
+            --
+            --   Lane     a row just outside the block, shared by every nest on
+            --            that side, wrapping the corner when it runs long
+            --   Halo     the eight positions around the entry itself, the block
+            --            faded behind them
+            --   Popout   the nested palette as a block of its own, alongside
+            { type="dropdown", text="Grid Nest Style",
+              disabled=gridNestDead, disabledTooltip="the Grid layout",
+              values={ PERIMETER = "Lane", HALO = "Halo", POPOUT = "Popout" },
+              order={ "PERIMETER", "HALO", "POPOUT" },
+              getValue=function() return Cfg("gridNestStyle") or "PERIMETER" end,
+              setValue=function(v) Set("gridNestStyle", v); Refresh() end })
         y = y - h
 
         _, h = W:SectionHeader(parent, "FAN & GRID", y); y = y - h

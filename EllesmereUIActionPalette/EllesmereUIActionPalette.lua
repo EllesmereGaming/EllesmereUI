@@ -138,6 +138,12 @@ local DB_DEFAULTS = {
         -- NEAREST the parent cell wins, and that is decided by the cell's
         -- position rather than by anything the user has to think about.
         nestSide         = "POSITIVE", -- POSITIVE | NEGATIVE (above/right, below/left)
+        -- Where a GRID puts a nest. A strip ignores this: one entry deep, it has
+        -- only ever one answer, which is to break out across itself.
+        --   PERIMETER  a lane just outside the block, shared by every nest
+        --   HALO       the eight positions around the parent, block faded behind
+        --   POPOUT     the nested palette as a block of its own, alongside
+        gridNestStyle    = "PERIMETER",
         arcChildOverflow = "NONE",   -- NONE | MIDPOINT
         arcChildMaxSpan  = 90,       -- degrees, the widest a child arc may grow
 
@@ -817,122 +823,6 @@ function PaletteView:Pitch()
     return iconSize + ((p and p.fanGap) or 10)
 end
 
--- Nested cells for a block layout: the grid, and a pointer-steered strip, which
--- is a grid one entry deep.
---
--- The children take a single row or column immediately OUTSIDE the block's
--- perimeter. Nowhere inside it is available: every interior cell already belongs
--- to an entry, and a release is resolved by which cell centre is nearest -- so a
--- child sharing space with an entry would be unresolvable. Outside the perimeter
--- is also, conveniently, the space the pointer layouts already treat as their
--- cancel, so hosting a nest there costs nothing that was doing anything else.
---
--- The side is the one NEAREST the parent's cell, measured in cells, so nothing
--- about it depends on where the palette happens to sit on the screen -- which
--- matters because the push runs long before the open that will use it, and the
--- two have to agree. nestSide breaks the tie, and a strip is nothing but ties:
--- one entry deep, so both of its long sides are equally near.
---
--- A parent in the MIDDLE of a multi-row grid is therefore served by a row that
--- does not touch it. That is the honest cost of the rule, and the answer is to
--- keep nested entries on a grid's edge rather than to bend the geometry.
-function PaletteView:CellChildGeom(claims, shown)
-    local p = P()
-    local _, iconSize = self:Geom()
-    local pitch = self:Pitch()
-    local base = p.iconSize or 44
-    local k = (base > 0) and (iconSize / base) or 1
-    local band = max(0, p.nestBand or 40) * k
-    local childIcon = iconSize * min(1, max(0.4, p.nestScale or 0.8))
-    local childPitch = childIcon + (((p and p.fanGap) or 10) * k)
-
-    local cols, rows = self:GridDims(shown)
-    local halfX = (cols - 1) * 0.5 * pitch
-    local halfY = (rows - 1) * 0.5 * pitch
-    local positive = (p.nestSide or "POSITIVE") == "POSITIVE"
-
-    -- Runs already placed, keyed by side and rank, so two claims can never
-    -- overlap. They must not: with the cursor alone to go on, a point inside two
-    -- runs at once has no answer.
-    local taken = {}
-
-    for ci = 1, #claims do
-        local c = claims[ci]
-        local r = floor((c.parent - 1) / cols)
-        local col = (c.parent - 1) % cols
-        local bx, by = self:GridBase(c.parent, cols, rows, pitch, shown)
-
-        -- Nearest side first, then the rest, so a claim pushed off its own side
-        -- by an earlier one lands somewhere sensible rather than far away.
-        local sides = {
-            { key = "UP",    d = r,             axis = "X", sign =  1 },
-            { key = "DOWN",  d = rows - 1 - r,  axis = "X", sign = -1 },
-            { key = "RIGHT", d = cols - 1 - col, axis = "Y", sign =  1 },
-            { key = "LEFT",  d = col,           axis = "Y", sign = -1 },
-        }
-        -- The tie-break, folded into the sort key: the chosen side loses a
-        -- hair of distance so it wins whenever the two are level.
-        for i = 1, #sides do
-            local sd = sides[i]
-            local wanted = (sd.sign > 0) == positive
-            sides[i].order = sd.d * 4 + (wanted and 0 or 1) + (sd.axis == "X" and 0 or 2)
-        end
-        table.sort(sides, function(a2, b2) return a2.order < b2.order end)
-
-        -- Half the run, plus half an icon: what the run actually occupies.
-        local half = (c.n - 1) * 0.5 * childPitch + childIcon * 0.5
-
-        for si = 1, #sides do
-            local sd = sides[si]
-            local along = (sd.axis == "X") and bx or by
-            local lo, hi = along - half, along + half
-            local rank = 1
-            while rank <= 4 do
-                local key = sd.key .. rank
-                local used = taken[key]
-                local clash = false
-                for u = 1, (used and #used or 0) do
-                    if lo < used[u][2] and hi > used[u][1] then clash = true break end
-                end
-                if not clash then
-                    taken[key] = used or {}
-                    taken[key][#taken[key] + 1] = { lo, hi }
-                    -- Out from the perimeter: clear of the block's own icons,
-                    -- then the gap, then this rank's own half-width.
-                    local out = ((sd.axis == "X") and halfY or halfX)
-                                + iconSize * 0.5 + band + childIcon * 0.5
-                                + (rank - 1) * (childIcon + band)
-                    c.icon  = childIcon
-                    c.cells = {}
-                    for j = 1, c.n do
-                        local step = along + (j - (c.n + 1) * 0.5) * childPitch
-                        if sd.axis == "X" then
-                            c.cells[j] = { x = step, y = sd.sign * out }
-                        else
-                            c.cells[j] = { x = sd.sign * out, y = step }
-                        end
-                    end
-                    break
-                end
-                rank = rank + 1
-            end
-            if c.cells then break end
-        end
-    end
-
-    -- A claim that could not be placed at all is dropped rather than drawn
-    -- somewhere arbitrary: its parent then behaves as a plain entry that fires
-    -- nothing, which is at least honest about being unreachable.
-    local out
-    for ci = 1, #claims do
-        if claims[ci].cells then
-            out = out or {}
-            out[#out + 1] = claims[ci]
-        end
-    end
-    return out
-end
-
 -- Nested geometry for one palette. Returns an array of CLAIMS -- one per slot
 -- that opens a palette -- or nil when nothing in it nests:
 --
@@ -940,11 +830,15 @@ end
 --   palette  the palette index they come from
 --   slots    the child slots themselves, already capped at MAX_CHILDREN
 --   n        how many
---   angle    the parent entry's own angle
+--   angle    the parent entry's own angle          } arc only
 --   start    the angle of child 1 (the CENTRE of its sector)
 --   step     one child sector, radians
 --   radius   where the children are drawn
 --   band     the distance at which the children take over from the parent
+--   cells    one box per child, { x, y, hw, hh }   } block layouts only
+--   axis     the axis its run travels on, X or Y
+--   sign     which side of the block it came out on, +1 up/right
+--   dim      whether the block behind it is pushed back while it is open
 --
 -- ONE allocator, read by the drawing, by the hit test and by the push onto the
 -- secure button. A second copy of any of this inside the snippet would drift
@@ -987,10 +881,12 @@ function PaletteView:ChildGeom(shown, palette)
     if not claims then return nil end
 
     -- Placement is per layout; the claims themselves are not. An arc carves
-    -- sectors out of its parent's own; a block layout hangs a row or a column
-    -- off the outside of its perimeter, which is the only space in a lattice
-    -- guaranteed not to be occupied already.
+    -- sectors out of its parent's own, so its children are found by angle; a
+    -- block layout gives every child a box and finds them by containment. The
+    -- two answer the same question -- which region of the plane is this? -- in
+    -- the terms their own layout is already steered in.
     if self:IsPointerLayout() then return self:CellChildGeom(claims, shown) end
+    if self:IsFan() then return self:StripNest(claims, shown) end
     if self:LayoutMode() ~= "ARC" then return nil end
 
     local step, arcStart, full = self:ArcGeom(shown)
@@ -1254,6 +1150,12 @@ end
 -- deselects. This is the grid's cancel: it has no dead zone to release inside.
 local GRID_REACH = 1.0
 
+-- What the block behind an open nest is pushed back to, for the styles that put
+-- their children over it. Enough to read as "that layer is not the one you are
+-- on" while still showing the shape of what you came from.
+local NEST_DIM_ALPHA = 0.25
+local NEST_DIM_SCALE = 0.8
+
 -- The margin, in pitches, around a scroll-steered strip that the pointer may
 -- travel inside before it deselects. This is that layout's cancel, and it is
 -- the same gesture the grid cancels with -- throw the pointer clear of the
@@ -1341,6 +1243,382 @@ function PaletteView:GridBase(i, cols, rows, pitch, shownOverride)
     return (c - (inRow - 1) * 0.5) * pitch, -(r - (rows - 1) * 0.5) * pitch
 end
 
+-------------------------------------------------------------------------------
+--  Nested cells for a block layout
+--
+--  Every nested cell owns a BOX. Inside it, that child; outside every box, the
+--  palette's own nearest-cell search, exactly as if the nest were not there.
+--  That one rule is what makes a nest behave like a thing you are IN: leave the
+--  run in ANY direction -- along it, across it, back over the parent -- and you
+--  are out of it, because you are outside its boxes. Boxes are also what let a
+--  nest sit over ground the block is using, which the styles below need and a
+--  nearest-centre rule could never allow.
+--
+--  Boxes are tested in cell order and the FIRST hit wins, so two that overlap
+--  still have exactly one answer. The drawing and the snippet walk them in the
+--  same order, which is the whole requirement -- they need to agree, not to be
+--  disjoint.
+-------------------------------------------------------------------------------
+
+-- Clockwise from straight up: the eight positions around a cell.
+local HALO_DIRS = {
+    { 0, 1 }, { 1, 1 }, { 1, 0 }, { 1, -1 },
+    { 0, -1 }, { -1, -1 }, { -1, 0 }, { -1, 1 },
+}
+
+-- A point on the band that hugs the block, clockwise from the left end of its
+-- top edge. Returns the point, the axis the run travels along there, and which
+-- side of the block it is (+1 up/right). Wrapping a run around a corner costs
+-- nothing in this form: it is one coordinate, and a corner is just a place where
+-- the axis changes.
+--
+-- The corners are ROUNDED, and not for looks. Cells are spaced evenly along the
+-- path, and around a square corner the straight-line distance between two of
+-- them is shorter than the path between them by up to a third -- enough that two
+-- icons either side of a corner overlap. An arc of the same radius as the band
+-- is deep spends the path length the turn needs.
+local function PerimeterSpan(HX, HY, R)
+    local sx, sy = HX * 2 - R * 2, HY * 2 - R * 2
+    local arc = pi * 0.5 * R
+    return sx, sy, arc, 2 * (sx + sy) + 4 * arc
+end
+
+local function PerimeterPoint(t, HX, HY, R)
+    local sx, sy, arc, L = PerimeterSpan(HX, HY, R)
+    t = t % L
+    if t < sx then return -HX + R + t, HY, "X", 1 end
+    t = t - sx
+    if t < arc then
+        local a = t / R
+        -- Half a turn each: a cell more than halfway round a corner belongs to
+        -- the side it is heading onto, so its box lies across the run it is
+        -- about to join rather than across the one it has left.
+        local ax, sg = "X", 1
+        if a >= pi * 0.25 then ax = "Y" end
+        return HX - R + R * sin(a), HY - R + R * cos(a), ax, sg
+    end
+    t = t - arc
+    if t < sy then return HX, HY - R - t, "Y", 1 end
+    t = t - sy
+    if t < arc then
+        local a = t / R
+        local ax, sg = "Y", 1
+        if a >= pi * 0.25 then ax, sg = "X", -1 end
+        return HX - R + R * cos(a), -HY + R - R * sin(a), ax, sg
+    end
+    t = t - arc
+    if t < sx then return HX - R - t, -HY, "X", -1 end
+    t = t - sx
+    if t < arc then
+        local a = t / R
+        local ax, sg = "X", -1
+        if a >= pi * 0.25 then ax = "Y" end
+        return -HX + R - R * sin(a), -HY + R - R * cos(a), ax, sg
+    end
+    t = t - arc
+    if t < sy then return -HX, -HY + R + t, "Y", -1 end
+    t = t - sy
+    local a = t / R
+    local ax, sg = "Y", -1
+    if a >= pi * 0.25 then ax, sg = "X", 1 end
+    return -HX + R - R * cos(a), HY - R + R * sin(a), ax, sg
+end
+
+-- Everything the three styles measure from. Sizes are scaled by whatever this
+-- view scaled its geometry by, recovered from the icon size Geom handed back --
+-- the options preview fits a palette to its panel, and a band read at its
+-- literal profile size would draw nests at full distance around a shrunken one.
+function PaletteView:NestMetrics(shown)
+    local p = P()
+    local _, iconSize = self:Geom()
+    local pitch = self:Pitch()
+    local base = p.iconSize or 44
+    local k = (base > 0) and (iconSize / base) or 1
+    local cols, rows = self:GridDims(shown)
+
+    local m = {
+        icon  = iconSize,
+        pitch = pitch,
+        cols  = cols,
+        rows  = rows,
+        band  = max(0, p.nestBand or 40) * k,
+        gap   = (p.fanGap or 10) * k,
+        positive = (p.nestSide or "POSITIVE") == "POSITIVE",
+        style = p.gridNestStyle or "PERIMETER",
+    }
+    m.halfX = (cols - 1) * 0.5 * pitch
+    m.halfY = (rows - 1) * 0.5 * pitch
+    -- Nested entries are drawn smaller than the palette's own, so a nest reads
+    -- as subordinate to the entry it hangs off rather than as a second block of
+    -- equals.
+    m.childIcon  = iconSize * min(1, max(0.4, p.nestScale or 0.8))
+    m.childPitch = m.childIcon + m.gap
+    -- Across the run: how thick the band of boxes is. One icon plus the gap
+    -- either side of it, so the box reaches back to the block's own edge and a
+    -- pointer leaving the parent enters the nest without crossing dead ground.
+    m.depth = m.childIcon + m.band
+    -- A strip has no interior to displace and no corner to wrap, so the styles
+    -- that rearrange a block have nothing to rearrange: it always breaks out
+    -- perpendicular, which is the whole of what a strip's nest can be.
+    if cols <= 1 or rows <= 1 then m.style = "PERIMETER" end
+    return m
+end
+
+-- Box for one cell of a run travelling on `axis`.
+local function RunBox(x, y, axis, along, across)
+    if axis == "X" then
+        return { x = x, y = y, hw = along * 0.5, hh = across * 0.5 }
+    end
+    return { x = x, y = y, hw = across * 0.5, hh = along * 0.5 }
+end
+
+-- (A) A single row or column just outside the block, shared by every nest on
+-- that side. The band is ONE lane: two nests on the same edge sit side by side
+-- along it rather than stacking outward, which is what the eye expects when only
+-- one of them is ever drawn. Runs are packed along the perimeter as a single
+-- circular coordinate, so a run longer than the edge it started on wraps around
+-- the corner instead of shooting off into space.
+function PaletteView:PerimeterNest(claims, shown, m)
+    local HX = m.halfX + m.icon * 0.5 + m.band + m.childIcon * 0.5
+    local HY = m.halfY + m.icon * 0.5 + m.band + m.childIcon * 0.5
+    -- The turn is as wide as the band is deep, which is the largest radius that
+    -- keeps the path clear of the block's own corner.
+    local R = min(m.depth * 0.5, min(HX, HY) * 0.5)
+    local sx, sy, arc, L = PerimeterSpan(HX, HY, R)
+
+    -- Shrunk to fit rather than truncated if the nests together want more than
+    -- the whole perimeter. Rare -- it takes several full nests on a small block
+    -- -- and a crowded band still reaches everything, where a dropped run would
+    -- leave entries with no way to be selected at all.
+    local want = 0
+    for i = 1, #claims do want = want + claims[i].n * m.childPitch end
+    local childPitch, childIcon = m.childPitch, m.childIcon
+    if want > L then
+        local squeeze = L / want
+        childPitch = childPitch * squeeze
+        childIcon  = min(childIcon, childPitch - m.gap * squeeze)
+    end
+
+    local order = {}
+    for i = 1, #claims do
+        local c = claims[i]
+        local r   = floor((c.parent - 1) / m.cols)
+        local col = (c.parent - 1) % m.cols
+        local bx, by = self:GridBase(c.parent, m.cols, m.rows, m.pitch, shown)
+
+        -- The nearest edge, in CELLS, so nothing about the side depends on where
+        -- the palette happens to sit on the screen -- which matters because the
+        -- push runs long before the open that will use it, and the two have to
+        -- agree. nestSide breaks the tie. A parent in the middle of a grid is
+        -- served by the edge nearest it, which is the honest answer: there is no
+        -- free ground inside a block for this style to use.
+        local sides = {
+            { d = r,                axis = "X", sign =  1,
+              t = bx + HX - R },
+            { d = m.cols - 1 - col, axis = "Y", sign =  1,
+              t = sx + arc + (HY - R - by) },
+            { d = m.rows - 1 - r,   axis = "X", sign = -1,
+              t = sx + sy + 2 * arc + (HX - R - bx) },
+            { d = col,              axis = "Y", sign = -1,
+              t = 2 * sx + sy + 3 * arc + (by + HY - R) },
+        }
+        local pick
+        for si = 1, 4 do
+            local sd = sides[si]
+            -- A strip breaks out ACROSS itself and only across itself: a row of
+            -- entries has an edge at both ends, and a nest hung off one of those
+            -- would run in line with the palette rather than out of it.
+            local allowed = (m.rows <= 1 and sd.axis == "X")
+                         or (m.cols <= 1 and sd.axis == "Y")
+                         or (m.rows > 1 and m.cols > 1)
+            if allowed then
+                -- The tie-break folded into the key: the chosen side loses a
+                -- hair of distance so it wins whenever the two are level.
+                sd.order = sd.d * 4 + (((sd.sign > 0) == m.positive) and 0 or 1)
+                         + ((sd.axis == "X") and 0 or 2)
+                if not pick or sd.order < pick.order then pick = sd end
+            end
+        end
+
+        c.icon = childIcon
+        c.axis, c.sign = pick.axis, pick.sign
+        c.w  = c.n * childPitch
+        c.t0 = pick.t
+        order[#order + 1] = c
+    end
+
+    -- Packed along the perimeter in the order they meet it, each preferring to
+    -- sit centred on its own parent. Forward pass opens the overlaps, backward
+    -- pass closes the wrap the forward pass may have pushed past the seam; with
+    -- the total known to fit, one of each settles it.
+    table.sort(order, function(a, b) return a.t0 < b.t0 end)
+    local cur
+    for i = 1, #order do
+        local c = order[i]
+        c.s = c.t0 - c.w * 0.5
+        if cur and c.s < cur then c.s = cur end
+        cur = c.s + c.w
+    end
+    if #order > 0 then
+        local limit = order[1].s + L
+        for i = #order, 1, -1 do
+            local c = order[i]
+            if c.s + c.w > limit then c.s = limit - c.w end
+            limit = c.s
+        end
+    end
+
+    for i = 1, #order do
+        local c = order[i]
+        c.cells = {}
+        for j = 1, c.n do
+            local x, y, axis = PerimeterPoint(c.s + (j - 0.5) * childPitch,
+                                              HX, HY, R)
+            c.cells[j] = RunBox(x, y, axis, childPitch, m.depth)
+        end
+    end
+    return claims
+end
+
+-- (B) The eight positions around the parent's own cell, the block behind them
+-- faded and shrunk. The neighbours keep their centres -- the halo is drawn tight
+-- enough that they stay outside it -- so what they lose is the ground a pointer
+-- could have approached them across, not the entries themselves.
+function PaletteView:HaloNest(claims, shown, m)
+    -- Three boxes across must stay inside one pitch either side, or a
+    -- neighbouring entry's own centre would fall inside the halo and become
+    -- unselectable while the halo is up.
+    local hp = m.pitch * 0.5
+    local icon = min(m.childIcon, hp - m.gap * 0.5)
+    for i = 1, #claims do
+        local c = claims[i]
+        local bx, by = self:GridBase(c.parent, m.cols, m.rows, m.pitch, shown)
+        -- No axis and no side: a halo surrounds its parent rather than coming
+        -- out of one edge of the block, so there is no "other side" for the hub
+        -- caption to move to and it keeps the placement it would have had.
+        c.icon, c.dim = icon, true
+        c.cells = {}
+        for j = 1, min(c.n, #HALO_DIRS) do
+            local d = HALO_DIRS[j]
+            c.cells[j] = { x = bx + d[1] * hp, y = by + d[2] * hp,
+                           hw = hp * 0.5, hh = hp * 0.5 }
+        end
+        -- The centre is left to the parent, which fires nothing: a pointer that
+        -- comes to rest back on the entry it opened does nothing, rather than
+        -- picking whichever child happened to be nearest.
+        c.n = #c.cells
+    end
+    return claims
+end
+
+-- (C) The nested palette as a block of its own, set down just outside the parent
+-- block on the side its parent entry leans toward, with the parent block faded
+-- behind it. Closest of the three to "the sub-palette replaces this one", short
+-- of actually replacing it -- which would need the release to know how the
+-- pointer got where it is, and it never does.
+function PaletteView:PopoutNest(claims, shown, m)
+    for i = 1, #claims do
+        local c = claims[i]
+        local bx, by = self:GridBase(c.parent, m.cols, m.rows, m.pitch, shown)
+        local ccols = min(MAX_SLOTS, max(1, ceil(sqrt(c.n))))
+        local crows = ceil(c.n / ccols)
+
+        -- Which way the parent entry leans, from its own cell rather than from
+        -- the screen: the push has to agree with an open that has not happened
+        -- yet. Dead centre has no lean, and nestSide answers for it.
+        local axis, sign
+        if abs(bx) > abs(by) then
+            axis, sign = "Y", (bx > 0) and 1 or -1
+        elseif abs(by) > 0 then
+            axis, sign = "X", (by > 0) and 1 or -1
+        else
+            axis, sign = "X", m.positive and 1 or -1
+        end
+
+        local out = ((axis == "X") and m.halfY or m.halfX)
+                    + m.icon * 0.5 + m.band + m.childIcon * 0.5
+        c.icon, c.dim = m.childIcon, true
+        c.axis, c.sign = axis, sign
+        c.cells = {}
+        for j = 1, c.n do
+            local cr  = floor((j - 1) / ccols)
+            local cc  = (j - 1) % ccols
+            local row = min(ccols, c.n - cr * ccols)
+            local a = (cc - (row - 1) * 0.5) * m.childPitch
+            local d = out + cr * m.childPitch
+            local x, y
+            if axis == "X" then x, y = a, sign * d else x, y = sign * d, a end
+            c.cells[j] = { x = x, y = y,
+                           hw = m.childPitch * 0.5, hh = m.childPitch * 0.5 }
+        end
+    end
+    return claims
+end
+
+-- A scroll-steered strip's nest. The wheel decides which entry is selected and
+-- that entry is always the one drawn at the CENTRE, so its children break out
+-- across the strip from there -- the same perpendicular row a pointer-steered
+-- strip gets, at the one place this layout can put it.
+--
+-- Every nest is built at that same centre. Nothing is lost by it: only the entry
+-- the wheel has landed on is ever live, so two nests can no more be reached at
+-- once than two entries can.
+--
+-- Measured from where the palette was OPENED rather than from where the strip is
+-- drawn, because that is what this layout's cancel is measured from and the two
+-- have to be one geometry. The drawing takes the difference out again.
+function PaletteView:StripNest(claims, shown)
+    local m = self:NestMetrics(shown)
+    local horiz = self:FanHoriz()
+    local axis = horiz and "X" or "Y"
+    local sign = m.positive and 1 or -1
+    local out = m.icon * 0.5 + m.band + m.childIcon * 0.5
+
+    for i = 1, #claims do
+        local c = claims[i]
+        c.icon = m.childIcon
+        c.axis, c.sign = axis, sign
+        c.cells = {}
+        for j = 1, c.n do
+            local a = (j - (c.n + 1) * 0.5) * m.childPitch
+            local x, y
+            if horiz then x, y = a, sign * out else x, y = sign * out, a end
+            c.cells[j] = RunBox(x, y, axis, m.childPitch, m.depth)
+        end
+        -- How far across the strip the pointer may travel toward this nest
+        -- before it counts as thrown clear. Without it the strip's own cancel
+        -- sits in the gap between an entry and its children, and reaching for
+        -- one of them closes the palette instead.
+        c.across = out + m.depth * 0.5
+    end
+    return claims
+end
+
+-- Nested cells for a block layout: the grid, and a pointer-steered strip, which
+-- is a grid one entry deep.
+function PaletteView:CellChildGeom(claims, shown)
+    local m = self:NestMetrics(shown)
+    if m.style == "HALO"   then return self:HaloNest(claims, shown, m) end
+    if m.style == "POPOUT" then return self:PopoutNest(claims, shown, m) end
+    return self:PerimeterNest(claims, shown, m)
+end
+
+-- The nested cell whose box holds this offset, in cell order so that boxes which
+-- overlap still answer once. Read by the drawing; the snippet carries the same
+-- walk over the same numbers.
+function PaletteView:NestHit(dx, dy)
+    local claims = self.claims
+    for k = 1, (claims and #claims or 0) do
+        local c = claims[k]
+        for j = 1, (c.cells and c.n or 0) do
+            local b = c.cells[j]
+            if abs(dx - b.x) <= b.hw and abs(dy - b.y) <= b.hh then
+                return c.base + j, c
+            end
+        end
+    end
+end
+
 -- Lay the grid out and select the entry nearest the pointer. noPointer draws it
 -- evenly with nothing selected, which is what Layout and the editor want.
 function PaletteView:AdvanceGrid(noPointer)
@@ -1381,7 +1659,40 @@ function PaletteView:AdvanceGrid(noPointer)
         if self._steered then dx, dy = mx - fx, my - fy end
     end
 
+    -- Nested cells first, and by CONTAINMENT rather than by nearness: a nest is
+    -- somewhere you are in or out of. Inside a box, that child regardless of
+    -- what the block holds underneath -- which is what lets a halo sit over the
+    -- entries around its parent. Outside every box, the block answers as though
+    -- the nest were not there, so leaving a run in any direction leaves the nest.
     local best, bestK
+    if dx then best = self:NestHit(dx, dy) end
+
+    -- Nearest of the palette's own, once the nests have declined. Past
+    -- GRID_REACH cells from every one of them nothing is selected -- this
+    -- layout's cancel, and it has no dead zone, a grid's centre being an
+    -- ordinary cell.
+    if dx and not best then
+        for i = 1, shown do
+            local bx, by = self:GridBase(i, cols, rows, pitch)
+            local ox, oy = (dx - bx) / pitch, (dy - by) / pitch
+            -- ^0.5, not sqrt: the snippet has no sqrt and must use the power
+            -- form, and the two are not bit-identical in Lua 5.1. Matching them
+            -- keeps a cursor exactly on the reach boundary from selecting one
+            -- entry on screen and firing another.
+            local k = (ox * ox + oy * oy) ^ 0.5
+            if not bestK or k < bestK then best, bestK = i, k end
+        end
+        if bestK and bestK > GRID_REACH then best = nil end
+    end
+
+    -- Which nest is open, settled before anything is drawn: a style that fades
+    -- the block behind it has to know while the block is being painted, not a
+    -- frame later. SetSelection's own call then finds nothing left to do.
+    self:UpdateNestShown(best)
+    local open = self._openClaim
+    local dim = (open and open.dim) and NEST_DIM_ALPHA or 1
+    local shrink = (open and open.dim) and NEST_DIM_SCALE or 1
+
     for i = 1, shown do
         local w = self.widgets[i]
         local bx, by = self:GridBase(i, cols, rows, pitch)
@@ -1392,15 +1703,14 @@ function PaletteView:AdvanceGrid(noPointer)
         local s, a = max(minS, decay), 1
         if dx then
             local ox, oy = (dx - bx) / pitch, (dy - by) / pitch
-            -- ^0.5, not sqrt: the snippet has no sqrt and must use the power
-            -- form, and the two are not bit-identical in Lua 5.1. Matching them
-            -- keeps a cursor exactly on the reach boundary from selecting one
-            -- entry on screen and firing another.
             local k = (ox * ox + oy * oy) ^ 0.5
             s = max(minS, decay ^ k)
             a = max(minA, aDecay ^ k)
-            if not bestK or k < bestK then best, bestK = i, k end
         end
+        -- The entry a nest hangs off keeps its own size and colour: it is what
+        -- the nest is about, and dimming it would leave nothing on screen saying
+        -- which entry was opened.
+        if open and i ~= open.parent then s, a = s * shrink, a * dim end
 
         w:SetAlpha(a)
         w.baseSize = iconSize * s
@@ -1410,10 +1720,9 @@ function PaletteView:AdvanceGrid(noPointer)
         w:Show()
     end
 
-    -- Nested cells, in the same search: the layout does not know a grid from a
-    -- row hanging off one, and neither does the release. Not shown here --
-    -- whether a nest is open is UpdateNestShown's business, driven by the very
-    -- selection this is about to publish.
+    -- Nested cells are drawn at a flat size. They live inside boxes rather than
+    -- on a falloff, and a child shrinking as the pointer crossed its own box
+    -- would suggest a nearness that decides nothing here.
     local claims = self.claims
     for ck = 1, (claims and #claims or 0) do
         local c = claims[ck]
@@ -1421,24 +1730,15 @@ function PaletteView:AdvanceGrid(noPointer)
             local cell = c.cells and c.cells[j]
             local w = c.base and self.widgets[c.base + j]
             if cell and w then
-                local s, a = max(minS, decay), 1
-                if dx then
-                    local ox, oy = (dx - cell.x) / pitch, (dy - cell.y) / pitch
-                    local kk = (ox * ox + oy * oy) ^ 0.5
-                    s = max(minS, decay ^ kk)
-                    a = max(minA, aDecay ^ kk)
-                    if not bestK or kk < bestK then best, bestK = c.base + j, kk end
-                end
-                w:SetAlpha(a)
-                w.baseSize = c.icon * s
-                w:SetSize(c.icon * s, c.icon * s)
+                w:SetAlpha(1)
+                w.baseSize = c.icon
+                w:SetSize(c.icon, c.icon)
                 w:ClearAllPoints()
                 w:SetPoint("CENTER", frame, "CENTER", cell.x, cell.y)
             end
         end
     end
 
-    if bestK and bestK > GRID_REACH then best = nil end
     -- Magnify the chosen cell where it stands. Applied here rather than left to
     -- the selection paint because the sizes above are rewritten every frame,
     -- which would erase a zoom applied only when the selection changed.
@@ -1487,17 +1787,49 @@ end
 --
 -- The cancel and the fade read this one number, so the strip is at its dimmest
 -- exactly where a release stops firing anything.
+-- Pointer offset from the point the palette was opened at, which is what the
+-- strip's cancel and its nests are both measured from.
+function PaletteView:StripOffset()
+    if not self._gateX then return nil end
+    local es = self.frame:GetEffectiveScale()
+    local mx, my = GetCursorPosition()
+    return mx / es - self._gateX, my / es - self._gateY
+end
+
+-- The nest the entry at `index` opens, if it opens one.
+function PaletteView:ClaimFor(index)
+    local claims = self.claims
+    for k = 1, (index and claims and #claims or 0) do
+        if claims[k].parent == index then return claims[k] end
+    end
+end
+
+-- Which entry the wheel has landed on, folded into range.
+function PaletteView:StripTarget()
+    local shown = self.shownCount
+    if not self.fanTarget or shown < 1 then return nil end
+    return ((self.fanTarget - 1) % shown) + 1
+end
+
 function PaletteView:FanCancelProgress()
     if not self._gateX then return 0 end
     local p = P()
     local _, iconSize = self:Geom()
-    local es = self.frame:GetEffectiveScale()
-    local mx, my = GetCursorPosition()
-    local along, across = mx / es - self._gateX, my / es - self._gateY
+    local along, across = self:StripOffset()
     if not self:FanHoriz() then along, across = across, along end
 
     local margin = FAN_CANCEL_REACH * (iconSize + ((p and p.fanGap) or 10))
-    return max(abs(across) / margin,
+    -- Travel toward the nest the selected entry opens does not count as leaving:
+    -- its children sit past the ordinary margin, so measuring them by it would
+    -- cancel the palette on the way to reaching them. Only on the side the nest
+    -- is on, and only while that entry is the one the wheel is on.
+    local acrossMargin = margin
+    local claim = self:ClaimFor(self:StripTarget())
+    if claim and claim.across and (across > 0) == (claim.sign > 0) then
+        acrossMargin = max(margin, claim.across)
+    end
+
+    return max(abs(across) / acrossMargin,
                abs(along) / (self:FanHalfLength() + margin))
 end
 
@@ -1542,10 +1874,44 @@ function PaletteView:AdvanceFan(elapsed)
     -- selected as it places it. The strip keeps sliding to wherever the wheel
     -- has left it while the pointer is clear of it, so bringing the pointer back
     -- shows the entry that would fire, already settled.
-    if self.fanTarget and not self:FanCancelled() then
-        self:SetSelection(((self.fanTarget - 1) % shown) + 1)
-    else
-        self:SetSelection(nil)
+    local target = self:StripTarget()
+    local claim  = self:ClaimFor(target)
+    local sel
+    -- Into the nest the wheel's entry opens, if the pointer has gone there. The
+    -- wheel says WHICH nest; the pointer only says which of its children, and
+    -- says nothing at all when the entry the wheel is on does not nest.
+    local dx, dy = self:StripOffset()
+    if claim and dx and claim.base then
+        for j = 1, claim.n do
+            local b = claim.cells[j]
+            if abs(dx - b.x) <= b.hw and abs(dy - b.y) <= b.hh then
+                sel = claim.base + j
+                break
+            end
+        end
+    end
+    if not sel and target and not self:FanCancelled() then sel = target end
+    self:SetSelection(sel)
+
+    -- Nested cells, placed against the point the palette was opened at rather
+    -- than against the frame -- the difference is nothing when the palette opens
+    -- under the cursor and everything when it is pinned to the screen.
+    local claims = self.claims
+    if claims and dx then
+        local fx, fy = self.frame:GetCenter()
+        local ox, oy = 0, 0
+        if fx then ox, oy = self._gateX - fx, self._gateY - fy end
+        for k = 1, #claims do
+            local c = claims[k]
+            for j = 1, c.n do
+                local w = c.base and self.widgets[c.base + j]
+                if w then
+                    w:ClearAllPoints()
+                    w:SetPoint("CENTER", self.frame, "CENTER",
+                               ox + c.cells[j].x, oy + c.cells[j].y)
+                end
+            end
+        end
     end
 
     local target = self.fanTarget or 1
@@ -1615,6 +1981,19 @@ function PaletteView:PlaceHubText()
     -- sides as the user scrolled would read as a glitch.
     local dx, dy = 0, 0
     if not self.opts.interactive then dx, dy = self:ScreenOffset() end
+
+    -- A nest has already claimed one side of the block, so the caption takes the
+    -- other -- overriding the quadrant test below, which is about screen room
+    -- rather than about what is already sitting there. Written as a nudge to
+    -- dx/dy so there is still ONE placement rule underneath: the nest simply
+    -- decides which way the block is "facing".
+    -- Read against the tests below, which are the other way round from how they
+    -- sound: dy < 0 puts the caption ABOVE, so a nest above wants dy positive.
+    if self.nestAxis == "X" then
+        dy = (self.nestSign > 0) and 1 or -1
+    elseif self.nestAxis == "Y" then
+        dx = (self.nestSign > 0) and 1 or -1
+    end
 
     -- A grid captions like a horizontal strip: it is as wide as it is tall, so
     -- there is no side with obviously more room, and above/below keeps the text
@@ -1791,8 +2170,12 @@ function PaletteView:Layout(paletteIndex)
         local c = claims[k]
         if c.cells then
             for j = 1, c.n do
-                nestX = max(nestX, abs(c.cells[j].x) + c.icon * 0.5)
-                nestY = max(nestY, abs(c.cells[j].y) + c.icon * 0.5)
+                local b = c.cells[j]
+                -- The BOX, not the icon: it is the box a pointer has to be able
+                -- to reach, and a frame sized to the icons alone would put part
+                -- of a nest's own ground outside the palette.
+                nestX = max(nestX, abs(b.x) + max(b.hw, c.icon * 0.5))
+                nestY = max(nestY, abs(b.y) + max(b.hh, c.icon * 0.5))
             end
         else
             -- Plus the child's own half-width: a ring of icons reaches further
@@ -1817,10 +2200,11 @@ function PaletteView:Layout(paletteIndex)
     elseif fan then
         local along  = self:FanHalfLength() * 2 + 40
         local across = iconSize + 60      -- room for the hub caption
+        -- Whichever is bigger: the strip, or a nest broken out across it.
         if self:FanHoriz() then
-            frame:SetSize(along, across)
+            frame:SetSize(max(along, nestX * 2 + 40), max(across, nestY * 2 + 40))
         else
-            frame:SetSize(across, along)
+            frame:SetSize(max(across, nestX * 2 + 40), max(along, nestY * 2 + 40))
         end
     else
         -- Sized generously so labels and the selected-slot zoom never clip.
@@ -1894,6 +2278,17 @@ function PaletteView:Layout(paletteIndex)
     self.claims = claims
     self.cellCount = cells
     self._openClaim = nil
+
+    -- Which way the nests went, so the caption can hang on the other side. Taken
+    -- from the first claim that placed: with several nests on different sides
+    -- there is no one answer, and the first is the one the palette leads with.
+    self.nestAxis, self.nestSign = nil, nil
+    for k = 1, (claims and #claims or 0) do
+        if claims[k].axis then
+            self.nestAxis, self.nestSign = claims[k].axis, claims[k].sign
+            break
+        end
+    end
 
     for i = cells + 1, #self.widgets do
         self.widgets[i]:Hide()
@@ -2536,34 +2931,70 @@ local SNIPPET_PRE = [==[
             self:SetAttribute("eapWhy", "unscrolled") return nil, 1
         end
 
+        idx = ((ft - 1) % n) + 1
+
+        -- Offset from where the pointer was when the palette opened, which is
+        -- what this layout measures both its cancel and its nests from.
+        local gx = tonumber(self:GetAttribute("eapGX"))
+        local gy = tonumber(self:GetAttribute("eapGY"))
+        local dx, dy
+        if gx and ui then
+            local x, y = ui:GetMousePosition()
+            if x then
+                local s = tonumber(self:GetAttribute("eapScale")) or 1
+                if s <= 0 then s = 1 end
+                dx = (x * ui:GetWidth() - gx) / s
+                dy = (y * ui:GetHeight() - gy) / s
+            end
+        end
+
+        -- Into the nest the wheel's entry opens, if the pointer has gone there.
+        -- Before the cancel below, and not only for speed: the children sit
+        -- past the ordinary margin, so a release among them reads as thrown
+        -- clear until this has had its say.
+        local base = tonumber(self:GetAttribute("eapNBase" .. idx))
+        local hit
+        if base and dx then
+            local num = tonumber(self:GetAttribute("eapNNum" .. idx)) or 0
+            for j = 1, num do
+                local i2 = base + j
+                local bx = tonumber(self:GetAttribute("eapBX" .. i2))
+                local by = tonumber(self:GetAttribute("eapBY" .. i2))
+                if bx and abs(dx - bx) <= (tonumber(self:GetAttribute("eapHW" .. i2)) or 0)
+                       and abs(dy - by) <= (tonumber(self:GetAttribute("eapHH" .. i2)) or 0) then
+                    idx = i2
+                    hit = true
+                    break
+                end
+            end
+        end
+
         -- Thrown clear of the strip -> cancel. This is the strip's counterpart
         -- to the grid's out-of-reach: past the strip in ANY direction, measured
         -- from where the pointer was when the palette opened. The box is as
         -- long as the strip is drawn and only a margin wide, because that is
         -- the shape of the thing being left. The live view applies exactly this
         -- rule, so a strip showing nothing selected fires nothing.
-        local gx = tonumber(self:GetAttribute("eapGX"))
-        local gy = tonumber(self:GetAttribute("eapGY"))
+        --
         -- No geometry pushed -> no box to test against, so the release stands.
         -- Firing what the user steered to is the safer of the two failures.
         local margin = tonumber(self:GetAttribute("eapFanMargin"))
         local half = tonumber(self:GetAttribute("eapFanHalf"))
-        if gx and ui and margin and half then
-            local x, y = ui:GetMousePosition()
-            if x then
-                local s = tonumber(self:GetAttribute("eapScale")) or 1
-                if s <= 0 then s = 1 end
-                local along  = (x * ui:GetWidth() - gx) / s
-                local across = (y * ui:GetHeight() - gy) / s
-                if not self:GetAttribute("eapFanHoriz") then
-                    along, across = across, along
-                end
-                if abs(across) > margin or abs(along) > half + margin then
-                    self:SetAttribute("eapWhy", "thrownclear") return nil, 1
-                end
+        if not hit and dx and margin and half then
+            local along, across = dx, dy
+            if not self:GetAttribute("eapFanHoriz") then
+                along, across = across, along
+            end
+            -- Reaching toward a nest is not leaving. Only on the side that
+            -- nest is on, and only while its entry is the one the wheel is on.
+            local am = margin
+            local na = tonumber(self:GetAttribute("eapNAcross" .. idx))
+            local ns = tonumber(self:GetAttribute("eapNSide" .. idx))
+            if na and ns and (across > 0) == (ns > 0) and na > am then am = na end
+            if abs(across) > am or abs(along) > half + margin then
+                self:SetAttribute("eapWhy", "thrownclear") return nil, 1
             end
         end
-        idx = ((ft - 1) % n) + 1
     else
         if not ui then self:SetAttribute("eapWhy", "nohandle") return nil, 1 end
         local x, y = ui:GetMousePosition()
@@ -2612,27 +3043,49 @@ local SNIPPET_PRE = [==[
         self:SetAttribute("eapDY", dy)
 
         if mode == "POINTER" then
-            -- Nearest cell, by true 2D distance in cells. A grid has no
-            -- privileged axis, so projecting onto one would let sideways
+            local pitch = tonumber(self:GetAttribute("eapPitch")) or 1
+            if pitch <= 0 then pitch = 1 end
+
+            -- Nested cells first, and by CONTAINMENT: a half-extent is what
+            -- marks a cell as one. Inside a box, that child regardless of what
+            -- the block holds underneath; outside every box, the block answers
+            -- as though the nest were not there. In index order, so two boxes
+            -- that overlap still have one answer -- the same walk the palette
+            -- draws with, which is the requirement, disjointness not being one.
+            for i = n + 1, total do
+                local hw = tonumber(self:GetAttribute("eapHW" .. i))
+                if hw then
+                    local bx = tonumber(self:GetAttribute("eapBX" .. i)) or 0
+                    local by = tonumber(self:GetAttribute("eapBY" .. i)) or 0
+                    local hh = tonumber(self:GetAttribute("eapHH" .. i)) or 0
+                    if abs(dx - bx) <= hw and abs(dy - by) <= hh then
+                        idx = i
+                        break
+                    end
+                end
+            end
+
+            -- Nearest of the palette's own, by true 2D distance in cells. A grid
+            -- has no privileged axis, so projecting onto one would let sideways
             -- movement change the choice. Past eapReach cells from every entry
             -- nothing is selected -- that is this layout's cancel, and it has no
             -- dead zone: the centre of a grid can hold an entry, so cancelling
             -- there would make the middle of an odd-sized grid unfireable.
-            local pitch = tonumber(self:GetAttribute("eapPitch")) or 1
-            if pitch <= 0 then pitch = 1 end
-            local bestK
-            for i = 1, total do
-                local bx = tonumber(self:GetAttribute("eapBX" .. i))
-                local by = tonumber(self:GetAttribute("eapBY" .. i))
-                if bx then
-                    local px, py = (dx - bx) / pitch, (dy - by) / pitch
-                    local k = (px * px + py * py) ^ 0.5
-                    if not bestK or k < bestK then idx, bestK = i, k end
+            if not idx then
+                local bestK
+                for i = 1, n do
+                    local bx = tonumber(self:GetAttribute("eapBX" .. i))
+                    local by = tonumber(self:GetAttribute("eapBY" .. i))
+                    if bx then
+                        local px, py = (dx - bx) / pitch, (dy - by) / pitch
+                        local k = (px * px + py * py) ^ 0.5
+                        if not bestK or k < bestK then idx, bestK = i, k end
+                    end
                 end
-            end
-            self:SetAttribute("eapRel", bestK)
-            if bestK and bestK > (tonumber(self:GetAttribute("eapReach")) or 1) then
-                idx = nil
+                self:SetAttribute("eapRel", bestK)
+                if bestK and bestK > (tonumber(self:GetAttribute("eapReach")) or 1) then
+                    idx = nil
+                end
             end
             if not idx then
                 self:SetAttribute("eapIdx", nil)
@@ -2910,6 +3363,13 @@ local function PushPalette(index)
                 btn:SetAttribute("eapBX" .. i, nil)
                 btn:SetAttribute("eapBY" .. i, nil)
             end
+            -- A half-extent is what marks a cell as a nest, and the nests are
+            -- written after this. Cleared over the palette's OWN range too: a
+            -- longer set of nests last time would otherwise leave half-extents
+            -- on indices that are now ordinary entries, and those entries would
+            -- answer to containment instead of taking their turn at nearness.
+            btn:SetAttribute("eapHW" .. i, nil)
+            btn:SetAttribute("eapHH" .. i, nil)
         end
         btn:SetAttribute("eapPitch", pitch)
         btn:SetAttribute("eapReach", GRID_REACH)
@@ -2957,13 +3417,16 @@ local function PushPalette(index)
             btn:SetAttribute("eapK" .. total, aKey)
             btn:SetAttribute("eapV" .. total, aVal)
             btn:SetAttribute("eapPal" .. total, ChildIndex(c.slots[j]) and true or nil)
-            -- A block layout's nests are cells like any other, so they go into
-            -- the same table the nearest-cell search already walks. That is the
-            -- whole reason this flattens: the snippet gains no branch at all,
-            -- only a longer loop.
+            -- A block layout's nests carry a BOX. Half-extents are what tells
+            -- the snippet these cells are tested by containment rather than by
+            -- nearness -- the palette's own entries have no half-extents, and
+            -- fall to the nearest-cell search below.
             if c.cells then
-                btn:SetAttribute("eapBX" .. total, c.cells[j].x)
-                btn:SetAttribute("eapBY" .. total, c.cells[j].y)
+                local b = c.cells[j]
+                btn:SetAttribute("eapBX" .. total, b.x)
+                btn:SetAttribute("eapBY" .. total, b.y)
+                btn:SetAttribute("eapHW" .. total, b.hw)
+                btn:SetAttribute("eapHH" .. total, b.hh)
             end
         end
     end
@@ -2977,9 +3440,31 @@ local function PushPalette(index)
         btn:SetAttribute("eapPal" .. i, nil)
         btn:SetAttribute("eapBX" .. i, nil)
         btn:SetAttribute("eapBY" .. i, nil)
+        btn:SetAttribute("eapHW" .. i, nil)
+        btn:SetAttribute("eapHH" .. i, nil)
     end
     pushedCells[index] = total
     btn:SetAttribute("eapTotal", total)
+
+    -- A scroll-steered strip reaches its nests through the entry the WHEEL is
+    -- on, not through the cursor: the wheel says which nest, and the cursor only
+    -- says which of its children. One lookup per entry that nests, so the
+    -- snippet goes straight from the wheel's answer to that nest's boxes.
+    if model == "SCROLL" then
+        for i = 1, MAX_SLOTS do
+            btn:SetAttribute("eapNBase" .. i, nil)
+            btn:SetAttribute("eapNNum" .. i, nil)
+            btn:SetAttribute("eapNAcross" .. i, nil)
+            btn:SetAttribute("eapNSide" .. i, nil)
+        end
+        for k = 1, (claims and #claims or 0) do
+            local c = claims[k]
+            btn:SetAttribute("eapNBase" .. c.parent, c.base)
+            btn:SetAttribute("eapNNum" .. c.parent, c.n)
+            btn:SetAttribute("eapNAcross" .. c.parent, c.across)
+            btn:SetAttribute("eapNSide" .. c.parent, c.sign)
+        end
+    end
 
     -- One ANGULAR claim per slot that opens a palette. Angles in degrees, and
     -- the start is the EDGE of child 1's sector rather than its centre, so the
