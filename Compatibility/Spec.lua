@@ -34,9 +34,9 @@ local CLASS_SPECS = {
         { id = 258, name = "Shadow",     fileName = "PriestShadow",     role = "DAMAGER" },
     },
     DEATHKNIGHT = {
-        { id = 250, name = "Blood",  fileName = "DeathKnightBlood",  role = "TANK"    },
-        { id = 251, name = "Frost",  fileName = "DeathKnightFrost",  role = "DAMAGER" },
-        { id = 252, name = "Unholy", fileName = "DeathKnightUnholy", role = "DAMAGER" },
+        { id = 250, name = "Blood",  fileName = "DeathKnightBlood",  role = "TANK",    roles = { "TANK", "DAMAGER" } },
+        { id = 251, name = "Frost",  fileName = "DeathKnightFrost",  role = "DAMAGER", roles = { "TANK", "DAMAGER" } },
+        { id = 252, name = "Unholy", fileName = "DeathKnightUnholy", role = "DAMAGER", roles = { "TANK", "DAMAGER" } },
     },
     SHAMAN = {
         { id = 262, name = "Elemental",   fileName = "ShamanElemental",   role = "DAMAGER" },
@@ -55,7 +55,7 @@ local CLASS_SPECS = {
     },
     DRUID = {
         { id = 102, name = "Balance",    fileName = "DruidBalance",    role = "DAMAGER" },
-        { id = 103, name = "Feral",      fileName = "DruidFeralCombat", role = "DAMAGER" },
+        { id = 103, name = "Feral",      fileName = "DruidFeralCombat", role = "DAMAGER", roles = { "DAMAGER", "TANK" } },
         { id = 105, name = "Restoration", fileName = "DruidRestoration", role = "HEALER"  },
     },
 }
@@ -63,6 +63,14 @@ local CLASS_SPECS = {
 local CLASS_IDS = {
     WARRIOR = 1, PALADIN = 2, HUNTER = 3, ROGUE = 4, PRIEST = 5,
     DEATHKNIGHT = 6, SHAMAN = 7, MAGE = 8, WARLOCK = 9, DRUID = 11,
+}
+
+-- These checks are intentionally empty for now.  They provide a stable place
+-- for class-specific talent checks to distinguish the roles available from a
+-- single talent tree.
+Spec.RoleChecks = Spec.RoleChecks or {
+    DEATHKNIGHT = { [1] = nil, [2] = nil, [3] = nil },
+    DRUID = { [2] = nil },
 }
 
 local BY_ID = {}
@@ -88,6 +96,13 @@ local function TalentTabInfo(index, group)
     return GetTalentTabInfo(index, false, false, group)
 end
 
+local function ResolveRole(template, classToken, index, group)
+    local checks = Spec.RoleChecks[classToken]
+    local check = checks and checks[index]
+    local role = check and check(classToken, index, group, template)
+    return role or template.role
+end
+
 local function LegacyInfo(classToken, index, group)
     local template = CLASS_SPECS[classToken] and CLASS_SPECS[classToken][index]
     if not template then return end
@@ -98,7 +113,8 @@ local function LegacyInfo(classToken, index, group)
         index = index,
         name = name or template.name,
         icon = icon,
-        role = template.role,
+        role = ResolveRole(template, classToken, index, group),
+        roles = template.roles,
         fileName = fileName or template.fileName,
         classToken = classToken,
         group = group,
@@ -124,33 +140,8 @@ local function CurrentLegacy()
     return LegacyInfo(classToken, bestIndex, group)
 end
 
-local function CurrentRetail()
-    local namespace = _G.C_SpecializationInfo
-    if not namespace or not namespace.GetSpecialization or not namespace.GetSpecializationInfo then
-        return
-    end
-
-    local index = namespace.GetSpecialization()
-    if not index then return end
-    local id, name, _, icon, role = namespace.GetSpecializationInfo(index)
-    if not id then return end
-    local template = BY_ID[id] or {}
-    return {
-        id = id,
-        index = index,
-        name = name or template.name,
-        icon = icon or template.icon,
-        role = role or template.role,
-        fileName = template.fileName,
-        classToken = PlayerClass(),
-    }
-end
-
 function Spec:GetCurrent()
-    if GetTalentTabInfo then
-        return CurrentLegacy()
-    end
-    return CurrentRetail()
+    return CurrentLegacy()
 end
 
 function Spec:GetCurrentID()
@@ -165,19 +156,14 @@ end
 
 function Spec:GetInfo(index)
     local classToken = PlayerClass()
-    if GetTalentTabInfo then
-        return LegacyInfo(classToken, index, ActiveTalentGroup())
-    end
-
-    local info = self:GetList()[index]
-    return info
+    return LegacyInfo(classToken, index, ActiveTalentGroup())
 end
 
 function Spec:GetInfoByID(id)
     id = tonumber(id) or id
     local info = BY_ID[id]
     if not info then return end
-    if GetTalentTabInfo and info.classToken == PlayerClass() then
+    if info.classToken == PlayerClass() then
         return LegacyInfo(info.classToken, info.index, ActiveTalentGroup())
     end
     return info
@@ -186,7 +172,7 @@ end
 function Spec:GetInfoForClassID(classID, index)
     for classToken, id in pairs(CLASS_IDS) do
         if id == classID then
-            if GetTalentTabInfo and classToken == PlayerClass() then
+            if classToken == PlayerClass() then
                 return LegacyInfo(classToken, index, ActiveTalentGroup())
             end
             local info = CLASS_SPECS[classToken] and CLASS_SPECS[classToken][index]
@@ -196,25 +182,6 @@ function Spec:GetInfoForClassID(classID, index)
 end
 
 function Spec:GetList()
-    if not GetTalentTabInfo then
-        local result = {}
-        local count = (_G.GetNumSpecializations and _G.GetNumSpecializations()) or 0
-        for index = 1, count do
-            if _G.C_SpecializationInfo and _G.C_SpecializationInfo.GetSpecializationInfo then
-                local id, name, _, icon, role = _G.C_SpecializationInfo.GetSpecializationInfo(index)
-                if id then
-                    local template = BY_ID[id] or {}
-                    result[#result + 1] = {
-                        id = id, index = index, name = name or template.name,
-                        icon = icon or template.icon, role = role or template.role,
-                        classToken = PlayerClass(),
-                    }
-                end
-            end
-        end
-        return result
-    end
-
     local classToken = PlayerClass()
     local result = {}
     for index = 1, #(CLASS_SPECS[classToken] or {}) do
