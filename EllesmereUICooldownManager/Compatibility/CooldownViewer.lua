@@ -322,6 +322,15 @@ local function RefreshAdapterVisual(frame)
     end
 
     if isAura and wasActive ~= (isActive and true or false) then
+        -- Notify the viewer's pool so the hooks layer installs
+        -- OnActiveStateChanged hooks on newly created adapters and queues a
+        -- reanchor for layout.  Fires on both gain and fade so the bar
+        -- re-lays out (closing gaps / adding the new icon) even if the hook
+        -- was never installed on this particular adapter.
+        local viewer = frame.viewerFrame
+        if viewer and viewer.itemFramePool and viewer.itemFramePool.Acquire then
+            viewer.itemFramePool.Acquire()
+        end
         frame:OnActiveStateChanged(isActive)
     end
 end
@@ -664,14 +673,28 @@ local function CreateMockPool(categoryID)
             -- abilities, not every definition for every class.  Unknown entries
             -- remain available through GetCooldownViewerCategorySet(..., true)
             -- for pickers and reconciliation.
+            --
+            -- On Retail, aura-only entries (trinket procs) only acquire a pool
+            -- frame while the proc aura is active.  Returning inactive aura
+            -- adapters here caused the hooks layer to process hidden frames,
+            -- producing empty layout slots and icon overlaps when procs fired
+            -- or faded.  Filter them out so only genuinely active adapters
+            -- enter the collection/layout pass.
             local entries = C_CooldownViewer.GetCooldownViewerCategorySet(categoryID, false)
             local i = 0
             return function()
-                i = i + 1
-                if entries[i] then
-                    return GetOrCreateAdapter(entries[i])
+                while true do
+                    i = i + 1
+                    local cdID = entries[i]
+                    if not cdID then return nil end
+                    local adapter = GetOrCreateAdapter(cdID)
+                    -- Skip aura-only adapters whose proc is not currently active.
+                    -- Their frame is hidden by RefreshAdapterVisual and should not
+                    -- participate in the bar layout.
+                    if adapter._adapterActive ~= false then
+                        return adapter
+                    end
                 end
-                return nil
             end
         end,
         Acquire = function() end,
