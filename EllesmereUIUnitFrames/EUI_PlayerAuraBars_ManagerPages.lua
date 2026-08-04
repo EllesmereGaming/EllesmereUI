@@ -623,7 +623,7 @@ local function BuildCoreFields(frame, fontPath, sy, cfg, apply, isBuff)
             title = "Icon Size",
             rows = {
                 { type = "slider", label = "Icon Zoom", min = 0, max = 0.20, step = 0.01,
-                  get = function() return cfg.iconZoom or 0.07 end,
+                  get = function() return cfg.iconZoom or 0.055 end,
                   set = function(v) cfg.iconZoom = v; apply() end },
             },
         })
@@ -696,7 +696,7 @@ local function BuildCoreFields(frame, fontPath, sy, cfg, apply, isBuff)
         EllesmereUI.RegisterWidgetRefresh(updateSwatch)
         AttachCog(rgn, "Stacks Text", {
             { type = "slider", label = "Text Size", min = 6, max = 24, step = 1,
-              get = function() return cfg.stackTextSize or 12 end,
+              get = function() return cfg.stackTextSize or 11 end,
               set = function(v) cfg.stackTextSize = v; apply() end },
             { type = "slider", label = "Offset X", min = -50, max = 50, step = 1,
               get = function() return cfg.stackOffsetX or 0 end,
@@ -706,7 +706,7 @@ local function BuildCoreFields(frame, fontPath, sy, cfg, apply, isBuff)
               set = function(v) cfg.stackOffsetY = v; apply() end },
             { type = "dropdown", label = "Position",
               values = AURA_POINT_VALUES, order = AURA_POINT_ORDER,
-              get = function() return cfg.stackPosition or "BOTTOMRIGHT" end,
+              get = function() return cfg.stackPosition or "TOP" end,
               set = function(v) cfg.stackPosition = v; apply() end },
         })
     end
@@ -716,7 +716,7 @@ end
 
 -- "Display": Border Size [swatch] | Spacing; Icons per Row (+Max Rows/Max
 -- Total/Row Spacing cog) | spacer.
-local function BuildDisplayFields(frame, fontPath, sy, cfg, apply)
+local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
     local W = EllesmereUI.Widgets
     local PP = EllesmereUI.PanelPP
     local _, hh = 0, 0
@@ -732,7 +732,7 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply)
         },
         {
             type = "slider", text = "Spacing", min = 0, max = 20, step = 1, trackWidth = 120,
-            getValue = function() return cfg.padding or 4 end,
+            getValue = function() return cfg.padding or 5 end,
             setValue = function(v) cfg.padding = v; apply() end
         }
     ); sy = sy - hh
@@ -761,11 +761,10 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply)
         local _, cogShow = EllesmereUI.BuildCogPopup({
             title = "Spacing",
             rows = {
-                -- nil = auto (follows Spacing/padding, same as before this
-                -- field existed) -- default shown here mirrors the current
-                -- Spacing value rather than a fixed number, per Joel's request.
+                -- nil = 12px default (2026-08-04, Joel) -- deliberately
+                -- decoupled from Spacing/padding, no longer mirrors it.
                 { type = "slider", label = "Row Spacing", min = 0, max = 20, step = 1,
-                  get = function() return cfg.rowSpacing or cfg.padding or 4 end,
+                  get = function() return cfg.rowSpacing or 12 end,
                   set = function(v) cfg.rowSpacing = v; apply() end },
             },
         })
@@ -776,7 +775,7 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply)
     rowRow, hh = W:DualRow(frame, sy,
         {
             type = "slider", text = "Icons Per Row", min = 1, max = 20, step = 1, trackWidth = 120,
-            getValue = function() return cfg.iconsPerRow or 8 end,
+            getValue = function() return cfg.iconsPerRow or (isBuff and 11 or 8) end,
             setValue = function(v) cfg.iconsPerRow = v; apply() end
         },
         { type = "label", text = "" }
@@ -791,10 +790,10 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply)
             title = "Icons Per Row",
             rows = {
                 { type = "slider", label = "Max Rows", min = 1, max = 10, step = 1,
-                  get = function() return cfg.maxRows or 4 end,
+                  get = function() return cfg.maxRows or (isBuff and 3 or 2) end,
                   set = function(v) cfg.maxRows = v; apply() end },
                 { type = "slider", label = "Max Total", min = 1, max = 40, step = 1,
-                  get = function() return cfg.maxTotal or 32 end,
+                  get = function() return cfg.maxTotal or (isBuff and 32 or 16) end,
                   set = function(v) cfg.maxTotal = v; apply() end },
             },
         })
@@ -1176,7 +1175,7 @@ local function BuildDefaultBarDetail(frame, fontPath, isBuff)
         sy = BuildAssignedDebuffsFields(body, fontPath, sy, cfg, ApplyBar)
     end
     sy = BuildCoreFields(body, fontPath, sy, cfg, ApplyBar, isBuff)
-    sy = BuildDisplayFields(body, fontPath, sy, cfg, ApplyBar)
+    sy = BuildDisplayFields(body, fontPath, sy, cfg, ApplyBar, isBuff)
     if not isBuff then
         sy = BuildDispelColorFields(body, fontPath, sy, cfg, ApplyBar)
         sy = BuildFxEffects(body, sy, cfg, ApplyBar)
@@ -1224,7 +1223,7 @@ local function BuildExternalDefensivesBarDetail(frame, fontPath)
     local sy = 0
 
     sy = BuildCoreFields(body, fontPath, sy, cfg, ApplyBar, true)
-    sy = BuildDisplayFields(body, fontPath, sy, cfg, ApplyBar)
+    sy = BuildDisplayFields(body, fontPath, sy, cfg, ApplyBar, true)
     FinalizeCompensatedBody(body, sy)
 end
 
@@ -1448,7 +1447,7 @@ local function BuildBuffBarDetail(frame, fontPath, bar)
     local by = 0
     by = BuildAssignedBuffsFields(body, fontPath, by, bar, ApplyBar)
     by = BuildCoreFields(body, fontPath, by, bar, ApplyBar, true)
-    by = BuildDisplayFields(body, fontPath, by, bar, ApplyBar)
+    by = BuildDisplayFields(body, fontPath, by, bar, ApplyBar, true)
     FinalizeCompensatedBody(body, by)
 end
 
@@ -1473,7 +1472,7 @@ local function BuildDebuffBarDetail(frame, fontPath, bar)
     local by = 0
     by = BuildAssignedDebuffsFields(body, fontPath, by, bar, ApplyBar)
     by = BuildCoreFields(body, fontPath, by, bar, ApplyBar, false)
-    by = BuildDisplayFields(body, fontPath, by, bar, ApplyBar)
+    by = BuildDisplayFields(body, fontPath, by, bar, ApplyBar, false)
     by = BuildDispelColorFields(body, fontPath, by, bar, ApplyBar)
     by = BuildFxEffects(body, by, bar, ApplyBar)
     FinalizeCompensatedBody(body, by)

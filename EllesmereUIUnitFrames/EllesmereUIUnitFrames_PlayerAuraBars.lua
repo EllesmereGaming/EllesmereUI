@@ -961,7 +961,7 @@ end
 local function ComputeGrid(isBuff, cfg)
     local iconSize = MaxIconSizeFor(isBuff, cfg)
     local pad = cfg.padding or 5
-    local rowGap = cfg.rowSpacing or pad
+    local rowGap = cfg.rowSpacing or 12
     local cols = math.max(1, cfg.iconsPerRow or (isBuff and 11 or 8))
     local rows = math.max(1, cfg.maxRows or (isBuff and 3 or 2))
     local configuredMax = cfg.maxTotal or (isBuff and 32 or 16)
@@ -3503,7 +3503,7 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
     -- it just no longer moves the box/divider around while doing it.
     local corner = CornerFor(cfg.growDirection or "LEFT")
     local pad = cfg.padding or 5
-    local rowGap = cfg.rowSpacing or pad
+    local rowGap = cfg.rowSpacing or 12
     local iconSize = cfg.iconSize or 32
     local cols = math.max(1, cfg.iconsPerRow or (isBuff and 11 or 8))
     local count = grid.effectiveMax
