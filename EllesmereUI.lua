@@ -5134,13 +5134,14 @@ end
 -- source of the parent addon's runtime memory churn. Spec only changes on a
 -- spec swap, so cache the id and refresh on the spec-change events instead.
 EllesmereUI._RefreshSpecID = function()
-    local spec = C_SpecializationInfo and C_SpecializationInfo.GetSpecialization()
-    EllesmereUI._specID = (spec and C_SpecializationInfo.GetSpecializationInfo(spec)) or 0
+    EllesmereUI._specID = (EUI.Spec and EUI.Spec:GetCurrentID()) or 0
 end
 EllesmereUI._specWatcher = EllesmereUI._specWatcher or EllesmereUI.SafeCreateFrame("Frame")
 EllesmereUI._specWatcher:RegisterEvent("PLAYER_LOGIN")
 EllesmereUI._specWatcher:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 EllesmereUI._specWatcher:RegisterEvent("PLAYER_ENTERING_WORLD")
+EllesmereUI._specWatcher:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
+EllesmereUI._specWatcher:RegisterEvent("PLAYER_TALENT_UPDATE")
 EllesmereUI._specWatcher:SetScript("OnEvent", EllesmereUI._RefreshSpecID)
 
 function EllesmereUI.GetSoulFragments()

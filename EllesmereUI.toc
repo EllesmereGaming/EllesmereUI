@@ -17,6 +17,7 @@ Libs\LibDeflate\LibDeflate.lua
 
 # Core Polyfills for WotLK 3.3.5
 Compatibility\API.lua
+Compatibility\Spec.lua
 Compatibility\Frame.lua
 Compatibility\Texture.lua
 Compatibility\Cooldown.lua

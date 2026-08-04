@@ -161,7 +161,7 @@ local function DeepCopy(src)
 end
 
 local function CurrentSpecID()
-    local id = EllesmereUI._specID
+    local id = EUI.Spec and EUI.Spec:GetCurrentID() or EllesmereUI._specID
     if not id or id == 0 then
         if EllesmereUI._RefreshSpecID then EllesmereUI._RefreshSpecID() end
         id = EllesmereUI._specID
@@ -170,11 +170,12 @@ local function CurrentSpecID()
 end
 
 local function SpecName(specID)
-    local _, name, _, _, _, _, className = GetSpecializationInfoByID(specID)
-    if name and className then
-        return name .. " - " .. className:sub(1, 1):upper() .. className:sub(2):lower()
+    local info = EUI.Spec and EUI.Spec:GetInfoByID(specID)
+    if info and info.name and info.classToken then
+        local className = info.classToken
+        return info.name .. " - " .. className:sub(1, 1):upper() .. className:sub(2):lower()
     end
-    return name or ("Spec " .. tostring(specID))
+    return info and info.name or ("Spec " .. tostring(specID))
 end
 
 -------------------------------------------------------------------------------

@@ -13,6 +13,7 @@
 --    regardless of who set it.
 -------------------------------------------------------------------------------
 local ADDON_NAME = ...
+local Spec = EUI and EUI.Spec
 
 -------------------------------------------------------------------------------
 --  Page / section names
@@ -49,17 +50,13 @@ function EllesmereUI.RunCDMSpellExportFlow(activeName, exportFn)
             and EllesmereUIDB.spellAssignments.profiles
             and EllesmereUIDB.spellAssignments.profiles[activeName]
             and EllesmereUIDB.spellAssignments.profiles[activeName].specProfiles
-        local n = (GetNumSpecializations and GetNumSpecializations()) or 0
-        for i = 1, n do
-            local specID = GetSpecializationInfo and GetSpecializationInfo(i)
-            if specID then
-                local key = tostring(specID)
-                local d = sp and sp[key]
-                specs[#specs + 1] = {
-                    key = key,
-                    checked = (d and type(d.barSpells) == "table" and next(d.barSpells) ~= nil) and true or false,
-                }
-            end
+        for _, info in ipairs(Spec and Spec:GetList() or {}) do
+            local key = tostring(info.id)
+            local d = sp and sp[key]
+            specs[#specs + 1] = {
+                key = key,
+                checked = (d and type(d.barSpells) == "table" and next(d.barSpells) ~= nil) and true or false,
+            }
         end
         EllesmereUI:ShowCDMSpecPickerPopup({
             title         = EllesmereUI.L("Export CDM Spells"),
@@ -3569,8 +3566,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- assignment. If the user opens settings while on the wrong profile
         -- (e.g. spec info was unavailable at login), correct it now.
         do
-            local si = GetSpecialization and GetSpecialization() or 0
-            local sid = si and si > 0 and GetSpecializationInfo(si) or nil
+            local sid = Spec and Spec:GetCurrentID()
             if sid then
                 local assigned = EllesmereUI.GetSpecProfile(sid)
                 if assigned then
@@ -6043,8 +6039,7 @@ initFrame:SetScript("OnEvent", function(self)
                 local activeName = EllesmereUI.GetActiveProfileName()
                 local specAssigned
                 do
-                    local si = GetSpecialization and GetSpecialization() or 0
-                    local sid = si and si > 0 and GetSpecializationInfo(si) or nil
+                    local sid = Spec and Spec:GetCurrentID()
                     if sid then specAssigned = EllesmereUI.GetSpecProfile(sid) end
                 end
                 for _, name in ipairs(order) do
