@@ -15,7 +15,6 @@ local SECTION_RAID_BUFFS   = "RAID BUFFS"
 local SECTION_AURAS        = "AURAS"
 local SECTION_CONSUMABLES  = "CONSUMABLES"
 local SECTION_ROGUE        = "ROGUE POISONS"
-local SECTION_PALADIN      = "PALADIN RITES"
 local SECTION_SHAMAN       = "SHAMAN IMBUES & SHIELDS"
 
 local initFrame = EllesmereUI.SafeCreateFrame("Frame")
@@ -168,17 +167,6 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
-        -- Paladin rites: show first enabled
-        if playerClass == "PALADIN" then
-            local RITES = _G._EABR_PALADIN_RITES or {}
-            for _, rite in ipairs(RITES) do
-                if Known(rite.castSpell) and co and co.enabled and co.enabled[rite.key] then
-                    icons[#icons+1] = { texture = Tex(rite.castSpell), label = ShortLabel(_G._EABR_SpellName(rite.castSpell, rite.name)), cat = "consumable", itemKey = rite.key }
-                    break
-                end
-            end
-        end
-
         -- Shaman imbues: show first enabled
         if playerClass == "SHAMAN" then
             local IMBUES = _G._EABR_SHAMAN_IMBUES or {}
@@ -210,19 +198,9 @@ initFrame:SetScript("OnEvent", function(self)
             icons[#icons+1] = { texture = 134062, label = EllesmereUI.L("Food"), cat = "consumable", itemKey = "food" }
         end
 
-        -- Augment Rune
-        if co and co.enabled and co.enabled.augment_rune then
-            icons[#icons+1] = { texture = C_Item.GetItemIconByID(259085) or 134400, label = EllesmereUI.L("Rune"), cat = "consumable", itemKey = "augment_rune" }
-        end
-
         -- Healthstone (default-on: treat nil as enabled, matching the toggle)
         if co and co.enabled and co.enabled.healthstone ~= false then
-            icons[#icons+1] = { texture = C_Item.GetItemIconByID(5512) or 134400, label = EllesmereUI.L("Stone"), cat = "consumable", itemKey = "healthstone" }
-        end
-
-        -- Inky Black Potion
-        if co and co.enabled and co.enabled.inky_black then
-            icons[#icons+1] = { texture = C_Item.GetItemIconByID(124640) or 136122, label = EllesmereUI.L("Inky"), cat = "consumable", itemKey = "inky_black" }
+            icons[#icons+1] = { texture = C_Item.GetItemIconByID(36892) or 134400, label = EllesmereUI.L("Stone"), cat = "consumable", itemKey = "healthstone" }
         end
 
         return icons
@@ -1188,29 +1166,6 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = W:Spacer(parent, y, 10);  y = y - h
 
         -----------------------------------------------------------------------
-        --  PALADIN RITES sub-section
-        -----------------------------------------------------------------------
-        _, h = W:SectionHeader(parent, SECTION_PALADIN, y);  y = y - h
-
-        do
-            local RITES = _G._EABR_PALADIN_RITES or {}
-            local gridItems = {}
-            for _, rite in ipairs(RITES) do
-                gridItems[#gridItems+1] = {
-                    label = _G._EABR_SpellName(rite.castSpell, rite.name),
-                    classToken = "PALADIN",
-                    key = rite.key,
-                    getVal = function() local c = CDB(); return c and c.enabled and c.enabled[rite.key] end,
-                    setVal = function(v) local c = CDB(); if c and c.enabled then c.enabled[rite.key] = v end end,
-                }
-            end
-            h = BuildCheckboxGrid(parent, y, gridItems, function() RefreshAll(); RebuildPreviewHeader() end, _gridCellRefs)
-            y = y - h
-        end
-
-        _, h = W:Spacer(parent, y, 10);  y = y - h
-
-        -----------------------------------------------------------------------
         --  SHAMAN IMBUES & SHIELDS sub-section
         -----------------------------------------------------------------------
         _, h = W:SectionHeader(parent, SECTION_SHAMAN, y);  y = y - h
@@ -1344,127 +1299,15 @@ initFrame:SetScript("OnEvent", function(self)
             );  y = y - h
         end
 
-        -- Augment Rune toggle | Display In dropdown
-        local runeRow
-        runeRow, h = W:DualRow(parent, y,
-            { type="toggle", text="Augment Rune",
-              getValue=function() local c = CDB(); return c and c.enabled and c.enabled.augment_rune end,
-              setValue=function(v) local c = CDB(); if c and c.enabled then c.enabled.augment_rune = v; RefreshAll(); RebuildPreviewHeader() end end },
-            { type="dropdown", text="Augment Reminder Only In:",
-              values={ mythic="Mythic Only", heroic_mythic="Heroic and Mythic", all="All Instanced Content" },
-              order={ "mythic", "heroic_mythic", "all" },
-              getValue=function() local c = CDB(); return c and c.runeDisplayMode or "mythic" end,
-              setValue=function(v) local c = CDB(); if c then c.runeDisplayMode = v; RefreshAll() end end }
-        );  y = y - h
-
-        -- Healthstone toggle | Inky Black Potion toggle
+        -- Healthstone toggle
         row, h = W:DualRow(parent, y,
             { type="toggle", text="Healthstone",
               tooltip="Remind you to grab a Healthstone when a Warlock is in your group.",
               getValue=function() local c = CDB(); return c and c.enabled and c.enabled.healthstone ~= false end,
               setValue=function(v) local c = CDB(); if c and c.enabled then c.enabled.healthstone = v; RefreshAll(); RebuildPreviewHeader() end end },
-            { type="toggle", text="Inky Black Potion",
-              getValue=function() local c = CDB(); return c and c.enabled and c.enabled.inky_black end,
-              setValue=function(v)
-                  local c = CDB(); if c and c.enabled then c.enabled.inky_black = v; RefreshAll(); RebuildPreviewHeader() end
-                  EllesmereUI:RefreshPage()
-              end }
+            { type="label", text="" }
         );  y = y - h
         local healthstoneRow = row
-
-        -- Inline "Choose Zones" button on the right region (Inky Black)
-        do
-            local rgn = row._rightRegion
-            local eg = EllesmereUI.ELLESMERE_GREEN or {r=0, g=0.82, b=0.62}
-            local lerp = EllesmereUI.lerp
-            local DARK_BG = EllesmereUI.DARK_BG or { r = 0.05, g = 0.07, b = 0.09 }
-
-            local zoneBtn = EllesmereUI.SafeCreateFrame("Button", nil, rgn)
-            zoneBtn:SetSize(110, 24)
-            zoneBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -10, 0)
-            zoneBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            rgn._lastInline = zoneBtn
-
-            local zoneBrd = EllesmereUI.MakeBorder(zoneBtn, 1, 1, 1, 0.3, EllesmereUI.PanelPP)
-            local zoneBg = EllesmereUI.SolidTex(zoneBtn, "BACKGROUND", DARK_BG.r, DARK_BG.g, DARK_BG.b, 0.92)
-            zoneBg:SetAllPoints()
-            local zoneLbl = EllesmereUI.MakeFont(zoneBtn, 12, nil, 1, 1, 1)
-            zoneLbl:SetPoint("CENTER")
-            zoneLbl:SetText(EllesmereUI.L("Choose Zones"))
-
-            -- Hover animation
-            do
-                local FADE_DUR = 0.1
-                local progress, target = 0, 0
-                local function Apply(t)
-                    zoneLbl:SetTextColor(1, 1, 1, lerp(0.5, 0.8, t))
-                    zoneBrd:SetColor(1, 1, 1, lerp(0.3, 0.5, t))
-                end
-                local function OnUpdate(self, elapsed)
-                    local dir = (target == 1) and 1 or -1
-                    progress = progress + dir * (elapsed / FADE_DUR)
-                    if (dir == 1 and progress >= 1) or (dir == -1 and progress <= 0) then
-                        progress = target; self:SetScript("OnUpdate", nil)
-                    end
-                    Apply(progress)
-                end
-                zoneBtn:SetScript("OnEnter", function(self) target = 1; self:SetScript("OnUpdate", OnUpdate) end)
-                zoneBtn:SetScript("OnLeave", function(self) target = 0; self:SetScript("OnUpdate", OnUpdate) end)
-            end
-
-            zoneBtn:SetScript("OnClick", function()
-                local c = CDB()
-                local current = c and c.inkyBlackZones or ""
-                EllesmereUI:ShowInputPopup({
-                    title = "Inky Black Potion Zone IDs",
-                    message = "Enter map zone IDs separated by commas.\nThe potion reminder will only show in these zones.",
-                    placeholder = "e.g. 2248, 2339",
-                    initialText = current,
-                    maxLetters = 500,
-                    confirmText = "Save",
-                    extraButton = {
-                        text = "Add Current Zone",
-                        onClick = function(editBox)
-                            local mapID = C_Map.GetBestMapForUnit("player")
-                            if not mapID then return end
-                            local txt = editBox:GetText() or ""
-                            local idStr = tostring(mapID)
-                            if txt == "" then
-                                editBox:SetText(idStr)
-                            else
-                                editBox:SetText(txt .. ", " .. idStr)
-                            end
-                        end,
-                    },
-                    onConfirm = function(text)
-                        local cc = CDB(); if cc then cc.inkyBlackZones = text or ""; RefreshAll() end
-                    end,
-                })
-            end)
-
-            -- Disabled overlay when Inky Black Potion is off
-            local blockFrame = EllesmereUI.SafeCreateFrame("Frame", nil, zoneBtn)
-            blockFrame:SetAllPoints()
-            blockFrame:SetFrameLevel(zoneBtn:GetFrameLevel() + 10)
-            blockFrame:EnableMouse(true)
-            blockFrame:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(zoneBtn, EllesmereUI.DisabledTooltip("Inky Black Potion"))
-            end)
-            blockFrame:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            local function UpdateZoneBtnDisabled()
-                local c = CDB()
-                local off = not c or not c.enabled or not c.enabled.inky_black
-                if off then
-                    zoneBtn:SetAlpha(0.3)
-                    blockFrame:Show()
-                else
-                    zoneBtn:SetAlpha(1)
-                    blockFrame:Hide()
-                end
-            end
-            UpdateZoneBtnDisabled()
-            EllesmereUI.RegisterWidgetRefresh(UpdateZoneBtnDisabled)
-        end
 
         -- Ready Check Mana Warning toggle (eye | cog | swatch inline)
         row, h = W:DualRow(parent, y,
@@ -1636,10 +1479,8 @@ initFrame:SetScript("OnEvent", function(self)
         if flaskRow then _eabrClickMappings["item:flask"] = { section = flaskRow, target = flaskRow } end
         if foodRow then _eabrClickMappings["item:food"] = { section = foodRow, target = foodRow } end
         if weaponEnchantRow then _eabrClickMappings["item:weapon_enchant"] = { section = weaponEnchantRow, target = weaponEnchantRow } end
-        if runeRow then _eabrClickMappings["item:augment_rune"] = { section = runeRow, target = runeRow } end
         if healthstoneRow then
             _eabrClickMappings["item:healthstone"] = { section = healthstoneRow, target = healthstoneRow }
-            _eabrClickMappings["item:inky_black"] = { section = healthstoneRow, target = healthstoneRow }
         end
 
         return math.abs(y)
