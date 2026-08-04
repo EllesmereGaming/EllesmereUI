@@ -599,23 +599,25 @@ function AK.MakeInitializer(styleKey, extra)
 
         -- Dispel-ring holder: its own frame between the border host and the
         -- text carrier so the engine-tinted ring ALWAYS WINS over every
-        -- border. +3, not +1: PP.CreateBorder parks its strips on a
-        -- CONTAINER child at borderHost+1, and the DM per-filter border
-        -- override's container lands at borderHost+2 -- the ring clears
-        -- both. Created UNCONDITIONALLY here -- this is the only
-        -- guaranteed-legal window for parenting a frame to the button, and
-        -- a style can gain dispelBorder later via a settings toggle (UF)
-        -- when the window is long closed.
+        -- border AND the DM per-filter glow. +4, not +3: PP.CreateBorder
+        -- parks its strips on a CONTAINER child at borderHost+1, the DM
+        -- per-filter border override's container lands at borderHost+2, and
+        -- the DM per-filter glow itself sits at borderHost+3 (ApplyDmFx /
+        -- PAB_ApplyDmFx) -- the ring clears all three. Created
+        -- UNCONDITIONALLY here -- this is the only guaranteed-legal window
+        -- for parenting a frame to the button, and a style can gain
+        -- dispelBorder later via a settings toggle (UF) when the window is
+        -- long closed.
         d.dispelHolder = CreateFrame("Frame", nil, button)
         d.dispelHolder:SetAllPoints(button)
-        d.dispelHolder:SetFrameLevel(d.borderHost:GetFrameLevel() + 3)
+        d.dispelHolder:SetFrameLevel(d.borderHost:GetFrameLevel() + 4)
         d.dispelHolder:EnableMouse(false)
 
         -- Stack and duration text ride a carrier frame above the cooldown,
-        -- borders and dispel ring so none of them can cover the text.
+        -- borders, DM glow, and dispel ring so none of them can cover the text.
         d.stackCarrier = CreateFrame("Frame", nil, button)
         d.stackCarrier:SetAllPoints(button)
-        d.stackCarrier:SetFrameLevel(d.borderHost:GetFrameLevel() + 4)
+        d.stackCarrier:SetFrameLevel(d.borderHost:GetFrameLevel() + 5)
         d.stackCarrier:EnableMouse(false)
         d.stack = d.stackCarrier:CreateFontString(nil, "OVERLAY")
         d.duration = d.stackCarrier:CreateFontString(nil, "OVERLAY")

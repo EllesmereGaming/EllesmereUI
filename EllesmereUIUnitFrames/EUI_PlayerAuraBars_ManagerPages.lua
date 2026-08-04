@@ -886,12 +886,22 @@ local function BuildFxEffects(frame, sy, cfg, apply)
 
     local list = cfg.fxList or {}
 
+    -- Only offer styles PAB_ApplyDmFx can actually render as selected
+    -- (2026-08-05): every driver-ticked style (procedural/buttonGlow/
+    -- autocast/shapeGlow) gets unconditionally remapped to a FlipBook-safe
+    -- style on real AuraButtons -- confirmed permanent in Blizzard's own
+    -- PTR 12.1 source (Blizzard_AuraButton.xml: useForbiddenObjectTable=
+    -- "true" + ForbiddenAspects incl. ChangeParent, baked into the base
+    -- template, not combat-conditional) -- so picking one here never
+    -- actually shows live. Mirrors Glows.RestrictionSafeStyle's own gate
+    -- (EllesmereUI_Glows.lua) rather than duplicating the style-name list.
+    -- Re-include if Blizzard ever exposes a supported extension point.
     local GLOW_VALUES = { [0] = "None" }
     local GLOW_ORDER = { 0 }
     local Styles = EllesmereUI.Glows and EllesmereUI.Glows.STYLES
     if Styles then
         for i, entry in ipairs(Styles) do
-            if not entry.shapeGlow then
+            if not (entry.procedural or entry.buttonGlow or entry.autocast or entry.shapeGlow) then
                 GLOW_VALUES[i] = entry.name
                 GLOW_ORDER[#GLOW_ORDER + 1] = i
             end
@@ -2362,7 +2372,15 @@ function ns.PABMP_BuildPage(pageName, parent, yOffset)
                         title = L("Rename Bar"), placeholder = bar.name or L("Buff Bar"),
                         confirmText = L("Rename"), cancelText = L("Cancel"),
                         onConfirm = function(text)
-                            if text and text ~= "" then bar.name = text end
+                            if text and text ~= "" then
+                                bar.name = text
+                                -- Re-registers this bar's Unlock Mode label from
+                                -- the new bar.name (RegisterPABCustomUnlock reads
+                                -- it live, but only ever re-runs from here) --
+                                -- without this, Unlock Mode kept showing the old
+                                -- name until the next /reload.
+                                Apply(true, bar.id)
+                            end
                             EllesmereUI:RefreshPage(true)
                         end,
                     })
@@ -2427,7 +2445,15 @@ function ns.PABMP_BuildPage(pageName, parent, yOffset)
                         title = L("Rename Bar"), placeholder = bar.name or L("Debuff Bar"),
                         confirmText = L("Rename"), cancelText = L("Cancel"),
                         onConfirm = function(text)
-                            if text and text ~= "" then bar.name = text end
+                            if text and text ~= "" then
+                                bar.name = text
+                                -- Re-registers this bar's Unlock Mode label from
+                                -- the new bar.name (RegisterPABCustomUnlock reads
+                                -- it live, but only ever re-runs from here) --
+                                -- without this, Unlock Mode kept showing the old
+                                -- name until the next /reload.
+                                Apply(false, bar.id)
+                            end
                             EllesmereUI:RefreshPage(true)
                         end,
                     })

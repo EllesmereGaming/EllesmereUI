@@ -219,13 +219,15 @@ local function ApplyDmFx(button, d, style)
             -- the fx border override's container at +2), below the dispel
             -- ring and text -- the engine dispel recolor ALWAYS wins over
             -- borders and glows. Final order: border < fx border < glow <
-            -- dispel ring < text. The carrier write matches AuraKit's
-            -- ladder (ring +3, text +4) so this pass never drags the text
-            -- back down onto the ring. (Creation-window calls; our frames.)
+            -- dispel ring < text. Own level (+3), not shared with the fx
+            -- border override's container (+2). The carrier write matches
+            -- AuraKit's ladder (ring +4, text +5) so this pass never drags
+            -- the text back down onto the ring. (Creation-window calls; our
+            -- frames.)
             local base = (d.borderHost and d.borderHost:GetFrameLevel())
                 or (button:GetFrameLevel() + 1)
-            gov:SetFrameLevel(base + 2)
-            if d.stackCarrier then d.stackCarrier:SetFrameLevel(base + 4) end
+            gov:SetFrameLevel(base + 3)
+            if d.stackCarrier then d.stackCarrier:SetFrameLevel(base + 5) end
             gov:EnableMouse(false)
             d.dmFxgHost = gov
         end

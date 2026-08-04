@@ -301,33 +301,66 @@ end
 -- Ported from Raid Frames' ApplyDmFx (EUI_RaidFrames_AuraContainers.lua):
 -- Icon Glow (EllesmereUI.Glows overlay) + Border override (EllesmereUI.PP),
 -- keyed off the button's stamped category (d.dmCat, set once at creation by
--- ApplyGroupConfig's extraInit, see below). Cheap no-op for buffs
--- (style.fxList is never set on a buff style) and for debuff buttons whose
--- category matches no active block.
+-- ApplyGroupConfig's extraInit, see below). Still a no-op for buffs
+-- (style.fxList is never set on a buff style, so this never even gets
+-- called there). For debuff buttons it now always pre-makes the glow/border
+-- overlay frames (see their own doc comments below) even when no block
+-- currently matches this button's category -- a small one-time cost per
+-- button, same trade-off EllesmereUI_AuraKit.lua's dispelHolder already
+-- makes, so a later Icon Effects change never needs a /reload to take.
+
 local function PAB_ApplyDmFx(button, d, style)
     local cat = d.dmCat
     local e = style.fxList and PAB_FxBlockFor(style.fxList, cat) or nil
 
-    -- Icon Glow
     local Glows = EllesmereUI.Glows
+    local PP = EllesmereUI.PP
     local gType = (e and e.glowType) or 0
+    -- ALWAYS remap driver-ticked styles (Pixel/Action Button/Auto-Cast/
+    -- Shape) to their FlipBook-safe equivalent -- unconditional, not gated
+    -- on AK.AurasRestricted() (2026-08-04, reverted after a field crash:
+    -- "Attempt to access forbidden object from code tainted by an AddOn" on
+    -- wrapper:IsVisible() inside EllesmereUI_Glows.lua's central driver, 4813x
+    -- in one session). AurasRestricted() only reflects whether AURA DATA is
+    -- currently secret (combat/instance-gated); it says nothing about
+    -- whether a Lua OnUpdate is allowed to touch a frame parented to a 12.1
+    -- engine aura button, which is apparently forbidden UNCONDITIONALLY,
+    -- not just during combat. Only FlipBook styles (GCD/Modern/Classic) are
+    -- safe here -- they run on C-side AnimationGroups and never register
+    -- with the driver's wrapper:IsVisible() polling loop at all.
     if gType > 0 and Glows and Glows.RestrictionSafeStyle then
         gType = Glows.RestrictionSafeStyle(gType)
     end
+
+    -- Icon Glow overlay: created UNCONDITIONALLY here, regardless of whether
+    -- a block matches right now (2026-08-04, fixes "need /reload after
+    -- turning a glow on for a filter that was previously None"). This
+    -- function's first call happens inside the button's one legal
+    -- creation-window (extraInit, see AddGroupToContainer below); every
+    -- later call is a RestyleSoon pass, which is NOT that window --
+    -- CreateFrame-parenting a NEW frame to the secure engine button then is
+    -- not guaranteed-legal, same reasoning EllesmereUI_AuraKit.lua's
+    -- dispelHolder comment gives for why IT is created unconditionally too.
+    -- Pre-making the frame here means a later glow-on/off toggle is only
+    -- ever Show/Hide + StartGlow/StopGlow, which is always legal.
     local gov = d.pabFxGlow
+    if not gov then
+        gov = CreateFrame("Frame", nil, button)
+        gov:SetAllPoints(button)
+        -- Above both the base border (base+1) and the fx border override
+        -- (base+2), below the dispel ring (base+4) and text (base+5) --
+        -- same level ladder Raid Frames' ApplyDmFx uses (border < fx
+        -- border < glow < dispel ring < text). Own level (base+3), not
+        -- shared with the fx border override's container (base+2) --
+        -- see EllesmereUI_AuraKit.lua's dispelHolder comment.
+        local base = (d.borderHost and d.borderHost:GetFrameLevel())
+            or (button:GetFrameLevel() + 1)
+        gov:SetFrameLevel(base + 3)
+        gov:EnableMouse(false)
+        gov:Hide()
+        d.pabFxGlow = gov
+    end
     if gType > 0 and Glows and Glows.StartGlow then
-        if not gov then
-            gov = CreateFrame("Frame", nil, button)
-            gov:SetAllPoints(button)
-            -- Above both the base border and the fx border override, below
-            -- the dispel ring and text -- same level ladder Raid Frames'
-            -- ApplyDmFx uses (border < fx border < glow < dispel ring < text).
-            local base = (d.borderHost and d.borderHost:GetFrameLevel())
-                or (button:GetFrameLevel() + 1)
-            gov:SetFrameLevel(base + 2)
-            gov:EnableMouse(false)
-            d.pabFxGlow = gov
-        end
         gov:Show()
         local cr, cg, cb = e.glowR or 1.0, e.glowG or 0.776, e.glowB or 0.376
         if e.glowClassColor then
@@ -342,31 +375,31 @@ local function PAB_ApplyDmFx(button, d, style)
             gov._fxStyle, gov._fxW = gType, sz
             gov._fxCR, gov._fxCG, gov._fxCB = cr, cg, cb
         end
-    elseif gov then
+    else
         if gov._euiGlowActive and Glows and Glows.StopGlow then Glows.StopGlow(gov) end
         gov:Hide()
     end
 
-    -- Border override
-    local PP = EllesmereUI.PP
+    -- Border override: same creation-window pre-make as the glow above.
     local bSize = (e and e.borderSize) or 0
-    if bSize > 0 and PP then
-        local host = d.pabFxBdr
-        if not host then
-            host = CreateFrame("Frame", nil, button)
-            host:SetAllPoints(button)
-            local base = (d.borderHost and d.borderHost:GetFrameLevel())
-                or (button:GetFrameLevel() + 1)
-            host:SetFrameLevel(base + 1)
-            host:EnableMouse(false)
-            PP.CreateBorder(host, 0, 0, 0, 1, 1)
-            d.pabFxBdr = host
-        end
+    local host = d.pabFxBdr
+    if not host and PP then
+        host = CreateFrame("Frame", nil, button)
+        host:SetAllPoints(button)
+        local base = (d.borderHost and d.borderHost:GetFrameLevel())
+            or (button:GetFrameLevel() + 1)
+        host:SetFrameLevel(base + 1)
+        host:EnableMouse(false)
+        PP.CreateBorder(host, 0, 0, 0, 1, 1)
+        host:Hide()
+        d.pabFxBdr = host
+    end
+    if bSize > 0 and host and PP then
         local bc = e.borderColor or { r = 0, g = 0, b = 0 }
         PP.UpdateBorder(host, bSize, bc.r or 0, bc.g or 0, bc.b or 0, 1)
         host:Show()
-    elseif d.pabFxBdr then
-        d.pabFxBdr:Hide()
+    elseif host then
+        host:Hide()
     end
 end
 
