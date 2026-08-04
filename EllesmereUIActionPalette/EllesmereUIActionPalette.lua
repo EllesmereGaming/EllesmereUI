@@ -2,7 +2,8 @@
 --  EllesmereUIActionPalette.lua  --  hold-to-open action palette for EllesmereUI
 --
 --  Hold a keybind -> a set of slots appears. Choose one, release the key to
---  fire it. Releasing without having chosen cancels.
+--  fire it. Releasing without having chosen cancels, and so does ESCAPE, which
+--  every layout answers to for as long as it is open.
 --
 --  One ring of actions, drawn and steered three ways:
 --
@@ -477,6 +478,10 @@ local liveView              -- the wheel the keybinds open
 -- index straight off it, and that is defined long before the catcher is built.
 local scrollCatcher
 local secureHeader
+-- The button ESCAPE is bound to while a palette is open. Declared here for the
+-- same reason: ns.Close drops its binding, and that is defined long before the
+-- secure activation section builds it.
+local cancelButton
 local openedAt = 0
 
 -- A held key whose up-event never reaches us (alt-tab, /reload prompt, a
@@ -801,7 +806,20 @@ local GRID_REACH = 1.0
 -- cursor is frozen, so it cannot travel and the strip cannot be cancelled --
 -- and camera steering is the case this layout exists for. A player who wants
 -- out of a strip opened mid-turn has to let the camera go first.
-local FAN_CANCEL_REACH = 1.5
+local FAN_CANCEL_REACH = 2.25
+
+-- The strip dims as the pointer travels toward the edge of that box, so leaving
+-- is something the player watches happen rather than a boundary they cross
+-- blind. The fade starts part of the way out -- steering a strip means moving,
+-- and a palette that dimmed on the first pixel would flicker on every gesture.
+--
+-- Eased rather than linear, and by a fair margin: the strip holds near full
+-- brightness through most of the travel and then drops away over the last of
+-- it. A linear ramp read as the palette dimming the moment the pointer moved,
+-- when what it has to say is "still here" until leaving is actually imminent.
+local FAN_FADE_START = 0.35
+local FAN_FADE_MIN   = 0.25
+local FAN_FADE_POWER = 3
 
 -- Columns for a grid the user has not pinned. Near-square, because the whole
 -- point of a grid is to shorten the WORST pointer travel, and that is minimised
@@ -954,11 +972,15 @@ function WheelView:FanHalfLength()
                      (p and p.fanScaleDecay) or 0.72, minS) + iconSize
 end
 
--- Has the pointer been thrown clear of the strip? Answers false for any view
--- with no gate origin -- the options preview, which has no pointer gesture at
--- all -- so only the live palette can be cancelled this way.
-function WheelView:FanCancelled()
-    if not self._gateX then return false end
+-- How far the pointer has been carried toward leaving the strip: 0 while it is
+-- still on it, 1 at the edge of the cancel box and beyond. Answers 0 for any
+-- view with no gate origin -- the options preview, which has no pointer gesture
+-- at all -- so only the live palette can be cancelled this way.
+--
+-- The cancel and the fade read this one number, so the strip is at its dimmest
+-- exactly where a release stops firing anything.
+function WheelView:FanCancelProgress()
+    if not self._gateX then return 0 end
     local p = P()
     local _, iconSize = self:Geom()
     local es = self.frame:GetEffectiveScale()
@@ -967,7 +989,25 @@ function WheelView:FanCancelled()
     if not self:FanHoriz() then along, across = across, along end
 
     local margin = FAN_CANCEL_REACH * (iconSize + ((p and p.fanGap) or 10))
-    return abs(across) > margin or abs(along) > self:FanHalfLength() + margin
+    return max(abs(across) / margin,
+               abs(along) / (self:FanHalfLength() + margin))
+end
+
+-- Has the pointer been thrown clear of the strip?
+function WheelView:FanCancelled()
+    return self:FanCancelProgress() > 1
+end
+
+-- The strip's own alpha, fading toward FAN_FADE_MIN as the pointer approaches
+-- the cancel box. It never reaches zero: a strip the player has left still has
+-- to be findable, because bringing the pointer back re-selects the entry it is
+-- centred on.
+function WheelView:FanCancelAlpha()
+    local k = self:FanCancelProgress()
+    if k <= FAN_FADE_START then return 1 end
+    if k >= 1 then return FAN_FADE_MIN end
+    local t = (k - FAN_FADE_START) / (1 - FAN_FADE_START)
+    return 1 - (1 - FAN_FADE_MIN) * t ^ FAN_FADE_POWER
 end
 
 -- Advance the settle animation and publish the centred entry as the selection.
@@ -1509,24 +1549,27 @@ end
 --
 -- Radial only. A fan has to be read before it can be steered, and a scroll fan
 -- cannot even be entered without seeing where the strip starts.
-local function UpdateFlickAlpha()
+local function FlickAlpha()
     local p = P()
-    local frame = liveView:GetFrame()
-    if not p or not p.flickAhead or liveView:IsFan() then
-        frame:SetAlpha(1)
-        return
-    end
+    if not p or not p.flickAhead or liveView:IsFan() then return 1 end
 
     local delay = p.flickDelay or 0.12
     local fade  = p.flickFade or 0.10
     local t = GetTime() - openedAt
-    if t <= delay then
-        frame:SetAlpha(0)
-    elseif fade <= 0 or t >= delay + fade then
-        frame:SetAlpha(1)
-    else
-        frame:SetAlpha((t - delay) / fade)
+    if t <= delay then return 0 end
+    if fade <= 0 or t >= delay + fade then return 1 end
+    return (t - delay) / fade
+end
+
+-- One alpha for the whole palette, so the flick-ahead fade-in and the
+-- cancel fade cannot fight over the frame. Only the scroll-steered strip has a
+-- cancel box to approach; the others answer 1.
+local function UpdateWheelAlpha()
+    local a = FlickAlpha()
+    if liveView:IsFan() and not liveView:IsPointerLayout() then
+        a = a * liveView:FanCancelAlpha()
     end
+    liveView:GetFrame():SetAlpha(a)
 end
 
 local function OnWheelUpdate(_, elapsed)
@@ -1534,7 +1577,6 @@ local function OnWheelUpdate(_, elapsed)
         ns.Close()
         return
     end
-    UpdateFlickAlpha()
     if liveView:IsPointerLayout() then
         liveView:AdvanceGrid()
     elseif liveView:IsFan() then
@@ -1542,6 +1584,9 @@ local function OnWheelUpdate(_, elapsed)
     else
         liveView:SetSelection(liveView:HitTest())
     end
+    -- After the steering, not before: the cancel fade reads the same pointer
+    -- position the selection was just decided from.
+    UpdateWheelAlpha()
 end
 
 -- forceFixed: ignore CURSOR mode and place the wheel at its fixed position.
@@ -1605,15 +1650,33 @@ function ns.Open(ringIndex)
     local wheel = liveView:GetFrame()
     -- Applied before the first frame rather than left to OnUpdate: the wheel is
     -- shown on this one, and the previous open's alpha would flash through.
-    UpdateFlickAlpha()
+    UpdateWheelAlpha()
     wheel:SetScript("OnUpdate", OnWheelUpdate)
     wheel:Show()
+end
+
+-- ESCAPE belongs to the game menu again. The release snippet drops this binding
+-- on every ordinary close; this is for the closes that never see a release --
+-- the open timeout, a zone change -- and it runs whether or not the palette is
+-- still up, because the press that finds ESCAPE still bound is exactly the one
+-- that has to hand it back.
+--
+-- Protected in combat, so a close mid-fight leaves the binding standing. That is
+-- why PLAYER_REGEN_ENABLED tries again: ESCAPE bound to a palette that closed
+-- half an hour ago is a dead key, with no gesture left to free it.
+local function ReleaseEscape()
+    if cancelButton and not InCombatLockdown() then
+        ClearOverrideBindings(cancelButton)
+    end
 end
 
 function ns.Close()
     if not liveView then return end
     local wheel = liveView:GetFrame()
-    if not wheel:IsShown() then return end
+    if not wheel:IsShown() then
+        ReleaseEscape()
+        return
+    end
     wheel:SetScript("OnUpdate", nil)
     wheel:Hide()
     -- The PostClick snippet hides this on every normal close. This covers the
@@ -1631,6 +1694,7 @@ function ns.Close()
         scrollCatcher:SetAttribute("eapFanTarget", nil)
         scrollCatcher:Hide()
     end
+    ReleaseEscape()
     liveView.fanTarget = nil
     liveView:SetSelection(nil)
 end
@@ -1731,10 +1795,21 @@ local SNIPPET_PRE = [==[
     local ui = self:GetFrameRef("ui")
     local mode = self:GetAttribute("eapMode")
     local catcher = self:GetFrameRef("catcher")
+    local cancel = self:GetFrameRef("cancel")
 
     if down then
         self:SetAttribute("eapWhy", "pressed")
         self:SetAttribute("eapIdx", nil)
+        -- Claim ESCAPE for as long as this palette is up, and clear whatever a
+        -- previous open left on the flag. The binding is owned by the cancel
+        -- button, not by us: every ring binds the same key to the same button,
+        -- and one owner means one binding to drop however the palette closes.
+        -- Every layout gets this -- the flag is read before any of the steering
+        -- below, so escaping out is one rule, not three.
+        if catcher then catcher:SetAttribute("eapCancel", nil) end
+        if cancel then
+            cancel:SetBindingClick(true, "ESCAPE", cancel, "LeftButton")
+        end
         -- Kept on the button, not in a snippet global: every ring shares one
         -- header, so a global would let ring 2's press reset ring 1's origin.
         self:SetAttribute("eapGX", nil)
@@ -1760,6 +1835,13 @@ local SNIPPET_PRE = [==[
     end
 
     self:SetAttribute("type", nil)
+
+    -- Escaped out while the key was still held. Checked before anything is
+    -- steered, so it beats every layout's own cancel and cannot be undone by
+    -- moving the pointer back onto the palette.
+    if catcher and catcher:GetAttribute("eapCancel") then
+        self:SetAttribute("eapWhy", "escaped") return nil, 1
+    end
 
     local n = tonumber(self:GetAttribute("eapShown")) or 0
     if n < 1 then self:SetAttribute("eapWhy", "noslots") return nil, 1 end
@@ -1942,7 +2024,60 @@ local SNIPPET_POST = [==[
         catcher:SetAttribute("eapOpen", nil)
         catcher:Hide()
     end
+    -- Hand ESCAPE back to the game menu.
+    local cancel = self:GetFrameRef("cancel")
+    if cancel then cancel:ClearBindings() end
 ]==]
+
+-- ESCAPE while a palette is open. It cannot be an insecure key handler: the
+-- release that follows is resolved inside the snippet, and only secure code may
+-- leave it a flag to read once the player is in combat. So the press snippet
+-- binds ESCAPE to this button, this button's snippet raises the flag, and the
+-- release finds it and fires nothing.
+--
+-- The button performs no action of its own -- it never gets a "type" -- so the
+-- click exists purely to run this.
+local SNIPPET_CANCEL = [==[
+    local catcher = self:GetFrameRef("catcher")
+    if catcher then
+        catcher:SetAttribute("eapCancel", 1)
+        -- A scroll fan's catcher is still eating the mouse wheel, and the key
+        -- may be held for a while yet. Give camera zoom back now rather than at
+        -- the release, which is the same thing the release itself would do.
+        catcher:SetAttribute("eapOpen", nil)
+        catcher:Hide()
+    end
+]==]
+
+-- Closing the palette on screen is insecure work, and none of it is protected:
+-- the frame is an ordinary addon frame.
+local function OnCancelClick()
+    ns.Close()
+end
+
+local function EnsureCancelButton()
+    if cancelButton then return cancelButton end
+
+    local btn = CreateFrame("Button", "EUIActionPaletteCancel", UIParent,
+        "SecureActionButtonTemplate")
+    -- Down only: ESCAPE should take effect the instant it is pressed, and a
+    -- second run on the up edge would only re-raise a flag that is already set.
+    btn:RegisterForClicks("AnyDown")
+    -- Parked like the ring buttons: invisible, unclickable by mouse, and shown,
+    -- because an override-binding click has to reach a live button.
+    btn:EnableMouse(false)
+    btn:SetSize(1, 1)
+    btn:SetAlpha(0)
+    btn:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -400, 100)
+    btn:Show()
+    btn:SetScript("PostClick", OnCancelClick)
+
+    SecureHandlerSetFrameRef(btn, "catcher", EnsureScrollCatcher())
+    SecureHandlerWrapScript(btn, "OnClick", EnsureSecureHeader(), SNIPPET_CANCEL)
+
+    cancelButton = btn
+    return btn
+end
 
 local function OnPreClick(self, _, down)
     if down then
@@ -2000,6 +2135,7 @@ local function GetSecureButton(index)
     -- wrap has to run inside the very click that goes on to fire the action.
     SecureHandlerSetFrameRef(btn, "ui", UIParent)
     SecureHandlerSetFrameRef(btn, "catcher", EnsureScrollCatcher())
+    SecureHandlerSetFrameRef(btn, "cancel", EnsureCancelButton())
     SecureHandlerWrapScript(btn, "OnClick", EnsureSecureHeader(),
         SNIPPET_PRE, SNIPPET_POST)
 
@@ -2226,6 +2362,9 @@ function EAP:OnEnable()
         -- Unconditional: any ring edited during the fight was skipped by
         -- PushRing, and the sandbox is still holding the old contents.
         PushAllRings()
+        -- A palette that closed unattended mid-fight could not give ESCAPE
+        -- back at the time. Now it can.
+        if not liveView:GetFrame():IsShown() then ReleaseEscape() end
     end)
     -- A zone change while the key is held (portals, taxi) can swallow the
     -- key-up; drop the wheel rather than leave it stuck.
@@ -2250,6 +2389,7 @@ _G.SLASH_EUIACTIONPALETTE4 = "/euiradial"
 -- combat included. eapWhy is the step it stopped at:
 --
 --   pressed     the release never ran at all
+--   escaped     ESCAPE was pressed while the palette was open
 --   unscrolled  a scroll fan whose accumulator was never seeded by the press
 --   thrownclear a scroll fan whose pointer was carried clear of the strip
 --   nocatcher   a scroll fan with no scroll catcher reachable
