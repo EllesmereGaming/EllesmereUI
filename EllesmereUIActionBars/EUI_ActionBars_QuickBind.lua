@@ -21,7 +21,7 @@ local window = CreateFrame("Frame", "EllesmereUIQuickBindWindow", UIParent)
 window:SetFrameStrata("DIALOG")
 window:SetFrameLevel(110)
 window:SetWidth(390)
-window:SetHeight(142)
+window:SetHeight(172)
 window:SetPoint("TOP", UIParent, "TOP", 0, -110)
 window:SetMovable(true)
 window:EnableMouse(true)
@@ -46,11 +46,11 @@ description:SetPoint("TOPRIGHT", -18, -42)
 description:SetJustifyH("LEFT")
 description:SetText("Hover an action button and press a key to bind it.\nPress Escape or right-click to clear all bindings for that button.")
 
-local function MakeButton(text, x, callback)
+local function MakeButton(text, x, callback, y)
     local button = CreateFrame("Button", nil, window, "UIPanelButtonTemplate")
     button:SetWidth(160)
     button:SetHeight(24)
-    button:SetPoint("BOTTOM", x, 13)
+    button:SetPoint("BOTTOM", x, y or 13)
     button:SetText(text)
     button:SetScript("OnClick", callback)
     return button
@@ -78,6 +78,29 @@ local function RefreshActionBarBindings()
         ns.EAB:ApplyFonts()
     end
 end
+
+local bindingScopeButton
+
+local function UpdateBindingScopeButton()
+    if GetCurrentBindingSet() == 2 then
+        bindingScopeButton:SetText("Switch to Account-wide Keybindings")
+    else
+        bindingScopeButton:SetText("Switch to Character-specific Keybindings")
+    end
+end
+
+bindingScopeButton = MakeButton("", 0, function()
+    if InCombatLockdown() then return end
+    local currentBindingSet = GetCurrentBindingSet()
+    local bindingSet = currentBindingSet == 2 and 1 or 2
+    LoadBindings(currentBindingSet)
+    SetCurrentBindingSet(bindingSet)
+    LoadBindings(bindingSet)
+    RefreshActionBarBindings()
+    changed = false
+    UpdateBindingScopeButton()
+end, 43)
+bindingScopeButton:SetWidth(350)
 
 local function BindingCommand(button, kind)
     if button.commandName then return button.commandName end
@@ -215,6 +238,7 @@ function EllesmereUI.ToggleQuickBindMode(forceOpen)
     if EllesmereUI.ActionBarsQuickBindPresentation
         and not EllesmereUI.ActionBarsQuickBindPresentation(true) then return end
     active, changed = true, false
+    UpdateBindingScopeButton()
     window:Show()
 end
 
