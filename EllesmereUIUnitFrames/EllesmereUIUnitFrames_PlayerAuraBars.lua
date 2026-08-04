@@ -1064,6 +1064,157 @@ end
 ns.PAB_DefaultBuffsCfg = DefaultBuffsCfg
 ns.PAB_DefaultDebuffsCfg = DefaultDebuffsCfg
 
+-- One-time seed of the default Buffs/Debuffs bars' position/size/grid from
+-- Blizzard's own EditMode Buff/Debuff frame setup, so a first-time PAB user
+-- doesn't lose an already-customized Blizzard layout. Guarded by
+-- s.pabEditModeSeeded (deliberately NOT a nil-check on s.buffsPos/
+-- s.defaultBuffs like MigrateExternalDefensives below -- Buffs/Debuffs bars
+-- already exist for every current user, so a nil-check would wrongly treat
+-- "never manually moved" as "brand new profile" and silently reposition/
+-- resize existing users' bars the first time they log in after this ships).
+--
+-- Reads live BuffFrame/DebuffFrame state rather than C_EditMode.GetLayouts()
+-- -- GetLayouts()'s `layouts` table is not reliably indexable by
+-- `activeLayout` (confirmed in testing: the pairs-key holding the actually-
+-- active layout's data did not match activeLayout's number, and there was
+-- no other field to match against). Blizzard has already resolved and
+-- applied whichever layout is active onto these two frames by the time
+-- addons run, so reading their live AuraContainer fields sidesteps that
+-- lookup problem entirely -- cross-checked in-game against a manual
+-- C_EditMode.GetLayouts() dump of the same account and matched exactly.
+--
+-- Field mapping (verified in-game, 2026-08-04):
+--   AuraContainer.iconPadding                     -> padding (direct pixel value)
+--   AuraContainer.iconScale (observed 0.5-2.0,     -> iconSize = round(32 * scale)
+--     i.e. Blizzard's 50%-200% slider)                (32px baseline assumes
+--                                                       Blizzard's 100% matches
+--                                                       PAB's own 32px default --
+--                                                       an approximation, not
+--                                                       verified against
+--                                                       Blizzard's actual native
+--                                                       icon pixel size; low risk,
+--                                                       user can readjust)
+--   AuraContainer.iconStride                      -> iconsPerRow (NOT maxTotal --
+--     "stride" = icons per row before wrapping, confirmed by exact value
+--     match against Blizzard's IconLimitBuffFrame/DebuffFrame EditMode
+--     setting; no discovered Blizzard equivalent for a true total cap, so
+--     maxTotal is left at PAB's own default, unmigrated)
+--   AuraContainer.isHorizontal + .addIconsToRight/.addIconsToTop
+--                                                  -> growDirection +
+--     iconWrapDirection (see SeedBarFromEditMode below). The vertical-
+--     orientation branch is a reasoned inference from PAB's own cross-axis
+--     convention (ToGrowthH/CornerFor above), NOT empirically tested --
+--     verification was only done against a horizontal Blizzard layout.
+--   frame:GetLeft()/GetTop() minus UIParent's own -> buffsPos/debuffsPos,
+--     stored as a TOPLEFT-relative-to-UIParent offset. Deliberately NOT
+--     using GetPoint()'s raw relativeTo: PAB always anchors to UIParent
+--     (ApplyBarPosition), but Blizzard's own anchor can chain to an
+--     arbitrary frame (e.g. a Buffs frame anchored relativeTo="DebuffFrame",
+--     not UIParent, is a real observed case, not hypothetical) -- absolute
+--     screen coordinates sidestep that chain entirely.
+local function SeedBarFromEditMode(frame, cfg, posKey, s, isBuff)
+    if not (frame and frame.AuraContainer) then return end
+    local ac = frame.AuraContainer
+
+    local uiLeft, uiTop = UIParent:GetLeft(), UIParent:GetTop()
+    local left, top = frame:GetLeft(), frame:GetTop()
+    if uiLeft and uiTop and left and top then
+        s[posKey] = { point = "TOPLEFT", relPoint = "TOPLEFT", x = left - uiLeft, y = top - uiTop }
+    end
+
+    if ac.iconPadding then cfg.padding = ac.iconPadding end
+    if ac.iconScale then cfg.iconSize = math.floor(32 * ac.iconScale + 0.5) end
+    if ac.iconStride then
+        cfg.iconsPerRow = ac.iconStride
+        -- Keep the full icon cap reachable even when the migrated row width
+        -- is narrower than PAB's own default (e.g. Blizzard stride=7 vs
+        -- PAB's fallback iconsPerRow=11): ComputeGrid effectively caps at
+        -- min(maxTotal, maxRows*iconsPerRow), and maxTotal itself is NOT
+        -- migrated (stays at PAB's own 32/16 default, see doc comment above
+        -- -- no discovered Blizzard equivalent), so maxRows must grow to
+        -- compensate or a narrower stride would silently show fewer icons
+        -- than PAB's un-migrated default did. cap matches ComputeGrid's own
+        -- isBuff-conditional maxTotal fallback (32/16) exactly.
+        local cap = isBuff and 32 or 16
+        cfg.maxRows = math.max(1, math.ceil(cap / ac.iconStride))
+    end
+
+    if ac.isHorizontal ~= nil then
+        if ac.isHorizontal then
+            cfg.growDirection = ac.addIconsToRight and "RIGHT" or "LEFT"
+        else
+            cfg.growDirection = ac.addIconsToTop and "UP" or "DOWN"
+            cfg.iconWrapDirection = ac.addIconsToRight and "RIGHT" or "LEFT"
+        end
+    end
+end
+
+-- Old "Styled Player Auras" module (db.profile.playerAuras, retired the same
+-- commit PAB was introduced, 04bf744d) never controlled position/size/grid
+-- itself -- its own header comment: "No reparenting, no repositioning --
+-- Blizzard controls layout via Edit Mode" -- so nothing here duplicates
+-- SeedBarFromEditMode above. It DID apply its own border/font styling on
+-- top of Blizzard's frames, as ONE shared flat cfg table (not split per
+-- polarity like PAB's own cfg, unlike buffIconZoom/debuffIconZoom which
+-- were already split -- not migrated, PAB already has its own per-bar
+-- iconZoom independent of this). Gated on the old module's own `enabled`
+-- flag -- only migrate if it was actually turned on. Field mapping
+-- (verified against the extracted pre-removal source AND Joel's own live
+-- in-game test, 2026-08-04):
+--   borderSize, borderR/G/B/A  -> same field name, applied to BOTH buffCfg
+--                                 and debuffCfg (old module had one shared
+--                                 value, not two)
+--   showText                   -> durationShow, both bars (same nil/true =
+--                                 shown semantics)
+--   textSize                   -> BOTH durationTextSize AND stackTextSize,
+--                                 both bars (old module's SkinAuraButton
+--                                 used cfg.textSize to size both the
+--                                 duration font string AND the stack-count
+--                                 font string -- confirmed in source
+--                                 [durFS:SetFont(...,cfg.textSize...) and
+--                                 ApplyIconTextFont(countFS,...,cfg.textSize
+--                                 ...)] and by Joel's own live test -- NOT
+--                                 the duration-only/stack-only split that
+--                                 applies to the separate old External
+--                                 Defensives module)
+--   noBorderDebuffs             -> debuffCfg.borderSize = 0 (debuffs-only
+--                                 override, applied after the shared
+--                                 borderSize above)
+-- NOT migrated -- no PAB cfg field exists for either yet (pre-existing
+-- known gap, see project memory "PAB border/duration-format gaps"):
+-- borderTexture/borderTextureOffset(Y)/borderTextureShiftX/Y/borderBehind,
+-- durationFormat.
+local function MigratePlayerAuraStyle(buffCfg, debuffCfg)
+    local old = ns.db and ns.db.profile and ns.db.profile.playerAuras
+    if not (old and old.enabled) then return end
+
+    for _, cfg in ipairs({ buffCfg, debuffCfg }) do
+        if old.borderSize then cfg.borderSize = old.borderSize end
+        if old.borderR then cfg.borderR = old.borderR end
+        if old.borderG then cfg.borderG = old.borderG end
+        if old.borderB then cfg.borderB = old.borderB end
+        if old.borderA then cfg.borderA = old.borderA end
+        if old.showText ~= nil then cfg.durationShow = old.showText end
+        if old.textSize then
+            cfg.durationTextSize = old.textSize
+            cfg.stackTextSize = old.textSize
+        end
+    end
+
+    if old.noBorderDebuffs then
+        debuffCfg.borderSize = 0
+    end
+end
+
+local function SeedDefaultBuffsDebuffsFromLegacySources(s)
+    if s.pabEditModeSeeded then return end
+    s.pabEditModeSeeded = true -- set first: never retry even if a read below errors/fails partway
+    local buffCfg, debuffCfg = DefaultBuffsCfg(s), DefaultDebuffsCfg(s)
+    SeedBarFromEditMode(BuffFrame, buffCfg, "buffsPos", s, true)
+    SeedBarFromEditMode(DebuffFrame, debuffCfg, "debuffsPos", s, false)
+    MigratePlayerAuraStyle(buffCfg, debuffCfg)
+end
+
 -- One-time migration from the retired standalone EllesmereUIUnitFrames_
 -- ExternalDefensives.lua module (db.profile.externalDefensives) into PAB's
 -- own defaultExternalDefensives cfg, run lazily the first time
@@ -1305,6 +1456,13 @@ local function CreateBars()
 
     local s = PAB()
     if not s then return end -- ns.db not ready yet; TryCreateBars() below retries
+
+    -- Must run before DefaultBuffsCfg/DefaultDebuffsCfg are first called
+    -- below, so a seeded value is what those functions' first lazy-create
+    -- actually populates -- see SeedDefaultBuffsDebuffsFromLegacySources's
+    -- doc comment above for why this is a one-time-ever seed, not a
+    -- migration that could reapply on an existing profile.
+    SeedDefaultBuffsDebuffsFromLegacySources(s)
 
     -- Must run before buffCfg/custom-bar spell resolution below: the 10
     -- curated BM2 presets (Defensives, Offensive CDs, ...) were previously
