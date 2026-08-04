@@ -63,8 +63,10 @@ local AURA_POINT_ORDER = {
     "TOP", "BOTTOM", "LEFT", "RIGHT",
     "TOPLEFT", "TOPRIGHT", "BOTTOMLEFT", "BOTTOMRIGHT", "CENTER",
 }
-local GROW_DIR_VALUES = { LEFT = "Left", RIGHT = "Right" }
-local GROW_DIR_ORDER = { "LEFT", "RIGHT" }
+local GROW_DIR_VALUES = { LEFT = "Left", RIGHT = "Right", UP = "Up", DOWN = "Down" }
+local GROW_DIR_ORDER = { "LEFT", "RIGHT", "UP", "DOWN" }
+local ICON_WRAP_VALUES = { LEFT = "Left", RIGHT = "Right" }
+local ICON_WRAP_ORDER = { "LEFT", "RIGHT" }
 
 -- Native AuraContainerSortMethod/AuraContainerSortDirection enum names
 -- (in-game dump, 2026-08-03: AuraContainerSortMethod = {Default=0,
@@ -628,6 +630,29 @@ local function BuildCoreFields(frame, fontPath, sy, cfg, apply, isBuff)
             },
         })
         ns._PAMakeCogBtn(rgn, cogShow)
+    end
+    do
+        -- Icon Wrap (2026-08-04, Joel): only meaningful for vertical growth
+        -- (Up/Down) -- decides which side additional columns stack toward
+        -- when Icons Per Row/Column > 1. Cog-only, no separate dropdown row,
+        -- and only shown while Growth Direction is Up/Down.
+        local rgn = sizeRow._rightRegion
+        local _, cogShow = EllesmereUI.BuildCogPopup({
+            title = "Growth",
+            rows = {
+                { type = "dropdown", label = "Icon Wrap",
+                  values = ICON_WRAP_VALUES, order = ICON_WRAP_ORDER,
+                  get = function() return cfg.iconWrapDirection or "LEFT" end,
+                  set = function(v) cfg.iconWrapDirection = v; apply() end },
+            },
+        })
+        local cogBtn = ns._PAMakeCogBtn(rgn, cogShow)
+        local function UpdateWrapCogVisibility()
+            local dir = cfg.growDirection or "LEFT"
+            cogBtn:SetShown(dir == "UP" or dir == "DOWN")
+        end
+        EllesmereUI.RegisterWidgetRefresh(UpdateWrapCogVisibility)
+        UpdateWrapCogVisibility()
     end
 
     local function AttachCog(rgn, title, rows)

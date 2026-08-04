@@ -968,11 +968,21 @@ local function ComputeGrid(isBuff, cfg)
     local effectiveMax = math.min(configuredMax, rows * cols)
     -- Actual rows needed for the effective cap, never more than the row limit
     local usedRows = math.min(rows, math.max(1, math.ceil(effectiveMax / cols)))
-    local width = cols * iconSize + (cols - 1) * pad
-    local height = usedRows * iconSize + (usedRows - 1) * rowGap
+    -- `lineExtent` is always the AK rowWidth/line-size value (icons-per-line
+    -- axis: iconsPerRow icons of iconSize + gaps). `crossExtent` is the
+    -- other axis (how many lines are actually used). For horizontal growth a
+    -- "line" is a row, so lineExtent -> width; for vertical growth (Up/Down,
+    -- 2026-08-04) a "line" is a column, so lineExtent -> height instead --
+    -- see CornerFor/BuildContainerSpec's doc comment for the matching
+    -- growthH/growthV swap.
+    local lineExtent = cols * iconSize + (cols - 1) * pad
+    local crossExtent = usedRows * iconSize + (usedRows - 1) * rowGap
+    local vertical = (cfg.growDirection == "UP" or cfg.growDirection == "DOWN")
+    local width = vertical and crossExtent or lineExtent
+    local height = vertical and lineExtent or crossExtent
     return {
         effectiveMax = effectiveMax,
-        rowWidth = width,
+        rowWidth = lineExtent,
         width = width,
         height = height,
         rowGap = rowGap,
@@ -1098,12 +1108,42 @@ local PAB_MaybeRefreshPreview -- forward-declared; assigned in the options-page 
 -- This is derived directly from AnchorUtil's source, not copied from a
 -- working Blizzard example -- no other Blizzard UI uses this new flow layout
 -- system yet to cross-check against. Confirmed in-game 2026-07-30 (Joel).
-local function ToGrowthH(dirStr)
+--
+-- Vertical growth (Up/Down, 2026-08-04 addition, Joel): when growDirection is
+-- UP/DOWN, the flow's PRIMARY axis becomes vertical (icons fill up/down first)
+-- and growthH instead carries the CROSS axis -- which side additional columns
+-- wrap to, from the new cfg.iconWrapDirection field ("LEFT"/"RIGHT", default
+-- LEFT). Mirrors EUI_RaidFrames_AuraContainers.lua's AnchorDebuffContainer
+-- (grow==UP/DOWN branch: gH = wrap, gV = grow) -- same AK primitives, same
+-- axis-swap idea, just PAB has no separate wrap dropdown (see the cog-only UI
+-- decision in the plan). Horizontal growth (Left/Right) is untouched: growthH
+-- stays the primary axis, growthV stays hardcoded Down (rows always wrap
+-- downward, as before this feature existed).
+local function ToGrowthH(dirStr, wrapStr)
     local FlowDir = AnchorUtil and AnchorUtil.FlowDirection
     if not FlowDir then return nil end
+    if dirStr == "UP" or dirStr == "DOWN" then
+        return wrapStr == "RIGHT" and FlowDir.Right or FlowDir.Left
+    end
     return dirStr == "RIGHT" and FlowDir.Right or FlowDir.Left
 end
-local function CornerFor(dirStr)
+local function ToGrowthV(dirStr)
+    local FlowDir = AnchorUtil and AnchorUtil.FlowDirection
+    if not FlowDir then return nil end
+    if dirStr == "UP" then return FlowDir.Up end
+    if dirStr == "DOWN" then return FlowDir.Down end
+    return FlowDir.Down -- horizontal growth: rows always wrap downward
+end
+-- Corner = the flow's fixed start point = (opposite of growthV side) +
+-- (opposite of growthH side) -- same rule for every direction, horizontal or
+-- vertical (verified against the existing LEFT/RIGHT cases: growthV is
+-- always Down -> TOP component; growthH Right/Left -> LEFT/RIGHT component).
+local function CornerFor(dirStr, wrapStr)
+    if dirStr == "UP" or dirStr == "DOWN" then
+        local vSide = (dirStr == "UP") and "BOTTOM" or "TOP"
+        local hSide = (wrapStr == "RIGHT") and "LEFT" or "RIGHT"
+        return vSide .. hSide
+    end
     return dirStr == "RIGHT" and "TOPLEFT" or "TOPRIGHT"
 end
 
@@ -1112,21 +1152,24 @@ end
 -- cfg's growDirection and a precomputed grid (see ComputeGrid). One
 -- implementation so default and custom bars can never drift in how they
 -- interpret growDirection/rowWidth. Returns the corner too since callers
--- also need it for the container's own SetPoint against its parent frame.
+-- also need it for the container's own SetPoint against its parent frame,
+-- and `vertical` since AK.SetContainerAxis is a separate call from
+-- AK.ApplyContainerLayout (axis isn't part of the layout table AK consumes).
 local function BuildContainerSpec(parent, cfg, grid)
-    local FlowDir = AnchorUtil and AnchorUtil.FlowDirection
     local dir = cfg.growDirection or "LEFT"
-    local corner = CornerFor(dir)
+    local wrap = cfg.iconWrapDirection or "LEFT"
+    local vertical = (dir == "UP" or dir == "DOWN")
+    local corner = CornerFor(dir, wrap)
     return corner, {
         point = { corner, parent, corner, 0, 0 },
         layout = {
             anchorPoint = corner,
             padding = { 0, 0, 0, 0 },
             rowWidth = grid.rowWidth,
-            growthH = ToGrowthH(dir),
-            growthV = FlowDir and FlowDir.Down,
+            growthH = ToGrowthH(dir, wrap),
+            growthV = ToGrowthV(dir),
         },
-    }
+    }, vertical
 end
 
 -- Default anchor when no saved position exists yet. Independent per bar
@@ -1258,8 +1301,8 @@ local function CreateBars()
     local buffPad = buffCfg.padding or 5
     local debuffPad = debuffCfg.padding or 5
 
-    local _, buffSpec = BuildContainerSpec(buffsParent, buffCfg, buffGrid)
-    local _, debuffSpec = BuildContainerSpec(debuffsParent, debuffCfg, debuffGrid)
+    local _, buffSpec, buffVertical = BuildContainerSpec(buffsParent, buffCfg, buffGrid)
+    local _, debuffSpec, debuffVertical = BuildContainerSpec(debuffsParent, debuffCfg, debuffGrid)
 
     -- Groups are declared additively right after creation (not via
     -- spec.groups) so the exact same ApplyGroupConfig path handles both
@@ -1308,6 +1351,7 @@ local function CreateBars()
     buffsSlotSig = table.concat(buffSpells, ",")
     AK.RequestContainer(buffsParent, "player", buffSpec, function(container)
         buffsContainer = container
+        AK.SetContainerAxis(container, buffVertical)
         declared.buffs = {}
         if buffCfg.showAllBuffs ~= false then
             ApplyGroupConfig(container, buffAllChain, declared.buffs, STYLE_BUFFS, buffGrid.effectiveMax, buffPad, buffGrid.rowGap, buffCfg, BuffCandidateExtras(buffCfg))
@@ -1333,6 +1377,7 @@ local function CreateBars()
     end)
     AK.RequestContainer(debuffsParent, "player", debuffSpec, function(container)
         debuffsContainer = container
+        AK.SetContainerAxis(container, debuffVertical)
         declared.debuffs = {}
         ApplyGroupConfig(container, debuffChain, declared.debuffs, STYLE_DEBUFFS, debuffGrid.effectiveMax, debuffPad, debuffGrid.rowGap, debuffCfg)
     end)
@@ -1346,9 +1391,10 @@ local function CreateBars()
     -- "HELPFUL|EXTERNAL_DEFENSIVE" string the old standalone module used
     -- directly against C_UnitAuras.IsAuraFilteredOutByInstanceID.
     local extDefPad = extDefCfg.padding or 5
-    local _, extDefSpec = BuildContainerSpec(extDefParent, extDefCfg, extDefGrid)
+    local _, extDefSpec, extDefVertical = BuildContainerSpec(extDefParent, extDefCfg, extDefGrid)
     AK.RequestContainer(extDefParent, "player", extDefSpec, function(container)
         extDefContainer = container
+        AK.SetContainerAxis(container, extDefVertical)
         AK.AddGroupToContainer(container, {
             key = "extdef",
             filter = { "HELPFUL", "EXTERNAL_DEFENSIVE" },
@@ -1531,8 +1577,7 @@ local function ApplyLiveConfig(isBuff)
 
     parent:SetSize(grid.width, grid.height)
 
-    local FlowDir = AnchorUtil and AnchorUtil.FlowDirection
-    local corner = CornerFor(cfg.growDirection or "LEFT")
+    local corner, liveSpec, vertical = BuildContainerSpec(parent, cfg, grid)
     local pad = cfg.padding or 5
 
     -- Outer frame anchor is a plain SetPoint, not an AK-managed field --
@@ -1540,8 +1585,9 @@ local function ApplyLiveConfig(isBuff)
     container:ClearAllPoints()
     container:SetPoint(corner, parent, corner, 0, 0)
     AK.SetContainerAnchor(container, corner)
-    if FlowDir then
-        AK.SetContainerGrowth(container, ToGrowthH(cfg.growDirection or "LEFT"), FlowDir.Down)
+    AK.SetContainerAxis(container, vertical)
+    if liveSpec.layout.growthH then
+        AK.SetContainerGrowth(container, liveSpec.layout.growthH, liveSpec.layout.growthV)
     end
     AK.SetContainerPadding(container, 0, 0, 0, 0)
     AK.SetContainerRowWidth(container, grid.rowWidth)
@@ -1562,9 +1608,10 @@ local function ApplyLiveConfig(isBuff)
             -- spell-list change requires this release+rebuild -- same as
             -- the old per-spell-slot version did.
             AK.ReleaseContainer(container)
-            local _, spec = BuildContainerSpec(parent, cfg, grid)
+            local _, spec, specVertical = BuildContainerSpec(parent, cfg, grid)
             AK.RequestContainer(parent, "player", spec, function(newContainer)
                 buffsContainer = newContainer
+                AK.SetContainerAxis(newContainer, specVertical)
                 declared.buffs = {}
                 if cfg.showAllBuffs ~= false then
                     ApplyGroupConfig(newContainer, allChain, declared.buffs, STYLE_BUFFS, grid.effectiveMax, pad, grid.rowGap, cfg, BuffCandidateExtras(cfg))
@@ -1651,15 +1698,15 @@ local function ApplyExtDefLiveConfig()
     parent:SetSize(grid.width, grid.height)
     parent:SetShown(cfg.enabled ~= false)
 
-    local FlowDir = AnchorUtil and AnchorUtil.FlowDirection
-    local corner = CornerFor(cfg.growDirection or "LEFT")
+    local corner, liveSpec, vertical = BuildContainerSpec(parent, cfg, grid)
     local pad = cfg.padding or 5
 
     container:ClearAllPoints()
     container:SetPoint(corner, parent, corner, 0, 0)
     AK.SetContainerAnchor(container, corner)
-    if FlowDir then
-        AK.SetContainerGrowth(container, ToGrowthH(cfg.growDirection or "LEFT"), FlowDir.Down)
+    AK.SetContainerAxis(container, vertical)
+    if liveSpec.layout.growthH then
+        AK.SetContainerGrowth(container, liveSpec.layout.growthH, liveSpec.layout.growthV)
     end
     AK.SetContainerPadding(container, 0, 0, 0, 0)
     AK.SetContainerRowWidth(container, grid.rowWidth)
@@ -2633,14 +2680,14 @@ local function ReloadCustomBuffBarImpl(barId)
         -- the container already exists and the spell list hasn't changed,
         -- so just re-apply the live anchor/growth/rowWidth, same fields
         -- ApplyLiveConfig live-updates for the default bars.
-        local corner, _ = BuildContainerSpec(parent, bar, grid)
-        local FlowDir = AnchorUtil and AnchorUtil.FlowDirection
+        local corner, liveSpec, vertical = BuildContainerSpec(parent, bar, grid)
         local container = customBuffContainers[barId]
         container:ClearAllPoints()
         container:SetPoint(corner, parent, corner, 0, 0)
         AK.SetContainerAnchor(container, corner)
-        if FlowDir then
-            AK.SetContainerGrowth(container, ToGrowthH(bar.growDirection or "LEFT"), FlowDir.Down)
+        AK.SetContainerAxis(container, vertical)
+        if liveSpec.layout.growthH then
+            AK.SetContainerGrowth(container, liveSpec.layout.growthH, liveSpec.layout.growthV)
         end
         AK.SetContainerPadding(container, 0, 0, 0, 0)
         AK.SetContainerRowWidth(container, grid.rowWidth)
@@ -2675,10 +2722,11 @@ local function ReloadCustomBuffBarImpl(barId)
         customBuffContainers[barId] = nil
     end
 
-    local _, spec = BuildContainerSpec(parent, bar, grid)
+    local _, spec, specVertical = BuildContainerSpec(parent, bar, grid)
     local pad = bar.padding or 5
     AK.RequestContainer(parent, "player", spec, function(container)
         customBuffContainers[barId] = container
+        AK.SetContainerAxis(container, specVertical)
         customBuffSig[barId] = sig
         customBuffDeclared[barId] = {}
         ApplyGroupConfig(container, allChain, customBuffDeclared[barId], styleKey, grid.effectiveMax, pad, grid.rowGap, bar, BuffCandidateExtras(bar))
@@ -2759,23 +2807,24 @@ local function ReloadCustomDebuffBarImpl(barId)
     parent:SetSize(grid.width, grid.height)
 
     local chain = BuildChain("HARMFUL", function(class) return ClassEnabled(class, false, bar) end, bar.showAllDebuffs ~= false)
-    local corner, spec = BuildContainerSpec(parent, bar, grid)
+    local corner, spec, vertical = BuildContainerSpec(parent, bar, grid)
     local pad = bar.padding or 5
 
     if not customDebuffContainers[barId] then
         AK.RequestContainer(parent, "player", spec, function(container)
             customDebuffContainers[barId] = container
+            AK.SetContainerAxis(container, vertical)
             customDebuffDeclared[barId] = {}
             ApplyGroupConfig(container, chain, customDebuffDeclared[barId], styleKey, grid.effectiveMax, pad, grid.rowGap, bar)
         end)
     else
         local container = customDebuffContainers[barId]
-        local FlowDir = AnchorUtil and AnchorUtil.FlowDirection
         container:ClearAllPoints()
         container:SetPoint(corner, parent, corner, 0, 0)
         AK.SetContainerAnchor(container, corner)
-        if FlowDir then
-            AK.SetContainerGrowth(container, ToGrowthH(bar.growDirection or "LEFT"), FlowDir.Down)
+        AK.SetContainerAxis(container, vertical)
+        if spec.layout.growthH then
+            AK.SetContainerGrowth(container, spec.layout.growthH, spec.layout.growthV)
         end
         AK.SetContainerPadding(container, 0, 0, 0, 0)
         AK.SetContainerRowWidth(container, grid.rowWidth)
@@ -3194,8 +3243,7 @@ end
 -- first resolving what "unset" means -- keep these in sync if BuildStyle's
 -- defaults ever change. Non-size fields (growDirection, iconsPerRow/
 -- maxRows/maxTotal, dispel colors, ...) pass through unchanged.
-local function ScaledPreviewCfg(cfg)
-    local comp = PreviewScaleFactor()
+local function ApplyPreviewScale(cfg, comp)
     if comp == 1 then return cfg end
     local out = {}
     for k, v in pairs(cfg) do out[k] = v end
@@ -3228,6 +3276,28 @@ local function ScaledPreviewCfg(cfg)
         out.fxList = scaledFx
     end
     return out
+end
+
+-- Preview area height budget (2026-08-04, Joel: Up/Down growth with several
+-- icons-per-column made the preview box very tall very fast, pushing the
+-- rest of the options page down). Applied as an EXTRA proportional shrink on
+-- top of the panel-zoom compensation above -- combined into one factor so
+-- iconSize/padding/rowSpacing/etc are only scaled once, not twice. Only ever
+-- shrinks (extra <= 1); horizontal bars and short vertical ones are
+-- unaffected since their unscaled grid.height is normally well under this.
+local MAX_PREVIEW_CONTENT_HEIGHT = 330
+
+local function ScaledPreviewCfg(cfg, isBuff)
+    local comp = PreviewScaleFactor()
+    local extra = 1
+    if isBuff ~= nil then
+        local probe = ApplyPreviewScale(cfg, comp)
+        local grid = ComputeGrid(isBuff, probe)
+        if grid.height > MAX_PREVIEW_CONTENT_HEIGHT then
+            extra = MAX_PREVIEW_CONTENT_HEIGHT / grid.height
+        end
+    end
+    return ApplyPreviewScale(cfg, comp * extra)
 end
 
 -- Renders (or re-renders in place) the fake icon grid using the bar's
@@ -3487,7 +3557,7 @@ end
 -- build for BOTH polarities, see BuildBuffPreviewPool/BuildDebuffPreviewPool)
 -- is the box's own stable, pre-shuffled fake-icon pool.
 local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
-    cfg = ScaledPreviewCfg(cfg)
+    cfg = ScaledPreviewCfg(cfg, isBuff)
     local style = BuildStyle(isBuff, cfg)
     local dcMap = (not isBuff) and BuildDispelColorMap(cfg) or nil
     local grid = ComputeGrid(isBuff, cfg)
@@ -3501,7 +3571,10 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
     -- box's own corners -- growDirection still decides which edge of that
     -- centered block fills first (matches the live bar's own fill order),
     -- it just no longer moves the box/divider around while doing it.
-    local corner = CornerFor(cfg.growDirection or "LEFT")
+    local growDir = cfg.growDirection or "LEFT"
+    local wrapDir = cfg.iconWrapDirection or "LEFT"
+    local vertical = (growDir == "UP" or growDir == "DOWN")
+    local corner = CornerFor(growDir, wrapDir)
     local pad = cfg.padding or 5
     local rowGap = cfg.rowSpacing or 12
     local iconSize = cfg.iconSize or 32
@@ -3588,10 +3661,16 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
             runningY = runningY + (rowHeight[r] or 0) + rowGap
         end
     end
+    -- blockW/blockH are generic axis extents: "within-line" (rowWidth, the
+    -- primary/fill axis) and "across-lines" (the wrap axis) -- screen X/Y
+    -- only for horizontal growth. Vertical growth (Up/Down, 2026-08-04) swaps
+    -- which one maps to X vs Y in the placement loop below.
     local blockW = 0
     for r = 0, rows - 1 do blockW = math.max(blockW, rowWidth[r] or 0) end
     local blockH = math.max(0, (rowYOffset[rows - 1] or 0) + (rowHeight[rows - 1] or 0))
-    local halfW, halfH = blockW / 2, blockH / 2
+    local halfPrimary, halfCross = blockW / 2, blockH / 2
+    local growUp = (growDir == "UP")
+    local wrapRight = (wrapDir == "RIGHT")
 
     for i = 1, math.max(count, #icons) do
         if i <= count then
@@ -3602,13 +3681,24 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
             end
 
             local row = math.floor((i - 1) / cols)
-            local colStep = colOffset[i]
-            local rowStep = rowYOffset[row]
-            -- btn's own anchor point is `corner` (TOPLEFT/TOPRIGHT, matching
-            -- growDirection), placed at an offset from the box's CENTER --
-            -- see the block-centering comment above `local rows = ...`.
-            local btnX = (corner == "TOPRIGHT") and (halfW - colStep) or (-halfW + colStep)
-            local btnY = halfH - rowStep
+            local withinLineStep = colOffset[i]
+            local acrossLinesStep = rowYOffset[row]
+            -- btn's own anchor point is `corner` (matching growDirection/
+            -- iconWrapDirection), placed at an offset from the box's CENTER
+            -- -- see the block-centering comment above `local rows = ...`.
+            -- Vertical growth (Up/Down) swaps which step drives X vs Y: the
+            -- within-line step (icons stacking inside one column) becomes Y,
+            -- the across-lines step (columns wrapping sideways) becomes X --
+            -- mirrors the corner/growthH/growthV swap in CornerFor/
+            -- BuildContainerSpec used by the real (non-preview) bars.
+            local btnX, btnY
+            if vertical then
+                btnY = growUp and (-halfPrimary + withinLineStep) or (halfPrimary - withinLineStep)
+                btnX = wrapRight and (-halfCross + acrossLinesStep) or (halfCross - acrossLinesStep)
+            else
+                btnX = (corner == "TOPRIGHT") and (halfPrimary - withinLineStep) or (-halfPrimary + withinLineStep)
+                btnY = halfCross - acrossLinesStep
+            end
             btn:ClearAllPoints()
             btn:SetPoint(corner, box, "CENTER", btnX, btnY)
             btn:SetSize(slotSize[i], slotSize[i])
@@ -3815,7 +3905,7 @@ function ns.PAB_BuildPreviewBox(outerFrame, fontPath, startY, kind, id, cfg)
     -- Sized from the SCALED cfg (see ScaledPreviewCfg/PreviewScaleFactor's
     -- own doc comment) so the box's footprint matches what
     -- RenderPreviewIcons actually draws into it.
-    local grid = ComputeGrid(isBuff, ScaledPreviewCfg(cfg))
+    local grid = ComputeGrid(isBuff, ScaledPreviewCfg(cfg, isBuff))
     -- +30 (scaled) extra vertical room for duration/stack text rendering
     -- above/below the icon grid itself -- ComputeGrid's own width/height
     -- are the icon grid's bounding box only (same as the real bar), text
@@ -3897,7 +3987,7 @@ PAB_MaybeRefreshPreview = function(kind, id)
     -- is about to draw into, exactly mirroring PAB_BuildPreviewBox's own
     -- boxHeight/bottomY math (kept in sync manually -- see that function's
     -- doc comment for why this can't just be skipped/left build-time-only).
-    local grid = ComputeGrid(isBuff, ScaledPreviewCfg(cfg))
+    local grid = ComputeGrid(isBuff, ScaledPreviewCfg(cfg, isBuff))
     local boxHeight = grid.height + 30 * PreviewScaleFactor()
     activePreview.box:SetSize(math.max(grid.width, 1), boxHeight)
 

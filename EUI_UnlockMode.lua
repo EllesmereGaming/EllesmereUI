@@ -6795,7 +6795,13 @@ local function CreateMover(barKey)
                 isVert = v3
             end
         elseif barKey:sub(1, 4) == "PAB_" then
-            isVert = false -- Player Aura Bars are horizontal-only, AK has no vertical flow axis wired for them
+            -- Player Aura Bars support vertical growth too (Up/Down,
+            -- 2026-08-04 addition) -- read the bar's own current
+            -- growDirection (same bridge the currentVal lookup below uses)
+            -- to decide which pair of grow options this popup offers.
+            local euf3 = EllesmereUI.Lite.GetAddon("EllesmereUIUnitFrames", true)
+            local pabDir = (euf3 and euf3.GetGrowDirectionForBar and euf3:GetGrowDirectionForBar(barKey)) or "LEFT"
+            isVert = (pabDir == "UP" or pabDir == "DOWN")
         else
             local eab3 = EllesmereUI.Lite.GetAddon("EllesmereUIActionBars", true)
             local s3 = eab3 and eab3.db and eab3.db.profile and eab3.db.profile.bars and eab3.db.profile.bars[barKey]
