@@ -16,6 +16,13 @@ Compatibility\CDMData\AuraTracker.lua
 Compatibility\CDMData\DeathKnight.lua
 Compatibility\CDMData\Warrior.lua
 Compatibility\CDMData\Paladin.lua
+Compatibility\CDMData\Hunter.lua
+Compatibility\CDMData\Rogue.lua
+Compatibility\CDMData\Priest.lua
+Compatibility\CDMData\Shaman.lua
+Compatibility\CDMData\Mage.lua
+Compatibility\CDMData\Warlock.lua
+Compatibility\CDMData\Druid.lua
 
 # Main Lua
 EllesmereUICooldownManager.lua
