@@ -5129,10 +5129,8 @@ end
 -- Devourer (hero spec 1480): aura 1225789/1227702 -- WHITELISTED, safe to read.
 -- Cached player spec ID. GetSoulFragments is polled EVERY FRAME by the soul
 -- fragment resource bar, unit frame, and nameplate readouts, and
--- GetSpecialization + GetSpecializationInfo allocate fresh strings (spec
--- name/description) on every call -- ~1.9 kb of garbage per call, the dominant
--- source of the parent addon's runtime memory churn. Spec only changes on a
--- spec swap, so cache the id and refresh on the spec-change events instead.
+-- Spec detection reads the talent tabs on WotLK, so cache the id and refresh
+-- only on the spec-change events instead of polling it from resource bars.
 EllesmereUI._RefreshSpecID = function()
     EllesmereUI._specID = (EUI.Spec and EUI.Spec:GetCurrentID()) or 0
 end
