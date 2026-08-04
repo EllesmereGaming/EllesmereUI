@@ -4818,4 +4818,10 @@ initFrame:SetScript("OnEvent", function(self)
         local f = _G[frameName]
         if f then f:SetAlpha(0); f:EnableMouse(false) end
     end
+
+    -- Remove FriendsMicroButton when EUI chat is active
+    local friendsMB = _G["FriendsMicroButton"]
+    if friendsMB then
+        friendsMB:SetParent(_hiddenParent)
+    end
 end)
