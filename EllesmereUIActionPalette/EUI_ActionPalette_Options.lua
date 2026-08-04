@@ -5,7 +5,12 @@ local ADDON_NAME, ns = ...
 
 local PAGE_DISPLAY = "Action Palette"
 local BINDING_PREFIX = "EUI_RADIAL"
-local MAX_PALETTES = 6
+-- Palettes past MAX_BOUND_PALETTES have no <Binding> entry, so they cannot be
+-- opened by a key at all: they exist to be nested inside another palette. Read
+-- from the module rather than restated, so the two can never disagree about
+-- which of them the keybind row applies to.
+local MAX_PALETTES = ns.MAX_PALETTES or 16
+local MAX_BOUND_PALETTES = ns.MAX_BOUND_PALETTES or 6
 
 local initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
@@ -265,7 +270,7 @@ initFrame:SetScript("OnEvent", function(self)
     local lastKeySig = nil
     local function PaletteKeySignature()
         local sig = ""
-        for i = 1, MAX_PALETTES do
+        for i = 1, MAX_BOUND_PALETTES do
             local k1, k2 = GetBindingKey(BINDING_PREFIX .. i)
             sig = sig .. "|" .. (k1 or "") .. "/" .. (k2 or "")
         end
@@ -400,7 +405,14 @@ initFrame:SetScript("OnEvent", function(self)
         if slot then
             local _, name = ns.SlotDisplay(slot)
             GameTooltip:AddLine(name or slot.kind, 1, 1, 1)
-            GameTooltip:AddLine(slot.kind, 0.6, 0.6, 0.6)
+            if slot.kind == "palette" then
+                local kids = ns.ChildSlots and ns.ChildSlots(ns.ChildIndex(slot))
+                GameTooltip:AddLine(("nested palette, %d %s"):format(
+                    kids and #kids or 0,
+                    (kids and #kids == 1) and "entry" or "entries"), 0.6, 0.6, 0.6)
+            else
+                GameTooltip:AddLine(slot.kind, 0.6, 0.6, 0.6)
+            end
             GameTooltip:AddLine(" ")
             GameTooltip:AddLine("Drag to reorder.", 0.4, 0.8, 1, true)
             GameTooltip:AddLine("Right-click to remove.", 0.4, 0.8, 1, true)
@@ -619,6 +631,38 @@ initFrame:SetScript("OnEvent", function(self)
         return out
     end
 
+    -- Every palette this one may open. Not a list of things the game owns, so
+    -- it is rebuilt on each use rather than cached: adding a palette or filling
+    -- one in has to show up here without reopening the picker.
+    --
+    -- ns.CanNest does the refusing, and refuses more than the obvious: a palette
+    -- inside itself, and any chain that would close a loop -- A holding B
+    -- holding A -- which would send every push and every draw round until the
+    -- client gave out.
+    local function PaletteEntries()
+        local out = {}
+        for i = 1, PaletteCount() do
+            if i ~= editPalette and ns.CanNest and ns.CanNest(editPalette, i) then
+                local palette = Palette(i)
+                local name = (palette and palette.name) or ("Palette " .. i)
+                local count = palette and #palette.slots or 0
+                local icon
+                -- The palette's own first entry, so it looks like what it holds.
+                local first = palette and palette.slots[1]
+                if first and first.kind ~= "palette" then
+                    icon = ns.SlotDisplay(first)
+                end
+                out[#out + 1] = {
+                    icon = icon or "Interface\\Icons\\INV_Misc_Bag_08",
+                    name = (count > 0) and (name .. "  |cff808080(" .. count .. ")|r")
+                        or (name .. "  |cff808080(empty)|r"),
+                    slot = { kind = "palette", palette = i, name = name },
+                }
+            end
+        end
+        return out
+    end
+
     -- custom = the typed-macro pane rather than a list of things to enumerate.
     local PICKER_CATEGORIES = {
         { key = "spell",     label = "Spells",       build = SpellEntries },
@@ -627,6 +671,7 @@ initFrame:SetScript("OnEvent", function(self)
         { key = "toy",       label = "Toys",         build = ToyEntries },
         { key = "macro",     label = "Macros",       build = MacroEntries },
         { key = "battlepet", label = "Battle Pets",  build = PetEntries },
+        { key = "palette",   label = "Palettes",     build = PaletteEntries },
         { key = "macrotext", label = "Custom Macro...", custom = true },
     }
 
@@ -1313,6 +1358,9 @@ initFrame:SetScript("OnEvent", function(self)
             { type="toggle", text="Enable Action Palette",
               getValue=function() return Cfg("enabled") ~= false end,
               setValue=function(v) Set("enabled", v); RebuildPage() end },
+            -- Past MAX_BOUND_PALETTES these have no key of their own and are
+            -- reachable only by being nested in another palette, which is what
+            -- the keybind row beside them explains.
             { type="slider", text="Number of Palettes",
               disabled=Disabled, disabledTooltip="the module",
               min=1, max=MAX_PALETTES, step=1,
@@ -1356,8 +1404,16 @@ initFrame:SetScript("OnEvent", function(self)
             -- committing a key and switching the edited palette -- rebuild the
             -- page, so it cannot go stale while the panel is open.
             { type="labeledButton", text="Palette Keybind",
-              disabled=Disabled, disabledTooltip="the module",
-              buttonText=(listenPalette == editPalette) and "Press a key..."
+              disabled=function()
+                  return Disabled() or editPalette > MAX_BOUND_PALETTES
+              end,
+              disabledTooltip=(editPalette > MAX_BOUND_PALETTES)
+                  and ("only the first " .. MAX_BOUND_PALETTES .. " palettes can "
+                       .. "take a key -- open this one by nesting it inside "
+                       .. "another palette")
+                  or "the module",
+              buttonText=(editPalette > MAX_BOUND_PALETTES) and "Nested Only"
+                  or (listenPalette == editPalette) and "Press a key..."
                   or (keyForEditPalette and (GetBindingText(keyForEditPalette) or keyForEditPalette)
                       or "Click to Bind"),
               onClick=function() StartListening(editPalette) end })
@@ -1493,6 +1549,52 @@ initFrame:SetScript("OnEvent", function(self)
         y = y - h
 
         -- ── FAN & GRID ───────────────────────────────────────────────────
+        _, h = W:SectionHeader(parent, "NESTED PALETTES", y); y = y - h
+
+        -- Nesting is drawn one level further out from the hub, so all of this
+        -- describes the arc. The other layouts nest along their own lattice and
+        -- take none of it.
+        row, h = W:DualRow(parent, y,
+            -- The gap between the two rings' icons, not a radius, so what the
+            -- number says is what the eye measures.
+            { type="slider", text="Nest Distance",
+              disabled=arcOnly, disabledTooltip="the Arc layout",
+              min=0, max=160, step=1,
+              getValue=function() return Cfg("arcChildBand") or 40 end,
+              setValue=function(v) Set("arcChildBand", v); Refresh() end },
+            -- Contained: a nest may only use the sector its own entry already
+            -- owns, so no other entry's gesture changes at all. Overflowing: it
+            -- grows out to the midpoint with the next nest either side, which
+            -- keeps the entries closer in but BORROWS the angles in between --
+            -- a long flick through those then fires a nested entry rather than
+            -- the entry it points at.
+            { type="dropdown", text="Nest Width",
+              disabled=arcOnly, disabledTooltip="the Arc layout",
+              values={ NONE = "Contained", MIDPOINT = "Overflowing" },
+              order={ "NONE", "MIDPOINT" },
+              getValue=function() return Cfg("arcChildOverflow") or "NONE" end,
+              setValue=function(v) Set("arcChildOverflow", v); Refresh() end })
+        y = y - h
+
+        row, h = W:DualRow(parent, y,
+            { type="slider", text="Max Nest Span",
+              disabled=function()
+                  return arcOnly() or (Cfg("arcChildOverflow") or "NONE") ~= "MIDPOINT"
+              end,
+              disabledTooltip="the Overflowing nest width",
+              min=30, max=180, step=5,
+              getValue=function() return Cfg("arcChildMaxSpan") or 90 end,
+              setValue=function(v) Set("arcChildMaxSpan", v); Refresh() end },
+            -- Smaller than the palette's own entries, so a nest reads as
+            -- subordinate to the entry it opens from. Drawing only: the sectors
+            -- are angular, so this changes nothing about what a release picks.
+            { type="slider", text="Nest Icon Size",
+              disabled=arcOnly, disabledTooltip="the Arc layout",
+              min=0.4, max=1.0, step=0.05,
+              getValue=function() return Cfg("arcChildScale") or 0.8 end,
+              setValue=function(v) Set("arcChildScale", v); Refresh() end })
+        y = y - h
+
         _, h = W:SectionHeader(parent, "FAN & GRID", y); y = y - h
 
         row, h = W:DualRow(parent, y,

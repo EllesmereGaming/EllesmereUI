@@ -58,10 +58,26 @@ local GetTime = GetTime
 local TWO_PI = pi * 2
 local QUESTION_MARK = "Interface\\Icons\\INV_Misc_QuestionMark"
 
--- Palette / slot limits. MAX_PALETTES must match the number of <Binding> entries
--- in Bindings.xml -- a palette with no declared binding can never be opened.
-local MAX_PALETTES = 6
+-- Palette / slot limits. MAX_BOUND_PALETTES must match the number of <Binding>
+-- entries in Bindings.xml -- a palette past that has no key to open it, and
+-- exists to be NESTED inside another palette. Storage therefore runs further
+-- than binding does.
+local MAX_BOUND_PALETTES = 6
+local MAX_PALETTES = 16
 local MAX_SLOTS = 12
+
+-- Entries a nested palette contributes. A palette that is also bound to a key
+-- keeps all MAX_SLOTS of its own slots when it is opened directly; only the
+-- first MAX_CHILDREN are reachable through a parent. Every layout has to fit
+-- them into a region bounded by the parent's own -- a sector of the arc, a row
+-- outside the grid -- and eight is where all of those stop being readable.
+local MAX_CHILDREN = 8
+
+-- How far past its own ring a nested arc may be pushed before the children are
+-- left to overlap instead. A narrow parent sector is answered by moving the
+-- children outward (see ChildGeom), which is unbounded arithmetic: twelve
+-- entries each holding eight would otherwise land them off the screen.
+local CHILD_RADIUS_MAX_K = 3
 
 -- The binding ACTION name, and it keeps the module's first name for good. WoW
 -- stores a keybind against this string, so renaming it would unbind every
@@ -106,6 +122,18 @@ local DB_DEFAULTS = {
         -- somewhere to open that does not cover its parent.
         arcSpan     = 360,           -- degrees, 30..360
         arcRotation = 0,             -- degrees, direction the arc is centred on
+
+        -- Nesting. A slot of kind "palette" opens another palette's entries one
+        -- level further out, in a region carved out of the parent entry's own --
+        -- see ChildGeom for why it has to be the parent's own.
+        -- A clear GAP between the parent's icon and its children, not a
+        -- centre-to-centre radius: measured centre to centre it has to cover
+        -- both icons' halves before it separates anything at all, and at any
+        -- ordinary icon size the two rings came out touching.
+        arcChildBand     = 40,
+        arcChildScale    = 0.8,      -- child icon size, against the palette's own
+        arcChildOverflow = "NONE",   -- NONE | MIDPOINT
+        arcChildMaxSpan  = 90,       -- degrees, the widest a child arc may grow
 
         -- Geometry
         radius      = 96,
@@ -278,11 +306,84 @@ function ns.MoveSlot(palette, from, to)
     return true
 end
 
+-- How many palettes EXIST. Not the same as how many can be opened by a key:
+-- everything past MAX_BOUND_PALETTES has no <Binding> entry and is reachable
+-- only by being nested inside another palette.
 local function PaletteCount()
     local p = P()
     return min(MAX_PALETTES, max(1, (p and p.paletteCount) or 1))
 end
 ns.PaletteCount = PaletteCount
+
+-- How many have a keybind, and therefore a secure button of their own. Every
+-- loop that pushes actions or claims a key runs over THIS, not PaletteCount.
+local function BoundPaletteCount()
+    return min(MAX_BOUND_PALETTES, PaletteCount())
+end
+ns.BoundPaletteCount = BoundPaletteCount
+
+-------------------------------------------------------------------------------
+--  Nesting
+--
+--  A slot of kind "palette" names another palette by index. The palette it
+--  names is an ordinary one -- it may carry a keybind as well, or exist purely
+--  to be nested.
+--
+--  ONE level. The child region is carved out of the parent entry's own region,
+--  and there is no second region to carve out of that: a release is resolved
+--  from the final cursor position alone, so parents and children have to
+--  partition the plane between them. A palette slot INSIDE a nested palette is
+--  therefore drawn but fires nothing.
+-------------------------------------------------------------------------------
+
+-- The palette a slot opens, or nil for a slot that fires an action.
+local function ChildIndex(slot)
+    if not slot or slot.kind ~= "palette" then return nil end
+    local idx = tonumber(slot.palette)
+    if not idx or idx < 1 or idx > MAX_PALETTES then return nil end
+    return idx
+end
+ns.ChildIndex = ChildIndex
+
+-- The reachable entries of a nested palette. Capped rather than refused, so a
+-- palette that is also bound to a key keeps all twelve of its slots when it is
+-- opened directly and offers its first eight when it is nested.
+local function ChildSlots(paletteIndex)
+    local palette = paletteIndex and EnsurePalette(paletteIndex)
+    if not palette then return nil end
+    local out = {}
+    for i = 1, min(MAX_CHILDREN, #palette.slots) do out[i] = palette.slots[i] end
+    return out, palette
+end
+ns.ChildSlots = ChildSlots
+
+-- May `child` be nested inside `parent`? No for a palette inside itself, and no
+-- for any chain that would close a loop -- A holding B holding A. Checked when
+-- the slot is CREATED rather than when it is walked: a stored cycle would send
+-- every push and every draw of that palette round until the client gave out.
+function ns.CanNest(parentIndex, childIndex)
+    if not parentIndex or not childIndex then return false end
+    if parentIndex == childIndex then return false end
+
+    -- Walk down from the candidate child. Reaching the parent means the parent
+    -- already sits somewhere below it, so nesting it would close the loop. The
+    -- seen set also bounds the walk over data that is ALREADY cyclic, which a
+    -- profile edited by hand or carried over from an older build may be.
+    local seen, stack = { [childIndex] = true }, { childIndex }
+    while #stack > 0 do
+        local idx = tremove(stack)
+        if idx == parentIndex then return false end
+        local palette = EnsurePalette(idx)
+        for i = 1, (palette and #palette.slots or 0) do
+            local c = ChildIndex(palette.slots[i])
+            if c and not seen[c] then
+                seen[c] = true
+                stack[#stack + 1] = c
+            end
+        end
+    end
+    return true
+end
 
 local function SelectColor()
     local p = P()
@@ -296,6 +397,9 @@ local function SelectColor()
 end
 ns.SelectColor = SelectColor
 ns.MAX_SLOTS = MAX_SLOTS
+ns.MAX_PALETTES = MAX_PALETTES
+ns.MAX_BOUND_PALETTES = MAX_BOUND_PALETTES
+ns.MAX_CHILDREN = MAX_CHILDREN
 
 -------------------------------------------------------------------------------
 --  Slot model
@@ -313,6 +417,11 @@ ns.MAX_SLOTS = MAX_SLOTS
 local function ResolveAction(slot)
     if not slot or not slot.kind then return nil end
     local k = slot.kind
+
+    -- A palette opens entries; it never fires one. Returning nothing is what
+    -- makes a release on the parent itself a cancel, which is the only sensible
+    -- reading of "you stopped on the door rather than going through it".
+    if k == "palette" then return nil end
 
     if k == "spell" then
         if type(slot.id) ~= "number" then return nil end
@@ -415,6 +524,20 @@ local function SlotDisplay(slot)
     elseif k == "battlepet" then
         local _, _, _, _, _, _, _, name, icon = C_PetJournal.GetPetInfoByPetID(slot.guid)
         return icon or QUESTION_MARK, name or slot.name
+
+    elseif k == "palette" then
+        local palette = EnsurePalette(ChildIndex(slot))
+        -- The user's own choice first, then the palette's first entry, so a
+        -- "Mounts" palette looks like a mount without anyone having to pick an
+        -- icon for it. Only one level down: a first entry that is itself a
+        -- palette would send this round its own loop.
+        local icon = slot.icon
+        local first = palette and palette.slots[1]
+        if not icon and first and first.kind ~= "palette" then
+            icon = SlotDisplay(first)
+        end
+        return icon or QUESTION_MARK,
+               slot.name or (palette and palette.name) or "Palette"
     end
 
     return QUESTION_MARK, slot.name
@@ -678,6 +801,139 @@ end
 
 function PaletteView:IsGrid()
     return self:LayoutMode() == "GRID"
+end
+
+-- The lattice spacing entries are placed on: one icon plus the gap between two
+-- of them. The grid, both strips and a nested arc all measure from this.
+function PaletteView:Pitch()
+    local p = P()
+    local _, iconSize = self:Geom()
+    return iconSize + ((p and p.fanGap) or 10)
+end
+
+-- Nested geometry for one palette. Returns an array of CLAIMS -- one per slot
+-- that opens a palette -- or nil when nothing in it nests:
+--
+--   parent   the slot index the children hang off
+--   palette  the palette index they come from
+--   slots    the child slots themselves, already capped at MAX_CHILDREN
+--   n        how many
+--   angle    the parent entry's own angle
+--   start    the angle of child 1 (the CENTRE of its sector)
+--   step     one child sector, radians
+--   radius   where the children are drawn
+--   band     the distance at which the children take over from the parent
+--
+-- ONE allocator, read by the drawing, by the hit test and by the push onto the
+-- secure button. A second copy of any of this inside the snippet would drift
+-- from what the palette draws the first time an option moved -- the same reason
+-- the grid's cell centres are pushed rather than re-derived.
+--
+-- Why the children subdivide their PARENT'S sector rather than taking a fixed
+-- span of their own: nothing runs between the press and the release, so the
+-- release has only the final cursor position to go on. Parent regions and child
+-- regions must therefore partition the plane. Two neighbouring parents each
+-- claiming a quarter turn would overlap, and the overlap would be unresolvable.
+--
+-- A sector too narrow for its children is answered by pushing them further OUT,
+-- where the same angle buys more room, rather than by widening into a
+-- neighbour's sector. arcChildOverflow = MIDPOINT trades that away: the arc
+-- grows to the midpoint between this claim and the next one either side, which
+-- borrows depth from the plain entries in between -- a long flick through the
+-- borrowed angles then fires a child instead of the entry it points at.
+function PaletteView:ChildGeom(shown, palette)
+    local p = P()
+    if not p or not palette or shown < 1 then return nil end
+    -- Arc only so far. The pointer layouts nest through the cell list instead.
+    if self:LayoutMode() ~= "ARC" then return nil end
+    -- An editor draws no nests. What a nested entry holds is that palette's own
+    -- business -- switch to it and it is the whole preview -- and drawing every
+    -- nest at once buries the palette actually being arranged. It would also
+    -- make the preview budget space for a reach it is not showing, shrinking the
+    -- palette under the cursor to leave room for entries that are not there.
+    if self.opts.interactive then return nil end
+
+    -- Claimants in entry order first: how much room each one may take depends
+    -- on where the next one sits, so none of them can be sized on its own.
+    local claims
+    for i = 1, shown do
+        local kids = ChildSlots(ChildIndex(palette.slots[i]))
+        if kids and #kids > 0 then
+            claims = claims or {}
+            claims[#claims + 1] = { parent = i, n = #kids, slots = kids,
+                                    palette = ChildIndex(palette.slots[i]) }
+        end
+    end
+    if not claims then return nil end
+
+    local step, arcStart, full = self:ArcGeom(shown)
+    local radius, iconSize = self:Geom()
+    local pitch  = self:Pitch()
+    -- Scaled by whatever this view scaled its geometry by, recovered from the
+    -- icon size Geom handed back -- the same recovery the hub logo makes. The
+    -- radius and the pitch already carry that factor; a band read at its literal
+    -- profile size would not, and the options preview would then draw its nests
+    -- at full distance around a palette fitted to two-thirds.
+    local base = p.iconSize or 44
+    local k = (base > 0) and (iconSize / base) or 1
+    local band = max(0, p.arcChildBand or 40) * k
+    local gap  = ((p and p.fanGap) or 10) * k
+    -- Nested entries are drawn smaller than the palette's own, so a nest reads
+    -- as subordinate to the entry it hangs off rather than as a second ring of
+    -- equals. It costs nothing in the hit test: the sectors are angular, and an
+    -- icon's size has no part in deciding which one the cursor is in.
+    local childIcon = iconSize * min(1, max(0.4, p.arcChildScale or 0.8))
+    local childPitch = childIcon + gap
+    local capHalf = min(180, max(10, p.arcChildMaxSpan or 90)) * pi / 180 * 0.5
+    local overflow = p.arcChildOverflow == "MIDPOINT"
+    local count = #claims
+
+    -- Angles for all of them before any of them is sized: an overflowing claim
+    -- measures against the claim either side of it, and half of those sit later
+    -- in the array.
+    for k = 1, count do
+        claims[k].angle = arcStart + (claims[k].parent - 1) * step
+    end
+
+    for k = 1, count do
+        local c = claims[k]
+        local half = step * 0.5
+        if overflow then
+            -- Out to the midpoint with the nearest claimant either side. A lone
+            -- claimant on a full circle has no neighbour to meet, so only the
+            -- cap stops it; on an open arc the ends are free space.
+            half = capHalf
+            if count > 1 then
+                local nxt  = claims[k + 1] and claims[k + 1].angle
+                    or (full and (claims[1].angle + TWO_PI))
+                local prev = claims[k - 1] and claims[k - 1].angle
+                    or (full and (claims[count].angle - TWO_PI))
+                if nxt  then half = min(half, (nxt - c.angle) * 0.5) end
+                if prev then half = min(half, (c.angle - prev) * 0.5) end
+            end
+            -- Never NARROWER than its own sector: overflow may only add room.
+            half = max(half, step * 0.5)
+        end
+
+        c.step  = (half * 2) / c.n
+        c.start = c.angle - half + c.step * 0.5
+        c.icon  = childIcon
+        -- Both icons' halves plus the gap, so the band the user sets is the
+        -- space they actually see between the two rings.
+        local inner = radius + iconSize * 0.5 + childIcon * 0.5 + band
+        -- Far enough out that neighbouring children are a full pitch apart at
+        -- this angular step. Clamped, because a narrow sector divided by eight
+        -- is unbounded arithmetic and would put the children off the screen;
+        -- past the clamp they overlap, and the answer is MIDPOINT or fewer
+        -- entries rather than a palette drawn a thousand units wide.
+        local want = (c.step > 0) and (childPitch / c.step) or inner
+        c.radius = min(max(inner, want), inner * CHILD_RADIUS_MAX_K)
+        -- Halfway across the gap: clear of the parent's own icon, short of its
+        -- children. The parent entry keeps everything inside this.
+        c.band = radius + iconSize * 0.5 + band * 0.5
+    end
+
+    return claims
 end
 
 -- Angular step and starting angle for the arc layout, both clockwise from
@@ -1291,17 +1547,67 @@ function ns.CreatePaletteView(parent, opts)
     hub.hint = hub:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     hub.hint:SetPoint("TOP", hub.text, "BOTTOM", 0, -2)
 
+    -- The palette's own entries exist from the outset; nested ones are made on
+    -- demand, because most palettes hold none and a full set would be another
+    -- ninety-six frames per view.
     for i = 1, MAX_SLOTS do view.widgets[i] = CreateSlotWidget(view, i) end
 
     views[#views + 1] = view
     return view
 end
 
+-- A cell's widget, created if this view has never drawn a cell that far out.
+function PaletteView:Widget(index)
+    local w = self.widgets[index]
+    if not w then
+        w = CreateSlotWidget(self, index)
+        self.widgets[index] = w
+    end
+    return w
+end
+
+-- Paint one cell from its slot. Shared by the palette's own entries and by the
+-- nested ones, which differ only in where they are placed and when they are
+-- shown -- a second copy of this is how a nested entry ends up with no cooldown
+-- swirl or the wrong label the first time either option moves.
+local function PaintCell(w, slot, placeholder, showLabels, showCooldowns, wantLabel)
+    w.isPlaceholder = placeholder
+
+    local icon, name = SlotDisplay(slot)
+    w.icon:SetTexture(icon or QUESTION_MARK)
+    w.icon:SetShown(not placeholder)
+    w.plus:SetShown(placeholder)
+
+    local labelled = showLabels and wantLabel and name ~= nil
+    w.label:SetText((labelled and name) or "")
+    w.label:SetShown(labelled or false)
+
+    -- A palette has no cooldown of its own, and borrowing its first entry's
+    -- would be a lie the moment the user pointed at any of the others.
+    if showCooldowns and slot and slot.kind ~= "palette" then
+        local durObj, start, duration, enable = SlotCooldown(slot)
+        if durObj then
+            -- clearIfZero defaults true, so an idle spell clears itself.
+            w.cd:SetCooldownFromDurationObject(durObj)
+        elseif start then
+            CooldownFrame_Set(w.cd, start, duration, enable)
+        else
+            w.cd:Clear()
+        end
+        w.cd:Show()
+    else
+        w.cd:Clear()
+        w.cd:Hide()
+    end
+
+    ApplySlotVisual(w, false)
+end
+
 -- Lay the palette out and paint every widget from the stored slot data.
 function PaletteView:Layout(paletteIndex)
-    -- Clamped because a view's palette index outlives a decrease of paletteCount, and
-    -- EnsurePalette would otherwise re-create a palette the user can no longer bind.
-    paletteIndex = min(PaletteCount(), max(1, paletteIndex or self.paletteIndex or 1))
+    -- Clamped to what can be STORED rather than to what can be bound: a nested
+    -- palette is opened through its parent and may well have no key of its own.
+    paletteIndex = min(MAX_PALETTES, max(1, paletteIndex or self.paletteIndex or 1))
     local p, palette = P(), EnsurePalette(paletteIndex)
     if not p or not palette then return end
 
@@ -1318,6 +1624,17 @@ function PaletteView:Layout(paletteIndex)
     local step, arcStart = self:ArcGeom(shown)
     local radius, iconSize = self:Geom()
     local fan = self:IsFan()
+
+    -- Worked out before the frame is sized, not with the entries it places: a
+    -- nested arc reaches further out than the palette's own ring, and a frame
+    -- sized to the ring alone would clip every child drawn beyond it.
+    local claims = self:ChildGeom(shown, palette)
+    local outer = radius
+    for k = 1, (claims and #claims or 0) do
+        -- Plus the child's own half-width: a ring of icons reaches further than
+        -- the circle their centres sit on, and the difference is what clips.
+        outer = max(outer, claims[k].radius + claims[k].icon * 0.5 - iconSize * 0.5)
+    end
 
     local frame = self.frame
     -- p.scale is the user's live sizing; a fitted preview supplies its own
@@ -1340,7 +1657,7 @@ function PaletteView:Layout(paletteIndex)
         end
     else
         -- Sized generously so labels and the selected-slot zoom never clip.
-        local span = (radius + iconSize) * 2 + 40
+        local span = (outer + iconSize) * 2 + 40
         frame:SetSize(span, span)
     end
 
@@ -1349,61 +1666,64 @@ function PaletteView:Layout(paletteIndex)
     local showCooldowns = opts.showCooldowns
     if showCooldowns == nil then showCooldowns = p.showCooldowns end
 
-    for i = 1, MAX_SLOTS do
+    for i = 1, shown do
         local w = self.widgets[i]
-        if i <= shown then
-            -- Switching modes leaves the other mode's depth cues behind.
-            w:SetAlpha(1)
-            w:SetScale(1)
-            -- The size a selection zoom is measured from. The strip and the grid
-            -- publish their own, entry by entry, in the geometry passes below.
-            w.baseSize = iconSize
-            if not fan then
-                local a = arcStart + (i - 1) * step
-                w:ClearAllPoints()
-                w:SetPoint("CENTER", frame, "CENTER", radius * sin(a), radius * cos(a))
-                w:SetSize(iconSize, iconSize)
-            end
-            w:EnableMouse(opts.interactive == true)
-
-            local slot = palette.slots[i]
-            -- Only reachable on an interactive view: shown == n otherwise.
-            local placeholder = (slot == nil)
-            w.isPlaceholder = placeholder
-
-            local icon, name = SlotDisplay(slot)
-            w.icon:SetTexture(icon or QUESTION_MARK)
-            w.icon:SetShown(not placeholder)
-            w.plus:SetShown(placeholder)
-            -- The fan never labels its entries: at strip spacing the captions
-            -- of neighbouring icons collide, and the centre entry -- the only
-            -- one that can be fired -- is already named on the hub.
-            local wantLabel = showLabels and not fan and name ~= nil
-            w.label:SetText((wantLabel and name) or "")
-            w.label:SetShown(wantLabel or false)
-
-            if showCooldowns and slot then
-                local durObj, start, duration, enable = SlotCooldown(slot)
-                if durObj then
-                    -- clearIfZero defaults true, so an idle spell clears itself.
-                    w.cd:SetCooldownFromDurationObject(durObj)
-                elseif start then
-                    CooldownFrame_Set(w.cd, start, duration, enable)
-                else
-                    w.cd:Clear()
-                end
-                w.cd:Show()
-            else
-                w.cd:Clear()
-                w.cd:Hide()
-            end
-
-            ApplySlotVisual(w, false)
-            w:Show()
-        else
-            w:Hide()
-            w:EnableMouse(false)
+        -- Switching modes leaves the other mode's depth cues behind.
+        w:SetAlpha(1)
+        w:SetScale(1)
+        -- The size a selection zoom is measured from. The strip and the grid
+        -- publish their own, entry by entry, in the geometry passes below.
+        w.baseSize = iconSize
+        if not fan then
+            local a = arcStart + (i - 1) * step
+            w:ClearAllPoints()
+            w:SetPoint("CENTER", frame, "CENTER", radius * sin(a), radius * cos(a))
+            w:SetSize(iconSize, iconSize)
         end
+        w:EnableMouse(opts.interactive == true)
+
+        -- A nil slot is only reachable on an interactive view, whose trailing
+        -- "+" placeholder is drawn as a real entry: shown == n otherwise.
+        -- The fan never labels its entries: at strip spacing the captions of
+        -- neighbouring icons collide, and the centre entry -- the only one that
+        -- can be fired -- is already named on the hub.
+        PaintCell(w, palette.slots[i], palette.slots[i] == nil,
+                  showLabels, showCooldowns, not fan)
+        w:Show()
+    end
+
+    -- Nested entries, laid out past the palette's own on the same index line, so
+    -- a cell index is all the hit test and the secure push ever have to carry.
+    local cells = shown
+    if claims then
+        for k = 1, #claims do
+            local c = claims[k]
+            c.base = cells
+            for j = 1, c.n do
+                cells = cells + 1
+                local w = self:Widget(cells)
+                w:SetAlpha(1)
+                w:SetScale(1)
+                w.baseSize = c.icon
+                w:ClearAllPoints()
+                local a = c.start + (j - 1) * c.step
+                w:SetPoint("CENTER", frame, "CENTER",
+                           c.radius * sin(a), c.radius * cos(a))
+                w:SetSize(c.icon, c.icon)
+                w:EnableMouse(false)
+                PaintCell(w, c.slots[j], false, showLabels, showCooldowns, true)
+                -- Hidden until its parent is pointed at -- see UpdateNestShown.
+                w:Hide()
+            end
+        end
+    end
+    self.claims = claims
+    self.cellCount = cells
+    self._openClaim = nil
+
+    for i = cells + 1, #self.widgets do
+        self.widgets[i]:Hide()
+        self.widgets[i]:EnableMouse(false)
     end
 
     -- Every widget was just repainted unselected, so the recorded selection is
@@ -1456,10 +1776,58 @@ function PaletteView:Layout(paletteIndex)
     end
 end
 
+-- The slot a cell index draws, and the claim it belongs to for a nested one.
+-- Every cell past shownCount is somebody's child; the palette's own entries map
+-- straight through.
+function PaletteView:CellSlot(index)
+    if not index then return nil end
+    local palette = EnsurePalette(self.paletteIndex)
+    if not palette then return nil end
+    if index <= self.shownCount then return palette.slots[index] end
+    local claims = self.claims
+    for k = 1, (claims and #claims or 0) do
+        local c = claims[k]
+        if c.base and index > c.base and index <= c.base + c.n then
+            return c.slots[index - c.base], c, index - c.base
+        end
+    end
+    return nil
+end
+
+-- Which nest is open. One at a time, and only while the cursor is on its parent
+-- or on one of its own entries -- every nest drawn at once would bury the
+-- palette it hangs off. The hit test does NOT consult this: a release is
+-- resolved from the cursor alone, so a flick that outruns the drawing still
+-- fires the child it pointed at. Same bargain flick-ahead already makes.
+function PaletteView:UpdateNestShown(index)
+    local claims = self.claims
+    if not claims then return end
+
+    local open
+    for k = 1, #claims do
+        local c = claims[k]
+        if index and c.base
+           and (index == c.parent or (index > c.base and index <= c.base + c.n)) then
+            open = c
+        end
+    end
+    if self._openClaim == open then return end
+    self._openClaim = open
+
+    for k = 1, #claims do
+        local c = claims[k]
+        for j = 1, c.n do
+            local w = c.base and self.widgets[c.base + j]
+            if w then w:SetShown(c == open) end
+        end
+    end
+end
+
 -- Paint selection state. Called from OnUpdate whenever the hovered slot
 -- changes, and once from Open so the initial state is drawn.
 function PaletteView:SetSelection(index)
     if self.selection == index then return end
+    self:UpdateNestShown(index)
 
     local widgets = self.widgets
     if self.selection and widgets[self.selection] then
@@ -1474,10 +1842,17 @@ function PaletteView:SetSelection(index)
         local w = widgets[index]
         ApplySlotVisual(w, true)
 
-        local palette = EnsurePalette(self.paletteIndex)
-        local slot = palette and palette.slots[index]
+        local slot, claim, childIndex = self:CellSlot(index)
         local _, name = SlotDisplay(slot)
         local r, g, b = SelectColor()
+        -- A nested entry is captioned under the palette it came from, so the
+        -- hub still says where in the palette the cursor actually is.
+        if claim then
+            local _, parentName = SlotDisplay(self:CellSlot(claim.parent))
+            if parentName and name then
+                name = parentName .. " \194\187 " .. name
+            end
+        end
         hub.text:SetText(name or (w.isPlaceholder and "Add Action") or ("Slot " .. index))
         hub.text:SetTextColor(r, g, b)
 
@@ -1486,6 +1861,7 @@ function PaletteView:SetSelection(index)
             local radius, iconSize, deadZone = self:Geom()
             local step, arcStart = self:ArcGeom(self.shownCount)
             local a = arcStart + (index - 1) * step
+            if claim then a = claim.start + (childIndex - 1) * claim.step end
             local mid = (deadZone + radius - iconSize * 0.5) * 0.5
             hub.needle:ClearAllPoints()
             hub.needle:SetPoint("CENTER", hub, "CENTER", mid * sin(a), mid * cos(a))
@@ -1535,12 +1911,28 @@ function PaletteView:HitTest()
 
     local dx, dy = mx - cx, my - cy
     local dist = sqrt(dx * dx + dy * dy)
-    if dist < deadZone then return nil end
 
     -- atan2(dx, dy) measures clockwise from straight up, matching the layout
     -- (slot 1 at 12 o'clock, index increasing clockwise).
     local theta = atan2(dx, dy)
     if theta < 0 then theta = theta + TWO_PI end
+
+    -- Nested entries before anything else. With overflow allowed a child sector
+    -- reaches past its parent's own, so answering the parent first would settle
+    -- the question before the child was ever considered. The claims are
+    -- disjoint, so at most one of them can match.
+    local claims = self.claims
+    for k = 1, (claims and #claims or 0) do
+        local c = claims[k]
+        if c.base and dist >= c.band and c.step > 0 then
+            local rel = (theta - c.start + c.step * 0.5) % TWO_PI
+            if rel < c.n * c.step then
+                return c.base + floor(rel / c.step) + 1
+            end
+        end
+    end
+
+    if dist < deadZone then return nil end
 
     local step, arcStart, full = self:ArcGeom(shown)
     if step == 0 then return 1 end
@@ -1804,8 +2196,9 @@ end
 function ns.CurrentSlot()
     local selection = liveView and liveView:GetSelection()
     if not selection then return nil end
-    local palette = EnsurePalette(liveView:GetPaletteIndex())
-    return palette and palette.slots[selection]
+    -- Through the cell map, so a nested entry answers with its OWN slot rather
+    -- than with whatever the parent palette happens to hold at that index.
+    return (liveView:CellSlot(selection))
 end
 
 -------------------------------------------------------------------------------
@@ -2067,26 +2460,50 @@ local SNIPPET_PRE = [==[
                 self:SetAttribute("eapWhy", "outofreach") return nil, 1
             end
         else
-            local dz = tonumber(self:GetAttribute("eapDeadZone")) or 24
-            if (dx * dx + dy * dy) ^ 0.5 < dz then
-                self:SetAttribute("eapWhy", "deadzone") return nil, 1
+            local dist = (dx * dx + dy * dy) ^ 0.5
+            local theta = atan2(dx, dy)
+            if theta < 0 then theta = theta + 360 end
+            self:SetAttribute("eapTheta", theta)
+
+            -- Nested entries first. A child sector can reach past its parent's
+            -- own when overflow is allowed, so answering the parent first would
+            -- settle the question before the child was ever considered. The
+            -- claims are disjoint, so at most one of them can match.
+            local claims = tonumber(self:GetAttribute("eapClaims")) or 0
+            for k = 1, claims do
+                local band = tonumber(self:GetAttribute("eapCBand" .. k))
+                local cstep = tonumber(self:GetAttribute("eapCStepDeg" .. k)) or 0
+                local cn = tonumber(self:GetAttribute("eapCN" .. k)) or 0
+                if band and dist >= band and cstep > 0 and cn > 0 then
+                    local crel = (theta
+                        - (tonumber(self:GetAttribute("eapCStartDeg" .. k)) or 0)) % 360
+                    if crel < cn * cstep then
+                        idx = (tonumber(self:GetAttribute("eapCBase" .. k)) or 0)
+                              + floor(crel / cstep) + 1
+                        break
+                    end
+                end
             end
 
-            local step = tonumber(self:GetAttribute("eapStepDeg")) or 0
-            if step == 0 then
-                idx = 1
-            else
-                local theta = atan2(dx, dy)
-                if theta < 0 then theta = theta + 360 end
-                local rel = theta - (tonumber(self:GetAttribute("eapStartDeg")) or 0)
-                self:SetAttribute("eapTheta", theta)
-                self:SetAttribute("eapRel", rel)
-                if self:GetAttribute("eapFull") then
-                    idx = (floor(rel / step + 0.5) % n) + 1
+            if not idx then
+                local dz = tonumber(self:GetAttribute("eapDeadZone")) or 24
+                if dist < dz then
+                    self:SetAttribute("eapWhy", "deadzone") return nil, 1
+                end
+
+                local step = tonumber(self:GetAttribute("eapStepDeg")) or 0
+                if step == 0 then
+                    idx = 1
                 else
-                    rel = rel % 360
-                    if rel <= (n - 1) * step + step * 0.5 then
-                        idx = floor(rel / step + 0.5) + 1
+                    local rel = theta - (tonumber(self:GetAttribute("eapStartDeg")) or 0)
+                    self:SetAttribute("eapRel", rel)
+                    if self:GetAttribute("eapFull") then
+                        idx = (floor(rel / step + 0.5) % n) + 1
+                    else
+                        rel = rel % 360
+                        if rel <= (n - 1) * step + step * 0.5 then
+                            idx = floor(rel / step + 0.5) + 1
+                        end
                     end
                 end
             end
@@ -2094,8 +2511,16 @@ local SNIPPET_PRE = [==[
     end
 
     self:SetAttribute("eapIdx", idx)
-    if not idx or idx < 1 or idx > n then
+    -- Against the CELL count, not the palette's own: the nested entries live
+    -- past the last of those on the same index line.
+    local total = tonumber(self:GetAttribute("eapTotal")) or n
+    if not idx or idx < 1 or idx > total then
         self:SetAttribute("eapWhy", "noidx") return nil, 1
+    end
+
+    -- Stopped on a slot that opens a palette rather than going through it.
+    if self:GetAttribute("eapPal" .. idx) then
+        self:SetAttribute("eapWhy", "palette") return nil, 1
     end
 
     local t = self:GetAttribute("eapT" .. idx)
@@ -2250,6 +2675,10 @@ end
 -- these are ordinary insecure writes to a protected frame, which is precisely
 -- what combat forbids. A palette edited mid-fight keeps firing its previous
 -- contents until the fight ends -- the same bargain the override bindings make.
+-- How many cells each button was last given, so a palette that loses a nest
+-- clears the entries that nest used to occupy.
+local pushedCells = {}
+
 local function PushPalette(index)
     if InCombatLockdown() then return end
     local p = P()
@@ -2258,10 +2687,14 @@ local function PushPalette(index)
     if not p or not btn or not palette or not liveView then return end
 
     for i = 1, MAX_SLOTS do
-        local aType, aKey, aVal = ResolveAction(palette.slots[i])
+        local slot = palette.slots[i]
+        local aType, aKey, aVal = ResolveAction(slot)
         btn:SetAttribute("eapT" .. i, aType)
         btn:SetAttribute("eapK" .. i, aKey)
         btn:SetAttribute("eapV" .. i, aVal)
+        -- A palette resolves to no action, same as an empty slot. Marked so the
+        -- trace can tell "you stopped on the door" from "that slot is empty".
+        btn:SetAttribute("eapPal" .. i, ChildIndex(slot) and true or nil)
     end
 
     -- The live palette draws exactly what the palette holds -- the trailing "+"
@@ -2327,10 +2760,60 @@ local function PushPalette(index)
     btn:SetAttribute("eapStepDeg", step * 180 / pi)
     btn:SetAttribute("eapStartDeg", arcStart * 180 / pi)
     btn:SetAttribute("eapFull", full)
+
+    -- Nested entries. They are appended to the SAME action table the palette's
+    -- own entries use, starting past the last of them, so the firing end of the
+    -- snippet needs no idea that nesting exists: a child is a cell with a higher
+    -- index. Only the claim geometry that maps an angle onto one of those
+    -- indices is new.
+    --
+    -- The loop above has already cleared indices n+1 .. MAX_SLOTS, which is
+    -- where these land, so the writes must come after it.
+    local claims = liveView:ChildGeom(n, palette)
+    local total = n
+    for k = 1, (claims and #claims or 0) do
+        local c = claims[k]
+        c.base = total
+        for j = 1, c.n do
+            total = total + 1
+            local aType, aKey, aVal = ResolveAction(c.slots[j])
+            btn:SetAttribute("eapT" .. total, aType)
+            btn:SetAttribute("eapK" .. total, aKey)
+            btn:SetAttribute("eapV" .. total, aVal)
+            btn:SetAttribute("eapPal" .. total, ChildIndex(c.slots[j]) and true or nil)
+        end
+    end
+    -- Whatever a longer set of nests left behind last time. Bounded by what was
+    -- actually written rather than by the theoretical maximum, so an ordinary
+    -- palette does not pay a hundred attribute writes on every options tick.
+    for i = max(total, MAX_SLOTS) + 1, (pushedCells[index] or 0) do
+        btn:SetAttribute("eapT" .. i, nil)
+        btn:SetAttribute("eapK" .. i, nil)
+        btn:SetAttribute("eapV" .. i, nil)
+        btn:SetAttribute("eapPal" .. i, nil)
+    end
+    pushedCells[index] = total
+    btn:SetAttribute("eapTotal", total)
+
+    -- One claim per slot that opens a palette. Angles in degrees, and the start
+    -- is the EDGE of child 1's sector rather than its centre, so the snippet's
+    -- test is a plain division with no half-step to remember.
+    for k = 1, MAX_SLOTS do
+        local c = claims and claims[k]
+        btn:SetAttribute("eapCBase" .. k, c and c.base)
+        btn:SetAttribute("eapCN" .. k, c and c.n)
+        btn:SetAttribute("eapCBand" .. k, c and c.band)
+        btn:SetAttribute("eapCStepDeg" .. k, c and (c.step * 180 / pi))
+        btn:SetAttribute("eapCStartDeg" .. k,
+            c and ((((c.start - c.step * 0.5) * 180 / pi) % 360)))
+    end
+    btn:SetAttribute("eapClaims", claims and #claims or 0)
 end
 
+-- Bound palettes only: nested ones have no button of their own, and their
+-- entries are pushed as part of whichever palette nests them.
 local function PushAllPalettes()
-    for i = 1, PaletteCount() do PushPalette(i) end
+    for i = 1, BoundPaletteCount() do PushPalette(i) end
 end
 
 local bindingsDirty = false
@@ -2351,7 +2834,7 @@ function ns.UpdateBindings()
     if not p then return end
 
     local sig = p.enabled and "on" or "off"
-    local count = PaletteCount()
+    local count = BoundPaletteCount()
     for i = 1, count do
         local k1, k2 = GetBindingKey(BINDING_PREFIX .. i)
         sig = sig .. "|" .. (k1 or "") .. "/" .. (k2 or "")
@@ -2428,7 +2911,7 @@ function EAP:OnInitialize()
     ns.db = db
 
     _G.BINDING_HEADER_EUI_RADIAL = "EllesmereUI Action Palette"
-    for i = 1, MAX_PALETTES do
+    for i = 1, MAX_BOUND_PALETTES do
         _G["BINDING_NAME_" .. BINDING_PREFIX .. i] = "Open Action Palette " .. i
     end
 end
@@ -2494,12 +2977,14 @@ _G.SLASH_EUIACTIONPALETTE4 = "/euiradial"
 --   deadzone    inside the dead zone
 --   noidx       an angle outside the arc
 --   outofreach  pointer layouts: further than eapReach cells from every entry
+--   palette     stopped on an entry that OPENS a palette rather than going
+--               through it into one of the entries beyond
 --   emptyslot   that entry has no action pushed
 --   fire        attributes were written; anything wrong past here is Blizzard's
 --               side of the click
 SlashCmdList.EUIACTIONPALETTE = function(msg)
     if type(msg) == "string" and msg:lower():find("trace") then
-        for i = 1, PaletteCount() do
+        for i = 1, BoundPaletteCount() do
             local btn = secureButtons[i]
             if btn then
                 -- Degrees, because the arc is configured in degrees: whether a
