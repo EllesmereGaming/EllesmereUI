@@ -236,6 +236,45 @@ local function PAB_FxSizeFor(list, cat)
     end
 end
 
+-- True if any ACTIVE fx block targets this engine class key -- used to
+-- force a real per-category group into existence even when Show All
+-- Debuffs/Base Filters would otherwise route everything through the
+-- catch-all group. Icon Effects can never match the catch-all's "all" key
+-- (no such fx entry exists, see ns.PAB_FxClassItems' doc comment below),
+-- and there is no way to read a shown aura's real category back from an
+-- AK-engine button after the fact (per-aura data is engine-secret in 12.1,
+-- confirmed via the dispel-ring mechanism's own doc comment further down --
+-- style.dispelBorder/dispelColorMap is a one-way write, never a read) -- so
+-- the only fix is making sure Fx-targeted categories get their own group,
+-- same as if the user had manually enabled that Base Filter.
+local function PAB_FxWantsCategory(list, key)
+    if not (list and key) then return false end
+    for i = 1, #list do
+        local e = list[i]
+        if PAB_FxEntryActive(e) and e.filters and e.filters[key] then return true end
+    end
+    return false
+end
+
+-- Whether PAB_FxWantsCategory is safe to force a class active while the
+-- catch-all group is also present (2026-08-04, after field report: forcing
+-- "dispeltyped" active this way duplicated every matching debuff -- once
+-- via its own group, once via catch-all, since candidate classes have no
+-- string token for BuildChain's negation chain to exclude them with).
+-- Token classes are always safe (BuildChain already negates them with
+-- "!TOKEN" into every later group). The dispel-typed candidate class is
+-- now also safe -- BuildChain propagates a matching excludeDispelTypes
+-- candidateFilter forward once it's active. The three boolean candidate
+-- classes (bossaura/roleaura/priorityaura) have no confirmed Blizzard
+-- "exclude" counterpart anywhere in this codebase or RaidFrames' own
+-- DebuffManager (same isBossAura/isRoleAura/isPriorityAura-only usage
+-- there) -- forcing those would reintroduce the duplicate-icon bug, so
+-- Icon Effects for those three still require Show All Debuffs off + the
+-- matching Base Filter on, same limitation as before this feature existed.
+local function PAB_FxSafeToForce(class)
+    return not (class.cand == "isBossAura" or class.cand == "isRoleAura" or class.cand == "isPriorityAura")
+end
+
 -- Filter vocabulary for the Icon Effects UI (debuffs only): the same
 -- curated DEBUFF_FILTER_ORDER list ns.PAB_ClassItems(false) uses, but keyed
 -- by the lowercase ENGINE group key (class.key, e.g. "bossaura") instead of
@@ -371,18 +410,35 @@ end
 -- now pass includeCatchAll = false whenever the UI's own "Base Filters
 -- dropdown restricts what's shown" promise (see BuildAssignedDebuffsFields'
 -- tooltip) needs to actually hold.
+-- excludeDispelTypes propagation (2026-08-04): candidate classes (unlike
+-- token classes) have no string token to negate forward with, so
+-- "dispeltyped" (includeDispelTypes) was never excluded from later groups
+-- -- harmless as long as it could only ever be active while Show All
+-- Debuffs was off (which also disables the catch-all), but PAB_FxWantsCategory
+-- below can now force it active WHILE the catch-all is still included,
+-- which duplicated every matching debuff (once via "dispeltyped", once via
+-- "all"). Fix: once the dispel-typed candidate class is enabled, every
+-- chain link built AFTER it (including the catch-all) gets a matching
+-- excludeDispelTypes candidateFilter -- same verified Blizzard mechanism
+-- RaidFrames' DebuffManager already uses (EUI_RaidFrames_DebuffManager.lua
+-- ~line 491: "cf.excludeDispelTypes = TYPED_DEBUFFS").
 local function BuildChain(base, classEnabledFn, includeCatchAll)
     local chain, negations = {}, {}
+    local excludeDispelTypes
     local tokenClasses = VisibleTokenClasses()
     local candidateClasses = VisibleCandidateClasses()
     if not (tokenClasses and candidateClasses) then return chain end
+
+    local function ExtraCand()
+        return excludeDispelTypes and { excludeDispelTypes = excludeDispelTypes } or nil
+    end
 
     for i = 1, #tokenClasses do
         local class = tokenClasses[i]
         if classEnabledFn(class) then
             local tokens = { base, class.token }
             for n = 1, #negations do tokens[#tokens + 1] = negations[n] end
-            chain[#chain + 1] = { key = class.key, tokens = tokens }
+            chain[#chain + 1] = { key = class.key, tokens = tokens, excludeCand = ExtraCand() }
             negations[#negations + 1] = class.neg or ("!" .. class.token)
         end
     end
@@ -391,7 +447,10 @@ local function BuildChain(base, classEnabledFn, includeCatchAll)
         if classEnabledFn(class) then
             local tokens = { base }
             for n = 1, #negations do tokens[#tokens + 1] = negations[n] end
-            chain[#chain + 1] = { key = class.key, tokens = tokens, cand = class.cand, candValue = class.candValue }
+            chain[#chain + 1] = { key = class.key, tokens = tokens, cand = class.cand, candValue = class.candValue, excludeCand = ExtraCand() }
+            if class.cand == "includeDispelTypes" then
+                excludeDispelTypes = class.candValue
+            end
         end
     end
 
@@ -401,7 +460,7 @@ local function BuildChain(base, classEnabledFn, includeCatchAll)
         -- this is just { base }, i.e. every aura of that polarity.
         local allTokens = { base }
         for n = 1, #negations do allTokens[#allTokens + 1] = negations[n] end
-        chain[#chain + 1] = { key = "all", tokens = allTokens }
+        chain[#chain + 1] = { key = "all", tokens = allTokens, excludeCand = ExtraCand() }
     end
 
     return chain
@@ -855,6 +914,7 @@ local function ApplyGroupConfig(container, chain, declaredSet, styleKey, effecti
         if link.cand then
             candidateFilters = { [link.cand] = link.candValue or true }
         end
+        candidateFilters = MergeCandidateFilters(candidateFilters, link.excludeCand)
         candidateFilters = MergeCandidateFilters(candidateFilters, extraCand)
         if not declaredSet[effKey] then
             local catKey = link.key
@@ -1286,7 +1346,7 @@ local function CreateBars()
     extDefParent:SetShown(extDefCfg.enabled ~= false)
     lastSize.extdef = { w = extDefGrid.width, h = extDefGrid.height }
 
-    local debuffChain = BuildChain("HARMFUL", function(class) return ClassEnabled(class, false, debuffCfg) end, debuffCfg.showAllDebuffs ~= false)
+    local debuffChain = BuildChain("HARMFUL", function(class) return ClassEnabled(class, false, debuffCfg) or (PAB_FxSafeToForce(class) and PAB_FxWantsCategory(debuffCfg.fxList, class.key)) end, debuffCfg.showAllDebuffs ~= false)
 
     -- Single scalar padding (matches the old module's paddingBuffs/
     -- paddingDebuffs) -- feeds ONLY ApplyGroupConfig's per-group
@@ -1662,7 +1722,7 @@ local function ApplyLiveConfig(isBuff)
             end
         end
     else
-        local chain = BuildChain("HARMFUL", function(class) return ClassEnabled(class, false, cfg) end, cfg.showAllDebuffs ~= false)
+        local chain = BuildChain("HARMFUL", function(class) return ClassEnabled(class, false, cfg) or (PAB_FxSafeToForce(class) and PAB_FxWantsCategory(cfg.fxList, class.key)) end, cfg.showAllDebuffs ~= false)
         ApplyGroupConfig(container, chain, declared.debuffs, STYLE_DEBUFFS, grid.effectiveMax, pad, grid.rowGap, cfg)
     end
 
@@ -2806,7 +2866,7 @@ local function ReloadCustomDebuffBarImpl(barId)
     local grid = ComputeGrid(false, bar)
     parent:SetSize(grid.width, grid.height)
 
-    local chain = BuildChain("HARMFUL", function(class) return ClassEnabled(class, false, bar) end, bar.showAllDebuffs ~= false)
+    local chain = BuildChain("HARMFUL", function(class) return ClassEnabled(class, false, bar) or (PAB_FxSafeToForce(class) and PAB_FxWantsCategory(bar.fxList, class.key)) end, bar.showAllDebuffs ~= false)
     local corner, spec, vertical = BuildContainerSpec(parent, bar, grid)
     local pad = bar.padding or 5
 
