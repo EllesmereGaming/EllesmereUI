@@ -525,7 +525,8 @@ end
 -- kind -> attribute triple for the secure button, plus an optional 4th value:
 -- a sibling attribute key that must be cleared because the same action type
 -- would otherwise read it in preference. Returns nil for kinds that have no
--- secure action type (battlepet), which FireInsecure handles instead.
+-- secure action type (battlepet, clearmarkers), which FireInsecure handles
+-- instead.
 local function ResolveAction(slot)
     if not slot or not slot.kind then return nil end
     local k = slot.kind
@@ -621,6 +622,32 @@ local function FireInsecure(slot)
     if not slot then return end
     if slot.kind == "battlepet" and slot.guid and C_PetJournal then
         C_PetJournal.SummonPetByGUID(slot.guid)
+
+    elseif slot.kind == "clearmarkers" then
+        -- No slash command clears every TARGET marker the way /cwm clears the
+        -- world ones, but SetRaidTarget is not protected, so the clear is
+        -- plain Lua. Only a unit the client can NAME can be cleared: the
+        -- group and its pets cover friendly marks, visible nameplates cover
+        -- enemies, and target and focus catch a marked mob whose nameplate
+        -- is hidden. A marked mob nobody can currently reference keeps its
+        -- mark -- the limit every clear-all macro shares. An invalid unit
+        -- token is a silent no-op, so the loops need no existence checks.
+        if IsInRaid() then
+            for i = 1, 40 do
+                SetRaidTarget("raid" .. i, 0)
+                SetRaidTarget("raidpet" .. i, 0)
+            end
+        else
+            SetRaidTarget("player", 0)
+            SetRaidTarget("pet", 0)
+            for i = 1, 4 do
+                SetRaidTarget("party" .. i, 0)
+                SetRaidTarget("partypet" .. i, 0)
+            end
+        end
+        for i = 1, 40 do SetRaidTarget("nameplate" .. i, 0) end
+        SetRaidTarget("target", 0)
+        SetRaidTarget("focus", 0)
     end
 end
 
@@ -668,6 +695,9 @@ local function SlotDisplay(slot)
             return "Interface\\Buttons\\UI-GroupLoot-Pass-Up", "Clear Target Marker"
         end
         return MarkerIcon(id), "Target Marker: " .. MARKER_NAMES[id]
+
+    elseif k == "clearmarkers" then
+        return "Interface\\Buttons\\UI-GroupLoot-Pass-Up", "Clear All Target Markers"
 
     elseif k == "worldmarker" then
         local id = tonumber(slot.id) or 0
@@ -5004,10 +5034,12 @@ end
 
 local function OnPostClick(self, _, down)
     if down then return end
-    -- Battle pets have no secure action type at all, so they still fire from
-    -- here, off the Lua-side selection. Summoning one is not protected.
+    -- Battle pets and the marker sweep have no secure action type at all, so
+    -- they still fire from here, off the Lua-side selection. Neither summoning
+    -- a pet nor SetRaidTarget is protected.
     local slot = ns.CurrentSlot()
-    if slot and slot.kind == "battlepet" then FireInsecure(slot) end
+    local k = slot and slot.kind
+    if k == "battlepet" or k == "clearmarkers" then FireInsecure(slot) end
     ns.Close()
 end
 

@@ -437,6 +437,7 @@ initFrame:SetScript("OnEvent", function(self)
                 -- kinds read better with the space put back.
                 local caption = (slot.kind == "raidtarget" and "target marker")
                     or (slot.kind == "worldmarker" and "world marker")
+                    or (slot.kind == "clearmarkers" and "target markers")
                     or slot.kind
                 GameTooltip:AddLine(caption, 0.6, 0.6, 0.6)
             end
@@ -660,7 +661,7 @@ initFrame:SetScript("OnEvent", function(self)
 
     -- The markers need no enumeration at all: the slot kinds carry the icon
     -- and the name, so a candidate slot handed to SlotDisplay IS the entry.
-    -- Both marker sets are offered in one category -- eighteen rows do not
+    -- Both marker sets are offered in one category -- nineteen rows do not
     -- earn two menu levels.
     local function MarkerEntries()
         local out = {}
@@ -671,6 +672,9 @@ initFrame:SetScript("OnEvent", function(self)
         end
         for i = 1, 8 do Add("raidtarget", i) end
         Add("raidtarget", 0)
+        -- The all-units counterpart of the /tm 0 row above; the world markers
+        -- need none because their 0 row already clears them all.
+        Add("clearmarkers")
         for i = 1, 8 do Add("worldmarker", i) end
         Add("worldmarker", 0)
         return out
