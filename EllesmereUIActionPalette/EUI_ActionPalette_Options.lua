@@ -64,6 +64,27 @@ initFrame:SetScript("OnEvent", function(self)
         return ns.EnsurePalette and ns.EnsurePalette(index or editPalette)
     end
 
+    -- From the module, so the name an emptied box reverts to is the same string
+    -- the module hands a fresh palette.
+    local function AutoName(index)
+        if ns.AutoPaletteName then return ns.AutoPaletteName(index) end
+        return "Palette " .. index
+    end
+
+    -- A palette icon is stored as a plain icon file ID, so it needs no lookup at
+    -- draw time. The box takes whatever number the user has to hand: a spell ID
+    -- and an item ID are both far easier to find than an icon's own ID, so each
+    -- is tried first and only an unrecognised number is taken literally.
+    local function ResolveIconInput(text)
+        local id = tonumber(strtrim(text or ""))
+        if not id then return nil end
+        local spellIcon = C_Spell.GetSpellTexture(id)
+        if spellIcon then return spellIcon end
+        local itemIcon = C_Item.GetItemIconByID(id)
+        if itemIcon then return itemIcon end
+        return id
+    end
+
     ---------------------------------------------------------------------------
     --  Inline keybind picker
     --
@@ -644,19 +665,22 @@ initFrame:SetScript("OnEvent", function(self)
         for i = 1, PaletteCount() do
             if i ~= editPalette and ns.CanNest and ns.CanNest(editPalette, i) then
                 local palette = Palette(i)
-                local name = (palette and palette.name) or ("Palette " .. i)
+                local name = (palette and palette.name) or AutoName(i)
                 local count = palette and #palette.slots or 0
-                local icon
-                -- The palette's own first entry, so it looks like what it holds.
+                -- Same order SlotDisplay uses: the palette's own icon, then its
+                -- first entry so it looks like what it holds.
+                local icon = palette and palette.icon
                 local first = palette and palette.slots[1]
-                if first and first.kind ~= "palette" then
+                if not icon and first and first.kind ~= "palette" then
                     icon = ns.SlotDisplay(first)
                 end
                 out[#out + 1] = {
                     icon = icon or "Interface\\Icons\\INV_Misc_Bag_08",
                     name = (count > 0) and (name .. "  |cff808080(" .. count .. ")|r")
                         or (name .. "  |cff808080(empty)|r"),
-                    slot = { kind = "palette", palette = i, name = name },
+                    -- No name on the slot: SlotDisplay reads the palette's own,
+                    -- so renaming the palette renames the entry that opens it.
+                    slot = { kind = "palette", palette = i },
                 }
             end
         end
@@ -1379,7 +1403,7 @@ initFrame:SetScript("OnEvent", function(self)
         local paletteValues, paletteOrder = {}, {}
         for i = 1, PaletteCount() do
             local r = Palette(i)
-            paletteValues[i] = (r and r.name) or ("Palette " .. i)
+            paletteValues[i] = (r and r.name) or AutoName(i)
             paletteOrder[#paletteOrder + 1] = i
         end
 
@@ -1417,6 +1441,89 @@ initFrame:SetScript("OnEvent", function(self)
                   or (keyForEditPalette and (GetBindingText(keyForEditPalette) or keyForEditPalette)
                       or "Click to Bind"),
               onClick=function() StartListening(editPalette) end })
+        y = y - h
+
+        -- Name and icon of the palette the dropdown above is pointed at, so they
+        -- sit with the selector rather than in APPEARANCE: everything else in
+        -- that section describes every palette at once.
+        --
+        -- noCapture on both, for the same reason the selector opts out: these
+        -- live inside p.palettes[n] rather than under a flat key, and a per-spec
+        -- override banked against whichever palette was on screen at capture
+        -- time would rename a palette the user was not looking at.
+        local editedPalette = Palette(editPalette)
+        row, h = W:DualRow(parent, y,
+            { type="input", text="Palette Name", noCapture=true,
+              inputStyle="popup", inputWidth=170, placeholder=AutoName(editPalette),
+              disabled=Disabled, disabledTooltip="the module",
+              tooltip="Shown in the center of this palette, and on the entry that "
+                  .. "opens it from another palette. Clear the box for "
+                  .. AutoName(editPalette) .. ".",
+              -- The auto name shows as an EMPTY box: the placeholder then says
+              -- what an empty box means, and the user never has to delete a
+              -- name they did not type.
+              getValue=function()
+                  local pal = Palette(editPalette)
+                  local nm = pal and pal.name
+                  if not nm or nm == AutoName(editPalette) then return "" end
+                  return nm
+              end,
+              setValue=function(txt)
+                  local pal = Palette(editPalette)
+                  if not pal then return end
+                  local nm = strtrim(txt or "")
+                  nm = (nm ~= "") and nm or AutoName(editPalette)
+                  -- Only on a real change. Every commit fires on focus loss too,
+                  -- including the one where the user simply clicked away, and
+                  -- rebuilding the page under that click would swallow it.
+                  if nm == pal.name then return end
+                  pal.name = nm
+                  -- Rebuild: the selector's own labels are baked in above, so a
+                  -- plain refresh would leave the dropdown naming the old one.
+                  RebuildPage()
+              end },
+            { type="input", text="Palette Icon", noCapture=true,
+              inputStyle="popup", inputWidth=100, placeholder="spell ID",
+              disabled=Disabled, disabledTooltip="the module",
+              tooltip="Icon for the entry that opens this palette from another "
+                  .. "palette. Enter a spell, item, or icon ID. Clear the box to "
+                  .. "go back to the first action's icon.",
+              getValue=function()
+                  local pal = Palette(editPalette)
+                  return (pal and pal.icon) and tostring(pal.icon) or ""
+              end,
+              setValue=function(txt)
+                  local pal = Palette(editPalette)
+                  if not pal then return end
+                  -- Compared as TEXT, before resolving. Once committed the box
+                  -- shows the resolved icon ID, and running that number back
+                  -- through the lookup could land on an unrelated spell that
+                  -- happens to share it -- so an untouched box is a no-op
+                  -- rather than a second lookup. This also swallows the commit
+                  -- that every focus loss fires, which would otherwise rebuild
+                  -- the page under the click that caused it.
+                  local raw = strtrim(txt or "")
+                  if raw == ((pal.icon and tostring(pal.icon)) or "") then return end
+                  pal.icon = ResolveIconInput(raw)
+                  RebuildPage()
+              end })
+        -- Live preview beside the box, anchored to the box itself rather than to
+        -- a measured offset from the row's edge. Nothing refreshes it in place:
+        -- both things that change it -- a commit here, and switching palette --
+        -- rebuild the page.
+        local iconBox = row._rightRegion and row._rightRegion._control
+        if iconBox then
+            iconBox:SetMaxLetters(10)
+            local tex = row._rightRegion:CreateTexture(nil, "ARTWORK")
+            tex:SetSize(24, 24)
+            tex:SetPoint("RIGHT", iconBox, "LEFT", -8, 0)
+            tex:SetTexture(editedPalette and editedPalette.icon or nil)
+            tex:SetShown(editedPalette ~= nil and editedPalette.icon ~= nil)
+        end
+        local nameBox = row._leftRegion and row._leftRegion._control
+        -- The hub caption is drawn inside a small arc, so a name longer than
+        -- this runs out under the entries either side of it.
+        if nameBox then nameBox:SetMaxLetters(24) end
         y = y - h
 
         y = y - BuildPreview(parent, y)
@@ -1585,14 +1692,22 @@ initFrame:SetScript("OnEvent", function(self)
               min=0, max=160, step=1,
               getValue=function() return Cfg("nestBand") or 40 end,
               setValue=function(v) Set("nestBand", v); Refresh() end },
-            -- Contained: a nest may only use the sector its own entry already
-            -- owns, so no other entry's gesture changes at all. Overflowing: it
-            -- grows out to the midpoint with the next nest either side, which
-            -- keeps the entries closer in but BORROWS the angles in between --
-            -- a long flick through those then fires a nested entry rather than
-            -- the entry it points at.
+            -- Both spread a nest along the arc as far as Max Nest Span, so its
+            -- children stay on one ring for as long as they fit. Contained
+            -- stops at the midpoint with the next NEST either side, so two of
+            -- them are never drawn over one another; Overflowing spends the
+            -- whole span whatever is out there. Either way the plain entries
+            -- under a nest give up their angles only while it is open, so a
+            -- flick that goes nowhere near a nest still fires what it points
+            -- at.
             { type="dropdown", text="Nest Width",
               disabled=arcOnly, disabledTooltip="the Arc layout",
+              tooltip="How far along the arc a nest may spread its entries."
+                      .." Contained keeps it clear of the next nest either side,"
+                      .." so two of them are never drawn on top of one another."
+                      .." Overflowing lets it use the whole of Max Nest Span."
+                      .." A nest reaches over the plain entries it passes, and"
+                      .." they only give up their angles while it is open.",
               values={ NONE = "Contained", MIDPOINT = "Overflowing" },
               order={ "NONE", "MIDPOINT" },
               getValue=function() return Cfg("arcChildOverflow") or "NONE" end,
@@ -1600,11 +1715,13 @@ initFrame:SetScript("OnEvent", function(self)
         y = y - h
 
         row, h = W:DualRow(parent, y,
+            -- The widest a nest may spread along the arc, at BOTH nest widths:
+            -- children past what it buys go onto a second ring further out.
             { type="slider", text="Max Nest Span",
-              disabled=function()
-                  return arcOnly() or (Cfg("arcChildOverflow") or "NONE") ~= "MIDPOINT"
-              end,
-              disabledTooltip="the Overflowing nest width",
+              disabled=arcOnly, disabledTooltip="the Arc layout",
+              tooltip="The widest angle a nest's entries may spread over."
+                      .." They stay on one ring for as long as they fit inside"
+                      .." it; the rest go onto a second ring further out.",
               min=30, max=180, step=5,
               getValue=function() return Cfg("arcChildMaxSpan") or 90 end,
               setValue=function(v) Set("arcChildMaxSpan", v); Refresh() end },
@@ -1741,10 +1858,11 @@ initFrame:SetScript("OnEvent", function(self)
 
         row, h = W:DualRow(parent, y,
             -- Arc only, and not merely because it would look cramped: the
-            -- fan never draws per-slot labels at all.
+            -- fan never draws per-slot labels at all. == true, not ~= false:
+            -- labels are off by default, so an untouched key reads as off.
             { type="toggle", text="Show Slot Labels",
               disabled=arcOnly, disabledTooltip="the Arc layout",
-              getValue=function() return Cfg("showLabels") ~= false end,
+              getValue=function() return Cfg("showLabels") == true end,
               setValue=function(v) Set("showLabels", v); Refresh() end },
             { type="toggle", text="Show Center Text",
               disabled=Disabled, disabledTooltip="the module",
@@ -1765,13 +1883,16 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Hub art is arc-only: the fan and grid layouts put a real entry at
         -- the centre, so there is nothing for it to sit in.
+        -- Both tests read the key against its DEFAULT rather than against
+        -- true/false flatly: the logo is on unless the user has turned it off,
+        -- so a profile that has never touched the key must read as on.
         local hubIconOff = function()
-            return arcOnly() or Cfg("hubIcon") ~= true
+            return arcOnly() or Cfg("hubIcon") == false
         end
         row, h = W:DualRow(parent, y,
             { type="toggle", text="Logo In Center",
               disabled=arcOnly, disabledTooltip="the Arc layout",
-              getValue=function() return Cfg("hubIcon") == true end,
+              getValue=function() return Cfg("hubIcon") ~= false end,
               -- Rebuild, not Refresh: this gates the two sliders below it.
               setValue=function(v) Set("hubIcon", v); RebuildPage() end },
             { type="slider", text="Logo Size",
