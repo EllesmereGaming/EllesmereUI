@@ -616,12 +616,12 @@ EllesmereUI._ELEMENT_SETTINGS_MAP = {
     ["EABR_Reminders"] = { module = "EllesmereUIAuraBuffReminders", page = "Auras, Buffs & Consumables", sectionName = "DISPLAY" },
 
     -- Quality of Life (FPS + Secondary Stats live on the QoL page's EXTRAS section)
-    ["EUI_FPS"]            = { module = "EllesmereUIQoL", page = "Quality of Life", sectionName = "EXTRAS", highlightText = "Show FPS Counter" },
-    ["EUI_SecondaryStats"] = { module = "EllesmereUIQoL", page = "Quality of Life", sectionName = "EXTRAS", highlightText = "Secondary Stat Display" },
+    ["EUI_FPS"]            = { module = "EllesmereUIQoL", page = "QoL", sectionName = "EXTRAS", highlightText = "Show FPS Counter" },
+    ["EUI_SecondaryStats"] = { module = "EllesmereUIQoL", page = "QoL", sectionName = "EXTRAS", highlightText = "Secondary Stat Display" },
 
     -- Battle Res + Bloodlust (bottom of the Quality of Life page)
-    ["EUI_BattleRes"]      = { module = "EllesmereUIQoL",             page = "Quality of Life",   sectionName = "BATTLE RES",        highlightText = "Enable BattleRes Icon" },
-    ["EUI_Bloodlust"]      = { module = "EllesmereUIQoL",             page = "Quality of Life",   sectionName = "BLOODLUST TRACKER", highlightText = "Enable Bloodlust Icon" },
+    ["EUI_BattleRes"]      = { module = "EllesmereUIQoL",             page = "QoL",   sectionName = "BATTLE RES",        highlightText = "Enable BattleRes Icon" },
+    ["EUI_Bloodlust"]      = { module = "EllesmereUIQoL",             page = "QoL",   sectionName = "BLOODLUST TRACKER", highlightText = "Enable Bloodlust Icon" },
 
     -- Mythic+ Timer
     ["EMT_MythicTimer"]    = { module = "EllesmereUIMythicTimer",     page = "Mythic+ Timer",     sectionName = "DISPLAY",           highlightText = "Scale" },
