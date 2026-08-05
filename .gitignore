@@ -15,8 +15,5 @@ CLAUDE_PATTERNS.md
 MIDNIGHT_AURA_MIGRATION.md
 MIDNIGHT_MERGE_PLAN.md
 
-# Session handoff/briefing docs (dev-only, never ship)
-PlayerAuraBars_Filters_MasterBriefing.md
-
 # Developer scripts
 *.ps1
