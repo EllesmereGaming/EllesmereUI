@@ -2357,6 +2357,13 @@ initFrame:SetScript("OnEvent", function(self)
             if autoOpenContainerOff() then autoOpenContainerCogBlock:Show() else autoOpenContainerCogBlock:Hide() end
         end
 
+        -- Failed Cast Alert section just above the bottom.
+        if _G._EUI_BuildFailedCastAlertSection then
+            _, h = W:Spacer(parent, y, 16);  y = y - h
+            local fcH = _G._EUI_BuildFailedCastAlertSection(parent, y, W, EllesmereUI.PP)
+            if fcH then y = y - fcH end
+        end
+
         -- Keys, Logs & Brez sections live at the bottom of this page (the
         -- separate tab was retired to keep the tab bar at five pages).
         if _G._EUI_BuildAutoLoggingPage then
@@ -2471,6 +2478,7 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUIDB.autoLogging = nil
             if _G._EUI_ResetUpgradeCalc then _G._EUI_ResetUpgradeCalc() end
             if _G._EBS_ResetCursor then _G._EBS_ResetCursor() end
+            if _G._EUI_ResetFailedCastAlert then _G._EUI_ResetFailedCastAlert() end
             if EllesmereUI._applyHideBlizzardPartyFrame then EllesmereUI._applyHideBlizzardPartyFrame() end
             if EllesmereUI._applyHideErrorMessages then EllesmereUI._applyHideErrorMessages() end
             if EllesmereUI._applyAnnounceGroupDeaths then EllesmereUI._applyAnnounceGroupDeaths() end
