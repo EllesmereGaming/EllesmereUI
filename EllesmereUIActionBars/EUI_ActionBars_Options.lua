@@ -1332,6 +1332,46 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = W:Spacer(parent, y, 12);  y = y - h
 
         -------------------------------------------------------------------
+        --  VEHICLE & PET BATTLE BARS
+        -------------------------------------------------------------------
+        _, h = W:SectionHeader(parent, "VEHICLE & PET BATTLE BARS", y);  y = y - h
+
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Hide Blizzard's Vehicle Bar",
+              tooltip="Removes the stock vehicle bar.",
+              getValue=function() return EAB.db.profile.hideBlizzardVehicleBar end,
+              setValue=function(v)
+                  EAB.db.profile.hideBlizzardVehicleBar = v
+                  -- Reparenting a protected frame is blocked in combat; the
+                  -- module's PLAYER_REGEN_ENABLED arm finishes the job.
+                  EAB:ApplyVehicleBarVisibility()
+                  if v then EAB:ReclaimMicroMenu() end
+                  if InCombatLockdown() then
+                      print("|cff00ccffEllesmere:|r Vehicle bar change applies when you leave combat.")
+                  end
+              end },
+            { type="toggle", text="Hide Pet Battle Bar Art",
+              tooltip="Removes the art behind the pet battle bar, centres the buttons, and puts the micro menu back where it belongs.",
+              getValue=function() return EAB.db.profile.hidePetBattleBarArt end,
+              setValue=function(v)
+                  EAB.db.profile.hidePetBattleBarArt = v
+                  EAB:ApplyPetBattleBarArt()
+                  -- Re-registers the extra-bar state driver off the new value,
+                  -- which also releases any suppression already in effect.
+                  EAB:ApplyExtraBarVisibility()
+                  if v then
+                      EAB:ReclaimMicroMenu()
+                      EAB:SkinPetBattleButtons()
+                      EAB:CenterPetBattleButtons()
+                  end
+                  -- Turning it back off leaves the row where it was until
+                  -- Blizzard's next layout pass re-anchors it, which the hook
+                  -- then leaves alone. Self-heals on the next battle.
+              end });  y = y - h
+
+        _, h = W:Spacer(parent, y, 12);  y = y - h
+
+        -------------------------------------------------------------------
         --  XP / REP BAR STYLE
         -------------------------------------------------------------------
         _, h = W:SectionHeader(parent, "XP/REP BAR STYLE", y);  y = y - h

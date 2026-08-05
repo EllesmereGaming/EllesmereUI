@@ -639,6 +639,13 @@ end
 -- Blizzard data bar override (let Blizzard control XP + Rep via Edit Mode)
 defaults.profile.useBlizzardDataBars = false
 
+-- Stock vehicle/override bar removal. Ships opt-in: turning it on is a visible
+-- change to a Blizzard-owned frame, so existing profiles keep the stock bar.
+defaults.profile.hideBlizzardVehicleBar = false
+
+-- Pet battle bar chrome removal (artwork only -- see ApplyPetBattleBarArt).
+defaults.profile.hidePetBattleBarArt = false
+
 ns.defaults = defaults
 
 -------------------------------------------------------------------------------
@@ -7268,7 +7275,10 @@ end
 -------------------------------------------------------------------------------
 --  EAB Methods Apply functions called by the options UI
 -------------------------------------------------------------------------------
-function EAB:ApplyBordersForBar(barKey)
+-- buttonsOverride lets a caller push a foreign button set through this bar's
+-- resolved border settings -- used by the pet battle bar, whose buttons are
+-- Blizzard's and so are not in barButtons.
+function EAB:ApplyBordersForBar(barKey, buttonsOverride)
     if not self.db then return end
     if not self.db.profile.squareIcons then return end
     if self.db.profile.useBlizzardStyle then return end
@@ -7293,7 +7303,7 @@ function EAB:ApplyBordersForBar(barKey)
     local texShiftY = s.borderTextureShiftY
     local thicknessKey = s.borderThickness or "thin"
     local behind = s.borderBehind
-    local buttons = barButtons[barKey]
+    local buttons = buttonsOverride or barButtons[barKey]
     if not buttons then return end
     for i = 1, #buttons do
         local btn = buttons[i]
@@ -8975,6 +8985,19 @@ function EAB.BuildVisibilityStringMulti(hidePrefix, vm)
     return EllesmereUI.BuildVisibilityDriverString(hidePrefix, vm)
 end
 
+-- One switch behind the pet-battle treatment, read from several places.
+-- EAB field, not a local -- this file sits at Lua 5.1's 200-local cap.
+--
+-- Scope is deliberately the same as the vehicle bar's: strip the stock chrome
+-- and give the micro menu its normal home back. The ACTION BAR visibility
+-- drivers are NOT touched -- bars still hide on [petbattle] exactly as they
+-- always have, because unlike a vehicle there is nothing for them to page to
+-- and a full bar layout of uncastable abilities behind a pet battle is noise.
+function EAB:PetBattleKeepsOwnUI()
+    local p = self.db and self.db.profile
+    return (p and p.hidePetBattleBarArt) or false
+end
+
 local function BuildVisibilityString(info, s, visOverride)
     local key = info.key
     local vis = visOverride or s.barVisibility or "always"
@@ -9386,8 +9409,17 @@ function EAB:ApplyExtraBarVisibility()
             end -- if not noManagedVisibility
         end
     end
-    -- Register the state driver: hide during pet battle, show otherwise
-    RegisterStateDriver(_extraBarVisProxy, "extravis", "[petbattle] hide; show")
+    -- Register the state driver: hide during pet battle, show otherwise.
+    --
+    -- Plain "show" when the stock battle chrome is being stripped, matching how
+    -- these bars already behave in a vehicle (nothing suppresses them there).
+    -- This is what makes ReclaimMicroMenu meaningful: without it MicroMenu would
+    -- be handed back to a MicroMenuContainer that is itself suppressed for the
+    -- fight, and the micro buttons would simply vanish instead of going home.
+    -- Re-registering is also what RELEASES an existing suppression when the
+    -- option is flipped mid-session, via the un-suppress arm of OnExtraVisChanged.
+    RegisterStateDriver(_extraBarVisProxy, "extravis",
+        EAB:PetBattleKeepsOwnUI() and "show" or "[petbattle] hide; show")
 end
 
 --  Combat Show/Hide, Runtime Visibility, Click-Through, Housing
@@ -11642,6 +11674,324 @@ do
 end
 
 -------------------------------------------------------------------------------
+--  Blizzard Vehicle / Override Bar
+--  OverrideActionBar is the stock metal vehicle bar. Everything on it is
+--  already duplicated by us: MainBar pages to [vehicleui][possessbar] through
+--  its state driver, so every vehicle action is on our bar 1 anyway, and
+--  MainMenuBarVehicleLeaveButton is reparented and driven by the block above.
+--
+--  DO NOT SetParent THIS FRAME. That was the first implementation, copied from
+--  ElvUI's AB:DisableBlizzard, and it produced:
+--
+--    ADDON_ACTION_BLOCKED ... 'MainActionBar:SetShownBase()'
+--      ActionBarController.lua:211 ValidateActionBarTransition
+--
+--  Reparenting a protected frame from insecure code taints it. ActionBarController
+--  then reads OverrideActionBar inside ValidateActionBarTransition, inherits the
+--  taint, and its next protected op -- MainActionBar:Show() -- is refused.
+--  ElvUI gets away with the reparent only because it also does
+--  ActionBarController:UnregisterAllEvents(), so that function never runs. We
+--  deliberately keep the controller alive (see the disposal notes above), so the
+--  taint has somewhere to land and the reparent is simply not available to us.
+--
+--  Alpha instead: it is not protected state, so it neither taints the frame nor
+--  needs a combat gate of its own. Mouse has to be killed separately or the
+--  buttons stay clickable over an apparently empty strip of screen -- the same
+--  bug KillPagerMouse exists for. Events are left registered; an invisible frame
+--  updating a health bar costs nothing, and it keeps the toggle reversible.
+-------------------------------------------------------------------------------
+function EAB:ApplyVehicleBarVisibility()
+    local bar = OverrideActionBar
+    if not bar then return end
+    local hide = (self.db and self.db.profile and self.db.profile.hideBlizzardVehicleBar) or false
+    local fd = EFD(bar)
+    if fd.euiHidden == hide then return end
+    -- SafeEnableMouse no-ops on protected frames in combat, which would leave
+    -- the buttons live under an invisible bar; defer the whole pass instead.
+    if InCombatLockdown() then return end
+    fd.euiHidden = hide
+    bar:SetAlpha(hide and 0 or 1)
+    SafeEnableMouse(bar, not hide)
+    -- Children carry their own mouse state, so the bar alone is not enough.
+    for _, child in ipairs({ bar:GetChildren() }) do
+        SafeEnableMouse(child, not hide)
+    end
+end
+
+-- Blizzard docks MicroMenu INTO OverrideActionBar while an override/vehicle bar
+-- is up -- that is why the micro buttons sit inside the stock bar in a vehicle.
+-- With that bar under a hidden parent the menu would ride along and disappear
+-- for the duration, so hand it back to MicroMenuContainer, the frame our
+-- MicroBar actually positions. ResetMicroMenuPosition is Blizzard's own re-dock
+-- path, so the anchors it restores are the ones Edit Mode expects.
+-- True when MicroMenu currently sits anywhere under `ancestor`. Blizzard docks
+-- it at different depths depending on the host (directly under
+-- OverrideActionBar, but three levels down inside PetBattleFrame), so this
+-- walks the chain instead of testing one fixed level.
+function EAB:MicroMenuDockedIn(ancestor)
+    if not (ancestor and MicroMenu) then return false end
+    local p, depth = MicroMenu:GetParent(), 0
+    while p and depth < 8 do
+        if p == ancestor then return true end
+        p, depth = p:GetParent(), depth + 1
+    end
+    return false
+end
+
+-- Records where MicroMenu normally sits, so it can be put back exactly. Only
+-- captured while it is actually at home -- if it is already docked into a
+-- battle or vehicle bar there is nothing worth remembering.
+function EAB:CacheMicroMenuHome()
+    if not (MicroMenu and MicroMenuContainer) then return end
+    if MicroMenu:GetParent() ~= MicroMenuContainer then return end
+    local d = EFD(MicroMenu)
+    if d.home then return end
+    local point, relTo, relPoint, x, y = MicroMenu:GetPoint(1)
+    if point then d.home = { point, relTo, relPoint, x, y } end
+end
+
+function EAB:ReclaimMicroMenu()
+    if InCombatLockdown() then return end
+    if not (MicroMenu and MicroMenuContainer) then return end
+    if not (self:MicroMenuDockedIn(OverrideActionBar)
+         or self:MicroMenuDockedIn(PetBattleFrame)) then return end
+    -- ResetMicroMenuPosition re-derives the dock from CURRENT game state, so
+    -- calling it mid pet battle just hands the buttons straight back to the
+    -- battle bar -- it looked like this function did nothing at all. Force the
+    -- reparent instead and restore the remembered anchor.
+    MicroMenu:SetParent(MicroMenuContainer)
+    local home = EFD(MicroMenu).home
+    if home then
+        MicroMenu:ClearAllPoints()
+        MicroMenu:SetPoint(home[1], home[2] or MicroMenuContainer, home[3], home[4], home[5])
+    end
+    if MicroMenu.Layout then MicroMenu:Layout() end
+    if MicroMenuContainer.Layout then MicroMenuContainer:Layout() end
+end
+
+do
+    local vehBar = ns.TakeShell()
+    vehBar:RegisterEvent("PLAYER_ENTERING_WORLD")
+    vehBar:RegisterEvent("PLAYER_REGEN_ENABLED")
+    vehBar:RegisterEvent("UNIT_ENTERED_VEHICLE")
+    vehBar:RegisterEvent("UNIT_EXITED_VEHICLE")
+    vehBar:RegisterEvent("UPDATE_OVERRIDE_ACTIONBAR")
+    vehBar:SetScript("OnEvent", function(self, event, unit)
+        -- Only the UNIT_ events carry a unit; PLAYER_ENTERING_WORLD's first arg
+        -- is isInitialLogin, so testing it as one would skip the login pass.
+        if (event == "UNIT_ENTERED_VEHICLE" or event == "UNIT_EXITED_VEHICLE")
+            and unit ~= "player" then
+            return
+        end
+        if not (EAB.db and EAB.db.profile) then return end
+        EAB:ApplyVehicleBarVisibility()
+        if EAB.db.profile.hideBlizzardVehicleBar then
+            EAB:ReclaimMicroMenu()
+        end
+    end)
+end
+
+-------------------------------------------------------------------------------
+--  Pet Battle Bar Chrome
+--  Strips the maroon plate and end caps behind the pet battle ability bar,
+--  leaving the buttons, the Pass button and the docked micro buttons floating.
+--
+--  Same shape as the vehicle bar above: kill the stock chrome, give the micro
+--  menu its normal home back (see ApplyExtraBarVisibility + ReclaimMicroMenu),
+--  and leave the action bars' own [petbattle] rules alone.
+--
+--  ARTWORK ONLY, though, where the vehicle bar hides its frame outright. This
+--  UI is NOT duplicated by us: our bars register "[petbattle] hide" drivers and
+--  oUF hides the unit frames, so PetBattleFrame is the only way to actually
+--  play a battle, and hiding it would leave nothing to click. Only texture
+--  REGIONS are touched -- the ability buttons and Pass button are child frames
+--  and are never in this list.
+--
+--  Alpha rather than Hide: Blizzard drives Show/Hide on this chrome across
+--  battle transitions, and a hidden texture would just be re-shown next round.
+--  Original alpha is cached on first pass so the toggle is reversible.
+--
+--  TurnTimer keeps its Pass button and countdown text -- only TurnTimer's own
+--  regions and its ArtFrame/ArtFrame2 decoration frames are dimmed, and the
+--  Pass button is a sibling of those, so it survives.
+--
+--  Blizzard_PetBattleUI is load-on-demand, so PetBattleFrame does not exist at
+--  login -- ADDON_LOADED and PET_BATTLE_OPENING_START both re-run this.
+-------------------------------------------------------------------------------
+function EAB:ApplyPetBattleBarArt()
+    local bf = PetBattleFrame and PetBattleFrame.BottomFrame
+    if not bf then return end
+    local hide = self:PetBattleKeepsOwnUI()
+    -- Cached through EFD, not a key on the frame: BottomFrame is Blizzard-owned
+    -- and custom properties on those tables taint (see ns.EFD at the top).
+    local fd = EFD(bf)
+    if not fd.chrome then
+        local art = {}
+        local tt = bf.TurnTimer
+        -- Frames whose TEXTURE REGIONS make up the chrome. Names taken from
+        -- ElvUI's retail pet battle skin rather than guessed: FlowFrame draws
+        -- the border around the ability buttons and Delimiter the ornament
+        -- between the ability and swap groups. A first pass walked only
+        -- BottomFrame itself and left both of those on screen.
+        --
+        -- Built by append rather than a table literal: a nil hole would make
+        -- ipairs stop early and silently skip everything after it.
+        local hosts = { bf }
+        if bf.FlowFrame then hosts[#hosts + 1] = bf.FlowFrame end
+        if bf.Delimiter then hosts[#hosts + 1] = bf.Delimiter end
+        if tt           then hosts[#hosts + 1] = tt end
+        for _, host in ipairs(hosts) do
+            for _, r in ipairs({ host:GetRegions() }) do
+                if r.GetObjectType and r:GetObjectType() == "Texture" then
+                    art[#art + 1] = { r, r:GetAlpha() }
+                end
+            end
+        end
+        -- Whole frames, dimmed outright rather than region-by-region.
+        -- MicroButtonFrame is just the holder the micro menu was docked into;
+        -- once ReclaimMicroMenu takes the buttons home it is empty chrome, which
+        -- is why ElvUI Kill()s it. ArtFrame/ArtFrame2 are the panel behind the
+        -- Pass button -- Pass itself is their sibling, so it survives.
+        local whole = {}
+        if bf.MicroButtonFrame then whole[#whole + 1] = bf.MicroButtonFrame end
+        if tt then
+            if tt.ArtFrame  then whole[#whole + 1] = tt.ArtFrame  end
+            if tt.ArtFrame2 then whole[#whole + 1] = tt.ArtFrame2 end
+        end
+        for _, f in ipairs(whole) do art[#art + 1] = { f, f:GetAlpha() } end
+        fd.chrome = art
+    end
+    for _, entry in ipairs(fd.chrome) do
+        entry[1]:SetAlpha(hide and 0 or entry[2])
+    end
+end
+
+-- Blizzard lays the battle buttons out left-of-centre because the right half of
+-- the stock plate was the micro button block. With the plate stripped and the
+-- micro menu sent home that leaves the row visibly off-centre, so re-centre it
+-- on screen. The Pass button lives on TurnTimer, a sibling of these, and is
+-- deliberately left where Blizzard put it.
+--
+-- Driven from a hooksecurefunc on PetBattleFrame_UpdateActionBarLayout: that is
+-- the function Blizzard re-runs whenever the row changes (Catch only appears in
+-- wild battles), so anchoring anywhere else would be undone the moment it fires.
+-- The visible battle buttons, left to right. Catch only exists in wild battles
+-- and Forfeit only where forfeiting is allowed, so the set is not fixed.
+function EAB:CollectPetBattleButtons()
+    local bf = PetBattleFrame and PetBattleFrame.BottomFrame
+    if not bf then return nil end
+    local btns = {}
+    for i = 1, (NUM_BATTLE_PET_ABILITIES or 3) do
+        local b = bf.abilityButtons and bf.abilityButtons[i]
+        if b and b:IsShown() then btns[#btns + 1] = b end
+    end
+    -- Appended one at a time: a table literal would nil-hole on any of these.
+    if bf.SwitchPetButton and bf.SwitchPetButton:IsShown() then btns[#btns + 1] = bf.SwitchPetButton end
+    if bf.CatchButton     and bf.CatchButton:IsShown()     then btns[#btns + 1] = bf.CatchButton end
+    if bf.ForfeitButton   and bf.ForfeitButton:IsShown()   then btns[#btns + 1] = bf.ForfeitButton end
+    if #btns == 0 then return nil end
+    return btns
+end
+
+-- Give the battle buttons bar 1's border so they match the rest of the UI.
+-- ApplyBordersForBar resolves colour / thickness / texture / class-colour from
+-- the MainBar profile, and ApplyButtonBorders already reads `btn.icon or
+-- btn.Icon` -- Blizzard's buttons use .Icon, so they feed through the identical
+-- path ours do. The action-button-only parts of that path (flyout arrow,
+-- UpdateButtonArt re-hook) are guarded on fields these buttons lack and no-op.
+-- Follows bar 1 live: restyling bar 1 restyles these on the next battle.
+function EAB:SkinPetBattleButtons()
+    if not self:PetBattleKeepsOwnUI() then return end
+    local btns = self:CollectPetBattleButtons()
+    if btns then self:ApplyBordersForBar("MainBar", btns) end
+end
+
+function EAB:CenterPetBattleButtons()
+    if not self:PetBattleKeepsOwnUI() then return end
+    if InCombatLockdown() then return end
+    local bf = PetBattleFrame and PetBattleFrame.BottomFrame
+    if not bf then return end
+    local btns = self:CollectPetBattleButtons()
+    if not btns then return end
+
+    -- Every edge is read BEFORE anything moves. Blizzard chain-anchors these
+    -- (each button LEFT of the previous one's RIGHT), so measuring and moving in
+    -- one pass would compound the shift button by button.
+    local pos, left, right = {}, nil, nil
+    for i, b in ipairs(btns) do
+        local l, r, bot = b:GetLeft(), b:GetRight(), b:GetBottom()
+        if not (l and r and bot) then return end -- layout not resolved yet
+        pos[i] = { l, bot }
+        if not left  or l < left  then left  = l end
+        if not right or r > right then right = r end
+    end
+
+    local sc    = bf:GetEffectiveScale()
+    local uiSc  = UIParent:GetEffectiveScale()
+    local uiCX  = (UIParent:GetLeft() + UIParent:GetWidth() * 0.5) * uiSc / sc
+    local dx    = uiCX - (left + right) * 0.5
+    if abs(dx) < 0.5 then return end -- already centred; also stops re-entry
+
+    local ox0 = UIParent:GetLeft()   * uiSc / sc
+    local oy0 = UIParent:GetBottom() * uiSc / sc
+    for i, b in ipairs(btns) do
+        b:ClearAllPoints()
+        b:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", pos[i][1] + dx - ox0, pos[i][2] - oy0)
+    end
+end
+
+do
+    local petBar = ns.TakeShell()
+    petBar:RegisterEvent("ADDON_LOADED")
+    petBar:RegisterEvent("PLAYER_ENTERING_WORLD")
+    petBar:RegisterEvent("PET_BATTLE_OPENING_START")
+    petBar:RegisterEvent("PET_BATTLE_OPENING_DONE")
+    petBar:RegisterEvent("PET_BATTLE_CLOSE")
+    petBar:SetScript("OnEvent", function(self, event, arg1)
+        if event == "ADDON_LOADED" and arg1 ~= "Blizzard_PetBattleUI" then return end
+        if not (EAB.db and EAB.db.profile) then return end
+        -- Installed as soon as the load-on-demand addon has created it.
+        if not ns._eabPetLayoutHooked and PetBattleFrame_UpdateActionBarLayout then
+            ns._eabPetLayoutHooked = true
+            hooksecurefunc("PetBattleFrame_UpdateActionBarLayout", function()
+                -- Skin before centring: borders are drawn around the button's
+                -- current rect, so the measure pass must run after them.
+                EAB:SkinPetBattleButtons()
+                EAB:CenterPetBattleButtons()
+            end)
+        end
+        -- Cheap and self-guarding: only records anything while the menu is home,
+        -- so the login pass is what actually captures the anchor.
+        EAB:CacheMicroMenuHome()
+        EAB:ApplyPetBattleBarArt()
+        EAB:SkinPetBattleButtons()
+        EAB:CenterPetBattleButtons()
+        -- Blizzard docks the micro buttons into the battle bar the same way it
+        -- does for the override bar; take them back so the Micro Menu Bar keeps
+        -- its normal position through the fight.
+        if EAB:PetBattleKeepsOwnUI() then
+            EAB:ReclaimMicroMenu()
+            -- The docking happens as part of the opening sequence and can land
+            -- AFTER this event, which would silently undo the reclaim. One
+            -- next-frame pass plus a late one covers that ordering without
+            -- polling; both are no-ops once the menu is already home.
+            C_Timer_After(0, function()
+                EAB:ApplyPetBattleBarArt()
+                EAB:ReclaimMicroMenu()
+                EAB:SkinPetBattleButtons()
+                EAB:CenterPetBattleButtons()
+            end)
+            C_Timer_After(0.5, function()
+                EAB:ApplyPetBattleBarArt()
+                EAB:ReclaimMicroMenu()
+                EAB:SkinPetBattleButtons()
+                EAB:CenterPetBattleButtons()
+            end)
+        end
+    end)
+end
+
+-------------------------------------------------------------------------------
 --  Vehicle Highlight Fix
 --  During vehicle/override paging, empty MainBar buttons can retain a stale
 --  "checked" state from the normal bar. The CheckedTexture uses the same
@@ -11907,6 +12257,11 @@ local function ApplyAll()
     EAB:ApplyCheckedTextures()
     if not inCombat then EAB:ApplyCombatVisibility() end
     if not inCombat then EAB:RefreshRuntimeVisibility() end
+    -- Profile swaps can flip the stock vehicle bar setting with no vehicle
+    -- event to catch it; the event frame owns every other transition.
+    if not inCombat then EAB:ApplyVehicleBarVisibility() end
+    -- Artwork alpha only, so this one is safe to run inside combat too.
+    EAB:ApplyPetBattleBarArt()
     EAB:RefreshMouseover()
     EAB:RefreshProcGlows()
     EAB:ApplyRangeColoring()
