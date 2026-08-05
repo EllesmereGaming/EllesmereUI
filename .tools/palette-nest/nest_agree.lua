@@ -298,24 +298,24 @@ local function InBox(b, dx, dy)
     return b ~= nil and math.abs(dx - b.x) <= b.hw and math.abs(dy - b.y) <= b.hh
 end
 
--- The release branch's own ANGULAR test, worked in radians here since this
--- is plain Lua rather than the sandboxed snippet -- c.rows/c.band are
--- already in radians (ChildGeom builds them that way; PushPalette converts
--- to degrees only when writing the eapCR* attributes the real snippet reads).
+-- LeaveSnippet's own ANGULAR ground test -- c.ground's beam and wedge, NOT
+-- the release's per-ring resolution: the ground a claim stays armed on has to
+-- include the sides of its parent's icon and the entry ring's own radius,
+-- which answer to no ring at all. Worked in radians here since this is plain
+-- Lua rather than the sandboxed snippet; ChildGeom builds c.ground in radians
+-- and PushPalette converts only when writing the eapC* attributes.
 local function InWedge(c, dx, dy)
     if InBox(c.parentBox, dx, dy) then return true end
-    if not c.band then return false end
-    local dist = (dx * dx + dy * dy) ^ 0.5
-    if dist < c.band then return false end
-    for _, row in ipairs(c.rows) do
-        if dist >= row.lo and (not row.hi or dist < row.hi) then
-            local theta = math.atan2(dx, dy)
-            local startAngle = row.start - row.step * 0.5
-            local crel = (theta - startAngle) % (2 * math.pi)
-            return crel < row.n * row.step
-        end
-    end
-    return false
+    local g = c.ground
+    if not g then return false end
+    local u = dx * g.ax + dy * g.ay
+    if u < g.lo then return false end
+    local v = math.abs(dx * g.ay - dy * g.ax)
+    if v <= g.beam + u * g.slope then return true end
+    if (dx * dx + dy * dy) ^ 0.5 < g.edge then return false end
+    local ad = (math.atan2(dx, dy) - c.angle) % (2 * math.pi)
+    if ad > math.pi then ad = 2 * math.pi - ad end
+    return ad <= g.half
 end
 
 local function ClaimContains(view, c, dx, dy)
@@ -665,13 +665,14 @@ bad = bad + SweepCells("grid single column, nest near an end", function()
 end, step)
 p.gridColumns = nil
 
--- Two nests whose parents are neighbours, with eight children each: the two
--- t0s are barely a couple of child pitches apart, so the lane between them
--- genuinely runs out and PerimeterNest's room/cols arithmetic has to spill BOTH
--- of them into further rows rather than only one. The single-row case, where
--- the room is there and extending along the lane is the whole answer, is
--- checked for real in the lane placement section further down.
-bad = bad + SweepCells("grid lane, two nests crowd into rows", function()
+-- Two nests whose parents are neighbours, with eight children each: their two
+-- runs lie over each other along the lane for most of their length, which is
+-- allowed -- only one of them is ever drawn and only one is ever armed. What
+-- this asks is that the two sides still agree about which cell is where when
+-- they do. Small children on purpose, so both runs are long. Whether each run
+-- gets its full length, and whether it stays in ONE row, is the lane placement
+-- section's question further down.
+bad = bad + SweepCells("grid lane, two nests share the lane", function()
     Base(9, 1, 8)()
     Palette(1).slots[2] = { kind = "palette", palette = 3 }
     local c = Palette(3)
@@ -864,7 +865,7 @@ do
                 cells[#cells + 1] = { x = x, y = y, what = "entry " .. i }
             end
         end
-        for _, c in ipairs(view.claims or {}) do
+        for ci, c in ipairs(view.claims or {}) do
             for j = 1, c.n do
                 local x, y
                 if c.cells then
@@ -876,22 +877,32 @@ do
                     local r, ang = view:ChildRingPos(c, j)
                     x, y = r * math.sin(ang), r * math.cos(ang)
                 end
-                cells[#cells + 1] = { x = x, y = y,
+                cells[#cells + 1] = { x = x, y = y, claim = ci,
                                       what = "nest of " .. c.parent .. " #" .. j }
             end
         end
 
         -- Two icons may not sit closer than the smaller of them is wide.
+        --
+        -- Two DIFFERENT claims' children are exempt: exactly one nest is drawn
+        -- and exactly one is armed at any moment, so two runs sharing ground is
+        -- not a crowd -- the other one is not on the screen to crowd anything.
+        -- Two nests near each other used to divide the lane between them, which
+        -- kept them apart here and cost them their runs: neighbouring claims got
+        -- room for one cell each and stacked the rest outward into rows.
         local floorGap = view.claims and view.claims[1]
             and math.min(pitch, view.claims[1].icon) or pitch
         local worst, worstPair = math.huge, nil
         for i = 1, #cells do
             for j = i + 1, #cells do
-                local dx = cells[i].x - cells[j].x
-                local dy = cells[i].y - cells[j].y
-                local d = (dx * dx + dy * dy) ^ 0.5
-                if d < worst then
-                    worst, worstPair = d, cells[i].what .. " / " .. cells[j].what
+                local sameClaim = cells[i].claim == cells[j].claim
+                if sameClaim or not cells[i].claim or not cells[j].claim then
+                    local dx = cells[i].x - cells[j].x
+                    local dy = cells[i].y - cells[j].y
+                    local d = (dx * dx + dy * dy) ^ 0.5
+                    if d < worst then
+                        worst, worstPair = d, cells[i].what .. " / " .. cells[j].what
+                    end
                 end
             end
         end
@@ -1171,38 +1182,61 @@ do
         ClearOfCentres(label, view, centres)
     end
 
-    -- 4. Two nests with room between them: the lane splits at the midpoint of
-    -- the two, and each run EXTENDS along its own half rather than giving up
-    -- cells per row and stacking outward. Three children each in a 3x3 is well
-    -- within what half the lane holds, so a second row here would mean the
-    -- crowding rule fired when nothing was crowded.
-    do
-        local label = "two nests, room to spare"
+    -- 4. Two nests on the SAME lane, and neighbours at that: each still gets the
+    -- whole run it asked for, laid along the lane in one row. The lane used to be
+    -- divided up between the claims on it -- out to the midpoint with the nearest
+    -- other one -- which left two claims in adjacent cells with three quarters of
+    -- a pitch each: room for a single cell per row, so eight children came out as
+    -- eight rows stacked outward from the block. Nothing needed the division:
+    -- only one nest is ever drawn and only one is ever armed, so two runs may lie
+    -- over each other on the lane without either becoming ambiguous.
+    --
+    -- Full runs are the whole point of the check, so it asks for MAX_CHILDREN of
+    -- them on both claims, and asks each claim for as many cells along the lane
+    -- as it has children -- which is the number the old rule could not deliver.
+    for _, case in ipairs({
+        { label = "two nests side by side on the lane", at = { 7, 8 } },
+        { label = "two nests, a corner and its neighbour", at = { 1, 2 } },
+        { label = "two nests facing each other", at = { 2, 8 } },
+    }) do
+        local label = case.label
         local view, m, centres = Lane(function()
-            Base(9, 1, 3)()
-            Palette(1).slots[3] = { kind = "palette", palette = 3 }
+            Base(9, case.at[1], ns.MAX_CHILDREN)()
+            Palette(1).slots[case.at[2]] = { kind = "palette", palette = 3 }
             local c = Palette(3)
             c.slots = {}
-            for i = 1, 3 do c.slots[i] = { kind = "spell", id = 300 + i } end
+            for i = 1, ns.MAX_CHILDREN do c.slots[i] = { kind = "spell", id = 300 + i } end
             p.paletteCount = 3
         end)
         SingleRow(label, view, m)
         Snug(label, view, m)
         ClearOfCentres(label, view, centres)
-        -- And the two runs keep off each other: a claim may extend into the
-        -- lane only as far as the halfway point with its neighbour.
-        local c1, c2 = view.claims[1], view.claims[2]
-        local worst = math.huge
-        for i = 1, c1.n do
-            for j = 1, c2.n do
-                local dx = c1.cells[i].x - c2.cells[j].x
-                local dy = c1.cells[i].y - c2.cells[j].y
-                worst = math.min(worst, (dx * dx + dy * dy) ^ 0.5)
+        for _, c in ipairs(view.claims) do
+            -- How far the run REACHES along the lane, side by side: a run that
+            -- stacked outward into rows holds the same cells at a handful of
+            -- along positions, so its reach collapses to a couple of pitches
+            -- however many children it has. Measured a side at a time, since a
+            -- run wrapped round a corner travels on two axes. The allowance is
+            -- for the corners themselves: a turn advances the along coordinate
+            -- less than it advances the perimeter the cells were spaced on.
+            local along = 0
+            for _, g in ipairs(c.groups) do
+                local lo, hi = math.huge, -math.huge
+                for _, b in ipairs(g.cells) do
+                    local v = (g.axis == "X") and b.x or b.y
+                    local h = (g.axis == "X") and b.hw or b.hh
+                    lo, hi = math.min(lo, v - h), math.max(hi, v + h)
+                end
+                along = along + (hi - lo)
             end
-        end
-        if worst < m.childPitch * 0.99 then
-            Bad(label, ("the two runs come within %.1f, a child pitch is %.1f")
-                :format(worst, m.childPitch))
+            if along < c.n * m.childPitch * 0.85 then
+                Bad(label, ("the claim on %d runs %.1f along the lane, %d children want %.1f")
+                    :format(c.parent, along, c.n, c.n * m.childPitch))
+            end
+            if #c.regions > ns.REGION_MAX then
+                Bad(label, ("the claim on %d wants %d regions, only %d gates to put them in")
+                    :format(c.parent, #c.regions, ns.REGION_MAX))
+            end
         end
     end
 
@@ -1708,6 +1742,35 @@ do
         end
     end
 
+    -- Does a straight reach from claim k's parent to (x1,y1) leave the claim's
+    -- own coverage over ANOTHER claim's entry? Other claims' cells are taken out
+    -- of a claim's regions on purpose (see ParentHoles), so a reach across one of
+    -- those holes is a HANDOFF: the leave test answers "outside", the claim
+    -- disarms, and the claim the cursor has arrived at arms in its place. That is
+    -- the swap the whole carve exists for, so a walk across one has to be held to
+    -- a different promise than a walk that stays covered.
+    --
+    -- Asked of the claim's own rects rather than of the grid: not every
+    -- neighbouring claim's cell IS a hole -- one standing between a parent and its
+    -- own run keeps the nest reachable instead (see BlocksReach) -- and a check
+    -- that assumed otherwise would demand a handoff where the module rightly
+    -- refuses one. Sampled rather than solved, since samples are what the gates
+    -- see.
+    local function HandsOffAlong(view, k, x1, y1)
+        local c = view.claims[k]
+        local x0, y0 = c.parentBox.x, c.parentBox.y
+        for i = 0, 48 do
+            local t = i / 48
+            local x, y = x0 + (x1 - x0) * t, y0 + (y1 - y0) * t
+            if not ClaimContains(view, c, x, y) then
+                for j, o in ipairs(view.claims) do
+                    if j ~= k and InBox(o.parentBox, x, y) then return j end
+                end
+            end
+        end
+        return nil
+    end
+
     -- 1. HALO: open, onto the parent, outward onto a child, release -- want
     -- the child. This is the harness's own claims[1], which the crash this
     -- session found (LeaveSnippet handing SecureHandlerWrapScript a stray
@@ -1835,18 +1898,34 @@ do
         local off = ClearOpen(view)
         for _, claimIdx in ipairs({ 2, 3 }) do
             local c = view.claims[claimIdx]
+            -- A child this claim can be reached WITHOUT crossing another
+            -- claim's entry: three claims on one block leave some of each
+            -- run's children behind a neighbour's cell, and reaching across
+            -- one of those hands the claim over by design. What is under test
+            -- here is that claim 2 and claim 3 have working gates at all, so
+            -- it asks the question where the answer is not a handoff.
+            local target
+            for j = 1, c.n do
+                if not HandsOffAlong(view, claimIdx,
+                                          c.cells[j].x, c.cells[j].y) then
+                    target = j
+                    break
+                end
+            end
             local btn, mover = OpenAt(1, off + 960, off + 540)
             view._gateX, view._gateY = off + 960, off + 540
             mover(c.parentBox.x + 960, c.parentBox.y + 540)
             local armed = tonumber(btn:GetAttribute("eapArmed"))
+            local cell = c.cells[target or 1]
             Walk(mover, c.parentBox.x + 960, c.parentBox.y + 540,
-                        c.cells[1].x + 960, c.cells[1].y + 540, 6)
-            local got, why = ReleaseAt(btn, mover, c.cells[1].x + 960, c.cells[1].y + 540)
-            local want = c.base + 1
-            if armed ~= claimIdx or got ~= want then
+                        cell.x + 960, cell.y + 540, 6)
+            local got, why = ReleaseAt(btn, mover, cell.x + 960, cell.y + 540)
+            local want = c.base + (target or 1)
+            if armed ~= claimIdx or not target or got ~= want then
                 fails = fails + 1
-                offline[#offline + 1] = ("  claim %d of 3: armed=%s got=%s want=%s why=%s")
-                    :format(claimIdx, tostring(armed), tostring(got), tostring(want), tostring(why))
+                offline[#offline + 1] = ("  claim %d of 3: armed=%s target=%s got=%s want=%s why=%s")
+                    :format(claimIdx, tostring(armed), tostring(target),
+                            tostring(got), tostring(want), tostring(why))
             end
         end
     end
@@ -2020,11 +2099,29 @@ do
     -- entry the cursor came to rest over, so the palette silently casts the wrong
     -- spell. Samples matter here -- a two-sample jump steps clean over the gap
     -- and passes.
+    --
+    -- Where another claim's entry stands in the way the promise changes rather
+    -- than lapses: that cell is a hole in this claim's coverage on purpose, so
+    -- the reach across it must HAND OVER -- disarm this claim and arm the one the
+    -- cursor is on -- and the check holds it to that instead. Every case here has
+    -- at least one child of each kind, which is what makes both halves real.
     for _, case in ipairs({
         { label = "lane corner parent, 8 children", setup = Base(9, 1, 8) },
         { label = "lane corner parent, 6 children", setup = Base(9, 1, 6) },
         { label = "lane edge parent, 6 children",   setup = Base(12, 10, 6) },
         { label = "lane centre parent, 8 children", setup = Base(9, 5, 8) },
+        -- Two claims on adjacent cells of the bottom row, both with a full run
+        -- along the same lane. The children out past the neighbour's own cell are
+        -- the handoff half; the ones over the parent's own end of the lane are
+        -- the half that must survive the whole reach, neighbour or no neighbour.
+        { label = "lane, two adjacent claims", handoff = true, setup = function()
+            Base(9, 7, 8)()
+            Palette(1).slots[8] = { kind = "palette", palette = 3 }
+            local c = Palette(3)
+            c.slots = {}
+            for i = 1, 8 do c.slots[i] = { kind = "spell", id = 300 + i } end
+            p.paletteCount = 3
+        end },
     }) do
         case.setup()
         p.layout, p.gridAutoColumns, p.gridNestStyle = "GRID", true, "PERIMETER"
@@ -2035,8 +2132,9 @@ do
         local off = ClearOpen(view)
         view._steered, view._gateX, view._gateY = true, off + 960, off + 540
         local c1 = view.claims[1]
-        local unreachable, misfired = {}, {}
+        local unreachable, misfired, handedOff = {}, {}, {}
         for j = 1, c1.n do
+            local across = HandsOffAlong(view, 1, c1.cells[j].x, c1.cells[j].y)
             local btn, mover = OpenAt(1, off + 960, off + 540)
             mover(c1.parentBox.x + 960, c1.parentBox.y + 540)
             local armed = tonumber(btn:GetAttribute("eapArmed"))
@@ -2044,19 +2142,331 @@ do
                         c1.cells[j].x + 960, c1.cells[j].y + 540, 12)
             local heldOn = tonumber(btn:GetAttribute("eapArmed"))
             local got = ReleaseAt(btn, mover, c1.cells[j].x + 960, c1.cells[j].y + 540)
-            if armed ~= 1 or heldOn ~= 1 then
+            if armed ~= 1 then
                 unreachable[#unreachable + 1] = j
-            end
-            if got ~= c1.base + j then
-                misfired[#misfired + 1] = ("%d fired %s"):format(j, tostring(got))
+            elseif across then
+                -- Handed over to SOME other claim, not necessarily the one the
+                -- line crossed: past the hole the cursor goes on travelling, and
+                -- whichever claim it ends on is the one that answers. What must
+                -- not happen is this claim staying armed over ground it does not
+                -- hold.
+                if heldOn == 1 then
+                    handedOff[#handedOff + 1] = ("%d stayed armed across claim %d")
+                        :format(j, across)
+                end
+            else
+                if heldOn ~= 1 then unreachable[#unreachable + 1] = j end
+                if got ~= c1.base + j then
+                    misfired[#misfired + 1] = ("%d fired %s"):format(j, tostring(got))
+                end
             end
         end
-        if #unreachable > 0 or #misfired > 0 then
+        -- Vacuous either way is a failure of the case, not a pass: a config where
+        -- nothing crosses a neighbour proves nothing about the handoff, and one
+        -- where everything does proves nothing about the reach.
+        local crossings = 0
+        for j = 1, c1.n do
+            if HandsOffAlong(view, 1, c1.cells[j].x, c1.cells[j].y) then
+                crossings = crossings + 1
+            end
+        end
+        local shape = (case.handoff and (crossings == 0 or crossings == c1.n))
+            and ("only %d of %d children cross a neighbour"):format(crossings, c1.n)
+            or (not case.handoff and crossings > 0)
+            and ("%d children cross a neighbour in a one-claim config"):format(crossings)
+            or nil
+        if #unreachable > 0 or #misfired > 0 or #handedOff > 0 or shape then
             fails = fails + 1
-            offline[#offline + 1] = ("  %s: reach broke on children [%s]; releases wrong [%s]")
+            offline[#offline + 1] = ("  %s: reach broke on children [%s]; releases wrong [%s]; %s%s")
                 :format(case.label, table.concat(unreachable, ","),
+                        table.concat(misfired, "; "),
+                        table.concat(handedOff, "; "), shape and ("; " .. shape) or "")
+        end
+    end
+
+    -- 9. Swapping between two claims WITHOUT leaving the row. A lane's region
+    -- sweeps its parent's own row (see RunReach), so while claim 1 is armed its
+    -- coverage used to stand over claim 2's entry as well -- and claim 2's own
+    -- parent gate is dark for as long as claim 1 is armed. Gliding from one entry
+    -- straight onto the other therefore left no gate of claim 1's, fired no
+    -- OnLeave, disarmed nothing, and armed nothing: the user had to leave the
+    -- whole row and come back before the second nest would open. Claim 2's cell
+    -- is now a hole in claim 1's coverage, so the glide crosses a real boundary.
+    -- The trace is read too, because "armed 2" alone would also be satisfied by a
+    -- press-time pre-arm or by never having armed 1 in the first place: L1:out is
+    -- claim 1's own leave test answering, and R2 is its re-arm handing over.
+    for _, style in ipairs({ "PERIMETER", "POPOUT", "HALO" }) do
+        Base(9, 7, 8)()
+        Palette(1).slots[8] = { kind = "palette", palette = 3 }
+        local c3 = Palette(3)
+        c3.slots = {}
+        for i = 1, 8 do c3.slots[i] = { kind = "spell", id = 300 + i } end
+        p.paletteCount = 3
+        p.layout, p.gridAutoColumns, p.gridNestStyle = "GRID", true, style
+        ns.Refresh()
+        local view = ns.CreatePaletteView(UIParent, {})
+        view:Layout(1)
+        view:GetFrame():SetCenter(960, 540)
+        view._steered = true
+        local c1, c2 = view.claims[1], view.claims[2]
+        local off = ClearOpen(view)
+        local btn, mover = OpenAt(1, off + 960, off + 540)
+        view._gateX, view._gateY = off + 960, off + 540
+        mover(c1.parentBox.x + 960, c1.parentBox.y + 540)
+        local armed1 = tonumber(btn:GetAttribute("eapArmed"))
+        -- A glide, not a jump: the samples between the two entries are where the
+        -- boundary has to be, and a two-sample hop over it would pass either way.
+        Walk(mover, c1.parentBox.x + 960, c1.parentBox.y + 540,
+                    c2.parentBox.x + 960, c2.parentBox.y + 540, 10)
+        local armed2 = tonumber(btn:GetAttribute("eapArmed"))
+        local trace = btn:GetAttribute("eapGTrace") or ""
+        -- And the second nest is really open: its own first child fires from
+        -- where the swap left the cursor.
+        Walk(mover, c2.parentBox.x + 960, c2.parentBox.y + 540,
+                    c2.cells[1].x + 960, c2.cells[1].y + 540, 8)
+        local got, why = ReleaseAt(btn, mover, c2.cells[1].x + 960, c2.cells[1].y + 540)
+        if armed1 ~= 1 or armed2 ~= 2 or got ~= c2.base + 1
+           or not trace:find("L1:out;", 1, true) or not trace:find("R2;", 1, true) then
+            fails = fails + 1
+            offline[#offline + 1] = ("  %s swap along the row: armed %s->%s trace=%s got=%s want=%s why=%s")
+                :format(style, tostring(armed1), tostring(armed2), trace,
+                        tostring(got), tostring(c2.base + 1), tostring(why))
+        end
+    end
+
+    -- 10. THE ARC, through the same real gates. Every check above it is a
+    -- block layout, and the arc's gate path had no offline check at all -- so
+    -- the one thing no block layout has went untested: the polar ground test
+    -- LeaveSnippet makes for an ANGULAR claim. A rect layout's regions cover
+    -- their own children by construction, but an arc's do not, and the ground
+    -- between a parent's icon and its rings used to belong to nothing at all:
+    -- the pgate's OnLeave fired a few units into every reach for a child, the
+    -- test answered "outside", the claim disarmed, and the nest went dim with
+    -- dead children for the rest of the hold. In game that reads as "the
+    -- nested entries are drawn but cannot be picked" -- the release goes on to
+    -- fire whichever plain entry the angle lands on.
+    --
+    -- The walks are SAMPLED, twelve at a time: the ground that used to be
+    -- missing is a band a few units wide, and a two-sample jump steps clean
+    -- over it.
+    local function ArcClaimAngleOffsets(view, c)
+        local mx = 0
+        for j = 1, c.n do
+            local _, a = view:ChildRingPos(c, j)
+            mx = math.max(mx, math.abs(a - c.angle))
+        end
+        return mx
+    end
+
+    for _, case in ipairs({
+        -- Children that fit in one ring, and a parent sector wide enough that
+        -- the ring stays inside it: the plainest shape there is.
+        { label = "arc, one ring inside its sector", rings = 1,
+          setup = Base(6, 1, 5) },
+        -- Eight children on a twelve-entry palette: 30 degrees of parent
+        -- sector, and a first ring that now spreads to 90 -- so the reach for
+        -- an edge child leaves the parent's icon already well outside the
+        -- sector the entry itself owns, and spills a second ring on top.
+        { label = "arc, ring wider than its sector", rings = 2, widened = true,
+          setup = Base(12, 1, 8) },
+        -- A small radius, full-size child icons and a hair of nest distance:
+        -- the rings come out crowded and close together, and the band between
+        -- the parent's icon and the first of them is five units wide.
+        { label = "arc, crowded rings, thin band", rings = 2,
+          setup = function()
+              Base(6, 1, 8)()
+              p.radius, p.iconSize, p.nestScale, p.nestBand = 60, 44, 1.0, 10
+          end },
+        -- Two claims two entries apart, each spread wider than its own sector,
+        -- so their grounds meet over the plain entry between them. Only one of
+        -- them is ever armed, which is what makes that legal -- and the entry
+        -- between them still fires when neither is.
+        { label = "arc, two widened nests", rings = 2, overlap = true,
+          setup = function()
+              Base(8, 1, 8)()
+              Palette(1).slots[3] = { kind = "palette", palette = 3 }
+              local c = Palette(3)
+              c.slots = {}
+              for i = 1, 8 do c.slots[i] = { kind = "spell", id = 300 + i } end
+              p.paletteCount = 3
+              p.arcChildOverflow = "MIDPOINT"
+          end },
+    }) do
+        case.setup()
+        -- Spelled out rather than inherited: an earlier sweep leaves this at
+        -- whatever it last needed, and every ring count asserted below is a
+        -- count at THIS span.
+        p.layout, p.arcSpan, p.arcChildMaxSpan = "ARC", 360, 90
+        ns.Refresh()
+        local view = ns.CreatePaletteView(UIParent, {})
+        view:Layout(1)
+        view:GetFrame():SetCenter(960, 540)
+        local off = ClearOpen(view)
+        view._steered, view._gateX, view._gateY = true, off + 960, off + 540
+        local shown = view:ShownCount()
+        local step = view:ArcGeom(shown)
+        local c1 = view.claims[1]
+        local report = {}
+
+        -- (a) The press branch's own geometric pre-arm, on an arc: a press
+        -- with the cursor already standing on the claim's entry raises no
+        -- OnEnter of its own, so nothing but the press can account for the
+        -- claim being armed. Read before any cursor motion at all.
+        do
+            local btn = OpenAt(1, c1.parentBox.x + 960, c1.parentBox.y + 540)
+            local armed = tonumber(btn:GetAttribute("eapArmed"))
+            local trace = btn:GetAttribute("eapGTrace")
+            if armed ~= 1 or trace ~= "P1;" then
+                report[#report + 1] = ("press pre-arm armed=%s trace=%s (want 1, P1;)")
+                    :format(tostring(armed), tostring(trace))
+            end
+            snippet(btn, "LeftButton", false)
+        end
+
+        -- (b) Out to EVERY child, one straight reach each, and the claim has
+        -- to survive every sample of it. "Survive" is asked of the model's own
+        -- idea of the claim's ground rather than assumed: a sample the ground
+        -- does not cover is a sample the claim is entitled to disarm on, and
+        -- the count of those is reported too, because a reach that leaves the
+        -- ground it was widened to cover is itself the bug.
+        local strayed, lost, misfired, sawLeave = {}, {}, {}, 0
+        for j = 1, c1.n do
+            local r, a = view:ChildRingPos(c1, j)
+            local cx, cy = r * math.sin(a), r * math.cos(a)
+            local btn, mover = OpenAt(1, off + 960, off + 540)
+            mover(c1.parentBox.x + 960, c1.parentBox.y + 540)
+            if tonumber(btn:GetAttribute("eapArmed")) ~= 1 then
+                lost[#lost + 1] = ("%d never armed"):format(j)
+            end
+            local x0, y0 = c1.parentBox.x, c1.parentBox.y
+            for i = 1, 12 do
+                local t = i / 12
+                local x, y = x0 + (cx - x0) * t, y0 + (cy - y0) * t
+                mover(x + 960, y + 540)
+                local armed = tonumber(btn:GetAttribute("eapArmed"))
+                if not ClaimContains(view, c1, x, y) then
+                    strayed[#strayed + 1] = ("%d@%.2f"):format(j, t)
+                elseif armed ~= 1 then
+                    lost[#lost + 1] = ("%d@%.2f armed=%s"):format(j, t, tostring(armed))
+                end
+            end
+            if (btn:GetAttribute("eapGTrace") or ""):find("L1:in;", 1, true) then
+                sawLeave = sawLeave + 1
+            end
+            local got, why = ReleaseAt(btn, mover, cx + 960, cy + 540)
+            if got ~= c1.base + j then
+                misfired[#misfired + 1] = ("%d fired %s (%s)")
+                    :format(j, tostring(got), tostring(why))
+            end
+        end
+        -- A reach that never left a gate never asked the leave test anything,
+        -- and a check that only ever exercised the arming half would pass
+        -- with the ground test deleted. At least one of these reaches has to
+        -- have crossed a real gate boundary and been answered "still inside".
+        if sawLeave == 0 then
+            report[#report + 1] = "no reach ever put the leave test to the question"
+        end
+        if #strayed > 0 or #lost > 0 or #misfired > 0 then
+            report[#report + 1] = ("reaches off the claim's ground [%s]; disarmed [%s]; wrong release [%s]")
+                :format(table.concat(strayed, ","), table.concat(lost, "; "),
                         table.concat(misfired, "; "))
         end
+
+        -- (c) Sideways instead, onto the PLAIN entry next door. The entry ring
+        -- belongs to the entries however wide a nest's children spread over
+        -- it, so both sides must answer with that entry and neither with a
+        -- child of the nest -- and the leave test must have been asked, which
+        -- is what says the claim's ground was measured rather than missed.
+        --
+        -- The claim is NOT required to have disarmed by the last sample. A
+        -- plain entry carries no gate of its own, so once the cursor is off
+        -- every rect of the claim there is nothing left to fire the leave test
+        -- again, and the claim can stay armed over an entry that is not its
+        -- own -- which costs the drawing (the nest stays open) and nothing
+        -- else, since the release below never consults it inside the ring. The
+        -- claim-to-claim glide, where it WOULD cost something, is check (d).
+        do
+            local radius = select(1, view:Geom())
+            local na = c1.angle + step
+            local nx, ny = radius * math.sin(na), radius * math.cos(na)
+            local btn, mover = OpenAt(1, off + 960, off + 540)
+            mover(c1.parentBox.x + 960, c1.parentBox.y + 540)
+            local armed = tonumber(btn:GetAttribute("eapArmed"))
+            Walk(mover, c1.parentBox.x + 960, c1.parentBox.y + 540,
+                        nx + 960, ny + 540, 12)
+            local trace = btn:GetAttribute("eapGTrace") or ""
+            CURSOR.x, CURSOR.y = nx + 960, ny + 540
+            local want = view:HitTest()
+            local got, why = ReleaseAt(btn, mover, nx + 960, ny + 540)
+            if armed ~= 1 or got ~= c1.parent + 1 or want ~= c1.parent + 1
+               or got > shown or not trace:find("L1", 1, true) then
+                report[#report + 1] = ("sideways onto entry %d: armed=%s trace=%s view=%s got=%s why=%s")
+                    :format(c1.parent + 1, tostring(armed), trace,
+                            tostring(want), tostring(got), tostring(why))
+            end
+        end
+
+        -- (d) The same glide, but onto ANOTHER CLAIM's entry: that one has to
+        -- hand over, or its own nest is unreachable for the rest of the hold.
+        -- An arc claim's ground never covers a neighbouring entry's centre, so
+        -- the leave test answers "outside" there -- and the neighbour's parent
+        -- gate is left alight on the arc precisely so that something fires it.
+        if case.overlap then
+            local c2 = view.claims[2]
+            local btn, mover = OpenAt(1, off + 960, off + 540)
+            mover(c1.parentBox.x + 960, c1.parentBox.y + 540)
+            local armed = tonumber(btn:GetAttribute("eapArmed"))
+            Walk(mover, c1.parentBox.x + 960, c1.parentBox.y + 540,
+                        c2.parentBox.x + 960, c2.parentBox.y + 540, 12)
+            local after = tonumber(btn:GetAttribute("eapArmed"))
+            local trace = btn:GetAttribute("eapGTrace") or ""
+            -- And the second nest really is live: its own first child fires
+            -- from a reach that starts where the swap left the cursor.
+            local r, a = view:ChildRingPos(c2, 1)
+            local cx, cy = r * math.sin(a), r * math.cos(a)
+            Walk(mover, c2.parentBox.x + 960, c2.parentBox.y + 540,
+                        cx + 960, cy + 540, 12)
+            local got, why = ReleaseAt(btn, mover, cx + 960, cy + 540)
+            if armed ~= 1 or after ~= 2 or got ~= c2.base + 1
+               or not trace:find("L1:out;", 1, true) then
+                report[#report + 1] = ("glide onto claim 2: armed %s->%s trace=%s got=%s want=%s why=%s")
+                    :format(tostring(armed), tostring(after), trace,
+                            tostring(got), tostring(c2.base + 1), tostring(why))
+            end
+        end
+
+        -- Shape guards. Each case is here for a geometry, and a change that
+        -- quietly stopped producing it would leave the case passing about
+        -- nothing: the ring count is what makes the multi-ring cases multi-ring,
+        -- and the angular spread is what makes the widened ones widened.
+        if #c1.rows ~= case.rings then
+            report[#report + 1] = ("%d rings, expected %d"):format(#c1.rows, case.rings)
+        end
+        local spread = ArcClaimAngleOffsets(view, c1)
+        if case.widened and spread <= step * 0.5 then
+            report[#report + 1] = ("children span %.1f deg, inside the entry's own %.1f")
+                :format(spread * 180 / math.pi, step * 0.5 * 180 / math.pi)
+        end
+        -- Two claims whose grounds do not actually meet would prove nothing
+        -- about overlap being safe.
+        if case.overlap then
+            local c2 = view.claims[2]
+            local mid = (c1.angle + c2.angle) * 0.5
+            local rr = c1.rows[1].radius
+            local mx, my = rr * math.sin(mid), rr * math.cos(mid)
+            if not (ClaimContains(view, c1, mx, my)
+                    and ClaimContains(view, c2, mx, my)) then
+                report[#report + 1] = "the two nests' grounds do not overlap"
+            end
+        end
+
+        if #report > 0 then
+            fails = fails + 1
+            offline[#offline + 1] = ("  %s: %s"):format(case.label,
+                table.concat(report, "; "))
+        end
+        p.radius, p.iconSize, p.nestScale, p.nestBand = nil, nil, nil, nil
+        p.arcChildOverflow = "NONE"
     end
 
     print(("real-gate focus paths                               %5d wrong%s"):format(
