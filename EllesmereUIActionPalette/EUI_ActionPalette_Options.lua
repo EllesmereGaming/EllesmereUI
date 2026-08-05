@@ -11,6 +11,7 @@ local BINDING_PREFIX = "EUI_RADIAL"
 -- which of them the keybind row applies to.
 local MAX_PALETTES = ns.MAX_PALETTES or 16
 local MAX_BOUND_PALETTES = ns.MAX_BOUND_PALETTES or 6
+local MAX_SLOTS = ns.MAX_SLOTS or 12
 
 local initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
@@ -432,7 +433,12 @@ initFrame:SetScript("OnEvent", function(self)
                     kids and #kids or 0,
                     (kids and #kids == 1) and "entry" or "entries"), 0.6, 0.6, 0.6)
             else
-                GameTooltip:AddLine(slot.kind, 0.6, 0.6, 0.6)
+                -- The stored kind strings are one word each; only the marker
+                -- kinds read better with the space put back.
+                local caption = (slot.kind == "raidtarget" and "target marker")
+                    or (slot.kind == "worldmarker" and "world marker")
+                    or slot.kind
+                GameTooltip:AddLine(caption, 0.6, 0.6, 0.6)
             end
             GameTooltip:AddLine(" ")
             GameTooltip:AddLine("Drag to reorder.", 0.4, 0.8, 1, true)
@@ -441,8 +447,8 @@ initFrame:SetScript("OnEvent", function(self)
         else
             GameTooltip:AddLine("Add an action", 1, 1, 1)
             GameTooltip:AddLine(" ")
-            GameTooltip:AddLine("Left-click to pick a spell, mount, item, toy, macro or "
-                .. "battle pet from a list.", 0.4, 0.8, 1, true)
+            GameTooltip:AddLine("Left-click to pick a spell, mount, item, toy, macro, "
+                .. "battle pet or marker from a list.", 0.4, 0.8, 1, true)
             GameTooltip:AddLine("You can also drop an action from the cursor here.",
                 0.4, 0.8, 1, true)
         end
@@ -652,6 +658,24 @@ initFrame:SetScript("OnEvent", function(self)
         return out
     end
 
+    -- The markers need no enumeration at all: the slot kinds carry the icon
+    -- and the name, so a candidate slot handed to SlotDisplay IS the entry.
+    -- Both marker sets are offered in one category -- eighteen rows do not
+    -- earn two menu levels.
+    local function MarkerEntries()
+        local out = {}
+        local function Add(kind, id)
+            local slot = { kind = kind, id = id }
+            local icon, name = ns.SlotDisplay(slot)
+            out[#out + 1] = { icon = icon, name = name, slot = slot }
+        end
+        for i = 1, 8 do Add("raidtarget", i) end
+        Add("raidtarget", 0)
+        for i = 1, 8 do Add("worldmarker", i) end
+        Add("worldmarker", 0)
+        return out
+    end
+
     -- Every palette this one may open. Not a list of things the game owns, so
     -- it is rebuilt on each use rather than cached: adding a palette or filling
     -- one in has to show up here without reopening the picker.
@@ -695,6 +719,8 @@ initFrame:SetScript("OnEvent", function(self)
         { key = "toy",       label = "Toys",         build = ToyEntries },
         { key = "macro",     label = "Macros",       build = MacroEntries },
         { key = "battlepet", label = "Battle Pets",  build = PetEntries },
+        { key = "marker",    label = "Markers",      build = MarkerEntries,
+          keepOrder = true },
         { key = "palette",   label = "Palettes",     build = PaletteEntries },
         { key = "macrotext", label = "Custom Macro...", custom = true },
     }
@@ -1049,8 +1075,12 @@ initFrame:SetScript("OnEvent", function(self)
             list = cat.build()
             -- Alphabetical rather than in enumeration order: the spellbook's own
             -- grouping means nothing once the tabs are gone, and a name is what
-            -- the user is scanning for.
-            table.sort(list, function(a, b) return a.name < b.name end)
+            -- the user is scanning for. A category can opt out for a list whose
+            -- own order IS the one the user knows -- the markers run star to
+            -- skull, the order every marker menu in the game shows.
+            if not cat.keepOrder then
+                table.sort(list, function(a, b) return a.name < b.name end)
+            end
             pickerLists[cat.key] = list
         end
 
@@ -1127,6 +1157,284 @@ initFrame:SetScript("OnEvent", function(self)
         menu.cat = nil
         menu.search:SetText("")
         ShowPickerCategories()
+    end
+
+    ---------------------------------------------------------------------------
+    --  Palette presets
+    --
+    --  Each builder returns the slots a new palette starts with, worked out
+    --  from what THIS character knows or carries at the moment the chooser
+    --  opens -- a preset must never seed a slot that cannot fire. A preset
+    --  whose builder comes back empty is left out of the chooser, which is
+    --  also how the class-specific ones gate themselves: IsPlayerSpell answers
+    --  no to every spell on the wrong class.
+    ---------------------------------------------------------------------------
+    local function TargetMarkerSlots()
+        local out = {}
+        for i = 1, 8 do out[#out + 1] = { kind = "raidtarget", id = i } end
+        out[#out + 1] = { kind = "raidtarget", id = 0 }
+        return out
+    end
+
+    local function WorldMarkerSlots()
+        local out = {}
+        for i = 1, 8 do out[#out + 1] = { kind = "worldmarker", id = i } end
+        out[#out + 1] = { kind = "worldmarker", id = 0 }
+        return out
+    end
+
+    -- The base item plus its two expansion siblings, then the toy variants.
+    -- The toys all share one cooldown and one destination, so past MAX_SLOTS
+    -- the tail is interchangeable with what already made it in.
+    local HEARTH_ITEMS = { 6948, 140192, 110560 }   -- Hearthstone, Dalaran, Garrison
+    local HEARTH_TOYS = {
+        54452,  64488,  93672,  142542, 162973, 163045, 165669, 165670,
+        165802, 166746, 166747, 168907, 172179, 180290, 182773, 183716,
+        184353, 188952, 190196, 190237, 193588, 200630, 206195, 208704,
+        209035, 212337, 228940,
+    }
+    local function HearthstoneSlots()
+        local out = {}
+        for _, itemID in ipairs(HEARTH_ITEMS) do
+            if C_Item.GetItemCount(itemID) > 0 then
+                out[#out + 1] = { kind = "item", id = itemID }
+            end
+        end
+        for _, toyID in ipairs(HEARTH_TOYS) do
+            if #out >= MAX_SLOTS then break end
+            if PlayerHasToy(toyID) then
+                out[#out + 1] = { kind = "toy", id = toyID }
+            end
+        end
+        return out
+    end
+
+    -- Self-teleports only, keyed by class. Mage portals are deliberately not
+    -- here: a palette entry fires for its owner, and the teleport is the spell
+    -- an owner wants.
+    local TELEPORT_SPELLS = {
+        DEATHKNIGHT = { 50977 },     -- Death Gate
+        DRUID       = { 193753 },    -- Dreamwalk
+        MONK        = { 126892 },    -- Zen Pilgrimage
+        SHAMAN      = { 556 },       -- Astral Recall
+        MAGE = {
+            3561, 3562, 3563, 3565, 3566, 3567,        -- the classic capitals
+            32271, 32272, 33690, 35715, 49358, 49359,  -- Outland-era cities
+            53140, 88342, 88344, 132621, 132627,       -- Dalaran, Tol Barad, Vale
+            176248, 176242, 224869, 281403, 281404,    -- Warspear era through Boralus
+            344587, 395277, 446540,                    -- Oribos, Valdrakken, Dornogal
+        },
+    }
+    local function TeleportSlots()
+        local out = {}
+        local list = TELEPORT_SPELLS[select(2, UnitClass("player"))]
+        for _, spellID in ipairs(list or {}) do
+            if #out >= MAX_SLOTS then break end
+            if IsPlayerSpell(spellID) then
+                out[#out + 1] = { kind = "spell", id = spellID }
+            end
+        end
+        return out
+    end
+
+    -- The same bag walk ItemEntries does, narrowed to drinkable consumables.
+    -- Numeric subclasses: Enum.ItemConsumableSubclass stops at Other, the
+    -- finer rows exist only as these constants (ItemDocumentation.lua).
+    local function PotionSlots()
+        local out, seen = {}, {}
+        local function ScanBag(bag)
+            for slot = 1, C_Container.GetContainerNumSlots(bag) do
+                local info = C_Container.GetContainerItemInfo(bag, slot)
+                local itemID = info and info.itemID
+                if itemID and not seen[itemID] and #out < MAX_SLOTS
+                   and C_Item.GetItemSpell(itemID) then
+                    seen[itemID] = true
+                    local classID, subClassID = select(6, C_Item.GetItemInfoInstant(itemID))
+                    if classID == Enum.ItemClass.Consumable
+                       and (subClassID == 1 or subClassID == 2 or subClassID == 3) then
+                        out[#out + 1] = { kind = "item", id = itemID }
+                    end
+                end
+            end
+        end
+        for bag = Enum.BagIndex.Backpack, NUM_BAG_SLOTS do ScanBag(bag) end
+        ScanBag(Enum.BagIndex.ReagentBag)
+        return out
+    end
+
+    local FORM_SPELLS = { 5487, 768, 783, 24858, 114282 }  -- Bear, Cat, Travel, Moonkin, Treant
+    local function FormSlots()
+        local out = {}
+        for _, spellID in ipairs(FORM_SPELLS) do
+            if IsPlayerSpell(spellID) then
+                out[#out + 1] = { kind = "spell", id = spellID }
+            end
+        end
+        return out
+    end
+
+    local PALETTE_PRESETS = {
+        { label = "Target Markers", build = TargetMarkerSlots },
+        { label = "World Markers",  build = WorldMarkerSlots },
+        { label = "Hearthstones",   build = HearthstoneSlots },
+        { label = "Teleports",      build = TeleportSlots },
+        { label = "Potions",        build = PotionSlots },
+        { label = "Druid Forms",    build = FormSlots },
+    }
+
+    ---------------------------------------------------------------------------
+    --  Adding and deleting palettes
+    --
+    --  The palette count used to be a slider. A slider says nothing about what
+    --  the new palette will hold; the Add button opens a chooser instead --
+    --  empty, or seeded from one of the presets above.
+    ---------------------------------------------------------------------------
+
+    -- slots comes in already built (the chooser built it to decide whether to
+    -- offer the preset at all), and each table in it is fresh from the
+    -- builder, so nothing here needs copying.
+    local function AddPalette(preset, slots)
+        local count = PaletteCount()
+        if count >= MAX_PALETTES then return end
+        Set("paletteCount", count + 1)
+        local palette = Palette(count + 1)
+        if palette then
+            -- The index may have been used and abandoned by the retired
+            -- palette-count slider, whose decrease hid palettes without
+            -- clearing them. A palette added on purpose starts empty.
+            palette.slots = {}
+            palette.icon = nil
+            palette.name = (preset and preset.label) or AutoName(count + 1)
+            for _, s in ipairs(slots or {}) do
+                if not ns.AddSlot(palette, s) then break end
+            end
+        end
+        editPalette = count + 1
+        HidePicker()
+        RebuildPage()
+    end
+
+    -- A view on the same anchored menu the action picker uses, so the add
+    -- button and the "+" entry cannot both have one open: whichever opens
+    -- second takes the menu over.
+    local function ShowAddPaletteMenu(anchor)
+        if not anchor then return end
+        local menu = EnsurePickerMenu()
+        if menu:IsShown() and pickerAnchor == anchor then
+            HidePicker()
+            return
+        end
+        pickerAnchor = anchor
+        menu:ClearAllPoints()
+        menu:SetPoint("TOP", anchor, "BOTTOM", 0, -4)
+        menu.cat = nil
+        menu.title:SetText("Add Palette")
+        menu.back:Hide()
+        menu.search:ClearFocus()
+        menu.search:Hide()
+        menu.custom:Hide()
+        menu.scroll:Show()
+
+        local function FillRow(i, icon, label, onClick)
+            local r = menu:GetRow(i)
+            if icon then
+                r.icon:SetTexture(icon)
+                r.icon:Show()
+                r.label:ClearAllPoints()
+                r.label:SetPoint("LEFT", r.icon, "RIGHT", 6, 0)
+            else
+                r.icon:Hide()
+                r.label:ClearAllPoints()
+                r.label:SetPoint("LEFT", r, "LEFT", 8, 0)
+            end
+            r.label:SetPoint("RIGHT", r, "RIGHT", -6, 0)
+            r.label:SetText(label)
+            r:SetScript("OnClick", onClick)
+            r:Show()
+        end
+
+        FillRow(1, nil, "Empty Palette", function() AddPalette(nil) end)
+        local n = 1
+        for _, preset in ipairs(PALETTE_PRESETS) do
+            local slots = preset.build()
+            if #slots > 0 then
+                n = n + 1
+                local icon = ns.SlotDisplay(slots[1])
+                FillRow(n, icon or QUESTION_MARK,
+                    preset.label .. "  |cff808080(" .. #slots .. ")|r",
+                    function() AddPalette(preset, slots) end)
+            end
+        end
+        for i = n + 1, #menu.rows do menu.rows[i]:Hide() end
+
+        PickerFit(menu, n)
+        menu:Show()
+    end
+
+    -- Deletion really removes the palette rather than hiding it the way the
+    -- slider's decrease did: the palettes above it close ranks, and everything
+    -- that pointed at them follows -- nested entries repoint to the shifted
+    -- index, entries that opened the deleted palette are removed, and each
+    -- shifted palette's keybind moves with it.
+    local function DeletePalette(index)
+        local p = DB()
+        local count = PaletteCount()
+        if not p or count <= 1 or index < 1 or index > count then return end
+
+        -- The keybind shift below runs SetBinding, so the same combat wall the
+        -- keybind picker documents applies to the whole operation.
+        if InCombatLockdown() then
+            Complain("Action Palette: palettes can't be deleted in combat.")
+            return
+        end
+
+        -- Materialize every live palette first: the shift walks 1 .. count and
+        -- table.remove stops at the first hole.
+        for i = 1, count do Palette(i) end
+
+        table.remove(p.palettes, index)
+        Set("paletteCount", count - 1)
+
+        for i = 1, count - 1 do
+            local palette = Palette(i)
+            for j = #palette.slots, 1, -1 do
+                local s = palette.slots[j]
+                if s.kind == "palette" then
+                    local target = tonumber(s.palette)
+                    if target == index then
+                        table.remove(palette.slots, j)
+                    elseif target and target > index then
+                        s.palette = target - 1
+                    end
+                end
+            end
+        end
+
+        -- Each action can hold TWO keys (see CommitKey), so the whole set is
+        -- snapshotted, everything from the deleted index up is unbound, and
+        -- then each successor's keys are rebound one action lower. Interleaving
+        -- the two passes would unbind keys the previous step just moved.
+        local keys, any = {}, false
+        for n = 1, MAX_BOUND_PALETTES do
+            keys[n] = { GetBindingKey(BINDING_PREFIX .. n) }
+            if n >= index and keys[n][1] then any = true end
+        end
+        for n = index, MAX_BOUND_PALETTES do
+            for _, k in ipairs(keys[n]) do SetBinding(k) end
+        end
+        for n = index, MAX_BOUND_PALETTES - 1 do
+            for _, k in ipairs(keys[n + 1] or {}) do
+                SetBinding(k, BINDING_PREFIX .. n)
+            end
+        end
+        if any then SaveBindings(GetCurrentBindingSet()) end
+
+        -- Keep the editor pointed at the palette it was on, which now sits one
+        -- index lower; deleting the edited palette itself falls to whichever
+        -- palette took its number.
+        if editPalette > index then editPalette = editPalette - 1 end
+        if editPalette > count - 1 then editPalette = count - 1 end
+        RebuildPage()
     end
 
     -- Which slot the cursor is over, for the reorder drag. The live palette's own
@@ -1378,23 +1686,30 @@ initFrame:SetScript("OnEvent", function(self)
         -- ── GENERAL ──────────────────────────────────────────────────────
         _, h = W:SectionHeader(parent, "GENERAL", y); y = y - h
 
+        local addPaletteBtn
         row, h = W:DualRow(parent, y,
             { type="toggle", text="Enable Action Palette",
               getValue=function() return Cfg("enabled") ~= false end,
               setValue=function(v) Set("enabled", v); RebuildPage() end },
-            -- Past MAX_BOUND_PALETTES these have no key of their own and are
+            -- The chooser it opens offers an empty palette or a preset. Past
+            -- MAX_BOUND_PALETTES a new palette has no key of its own and is
             -- reachable only by being nested in another palette, which is what
-            -- the keybind row beside them explains.
-            { type="slider", text="Number of Palettes",
-              disabled=Disabled, disabledTooltip="the module",
-              min=1, max=MAX_PALETTES, step=1,
-              getValue=function() return PaletteCount() end,
-              setValue=function(v)
-                  Set("paletteCount", v)
-                  if editPalette > v then editPalette = v end
-                  for i = 1, v do Palette(i) end
-                  RebuildPage()
-              end })
+            -- the keybind row in PALETTE SETUP explains.
+            { type="labeledButton", text="Add Palette",
+              disabled=function()
+                  return Disabled() or PaletteCount() >= MAX_PALETTES
+              end,
+              disabledTooltip=(PaletteCount() >= MAX_PALETTES)
+                  and ("this profile already holds " .. MAX_PALETTES
+                       .. " palettes")
+                  or "the module",
+              buttonText="Empty or Preset...",
+              -- An upvalue filled in below, not an onClick parameter: the
+              -- styled button invokes its handler with no arguments
+              -- (EllesmereUI_Widgets.lua:399), so the chooser has to reach the
+              -- frame it anchors under some other way.
+              onClick=function() ShowAddPaletteMenu(addPaletteBtn) end })
+        addPaletteBtn = row._rightRegion and row._rightRegion._control
         y = y - h
 
         -- ── PALETTE SETUP ───────────────────────────────────────────────────
@@ -1524,6 +1839,34 @@ initFrame:SetScript("OnEvent", function(self)
         -- The hub caption is drawn inside a small arc, so a name longer than
         -- this runs out under the entries either side of it.
         if nameBox then nameBox:SetMaxLetters(24) end
+        y = y - h
+
+        -- Baked at build time like the keybind label above: the name it shows
+        -- and the count that disables it both rebuild the page when they
+        -- change.
+        local editedName = (editedPalette and editedPalette.name)
+            or AutoName(editPalette)
+        row, h = W:DualRow(parent, y,
+            { type="labeledButton", text="Delete Palette",
+              disabled=function()
+                  return Disabled() or PaletteCount() <= 1
+              end,
+              disabledTooltip=(PaletteCount() <= 1)
+                  and "the last palette can't be deleted"
+                  or "the module",
+              buttonText="Delete " .. editedName,
+              onClick=function()
+                  EllesmereUI:ShowConfirmPopup({
+                      title = "Delete Palette",
+                      message = "Delete " .. editedName .. " and its "
+                          .. "contents? Entries in other palettes that open "
+                          .. "it are removed too, and the palettes after it "
+                          .. "move up one place.",
+                      confirmText = "Delete",
+                      cancelText = "Cancel",
+                      onConfirm = function() DeletePalette(editPalette) end,
+                  })
+              end })
         y = y - h
 
         y = y - BuildPreview(parent, y)

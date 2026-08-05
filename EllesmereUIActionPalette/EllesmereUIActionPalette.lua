@@ -490,6 +490,21 @@ ns.MAX_CHILDREN = MAX_CHILDREN
 --  ids, so a slot never caches a stale icon or name across a patch.
 -------------------------------------------------------------------------------
 
+-- Both marker kinds store the ICON position: 1..8 in the star-to-skull order
+-- every marker UI shows, 0 for the entry that clears instead of placing. The
+-- engine numbers its WORLD markers differently -- this is Blizzard's map from
+-- icon position to engine marker (Blizzard_CompactRaidFrameManager.lua:5-12),
+-- restated here so a slot never depends on that addon being loaded first.
+local WORLD_MARKER_ENGINE = { 8, 4, 1, 7, 2, 3, 6, 5 }
+
+local MARKER_NAMES = {
+    "Star", "Circle", "Diamond", "Triangle", "Moon", "Square", "Cross", "Skull",
+}
+
+local function MarkerIcon(id)
+    return "Interface\\TargetingFrame\\UI-RaidTargetingIcon_" .. id
+end
+
 -- kind -> attribute triple for the secure button, plus an optional 4th value:
 -- a sibling attribute key that must be cleared because the same action type
 -- would otherwise read it in preference. Returns nil for kinds that have no
@@ -552,6 +567,31 @@ local function ResolveAction(slot)
         local castName = (info and info.name) or mountName
         if type(castName) ~= "string" or castName == "" then return nil end
         return "spell", "spell", castName
+
+    elseif k == "raidtarget" then
+        -- Fired as the /tm slash command rather than through
+        -- SECURE_ACTIONS.raidtarget: that action reads TWO attributes, marker
+        -- and action, and the firing end of the snippet pushes exactly one key
+        -- per cell. /tm is an ordinary command, not a secure one --
+        -- SetRaidTarget is unprotected -- and it reaches that same call
+        -- (SlashCommands.lua:1381-1406). /tm 0 is its documented clear.
+        local id = tonumber(slot.id)
+        if not id or id < 0 or id > 8 then return nil end
+        return "macro", "macrotext", "/tm " .. id, "macro"
+
+    elseif k == "worldmarker" then
+        -- Same one-attribute reasoning as /tm above: /wm places a world
+        -- marker, /cwm clears. Both take the ENGINE's marker number, so the
+        -- stored icon position goes through the map.
+        local id = tonumber(slot.id)
+        if not id or id < 0 or id > 8 then return nil end
+        if id == 0 then
+            -- The /cwm handler compares its argument against the client's own
+            -- ALL string (SlashCommands.lua:824-830), so that string is what
+            -- gets baked -- a hardcoded "all" would fail on a localized client.
+            return "macro", "macrotext", "/cwm " .. (ALL or "all"), "macro"
+        end
+        return "macro", "macrotext", "/wm " .. WORLD_MARKER_ENGINE[id], "macro"
     end
 
     return nil
@@ -604,6 +644,20 @@ local function SlotDisplay(slot)
     elseif k == "battlepet" then
         local _, _, _, _, _, _, _, name, icon = C_PetJournal.GetPetInfoByPetID(slot.guid)
         return icon or QUESTION_MARK, name or slot.name
+
+    elseif k == "raidtarget" then
+        local id = tonumber(slot.id) or 0
+        if id < 1 or id > 8 then
+            return "Interface\\Buttons\\UI-GroupLoot-Pass-Up", "Clear Target Marker"
+        end
+        return MarkerIcon(id), "Target Marker: " .. MARKER_NAMES[id]
+
+    elseif k == "worldmarker" then
+        local id = tonumber(slot.id) or 0
+        if id < 1 or id > 8 then
+            return "Interface\\Buttons\\UI-GroupLoot-Pass-Up", "Clear World Markers"
+        end
+        return MarkerIcon(id), "World Marker: " .. MARKER_NAMES[id]
 
     elseif k == "palette" then
         local palette = EnsurePalette(ChildIndex(slot))
