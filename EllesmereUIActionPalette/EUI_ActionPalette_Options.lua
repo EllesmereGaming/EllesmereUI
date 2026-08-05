@@ -1575,7 +1575,11 @@ initFrame:SetScript("OnEvent", function(self)
         -- of angles rather than setting them down in boxes.
         row, h = W:DualRow(parent, y,
             -- The gap between the two rings' icons, not a radius, so what the
-            -- number says is what the eye measures.
+            -- number says is what the eye measures. The Lane style reads it as
+            -- clearance ON TOP of the gap it already hugs the block by: at the
+            -- default and anywhere below it that style holds its children
+            -- against the grid, and only the travel above the default pushes
+            -- them off it.
             { type="slider", text="Nest Distance",
               disabled=nestless, disabledTooltip="the module",
               min=0, max=160, step=1,
@@ -1633,8 +1637,10 @@ initFrame:SetScript("OnEvent", function(self)
             -- answer -- break out across itself -- and offering it three would
             -- be offering the same thing three times.
             --
-            --   Lane     a row just outside the block, shared by every nest on
-            --            that side, wrapping the corner when it runs long
+            --   Lane     a halo hugging the block, centered on the point of it
+            --            nearest the entry that opens it -- across the edge
+            --            beside that entry, or around the corner it sits on --
+            --            and wrapping the corners when the run is long
             --   Halo     the eight positions around the entry itself, the block
             --            faded behind them
             --   Popout   the nested palette as a block of its own, alongside

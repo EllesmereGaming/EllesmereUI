@@ -48,7 +48,7 @@ local floor, ceil, min, max, abs = math.floor, math.ceil, math.min, math.max, ma
 local sin, cos, atan2, sqrt, pi = math.sin, math.cos, math.atan2, math.sqrt, math.pi
 local log = math.log
 local tonumber, type, select = tonumber, type, select
-local tinsert, tremove = table.insert, table.remove
+local tinsert, tremove, tsort = table.insert, table.remove, table.sort
 local GetCursorInfo, ClearCursor = GetCursorInfo, ClearCursor
 local GetCursorPosition = GetCursorPosition
 local GetBindingKey = GetBindingKey
@@ -87,11 +87,20 @@ local MAX_CHILD_ROWS = 4
 
 -- How many rect gates a single claim's REGION may be built from. One box
 -- (HALO, whose ring already sits close enough round its parent that the old
--- bounding box was the true shape) up to three (every other style: the
--- parent's own cell, the nest's own tight box, and a corridor one child cell
--- wide connecting them) -- see the "Arming gates" section and CorridorBox
--- below for what fills these in.
-local REGION_MAX = 3
+-- bounding box was the true shape), three for a nest that sits in one piece
+-- off one side of the block (the parent's own cell, the nest's own tight box,
+-- and a corridor one child cell wide connecting them), and five for the worst
+-- a lane can come to: the parent's cell plus one box per side of the block its
+-- run reached, and a run of MAX_CHILDREN can wrap onto all four. One box
+-- across the lot instead would swallow the block's own corner ground -- see
+-- PerimeterNest, the "Arming gates" section and RunReach below.
+local REGION_MAX = 5
+
+-- The Nest Distance the profile ships with, named because the lane style
+-- reads it as a baseline rather than as a distance: a lane hugs the block, and
+-- what it takes off the slider is only whatever the user asked for BEYOND
+-- this. Every other style measures its whole stand-off from the slider.
+local NEST_BAND_DEFAULT = 40
 
 -- The binding ACTION name, and it keeps the module's first name for good. WoW
 -- stores a keybind against this string, so renaming it would unbind every
@@ -144,7 +153,7 @@ local DB_DEFAULTS = {
         -- centre-to-centre radius: measured centre to centre it has to cover
         -- both icons' halves before it separates anything at all, and at any
         -- ordinary icon size the two rings came out touching.
-        nestBand     = 40,
+        nestBand     = NEST_BAND_DEFAULT,
         nestScale    = 0.8,      -- child icon size, against the palette's own
         -- Which side of a block layout the nested entries hang off. Only
         -- consulted where the sides are equidistant -- a strip is one entry
@@ -156,7 +165,8 @@ local DB_DEFAULTS = {
         -- no interior to lay a lane, halo, or beside-block into, so it always
         -- builds a small block of its own, centred on the parent and broken out
         -- across the strip.
-        --   PERIMETER  a lane just outside the block, shared by every nest
+        --   PERIMETER  a lane hugging the block, centred on the point of it
+        --              nearest the parent and wrapping the corners when long
         --   HALO       the eight positions around the parent, block faded behind
         --   POPOUT     the nested palette as a block of its own, alongside
         gridNestStyle    = "PERIMETER",
@@ -712,6 +722,19 @@ local OPEN_TIMEOUT = 30
 local SEL_BORDER = 2
 local IDLE_BORDER = 1
 
+-- The entry an ARMED claim hangs off. Selection says where the cursor is; this
+-- says which nest is live, and the two part company the moment the cursor moves
+-- on into the children -- the entry it came in through has to go on saying so,
+-- because it is the only thing on screen that names the nest the release will
+-- fire out of.
+--
+-- Derived from the selection color rather than from a setting of its own: the
+-- same hue lifted toward white and drawn a pixel thicker. That reads as "more
+-- than selected" at icon size while still sitting next to the selection color,
+-- rather than introducing a second color the user would have to learn.
+local ARM_BORDER = 3
+local ARM_LIFT = 0.55
+
 -- The magnification a selected entry is drawn at.
 local function SelectedZoom()
     local p = P()
@@ -729,10 +752,14 @@ end
 -- geometry pass last placed the entry. The strip and the grid rewrite their
 -- sizes every frame, so they apply the zoom themselves as they go; this is what
 -- carries it across a selection CHANGE, which is all the arc ever needs.
-local function ApplySlotVisual(widget, selected)
+--
+-- armed marks the entry an armed claim hangs off, which may or may not also be
+-- the selected one. The zoom stays a selection cue alone: an armed parent the
+-- cursor has already left is not what a release would fire.
+local function ApplySlotVisual(widget, selected, armed)
     local p = P()
     local r, g, b = SelectColor()
-    local t = selected and SEL_BORDER or IDLE_BORDER
+    local t = armed and ARM_BORDER or selected and SEL_BORDER or IDLE_BORDER
     widget.border:SetPoint("TOPLEFT", widget, "TOPLEFT", -t, t)
     widget.border:SetPoint("BOTTOMRIGHT", widget, "BOTTOMRIGHT", t, -t)
     local base = widget.baseSize
@@ -740,7 +767,15 @@ local function ApplySlotVisual(widget, selected)
         local z = selected and SelectedZoom() or 1
         widget:SetSize(base * z, base * z)
     end
-    if selected then
+    if armed then
+        local lr = r + (1 - r) * ARM_LIFT
+        local lg = g + (1 - g) * ARM_LIFT
+        local lb = b + (1 - b) * ARM_LIFT
+        widget.border:SetVertexColor(lr, lg, lb, 1)
+        widget.bg:SetVertexColor(r * 0.22, g * 0.22, b * 0.22, min(1, (p and p.bgAlpha or 0.65) + 0.25))
+        widget.icon:SetVertexColor(1, 1, 1)
+        widget.label:SetTextColor(lr, lg, lb)
+    elseif selected then
         widget.border:SetVertexColor(r, g, b, 1)
         widget.bg:SetVertexColor(r * 0.22, g * 0.22, b * 0.22, min(1, (p and p.bgAlpha or 0.65) + 0.25))
         widget.icon:SetVertexColor(1, 1, 1)
@@ -911,6 +946,62 @@ local function CorridorBox(parentBox, nest, axis, sign, minWidth)
     return box
 end
 
+-- One rect covering a nest run AND the ground between it and the parent's own
+-- cell: the corridor folded into the run rather than standing beside it. That is
+-- what lets a run with cells on more than one side of the block have EVERY side
+-- of it reachable -- a reach for a child round the far side of a corner leaves
+-- the parent cell diagonally, and a claim with one corridor pointing at one side
+-- loses the cursor the moment it aims at another -- without spending a region
+-- gate per side on the corridors alone.
+--
+-- The PARENT'S OWN CELL folded in, rather than a corridor drawn between the two:
+-- a rect is convex, so a rect holding both ends of a line holds every point of
+-- it, and a reach IS a line -- a hand goes straight at the icon it wants. Any
+-- corridor narrower than that leaves some straight reach crossing ground the
+-- claim does not hold, however carefully it is aimed: a corridor laid across the
+-- gap the two boxes leave in ONE direction is exited by a reach that leaves the
+-- parent cell through a different edge. That was measurable -- a reach for the
+-- far end of a run wrapped round a corner left the claim less than two units
+-- short of the run's own rect, disarmed mid-reach, and fired the plain entry the
+-- cursor came to rest over instead of the child it was aimed at.
+--
+-- What it costs is honest: the sweep from the parent's cell out to a run stands
+-- over whatever plain entries lie in it -- for a parent in the middle of a block
+-- the ones between it and its lane, which the corridor this replaces covered too
+-- (that was as wide as the whole nest), and for a parent on the block's own edge
+-- the rest of its own row or column, which the corridor did not. Those entries
+-- stay exactly as selectable and as firable as they were; what they no longer do
+-- is back the nest out. A run reached by a straight line that breaks halfway is
+-- worse than a nest that stays up one entry too long: the break does not cancel
+-- anything, it fires whatever the cursor came to rest over instead.
+local function RunReach(parentBox, run)
+    return NestBBox({ run, parentBox })
+end
+
+-- The overshoot grace, applied to one nest run's own rect. Reaching quickly for
+-- a small child icon overruns the run's edge by a few units, and a cursor path
+-- sampled once per frame can put a single sample outside it on the way in;
+-- either one used to read as having left the claim, and the nest vanished
+-- mid-reach. A cell's own box is untouched, so this only decides how long the
+-- nest STAYS open -- what a release fires still needs the cursor inside a child
+-- cell.
+--
+-- axis and sign are the run's, as ever: the axis its cells spread along and the
+-- side of the block it lies on. ALONG the run the grace applies both ways --
+-- either end of a run is more run, or empty screen. ACROSS it, only OUTWARD:
+-- inward is the block itself, and for a lane hugging it that is a plain entry's
+-- own centre less than half an icon away, which a region reaching over would
+-- leave unselectable while the nest was up. A nest set a whole band out has the
+-- room to spare either way, and nothing wants the inward half of it.
+local function GraceBox(box, grace, axis, sign)
+    local away, hAway, hAlong = "y", "hh", "hw"
+    if axis ~= "X" then away, hAway, hAlong = "x", "hw", "hh" end
+    box[hAlong] = box[hAlong] + grace
+    box[away] = box[away] + sign * grace * 0.5
+    box[hAway] = box[hAway] + grace * 0.5
+    return box
+end
+
 -- Nested geometry for one palette. Returns an array of CLAIMS -- one per slot
 -- that opens a palette -- or nil when nothing in it nests:
 --
@@ -994,7 +1085,7 @@ function PaletteView:ChildGeom(shown, palette)
     -- full distance around a palette fitted to two-thirds.
     local base = p.iconSize or 44
     local k = (base > 0) and (iconSize / base) or 1
-    local band = max(0, p.nestBand or 40) * k
+    local band = max(0, p.nestBand or NEST_BAND_DEFAULT) * k
     local gap  = ((p and p.fanGap) or 10) * k
     -- Nested entries are drawn smaller than the palette's own, so a nest reads
     -- as subordinate to the entry it hangs off rather than as a second ring of
@@ -1346,6 +1437,18 @@ local GRID_REACH = 1.0
 local NEST_DIM_ALPHA = 0.15
 local NEST_DIM_SCALE = 0.7
 
+-- What an UNARMED nest is drawn at while the selection sits on its parent. Its
+-- children are placed and visible, so the palette still says that this entry
+-- opens a nest and where that nest will appear -- but none of them can be fired
+-- until a gate arms the claim, so they are drawn as something that has not
+-- happened yet. Drawn at full strength they promised a live nest and then
+-- answered nothing, which read as the sub-palette being broken.
+--
+-- The block behind a preview keeps its own alpha and its own size: the dim and
+-- the parent's draw-back belong to a nest you are IN, and spending them on a
+-- nest that is only being previewed leaves nothing left to say when it opens.
+local NEST_PREVIEW_ALPHA = 0.35
+
 -- The margin, in pitches, around a scroll-steered strip that the pointer may
 -- travel inside before it deselects. This is that layout's cancel, and it is
 -- the same gesture the grid cancels with -- throw the pointer clear of the
@@ -1515,6 +1618,92 @@ local function PerimeterPoint(t, HX, HY, R)
     return -HX + R - R * cos(a), HY - R + R * sin(a), ax, sg, -cos(a), sin(a)
 end
 
+-- The parameter of the point on that same band NEAREST (px, py): PerimeterPoint
+-- read backwards. A lane centres its run here, which is what puts a nest
+-- opposite the entry that opens it however that entry sits in the block.
+--
+-- Worked out per side and per corner arc rather than by walking the path: a
+-- scan fine enough to place a run would cost more than the run does, and a
+-- coarse one would answer a different parameter to the drawing than to the
+-- push.
+--
+-- positive is nestSide, which answers wherever the projection genuinely ties,
+-- and ties are the ordinary case rather than the awkward one. The band stands
+-- the same distance off every edge, so a CORNER cell is exactly as far from
+-- both of the edges that meet there: two ADJACENT sides tie, and the answer is
+-- the corner between them -- a run centred there wraps its L around it. Two
+-- OPPOSITE sides tie for a cell on the block's own middle line, and all four
+-- tie for a cell dead centre, where there is no lean to read at all and the
+-- run belongs on the middle of the nestSide edge.
+--
+-- axisOnly keeps a degenerate one-row or one-column block breaking out ACROSS
+-- itself and only across itself: the sides in line with it are left out of the
+-- projection altogether rather than merely losing a tie-break.
+local function PerimeterNearest(px, py, HX, HY, R, positive, axisOnly)
+    local sx, sy, arc, L = PerimeterSpan(HX, HY, R)
+    -- Where the corner arcs are centred, and so also the corners of the region
+    -- in which some straight side is the nearest part of the path at all.
+    local cx, cy = HX - R, HY - R
+
+    -- Diagonally past one of those centres no straight side can answer, and the
+    -- nearest point is on that corner's own arc, at the angle the offset points
+    -- in. Nothing inside a block ever lands here -- the band stands off further
+    -- than it turns -- but an inverse that held only where the caller happens to
+    -- ask is a trap for the next caller.
+    if not axisOnly and abs(px) > cx and abs(py) > cy then
+        local dx = px - ((px > 0) and cx or -cx)
+        local dy = py - ((py > 0) and cy or -cy)
+        -- Each arc measured from its own start, the way PerimeterPoint runs it,
+        -- and the argument order per arc is that arc's own sin/cos pair there.
+        if px > 0 and py > 0 then return sx + atan2(dx, dy) * R end
+        if px > 0 then return sx + sy + arc + atan2(-dy, dx) * R end
+        if py < 0 then return 2 * sx + sy + 2 * arc + atan2(-dx, -dy) * R end
+        return 2 * sx + 2 * sy + 3 * arc + atan2(dy, -dx) * R
+    end
+
+    -- Distance to each side's straight run in path order -- top, right, bottom,
+    -- left -- with the parameter of the projected point alongside, and the
+    -- middle of the arc FOLLOWING each side, which is the answer whenever that
+    -- side and the next one tie. A side the caller ruled out is never nearest.
+    local far = L * 2
+    local acrossX = (not axisOnly) or axisOnly == "X"
+    local acrossY = (not axisOnly) or axisOnly == "Y"
+    local d = { acrossX and (HY - py) or far, acrossY and (HX - px) or far,
+                acrossX and (py + HY) or far, acrossY and (px + HX) or far }
+    local t = { px + cx,
+                sx + arc + (cy - py),
+                sx + sy + 2 * arc + (cx - px),
+                2 * sx + sy + 3 * arc + (py + cy) }
+    local mid = { sx + arc * 0.5,
+                  sx + sy + arc * 1.5,
+                  2 * sx + sy + 2 * arc + arc * 0.5,
+                  2 * sx + 2 * sy + 3 * arc + arc * 0.5 }
+
+    -- Exact wherever it decides anything -- every cell of a row stands the same
+    -- distance off the edge it is on -- but compared with a tolerance anyway,
+    -- the two distances arriving by different arithmetic.
+    local best = min(d[1], d[2], d[3], d[4])
+    local tie = {}
+    for si = 1, 4 do tie[si] = (d[si] - best) <= 1e-4 end
+
+    if tie[1] and tie[2] and tie[3] and tie[4] then
+        -- No lean in any direction: nestSide picks the edge and the run sits on
+        -- the middle of it.
+        if positive then return sx * 0.5 end
+        return sx * 1.5 + sy + 2 * arc
+    end
+    -- An opposite pair is nestSide's other question, and answering it here
+    -- leaves at most two sides standing, which can then only be adjacent.
+    if tie[1] and tie[3] then tie[positive and 3 or 1] = false end
+    if tie[2] and tie[4] then tie[positive and 4 or 2] = false end
+    for si = 1, 4 do
+        if tie[si] and tie[(si % 4) + 1] then return mid[si] end
+    end
+    for si = 1, 4 do
+        if tie[si] then return t[si] end
+    end
+end
+
 -- Everything the three styles measure from. Sizes are scaled by whatever this
 -- view scaled its geometry by, recovered from the icon size Geom handed back --
 -- the options preview fits a palette to its panel, and a band read at its
@@ -1532,7 +1721,7 @@ function PaletteView:NestMetrics(shown)
         pitch = pitch,
         cols  = cols,
         rows  = rows,
-        band  = max(0, p.nestBand or 40) * k,
+        band  = max(0, p.nestBand or NEST_BAND_DEFAULT) * k,
         gap   = (p.fanGap or 10) * k,
         positive = (p.nestSide or "POSITIVE") == "POSITIVE",
         style = p.gridNestStyle or "PERIMETER",
@@ -1547,7 +1736,14 @@ function PaletteView:NestMetrics(shown)
     -- Across the run: how thick the band of boxes is. One icon plus the gap
     -- either side of it, so the box reaches back to the block's own edge and a
     -- pointer leaving the parent enters the nest without crossing dead ground.
+    -- The lane works its own out, its children standing off by a gap rather
+    -- than by a band -- see PerimeterNest.
     m.depth = m.childIcon + m.band
+    -- Whatever Nest Distance was asked for BEYOND the value the profile ships
+    -- with. The lane hugs the block at the default and reads the slider as
+    -- extra clearance on top of that, so the two answers agree wherever the
+    -- user has moved it and the snug read is what an untouched profile gets.
+    m.bandExtra = max(0, (p.nestBand or NEST_BAND_DEFAULT) - NEST_BAND_DEFAULT) * k
     -- A strip has no interior to displace and no corner to wrap, so the styles
     -- that rearrange a block have nothing to rearrange: it is always a small
     -- block of its own, centred on the parent and broken out perpendicular to
@@ -1564,78 +1760,78 @@ local function RunBox(x, y, axis, along, across)
     return { x = x, y = y, hw = across * 0.5, hh = along * 0.5 }
 end
 
--- (A) A single row or column just outside the block, shared by every nest on
--- that side. The band is ONE lane: two nests on the same edge sit side by side
--- along it rather than stacking outward, which is what the eye expects when only
--- one of them is ever drawn. Runs are packed along the perimeter as a single
--- circular coordinate, so a run longer than the edge it started on wraps around
--- the corner instead of shooting off into space.
+-- (A) A halo hugging the block's own perimeter: one run of children, centred on
+-- the point of that perimeter NEAREST the entry they hang off, wrapping the
+-- corners when the run is long. A parent on the middle of an edge is served by
+-- the stretch of lane just outside it, a parent in the middle of the block by
+-- the middle of the nestSide edge, and a corner parent by the corner itself --
+-- the L around it, half the run down each of the two edges that meet there.
+--
+-- The band is ONE lane: two nests near each other sit side by side along it
+-- rather than stacking outward, which is what the eye expects when only one of
+-- them is ever drawn. Runs are packed along the perimeter as a single circular
+-- coordinate, so a run longer than the edge it started on wraps around the
+-- corner instead of shooting off into space.
 function PaletteView:PerimeterNest(claims, shown, m)
-    local HX = m.halfX + m.icon * 0.5 + m.band + m.childIcon * 0.5
-    local HY = m.halfY + m.icon * 0.5 + m.band + m.childIcon * 0.5
-    -- The turn is as wide as the band is deep, which is the largest radius that
-    -- keeps the path clear of the block's own corner.
-    local R = min(m.depth * 0.5, min(HX, HY) * 0.5)
+    -- Snug against the block, which is the whole read of this style: the
+    -- children's inner edges stand one gap outside the block's own outer edge,
+    -- so the lane looks like a halo ON the grid rather than a second block of
+    -- entries floating off it. Nest Distance is honoured as clearance BEYOND
+    -- that, so a user who wants the children held further out can still say so.
+    local clear = m.gap + m.bandExtra
+    local standoff = m.icon * 0.5 + clear + m.childIcon * 0.5
+    -- Across the run: from the block's own outer edge to as far past the child
+    -- icon as the child icon is from the block. A pointer leaving the parent
+    -- enters the nest without crossing dead ground, and one that overruns an
+    -- icon on the way out is still inside its box.
+    local depth = m.childIcon + clear * 2
+    local HX, HY = m.halfX + standoff, m.halfY + standoff
+    -- The turn's radius, balanced between the two things it trades off. Too
+    -- small and two icons either side of it crowd, the straight line between
+    -- them being shorter than the path by up to a third around a square corner
+    -- (see PerimeterSpan); too large and the turn itself cuts diagonally in
+    -- across the block's own corner entry, which a lane this snug is close
+    -- enough in to do. Both are straight lines measured against the same floor
+    -- of one child icon, and this is the radius where the two meet.
+    local turn = (standoff - m.childPitch * 0.5) * sqrt(2)
+                 / (2 * sqrt(2) + 1 - sqrt(2) * pi * 0.25)
+    local R = min(depth * 0.5, min(HX, HY) * 0.5, max(0, turn))
     local sx, sy, arc, L = PerimeterSpan(HX, HY, R)
 
     local childPitch, childIcon = m.childPitch, m.childIcon
+    -- A strip breaks out ACROSS itself and only across itself: a row of entries
+    -- has an edge at both ends, and a nest hung off one of those would run in
+    -- line with the palette rather than out of it. NestMetrics sends those
+    -- shapes to STRIP before they reach this at all, so this only holds the rule
+    -- for a caller that arrives here anyway.
+    local axisOnly = (m.rows <= 1 and "X") or (m.cols <= 1 and "Y") or nil
 
     for i = 1, #claims do
         local c = claims[i]
-        local r   = floor((c.parent - 1) / m.cols)
-        local col = (c.parent - 1) % m.cols
         local bx, by = self:GridBase(c.parent, m.cols, m.rows, m.pitch, shown)
-
-        -- The nearest edge, in CELLS, so nothing about the side depends on where
-        -- the palette happens to sit on the screen -- which matters because the
-        -- push runs long before the open that will use it, and the two have to
-        -- agree. nestSide breaks the tie. A parent in the middle of a grid is
-        -- served by the edge nearest it, which is the honest answer: there is no
-        -- free ground inside a block for this style to use.
-        local sides = {
-            { d = r,                axis = "X", sign =  1,
-              t = bx + HX - R },
-            { d = m.cols - 1 - col, axis = "Y", sign =  1,
-              t = sx + arc + (HY - R - by) },
-            { d = m.rows - 1 - r,   axis = "X", sign = -1,
-              t = sx + sy + 2 * arc + (HX - R - bx) },
-            { d = col,              axis = "Y", sign = -1,
-              t = 2 * sx + sy + 3 * arc + (by + HY - R) },
-        }
-        local pick
-        for si = 1, 4 do
-            local sd = sides[si]
-            -- A strip breaks out ACROSS itself and only across itself: a row of
-            -- entries has an edge at both ends, and a nest hung off one of those
-            -- would run in line with the palette rather than out of it.
-            local allowed = (m.rows <= 1 and sd.axis == "X")
-                         or (m.cols <= 1 and sd.axis == "Y")
-                         or (m.rows > 1 and m.cols > 1)
-            if allowed then
-                -- The tie-break folded into the key: the chosen side loses a
-                -- hair of distance so it wins whenever the two are level.
-                sd.order = sd.d * 4 + (((sd.sign > 0) == m.positive) and 0 or 1)
-                         + ((sd.axis == "X") and 0 or 2)
-                if not pick or sd.order < pick.order then pick = sd end
-            end
-        end
-
         c.icon = childIcon
         -- Along the lane, a caption is drawn at CHILD pitch rather than at the
         -- pitch the palette's own entries get, so two neighbouring captions
         -- overlap long before their icons do. Unlabelled, like every other
         -- style's nest.
         c.label = false
-        c.axis, c.sign = pick.axis, pick.sign
-        c.t0 = pick.t
+        c._bx, c._by = bx, by
+        -- The clear distance this style actually held its children out by, which
+        -- is what CellChildGeom sizes the arming grace from. Nest Distance is
+        -- only part of it here, and at the bottom of that slider's travel none
+        -- of it -- a grace read off the slider instead would go on shrinking
+        -- after the children had stopped moving.
+        c.standoff = clear
+        -- The nearest point of the lane, from the parent's own CELL rather than
+        -- from anywhere on the screen: the push runs long before the open that
+        -- will use it, and the two have to agree.
+        c.t0 = PerimeterNearest(bx, by, HX, HY, R, m.positive, axisOnly)
     end
 
     -- How much of the lane each nest may take: out to the halfway point with the
     -- nearest OTHER nest along it. A nest is always centred on its own parent --
     -- it is reached by going through that parent, so anywhere else to put it is
-    -- somewhere the user did not aim -- and what gives instead, when two of them
-    -- would collide, is the number of cells per row. A crowded nest becomes a
-    -- compact block above its parent rather than a long row shoved sideways.
+    -- somewhere the user did not aim.
     for i = 1, #claims do
         local c = claims[i]
         local room = L * 0.5
@@ -1645,22 +1841,62 @@ function PaletteView:PerimeterNest(claims, shown, m)
                 room = min(room, min(d, L - d) * 0.5)
             end
         end
+        -- A crowded nest EXTENDS along the perimeter first, as far as the room
+        -- it has: wrapping further round the block costs the user nothing, and
+        -- one long run is the shape this style is for. Only a nest whose
+        -- children do not all fit in that room spills the rest into a second
+        -- row further out.
         local cols = min(c.n, max(1, floor(room * 2 / childPitch)))
         c.cells = {}
+        -- The sides the run came down on, in the order it reached them. A run
+        -- that wrapped a corner has cells on two of them, and its regions are
+        -- one tight box per side rather than one across the L -- see
+        -- CellChildGeom, which is where that matters.
+        local groups, bySide = {}, {}
         for j = 1, c.n do
             local cr  = floor((j - 1) / cols)
             local cc  = (j - 1) % cols
             local inRow = min(cols, c.n - cr * cols)
             local t = c.t0 + (cc - (inRow - 1) * 0.5) * childPitch
-            local x, y, axis, _, nx, ny = PerimeterPoint(t, HX, HY, R)
+            local x, y, axis, sign, nx, ny = PerimeterPoint(t, HX, HY, R)
             -- Rows past the first sit one row further out along the outward
             -- normal, which keeps them square on a straight edge and fanned
             -- around a corner.
             local outw = cr * (childIcon + m.gap)
-            c.cells[j] = RunBox(x + nx * outw, y + ny * outw,
-                                axis, childPitch, m.depth)
+            local box = RunBox(x + nx * outw, y + ny * outw,
+                               axis, childPitch, depth)
+            c.cells[j] = box
+            -- PerimeterPoint hands a cell more than halfway round a corner to
+            -- the side it is heading onto, so these come out as the runs the eye
+            -- actually reads rather than as a split at the corner's own edge.
+            local key = axis .. sign
+            local g = bySide[key]
+            if not g then
+                g = { axis = axis, sign = sign, cells = {}, order = #groups + 1 }
+                bySide[key], groups[#groups + 1] = g, g
+            end
+            g.cells[#g.cells + 1] = box
         end
 
+        -- Nearest side first, measured to the nearest cell on it: that is the
+        -- side the claim reports as its own axis, and a run long enough to wrap
+        -- onto more sides than there are region gates for then loses the
+        -- FURTHEST of them rather than the one the reach actually crosses.
+        for gi = 1, #groups do
+            local near = math.huge
+            local cells = groups[gi].cells
+            for ci = 1, #cells do
+                local dx, dy = cells[ci].x - c._bx, cells[ci].y - c._by
+                near = min(near, dx * dx + dy * dy)
+            end
+            groups[gi].near = near
+        end
+        tsort(groups, function(g1, g2)
+            if g1.near ~= g2.near then return g1.near < g2.near end
+            return g1.order < g2.order
+        end)
+        c.groups = groups
+        c.axis, c.sign = groups[1].axis, groups[1].sign
     end
     return claims
 end
@@ -1899,16 +2135,52 @@ function PaletteView:CellChildGeom(claims, shown)
     -- complaint. Those get the true union instead: the parent's own cell,
     -- the nest's own tight box, and a corridor one child cell wide
     -- connecting them, so standing on the block's own ground either side of
-    -- that corridor is standing outside the nest.
+    -- that corridor is standing outside the nest. Those also get the
+    -- overshoot grace (see GraceBox); the halo's box does NOT, because it
+    -- already reaches to just short of its neighbours' centres and a grace on
+    -- top of that would swallow one, leaving that entry unselectable while
+    -- the ring is up.
+    --
+    -- A lane brings the same complaint back in a second shape: a run that
+    -- wrapped a corner has cells on two edges of the block, and ONE box
+    -- around those swallows the block's own corner ground between them. So a
+    -- run that carries its sides (c.groups) gets one box per side, each with
+    -- its own way back to the parent folded in -- see RunReach.
     for i = 1, #claims do
         local c = claims[i]
         local bx, by = self:GridBase(c.parent, m.cols, m.rows, m.pitch, shown)
         c.parentBox = { x = bx, y = by, hw = m.pitch * 0.5, hh = m.pitch * 0.5 }
 
         if c.axis then
-            local nest = NestBBox(c.cells)
-            local corridor = CorridorBox(c.parentBox, nest, c.axis, c.sign, m.childPitch)
-            c.regions = { c.parentBox, nest, corridor }
+            -- How far a claim's ground reaches past its own edges. c.standoff
+            -- is a lane saying how far out it actually put its children, which
+            -- for that style is not the Nest Distance at all -- it hugs the
+            -- block, and the slider only adds to that -- and a grace read off
+            -- the slider there would leave the bottom of its travel moving
+            -- nothing but invisible slack.
+            local grace = max(c.standoff or m.band, 0.75 * m.childPitch)
+            local sides = c.groups
+            c.regions = { c.parentBox }
+            if sides then
+                -- Nearest side first, PerimeterNest having ordered them: a run
+                -- that reached more sides than there are region gates for then
+                -- drops the far ones rather than the one the reach crosses.
+                for gi = 1, #sides do
+                    local run = RunReach(c.parentBox, NestBBox(sides[gi].cells))
+                    c.regions[#c.regions + 1] =
+                        GraceBox(run, grace, sides[gi].axis, sides[gi].sign)
+                end
+            else
+                local nest = NestBBox(c.cells)
+                -- Measured from the TIGHT box, before the grace widens it: the
+                -- corridor is as wide as the nest it leads to, and inflating
+                -- the nest first would spread the corridor sideways across the
+                -- block's own ground as well.
+                local corridor = CorridorBox(c.parentBox, nest, c.axis, c.sign,
+                                             m.childPitch)
+                c.regions[2] = GraceBox(nest, grace, c.axis, c.sign)
+                c.regions[3] = corridor
+            end
         else
             local x0, x1 = bx - m.pitch * 0.5, bx + m.pitch * 0.5
             local y0, y1 = by - m.pitch * 0.5, by + m.pitch * 0.5
@@ -2020,6 +2292,7 @@ function PaletteView:AdvanceGrid(noPointer)
     -- frame later. SetSelection's own call then finds nothing left to do.
     self:UpdateNestShown(best)
     local open = self._openClaim
+    local preview = self._previewClaim
     local dim = (open and open.dim) and NEST_DIM_ALPHA or 1
     local shrink = (open and open.dim) and NEST_DIM_SCALE or 1
 
@@ -2060,6 +2333,10 @@ function PaletteView:AdvanceGrid(noPointer)
     -- Nested cells are drawn at a flat size. They live inside boxes rather than
     -- on a falloff, and a child shrinking as the pointer crossed its own box
     -- would suggest a nearness that decides nothing here.
+    --
+    -- The preview's alpha is applied here as well as in UpdateNestShown, for the
+    -- same reason the zoom below is: this pass rewrites every cell's alpha every
+    -- frame, so one set only where the state changed would last a single frame.
     local claims = self.claims
     for ck = 1, (claims and #claims or 0) do
         local c = claims[ck]
@@ -2067,7 +2344,7 @@ function PaletteView:AdvanceGrid(noPointer)
             local cell = c.cells and c.cells[j]
             local w = c.base and self.widgets[c.base + j]
             if cell and w then
-                w:SetAlpha(1)
+                w:SetAlpha((c == preview) and NEST_PREVIEW_ALPHA or 1)
                 w.baseSize = c.icon
                 w:SetSize(c.icon, c.icon)
                 w:ClearAllPoints()
@@ -2607,14 +2884,17 @@ function PaletteView:Layout(paletteIndex)
                 w:EnableMouse(false)
                 PaintCell(w, c.slots[j], false, showLabels, showCooldowns,
                           c.label ~= false)
-                -- Hidden until its parent is pointed at -- see UpdateNestShown.
+                -- Hidden until its own claim is previewed or opened -- see
+                -- UpdateNestShown.
                 w:Hide()
             end
         end
     end
     self.claims = claims
     self.cellCount = cells
-    self._openClaim = nil
+    -- Every cell was just hidden and every entry repainted plain, so all three
+    -- of these describe a drawing that no longer exists.
+    self._openClaim, self._previewClaim, self._armedParent = nil, nil, nil
 
     -- Which way the nests went, so the caption can hang on the other side. Taken
     -- from the first claim that placed: with several nests on different sides
@@ -2714,46 +2994,96 @@ function PaletteView:ArmedClaim()
     return btn and tonumber(btn:GetAttribute("eapArmed")) or nil
 end
 
--- Which nest is open. One at a time -- every nest drawn at once would bury the
--- palette it hangs off. Selection landing exactly on a claim's parent or one
--- of its own entries is enough on its own, for every layout including the
--- scroll fan's wheel-picked one, which never arms a gate at all and has no
--- other way in here. Past that, ARC and the block layouts (GRID and the
--- pointer-steered fan) fall back to whichever claim the secure button says is
--- armed -- see ArmedClaim -- which is what keeps a nest open across the ground
--- between its parent and its children without two neighbouring claims fighting
--- over ground they both think they own: only the one the cursor actually
--- entered through answers here at all.
+-- Views whose nests open on selection alone, with no arming in the way: an
+-- interactive view (the options preview), which has no secure button and fires
+-- nothing at all, and the scroll-steered fan, whose nests are picked with the
+-- wheel and never arm a gate. Everywhere else a nest is live only once a gate
+-- says so, and the drawing has to say the same.
+function PaletteView:NestsFollowSelection()
+    return self.opts.interactive == true or (self:IsFan() and not self:IsPointerLayout())
+end
+
+-- Repaint one of the palette's own entries in whatever state it is currently
+-- in. Used when the armed claim moves: that changes how an entry is drawn
+-- without the selection having moved at all.
+function PaletteView:RepaintEntry(index)
+    local w = index and self.widgets[index]
+    if w then
+        ApplySlotVisual(w, index == self.selection, index == self._armedParent)
+    end
+end
+
+-- Which nest is open, and which is only being previewed. One at a time either
+-- way -- every nest drawn at once would bury the palette it hangs off.
 --
--- The live hit test consults the same armed claim now (see NestHit and
--- HitTest), so what is drawn and what a release fires can no longer disagree
--- about which nest, if either, is live.
+-- A nest is OPEN when its claim is ARMED, which means the cursor has actually
+-- passed through the entry that opens it -- see ArmedClaim and the gate frames
+-- EnsureGates builds. That is what keeps a nest open across the ground between
+-- its parent and its children without two neighbouring claims fighting over
+-- ground they both think they own, and it is the same claim NestHit, HitTest
+-- and the release branch of SNIPPET_PRE answer for, so what is drawn and what a
+-- release fires cannot disagree about which nest is live.
+--
+-- Selection landing on a claim's parent is NOT that. It used to be, and an
+-- unarmed nest then drew exactly like an armed one -- children at full strength,
+-- the block behind them faded -- while every one of those children was dead.
+-- Such a claim is drawn as a PREVIEW instead: placed and visible, but plainly
+-- not somewhere you are yet. See NEST_PREVIEW_ALPHA.
+--
+-- On a view with no arming of its own the selection is still the whole of the
+-- answer -- see NestsFollowSelection.
 function PaletteView:UpdateNestShown(index)
     local claims = self.claims
     if not claims then return end
 
-    local open
+    -- The claim the selection is standing on or inside.
+    local touched
     for k = 1, #claims do
         local c = claims[k]
         if index and c.base
            and (index == c.parent or (index > c.base and index <= c.base + c.n)) then
-            open = c
+            touched = c
         end
     end
 
-    if not open then
+    local open, preview
+    if self:NestsFollowSelection() then
+        open = touched
+    else
         local armed = self:ArmedClaim()
-        if armed then open = claims[armed] end
+        open = armed and claims[armed] or nil
+        -- Only ever the one the selection touches: a claim nobody is pointing at
+        -- has nothing to preview, and previewing every nest at once is the
+        -- burial this draws one at a time to avoid.
+        if touched and touched ~= open then preview = touched end
     end
 
-    if self._openClaim == open then return end
-    self._openClaim = open
+    -- Ahead of the unchanged check below, and off open rather than off the
+    -- selection: the parent of an armed claim keeps its mark while the cursor
+    -- moves on into the children.
+    local armedParent = (not self:NestsFollowSelection()) and open and open.parent or nil
+    if self._armedParent ~= armedParent then
+        local previous = self._armedParent
+        self._armedParent = armedParent
+        self:RepaintEntry(previous)
+        self:RepaintEntry(armedParent)
+    end
+
+    -- Armed and previewed are two states of the SAME claim, so the open claim
+    -- staying put is not on its own a reason to draw nothing: a nest that arms
+    -- under a stationary cursor has to stop being a preview the frame it does.
+    if self._openClaim == open and self._previewClaim == preview then return end
+    self._openClaim, self._previewClaim = open, preview
 
     for k = 1, #claims do
         local c = claims[k]
+        local a = (c == open) and 1 or (c == preview) and NEST_PREVIEW_ALPHA or nil
         for j = 1, c.n do
             local w = c.base and self.widgets[c.base + j]
-            if w then w:SetShown(c == open) end
+            if w then
+                if a then w:SetAlpha(a) end
+                w:SetShown(a ~= nil)
+            end
         end
     end
 end
@@ -2761,12 +3091,17 @@ end
 -- Paint selection state. Called from OnUpdate whenever the hovered slot
 -- changes, and once from Open so the initial state is drawn.
 function PaletteView:SetSelection(index)
-    if self.selection == index then return end
+    -- Ahead of the unchanged-selection return: a claim can arm and disarm under
+    -- a cursor that is holding still on one entry, and the nest state has to
+    -- follow that. UpdateNestShown makes its own decision about whether there
+    -- is anything left to draw.
     self:UpdateNestShown(index)
+    if self.selection == index then return end
 
     local widgets = self.widgets
     if self.selection and widgets[self.selection] then
-        ApplySlotVisual(widgets[self.selection], false)
+        ApplySlotVisual(widgets[self.selection], false,
+                        self.selection == self._armedParent)
     end
     self.selection = index
 
@@ -2775,7 +3110,7 @@ function PaletteView:SetSelection(index)
 
     if index then
         local w = widgets[index]
-        ApplySlotVisual(w, true)
+        ApplySlotVisual(w, true, index == self._armedParent)
 
         local slot, claim, childIndex = self:CellSlot(index)
         local _, name = SlotDisplay(slot)
@@ -3177,6 +3512,59 @@ local function LayoutModel()
     return ((p and p.fanInput) or "SCROLL") == "CURSOR" and "POINTER" or "SCROLL"
 end
 
+-- Everything ARMING a claim consists of, as one fragment of snippet text
+-- interpolated into all three places that can decide it: a parent gate's own
+-- OnEnter (EnterSnippet), the press branch's geometric pre-arm, and
+-- LeaveSnippet's re-arm on the way out of another claim. See the "Arming
+-- gates" section further down for what arming means. Three hand-kept copies
+-- would only have to agree with each other, and the live view reads eapArmed
+-- and nothing else -- so a copy that forgot to hide a neighbour's gate or to
+-- show its own regions would draw one claim while the release fired from
+-- another.
+--
+-- Three locals have to be in scope where this is interpolated: `btn`, the
+-- palette's secure button (which carries a reference to every gate, and holds
+-- eapArmed itself); `k`, the claim to arm; and `tag`, the letter this arm goes
+-- into the eapGTrace transcript under. Reading `k` as a local rather than
+-- baking it in is what lets the two new sites, where the claim index is only
+-- known at run time, share the fragment with EnterSnippet, where it is a
+-- literal.
+local ARM_CLAIM = [==[
+    btn:SetAttribute("eapArmed", k)
+    -- A bounded transcript of every arm and disarm this hold, read by
+    -- "/euiap gates" -- see the matching append in LeaveSnippet. Cheap
+    -- enough to leave in always: two attribute reads and a string append
+    -- per arm, and it is the only record of what the gates actually did
+    -- once a symptom cannot be reproduced offline.
+    local tr = (btn:GetAttribute("eapGTrace") or "") .. tag .. k .. ";"
+    if #tr > 160 then tr = tr:sub(#tr - 160 + 1) end
+    btn:SetAttribute("eapGTrace", tr)
+    -- Exclusive ground: every OTHER claim's parent gate goes dark while
+    -- this one is armed, so nothing but leaving this claim's own region
+    -- (see LeaveSnippet) can hand focus to a neighbour.
+    local armGm = tonumber(btn:GetAttribute("eapGateMax")) or 0
+    for armI = 1, armGm do
+        if armI ~= k then
+            local other = btn:GetFrameRef("pgate" .. armI)
+            if other then other:Hide() end
+        end
+    end
+    for armR = 1, __REGION_MAX__ do
+        local region = btn:GetFrameRef("rgate" .. k .. "_" .. armR)
+        -- Only a region this open actually pushed a box for: the press
+        -- branch clears an unboxed rgate's points, but this is the loop
+        -- that decides whether it is shown at all, and showing one anyway
+        -- would put a live gate over whatever rect it was left at by an
+        -- earlier, longer-lived open.
+        if region and btn:GetAttribute("eapROHW" .. k .. "_" .. armR) then
+            region:Show()
+        end
+    end
+]==]
+-- Plain substitution rather than string.format, for the same reason the
+-- snippets that take this do it: their bodies are full of the modulo operator.
+ARM_CLAIM = ARM_CLAIM:gsub("__REGION_MAX__", tostring(REGION_MAX))
+
 -- Which slot a release fires is decided by where the cursor is at that instant,
 -- so the decision cannot be made in Lua. Writing the chosen action onto the
 -- button from an insecure PreClick fails as soon as the player is in combat:
@@ -3269,25 +3657,25 @@ local SNIPPET_PRE = [==[
             end
         end
 
-        -- Nothing armed until the cursor actually enters a claim's own gate --
-        -- see the release branch below, and ArmedClaim on the live side. A
-        -- fresh press has to start from scratch: an armed claim that survived
+        -- Nothing armed yet -- whatever this press ends up arming, it arms
+        -- from the boxes pushed for THIS open, further down. A fresh press has
+        -- to start from scratch: an armed claim that survived
         -- from the previous open would let a release fire a nest the palette
         -- had not even drawn yet.
         self:SetAttribute("eapArmed", nil)
-        -- One transcript per hold -- see EnterSnippet and LeaveSnippet. Reset
-        -- here rather than at the release, so "/euiap trace" after a close
+        -- One transcript per hold -- see ARM_CLAIM and LeaveSnippet. Reset
+        -- here rather than at the release, so "/euiap gates" after a close
         -- still shows what THAT hold's gates did rather than an empty string.
         self:SetAttribute("eapGTrace", nil)
         -- Place every gate this palette pushed a box for, in the same origin
         -- the release below measures against -- cursor mode takes the point
         -- just captured above, fixed mode UIParent's centre plus the offset.
-        -- Parent gates go up shown, every claim's -- exclusive arming (see
-        -- EnterSnippet) only hides another claim's parent gate WHILE
-        -- something else is armed, and nothing is armed at a fresh press.
-        -- Region gates go down hidden, since nothing is armed yet either.
-        -- ArmedClaim and the gates' own OnEnter/OnLeave take it from here for
-        -- as long as the key stays held.
+        -- Parent gates go up shown, every claim's, and region gates go down
+        -- hidden, because nothing is armed at this point. The geometric
+        -- pre-arm at the end of the loop is what may then take one claim's
+        -- side of that straight away, and it undoes exactly the two things
+        -- arming always undoes. ArmedClaim and the gates' own
+        -- OnEnter/OnLeave take it from there for as long as the key is held.
         if ui then
             local ox, oy
             if self:GetAttribute("eapFixed") then
@@ -3346,6 +3734,39 @@ local SNIPPET_PRE = [==[
                             rgate:ClearAllPoints()
                             rgate:Hide()
                         end
+                    end
+                end
+
+                -- Arming is otherwise purely an OnEnter edge, and a gate
+                -- SHOWN under a cursor that is already inside it raises no
+                -- such edge until the cursor leaves and comes back. In cursor
+                -- mode that happens on every single press: the palette opens
+                -- centred on the pointer, so a middle cell sits right under
+                -- it, and a claim there would have been drawn but dead. So
+                -- the press asks the question geometrically instead, once,
+                -- against the same parent boxes the gates were just placed
+                -- from -- the answer a real OnEnter would have given had the
+                -- cursor arrived from outside.
+                local cgx = tonumber(self:GetAttribute("eapGX"))
+                local cgy = tonumber(self:GetAttribute("eapGY"))
+                if cgx and cgy then
+                    local dx, dy = (cgx - ox) / s, (cgy - oy) / s
+                    local pre
+                    for k = 1, gm do
+                        local phw = tonumber(self:GetAttribute("eapPOHW" .. k))
+                        if phw then
+                            local pox = tonumber(self:GetAttribute("eapPOX" .. k)) or 0
+                            local poy = tonumber(self:GetAttribute("eapPOY" .. k)) or 0
+                            local phh = tonumber(self:GetAttribute("eapPOHH" .. k)) or 0
+                            if abs(dx - pox) <= phw and abs(dy - poy) <= phh then
+                                pre = k
+                                break
+                            end
+                        end
+                    end
+                    if pre then
+                        local btn, k, tag = self, pre, "P"
+                        __ARM_CLAIM__
                     end
                 end
             end
@@ -3663,6 +4084,10 @@ local SNIPPET_PRE = [==[
 -- the body above is full of %, the modulo operator, and format would choke
 -- on every one of them that is not itself a substitution.
 SNIPPET_PRE = SNIPPET_PRE:gsub("__REGION_MAX__", tostring(REGION_MAX))
+-- A FUNCTION replacement rather than a plain string: gsub reads "%" in a
+-- replacement string as a capture reference, and a fragment that ever grows a
+-- modulo would otherwise fail here rather than where it was written.
+SNIPPET_PRE = SNIPPET_PRE:gsub("__ARM_CLAIM__", function() return ARM_CLAIM end)
 
 -- Leaves nothing armed: the next press has to choose again from scratch.
 local SNIPPET_POST = [==[
@@ -3785,11 +4210,23 @@ end
 --    complaint this fixes was two adjacent Halo rings swapping back and
 --    forth on the slightest movement. A hidden gate cannot receive OnEnter,
 --    so B stays unarmable until A's OnLeave test actually disarms it and
---    re-shows B's gate -- and because Show() does not synthesise a motion
---    event, a gate shown under a cursor that is not currently moving does
---    NOT retroactively arm: the pointer has to move again first. That is
---    deliberate, not a bug -- it is the same "only real motion arms
---    anything" rule the parent gate itself already lives by.
+--    re-shows B's gate.
+--
+--    Geometric arming, at the two moments a gate is SHOWN. Show() does not
+--    synthesise a motion event, so a gate that comes up under a cursor
+--    already inside it raises no OnEnter at all until the cursor leaves and
+--    comes back -- and both of the moments gates are shown are moments the
+--    cursor is very likely already on one. In cursor mode the palette opens
+--    centred on the pointer, so a middle cell's gate is under it at every
+--    single press; and a disarm re-shows every parent gate, possibly beneath
+--    a cursor that has already arrived on another claim's entry. Left to the
+--    OnEnter edge alone, the nest was drawn and its children dead until the
+--    user wiggled out and back. So both moments ask the same question
+--    geometrically, in secure code, from the same pushed parent boxes the
+--    gates themselves were placed from: the press branch of SNIPPET_PRE
+--    after it places them, and LeaveSnippet's disarm path after it re-shows
+--    them. Both then arm through ARM_CLAIM, the same fragment a parent
+--    gate's own OnEnter uses, so there is only ever one meaning of "armed".
 --
 --    Same-claim focus hand-off.  Moving from one of a claim's own region
 --    rects to a sibling rect of the SAME claim still fires the first one's
@@ -3812,43 +4249,22 @@ end
 -- because the header they are all wrapped through is shared. k is baked into
 -- the snippet text rather than read off an attribute: each gate only ever
 -- needs to know its OWN claim index, never anyone else's, so there is nothing
--- for a shared body to look up.
+-- for a shared body to look up. It goes into a LOCAL of that name, which is
+-- what ARM_CLAIM reads -- the two sites that arm geometrically only know their
+-- claim at run time, and one fragment serving all three is one definition of
+-- what arming does.
+--
+-- Wrapped in parentheses for the same reason LeaveSnippet's return is; see
+-- the note there.
 local function EnterSnippet(k)
-    return ([==[
+    return (([==[
         local btn = self:GetFrameRef("btn")
         if btn then
-            btn:SetAttribute("eapArmed", %d)
-            -- A bounded transcript of every arm/disarm this hold, read by
-            -- "/euiap trace" -- see the matching append in LeaveSnippet. Cheap
-            -- enough to leave in always: two attribute reads and a string
-            -- append per gate crossing, and it is the only record of what the
-            -- gates actually did once a symptom cannot be reproduced offline.
-            local tr = (btn:GetAttribute("eapGTrace") or "") .. "E" .. %d .. ";"
-            if #tr > 160 then tr = tr:sub(#tr - 160 + 1) end
-            btn:SetAttribute("eapGTrace", tr)
-            -- Exclusive ground: every OTHER claim's parent gate goes dark
-            -- while this one is armed, so nothing but leaving this claim's
-            -- own region (see LeaveSnippet) can hand focus to a neighbour.
-            local gm = tonumber(btn:GetAttribute("eapGateMax")) or 0
-            for i = 1, gm do
-                if i ~= %d then
-                    local other = btn:GetFrameRef("pgate" .. i)
-                    if other then other:Hide() end
-                end
-            end
-            for r = 1, %d do
-                local region = btn:GetFrameRef("rgate" .. %d .. "_" .. r)
-                -- Only a region this open actually pushed a box for: the
-                -- press branch clears an unboxed rgate's points but this is
-                -- the loop that decides whether it is shown at all, and
-                -- showing one anyway would put a live gate over whatever
-                -- rect it was left at by an earlier, longer-lived open.
-                if region and btn:GetAttribute("eapROHW" .. %d .. "_" .. r) then
-                    region:Show()
-                end
-            end
+            local k, tag = __CLAIM_K__, "E"
+            __ARM_CLAIM__
         end
-    ]==]):format(k, k, k, REGION_MAX, k, k)
+    ]==]):gsub("__CLAIM_K__", tostring(k))
+          :gsub("__ARM_CLAIM__", function() return ARM_CLAIM end))
 end
 
 -- Runs on the OnLeave of any one of claim k's region rects. Does not trust
@@ -3886,6 +4302,11 @@ local function LeaveSnippet(k)
         -- number to have to agree with itself.
 
         local inside = false
+        -- The cursor offset, kept out here rather than in the block that
+        -- works it out: the disarm path at the bottom re-uses it to ask
+        -- whether the cursor has landed on ANOTHER claim's entry, and it is
+        -- the same reading either way. nil when there was no reading to take.
+        local cdx, cdy
         local ui = self:GetFrameRef("ui")
         if ui then
             local x, y = ui:GetMousePosition()
@@ -3904,21 +4325,21 @@ local function LeaveSnippet(k)
                 end
                 if ox then
                     local dx, dy = (cx - ox) / s, (cy - oy) / s
+                    cdx, cdy = dx, dy
 
-                    -- Deliberately no inflation: a margin here that the gate
-                    -- FRAMES do not also carry (they are sized to these exact
-                    -- eapRO*/eapPO* numbers by the press branch above, with no
-                    -- slack of their own) creates a dead zone rather than
-                    -- softening anything. A cursor crossing the frame's own
-                    -- un-inflated edge fires this test right there, finding
-                    -- "still inside" thanks to the margin, and leaves no gate
-                    -- behind to fire a SECOND OnLeave once the cursor actually
-                    -- clears the inflated boundary -- so that stale verdict
-                    -- never gets revisited, and the claim stays armed however
-                    -- far the cursor drifts past it afterwards. Real
-                    -- hysteresis would need the frames themselves inflated to
-                    -- match, which is a larger change than this fix calls
-                    -- for.
+                    -- No inflation HERE, and none needed: the overshoot grace
+                    -- a fast reach wants is built into the eapRO* rects
+                    -- themselves, by CellChildGeom, so the gate FRAMES the
+                    -- press branch sizes from those numbers already carry it
+                    -- and this test consumes the identical rects. That is the
+                    -- whole reason it belongs there rather than here. A margin
+                    -- applied only in this test would instead create a dead
+                    -- zone: the cursor crossing the frame's own smaller edge
+                    -- fires this, the margin answers "still inside", and no
+                    -- gate is left under the cursor to fire a SECOND OnLeave
+                    -- once it clears the wider boundary -- so that verdict is
+                    -- never revisited and the claim stays armed however far
+                    -- the cursor drifts on.
 
                     -- The parent's own cell always counts.
                     local phw = tonumber(btn:GetAttribute("eapPOHW" .. armed))
@@ -3978,7 +4399,7 @@ local function LeaveSnippet(k)
         end
 
         do
-            -- See the matching append in EnterSnippet -- one transcript per
+            -- See the matching append in ARM_CLAIM -- one transcript per
             -- hold, shared across every claim's gates because eapGTrace lives
             -- on the button, not on any one gate.
             local tr = (btn:GetAttribute("eapGTrace") or "") ..
@@ -4000,8 +4421,42 @@ local function LeaveSnippet(k)
                 local region = btn:GetFrameRef("rgate" .. armed .. "_" .. r)
                 if region then region:Hide() end
             end
+
+            -- Those parent gates went back up under wherever the cursor
+            -- happens to be right now, which on a quick move from one claim's
+            -- entry to another's is that other entry itself. Show() raises no
+            -- OnEnter, so the claim the user has already reached would stay
+            -- unarmed until they moved off it and back on. Asked
+            -- geometrically instead, from the boxes the gates were placed
+            -- from -- the same thing the press branch does for the same
+            -- reason. Skipped when there was no cursor reading to take:
+            -- nothing to test against, and the disarm above already stands.
+            if cdx then
+                local reArm
+                local rgm = tonumber(btn:GetAttribute("eapGateMax")) or 0
+                for i = 1, rgm do
+                    if i ~= armed then
+                        local phw2 = tonumber(btn:GetAttribute("eapPOHW" .. i))
+                        if phw2 then
+                            local pox2 = tonumber(btn:GetAttribute("eapPOX" .. i)) or 0
+                            local poy2 = tonumber(btn:GetAttribute("eapPOY" .. i)) or 0
+                            local phh2 = tonumber(btn:GetAttribute("eapPOHH" .. i)) or 0
+                            if abs(cdx - pox2) <= phw2 and abs(cdy - poy2) <= phh2 then
+                                reArm = i
+                                break
+                            end
+                        end
+                    end
+                end
+                if reArm then
+                    local k, tag = reArm, "R"
+                    __ARM_CLAIM__
+                end
+            end
         end
-    ]==]):gsub("__ARMED_K__", tostring(k)):gsub("__REGION_MAX__", tostring(REGION_MAX)))
+    ]==]):gsub("__ARMED_K__", tostring(k))
+         :gsub("__REGION_MAX__", tostring(REGION_MAX))
+         :gsub("__ARM_CLAIM__", function() return ARM_CLAIM end))
 end
 
 -- One parent gate and up to REGION_MAX region gates per possible claim,
@@ -4553,9 +5008,20 @@ _G.SLASH_EUIACTIONPALETTE4 = "/euiradial"
 --               side of the click
 SlashCmdList.EUIACTIONPALETTE = function(msg)
     -- "/euiap gates" reports the arming gates' own transcript -- eapArmed as
-    -- it stands right now, and eapGTrace, the "E<k>" / "L<k>:in" / "L<k>:out"
-    -- record EnterSnippet and LeaveSnippet append to on every real gate
-    -- crossing this hold (see both for the format). Bounded to the last 160
+    -- it stands right now, and eapGTrace, the record ARM_CLAIM and
+    -- LeaveSnippet append to on every arm and every real gate crossing this
+    -- hold. One entry per way the answer can change:
+    --
+    --   E<k>       claim k armed by its parent gate's own OnEnter
+    --   P<k>       claim k armed geometrically at the press, the cursor
+    --              already standing on its entry when the palette opened
+    --   R<k>       claim k armed geometrically on the way out of another
+    --              claim, the cursor having landed on k's entry
+    --   L<k>:in    claim k's leave test ran and found the cursor still on
+    --              its ground, so nothing changed
+    --   L<k>:out   claim k's leave test disarmed it
+    --
+    -- Bounded to the last 160
     -- characters on the button itself, so this is reading exactly what the
     -- gates did rather than a guess reconstructed after the fact -- the
     -- thing to run after a nest misbehaves in a way the offline harness
