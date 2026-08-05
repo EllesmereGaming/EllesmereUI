@@ -31,19 +31,21 @@ local IC_HOUSING       = 20                  -- Enum.ItemClass.Housing (Midnight
 -- types = list of Enum.ItemClass numeric IDs to match
 -- Empty types = catch-all (Uncategorized)
 local DEFAULT_CATEGORIES = {
-    { name = "Pinned Items",       types = {}, isPinned = true, noGroup = true, noMove = true, icon = "friendslist-recentallies-Pin-yellow", isAtlas = true },
-    { name = "Recent Items",       types = {}, isRecent = true, noGroup = true, noMove = true, icon = "auctionhouse-icon-clock", isAtlas = true },
-    { name = "Reagent Bag",        types = {}, isReagentBag = true, noGroup = true, icon = 3622222 },
-    { name = "Item Set Gear",      types = { IC_ARMOR, IC_WEAPON }, isSetGear = true, icon = 4871338 },
-    { name = "Quest Items",        types = { IC_QUEST },                     icon = "Crosshair_Quest_64", isAtlas = true },
-    { name = "Weapons / Trinkets", types = { IC_WEAPON }, equipSlots = { "INVTYPE_TRINKET" }, icon = 3751725 },
-    { name = "Armor",              types = { IC_ARMOR }, excludeEquipSlots = { "INVTYPE_TRINKET" }, icon = 4382688 },
-    { name = "Consumables",        types = { IC_CONSUMABLE },                icon = 7548911 },
-    { name = "Trade Goods",        types = { IC_TRADESKILL, IC_REAGENT },    icon = 132996 },
-    { name = "Gear Enhancements",  types = { IC_GEM, IC_ITEM_ENHANCE },     icon = 7549094 },
-    { name = "Professions",        types = { IC_PROFESSION, IC_RECIPE },     icon = 7548925 },
-    { name = "Housing",            types = { IC_HOUSING },                   icon = 7726459 },
-    { name = "Miscellaneous",      types = { IC_MISC, IC_CONTAINER }, isCatchAll = true, icon = 5524917 },
+    -- Use named 3.3.5 textures here. Retail atlases and modern FileDataIDs render
+    -- as question marks or solid red blocks on Wrath clients.
+    { name = "Pinned Items",       types = {}, isPinned = true, noGroup = true, noMove = true, icon = "Interface\\Icons\\INV_Misc_Note_01" },
+    { name = "Recent Items",       types = {}, isRecent = true, noGroup = true, noMove = true, icon = "Interface\\Icons\\INV_Misc_PocketWatch_01" },
+    { name = "Reagent Bag",        types = {}, isReagentBag = true, noGroup = true, icon = "Interface\\Icons\\INV_Misc_Bag_10_Blue" },
+    { name = "Item Set Gear",      types = { IC_ARMOR, IC_WEAPON }, isSetGear = true, icon = "Interface\\Icons\\INV_Chest_Chain_05" },
+    { name = "Quest Items",        types = { IC_QUEST },                     icon = "Interface\\Icons\\INV_Misc_Book_09" },
+    { name = "Weapons / Trinkets", types = { IC_WEAPON }, equipSlots = { "INVTYPE_TRINKET" }, icon = "Interface\\Icons\\INV_Sword_04" },
+    { name = "Armor",              types = { IC_ARMOR }, excludeEquipSlots = { "INVTYPE_TRINKET" }, icon = "Interface\\Icons\\INV_Chest_Plate04" },
+    { name = "Consumables",        types = { IC_CONSUMABLE },                icon = "Interface\\Icons\\INV_Potion_54" },
+    { name = "Trade Goods",        types = { IC_TRADESKILL, IC_REAGENT },    icon = "Interface\\Icons\\INV_Ingot_03" },
+    { name = "Gear Enhancements",  types = { IC_GEM, IC_ITEM_ENHANCE },     icon = "Interface\\Icons\\INV_Enchant_EssenceCosmicGreater" },
+    { name = "Professions",        types = { IC_PROFESSION, IC_RECIPE },     icon = "Interface\\Icons\\Trade_Engineering" },
+    { name = "Housing",            types = { IC_HOUSING },                   icon = "Interface\\Icons\\INV_Misc_Key_03" },
+    { name = "Miscellaneous",      types = { IC_MISC, IC_CONTAINER }, isCatchAll = true, icon = "Interface\\Icons\\INV_Misc_Bag_10" },
 }
 
 -------------------------------------------------------------------------------

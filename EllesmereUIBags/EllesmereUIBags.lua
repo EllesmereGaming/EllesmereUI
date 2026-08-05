@@ -4115,9 +4115,9 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
     -- Three fixed views (All Items / OneBag / MultiBag), the configured default
     -- type first, then the rest in canonical order.
     local _fixedViews = {
-        all      = { catIdx = 0,  name = EllesmereUI.L("All Items"), icon = 133633, count = totalCount },
-        onebag   = { catIdx = -1, name = EllesmereUI.L("OneBag"),    icon = 133634, count = totalCount },
-        multibag = { catIdx = -2, name = EllesmereUI.L("MultiBag"),  icon = 133635, count = totalCount },
+        all      = { catIdx = 0,  name = EllesmereUI.L("All Items"), icon = "Interface\\Icons\\INV_Misc_Bag_08", count = totalCount },
+        onebag   = { catIdx = -1, name = EllesmereUI.L("OneBag"),    icon = "Interface\\Icons\\INV_Misc_Bag_10", count = totalCount },
+        multibag = { catIdx = -2, name = EllesmereUI.L("MultiBag"),  icon = "Interface\\Icons\\INV_Misc_Bag_09", count = totalCount },
     }
     local _dbt = GetDefaultBagType()
     displayList[#displayList + 1] = _fixedViews[_dbt] or _fixedViews.all
@@ -4490,11 +4490,14 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                     iconLbl:SetTextColor(0.7, 0.7, 0.7, 1)
                     iconLbl:SetText(EllesmereUI.L("Icon:"))
 
-                    -- Icon grid (placeholder IDs -- replace with real set)
+                    -- Wrath-compatible named textures. Modern FileDataIDs show
+                    -- as red blocks in 3.3.5 clients.
                     local ICON_IDS = {
-                        7514178, 7548926, 7427980, 7548966, 2143125,
-                        6025441, 7451177, 7548901, 7501337, 7704166,
-                        7549083, 7549010, 7136579, 7549012,
+                        "Interface\\Icons\\INV_Misc_Bag_08", "Interface\\Icons\\INV_Misc_Bag_10", "Interface\\Icons\\INV_Misc_Note_01",
+                        "Interface\\Icons\\INV_Misc_PocketWatch_01", "Interface\\Icons\\INV_Misc_Book_09", "Interface\\Icons\\INV_Sword_04",
+                        "Interface\\Icons\\INV_Chest_Plate04", "Interface\\Icons\\INV_Potion_54", "Interface\\Icons\\INV_Ingot_03",
+                        "Interface\\Icons\\INV_Enchant_EssenceCosmicGreater", "Interface\\Icons\\Trade_Engineering",
+                        "Interface\\Icons\\INV_Misc_Key_03", "Interface\\Icons\\INV_Misc_Gem_01", "Interface\\Icons\\INV_Scroll_03",
                     }
                     popup._iconIDs = ICON_IDS
                     local ICON_SZ = 28

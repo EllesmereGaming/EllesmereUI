@@ -4042,13 +4042,12 @@ end
 ns.GetOrCreateItemPresetFrame = GetOrCreateItemPresetFrame
 
 -- ---------------------------------------------------------------------------
--- Dynamic potion display for the two combat-pot presets (Light's Potential /
--- Potion of Recklessness). The preset icon resolves to the best variant
--- actually in bags (preset.displayOrder, best first) and shows THAT variant's
--- icon, exact bag count, and tooltip -- 2 Fleeting pots show "2" even with 50
--- regular ones in the bank of another rank. With the profile-level "Swap
--- Light/Reckless Pots When Missing" toggle on, a preset whose own family is
--- fully out of bags resolves the partner family's chain instead. Identity is
+-- Dynamic display for presets with several interchangeable item IDs (such as
+-- Wrath's three Fel Healthstone strengths). The icon resolves to the first
+-- variant actually in bags (preset.displayOrder, best first) and shows that
+-- variant's icon, exact bag count, and tooltip. Presets may optionally name a
+-- partner family via swapWith; when enabled, its variants are fallback choices.
+-- Identity is
 -- untouched: the frame key, assigned-spell key, saved settings, and active
 -- states all stay on the preset's primary item; only the DISPLAY resolves, so
 -- a running cooldown swipe survives the icon swapping variants.
@@ -4176,6 +4175,33 @@ end
 -- per-GCD events into a single update pass.
 local _presetCdDirty = false
 
+-- Retail exposes item cooldowns through namespaced APIs; Wrath 3.3.5 exposes
+-- only the global GetItemCooldown(itemID). Keep the lookup centralized so item
+-- presets work on either client and a partially populated compatibility table
+-- cannot turn a fallback call into a nil-function error.
+local function QueryItemCooldown(itemID)
+    local fallbackStart, fallbackDuration, fallbackEnable
+    local function Try(getter)
+        if not getter then return end
+        local ok, start, duration, enable = pcall(getter, itemID)
+        if not ok or start == nil then return end
+        fallbackStart, fallbackDuration, fallbackEnable = start, duration, enable
+        if start and duration and duration > 1.5 then
+            return start, duration, enable, true
+        end
+    end
+
+    local start, duration, enable, found = Try(C_Container and C_Container.GetItemCooldown)
+    if found then return start, duration, enable end
+    start, duration, enable, found = Try(C_Item and C_Item.GetItemCooldown)
+    if found then return start, duration, enable end
+    start, duration, enable, found = Try(GetItemCooldown)
+    if found then return start, duration, enable end
+    if fallbackStart ~= nil then
+        return fallbackStart, fallbackDuration, fallbackEnable
+    end
+end
+
 -- The actual update work, called from BuffTicker at 10Hz max.
 local function ProcessPresetCooldowns()
     _presetCdDirty = false
@@ -4276,37 +4302,37 @@ local function ProcessPresetCooldowns()
                 local dispID = PotSwap.Ensure(f)
                 local itemID = dispID or f._presetItemID
                 local potChain = dispID and PotSwap.Chain(f._presetData) or nil
-                local getContainerCD = C_Container and C_Container.GetItemCooldown
-                local start, dur
+                local start, dur, enable
                 if potChain then
                     -- Only the owned/used item id reports the shared potion
                     -- cooldown, so walk the full active chain (partner family
                     -- included while the swap toggle is on).
                     for i = 1, #potChain do
                         local cid = potChain[i]
-                        if getContainerCD then start, dur = getContainerCD(cid) end
-                        if not (start and dur and dur > 1.5) then start, dur = C_Item.GetItemCooldown(cid) end
+                        start, dur, enable = QueryItemCooldown(cid)
                         if start and dur and dur > 1.5 then break end
                     end
                 else
-                    if getContainerCD then
-                        start, dur = getContainerCD(itemID)
-                    end
-                    if not (start and dur and dur > 1.5) then
-                        start, dur = C_Item.GetItemCooldown(itemID)
-                    end
+                    start, dur, enable = QueryItemCooldown(itemID)
                     if not (start and dur and dur > 1.5) and f._presetData and f._presetData.altItemIDs then
                         for _, altID in ipairs(f._presetData.altItemIDs) do
-                            if getContainerCD then start, dur = getContainerCD(altID) end
-                            if not (start and dur and dur > 1.5) then start, dur = C_Item.GetItemCooldown(altID) end
+                            start, dur, enable = QueryItemCooldown(altID)
                             if start and dur and dur > 1.5 then break end
                         end
                     end
                 end
-                if start and dur and dur > 1.5 then
+                -- Wrath reports enable == 0 for a potion consumed during combat:
+                -- it is unavailable, but its real cooldown does not begin until
+                -- combat ends. The reported start can move on every query, so
+                -- repeatedly feeding it to SetCooldown makes the swipe and timer
+                -- visibly restart. Leave the swipe untouched and desaturate only;
+                -- the first enable == 1 update after combat starts the real swipe.
+                local cooldownDisabled = enable == 0
+                if not cooldownDisabled and start and dur and dur > 1.5 then
                     f._cooldown:SetCooldown(start, dur)
                     f._cdStart = start; f._cdDur = dur
-                elseif not (f._cdStart and f._cdDur and (now < f._cdStart + f._cdDur)) then
+                elseif not cooldownDisabled
+                   and not (f._cdStart and f._cdDur and (now < f._cdStart + f._cdDur)) then
                     f._cooldown:Clear()
                     f._cdStart = nil; f._cdDur = nil
                 end
@@ -4352,7 +4378,7 @@ local function ProcessPresetCooldowns()
                         f._lastItemCount = nil
                     end
                 end
-                local shouldDesat = (total == 0 or itemOnCD or f._inCombatLockout) and true or false
+                local shouldDesat = (total == 0 or itemOnCD or cooldownDisabled or f._inCombatLockout) and true or false
                 if shouldDesat ~= f._lastDesat then
                     f._lastDesat = shouldDesat
                     if f._tex then f._tex:SetDesaturated(shouldDesat) end

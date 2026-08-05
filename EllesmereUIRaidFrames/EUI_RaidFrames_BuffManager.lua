@@ -29,6 +29,8 @@ local UnitExists    = UnitExists
 local UnitIsUnit    = UnitIsUnit
 
 local MAX_PER_SPEC = 20
+local IS_WRATH = (select(4, GetBuildInfo()) or 0) <= 30300
+local QUESTION_MARK_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
 
 -------------------------------------------------------------------------------
 --  Indicator type definitions
@@ -271,6 +273,48 @@ local HEALER_SPECS = {
         },
     },
 }
+
+-- The legacy client has no Midnight-era healer spells, and aura IDs are the
+-- actual max-rank Wrath IDs rather than the rank-one IDs used by retail.  Keep
+-- the shared editor, but feed it a native 3.3.5 whitelist so names, icons and
+-- live aura matching all resolve through the legacy spell API.
+if IS_WRATH then
+    HEALER_SPECS = {
+        { key = "DRUID_RESTORATION", specID = 105, name = "Restoration Druid", classToken = "DRUID", spells = {
+            { id = 48441, name = "Rejuvenation" },
+            { id = 48443, name = "Regrowth" },
+            { id = 48451, name = "Lifebloom" },
+            { id = 53251, name = "Wild Growth" },
+            { id = 29166, name = "Innervate" },
+        } },
+        { key = "PRIEST_DISCIPLINE", specID = 256, name = "Discipline Priest", classToken = "PRIEST", spells = {
+            { id = 48066, name = "Power Word: Shield" },
+            { id = 47753, name = "Divine Aegis" },
+            { id = 48113, name = "Prayer of Mending" },
+            { id = 33206, name = "Pain Suppression" },
+            { id = 10060, name = "Power Infusion" },
+        } },
+        { key = "PRIEST_HOLY", specID = 257, name = "Holy Priest", classToken = "PRIEST", spells = {
+            { id = 48068, name = "Renew" },
+            { id = 48113, name = "Prayer of Mending" },
+            { id = 47788, name = "Guardian Spirit" },
+            { id = 48066, name = "Power Word: Shield" },
+        } },
+        { key = "SHAMAN_RESTORATION", specID = 264, name = "Restoration Shaman", classToken = "SHAMAN", spells = {
+            { id = 61301, name = "Riptide" },
+            { id = 49284, name = "Earth Shield" },
+            { id = 51945, name = "Earthliving" },
+            { id = 16237, name = "Ancestral Fortitude" },
+        } },
+        { key = "PALADIN_HOLY", specID = 65, name = "Holy Paladin", classToken = "PALADIN", spells = {
+            { id = 53563, name = "Beacon of Light" },
+            { id = 53601, name = "Sacred Shield" },
+            { id = 10278, name = "Hand of Protection" },
+            { id = 6940, name = "Hand of Sacrifice" },
+            { id = 1044, name = "Hand of Freedom" },
+        } },
+    }
+end
 
 ns.BM_HEALER_SPECS = HEALER_SPECS
 
@@ -673,6 +717,58 @@ local DEFAULT_INDICATORS = {
     },
 }
 
+if IS_WRATH then
+    DEFAULT_INDICATORS = {
+        DRUID_RESTORATION = {
+            { pos = "TOPLEFT", spells = { 48451 } },
+            { pos = "TOPRIGHT", spells = { 48441, 48443, 53251, 29166 } },
+        },
+        PRIEST_DISCIPLINE = {
+            { pos = "TOPLEFT", spells = { 48066, 47753, 10060 } },
+            { pos = "TOPRIGHT", spells = { 48113, 33206 } },
+        },
+        PRIEST_HOLY = {
+            { pos = "TOPLEFT", spells = { 48068, 47788 } },
+            { pos = "TOPRIGHT", spells = { 48113, 48066 } },
+        },
+        SHAMAN_RESTORATION = {
+            { pos = "TOPLEFT", spells = { 49284 } },
+            { pos = "TOPRIGHT", spells = { 61301, 51945, 16237 } },
+        },
+        PALADIN_HOLY = {
+            { pos = "TOPLEFT", spells = { 53563, 53601 } },
+            { pos = "TOPRIGHT", spells = { 10278, 6940, 1044 } },
+        },
+    }
+end
+
+local WRATH_SPELL_REPLACEMENTS = {
+    [774] = 48441, [8936] = 48443, [33763] = 48451, [48438] = 53251,
+    [17] = 48066, [139] = 48068, [41635] = 48113,
+    [61295] = 61301, [974] = 49284, [382024] = 51945, [207400] = 16237,
+    [156910] = 53563, [156322] = 53601, [1244893] = 53563,
+    [200025] = 53563, [432502] = 53601, [431381] = 53601,
+    [1022] = 10278,
+}
+
+local function MigrateWrathIndicators(list)
+    if not IS_WRATH or type(list) ~= "table" then return end
+    for _, ind in ipairs(list) do
+        if type(ind.spells) == "table" then
+            local seen = {}
+            local migrated = {}
+            for _, sid in ipairs(ind.spells) do
+                sid = WRATH_SPELL_REPLACEMENTS[sid] or sid
+                if C_Spell.GetSpellName(sid) and not seen[sid] then
+                    seen[sid] = true
+                    migrated[#migrated + 1] = sid
+                end
+            end
+            ind.spells = migrated
+        end
+    end
+end
+
 local function PopulateDefaults(list, specKey)
     local presets = DEFAULT_INDICATORS[specKey]
     if not presets then return end
@@ -709,6 +805,7 @@ local function GetSpecIndicators(db, specKey)
         db.profile.bmIndicators[specKey] = {}
         PopulateDefaults(db.profile.bmIndicators[specKey], specKey)
     end
+    MigrateWrathIndicators(db.profile.bmIndicators[specKey])
     return db.profile.bmIndicators[specKey]
 end
 -- 12.1 aura containers read the indicator config to build slots.
@@ -2158,7 +2255,7 @@ function ns.BM_UpdateSimpleGrid(button, unit, db, updateInfo)
                 if matchedSid and not seen[matchedSid] then
                     matched = true
                     seen[matchedSid] = true
-                    if not tex then tex = SECRET_SPELL_ICONS[matchedSid] or 136243 end
+                    if not tex then tex = SECRET_SPELL_ICONS[matchedSid] or QUESTION_MARK_ICON end
                 end
             end
         end
@@ -2169,7 +2266,7 @@ function ns.BM_UpdateSimpleGrid(button, unit, db, updateInfo)
             local icon = d.bmSimpleIcons[shown]
             BM_SetTipTarget(icon, unit, iid)
             icon:SetSize(sz, sz)
-            icon._tex:SetTexture(tex or 136243)
+            icon._tex:SetTexture(tex or QUESTION_MARK_ICON)
             local _z = bs.iconZoom or 0.08
             icon._tex:SetTexCoord(_z, 1 - _z, _z, 1 - _z)
 
@@ -2433,7 +2530,7 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
                     if matchedSid and not activeSpells[matchedSid] then
                         local entry = {
                             spellId = matchedSid,
-                            icon = SECRET_SPELL_ICONS[matchedSid] or 136243,
+                            icon = SECRET_SPELL_ICONS[matchedSid] or QUESTION_MARK_ICON,
                             duration = auraData.duration,
                             expirationTime = auraData.expirationTime,
                             applications = auraData.applications,
@@ -2621,7 +2718,7 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
                                 if icon and not issecretvalue(icon) then
                                     f._tex:SetTexture(icon)
                                 else
-                                    f._tex:SetTexture(136243)
+                                    f._tex:SetTexture(QUESTION_MARK_ICON)
                                 end
                                 local _z = db.profile.bmIconZoom or 0.08
                                 f._tex:SetTexCoord(_z, 1 - _z, _z, 1 - _z)
@@ -3191,7 +3288,7 @@ local function GetSpellIcon(spellID)
     local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(spellID)
     -- Secret auras (e.g. Sense Power) often have no resolvable spell-info icon;
     -- fall back to the known fingerprint icon before the generic question mark.
-    local icon = (info and info.iconID) or SECRET_SPELL_ICONS[spellID] or 136243
+    local icon = (info and info.iconID) or SECRET_SPELL_ICONS[spellID] or QUESTION_MARK_ICON
     previewSpellIcons[spellID] = icon
     return icon
 end
@@ -3976,7 +4073,7 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, noGrid
                 previewIcons[i] = icon
             end
             icon:SetSize(sz, sz)
-            icon._tex:SetTexture(exampleIcons[i] or 136243)
+            icon._tex:SetTexture(exampleIcons[i] or QUESTION_MARK_ICON)
             local _z = bs.iconZoom or 0.08
             icon._tex:SetTexCoord(_z, 1 - _z, _z, 1 - _z)
             if icon._borderFrame and PP then
@@ -4723,7 +4820,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 and ns.BM2_PreferredSpell(ind)) or tileSpells[1]
             iconTex:SetTexture(GetSpellIcon(faceId))
         else
-            iconTex:SetTexture(136243)
+            iconTex:SetTexture(QUESTION_MARK_ICON)
         end
 
         -- Icon border

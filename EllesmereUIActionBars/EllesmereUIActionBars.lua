@@ -2381,6 +2381,36 @@ function ns._eabBuildPageChildSnippet(baseIndex)
     return ("local page = tonumber(message) or 1; self:SetAttribute('action', %d + (page - 1) * 12)"):format(baseIndex) .. ns._eabEmpowerSnippet
 end
 
+-- ChildUpdate only reaches buttons that are children of the header at the
+-- instant the state driver fires. Layout/reparent work can briefly violate
+-- that assumption, leaving the protected action on the old page while visual
+-- code reads actionpage and draws the new page. Explicit secure refs make the
+-- executable action authoritative across modifier/form paging transitions.
+ns._eabPageStateSnippet = [=[
+    local page = tonumber(newstate) or 1
+    self:SetAttribute("actionpage", page)
+    self:ChildUpdate("eab-page", page)
+
+    local count = self:GetAttribute("eab-page-button-count") or 0
+    for i = 1, count do
+        local button = self:GetFrameRef("eab-page-button-" .. i)
+        if button then
+            control:RunFor(button, [==[
+                local page, index = ...
+                self:SetAttribute("action", index + (page - 1) * 12)
+            ]==], page, i)
+        end
+    end
+]=]
+
+function ns._eabRegisterPagingButtons(frame, buttons)
+    if not frame or not buttons or InCombatLockdown() then return end
+    for i, btn in ipairs(buttons) do
+        frame:SetFrameRef("eab-page-button-" .. i, btn)
+    end
+    EUI.API.SetSecureAttr(frame, "eab-page-button-count", #buttons)
+end
+
 -------------------------------------------------------------------------------
 --  Secure Bar Frame Creation
 --  Each bar gets a SecureHandlerStateTemplate frame. Our buttons are created
@@ -2444,11 +2474,7 @@ local function CreateBarFrame(info)
         -- the taint, and OverrideActionBar:Show() gets ADDON_ACTION_BLOCKED.
         -- The page sync is now triggered by ACTIONBAR_PAGE_CHANGED events
         -- instead (see paging frame OnEvent below).
-        EUI.API.SetSecureAttr(frame, "_onstate-page", [[
-            local page = tonumber(newstate) or 1
-            self:SetAttribute("actionpage", page)
-            self:ChildUpdate("eab-page", page)
-        ]])
+        EUI.API.SetSecureAttr(frame, "_onstate-page", ns._eabPageStateSnippet)
 
         RegisterStateDriver(frame, "page", pagingConditions)
     end
@@ -2469,11 +2495,7 @@ local function CreateBarFrame(info)
         local barSettings = EAB and EAB.db and EAB.db.profile and EAB.db.profile.bars[key]
         local customPaging = barSettings and barSettings.paging
         if customPaging and next(customPaging) then
-            EUI.API.SetSecureAttr(frame, "_onstate-page", [[
-                local page = tonumber(newstate) or 1
-                self:SetAttribute("actionpage", page)
-                self:ChildUpdate("eab-page", page)
-            ]])
+            EUI.API.SetSecureAttr(frame, "_onstate-page", ns._eabPageStateSnippet)
             frame._eabPagingInstalled = true
             local conditions = EAB_VTABLE.BuildPagingConditions(key, customPaging, defaultPage)
             if conditions then
@@ -2543,17 +2565,14 @@ function ns.RebuildBarPaging(barKey)
         -- Force re-evaluation by unregistering first
         UnregisterStateDriver(frame, "page")
         frame._eabPagingConditions = pagingConditions
+        ns._eabRegisterPagingButtons(frame, barButtons[barKey])
         RegisterStateDriver(frame, "page", pagingConditions)
     elseif info.nativeActionPage or info.customPage then
         local defaultPage = info.nativeActionPage or info.customPage
         if customPaging and next(customPaging) then
             -- Install handler if not already present
             if not frame._eabPagingInstalled then
-                EUI.API.SetSecureAttr(frame, "_onstate-page", [[
-                    local page = tonumber(newstate) or 1
-                    self:SetAttribute("actionpage", page)
-                    self:ChildUpdate("eab-page", page)
-                ]])
+                EUI.API.SetSecureAttr(frame, "_onstate-page", ns._eabPageStateSnippet)
                 frame._eabPagingInstalled = true
                 -- Install button handlers for ChildUpdate. Must set the secure
                 -- "action" attr (our buttons are ID=0, so "actionpage" is never
@@ -2567,6 +2586,7 @@ function ns.RebuildBarPaging(barKey)
                             EUI.API.SetSecureAttr(btn, "_childupdate-eab-page", ns._eabBuildPageChildSnippet(idx))
                         end
                     end
+                    ns._eabRegisterPagingButtons(frame, btns)
                 end
             end
             local conditions = EAB_VTABLE.BuildPagingConditions(barKey, customPaging, defaultPage)
@@ -2713,6 +2733,13 @@ local function SetupBar(info, skipProtected)
     end
 
     barButtons[key] = buttons
+
+    -- State-driver paging must not depend solely on the current parent chain.
+    -- Register the finished set on its secure header so clicks/keybinds and
+    -- the painted page cannot diverge during modifier transitions.
+    if key == "MainBar" or frame._eabPagingInstalled then
+        ns._eabRegisterPagingButtons(frame, buttons)
+    end
 
     -- Store original button size before any shape/scale modifications.
     -- StanceButtons and PetActionButtons are 30x30; action buttons are 45x45.

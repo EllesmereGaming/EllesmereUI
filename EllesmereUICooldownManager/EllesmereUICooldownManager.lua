@@ -402,100 +402,64 @@ local BUFF_BAR_PRESETS = {
         customAuraToo = true,  -- but allowed on Custom Auras (icon) bars; glow-driven 10s window
     },
     {
-        key      = "lights_potential",
-        name     = "Light's Potential",
-        icon     = 7548911,
-        spellIDs = { 1236616 },
-        duration = 30,
+        key      = "potion_speed",
+        name     = "Potion of Speed",
+        icon     = "Interface\\Icons\\inv_alchemy_elixir_04",
+        spellIDs = { 53908 },
+        duration = 15,
     },
     {
-        key      = "potion_recklessness",
-        name     = "Potion of Recklessness",
-        icon     = 7548916,
-        spellIDs = { 1236994 },
-        duration = 30,
+        key      = "potion_wild_magic",
+        name     = "Potion of Wild Magic",
+        icon     = "Interface\\Icons\\inv_alchemy_elixir_03",
+        spellIDs = { 53909 },
+        duration = 15,
     },
     {
-        key      = "invis_potion",
-        name     = "Invisibility Potion",
-        icon     = 134764,
-        spellIDs = { 371125, 431424, 371133, 371134, 1236551 },
-        duration = 18,
+        key      = "indestructible_potion",
+        name     = "Indestructible Potion",
+        icon     = "Interface\\Icons\\inv_alchemy_endlessflask_06",
+        spellIDs = { 53762 },
+        duration = 120,
     },
 }
 ns.BUFF_BAR_PRESETS = BUFF_BAR_PRESETS
 
 -- Item presets for CD/utility bars (potions that track cooldowns)
--- displayOrder (combat pots only): dynamic-display priority. The icon resolves
--- to the FIRST id in this list with a bag count and shows that variant's icon,
--- exact count, and tooltip. Rank 2 before rank 1, Fleeting before regular at
--- the same rank (cheap pots get burned first). Id-to-rank mapping is
--- user-verified 2026-07-20. swapWith names the partner preset whose
--- displayOrder is appended when the profile-level "Swap Light/Reckless Pots
--- When Missing" toggle is on and the own family is fully out of bags.
+-- Wrath of the Lich King consumables. Healthstone variants are grouped so the
+-- preset follows whichever Improved Healthstone rank the warlock supplied.
 local CDM_ITEM_PRESETS = {
     {
-        key      = "lights_potential",
-        name     = "Light's Potential",
-        icon     = 7548911,
-        itemID   = 241308,
-        altItemIDs = { 245898, 245897, 241309 },
-        displayOrder = {
-            245898,  -- Fleeting Light's Potential r2
-            241308,  -- Light's Potential r2
-            245897,  -- Fleeting Light's Potential r1
-            241309,  -- Light's Potential r1
-        },
-        swapWith = "potion_recklessness",
+        key      = "potion_speed",
+        name     = "Potion of Speed",
+        itemID   = 40211,
     },
     {
-        key      = "potion_recklessness",
-        name     = "Potion of Recklessness",
-        icon     = 7548916,
-        itemID   = 241288,
-        altItemIDs = { 241289, 245902, 245903 },
-        displayOrder = {
-            245902,  -- Fleeting Potion of Recklessness r2
-            241288,  -- Potion of Recklessness r2
-            245903,  -- Fleeting Potion of Recklessness r1
-            241289,  -- Potion of Recklessness r1
-        },
-        swapWith = "lights_potential",
+        key      = "potion_wild_magic",
+        name     = "Potion of Wild Magic",
+        itemID   = 40212,
     },
     {
-        key      = "silvermoon_health",
-        name     = "Silvermoon Health Potion",
-        icon     = 7548909,
-        itemID   = 241304,
-        altItemIDs = { 241305 },
+        key      = "indestructible_potion",
+        name     = "Indestructible Potion",
+        itemID   = 40093,
     },
     {
-        key      = "lightfused_mana",
-        name     = "Lightfused Mana Potion",
-        icon     = 7548907,
-        itemID   = 241300,
-        altItemIDs = { 245917, 245916, 241301 },
+        key      = "runic_healing",
+        name     = "Runic Healing Potion",
+        itemID   = 33447,
     },
     {
-        key      = "invis_potion",
-        name     = "Invisibility Potion",
-        icon     = 7548917,
-        itemID   = 241302,
-        altItemIDs = { 241303 },
+        key      = "runic_mana",
+        name     = "Runic Mana Potion",
+        itemID   = 33448,
     },
     {
-        key      = "healthstone",
-        name     = "Healthstone",
-        icon     = 538745,
-        itemID   = 5512,
-        spellID  = 6262,
-        combatLockout = true,
-    },
-    {
-        key      = "demonic_healthstone",
-        name     = "Demonic Healthstone",
-        itemID   = 224464,
-        spellID  = 452930,
+        key      = "fel_healthstone",
+        name     = "Fel Healthstone",
+        itemID   = 36894,
+        altItemIDs = { 36893, 36892 },
+        displayOrder = { 36894, 36893, 36892 },
     },
 }
 ns.CDM_ITEM_PRESETS = CDM_ITEM_PRESETS

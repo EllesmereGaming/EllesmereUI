@@ -39,6 +39,8 @@ local GetMacroIndexByName = GetMacroIndexByName
 local GetNumMacros = GetNumMacros
 local MAX_ACCOUNT_MACROS   = MAX_ACCOUNT_MACROS or 120
 local MAX_CHARACTER_MACROS = MAX_CHARACTER_MACROS or 18
+local IS_WRATH = (select(4, GetBuildInfo()) or 0) <= 30300
+local QUESTION_MARK_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
 
 -------------------------------------------------------------------------------
 --  Constants
@@ -57,11 +59,11 @@ local MOUSE_BUTTON_MAP = {
 }
 
 local ACTION_ICONS = {
-    target  = 132212,
-    menu    = 5341597,
-    macro   = 134400,
-    dispel  = 135894,   -- Dispel Magic icon
-    external = 135966,  -- Blessing of Sacrifice icon
+    target   = "Interface\\Icons\\Ability_Hunter_SniperShot",
+    menu     = "Interface\\Icons\\INV_Misc_Note_05",
+    macro    = QUESTION_MARK_ICON,
+    dispel   = "Interface\\Icons\\Spell_Holy_DispelMagic",
+    external = "Interface\\Icons\\Spell_Holy_SealOfSacrifice",
 }
 
 -- Dispel spells by class (friendly dispels only)
@@ -101,6 +103,30 @@ local REZ_BY_CLASS = {
     DEATHKNIGHT = { battle = 61999 },
     WARLOCK     = { battle = 20707 },
 }
+
+if IS_WRATH then
+    DISPEL_SPELLS = {
+        { id = 527,   name = "Dispel Magic", class = "PRIEST" },
+        { id = 4987,  name = "Cleanse", class = "PALADIN" },
+        { id = 2782,  name = "Remove Curse", class = "DRUID" },
+        { id = 51886, name = "Cleanse Spirit", class = "SHAMAN" },
+        { id = 475,   name = "Remove Curse", class = "MAGE" },
+        { id = 19505, name = "Devour Magic", class = "WARLOCK" },
+    }
+    EXTERNAL_SPELLS = {
+        { id = 33206, name = "Pain Suppression", class = "PRIEST" },
+        { id = 47788, name = "Guardian Spirit", class = "PRIEST" },
+        { id = 6940,  name = "Hand of Sacrifice", class = "PALADIN" },
+    }
+    REZ_BY_CLASS = {
+        PRIEST      = { single = 2006 },
+        PALADIN     = { single = 7328 },
+        SHAMAN      = { single = 2008 },
+        DRUID       = { single = 50769, battle = 20484 },
+        DEATHKNIGHT = { battle = 61999 },
+        WARLOCK     = { battle = 20707 },
+    }
+end
 
 -- Build a lookup set of spell IDs in these collections
 local PRESET_SPELL_IDS = {}
@@ -557,20 +583,22 @@ function ns.CC_GetBindingIcon(b)
         end
         return ACTION_ICONS.external
     elseif b.type == "trinket1" then
-        return GetInventoryItemTexture("player", 13) or 134400
+        return GetInventoryItemTexture("player", 13) or QUESTION_MARK_ICON
     elseif b.type == "trinket2" then
-        return GetInventoryItemTexture("player", 14) or 134400
+        return GetInventoryItemTexture("player", 14) or QUESTION_MARK_ICON
     elseif b.type == "dynamicrez" then
         local _, pc = UnitClass("player")
         local kit = REZ_BY_CLASS[pc]
         if kit then
-            local sid = kit.battle or kit.group or kit.single
-            if sid then
-                local tex = C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(sid)
-                if tex then return tex end
+            for _, kind in ipairs({ "battle", "group", "single" }) do
+                local sid = kit[kind]
+                if sid then
+                    local tex = C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(sid)
+                    if tex then return tex end
+                end
             end
         end
-        return 136080
+        return "Interface\\Icons\\Spell_Holy_Resurrection"
     end
     if b.icon then return b.icon end
     if b.spellID then
@@ -592,7 +620,7 @@ function ns.CC_GetBindingIcon(b)
         local tex = GetInventoryItemTexture("player", b.itemSlot)
         if tex then return tex end
     end
-    return ACTION_ICONS[b.type] or 134400
+    return ACTION_ICONS[b.type] or QUESTION_MARK_ICON
 end
 
 function ns.CC_GetBindingName(b)
@@ -1844,6 +1872,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     root:SetSize(parentW, visibleH)
     root:SetPoint("TOPLEFT", scrollFrame, "TOPLEFT", 0, 0)
     root:SetFrameLevel(scrollFrame:GetFrameLevel() + 1)
+    root:SetClipsChildren(true)
     ns._ccRoot = root
 
     local TILE_H       = 56
@@ -2223,7 +2252,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
             local iconTex = iconFrame:CreateTexture(nil, "ARTWORK")
             iconTex:SetAllPoints()
             iconTex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-            iconTex:SetTexture(item.icon or 134400)
+            iconTex:SetTexture(item.icon or QUESTION_MARK_ICON)
 
             local iconBdr = EllesmereUI.SafeCreateFrame("Frame", nil, iconFrame)
             iconBdr:SetAllPoints()
@@ -2448,7 +2477,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                 cell:SetSize(CWG, rHG[r]); cell:SetPoint("TOPLEFT", gridChildG, "TOPLEFT", cx, cy)
                 local iconFr = EllesmereUI.SafeCreateFrame("Frame", nil, cell); iconFr:SetSize(ISZG, ISZG)
                 local iconTx = iconFr:CreateTexture(nil, "ARTWORK"); iconTx:SetAllPoints()
-                iconTx:SetTexCoord(0.08, 0.92, 0.08, 0.92); iconTx:SetTexture(itm.icon or 134400)
+                iconTx:SetTexCoord(0.08, 0.92, 0.08, 0.92); iconTx:SetTexture(itm.icon or QUESTION_MARK_ICON)
                 local dimmedG = (itm.macroName and boundMacros[itm.macroName])
                     or (itm.itemSlot and boundItems[itm.itemSlot])
                 if dimmedG then iconTx:SetAlpha(0.3) end
@@ -2564,6 +2593,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     rightOuter:SetSize(sidebarW, visibleH)
     rightOuter:SetPoint("TOPRIGHT", root, "TOPRIGHT", 0, 0)
     rightOuter:SetFrameLevel(root:GetFrameLevel() + 1)
+    rightOuter:SetClipsChildren(true)
     local rightBg = rightOuter:CreateTexture(nil, "BACKGROUND")
     rightBg:SetAllPoints(); rightBg:SetTexture(0, 0, 0, 0.25)
 
@@ -2575,6 +2605,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     rightScroll:SetPoint("TOPLEFT", rightOuter, "TOPLEFT", 0, -38)
     rightScroll:SetPoint("BOTTOMRIGHT", rightOuter, "BOTTOMRIGHT", 0, 0)
     rightScroll:SetFrameLevel(rightOuter:GetFrameLevel() + 1)
+    rightScroll:SetClipsChildren(true)
     local rightChild = EllesmereUI.SafeCreateFrame("Frame", nil, rightScroll)
     rightChild:SetWidth(sidebarW)
     rightScroll:SetScrollChild(rightChild)
@@ -2751,7 +2782,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                 cell:EnableKeyboard(false)
                 local iconFr = EllesmereUI.SafeCreateFrame("Frame", nil, cell); iconFr:SetSize(QB_ICON, QB_ICON)
                 local iconTx = iconFr:CreateTexture(nil, "ARTWORK"); iconTx:SetAllPoints()
-                iconTx:SetTexCoord(0.08, 0.92, 0.08, 0.92); iconTx:SetTexture(item.icon or 134400)
+                iconTx:SetTexCoord(0.08, 0.92, 0.08, 0.92); iconTx:SetTexture(item.icon or QUESTION_MARK_ICON)
                 local dimmed3 = (item.id and boundSpells[item.name])
                     or (item.macroName and boundMacros[item.macroName])
                     or (item.itemSlot and boundItems[item.itemSlot])
@@ -3028,7 +3059,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                 local iconTex = iconFrame2:CreateTexture(nil, "ARTWORK")
                 iconTex:SetAllPoints()
                 iconTex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-                iconTex:SetTexture(item.icon or 134400)
+                iconTex:SetTexture(item.icon or QUESTION_MARK_ICON)
                 local dimmed = (item.id and boundSpells[item.name])
                     or (item.macroName and boundMacros[item.macroName])
                     or (item.itemSlot and boundItems[item.itemSlot])
@@ -3618,7 +3649,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
             local iconTex = cell:CreateTexture(nil, "ARTWORK")
             iconTex:SetAllPoints()
             iconTex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-            iconTex:SetTexture(sp.icon or 134400)
+            iconTex:SetTexture(sp.icon or QUESTION_MARK_ICON)
             local alreadyBound = boundSpells[sp.name]
             if alreadyBound then iconTex:SetAlpha(0.3) end
 

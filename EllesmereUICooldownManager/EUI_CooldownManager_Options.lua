@@ -37,12 +37,14 @@ initFrame:SetScript("OnEvent", function(self)
         if _G._ECME_Apply then _G._ECME_Apply() end
     end
 
-    -- Post-spell-change for CD/utility bars. AddTrackedSpell /
-    -- RemoveTrackedSpell already rebuild routes + queue reanchor.
-    -- Force an immediate CollectAndReanchor so icons update NOW (not
-    -- deferred via throttled queue). Then rebuild the options page with
-    -- _skipNextApplyRebuild to prevent a redundant FullCDMRebuild.
+    -- Post-spell-change for CD/utility bars. Rebuild every CDM bar so an
+    -- added spell gets a fresh frame/layout rather than being folded into
+    -- the existing icon collection. Force an immediate CollectAndReanchor
+    -- afterward so source bars update NOW (not via the throttled queue).
+    -- Then rebuild the options page with _skipNextApplyRebuild to prevent a
+    -- redundant FullCDMRebuild.
     local function RefreshCDPreview()
+        if ns.BuildAllCDMBars then ns.BuildAllCDMBars() end
         if ns.CollectAndReanchor then ns.CollectAndReanchor() end
         ns._skipNextApplyRebuild = true
         C_Timer.After(0.05, function()
@@ -15051,10 +15053,12 @@ initFrame:SetScript("OnEvent", function(self)
             if not bd then return end
 
             -- Shared post-add finalization for ALL families (buff + CD/util).
-            -- Forces an immediate reanchor so source bars (where the spell
-            -- got auto-removed from) re-render without waiting for the
-            -- throttled queue. Then schedules a +0.05s preview refresh.
+            -- Rebuilds every CDM bar so the new spell gets a fresh frame and
+            -- layout, then forces an immediate reanchor so source bars (where
+            -- the spell got auto-removed from) re-render without waiting for
+            -- the throttled queue. Finally schedules a preview refresh.
             local function FinalizeAdd()
+                if ns.BuildAllCDMBars then ns.BuildAllCDMBars() end
                 if ns.CollectAndReanchor then ns.CollectAndReanchor() end
                 C_Timer.After(0.05, function()
                     if ns.CDMApplyVisibility then ns.CDMApplyVisibility() end
@@ -19186,23 +19190,7 @@ initFrame:SetScript("OnEvent", function(self)
                   BD().barStrata = v
                   ns.BuildAllCDMBars(); Refresh()
               end },
-            -- Profile-wide (one switch covers the Light's Potential and
-            -- Recklessness presets on every CD/utility bar): a pot preset whose
-            -- own family is fully out of bags swaps its icon/count/cooldown to
-            -- the best pot of the other family instead of sitting greyed.
-            { type = "toggle", text = "Swap Light/Reckless Pots When Missing",
-              tooltip = "When your bags have none of one potion type, its icon swaps to track the other type.",
-              getValue = function()
-                  local p = DB(); return p and p.cdmBars and p.cdmBars.swapPotionsWhenMissing == true
-              end,
-              setValue = function(v)
-                  local p = DB()
-                  if p and p.cdmBars then
-                      p.cdmBars.swapPotionsWhenMissing = v
-                      if ns._BumpPotResolveGen then ns._BumpPotResolveGen() end
-                      if ns.FullCDMRebuild then ns.FullCDMRebuild("pot_swap_toggle") end
-                  end
-              end });  y = y - h
+            nil);  y = y - h
 
         end -- custom_buff extras guard
 
