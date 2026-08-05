@@ -127,6 +127,23 @@ local LIVE_STRATA = "DIALOG"
 
 -------------------------------------------------------------------------------
 --  Database
+--
+--  Everything under DB_DEFAULTS.profile lives in the suite's central store, at
+--  EllesmereUIDB.profiles[<name>].addons.EllesmereUIActionPalette (see
+--  EllesmereUI.Lite.NewDB). That placement is the whole profile integration:
+--  the data follows whichever profile the character resolves to, a profile
+--  swap or import repoints db.profile and reaches _EAP_Apply through
+--  RefreshAllAddons (EllesmereUI_Profiles.lua:1433), and profile export and
+--  import carry the table because the module is listed in ADDON_DB_MAP
+--  (EllesmereUI_Profiles.lua:83). A new setting only needs a default here to
+--  be per-profile and exportable -- there is nothing else to register.
+--
+--  Two kinds of state must NOT be added under profile: per-character or
+--  account-wide state (keybinds, for example, stay in WoW's binding system),
+--  and anything read outside db.profile through a cached reference (P() is
+--  the accessor that stays correct across a swap). If the module ever grows
+--  unlock-anchored elements, their key prefix must also be added to
+--  KEY_PREFIX_FOLDER in EllesmereUI_Profiles.lua.
 -------------------------------------------------------------------------------
 local DB_DEFAULTS = {
     profile = {
@@ -5365,15 +5382,44 @@ _G._EAP_Apply = ns.Refresh
 -------------------------------------------------------------------------------
 --  Lifecycle
 -------------------------------------------------------------------------------
--- This module was called Radial Wheel until it grew layouts that are not
--- wheels. Adopt the old saved variable wholesale before AceDB ever sees the new
--- name: handing over the TABLE keeps profiles, per-character selection and
--- every palette exactly as they were, where copying only the profile would drop
--- the rest. Clearing the old global afterwards is what makes this run once.
+-- This module was called Radial Wheel. Its data has always lived in the
+-- suite's central store, under the addons key NewDB derives from the saved
+-- variable name -- so the rename moved the module's home from
+-- addons.EllesmereUIRadialWheel to addons.EllesmereUIActionPalette and left
+-- every configured palette behind under the old key, invisible to the module
+-- and to profile export alike. Move each profile's blob to the new key HERE,
+-- before NewDB runs. A moved blob still carries pre-rename field names
+-- (ringCount, rings); P() converts those on the profile's first touch, so
+-- the raw move is enough. Current data wins: a profile that already holds
+-- palette settings under the new key keeps them. One blind spot: logout
+-- StripDefaults leaves an all-defaults profile as an EMPTY table, which reads
+-- as "no data" here, so such a profile takes the legacy blob -- once, since
+-- the old key is removed either way. That cleanup is what makes this run
+-- once, and what stops the orphan riding along in every profile forever.
 local function MigrateLegacySV()
-    if _G.EllesmereUIActionPaletteDB or not _G.EllesmereUIRadialWheelDB then return end
-    _G.EllesmereUIActionPaletteDB = _G.EllesmereUIRadialWheelDB
-    _G.EllesmereUIRadialWheelDB = nil
+    -- The old global is vestigial, like every child SV: wiped in place so
+    -- WoW's serializer, which holds the table reference from load time,
+    -- writes it out empty. NewDB does the same for the new name.
+    if type(_G.EllesmereUIRadialWheelDB) == "table" then
+        wipe(_G.EllesmereUIRadialWheelDB)
+    end
+
+    local profiles = EllesmereUIDB and EllesmereUIDB.profiles
+    if type(profiles) ~= "table" then return end
+    for _, prof in pairs(profiles) do
+        local addons = type(prof) == "table" and prof.addons
+        if type(addons) == "table" then
+            local legacy = addons.EllesmereUIRadialWheel
+            if legacy ~= nil then
+                local dest = addons.EllesmereUIActionPalette
+                if type(legacy) == "table"
+                    and (type(dest) ~= "table" or next(dest) == nil) then
+                    addons.EllesmereUIActionPalette = legacy
+                end
+                addons.EllesmereUIRadialWheel = nil
+            end
+        end
+    end
 end
 
 function EAP:OnInitialize()

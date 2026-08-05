@@ -7,10 +7,11 @@
 ## Version: 8.7.4
 ## Dependencies: EllesmereUI
 # The RadialWheel name is this module's own, from before it grew layouts that
-# are not wheels. It stays declared so WoW still LOADS the old table -- an
-# undeclared SavedVariable is never read in, so OnInitialize would have nothing
-# to migrate from and every configured ring would silently vanish. Drop this
-# second name a release after the migration has shipped.
+# are not wheels. The global holds no data -- ring settings always lived in the
+# suite's central store, and MigrateLegacySV moves them to the module's new key
+# there. It stays declared only so WoW loads the vestigial table and writes it
+# back out empty; an undeclared SavedVariable would sit in the file untouched
+# forever. Drop this second name a release after the migration has shipped.
 ## SavedVariables: EllesmereUIActionPaletteDB, EllesmereUIRadialWheelDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 
