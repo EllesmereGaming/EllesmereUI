@@ -4549,6 +4549,19 @@ local ARM_CLAIM = [==[
             end
         end
     end
+    -- The floor goes under the claim's ground for as long as it is armed. Two
+    -- of the three sites that reach this fragment arm GEOMETRICALLY, with the
+    -- cursor already standing inside the gates rather than having walked into
+    -- them, and a gate shown under a still cursor never runs Blizzard's own
+    -- OnEnter wrap -- which is the only thing that raises "_wrapentered", and
+    -- the only thing that lets a wrapped OnLeave pre-body run at all. The
+    -- sandbox cannot raise that flag for itself: RestrictedFrames' SetAttribute
+    -- refuses every name that begins with an underscore. So the disarm is hung
+    -- off an OnENTER instead -- which runs on motion alone, flag or no flag --
+    -- and the floor is the frame that is always there to be entered. See
+    -- EnsureGates.
+    local fgate = btn:GetFrameRef("fgate")
+    if fgate then fgate:Show() end
     for armR = 1, __REGION_MAX__ do
         local region = btn:GetFrameRef("rgate" .. k .. "_" .. armR)
         -- Only a region this open actually pushed a box for: the press
@@ -5115,6 +5128,11 @@ local SNIPPET_POST = [==[
     -- press branch repositions it, and eapArmed itself would let a release on
     -- the very next open fire a claim the cursor never went near this time.
     self:SetAttribute("eapArmed", nil)
+    -- The floor first: it is the one gate that covers the whole screen, and a
+    -- hold that ended with a claim armed would otherwise leave it there taking
+    -- the cursor's hover away from everything under it.
+    local fgate = self:GetFrameRef("fgate")
+    if fgate then fgate:Hide() end
     local gm = tonumber(self:GetAttribute("eapGateMax")) or 0
     for k = 1, gm do
         local pgate = self:GetFrameRef("pgate" .. k)
@@ -5305,11 +5323,18 @@ end
 -- string or nil, aborting the wrap (and, uncaught, the rest of EnsureGates'
 -- loop past it) with "Invalid post-handler body" the moment any claim's
 -- first region gate was ever built.
+--
+-- k is nil for the FLOOR gate, which belongs to no one claim and runs the same
+-- test for whichever claim is armed at the moment it is entered. Only two lines
+-- differ -- the "is this gate still the armed claim's" prologue, and the letter
+-- the transcript records -- and the rest of the body already reads `armed` at
+-- run time rather than through the baked-in literal, so both variants measure
+-- the identical ground the identical way.
 local function LeaveSnippet(k)
     return (([==[
         local btn = self:GetFrameRef("btn")
         local armed = btn and tonumber(btn:GetAttribute("eapArmed"))
-        if armed ~= __ARMED_K__ then
+        if __STALE_TEST__ then
             self:Hide()
             return
         end
@@ -5431,7 +5456,7 @@ local function LeaveSnippet(k)
             -- hold, shared across every claim's gates because eapGTrace lives
             -- on the button, not on any one gate.
             local tr = (btn:GetAttribute("eapGTrace") or "") ..
-                "L" .. __ARMED_K__ .. (inside and ":in;" or ":out;")
+                __TRACE_HEAD__ .. (inside and ":in;" or ":out;")
             if #tr > 160 then tr = tr:sub(#tr - 160 + 1) end
             btn:SetAttribute("eapGTrace", tr)
         end
@@ -5482,7 +5507,8 @@ local function LeaveSnippet(k)
                 end
             end
         end
-    ]==]):gsub("__ARMED_K__", tostring(k))
+    ]==]):gsub("__STALE_TEST__", k and ("armed ~= " .. k) or "not armed")
+         :gsub("__TRACE_HEAD__", k and ('"L' .. k .. '"') or '"F" .. armed')
          :gsub("__REGION_MAX__", tostring(REGION_MAX))
          :gsub("__ARM_CLAIM__", function() return ARM_CLAIM end))
 end
@@ -5504,6 +5530,56 @@ local function EnsureGates(index, btn, need)
     if not pool then
         pool = { pgate = {}, rgate = {}, built = 0 }
         gatePools[index] = pool
+
+        -- The FLOOR. One per palette, under every other gate and over
+        -- everything else, shown only while some claim is armed -- see
+        -- ARM_CLAIM, which shows it, and SNIPPET_POST, which puts it away with
+        -- the rest of them.
+        --
+        -- It exists because arming and disarming do not run off the same kind
+        -- of edge. A claim can be armed with the cursor standing still -- the
+        -- press branch's pre-arm, and LeaveSnippet's re-arm, both of which
+        -- measure the cursor against the pushed boxes rather than waiting for
+        -- an OnEnter that a gate shown under a still cursor never gets -- and
+        -- Blizzard's own wrapper raises "_wrapentered" only from inside a
+        -- MOTION OnEnter (SecureHandlers.lua, Wrapped_OnEnter), while its
+        -- OnLeave refuses to run a pre-body without that flag. So a
+        -- geometrically armed claim's parent gate has a dead OnLeave: the
+        -- cursor steps off the cell through ground no region rect covers, and
+        -- nothing disarms for the rest of the hold -- nest stuck open, block
+        -- stuck dim, every other claim's parent gate stuck hidden. The sandbox
+        -- cannot raise the flag itself either: RestrictedFrames' SetAttribute
+        -- rejects every name beginning with an underscore.
+        --
+        -- An OnENTER pre-body has no such precondition -- motion is all it
+        -- asks -- so the disarm is hung off entering the floor rather than
+        -- leaving the cell. Screen-wide, because the one thing it must never
+        -- do is leave a way off the ground that misses it; below the region
+        -- gates (level 10) and the parent gates (20), so every rect of a
+        -- claim's real ground still wins the cursor and the floor is only ever
+        -- reached where the ground is not. Motion only, never
+        -- SetMouseClickEnabled: clicks -- the secure activation path itself --
+        -- pass straight through it, exactly as they do through the gates it
+        -- sits under.
+        local fgate = CreateFrame("Frame", "EUIActionPaletteButton" .. index .. "FGate",
+            UIParent, "SecureHandlerEnterLeaveTemplate")
+        fgate:SetAllPoints(UIParent)
+        fgate:SetFrameStrata(LIVE_STRATA)
+        fgate:SetFrameLevel(5)
+        fgate:SetMouseClickEnabled(false)
+        fgate:SetMouseMotionEnabled(true)
+        fgate:Hide()
+
+        SecureHandlerSetFrameRef(fgate, "btn", btn)
+        SecureHandlerSetFrameRef(fgate, "ui", UIParent)
+        -- Both edges, for the same reason a region gate wraps both: the OnEnter
+        -- is the test that matters, and the OnLeave is what raising the flag on
+        -- that entry buys -- a screen-wide gate is only ever left for another
+        -- gate, and re-testing there costs one geometric measurement.
+        SecureHandlerWrapScript(fgate, "OnEnter", EnsureSecureHeader(), LeaveSnippet(nil))
+        SecureHandlerWrapScript(fgate, "OnLeave", EnsureSecureHeader(), LeaveSnippet(nil))
+        SecureHandlerSetFrameRef(btn, "fgate", fgate)
+        pool.fgate = fgate
     end
     if pool.built >= need then return pool end
 
