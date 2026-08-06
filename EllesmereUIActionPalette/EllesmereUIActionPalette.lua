@@ -531,9 +531,8 @@ end
 
 -- kind -> attribute triple for the secure button, plus an optional 4th value:
 -- a sibling attribute key that must be cleared because the same action type
--- would otherwise read it in preference. Returns nil for kinds that have no
--- secure action type (battlepet, clearmarkers), which FireInsecure handles
--- instead.
+-- would otherwise read it in preference. Returns nil for the one kind with no
+-- secure action type (battlepet), which FireInsecure handles instead.
 local function ResolveAction(slot)
     if not slot or not slot.kind then return nil end
     local k = slot.kind
@@ -597,12 +596,35 @@ local function ResolveAction(slot)
         -- Fired as the /tm slash command rather than through
         -- SECURE_ACTIONS.raidtarget: that action reads TWO attributes, marker
         -- and action, and the firing end of the snippet pushes exactly one key
-        -- per cell. /tm is an ordinary command, not a secure one --
-        -- SetRaidTarget is unprotected -- and it reaches that same call
-        -- (SlashCommands.lua:1381-1406). /tm 0 is its documented clear.
+        -- per cell. The command reaches SetRaidTarget itself
+        -- (SlashCommands.lua:1381-1406), and /tm 0 is its documented clear.
+        --
+        -- What makes that legal is the secure button running the macro, NOT
+        -- anything about SetRaidTarget: it is protected, and refuses any call
+        -- an addon makes from its own Lua. See the clearmarkers branch below,
+        -- which was written on the opposite assumption and did not work.
         local id = tonumber(slot.id)
         if not id or id < 0 or id > 8 then return nil end
         return "macro", "macrotext", "/tm " .. id, "macro"
+
+    elseif k == "clearmarkers" then
+        -- SECURE_ACTIONS.raidtarget's own clear-all branch, which calls
+        -- RemoveRaidTargets (SecureTemplates.lua:590-592). SetRaidTarget is
+        -- documented AllowedWhenUntainted and is refused outright from an
+        -- addon's own Lua -- the sweep this replaces raised
+        -- ADDON_ACTION_FORBIDDEN on its first call -- so going through the
+        -- secure button, which runs the action untainted, is the only route.
+        --
+        -- The ACTION rides in the ordinary key/value slot: raidtarget reads
+        -- "marker" and "action", and the firing end of the snippet pushes one
+        -- key per cell. clear-all is the one branch that never looks at
+        -- "marker", so the single key can be spent on "action" instead.
+        --
+        -- It also clears more than the loop could: RemoveRaidTargets reaches
+        -- marks on units the client cannot currently name, which no clear-all
+        -- macro can. In a group it needs lead or assist, and quietly does
+        -- nothing without them -- the same rule as marking itself.
+        return "raidtarget", "action", "clear-all"
 
     elseif k == "worldmarker" then
         -- Same one-attribute reasoning as /tm above: /wm places a world
@@ -623,38 +645,12 @@ local function ResolveAction(slot)
 end
 ns.ResolveAction = ResolveAction
 
--- Kinds with no secure equivalent. Summoning a battle pet is not protected,
--- so it is safe to do straight from PostClick.
+-- The one kind with no secure action type at all. Summoning a battle pet is
+-- not protected, so it is safe to do straight from PostClick.
 local function FireInsecure(slot)
     if not slot then return end
     if slot.kind == "battlepet" and slot.guid and C_PetJournal then
         C_PetJournal.SummonPetByGUID(slot.guid)
-
-    elseif slot.kind == "clearmarkers" then
-        -- No slash command clears every TARGET marker the way /cwm clears the
-        -- world ones, but SetRaidTarget is not protected, so the clear is
-        -- plain Lua. Only a unit the client can NAME can be cleared: the
-        -- group and its pets cover friendly marks, visible nameplates cover
-        -- enemies, and target and focus catch a marked mob whose nameplate
-        -- is hidden. A marked mob nobody can currently reference keeps its
-        -- mark -- the limit every clear-all macro shares. An invalid unit
-        -- token is a silent no-op, so the loops need no existence checks.
-        if IsInRaid() then
-            for i = 1, 40 do
-                SetRaidTarget("raid" .. i, 0)
-                SetRaidTarget("raidpet" .. i, 0)
-            end
-        else
-            SetRaidTarget("player", 0)
-            SetRaidTarget("pet", 0)
-            for i = 1, 4 do
-                SetRaidTarget("party" .. i, 0)
-                SetRaidTarget("partypet" .. i, 0)
-            end
-        end
-        for i = 1, 40 do SetRaidTarget("nameplate" .. i, 0) end
-        SetRaidTarget("target", 0)
-        SetRaidTarget("focus", 0)
     end
 end
 
@@ -1815,6 +1811,14 @@ function PaletteView:ApplyFanGeometry()
     -- centre so magnifying it cannot close the gaps under its neighbours. A
     -- CONSTANT, applied whichever entry is selected: making it follow the
     -- selection would reflow the whole strip on every step.
+    --
+    -- Ramped in over the first step rather than switched on the moment k leaves
+    -- 0 -- see the offset below. The strip settles onto its entry CONTINUOUSLY,
+    -- so a term that appeared the instant k was nonzero held the centre entry a
+    -- few pixels out for the whole slide and then dropped it back as k reached
+    -- exactly 0: the whole strip came to rest and the middle icon twitched a
+    -- moment later, against the direction of travel. At every integer k the
+    -- ramp is already at full extra, so nothing about the settled strip moves.
     local zoom  = SelectedZoom()
     local extra = iconSize * (zoom - 1) * 0.5
     local sel   = self.selection
@@ -1832,7 +1836,7 @@ function PaletteView:ApplyFanGeometry()
         else
             local s   = max(minS, decay ^ k)
             local off = FanOffset(k, iconSize, gap, decay, minS)
-            if k > 0 then off = off + extra end
+            off = off + extra * min(1, k)
             if d < 0 then off = -off end
 
             w:SetAlpha(max(minA, aDecay ^ k))
@@ -4629,6 +4633,10 @@ local SNIPPET_PRE = [==[
     self:SetAttribute("macro", nil)
     self:SetAttribute("macrotext", nil)
     self:SetAttribute("toy", nil)
+    -- "action" is the marker sweep's key, and type="raidtarget" falls back to
+    -- "toggle" when it is unset -- so a sweep left behind would turn the next
+    -- raidtarget slot into a clear-all of the whole group.
+    self:SetAttribute("action", nil)
 
     self:SetAttribute(self:GetAttribute("eapK" .. idx), self:GetAttribute("eapV" .. idx))
     self:SetAttribute("type", t)
@@ -5133,12 +5141,10 @@ end
 
 local function OnPostClick(self, _, down)
     if down then return end
-    -- Battle pets and the marker sweep have no secure action type at all, so
-    -- they still fire from here, off the Lua-side selection. Neither summoning
-    -- a pet nor SetRaidTarget is protected.
+    -- A battle pet has no secure action type at all, so it still fires from
+    -- here, off the Lua-side selection. Summoning one is not protected.
     local slot = ns.CurrentSlot()
-    local k = slot and slot.kind
-    if k == "battlepet" or k == "clearmarkers" then FireInsecure(slot) end
+    if slot and slot.kind == "battlepet" then FireInsecure(slot) end
     ns.Close()
 end
 
