@@ -525,6 +525,14 @@ local MARKER_NAMES = {
     "Star", "Circle", "Diamond", "Triangle", "Moon", "Square", "Cross", "Skull",
 }
 
+-- "Summon Random Favorite Mount". The Mount Journal's own button calls
+-- C_MountJournal.SummonByID(0), which is protected -- the same wall the mount
+-- kind hits -- but the button is a spell button
+-- (Blizzard_MountCollection.xml:222), and that spell casts the identical roll.
+-- It is not in the spellbook, so it goes through CastSpellByName like every
+-- other mount here; see the mount branch of ResolveAction.
+local RANDOM_FAVORITE_MOUNT = 150544
+
 local function MarkerIcon(id)
     return "Interface\\TargetingFrame\\UI-RaidTargetingIcon_" .. id
 end
@@ -589,6 +597,15 @@ local function ResolveAction(slot)
         -- CastSpellByName resolves against.
         local info = type(spellID) == "number" and C_Spell.GetSpellInfo(spellID)
         local castName = (info and info.name) or mountName
+        if type(castName) ~= "string" or castName == "" then return nil end
+        return "spell", "spell", castName
+
+    elseif k == "randommount" then
+        -- By name for the same reason the mount branch is: a numeric value
+        -- routes to CastSpellByID, which does nothing for a spell outside the
+        -- spellbook.
+        local info = C_Spell.GetSpellInfo(RANDOM_FAVORITE_MOUNT)
+        local castName = info and info.name
         if type(castName) ~= "string" or castName == "" then return nil end
         return "spell", "spell", castName
 
@@ -687,6 +704,14 @@ local function SlotDisplay(slot)
     elseif k == "mount" then
         local name, _, icon = C_MountJournal.GetMountInfoByID(slot.id)
         return icon or QUESTION_MARK, name or slot.name
+
+    elseif k == "randommount" then
+        local info = C_Spell.GetSpellInfo(RANDOM_FAVORITE_MOUNT)
+        -- The client's own caption for the Mount Journal button, so the entry
+        -- reads the same on a localized client as the thing it summons.
+        return (info and info.iconID) or QUESTION_MARK,
+               MOUNT_JOURNAL_SUMMON_RANDOM_FAVORITE_MOUNT
+                   or (info and info.name) or "Random Favorite Mount"
 
     elseif k == "battlepet" then
         local _, _, _, _, _, _, _, name, icon = C_PetJournal.GetPetInfoByPetID(slot.guid)

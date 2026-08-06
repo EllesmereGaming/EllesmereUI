@@ -441,6 +441,7 @@ initFrame:SetScript("OnEvent", function(self)
                 local caption = (slot.kind == "raidtarget" and "target marker")
                     or (slot.kind == "worldmarker" and "world marker")
                     or (slot.kind == "clearmarkers" and "target markers")
+                    or (slot.kind == "randommount" and "mount")
                     or slot.kind
                 GameTooltip:AddLine(caption, 0.6, 0.6, 0.6)
             end
@@ -567,6 +568,15 @@ initFrame:SetScript("OnEvent", function(self)
 
     local function MountEntries()
         local out = {}
+        -- The roll the Mount Journal's own button makes, offered ahead of the
+        -- collection itself: it is the entry most palettes want, and hunting
+        -- for it among several hundred mounts sorted by name is not a search
+        -- anyone can make. pin is what holds it there past the sort.
+        do
+            local slot = { kind = "randommount" }
+            local icon, name = ns.SlotDisplay(slot)
+            out[1] = { icon = icon, name = name, slot = slot, pin = true }
+        end
         for _, mountID in ipairs(C_MountJournal.GetMountIDs()) do
             local name, spellID, icon, _, isUsable, _, _, _, _, hideOnChar, isCollected =
                 C_MountJournal.GetMountInfoByID(mountID)
@@ -1085,8 +1095,15 @@ initFrame:SetScript("OnEvent", function(self)
             -- the user is scanning for. A category can opt out for a list whose
             -- own order IS the one the user knows -- the markers run star to
             -- skull, the order every marker menu in the game shows.
+            -- A pinned entry sorts ahead of every plain one whatever its name.
+            -- Pinning is per entry rather than per category so a list that is
+            -- otherwise alphabetical can still lead with the row the user came
+            -- for.
             if not cat.keepOrder then
-                table.sort(list, function(a, b) return a.name < b.name end)
+                table.sort(list, function(a, b)
+                    if (a.pin or false) ~= (b.pin or false) then return a.pin == true end
+                    return a.name < b.name
+                end)
             end
             pickerLists[cat.key] = list
         end
