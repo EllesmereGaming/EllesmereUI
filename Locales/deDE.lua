@@ -5322,3 +5322,7 @@ L["~%dx  Myth Crest"]  = "~%dx  Wappen des Mythos"
 L["~%dx  Myth Crest\r\n|cff888888Scan at Upgrader for exact costs|r"] = "~%dx  Wappen des Mythos\r\n|cff888888Beim Aufwerter scannen für exakte Kosten|r"
 L["~%dx  Veteran Crest"]  = "~%dx  Wappen des Veterans"
 L["~%dx  Veteran Crest\r\n|cff888888Scan at Upgrader for exact costs|r"] = "~%dx  Wappen des Veterans\r\n|cff888888Beim Aufwerter scannen für exakte Kosten|r"
+
+-- QoL: Raid Tools -- hidden in a raid without leader or assist
+L["A raid control panel with ready check, pull timer and raid markers. In a raid it only shows while you are the leader or an assistant, since none of its buttons work without that; in a party it always shows."] = "Ein Kontrollfeld für Schlachtzüge mit Bereitschaftsprüfung, Pull-Timer und Schlachtzugsmarkierungen. Im Schlachtzug wird es nur angezeigt, solange Ihr Anführer oder Assistent seid, da ohne diese Rechte keine seiner Schaltflächen funktioniert; in einer Gruppe wird es immer angezeigt."
+L["Raid Tools is hidden in a raid without leader or assist -- none of its buttons work there."] = "Die Raid-Tools werden im Schlachtzug ohne Anführer- oder Assistentenrechte ausgeblendet -- dort funktioniert keine ihrer Schaltflächen."
