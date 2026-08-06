@@ -9910,18 +9910,88 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(UpdateBgSwatch)
         end
 
-        -- Row: Bar Texture | Show Spark
-        _, h = W:DualRow(parent, y,
+        -- Row: Bar Texture | Spell Text (cog: text size + x/y)
+        local gcdTextRow
+        gcdTextRow, h = W:DualRow(parent, y,
             { type = "dropdown", text = "Bar Texture",
               disabled = gcdOff, disabledTooltip = "GCD Bar",
               values = texValues, order = texOrder,
               getValue = function() local p = DB(); return p and p.gcdBar.texture or "none" end,
               setValue = function(v) local p = DB(); if not p then return end; p.gcdBar.texture = v; RefreshGCD() end },
+            { type = "dropdown", text = "Spell Text",
+              tooltip = "Show the name of the spell that triggered the GCD.",
+              disabled = gcdOff, disabledTooltip = "GCD Bar",
+              values = { none = "None", left = "Left", right = "Right", center = "Center" },
+              order = { "none", "left", "right", "center" },
+              getValue = function()
+                  local p = DB()
+                  if not p or not p.gcdBar.showSpellText then return "none" end
+                  return p.gcdBar.spellTextSide or "center"
+              end,
+              setValue = function(v)
+                  local p = DB(); if not p then return end
+                  if v == "none" then
+                      p.gcdBar.showSpellText = false
+                  else
+                      p.gcdBar.showSpellText = true
+                      p.gcdBar.spellTextSide = v
+                  end
+                  RefreshGCD(); EllesmereUI:RefreshPage()
+              end }
+        );  y = y - h
+
+        -- Inline cog on GCD Spell Text for text size + x/y, matching Cast Bar Spell Text.
+        do
+            local rgn = gcdTextRow._rightRegion
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Spell Text Settings",
+                rows = {
+                    { type = "slider", label = "Text Size", min = 8, max = 24, step = 1,
+                      get = function() local p = DB(); return p and p.gcdBar.spellTextSize or 11 end,
+                      set = function(v)
+                          local p = DB(); if not p then return end
+                          p.gcdBar.spellTextSize = v; RefreshGCD()
+                      end },
+                    { type = "slider", label = "X Offset", min = -100, max = 100, step = 1,
+                      get = function() local p = DB(); return p and p.gcdBar.spellTextX or 0 end,
+                      set = function(v)
+                          local p = DB(); if not p then return end
+                          p.gcdBar.spellTextX = v; RefreshGCD()
+                      end },
+                    { type = "slider", label = "Y Offset", min = -100, max = 100, step = 1,
+                      get = function() local p = DB(); return p and p.gcdBar.spellTextY or 0 end,
+                      set = function(v)
+                          local p = DB(); if not p then return end
+                          p.gcdBar.spellTextY = v; RefreshGCD()
+                      end },
+                },
+            })
+            local cogBtn = MakeCogBtn(rgn, cogShow, nil, EllesmereUI.DIRECTIONS_ICON)
+            local cogDis = CreateFrame("Frame", nil, rgn)
+            cogDis:SetAllPoints(cogBtn)
+            cogDis:SetFrameLevel(cogBtn:GetFrameLevel() + 5)
+            cogDis:EnableMouse(true)
+            cogDis:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip("Spell Text"))
+            end)
+            cogDis:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            local function UpdateCogDisGCDSpellText()
+                local p = DB()
+                if p and (not p.gcdBar.enabled or not p.gcdBar.showSpellText) then cogDis:Show() else cogDis:Hide() end
+            end
+            cogBtn:HookScript("OnShow", UpdateCogDisGCDSpellText)
+            EllesmereUI.RegisterWidgetRefresh(UpdateCogDisGCDSpellText)
+            UpdateCogDisGCDSpellText()
+        end
+
+        -- Row: Show Spark
+        _, h = W:DualRow(parent, y,
             { type = "toggle", text = "Show Spark",
               tooltip = "Show a small glowing spark that moves along the leading edge of the fill.",
               disabled = gcdOff, disabledTooltip = "GCD Bar",
               getValue = function() local p = DB(); return p and p.gcdBar.showSpark end,
-              setValue = function(v) local p = DB(); if not p then return end; p.gcdBar.showSpark = v; RefreshGCD() end }
+              setValue = function(v) local p = DB(); if not p then return end; p.gcdBar.showSpark = v; RefreshGCD() end },
+            { type = "spacer" }
         );  y = y - h
 
         -- Row: Deplete Fill (left half only)
