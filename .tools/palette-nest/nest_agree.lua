@@ -838,6 +838,104 @@ p.layout, p.fanInput, p.nestSide = "ARC", "SCROLL", "POSITIVE"
 p.gridNestStyle = "PERIMETER"
 
 ----------------------------------------------------------------------------
+--  PushPalette measures through the LIVE view, which is laid out for whatever
+--  was drawn last -- palette 1 here, and never palette 2. So every number it
+--  writes onto palette 2's button has to come from palette 2's appearance
+--  while the view still holds palette 1's, which is the whole job of
+--  liveView.appIndex and of PushPalette reading PA(index) rather than P().
+--
+--  This is the one place either of those can be caught. The sweeps only ever
+--  drive palette 1, where the view's own index already equals the pushed one
+--  and both are no-ops.
+----------------------------------------------------------------------------
+do
+    local a = Palette(1)
+    a.slots = {}
+    for i = 1, 4 do a.slots[i] = { kind = "spell", id = 400 + i } end
+    -- An OPEN arc, so its own step is nothing like the full circle palette 2
+    -- inherits. eapStepDeg is pushed from the view for every layout, grid
+    -- included, so this is what catches a push that measured through the view
+    -- while the view was still holding the other palette.
+    a.appearance = { layout = "ARC", arcSpan = 120, arcRotation = 0, scale = 1,
+                     centerMode = "SCREEN", posX = 0, posY = 0 }
+    local b = Palette(2)
+    b.slots = {}
+    for i = 1, 4 do b.slots[i] = { kind = "spell", id = 500 + i } end
+    -- Four columns where auto-columns would pick two, so the block is one row
+    -- rather than a square. Palette 1 does not override the column settings,
+    -- so a view left on palette 1 answers the auto shape instead.
+    b.appearance = { layout = "GRID", gridAutoColumns = false, gridColumns = 4,
+                     scale = 1.5, centerMode = "SCREEN", posX = 120, posY = -80,
+                     fanGap = 20 }
+    -- The profile says something different from BOTH of them, so a read that
+    -- fell back to it is a wrong answer rather than an accidentally right one.
+    p.paletteCount = 2
+    p.layout, p.scale, p.centerMode = "FAN", 0.5, "CURSOR"
+    p.posX, p.posY, p.fanGap = -999, -999, 3
+    p.arcSpan, p.arcRotation, p.gridAutoColumns = 360, 0, true
+    ns.Refresh()
+
+    local wrong = 0
+    local function Want(btn, key, want)
+        local got = btn:GetAttribute(key)
+        if got ~= want then
+            wrong = wrong + 1
+            print(("  %s %s: pushed=%s wanted=%s"):format(
+                btn:GetName(), key, tostring(got), tostring(want)))
+        end
+    end
+
+    local b1 = byName["EUIActionPaletteButton1"]
+    local b2 = byName["EUIActionPaletteButton2"]
+    assert(b1 and b2, "both palettes need a secure button")
+
+    Want(b1, "eapMode",  "ANGULAR")
+    -- An open arc of four entries divides by count MINUS ONE; a full circle
+    -- divides by the count. 120/3 against 360/4.
+    Want(b1, "eapStepDeg", 40)
+    Want(b1, "eapFull",    false)
+    Want(b2, "eapStepDeg", 90)
+    Want(b2, "eapFull",    true)
+    Want(b1, "eapScale", 1)
+    Want(b1, "eapPosX",  0)
+    Want(b2, "eapMode",  "POINTER")
+    Want(b2, "eapScale", 1.5)
+    Want(b2, "eapFixed", true)
+    Want(b2, "eapPosX",  120)
+    Want(b2, "eapPosY",  -80)
+
+    -- And the cell centres, which are the numbers the release actually
+    -- resolves against: a push that measured through palette 1's arc would
+    -- write no eapBX at all, and one that measured a grid at the profile's own
+    -- gap would write the right shape at the wrong pitch.
+    local view = ns.CreatePaletteView(UIParent, {})
+    view:Layout(2)
+    local cols, rows = view:GridDims(4)
+    if cols ~= 4 or rows ~= 1 then
+        wrong = wrong + 1
+        print(("  palette 2 draws %dx%d, wanted 4x1"):format(cols, rows))
+    end
+    local _, iconSize = view:Geom()
+    local pitch = iconSize + 20
+    for i = 1, 4 do
+        local bx, by = view:GridBase(i, cols, rows, pitch, 4)
+        Want(b2, "eapBX" .. i, bx)
+        Want(b2, "eapBY" .. i, by)
+    end
+    Want(b2, "eapPitch", pitch)
+
+    print(("push reads the pushed palette's own appearance   %5d wrong%s"):format(
+        wrong, wrong > 0 and "  <-- FAIL" or ""))
+    bad = bad + wrong
+
+    Palette(1).appearance, Palette(2).appearance = nil, nil
+    p.layout, p.scale, p.centerMode = "ARC", 1, "SCREEN"
+    p.posX, p.posY, p.fanGap = 0, 0, nil
+    p.gridAutoColumns = nil
+    ns.Refresh()
+end
+
+----------------------------------------------------------------------------
 --  The cell a hit test answers with must name the SAME action the button
 --  would fire from that index. An off-by-one between the view's flattening
 --  and the push would leave both sides agreeing on a number and firing the

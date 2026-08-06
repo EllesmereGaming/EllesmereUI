@@ -427,9 +427,13 @@ end
 --
 -- Keyed by the palette TABLE rather than by its index: deleting a palette
 -- shifts every palette above it down one, and switching profile replaces the
--- lot. An override belongs to the palette, and so does its view. Bounded by
--- MAX_PALETTES per profile the module has touched, which is why nothing here
--- prunes.
+-- lot. An override belongs to the palette, and so does its view.
+--
+-- Never pruned, and not bounded by MAX_PALETTES either: deleting a palette and
+-- adding one leaves the deleted table in here, alive, for the rest of the
+-- session. Each entry is one empty table and one metatable, and palettes are
+-- added and deleted by hand on a settings page, so the ceiling is what a person
+-- can be bothered to click.
 local appearanceViews = {}
 
 local function PA(paletteIndex)
@@ -645,8 +649,9 @@ end
 
 -- kind -> attribute triple for the secure button, plus an optional 4th value:
 -- a sibling attribute key that must be cleared because the same action type
--- would otherwise read it in preference. Returns nil for the one kind with no
--- secure action type (battlepet), which FireInsecure handles instead.
+-- would otherwise read it in preference. Returns nil for the kinds with no
+-- secure action type at all (battlepet, spec), which FireInsecure handles
+-- instead.
 local function ResolveAction(slot)
     if not slot or not slot.kind then return nil end
     local k = slot.kind
@@ -930,7 +935,7 @@ end
 --
 -- The charge count must never be looked at, not even for truth or for nil.
 -- C_Spell.GetSpellCharges is flagged SecretWhenCooldownsRestricted
--- (SpellDocumentation.lua:233), so currentCharges comes back a SECRET number
+-- (SpellDocumentation.lua:234), so currentCharges comes back a SECRET number
 -- once restrictions are in effect, and touching one from tainted execution
 -- throws -- the same wall the spell cooldown hit. So the caller is told
 -- separately that there IS a count, and the count itself only ever reaches
