@@ -7086,9 +7086,8 @@ initFrame:SetScript("OnEvent", function(self)
             if C_AddOns and C_AddOns.IsAddOnLoaded and C_AddOns.IsAddOnLoaded("EllesmereUICooldownManager") then
                 -- Access the FocusKick bar config in CDM's profile data
                 local function GetFocusKickBar()
-                    local cdmDb = _G._ECME_AceDB
-                    local p = cdmDb and cdmDb.profile
-                    local bars = p and p.cdmBars and p.cdmBars.bars
+                    local cfg = _G._ECME_GetActiveCDMConfig and _G._ECME_GetActiveCDMConfig()
+                    local bars = cfg and cfg.bars
                     if not bars then return nil end
                     for _, b in ipairs(bars) do
                         if b.key == "focuskick" then return b end

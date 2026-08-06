@@ -203,14 +203,14 @@ initFrame:SetScript("OnEvent", function(self)
 
     -- Build the live dropdown list. Returns an array of
     -- { value, label } entries in display order:
-    --   1. CDM bars from p.cdmBars.bars (default + extras, skipping ghost/custom_buff)
+    --   1. CDM bars from ns.GetActiveCDMConfig(true).bars (default + extras, skipping ghost/custom_buff)
     --   2. Action bars 1-6
     -- "value" is a string for CDM bars (the bar key) or an integer 1-6 for action bars.
     local function BuildBGTargetList()
         local list = {}
         local p = ns.ECME and ns.ECME.db and ns.ECME.db.profile
-        if p and p.cdmBars and p.cdmBars.bars then
-            for _, bd in ipairs(p.cdmBars.bars) do
+        if p and ns.GetActiveCDMConfig(true) and ns.GetActiveCDMConfig(true).bars then
+            for _, bd in ipairs(ns.GetActiveCDMConfig(true).bars) do
                 if bd.enabled and not bd.isGhostBar
                    and bd.barType ~= "custom_buff" then
                     list[#list + 1] = {
@@ -232,8 +232,8 @@ initFrame:SetScript("OnEvent", function(self)
             return EllesmereUI.L(BG_ACTION_BAR_LABELS[sel] or ("Action Bar " .. sel))
         end
         local p = ns.ECME and ns.ECME.db and ns.ECME.db.profile
-        if p and p.cdmBars and p.cdmBars.bars then
-            for _, bd in ipairs(p.cdmBars.bars) do
+        if p and ns.GetActiveCDMConfig(true) and ns.GetActiveCDMConfig(true).bars then
+            for _, bd in ipairs(ns.GetActiveCDMConfig(true).bars) do
                 if bd.key == sel then return EllesmereUI.Lf("CDM Bar - %s", EllesmereUI.L(bd.name or bd.key)) end
             end
         end
@@ -3351,14 +3351,14 @@ initFrame:SetScript("OnEvent", function(self)
         local _, h
 
         -- If user chose Blizzard bars, show re-enable button and bail
-        local usingBlizz = DB() and DB().cdmBars and DB().cdmBars.useBlizzardBuffBars
+        local usingBlizz = DB() and ns.GetActiveCDMConfig(true) and ns.GetActiveCDMConfig(true).useBlizzardBuffBars
         if usingBlizz then
             _, h = W:WideDualButton(parent,
                 "Enable Tracking Bars", "Open Blizzard CDM", y,
                 function()
                     local p = DB()
-                    if p and p.cdmBars then
-                        p.cdmBars.useBlizzardBuffBars = false
+                    if p and ns.GetActiveCDMConfig(true) then
+                        ns.GetActiveCDMConfig(true).useBlizzardBuffBars = false
                     end
                     EllesmereUI:ShowConfirmPopup({
                         title = "Reload Required",
@@ -4108,17 +4108,12 @@ initFrame:SetScript("OnEvent", function(self)
         --  shown in both bar and group mode)
         -------------------------------------------------------------------
         do
-            -- The third card broadcasts the selected bar to every other spec,
-            -- then flips to "Remove Bar from All Specs" (the inverse). It is
+            -- The third card performs a one-time copy to every other spec. It is
             -- dimmed unless a preset or custom-buff bar is selected.
             local _selForBroadcast = (not _tbbSelectedGroup) and SelectedTBB() or nil
             local _canBroadcast = ns.IsTrackedBuffBarBroadcastable
                 and ns.IsTrackedBuffBarBroadcastable(_selForBroadcast) or false
-            local _isBroadcast = _canBroadcast
-                and ns.IsTrackedBuffBarBroadcast
-                and ns.IsTrackedBuffBarBroadcast(_selForBroadcast) or false
-            local _broadcastLabel = _isBroadcast and "Remove Bar from All Specs"
-                                                  or "Add Bar to All Specs"
+            local _broadcastLabel = "Copy Bar to All Specs"
             local EGc = EllesmereUI.ELLESMERE_GREEN
             local PADc = EllesmereUI.CONTENT_PAD or 10
             local CARD_H, CARD_GAP, CARD_ICON = 60, 12, 24
@@ -4204,8 +4199,8 @@ initFrame:SetScript("OnEvent", function(self)
                         cancelText = "Cancel",
                         onConfirm = function()
                             local p = DB()
-                            if p and p.cdmBars then
-                                p.cdmBars.useBlizzardBuffBars = true
+                            if p and ns.GetActiveCDMConfig(true) then
+                                ns.GetActiveCDMConfig(true).useBlizzardBuffBars = true
                             end
                             ReloadUI()
                         end,
@@ -4226,33 +4221,20 @@ initFrame:SetScript("OnEvent", function(self)
                         local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(sel.spellID)
                         if info and info.name then nm = info.name end
                     end
-                    if ns.IsTrackedBuffBarBroadcast and ns.IsTrackedBuffBarBroadcast(sel) then
-                        EllesmereUI:ShowConfirmPopup({
-                            title = "Remove Bar from All Specs",
-                            message = EllesmereUI.Lf("Remove \"%1$s\" from every other spec? The bar in this spec is kept.", nm),
-                            confirmText = "Remove from All",
-                            cancelText = "Cancel",
-                            onConfirm = function()
-                                if ns.RemoveBarFromAllSpecs then ns.RemoveBarFromAllSpecs(_tbbSelectedBar) end
-                                EllesmereUI:RefreshPage(true)
-                            end,
-                        })
-                    else
-                        EllesmereUI:ShowConfirmPopup({
-                            title = "Add Bar to All Specs",
-                            message = EllesmereUI.Lf("Add \"%1$s\" to every spec? It will be copied to each of your specs that doesn't already have it.", nm),
-                            confirmText = "Add to All Specs",
-                            cancelText = "Cancel",
-                            onConfirm = function()
-                                if ns.AddBarToAllSpecs then ns.AddBarToAllSpecs(_tbbSelectedBar) end
-                                EllesmereUI:RefreshPage(true)
-                            end,
-                        })
-                    end
+                    EllesmereUI:ShowConfirmPopup({
+                        title = "Copy Bar to All Specs",
+                        message = EllesmereUI.Lf("Copy \"%1$s\" to every spec that doesn't already have it? Later edits remain independent.", nm),
+                        confirmText = "Copy to All Specs",
+                        cancelText = "Cancel",
+                        onConfirm = function()
+                            if ns.AddBarToAllSpecs then ns.AddBarToAllSpecs(_tbbSelectedBar) end
+                            EllesmereUI:RefreshPage(true)
+                        end,
+                    })
                 end,
                 (not _canBroadcast) and (_tbbSelectedGroup
-                    and "Select a bar to broadcast it to other specs"
-                    or "Only preset or custom buff bars can be added to all specs") or nil)
+                    and "Select a bar to copy it to other specs"
+                    or "Only preset or custom buff bars can be copied to all specs") or nil)
             y = y - CARD_H - 12
 
             -- Preset Style panel: styled exactly like the Profiles & Presets
@@ -5324,7 +5306,7 @@ initFrame:SetScript("OnEvent", function(self)
                   RefreshTBB(); EllesmereUI:RefreshPage()
               end },
             { type = "dropdown", text = "Smooth Bars",
-              tooltip = "Eases bar movement instead of snapping. Affects all Tracking Bars of that type, in every spec of this profile.",
+              tooltip = "Eases bar movement instead of snapping for Tracking Bars of this type in the current spec.",
               values = { __placeholder = "..." }, order = { "__placeholder" },
               getValue = function() return "__placeholder" end,
               setValue = function() end });  y = y - h
@@ -6111,7 +6093,7 @@ initFrame:SetScript("OnEvent", function(self)
     -- content header and the rebuilt page reflect the chosen bar.
     function EllesmereUI._setCDMBar(keyOrType)
         local p = DB()
-        local bars = p and p.cdmBars and p.cdmBars.bars
+        local bars = p and ns.GetActiveCDMConfig(true) and ns.GetActiveCDMConfig(true).bars
         if not bars then return end
         for bi, bb in ipairs(bars) do
             if bb.key == keyOrType or bb.barType == keyOrType then
@@ -6162,8 +6144,8 @@ initFrame:SetScript("OnEvent", function(self)
     --- Get the currently selected CDM bar data
     local function SelectedCDMBar()
         local p = DB()
-        if not p or not p.cdmBars or not p.cdmBars.bars then return nil end
-        local bars = p.cdmBars.bars
+        if not p or not ns.GetActiveCDMConfig(true) or not ns.GetActiveCDMConfig(true).bars then return nil end
+        local bars = ns.GetActiveCDMConfig(true).bars
         if selectedCDMBarIndex < 1 then selectedCDMBarIndex = 1 end
         if selectedCDMBarIndex > #bars then selectedCDMBarIndex = #bars end
         return bars[selectedCDMBarIndex]
@@ -8799,6 +8781,21 @@ initFrame:SetScript("OnEvent", function(self)
                     --  function is enormous and Lua 5.1 caps active locals at 200.
                     -----------------------------------------------------------
                     local AB = {}
+                    AB.BarDefForProf = function(prof)
+                        local bars = prof and prof.cdmBars and prof.cdmBars.bars
+                        if not bars then return nil end
+                        for _, candidate in ipairs(bars) do
+                            if candidate.key == barKey then return candidate end
+                        end
+                    end
+                    AB.ForEachClassSpec = function(create, fn)
+                        if not (EUI and EUI.Spec and ns.GetSpecContainerForProfile) then return end
+                        local profileName = ns.GetActiveProfileName()
+                        for _, info in ipairs(EUI.Spec:GetList() or {}) do
+                            local prof = ns.GetSpecContainerForProfile(profileName, tostring(info.id), create)
+                            if prof then fn(prof) end
+                        end
+                    end
                     -- Run fn(sid, entry) for every per-spell entry belonging to a
                     -- bar in the given spec profile. The DEFAULT buffs bar owns
                     -- every buff-store entry not claimed by another buff bar
@@ -8879,7 +8876,7 @@ initFrame:SetScript("OnEvent", function(self)
                             end
                         end
                         local cb = ns.ECME and ns.ECME.db and ns.ECME.db.profile
-                            and ns.ECME.db.profile.cdmBars
+                            and ns.GetActiveCDMConfig(true)
                         local barsList = cb and cb.bars
                         if barsList then
                             for _, b2 in ipairs(barsList) do
@@ -8908,9 +8905,9 @@ initFrame:SetScript("OnEvent", function(self)
                         thresholdColorEnabled = true, thresholdColorR = true,
                         thresholdColorG = true, thresholdColorB = true,
                     }
-                    AB.StampMemberCas = function(bsX, applyWrite, val, keys)
+                    AB.StampMemberCas = function(prof, bsX, applyWrite, val, keys)
                         if not (bsX and type(bsX.assignedSpells) == "table") then return end
-                        if not (ns.GetCustomActiveState and ns.ResolveCustomActiveKey) then return end
+                        if not (ns.GetCustomActiveStateForProf and ns.ResolveCustomActiveKey) then return end
                         -- cas semantics: nil = no cd-state effect (PresetHasCdState
                         -- checks effect presence). The explicit blocking-false is a
                         -- tier / per-trinket-exclusion concept -- strip it from
@@ -8935,7 +8932,7 @@ initFrame:SetScript("OnEvent", function(self)
                                     -- application that covers whatever item is
                                     -- equipped, now or after any swap -- no entry
                                     -- minted per equipped item.
-                                    local e = ns.GetCustomActiveState(sid2, true)
+                                    local e = ns.GetCustomActiveStateForProf(prof, sid2, true)
                                     if e then
                                         applyWrite(e, val)
                                         StripFalse(e)
@@ -8948,12 +8945,12 @@ initFrame:SetScript("OnEvent", function(self)
                                     -- the menu AFTER an apply; benched trinkets keep
                                     -- their per-item choices untouched.
                                     local itemID = GetInventoryItemID("player", -sid2)
-                                    local own = itemID and ns.GetCustomActiveState(-itemID) or nil
+                                    local own = itemID and ns.GetCustomActiveStateForProf(prof, -itemID) or nil
                                     if own and keys then
                                         for _, k2 in ipairs(keys) do own[k2] = nil end
                                     end
                                 else
-                                    local e = ns.GetCustomActiveState(ns.ResolveCustomActiveKey(sid2), true)
+                                    local e = ns.GetCustomActiveStateForProf(prof, ns.ResolveCustomActiveKey(sid2), true)
                                     if e then
                                         applyWrite(e, val)
                                         StripFalse(e)
@@ -8997,6 +8994,11 @@ initFrame:SetScript("OnEvent", function(self)
                         local function sweep(prof)
                             if type(prof) ~= "table" then return end
                             local bsX = prof.barSpells and prof.barSpells[barKey]
+                            if allSpecs then
+                                local targetBd = AB.BarDefForProf(prof)
+                                local targetAbs = targetBd and targetBd.barSpellSettings
+                                if targetAbs and entryLoses(targetAbs, false) then count = count + 1 end
+                            end
                             if allSpecs and bsX and type(bsX.barSettings) == "table" then
                                 for _, k in ipairs(keys) do
                                     local own = bsX.barSettings[k]
@@ -9010,7 +9012,7 @@ initFrame:SetScript("OnEvent", function(self)
                                 if entryLoses(e, false) then count = count + 1 end
                             end)
                             if touchesCas and bsX and type(bsX.assignedSpells) == "table"
-                               and ns.GetCustomActiveState and ns.ResolveCustomActiveKey then
+                               and ns.GetCustomActiveStateForProf and ns.ResolveCustomActiveKey then
                                 for _, sid2 in ipairs(bsX.assignedSpells) do
                                     local isInj = ((type(sid2) == "number" and sid2 < 0)
                                         or (ns._myRacialsSet and ns._myRacialsSet[sid2])
@@ -9021,18 +9023,16 @@ initFrame:SetScript("OnEvent", function(self)
                                         -- own entry -- the values the stamp will clear;
                                         -- the slot entry is the bar-level stamp itself
                                         -- (analogous to the tier) and is not counted.
-                                        local e = ns.GetCustomActiveState(ns.ResolveCustomActiveKey(sid2))
+                                        local e = ns.GetCustomActiveStateForProf(prof, ns.ResolveCustomActiveKey(sid2))
                                         if e and entryLoses(e, true) then count = count + 1 end
                                     end
                                 end
                             end
                         end
-                        local spAll = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
                         if allSpecs then
-                            if spAll then
-                                for _, prof in pairs(spAll) do sweep(prof) end
-                            end
+                            AB.ForEachClassSpec(false, sweep)
                         else
+                            local spAll = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
                             local specKeyA = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
                             local prof = spAll and specKeyA and spAll[specKeyA]
                             if prof then sweep(prof) end
@@ -9067,29 +9067,29 @@ initFrame:SetScript("OnEvent", function(self)
                                 end
                             end)
                             if touchesCas then
-                                AB.StampMemberCas(bsX, applyWrite, val, keys)
+                                AB.StampMemberCas(prof, bsX, applyWrite, val, keys)
                             end
                         end
                         if allSpecs then
                             if not bdSel then return end
-                            local abs = bdSel.barSpellSettings
-                            if not abs then abs = {}; bdSel.barSpellSettings = abs end
-                            applyWrite(abs, val)
-                            AB.FlipSessionGates(abs)
-                            local spAll = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
-                            if spAll then
-                                for _, prof in pairs(spAll) do sweepProf(prof) end
-                            end
+                            AB.ForEachClassSpec(true, function(prof)
+                                local targetBd = AB.BarDefForProf(prof)
+                                if targetBd then
+                                    local abs = targetBd.barSpellSettings
+                                    if not abs then abs = {}; targetBd.barSpellSettings = abs end
+                                    applyWrite(abs, val)
+                                    AB.FlipSessionGates(abs)
+                                    sweepProf(prof)
+                                end
+                            end)
                         else
-                            -- Mutual exclusivity: applying to THIS bar (this spec)
-                            -- removes any "Apply to Bar (All Specs)" apply for these
-                            -- keys, so the two scopes are never both active. (The
-                            -- reverse -- an All Specs apply clearing the per-spec tier
-                            -- across every spec -- is handled by sweepProf above.) The
-                            -- canonical unapply also cleans up preset cas stamps; the
-                            -- per-spec write below then re-stamps THIS spec's members.
-                            -- No-op (and no refresh) when All Specs isn't active.
-                            AB.RunBarUnapply(keys, true)
+                            -- The all-spec action wrote independent copies. Replacing
+                            -- the active spec's copy must not modify any other spec.
+                            local activeAbs = bdSel and bdSel.barSpellSettings
+                            if activeAbs then
+                                for _, k in ipairs(keys) do activeAbs[k] = nil end
+                                if next(activeAbs) == nil then bdSel.barSpellSettings = nil end
+                            end
                             local bs = sd.barSettings
                             if not bs then bs = {}; sd.barSettings = bs end
                             ns.ChainSettings(bs, bdSel and bdSel.barSpellSettings)
@@ -9177,7 +9177,17 @@ initFrame:SetScript("OnEvent", function(self)
                                 sd.barSettings = nil
                             end
                         end
-                        if touchesCas and ns.GetCustomActiveState and ns.ResolveCustomActiveKey then
+                        if allSpecs then
+                            AB.ForEachClassSpec(false, function(prof)
+                                local targetBd = AB.BarDefForProf(prof)
+                                local target = targetBd and targetBd.barSpellSettings
+                                if target then
+                                    for _, k in ipairs(keys) do target[k] = nil end
+                                    if next(target) == nil then targetBd.barSpellSettings = nil end
+                                end
+                            end)
+                        end
+                        if touchesCas and ns.GetCustomActiveStateForProf and ns.ResolveCustomActiveKey then
                             -- Remove still-equal stamped values from one cas entry.
                             -- rawget: a trinket item entry may be CHAINED to its slot
                             -- entry, and an inherited value must not read as an own
@@ -9198,7 +9208,7 @@ initFrame:SetScript("OnEvent", function(self)
                                     if rv ~= nil and rawget(e, k) == rv then e[k] = nil end
                                 end
                             end
-                            local function unstamp(bsX)
+                            local function unstamp(prof, bsX)
                                 if not (bsX and type(bsX.assignedSpells) == "table") then return end
                                 for _, sid2 in ipairs(bsX.assignedSpells) do
                                     local isInj = ((type(sid2) == "number" and sid2 < 0)
@@ -9211,30 +9221,26 @@ initFrame:SetScript("OnEvent", function(self)
                                             -- entry. Also sweep the equipped item's
                                             -- own entry -- it may carry a legacy
                                             -- per-item stamp from before slot stamping.
-                                            unstampEntry(ns.GetCustomActiveState(sid2))
+                                            unstampEntry(ns.GetCustomActiveStateForProf(prof, sid2))
                                             local itemID = GetInventoryItemID("player", -sid2)
                                             if itemID then
-                                                unstampEntry(ns.GetCustomActiveState(-itemID))
+                                                unstampEntry(ns.GetCustomActiveStateForProf(prof, -itemID))
                                             end
                                         else
-                                            unstampEntry(ns.GetCustomActiveState(ns.ResolveCustomActiveKey(sid2)))
+                                            unstampEntry(ns.GetCustomActiveStateForProf(prof, ns.ResolveCustomActiveKey(sid2)))
                                         end
                                     end
                                 end
                             end
-                            local spAll = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
                             if allSpecs then
-                                if spAll then
-                                    for _, prof in pairs(spAll) do
-                                        if type(prof) == "table" then
-                                            unstamp(prof.barSpells and prof.barSpells[barKey])
-                                        end
-                                    end
-                                end
+                                AB.ForEachClassSpec(false, function(prof)
+                                    unstamp(prof, prof.barSpells and prof.barSpells[barKey])
+                                end)
                             else
+                                local spAll = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
                                 local specKeyA = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
                                 local prof = spAll and specKeyA and spAll[specKeyA]
-                                if prof then unstamp(prof.barSpells and prof.barSpells[barKey]) end
+                                if prof then unstamp(prof, prof.barSpells and prof.barSpells[barKey]) end
                             end
                             if ns.FakeActive_Rearm then ns.FakeActive_Rearm() end
                         end
@@ -9306,7 +9312,7 @@ initFrame:SetScript("OnEvent", function(self)
                         end
                         local thisBtn = MakeScopeItem(EllesmereUI.L("Apply to This Spell"))
                         local b1 = MakeScopeItem(EllesmereUI.L("Apply to Bar"))
-                        local b2 = MakeScopeItem(EllesmereUI.L("Apply to Bar (All Specs)"))
+                        local b2 = MakeScopeItem(EllesmereUI.L("Copy to Bar (All Specs)"))
                         local b3 = MakeScopeItem(EllesmereUI.L("Exclude This Spell"))
                         b3._shown = false
                         -- Exclude/Include This Spell reads apart from the scope rows:
@@ -13149,8 +13155,8 @@ initFrame:SetScript("OnEvent", function(self)
             end
             -- Check all other non-buff bars for cross-bar duplicate detection
             local prof = ns.ECME and ns.ECME.db and ns.ECME.db.profile
-            if prof and prof.cdmBars and prof.cdmBars.bars then
-                for _, otherBar in ipairs(prof.cdmBars.bars) do
+            if prof and ns.GetActiveCDMConfig(true) and ns.GetActiveCDMConfig(true).bars then
+                for _, otherBar in ipairs(ns.GetActiveCDMConfig(true).bars) do
                     if otherBar.key ~= barKey then
                         local otherType = otherBar.barType or otherBar.key
                         if otherType ~= "buffs" then
@@ -13798,7 +13804,6 @@ initFrame:SetScript("OnEvent", function(self)
             if _customTrackingSub then _customTrackingSub:Hide() end
             -- Per-icon cog settings for racials/pots/trinkets are edited in this
             -- menu; propagate them to synced specs when it closes.
-            if ns.MaybePropagateRPT then ns.MaybePropagateRPT() end
         end)
 
         menu:Show()
@@ -13809,7 +13814,7 @@ initFrame:SetScript("OnEvent", function(self)
     --- Build the live CDM bar preview in the content header (interactive)
     local function BuildCDMLivePreview(parent, yOff)
         local p = DB()
-        if not p or not p.cdmBars then return 0 end
+        if not p or not ns.GetActiveCDMConfig(true) then return 0 end
 
         local barData = SelectedCDMBar()
         if not barData then return 0 end
@@ -15843,9 +15848,9 @@ initFrame:SetScript("OnEvent", function(self)
         local _, h
 
         local p = DB()
-        if not p or not p.cdmBars then return math.abs(yOffset) end
+        if not p or not ns.GetActiveCDMConfig(true) then return math.abs(yOffset) end
 
-        local bars = p.cdmBars.bars
+        local bars = ns.GetActiveCDMConfig(true).bars
         if not bars or #bars == 0 then return math.abs(yOffset) end
 
 
@@ -16009,7 +16014,7 @@ initFrame:SetScript("OnEvent", function(self)
             C_Timer.After(0.05, function() P.search:SetFocus() end)
         end
 
-        -- Sync Generic CDs/Buffs across specs (per profile): trinkets, pots,
+        -- Copy Generic CDs/Buffs across specs (per profile): trinkets, pots,
         -- racials and buff-bar presets (Bloodlust, etc.). First-time
         -- setup picks a SOURCE spec (searchable dropdown, default current spec),
         -- then a spec picker with the source locked ON (auto-checked, can't be
@@ -16027,18 +16032,17 @@ initFrame:SetScript("OnEvent", function(self)
                     s.checked = (s.key == sourceKey)
                 end
                 EllesmereUI:ShowCDMSpecPickerPopup({
-                    title       = "Sync Generic CDs/Buffs",
-                    subtitle    = "Choose which specs sync with " .. srcName .. " (the source is always included)",
-                    confirmText = "Sync",
+                    title       = "Copy Generic CDs/Buffs",
+                    subtitle    = "Choose target specs to receive a one-time copy from " .. srcName .. ". Later edits stay independent.",
+                    confirmText = "Copy",
                     specs       = specs,
-                    lockedSpecs = { [sourceKey] = "This is the spec you're syncing from -- it's always included." },
+                    lockedSpecs = { [sourceKey] = "This is the source spec and is always included." },
                     onConfirm   = function(selectedSpecs)
                         selectedSpecs[sourceKey] = true
                         local cnt = 0
                         for _, v in pairs(selectedSpecs) do if v then cnt = cnt + 1 end end
                         if cnt <= 1 then
-                            -- Only the source picked -> nothing to sync; clear any sync.
-                            if ns.ClearRPTSync then ns.ClearRPTSync() end
+                            -- Only the source picked, so there is no target.
                             EllesmereUI:RefreshPage(true)
                             return
                         end
@@ -16050,60 +16054,15 @@ initFrame:SetScript("OnEvent", function(self)
             end)
         end
 
-        -- Edit an existing sync: open the spec picker directly (no source step),
-        -- with the currently-synced specs pre-checked. Unchecking a spec drops it
-        -- from the sync (its trinkets/pots/racials/buff presets are left as-is);
-        -- checking a new spec folds it in. Falling to one-or-zero specs clears it.
-        local function EditRPTSync()
-            -- Pre-check EVERY synced spec, not just the current class's. A sync
-            -- can span specs from other classes (same profile used across
-            -- characters; pots & trinkets are shared), and the picker grid shows
-            -- all classes -- so seed the pre-checked set straight from the stored
-            -- sync set rather than from the current class's spec list (which is
-            -- all GetCDMSpecInfo returns).
-            local existing = ns.GetRPTSyncSpecs and ns.GetRPTSyncSpecs()
-            local specs = {}
-            if existing then
-                for key in pairs(existing) do
-                    specs[#specs + 1] = { key = key, checked = true }
-                end
-            end
-            EllesmereUI:ShowCDMSpecPickerPopup({
-                title       = "Sync Generic CDs/Buffs",
-                subtitle    = "Uncheck a spec to remove it from the sync. Removed specs keep their current trinkets, pots, racials & buff presets.",
-                confirmText = "Save",
-                specs       = specs,
-                onConfirm   = function(selectedSpecs)
-                    local cnt = 0
-                    for _, v in pairs(selectedSpecs) do if v then cnt = cnt + 1 end end
-                    if cnt <= 1 then
-                        -- One or zero specs left -> nothing to sync; clear it.
-                        if ns.ClearRPTSync then ns.ClearRPTSync() end
-                        EllesmereUI:RefreshPage(true)
-                        return
-                    end
-                    if ns.UpdateRPTSyncSpecs then ns.UpdateRPTSyncSpecs(selectedSpecs) end
-                    if ns.FullCDMRebuild then ns.FullCDMRebuild("profile_import") end
-                    EllesmereUI:RefreshPage(true)
-                end,
-            })
-        end
-
-        -- Route the third action button: edit the live sync, or set up a new one.
+        -- The operation is always a fresh one-time copy; no live sync is stored.
         local function DoRPTSync()
-            if ns.HasRPTSync and ns.HasRPTSync() then
-                EditRPTSync()
-            else
-                DoRPTSyncSetup()
-            end
+            DoRPTSyncSetup()
         end
 
-        -- Action buttons: repopulate + open Blizzard CDM + sync generic CDs/buffs
+        -- Action buttons: repopulate + open Blizzard CDM + copy generic CDs/buffs
         -- (trinkets, pots, racials & buff presets across specs).
-        -- The third button keeps the same label whether or not a sync exists;
-        -- DoRPTSync routes to setup vs edit based on ns.HasRPTSync().
         _, h = W:WideTripleButton(parent,
-            "Repopulate from Blizzard CDM", "Open Blizzard CDM", "Sync Generic CDs/Buffs", y,
+            "Repopulate from Blizzard CDM", "Open Blizzard CDM", "Copy Generic CDs/Buffs", y,
             function()
                 EllesmereUI:ShowConfirmPopup({
                     title = "Repopulate Bars",
@@ -16136,8 +16095,8 @@ initFrame:SetScript("OnEvent", function(self)
         local barKey = barData.key
         local function BD()
             local pp = DB()
-            if not pp or not pp.cdmBars or not pp.cdmBars.bars then return barData end
-            for _, b in ipairs(pp.cdmBars.bars) do
+            if not pp or not ns.GetActiveCDMConfig(true) or not ns.GetActiveCDMConfig(true).bars then return barData end
+            for _, b in ipairs(ns.GetActiveCDMConfig(true).bars) do
                 if b.key == barKey then return b end
             end
             return barData
@@ -16210,7 +16169,7 @@ initFrame:SetScript("OnEvent", function(self)
             UpdateDDLabel()
 
             -- Custom-bar display order for THIS dropdown only: a pure VIEW over
-            -- p.cdmBars.bars. The bars array is NEVER reordered -- stored
+            -- ns.GetActiveCDMConfig(true).bars. The bars array is NEVER reordered -- stored
             -- numeric bar paths (unlock/override data) and selectedCDMBarIndex
             -- depend on array positions. Saved key list first (keys whose bar
             -- no longer exists are dropped), then any custom bars not yet
@@ -16225,7 +16184,7 @@ initFrame:SetScript("OnEvent", function(self)
                         byKey[b.key] = b
                     end
                 end
-                local saved = p.cdmBars.customBarMenuOrder
+                local saved = ns.GetActiveCDMConfig(true).customBarMenuOrder
                 if type(saved) == "table" then
                     for _, k in ipairs(saved) do
                         if byKey[k] and not seen[k] then order[#order + 1] = k; seen[k] = true end
@@ -16292,7 +16251,7 @@ initFrame:SetScript("OnEvent", function(self)
                 -- In-menu drag-to-reorder for the custom-bar band: each custom
                 -- row gets a grip ("=") that drags the row; a green insertion
                 -- line previews the drop slot; releasing writes ONLY the display
-                -- key list (p.cdmBars.customBarMenuOrder) and re-renders the
+                -- key list (ns.GetActiveCDMConfig(true).customBarMenuOrder) and re-renders the
                 -- menu in place. Same drag mechanics as the shared reorder
                 -- widget (RF Class Order). Row clicks / delete / rename are
                 -- untouched -- only the grip starts a drag.
@@ -16468,8 +16427,8 @@ initFrame:SetScript("OnEvent", function(self)
                                         local mv = table.remove(keys, from)
                                         table.insert(keys, to, mv)
                                         local pp = DB()
-                                        if pp and pp.cdmBars then
-                                            pp.cdmBars.customBarMenuOrder = keys
+                                        if pp and ns.GetActiveCDMConfig(true) then
+                                            ns.GetActiveCDMConfig(true).customBarMenuOrder = keys
                                         end
                                     end
                                 end
@@ -16629,7 +16588,7 @@ initFrame:SetScript("OnEvent", function(self)
                         addItem:SetScript("OnClick", function()
                             menu:Hide()
                             ns.AddCDMBar(bType)
-                            selectedCDMBarIndex = #p.cdmBars.bars
+                            selectedCDMBarIndex = #ns.GetActiveCDMConfig(true).bars
                             Refresh()
                             EllesmereUI:InvalidateContentHeaderCache()
                             EllesmereUI:SetContentHeader(_cdmHeaderBuilder)
@@ -16736,15 +16695,15 @@ initFrame:SetScript("OnEvent", function(self)
         if barData.key == "buffs" then
             --[[ DISABLED: Use Blizzard Buff Bar feature temporarily removed
             _, h = W:Toggle(parent, "Use Blizzard Buff Bar", y,
-                function() return DB().cdmBars.useBlizzardBuffBars == true end,
+                function() return ns.GetActiveCDMConfig(true).useBlizzardBuffBars == true end,
                 function(v)
-                    DB().cdmBars.useBlizzardBuffBars = v
+                    ns.GetActiveCDMConfig(true).useBlizzardBuffBars = v
                     ns.BuildAllCDMBars()
                     EllesmereUI:RefreshPage(true)
                 end
             );  y = y - h
 
-            if DB().cdmBars.useBlizzardBuffBars then
+            if ns.GetActiveCDMConfig(true).useBlizzardBuffBars then
                 return math.abs(y)
             end
             --]]
@@ -16758,22 +16717,22 @@ initFrame:SetScript("OnEvent", function(self)
         -- nameplate-anchored identity that should never receive global syncs.
         -- General: all bars except ghost / focuskick
         local function ForEachSyncBar(fn)
-            local pp = DB(); if not pp or not pp.cdmBars then return end
-            for _, b in ipairs(pp.cdmBars.bars) do
+            local pp = DB(); if not pp or not ns.GetActiveCDMConfig(true) then return end
+            for _, b in ipairs(ns.GetActiveCDMConfig(true).bars) do
                 if not b.isGhostBar and b.key ~= "focuskick" then fn(b) end
             end
         end
         -- Pandemic: exclude ghost + custom_buff + focuskick
         local function ForEachPandemicSyncBar(fn)
-            local pp = DB(); if not pp or not pp.cdmBars then return end
-            for _, b in ipairs(pp.cdmBars.bars) do
+            local pp = DB(); if not pp or not ns.GetActiveCDMConfig(true) then return end
+            for _, b in ipairs(ns.GetActiveCDMConfig(true).bars) do
                 if not b.isGhostBar and b.barType ~= "custom_buff" and b.key ~= "focuskick" then fn(b) end
             end
         end
         -- Extras: exclude ghost + buffs + custom_buff + focuskick
         local function ForEachExtrasSyncBar(fn)
-            local pp = DB(); if not pp or not pp.cdmBars then return end
-            for _, b in ipairs(pp.cdmBars.bars) do
+            local pp = DB(); if not pp or not ns.GetActiveCDMConfig(true) then return end
+            for _, b in ipairs(ns.GetActiveCDMConfig(true).bars) do
                 if not b.isGhostBar and b.barType ~= "buffs" and b.key ~= "buffs" and b.barType ~= "custom_buff" and b.key ~= "focuskick" then fn(b) end
             end
         end
@@ -17224,8 +17183,8 @@ initFrame:SetScript("OnEvent", function(self)
             -- active cap+target pair pointing here.
             local function BarIsOverflowRecipient(key)
                 local pp = DB()
-                if not (pp and pp.cdmBars) then return false end
-                for _, b in ipairs(pp.cdmBars.bars) do
+                if not (pp and ns.GetActiveCDMConfig(true)) then return false end
+                for _, b in ipairs(ns.GetActiveCDMConfig(true).bars) do
                     if b.key ~= key and b.maxIcons and b.maxIcons > 0
                        and b.overflowTarget == key then
                         return true
@@ -17236,8 +17195,8 @@ initFrame:SetScript("OnEvent", function(self)
             local ofVals, ofOrder = { [""] = "None" }, { "" }
             do
                 local pp = DB()
-                if pp and pp.cdmBars then
-                    for _, b in ipairs(pp.cdmBars.bars) do
+                if pp and ns.GetActiveCDMConfig(true) then
+                    for _, b in ipairs(ns.GetActiveCDMConfig(true).bars) do
                         local bt = ns.GetBarType and ns.GetBarType(b) or b.barType
                         -- Bars with their own active overflow config are not
                         -- offered as targets (the recipient rule, other door).
@@ -17258,7 +17217,7 @@ initFrame:SetScript("OnEvent", function(self)
                     local cur = barData.overflowTarget
                     if cur and not ofVals[cur] then
                         local curName = cur
-                        for _, b in ipairs(pp.cdmBars.bars) do
+                        for _, b in ipairs(ns.GetActiveCDMConfig(true).bars) do
                             if b.key == cur then curName = b.name or cur; break end
                         end
                         ofVals[cur] = EllesmereUI.L(curName)
@@ -19143,12 +19102,12 @@ initFrame:SetScript("OnEvent", function(self)
             { type="toggle", text="Hide Rotation Helper",
               tooltip = "Force-hide Blizzard's Assisted Combat Highlight (rotation helper glow) on all CDM bars, even if enabled in Blizzard's Combat settings.",
               getValue=function()
-                  local p = DB(); return p and p.cdmBars and p.cdmBars.hideRotationHelper == true
+                  local p = DB(); return p and ns.GetActiveCDMConfig(true) and ns.GetActiveCDMConfig(true).hideRotationHelper == true
               end,
               setValue=function(v)
                   local p = DB()
-                  if p and p.cdmBars then
-                      p.cdmBars.hideRotationHelper = v
+                  if p and ns.GetActiveCDMConfig(true) then
+                      ns.GetActiveCDMConfig(true).hideRotationHelper = v
                       if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
                   end
               end });  y = y - h
@@ -19434,7 +19393,7 @@ initFrame:SetScript("OnEvent", function(self)
         getPrebuildVariants = function(pageName)
             if pageName ~= PAGE_CDM_BARS then return nil end
             local p = DB()
-            local bars = p and p.cdmBars and p.cdmBars.bars
+            local bars = p and ns.GetActiveCDMConfig(true) and ns.GetActiveCDMConfig(true).bars
             if not bars or #bars == 0 then return nil end
             local seenShapes = {}
             local keys = {}

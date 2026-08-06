@@ -300,7 +300,7 @@ local function ResolveSpellSettings(frame, sid2, sd2, barKey)
     local fc0 = frame and _ecmeFC[frame]
     local bk = barKey or (fc0 and fc0.barKey)
     -- Bar tiers: barSettings ("Apply to Bar", per spec) chained to the
-    -- profile-level bd.barSpellSettings ("Apply to Bar (All Specs)"). nil when
+    -- spec-owned bd.barSpellSettings (optionally copied to other specs). nil when
     -- neither exists -- the common case costs two table lookups.
     local tier = ns.GetBarTierSettings and ns.GetBarTierSettings(sd2, bk)
     -- HOSTED-BUFF frame detection: a real buff frame (or its inactive
@@ -659,7 +659,7 @@ function ns.RebuildSpellRouteMap()
     _routeMapBuilt = false
 
     local p = ECME.db and ECME.db.profile
-    if not p or not p.cdmBars then return end
+    if not p or not ns.GetActiveCDMConfig(true) then return end
 
     local SVV = ns.StoreVariantValue
     if not SVV then return end
@@ -681,7 +681,7 @@ function ns.RebuildSpellRouteMap()
     -- TBB bars compete for the same buff icon spells, so their diversions
     -- must land in _divertedSpellsBuff even though IsBarBuffFamily returns
     -- false for custom_buff. We write directly to _divertedSpellsBuff here.
-    for _, bd in ipairs(p.cdmBars.bars) do
+    for _, bd in ipairs(ns.GetActiveCDMConfig(true).bars) do
         if bd.enabled and not bd.isGhostBar
            and ((bd.barType == "buffs" and bd.key ~= "buffs")
                 or bd.barType == "custom_buff") then
@@ -709,7 +709,7 @@ function ns.RebuildSpellRouteMap()
     -- that sits on a custom bar AND also lands in cooldowns.assignedSpells (e.g. a
     -- materialized spillover both-state) would render on the default cooldowns bar
     -- instead of the custom bar the user built for it.
-    for _, bd in ipairs(p.cdmBars.bars) do
+    for _, bd in ipairs(ns.GetActiveCDMConfig(true).bars) do
         if bd.enabled and not bd.isGhostBar
            and (bd.key == "cooldowns" or bd.key == "utility" or bd.key == "buffs") then
             CollectDiversionsFor(bd)
@@ -717,7 +717,7 @@ function ns.RebuildSpellRouteMap()
     end
     -- Pass 3: custom CD/utility bars -- overwrite the default diversions so a spell
     -- the user deliberately placed on a custom bar wins over the default bar.
-    for _, bd in ipairs(p.cdmBars.bars) do
+    for _, bd in ipairs(ns.GetActiveCDMConfig(true).bars) do
         if bd.enabled and not bd.isGhostBar
            and bd.key ~= "cooldowns" and bd.key ~= "utility" and bd.key ~= "buffs"
            and bd.barType ~= "buffs" and bd.barType ~= "custom_buff" then
@@ -731,7 +731,7 @@ function ns.RebuildSpellRouteMap()
     -- buff-bar passes (1-2) so an explicit host outranks a stray buff-bar copy of
     -- the same spell. (The bar's normal CD diversion in _divertedSpellsCD from
     -- Pass 3 is untouched; these are separate family maps.)
-    for _, bd in ipairs(p.cdmBars.bars) do
+    for _, bd in ipairs(ns.GetActiveCDMConfig(true).bars) do
         if bd.enabled and not bd.isGhostBar
            and bd.barType ~= "buffs" and bd.barType ~= "custom_buff" then
             local sd = ns.GetBarSpellData(bd.key)
@@ -767,7 +767,7 @@ function ns.RebuildSpellRouteMap()
     -- spell never reappears regardless of how it ended up in two bars. Adding a
     -- spell to a visible bar removes it from the ghost (ns.AddSpellToBar), so this
     -- never hides a spell you deliberately placed.
-    for _, bd in ipairs(p.cdmBars.bars) do
+    for _, bd in ipairs(ns.GetActiveCDMConfig(true).bars) do
         if bd.enabled and bd.isGhostBar then
             CollectDiversionsFor(bd)
         end
@@ -4059,7 +4059,7 @@ do
 
     function PotSwap.Enabled()
         local p = ECME and ECME.db and ECME.db.profile
-        return (p and p.cdmBars and p.cdmBars.swapPotionsWhenMissing) == true
+        return (p and ns.GetActiveCDMConfig(true) and ns.GetActiveCDMConfig(true).swapPotionsWhenMissing) == true
     end
 
     local function PresetByKey(key)
@@ -4578,8 +4578,8 @@ end
 -- shared Sated listener stays armed even with no Tracking Bar lust bar present.
 function ns.AnyCustomAuraLust()
     local p = ECME and ECME.db and ECME.db.profile
-    if not (p and p.cdmBars and p.cdmBars.bars) then return false end
-    for _, bd in ipairs(p.cdmBars.bars) do
+    if not (p and ns.GetActiveCDMConfig(true) and ns.GetActiveCDMConfig(true).bars) then return false end
+    for _, bd in ipairs(ns.GetActiveCDMConfig(true).bars) do
         if bd.enabled and (bd.barType == "custom_buff" or bd.barType == "buffs") then
             local sd = ns.GetBarSpellData and ns.GetBarSpellData(bd.key)
             if sd and sd.assignedSpells then
@@ -4627,8 +4627,8 @@ end
 -- so the shared glow listener stays armed even with no Tracking Bar present.
 function ns.AnyCustomAuraTimeSpiral()
     local p = ECME and ECME.db and ECME.db.profile
-    if not (p and p.cdmBars and p.cdmBars.bars) then return false end
-    for _, bd in ipairs(p.cdmBars.bars) do
+    if not (p and ns.GetActiveCDMConfig(true) and ns.GetActiveCDMConfig(true).bars) then return false end
+    for _, bd in ipairs(ns.GetActiveCDMConfig(true).bars) do
         if bd.enabled and (bd.barType == "custom_buff" or bd.barType == "buffs") then
             local sd = ns.GetBarSpellData and ns.GetBarSpellData(bd.key)
             if sd and sd.assignedSpells then
@@ -4734,7 +4734,7 @@ local viewerHooksInstalled = false
 
 local function CollectAndReanchor()
     local p = ECME.db and ECME.db.profile
-    if not p or not p.cdmBars or not p.cdmBars.enabled then return end
+    if not p or not ns.GetActiveCDMConfig(true) or not ns.GetActiveCDMConfig(true).enabled then return end
 
     if ns.RebuildCDMSpellCaches then ns.RebuildCDMSpellCaches() end
 
@@ -5007,7 +5007,7 @@ local function CollectAndReanchor()
     do
         local nowTime = GetTime()
         local cdmPageOpen = ns._cdmBarsPageOpen or false
-        for _, bd in ipairs(p.cdmBars.bars) do
+        for _, bd in ipairs(ns.GetActiveCDMConfig(true).bars) do
             if bd.enabled and bd.barType == "buffs" then
                 local injKey = bd.key
                 local sdInj = ns.GetBarSpellData(injKey)
@@ -5102,7 +5102,7 @@ local function CollectAndReanchor()
     -- Gated behind ns._cdmAnyCustomItem (set once from saved data / the picker) so
     -- this pass is skipped entirely for anyone who never adds a custom item.
     if ns._cdmAnyCustomItem then
-        for _, bd in ipairs(p.cdmBars.bars) do
+        for _, bd in ipairs(ns.GetActiveCDMConfig(true).bars) do
             if bd.enabled and bd.barType == "buffs" then
                 local injKey = bd.key
                 local sdInj = ns.GetBarSpellData(injKey)
@@ -5447,7 +5447,7 @@ local function CollectAndReanchor()
     end
 
     -- Clean up empty buff bars
-    for _, bd in ipairs(p.cdmBars.bars) do
+    for _, bd in ipairs(ns.GetActiveCDMConfig(true).bars) do
         if bd.enabled and ns.IsBarBuffFamily(bd)
            and not bd.isGhostBar and not barLists[bd.key] then
             local icons = cdmBarIcons[bd.key]
@@ -5480,7 +5480,7 @@ local function CollectAndReanchor()
     --  No allowSet, no entryBySpell, no dedup, no change detection.
     ---------------------------------------------------------------------------
     -- Ensure custom-frame-only CD/utility bars get processed
-    for _, bd in ipairs(p.cdmBars.bars) do
+    for _, bd in ipairs(ns.GetActiveCDMConfig(true).bars) do
         if bd.enabled and not bd.isGhostBar
            and bd.barType ~= "buffs" and bd.barType ~= "custom_buff"
            and bd.key ~= "buffs" and not cdFrames[bd.key] then
@@ -6035,7 +6035,7 @@ local function CollectAndReanchor()
         end
         if ns._cdmAnyOverflowCfg then
             local moves  -- flat pairs: frame, targetKey, frame, targetKey, ...
-            for _, bd in ipairs(p.cdmBars.bars) do
+            for _, bd in ipairs(ns.GetActiveCDMConfig(true).bars) do
                 local cap, tKey = bd.maxIcons, bd.overflowTarget
                 -- Legacy profiles carry nil barType on default bars; resolve
                 -- the family through the shared helper, never the raw field.
@@ -6273,7 +6273,7 @@ local function CollectAndReanchor()
     end
 
     -- Clean up empty CD/utility bars
-    for _, bd in ipairs(p.cdmBars.bars) do
+    for _, bd in ipairs(ns.GetActiveCDMConfig(true).bars) do
         if bd.enabled and not bd.isGhostBar
            and bd.barType ~= "buffs" and bd.barType ~= "custom_buff"
            and bd.key ~= "buffs" and not cdFrames[bd.key] then
@@ -6349,7 +6349,7 @@ local function CollectAndReanchor()
             if vf == barViewer then
                 -- Bar viewer frame: skip entirely when using Blizzard tracked bars
                 local pp = ECME.db and ECME.db.profile
-                if pp and pp.cdmBars and pp.cdmBars.useBlizzardBuffBars then
+                if pp and ns.GetActiveCDMConfig(true) and ns.GetActiveCDMConfig(true).useBlizzardBuffBars then
                     -- Leave untouched so Blizzard's tracked bars work
                 else
                     if frame.Cooldown and frame.Cooldown.SetDrawSwipe then
@@ -6612,13 +6612,13 @@ end
 local function UpdateCustomBuffBars()
     if not ECME then return end
     local p = ECME.db and ECME.db.profile
-    if not p or not p.cdmBars or not p.cdmBars.bars then return end
+    if not p or not ns.GetActiveCDMConfig(true) or not ns.GetActiveCDMConfig(true).bars then return end
     local LayoutCDMBar = ns.LayoutCDMBar
     local RefreshCDMIconAppearance = ns.RefreshCDMIconAppearance
     local cdmPageOpen = ns._cdmBarsPageOpen or false
     local now = GetTime()
 
-    for _, barData in ipairs(p.cdmBars.bars) do
+    for _, barData in ipairs(ns.GetActiveCDMConfig(true).bars) do
         if barData.enabled and barData.barType == "custom_buff" then
             local barKey = barData.key
             local container = cdmBarFrames[barKey]
@@ -6732,7 +6732,7 @@ local function UpdateCustomBuffBars()
     -- queue a reanchor so the icon appears. Expiry is handled by the frame's
     -- OnCooldownDone hook (which also reanchors to drop the icon).
     local needBuffReanchor = false
-    for _, barData in ipairs(p.cdmBars.bars) do
+    for _, barData in ipairs(ns.GetActiveCDMConfig(true).bars) do
         if barData.enabled and barData.barType == "buffs" then
             local sd = ns.GetBarSpellData(barData.key)
             local spellList = sd and sd.assignedSpells
@@ -7014,7 +7014,7 @@ function ns.SetupViewerHooks()
                     -- Skip blanking bar viewer children when user wants Blizzard tracked bars
                     if isBarViewer then
                         local pp = ECME.db and ECME.db.profile
-                        if pp and pp.cdmBars and pp.cdmBars.useBlizzardBuffBars then return end
+                        if pp and ns.GetActiveCDMConfig(true) and ns.GetActiveCDMConfig(true).useBlizzardBuffBars then return end
                     end
                     -- CD/utility viewers: spell set is static (rebuilt only by
                     -- FullCDMRebuild on spec/talent/equip). Pool churn from
@@ -7129,6 +7129,16 @@ function ns.SetupViewerHooks()
     -- viewer finishes its deferred layout pass. Also invalidate TBB cache
     -- so tracking bars re-scan for late-loading BuffBar viewer frames.
     local function DelayedFullRefresh()
+        -- A cold character login can populate the Wrath spellbook after the
+        -- compatibility tracker's PLAYER_LOGIN/PLAYER_ENTERING_WORLD reads.
+        -- Re-evaluate availability here before enumerating its pools; merely
+        -- reanchoring an empty/stale catalog is why /reload used to be needed.
+        if ns.RefreshCooldownViewerCompatibility then
+            ns.RefreshCooldownViewerCompatibility()
+            -- This compatibility refresh is the Wrath equivalent of the
+            -- SPELLS_CHANGED readiness signal used by the Retail path.
+            ns._spellsReadyForApply = true
+        end
         if ns.InvalidateTBBFrameCache then ns.InvalidateTBBFrameCache() end
         QueueReanchor()
     end
@@ -7177,9 +7187,9 @@ function ns.SetupViewerHooks()
             ns._btLastFull = _btNow
             MemSnap("BuffTicker")
             local p = ECME and ECME.db and ECME.db.profile
-            if not p or not p.cdmBars or not p.cdmBars.bars then return true end
+            if not p or not ns.GetActiveCDMConfig(true) or not ns.GetActiveCDMConfig(true).bars then return true end
             local needsReanchor = false
-            for _, bd in ipairs(p.cdmBars.bars) do
+            for _, bd in ipairs(ns.GetActiveCDMConfig(true).bars) do
                 if bd.enabled then
                     local isBuff = (bd.barType == "buffs" or bd.key == "buffs" or bd.barType == "custom_buff")
                     local buffGlowType = isBuff and (bd.buffGlowType or 0) or 0
@@ -7646,7 +7656,7 @@ end
 local function ShouldLockViewer(frame)
     if frame == _G["BuffBarCooldownViewer"] then
         local p = ECME and ECME.db and ECME.db.profile
-        if p and p.cdmBars and p.cdmBars.useBlizzardBuffBars then
+        if p and ns.GetActiveCDMConfig(true) and ns.GetActiveCDMConfig(true).useBlizzardBuffBars then
             return false
         end
     end

@@ -561,6 +561,17 @@ local DEFAULTS = {
     },
 }
 
+-- CDM bar state is owned by a specialization, never by the profile itself.
+-- Keep the sizeable default definition beside the normal addon defaults for
+-- readability, but remove it from the profile defaults before NewDB sees it.
+-- Every new (profile, specID) container receives a deep copy instead.
+ns.CDM_SPEC_DEFAULTS = {
+    cdmBars = DEFAULTS.profile.cdmBars,
+    cdmBarPositions = DEFAULTS.profile.cdmBarPositions,
+}
+DEFAULTS.profile.cdmBars = nil
+DEFAULTS.profile.cdmBarPositions = nil
+
 -------------------------------------------------------------------------------
 --  Dedicated spell assignment store helpers
 --  Lives at EllesmereUIDB.spellAssignments. The spell/bar-content data is
@@ -594,56 +605,26 @@ end
 -- blob and the export payload, so module sync and profile export never carry it
 -- (both operate on the profile's addons blob, not this store).
 --
--- A one-time migration (cdm_per_profile_spell_store_v1) seeds every existing
--- profile from the legacy shared spellAssignments.specProfiles. Until that
--- completes (_perProfileSeeded), fork the legacy data on first access so a
--- profile never reads empty during the early window (e.g. if the migration
--- body errored and is retrying next session).
 function ns.GetSpecProfilesForProfile(profileName)
     local sa = SpellStore.Get()
     if not sa.profiles then sa.profiles = {} end
     local bucket = sa.profiles[profileName]
     if not bucket then
         bucket = { specProfiles = {} }
-        if not sa._perProfileSeeded and type(sa.specProfiles) == "table" and next(sa.specProfiles) then
-            local DeepCopy = EllesmereUI.Lite and EllesmereUI.Lite.DeepCopy
-            if DeepCopy then bucket.specProfiles = DeepCopy(sa.specProfiles) end
-        end
         sa.profiles[profileName] = bucket
     end
     if not bucket.specProfiles then bucket.specProfiles = {} end
     return bucket.specProfiles
 end
 
--- Cross-spec "broadcast" set for Tracking Bars: a lookup of bar identities (preset
--- key or custom spellID) the user has pushed to every spec via "Add Bar to All
--- Specs". Lives on the profile bucket OUTSIDE specProfiles, so it persists across
--- spec switches/reloads and forks with the profile (same as specProfiles). Drives
--- the Add/Remove toggle label on the Tracking Bars page.
-function ns.GetActiveTBBBroadcastSet()
-    local name = ns.GetActiveProfileName()
-    -- Ensure the bucket exists (with legacy seeding) via the canonical accessor.
-    ns.GetSpecProfilesForProfile(name)
-    local sa = SpellStore.Get()
-    local bucket = sa.profiles and sa.profiles[name]
-    if not bucket then return {} end
-    if not bucket.tbbBroadcast then bucket.tbbBroadcast = {} end
-    return bucket.tbbBroadcast
-end
-
--- Smooth-fill switches for Tracking Bars (Bar Layout > Smooth Bars). ONE
--- setting for ALL bars in EVERY spec: lives on the profile bucket OUTSIDE
--- specProfiles (same home as the broadcast set), so it applies across spec
--- switches and forks with the profile. Keys: buffs / cooldowns; absent
+-- Smooth-fill switches for Tracking Bars (Bar Layout > Smooth Bars), owned by
+-- the active spec container. Keys: buffs / cooldowns; absent
 -- buffs reads ENABLED, absent cooldowns reads DISABLED (the defaults).
 function ns.GetTBBSmoothSettings()
-    local name = ns.GetActiveProfileName()
-    ns.GetSpecProfilesForProfile(name)
-    local sa = SpellStore.Get()
-    local bucket = sa.profiles and sa.profiles[name]
-    if not bucket then return nil end
-    if not bucket.tbbSmooth then bucket.tbbSmooth = {} end
-    return bucket.tbbSmooth
+    local container = ns.GetActiveSpecContainer and ns.GetActiveSpecContainer(true)
+    if not container then return nil end
+    if not container.tbbSmooth then container.tbbSmooth = {} end
+    return container.tbbSmooth
 end
 
 -- Active SPELL LAYOUT name. Layouts are a shared, account-wide library
@@ -681,6 +662,167 @@ function ns.GetActiveSpecProfiles()
     return ns.GetSpecProfilesForProfile(ns.GetActiveProfileName())
 end
 
+function SpellStore.NewSpecContainer(specKey)
+    local copy = EllesmereUI.Lite and EllesmereUI.Lite.DeepCopy
+    local info = EUI and EUI.Spec and EUI.Spec:GetInfoByID(tonumber(specKey))
+    return {
+        specID = tonumber(specKey),
+        classToken = info and info.classToken or nil,
+        cdmBars = copy and copy(ns.CDM_SPEC_DEFAULTS.cdmBars) or {},
+        cdmBarPositions = copy and copy(ns.CDM_SPEC_DEFAULTS.cdmBarPositions) or {},
+        barSpells = {},
+        customActiveStates = {},
+    }
+end
+
+-- The complete CDM state owner. A caller may address an inactive spec only by
+-- passing its ID explicitly; ordinary runtime/options work goes through the
+-- active accessor below. This makes cross-spec writes visible at the call site.
+function ns.GetSpecContainerForProfile(profileName, specKey, create)
+    specKey = specKey and tostring(specKey) or nil
+    if not specKey or specKey == "0" then return nil end
+    local profiles = ns.GetSpecProfilesForProfile(profileName)
+    local container = profiles[specKey]
+    if not container and create then
+        container = SpellStore.NewSpecContainer(specKey)
+        profiles[specKey] = container
+    end
+    if container and create then
+        -- Fresh-schema self-heal for partially constructed containers created by
+        -- explicit copy/import helpers in this same codebase.
+        local copy = EllesmereUI.Lite and EllesmereUI.Lite.DeepCopy
+        if not container.cdmBars then
+            container.cdmBars = copy and copy(ns.CDM_SPEC_DEFAULTS.cdmBars) or {}
+        end
+        if not container.cdmBarPositions then container.cdmBarPositions = {} end
+        if not container.barSpells then container.barSpells = {} end
+        if not container.customActiveStates then container.customActiveStates = {} end
+        container.specID = container.specID or tonumber(specKey)
+        if not container.classToken then
+            local info = EUI and EUI.Spec and EUI.Spec:GetInfoByID(tonumber(specKey))
+            container.classToken = info and info.classToken or nil
+        end
+    end
+    return container
+end
+
+function ns.GetActiveSpecContainer(create)
+    local specKey = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
+    if not specKey then return nil end
+    return ns.GetSpecContainerForProfile(ns.GetActiveProfileName(), specKey, create)
+end
+
+function ns.GetActiveCDMConfig(create)
+    local container = ns.GetActiveSpecContainer(create)
+    return container and container.cdmBars or nil
+end
+
+function ns.GetActiveCDMPositions(create)
+    local container = ns.GetActiveSpecContainer(create)
+    return container and container.cdmBarPositions or nil
+end
+
+-- Small public bridge for core UI systems that cannot access this addon's
+-- namespace (unlock mode and the Nameplates focus-kick option).
+function ECME:GetActiveCDMConfig()
+    return ns.GetActiveCDMConfig(true)
+end
+
+function ECME:GetActiveCDMPositions()
+    return ns.GetActiveCDMPositions(true)
+end
+
+_G._ECME_GetActiveCDMConfig = function() return ns.GetActiveCDMConfig(true) end
+_G._ECME_GetActiveCDMPositions = function() return ns.GetActiveCDMPositions(true) end
+
+-- Unlock mode exposes one account-global working table. Project only the active
+-- spec's CDM_* child links into that table and bank them back into the owning
+-- container before a profile/spec switch. This mirrors the established TBB
+-- adapter, but keys by bar identity rather than list index.
+do
+    local function LiveStores(create)
+        if not EllesmereUIDB then return nil end
+        if create then
+            EllesmereUIDB.unlockAnchors = EllesmereUIDB.unlockAnchors or {}
+            EllesmereUIDB.unlockWidthMatch = EllesmereUIDB.unlockWidthMatch or {}
+            EllesmereUIDB.unlockHeightMatch = EllesmereUIDB.unlockHeightMatch or {}
+        end
+        return EllesmereUIDB.unlockAnchors, EllesmereUIDB.unlockWidthMatch,
+            EllesmereUIDB.unlockHeightMatch
+    end
+
+    local function Bucket(profileName, specKey, create)
+        local c = ns.GetSpecContainerForProfile(profileName, specKey, create)
+        if not c then return nil end
+        if not c.cdmUnlockLinks and create then
+            c.cdmUnlockLinks = { anchors = {}, wm = {}, hm = {} }
+        end
+        return c.cdmUnlockLinks
+    end
+
+    local function BankOne(store, dest)
+        wipe(dest)
+        for k, v in pairs(store or {}) do
+            local barKey = type(k) == "string" and k:match("^CDM_(.+)$")
+            if barKey then dest[barKey] = EllesmereUI.Lite.DeepCopy(v) end
+        end
+    end
+
+    local function Bank(profileName, specKey)
+        local b = Bucket(profileName, specKey, true)
+        local an, wm, hm = LiveStores(false)
+        if not b then return end
+        BankOne(an, b.anchors); BankOne(wm, b.wm); BankOne(hm, b.hm)
+    end
+
+    local function SwapOne(store, src)
+        local kill = {}
+        for k in pairs(store) do
+            if type(k) == "string" and k:match("^CDM_.+") then kill[#kill + 1] = k end
+        end
+        for _, k in ipairs(kill) do store[k] = nil end
+        for barKey, v in pairs(src or {}) do
+            store["CDM_" .. barKey] = EllesmereUI.Lite.DeepCopy(v)
+        end
+    end
+
+    local function SwapIn(profileName, specKey)
+        local an, wm, hm = LiveStores(true)
+        local b = Bucket(profileName, specKey, true)
+        if not an or not b then return end
+        SwapOne(an, b.anchors); SwapOne(wm, b.wm); SwapOne(hm, b.hm)
+        EllesmereUI._anchorLinksStamp = (EllesmereUI._anchorLinksStamp or 0) + 1
+    end
+
+    function ns.SyncCDMUnlockLinks(force)
+        if not EllesmereUIDB then return end
+        local profileName = ns.GetActiveProfileName()
+        local specKey = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
+        if not specKey then return end
+        local owner = EllesmereUIDB._cdmLinkOwner
+        local same = owner and owner.profile == profileName and owner.spec == specKey
+        if force then
+            SwapIn(profileName, specKey)
+        elseif same then
+            Bank(profileName, specKey)
+            return
+        else
+            if owner then Bank(owner.profile, owner.spec) end
+            SwapIn(profileName, specKey)
+        end
+        EllesmereUIDB._cdmLinkOwner = { profile = profileName, spec = specKey }
+    end
+
+    EllesmereUI._CDMRestoreUnlockLinks = function()
+        ns.SyncCDMUnlockLinks(true)
+    end
+
+    EllesmereUI.CDMBankActiveSpecContainer = function()
+        ns.SyncCDMUnlockLinks()
+        if ns.SyncTBBUnlockLinks then ns.SyncTBBUnlockLinks() end
+    end
+end
+
 function SpellStore.GetSpecProfiles()
     return ns.GetActiveSpecProfiles()
 end
@@ -693,15 +835,8 @@ end
 --  it if needed. All spell reads/writes go through this -- no copies.
 -------------------------------------------------------------------------------
 function ns.GetBarSpellData(barKey)
-    local specKey = ns.GetActiveSpecKey()
-    if not specKey or specKey == "0" then return nil end
-    local sp = SpellStore.GetSpecProfiles()
-    local prof = sp[specKey]
-    if not prof then
-        prof = { barSpells = {} }
-        sp[specKey] = prof
-    end
-    if not prof.barSpells then prof.barSpells = {} end
+    local prof = ns.GetActiveSpecContainer(true)
+    if not prof then return nil end
     local bs = prof.barSpells[barKey]
     if not bs then
         bs = {}
@@ -733,9 +868,8 @@ end
 --
 --  Two bar-level tiers sit below the per-spell entries ("Apply to Bar"):
 --      barSpells[barKey].barSettings   -- this bar, this spec
---      bd.barSpellSettings             -- this bar, EVERY spec (profile-level
---                                         bar definition, so specs with no CDM
---                                         data yet inherit it too)
+--      bd.barSpellSettings             -- copied bar-wide values owned by this
+--                                         spec's bar definition
 --
 --  Effective value per key: spell entry > barSettings > barSpellSettings >
 --  defaults. The renderer resolves the chain via metatable __index links that
@@ -874,16 +1008,8 @@ end
 
 -- Family per-spell store for the ACTIVE spec, resolved from a bar.
 function ns.GetSpellSettingsStore(barKeyOrBd, create)
-    local specKey = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
-    if not specKey or specKey == "0" then return nil end
-    local sp = SpellStore.GetSpecProfiles()
-    if not sp then return nil end
-    local prof = sp[specKey]
-    if not prof then
-        if not create then return nil end
-        prof = { barSpells = {} }
-        sp[specKey] = prof
-    end
+    local prof = ns.GetActiveSpecContainer(create)
+    if not prof then return nil end
     return ns.GetSpellSettingsStoreForProf(prof, ns.SettingsFamilyKey(barKeyOrBd), create)
 end
 
@@ -904,7 +1030,7 @@ function ns.ChainSettings(child, parent)
     end
 end
 
--- Bar-tier chain head for a bar: barSettings (chained to the profile-level
+-- Bar-tier chain head for a bar: barSettings (chained to the spec-owned
 -- bd.barSpellSettings) when present, else bd.barSpellSettings, else nil.
 function ns.GetBarTierSettings(sd, barKey)
     local bd = barKey and ns.barDataByKey and ns.barDataByKey[barKey]
@@ -935,8 +1061,8 @@ function ns.BarHasAnySpellSettings(barKey, sd)
 end
 
 -- Iterate every SAVED settings block that can hold per-spell setting keys:
--- all specs' family-store entries + per-bar barSettings, plus the active
--- profile's bar-level barSpellSettings. fn(ss) returning true stops the walk.
+-- all specs' family-store entries, per-bar barSettings, and each spec-owned
+-- bar definition's barSpellSettings. fn(ss) returning true stops the walk.
 -- Used by the login gate scans ("does anyone use feature X anywhere").
 function ns.ForEachSavedSettingsBlock(fn)
     if not EllesmereUIDB then return false end
@@ -961,26 +1087,22 @@ function ns.ForEachSavedSettingsBlock(fn)
                     for _, bs in pairs(barSpells) do
                         local bset = type(bs) == "table" and bs.barSettings
                         if type(bset) == "table" and fn(bset) then return true end
-                        -- Legacy shape safety net: pre-migration data that has
-                        -- not been transformed yet (should not happen -- the
-                        -- migration runs before this addon loads).
-                        local ssAll = type(bs) == "table" and bs.spellSettings
-                        if type(ssAll) == "table" then
-                            for _, ss in pairs(ssAll) do
-                                if type(ss) == "table" and fn(ss) then return true end
-                            end
-                        end
+                    end
+                end
+                local bars = prof.cdmBars and prof.cdmBars.bars
+                if type(bars) == "table" then
+                    for _, bd in ipairs(bars) do
+                        local abs = type(bd) == "table" and bd.barSpellSettings
+                        if type(abs) == "table" and fn(abs) then return true end
+                    end
+                end
+                local cas = prof.customActiveStates
+                if type(cas) == "table" then
+                    for _, ss in pairs(cas) do
+                        if type(ss) == "table" and fn(ss) then return true end
                     end
                 end
             end
-        end
-    end
-    local p = ECME and ECME.db and ECME.db.profile
-    local bars = p and p.cdmBars and p.cdmBars.bars
-    if type(bars) == "table" then
-        for _, bd in ipairs(bars) do
-            local abs = type(bd) == "table" and bd.barSpellSettings
-            if type(abs) == "table" and fn(abs) then return true end
         end
     end
     return false
@@ -988,10 +1110,10 @@ end
 
 -- One-time copy of a user CUSTOM spell/buff (customSpellIDs-tagged) plus its
 -- per-spell settings onto the SAME bar in other specs of the active profile.
--- Bar definitions are profile-level, so the bar exists in every spec. A target
--- spec that already has the spell on ANY bar is skipped whole (never duplicates
--- within a spec). Custom Active State is NOT copied here -- it lives in the
--- profile-level customActiveStates store and is already shared across specs.
+-- A target spec must own a bar with the same key; specs have independent bar
+-- lists, so this helper never invents a destination bar implicitly. A target
+-- that already has the spell on ANY bar is skipped whole (never duplicates
+-- within a spec). Custom Active State is copied as independent data too.
 -- Returns the number of specs actually copied to.
 function ns.CopyCustomSpellToSpecs(barKey, spellID, specKeys)
     if not barKey or type(spellID) ~= "number" or spellID == 0 then return 0 end
@@ -1011,9 +1133,11 @@ function ns.CopyCustomSpellToSpecs(barKey, spellID, specKeys)
     local copied = 0
     for key, on in pairs(specKeys) do
         if on and key ~= curKey and key ~= "0" then
-            local prof = sp[key]
-            if not prof then prof = { barSpells = {} }; sp[key] = prof end
-            if not prof.barSpells then prof.barSpells = {} end
+            local prof = ns.GetSpecContainerForProfile(ns.GetActiveProfileName(), key, true)
+            local hasTargetBar = false
+            for _, bd in ipairs((prof.cdmBars and prof.cdmBars.bars) or {}) do
+                if bd.key == barKey then hasTargetBar = true; break end
+            end
             -- Present anywhere in this spec? Skip the whole spec.
             local exists = false
             for _, bs in pairs(prof.barSpells) do
@@ -1024,7 +1148,7 @@ function ns.CopyCustomSpellToSpecs(barKey, spellID, specKeys)
                 end
                 if exists then break end
             end
-            if not exists then
+            if hasTargetBar and not exists then
                 local bs = prof.barSpells[barKey]
                 if not bs then bs = {}; prof.barSpells[barKey] = bs end
                 if not bs.assignedSpells then bs.assignedSpells = {} end
@@ -1046,6 +1170,12 @@ function ns.CopyCustomSpellToSpecs(barKey, spellID, specKeys)
                     if store[spellID] == nil then
                         store[spellID] = DeepCopy(srcSettings)
                     end
+                end
+                local srcContainer = ns.GetActiveSpecContainer(false)
+                local srcCAS = srcContainer and srcContainer.customActiveStates
+                    and srcContainer.customActiveStates[spellID]
+                if type(srcCAS) == "table" and DeepCopy then
+                    prof.customActiveStates[spellID] = DeepCopy(srcCAS)
                 end
                 copied = copied + 1
             end
@@ -1083,8 +1213,7 @@ end
 
 -- Inverse of CopyCustomSpellToSpecs: remove the spell + its per-spell settings
 -- from the picked specs (wherever it lives -- scans every bar). Never touches the
--- active spec or the profile-level customActiveState (that stays as long as the
--- spell exists on ANY spec, incl. the current one). Returns the count removed.
+-- active spec. Returns the count removed.
 function ns.RemoveCustomSpellFromSpecs(spellID, specKeys)
     if type(spellID) ~= "number" or spellID == 0 then return 0 end
     if type(specKeys) ~= "table" then return 0 end
@@ -1126,6 +1255,7 @@ function ns.RemoveCustomSpellFromSpecs(spellID, specKeys)
                     -- clearing both family stores is safe -- only one holds it).
                     if prof.spellSettingsCD then prof.spellSettingsCD[spellID] = nil end
                     if prof.spellSettingsBuff then prof.spellSettingsBuff[spellID] = nil end
+                    if prof.customActiveStates then prof.customActiveStates[spellID] = nil end
                     removed = removed + 1
                 end
             end
@@ -1134,22 +1264,30 @@ function ns.RemoveCustomSpellFromSpecs(spellID, specKeys)
     return removed
 end
 
--- Custom Active State store. Keyed by spellID at the PROFILE level (shared
--- across every bar and spec in this profile) so a preset's custom active state
--- travels with the spell wherever it is placed -- no re-adding. The settings key
+-- Custom Active State store. Keyed by spellID inside the active spec container,
+-- so the rule travels with the spell across bars in this spec without affecting
+-- any other specialization or class. The settings key
 -- matches assignedSpells: positive = racial / custom spell; negative = item /
 -- trinket-slot preset. Entry shape: { duration, activeSwipeMode,
 -- activeSwipeClassColor, activeSwipeR/G/B/A, activeGlow, glowColor, glowColorR/G/B }.
 function ns.GetCustomActiveStates()
-    local p = ECME and ECME.db and ECME.db.profile
-    if not p then return nil end
-    if not p.customActiveStates then p.customActiveStates = {} end
-    return p.customActiveStates
+    local container = ns.GetActiveSpecContainer(true)
+    return container and container.customActiveStates or nil
 end
 
 -- Read (or, with create=true, lazily create) the entry for one spell key.
 function ns.GetCustomActiveState(spellID, create)
     local store = ns.GetCustomActiveStates()
+    if not store then return nil end
+    local e = store[spellID]
+    if not e and create then e = {}; store[spellID] = e end
+    return e
+end
+
+function ns.GetCustomActiveStateForProf(prof, spellID, create)
+    if not prof then return nil end
+    local store = prof.customActiveStates
+    if not store and create then store = {}; prof.customActiveStates = store end
     if not store then return nil end
     local e = store[spellID]
     if not e and create then e = {}; store[spellID] = e end
@@ -1396,7 +1534,7 @@ function ns.RescanReverseSwipeFlag()
         if ss.reverseSwipe then ns._cdmAnyReverseSwipe = true end
         if ss.hideCDSwipe then ns._cdmAnyHideCDSwipe = true end
     end)
-    -- Preset / custom cd-utility spells (profile-level customActiveStates).
+    -- Preset / custom cd-utility spells (active spec customActiveStates).
     local cas = ns.GetCustomActiveStates and ns.GetCustomActiveStates()
     if cas then
         for _, e in pairs(cas) do
@@ -1478,7 +1616,8 @@ end
 -------------------------------------------------------------------------------
 --  Spec helpers
 --
---  Single source of truth: the live game API. We cache the resolved spec key
+--  Single source of truth: EllesmereUI's compatibility spec library. We cache
+--  the resolved spec key
 --  on first read. The cache is never set to nil during normal operation --
 --  it transitions atomically from old key to new key inside ProcessSpecChange.
 --  InvalidateSpecKey exists only for the early-login wakeFrame (before CDM
@@ -1492,9 +1631,7 @@ local _cachedSpecKey = nil
 
 function ns.GetActiveSpecKey()
     if _cachedSpecKey then return _cachedSpecKey end
-    local specIndex = GetSpecialization and GetSpecialization()
-    if not specIndex or specIndex == 0 then return nil end
-    local specID = select(1, C_SpecializationInfo.GetSpecializationInfo(specIndex))
+    local specID = EUI and EUI.Spec and EUI.Spec:GetCurrentID()
     if not specID or specID == 0 then return nil end
     _cachedSpecKey = tostring(specID)
     return _cachedSpecKey
@@ -1509,9 +1646,7 @@ end
 -- Compute the live spec key from the game API without touching the cache.
 -- Returns nil if the API isn't ready yet.
 local function ComputeLiveSpecKey()
-    local specIndex = GetSpecialization and GetSpecialization()
-    if not specIndex or specIndex == 0 then return nil end
-    local specID = select(1, C_SpecializationInfo.GetSpecializationInfo(specIndex))
+    local specID = EUI and EUI.Spec and EUI.Spec:GetCurrentID()
     if not specID or specID == 0 then return nil end
     return tostring(specID)
 end
@@ -1570,8 +1705,8 @@ ns.EnsureMappings = EnsureMappings
 
 -------------------------------------------------------------------------------
 --  Per-Spec Profile Helpers
---  Saves/restores spell lists, bar glows, and buff bars per specialization.
---  Bar structure, settings, and positions are shared across all specs.
+--  Every CDM subsystem, including bar structure/settings/positions, is owned
+--  by the active specialization container.
 -------------------------------------------------------------------------------
 local MAIN_BAR_KEYS = { cooldowns = true, utility = true, buffs = true }
 
@@ -1761,17 +1896,17 @@ end
 
 --- and never needs copying.
 local function SaveCurrentSpecProfile()
-    local p = ECME.db.profile
     local specKey = ns.GetActiveSpecKey()
     if not specKey or specKey == "0" then return end
-    local specProfiles = SpellStore.GetSpecProfiles()
-    if not specProfiles[specKey] then specProfiles[specKey] = { barSpells = {} } end
-    local prof = specProfiles[specKey]
+    local prof = ns.GetActiveSpecContainer(true)
+    if not prof then return end
 
     -- Bar Glows and Tracked Buff Bars are stored in the active profile's
     -- specProfiles[specKey] bucket. GetBarGlows() and GetTrackedBuffBars()
     -- read/write there directly, so nothing extra to copy here.
 
+    if ns.SyncCDMUnlockLinks then ns.SyncCDMUnlockLinks() end
+    if ns.SyncTBBUnlockLinks then ns.SyncTBBUnlockLinks() end
     -- Snapshot visible icon counts for pre-sizing on next login
     ns.SaveCachedBarSizes()
 end
@@ -1798,6 +1933,9 @@ local function ProcessSpecChange(newSpecKey)
     -- Atomic swap: write the new key BEFORE rebuilding so every
     -- GetBarSpellData call during the rebuild reads the correct spec.
     _cachedSpecKey = newSpecKey
+    -- The global unlock stores still belong to the outgoing owner. Bank them,
+    -- then project the incoming spec's links before any bar reads anchors.
+    if ns.SyncCDMUnlockLinks then ns.SyncCDMUnlockLinks() end
 
     -- Suppress the _ECME_Apply rebuild that the profile system will fire
     -- via RefreshAllAddons. We're about to do a full talent_reconcile
@@ -2272,8 +2410,8 @@ function EllesmereUI.ApplyPandemicGlowToAll(payload, opts)
         end
     end
     local p = ECME.db and ECME.db.profile
-    if p and p.cdmBars and p.cdmBars.bars then
-        for _, b in ipairs(p.cdmBars.bars) do
+    if p and ns.GetActiveCDMConfig(true) and ns.GetActiveCDMConfig(true).bars then
+        for _, b in ipairs(ns.GetActiveCDMConfig(true).bars) do
             if b.key ~= opts.skipCdmKey and not b.isGhostBar and b.barType ~= "custom_buff" then
                 PG_Write(b, payload, PG_CdmIndexFromName)
             end
@@ -2304,8 +2442,8 @@ function EllesmereUI.IsPandemicGlowSyncedToAll(payload, opts)
         end
     end
     local p = ECME.db and ECME.db.profile
-    if p and p.cdmBars and p.cdmBars.bars then
-        for _, b in ipairs(p.cdmBars.bars) do
+    if p and ns.GetActiveCDMConfig(true) and ns.GetActiveCDMConfig(true).bars then
+        for _, b in ipairs(ns.GetActiveCDMConfig(true).bars) do
             if b.key ~= opts.skipCdmKey and not b.isGhostBar and b.barType ~= "custom_buff"
                and not PG_Matches(b, payload, PG_CdmIndexFromName) then
                 return false
@@ -3041,13 +3179,13 @@ end
 -- pre-migration profile because that profile carries no flag.
 function ns.MigrateAlwaysShowBuffsToPerBar()
     local p = ECME.db and ECME.db.profile
-    if not p or not p.cdmBars or p.cdmBars._asbPerBarMigrated then return end
-    p.cdmBars._asbPerBarMigrated = true
-    local oldOn = p.cdmBars.showInactiveBuffIcons
-    local oldDesat = p.cdmBars.desaturateInactiveBuffs
+    if not p or not ns.GetActiveCDMConfig(true) or ns.GetActiveCDMConfig(true)._asbPerBarMigrated then return end
+    ns.GetActiveCDMConfig(true)._asbPerBarMigrated = true
+    local oldOn = ns.GetActiveCDMConfig(true).showInactiveBuffIcons
+    local oldDesat = ns.GetActiveCDMConfig(true).desaturateInactiveBuffs
     if oldOn == nil and oldDesat == nil then return end
-    if type(p.cdmBars.bars) ~= "table" then return end
-    for _, bd in ipairs(p.cdmBars.bars) do
+    if type(ns.GetActiveCDMConfig(true).bars) ~= "table" then return end
+    for _, bd in ipairs(ns.GetActiveCDMConfig(true).bars) do
         if bd.barType == "buffs" then
             if oldOn ~= nil then bd.showInactiveBuffIcons = oldOn and true or false end
             if oldDesat ~= nil then bd.desaturateInactiveBuffs = oldDesat end
@@ -3067,10 +3205,10 @@ end
 -- only lands on original buff bars, not on converted Auras bars.
 function ns.MigrateCustomBuffBarsToBuffBars()
     local p = ECME.db and ECME.db.profile
-    if not p or not p.cdmBars or p.cdmBars._customBuffMergedV1 then return end
-    p.cdmBars._customBuffMergedV1 = true
-    if type(p.cdmBars.bars) ~= "table" then return end
-    for _, bd in ipairs(p.cdmBars.bars) do
+    if not p or not ns.GetActiveCDMConfig(true) or ns.GetActiveCDMConfig(true)._customBuffMergedV1 then return end
+    ns.GetActiveCDMConfig(true)._customBuffMergedV1 = true
+    if type(ns.GetActiveCDMConfig(true).bars) ~= "table" then return end
+    for _, bd in ipairs(ns.GetActiveCDMConfig(true).bars) do
         if bd.barType == "custom_buff" then
             bd.barType = "buffs"
         end
@@ -3513,7 +3651,7 @@ local function SaveCDMBarPosition(barKey, frame)
     end
 
     -- Store relative to UIParent CENTER so offset math is consistent
-    p.cdmBarPositions[barKey] = {
+    ns.GetActiveCDMPositions(true)[barKey] = {
         point = pt, relPoint = "CENTER",
         x = (ax - uiW / 2) / scale,
         y = (ay - uiH / 2) / scale,
@@ -3585,7 +3723,7 @@ end
 -------------------------------------------------------------------------------
 BuildCDMBar = function(barIndex)
     local p = ECME.db.profile
-    local bars = p.cdmBars.bars
+    local bars = ns.GetActiveCDMConfig(true).bars
     local barData = bars[barIndex]
     if not barData then return end
 
@@ -3619,8 +3757,8 @@ BuildCDMBar = function(barIndex)
                 frame._mouseShell:Hide()
             end
             frame._mouseTrack = nil
-            if frame._preMousePos and not p.cdmBarPositions[key] then
-                p.cdmBarPositions[key] = frame._preMousePos
+            if frame._preMousePos and not ns.GetActiveCDMPositions(true)[key] then
+                ns.GetActiveCDMPositions(true)[key] = frame._preMousePos
             end
             frame._preMousePos = nil
             SetFrameClickThrough(frame, false)
@@ -3648,8 +3786,8 @@ BuildCDMBar = function(barIndex)
         end
         frame._mouseTrack = nil
         -- Restore saved position from before mouse anchor
-        if frame._preMousePos and not p.cdmBarPositions[key] then
-            p.cdmBarPositions[key] = frame._preMousePos
+        if frame._preMousePos and not ns.GetActiveCDMPositions(true)[key] then
+            ns.GetActiveCDMPositions(true)[key] = frame._preMousePos
         end
         frame._preMousePos = nil
         -- Restore saved frame level when leaving cursor anchor
@@ -3686,8 +3824,8 @@ BuildCDMBar = function(barIndex)
     local anchorKey = barData.anchorTo
     if anchorKey == "mouse" then
         -- Stash saved position so it can be restored when unanchoring
-        if p.cdmBarPositions[key] then
-            frame._preMousePos = p.cdmBarPositions[key]
+        if ns.GetActiveCDMPositions(true)[key] then
+            frame._preMousePos = ns.GetActiveCDMPositions(true)[key]
         end
         -- Anchor position acts as build direction for mouse cursor tracking
         local anchorPos = barData.anchorPosition or "right"
@@ -3857,7 +3995,7 @@ BuildCDMBar = function(barIndex)
             end
         else
             -- No party frame found  fall back to saved position
-            local pos = p.cdmBarPositions[key]
+            local pos = ns.GetActiveCDMPositions(true)[key]
             if pos and pos.point then
                 ApplyBarPositionCentered(frame, pos, key)
             else
@@ -3895,7 +4033,7 @@ BuildCDMBar = function(barIndex)
             end
         else
             -- No player frame found  fall back to saved position
-            local pos = p.cdmBarPositions[key]
+            local pos = ns.GetActiveCDMPositions(true)[key]
             if pos and pos.point then
                 ApplyBarPositionCentered(frame, pos, key)
             else
@@ -3946,7 +4084,7 @@ BuildCDMBar = function(barIndex)
             end
         else
             -- Resource Bars frame not available  fall back to saved position
-            local pos = p.cdmBarPositions[key]
+            local pos = ns.GetActiveCDMPositions(true)[key]
             if pos and pos.point then
                 ApplyBarPositionCentered(frame, pos, key)
             else
@@ -3970,7 +4108,7 @@ BuildCDMBar = function(barIndex)
         if anchored and frame:GetLeft() then
             -- Unlock-anchored and already has bounds: leave position alone.
         else
-            local pos = p.cdmBarPositions[key]
+            local pos = ns.GetActiveCDMPositions(true)[key]
             if pos and pos.point then
                 ApplyBarPositionCentered(frame, pos, key)
             elseif not anchored then
@@ -6022,11 +6160,11 @@ local FOCUSKICK_BAR_KEY = "focuskick"
 ns.FOCUSKICK_BAR_KEY = FOCUSKICK_BAR_KEY
 local function EnsureFocusKickBar()
     local p = ECME.db and ECME.db.profile
-    if not p or not p.cdmBars or not p.cdmBars.bars then return end
+    if not p or not ns.GetActiveCDMConfig(true) or not ns.GetActiveCDMConfig(true).bars then return end
     -- Desired position: directly after the "buffs" default bar and before
     -- any custom bars (skipping ghost bars). Find buffs and target the slot
     -- right after it.
-    local bars = p.cdmBars.bars
+    local bars = ns.GetActiveCDMConfig(true).bars
     local targetIdx
     for i, b in ipairs(bars) do
         if b.key == "buffs" then targetIdx = i + 1; break end
@@ -6720,13 +6858,13 @@ ns.EnsureFocusReminderProxy = EnsureFocusReminderProxy
 ns.GHOST_CD_BAR_KEY = GHOST_CD_BAR_KEY
 local function EnsureGhostBars()
     local p = ECME.db and ECME.db.profile
-    if not p or not p.cdmBars or not p.cdmBars.bars then return end
+    if not p or not ns.GetActiveCDMConfig(true) or not ns.GetActiveCDMConfig(true).bars then return end
     local hasCD = false
-    for _, b in ipairs(p.cdmBars.bars) do
+    for _, b in ipairs(ns.GetActiveCDMConfig(true).bars) do
         if b.key == GHOST_CD_BAR_KEY then hasCD = true end
     end
     if not hasCD then
-        p.cdmBars.bars[#p.cdmBars.bars + 1] = {
+        ns.GetActiveCDMConfig(true).bars[#ns.GetActiveCDMConfig(true).bars + 1] = {
             key = GHOST_CD_BAR_KEY,
             name = "Hidden CDs",
             barType = "cooldowns",
@@ -6766,8 +6904,8 @@ local BuildCustomBarSpellSet -- forward declare (defined below)
 BuildCustomBarSpellSet = function()
     local set = {}
     local p = ECME.db and ECME.db.profile
-    if not p or not p.cdmBars or not p.cdmBars.bars then return set end
-    for _, bd in ipairs(p.cdmBars.bars) do
+    if not p or not ns.GetActiveCDMConfig(true) or not ns.GetActiveCDMConfig(true).bars then return set end
+    for _, bd in ipairs(ns.GetActiveCDMConfig(true).bars) do
         if not MAIN_BAR_KEYS[bd.key] then
             local sd = ns.GetBarSpellData(bd.key)
             if sd and sd.assignedSpells then
@@ -6821,7 +6959,7 @@ _CDMApplyVisibility = function()
 
     local unlockActive = EllesmereUI._unlockActive
 
-    for _, barData in ipairs(p.cdmBars.bars) do
+    for _, barData in ipairs(ns.GetActiveCDMConfig(true).bars) do
         local frame = cdmBarFrames[barData.key]
         if frame then
             -- FocusKick is owned exclusively by ApplyFocusKickAnchor.
@@ -6980,7 +7118,7 @@ _CDMApplyVisibility = function()
             -- Essential/Utility viewers. Buff bars use BuffIcon viewer.
             -- custom_buff bars use their own frames (not the viewer).
             local anyVisible = false
-            for _, barData in ipairs(p.cdmBars.bars) do
+            for _, barData in ipairs(ns.GetActiveCDMConfig(true).bars) do
                 if barData.enabled then
                     local frame = cdmBarFrames[barData.key]
                     if frame and not frame._visHidden then
@@ -7290,6 +7428,7 @@ BuildAllCDMBars = function()
     -- gated on GetActiveSpecKey() at OnEnable, so this is a defense in
     -- depth for any other path that calls BuildAllCDMBars too early.
     if not ns.GetActiveSpecKey() then return end
+    if ns.SyncCDMUnlockLinks then ns.SyncCDMUnlockLinks() end
 
     -- Mark CDM as rebuilding so width/height match propagation gates off
     -- (it would otherwise read transient bar widths sized for the previous
@@ -7321,16 +7460,16 @@ BuildAllCDMBars = function()
     -- consumer (spell data, racial normalize, unlock snapshots) then errors
     -- on the nil key. The override writer no longer fabricates numeric
     -- containers; this prunes profiles that already carry ghosts.
-    if type(p.cdmBars.bars) == "table" then
-        for i = #p.cdmBars.bars, 1, -1 do
-            local bd = p.cdmBars.bars[i]
+    if type(ns.GetActiveCDMConfig(true).bars) == "table" then
+        for i = #ns.GetActiveCDMConfig(true).bars, 1, -1 do
+            local bd = ns.GetActiveCDMConfig(true).bars[i]
             if type(bd) ~= "table" or not bd.key then
-                table.remove(p.cdmBars.bars, i)
+                table.remove(ns.GetActiveCDMConfig(true).bars, i)
             end
         end
     end
 
-    if not p.cdmBars.enabled then
+    if not ns.GetActiveCDMConfig(true).enabled then
         -- Restore Blizzard CDM if we're disabled
         RestoreBlizzardCDM()
         for key, frame in pairs(cdmBarFrames) do
@@ -7350,14 +7489,14 @@ BuildAllCDMBars = function()
     EnforceCooldownViewerEditModeSettings()
 
     -- Hide Blizzard CDM
-    if p.cdmBars.hideBlizzard then
+    if ns.GetActiveCDMConfig(true).hideBlizzard then
         HideBlizzardCDM()
     end
 
     -- If user wants Blizzard's tracking bars instead of TBB, restore the
     -- secondary BuffBarCooldownViewer that HideBlizzardCDM moved offscreen.
     -- This only affects the bar-style buff viewer; CDM icon bars are untouched.
-    if p.cdmBars.useBlizzardBuffBars and p.cdmBars.hideBlizzard then
+    if ns.GetActiveCDMConfig(true).useBlizzardBuffBars and ns.GetActiveCDMConfig(true).hideBlizzard then
         RestoreBlizzardBuffFrame()
     end
 
@@ -7366,7 +7505,25 @@ BuildAllCDMBars = function()
     local hookActive = ns.IsViewerHooked and ns.IsViewerHooked()
     wipe(barDataByKey)
     ns._cdmAnyOverflowCfg = nil
-    for i, barData in ipairs(p.cdmBars.bars) do
+    local activeBarKeys = {}
+    for _, bd in ipairs(ns.GetActiveCDMConfig(true).bars) do activeBarKeys[bd.key] = true end
+    for key, frame in pairs(cdmBarFrames) do
+        if not activeBarKeys[key] then
+            if frame then
+                EllesmereUI.SetElementVisibility(frame, false)
+                frame:ClearAllPoints()
+            end
+            local icons = cdmBarIcons[key]
+            if icons then
+                for _, icon in ipairs(icons) do if icon then icon:Hide() end end
+                wipe(icons)
+            end
+            if EllesmereUI.UnregisterUnlockElement then
+                EllesmereUI:UnregisterUnlockElement("CDM_" .. key)
+            end
+        end
+    end
+    for i, barData in ipairs(ns.GetActiveCDMConfig(true).bars) do
         barDataByKey[barData.key] = barData
         -- Live migration: buffGlowMode replaced buffGlowClassColor + "buffGlowR set" nil checks
         if not barData.buffGlowMode then
@@ -7433,12 +7590,12 @@ BuildAllCDMBars = function()
     -- sizes. Positions are stored using the edge anchor directly (LEFT for
     -- RIGHT-grow, etc.), so SetPoint places the frame at its fixed edge and
     -- subsequent SetSize calls grow naturally from that edge.
-    for _, barData in ipairs(p.cdmBars.bars) do
+    for _, barData in ipairs(ns.GetActiveCDMConfig(true).bars) do
         if barData.enabled then
             local ak = barData.anchorTo
             if not ak or ak == "none" then
                 local frame = cdmBarFrames[barData.key]
-                local pos = p.cdmBarPositions[barData.key]
+                local pos = ns.GetActiveCDMPositions(true)[barData.key]
                 if frame and pos and pos.point then
                     local unlockKey = "CDM_" .. barData.key
                     local anchored = EllesmereUI.IsUnlockAnchored and EllesmereUI.IsUnlockAnchored(unlockKey)
@@ -7454,7 +7611,7 @@ BuildAllCDMBars = function()
     -- have run ReapplyOwnAnchor before the target bar was repositioned
     -- (e.g. cooldowns processed before utility).  This corrects that.
     if EllesmereUI.ReapplyOwnAnchor then
-        for _, barData in ipairs(p.cdmBars.bars) do
+        for _, barData in ipairs(ns.GetActiveCDMConfig(true).bars) do
             EllesmereUI.ReapplyOwnAnchor("CDM_" .. barData.key)
         end
     end
@@ -7544,11 +7701,11 @@ function ns.NormalizeRacialAssignments()
     local active = ResolveActiveRacial()
     if not active or active <= 0 then return end
     local p = ECME.db and ECME.db.profile
-    if not (p and p.cdmBars and p.cdmBars.bars) then return end
+    if not (p and ns.GetActiveCDMConfig(true) and ns.GetActiveCDMConfig(true).bars) then return end
 
     -- Gather the non-buff bars' assigned lists once (in bar order).
     local lists = {}
-    for _, b in ipairs(p.cdmBars.bars) do
+    for _, b in ipairs(ns.GetActiveCDMConfig(true).bars) do
         local isBuff = (b.barType == "custom_buff")
             or (ns.IsBarBuffFamily and ns.IsBarBuffFamily(b))
         -- b.key guard: a ghost bar (keyless skeleton from a stale override
@@ -7708,7 +7865,7 @@ local function CDMFirstLoginCapture()
     local p = ECME.db.profile
     local captured = CaptureCDMPositions()
 
-    for _, barData in ipairs(p.cdmBars.bars) do
+    for _, barData in ipairs(ns.GetActiveCDMConfig(true).bars) do
         local cap = captured[barData.key]
         if cap then
             -- Icon size: visual size from child icon (base width * child scale).
@@ -7730,7 +7887,7 @@ local function CDMFirstLoginCapture()
             end
             -- Position: no scale division needed (scale is always 1)
             if cap.point then
-                p.cdmBarPositions[barData.key] = {
+                ns.GetActiveCDMPositions(true)[barData.key] = {
                     point = cap.point, relPoint = cap.relPoint,
                     x = cap.x, y = cap.y,
                 }
@@ -7747,7 +7904,7 @@ end
 --- what the player actually sees on their CDM bars.
 function ns.ReseedAssignedSpellsFromLiveIcons(cdUtilOnly)
     local p = ECME and ECME.db and ECME.db.profile
-    if not p or not p.cdmBars then return end
+    if not p or not ns.GetActiveCDMConfig(true) then return end
 
     -- Both-state guards (mirror EnsureAssignedSpells). This appends live-icon
     -- spells back into assignedSpells; without these it could re-materialize a
@@ -7804,7 +7961,7 @@ function ns.ReseedAssignedSpellsFromLiveIcons(cdUtilOnly)
         end
     end
 
-    for _, barData in ipairs(p.cdmBars.bars) do
+    for _, barData in ipairs(ns.GetActiveCDMConfig(true).bars) do
         -- cdUtilOnly (the automatic reseed path): buff-family bars are
         -- picker-authoritative -- materializing live buff icons would
         -- reintroduce the secret-ID drift duplicate-slot bug the options
@@ -7934,7 +8091,7 @@ end
 ---   * Racial spells (entries in _myRacialsSet)
 function ns.RepopulateFromBlizzard()
     local p = ECME.db and ECME.db.profile
-    if not p or not p.cdmBars then return end
+    if not p or not ns.GetActiveCDMConfig(true) then return end
     local specKey = ns.GetActiveSpecKey()
     if not specKey or specKey == "0" then return end
 
@@ -7981,7 +8138,7 @@ function ns.RepopulateFromBlizzard()
     -- Skip ghost, custom_buff, and default buff bar. The default buff bar
     -- (key == "buffs") has no assignedSpells to filter -- Blizzard's viewer
     -- is the authority. Extra buff bars ARE filtered for user assignments.
-    for _, barData in ipairs(p.cdmBars.bars) do
+    for _, barData in ipairs(ns.GetActiveCDMConfig(true).bars) do
         if not barData.isGhostBar
            and barData.key ~= "buffs"
            and (barData.barType == "cooldowns" or barData.barType == "utility"
@@ -8043,7 +8200,7 @@ RegisterCDMUnlockElements = function()
 
     -- Build a lookup of which bars are anchored to which parent
     local anchorChildren = {}  -- parentKey -> { childKey1, childKey2, ... }
-    for _, barData in ipairs(ECME.db.profile.cdmBars.bars) do
+    for _, barData in ipairs(ns.GetActiveCDMConfig(true).bars) do
         local anchorKey = barData.anchorTo
         if anchorKey and anchorKey ~= "none" and anchorKey ~= "partyframe" and anchorKey ~= "playerframe" then
             if not anchorChildren[anchorKey] then anchorChildren[anchorKey] = {} end
@@ -8052,7 +8209,7 @@ RegisterCDMUnlockElements = function()
     end
 
     local elements = {}
-    for _, barData in ipairs(ECME.db.profile.cdmBars.bars) do
+    for _, barData in ipairs(ns.GetActiveCDMConfig(true).bars) do
         local key = barData.key
         local frame = cdmBarFrames[key]
         -- FocusKick is pinned to the focus nameplate, so it has no mover.
@@ -8180,7 +8337,7 @@ RegisterCDMUnlockElements = function()
                             tgtL, tgtR, tgtT, tgtB = EllesmereUI.GetAnchorTargetEdgesUI("CDM_" .. key)
                         end
                     end
-                    p.cdmBarPositions[key] = { point = storePoint, relPoint = relPoint, x = storeX, y = storeY,
+                    ns.GetActiveCDMPositions(true)[key] = { point = storePoint, relPoint = relPoint, x = storeX, y = storeY,
                         tgtx = tgtx, tgty = tgty, tgtL = tgtL, tgtR = tgtR, tgtT = tgtT, tgtB = tgtB }
                     -- Skip rebuild when called from anchor propagation or while
                     -- unlock mode is active (unlock mode owns positioning then).
@@ -8189,7 +8346,7 @@ RegisterCDMUnlockElements = function()
                     end
                 end,
                 loadPos = function()
-                    local pos = ECME.db.profile.cdmBarPositions[key]
+                    local pos = ns.GetActiveCDMPositions(true)[key]
                     if not pos or not pos.point then return pos end
                     -- Convert edge/corner-stored positions back to CENTER for the
                     -- unlock mode system (it always works with CENTER coords).
@@ -8206,7 +8363,7 @@ RegisterCDMUnlockElements = function()
                     return pos
                 end,
                 clearPos = function()
-                    ECME.db.profile.cdmBarPositions[key] = nil
+                    ns.GetActiveCDMPositions(true)[key] = nil
                 end,
                 applyPos = function()
                     -- While the authoritative reanchor pass is still pending
@@ -8254,7 +8411,7 @@ RegisterCDMUnlockElements = function()
     end
     -- Expose for ApplyAnchorPosition's growth-direction edge read.
     -- Width-independent: stores edge anchor directly (LEFT/RIGHT/TOP).
-    EllesmereUI._cdmBarPositions = ECME.db.profile.cdmBarPositions
+    EllesmereUI._cdmBarPositions = ns.GetActiveCDMPositions(true)
 end
 ns.RegisterCDMUnlockElements = RegisterCDMUnlockElements
 _G._ECME_RegisterUnlock = RegisterCDMUnlockElements
@@ -8419,6 +8576,14 @@ function ECME:OnEnable()
     if not _cdmSetupStarted then
         local wakeFrame = ns.TakeShell()
         wakeFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+        -- On Wrath clients the compatibility spec library is backed by talent
+        -- tab points.  Those can still be empty at PLAYER_LOGIN/first PEW and
+        -- become authoritative on one of these legacy spell/talent events.
+        -- Without listening for them a cold login can miss its only setup
+        -- opportunity; /reload then works because the talent cache is warm.
+        wakeFrame:RegisterEvent("SPELLS_CHANGED")
+        wakeFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
+        wakeFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
         wakeFrame:RegisterEvent("PLAYER_LOGIN")
         wakeFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
         wakeFrame:SetScript("OnEvent", function(self)
@@ -8429,6 +8594,18 @@ function ECME:OnEnable()
                 self:SetScript("OnEvent", nil)
             end
         end)
+
+        -- Event delivery order varies between a true character login and a
+        -- UI reload on 3.3.5.  Keep a small bounded retry ladder as a backstop
+        -- so a spec cache that becomes ready between events still starts CDM.
+        local function RetryBuildCDM()
+            if _cdmSetupStarted then return end
+            ns.InvalidateSpecKey()
+            TryBuildCDM()
+        end
+        C_Timer.After(0, RetryBuildCDM)
+        C_Timer.After(1, RetryBuildCDM)
+        C_Timer.After(3, RetryBuildCDM)
     end
 
     -- Proc glow hooks: install immediately + retry. Hooks must be in place
@@ -8489,14 +8666,14 @@ function ECME:CDMFinishSetup()
     -- overwrites everything with real data.
     do
         local p = ECME.db and ECME.db.profile
-        if p and p.cdmBars and p.cdmBars.enabled and EllesmereUIDB then
+        if p and ns.GetActiveCDMConfig(true) and ns.GetActiveCDMConfig(true).enabled and EllesmereUIDB then
 
             local charKey = ns.GetCharKey()
             local specKey = ns.GetActiveSpecKey()
             local cache = EllesmereUIDB.cdmCachedBarSizes
             local counts = cache and cache[charKey] and cache[charKey][specKey]
             if counts then
-                for i, barData in ipairs(p.cdmBars.bars) do
+                for i, barData in ipairs(ns.GetActiveCDMConfig(true).bars) do
                     if barData.enabled then
                         local cachedCount = counts[barData.key]
                         if cachedCount and cachedCount > 0 then
@@ -8553,7 +8730,7 @@ function ECME:CDMFinishSetup()
                             frame:SetSize(totalW, totalH)
                             frame._prevLayoutW = totalW
                             frame._prevLayoutH = totalH
-                            local pos = p.cdmBarPositions and p.cdmBarPositions[key]
+                            local pos = ns.GetActiveCDMPositions(true) and ns.GetActiveCDMPositions(true)[key]
                             if pos and pos.point then
                                 frame:ClearAllPoints()
                                 frame:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
@@ -8688,7 +8865,7 @@ local ROT_GLOW_RATIO = 0.33
 local function _rotCVarOn()
     -- User can force-hide via our own toggle, overriding Blizzard's CVar
     local p = ECME.db and ECME.db.profile
-    if p and p.cdmBars and p.cdmBars.hideRotationHelper then return false end
+    if p and ns.GetActiveCDMConfig(true) and ns.GetActiveCDMConfig(true).hideRotationHelper then return false end
     return GetCVarBool and GetCVarBool("assistedCombatHighlight")
 end
 
@@ -8855,7 +9032,7 @@ end
 -- the event-tracked combat flag). No-ops instantly when no bar uses the mode.
 function ns.RefreshItemCountOOCBars()
     local p = ECME.db and ECME.db.profile
-    local bars = p and p.cdmBars and p.cdmBars.bars
+    local bars = p and ns.GetActiveCDMConfig(true) and ns.GetActiveCDMConfig(true).bars
     if not bars or not ns.RefreshCDMIconAppearance then return end
     for _, bd in ipairs(bars) do
         if bd.itemCountOOC and bd.key then
@@ -9048,10 +9225,10 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
         -- Blizzard restores frame positions/alpha after cinematics end.
         -- Re-hide immediately so the Blizzard CDM doesn't reappear.
         local p = ECME.db and ECME.db.profile
-        if p and p.cdmBars and p.cdmBars.hideBlizzard then
+        if p and ns.GetActiveCDMConfig(true) and ns.GetActiveCDMConfig(true).hideBlizzard then
             C_Timer.After(0, function()
                 HideBlizzardCDM()
-                if p.cdmBars.useBlizzardBuffBars then
+                if ns.GetActiveCDMConfig(true).useBlizzardBuffBars then
                     RestoreBlizzardBuffFrame()
                 end
             end)
@@ -9089,7 +9266,7 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
         -- constantly in combat (Bear/Cat) and we don't want to re-run the
         -- visibility pipeline for nothing.
         local p = ECME.db and ECME.db.profile
-        local bars = p and p.cdmBars and p.cdmBars.bars
+        local bars = p and ns.GetActiveCDMConfig(true) and ns.GetActiveCDMConfig(true).bars
         if not bars then return end
         local anyMountedOpt = false
         for _, bd in ipairs(bars) do
@@ -9244,7 +9421,7 @@ SlashCmdList.CDMBB = function(msg)
     end
     local frame = _G[BLIZZ_CDM_FRAMES_SECONDARY.buffs]
     if not frame then P("BuffBarCooldownViewer does not exist") return end
-    local cb = ECME.db and ECME.db.profile and ECME.db.profile.cdmBars
+    local cb = ECME.db and ECME.db.profile and ns.GetActiveCDMConfig(true)
     local fc = _ecmeFC[frame]
     P(string.format("hideBlizzard=%s useBlizzardBuffBars=%s suppressed=%s parkPending=%s",
         tostring(cb and cb.hideBlizzard), tostring(cb and cb.useBlizzardBuffBars),
@@ -9283,14 +9460,14 @@ SlashCmdList.CDMDBG = function()
     local function P(s) print(ACCENT .. "[CDM]" .. OFF .. " " .. s) end
 
     local p = ECME.db and ECME.db.profile
-    if not p or not p.cdmBars then P("no profile") return end
+    if not p or not ns.GetActiveCDMConfig(true) then P("no profile") return end
 
     local specKey = ns.GetActiveSpecKey()
     P("=== CDM DEBUG SNAPSHOT (spec " .. tostring(specKey) .. ") ===")
 
     -- 1. Stored assignedSpells per bar
     P(ACCENT .. "--- Stored assignedSpells ---" .. OFF)
-    for _, bd in ipairs(p.cdmBars.bars) do
+    for _, bd in ipairs(ns.GetActiveCDMConfig(true).bars) do
         if bd.enabled then
             local sd = ns.GetBarSpellData(bd.key)
             local list = sd and sd.assignedSpells
@@ -9533,8 +9710,8 @@ SlashCmdList.EUIORDER = function()
         return sid .. ":" .. tostring(n or "?")
     end
     local p = ECME.db and ECME.db.profile
-    if not p or not p.cdmBars then P("no profile") return end
-    for _, bd in ipairs(p.cdmBars.bars) do
+    if not p or not ns.GetActiveCDMConfig(true) then P("no profile") return end
+    for _, bd in ipairs(ns.GetActiveCDMConfig(true).bars) do
         if bd.enabled and not bd.isGhostBar
            and bd.barType ~= "buffs" and bd.barType ~= "custom_buff" and bd.key ~= "buffs" then
             local sd = ns.GetBarSpellData(bd.key)

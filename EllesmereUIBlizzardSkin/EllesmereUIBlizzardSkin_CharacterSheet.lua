@@ -358,15 +358,10 @@ local function PreSkinCharacterSheet()
         end
     end
 
-    -- Hide native WotLK bottom tabs (Character, Pets, Reputation, Skills, Currency)
-    for i = 1, 5 do
-        local tab = _G["CharacterFrameTab" .. i]
-        if tab then
-            tab:Hide()
-            tab:SetAlpha(0)
-            hooksecurefunc(tab, "Show", function(self) self:Hide() end)
-        end
-    end
+    -- Keep the native WotLK bottom tabs. Blizzard owns their availability
+    -- (notably the Pet tab), while SkinCharacterSheet replaces their artwork.
+    -- These used to be hidden here and permanently suppressed with a Show
+    -- hook, which also made Reputation, Skills, and Currency inaccessible.
 
     -- Background scales proportionally to fill the frame without distorting.
     -- Native aspect ratio: 561x433. On resize, compute the size that covers
@@ -828,11 +823,217 @@ local function SkinCharacterSheet()
     local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
     local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.51, g = 0.784, b = 1 }
 
+    ------------------------------------------------------------------------
+    -- Native CharacterFrame sub-pages
+    ------------------------------------------------------------------------
+    -- The fallback Character skin has treatments for these panes, but it is
+    -- intentionally disabled while the themed character sheet is active to
+    -- avoid both skins fighting over PaperDollFrame. Keep the themed version
+    -- self-contained and skin only the restored sub-pages here.
+    -- The toolkit publishes its methods on the addon's global skin table.
+    -- The private addon namespace does not own a WSkin field.
+    local WSkin = _G.EllesmereUIBlizzardSkin
+    local function SkinThemedCharacterSubPages()
+        if not WSkin then return end
+
+        local function AddPageSurface(pane)
+            if not pane or GetFFD(pane)._euiPageSurface then return end
+            local surface = pane:CreateTexture(nil, "BACKGROUND", nil, -6)
+            surface:SetTexture(0.015, 0.02, 0.025, 0.72)
+            surface:SetPoint("TOPLEFT", pane, "TOPLEFT", 14, -48)
+            surface:SetPoint("BOTTOMRIGHT", pane, "BOTTOMRIGHT", -14, 45)
+            GetFFD(pane)._euiPageSurface = surface
+        end
+
+        local function SkinScrollBar(scrollBar)
+            if scrollBar and not scrollBar.backdrop then
+                WSkin:HandleScrollBar(scrollBar)
+            end
+        end
+
+        local function SkinButton(button)
+            if button and not button.isSkinned then
+                WSkin:HandleButton(button, true)
+            end
+        end
+
+        local pet = _G.PetPaperDollFrame
+        if pet and not GetFFD(pet)._euiThemedPage then
+            GetFFD(pet)._euiThemedPage = true
+            WSkin:StripTextures(pet, true)
+            AddPageSurface(pet)
+            for i = 1, 3 do
+                local tab = _G["PetPaperDollFrameTab" .. i]
+                if tab then WSkin:HandleTab(tab) end
+            end
+            if _G.PetPaperDollFrameExpBar then
+                WSkin:StripTextures(_G.PetPaperDollFrameExpBar)
+                _G.PetPaperDollFrameExpBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
+                if not _G.PetPaperDollFrameExpBar.backdrop then
+                    WSkin:CreateBackdrop(_G.PetPaperDollFrameExpBar, "Default")
+                end
+            end
+            SkinButton(_G.PetPaperDollCloseButton)
+            SkinButton(_G.CompanionSummonButton)
+        end
+
+        local rep = _G.ReputationFrame
+        if rep and not GetFFD(rep)._euiThemedPage then
+            GetFFD(rep)._euiThemedPage = true
+            WSkin:StripTextures(rep, true)
+            AddPageSurface(rep)
+            WSkin:StripTextures(_G.ReputationListScrollFrame)
+            SkinScrollBar(_G.ReputationListScrollFrameScrollBar)
+            for i = 1, 15 do
+                local row = _G["ReputationBar" .. i]
+                local bar = _G["ReputationBar" .. i .. "ReputationBar"]
+                local expandButton = _G["ReputationBar" .. i .. "ExpandOrCollapseButton"]
+                if row then WSkin:StripTextures(row, true) end
+                if bar then
+                    WSkin:StripTextures(bar)
+                    bar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
+                    if not bar.backdrop then WSkin:CreateBackdrop(bar, "Default") end
+                end
+                if expandButton then
+                    expandButton:SetNormalTexture("Interface\\Buttons\\UI-PlusButton-UP")
+                    expandButton:SetHighlightTexture(nil)
+                    local normal = expandButton:GetNormalTexture()
+                    if normal then normal:SetSize(15, 15) end
+                end
+            end
+
+            local function RefreshReputationExpandIcons()
+                if not (_G.ReputationListScrollFrame and _G.FauxScrollFrame_GetOffset
+                    and _G.GetNumFactions) then return end
+                local offset = FauxScrollFrame_GetOffset(_G.ReputationListScrollFrame)
+                local count = GetNumFactions()
+                for i = 1, 15 do
+                    local index = offset + i
+                    local row = _G["ReputationBar" .. i]
+                    local button = _G["ReputationBar" .. i .. "ExpandOrCollapseButton"]
+                    if index <= count and row and button then
+                        button:SetNormalTexture(row.isCollapsed
+                            and "Interface\\Buttons\\UI-PlusButton-UP"
+                            or "Interface\\Buttons\\UI-MinusButton-UP")
+                        local normal = button:GetNormalTexture()
+                        if normal then normal:SetSize(15, 15) end
+                    end
+                end
+            end
+            if _G.ReputationFrame_Update then
+                hooksecurefunc("ReputationFrame_Update", RefreshReputationExpandIcons)
+            end
+            RefreshReputationExpandIcons()
+
+            local detail = _G.ReputationDetailFrame
+            if detail then
+                WSkin:StripTextures(detail)
+                if not detail.backdrop then WSkin:SetTemplate(detail, "Transparent") end
+                if _G.ReputationDetailCloseButton then
+                    WSkin:HandleCloseButton(_G.ReputationDetailCloseButton, detail)
+                end
+                for _, checkBox in ipairs({
+                    _G.ReputationDetailAtWarCheckBox,
+                    _G.ReputationDetailInactiveCheckBox,
+                    _G.ReputationDetailMainScreenCheckBox,
+                }) do
+                    if checkBox and not checkBox.isSkinned then WSkin:HandleCheckBox(checkBox) end
+                end
+            end
+        end
+
+        local skills = _G.SkillFrame
+        if skills and not GetFFD(skills)._euiThemedPage then
+            GetFFD(skills)._euiThemedPage = true
+            WSkin:StripTextures(skills, true)
+            AddPageSurface(skills)
+            if _G.SkillFrameExpandButtonFrame then WSkin:StripTextures(_G.SkillFrameExpandButtonFrame) end
+            if _G.SkillFrameCollapseAllButton then
+                WSkin:HandleCollapseExpandButton(_G.SkillFrameCollapseAllButton, "+")
+            end
+            for i = 1, 12 do
+                local rank = _G["SkillRankFrame" .. i]
+                local rankBorder = _G["SkillRankFrame" .. i .. "Border"]
+                local rankBg = _G["SkillRankFrame" .. i .. "Background"]
+                local typeLabel = _G["SkillTypeLabel" .. i]
+                if rank then
+                    WSkin:StripTextures(rank)
+                    rank:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
+                    if not rank.backdrop then WSkin:CreateBackdrop(rank, "Default") end
+                end
+                if rankBorder then WSkin:StripTextures(rankBorder) end
+                if rankBg then rankBg:SetTexture(nil) end
+                if typeLabel then WSkin:HandleCollapseExpandButton(typeLabel, "+") end
+            end
+            if _G.SkillDetailStatusBar then
+                WSkin:StripTextures(_G.SkillDetailStatusBar)
+                _G.SkillDetailStatusBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
+                if not _G.SkillDetailStatusBar.backdrop then
+                    WSkin:CreateBackdrop(_G.SkillDetailStatusBar, "Default")
+                end
+            end
+            WSkin:StripTextures(_G.SkillListScrollFrame)
+            WSkin:StripTextures(_G.SkillDetailScrollFrame)
+            SkinScrollBar(_G.SkillListScrollFrameScrollBar)
+            SkinScrollBar(_G.SkillDetailScrollFrameScrollBar)
+            SkinButton(_G.SkillFrameCancelButton)
+        end
+
+        local tokens = _G.TokenFrame
+        if tokens and not GetFFD(tokens)._euiThemedPage then
+            GetFFD(tokens)._euiThemedPage = true
+            WSkin:StripTextures(tokens, true)
+            AddPageSurface(tokens)
+            SkinScrollBar(_G.TokenFrameContainerScrollBar)
+            SkinButton(_G.TokenFrameCancelButton)
+
+            local function SkinTokenRows()
+                local container = _G.TokenFrameContainer
+                if not (container and container.buttons) then return end
+                for _, button in ipairs(container.buttons) do
+                    if not GetFFD(button)._euiThemedRow then
+                        GetFFD(button)._euiThemedRow = true
+                        if button.categoryLeft then button.categoryLeft:Hide() end
+                        if button.categoryRight then button.categoryRight:Hide() end
+                        if button.highlight then button.highlight:SetTexture(1, 1, 1, 0.06) end
+                        if button.expandIcon then
+                            button.expandIcon:SetSize(14, 14)
+                            button.expandIcon:SetTexCoord(0, 1, 0, 1)
+                        end
+                        if button.icon then button.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92) end
+                    end
+                end
+            end
+            SkinTokenRows()
+            if _G.TokenFrame_Update then hooksecurefunc("TokenFrame_Update", SkinTokenRows) end
+            if _G.TokenFrameContainer and _G.TokenFrameContainer.update then
+                hooksecurefunc(_G.TokenFrameContainer, "update", SkinTokenRows)
+            end
+
+            local popup = _G.TokenFramePopup
+            if popup then
+                WSkin:StripTextures(popup)
+                if not popup.backdrop then WSkin:SetTemplate(popup, "Transparent") end
+                if _G.TokenFramePopupCloseButton then
+                    WSkin:HandleCloseButton(_G.TokenFramePopupCloseButton, popup)
+                end
+                for _, checkBox in ipairs({
+                    _G.TokenFramePopupInactiveCheckBox,
+                    _G.TokenFramePopupBackpackCheckBox,
+                }) do
+                    if checkBox and not checkBox.isSkinned then WSkin:HandleCheckBox(checkBox) end
+                end
+            end
+        end
+    end
+
+    SkinThemedCharacterSubPages()
+    GetFFD(frame).skinThemedSubPages = SkinThemedCharacterSubPages
+
     local charTabs = {}
-    for i = 1, 3 do
-        local tab = _G["CharacterFrameTab" .. i]
-        if tab then
-            charTabs[#charTabs + 1] = tab
+    local function StyleCharacterTab(tab, i)
+        if not tab or GetFFD(tab)._euiThemedTab then return end
+        GetFFD(tab)._euiThemedTab = true
             for j = 1, select("#", tab:GetRegions()) do
                 local region = select(j, tab:GetRegions())
                 if region and region:IsObjectType("Texture") then
@@ -899,14 +1100,53 @@ local function SkinCharacterSheet()
                 underline:Hide()
                 GetFFD(tab).underline = underline
             end
+    end
+
+    local function LayoutCharacterTabs()
+        local firstTab = _G.CharacterFrameTab1
+        if not firstTab then return end
+
+        -- Keep the row outside the sheet so it cannot cover the weapon slots.
+        firstTab:ClearAllPoints()
+        firstTab:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 0, 0)
+
+        -- Pack only tabs Blizzard currently considers available. This lets the
+        -- Pet tab disappear without leaving a hole and restores it in-place
+        -- when PetPaperDollFrame_UpdateIsAvailable makes it available again.
+        local previous = firstTab
+        for i = 2, 5 do
+            local tab = _G["CharacterFrameTab" .. i]
+            if tab and tab:IsShown() then
+                tab:ClearAllPoints()
+                tab:SetPoint("LEFT", previous, "RIGHT", 0, 0)
+                previous = tab
+            end
         end
     end
-    -- Uniform one-physical-pixel seam between the bottom tabs, matching every
-    -- other themed window (the raw CharacterFrameTab frames sit further apart).
-    if ns.WSkin and ns.WSkin.NormalizeTabRow then ns.WSkin.NormalizeTabRow(charTabs) end
+
+    local function RefreshCharacterTabs()
+        wipe(charTabs)
+        for i = 1, 5 do
+            local tab = _G["CharacterFrameTab" .. i]
+            if tab then
+                StyleCharacterTab(tab, i)
+                charTabs[#charTabs + 1] = tab
+            end
+        end
+        -- Uniform one-physical-pixel seam between the bottom tabs, matching
+        -- every other themed window (when the optional helper is available).
+        if WSkin.NormalizeTabRow then WSkin.NormalizeTabRow(charTabs) end
+        LayoutCharacterTabs()
+    end
+    RefreshCharacterTabs()
+
+    frame:HookScript("OnShow", LayoutCharacterTabs)
+    if _G.PetPaperDollFrame_UpdateIsAvailable then
+        hooksecurefunc("PetPaperDollFrame_UpdateIsAvailable", LayoutCharacterTabs)
+    end
 
     local function UpdateTabVisuals()
-        for i = 1, 3 do
+        for i = 1, 5 do
             local tab = _G["CharacterFrameTab" .. i]
             if tab then
                 -- PanelTemplates_GetSelectedTab is unreliable here -- Blizzard
@@ -970,7 +1210,9 @@ local function SkinCharacterSheet()
         tex:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", -10,  0)
         GetFFD(pane).bg = tex
     end
+    _ensureTabBg(_G.PetPaperDollFrame)
     _ensureTabBg(_G.ReputationFrame)
+    _ensureTabBg(_G.SkillFrame)
     _ensureTabBg(_G.TokenFrame)
 
     -- Tab visibility dispatcher. We hook each sub-pane's OnShow rather than
@@ -1033,16 +1275,39 @@ local function SkinCharacterSheet()
     end
 
     local function _hookPaneOnShow(pane, isChar)
-        if not pane then return end
+        if not pane or GetFFD(pane)._euiVisibilityHooked then return end
+        GetFFD(pane)._euiVisibilityHooked = true
         pane:HookScript("OnShow", function()
+            if GetFFD(frame).skinThemedSubPages then GetFFD(frame).skinThemedSubPages() end
+            _ensureTabBg(_G.PetPaperDollFrame)
             _ensureTabBg(_G.ReputationFrame)
+            _ensureTabBg(_G.SkillFrame)
             _ensureTabBg(_G.TokenFrame)
             ApplyTabVisibility(isChar)
         end)
     end
     _hookPaneOnShow(_G.PaperDollFrame,  true)
+    _hookPaneOnShow(_G.PetPaperDollFrame, false)
     _hookPaneOnShow(_G.ReputationFrame, false)
+    _hookPaneOnShow(_G.SkillFrame,      false)
     _hookPaneOnShow(_G.TokenFrame,      false)
+
+    -- Currency UI is load-on-demand on the 3.3.5 client. If it was not
+    -- present when CharacterFrame first opened, finish its page skin and
+    -- visibility hook as soon as Blizzard_TokenUI creates the pane.
+    if not _G.TokenFrame then
+        local tokenLoader = EllesmereUI.SafeCreateFrame("Frame")
+        tokenLoader:RegisterEvent("ADDON_LOADED")
+        tokenLoader:SetScript("OnEvent", function(self)
+            if not _G.TokenFrame then return end
+            self:UnregisterAllEvents()
+            SkinThemedCharacterSubPages()
+            RefreshCharacterTabs()
+            _ensureTabBg(_G.TokenFrame)
+            _hookPaneOnShow(_G.TokenFrame, false)
+            UpdateTabVisuals()
+        end)
+    end
 
 
     ApplyTabVisibility((frame.selectedTab or 1) == 1)
@@ -4915,7 +5180,9 @@ local function SkinCharacterSheet()
     -- at line ~1004 runs before stats panel / model scene / slots are
     -- created, so when opening Rep/Currency directly via hotkey the
     -- character-tab elements never got hidden.
-    local isCharTab = not (_G.ReputationFrame and _G.ReputationFrame:IsShown())
+    local isCharTab = not (_G.PetPaperDollFrame and _G.PetPaperDollFrame:IsShown())
+        and not (_G.ReputationFrame and _G.ReputationFrame:IsShown())
+        and not (_G.SkillFrame and _G.SkillFrame:IsShown())
         and not (_G.TokenFrame and _G.TokenFrame:IsShown())
     ApplyTabVisibility(isCharTab)
 end

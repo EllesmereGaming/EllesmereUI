@@ -848,6 +848,9 @@ local function RepointAllDBs(profileName)
         if EllesmereUI._TBBRestoreUnlockLinks then
             EllesmereUI._TBBRestoreUnlockLinks()
         end
+        if EllesmereUI._CDMRestoreUnlockLinks then
+            EllesmereUI._CDMRestoreUnlockLinks()
+        end
     end
     -- (Castbar anchor defaults for brand-new profiles are seeded into the
     -- stamped snapshot by StampUnlockLayoutIfMissing and arrive via the
@@ -1270,22 +1273,6 @@ function EllesmereUI.ApplyProfileData(profileData)
                         mm.omniumFolioMode = (mm.showOmniumFolio == false) and "never" or "always"
                     end
                 end
-                -- Pre-enum imports carry the legacy anchorFirstRow boolean but
-                -- no rowGrowDirection. The conversion migration
-                -- (cdm_row_grow_direction_v1) is SKIPPED for imported profiles
-                -- (inherited migration flags), so forward-copy here so the
-                -- pinned-row behavior survives the import.
-                if entry.folder == "EllesmereUICooldownManager"
-                    and type(profile.cdmBars) == "table" and type(profile.cdmBars.bars) == "table" then
-                    for _, bar in ipairs(profile.cdmBars.bars) do
-                        if bar.anchorFirstRow then
-                            if bar.rowGrowDirection == nil then
-                                bar.rowGrowDirection = bar.verticalOrientation and "RIGHT" or "DOWN"
-                            end
-                            bar.anchorFirstRow = nil
-                        end
-                    end
-                end
                 if db._profileDefaults then
                     EllesmereUI.Lite.DeepMergeDefaults(profile, db._profileDefaults)
                 end
@@ -1337,6 +1324,9 @@ function EllesmereUI.ApplyProfileData(profileData)
             -- entries over the freshly restored stores.
             if EllesmereUI._TBBRestoreUnlockLinks then
                 EllesmereUI._TBBRestoreUnlockLinks()
+            end
+            if EllesmereUI._CDMRestoreUnlockLinks then
+                EllesmereUI._CDMRestoreUnlockLinks()
             end
         end
         -- If profile predates unlockLayout, leave live data untouched
@@ -1693,14 +1683,15 @@ end
 -------------------------------------------------------------------------------
 local EXPORT_PREFIX = "!EUI_"
 
--- Snapshot the per-profile CDM spell allocation (which spells sit on which bars +
--- per-spell settings, per spec) for export. The bar DEFINITIONS already travel in
--- the addon blob; this carries the content that sits on them. Strips the sharer's
--- ghost bar + migration flags so the importer rebuilds ghosting against THEIR own
--- tracked spells. Returns nil when there's nothing to carry, or when the CDM addon
--- itself isn't part of a subset export.
-local function SnapshotProfileCDMSpells(profileName, includedFolders, cdmSpecs)
+-- Snapshot complete per-spec CDM containers: bar definitions and positions,
+-- spell assignments/settings, tracking bars, glows, active-state rules and
+-- spec-owned unlock links, including hidden/ghost spell routing.
+local function SnapshotProfileCDMSpecs(profileName, includedFolders, cdmSpecs)
     if includedFolders and not includedFolders["EllesmereUICooldownManager"] then return nil end
+    local activeProfile = (EllesmereUIDB and EllesmereUIDB.activeProfile) or "Default"
+    if profileName == activeProfile and EllesmereUI.CDMBankActiveSpecContainer then
+        EllesmereUI.CDMBankActiveSpecContainer()
+    end
     -- Reconcile the ACTIVE spec's default-bar store against the live icons
     -- before snapshotting: untouched base-bar spells render via the
     -- frames-as-truth fallback without being recorded, and an export taken
@@ -1721,9 +1712,6 @@ local function SnapshotProfileCDMSpells(profileName, includedFolders, cdmSpecs)
     for specKey, specProf in pairs(bucket.specProfiles) do
         if type(specProf) == "table" and (not cdmSpecs or cdmSpecs[specKey]) then
             local copy = DeepCopy(specProf)
-            if type(copy.barSpells) == "table" then copy.barSpells.__ghost_cd = nil end
-            copy._barFilterModelV6 = nil
-            copy._importGhostMode = nil
             snap[specKey] = copy
         end
     end
@@ -1876,7 +1864,7 @@ function EllesmereUI.ExportProfile(profileName, includedFolders, includeLayout, 
     -- carrying the complete override system exactly as classic full exports
     -- always did; the export UI passes the user's explicit Include choice.
     if includeOverrides == nil then includeOverrides = true end
-    -- CDM spell layouts default ON with every spec included (cdmSpecs nil =
+    -- CDM spec containers default ON with every spec included (cdmSpecs nil =
     -- all specs with data). Headless callers -- the Wago UI Packs creator
     -- export and partner installers -- call this bare and must receive a
     -- COMPLETE profile; the opt-in + spec-picker experience belongs to the
@@ -1947,10 +1935,9 @@ function EllesmereUI.ExportProfile(profileName, includedFolders, includeLayout, 
     -- Legacy account-wide spell store never travels (the per-profile snapshot below
     -- carries CDM content instead).
     exportData.spellAssignments = nil
-    -- CDM spell allocation travels WITH the profile: which spells sit on which bars
-    -- + per-spell settings, per spec. Bar definitions already ride in the addon blob.
+    -- Complete CDM spec containers travel with the profile outside the addon blob.
     if includeCDM then
-        exportData.cdmSpells = SnapshotProfileCDMSpells(profileName, includedFolders, cdmSpecs)
+        exportData.cdmSpecs = SnapshotProfileCDMSpecs(profileName, includedFolders, cdmSpecs)
     end
     -- Spec->profile assignments (which specs auto-load this profile) ride along as
     -- a flat spec-ID list. Always embedded; the importer only applies it when the
@@ -2248,100 +2235,6 @@ function EllesmereUI.ExportAddons(folderList)
 end
 --]] -- END ADDON-SPECIFIC EXPORT DISABLED
 
--------------------------------------------------------------------------------
---  CDM spec profile helpers for export/import spec picker
--------------------------------------------------------------------------------
-
---- Get info about which specs have data in the CDM specProfiles table.
---- Returns: { { key="250", name="Blood", icon=..., hasData=true }, ... }
---- Includes ALL specs for the player's class, with hasData indicating
---- whether specProfiles contains data for that spec.
-function EllesmereUI.GetCDMSpecInfo()
-    local sa = EllesmereUIDB and EllesmereUIDB.spellAssignments
-    local specProfiles = sa and sa.specProfiles or {}
-    local result = {}
-    for _, info in ipairs(Spec and Spec:GetList() or {}) do
-        local key = tostring(info.id)
-        result[#result + 1] = {
-            key     = key,
-            name    = info.name or ("Spec " .. key),
-            icon    = info.icon,
-            hasData = specProfiles[key] ~= nil,
-        }
-    end
-    return result
-end
-
---- Filter specProfiles in an export snapshot to only include selected specs.
---- Reads from snapshot.spellAssignments (the dedicated store copy on the payload).
---- Modifies the snapshot in-place. selectedSpecs = { ["250"] = true, ... }
-function EllesmereUI.FilterExportSpecProfiles(snapshot, selectedSpecs)
-    if not snapshot or not snapshot.spellAssignments then return end
-    local sp = snapshot.spellAssignments.specProfiles
-    if not sp then return end
-    for key in pairs(sp) do
-        if not selectedSpecs[key] then
-            sp[key] = nil
-        end
-    end
-end
-
---- After a profile import, apply only selected specs' specProfiles from the
---- imported data into the dedicated spell assignment store.
---- importedSpellAssignments = the spellAssignments object from the import payload.
---- selectedSpecs = { ["250"] = true, ... }
-function EllesmereUI.ApplyImportedSpecProfiles(importedSpellAssignments, selectedSpecs)
-    if not importedSpellAssignments or not importedSpellAssignments.specProfiles then return end
-    if not EllesmereUIDB.spellAssignments then
-        EllesmereUIDB.spellAssignments = { specProfiles = {} }
-    end
-    local sa = EllesmereUIDB.spellAssignments
-    if not sa.specProfiles then sa.specProfiles = {} end
-    for key, data in pairs(importedSpellAssignments.specProfiles) do
-        if selectedSpecs[key] then
-            sa.specProfiles[key] = DeepCopy(data)
-        end
-    end
-    -- If the current spec was imported, reload it live
-    if _G._ECME_GetCurrentSpecKey and _G._ECME_LoadSpecProfile then
-        local currentKey = _G._ECME_GetCurrentSpecKey()
-        if currentKey and selectedSpecs[currentKey] then
-            _G._ECME_LoadSpecProfile(currentKey)
-        end
-    end
-end
-
---- Get the list of spec keys that have data in imported spell assignments.
---- Returns same format as GetCDMSpecInfo but based on imported data.
---- Accepts either the new spellAssignments format or legacy CDM snapshot.
-function EllesmereUI.GetImportedCDMSpecInfo(importedSpellAssignments)
-    if not importedSpellAssignments then return {} end
-    -- Support both new format (spellAssignments.specProfiles) and legacy (cdmSnap.specProfiles)
-    local specProfiles = importedSpellAssignments.specProfiles
-    if not specProfiles then return {} end
-    local result = {}
-    for specKey in pairs(specProfiles) do
-        local specID = tonumber(specKey)
-        local name, icon
-        if specID and specID > 0 and Spec then
-            local info = Spec:GetInfoByID(specID)
-            if info then
-                name = info.name
-                icon = info.icon
-            end
-        end
-        result[#result + 1] = {
-            key     = specKey,
-            name    = name or ("Spec " .. specKey),
-            icon    = icon,
-            hasData = true,
-        }
-    end
-    table.sort(result, function(a, b) return a.key < b.key end)
-    return result
-end
-
--------------------------------------------------------------------------------
 --  CDM Spec Picker Popup
 --  Thin wrapper around ShowSpecAssignPopup for CDM export/import.
 --
@@ -2420,17 +2313,17 @@ end
 function EllesmereUI.ExportCurrentProfile(includeLayout, includeCDM, cdmSpecs)
     if includeLayout == nil then includeLayout = true end  -- default ON
     -- Same nil-default as ExportProfile: bare (headless/API) calls get the
-    -- complete profile including CDM spell layouts for every spec; the
+    -- complete profile including CDM containers for every spec; the
     -- options export flow always passes the user's explicit choice.
     if includeCDM == nil then includeCDM = true end
     local profileData = EllesmereUI.SnapshotAllAddons()
     -- Legacy account-wide spell store never travels (the per-profile snapshot below
     -- carries CDM content instead).
     profileData.spellAssignments = nil
-    -- CDM spell allocation travels WITH the profile (see SnapshotProfileCDMSpells).
+    -- Complete CDM spec containers travel WITH the profile.
     local activeName = (EllesmereUIDB and EllesmereUIDB.activeProfile) or "Default"
     if includeCDM then
-        profileData.cdmSpells = SnapshotProfileCDMSpells(activeName, nil, cdmSpecs)
+        profileData.cdmSpecs = SnapshotProfileCDMSpecs(activeName, nil, cdmSpecs)
     end
     -- Spec->profile assignments ride along; applied on import only via "Auto
     -- Assign to Specs". nil when this profile is not assigned to any spec.
@@ -2828,81 +2721,21 @@ local function GetSpellStoreProfiles()
     return sa.profiles
 end
 
--- Build an imported profile's per-profile CDM spell bucket on the same
--- merge-base-on-active contract as the addon blobs: START from a copy of the
--- ACTIVE profile's spell store, so specs the incoming string does not carry
--- keep the current profile's layouts VERBATIM (they are the user's own
--- current data -- no import flags or migrations touch them), THEN overlay
--- the incoming specs and arm import-authoritative ghosting on THOSE ONLY, so
--- the importer's tracked-but-unplaced spells get hidden (not spilled onto a
--- default bar) once the profile is active. Runs even with no incoming specs
--- (inherit-only): an imported profile must never pair inherited CDM bar
--- definitions with an empty spell store. Existing bucket keys other than
--- specProfiles are preserved on overwrite, and the active bucket may BE the
--- target bucket (overwriting the active profile): inheritance copies into a
--- fresh table before specProfiles is replaced, so that case is a clean
--- self-copy plus incoming overlay.
-local function BuildImportedCDMSpellBucket(profileName, activeName, incomingSpecs, importedBarsCfg)
+-- Overlay complete, independent per-spec CDM containers. Specs absent from the
+-- payload are untouched; a new profile therefore receives only the specs the
+-- exporter included. There is deliberately no inheritance from the currently
+-- active profile, which would couple unrelated specs/classes at import time.
+local function BuildImportedCDMSpellBucket(profileName, incomingSpecs)
     if not EllesmereUIDB then return end
     EllesmereUIDB.spellAssignments = EllesmereUIDB.spellAssignments or { profiles = {} }
     local sa = EllesmereUIDB.spellAssignments
     sa.profiles = sa.profiles or {}
     local bucket = sa.profiles[profileName] or {}
     sa.profiles[profileName] = bucket
-    local inherited = {}
-    local activeBucket = sa.profiles[activeName]
-    if activeBucket and type(activeBucket.specProfiles) == "table" then
-        for specKey, sp in pairs(activeBucket.specProfiles) do
-            if type(sp) == "table" then inherited[specKey] = DeepCopy(sp) end
-        end
-    end
-    bucket.specProfiles = inherited
+    bucket.specProfiles = bucket.specProfiles or {}
     if type(incomingSpecs) ~= "table" then return end
-    -- Import-authoritative ghosting is computed against the player's LIVE
-    -- Blizzard CDM tracked set (viewer pools + category API). That set is only
-    -- guaranteed settled after a reload, and the ghost pass is a ONE-SHOT that
-    -- stamps _barFilterModelV6 the first time it succeeds -- so a pass that
-    -- runs against a mid-change tracked set writes a permanently wrong ghost
-    -- list. Runtime-only flag (dies with the session) telling the pass to wait
-    -- for a later session. The interactive import flow never noticed because
-    -- its caller ReloadUI()s in the same frame ImportProfile returns, which
-    -- kills the queued reanchor that would have run the pass; a caller that
-    -- defers its reload (installer wizards) gets the pass mid-session instead.
-    if EllesmereUI then EllesmereUI._cdmImportGhostDeferred = true end
     for specKey, specProf in pairs(DeepCopy(incomingSpecs)) do
         bucket.specProfiles[specKey] = specProf
-        if type(specProf) == "table" then
-            if type(specProf.barSpells) == "table" then specProf.barSpells.__ghost_cd = nil end
-            specProf._barFilterModelV6 = nil    -- re-run the migration on activate
-            specProf._importGhostMode  = true   -- ghost tracked-but-unplaced spells
-            specProf._dormantMerged    = true   -- imported data is already current-model
-            -- Old-format strings (pre tiered-settings) carry per-bar
-            -- spellSettings; transform NOW so the live session reads the
-            -- new shape (the registered migration also covers it on the
-            -- next reload -- both idempotent, flag lives in the bucket).
-            if EllesmereUI.MigrateCdmSpellSettingsShape then
-                EllesmereUI.MigrateCdmSpellSettingsShape(specProf, importedBarsCfg)
-            end
-            -- Hosted-buff settings moved family stores (CD -> BUFF);
-            -- relocate old-format imports the same way (idempotent).
-            if EllesmereUI.MigrateCdmHostedBuffSettings then
-                EllesmereUI.MigrateCdmHostedBuffSettings(specProf)
-            end
-            -- Collided-buff cooldownID claims moved from the
-            -- assignedBuffCdIDs side-table to cd-claim markers inside
-            -- assignedSpells; convert old-format imports too (idempotent),
-            -- or their claims sit unread and the slots silently unclaim.
-            if EllesmereUI.MigrateCdmBuffCdClaims then
-                EllesmereUI.MigrateCdmBuffCdClaims(specProf)
-            end
-            -- Strings exported before _buffDisplayOrderUserModified
-            -- existed carry a drag-arranged buffDisplayOrder without
-            -- the flag; stamp it or the first live reconcile resyncs
-            -- the imported order to Blizzard order (idempotent).
-            if EllesmereUI.MigrateCdmBuffOrderUserFlag then
-                EllesmereUI.MigrateCdmBuffOrderUserFlag(specProf)
-            end
-        end
     end
 end
 
@@ -3151,38 +2984,9 @@ function EllesmereUI.ImportProfile(importStr, profileName)
         if not found then
             table.insert(db.profileOrder, 1, profileName)
         end
-        -- CDM spell allocation: inherit-then-overlay via the shared builder
-        -- (BuildImportedCDMSpellBucket above): specs missing from the string
-        -- keep the ACTIVE profile's spell layouts -- the same
-        -- merge-base-on-active contract the addon blobs use -- and incoming
-        -- specs arm ghosting + the old-format migrations. Runs for strings
-        -- with no cdmSpells too (inherit-only), so an imported profile never
-        -- pairs inherited bar definitions with an empty spell store. Note:
-        -- db.activeProfile still names the PRE-import active profile here
-        -- (activation happens further down), which is exactly the inheritance
-        -- source the contract wants.
-        do
-            local importedBarsCfg = payload.data.addons
-                and payload.data.addons["EllesmereUICooldownManager"]
-                and payload.data.addons["EllesmereUICooldownManager"].cdmBars
-                and payload.data.addons["EllesmereUICooldownManager"].cdmBars.bars
-            BuildImportedCDMSpellBucket(profileName, db.activeProfile or "Default",
-                payload.data.cdmSpells, importedBarsCfg)
-        end
-        -- Old-format strings can carry the per-bar Custom Active State Decimals
-        -- keys (bd.faDecimals*); convert them to the per-spell Threshold Text
-        -- stamps the same way the login migration does (the old keys are
-        -- consumed, so this is idempotent). Runs outside the cdmSpells guard:
-        -- even a string without a spell store must have its bar keys retired.
-        if EllesmereUI.MigrateCdmThresholdText then
-            local importedCdm = merged.addons and merged.addons["EllesmereUICooldownManager"]
-            if type(importedCdm) == "table" then
-                local sa2 = EllesmereUIDB and EllesmereUIDB.spellAssignments
-                local bucket2 = sa2 and sa2.profiles and sa2.profiles[profileName]
-                local sp2 = type(bucket2) == "table" and bucket2.specProfiles or nil
-                EllesmereUI.MigrateCdmThresholdText(importedCdm, sp2)
-            end
-        end
+        -- Each selected spec is a complete CDM container (bars, positions,
+        -- spells, settings, tracking bars and unlock links).
+        BuildImportedCDMSpellBucket(profileName, payload.data.cdmSpecs)
         -- Remove the new profile from all sync targets so the pre-logout
         -- sync doesn't overwrite it. Other profiles' sync relationships
         -- are preserved (per-profile sync system).
@@ -3431,59 +3235,7 @@ function EllesmereUI.ImportProfile(importStr, profileName)
         if not found then
             table.insert(db.profileOrder, 1, profileName)
         end
-        -- CDM spell allocation: same inherit-then-overlay contract as the
-        -- full branch (BuildImportedCDMSpellBucket). Subset strings carry
-        -- cdmSpells only when the CDM module was included in the export;
-        -- either way the imported profile's spell bucket pairs coherently
-        -- with its (imported or inherited) bar definitions instead of being
-        -- dropped entirely, which this branch previously did for the modern
-        -- cdmSpells format.
-        do
-            local importedBarsCfg = payload.data and payload.data.addons
-                and payload.data.addons["EllesmereUICooldownManager"]
-                and payload.data.addons["EllesmereUICooldownManager"].cdmBars
-                and payload.data.addons["EllesmereUICooldownManager"].cdmBars.bars
-            BuildImportedCDMSpellBucket(profileName, current,
-                payload.data and payload.data.cdmSpells, importedBarsCfg)
-        end
-        -- Write spell assignments to dedicated store
-        if payload.data and payload.data.spellAssignments then
-            if not EllesmereUIDB.spellAssignments then
-                EllesmereUIDB.spellAssignments = { specProfiles = {} }
-            end
-            local sa = EllesmereUIDB.spellAssignments
-            local imported = payload.data.spellAssignments
-            if imported.specProfiles then
-                for key, data in pairs(imported.specProfiles) do
-                    sa.specProfiles[key] = DeepCopy(data)
-                end
-            end
-            if imported.barGlows and next(imported.barGlows) then
-                -- barGlows is now per-spec in specProfiles, not global. Skip import.
-            end
-        end
-        -- Backward compat: extract specProfiles from CDM addon data (pre-migration format)
-        if payload.data and payload.data.addons and payload.data.addons["EllesmereUICooldownManager"] then
-            local cdm = payload.data.addons["EllesmereUICooldownManager"]
-            if cdm.specProfiles then
-                if not EllesmereUIDB.spellAssignments then
-                    EllesmereUIDB.spellAssignments = { specProfiles = {} }
-                end
-                for key, data in pairs(cdm.specProfiles) do
-                    if not EllesmereUIDB.spellAssignments.specProfiles[key] then
-                        EllesmereUIDB.spellAssignments.specProfiles[key] = DeepCopy(data)
-                    end
-                end
-            end
-            if cdm.barGlows then
-                if not EllesmereUIDB.spellAssignments then
-                    EllesmereUIDB.spellAssignments = { specProfiles = {} }
-                end
-                if not next(EllesmereUIDB.spellAssignments.barGlows or {}) then
-                    -- barGlows is now per-spec in specProfiles, not global. Skip import.
-                end
-            end
-        end
+        BuildImportedCDMSpellBucket(profileName, payload.data and payload.data.cdmSpecs)
         if specLocked then
             return true, nil, "spec_locked"
         end
@@ -5208,7 +4960,7 @@ function EllesmereUI.ImportProfileSilent(opts)
         end
         -- CDM spell layouts live outside the addon blob.
         if disable["EllesmereUICooldownManager"] then
-            payload.data.cdmSpells = nil
+            payload.data.cdmSpecs = nil
         end
         -- The account-global window/tooltip skin bundle belongs to the skin
         -- module; a pack that replaces it must not apply the bundle.

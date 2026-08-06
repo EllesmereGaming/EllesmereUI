@@ -525,9 +525,26 @@ C_EquipmentSet.UseEquipmentSet = C_EquipmentSet.UseEquipmentSet or function(setI
     end
 end
 
+-- Wrath's equipment-set API exposes an icon texture from
+-- GetEquipmentSetInfo, but SaveEquipmentSet expects that icon's numeric index.
+local function GetEquipmentSetIconIndex(icon)
+    if type(icon) == "number" then return icon end
+    if type(icon) == "string" and GetNumEquipmentSetIcons and GetEquipmentSetIconInfo then
+        local wanted = icon:match("([^\\/]*)$"):lower():gsub("%.blp$", "")
+        for i = 1, GetNumEquipmentSetIcons() do
+            local texture = GetEquipmentSetIconInfo(i)
+            if type(texture) == "string" then
+                local candidate = texture:match("([^\\/]*)$"):lower():gsub("%.blp$", "")
+                if candidate == wanted then return i end
+            end
+        end
+    end
+    return 1
+end
+
 C_EquipmentSet.CreateEquipmentSet = C_EquipmentSet.CreateEquipmentSet or function(setName, icon)
     if SaveEquipmentSet then
-        SaveEquipmentSet(setName, icon or 1)
+        SaveEquipmentSet(setName, GetEquipmentSetIconIndex(icon))
     end
 end
 
@@ -535,11 +552,14 @@ C_EquipmentSet.SaveEquipmentSet = C_EquipmentSet.SaveEquipmentSet or function(se
     local setName, icon = nil, nil
     if type(setID) == "string" then
         setName = setID
+        if GetEquipmentSetInfoByName then
+            icon = GetEquipmentSetInfoByName(setID)
+        end
     elseif type(setID) == "number" and GetEquipmentSetInfo then
         setName, icon = GetEquipmentSetInfo(setID)
     end
     if setName and SaveEquipmentSet then
-        SaveEquipmentSet(setName, icon)
+        SaveEquipmentSet(setName, GetEquipmentSetIconIndex(icon))
     end
 end
 

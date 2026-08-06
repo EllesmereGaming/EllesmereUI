@@ -690,7 +690,7 @@ function ns.MigrateSpecToBarFilterModelV6()
     if not prof.barSpells then prof._barFilterModelV6 = true; return end
 
     local p = ECME.db and ECME.db.profile
-    local barList = p and p.cdmBars and p.cdmBars.bars
+    local barList = p and ns.GetActiveCDMConfig(true) and ns.GetActiveCDMConfig(true).bars
     if type(barList) ~= "table" then return end
 
     -- Step 1: orphan cleanup -- drop spell data for bars that no longer exist
@@ -1014,8 +1014,8 @@ function ns.CollectDefaultBuffTrackEntries()
     local diverted = {}
     local divertedCd = {}  -- cooldownID-level diversions (collided-buff slots)
     local p = ECME and ECME.db and ECME.db.profile
-    if p and p.cdmBars and p.cdmBars.bars then
-        for _, otherBd in ipairs(p.cdmBars.bars) do
+    if p and ns.GetActiveCDMConfig(true) and ns.GetActiveCDMConfig(true).bars then
+        for _, otherBd in ipairs(ns.GetActiveCDMConfig(true).bars) do
             if otherBd.enabled and otherBd.key ~= "buffs" then
                 local otherSd = ns.GetBarSpellData(otherBd.key)
                 if otherBd.barType == "buffs" or otherBd.barType == "custom_buff" then
@@ -1636,8 +1636,8 @@ function ns.AddTrackedSpell(barKey, id)
     local targetBd = barDataByKey[barKey]
     local p = ECME.db.profile
     local targetIsBuff = IsBarBuffFamily(barKey)
-    if p and p.cdmBars and p.cdmBars.bars then
-        for _, b in ipairs(p.cdmBars.bars) do
+    if p and ns.GetActiveCDMConfig(true) and ns.GetActiveCDMConfig(true).bars then
+        for _, b in ipairs(ns.GetActiveCDMConfig(true).bars) do
             if b.key ~= barKey and b.barType ~= "custom_buff" then
                 if IsBarBuffFamily(b) == targetIsBuff then
                     ns.RemoveSpellFromBar(b.key, id)
@@ -1865,7 +1865,7 @@ function ns.AddCDMBar(barType, name, numRows)
     local MAX_CUSTOM_BARS = ns.MAX_CUSTOM_BARS
 
     local p = ECME.db.profile
-    local bars = p.cdmBars.bars
+    local bars = ns.GetActiveCDMConfig(true).bars
     -- Count existing custom bars (non-default)
     local customCount = 0
     for _, b in ipairs(bars) do
@@ -1939,19 +1939,19 @@ function ns.RemoveCDMBar(key)
     if key == "cooldowns" or key == "utility" or key == "buffs" then return false end
     local RegisterCDMUnlockElements = ns.RegisterCDMUnlockElements
     local p = ECME.db.profile
-    for i, barData in ipairs(p.cdmBars.bars) do
+    for i, barData in ipairs(ns.GetActiveCDMConfig(true).bars) do
         if barData.key == key then
             -- Clean up frame
             local frame = cdmBarFrames[key]
             if frame then EllesmereUI.SetElementVisibility(frame, false) end
             cdmBarFrames[key] = nil
             cdmBarIcons[key] = nil
-            p.cdmBarPositions[key] = nil
-            table.remove(p.cdmBars.bars, i)
+            ns.GetActiveCDMPositions(true)[key] = nil
+            table.remove(ns.GetActiveCDMConfig(true).bars, i)
             -- Max Icons overflow: clear targets that pointed at the removed
             -- bar (runtime already fail-safes on a dangling key; this is
             -- config hygiene on the explicit delete).
-            for _, b in ipairs(p.cdmBars.bars) do
+            for _, b in ipairs(ns.GetActiveCDMConfig(true).bars) do
                 if b.overflowTarget == key then b.overflowTarget = nil end
             end
             -- Bar deletion shifts every later bar's array index: captured
@@ -1961,20 +1961,10 @@ function ns.RemoveCDMBar(key)
                 EllesmereUI.SpecOverrides_OnCDMBarsRestructured()
             end
 
-            -- Custom bar deletion: free all spells (don't ghost them). Delete
-            -- the bar's spell data from every spec of the ACTIVE profile only.
-            -- Other profiles own independent spell stores and must keep their
-            -- copy of this bar's spells (this is the fix for deleting a copied
-            -- profile's bar wiping the origin). Custom bar definitions are
-            -- per-profile but spec-independent, so clear all of THIS profile's
-            -- specs to avoid orphaned spell data.
-            local sp = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
-            if sp then
-                for _, specData in pairs(sp) do
-                    if type(specData) == "table" and specData.barSpells and specData.barSpells[key] then
-                        specData.barSpells[key] = nil
-                    end
-                end
+            -- The definition and spell data belong only to this spec.
+            local activeContainer = ns.GetActiveSpecContainer(false)
+            if activeContainer and activeContainer.barSpells then
+                activeContainer.barSpells[key] = nil
             end
 
             -- Unregister from unlock mode
@@ -1992,4 +1982,3 @@ function ns.RemoveCDMBar(key)
     end
     return false
 end
-

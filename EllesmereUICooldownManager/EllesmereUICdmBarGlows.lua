@@ -58,14 +58,10 @@ end
 
 --- Get barGlows data from SavedVariables (with lazy init)
 function ns.GetBarGlows()
-    local specKey = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
-    if not specKey then return { enabled = true, selectedBar = "cooldowns", assignments = {} } end
     -- Bar glows are spec-specific and per-profile: specProfiles[specKey].barGlows
     -- under the active profile's bucket (ns.GetActiveSpecProfiles).
-    local sp = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
-    if not sp then return { enabled = true, selectedBar = "cooldowns", assignments = {} } end
-    if not sp[specKey] then sp[specKey] = { barSpells = {} } end
-    local prof = sp[specKey]
+    local prof = ns.GetActiveSpecContainer and ns.GetActiveSpecContainer(true)
+    if not prof then return { enabled = true, selectedBar = "cooldowns", assignments = {} } end
     if not prof.barGlows or not next(prof.barGlows) then
         prof.barGlows = {
             enabled = true,
@@ -123,12 +119,12 @@ function ns.GetAllCDMBuffSpells()
     local ECME = ns.ECME
     if not ECME or not ECME.db then return {}, {} end
     local p = ECME.db.profile
-    if not p or not p.cdmBars or not p.cdmBars.bars then return {}, {} end
+    if not p or not ns.GetActiveCDMConfig(true) or not ns.GetActiveCDMConfig(true).bars then return {}, {} end
 
     local trackedSet = {}
     local trackedOrder = {}
 
-    for _, bar in ipairs(p.cdmBars.bars) do
+    for _, bar in ipairs(ns.GetActiveCDMConfig(true).bars) do
         if ns.IsBarBuffFamily(bar) then
             local spells = ns.GetCDMSpellsForBar and ns.GetCDMSpellsForBar(bar.key)
             if spells then

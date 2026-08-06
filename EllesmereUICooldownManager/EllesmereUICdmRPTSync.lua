@@ -1,20 +1,13 @@
 -------------------------------------------------------------------------------
 --  EllesmereUICdmRPTSync.lua
---  Generic CDs/Buffs sync, across chosen specs of the ACTIVE PROFILE.
+--  One-time generic CDs/Buffs copy across specs of the ACTIVE PROFILE.
 --
 --  Synced entries are the spec-independent ones: trinket slots (-13/-14), item
 --  presets (negative item IDs from the Potions & Healthstone flyout), the player's
 --  racial ability, and built-in BUFF-BAR PRESETS (Bloodlust/Heroism, Time Spiral,
---  Light's Potential, the buff potions). When specs are synced, editing these on
---  one synced spec auto-copies them to the other synced specs. RPT ids sync bar
---  placement + per-icon settings; buff presets are ADDITIVE-ONLY (added to specs
---  that lack them, never removed by sync). Regular cooldowns, Blizzard-tracked
---  buffs, custom-typed buff IDs, and unsynced specs are never touched.
---
---  Storage rides in the per-profile spell store:
---      spellAssignments.profiles[<euiProfile>].rptSyncSpecs[specKey] = true
---  (extracted from the retired spell-layout experiment; the data layer here is
---  the only part kept, re-pointed at the per-profile model.)
+--  Light's Potential, the buff potions). RPT ids copy bar placement + per-icon
+--  settings; buff presets are additive-only. No ongoing relationship is stored,
+--  so every later edit remains isolated to its own spec container.
 -------------------------------------------------------------------------------
 local _, ns = ...
 
@@ -37,7 +30,7 @@ local function GetSA()
     return sa
 end
 
--- The active EUI profile's spell-store bucket (holds specProfiles + rptSyncSpecs).
+-- The active EUI profile's spell-store bucket (holds specProfiles).
 -- Ensure it exists (GetActiveSpecProfiles seeds it), then return it.
 local function GetActiveBucket()
     local sa = GetSA(); if not sa then return nil end
@@ -51,9 +44,8 @@ end
 function ns.GetCDMSpecInfo()
     local sp = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
     local result = {}
-    local numSpecs = GetNumSpecializations and GetNumSpecializations() or 0
-    for i = 1, numSpecs do
-        local specID, sName, _, sIcon = GetSpecializationInfo(i)
+    for _, info in ipairs(EUI and EUI.Spec and EUI.Spec:GetList() or {}) do
+        local specID, sName, sIcon = info.id, info.name, info.icon
         if specID then
             local key = tostring(specID)
             local prof = sp and sp[key]
@@ -186,17 +178,6 @@ local function BuffIdsPresentOnTarget(tgtProf)
     return set
 end
 
--- Active profile's synced-spec set, or nil. Read-only.
-function ns.GetRPTSyncSpecs()
-    local b = GetActiveBucket()
-    return b and b.rptSyncSpecs or nil
-end
-
-function ns.HasRPTSync()
-    local s = ns.GetRPTSyncSpecs()
-    return s ~= nil and next(s) ~= nil
-end
-
 -- { [barKey] = { ids = {id,...}, durations = {[id]=dur} } } of a spec's sync
 -- entries: RPT ids (racials/pots/trinkets) PLUS buff presets. `durations` is
 -- populated ONLY for buff-preset ids (they need the stored duration to render
@@ -246,18 +227,32 @@ local function ApplyRPT(specProfiles, sourceSpecKey, targetSpecKey)
     if not srcProf then return end
     local tgtProf = specProfiles[targetSpecKey]
     if not tgtProf then
-        -- Never-played target spec: it is born directly in the bar-filter v6
-        -- model, so stamp it migrated. Otherwise the first time the player
-        -- actually plays this spec, MigrateSpecToBarFilterModelV6 would see the
-        -- seeded racial/pot/trinket entries sitting on the default bars, decide
-        -- those bars hold "authored content to preserve," and ghost every real
-        -- cooldown the spec tracks (only the RPT ids count as assigned) -- which
-        -- wipes the spec's entire visible CDM the first time it is played.
-        tgtProf = { barSpells = {}, _barFilterModelV6 = true }
-        specProfiles[targetSpecKey] = tgtProf
+        tgtProf = ns.GetSpecContainerForProfile
+            and ns.GetSpecContainerForProfile(ns.GetActiveProfileName(), targetSpecKey, true)
+        if not tgtProf then return end
     end
     if not tgtProf.barSpells then tgtProf.barSpells = {} end
     local srcRPT, srcSettings = CollectRPT(srcProf)
+
+    -- A generic entry may live on a user-created bar. Copy that definition once
+    -- so the target has a real, independently editable container for the entry.
+    if srcProf.cdmBars and srcProf.cdmBars.bars and tgtProf.cdmBars and tgtProf.cdmBars.bars then
+        local targetKeys = {}
+        for _, bar in ipairs(tgtProf.cdmBars.bars) do
+            if bar.key then targetKeys[bar.key] = true end
+        end
+        for barKey in pairs(srcRPT) do
+            if not targetKeys[barKey] then
+                for _, bar in ipairs(srcProf.cdmBars.bars) do
+                    if bar.key == barKey then
+                        tgtProf.cdmBars.bars[#tgtProf.cdmBars.bars + 1] = DeepCopy(bar)
+                        targetKeys[barKey] = true
+                        break
+                    end
+                end
+            end
+        end
+    end
 
     -- Which bar the source keeps each RPT id on. Bar MEMBERSHIP and per-icon
     -- settings are synced, but the SLOT POSITION (order within a bar) is NOT:
@@ -348,106 +343,18 @@ local function ApplyRPT(specProfiles, sourceSpecKey, targetSpecKey)
     end
 end
 
--- Propagate RPT from sourceSpecKey to all OTHER synced specs in the active profile.
-function ns.PropagateRPTFrom(sourceSpecKey)
-    if not sourceSpecKey then return end
-    local b = GetActiveBucket()
-    if not b or type(b.rptSyncSpecs) ~= "table" or not b.rptSyncSpecs[sourceSpecKey] then return end
-    if not b.specProfiles then return end
-    -- Never propagate from a source spec that carries NO racial/pot/trinket
-    -- entries. An empty source is not an authoritative "remove everything" signal
-    -- -- it is usually an unconfigured spec the player just happens to be viewing
-    -- -- so propagating it would only ever strip configured targets and create
-    -- empty stamped profiles for never-played specs. Require at least one RPT id.
-    local srcProf = b.specProfiles[sourceSpecKey]
-    -- CollectRPT returns (bars, settings): capture the first only -- feeding
-    -- both into next() would pass the settings table as the iteration key.
-    local srcRPT = CollectRPT(srcProf)
-    if not srcProf or next(srcRPT) == nil then return end
-    for specKey in pairs(b.rptSyncSpecs) do
-        if specKey ~= sourceSpecKey then
-            ApplyRPT(b.specProfiles, sourceSpecKey, specKey)
-        end
-    end
-end
-
--- Called after an RPT-affecting edit: if the ACTIVE spec is synced, push its RPT
--- to the other synced specs. The active spec (the one shown) is the source, so
--- no rebuild is needed -- only the off-screen synced specs' data changes.
-function ns.MaybePropagateRPT()
-    if not ns.HasRPTSync() then return end
-    local active = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
-    if not active or active == "0" then return end
-    ns.PropagateRPTFrom(active)
-end
-
--- First-time setup: set the synced-spec set + align ALL of them to sourceSpecKey.
+-- Copy from sourceSpecKey to the selected targets once. The legacy function name
+-- is retained for the options caller, but no persistent sync set is created.
 function ns.SetupRPTSync(specsSet, sourceSpecKey)
     local b = GetActiveBucket()
     if not b then return false end
     if not b.specProfiles then b.specProfiles = {} end
-    b.rptSyncSpecs = {}
-    for k, v in pairs(specsSet) do if v then b.rptSyncSpecs[k] = true end end
     if sourceSpecKey then
-        for specKey in pairs(b.rptSyncSpecs) do
-            if specKey ~= sourceSpecKey then
+        for specKey, selected in pairs(specsSet or {}) do
+            if selected and specKey ~= sourceSpecKey then
                 ApplyRPT(b.specProfiles, sourceSpecKey, specKey)
             end
         end
     end
     return true
-end
-
--- Update an existing sync's spec set: align only NEWLY-added specs (from a still-
--- synced source, preferring the active spec); removed specs simply stop syncing.
-function ns.UpdateRPTSyncSpecs(specsSet)
-    local b = GetActiveBucket()
-    if not b then return false end
-    if not b.specProfiles then b.specProfiles = {} end
-    local old = b.rptSyncSpecs or {}
-    local active = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
-    local source
-    if active and specsSet[active] and old[active] then
-        source = active
-    else
-        for k in pairs(old) do if specsSet[k] then source = k; break end end
-    end
-    local newSet = {}
-    for k, v in pairs(specsSet) do if v then newSet[k] = true end end
-    b.rptSyncSpecs = newSet
-    if source then
-        for k in pairs(newSet) do
-            if k ~= source and not old[k] then
-                ApplyRPT(b.specProfiles, source, k)
-            end
-        end
-    end
-    return true
-end
-
-function ns.ClearRPTSync()
-    local b = GetActiveBucket()
-    if b then b.rptSyncSpecs = nil end
-end
-
--- Auto-propagate RPT after the centralized spell-mutation functions run (covers
--- add / remove / move / preset / replace of racials, pots, trinkets & buff
--- presets). Settings
--- changes are covered by a spell-picker close hook in the options file.
-do
-    local function Wrap(fnName)
-        local orig = ns[fnName]
-        if type(orig) ~= "function" then return end
-        ns[fnName] = function(...)
-            local a, b = orig(...)
-            ns.MaybePropagateRPT()
-            return a, b
-        end
-    end
-    for _, fnName in ipairs({
-        "AddTrackedSpell", "RemoveTrackedSpell", "AddPresetToBar",
-        "SwapTrackedSpells", "MoveTrackedSpell", "ReplaceTrackedSpell",
-    }) do
-        Wrap(fnName)
-    end
 end

@@ -35,9 +35,9 @@ local PATCHNOTES_KEY   = "_EUIPatchNotes"
 local IS_STANDALONE = type(ADDON_NAME) == "string" and ADDON_NAME:find("Standalone") ~= nil
 
 -------------------------------------------------------------------------------
---  Shared CDM spell-layout export flow
+--  Shared CDM per-spec container export flow
 --  Used by BOTH the full-profile export and the per-addon export. Asks whether
---  to bundle the CDM spell layout (which spells sit on which bars + per-spell
+--  to bundle complete CDM spec containers (bars, positions, spells and their
 --  settings); on Yes, opens the spec picker so the user chooses which specs.
 --  Calls exportFn(includeCDM, cdmSpecs) with the result. An export string is
 --  produced ONLY on an explicit "No" (without layout) or a completed picker
@@ -50,16 +50,16 @@ function EllesmereUI.RunCDMSpellExportFlow(activeName, exportFn)
             and EllesmereUIDB.spellAssignments.profiles
             and EllesmereUIDB.spellAssignments.profiles[activeName]
             and EllesmereUIDB.spellAssignments.profiles[activeName].specProfiles
-        for _, info in ipairs(Spec and Spec:GetList() or {}) do
-            local key = tostring(info.id)
-            local d = sp and sp[key]
+        -- Seed from every stored container, including specs/classes other than
+        -- the character currently opening the export panel.
+        for key, d in pairs(sp or {}) do
             specs[#specs + 1] = {
-                key = key,
-                checked = (d and type(d.barSpells) == "table" and next(d.barSpells) ~= nil) and true or false,
+                key = tostring(key),
+                checked = (type(d) == "table" and type(d.cdmBars) == "table") and true or false,
             }
         end
         EllesmereUI:ShowCDMSpecPickerPopup({
-            title         = EllesmereUI.L("Export CDM Spells"),
+            title         = EllesmereUI.L("Export CDM Specs"),
             subtitle      = EllesmereUI.L("This can't change which spells the user tracks in Blizzard's CDM.\nIt's recommended to also share your Blizzard CDM layout for any spec you choose here."),
             subtitleColor = { 1, 0.82, 0.2 },
             subtitleAtBottom = true,
@@ -70,8 +70,8 @@ function EllesmereUI.RunCDMSpellExportFlow(activeName, exportFn)
         })
     end
     EllesmereUI:ShowConfirmPopup({
-        title       = EllesmereUI.L("Include CDM Spell Layout?"),
-        message     = EllesmereUI.L("Include your Cooldown Manager spell layout (which spells sit on which bars) plus all per-spell settings for any specs you choose."),
+        title       = EllesmereUI.L("Include CDM Spec Layouts?"),
+        message     = EllesmereUI.L("Include each chosen spec's complete Cooldown Manager setup: bars, positions, spells, tracking bars, unlock links, and per-spell settings."),
         confirmText = EllesmereUI.L("Yes"),
         cancelText  = EllesmereUI.L("No"),
         onConfirm   = function() pickThenExport() end,
@@ -4833,7 +4833,7 @@ initFrame:SetScript("OnEvent", function(self)
                 -- every spec in the string imports as-is (no spec picker -- see commit below).
                 if filteredPayload and filteredPayload.data then
                     if not selectedImports["EllesmereUICooldownManager"] then
-                        filteredPayload.data.cdmSpells = nil
+                        filteredPayload.data.cdmSpecs = nil
                     end
                 end
                 -- Spec->profile assignments: top-level, applied by ImportProfile

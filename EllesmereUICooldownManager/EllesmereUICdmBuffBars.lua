@@ -323,12 +323,8 @@ ns.TBB_DEFAULT_BAR = TBB_DEFAULT_BAR
 function ns.GetTrackedBuffBars()
     -- TBB is spec-specific and per-profile: specProfiles[specKey] under the
     -- active profile's bucket (ns.GetActiveSpecProfiles).
-    local specKey = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
-    if not specKey then return { selectedBar = 1, bars = {} } end
-    local sp = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
-    if not sp then return { selectedBar = 1, bars = {} } end
-    if not sp[specKey] then sp[specKey] = { barSpells = {} } end
-    local prof = sp[specKey]
+    local prof = ns.GetActiveSpecContainer and ns.GetActiveSpecContainer(true)
+    if not prof then return { selectedBar = 1, bars = {} } end
     if not prof.trackedBuffBars then
         prof.trackedBuffBars = { selectedBar = 1, bars = {} }
     end
@@ -384,11 +380,8 @@ end
 function ns.GetTBBPositions()
     -- TBB positions are spec-specific, stored alongside trackedBuffBars in the
     -- active profile's per-spec bucket.
-    local specKey = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
-    if not specKey then return {} end
-    local sp = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
-    if not sp or not sp[specKey] then return {} end
-    local prof = sp[specKey]
+    local prof = ns.GetActiveSpecContainer and ns.GetActiveSpecContainer(true)
+    if not prof then return {} end
     if not prof.tbbPositions then prof.tbbPositions = {} end
     return prof.tbbPositions
 end
@@ -447,14 +440,9 @@ do
 
     local function Bucket(profileName, specKey, create)
         if not profileName or not specKey then return nil end
-        local sp = ns.GetSpecProfilesForProfile and ns.GetSpecProfilesForProfile(profileName)
-        if not sp then return nil end
-        local prof = sp[specKey]
-        if not prof then
-            if not create then return nil end
-            prof = { barSpells = {} }
-            sp[specKey] = prof
-        end
+        local prof = ns.GetSpecContainerForProfile
+            and ns.GetSpecContainerForProfile(profileName, specKey, create)
+        if not prof then return nil end
         if not prof.tbbUnlockLinks and create then
             prof.tbbUnlockLinks = { anchors = {}, wm = {}, hm = {} }
         end
@@ -720,16 +708,6 @@ function ns.IsTrackedBuffBarBroadcastable(cfg)
     return ns.TBBBroadcastKey(cfg) ~= nil
 end
 
--- True when the selected bar's buff is currently marked as broadcast to all specs
--- (so the button shows "Remove Bar from All Specs"). Read from the persistent
--- per-profile set.
-function ns.IsTrackedBuffBarBroadcast(cfg)
-    local key = ns.TBBBroadcastKey(cfg)
-    if not key then return false end
-    local set = ns.GetActiveTBBBroadcastSet and ns.GetActiveTBBBroadcastSet()
-    return set ~= nil and set[key] == true
-end
-
 -- Copy a configured bar (preset or custom buff) into every OTHER spec of the
 -- player's current class. The bar config and its screen position are deep-copied
 -- so it appears identically across specs. Specs that already hold the same
@@ -767,14 +745,14 @@ function ns.AddBarToAllSpecs(srcIdx)
     end
 
     local added = 0
-    local numSpecs = GetNumSpecializations and GetNumSpecializations() or 0
-    for i = 1, numSpecs do
-        local specID = GetSpecializationInfo(i)
+    for _, info in ipairs(EUI and EUI.Spec and EUI.Spec:GetList() or {}) do
+        local specID = info.id
         if specID then
             local key = tostring(specID)
             if key ~= activeKey then
-                if not sp[key] then sp[key] = { barSpells = {} } end
-                local prof = sp[key]
+                local prof = ns.GetSpecContainerForProfile
+                    and ns.GetSpecContainerForProfile(ns.GetActiveProfileName(), key, true)
+                if not prof then return added end
                 if not prof.trackedBuffBars then
                     prof.trackedBuffBars = { selectedBar = 1, bars = {} }
                 end
@@ -807,90 +785,7 @@ function ns.AddBarToAllSpecs(srcIdx)
         end
     end
 
-    -- Mark this buff as broadcast so the button flips to "Remove..." in every
-    -- spec (set even when added == 0, i.e. all specs already held it).
-    local set = ns.GetActiveTBBBroadcastSet and ns.GetActiveTBBBroadcastSet()
-    if set then
-        local key = ns.TBBBroadcastKey(srcBar)
-        if key then set[key] = true end
-    end
-
     return added
-end
-
--- Inverse of AddBarToAllSpecs: remove the selected bar's buff from every OTHER
--- spec of the player's class and clear its broadcast flag. The bar in the CURRENT
--- spec is left untouched -- the user keeps editing it here. Returns the number of
--- specs a bar was removed from.
-function ns.RemoveBarFromAllSpecs(srcIdx)
-    local activeKey = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
-    if not activeKey then return 0 end
-
-    local srcTbb = ns.GetTrackedBuffBars()
-    local srcBar = srcTbb and srcTbb.bars and srcTbb.bars[srcIdx]
-    local broadcastKey = ns.TBBBroadcastKey(srcBar)
-    if not broadcastKey then return 0 end
-
-    local sp = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
-    if not sp then return 0 end
-
-    local function Matches(b)
-        -- Track types must match: a broadcast buff bar for spell X must never
-        -- delete a user's cooldown-tracking bar for the same spell.
-        if (b.trackType or "buff") ~= (srcBar.trackType or "buff") then
-            return false
-        end
-        if srcBar.popularKey and srcBar.popularKey ~= "" then
-            return b.popularKey == srcBar.popularKey
-        else
-            return (not b.popularKey or b.popularKey == "")
-                   and b.spellID and b.spellID == srcBar.spellID
-        end
-    end
-
-    local removed = 0
-    local numSpecs = GetNumSpecializations and GetNumSpecializations() or 0
-    for i = 1, numSpecs do
-        local specID = GetSpecializationInfo(i)
-        if specID then
-            local specKey = tostring(specID)
-            if specKey ~= activeKey then
-                local prof = sp[specKey]
-                local tbb = prof and prof.trackedBuffBars
-                if tbb and tbb.bars and #tbb.bars > 0 then
-                    -- Rebuild the bar list excluding matches, re-keying positions
-                    -- so compacted indices and tbbPositions stay aligned (plain
-                    -- table.remove would leave positions keyed by stale indices).
-                    local oldPos = prof.tbbPositions or {}
-                    local newBars, newPos = {}, {}
-                    local didRemove = false
-                    for j, b in ipairs(tbb.bars) do
-                        if Matches(b) then
-                            didRemove = true
-                        else
-                            newBars[#newBars + 1] = b
-                            local p = oldPos[tostring(j)]
-                            if p then newPos[tostring(#newBars)] = p end
-                        end
-                    end
-                    if didRemove then
-                        tbb.bars = newBars
-                        prof.tbbPositions = newPos
-                        if tbb.selectedBar and tbb.selectedBar > #newBars then
-                            tbb.selectedBar = math.max(1, #newBars)
-                        end
-                        removed = removed + 1
-                    end
-                end
-            end
-        end
-    end
-
-    -- Clear the broadcast flag so the button flips back to "Add...".
-    local set = ns.GetActiveTBBBroadcastSet and ns.GetActiveTBBBroadcastSet()
-    if set then set[broadcastKey] = nil end
-
-    return removed
 end
 
 -------------------------------------------------------------------------------
@@ -3080,7 +2975,7 @@ local function AutoAddReady()
     if not (ECME and ECME.db) then ECME = ns.ECME end
     if not (ECME and ECME.db) then return nil end
     local p = ECME.db.profile
-    if p.cdmBars and p.cdmBars.useBlizzardBuffBars then return nil end
+    if ns.GetActiveCDMConfig(true) and ns.GetActiveCDMConfig(true).useBlizzardBuffBars then return nil end
     if InCombatLockdown() then return nil end
     return ns.GetTrackedBuffBars()
 end
@@ -5171,7 +5066,7 @@ function ns.BuildTrackedBuffBars()
     end
 
     -- If user chose "Use Blizzard CDM Bars", hide all TBB frames and bail
-    if p.cdmBars and p.cdmBars.useBlizzardBuffBars then
+    if ns.GetActiveCDMConfig(true) and ns.GetActiveCDMConfig(true).useBlizzardBuffBars then
         for i = 1, #tbbFrames do
             if tbbFrames[i] then tbbFrames[i]:Hide() end
         end

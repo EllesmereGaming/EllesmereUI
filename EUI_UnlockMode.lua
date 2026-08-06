@@ -196,7 +196,7 @@ if not EllesmereUI.NotifyElementResized then
         elseif key:sub(1, 4) == "CDM_" then
             local rawKey = key:sub(5)
             local cdm = EllesmereUI.Lite and EllesmereUI.Lite.GetAddon and EllesmereUI.Lite.GetAddon("EllesmereUICooldownManager", true)
-            local cdmBars = cdm and cdm.db and cdm.db.profile and cdm.db.profile.cdmBars
+            local cdmBars = cdm and cdm.GetActiveCDMConfig and cdm:GetActiveCDMConfig()
             if cdmBars and cdmBars.bars then
                 for _, bar in ipairs(cdmBars.bars) do
                     if bar.key == rawKey then
@@ -701,7 +701,7 @@ local function GetBarGrowDirActual(barKey)
     if barKey:sub(1, 4) == "CDM_" then
         local rawKey = barKey:sub(5)
         local cdm = EllesmereUI.Lite.GetAddon("EllesmereUICooldownManager", true)
-        local cdmBars = cdm and cdm.db and cdm.db.profile and cdm.db.profile.cdmBars
+        local cdmBars = cdm and cdm.GetActiveCDMConfig and cdm:GetActiveCDMConfig()
         if cdmBars and cdmBars.bars then
             for _, bar in ipairs(cdmBars.bars) do
                 if bar.key == rawKey then
@@ -737,7 +737,7 @@ local function GetBarGrowDir(barKey)
     if barKey:sub(1, 4) == "CDM_" then
         local rawKey = barKey:sub(5)
         local cdm = EllesmereUI.Lite.GetAddon("EllesmereUICooldownManager", true)
-        local cdmBars = cdm and cdm.db and cdm.db.profile and cdm.db.profile.cdmBars
+        local cdmBars = cdm and cdm.GetActiveCDMConfig and cdm:GetActiveCDMConfig()
         if cdmBars and cdmBars.bars then
             for _, bar in ipairs(cdmBars.bars) do
                 if bar.key == rawKey then
@@ -6741,7 +6741,7 @@ local function CreateMover(barKey)
         local isVert = false
         if barKey:sub(1, 4) == "CDM_" then
             local cdm3 = EllesmereUI.Lite.GetAddon("EllesmereUICooldownManager", true)
-            local cb3 = cdm3 and cdm3.db and cdm3.db.profile and cdm3.db.profile.cdmBars
+            local cb3 = cdm3 and cdm3.GetActiveCDMConfig and cdm3:GetActiveCDMConfig()
             if cb3 and cb3.bars then
                 for _, b3 in ipairs(cb3.bars) do
                     if b3.key == barKey:sub(5) then isVert = b3.verticalOrientation == true; break end
@@ -6771,7 +6771,7 @@ local function CreateMover(barKey)
         local currentVal = "CENTER"
         if barKey:sub(1, 4) == "CDM_" then
             local cdm4 = EllesmereUI.Lite.GetAddon("EllesmereUICooldownManager", true)
-            local cb4 = cdm4 and cdm4.db and cdm4.db.profile and cdm4.db.profile.cdmBars
+            local cb4 = cdm4 and cdm4.GetActiveCDMConfig and cdm4:GetActiveCDMConfig()
             if cb4 and cb4.bars then
                 for _, b4 in ipairs(cb4.bars) do
                     if b4.key == barKey:sub(5) then currentVal = b4.growDirection or "CENTER"; break end
@@ -6850,7 +6850,7 @@ local function CreateMover(barKey)
                     if barKey:sub(1, 4) == "CDM_" then
                         local rawKey = barKey:sub(5)
                         local cdm = EllesmereUI.Lite.GetAddon("EllesmereUICooldownManager", true)
-                        local cdmBars = cdm and cdm.db and cdm.db.profile and cdm.db.profile.cdmBars
+                        local cdmBars = cdm and cdm.GetActiveCDMConfig and cdm:GetActiveCDMConfig()
                         if cdmBars and cdmBars.bars then
                             for _, bar in ipairs(cdmBars.bars) do
                                 if bar.key == rawKey then
@@ -7922,7 +7922,7 @@ local function CreateMover(barKey)
                             if pmKey:sub(1, 4) == "CDM_" then
                                 local rawCdmKey = pmKey:sub(5)
                                 local cdmAddon = EllesmereUI.Lite.GetAddon("EllesmereUICooldownManager", true)
-                                local cdmBars = cdmAddon and cdmAddon.db and cdmAddon.db.profile and cdmAddon.db.profile.cdmBars
+                                local cdmBars = cdmAddon and cdmAddon.GetActiveCDMConfig and cdmAddon:GetActiveCDMConfig()
                                 if cdmBars and cdmBars.bars then
                                     for _, bar in ipairs(cdmBars.bars) do
                                         if bar.key == rawCdmKey then
@@ -9934,7 +9934,7 @@ local function SnapshotPositions()
     -- Snapshot growth directions so we can revert on discard
     wipe(snapshotGrowDirs)
     local cdm = EllesmereUI.Lite.GetAddon("EllesmereUICooldownManager", true)
-    local cdmBars = cdm and cdm.db and cdm.db.profile and cdm.db.profile.cdmBars
+    local cdmBars = cdm and cdm.GetActiveCDMConfig and cdm:GetActiveCDMConfig()
     if cdmBars and cdmBars.bars then
         for _, bar in ipairs(cdmBars.bars) do
             -- bar.key guard: ghost bars (keyless skeletons from stale
@@ -9964,7 +9964,7 @@ local function SnapshotPositions()
     -- closure, which is at Lua 5.1's 200-local cap.
     local rawSnap = {}
     EllesmereUI._unlockSnapRawPos = rawSnap
-    local cdmPos = cdm and cdm.db and cdm.db.profile and cdm.db.profile.cdmBarPositions
+    local cdmPos = cdm and cdm.GetActiveCDMPositions and cdm:GetActiveCDMPositions()
     if cdmPos and cdmBars and cdmBars.bars then
         for _, bar in ipairs(cdmBars.bars) do
             local e = cdmPos[bar.key]
@@ -10282,7 +10282,7 @@ local function RevertPositions()
         if key:sub(1, 4) == "CDM_" then
             local rawKey = key:sub(5)
             local cdmA = EllesmereUI.Lite.GetAddon("EllesmereUICooldownManager", true)
-            local cdmB = cdmA and cdmA.db and cdmA.db.profile and cdmA.db.profile.cdmBars
+            local cdmB = cdmA and cdmA.GetActiveCDMConfig and cdmA:GetActiveCDMConfig()
             if cdmB and cdmB.bars then
                 for _, bar in ipairs(cdmB.bars) do
                     if bar.key == rawKey then bar.growDirection = val; break end
