@@ -5058,6 +5058,14 @@ local SNIPPET_PRE = [==[
                         rel = rel % 360
                         if rel <= (n - 1) * step + step * 0.5 then
                             idx = floor(rel / step + 0.5) + 1
+                            -- Exactly on the arc's outer boundary rounds up
+                            -- past its last entry, and the bound below cannot
+                            -- catch that once the palette nests anything: with
+                            -- children pushed, total is larger than n, so n + 1
+                            -- is the FIRST nested cell -- which would fire
+                            -- without its claim ever having been armed. HitTest
+                            -- guards the same rounding the same way.
+                            if idx > n then idx = nil end
                         end
                     end
                 end
