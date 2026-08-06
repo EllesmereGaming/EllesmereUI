@@ -6002,7 +6002,7 @@ local function SetupShowOnCastBar(frame, unit)
         if self.Target then
             local spellTarget, spellTargetClass
             local ownerUnit = self.__owner and self.__owner.unit
-            if ownerUnit and ownerUnit ~= "player"
+            if ownerUnit
                and UnitShouldDisplaySpellTargetName and UnitShouldDisplaySpellTargetName(ownerUnit) then
                 local rawTarget = UnitSpellTargetName and UnitSpellTargetName(ownerUnit)
                 if rawTarget then
