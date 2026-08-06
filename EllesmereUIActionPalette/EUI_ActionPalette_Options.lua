@@ -390,6 +390,18 @@ initFrame:SetScript("OnEvent", function(self)
     -- strip blown up to fill the block would misrepresent it.
     local PREVIEW_MAX_ZOOM = 2.0
 
+    -- How many entries the preview will actually place, which is what the fit
+    -- has to be measured over. The trailing "+" counts only while the palette
+    -- has room for another action -- the view stops drawing it at MAX_SLOTS
+    -- (see the shownCount it works out in Layout) -- and counting it anyway
+    -- fitted a full palette for one entry more than it shows, which drew it
+    -- smaller than the block allows.
+    local function PreviewEntryCount(palette)
+        local n = palette and #palette.slots or 0
+        if n < MAX_SLOTS then n = n + 1 end
+        return n
+    end
+
     -- Fit to the block, don't crop: the live radius reaches 220, which is wider
     -- than the panel, and a two-entry strip is far narrower than it. Scaling
     -- radius, icon and dead zone by one factor keeps the proportions the user
@@ -407,7 +419,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- The grid is bounded on BOTH axes, so both budgets have to be met:
             -- the block's width across the columns, and its height down the rows.
             local palette = Palette(editPalette)
-            local n = (palette and #palette.slots or 0) + 1
+            local n = PreviewEntryCount(palette)
             local cols, rows
             if previewView then cols, rows = previewView:GridDims() end
             -- The view answers from its last Layout, so it has nothing to say
@@ -423,10 +435,11 @@ initFrame:SetScript("OnEvent", function(self)
         elseif layout ~= "ARC" then
             -- A fan's extent is the length of the strip rather than a radius, so
             -- that is what has to be fitted. The preview draws EVERY slot -- an
-            -- editor cannot leave one unreachable -- plus the trailing "+", and
-            -- nothing is culled, so the reach is measured over that whole count.
+            -- editor cannot leave one unreachable -- plus the trailing "+" while
+            -- there is room for one, and nothing is culled, so the reach is
+            -- measured over that whole count.
             local palette = Palette(editPalette)
-            local n = (palette and #palette.slots or 0) + 1
+            local n = PreviewEntryCount(palette)
             local reach
             if (ACfg("fanInput") or "SCROLL") == "CURSOR" then
                 -- A pointer-steered fan is evenly spaced at full pitch, so its
