@@ -3636,6 +3636,9 @@ function PaletteView:Layout(paletteIndex)
         local k1 = GetBindingKey(BINDING_PREFIX .. paletteIndex)
         hub.hint:SetText(p.showHubText and (k1 or "") or "")
     end
+    -- What the hint says while nothing special is selected, so SetSelection can
+    -- borrow the line for an entry that needs one and hand it straight back.
+    self.hintBase = hub.hint:GetText() or ""
 end
 
 -- The slot a cell index draws, and the claim it belongs to for a nested one.
@@ -3802,6 +3805,19 @@ function PaletteView:SetSelection(index)
         hub.text:SetText(name or (w.isPlaceholder and "Add Action") or ("Slot " .. index))
         hub.text:SetTextColor(r, g, b)
 
+        -- An entry that OPENS a palette fires nothing: it is a door, and
+        -- stopping on the door is a cancel. The release path has always read
+        -- it that way -- the snippet refuses on eapPal before it looks at any
+        -- action -- but on screen the entry was captioned in the selection
+        -- colour like any other, so the cancel landed as the palette simply
+        -- not working. The hint line says it instead, and takes over the line
+        -- the keybind was on because nothing else there matters while the
+        -- cursor is standing on a door.
+        -- Not on an editor, which releases nothing and has its own hint to
+        -- give.
+        hub.hint:SetText((ChildIndex(slot) and not self.opts.interactive)
+                         and "release cancels" or (self.hintBase or ""))
+
         -- The needle points along a entry angle; the fan has no angles.
         if p and p.showNeedle and not self:IsFan() then
             local radius, iconSize, deadZone = self:Geom()
@@ -3821,6 +3837,7 @@ function PaletteView:SetSelection(index)
         local palette = EnsurePalette(self.paletteIndex)
         hub.text:SetText((palette and palette.name) or "")
         hub.text:SetTextColor(0.8, 0.8, 0.8)
+        hub.hint:SetText(self.hintBase or "")
         hub.needle:Hide()
     end
 end
