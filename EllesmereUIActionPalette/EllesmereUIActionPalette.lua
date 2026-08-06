@@ -5657,6 +5657,13 @@ end
 -- opens anything.
 local FlushPendingPush
 
+-- Is the live view drawing the palette this button pushed? There is one view
+-- for every bound key, and only the button whose palette it is currently laid
+-- out on may read a cell out of it or close it.
+local function OwnsLiveView(self)
+    return liveView and liveView:GetPaletteIndex() == self._palette
+end
+
 local function OnPreClick(self, _, down)
     if down then
         -- Between an edit and the coalescer's timer the palette DRAWS the new
@@ -5665,6 +5672,20 @@ local function OnPreClick(self, _, down)
         -- One boolean when nothing is pending, which is every press but the
         -- one that follows an edit.
         FlushPendingPush()
+        -- A second palette key pressed while the first is still HELD leaves the
+        -- screen to the one already on it. The two keys' secure buttons each
+        -- resolve their own release from their own pushed geometry, and there
+        -- is only one live view to draw either of them with: re-laying it onto
+        -- this palette would leave the held key steering a palette that is no
+        -- longer drawn, and its release reading its chosen cell out of this
+        -- one -- a different slot list, so a different pet, mount or spec than
+        -- the one under the cursor. The press that finds the screen taken
+        -- opens nothing; its own release then fires nothing insecure and
+        -- closes nothing (see OnPostClick), and the held key keeps the palette
+        -- it opened until it is let go.
+        if liveView and liveView:GetFrame():IsShown() and not OwnsLiveView(self) then
+            return
+        end
         ns.Open(self._palette)
         return
     end
@@ -5688,8 +5709,17 @@ local function OnPostClick(self, _, down)
     -- looks like from inside the sandbox, ResolveAction having answered it
     -- nothing. Every other value is a cancel. Reading an attribute is
     -- unrestricted, so this works in combat as well as out.
+    --
+    -- The view has to be drawing THIS button's palette for either half of that
+    -- to mean anything. CellSlot maps the snippet's index through whichever
+    -- palette the view is laid out on, and a second key pressed during this
+    -- hold is refused the screen rather than allowed to move it (see
+    -- OnPreClick) -- so a release that does not own the view is the second
+    -- key's, and it neither fires a cell of somebody else's palette nor tears
+    -- down a palette its owner is still holding.
     local why = self:GetAttribute("eapWhy")
-    if liveView and (why == "fire" or why == "emptyslot") then
+    if not OwnsLiveView(self) then return end
+    if why == "fire" or why == "emptyslot" then
         FireInsecure((liveView:CellSlot(tonumber(self:GetAttribute("eapIdx")))))
     end
     ns.Close()
