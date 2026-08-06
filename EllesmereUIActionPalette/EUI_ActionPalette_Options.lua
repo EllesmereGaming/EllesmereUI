@@ -2492,8 +2492,9 @@ initFrame:SetScript("OnEvent", function(self)
               tooltip="Tint an entry that would do nothing right now: red when the "
                       .."target is out of range, blue when you are short of the "
                       .."resource, and gray when the game refuses it for any other "
-                      .."reason. Spells, items and toys only -- a macro's usability "
-                      .."depends on what its body resolves to.",
+                      .."reason. Spells and items only -- the game reports every "
+                      .."toy as unusable, and a macro's usability depends on what "
+                      .."its body resolves to.",
               getValue=function() return Cfg("showUsability") ~= false end,
               setValue=function(v) Set("showUsability", v); Refresh() end },
             { type="spacer" })
