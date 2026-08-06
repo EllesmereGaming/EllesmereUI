@@ -3254,6 +3254,11 @@ function PaletteView:Layout(paletteIndex)
     if not p or not palette then return end
 
     local opts = self.opts
+    -- Everything the steering passes read that is NOT the cursor is rewritten
+    -- from here down -- the claim boxes, the entry count, every option a
+    -- Refresh mid-hold can move -- so the snapshot SteerUnchanged took against
+    -- the previous geometry says nothing about this one.
+    self._steerX = nil
     self.paletteIndex = paletteIndex
     -- Derived, never stored: the palette is exactly as big as what is on it.
     local n = #palette.slots
@@ -3815,6 +3820,42 @@ function PaletteView:AdvanceArc()
     self:SetSelection(best)
 end
 
+-- Has anything the steering passes read moved since the last frame?
+--
+-- All three of them are pure functions of the geometry Layout worked out and
+-- of four running inputs: where the cursor is, which claim the gates have
+-- armed, where the wheel has left the strip, and whether the strip is still
+-- sliding toward it. Given the same four they rewrite every entry's point,
+-- size and alpha to exactly what is already on screen -- so a frame that
+-- brings none of them in new can skip the pass outright. A hold lasts many
+-- frames and the hand is still on most of them, which is what makes this
+-- worth asking.
+--
+-- Not the alpha, though: the flick-ahead fade and the strip's cancel fade are
+-- both time-based, so UpdatePaletteAlpha runs on every frame regardless.
+--
+-- The snapshot is cleared by Layout, the one place the geometry underneath it
+-- can change while the palette is open.
+function PaletteView:SteerUnchanged()
+    local x, y = GetCursorPosition()
+    local armed = self:ArmedClaim()
+    -- Read the same way AdvanceFan reads it, so a wheel tick the pass has not
+    -- picked up yet still counts as a change.
+    local wheel = self.opts.live and scrollCatcher
+                  and scrollCatcher:GetAttribute("eapFanTarget") or nil
+    -- Mid-settle the strip's geometry moves on its own. Both are nil on the
+    -- layouts that have no settle at all, which compares equal -- which is why
+    -- ns.Close has to clear the pair rather than just the target.
+    local settling = self.fanVisual ~= self.fanTarget
+
+    local same = not settling
+             and x == self._steerX and y == self._steerY
+             and armed == self._steerArmed and wheel == self._steerWheel
+    self._steerX, self._steerY = x, y
+    self._steerArmed, self._steerWheel = armed, wheel
+    return same
+end
+
 -------------------------------------------------------------------------------
 --  The live palette
 -------------------------------------------------------------------------------
@@ -3929,12 +3970,14 @@ local function OnPaletteUpdate(_, elapsed)
         ns.Close()
         return
     end
-    if liveView:IsPointerLayout() then
-        liveView:AdvanceGrid()
-    elseif liveView:IsFan() then
-        liveView:AdvanceFan(elapsed)
-    else
-        liveView:AdvanceArc()
+    if not liveView:SteerUnchanged() then
+        if liveView:IsPointerLayout() then
+            liveView:AdvanceGrid()
+        elseif liveView:IsFan() then
+            liveView:AdvanceFan(elapsed)
+        else
+            liveView:AdvanceArc()
+        end
     end
     -- After the steering, not before: the cancel fade reads the same pointer
     -- position the selection was just decided from.
@@ -4050,7 +4093,14 @@ function ns.Close()
         scrollCatcher:Hide()
     end
     ReleaseEscape()
+    -- Both, always together. fanVisual left behind at the strip's last centre
+    -- while fanTarget went to nil reads as a settle that can never finish, and
+    -- SteerUnchanged takes that to mean the geometry is still moving -- so one
+    -- scroll-fan open would cost every later open of ANY layout its per-frame
+    -- skip for the rest of the session. Nothing needs it to survive the close:
+    -- the strip's own re-seeds it, and both readers default it.
     liveView.fanTarget = nil
+    liveView.fanVisual = nil
     liveView:SetSelection(nil)
 end
 
@@ -5080,20 +5130,26 @@ local function LeaveSnippet(k)
 end
 
 -- One parent gate and up to REGION_MAX region gates per possible claim,
--- pooled per palette and built the first time that palette is pushed.
--- MAX_SLOTS of each is the most a palette could ever need -- one claim per
--- slot -- so building all of them up front avoids re-wrapping scripts every
--- time a profile edit changes which slots actually nest; PushPalette only
--- ever repositions and re-shows or hides what is already there.
+-- pooled per palette. MAX_SLOTS of each is the most a palette could ever
+-- need -- one claim per slot -- but that is 1 + REGION_MAX frames and twice
+-- as many wrapped scripts for every one of them, paid at login by palettes
+-- that nest nothing at all, which is most of them. So the pool grows to
+-- whatever PushPalette asks for and never shrinks: the snippets clear and
+-- re-show gates by index up to eapGateMax, which is the same high-water mark
+-- (see PushPalette), so a claim that stops nesting keeps a real gate to be
+-- cleared through for the rest of the session. Growth only ever appends --
+-- PushPalette repositions and re-shows or hides what is already there.
 local gatePools = {}
 
-local function EnsureGates(index, btn)
+local function EnsureGates(index, btn, need)
     local pool = gatePools[index]
-    if pool then return pool end
-    pool = { pgate = {}, rgate = {} }
-    gatePools[index] = pool
+    if not pool then
+        pool = { pgate = {}, rgate = {}, built = 0 }
+        gatePools[index] = pool
+    end
+    if pool.built >= need then return pool end
 
-    for k = 1, MAX_SLOTS do
+    for k = pool.built + 1, need do
         local pgate = CreateFrame("Frame", "EUIActionPaletteButton" .. index .. "PGate" .. k,
             UIParent, "SecureHandlerEnterLeaveTemplate")
         pgate:SetFrameStrata(LIVE_STRATA)
@@ -5157,12 +5213,24 @@ local function EnsureGates(index, btn)
             SecureHandlerSetFrameRef(btn, "rgate" .. k .. "_" .. r, rgate)
             pool.rgate[k][r] = rgate
         end
+        pool.built = k
     end
     return pool
 end
 
+-- Defined with the push coalescer it belongs to, further down; declared here
+-- because the press below has to be able to land a pending push before it
+-- opens anything.
+local FlushPendingPush
+
 local function OnPreClick(self, _, down)
     if down then
+        -- Between an edit and the coalescer's timer the palette DRAWS the new
+        -- contents while the button would still fire the old ones. A press is
+        -- the moment that stops being tolerable, so it lands the push itself.
+        -- One boolean when nothing is pending, which is every press but the
+        -- one that follows an edit.
+        FlushPendingPush()
         ns.Open(self._palette)
         return
     end
@@ -5233,18 +5301,23 @@ end
 -- clears the entries that nest used to occupy.
 local pushedCells = {}
 
+-- The most claims this button has ever been pushed, per palette. Never
+-- shrinks: see the eapGateMax write below.
+local pushedClaims = {}
+
 local function PushPalette(index)
     if InCombatLockdown() then return end
     local p = P()
     local btn = secureButtons[index]
     local palette = EnsurePalette(index)
-    if not p or not btn or not palette or not liveView then return end
+    if not p or not btn or not palette then return end
 
-    -- The arming gates. Built once per palette, out of combat like everything
-    -- else here; reused and merely repositioned on every later push. See the
-    -- "Arming gates" section above GetSecureButton for what they are for.
-    EnsureGates(index, btn)
-    btn:SetAttribute("eapGateMax", MAX_SLOTS)
+    -- Every measurement below is the live view's, and a keybound palette is
+    -- pushed long before it is ever opened, so the view has to exist by here
+    -- rather than by the first Open. Past the button guard above, so a module
+    -- switched off -- which registers no bindings and therefore builds no
+    -- buttons -- still builds no frames at all.
+    CreateLiveView()
 
     for i = 1, MAX_SLOTS do
         local slot = palette.slots[i]
@@ -5337,6 +5410,29 @@ local function PushPalette(index)
     -- The loop above has already cleared indices n+1 .. MAX_SLOTS, which is
     -- where these land, so the writes must come after it.
     local claims = liveView:ChildGeom(n, palette)
+
+    -- How far every claim-indexed loop below, and every snippet loop that
+    -- reads eapGateMax, runs. MAX_SLOTS is what a palette could hold; this is
+    -- what one has actually held at some point this session, and a palette
+    -- that nests nothing keeps it at zero -- which is the common case and the
+    -- difference between a few hundred attribute writes per push and none.
+    --
+    -- MONOTONIC, and that is the whole of its correctness. Every snippet that
+    -- clears, hides or re-shows gates walks 1..eapGateMax, so an index that
+    -- was ever pushed a box or a gate for has to stay inside the bound for the
+    -- rest of the session; the loops below then nil that index's attributes
+    -- and the press branch clears its gate's points, exactly as they did when
+    -- the bound was MAX_SLOTS. Lowering it to today's claim count instead
+    -- would strand a live gate at yesterday's rect with nothing left to clear
+    -- it.
+    local gateMax = max(pushedClaims[index] or 0, claims and #claims or 0)
+    pushedClaims[index] = gateMax
+    -- The arming gates. Built out of combat like everything else here, grown
+    -- to the same mark, and reused and merely repositioned afterwards. See the
+    -- "Arming gates" section above GetSecureButton for what they are for.
+    EnsureGates(index, btn, gateMax)
+    btn:SetAttribute("eapGateMax", gateMax)
+
     local total = n
     for k = 1, (claims and #claims or 0) do
         local c = claims[k]
@@ -5384,7 +5480,7 @@ local function PushPalette(index)
     -- longer holds anything. Keyed by CLAIM INDEX rather than by parent slot,
     -- the same index eapCBand and friends already use below, so eapArmed
     -- means one thing everywhere it is read regardless of layout.
-    for k = 1, MAX_SLOTS do
+    for k = 1, gateMax do
         local c = claims and claims[k]
         btn:SetAttribute("eapGBase" .. k, c and c.base)
         btn:SetAttribute("eapGNum" .. k, c and c.n)
@@ -5433,7 +5529,7 @@ local function PushPalette(index)
     -- cells above, and the nearest-cell search finds them without being told
     -- that they are nests at all.
     local angular = (model == "ANGULAR") and claims or nil
-    for k = 1, MAX_SLOTS do
+    for k = 1, gateMax do
         local c = angular and angular[k]
         btn:SetAttribute("eapCBand" .. k, c and c.band)
         btn:SetAttribute("eapCRows" .. k, c and #c.rows)
@@ -5470,10 +5566,66 @@ local function PushPalette(index)
     btn:SetAttribute("eapClaims", angular and #angular or 0)
 end
 
+-- Raised whenever a push was wanted and combat refused it, cleared by the push
+-- that finally lands. PLAYER_REGEN_ENABLED reads it rather than pushing
+-- unconditionally, the same bargain bindingsDirty makes below.
+local pushDirty = false
+
 -- Bound palettes only: nested ones have no button of their own, and their
 -- entries are pushed as part of whichever palette nests them.
 local function PushAllPalettes()
+    if InCombatLockdown() then
+        pushDirty = true
+        return
+    end
+    pushDirty = false
     for i = 1, BoundPaletteCount() do PushPalette(i) end
+end
+
+-- A push is on the order of a thousand attribute writes per bound palette, and
+-- the options panel reaches Refresh on every slider tick -- so a drag would pay
+-- for one per frame while the sandbox only ever reads the last of them. One
+-- deferred push serves the whole drag: the first request in a quiet window
+-- schedules the run, and every request inside that window folds into it.
+--
+-- Only the pushed geometry is deferred. UpdateBindings and the redraw of any
+-- view on screen stay where Refresh calls them, so the preview still tracks the
+-- slider live.
+local PUSH_DELAY = 0.15
+local pushQueued = false
+
+local function RequestPush()
+    -- Nothing to schedule: the writes are refused for as long as the fight
+    -- lasts, and PLAYER_REGEN_ENABLED is what picks this up.
+    if InCombatLockdown() then
+        pushDirty = true
+        return
+    end
+    if pushQueued then return end
+    pushQueued = true
+    C_Timer.After(PUSH_DELAY, function()
+        -- A press already landed this one. The timer is left to run into the
+        -- lowered flag rather than cancelled: that costs one comparison and
+        -- keeps no timer handle anywhere for a later request to have to
+        -- reason about.
+        if not pushQueued then return end
+        pushQueued = false
+        PushAllPalettes()
+    end)
+end
+
+-- Land a pending push NOW rather than at the end of its window. Called by the
+-- press, so a key can never fire geometry the palette has stopped drawing --
+-- and so an edit followed straight into a fight cannot strand the old actions
+-- for the whole of it, which waiting out the window could.
+--
+-- In combat PushAllPalettes refuses as it always has and raises pushDirty
+-- instead, so the pending state is handed to PLAYER_REGEN_ENABLED rather than
+-- dropped.
+FlushPendingPush = function()
+    if not pushQueued then return end
+    pushQueued = false
+    PushAllPalettes()
 end
 
 local bindingsDirty = false
@@ -5508,9 +5660,12 @@ function ns.UpdateBindings()
     bindingsDirty = false
     bindingSig = sig
 
-    if not bindOwner then bindOwner = CreateFrame("Frame") end
-    ClearOverrideBindings(bindOwner)
+    -- No owner means nothing has ever been bound through one, so there is
+    -- nothing to clear -- and building one anyway is the single frame that
+    -- would keep a never-enabled session from costing nothing at all.
+    if bindOwner then ClearOverrideBindings(bindOwner) end
     if not p.enabled then return end
+    if not bindOwner then bindOwner = CreateFrame("Frame") end
 
     for i = 1, count do
         local btn = GetSecureButton(i)
@@ -5524,7 +5679,7 @@ end
 -- that are actually on screen.
 function ns.Refresh()
     ns.UpdateBindings()
-    PushAllPalettes()
+    RequestPush()
 
     if liveView and liveView:GetFrame():IsShown() then
         -- Read the selection before Layout, which clears it.
@@ -5615,21 +5770,28 @@ function EAP:OnEnable()
     -- would run without combat-deferred rebinding or stuck-palette cleanup
     -- until a reload. Disabled costs nothing: UpdateBindings registers no
     -- keys, so nothing can open the palette.
+    --
+    -- Nothing is BUILT here either. The palette frames, the scroll catcher and
+    -- the arming gates are all made on demand -- by PushPalette, which only
+    -- runs for a palette that has a secure button, and UpdateBindings builds no
+    -- buttons at all while the module is switched off. A session that never
+    -- enables it creates no frames.
     for i = 1, PaletteCount() do EnsurePalette(i) end
-    CreateLiveView()
-    EnsureScrollCatcher()
     ns.UpdateBindings()
     PushAllPalettes()
 
     self:RegisterEvent("UPDATE_BINDINGS", function() ns.UpdateBindings() end)
     self:RegisterEvent("PLAYER_REGEN_ENABLED", function()
         if bindingsDirty then ns.UpdateBindings() end
-        -- Unconditional: any palette edited during the fight was skipped by
-        -- PushPalette, and the sandbox is still holding the old contents.
-        PushAllPalettes()
+        -- Only when the fight actually refused one: a palette edited during it
+        -- was skipped by PushPalette and the sandbox is still holding the old
+        -- contents, but a fight nobody edited anything through needs nothing.
+        if pushDirty then PushAllPalettes() end
         -- A palette that closed unattended mid-fight could not give ESCAPE
-        -- back at the time. Now it can.
-        if not liveView:GetFrame():IsShown() then ReleaseEscape() end
+        -- back at the time. Now it can. No live view means none was ever
+        -- opened, which is still a reason to try: the binding belongs to the
+        -- cancel button rather than to the view.
+        if not liveView or not liveView:GetFrame():IsShown() then ReleaseEscape() end
     end)
     -- A zone change while the key is held (portals, taxi) can swallow the
     -- key-up; drop the palette rather than leave it stuck.

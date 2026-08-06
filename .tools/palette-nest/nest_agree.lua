@@ -110,6 +110,12 @@ _G.ClearCursor      = function() end
 _G.GetBindingKey    = function() return nil end
 _G.InCombatLockdown = function() return false end
 _G.GetTime          = function() return 0 end
+-- ns.Refresh coalesces its push behind a timer, so a sweep that pushed and
+-- then read the attributes back in the same breath would be reading the
+-- PREVIOUS push. Fired inline, which collapses the coalescing to nothing and
+-- leaves Refresh exactly as synchronous as it has to be here. There is no
+-- frame loop to drive a real one from anyway.
+_G.C_Timer = { After = function(_, fn) fn() end }
 _G.CooldownFrame_Set = function() end
 
 -- The sandbox's atan2 is WoW's GLOBAL one: degrees, same argument order as
