@@ -726,9 +726,18 @@ local function BuildStyle(isBuff, cfg)
     local durSide = string.upper(cfg.durationPosition or "BOTTOM")
     local stackSide = string.upper(cfg.stackPosition or "TOP")
 
+    -- Snapped to the physical pixel grid (same reasoning as MaxIconSizeFor/
+    -- ApplyGroupConfig above) so the button's actual rendered size agrees
+    -- with the container's cross-axis extent math at any UIParent scale.
+    local iconSize = cfg.iconSize or 32
+    do
+        local PPa = EllesmereUI and EllesmereUI.PP
+        if PPa and PPa.Scale then iconSize = PPa.Scale(iconSize) end
+    end
+
     local style = {
-        width = cfg.iconSize or 32,
-        height = cfg.iconSize or 32,
+        width = iconSize,
+        height = iconSize,
         iconCrop = true,
         iconZoom = iconZoom or 0.055,
 
@@ -926,6 +935,23 @@ local function ApplyGroupConfig(container, chain, declaredSet, styleKey, effecti
     -- Container-level padding is a THIRD, unrelated concept: the OUTER edge
     -- inset, fixed at 0 elsewhere and never affected by either of these.
     rowGap = rowGap or gap
+    -- Snap to the physical pixel grid before handing these to the native
+    -- engine's cross-axis layout math (SetAuraGroupLayout below): raw
+    -- (unsnapped) values sometimes land the engine's OWN internal row
+    -- positioning a hair off a pixel boundary at a non-pixel-perfect
+    -- UIParent scale, which our own border (independently pixel-perfect via
+    -- GetEffectiveScale, confirmed via /eupabscale) then visibly disagrees
+    -- with by ~1px. Reproduced 2026-08-06: at UI scale 0.7111, rowSpacing=8
+    -- and 17 (out of a full 1-20 sweep, everything else clean) showed the
+    -- border defect on a 3-row Buffs bar; nothing else about those two
+    -- values stood out, consistent with an engine-side rounding edge case
+    -- rather than an addon-side formula. Pre-snapping removes the room for
+    -- that mismatch regardless of the engine's exact internal rounding.
+    local PPa = EllesmereUI and EllesmereUI.PP
+    if PPa and PPa.Scale then
+        gap = PPa.Scale(gap)
+        rowGap = PPa.Scale(rowGap)
+    end
     local layout = {
         elementSpacing = gap,
         lineSpacing = rowGap,
@@ -1048,6 +1074,12 @@ local function MaxIconSizeFor(isBuff, cfg)
             end
         end
     end
+    -- Snap to the physical pixel grid, same reasoning as ApplyGroupConfig's
+    -- gap/rowGap snap above: a raw iconSize also feeds the container's own
+    -- cross-axis extent math (ComputeGrid below) at a non-pixel-perfect
+    -- UIParent scale.
+    local PPa = EllesmereUI and EllesmereUI.PP
+    if PPa and PPa.Scale then size = PPa.Scale(size) end
     return size
 end
 
@@ -1430,6 +1462,31 @@ local function BarPositionKey(isBuff)
     return isBuff and "buffsPos" or "debuffsPos"
 end
 
+-- Snaps a saved (x, y) to the physical pixel grid before it's handed to
+-- SetPoint, matching EllesmereUIUnitFrames.lua's ApplyFramePosition (the
+-- rest of the addon's established pattern for this exact problem: an
+-- unsnapped coordinate is only ever wrong at a non-pixel-perfect UIParent
+-- scale, since 1 coord unit == 1 physical pixel at PP.PixelBestSize() and
+-- the gap is invisible there). CENTER/CENTER anchors need SnapCenterForDim
+-- (its +0.5 odd-dimension offset keeps both edges on whole pixels; plain
+-- SnapForES would round the center itself and push edges onto half
+-- pixels), every other anchor point (TOPRIGHT etc.) uses SnapForES.
+local function SnapBarPos(frame, point, relPoint, x, y)
+    local PPa = EllesmereUI and EllesmereUI.PP
+    if not (PPa and x and y) then return x, y end
+    local es = frame:GetEffectiveScale()
+    local isCenterAnchor = (point == "CENTER" or point == nil)
+        and (relPoint == "CENTER" or relPoint == nil)
+    if isCenterAnchor and PPa.SnapCenterForDim then
+        local fw = frame:GetWidth() or 0
+        local fh = frame:GetHeight() or 0
+        return PPa.SnapCenterForDim(x, fw, es), PPa.SnapCenterForDim(y, fh, es)
+    elseif PPa.SnapForES then
+        return PPa.SnapForES(x, es), PPa.SnapForES(y, es)
+    end
+    return x, y
+end
+
 -- Applies the saved position (if any) or the default to the given parent
 -- frame. Shared between initial creation and the unlock-mode applyPos
 -- callback so the two never drift into different SetPoint logic.
@@ -1439,9 +1496,11 @@ local function ApplyBarPosition(parent, isBuff)
     local def = isBuff and DEFAULT_POS.buffs or DEFAULT_POS.debuffs
     parent:ClearAllPoints()
     if pos and pos.point then
-        parent:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x, pos.y)
+        local x, y = SnapBarPos(parent, pos.point, pos.relPoint or pos.point, pos.x, pos.y)
+        parent:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, x, y)
     else
-        parent:SetPoint(def.point, UIParent, def.relPoint, def.x, def.y)
+        local x, y = SnapBarPos(parent, def.point, def.relPoint, def.x, def.y)
+        parent:SetPoint(def.point, UIParent, def.relPoint, x, y)
     end
 end
 
@@ -1454,9 +1513,11 @@ local function ApplyExtDefPosition(parent)
     local def = DEFAULT_POS.extdef
     parent:ClearAllPoints()
     if pos and pos.point then
-        parent:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x, pos.y)
+        local x, y = SnapBarPos(parent, pos.point, pos.relPoint or pos.point, pos.x, pos.y)
+        parent:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, x, y)
     else
-        parent:SetPoint(def.point, UIParent, def.relPoint, def.x, def.y)
+        local x, y = SnapBarPos(parent, def.point, def.relPoint, def.x, def.y)
+        parent:SetPoint(def.point, UIParent, def.relPoint, x, y)
     end
 end
 
@@ -1821,8 +1882,18 @@ local function ApplyLiveConfig(isBuff)
     if pos and pos.point == "CENTER" and prev and (prev.w ~= grid.width or prev.h ~= grid.height) then
         pos.x = pos.x + (prev.w - grid.width) / 2
         pos.y = pos.y + (prev.h - grid.height) / 2
+        -- Snap against the NEW grid.width/height (what parent:SetSize below
+        -- is about to apply), not parent:GetWidth/GetHeight -- those still
+        -- read the OLD size here, since the resize call hasn't run yet.
+        local sx, sy = pos.x, pos.y
+        local PPa = EllesmereUI and EllesmereUI.PP
+        if PPa and PPa.SnapCenterForDim then
+            local es = parent:GetEffectiveScale()
+            sx = PPa.SnapCenterForDim(pos.x, grid.width, es)
+            sy = PPa.SnapCenterForDim(pos.y, grid.height, es)
+        end
         parent:ClearAllPoints()
-        parent:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x, pos.y)
+        parent:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, sx, sy)
     end
     lastSize[sizeKey] = { w = grid.width, h = grid.height }
 
@@ -1941,8 +2012,18 @@ local function ApplyExtDefLiveConfig()
     if pos and pos.point == "CENTER" and prev and (prev.w ~= grid.width or prev.h ~= grid.height) then
         pos.x = pos.x + (prev.w - grid.width) / 2
         pos.y = pos.y + (prev.h - grid.height) / 2
+        -- Snap against the NEW grid.width/height (what parent:SetSize below
+        -- is about to apply), not parent:GetWidth/GetHeight -- those still
+        -- read the OLD size here, since the resize call hasn't run yet.
+        local sx, sy = pos.x, pos.y
+        local PPa = EllesmereUI and EllesmereUI.PP
+        if PPa and PPa.SnapCenterForDim then
+            local es = parent:GetEffectiveScale()
+            sx = PPa.SnapCenterForDim(pos.x, grid.width, es)
+            sy = PPa.SnapCenterForDim(pos.y, grid.height, es)
+        end
         parent:ClearAllPoints()
-        parent:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x, pos.y)
+        parent:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, sx, sy)
     end
     lastSize.extdef = { w = grid.width, h = grid.height }
 
@@ -2749,7 +2830,8 @@ end
 local function ApplyCustomBarPosition(parent, bar, barId)
     local pos = bar.pos or DefaultCustomPos(barId)
     parent:ClearAllPoints()
-    parent:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x, pos.y)
+    local x, y = SnapBarPos(parent, pos.point, pos.relPoint or pos.point, pos.x, pos.y)
+    parent:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, x, y)
 end
 
 local function CustomBuffSpellSignature(spells)
