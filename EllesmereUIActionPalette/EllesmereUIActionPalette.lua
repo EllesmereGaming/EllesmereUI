@@ -2106,8 +2106,15 @@ end
 -- Half-length of the editor's strip: centre to the outer edge of the last
 -- entry, at the editor's own floors. Exported so the options preview can fit a
 -- strip to the panel without duplicating any of the constants above.
+--
+-- HALF the count, from the full count the caller counted: the strip is cyclic,
+-- and ApplyFanGeometry folds every offset into [-shown/2, shown/2], so the
+-- entry drawn farthest from the centre is half the palette out and not the
+-- whole of it. Measured over the whole count the strip was fitted to about
+-- twice its own drawn length -- the preview shrank its icons to half what the
+-- panel had room for. The hover reach next door counts the same way.
 function ns.FanReach(count, iconSize, gap, decay)
-    return FanOffset(count, iconSize, gap, decay, FAN_EDIT_MIN_SCALE)
+    return FanOffset(count * 0.5, iconSize, gap, decay, FAN_EDIT_MIN_SCALE)
            + iconSize + iconSize * (SelectedZoom() - 1) * 0.5
 end
 
@@ -3188,8 +3195,13 @@ function PaletteView:FanHalfLength()
     local p = self:P()
     local _, iconSize = self:Geom()
     local shown = self.shownCount
-    -- The editor culls nothing, so its strip is as long as the palette is.
-    local window = self.opts.interactive and shown or ((p and p.fanVisible) or 3)
+    -- The editor culls nothing, so its strip carries the whole palette -- but
+    -- the strip is cyclic and ApplyFanGeometry folds every offset into
+    -- [-shown/2, shown/2], so the farthest entry drawn is half the palette out.
+    -- Measured over the whole of it, the editor's frame came out twice as long
+    -- as the strip inside it.
+    local window = self.opts.interactive and (shown * 0.5)
+                                          or ((p and p.fanVisible) or 3)
     local minS = self.opts.interactive and FAN_EDIT_MIN_SCALE
                                         or ((p and p.fanMinScale) or 0.30)
     -- Plus the room ApplyFanGeometry leaves for the selected entry to grow into,
