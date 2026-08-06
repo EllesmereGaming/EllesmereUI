@@ -541,6 +541,23 @@ local function MarkerIcon(id)
     return "Interface\\TargetingFrame\\UI-RaidTargetingIcon_" .. id
 end
 
+-- The CURRENT index of the specialization a slot names. A spec slot stores the
+-- specID, which is the same number on every character that has that spec, and
+-- resolves it here -- the index is only a position in one character's list, so
+-- a palette carried to an alt would otherwise point at somebody else's spec.
+-- A spec this character does not have answers nil, and the slot then does
+-- nothing rather than switching to whatever sits at that position.
+local function SpecIndexFor(slot)
+    local want = tonumber(slot and slot.specID)
+    if not want or not C_SpecializationInfo then return nil end
+    local classID = select(3, UnitClass("player"))
+    if not classID then return nil end
+    for i = 1, (C_SpecializationInfo.GetNumSpecializationsForClassID(classID) or 0) do
+        if C_SpecializationInfo.GetSpecializationInfo(i) == want then return i end
+    end
+    return nil
+end
+
 -- kind -> attribute triple for the secure button, plus an optional 4th value:
 -- a sibling attribute key that must be cleared because the same action type
 -- would otherwise read it in preference. Returns nil for the one kind with no
@@ -666,12 +683,23 @@ local function ResolveAction(slot)
 end
 ns.ResolveAction = ResolveAction
 
--- The one kind with no secure action type at all. Summoning a battle pet is
--- not protected, so it is safe to do straight from PostClick.
+-- The kinds with no secure action type at all. Neither call is protected --
+-- summoning a battle pet and changing specialization are both ordinary API --
+-- so both are safe straight from PostClick.
+--
+-- WHICH cell reaches here is the snippet's answer rather than the live view's
+-- selection; see OnPostClick.
 local function FireInsecure(slot)
     if not slot then return end
     if slot.kind == "battlepet" and slot.guid and C_PetJournal then
         C_PetJournal.SummonPetByGUID(slot.guid)
+
+    elseif slot.kind == "spec" then
+        local index = SpecIndexFor(slot)
+        -- Refused in combat by the game itself, with its own error message.
+        -- Nothing to defer to PLAYER_REGEN_ENABLED: a spec change the user
+        -- asked for mid-fight and got minutes later is not what they meant.
+        if index then C_SpecializationInfo.SetSpecialization(index) end
     end
 end
 
@@ -716,6 +744,17 @@ local function SlotDisplay(slot)
         return (info and info.iconID) or QUESTION_MARK,
                MOUNT_JOURNAL_SUMMON_RANDOM_FAVORITE_MOUNT
                    or (info and info.name) or "Random Favorite Mount"
+
+    elseif k == "spec" then
+        local index = SpecIndexFor(slot)
+        if index then
+            local _, name, _, icon = C_SpecializationInfo.GetSpecializationInfo(index)
+            return icon or QUESTION_MARK, name or slot.name
+        end
+        -- A spec this character does not have. Drawn as an occupied slot with
+        -- whatever name it was picked up under, like every other entry whose
+        -- target has gone away.
+        return QUESTION_MARK, slot.name
 
     elseif k == "battlepet" then
         local _, _, _, _, _, _, _, name, icon = C_PetJournal.GetPetInfoByPetID(slot.guid)
@@ -4294,15 +4333,6 @@ function ns.Close()
     liveView:SetSelection(nil)
 end
 
--- The slot the user is currently pointing at, or nil.
-function ns.CurrentSlot()
-    local selection = liveView and liveView:GetSelection()
-    if not selection then return nil end
-    -- Through the cell map, so a nested entry answers with its OWN slot rather
-    -- than with whatever the parent palette happens to hold at that index.
-    return (liveView:CellSlot(selection))
-end
-
 -------------------------------------------------------------------------------
 --  Secure activation
 -------------------------------------------------------------------------------
@@ -5431,10 +5461,23 @@ end
 
 local function OnPostClick(self, _, down)
     if down then return end
-    -- A battle pet has no secure action type at all, so it still fires from
-    -- here, off the Lua-side selection. Summoning one is not protected.
-    local slot = ns.CurrentSlot()
-    if slot and slot.kind == "battlepet" then FireInsecure(slot) end
+    -- Some kinds have no secure action type at all and fire from here. WHICH
+    -- cell fires is the SNIPPET's answer, read back off the button, not the
+    -- selection the live view happens to be drawing: the two part company on
+    -- every cancel the snippet makes for itself. Escaping out of an open
+    -- palette leaves an entry selected on screen and fires nothing, and a pet
+    -- summoned out of a cancelled palette is the bug that reading the
+    -- selection here produced.
+    --
+    -- Two of the eapWhy steps mean "this cell was chosen": "fire", and
+    -- "emptyslot" -- which is exactly what a kind with no secure action type
+    -- looks like from inside the sandbox, ResolveAction having answered it
+    -- nothing. Every other value is a cancel. Reading an attribute is
+    -- unrestricted, so this works in combat as well as out.
+    local why = self:GetAttribute("eapWhy")
+    if liveView and (why == "fire" or why == "emptyslot") then
+        FireInsecure((liveView:CellSlot(tonumber(self:GetAttribute("eapIdx")))))
+    end
     ns.Close()
 end
 

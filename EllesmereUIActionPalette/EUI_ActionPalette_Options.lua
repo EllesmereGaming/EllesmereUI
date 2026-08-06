@@ -442,6 +442,7 @@ initFrame:SetScript("OnEvent", function(self)
                     or (slot.kind == "worldmarker" and "world marker")
                     or (slot.kind == "clearmarkers" and "target markers")
                     or (slot.kind == "randommount" and "mount")
+                    or (slot.kind == "spec" and "specialization")
                     or slot.kind
                 GameTooltip:AddLine(caption, 0.6, 0.6, 0.6)
             end
@@ -672,6 +673,24 @@ initFrame:SetScript("OnEvent", function(self)
         return out
     end
 
+    -- This character's own specializations, in the order the game lists them.
+    -- The slot banks the specID rather than the index -- the module resolves
+    -- the index back at fire time, so the same palette carried to an alt
+    -- points at nothing instead of at somebody else's spec.
+    local function SpecEntries()
+        local out = {}
+        local classID = select(3, UnitClass("player"))
+        if not classID or not C_SpecializationInfo then return out end
+        for i = 1, (C_SpecializationInfo.GetNumSpecializationsForClassID(classID) or 0) do
+            local specID, name, _, icon = C_SpecializationInfo.GetSpecializationInfo(i)
+            if specID and name then
+                out[#out + 1] = { icon = icon, name = name,
+                    slot = { kind = "spec", specID = specID, name = name } }
+            end
+        end
+        return out
+    end
+
     -- The markers need no enumeration at all: the slot kinds carry the icon
     -- and the name, so a candidate slot handed to SlotDisplay IS the entry.
     -- Both marker sets are offered in one category -- nineteen rows do not
@@ -737,6 +756,11 @@ initFrame:SetScript("OnEvent", function(self)
         { key = "macro",     label = "Macros",       build = MacroEntries },
         { key = "battlepet", label = "Battle Pets",  build = PetEntries },
         { key = "marker",    label = "Markers",      build = MarkerEntries,
+          keepOrder = true },
+        -- keepOrder: the game lists a class's specs in one fixed order that
+        -- every character sheet shows, and alphabetising them would be the
+        -- one place in the interface they are not in it.
+        { key = "spec",      label = "Specializations", build = SpecEntries,
           keepOrder = true },
         { key = "palette",   label = "Palettes",     build = PaletteEntries },
         { key = "macrotext", label = "Custom Macro...", custom = true },
@@ -1286,15 +1310,67 @@ initFrame:SetScript("OnEvent", function(self)
         return out
     end
 
-    local FORM_SPELLS = { 5487, 768, 783, 24858, 114282 }  -- Bear, Cat, Travel, Moonkin, Treant
+    -- Every form a druid can be in, plus the two that are really ways of
+    -- moving between them. Aquatic and Flight are listed even though Travel
+    -- Form has absorbed both on most builds: IsPlayerSpell is what decides,
+    -- and a spell nobody has simply does not appear.
+    local FORM_SPELLS = {
+        5487,    -- Bear Form
+        768,     -- Cat Form
+        5215,    -- Prowl
+        783,     -- Travel Form
+        1066,    -- Aquatic Form
+        165962,  -- Flight Form
+        24858,   -- Moonkin Form
+        114282,  -- Treant Form
+    }
     local function FormSlots()
         local out = {}
         for _, spellID in ipairs(FORM_SPELLS) do
+            if #out >= MAX_SLOTS then break end
+            if IsPlayerSpell(spellID) then
+                out[#out + 1] = { kind = "spell", id = spellID }
+            end
+        end
+        -- Getting OUT is the half of shapeshifting no form spell covers, and
+        -- there is no spell for it at all -- /cancelform is the whole of it.
+        -- Only offered once a form has been found, so the preset stays hidden
+        -- on a class that has none. The clear icon the marker entries use,
+        -- because it says the same thing.
+        if #out > 0 and #out < MAX_SLOTS then
+            out[#out + 1] = { kind = "macrotext", macrotext = "/cancelform",
+                              name = "Cancel Form",
+                              icon = "Interface\\Buttons\\UI-GroupLoot-Pass-Up" }
+        end
+        return out
+    end
+
+    -- One-of-a-set toggles that are not forms: a warrior's stances and a
+    -- paladin's auras are the same choice in two costumes, and both are
+    -- ordinary spells.
+    local STANCE_SPELLS = {
+        WARRIOR = { 386164, 386208, 386196 },   -- Battle, Defensive, Berserker
+        PALADIN = { 465, 32223, 183435, 317920 },  -- Devotion, Crusader, Retribution, Concentration
+    }
+    local function StanceSlots()
+        local out = {}
+        for _, spellID in ipairs(STANCE_SPELLS[select(2, UnitClass("player"))] or {}) do
+            if #out >= MAX_SLOTS then break end
             if IsPlayerSpell(spellID) then
                 out[#out + 1] = { kind = "spell", id = spellID }
             end
         end
         return out
+    end
+
+    -- Every spec this character has. One entry short of useful on a class with
+    -- one spec, so a single-spec character is not offered it.
+    local function SpecSlots()
+        local out = SpecEntries()
+        if #out < 2 then return {} end
+        local slots = {}
+        for i = 1, math.min(MAX_SLOTS, #out) do slots[i] = out[i].slot end
+        return slots
     end
 
     local PALETTE_PRESETS = {
@@ -1304,6 +1380,8 @@ initFrame:SetScript("OnEvent", function(self)
         { label = "Teleports",      build = TeleportSlots },
         { label = "Potions",        build = PotionSlots },
         { label = "Druid Forms",    build = FormSlots },
+        { label = "Stances",        build = StanceSlots },
+        { label = "Specializations", build = SpecSlots },
     }
 
     ---------------------------------------------------------------------------
