@@ -141,7 +141,14 @@ local defaults = {
             hideExtraBtns        = { greatVault = false, portals = false, friendsOnline = false, groupButton = false },
             mouseoverExtraBtns   = false,  -- extra buttons only show on minimap mouseover
             greatVaultExtraInfo  = true,
-            hideAddonCompartment = false,
+            -- Addon compartment: Blizzard's button lives in MinimapCluster,
+            -- which this module alpha-zeroes -- it is reparented onto our own
+            -- Minimap and pinned like the Omnium Folio (corner + X/Y nudge).
+            hideAddonCompartment    = false,
+            addonCompartmentCorner  = "TOPRIGHT",
+            addonCompartmentX       = 0,
+            addonCompartmentY       = 0,
+            addonCompartmentScale   = 0.9,
             -- Expansion landing page button: never | hover | always. Existing
             -- users are migrated from the legacy showOmniumFolio toggle
             -- (minimap_omnium_folio_mode_v1).
@@ -259,7 +266,8 @@ local minimapButtonMap = {
     { key = "hideMail",             names = { "MiniMapMailFrame" } },
     { key = "hideRaidDifficulty",   names = { "MiniMapInstanceDifficulty", "GuildInstanceDifficulty" } },
     { key = "hideCraftingOrder",    names = { "MiniMapCraftingOrderFrame" } },
-    { key = "hideAddonCompartment", names = { "AddonCompartmentFrame" } },
+    -- hideAddonCompartment is NOT listed here: the compartment is reparented
+    -- rather than alpha-hidden, and EBS._ApplyAddonCompartment owns it.
 }
 
 local minimapButtonHooks = {}
@@ -1207,6 +1215,11 @@ local flyoutBlacklist = {
     -- Core Blizzard feature button (expansion/landing page); keep it on the
     -- minimap surface instead of sweeping it into the addon-button flyout.
     ExpansionLandingPageMinimapButton = true,
+    -- Same for the addon compartment: it is parented to the Minimap so it can
+    -- be seen at all (see EBS._ApplyAddonCompartment), which puts it in reach
+    -- of the child scan below -- and it is a menu of every addon's entries,
+    -- not one addon's button, so it never belongs inside the group flyout.
+    AddonCompartmentFrame = true,
 }
 
 -- A replacement landing button is a feature button, not a generic addon
@@ -4053,6 +4066,99 @@ local function ApplyOmniumFolio()
     end
 end
 
+-------------------------------------------------------------------------------
+--  Addon Compartment
+--  Blizzard's addon-compartment button is a child of MinimapCluster, which this
+--  module alpha-zeroes and mouse-disables -- so it has to be reparented onto our
+--  own Minimap to be visible at all. The old code parked it on a hidden frame
+--  unconditionally, which is why hideAddonCompartment (default false) had no
+--  effect and the compartment was simply gone with no way to get it back.
+--  Handled exactly like the Omnium Folio: plain (non-secure) Blizzard button,
+--  so SetParent/SetPoint/SetScale are safe, and the same re-assert hooks keep
+--  Blizzard's own relayout from dragging it back into the hidden cluster.
+--  Namespace-scoped (EBS fields, not locals) -- this file is at the 200-local
+--  main-chunk cap.
+-------------------------------------------------------------------------------
+function EBS._ParkAddonCompartment(btn)
+    if not EBS._hiddenFrame then
+        EBS._hiddenFrame = CreateFrame("Frame")
+        EBS._hiddenFrame:Hide()
+    end
+    EBS._compartmentApplying = true
+    if btn:GetParent() ~= EBS._hiddenFrame then
+        GetFFD(btn).origParent = GetFFD(btn).origParent or btn:GetParent()
+        btn:SetParent(EBS._hiddenFrame)
+    end
+    EBS._compartmentApplying = false
+end
+
+function EBS._PositionAddonCompartment(btn)
+    local mp = EBS.db and EBS.db.profile and EBS.db.profile.minimap
+    if not mp or not Minimap then return end
+    EBS._compartmentApplying = true
+    if btn:GetParent() ~= Minimap then btn:SetParent(Minimap) end
+    btn:SetFrameStrata("HIGH")
+    btn:SetFrameLevel((Minimap:GetFrameLevel() or 0) + 10)
+    btn:SetScale(mp.addonCompartmentScale or 0.9)
+    btn:ClearAllPoints()
+    -- Anchor the button's chosen corner to the minimap's same corner; X/Y nudge
+    -- from there (positive X = right, positive Y = up), same as the folio.
+    local corner = mp.addonCompartmentCorner or "TOPRIGHT"
+    btn:SetPoint(corner, Minimap, corner, mp.addonCompartmentX or 0, mp.addonCompartmentY or 0)
+    -- The cluster's alpha/mouse state does not follow the reparent, and the
+    -- pre-fix sessions left it parked on a hidden frame -- re-assert both.
+    btn:SetAlpha(1)
+    btn:EnableMouse(true)
+    EBS._compartmentApplying = false
+end
+
+function EBS._ApplyAddonCompartment()
+    local btn = _G.AddonCompartmentFrame
+    if not btn then return end
+    local mp = EBS.db and EBS.db.profile and EBS.db.profile.minimap
+    if not mp then return end
+
+    -- One-time persistent hooks, mirroring the folio's: Blizzard re-anchors and
+    -- reparents this button on edit-mode relayouts and cluster updates, often
+    -- without a Show(), which would otherwise drop it back into the alpha-0
+    -- cluster until /reload.
+    if not EBS._compartmentHooked then
+        EBS._compartmentHooked = true
+        local function reassert(self)
+            if EBS._compartmentApplying then return end
+            local m = EBS.db and EBS.db.profile and EBS.db.profile.minimap
+            if not m then return end
+            if m.hideAddonCompartment then
+                EBS._ParkAddonCompartment(self)
+            else
+                EBS._PositionAddonCompartment(self)
+            end
+        end
+        hooksecurefunc(btn, "Show", reassert)
+        hooksecurefunc(btn, "SetParent", reassert)
+        hooksecurefunc(btn, "SetPoint", reassert)
+        hooksecurefunc(btn, "SetScale", reassert)
+        -- Hovering the compartment counts as hovering the map region, so the
+        -- hover-reveal elements stay alive while the cursor is on it.
+        btn:HookScript("OnEnter", function()
+            if EBS._HVRevealMapHover then EBS._HVRevealMapHover() end
+        end)
+    end
+
+    if mp.hideAddonCompartment then
+        EBS._ParkAddonCompartment(btn)
+        return
+    end
+    EBS._PositionAddonCompartment(btn)
+    -- Blizzard shows/hides this button itself from the number of addons that
+    -- registered a compartment entry -- only nudge it when at least one did, so
+    -- an empty compartment is never forced on screen.
+    if not btn:IsShown() then
+        local reg = btn.registeredAddons
+        if reg and #reg > 0 then btn:Show() end
+    end
+end
+
 local function ApplyMinimap()
     if TEMP_DISABLED.minimap then return end
     if InCombatLockdown() then QueueApplyAll(); return end
@@ -4193,16 +4299,8 @@ local function ApplyMinimap()
         local frame = _G[name]
         if frame then frame:Hide() end
     end
-    -- Hide AddonCompartmentFrame by reparenting to a hidden frame
-    local compartment = _G.AddonCompartmentFrame
-    if compartment then
-        if not EBS._hiddenFrame then
-            EBS._hiddenFrame = CreateFrame("Frame")
-            EBS._hiddenFrame:Hide()
-        end
-        GetFFD(compartment).origParent = GetFFD(compartment).origParent or compartment:GetParent()
-        compartment:SetParent(EBS._hiddenFrame)
-    end
+    -- The addon compartment is placed (or parked) by EBS._ApplyAddonCompartment
+    -- at the end of this pass, once the map has its final size and position.
 
     local isCircle = (p.shape == "circle" or p.shape == "textured_circle")
 
@@ -5101,6 +5199,7 @@ local function ApplyMinimap()
     GetFFD(minimap).active = true
 
     ApplyOmniumFolio()
+    EBS._ApplyAddonCompartment()
 end
 
 
@@ -5470,10 +5569,14 @@ function EBS:OnEnable()
     -- which is idempotent when the button is already shown and correctly placed
     -- (it only nudges RefreshButton when the button is hidden). Deferred a frame
     -- so Blizzard's own PLAYER_ENTERING_WORLD handling runs first.
+    -- The addon compartment needs the same treatment for the same reason: it is
+    -- a Blizzard-owned button we reparent out of MinimapCluster, and the cluster
+    -- relayout after a loading screen can claim it back.
     local folioRefresh = CreateFrame("Frame")
     folioRefresh:RegisterEvent("PLAYER_ENTERING_WORLD")
     folioRefresh:SetScript("OnEvent", function()
         C_Timer.After(0, ApplyOmniumFolio)
+        C_Timer.After(0, EBS._ApplyAddonCompartment)
     end)
 
     -- If GameTimeFrame still doesn't exist, watch for Blizzard_TimeManager to load
