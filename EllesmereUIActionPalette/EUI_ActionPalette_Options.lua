@@ -1588,6 +1588,9 @@ initFrame:SetScript("OnEvent", function(self)
                 -- Arrangement is what this preview is for; a live cooldown swipe
                 -- on a settings page is only noise.
                 showCooldowns = false,
+                -- And so is a red icon reporting that the dummy you are not
+                -- targeting is out of range of a spell you are only filing.
+                showUsability = false,
                 -- Kept short on purpose: the hub line is drawn centered inside a
                 -- an arc only ~75px in radius, and anything longer runs under the
                 -- entries at 3 and 9 o'clock. The rest is in the slot tooltips.
@@ -2273,6 +2276,19 @@ initFrame:SetScript("OnEvent", function(self)
               disabled=Disabled, disabledTooltip="the module",
               getValue=function() return Cfg("showCooldowns") ~= false end,
               setValue=function(v) Set("showCooldowns", v); Refresh() end })
+        y = y - h
+
+        row, h = W:DualRow(parent, y,
+            { type="toggle", text="Dim Unusable Entries",
+              disabled=Disabled, disabledTooltip="the module",
+              tooltip="Tint an entry that would do nothing right now: red when the "
+                      .."target is out of range, blue when you are short of the "
+                      .."resource, and gray when the game refuses it for any other "
+                      .."reason. Spells, items and toys only -- a macro's usability "
+                      .."depends on what its body resolves to.",
+              getValue=function() return Cfg("showUsability") ~= false end,
+              setValue=function(v) Set("showUsability", v); Refresh() end },
+            { type="spacer" })
         y = y - h
 
         -- Hub art is arc-only: the fan and grid layouts put a real entry at

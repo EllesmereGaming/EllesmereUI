@@ -261,6 +261,10 @@ local DB_DEFAULTS = {
         showHubText   = true,
         showNeedle    = true,
         showCooldowns = true,
+        -- Tint an entry that would do nothing right now: red out of range,
+        -- blue short of the resource, gray and desaturated for anything else
+        -- the game refuses. The same three cues an action button gives.
+        showUsability = true,
         selectedZoom  = 1.15,
         bgAlpha       = 0.65,
         selectColor   = { 0.047, 0.824, 0.624 },  -- EllesmereUI teal (#0cd29f)
@@ -838,6 +842,61 @@ local function SlotCount(slot)
     return false
 end
 
+-- How an entry that CANNOT be fired right now is tinted, in the three states
+-- an action button has always distinguished. The idle and selected tints are
+-- multiplied through these, so an unusable entry still reads as selected while
+-- saying why it would do nothing.
+local USABILITY_TINT = {
+    OUTOFRANGE = { 0.90, 0.20, 0.20, false },
+    NOPOWER    = { 0.45, 0.45, 1.00, false },
+    UNUSABLE   = { 0.45, 0.45, 0.45, true },
+}
+
+-- Which of those states an entry is in, or nil for an entry that is fine and
+-- for a kind with nothing to say.
+--
+-- Every call here is secret-SAFE, and that was checked rather than assumed:
+-- C_Spell.IsSpellUsable, C_Spell.IsSpellInRange, C_Item.IsUsableItem,
+-- C_Item.ItemHasRange and C_Item.IsItemInRange all carry no
+-- SecretWhenCooldownsRestricted flag in the generated documentation, unlike
+-- the cooldown and charge getters two functions up. So these results may be
+-- branched on. Do not add a kind here without checking its getter the same
+-- way -- a mount's usability, for one, has to come from the Mount Journal
+-- rather than from its summon spell, which is not in the spellbook and
+-- answers unusable for every mount.
+--
+-- Out of range OUTRANKS the other two, matching every action bar: a spell you
+-- cannot reach is the thing to say first, and it is the state a step forward
+-- fixes.
+--
+-- Macros, markers and palettes answer nil. A macro's usability is whatever its
+-- body resolves to, which is not knowable from here, and tinting one gray on a
+-- guess is worse than saying nothing.
+local function SlotUsability(slot)
+    if not slot then return nil end
+    local k = slot.kind
+
+    if k == "spell" then
+        if type(slot.id) ~= "number" then return nil end
+        if C_Spell.IsSpellInRange(slot.id) == false then return "OUTOFRANGE" end
+        local usable, noPower = C_Spell.IsSpellUsable(slot.id)
+        if usable then return nil end
+        return noPower and "NOPOWER" or "UNUSABLE"
+
+    elseif k == "item" or k == "toy" then
+        if type(slot.id) ~= "number" then return nil end
+        if C_Item.ItemHasRange(slot.id)
+           and C_Item.IsItemInRange(slot.id, "target") == false then
+            return "OUTOFRANGE"
+        end
+        local usable, noPower = C_Item.IsUsableItem(slot.id)
+        if usable then return nil end
+        return noPower and "NOPOWER" or "UNUSABLE"
+    end
+
+    return nil
+end
+
 -- Build a slot table from whatever is on the cursor. Returns nil when the
 -- cursor holds something the palette can't fire.
 local function SlotFromCursor()
@@ -964,9 +1023,18 @@ end
 -- armed marks the entry an armed claim hangs off, which may or may not also be
 -- the selected one. The zoom stays a selection cue alone: an armed parent the
 -- cursor has already left is not what a release would fire.
+-- widget.usability is the state PaintCell last read for this cell (see
+-- SlotUsability), applied here rather than there because these three branches
+-- rewrite the icon's tint on every selection change and would erase it.
 local function ApplySlotVisual(widget, selected, armed)
     local p = P()
     local r, g, b = SelectColor()
+    -- The unusable tint MULTIPLIES whatever the selection state asked for, so
+    -- an out-of-range entry the cursor is on still reads as the selected one.
+    local tint = USABILITY_TINT[widget.usability or ""]
+    local ur, ug, ub = 1, 1, 1
+    if tint then ur, ug, ub = tint[1], tint[2], tint[3] end
+    widget.icon:SetDesaturated(tint ~= nil and tint[4] or false)
     local t = armed and ARM_BORDER or selected and SEL_BORDER or IDLE_BORDER
     widget.border:SetPoint("TOPLEFT", widget, "TOPLEFT", -t, t)
     widget.border:SetPoint("BOTTOMRIGHT", widget, "BOTTOMRIGHT", t, -t)
@@ -981,17 +1049,17 @@ local function ApplySlotVisual(widget, selected, armed)
         local lb = b + (1 - b) * ARM_LIFT
         widget.border:SetVertexColor(lr, lg, lb, 1)
         widget.bg:SetVertexColor(r * 0.22, g * 0.22, b * 0.22, min(1, (p and p.bgAlpha or 0.65) + 0.25))
-        widget.icon:SetVertexColor(1, 1, 1)
+        widget.icon:SetVertexColor(ur, ug, ub)
         widget.label:SetTextColor(lr, lg, lb)
     elseif selected then
         widget.border:SetVertexColor(r, g, b, 1)
         widget.bg:SetVertexColor(r * 0.22, g * 0.22, b * 0.22, min(1, (p and p.bgAlpha or 0.65) + 0.25))
-        widget.icon:SetVertexColor(1, 1, 1)
+        widget.icon:SetVertexColor(ur, ug, ub)
         widget.label:SetTextColor(r, g, b)
     else
         widget.border:SetVertexColor(0, 0, 0, 0.9)
         widget.bg:SetVertexColor(0.05, 0.05, 0.06, p and p.bgAlpha or 0.65)
-        widget.icon:SetVertexColor(0.72, 0.72, 0.72)
+        widget.icon:SetVertexColor(0.72 * ur, 0.72 * ug, 0.72 * ub)
         widget.label:SetTextColor(0.75, 0.75, 0.75)
     end
 end
@@ -3293,8 +3361,14 @@ end
 -- selection zoom: the corner count is sized off it, and reading the widget's
 -- current size instead would make the number breathe with the entry.
 local function PaintCell(w, slot, placeholder, showLabels, showCooldowns, wantLabel,
-                         iconSize)
+                         iconSize, showUsability)
     w.isPlaceholder = placeholder
+
+    -- Read once per paint, which is once per open: range and resources do move
+    -- while a palette is up, but a hold lasts a fraction of a second and a tint
+    -- that changed under a settled hand would read as a flicker rather than as
+    -- information. ApplySlotVisual is what turns this into a colour.
+    w.usability = (showUsability and not placeholder) and SlotUsability(slot) or nil
 
     local icon, name = SlotDisplay(slot)
     w.icon:SetTexture(icon or QUESTION_MARK)
@@ -3426,6 +3500,10 @@ function PaletteView:Layout(paletteIndex)
     if showLabels == nil then showLabels = p.showLabels == true end
     local showCooldowns = opts.showCooldowns
     if showCooldowns == nil then showCooldowns = p.showCooldowns end
+    -- ~= false, not == true: on by default, so a profile that has never seen
+    -- the key gets the tint.
+    local showUsability = opts.showUsability
+    if showUsability == nil then showUsability = p.showUsability ~= false end
 
     for i = 1, shown do
         local w = self.widgets[i]
@@ -3449,7 +3527,7 @@ function PaletteView:Layout(paletteIndex)
         -- neighbouring icons collide, and the centre entry -- the only one that
         -- can be fired -- is already named on the hub.
         PaintCell(w, palette.slots[i], palette.slots[i] == nil,
-                  showLabels, showCooldowns, not fan, iconSize)
+                  showLabels, showCooldowns, not fan, iconSize, showUsability)
         w:Show()
     end
 
@@ -3479,7 +3557,7 @@ function PaletteView:Layout(paletteIndex)
                 w:SetSize(c.icon, c.icon)
                 w:EnableMouse(false)
                 PaintCell(w, c.slots[j], false, showLabels, showCooldowns,
-                          c.label ~= false, c.icon)
+                          c.label ~= false, c.icon, showUsability)
                 -- Hidden until its own claim is previewed or opened -- see
                 -- UpdateNestShown.
                 w:Hide()
