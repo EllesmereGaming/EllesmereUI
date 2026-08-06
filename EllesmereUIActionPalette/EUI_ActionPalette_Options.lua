@@ -1870,6 +1870,16 @@ initFrame:SetScript("OnEvent", function(self)
 
         local function Disabled() return Cfg("enabled") == false end
 
+        -- Which palette is being edited is panel-session state, but the profile
+        -- under it can change without one: switching to a profile that holds
+        -- fewer palettes repoints the data with no reload, and the module reset
+        -- leaves a single palette behind. Clamped here rather than at each
+        -- reader because Palette, ACfg and ASet all go through
+        -- ns.EnsurePalette, which would CREATE the out-of-range palette and
+        -- bank that junk in the profile the user has just moved to.
+        local paletteCount = PaletteCount()
+        if editPalette > paletteCount then editPalette = paletteCount end
+
         local centerValues = { CURSOR = "At Cursor", SCREEN = "Fixed Position" }
         local centerOrder  = { "CURSOR", "SCREEN" }
 
@@ -2616,6 +2626,9 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUI.Lite.DeepMergeDefaults(target.profile, ns.DB_DEFAULTS.profile)
             end
             if _G._EAP_Apply then _G._EAP_Apply() end
+            -- The reset leaves one palette, so the editor cannot stay pointed
+            -- at whichever one it was on.
+            editPalette = 1
         end,
     })
 end)
