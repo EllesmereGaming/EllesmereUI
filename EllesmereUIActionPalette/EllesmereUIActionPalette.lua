@@ -75,11 +75,10 @@ local GetTime = GetTime
 local TWO_PI = pi * 2
 local QUESTION_MARK = "Interface\\Icons\\INV_Misc_QuestionMark"
 
--- Palette / slot limits. MAX_BOUND_PALETTES must match the number of <Binding>
--- entries in Bindings.xml -- a palette past that has no key to open it, and
--- exists to be NESTED inside another palette. Storage therefore runs further
--- than binding does.
-local MAX_BOUND_PALETTES = 6
+-- Palette / slot limits. MAX_PALETTES must match the number of <Binding>
+-- entries in Bindings.xml: every palette can carry a key of its own, so no
+-- palette is ever reachable only by being nested inside another one. A key is
+-- what builds a palette's secure button, so the ones left unbound cost nothing.
 local MAX_PALETTES = 16
 local MAX_SLOTS = 12
 
@@ -516,21 +515,15 @@ function ns.MoveSlot(palette, from, to)
     return true
 end
 
--- How many palettes EXIST. Not the same as how many can be opened by a key:
--- everything past MAX_BOUND_PALETTES has no <Binding> entry and is reachable
--- only by being nested inside another palette.
+-- How many palettes EXIST. Each of them has a <Binding> entry of its own, so
+-- this is also the range every loop that claims a key or pushes actions runs
+-- over -- a palette can be opened by a key, nested inside another palette, or
+-- both.
 local function PaletteCount()
     local p = P()
     return min(MAX_PALETTES, max(1, (p and p.paletteCount) or 1))
 end
 ns.PaletteCount = PaletteCount
-
--- How many have a keybind, and therefore a secure button of their own. Every
--- loop that pushes actions or claims a key runs over THIS, not PaletteCount.
-local function BoundPaletteCount()
-    return min(MAX_BOUND_PALETTES, PaletteCount())
-end
-ns.BoundPaletteCount = BoundPaletteCount
 
 -------------------------------------------------------------------------------
 --  Nesting
@@ -616,7 +609,6 @@ ns.SelectColor = SelectColor
 ns.MAX_SLOTS = MAX_SLOTS
 ns.REGION_MAX = REGION_MAX
 ns.MAX_PALETTES = MAX_PALETTES
-ns.MAX_BOUND_PALETTES = MAX_BOUND_PALETTES
 ns.MAX_CHILDREN = MAX_CHILDREN
 
 -------------------------------------------------------------------------------
@@ -630,14 +622,72 @@ ns.MAX_CHILDREN = MAX_CHILDREN
 
 -- Both marker kinds store the ICON position: 1..8 in the star-to-skull order
 -- every marker UI shows, 0 for the entry that clears instead of placing. The
--- engine numbers its WORLD markers differently -- this is Blizzard's map from
--- icon position to engine marker (Blizzard_CompactRaidFrameManager.lua:5-12),
--- restated here so a slot never depends on that addon being loaded first.
-local WORLD_MARKER_ENGINE = { 8, 4, 1, 7, 2, 3, 6, 5 }
+-- engine numbers its WORLD markers differently, so the world kind maps the
+-- stored position onto the engine's number before it names one.
+--
+-- The engine runs blue, green, purple, red, yellow, orange, silver, white --
+-- square, triangle, diamond, cross, star, circle, moon, skull. Blizzard's
+-- WORLD_RAID_MARKER_ORDER (Blizzard_CompactRaidFrameManager.lua:5-12) is the
+-- same eight numbers listed SKULL to STAR, which is the order its dropdown
+-- draws them in; read as though it ran star to skull it lands on the marker
+-- mirrored about the middle, which is why star used to place the skull.
+local WORLD_MARKER_ENGINE = { 5, 6, 3, 2, 7, 1, 4, 8 }
 
 local MARKER_NAMES = {
     "Star", "Circle", "Diamond", "Triangle", "Moon", "Square", "Cross", "Skull",
 }
+
+-------------------------------------------------------------------------------
+--  Cycling marker entries
+--
+--  One entry that walks the eight markers instead of naming one: each press
+--  places the next, star to skull and back to the star. It is the whole set in
+--  a single slot, for a palette that has no room for nine.
+--
+--  The position last placed is kept on the slot, so the run continues across a
+--  reload rather than restarting at the star. It is NOT what the press reads,
+--  though: an insecure SetAttribute is refused in combat, which is exactly when
+--  marking matters, so the secure snippet keeps the authoritative copy and
+--  advances it itself. CyclePosBack hands the snippet's answer back here after
+--  the press, and the push seeds the snippet from it again. Both ends derive
+--  "next" from "last" the same way, so the icon can never advertise a marker
+--  other than the one the press places.
+-------------------------------------------------------------------------------
+local CYCLE_N = 8
+
+-- The macro text each step fires, in the order the entry runs through them.
+-- Both cycles step through the eight ICON positions; the world one maps each
+-- onto the engine's number exactly as a fixed world marker slot does. nil for
+-- every kind that does not cycle, which is what marks a slot as one.
+local function CycleSteps(kind)
+    local out = {}
+    if kind == "cycleraidtarget" then
+        for i = 1, CYCLE_N do out[i] = "/tm " .. i end
+    elseif kind == "cycleworldmarker" then
+        for i = 1, CYCLE_N do out[i] = "/wm " .. WORLD_MARKER_ENGINE[i] end
+    else
+        return nil
+    end
+    return out
+end
+
+-- The icon position the NEXT press places. Derived from the stored one rather
+-- than stored itself, so there is only ever one number to keep in step.
+local function CycleNext(slot)
+    local last = tonumber(slot and slot.cyclePos) or 0
+    if last < 1 or last > CYCLE_N then last = 0 end
+    return last % CYCLE_N + 1
+end
+
+-- The position the snippet advanced to, back onto the slot it belongs to, so
+-- the next push and every icon drawn before it agree with what actually fired.
+-- Called from the release; a cell that does not cycle answers nothing and
+-- leaves the slot alone.
+local function CyclePosBack(btn, idx, slot)
+    if not btn or not idx or not slot then return end
+    local pos = tonumber(btn:GetAttribute("eapCycPos" .. idx))
+    if pos and CycleSteps(slot.kind) then slot.cyclePos = pos end
+end
 
 -- "Summon Random Favorite Mount", used only to DRAW the entry -- its icon and
 -- its localized name. Firing does not cast it: the spell is neither in the
@@ -781,6 +831,14 @@ local function ResolveAction(slot)
             return "macro", "macrotext", "/cwm " .. (ALL or "all"), "macro"
         end
         return "macro", "macrotext", "/wm " .. WORLD_MARKER_ENGINE[id], "macro"
+
+    elseif k == "cycleraidtarget" or k == "cycleworldmarker" then
+        -- The step the position on the slot says is up. The snippet overwrites
+        -- this with its own answer on every press -- see the eapCycN branch --
+        -- so what is pushed here is only what the entry would fire if the
+        -- cycle attributes went missing: the right marker, just not advancing.
+        local steps = CycleSteps(k)
+        return "macro", "macrotext", steps[CycleNext(slot)], "macro"
     end
 
     return nil
@@ -887,6 +945,14 @@ local function SlotDisplay(slot)
             return "Interface\\Buttons\\UI-GroupLoot-Pass-Up", "Clear World Markers"
         end
         return MarkerIcon(id), "World Marker: " .. MARKER_NAMES[id]
+
+    elseif k == "cycleraidtarget" or k == "cycleworldmarker" then
+        -- Drawn as the marker the next press places, not as a fixed emblem: in
+        -- a radial the icon is what the entry is picked by, and one that never
+        -- changed while the action did would be worse than no entry at all.
+        local id = CycleNext(slot)
+        local what = (k == "cycleraidtarget") and "Target" or "World"
+        return MarkerIcon(id), "Cycle " .. what .. " Marker: " .. MARKER_NAMES[id]
 
     elseif k == "palette" then
         local palette = EnsurePalette(ChildIndex(slot))
@@ -5116,7 +5182,19 @@ local SNIPPET_PRE = [==[
     -- raidtarget slot into a clear-all of the whole group.
     self:SetAttribute("action", nil)
 
-    self:SetAttribute(self:GetAttribute("eapK" .. idx), self:GetAttribute("eapV" .. idx))
+    -- A cycling entry names a different marker on every press, and the position
+    -- it has reached has to advance HERE: an insecure SetAttribute is refused
+    -- in combat, which is the whole of when marking matters. eapCycPos is the
+    -- position last placed, so the step is taken before it is spent, and the
+    -- Lua side reads it back off this button once the release is over.
+    local v = self:GetAttribute("eapV" .. idx)
+    local cn = tonumber(self:GetAttribute("eapCycN" .. idx))
+    if cn and cn > 0 then
+        local pos = (tonumber(self:GetAttribute("eapCycPos" .. idx)) or 0) % cn + 1
+        self:SetAttribute("eapCycPos" .. idx, pos)
+        v = self:GetAttribute("eapCycV" .. idx .. "_" .. pos) or v
+    end
+    self:SetAttribute(self:GetAttribute("eapK" .. idx), v)
     self:SetAttribute("type", t)
     self:SetAttribute("eapWhy", "fire")
     return nil, 1
@@ -5745,7 +5823,12 @@ local function OnPostClick(self, _, down)
     local why = self:GetAttribute("eapWhy")
     if not OwnsLiveView(self) then return end
     if why == "fire" or why == "emptyslot" then
-        FireInsecure((liveView:CellSlot(tonumber(self:GetAttribute("eapIdx")))))
+        local idx = tonumber(self:GetAttribute("eapIdx"))
+        local slot = liveView:CellSlot(idx)
+        FireInsecure(slot)
+        -- Only "fire" moved a cycle on: "emptyslot" is a kind the sandbox has
+        -- no action type for, and it never reached the snippet's step.
+        if why == "fire" then CyclePosBack(self, idx, slot) end
     end
     ns.Close()
 end
@@ -5807,6 +5890,36 @@ local pushedCells = {}
 -- shrinks: see the eapGateMax write below.
 local pushedClaims = {}
 
+-- One cell's action. Both the palette's own entries and the cells its nests
+-- contribute are pushed through here, under the cell index the snippet will
+-- resolve a release to -- which is what lets the snippet fire either without
+-- knowing which of the two it landed on.
+local function PushCell(btn, i, slot)
+    local aType, aKey, aVal = ResolveAction(slot)
+    btn:SetAttribute("eapT" .. i, aType)
+    btn:SetAttribute("eapK" .. i, aKey)
+    btn:SetAttribute("eapV" .. i, aVal)
+    -- A palette resolves to no action, same as an empty slot. Marked so the
+    -- trace can tell "you stopped on the door" from "that slot is empty".
+    btn:SetAttribute("eapPal" .. i, ChildIndex(slot) and true or nil)
+
+    -- A cycling entry's whole run, one step per attribute, plus the position it
+    -- is up to. Written out rather than parsed in the snippet: the marker order
+    -- and the engine's numbering already live up in the slot model, and the
+    -- restricted environment is the last place to restate either of them.
+    --
+    -- eapCycN is what marks the cell as cycling, so a cell that has stopped
+    -- being one has to lose it -- and the steps under it, which are read by
+    -- position and would otherwise outlive a shorter run.
+    local steps = CycleSteps(slot and slot.kind)
+    local had = tonumber(btn:GetAttribute("eapCycN" .. i)) or 0
+    for s = 1, max(had, steps and #steps or 0) do
+        btn:SetAttribute("eapCycV" .. i .. "_" .. s, steps and steps[s] or nil)
+    end
+    btn:SetAttribute("eapCycN" .. i, steps and #steps or nil)
+    btn:SetAttribute("eapCycPos" .. i, steps and tonumber(slot.cyclePos) or nil)
+end
+
 local function PushPalette(index)
     if InCombatLockdown() then return end
     local p = PA(index)
@@ -5830,14 +5943,7 @@ local function PushPalette(index)
     liveView.appIndex = index
 
     for i = 1, MAX_SLOTS do
-        local slot = palette.slots[i]
-        local aType, aKey, aVal = ResolveAction(slot)
-        btn:SetAttribute("eapT" .. i, aType)
-        btn:SetAttribute("eapK" .. i, aKey)
-        btn:SetAttribute("eapV" .. i, aVal)
-        -- A palette resolves to no action, same as an empty slot. Marked so the
-        -- trace can tell "you stopped on the door" from "that slot is empty".
-        btn:SetAttribute("eapPal" .. i, ChildIndex(slot) and true or nil)
+        PushCell(btn, i, palette.slots[i])
     end
 
     -- The live palette draws exactly what the palette holds -- the trailing "+"
@@ -5949,11 +6055,7 @@ local function PushPalette(index)
         c.base = total
         for j = 1, c.n do
             total = total + 1
-            local aType, aKey, aVal = ResolveAction(c.slots[j])
-            btn:SetAttribute("eapT" .. total, aType)
-            btn:SetAttribute("eapK" .. total, aKey)
-            btn:SetAttribute("eapV" .. total, aVal)
-            btn:SetAttribute("eapPal" .. total, ChildIndex(c.slots[j]) and true or nil)
+            PushCell(btn, total, c.slots[j])
             -- A block layout's nests carry a BOX. Half-extents are what tells
             -- the snippet these cells are tested by containment rather than by
             -- nearness -- the palette's own entries have no half-extents, and
@@ -5971,10 +6073,8 @@ local function PushPalette(index)
     -- actually written rather than by the theoretical maximum, so an ordinary
     -- palette does not pay a hundred attribute writes on every options tick.
     for i = max(total, MAX_SLOTS) + 1, (pushedCells[index] or 0) do
-        btn:SetAttribute("eapT" .. i, nil)
-        btn:SetAttribute("eapK" .. i, nil)
-        btn:SetAttribute("eapV" .. i, nil)
-        btn:SetAttribute("eapPal" .. i, nil)
+        -- nil for the slot, which is also how PushCell clears a cycle's steps.
+        PushCell(btn, i, nil)
         btn:SetAttribute("eapBX" .. i, nil)
         btn:SetAttribute("eapBY" .. i, nil)
         btn:SetAttribute("eapHW" .. i, nil)
@@ -6092,7 +6192,7 @@ local function PushAllPalettes()
         return
     end
     pushDirty = false
-    for i = 1, BoundPaletteCount() do PushPalette(i) end
+    for i = 1, PaletteCount() do PushPalette(i) end
 end
 
 -- A push is on the order of a thousand attribute writes per bound palette, and
@@ -6159,7 +6259,7 @@ function ns.UpdateBindings()
     if not p then return end
 
     local sig = p.enabled and "on" or "off"
-    local count = BoundPaletteCount()
+    local count = PaletteCount()
     for i = 1, count do
         local k1, k2 = GetBindingKey(BINDING_PREFIX .. i)
         sig = sig .. "|" .. (k1 or "") .. "/" .. (k2 or "")
@@ -6180,12 +6280,26 @@ function ns.UpdateBindings()
     if not p.enabled then return end
     if not bindOwner then bindOwner = CreateFrame("Frame") end
 
+    -- A button is built only for a palette that has a key, so a profile that
+    -- binds two of its sixteen pays for two. PushPalette skips an index with no
+    -- button, so the ones left unbound cost no attribute writes either -- their
+    -- entries still reach the sandbox through whichever palette nests them.
+    local built = false
     for i = 1, count do
-        local btn = GetSecureButton(i)
         local k1, k2 = GetBindingKey(BINDING_PREFIX .. i)
-        if k1 then SetOverrideBindingClick(bindOwner, false, k1, btn:GetName()) end
-        if k2 then SetOverrideBindingClick(bindOwner, false, k2, btn:GetName()) end
+        if k1 or k2 then
+            built = built or not secureButtons[i]
+            local name = GetSecureButton(i):GetName()
+            if k1 then SetOverrideBindingClick(bindOwner, false, k1, name) end
+            if k2 then SetOverrideBindingClick(bindOwner, false, k2, name) end
+        end
     end
+
+    -- A button built just now holds none of its palette's geometry yet, and the
+    -- binding change that built it is not itself a reason for anything else to
+    -- ask for a push. Without this, the first hold on a freshly bound key would
+    -- open an empty palette.
+    if built then RequestPush() end
 end
 
 -- Re-read everything from the DB. Safe to call at any time; only redraws views
@@ -6268,7 +6382,7 @@ function EAP:OnInitialize()
     ns.db = db
 
     _G.BINDING_HEADER_EUI_RADIAL = "EllesmereUI Action Palette"
-    for i = 1, MAX_BOUND_PALETTES do
+    for i = 1, MAX_PALETTES do
         _G["BINDING_NAME_" .. BINDING_PREFIX .. i] = "Open Action Palette " .. i
     end
 end
@@ -6367,20 +6481,20 @@ SlashCmdList.EUIACTIONPALETTE = function(msg)
     -- thing to run after a nest misbehaves in a way the offline harness
     -- cannot reproduce.
     if type(msg) == "string" and msg:lower():find("gates") then
-        for i = 1, BoundPaletteCount() do
+        for i = 1, PaletteCount() do
             local btn = secureButtons[i]
             if btn then
                 EllesmereUI.Print(("|cff0cd29fPalette %d|r armed=%s"):format(
                     i, tostring(btn:GetAttribute("eapArmed"))))
                 EllesmereUI.Print("  " .. (btn:GetAttribute("eapGTrace") or "(no gate crossings this hold)"))
             else
-                EllesmereUI.Print(("|cff0cd29fPalette %d|r no secure button"):format(i))
+                EllesmereUI.Print(("|cff0cd29fPalette %d|r unbound, so no secure button"):format(i))
             end
         end
         return
     end
     if type(msg) == "string" and msg:lower():find("trace") then
-        for i = 1, BoundPaletteCount() do
+        for i = 1, PaletteCount() do
             local btn = secureButtons[i]
             if btn then
                 -- Degrees, because the arc is configured in degrees: whether a
@@ -6412,7 +6526,7 @@ SlashCmdList.EUIACTIONPALETTE = function(msg)
                     tostring(btn:GetAttribute("eapT1")),
                     tostring(btn:GetAttribute("eapV1"))))
             else
-                EllesmereUI.Print(("|cff0cd29fPalette %d|r no secure button"):format(i))
+                EllesmereUI.Print(("|cff0cd29fPalette %d|r unbound, so no secure button"):format(i))
             end
         end
         return

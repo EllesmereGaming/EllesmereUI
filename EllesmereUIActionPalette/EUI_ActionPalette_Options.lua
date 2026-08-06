@@ -5,12 +5,10 @@ local ADDON_NAME, ns = ...
 
 local PAGE_DISPLAY = "Action Palette"
 local BINDING_PREFIX = "EUI_RADIAL"
--- Palettes past MAX_BOUND_PALETTES have no <Binding> entry, so they cannot be
--- opened by a key at all: they exist to be nested inside another palette. Read
--- from the module rather than restated, so the two can never disagree about
--- which of them the keybind row applies to.
+-- Every palette has a <Binding> entry of its own, so the keybind row below
+-- applies to all of them. Read from the module rather than restated, so the two
+-- can never disagree about how far the binding actions run.
 local MAX_PALETTES = ns.MAX_PALETTES or 16
-local MAX_BOUND_PALETTES = ns.MAX_BOUND_PALETTES or 6
 local MAX_SLOTS = ns.MAX_SLOTS or 12
 
 local initFrame = CreateFrame("Frame")
@@ -162,6 +160,50 @@ initFrame:SetScript("OnEvent", function(self)
         end
     end
 
+    -- What the user calls the action a chord is currently bound to. The binding
+    -- system stores an action string; BINDING_NAME_<action> is the label every
+    -- keybind UI shows, and our own palettes declare one each.
+    local function BindingLabel(action)
+        return _G["BINDING_NAME_" .. action] or action
+    end
+
+    -- Both halves of a commit, past the point of asking. Split out so the
+    -- confirmation below can defer exactly this and nothing else. stolenFrom is
+    -- the action the chord was taken from, for the record it leaves in chat --
+    -- which is what the no-dialog fallback below relies on, and is still worth
+    -- having once the dialog has been agreed to.
+    local function ApplyKey(palette, chord, stolenFrom)
+        local action = BINDING_PREFIX .. palette
+        local oldK1, oldK2 = GetBindingKey(action)
+
+        if chord then
+            -- Replace the PRIMARY key only and leave a secondary binding
+            -- alone. Blizzard's own panel allows two keys per action, and
+            -- clearing both here silently destroyed the second one with no
+            -- message (and no way to see it, since the label shows key1).
+            if oldK1 then SetBinding(oldK1, nil) end
+            if not SetBinding(chord, action) then
+                -- Put the primary back. oldK2 was never cleared, so there is
+                -- nothing to restore for it.
+                if oldK1 then SetBinding(oldK1, action) end
+                Complain("Action Palette: " .. (GetBindingText(chord) or chord)
+                    .. " could not be bound.")
+            elseif stolenFrom then
+                EllesmereUI.Print("|cff0cd29fAction Palette:|r took "
+                    .. (GetBindingText(chord) or chord) .. " from |cffffd100"
+                    .. BindingLabel(stolenFrom) .. "|r.")
+            end
+        else
+            -- Unbind: this one clears every key the palette holds, which is what
+            -- "unbind" means.
+            if oldK1 then SetBinding(oldK1, nil) end
+            if oldK2 then SetBinding(oldK2, nil) end
+        end
+
+        SaveBindings(GetCurrentBindingSet())
+        RebuildPage()
+    end
+
     -- chord = a binding string to assign, or nil to leave the palette unbound.
     local function CommitKey(chord)
         local palette = listenPalette
@@ -177,38 +219,46 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         local action = BINDING_PREFIX .. palette
+        -- Only a real theft is worth either a dialog or a notice: an unbound
+        -- chord takes nothing, and rebinding a palette to the key it already
+        -- holds takes it from itself. A key held by ANOTHER palette of ours
+        -- does count -- that one would be left with no way to open at all.
         local stolenFrom = chord and GetBindingAction(chord) or nil
-        local oldK1, oldK2 = GetBindingKey(action)
+        if stolenFrom == "" or stolenFrom == action then stolenFrom = nil end
 
-        if chord then
-            -- Replace the PRIMARY key only and leave a secondary binding
-            -- alone. Blizzard's own panel allows two keys per action, and
-            -- clearing both here silently destroyed the second one with no
-            -- message (and no way to see it, since the label shows key1).
-            if oldK1 then SetBinding(oldK1, nil) end
-            if not SetBinding(chord, action) then
-                -- Put the primary back. oldK2 was never cleared, so there is
-                -- nothing to restore for it.
-                if oldK1 then SetBinding(oldK1, action) end
-                Complain("Action Palette: " .. (GetBindingText(chord) or chord)
-                    .. " could not be bound.")
-            elseif stolenFrom and stolenFrom ~= "" and stolenFrom ~= action then
-                -- SetBinding steals the key silently; say so, because the
-                -- displaced binding is often something the user cares about.
-                local label = _G["BINDING_NAME_" .. stolenFrom] or stolenFrom
-                EllesmereUI.Print("|cff0cd29fAction Palette:|r took "
-                    .. (GetBindingText(chord) or chord) .. " from |cffffd100"
-                    .. label .. "|r.")
-            end
-        else
-            -- Unbind: this one clears every key the palette holds, which is what
-            -- "unbind" means.
-            if oldK1 then SetBinding(oldK1, nil) end
-            if oldK2 then SetBinding(oldK2, nil) end
+        -- SetBinding takes a key from whatever holds it without a word, and the
+        -- displaced binding is often something the user cares about and will
+        -- not miss until they reach for it mid-fight. Asking first is the only
+        -- point at which they can still say no -- a message after the fact
+        -- tells them what to go and put back, which is not the same thing.
+        if stolenFrom and EllesmereUI.ShowConfirmPopup then
+            local keyText = GetBindingText(chord) or chord
+            EllesmereUI:ShowConfirmPopup({
+                title       = "Key Already Bound",
+                message     = keyText .. " is bound to \""
+                    .. BindingLabel(stolenFrom) .. "\". Binding it to \""
+                    .. BindingLabel(action) .. "\" will leave that unbound.",
+                confirmText = "Rebind",
+                cancelText  = "Keep",
+                -- Re-checked rather than trusted: the dialog sits open for as
+                -- long as the user leaves it, and a fight can start under it.
+                onConfirm   = function()
+                    if InCombatLockdown() then
+                        Complain("Action Palette: keybinds can't be changed in combat.")
+                        RebuildPage()
+                        return
+                    end
+                    ApplyKey(palette, chord, stolenFrom)
+                end,
+                -- The keybind button's label was drawn as "Press a key..." for
+                -- the length of the listen; the rebuild puts the old key back
+                -- on it, so declining reads as nothing having happened.
+                onCancel    = function() RebuildPage() end,
+            })
+            return
         end
 
-        SaveBindings(GetCurrentBindingSet())
-        RebuildPage()
+        ApplyKey(palette, chord, stolenFrom)
     end
 
     local function EnsureCaptureFrame()
@@ -323,11 +373,11 @@ initFrame:SetScript("OnEvent", function(self)
     -- fires on every override-binding registration anywhere in the suite (the
     -- palette's own UpdateBindings included), and dropping the whole options
     -- page cache on each of those would rebuild the visible page over and
-    -- over. Only a change to OUR six keys is of any interest here.
+    -- over. Only a change to one of OUR keys is of any interest here.
     local lastKeySig = nil
     local function PaletteKeySignature()
         local sig = ""
-        for i = 1, MAX_BOUND_PALETTES do
+        for i = 1, MAX_PALETTES do
             local k1, k2 = GetBindingKey(BINDING_PREFIX .. i)
             sig = sig .. "|" .. (k1 or "") .. "/" .. (k2 or "")
         end
@@ -489,6 +539,10 @@ initFrame:SetScript("OnEvent", function(self)
                 local caption = (slot.kind == "raidtarget" and "target marker")
                     or (slot.kind == "worldmarker" and "world marker")
                     or (slot.kind == "clearmarkers" and "target markers")
+                    or (slot.kind == "cycleraidtarget"
+                        and "target marker, next on each press")
+                    or (slot.kind == "cycleworldmarker"
+                        and "world marker, next on each press")
                     or (slot.kind == "randommount" and "mount")
                     or (slot.kind == "spec" and "specialization")
                     or slot.kind
@@ -741,20 +795,44 @@ initFrame:SetScript("OnEvent", function(self)
 
     -- The markers need no enumeration at all: the slot kinds carry the icon
     -- and the name, so a candidate slot handed to SlotDisplay IS the entry.
-    -- Both marker sets are offered in one category -- nineteen rows do not
-    -- earn two menu levels.
-    local function MarkerEntries()
-        local out = {}
-        local function Add(kind, id)
+    --
+    -- One row per marker per set is twenty-one rows, and the two sets are the
+    -- one thing a user has already decided between before opening the menu --
+    -- so Markers holds two lists rather than one, and neither is long enough to
+    -- scroll. See the subs field on its category below.
+    local function MarkerAdder(out)
+        return function(kind, id, name)
             local slot = { kind = kind, id = id }
-            local icon, name = ns.SlotDisplay(slot)
-            out[#out + 1] = { icon = icon, name = name, slot = slot }
+            local icon, drawn = ns.SlotDisplay(slot)
+            out[#out + 1] = { icon = icon, name = name or drawn, slot = slot }
         end
+    end
+
+    -- The cyclers lead each list: one entry that steps through all eight is the
+    -- reason to come here at all on a palette with no room for nine, and
+    -- burying it under the eight it replaces hides it from exactly the person
+    -- who wants it. Deliberately NOT in the two marker presets -- a preset that
+    -- lays out all eight has nothing to cycle.
+    --
+    -- Each is named without the marker SlotDisplay appends. On a placed entry
+    -- that suffix says which one is up next, which is the point of it; on a
+    -- menu row it would read as the one marker this row places.
+    local function TargetMarkerEntries()
+        local out = {}
+        local Add = MarkerAdder(out)
+        Add("cycleraidtarget", nil, "Cycle Target Markers")
         for i = 1, 8 do Add("raidtarget", i) end
         Add("raidtarget", 0)
         -- The all-units counterpart of the /tm 0 row above; the world markers
         -- need none because their 0 row already clears them all.
         Add("clearmarkers")
+        return out
+    end
+
+    local function WorldMarkerEntries()
+        local out = {}
+        local Add = MarkerAdder(out)
+        Add("cycleworldmarker", nil, "Cycle World Markers")
         for i = 1, 8 do Add("worldmarker", i) end
         Add("worldmarker", 0)
         return out
@@ -796,6 +874,9 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     -- custom = the typed-macro pane rather than a list of things to enumerate.
+    -- subs = the row opens a second list of categories rather than a list of
+    -- entries, for a category whose contents divide the way the user already
+    -- has in their head before they open it.
     local PICKER_CATEGORIES = {
         { key = "spell",     label = "Spells",       build = SpellEntries },
         { key = "mount",     label = "Mounts",       build = MountEntries },
@@ -803,8 +884,14 @@ initFrame:SetScript("OnEvent", function(self)
         { key = "toy",       label = "Toys",         build = ToyEntries },
         { key = "macro",     label = "Macros",       build = MacroEntries },
         { key = "battlepet", label = "Battle Pets",  build = PetEntries },
-        { key = "marker",    label = "Markers",      build = MarkerEntries,
-          keepOrder = true },
+        -- keepOrder on both: the markers run star to skull, the order every
+        -- marker menu in the game shows.
+        { key = "marker",    label = "Markers", subs = {
+            { key = "marker_target", label = "Target Markers",
+              build = TargetMarkerEntries, keepOrder = true },
+            { key = "marker_world",  label = "World Markers",
+              build = WorldMarkerEntries,  keepOrder = true },
+        } },
         -- keepOrder: the game lists a class's specs in one fixed order that
         -- every character sheet shows, and alphabetising them would be the
         -- one place in the interface they are not in it.
@@ -813,6 +900,12 @@ initFrame:SetScript("OnEvent", function(self)
         { key = "palette",   label = "Palettes",     build = PaletteEntries },
         { key = "macrotext", label = "Custom Macro...", custom = true },
     }
+
+    -- Which list the Back row goes home to, filled in here because a table
+    -- literal cannot name itself. A category with no parent is at the root.
+    for _, cat in ipairs(PICKER_CATEGORIES) do
+        for _, sub in ipairs(cat.subs or {}) do sub.parent = cat end
+    end
 
     local ShowPickerCategories, ShowPickerCategory, ShowPickerCustom
 
@@ -883,13 +976,22 @@ initFrame:SetScript("OnEvent", function(self)
         local bTx = EllesmereUI.MakeFont(menu.back, 11, nil, tR, tG, tB, tA)
         bTx:SetPoint("LEFT", menu.back, "LEFT", 8, 0)
         bTx:SetText("\194\171 Categories")
+        -- Named, because a sub-category's entries go back to the sub-list
+        -- rather than to the root and the row has to say which.
+        menu.backText = bTx
         menu.back:SetScript("OnEnter", function()
             bHl:SetColorTexture(1, 1, 1, hlA); bTx:SetTextColor(1, 1, 1, 1)
         end)
         menu.back:SetScript("OnLeave", function()
             bHl:SetColorTexture(1, 1, 1, 0); bTx:SetTextColor(tR, tG, tB, tA)
         end)
-        menu.back:SetScript("OnClick", function() ShowPickerCategories() end)
+        -- One step up from wherever we are: the entries of a sub-category go to
+        -- its own list, everything else to the root. menu.cat is nil in both
+        -- list views, so a sub-list's own Back lands at the root, which is the
+        -- only place left to go.
+        menu.back:SetScript("OnClick", function()
+            ShowPickerCategories(menu.cat and menu.cat.parent or nil)
+        end)
 
         menu.search = CreateFrame("EditBox", nil, menu)
         menu.search:SetHeight(22)
@@ -1099,7 +1201,10 @@ initFrame:SetScript("OnEvent", function(self)
     -- Anchors the list under whichever header rows the current view shows and
     -- sizes the menu to its content.
     local function PickerFit(menu, count)
-        local top = PICK_HEAD_H + (menu.cat and PICK_NAV_H or 0)
+        -- Measured off the Back row itself rather than off menu.cat: a
+        -- sub-category list shows the row without being an entry view, and
+        -- reserving no space for it would put the first row under it.
+        local top = PICK_HEAD_H + (menu.back:IsShown() and PICK_NAV_H or 0)
         menu.scroll:ClearAllPoints()
         menu.scroll:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, -top)
         menu.scroll:SetPoint("RIGHT", menu, "RIGHT", -1, 0)
@@ -1112,11 +1217,17 @@ initFrame:SetScript("OnEvent", function(self)
         menu:UpdateThumb()
     end
 
-    ShowPickerCategories = function()
+    -- parent = nil for the root list, or the category whose sub-list to show.
+    ShowPickerCategories = function(parent)
         local menu = EnsurePickerMenu()
+        local cats = parent and parent.subs or PICKER_CATEGORIES
+        -- No cat: this is a list of categories, and the search box has nothing
+        -- to filter. The Back row is the one thing that differs between the two
+        -- levels -- the root has nowhere above it.
         menu.cat = nil
-        menu.title:SetText("Add Action")
-        menu.back:Hide()
+        menu.title:SetText(parent and parent.label or "Add Action")
+        menu.back:SetShown(parent ~= nil)
+        menu.backText:SetText("\194\171 Categories")
         -- Focus first: hiding a focused edit box leaves the keyboard captured by
         -- a box that is no longer on screen.
         menu.search:ClearFocus()
@@ -1124,7 +1235,7 @@ initFrame:SetScript("OnEvent", function(self)
         menu.custom:Hide()
         menu.scroll:Show()
 
-        for i, cat in ipairs(PICKER_CATEGORIES) do
+        for i, cat in ipairs(cats) do
             local r = menu:GetRow(i)
             r.icon:Hide()
             -- Rows are shared with the entry views, which anchor the label to
@@ -1136,6 +1247,8 @@ initFrame:SetScript("OnEvent", function(self)
             r:SetScript("OnClick", function()
                 if cat.custom then
                     ShowPickerCustom()
+                elseif cat.subs then
+                    ShowPickerCategories(cat)
                 else
                     menu.search:SetText("")
                     ShowPickerCategory(cat)
@@ -1143,9 +1256,9 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             r:Show()
         end
-        for i = #PICKER_CATEGORIES + 1, #menu.rows do menu.rows[i]:Hide() end
+        for i = #cats + 1, #menu.rows do menu.rows[i]:Hide() end
 
-        PickerFit(menu, #PICKER_CATEGORIES)
+        PickerFit(menu, #cats)
         menu:Show()
     end
 
@@ -1154,6 +1267,7 @@ initFrame:SetScript("OnEvent", function(self)
         menu.cat = cat
         menu.title:SetText(cat.label)
         menu.back:Show()
+        menu.backText:SetText("\194\171 " .. (cat.parent and cat.parent.label or "Categories"))
         menu.search:Show()
         menu.searchPH:SetShown((menu.search:GetText() or "") == "")
         menu.custom:Hide()
@@ -1223,6 +1337,9 @@ initFrame:SetScript("OnEvent", function(self)
         menu.cat = nil
         menu.title:SetText("Custom Macro")
         menu.back:Show()
+        -- Restated rather than left as it was: the row is shared, and the view
+        -- before this one may have been a sub-category's.
+        menu.backText:SetText("\194\171 Categories")
         menu.search:ClearFocus()
         menu.search:Hide()
         -- Hiding the scroll frame takes the pooled rows with it: they are its
@@ -1624,14 +1741,14 @@ initFrame:SetScript("OnEvent", function(self)
         -- then each successor's keys are rebound one action lower. Interleaving
         -- the two passes would unbind keys the previous step just moved.
         local keys, any = {}, false
-        for n = 1, MAX_BOUND_PALETTES do
+        for n = 1, MAX_PALETTES do
             keys[n] = { GetBindingKey(BINDING_PREFIX .. n) }
             if n >= index and keys[n][1] then any = true end
         end
-        for n = index, MAX_BOUND_PALETTES do
+        for n = index, MAX_PALETTES do
             for _, k in ipairs(keys[n]) do SetBinding(k) end
         end
-        for n = index, MAX_BOUND_PALETTES - 1 do
+        for n = index, MAX_PALETTES - 1 do
             for _, k in ipairs(keys[n + 1] or {}) do
                 SetBinding(k, BINDING_PREFIX .. n)
             end
@@ -1869,6 +1986,29 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     ---------------------------------------------------------------------------
+    --  Inline cog button beside a DualRow region, opening a BuildCogPopup.
+    --  The same shape the other option pages use (EUI_AuraBuffReminders_
+    --  Options.lua:588): parked left of the region's control, dim until
+    --  hovered, and handing itself to showFn as the popup's anchor.
+    ---------------------------------------------------------------------------
+    local function MakeCogBtn(rgn, showFn, anchorTo, iconPath)
+        local cogBtn = CreateFrame("Button", nil, rgn)
+        cogBtn:SetSize(26, 26)
+        cogBtn:SetPoint("RIGHT", anchorTo or rgn._lastInline or rgn._control, "LEFT", -8, 0)
+        rgn._lastInline = cogBtn
+        cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+        cogBtn:SetAlpha(0.4)
+        local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+        cogTex:SetAllPoints()
+        cogTex:SetTexture(iconPath or EllesmereUI.COGS_ICON)
+        cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+        cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+        cogBtn:SetScript("OnClick", function(self) showFn(self) end)
+        return cogBtn
+    end
+
+
+    ---------------------------------------------------------------------------
     --  Build Page
     ---------------------------------------------------------------------------
     local function BuildPage(pageName, parent, yOffset)
@@ -1913,10 +2053,9 @@ initFrame:SetScript("OnEvent", function(self)
             { type="toggle", text="Enable Action Palette",
               getValue=function() return Cfg("enabled") ~= false end,
               setValue=function(v) Set("enabled", v); RebuildPage() end },
-            -- The chooser it opens offers an empty palette or a preset. Past
-            -- MAX_BOUND_PALETTES a new palette has no key of its own and is
-            -- reachable only by being nested in another palette, which is what
-            -- the keybind row in PALETTE SETUP explains.
+            -- The chooser it opens offers an empty palette or a preset. The new
+            -- palette takes a key of its own from the keybind row in PALETTE
+            -- SETUP, whatever its number.
             { type="labeledButton", text="Add Palette",
               disabled=function()
                   return Disabled() or PaletteCount() >= MAX_PALETTES
@@ -1965,16 +2104,8 @@ initFrame:SetScript("OnEvent", function(self)
             -- committing a key and switching the edited palette -- rebuild the
             -- page, so it cannot go stale while the panel is open.
             { type="labeledButton", text="Palette Keybind",
-              disabled=function()
-                  return Disabled() or editPalette > MAX_BOUND_PALETTES
-              end,
-              disabledTooltip=(editPalette > MAX_BOUND_PALETTES)
-                  and ("only the first " .. MAX_BOUND_PALETTES .. " palettes can "
-                       .. "take a key -- open this one by nesting it inside "
-                       .. "another palette")
-                  or "the module",
-              buttonText=(editPalette > MAX_BOUND_PALETTES) and "Nested Only"
-                  or (listenPalette == editPalette) and "Press a key..."
+              disabled=Disabled, disabledTooltip="the module",
+              buttonText=(listenPalette == editPalette) and "Press a key..."
                   or (keyForEditPalette and (GetBindingText(keyForEditPalette) or keyForEditPalette)
                       or "Click to Bind"),
               onClick=function() StartListening(editPalette) end })
@@ -2069,8 +2200,8 @@ initFrame:SetScript("OnEvent", function(self)
         local editedName = (editedPalette and editedPalette.name)
             or AutoName(editPalette)
 
-        -- Sits with the palette selector rather than in PLACEMENT & SIZE
-        -- because it acts on the whole of the appearance rather than on any one
+        -- Sits with the palette selector rather than in LAYOUT because it
+        -- acts on the whole of the appearance rather than on any one
         -- section of it. Same upvalue trick as the Add Palette button above:
         -- the styled button invokes its handler with no arguments, so the menu
         -- has to reach its anchor some other way.
@@ -2119,75 +2250,247 @@ initFrame:SetScript("OnEvent", function(self)
 
         y = y - BuildPreview(parent, y)
 
-        -- ── PLACEMENT & SIZE ─────────────────────────────────────────────
-        _, h = W:SectionHeader(parent, "PLACEMENT & SIZE", y); y = y - h
+        -- ── LAYOUT ───────────────────────────────────────────────────────
+        _, h = W:SectionHeader(parent, "LAYOUT", y); y = y - h
 
-        -- The X/Y offsets ride along with the mode dropdown because they only
-        -- mean anything in Fixed Position mode -- in cursor mode the palette
-        -- opens wherever the mouse is. They are also the ONLY way to place the
-        -- palette: the on-screen drag editor is gone, and this module is not yet
-        -- registered with Unlock Mode.
-        local fixedOnly = function()
-            return Disabled() or (ACfg("centerMode") or "CURSOR") ~= "SCREEN"
-        end
+        -- The page keeps the two decisions every palette needs -- which
+        -- layout it draws as and where it opens -- and the two sizes everyone
+        -- reaches for. Every knob that only means anything inside one layout
+        -- lives behind the cog on the Layout dropdown, and the popup is built
+        -- for the layout the edited palette is on: an arc has no strip to
+        -- describe and a strip has no radius, so the popup holds only rows
+        -- that do something. The popup can never be open when the layout
+        -- changes under it -- the dropdown click that changes it is a click
+        -- outside the popup, which closes it -- so the rows cannot go stale.
+        local layoutMode = ACfg("layout") or "ARC"
 
-        -- A fan has no radius, no angle and no centre to steer away from, so the
-        -- settings that describe those are dead in it -- and the arc has no
-        -- strip, so the fan's own settings are dead in turn. Every set stays
-        -- visible and disabled rather than disappearing: a control that
-        -- vanishes when a dropdown moves reads as a bug.
+        -- The nest rows ride in the layout popup rather than in a section of
+        -- their own: which of them are live is decided by the layout, and in
+        -- a per-layout popup that gating becomes simply which rows exist.
         --
-        -- Four predicates, because the layouts do not partition cleanly: the
-        -- grid shares the strip's spacing but steers like nothing else, a
-        -- pointer-steered fan has no scrolling to describe, and the falloffs
-        -- belong to all three and so are gated by none of them.
-        local function LayoutMode() return ACfg("layout") or "ARC" end
-        local function IsFanLayout() return LayoutMode() == "FAN" end
-
-        local arcOnly = function()
-            return Disabled() or LayoutMode() ~= "ARC"
-        end
-        -- Anything laid out as icons at a fixed pitch: both fans and the grid.
-        -- The arc spaces by angle, so a pitch says nothing about it.
-        local stripOnly = function()
-            return Disabled() or LayoutMode() == "ARC"
-        end
-        local fanOnly = function()
-            return Disabled() or not IsFanLayout()
-        end
-        -- The window-and-scroll settings: a pointer-steered fan draws the whole
-        -- palette at fixed positions, so it culls nothing, animates nothing and
-        -- has no wheel direction to invert.
-        local scrollFanOnly = function()
-            return Disabled() or not IsFanLayout()
-                or (ACfg("fanInput") or "SCROLL") ~= "SCROLL"
-        end
-        local gridOnly = function()
-            return Disabled() or LayoutMode() ~= "GRID"
-        end
-        -- The two falloff ratios say how steep the depth cue is, which is not a
-        -- question at all once it has been switched off.
-        local falloffOff = function()
-            return Disabled() or ACfg("falloff") == false
-        end
-        -- Every layout nests. Kept as a predicate of its own because the reason
-        -- a control is dead is worth saying separately from what it is dead for.
-        local nestless = function()   -- true when the control is DEAD, as with arcOnly above
-            return Disabled()
-        end
-        -- Where a nest sits is only a question when the sides are equidistant --
-        -- which is every strip, both of whose long sides are. On a grid the side
-        -- NEAREST the entry wins, except under Popout, where a middle entry has
-        -- no nearest side and this answers for it. The arc has no sides at all.
-        local nestSideDead = function()
-            if nestless() then return true end
-            if LayoutMode() == "ARC" then return true end
-            return false
-        end
-        -- Only a grid has an interior and corners to arrange around; a strip
-        -- ignores the setting outright.
-        local gridNestDead = function()
-            return nestless() or LayoutMode() ~= "GRID"
+        -- layoutCogShow is declared ahead of the rows because one of them
+        -- reaches back into the popup it lives in: a slider write is the one
+        -- popup edit that does not re-read the other rows' disabled
+        -- predicates by itself.
+        local layoutCogShow
+        local layoutCogTitle, layoutCogRows
+        if layoutMode == "ARC" then
+            layoutCogTitle = "Arc Settings"
+            layoutCogRows = {
+                { type="slider", label="Arc Radius", min=50, max=220, step=1,
+                  disabled=Disabled, disabledTooltip="the module",
+                  get=function() return Cfg("radius") or 96 end,
+                  set=function(v) Set("radius", v); Refresh() end },
+                { type="slider", label="Arc Span", noCapture=true,
+                  min=30, max=360, step=5,
+                  disabled=Disabled, disabledTooltip="the module",
+                  get=function() return ACfg("arcSpan") or 360 end,
+                  set=function(v)
+                      ASet("arcSpan", v); Refresh()
+                      -- The rotation row below reads its life from the span,
+                      -- so the popup is told to re-read its predicates.
+                      local pf = layoutCogShow and layoutCogShow._popupFrame
+                      if pf and pf._refresh then pf._refresh() end
+                  end },
+                -- 360 is a full turn, and a rotation of a full circle is a
+                -- no-op -- so the rotation only becomes live once the span
+                -- has been narrowed to an arc that has somewhere to point.
+                { type="slider", label="Arc Rotation", noCapture=true,
+                  min=-180, max=180, step=5,
+                  disabled=function()
+                      return Disabled() or (ACfg("arcSpan") or 360) >= 360
+                  end,
+                  disabledTooltip="an Arc Span below 360",
+                  get=function() return ACfg("arcRotation") or 0 end,
+                  set=function(v) ASet("arcRotation", v); Refresh() end },
+                -- Floor of 8, not 0: the dead zone is what makes "release
+                -- without steering" a cancel, and at 0 there is no cancel
+                -- region at all.
+                { type="slider", label="Dead Zone", min=8, max=80, step=1,
+                  disabled=Disabled, disabledTooltip="the module",
+                  tooltip="Release with the cursor inside this distance of the "
+                      .."center to close the palette without firing anything.",
+                  get=function() return Cfg("deadZone") or 24 end,
+                  set=function(v) Set("deadZone", v); Refresh() end },
+                -- Holding the palette back for a moment lets an expert finish
+                -- a gesture before anything appears. Selection is live the
+                -- whole time, so nothing is lost by waiting.
+                { type="toggle", label="Flick-Ahead",
+                  disabled=Disabled, disabledTooltip="the module",
+                  tooltip="Keep the palette invisible for a moment after the "
+                      .."key goes down. Selection is live the whole time, so a "
+                      .."quick flick fires before anything is drawn.",
+                  get=function() return Cfg("flickAhead") ~= false end,
+                  set=function(v) Set("flickAhead", v); Refresh() end },
+                { type="slider", label="Flick Delay", min=0, max=0.40, step=0.01,
+                  disabled=function()
+                      return Disabled() or Cfg("flickAhead") == false
+                  end,
+                  disabledTooltip="Flick-Ahead",
+                  get=function() return Cfg("flickDelay") or 0.12 end,
+                  set=function(v) Set("flickDelay", v); Refresh() end },
+                -- The gap between the two rings' icons, not a radius, so what
+                -- the number says is what the eye measures.
+                { type="slider", label="Nest Distance", min=0, max=160, step=1,
+                  disabled=Disabled, disabledTooltip="the module",
+                  get=function() return Cfg("nestBand") or 40 end,
+                  set=function(v) Set("nestBand", v); Refresh() end },
+                { type="dropdown", label="Nest Width",
+                  disabled=Disabled, disabledTooltip="the module",
+                  tooltip="How far along the arc a nest may spread its entries."
+                      .." Contained keeps it clear of the next nest either side,"
+                      .." so two of them are never drawn on top of one another."
+                      .." Overflowing lets it use the whole of Max Nest Span."
+                      .." A nest reaches over the plain entries it passes, and"
+                      .." they only give up their angles while it is open.",
+                  values={ NONE = "Contained", MIDPOINT = "Overflowing" },
+                  order={ "NONE", "MIDPOINT" },
+                  get=function() return Cfg("arcChildOverflow") or "NONE" end,
+                  set=function(v) Set("arcChildOverflow", v); Refresh() end },
+                { type="slider", label="Max Nest Span", min=30, max=180, step=5,
+                  disabled=Disabled, disabledTooltip="the module",
+                  tooltip="The widest angle a nest's entries may spread over."
+                      .." They stay on one ring for as long as they fit inside"
+                      .." it; the rest go onto a second ring further out.",
+                  get=function() return Cfg("arcChildMaxSpan") or 90 end,
+                  set=function(v) Set("arcChildMaxSpan", v); Refresh() end },
+                -- Smaller than the palette's own entries, so a nest reads as
+                -- subordinate to the entry it opens from. Drawing only: the
+                -- sectors are angular, so this changes nothing about what a
+                -- release picks.
+                { type="slider", label="Nest Icon Size", min=0.4, max=1.0, step=0.05,
+                  disabled=Disabled, disabledTooltip="the module",
+                  get=function() return Cfg("nestScale") or 0.8 end,
+                  set=function(v) Set("nestScale", v); Refresh() end },
+            }
+        elseif layoutMode == "FAN" then
+            layoutCogTitle = "Fan Settings"
+            -- The window-and-scroll rows: a pointer-steered fan draws the
+            -- whole palette at fixed positions, so it culls nothing, animates
+            -- nothing and has no wheel direction to invert.
+            local scrollOnly = function()
+                return Disabled() or (ACfg("fanInput") or "SCROLL") ~= "SCROLL"
+            end
+            layoutCogRows = {
+                { type="dropdown", label="Fan Direction", noCapture=true,
+                  disabled=Disabled, disabledTooltip="the module",
+                  values=orientValues, order=orientOrder,
+                  get=function() return ACfg("fanOrientation") or "HORIZONTAL" end,
+                  set=function(v) ASet("fanOrientation", v); Refresh() end },
+                { type="dropdown", label="Steering", noCapture=true,
+                  disabled=Disabled, disabledTooltip="the module",
+                  values=fanInputValues, order=fanInputOrder,
+                  -- Refresh where the page row needed a rebuild: the three
+                  -- rows this retires live in this same popup, and the popup
+                  -- re-reads every disabled predicate after each write.
+                  get=function() return ACfg("fanInput") or "SCROLL" end,
+                  set=function(v) ASet("fanInput", v); Refresh() end },
+                -- How much of the strip is drawn at all. Neighbours past this
+                -- many steps are hidden rather than shrunk further.
+                { type="slider", label="Visible Each Side", noCapture=true,
+                  min=1, max=6, step=1,
+                  disabled=scrollOnly, disabledTooltip="Mouse Wheel steering",
+                  get=function() return ACfg("fanVisible") or 3 end,
+                  set=function(v) ASet("fanVisible", v); Refresh() end },
+                { type="slider", label="Entry Gap", noCapture=true,
+                  min=0, max=40, step=1,
+                  disabled=Disabled, disabledTooltip="the module",
+                  get=function() return ACfg("fanGap") or 10 end,
+                  set=function(v) ASet("fanGap", v); Refresh() end },
+                -- How long the strip takes to slide to the entry that was
+                -- scrolled to. 0 snaps; the selection itself moves on the
+                -- tick either way.
+                { type="slider", label="Settle Time", noCapture=true,
+                  min=0, max=0.40, step=0.01,
+                  disabled=scrollOnly, disabledTooltip="Mouse Wheel steering",
+                  get=function() return ACfg("fanAnimTime") or 0.10 end,
+                  set=function(v) ASet("fanAnimTime", v); Refresh() end },
+                { type="toggle", label="Invert Scroll", noCapture=true,
+                  disabled=scrollOnly, disabledTooltip="Mouse Wheel steering",
+                  get=function() return ACfg("fanInvert") == true end,
+                  set=function(v) ASet("fanInvert", v); Refresh() end },
+                { type="slider", label="Nest Distance", min=0, max=160, step=1,
+                  disabled=Disabled, disabledTooltip="the module",
+                  get=function() return Cfg("nestBand") or 40 end,
+                  set=function(v) Set("nestBand", v); Refresh() end },
+                { type="slider", label="Nest Icon Size", min=0.4, max=1.0, step=0.05,
+                  disabled=Disabled, disabledTooltip="the module",
+                  get=function() return Cfg("nestScale") or 0.8 end,
+                  set=function(v) Set("nestScale", v); Refresh() end },
+                -- Both long sides of a strip are equidistant, so which one a
+                -- nest opens on is a real choice. One label pair covers both
+                -- orientations, because this popup is not rebuilt when the
+                -- Fan Direction row above changes.
+                { type="dropdown", label="Nest Side",
+                  disabled=Disabled, disabledTooltip="the module",
+                  tooltip="Above or below a horizontal strip; right or left "
+                      .."of a vertical one.",
+                  values={ POSITIVE = "Above / Right", NEGATIVE = "Below / Left" },
+                  order={ "POSITIVE", "NEGATIVE" },
+                  get=function() return Cfg("nestSide") or "POSITIVE" end,
+                  set=function(v) Set("nestSide", v); Refresh() end },
+            }
+        else
+            layoutCogTitle = "Grid Settings"
+            layoutCogRows = {
+                { type="toggle", label="Auto Columns", noCapture=true,
+                  disabled=Disabled, disabledTooltip="the module",
+                  get=function() return ACfg("gridAutoColumns") ~= false end,
+                  set=function(v) ASet("gridAutoColumns", v); Refresh() end },
+                { type="slider", label="Grid Columns", noCapture=true,
+                  -- The top of the travel is the slot cap, not an arbitrary
+                  -- 8. A grid never draws more columns than it has entries,
+                  -- so asking for the most a palette can ever hold is how you
+                  -- say "one row", and it stays one row as entries are added.
+                  -- Column 1 is already the transpose of that, so both
+                  -- single-file layouts are on the one slider and neither
+                  -- needs a sentinel value.
+                  min=1, max=MAX_SLOTS, step=1,
+                  disabled=function()
+                      return Disabled() or ACfg("gridAutoColumns") ~= false
+                  end,
+                  requireState="disabled", disabledTooltip="Auto Columns",
+                  tooltip="How many entries a row of the grid holds. 1 stacks "
+                      .."them into a single column; " .. MAX_SLOTS
+                      .. " -- the most slots a palette can hold -- lays them "
+                      .."out in a single row.",
+                  get=function() return ACfg("gridColumns") or 4 end,
+                  set=function(v) ASet("gridColumns", v); Refresh() end },
+                { type="slider", label="Entry Gap", noCapture=true,
+                  min=0, max=40, step=1,
+                  disabled=Disabled, disabledTooltip="the module",
+                  get=function() return ACfg("fanGap") or 10 end,
+                  set=function(v) ASet("fanGap", v); Refresh() end },
+                { type="slider", label="Nest Distance", min=0, max=160, step=1,
+                  disabled=Disabled, disabledTooltip="the module",
+                  get=function() return Cfg("nestBand") or 40 end,
+                  set=function(v) Set("nestBand", v); Refresh() end },
+                { type="slider", label="Nest Icon Size", min=0.4, max=1.0, step=0.05,
+                  disabled=Disabled, disabledTooltip="the module",
+                  get=function() return Cfg("nestScale") or 0.8 end,
+                  set=function(v) Set("nestScale", v); Refresh() end },
+                -- On a grid the side NEAREST the entry wins; this answers for
+                -- a middle entry under Popout, which has no nearest side.
+                { type="dropdown", label="Nest Side",
+                  disabled=Disabled, disabledTooltip="the module",
+                  values={ POSITIVE = "Above", NEGATIVE = "Below" },
+                  order={ "POSITIVE", "NEGATIVE" },
+                  get=function() return Cfg("nestSide") or "POSITIVE" end,
+                  set=function(v) Set("nestSide", v); Refresh() end },
+                --   Lane     a halo hugging the block, centered on the point
+                --            of it nearest the entry that opens it, wrapping
+                --            the corners when the run is long
+                --   Halo     the eight positions around the entry itself, the
+                --            block faded behind them
+                --   Popout   the nested palette as a block of its own,
+                --            alongside
+                { type="dropdown", label="Grid Nest Style",
+                  disabled=Disabled, disabledTooltip="the module",
+                  values={ PERIMETER = "Lane", HALO = "Halo", POPOUT = "Popout" },
+                  order={ "PERIMETER", "HALO", "POPOUT" },
+                  get=function() return Cfg("gridNestStyle") or "PERIMETER" end,
+                  set=function(v) Set("gridNestStyle", v); Refresh() end },
+            }
         end
 
         row, h = W:DualRow(parent, y,
@@ -2195,76 +2498,59 @@ initFrame:SetScript("OnEvent", function(self)
               disabled=Disabled, disabledTooltip="the module",
               values=layoutValues, order=layoutOrder,
               getValue=function() return ACfg("layout") or "ARC" end,
-              -- Rebuild, not Refresh: this is what decides which of the two
-              -- sets of controls below is live.
+              -- Rebuild, not Refresh: the cog beside this dropdown is loaded
+              -- with the rows of the layout picked here.
               setValue=function(v) ASet("layout", v); RebuildPage() end },
-            { type="dropdown", text="Fan Direction", noCapture=true,
-              disabled=fanOnly, disabledTooltip="a Fan layout",
-              values=orientValues, order=orientOrder,
-              getValue=function() return ACfg("fanOrientation") or "HORIZONTAL" end,
-              setValue=function(v) ASet("fanOrientation", v); Refresh() end })
-        y = y - h
-
-        row, h = W:DropdownWithOffsets(parent, y,
             { type="dropdown", text="Opens", noCapture=true,
               disabled=Disabled, disabledTooltip="the module",
               values=centerValues, order=centerOrder,
               getValue=function() return ACfg("centerMode") or "CURSOR" end,
-              setValue=function(v) ASet("centerMode", v); RebuildPage() end },
-            { type="slider", text="X", noCapture=true,
-              disabled=fixedOnly, disabledTooltip="Fixed Position mode",
-              min=-800, max=800, step=1,
-              getValue=function() return ACfg("posX") or 0 end,
-              setValue=function(v) ASet("posX", v); Refresh() end },
-            { type="slider", text="Y", noCapture=true,
-              disabled=fixedOnly, disabledTooltip="Fixed Position mode",
-              min=-600, max=600, step=1,
-              getValue=function() return ACfg("posY") or 0 end,
-              setValue=function(v) ASet("posY", v); Refresh() end })
+              setValue=function(v) ASet("centerMode", v); Refresh() end })
+        do
+            -- captureRegion: the profile-wide rows in the popup (radius, dead
+            -- zone, flick, nesting) keep their Spec Overrides capture; the
+            -- per-palette rows carry noCapture for the reason ASet documents.
+            layoutCogShow = select(2, EllesmereUI.BuildCogPopup({
+                title = layoutCogTitle,
+                captureRegion = row._leftRegion,
+                rows = layoutCogRows,
+            }))
+            MakeCogBtn(row._leftRegion, layoutCogShow)
+
+            -- The X/Y offsets are the ONLY way to place the palette: the
+            -- on-screen drag editor is gone, and this module is not yet
+            -- registered with Unlock Mode. In cursor mode the palette opens
+            -- wherever the mouse is, so both rows sit dead until Fixed
+            -- Position is picked. No captureRegion: both rows are stored per
+            -- palette, so neither may bank a per-spec override.
+            local fixedOnly = function()
+                return Disabled() or (ACfg("centerMode") or "CURSOR") ~= "SCREEN"
+            end
+            local _, posCogShow = EllesmereUI.BuildCogPopup({
+                title = "Fixed Position",
+                rows = {
+                    { type="slider", label="X Offset", noCapture=true,
+                      min=-800, max=800, step=1,
+                      disabled=fixedOnly, disabledTooltip="Fixed Position mode",
+                      get=function() return ACfg("posX") or 0 end,
+                      set=function(v) ASet("posX", v); Refresh() end },
+                    { type="slider", label="Y Offset", noCapture=true,
+                      min=-600, max=600, step=1,
+                      disabled=fixedOnly, disabledTooltip="Fixed Position mode",
+                      get=function() return ACfg("posY") or 0 end,
+                      set=function(v) ASet("posY", v); Refresh() end },
+                },
+            })
+            MakeCogBtn(row._rightRegion, posCogShow)
+        end
         y = y - h
 
-        -- Two per row, not three: at a third of the row width a label like
-        -- "Background Opacity" is truncated, so the setting stops being readable.
         row, h = W:DualRow(parent, y,
-            { type="slider", text="Arc Radius",
-              disabled=arcOnly, disabledTooltip="the Arc layout",
-              min=50, max=220, step=1,
-              getValue=function() return Cfg("radius") or 96 end,
-              setValue=function(v) Set("radius", v); Refresh() end },
             { type="slider", text="Icon Size",
               disabled=Disabled, disabledTooltip="the module",
               min=24, max=72, step=1,
               getValue=function() return Cfg("iconSize") or 44 end,
-              setValue=function(v) Set("iconSize", v); Refresh() end })
-        y = y - h
-
-        -- 360 is a full turn, and a rotation of a full circle is a no-op --
-        -- so the rotation only becomes live once the span has been narrowed to
-        -- an arc that has somewhere to point.
-        row, h = W:DualRow(parent, y,
-            { type="slider", text="Arc Span", noCapture=true,
-              disabled=arcOnly, disabledTooltip="the Arc layout",
-              min=30, max=360, step=5,
-              getValue=function() return ACfg("arcSpan") or 360 end,
-              setValue=function(v) ASet("arcSpan", v); Refresh() end },
-            { type="slider", text="Arc Rotation", noCapture=true,
-              disabled=function()
-                  return arcOnly() or (ACfg("arcSpan") or 360) >= 360
-              end,
-              disabledTooltip="an Arc Span below 360",
-              min=-180, max=180, step=5,
-              getValue=function() return ACfg("arcRotation") or 0 end,
-              setValue=function(v) ASet("arcRotation", v); Refresh() end })
-        y = y - h
-
-        row, h = W:DualRow(parent, y,
-            -- Floor of 8, not 0: the dead zone is what makes "release without
-            -- steering" a cancel, and at 0 there is no cancel region at all.
-            { type="slider", text="Dead Zone",
-              disabled=arcOnly, disabledTooltip="the Arc layout",
-              min=8, max=80, step=1,
-              getValue=function() return Cfg("deadZone") or 24 end,
-              setValue=function(v) Set("deadZone", v); Refresh() end },
+              setValue=function(v) Set("iconSize", v); Refresh() end },
             { type="slider", text="Scale", noCapture=true,
               disabled=Disabled, disabledTooltip="the module",
               min=0.5, max=2.0, step=0.01,
@@ -2272,234 +2558,14 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v) ASet("scale", v); Refresh() end })
         y = y - h
 
-        -- ── FAN & GRID ───────────────────────────────────────────────────
-        _, h = W:SectionHeader(parent, "NESTED PALETTES", y); y = y - h
-
-        -- Distance and icon size are common to every layout. The two below them
-        -- are the arc's alone: it is the only layout that carves its nests out
-        -- of angles rather than setting them down in boxes.
-        row, h = W:DualRow(parent, y,
-            -- The gap between the two rings' icons, not a radius, so what the
-            -- number says is what the eye measures. The Lane style reads it as
-            -- clearance ON TOP of the gap it already hugs the block by: at the
-            -- default and anywhere below it that style holds its children
-            -- against the grid, and only the travel above the default pushes
-            -- them off it.
-            { type="slider", text="Nest Distance",
-              disabled=nestless, disabledTooltip="the module",
-              min=0, max=160, step=1,
-              getValue=function() return Cfg("nestBand") or 40 end,
-              setValue=function(v) Set("nestBand", v); Refresh() end },
-            -- Both spread a nest along the arc as far as Max Nest Span, so its
-            -- children stay on one ring for as long as they fit. Contained
-            -- stops at the midpoint with the next NEST either side, so two of
-            -- them are never drawn over one another; Overflowing spends the
-            -- whole span whatever is out there. Either way the plain entries
-            -- under a nest give up their angles only while it is open, so a
-            -- flick that goes nowhere near a nest still fires what it points
-            -- at.
-            { type="dropdown", text="Nest Width",
-              disabled=arcOnly, disabledTooltip="the Arc layout",
-              tooltip="How far along the arc a nest may spread its entries."
-                      .." Contained keeps it clear of the next nest either side,"
-                      .." so two of them are never drawn on top of one another."
-                      .." Overflowing lets it use the whole of Max Nest Span."
-                      .." A nest reaches over the plain entries it passes, and"
-                      .." they only give up their angles while it is open.",
-              values={ NONE = "Contained", MIDPOINT = "Overflowing" },
-              order={ "NONE", "MIDPOINT" },
-              getValue=function() return Cfg("arcChildOverflow") or "NONE" end,
-              setValue=function(v) Set("arcChildOverflow", v); Refresh() end })
-        y = y - h
-
-        row, h = W:DualRow(parent, y,
-            -- The widest a nest may spread along the arc, at BOTH nest widths:
-            -- children past what it buys go onto a second ring further out.
-            { type="slider", text="Max Nest Span",
-              disabled=arcOnly, disabledTooltip="the Arc layout",
-              tooltip="The widest angle a nest's entries may spread over."
-                      .." They stay on one ring for as long as they fit inside"
-                      .." it; the rest go onto a second ring further out.",
-              min=30, max=180, step=5,
-              getValue=function() return Cfg("arcChildMaxSpan") or 90 end,
-              setValue=function(v) Set("arcChildMaxSpan", v); Refresh() end },
-            -- Smaller than the palette's own entries, so a nest reads as
-            -- subordinate to the entry it opens from. Drawing only: the sectors
-            -- are angular, so this changes nothing about what a release picks.
-            { type="slider", text="Nest Icon Size",
-              disabled=nestless, disabledTooltip="the module",
-              min=0.4, max=1.0, step=0.05,
-              getValue=function() return Cfg("nestScale") or 0.8 end,
-              setValue=function(v) Set("nestScale", v); Refresh() end })
-        y = y - h
-
-        -- Named for the axis in front of the user rather than for the sign it
-        -- stores: "above" and "right" are the same choice to the code and two
-        -- quite different sentences to read.
-        local vertical = IsFanLayout() and ACfg("fanOrientation") == "VERTICAL"
-        local sideValues = vertical
-            and { POSITIVE = "Right", NEGATIVE = "Left" }
-            or  { POSITIVE = "Above", NEGATIVE = "Below" }
-
-        row, h = W:DualRow(parent, y,
-            { type="dropdown", text="Nest Side",
-              disabled=nestSideDead,
-              disabledTooltip="the Grid or a Fan layout",
-              values=sideValues, order={ "POSITIVE", "NEGATIVE" },
-              getValue=function() return Cfg("nestSide") or "POSITIVE" end,
-              setValue=function(v) Set("nestSide", v); Refresh() end },
-            -- Grid only. A strip is one entry deep, so it has only ever the one
-            -- answer -- break out across itself -- and offering it three would
-            -- be offering the same thing three times.
-            --
-            --   Lane     a halo hugging the block, centered on the point of it
-            --            nearest the entry that opens it -- across the edge
-            --            beside that entry, or around the corner it sits on --
-            --            and wrapping the corners when the run is long
-            --   Halo     the eight positions around the entry itself, the block
-            --            faded behind them
-            --   Popout   the nested palette as a block of its own, alongside
-            { type="dropdown", text="Grid Nest Style",
-              disabled=gridNestDead, disabledTooltip="the Grid layout",
-              values={ PERIMETER = "Lane", HALO = "Halo", POPOUT = "Popout" },
-              order={ "PERIMETER", "HALO", "POPOUT" },
-              getValue=function() return Cfg("gridNestStyle") or "PERIMETER" end,
-              setValue=function(v) Set("gridNestStyle", v); Refresh() end })
-        y = y - h
-
-        _, h = W:SectionHeader(parent, "FAN & GRID", y); y = y - h
-
-        row, h = W:DualRow(parent, y,
-            { type="dropdown", text="Steering", noCapture=true,
-              disabled=fanOnly, disabledTooltip="a Fan layout",
-              values=fanInputValues, order=fanInputOrder,
-              getValue=function() return ACfg("fanInput") or "SCROLL" end,
-              -- Rebuild, not Refresh: pointer steering retires three of the
-              -- sliders below, so the row states are built from this.
-              setValue=function(v) ASet("fanInput", v); RebuildPage() end },
-            { type="toggle", text="Auto Columns", noCapture=true,
-              disabled=gridOnly, disabledTooltip="the Grid layout",
-              getValue=function() return ACfg("gridAutoColumns") ~= false end,
-              -- Rebuild, not Refresh: this is what decides whether the column
-              -- slider below means anything.
-              setValue=function(v) ASet("gridAutoColumns", v); RebuildPage() end })
-        y = y - h
-
-        row, h = W:DualRow(parent, y,
-            { type="slider", text="Grid Columns", noCapture=true,
-              disabled=function()
-                  return gridOnly() or ACfg("gridAutoColumns") ~= false
-              end,
-              disabledTooltip="Auto Columns to be off",
-              -- The top of the travel is the slot cap, not an arbitrary 8. A
-              -- grid never draws more columns than it has entries, so asking
-              -- for the most a palette can ever hold is how you say "one row",
-              -- and it stays one row as entries are added. Column 1 is already
-              -- the transpose of that, so both single-file layouts are on the
-              -- one slider and neither needs a sentinel value.
-              tooltip="How many entries a row of the grid holds. 1 stacks them into a single column; "
-                      ..(ns.MAX_SLOTS or 12).." -- the most slots a palette can hold -- lays them out in a single row.",
-              min=1, max=(ns.MAX_SLOTS or 12), step=1,
-              getValue=function() return ACfg("gridColumns") or 4 end,
-              setValue=function(v) ASet("gridColumns", v); Refresh() end },
-            { type="spacer" })
-        y = y - h
-
-        row, h = W:DualRow(parent, y,
-            -- How much of the strip is drawn at all. Neighbours past this many
-            -- steps are hidden rather than shrunk further.
-            { type="slider", text="Visible Each Side", noCapture=true,
-              disabled=scrollFanOnly, disabledTooltip="a scroll-steered Fan layout",
-              min=1, max=6, step=1,
-              getValue=function() return ACfg("fanVisible") or 3 end,
-              setValue=function(v) ASet("fanVisible", v); Refresh() end },
-            -- The gap describes the spacing between entries laid out at a fixed
-            -- pitch, which the grid does as much as a fan. The arc spaces its
-            -- entries by angle instead and has nothing to say here.
-            { type="slider", text="Entry Gap", noCapture=true,
-              disabled=stripOnly, disabledTooltip="a Fan or Grid layout",
-              min=0, max=40, step=1,
-              getValue=function() return ACfg("fanGap") or 10 end,
-              setValue=function(v) ASet("fanGap", v); Refresh() end })
-        y = y - h
-
-        row, h = W:DualRow(parent, y,
-            -- One switch for every layout: the entry under the cursor is drawn
-            -- at full size and full strength and its neighbours draw back, which
-            -- is a step round the ring, along the strip or across the grid
-            -- depending on which one is open.
-            { type="toggle", text="Proximity Falloff", noCapture=true,
-              disabled=Disabled, disabledTooltip="the module",
-              tooltip="Draw entries smaller and fainter the further they are from the one under the cursor. "
-                      .."Off draws every entry at full size, and spreads a Fan out to even spacing.",
-              getValue=function() return ACfg("falloff") ~= false end,
-              -- Rebuild, not Refresh: this is what decides whether the two
-              -- falloff sliders below mean anything.
-              setValue=function(v) ASet("falloff", v); RebuildPage() end },
-            { type="spacer" })
-        y = y - h
-
-        -- The two falloffs are per-STEP ratios, not absolutes: 0.72 means each
-        -- entry out from the centre is 72% of the one before it. Every layout
-        -- reads them -- a step is a cell on the grid, a place along the strip
-        -- and an entry round the ring -- so the depth cue is the same wherever
-        -- the palette is drawn. Near the top of the travel they flatten out.
-        row, h = W:DualRow(parent, y,
-            { type="slider", text="Size Falloff", noCapture=true,
-              disabled=falloffOff, disabledTooltip="Proximity Falloff",
-              min=0.40, max=0.95, step=0.01,
-              getValue=function() return ACfg("fanScaleDecay") or 0.72 end,
-              setValue=function(v) ASet("fanScaleDecay", v); Refresh() end },
-            { type="slider", text="Fade Falloff", noCapture=true,
-              disabled=falloffOff, disabledTooltip="Proximity Falloff",
-              min=0.20, max=0.95, step=0.01,
-              getValue=function() return ACfg("fanAlphaDecay") or 0.62 end,
-              setValue=function(v) ASet("fanAlphaDecay", v); Refresh() end })
-        y = y - h
-
-        row, h = W:DualRow(parent, y,
-            -- How long the strip takes to slide to the entry that was scrolled
-            -- to. 0 snaps; the selection itself moves on the tick either way.
-            { type="slider", text="Settle Time", noCapture=true,
-              disabled=scrollFanOnly, disabledTooltip="a scroll-steered Fan layout",
-              min=0, max=0.40, step=0.01,
-              getValue=function() return ACfg("fanAnimTime") or 0.10 end,
-              setValue=function(v) ASet("fanAnimTime", v); Refresh() end },
-            { type="toggle", text="Invert Scroll", noCapture=true,
-              disabled=scrollFanOnly, disabledTooltip="a scroll-steered Fan layout",
-              getValue=function() return ACfg("fanInvert") == true end,
-              setValue=function(v) ASet("fanInvert", v); Refresh() end })
-        y = y - h
-
         -- ── APPEARANCE ───────────────────────────────────────────────────
         _, h = W:SectionHeader(parent, "APPEARANCE", y); y = y - h
 
         row, h = W:DualRow(parent, y,
-            -- Arc only, and not merely because it would look cramped: the
-            -- fan never draws per-slot labels at all. == true, not ~= false:
-            -- labels are off by default, so an untouched key reads as off.
-            { type="toggle", text="Show Slot Labels",
-              disabled=arcOnly, disabledTooltip="the Arc layout",
-              getValue=function() return Cfg("showLabels") == true end,
-              setValue=function(v) Set("showLabels", v); Refresh() end },
-            { type="toggle", text="Show Center Text",
-              disabled=Disabled, disabledTooltip="the module",
-              getValue=function() return Cfg("showHubText") ~= false end,
-              setValue=function(v) Set("showHubText", v); Refresh() end })
-        y = y - h
-
-        row, h = W:DualRow(parent, y,
-            { type="toggle", text="Show Direction Needle",
-              disabled=arcOnly, disabledTooltip="the Arc layout",
-              getValue=function() return Cfg("showNeedle") ~= false end,
-              setValue=function(v) Set("showNeedle", v); Refresh() end },
             { type="toggle", text="Show Cooldowns",
               disabled=Disabled, disabledTooltip="the module",
               getValue=function() return Cfg("showCooldowns") ~= false end,
-              setValue=function(v) Set("showCooldowns", v); Refresh() end })
-        y = y - h
-
-        row, h = W:DualRow(parent, y,
+              setValue=function(v) Set("showCooldowns", v); Refresh() end },
             { type="toggle", text="Dim Unusable Entries",
               disabled=Disabled, disabledTooltip="the module",
               tooltip="Tint an entry that would do nothing right now: red when the "
@@ -2509,46 +2575,75 @@ initFrame:SetScript("OnEvent", function(self)
                       .."toy as unusable, and a macro's usability depends on what "
                       .."its body resolves to.",
               getValue=function() return Cfg("showUsability") ~= false end,
-              setValue=function(v) Set("showUsability", v); Refresh() end },
-            { type="spacer" })
-        y = y - h
-
-        -- Hub art is arc-only: the fan and grid layouts put a real entry at
-        -- the centre, so there is nothing for it to sit in.
-        -- Both tests read the key against its DEFAULT rather than against
-        -- true/false flatly: the logo is on unless the user has turned it off,
-        -- so a profile that has never touched the key must read as on.
-        local hubIconOff = function()
-            return arcOnly() or Cfg("hubIcon") == false
+              setValue=function(v) Set("showUsability", v); Refresh() end })
+        do
+            -- The layout tests read the EDITED palette's layout, exactly as
+            -- the page rows they replace did: these keys are profile-wide,
+            -- but whether their row is live is judged against the palette on
+            -- the preview.
+            local notArc = function()
+                return Disabled() or (ACfg("layout") or "ARC") ~= "ARC"
+            end
+            -- hubIcon is read against its DEFAULT rather than true/false
+            -- flatly: the logo is on unless the user has turned it off, so a
+            -- profile that has never touched the key must read as on.
+            local hubIconOff = function()
+                return notArc() or Cfg("hubIcon") == false
+            end
+            local _, displayCogShow = EllesmereUI.BuildCogPopup({
+                title = "Display",
+                captureRegion = row._leftRegion,
+                rows = {
+                    { type="toggle", label="Show Center Text",
+                      disabled=Disabled, disabledTooltip="the module",
+                      get=function() return Cfg("showHubText") ~= false end,
+                      set=function(v) Set("showHubText", v); Refresh() end },
+                    -- Arc only, and not merely because it would look cramped:
+                    -- the fan never draws per-slot labels at all. == true,
+                    -- not ~= false: labels are off by default, so an
+                    -- untouched key reads as off.
+                    { type="toggle", label="Show Slot Labels",
+                      disabled=notArc, disabledTooltip="the Arc layout",
+                      get=function() return Cfg("showLabels") == true end,
+                      set=function(v) Set("showLabels", v); Refresh() end },
+                    { type="toggle", label="Show Direction Needle",
+                      disabled=notArc, disabledTooltip="the Arc layout",
+                      get=function() return Cfg("showNeedle") ~= false end,
+                      set=function(v) Set("showNeedle", v); Refresh() end },
+                    -- Hub art is arc-only: the fan and grid layouts put a
+                    -- real entry at the centre, so there is nothing for it to
+                    -- sit in.
+                    { type="toggle", label="Logo In Center",
+                      disabled=notArc, disabledTooltip="the Arc layout",
+                      get=function() return Cfg("hubIcon") ~= false end,
+                      set=function(v) Set("hubIcon", v); Refresh() end },
+                    { type="slider", label="Logo Size", min=16, max=120, step=1,
+                      disabled=hubIconOff, disabledTooltip="Logo In Center",
+                      get=function() return Cfg("hubIconSize") or 46 end,
+                      set=function(v) Set("hubIconSize", v); Refresh() end },
+                    -- The centre text draws over the logo, so this is the
+                    -- control that keeps the name readable rather than pure
+                    -- decoration.
+                    { type="slider", label="Logo Opacity", min=0.05, max=1.0, step=0.01,
+                      disabled=hubIconOff, disabledTooltip="Logo In Center",
+                      get=function() return Cfg("hubIconAlpha") or 0.55 end,
+                      set=function(v) Set("hubIconAlpha", v); Refresh() end },
+                    -- Stored 0..1 internally; displayed 0..100 to the user.
+                    { type="slider", label="Background Opacity", min=0, max=100, step=5,
+                      disabled=Disabled, disabledTooltip="the module",
+                      get=function() return (Cfg("bgAlpha") or 0.65) * 100 end,
+                      set=function(v) Set("bgAlpha", v / 100); Refresh() end },
+                },
+            })
+            MakeCogBtn(row._leftRegion, displayCogShow)
         end
-        row, h = W:DualRow(parent, y,
-            { type="toggle", text="Logo In Center",
-              disabled=arcOnly, disabledTooltip="the Arc layout",
-              getValue=function() return Cfg("hubIcon") ~= false end,
-              -- Rebuild, not Refresh: this gates the two sliders below it.
-              setValue=function(v) Set("hubIcon", v); RebuildPage() end },
-            { type="slider", text="Logo Size",
-              disabled=hubIconOff, disabledTooltip="Logo In Center",
-              min=16, max=120, step=1,
-              getValue=function() return Cfg("hubIconSize") or 46 end,
-              setValue=function(v) Set("hubIconSize", v); Refresh() end })
         y = y - h
 
-        row, h = W:DualRow(parent, y,
-            -- The centre text draws over the logo, so this is the control that
-            -- keeps the name readable rather than pure decoration.
-            { type="slider", text="Logo Opacity",
-              disabled=hubIconOff, disabledTooltip="Logo In Center",
-              min=0.05, max=1.0, step=0.01,
-              getValue=function() return Cfg("hubIconAlpha") or 0.55 end,
-              setValue=function(v) Set("hubIconAlpha", v); Refresh() end },
-            { type="spacer" })
-        y = y - h
-
-        -- Swatch and the toggle that overrides it share a row, in that order --
-        -- the ActionBars interactions row does the same (EUI_ActionBars_Options
-        -- .lua:5569). A lone colorpicker cfg makes DualRow build a full-width
-        -- half, which is both wrong here and where the swatch went unclickable.
+        -- Swatch and the toggle that overrides it share a row, in that order
+        -- -- the ActionBars interactions row does the same
+        -- (EUI_ActionBars_Options.lua:5569). A lone colorpicker cfg makes
+        -- DualRow build a full-width half, which is both wrong here and where
+        -- the swatch went unclickable.
         row, h = W:DualRow(parent, y,
             { type="colorpicker", text="Selection Color",
               disabled=function() return Disabled() or Cfg("useClassColor") == true end,
@@ -2571,45 +2666,50 @@ initFrame:SetScript("OnEvent", function(self)
               disabled=Disabled, disabledTooltip="the module",
               getValue=function() return Cfg("useClassColor") == true end,
               setValue=function(v) Set("useClassColor", v); RebuildPage() end })
-        y = y - h
-
-        row, h = W:DualRow(parent, y,
-            { type="slider", text="Background Opacity",
-              disabled=Disabled, disabledTooltip="the module",
-              min=0, max=100, step=5,
-              -- Stored 0..1 internally; displayed 0..100 to the user.
-              getValue=function() return (Cfg("bgAlpha") or 0.65) * 100 end,
-              setValue=function(v) Set("bgAlpha", v / 100); Refresh() end },
-            { type="slider", text="Selected Slot Zoom",
-              disabled=Disabled, disabledTooltip="the module",
-              min=1.0, max=1.6, step=0.01,
-              getValue=function() return Cfg("selectedZoom") or 1.15 end,
-              setValue=function(v) Set("selectedZoom", v); Refresh() end })
-        y = y - h
-
-        -- ── FLICK-AHEAD ──────────────────────────────────────────────────
-        -- Its own section rather than another APPEARANCE row: this is about
-        -- WHEN the palette is drawn, not what it looks like, and the delay is the
-        -- one setting on the page a user has to be told the purpose of.
-        _, h = W:SectionHeader(parent, "FLICK-AHEAD", y); y = y - h
-
-        row, h = W:DualRow(parent, y,
-            -- Holding the palette back for a moment lets an expert finish a
-            -- gesture before anything appears. Selection is live the whole
-            -- time, so nothing is lost by waiting.
-            { type="toggle", text="Flick-Ahead",
-              disabled=arcOnly, disabledTooltip="the Arc layout",
-              getValue=function() return Cfg("flickAhead") ~= false end,
-              -- Rebuild: the toggle gates the delay slider beside it.
-              setValue=function(v) Set("flickAhead", v); RebuildPage() end },
-            { type="slider", text="Flick Delay",
-              disabled=function()
-                  return arcOnly() or Cfg("flickAhead") == false
-              end,
-              disabledTooltip="Flick-Ahead",
-              min=0, max=0.40, step=0.01,
-              getValue=function() return Cfg("flickDelay") or 0.12 end,
-              setValue=function(v) Set("flickDelay", v); Refresh() end })
+        do
+            local falloffOff = function()
+                return Disabled() or ACfg("falloff") == false
+            end
+            local _, selectionCogShow = EllesmereUI.BuildCogPopup({
+                title = "Selection Effects",
+                captureRegion = row._leftRegion,
+                rows = {
+                    { type="slider", label="Selected Slot Zoom",
+                      min=1.0, max=1.6, step=0.01,
+                      disabled=Disabled, disabledTooltip="the module",
+                      get=function() return Cfg("selectedZoom") or 1.15 end,
+                      set=function(v) Set("selectedZoom", v); Refresh() end },
+                    -- One switch for every layout: the entry under the cursor
+                    -- is drawn at full size and full strength and its
+                    -- neighbours draw back, which is a step round the ring,
+                    -- along the strip or across the grid depending on which
+                    -- one is open.
+                    { type="toggle", label="Proximity Falloff", noCapture=true,
+                      disabled=Disabled, disabledTooltip="the module",
+                      tooltip="Draw entries smaller and fainter the further they "
+                          .."are from the one under the cursor. Off draws every "
+                          .."entry at full size, and spreads a Fan out to even "
+                          .."spacing.",
+                      get=function() return ACfg("falloff") ~= false end,
+                      set=function(v) ASet("falloff", v); Refresh() end },
+                    -- The two falloffs are per-STEP ratios, not absolutes:
+                    -- 0.72 means each entry out from the centre is 72% of the
+                    -- one before it. Near the top of the travel they flatten
+                    -- out.
+                    { type="slider", label="Size Falloff", noCapture=true,
+                      min=0.40, max=0.95, step=0.01,
+                      disabled=falloffOff, disabledTooltip="Proximity Falloff",
+                      get=function() return ACfg("fanScaleDecay") or 0.72 end,
+                      set=function(v) ASet("fanScaleDecay", v); Refresh() end },
+                    { type="slider", label="Fade Falloff", noCapture=true,
+                      min=0.20, max=0.95, step=0.01,
+                      disabled=falloffOff, disabledTooltip="Proximity Falloff",
+                      get=function() return ACfg("fanAlphaDecay") or 0.62 end,
+                      set=function(v) ASet("fanAlphaDecay", v); Refresh() end },
+                },
+            })
+            MakeCogBtn(row._leftRegion, selectionCogShow)
+        end
         y = y - h
 
         _, h = W:Spacer(parent, y, 10); y = y - h

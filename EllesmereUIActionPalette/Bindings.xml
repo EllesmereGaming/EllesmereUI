@@ -5,4 +5,14 @@
 	<Binding name="EUI_RADIAL4" category="EllesmereUI" />
 	<Binding name="EUI_RADIAL5" category="EllesmereUI" />
 	<Binding name="EUI_RADIAL6" category="EllesmereUI" />
+	<Binding name="EUI_RADIAL7" category="EllesmereUI" />
+	<Binding name="EUI_RADIAL8" category="EllesmereUI" />
+	<Binding name="EUI_RADIAL9" category="EllesmereUI" />
+	<Binding name="EUI_RADIAL10" category="EllesmereUI" />
+	<Binding name="EUI_RADIAL11" category="EllesmereUI" />
+	<Binding name="EUI_RADIAL12" category="EllesmereUI" />
+	<Binding name="EUI_RADIAL13" category="EllesmereUI" />
+	<Binding name="EUI_RADIAL14" category="EllesmereUI" />
+	<Binding name="EUI_RADIAL15" category="EllesmereUI" />
+	<Binding name="EUI_RADIAL16" category="EllesmereUI" />
 </Bindings>

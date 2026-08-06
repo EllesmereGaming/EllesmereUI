@@ -107,7 +107,14 @@ UIParent:SetCenter(960, 540)
 _G.GetCursorPosition = function() return CURSOR.x, CURSOR.y end
 _G.GetCursorInfo    = function() return nil end
 _G.ClearCursor      = function() end
-_G.GetBindingKey    = function() return nil end
+-- A secure button is built only for a palette that HAS a key, and every sweep
+-- reads the pushed attributes off one, so each palette answers a key here. What
+-- a palette needs a key FOR is not what this harness measures -- it reads the
+-- geometry the push writes, and an unbound palette is never pushed at all.
+_G.GetBindingKey    = function(action)
+    local n = tostring(action or ""):match("^EUI_RADIAL(%d+)$")
+    return n and ("F" .. n) or nil
+end
 _G.InCombatLockdown = function() return false end
 _G.GetTime          = function() return 0 end
 -- ns.Refresh coalesces its push behind a timer, so a sweep that pushed and
@@ -2618,6 +2625,96 @@ do
     for _, line in ipairs(offline) do print(line) end
     bad = bad + fails
     p.layout, p.gridNestStyle = "ARC", "PERIMETER"
+end
+
+----------------------------------------------------------------------------
+--  Cycling marker entries
+--
+--  The position one of these has reached is stepped inside the snippet, so
+--  only a real press can say what the next release fires. Ten presses round an
+--  eight-step cycle: every marker in its turn, and the wrap back to the first.
+--
+--  The world numbers below are stated outright rather than read back out of
+--  the module. They ARE the assertion: Blizzard's WORLD_RAID_MARKER_ORDER runs
+--  skull to star, and a copy of it read the other way round places the marker
+--  mirrored about the middle -- star puts down the skull -- which is a bug no
+--  amount of internal agreement can see.
+----------------------------------------------------------------------------
+do
+    local fails = 0
+
+    local function RunCycle(label, kind, wantText, wantName)
+        local a = Palette(1)
+        a.slots = { { kind = kind } }
+        p.paletteCount = 1
+        p.layout, p.arcSpan, p.arcChildOverflow = "ARC", 360, "NONE"
+        ns.Refresh()
+
+        local btn = byName["EUIActionPaletteButton1"]
+        btn:SetFrameRef("ui", UIParent)
+        local view = ns.CreatePaletteView(UIParent, {})
+        view:Layout(1)
+        view:GetFrame():SetCenter(960, 540)
+        view._steered = true
+
+        local report = {}
+        for press = 1, #wantText do
+            -- What the entry ADVERTISES, read before the press that spends it:
+            -- in a radial the icon is what the hand picks by, so the name it
+            -- draws has to be the marker that then lands.
+            local _, name = ns.SlotDisplay(a.slots[1])
+            CURSOR.x, CURSOR.y = 20, 20
+            snippet(btn, "LeftButton", true)
+            -- One entry in a full circle: every angle outside the dead zone
+            -- resolves to it, so straight up needs no geometry of its own.
+            CURSOR.x, CURSOR.y = 960, 540 + 200
+            snippet(btn, "LeftButton", false)
+
+            local why = btn:GetAttribute("eapWhy")
+            local text = btn:GetAttribute("macrotext")
+            if why ~= "fire" then
+                report[#report + 1] = ("press %d: %s, not a fire"):format(press, tostring(why))
+            elseif text ~= wantText[press] then
+                report[#report + 1] = ("press %d: fired %s, wanted %s"):format(
+                    press, tostring(text), wantText[press])
+            elseif name ~= wantName[press] then
+                report[#report + 1] = ("press %d: drawn as %s, fired %s"):format(
+                    press, tostring(name), wantText[press])
+            end
+
+            -- OnPostClick's mirror-back, which is what carries the snippet's
+            -- answer into the next push and into every icon drawn before it.
+            a.slots[1].cyclePos = tonumber(btn:GetAttribute("eapCycPos1"))
+            ns.Refresh()
+        end
+
+        if #report > 0 then
+            fails = fails + 1
+            print(("  %s: %s"):format(label, table.concat(report, "; ")))
+        end
+    end
+
+    local ORDER = { "Star", "Circle", "Diamond", "Triangle",
+                    "Moon", "Square", "Cross", "Skull" }
+    -- Icon position -> the number /wm takes. Blue, green, purple, red, yellow,
+    -- orange, silver, white is the engine's own run.
+    local WM = { 5, 6, 3, 2, 7, 1, 4, 8 }
+
+    local tmText, tmName, wmText, wmName = {}, {}, {}, {}
+    for press = 1, 10 do
+        local i = (press - 1) % 8 + 1
+        tmText[press] = "/tm " .. i
+        tmName[press] = "Cycle Target Marker: " .. ORDER[i]
+        wmText[press] = "/wm " .. WM[i]
+        wmName[press] = "Cycle World Marker: " .. ORDER[i]
+    end
+
+    RunCycle("cycle target marker", "cycleraidtarget", tmText, tmName)
+    RunCycle("cycle world marker", "cycleworldmarker", wmText, wmName)
+
+    print(("marker cycles step and wrap                        %5d wrong%s"):format(
+        fails, fails > 0 and "  <-- FAIL" or ""))
+    bad = bad + fails
 end
 
 print(bad == 0 and "\nALL AGREE" or ("\n" .. bad .. " DISAGREEMENTS"))
