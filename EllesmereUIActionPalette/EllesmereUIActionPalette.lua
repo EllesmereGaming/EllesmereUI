@@ -371,7 +371,12 @@ ns.Profile = P
 -- palette 1, so DeepMergeDefaults never has to know how many the user wants.
 local function EnsurePalette(index)
     local p = P()
-    if not p or index < 1 or index > MAX_PALETTES then return nil end
+    -- nil is an answer, not an error: ChildIndex hands one back for a
+    -- nested-palette slot whose palette number is missing or out of range, and
+    -- SlotDisplay passes it straight through here on its way to the
+    -- question-mark fallback. Comparing it would take the paint of the whole
+    -- containing palette down with it.
+    if not p or not index or index < 1 or index > MAX_PALETTES then return nil end
     if not p.palettes then p.palettes = {} end
     local palette = p.palettes[index]
     if not palette then
