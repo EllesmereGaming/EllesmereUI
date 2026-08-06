@@ -583,6 +583,14 @@ initFrame:SetScript("OnEvent", function(self)
         hpNumber:SetText(hpNumStr)
         hpNumber:Hide()
 
+        -- Standalone level (own FontString, mirroring the live plate's
+        -- levelText; the player's level stands in for the mob level)
+        local lvlText = healthTextFrame:CreateFontString(nil, "OVERLAY")
+        SetPVFont(lvlText, FONT_PATH, 10, GetNPOptOutline())
+        lvlText:SetPoint("CENTER", health, "CENTER", 0, 0)
+        lvlText:SetText((ns.GetUnitLevelText and ns.GetUnitLevelText("player")) or "??")
+        lvlText:Hide()
+
         -- Raid marker: custom marker.png image, position/size from settings
         local MARKER_PATH = "Interface\\AddOns\\EllesmereUI\\media\\marker.png"
         local raidFrame = CreateFrame("Frame", nil, health)
@@ -1243,13 +1251,15 @@ initFrame:SetScript("OnEvent", function(self)
             local slotLeft   = DBVal("textSlotLeft") or defaults.textSlotLeft
             local slotCenter = DBVal("textSlotCenter") or defaults.textSlotCenter
 
-            -- Hide all three text elements first
+            -- Hide all text elements first
             nameFS:Hide()
             hpText:Hide()
             hpNumber:Hide()
+            lvlText:Hide()
             nameFS:ClearAllPoints()
             hpText:ClearAllPoints()
             hpNumber:ClearAllPoints()
+            lvlText:ClearAllPoints()
 
             -- Helper: position a health-related element in a bar slot
             local function PlaceHealthInBar(element, anchor, point, xOff, yOff, fontSize, cr, cg, cb, slotKey)
@@ -1276,13 +1286,20 @@ initFrame:SetScript("OnEvent", function(self)
                     hpText:SetPoint(point, health, anchor, xOff, yOff)
                     hpText:SetTextColor(cr, cg, cb, 1)
                     hpText:Show()
+                elseif element == "level" then
+                    SetPVFont(lvlText, fontPath, fontSize, npOutline)
+                    lvlText:SetParent(healthTextFrame)
+                    lvlText:SetPoint(point, health, anchor, xOff, yOff)
+                    lvlText:SetTextColor(cr, cg, cb, 1)
+                    lvlText:Show()
                 end
                 -- Per-slot Width % (of the health bar) + Wrap, mirroring runtime.
                 -- At the default 100% leave the FontString UNCONSTRAINED (SetWidth 0 =
                 -- auto-size). A width box on a single-point-anchored FontString does NOT
                 -- honour SetJustifyH, so a right/left-slot value would drift to centre;
                 -- only impose a box when the user actually narrows it (< 100%).
-                local hfs = (element == "healthNumber") and hpNumber or hpText
+                local hfs = (element == "healthNumber") and hpNumber
+                    or (element == "level") and lvlText or hpText
                 hfs:SetJustifyH(point)
                 local hwpct = (slotKey and DBVal(slotKey .. "WidthPct")) or 100
                 local hw = 0
@@ -1320,11 +1337,18 @@ initFrame:SetScript("OnEvent", function(self)
                     hpText:SetPoint("BOTTOM", health, "TOP", txOff, 4 + nameYOff + cpPush + tyOff)
                     hpText:SetTextColor(cr, cg, cb, 1)
                     hpText:Show()
+                elseif element == "level" then
+                    SetPVFont(lvlText, fontPath, fontSize, npOutline)
+                    lvlText:SetParent(topTextFrame)
+                    lvlText:SetPoint("BOTTOM", health, "TOP", txOff, 4 + nameYOff + cpPush + tyOff)
+                    lvlText:SetTextColor(cr, cg, cb, 1)
+                    lvlText:Show()
                 end
                 -- Per-slot Width % (of the health bar) + Wrap, mirroring runtime. Top
                 -- slot is centered; leave it unconstrained at the default 100% (see
                 -- PlaceHealthInBar for why a width box would mis-position the text).
-                local hfs = (element == "healthNumber") and hpNumber or hpText
+                local hfs = (element == "healthNumber") and hpNumber
+                    or (element == "level") and lvlText or hpText
                 hfs:SetJustifyH("CENTER")
                 local hwpct = (slotKey and DBVal(slotKey .. "WidthPct")) or 100
                 local hw = 0
@@ -4332,10 +4356,12 @@ initFrame:SetScript("OnEvent", function(self)
                 for _, key in ipairs(textSlotKeys) do
                     if key ~= slotKey then
                         local cur = db[key] or defaults[key]
-                        -- Name-family variants (name / level combos / level) all
-                        -- render through the plate's single name FontString, so
-                        -- slotting any of them evicts whichever family member
+                        -- Name-family variants (name and the level+name combos)
+                        -- all render through the plate's single name FontString,
+                        -- so slotting any of them evicts whichever family member
                         -- occupies another slot -- same rule as an exact match.
+                        -- STANDALONE level has its own FontString and only
+                        -- exact-match evicts, so name + level can coexist.
                         if cur == element
                            or (ns.IsNameElement(element) and ns.IsNameElement(cur)) then
                             db[key] = "none"

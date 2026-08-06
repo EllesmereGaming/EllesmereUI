@@ -3447,7 +3447,12 @@ local function DecorateFrame(frame, barData)
                         end
                     end
                     if not onCD then
-                        if fd.glowOverlay and not fd._cdStateGlowOn then
+                        -- procGlowActive gate: the proc glow shares this
+                        -- overlay and has priority -- never start over it
+                        -- (ShowProcGlow clears the memo, so this is the
+                        -- explicit gate that replaces the old accidental one).
+                        if fd.glowOverlay and not fd._cdStateGlowOn
+                            and not fd.procGlowActive then
                             local style = cse == "pixelGlowReady" and 1 or 3
                             local gr, gg, gb = ns.ResolveGlowColor(ss2)
                             ns.StartNativeGlow(fd.glowOverlay, style, gr or 1, gg or 1, gb or 1)
@@ -3506,7 +3511,10 @@ local function DecorateFrame(frame, barData)
                             end
                             local shouldGlow = (not pOnCD) and (isUsable == true)
                             if shouldGlow then
-                                if fd.glowOverlay and not fd._cdStateGlowOn then
+                                -- procGlowActive: proc owns the shared
+                                -- overlay -- never start over a live proc.
+                                if fd.glowOverlay and not fd._cdStateGlowOn
+                                    and not fd.procGlowActive then
                                     local style = self.cse == "pixelGlowReadyUsable" and 1 or 3
                                     local gr, gg, gb = ns.ResolveGlowColor(self.ss2)
                                     ns.StartNativeGlow(fd.glowOverlay, style, gr or 1, gg or 1, gb or 1)
@@ -4085,7 +4093,10 @@ do
                         shouldGlow = true
                     end
                     if shouldGlow then
-                        if not fd._cdStateGlowOn then
+                        -- procGlowActive: proc owns the shared overlay --
+                        -- never start over a live proc; StopProcGlow queues
+                        -- this flush again once the proc ends.
+                        if not fd._cdStateGlowOn and not fd.procGlowActive then
                             local style = (cse2 == "pixelGlowReady" or cse2 == "pixelGlowReadyUsable") and 1 or 3
                             local gr, gg, gb = ns.ResolveGlowColor(ss2)
                             ns.StartNativeGlow(fd.glowOverlay, style, gr or 1, gg or 1, gb or 1)
@@ -5068,10 +5079,10 @@ local function ProcessPresetCooldowns()
                     if showIC and bd and bd.itemCountOOC and InCombatLockdown() then
                         showIC = false
                     end
-                    local displayCount = showIC
-                        and ((total > 1) and total
-                        or (total == 1 and f._presetData and f._presetData.combatLockout) and total
-                        or nil) or nil
+                    -- Count shows for ANY owned stack, including the last
+                    -- one; it hides only at 0 (where the desaturation below
+                    -- already reads as "none left").
+                    local displayCount = showIC and (total > 0) and total or nil
                     if displayCount then
                         if f._lastItemCount ~= displayCount then
                             f._itemCountText:SetText(displayCount)

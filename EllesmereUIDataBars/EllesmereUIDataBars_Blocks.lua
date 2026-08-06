@@ -1771,6 +1771,12 @@ end
 
 local function GoldLedgerUpdate()
     local money = GetMoney()
+    -- Never let a secret into the ledger or the saved store: every consumer
+    -- (session math, roster threshold, sort, total) compares or does
+    -- arithmetic on these values, and the store persists across sessions.
+    if (issecretvalue and issecretvalue(money)) or type(money) ~= "number" then
+        return
+    end
     if goldLedger.lastMoney then
         local diff = money - goldLedger.lastMoney
         if diff > 0 then goldLedger.profit = goldLedger.profit + diff
@@ -1783,7 +1789,9 @@ end
 local function GoldOnEvent(_, event)
     if event == "TOKEN_MARKET_PRICE_UPDATED" then
         if C_WowTokenPublic and C_WowTokenPublic.GetCurrentMarketPrice then
-            goldLedger.tokenPrice = C_WowTokenPublic.GetCurrentMarketPrice()
+            local price = C_WowTokenPublic.GetCurrentMarketPrice()
+            if issecretvalue and issecretvalue(price) then price = nil end
+            goldLedger.tokenPrice = price
         end
         return
     end
@@ -2019,74 +2027,109 @@ ns.BlockFactories.gold = function(blockCfg, slot, content, barCtx)
         -- Tooltip money lines honor the block's Show Silver and Copper toggle.
         local sm = D().showSmall == true
         local ci = D().coinIcons == true
+        -- Show Tooltip Data checklist: each section defaults ON.
+        local showSession = D().tipSession ~= false
+        local showChars   = D().tipCharacters ~= false
+        local showToken   = D().tipToken ~= false
         local ar, ag, ab = 1, 1, 1
         ns.Tip_Begin(goldButton)
         ns.Tip_AddLine(L["GOLD"], ar, ag, ab)
-        ns.Tip_AddLine(" ")
-        ns.Tip_AddLine(L["SESSION"], 0.8, 0.8, 0.8)
-        ns.Tip_AddDouble(L["EARNED"], ns.FormatMoney(goldLedger.profit, true, sm, ci), 0.6, 0.6, 0.6, 0, 1, 0)
-        ns.Tip_AddDouble(L["SPENT"],  ns.FormatMoney(goldLedger.spent,  true, sm, ci), 0.6, 0.6, 0.6, 1, 0.3, 0.3)
-        local net = goldLedger.profit - goldLedger.spent
-        if net ~= 0 then
-            local label
-            if net > 0 then label = L["PROFIT"] else label = L["DEFICIT"] end
-            local nr, ngr = 1, 0.3
-            if net > 0 then nr, ngr = 0, 1 end
-            ns.Tip_AddDouble(label, ns.FormatMoney(abs(net), true, sm, ci), 0.6, 0.6, 0.6, nr, ngr, 0.3)
-        end
-        local store = GoldStore()
-        -- The list holds store KEYS ("Name-Realm"): a delete needs the key, and
-        -- the entry itself does not carry one.
-        local total, charList = 0, {}
-        for key, cdata in pairs(store) do
-            if cdata and cdata.currentMoney then
-                tinsert(charList, key)
-                total = total + cdata.currentMoney
-            end
-        end
-        tsort(charList, function(a, b)
-            return (store[a].currentMoney or 0) > (store[b].currentMoney or 0)
-        end)
-        if #charList > 0 then
-            local selfKey = GoldCharKey()
+        if showSession then
             ns.Tip_AddLine(" ")
-            ns.Tip_AddLine(GetRealmName() or "?", 0.5, 0.78, 1)
-            for _, key in ipairs(charList) do
-                local char = store[key]
-                local cr, cg, cb = 1, 1, 1
-                if char.class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[char.class] then
-                    local cc = RAID_CLASS_COLORS[char.class]; cr, cg, cb = cc.r, cc.g, cc.b
-                end
-                local label = char.name or "?"
-                local tokens = ns.MoneyTokens(char.currentMoney, sm, ci, true)
-                if key == selfKey then
-                    -- The live character re-saves itself on every money event,
-                    -- so deleting it would only bring it straight back.
-                    label = label .. " |TInterface\\COMMON\\Indicator-Green:14|t"
-                    ns.Tip_AddColumns(label, tokens, cr, cg, cb)
-                else
-                    ns.Tip_AddClickableColumns(label, tokens, function(mouseButton)
-                        if mouseButton ~= "LeftButton" then return end
-                        if not (IsControlKeyDown() and IsAltKeyDown()) then return end
-                        GoldForgetCharacter(key)
-                        ns.Tip_Hide(goldButton)
-                    end, cr, cg, cb)
-                end
+            ns.Tip_AddLine(L["SESSION"], 0.8, 0.8, 0.8)
+            ns.Tip_AddDouble(L["EARNED"], ns.FormatMoney(goldLedger.profit, true, sm, ci), 0.6, 0.6, 0.6, 0, 1, 0)
+            ns.Tip_AddDouble(L["SPENT"],  ns.FormatMoney(goldLedger.spent,  true, sm, ci), 0.6, 0.6, 0.6, 1, 0.3, 0.3)
+            local net = goldLedger.profit - goldLedger.spent
+            if net ~= 0 then
+                local label
+                if net > 0 then label = L["PROFIT"] else label = L["DEFICIT"] end
+                local nr, ngr = 1, 0.3
+                if net > 0 then nr, ngr = 0, 1 end
+                ns.Tip_AddDouble(label, ns.FormatMoney(abs(net), true, sm, ci), 0.6, 0.6, 0.6, nr, ngr, 0.3)
             end
         end
-        local bankType = 2
-        if Enum and Enum.BankType and Enum.BankType.Account then bankType = Enum.BankType.Account end
-        if C_Bank and C_Bank.FetchDepositedMoney then
-            local wbank = C_Bank.FetchDepositedMoney(bankType)
-            if wbank and wbank > 0 then
+        local charCount = 0
+        if showChars then
+            local store = GoldStore()
+            -- The list holds store KEYS ("Name-Realm"): a delete needs the key, and
+            -- the entry itself does not carry one.
+            local selfKey = GoldCharKey()
+            -- Roster shows only balances above 10,000 gold (copper threshold),
+            -- plus the live character. Filtered characters stay in the store
+            -- and still count into the total below.
+            local minCopper = 10000 * 10000
+            local total, charList = 0, {}
+            for key, cdata in pairs(store) do
+                -- issecretvalue-first: stores written before the ledger guard
+                -- existed could carry a secret, and even a truthiness test on
+                -- one is an error.
+                local cm = cdata and cdata.currentMoney
+                if issecretvalue and issecretvalue(cm) then cm = nil end
+                if cm then
+                    if cm > minCopper or key == selfKey then
+                        tinsert(charList, key)
+                    end
+                    total = total + cm
+                end
+            end
+            tsort(charList, function(a, b)
+                return (store[a].currentMoney or 0) > (store[b].currentMoney or 0)
+            end)
+            charCount = #charList
+            if charCount > 0 then
                 ns.Tip_AddLine(" ")
-                ns.Tip_AddDouble(L["WARBANK"], ns.FormatMoney(wbank, true, sm, ci), 0.6, 0.6, 0.6, 1, 1, 1)
-                total = total + wbank
+                ns.Tip_AddLine(GetRealmName() or "?", 0.5, 0.78, 1)
+                -- Cap the roster rows so a large stable of alts cannot push the
+                -- total and the hint rows off screen. The list is sorted richest
+                -- first, so the cap keeps the highest balances; the live
+                -- character always shows; the total below still sums EVERY
+                -- stored character.
+                local maxRows, shownRows, hiddenRows = 10, 0, 0
+                for _, key in ipairs(charList) do
+                    local char = store[key]
+                    if shownRows >= maxRows and key ~= selfKey then
+                        hiddenRows = hiddenRows + 1
+                    else
+                        shownRows = shownRows + 1
+                        local cr, cg, cb = 1, 1, 1
+                        if char.class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[char.class] then
+                            local cc = RAID_CLASS_COLORS[char.class]; cr, cg, cb = cc.r, cc.g, cc.b
+                        end
+                        local label = char.name or "?"
+                        local tokens = ns.MoneyTokens(char.currentMoney, sm, ci, true)
+                        -- Every row gets the same hover affordance. The live
+                        -- character's click is inert: it re-saves itself on
+                        -- every money event, so deleting it would only bring it
+                        -- straight back.
+                        ns.Tip_AddClickableColumns(label, tokens, function(mouseButton)
+                            if key == selfKey then return end
+                            if mouseButton ~= "LeftButton" then return end
+                            if not (IsControlKeyDown() and IsAltKeyDown()) then return end
+                            GoldForgetCharacter(key)
+                            ns.Tip_Hide(goldButton)
+                        end, cr, cg, cb)
+                    end
+                end
+                if hiddenRows > 0 then
+                    ns.Tip_AddLine(format(L["PLUS_N_MORE"], hiddenRows), 0.6, 0.6, 0.6)
+                end
             end
+            -- Warbank rides the character list as its final row -- no
+            -- separator; it reads as one more entry.
+            local bankType = 2
+            if Enum and Enum.BankType and Enum.BankType.Account then bankType = Enum.BankType.Account end
+            if C_Bank and C_Bank.FetchDepositedMoney then
+                local wbank = C_Bank.FetchDepositedMoney(bankType)
+                if issecretvalue and issecretvalue(wbank) then wbank = nil end
+                if wbank and wbank > 0 then
+                    ns.Tip_AddColumns(L["WARBANK"], ns.MoneyTokens(wbank, sm, ci, true), 1, 0.82, 0)
+                    total = total + wbank
+                end
+            end
+            ns.Tip_AddLine(" ")
+            ns.Tip_AddDouble(L["TOTAL"], ns.FormatMoney(total, true, sm, ci), ar, ag, ab, 1, 1, 1)
         end
-        ns.Tip_AddLine(" ")
-        ns.Tip_AddDouble(L["TOTAL"], ns.FormatMoney(total, true, sm, ci), ar, ag, ab, 1, 1, 1)
-        if goldLedger.tokenPrice and goldLedger.tokenPrice > 0 then
+        if showToken and goldLedger.tokenPrice and goldLedger.tokenPrice > 0 then
             ns.Tip_AddLine(" ")
             ns.Tip_AddDouble(L["WOW_TOKEN"], ns.FormatMoney(goldLedger.tokenPrice, true, sm, ci), 0, 0.8, 1, 1, 1, 1)
         end
@@ -2094,7 +2137,7 @@ ns.BlockFactories.gold = function(blockCfg, slot, content, barCtx)
         ns.Tip_AddDouble(L["LEFT_CLICK"],       L["OPEN_BAGS"],       1, 1, 1, ar, ag, ab)
         ns.Tip_AddDouble(L["RIGHT_CLICK"],      L["OPEN_CURRENCIES"], 1, 1, 1, ar, ag, ab)
         ns.Tip_AddDouble(L["CTRL_RIGHT_CLICK"], L["RESET_SESSION"],   1, 1, 1, ar, ag, ab)
-        if #charList > 1 then
+        if charCount > 1 then
             ns.Tip_AddDouble(L["CTRL_ALT_LEFT_CLICK"], L["REMOVE_CHARACTER"], 1, 1, 1, ar, ag, ab)
         end
         ns.Tip_Show()

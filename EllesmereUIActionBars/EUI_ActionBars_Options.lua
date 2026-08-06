@@ -4258,7 +4258,10 @@ initFrame:SetScript("OnEvent", function(self)
                         local bars = EAB.db.profile.bars[selKey]
                         if not bars.paging then bars.paging = {} end
                         if val == "none" then
-                            bars.paging[stateId] = false
+                            -- nil, not false: the driver builder reads nil as
+                            -- "unconfigured -> native form fallback"; false
+                            -- would suppress the form's bonusbar swap.
+                            bars.paging[stateId] = nil
                         else
                             bars.paging[stateId] = tonumber(val)
                         end

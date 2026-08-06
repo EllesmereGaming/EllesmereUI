@@ -6772,7 +6772,10 @@ local function CreateTargetAuras(frame, unit)
         buffs.spacingY = PP.FromPixels((settings and settings.buffSpacingY) or 1)
     end
     buffs.num = 4
-    buffs.maxCols = AuraMaxCols(buffGrowthEff, settings and settings.maxBuffs or 4, settings and settings.buffMaxPerRow)
+    -- Simple mode: side-based row cap, never width-based (see the debuff
+    -- twin below for the full mechanism).
+    buffs.maxCols = AuraMaxCols(simpleBuffOn and simpleBuffMode or buffGrowthEff,
+        settings and settings.maxBuffs or 4, settings and settings.buffMaxPerRow)
     buffs.initialAnchor = bia
     buffs.growthX = bgx
     buffs.growthY = bgy
@@ -6857,7 +6860,13 @@ local function CreateTargetAuras(frame, unit)
             debuffs.spacingY = PP.FromPixels((settings and settings.debuffSpacingY) or 1)
         end
         debuffs.num = (dAnc ~= "none") and maxDebuffs or 0
-        debuffs.maxCols = AuraMaxCols(effectiveGrowth, maxDebuffs, settings and settings.debuffMaxPerRow)
+        -- Simple mode is a horizontal strip off the frame edge: compute the
+        -- row cap from the SIDE, not "auto". With "auto" AuraMaxCols returns
+        -- nil and oUF wraps by CONTAINER WIDTH -- frame-height icons overflow
+        -- the frame width at ~5, so rows wrapped early and Max Per Row was
+        -- ignored whenever it sat at or above Max Count.
+        debuffs.maxCols = AuraMaxCols(simpleOn and simpleMode or effectiveGrowth,
+            maxDebuffs, settings and settings.debuffMaxPerRow)
         debuffs.initialAnchor = dia
         debuffs.growthX = dgx
         debuffs.growthY = dgy

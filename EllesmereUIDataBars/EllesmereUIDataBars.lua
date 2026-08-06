@@ -99,6 +99,7 @@ local L = {
     OPEN_CURRENCIES      = "Open Currencies",
     RESET_SESSION        = "Reset Session",
     REMOVE_CHARACTER     = "Remove Character",
+    PLUS_N_MORE          = "+ %d more",
     TRAVEL_COOLDOWNS     = "Travel Cooldowns",
     HEARTHSTONE          = "Hearthstone",
     READY                = "Ready",

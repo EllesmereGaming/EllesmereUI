@@ -8420,6 +8420,29 @@ local function Skin_DelvesCompanion()
         -- Leftover Blizzard border sub-frame (its own Bg + edges): our atlas
         -- border replaces it. Alpha 0 inherits to all its edge children.
         if f.Border and f.Border.SetAlpha then f.Border:SetAlpha(0) end
+        -- Brann's portrait and XP ring poke above the window top and
+        -- natively draw OVER the dialog border (defined after it). Our
+        -- atlas border rides a child frame at +6, so lift them past it or
+        -- the border line cuts across the art. The level badge already
+        -- sits at 100.
+        local overBorder = f:GetFrameLevel() + 7
+        if f.CompanionPortraitFrame and f.CompanionPortraitFrame.SetFrameLevel then
+            f.CompanionPortraitFrame:SetFrameLevel(overBorder)
+        end
+        if f.CompanionExperienceRingFrame and f.CompanionExperienceRingFrame.SetFrameLevel then
+            f.CompanionExperienceRingFrame:SetFrameLevel(overBorder + 1)
+        end
+        -- The close button natively anchors to the corner of the (now
+        -- alpha-0) DialogBorder sub-frame, which leaves the X flush with
+        -- the window edge. Seat it like every other shell: centered on the
+        -- 25px top bar with right spacing (the X texture centers in the
+        -- button at -2, so the visual lands ~16px in).
+        local cb = f.CloseButton
+        if cb and not GetFFD(cb).reseated then
+            GetFFD(cb).reseated = true
+            cb:ClearAllPoints()
+            cb:SetPoint("CENTER", f, "TOPRIGHT", -14, -12)
+        end
         local title = (f.TitleContainer and f.TitleContainer.TitleText) or f.TitleText
         if title then WSkin.Font(title); WSkin.White(title) end
         local ab = f.CompanionConfigShowAbilitiesButton
@@ -10152,6 +10175,27 @@ local function Skin_Settings()
             end
             t:HookScript("OnClick", function(self) SyncSettingsTabs(self) end)
         end
+    end
+    -- Every selection path funnels through SetCurrentCategory as a NAMED
+    -- method call (the reopen reset via OnShow -> SelectFirstCategory, tab
+    -- clicks via the category-set swap, rail clicks, OpenToCategory), and
+    -- the category's categorySet maps 1:1 onto the tabs. OnTabSelected is
+    -- NOT hookable here: the tabsGroup captured it by REFERENCE at OnLoad
+    -- (RegisterCallback), so a method wrapper never runs -- first fix
+    -- attempt failed exactly that way. Click-only tracking before that left
+    -- the override stranded when a reopen silently reset the panel to Game
+    -- (field report: underline stuck on AddOns over Game content).
+    local fd = GetFFD(f)
+    if not fd.catSelHooked then
+        fd.catSelHooked = true
+        hooksecurefunc(f, "SetCurrentCategory", function(_, category)
+            local cs = category and category.categorySet
+            if cs == nil then return end
+            for _, t in ipairs(sTabs) do
+                GetFFD(t).selOverride = (t.categorySet == cs)
+            end
+            WSkin.UpdateAllTabs()
+        end)
     end
     SyncSettingsTabs()
 

@@ -520,6 +520,64 @@ end
 -------------------------------------------------------------------------------
 EllesmereUI._WHATSNEW_PATCHES = {
     {
+        version = "8.7.6",
+        -- No hero tier this patch: features are present, so this is not a
+        -- mini patch and the tiers render normally (same shape as 8.6.4).
+        features = {
+            {
+                -- The option itself lives in the Show Sort Icon row's cog
+                -- popup; cog rows have no highlightable label, so the anchor
+                -- is the owning row.
+                module = "Bags",
+                title  = "Sort to Bottom",
+                desc   = "Pack items into the last slots",
+                nav    = { module = "EllesmereUIBags", page = "Bags", section = "EXTRAS", highlight = "Show Sort Icon" },
+            },
+            {
+                -- Page-only nav: the GOLD block section header is built from
+                -- a localized label, which nav section matching cannot target.
+                module = "Data Bars",
+                title  = "Gold Tooltip Rebuilt",
+                desc   = "Top 10 characters, Warbank row, section toggles",
+                nav    = { module = "EllesmereUIDataBars", page = "DataBars" },
+            },
+            {
+                module = "Nameplates",
+                title  = "Standalone Level Text",
+                desc   = "Show level and name together",
+                nav    = { module = "EllesmereUINameplates", page = "Display", section = "CORE TEXT POSITIONS", highlight = "Top Text" },
+            },
+        },
+        fixes = {
+            { module = "Action Bars", text = "Fixed empty action bar slots staying visible for players who have Blizzard's Always Show Action Bars setting turned on." },
+            { module = "Action Bars", text = "Fixed form and stance paging not applying correctly when the paging dropdown was set to Default, which could leave the wrong page showing after shifting forms." },
+            { module = "Action Bars", text = "Fixed occasional casts where the cooldown swipe never appeared, and abilities that stayed dimmed after they were already back up." },
+            { module = "Blizz UI Enhanced", text = "Fixed loot and alert toast icons that use a mask shape, such as mount and profession recipe alerts, erroring instead of skinning." },
+            { module = "Blizz UI Enhanced", text = "Fixed the selected tab underline in the Settings window and Talents tab staying on the old tab after reopening or switching with a keybind." },
+            { module = "Blizz UI Enhanced", text = "Fixed the Delves companion window border overlapping Brann's portrait and its close button sitting in the wrong spot." },
+            { module = "Blizz UI Enhanced", text = "Fixed an error when mousing over a mounted player in combat. The mount name line is now skipped while you are in combat, and for the duration of a Mythic+ key or rated PvP match." },
+            { module = "Chat", text = "Fixed errors when whispering and when using items in the chat tab right-click menu. The Font Size list in that Blizzard menu is back to Blizzard's own sizes; EllesmereUI's own chat font size setting still covers the full range." },
+            { module = "Chat", text = "Moving and resizing the chat window in Edit Mode now works." },
+            { module = "Chat", text = "Whisper tab labels now line up evenly with the rest of the tab row." },
+            { module = "Cooldown Manager", text = "Fixed the Resource Aware ready glow getting stuck off after a proc glow finished on the same icon." },
+            { module = "Cooldown Manager", text = "Item counts now show at 1 instead of disappearing once you are down to your last one." },
+            { module = "Cooldown Manager", text = "Horizontal tracked buff bars can now be narrowed to 1 pixel wide, matching vertical bars." },
+            { module = "Cooldown Manager", text = "Fixed the Focus Cast interrupt alert pinging for an interrupt you can no longer cast after a talent swap, spec change, or profile import." },
+            { module = "Cooldown Manager", text = "Fixed a tracked spell occasionally disappearing from its bar after untalenting a related override spell." },
+            { module = "Data Bars", text = "Fixed the vertical bar preview in options showing two add buttons, hint text spilling outside the box, and the docked preview note sitting off center." },
+            { module = "Data Bars", text = "Fixed possible errors with gold session totals and the WoW Token price in Mythic+ and rated PvP." },
+            { module = "General", text = "Fixed options tooltips briefly resizing as they faded out when the options window scale was set away from 100 percent." },
+            { module = "Minimap", text = "Saved raid and dungeon lockouts now read their difficulty from the game itself, so newer difficulties no longer go missing from the calendar tooltip. Dungeon lockouts list when the save tracks bosses." },
+            { module = "Mythic Timer", text = "The Enemy Forces label and every line of the timer preview now translate for non-English clients." },
+            { module = "Nameplates", text = "The pandemic glow now starts at 10 seconds remaining on long or extended DoTs, instead of arming as early as a third of an inflated duration." },
+            { module = "Nameplates", text = "Fixed friendly player plates sometimes staying hidden after leaving a Delve or follower dungeon." },
+            { module = "Raid Frames", text = "Show When Solo now takes effect right away when a spec override or profile switch changes it, instead of holding the old state until a reload." },
+            { module = "Raid Frames", text = "The health bar Fill Opacity slider can now be lowered all the way to 0 instead of stopping at 10." },
+            { module = "Resource Bars", text = "Warrior trackers count more accurately: Whirlwind no longer misses a stack when the attack lands while moving into range, and Sweeping Strikes no longer drains for enemies beyond cleave range (it can briefly read full when partners leave melee reach)." },
+            { module = "Unit Frames", text = "Boss Simple Buff and Debuff Displays now stay on one row, and Max Per Row wraps at the value you set instead of wrapping early at the frame's width." },
+        },
+    },
+    {
         version = "8.7.5",
         heroes = {
             {
@@ -1031,116 +1089,6 @@ EllesmereUI._WHATSNEW_PATCHES = {
             { module = "Resource Bars", text = "Added an Always Show option to the cast bar, keeping it on screen and empty between casts." },
             { module = "Resource Bars", text = "Fixed the Survival Hunter Tip of the Spear tracker landing on the wrong stack count after Takedown when Twin Fangs is talented." },
             { module = "Spec Overrides", text = "Fixed a sustained frame rate drop lasting up to two minutes after leaving combat when a Dragon Riding HUD setting had been captured into an override." },
-        },
-    },
-    {
-        version = "8.6.4",
-        -- No hero tier this patch. `_BuildWhatsNewPage` skips the hero block
-        -- entirely when `heroes` is absent, and this is NOT a mini patch (mini
-        -- is fixes-only; a features tier is present), so the version title
-        -- still renders full size and drops straight into ADDITIONAL FEATURES.
-        features = {
-            {
-                module = "Action Bars",
-                title  = "Icon Order",
-                desc   = "Reverse a bar, or start button 1 in any corner",
-                nav    = { module = "EllesmereUIActionBars", page = "Bar Display", section = "LAYOUT", highlight = "Icon Order" },
-            },
-            {
-                -- Highlights the on-page "Text Size" slider in the first of the
-                -- three data-bar sections (Experience, Reputation, House Favor);
-                -- each section carries its own copy of the row. Note the rows
-                -- below a section's visibility dropdown are hidden entirely
-                -- while that bar's visibility is Never, so the pulse no-ops on
-                -- a profile with the Experience bar switched off.
-                module = "Action Bars",
-                title  = "Bar Text Size",
-                desc   = "Resize Experience, Reputation, and Favor text",
-                nav    = { module = "EllesmereUIActionBars", page = "Menu, Bags & XP Bars", section = "EXPERIENCE BAR", highlight = "Text Size" },
-            },
-            {
-                -- Page-only nav: the module's own NavigateToElementSettings
-                -- pre-hook only force-expands the window cards when a section or
-                -- highlight is passed, so this lands on the card list collapsed,
-                -- which is the right landing for an entry covering three windows.
-                module = "Blizz UI Enhanced",
-                title  = "Loot and Item Upgrade Skins",
-                desc   = "Loot window, Item Upgrade, and toast popups",
-                nav    = { module = "EllesmereUIBlizzardSkin", page = "Blizzard Window Skins" },
-            },
-            {
-                -- Highlight targets the neighbouring Duration Size row: the new
-                -- Position dropdown is cog-only, and cog rows use label= so they
-                -- never get a _labelText to match against.
-                module = "Cooldown Manager",
-                title  = "Duration Text Position",
-                desc   = "Place the countdown outside the icon",
-                nav    = { module = "EllesmereUICooldownManager", page = "CDM Bars", section = "ICON DISPLAY", highlight = "Duration Size" },
-            },
-            {
-                -- Page-only nav: block rows only exist once the user adds the
-                -- block from the preview strip, so any section or highlight here
-                -- would be state-dependent and could silently miss.
-                module = "Data Bars",
-                title  = "Location and Coordinates Blocks",
-                desc   = "Show your zone and X/Y coordinates",
-                nav    = { module = "EllesmereUIDataBars", page = "DataBars" },
-            },
-            {
-                -- The Bar Strata dropdown is cog-only, so the highlight targets
-                -- the on-page row that owns the cog: the Visibility dropdown,
-                -- whose left slot is labelled "Visibility" by
-                -- EllesmereUI.BuildVisibilityModeRow. It is the first row under
-                -- BAR SETTINGS, so it cannot be intercepted by an earlier match.
-                module = "Data Bars",
-                title  = "Bar Strata",
-                desc   = "Raise or lower a bar against other frames",
-                nav    = { module = "EllesmereUIDataBars", page = "DataBars", section = "BAR SETTINGS", highlight = "Visibility" },
-            },
-            {
-                -- The Show Spark toggle is cog-only (cog rows use label= and get
-                -- no _labelText), so the highlight targets the on-page multiSwatch
-                -- row that owns the Cast Color cog.
-                module = "Nameplates",
-                title  = "Cast Bar Spark",
-                desc   = "Hide the bright spark on the cast bar fill",
-                nav    = { module = "EllesmereUINameplates", page = "Display", section = "CAST COLORS AND EFFECTS", highlight = "Cast Color" },
-            },
-            {
-                -- Page-only nav: the grow picker lives in the Unlock Mode
-                -- right-click menu, not on a settings row, so there is no valid
-                -- highlight to pass and inventing one would ship a dead pulse.
-                module = "Resource Bars",
-                title  = "Totem Bar Grow Direction",
-                desc   = "Grow left, right, centered, up or down",
-                nav    = { module = "EllesmereUIResourceBars", page = "Totem Bar" },
-            },
-            {
-                module = "Unit Frames",
-                title  = "Separate Tooltip Controls",
-                desc   = "Turn aura tooltips off on their own",
-                nav    = { module = "EllesmereUIUnitFrames", page = "Main Frames", section = "DISPLAY", highlight = "Show Tooltip For" },
-            },
-        },
-        fixes = {
-            { module = "Action Bars", text = "Fixed a CPU usage issue caused by the One Button Assist button. Its rotation ring is now static, with a new toggle to hide it and a slider in its cog for how far it extends past the button." },
-            { module = "Action Bars", text = "Charge cooldowns no longer freeze. A spell's recharge swipe, charge count, or edge glow could silently stop updating for the rest of the session after one unlucky read, such as right after login or a talent swap. Charge spells spent off the global cooldown now draw their recharge swipe at all." },
-            { module = "Action Bars", text = "The icon order control for each bar is back, so a bar left stuck in reversed order since 8.5.3 can be changed again." },
-            { module = "Blizz UI Enhanced", text = "The new Loot, Item Upgrade, and loot toast skins are on by default, each with its own toggle on the Window Skins page. Loot toasts can also show a quality-color strip down the edge in place of the icon's quality ring." },
-            { module = "Blizz UI Enhanced", text = "The Currency Options popup on the character panel now follows that panel's own window style instead of showing as a flat grey box, and its checkboxes keep the standard checkmark. The Currency tab also no longer loads unskinned on characters where Blizzard's currency window arrives late." },
-            { module = "Blizz UI Enhanced", text = "Skinned Blizzard windows whose close button sits on the title bar no longer keep Blizzard's red X." },
-            { module = "Cooldown Manager", text = "Active State Glow and per-item Active State rules now light up reliably. A glow could stay dark for the rest of the session when Blizzard's engine skipped a color update, and rules for on-use trinkets or gear could fail to match the equipped item depending on login order." },
-            { module = "Cooldown Manager", text = "Show Item Count is now a three-way choice of Never, Always, or Out of Combat, so charge and stack numbers can hide themselves while you are in combat and come back afterwards." },
-            { module = "General", text = "Fixed a crash during unit frame setup that left the player frame blank and the settings tab unable to open when a profile still held an older Absorb Bar style value. Importing such a profile now converts the value to the matching style instead of falling back to a default texture." },
-            { module = "General", text = "The UI Scale slider now snaps to the exact pixel-perfect value for 1080p displays near 0.71, matching the snap already in place near 0.53 for 1440p." },
-            { module = "General", text = "Added new Korean and French translations." },
-            { module = "Minimap", text = "The square border no longer vanishes. Depending on what else was loading at login, or after a housing-related minimap change, a solid or textured square border could disappear and not come back after a reload." },
-            { module = "Nameplates", text = "Friendly nameplate visibility is no longer forced back on at every login, and leaving a follower dungeon now hands back the setting you had instead of forcing plates on, so hiding friendly nameplates in Blizzard's own Nameplate settings finally sticks. Friendly plates are only forced visible on a fresh install or when you turn on Show EUI Friendly Player Nameplates or Make Friendly Nameplates Name Only, so if you relied on the old forcing to restore them after another addon cleared the setting, use one of those toggles instead." },
-            { module = "PTR Raid Frames", text = "Turning Hide Tooltips back off in the Buff Manager or Debuff Display sections now restores aura tooltips right away instead of needing a reload." },
-            { module = "Raid Frames", text = "Buff Manager and Debuff Display aura tooltips are no longer silenced by the unit tooltip mode, and now follow only their own section's Hide Tooltips toggle. If you were setting Show Raid Frames Tooltip to Never, or hiding it in combat, to suppress aura tooltips as well, turn on Hide Tooltips in the Buff Manager and Debuff Display sections to keep them hidden." },
-            { module = "Raid Frames", text = "MiniCC cooldown icons can now anchor to raid frames, not just party frames." },
-            { module = "Resource Bars", text = "Shift Elements If No Power now closes the gap when a bar is hidden by your current Druid form, such as the primary power bar while in Moonkin form." },
-            { module = "Unit Frames", text = "Boss frames now have the same 4th Extra Text zone as other frames, with its own content, size, color, alignment and offsets, plus a Max Per Row slider in the Simple Display buff and debuff layout menus." },
         },
     },
 }

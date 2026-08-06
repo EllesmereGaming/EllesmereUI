@@ -992,7 +992,7 @@ initFrame:SetScript("OnEvent", function(self)
             { type="dropdown", text="Health Bar Texture", values=hbtValues, order=hbtOrder,
               getValue=function() return SVal("healthBarTexture", "atrocity") end,
               setValue=function(v) SSet("healthBarTexture", v) end },
-            { type="slider", text="Fill Opacity", min=10, max=100, step=1,
+            { type="slider", text="Fill Opacity", min=0, max=100, step=1,
               disabled=function() return SVal("healthColorMode", "class") == "dark" end,
               disabledTooltip="Not available in Dark Mode", rawTooltip=true,
               getValue=function() return SVal("healthBarOpacity", 100) end,

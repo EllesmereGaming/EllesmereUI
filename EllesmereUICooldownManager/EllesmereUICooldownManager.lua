@@ -2772,8 +2772,14 @@ local function ShowProcGlow(icon, cr, cg, cb)
         end
     end
 
-    -- Stop active glow if running (proc takes priority)
+    -- Stop active glow if running (proc takes priority). The CD-state memo
+    -- must follow the VISUAL: leaving _cdStateGlowOn true here made every
+    -- later re-evaluation skip the restart ("already on"), so a consumed
+    -- proc killed the Resource Aware glow until usability flipped off and
+    -- on again (field report: Shadowburn + Fiendish Cruelty). Proc priority
+    -- is enforced explicitly by the procGlowActive gates on the start sites.
     if glow._glowActive then StopNativeGlow(glow) end
+    if fd then fd._cdStateGlowOn = false end
     StartNativeGlow(glow, style, cr, cg, cb)
     if fd then fd.procGlowActive = true end
 end
@@ -2784,6 +2790,14 @@ local function StopProcGlow(icon)
     local glow = fd and fd.glowOverlay or icon._glowOverlay
     StopNativeGlow(glow)
     if fd then fd.procGlowActive = false end
+    -- The proc stomped any CD-state glow on this shared overlay; re-evaluate
+    -- on the next frame so a Resource Aware ready-glow comes straight back
+    -- instead of waiting for the next cooldown/power edge. Gated on
+    -- _cdGlowBoundSid: only icons that have actually run a CD-state glow
+    -- path carry it, so pure proc-glow users never wake the flush frame.
+    if fd._cdGlowBoundSid and ns.QueueCDGlowResourceCheck then
+        ns.QueueCDGlowResourceCheck()
+    end
 end
 
 -- Install hooks on ActionButtonSpellAlertManager (called once during init)

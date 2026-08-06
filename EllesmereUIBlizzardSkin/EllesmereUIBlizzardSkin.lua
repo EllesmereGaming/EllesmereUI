@@ -405,8 +405,13 @@ end
         -- hard-errors for tainted callers instead of returning nil -- unlike
         -- every other guard in this function, checking issecretvalue() on the
         -- result comes too late here. This is a cosmetic tooltip addition, so
-        -- skip it outright in combat rather than risk the taint error.
-        if InCombatLockdown() then return nil end
+        -- skip it outright rather than risk the taint error. Protected
+        -- instances (active M+ key, rated PvP) keep secret-value restrictions
+        -- in force between pulls too, so the combat check alone is not enough.
+        if InCombatLockdown()
+            or (EllesmereUI.InProtectedInstance and EllesmereUI.InProtectedInstance()) then
+            return nil
+        end
 
         for i = 1, 255 do
             local aura = C_UnitAuras.GetAuraDataByIndex(unit, i, "HELPFUL")

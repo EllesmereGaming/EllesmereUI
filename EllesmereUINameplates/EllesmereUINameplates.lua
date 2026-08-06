@@ -1159,15 +1159,17 @@ local function SetCombinedHealthText(fs, element, pctText, numText)
 end
 ns.SetCombinedHealthText = SetCombinedHealthText
 
--- Name-family text elements: display variants all rendered by the plate's
--- single name FontString (enemy name, level+name combos, standalone level).
--- Exactly one of these can occupy a slot at a time; the options-side slot
--- assignment enforces the family-wide exclusivity. Wrapped in do/end + ns
--- functions so no new main-chunk locals are added (this file is at the Lua
--- 5.1 local cap).
+-- Name-family text elements: display variants rendered by the plate's single
+-- name FontString (enemy name and the level+name combos). Exactly one of
+-- these can occupy a slot at a time; the options-side slot assignment
+-- enforces the family-wide exclusivity. STANDALONE level is deliberately NOT
+-- in the family: it renders on its own FontString (plate.levelText, through
+-- the health-text slot machinery) so name and level can occupy different
+-- slots at once (field request). Wrapped in do/end + ns functions so no new
+-- main-chunk locals are added (this file is at the Lua 5.1 local cap).
 do
     local NAME_FAMILY = {
-        enemyName = true, levelName = true, nameLevel = true, level = true,
+        enemyName = true, levelName = true, nameLevel = true,
     }
     function ns.IsNameElement(element)
         return NAME_FAMILY[element] == true
@@ -1218,6 +1220,7 @@ local healthTextWidths = {
     healthNumPct  = 75,
     healthPctNumDash = 75,
     healthNumPctDash = 75,
+    level = 24,   -- standalone level: "70" / "??"
 }
 local function EstimateHealthTextWidth(element)
     return (healthTextWidths[element] or 0) + HEALTH_TEXT_PADDING
@@ -1545,6 +1548,26 @@ if C_CurveUtil and C_CurveUtil.CreateCurve then
 end
 ns.pandemicCurve = pandemicCurve
 
+-- Extension clamp: while a DoT is unextended, remaining% <= 30% IS the
+-- pandemic window (total == base). Duration extensions (e.g. Starfall on
+-- Moonfire/Sunfire) grow the total, inflating that window to 20s+, and every
+-- per-spell base source (aura spellId, GetAuraBaseDuration,
+-- GetRefreshExtendedDuration) is secret in combat, so the base cannot be
+-- re-derived. Instead the glow requires a second condition: remaining time
+-- <= a flat seconds cap. The two conditions AND together through frame
+-- alpha inheritance (wrapper alpha x gate alpha) -- both stay engine-side.
+-- The cap only bites when 30% of total exceeds it, i.e. bases above ~33s
+-- or extended totals; normal dots keep their exact 30% window.
+local PANDEMIC_CAP_SECONDS = 10
+local pandemicCapCurve
+if C_CurveUtil and C_CurveUtil.CreateCurve then
+    pandemicCapCurve = C_CurveUtil.CreateCurve()
+    pandemicCapCurve:SetType(Enum.LuaCurveType.Step)
+    pandemicCapCurve:AddPoint(0, 1)
+    pandemicCapCurve:AddPoint(PANDEMIC_CAP_SECONDS, 0)
+end
+ns.pandemicCapCurve = pandemicCapCurve
+
 -------------------------------------------------------------------------------
 --  Glow Engines provided by shared EllesmereUI_Glows.lua
 --  Local aliases for the pandemic glow wrapper below.
@@ -1573,9 +1596,9 @@ local function StopPandemicGlow(slot)
     if not pg or not pg.active then return end
     if pg.animGroup then pg.animGroup:Stop() end
     if pg.flipTex then pg.flipTex:Hide() end
-    StopProceduralAnts(pg.wrapper)
-    StopButtonGlow(pg.wrapper)
-    StopAutoCastShine(pg.wrapper)
+    StopProceduralAnts(pg.gate)
+    StopButtonGlow(pg.gate)
+    StopAutoCastShine(pg.gate)
     pg.wrapper:Hide()
     pg.active = false
 end
@@ -1596,14 +1619,18 @@ local function StartPandemicGlow(slot, slotSize)
         -- countCarrier at slot+6, so it always draws over the glow. (At the old
         -- slot+1 the swipe drew over the glow, making it hard to see.)
         wrapper:SetFrameLevel(slot:GetFrameLevel() + 5)
-        local flipTex = wrapper:CreateTexture(nil, "OVERLAY", nil, 7)
+        -- Inner gate frame hosts all glow visuals so the extension clamp can
+        -- ride a second alpha channel: effective alpha = wrapper x gate.
+        local gate = CreateFrame("Frame", nil, wrapper)
+        gate:SetAllPoints()
+        local flipTex = gate:CreateTexture(nil, "OVERLAY", nil, 7)
         flipTex:SetPoint("CENTER")
         local animGroup = flipTex:CreateAnimationGroup()
         animGroup:SetLooping("REPEAT")
         local flipAnim = animGroup:CreateAnimation("FlipBook")
         wrapper:Show()
         wrapper:SetAlpha(0)
-        pg = { wrapper = wrapper, flipTex = flipTex, animGroup = animGroup, flipAnim = flipAnim, active = false }
+        pg = { wrapper = wrapper, gate = gate, flipTex = flipTex, animGroup = animGroup, flipAnim = flipAnim, active = false }
         slot.pandemicGlow = pg
     end
 
@@ -1623,8 +1650,8 @@ local function StartPandemicGlow(slot, slotSize)
         -- Pixel Glow: procedural ants mode
         pg.flipTex:Hide()
         pg.animGroup:Stop()
-        StopButtonGlow(pg.wrapper)
-        StopAutoCastShine(pg.wrapper)
+        StopButtonGlow(pg.gate)
+        StopAutoCastShine(pg.gate)
         local N = GetPandemicGlowLines()
         local th = GetPandemicGlowThickness()
         local speed = GetPandemicGlowSpeed()
@@ -1633,27 +1660,27 @@ local function StartPandemicGlow(slot, slotSize)
         lineLen = min(lineLen, sz)
         if lineLen < 1 then lineLen = 1 end
         local br, bg, bb = ns.GetPandemicGlowBackgroundColor()
-        StartProceduralAnts(pg.wrapper, N, th, period, lineLen, cr, cg, cb, sz, nil,
+        StartProceduralAnts(pg.gate, N, th, period, lineLen, cr, cg, cb, sz, nil,
             ns.GetPandemicGlowBackground() and br or nil, bg, bb)
     elseif entry.buttonGlow then
         -- Action Button Glow: animated ants texture
         pg.flipTex:Hide()
         pg.animGroup:Stop()
-        StopProceduralAnts(pg.wrapper)
-        StopAutoCastShine(pg.wrapper)
-        StartButtonGlow(pg.wrapper, sz, cr, cg, cb, entry.scale or 1.36)
+        StopProceduralAnts(pg.gate)
+        StopAutoCastShine(pg.gate)
+        StartButtonGlow(pg.gate, sz, cr, cg, cb, entry.scale or 1.36)
     elseif entry.autocast then
         -- Auto-Cast Shine: orbiting sparkle dots
         pg.flipTex:Hide()
         pg.animGroup:Stop()
-        StopProceduralAnts(pg.wrapper)
-        StopButtonGlow(pg.wrapper)
-        StartAutoCastShine(pg.wrapper, sz, cr, cg, cb)
+        StopProceduralAnts(pg.gate)
+        StopButtonGlow(pg.gate)
+        StartAutoCastShine(pg.gate, sz, cr, cg, cb)
     else
         -- FlipBook mode: GCD, Modern WoW Glow, Classic WoW Glow
-        StopProceduralAnts(pg.wrapper)
-        StopButtonGlow(pg.wrapper)
-        StopAutoCastShine(pg.wrapper)
+        StopProceduralAnts(pg.gate)
+        StopButtonGlow(pg.gate)
+        StopAutoCastShine(pg.gate)
         local texSz = sz * (entry.scale or 1)
         pg.flipTex:SetSize(texSz, texSz)
         if entry.atlas then
@@ -1700,7 +1727,11 @@ local function ApplyPandemicGlow(slot)
     end
     StartPandemicGlow(slot, GetDebuffIconSize())
     -- Secret boolean/number EvaluateColorValueFromBoolean SetAlpha (all Blizzard APIs, no Lua comparisons)
-    slot.pandemicGlow.wrapper:SetAlpha(C_CurveUtil.EvaluateColorValueFromBoolean(durObj:IsZero(), 0, durObj:EvaluateRemainingPercent(pandemicCurve)))
+    local pg = slot.pandemicGlow
+    pg.wrapper:SetAlpha(C_CurveUtil.EvaluateColorValueFromBoolean(durObj:IsZero(), 0, durObj:EvaluateRemainingPercent(pandemicCurve)))
+    if pandemicCapCurve and pg.gate then
+        pg.gate:SetAlpha(durObj:EvaluateRemainingDuration(pandemicCapCurve))
+    end
     -- Register for alpha-only tick updates
     activePandemicSlots[slot] = true
     if ns._pandemicTickFrame then ns._pandemicTickFrame:Show() end
@@ -1856,6 +1887,8 @@ local function PositionAuraSlot(frames, count, slot, plate, sizeW, sizeH, gap, x
             anchor = plate.name
         elseif topElement == "healthNumber" then
             anchor = plate.hpNumber
+        elseif topElement == "level" then
+            anchor = plate.levelText
         elseif topElement ~= "none" then
             anchor = plate.hpText  -- healthPercent, healthPctNum, healthNumPct
         else
@@ -2909,6 +2942,12 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     SetFSFont(plate.hpNumber, 10, GetNPOutline())
     plate.hpNumber:SetPoint("CENTER", plate.health, "CENTER", 0, 0)
     plate.hpNumber:Hide()
+    -- Standalone level text: its own FontString so it can share the plate
+    -- with the name (see the NAME_FAMILY note). Content is static per unit.
+    plate.levelText = plate.healthTextFrame:CreateFontString(nil, "OVERLAY")
+    SetFSFont(plate.levelText, 10, GetNPOutline())
+    plate.levelText:SetPoint("CENTER", plate.health, "CENTER", 0, 0)
+    plate.levelText:Hide()
     -- Mouseover highlight: parented to the health bar (not the higher-level
     -- text frame) so it renders BEHIND the border, which lives on a child
     -- frame at health level + 1.
@@ -5740,7 +5779,11 @@ ns._pandemicTickFrame:SetScript("OnUpdate", function(self, elapsed)
         anyActive = true
         local durObj = slot._durationObj
         if durObj and slot.pandemicGlow and slot.pandemicGlow.active then
-            slot.pandemicGlow.wrapper:SetAlpha(C_CurveUtil.EvaluateColorValueFromBoolean(durObj:IsZero(), 0, durObj:EvaluateRemainingPercent(ns.pandemicCurve)))
+            local pg = slot.pandemicGlow
+            pg.wrapper:SetAlpha(C_CurveUtil.EvaluateColorValueFromBoolean(durObj:IsZero(), 0, durObj:EvaluateRemainingPercent(ns.pandemicCurve)))
+            if ns.pandemicCapCurve and pg.gate then
+                pg.gate:SetAlpha(durObj:EvaluateRemainingDuration(ns.pandemicCapCurve))
+            end
         else
             ns.StopPandemicGlow(slot)
         end
@@ -6148,6 +6191,7 @@ end
 function NameplateFrame:ApplyHealthTextAppearance()
     self.hpText:Hide()
     self.hpNumber:Hide()
+    if self.levelText then self.levelText:Hide() end
     -- Slot assignments may change element kinds: drop the value memo so the
     -- next UpdateHealthValues rewrites every slot's content.
     self._hpTxtPct, self._hpTxtCur = nil, nil
@@ -6219,6 +6263,29 @@ function NameplateFrame:ApplyHealthTextAppearance()
             ca[ci].element = element
             ca[ci].fs = fs
             ca[ci].slotKey = slot.key
+        elseif element == "level" then
+            -- Standalone level: own FontString, NOT registered in the health
+            -- slot cache (its content is static per unit -- written here and
+            -- by UpdateName on acquire, never on health ticks). Width/wrap
+            -- applied inline since the cache loop below skips it.
+            local fs = self.levelText
+            fs:SetParent(self.healthTextFrame)
+            SetFSFont(fs, slotFontSz, GetNPOutline())
+            fs:ClearAllPoints()
+            if slot.anchor == "CENTER" then
+                fs:SetPoint("CENTER", self.health, "CENTER", txOff, tyOff)
+            else
+                PP.Point(fs, slot.anchor, self.health, slot.point, slot.xOff + txOff, tyOff)
+            end
+            fs:SetJustifyH(slot.anchor)
+            fs:SetTextColor(sr, sg, sb, 1)
+            if self.unit then fs:SetText(ns.GetUnitLevelText(self.unit)) end
+            local lwpct = (p and p[slot.key .. "WidthPct"]) or 100
+            fs:SetWidth(lwpct < 100 and (GetHealthBarWidth() * lwpct / 100) or 0)
+            local lwrap = (p and p[slot.key .. "Wrap"]) and true or false
+            fs:SetWordWrap(lwrap)
+            fs:SetMaxLines(lwrap and 2 or 1)
+            fs:Show()
         end
     end
 
@@ -6249,6 +6316,28 @@ function NameplateFrame:ApplyHealthTextAppearance()
         ca[ci].element = topElement
         ca[ci].fs = fs
         ca[ci].slotKey = "textSlotTop"
+    elseif topElement == "level" then
+        -- Standalone level in the top slot: same shape as the health block
+        -- above, on levelText, no cache entry (static content).
+        local nameYOff = GetNameYOffset()
+        local cpPush = GetClassPowerTopPush(self)
+        local txOff, tyOff = GetTextSlotOffsets("textSlotTop")
+        local topFontSz = GetTextSlotSize("textSlotTop")
+        local tr, tg, tb = GetTextSlotColor("textSlotTop")
+        local fs = self.levelText
+        SetFSFont(fs, topFontSz, GetNPOutline())
+        fs:SetParent(self.topTextFrame)
+        fs:ClearAllPoints()
+        PP.Point(fs, "BOTTOM", self.health, "TOP", txOff, 4 + nameYOff + cpPush + tyOff)
+        fs:SetJustifyH("CENTER")
+        fs:SetTextColor(tr, tg, tb, 1)
+        if self.unit then fs:SetText(ns.GetUnitLevelText(self.unit)) end
+        local lwpct = (p and p.textSlotTopWidthPct) or 100
+        fs:SetWidth(lwpct < 100 and (GetHealthBarWidth() * lwpct / 100) or 0)
+        local lwrap = (p and p.textSlotTopWrap) and true or false
+        fs:SetWordWrap(lwrap)
+        fs:SetMaxLines(lwrap and 2 or 1)
+        fs:Show()
     end
     ca._count = ci
     -- Per-slot health % decimal preference. Resolved here (appearance pass,
@@ -6963,18 +7052,17 @@ function NameplateFrame:UpdateName()
             unit = actualUnit
         end
     end
-    -- The slotted name-family variant decides what renders: name, level+name
-    -- combos, or standalone level. nil slot keeps the plain-name write (the
-    -- FontString is hidden by RefreshNamePosition in that case anyway).
+    -- Standalone level renders on its own FontString and can share the plate
+    -- with a name-family slot; refresh its content here (this runs on plate
+    -- acquire/unit swap, so pooled reuse never shows a stale level).
+    if self.levelText and self.levelText:IsShown() then
+        self.levelText:SetText(ns.GetUnitLevelText(unit))
+    end
+    -- The slotted name-family variant decides what renders: name or a
+    -- level+name combo. nil slot keeps the plain-name write (the FontString
+    -- is hidden by RefreshNamePosition in that case anyway).
     local el = ns.FindNameSlot()
     el = el and GetTextSlot(el) or "enemyName"
-    if el == "level" then
-        -- Level needs no unit name, so it renders even for units whose name
-        -- is not yet available.
-        ns.SetNameElementText(self.name, el, nil, unit)
-        if p and p.nameRaidMarkerEnabled == true then self:RefreshNamePosition(true) end
-        return
-    end
     local name = UnitName(unit)
     if type(name) == "string" then
         ns.SetNameElementText(self.name, el, name, unit)
@@ -9740,6 +9828,8 @@ do
         local anchorTo
         if ns.IsNameElement(rightEl) then
             anchorTo = plate.name
+        elseif rightEl == "level" then
+            anchorTo = plate.levelText
         elseif rightEl and rightEl ~= "none" then
             local ca = plate._cachedHealthSlots
             if ca then
@@ -9841,3 +9931,4 @@ do
     end
 
 end
+

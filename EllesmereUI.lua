@@ -4860,12 +4860,58 @@ do
         return false
     end
 
+    -- Deferred award for casts the position probe rejected while the player
+    -- was MOVING: Whirlwind pressed during Charge runs the probe while still
+    -- yards from the target, but the server resolves the swing at landing and
+    -- the real buff is granted (the buff itself is NOT readable: 85739 is
+    -- non-whitelisted -- GetPlayerAuraBySpellID returns nil under live
+    -- restriction CVars, verified 2026-08-05 via the dev-mode flip). So the
+    -- landing IS the event edge: re-run the same probe once on
+    -- PLAYER_STOPPED_MOVING (plain unrestricted event, 69027 docs) inside a
+    -- short validity window. Registered only while an award is pending, so
+    -- the frame is idle everywhere else; a failed re-probe changes nothing.
+    do
+        local _, cls = UnitClass("player")
+        if cls == "WARRIOR" then
+            local pf = CreateFrame("Frame")
+            EllesmereUI._wwPendFrame = pf
+            -- Shared resolver: also driven from the cast handler, because a
+            -- strafing melee can go a whole fight without ever firing
+            -- PLAYER_STOPPED_MOVING -- the next GCD cast is the edge that
+            -- always exists in combat. A FAILED probe keeps the pending award
+            -- armed until the window truly closes (the first one-shot version
+            -- burned it on one bad probe, lost the refresh, and the stale
+            -- expiry timer then cleared live stacks mid-fight).
+            EllesmereUI._wwResolvePend = function()
+                local sid = EllesmereUI._wwPendSid
+                if not sid then return end
+                if GetTime() > (EllesmereUI._wwPendUntil or 0) then
+                    EllesmereUI._wwPendSid = nil
+                    pf:UnregisterEvent("PLAYER_STOPPED_MOVING")
+                    return
+                end
+                if EnemyInStrikeRange(sid) then
+                    EllesmereUI._wwPendSid = nil
+                    pf:UnregisterEvent("PLAYER_STOPPED_MOVING")
+                    stacks = MAX
+                    expiresAt = GetTime() + DURATION
+                end
+                -- Probe still false inside the window: stay armed.
+            end
+            pf:SetScript("OnEvent", EllesmereUI._wwResolvePend)
+        end
+    end
+
     function EllesmereUI.HandleWhirlwindStacks(event, unit, castGUID, spellID)
         if event == "PLAYER_DEAD" or event == "PLAYER_ALIVE" then
             stacks, expiresAt = 0, nil
             bladestormEndsAt = 0
             wipe(seenGUID)
             guidCount = 0
+            if EllesmereUI._wwPendFrame then
+                EllesmereUI._wwPendFrame:UnregisterEvent("PLAYER_STOPPED_MOVING")
+                EllesmereUI._wwPendSid = nil
+            end
             return
         end
         if event == "PLAYER_REGEN_ENABLED" then
@@ -4876,6 +4922,13 @@ do
         end
         if event ~= "UNIT_SPELLCAST_SUCCEEDED" or unit ~= "player" then return end
         if not requiredKnown then return end
+
+        -- Resolve any pending landing award off this cast BEFORE processing
+        -- it: by the next GCD press the player is at the target, so the
+        -- re-probe sees what the whiffed-looking generator actually hit.
+        -- Ordering matters -- the pending Whirlwind landed first, so a
+        -- spender in this very cast correctly drains from the fresh 4.
+        if EllesmereUI._wwResolvePend then EllesmereUI._wwResolvePend() end
 
         if castGUID and seenGUID[castGUID] then return end
         if castGUID then
@@ -4896,8 +4949,24 @@ do
             if (spellID == 6343 or spellID == 435222) and not crashingKnown then
                 return
             end
-            -- Only award if the swing actually had an enemy to land on.
-            if not EnemyInStrikeRange(spellID) then return end
+            -- Only award if the swing actually had an enemy to land on. When
+            -- the probe says no, arm the one-shot landing re-probe instead of
+            -- dropping the cast outright (the mid-Charge case -- see the
+            -- pending frame above).
+            if not EnemyInStrikeRange(spellID) then
+                local pf = EllesmereUI._wwPendFrame
+                if pf then
+                    EllesmereUI._wwPendSid = spellID
+                    EllesmereUI._wwPendUntil = GetTime() + 1.5
+                    pf:RegisterEvent("PLAYER_STOPPED_MOVING")
+                end
+                return
+            end
+            local pf = EllesmereUI._wwPendFrame
+            if pf then
+                pf:UnregisterEvent("PLAYER_STOPPED_MOVING")
+                EllesmereUI._wwPendSid = nil
+            end
             stacks = MAX
             expiresAt = GetTime() + DURATION
         elseif SPENDERS[spellID] and stacks > 0 then
@@ -4911,6 +4980,12 @@ do
         end
     end
 
+    -- NO aura validation here, same doctrine as Sweeping Strikes below: the
+    -- stack buff 85739 is non-whitelisted, so GetPlayerAuraBySpellID returns
+    -- nil under live restriction CVars even while the buff is visibly active
+    -- (verified 2026-08-05 via the dev-mode CVar flip -- 4 with restrictions
+    -- off, NIL with them on). Prediction plus the duration timer IS the
+    -- tracker; the landing re-probe above covers the mid-Charge award.
     function EllesmereUI.GetWhirlwindStacks()
         if not requiredKnown then return 0, 0 end
         if expiresAt and GetTime() >= expiresAt then
@@ -5065,18 +5140,32 @@ do
         if not (UnitExists(u) and UnitCanAttack("player", u) and not UnitIsDead(u)) then
             return false
         end
+        -- The rule (field-measured 2026-08-05): a charge is consumed when at
+        -- least TWO enemies stand within 8 yd of the PLAYER -- the current
+        -- target is irrelevant. NO legal probe measures 8 on non-target
+        -- units (all field-tested 2026-08-05): Charge's 8 yd min range
+        -- evaluates ONLY against the current target token (plate units
+        -- always read "in min range"); UnitPosition dies in instances
+        -- (rejected outright -- context-dependent fidelity); the duel
+        -- interact probe reaches ~9.9 and falsely drained charges on 8-9.9
+        -- bodies the game refused to cleave. So the gauge is the
+        -- melee-spell probe ALONE: hitbox-scaled (~5 yd + combat reach,
+        -- i.e. wider on real mobs than on skinny dummies), uniform in
+        -- every secret context, and its only error is UNDER-counting
+        -- partners in the narrow band between melee reach and 8 yd -- the
+        -- bar can briefly read full-ish, but it never fabricates a spend.
         local isr = C_Spell and C_Spell.IsSpellInRange
         if isr then
-            -- Resolve the live override id (a talent-replaced base id returns
-            -- nil), matching the nameplate range-text / crosshair probes.
+            -- Resolve the live override id (a talent-replaced base id
+            -- returns nil), matching the nameplate range-text probes.
             local ms = (C_SpellBook and C_SpellBook.FindSpellOverrideByID
                 and C_SpellBook.FindSpellOverrideByID(12294)) or 12294
             local r = isr(ms, u)
-            if not (issecretvalue and issecretvalue(r)) and r ~= nil then
+            if not (issecretvalue and issecretvalue(r)) then
                 return r == true
             end
         end
-        return CheckInteractDistance(u, idx or 2) or false
+        return false
     end
     local function EnemiesInReach(need, idx)
         local count, targetPlated = 0, false
@@ -11436,7 +11525,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "8.7.5"
+EllesmereUI.VERSION = "8.7.6"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end

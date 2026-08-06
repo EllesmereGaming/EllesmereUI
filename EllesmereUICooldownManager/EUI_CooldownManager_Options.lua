@@ -4833,7 +4833,7 @@ initFrame:SetScript("OnEvent", function(self)
                   EllesmereUI:RefreshPage()
               end },
             { type = "slider", text = "Width",
-              min = selIsVert and 1 or 50, max = 800, step = 1,
+              min = 1, max = 800, step = 1,
               disabled = twDis, disabledTooltip = twTip, rawTooltip = twRaw,
               getValue = function() local bd = SelectedTBB(); return bd and bd.width or 270 end,
               setValue = function(v)

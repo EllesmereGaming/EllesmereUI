@@ -2965,21 +2965,31 @@ local function ShowCalendarTooltip(anchor, lockoutEntries)
     -- Off-screen protection is SetClampedToScreen on the frame.
 end
 
--- Saved instance lockouts for the calendar tooltip.
-local LOCKOUT_DIFFICULTIES = {
-    [2] = true,   -- heroic
-    [23] = true,  -- mythic
-    [148] = true,
-    [174] = true,
-    [185] = true,
-    [198] = true,
-    [201] = true,
-    [215] = true,
-}
-local LFR_DIFFICULTIES = {
-    [7] = true,
-    [17] = true,
-}
+-- Saved instance lockouts for the calendar tooltip. Inclusion and tier are
+-- derived from each save's own live data (GetDifficultyInfo flags, encounter
+-- counts, DifficultyUtil's LFR ids) -- never from hardcoded difficulty ID
+-- lists, which rot as Blizzard adds difficulties.
+local LOCKOUT_TIER_ORDER = { lfr = 1, normal = 2, heroic = 3, mythic = 4 }
+
+-- Tier string + display label for one saved instance's difficulty.
+local function LockoutTierAndLabel(difficulty, fallbackLabel)
+    local tier, label = "normal", fallbackLabel
+    if GetDifficultyInfo and difficulty then
+        local d = { GetDifficultyInfo(difficulty) }
+        label = d[1] or fallbackLabel
+        if d[6] then
+            tier = "mythic"      -- displays as mythic
+        elseif d[3] or d[5] then
+            tier = "heroic"      -- is, or displays as, heroic
+        end
+    end
+    local du = _G.DifficultyUtil
+    if du and du.ID
+        and (difficulty == du.ID.RaidLFR or difficulty == du.ID.PrimaryRaidLFR) then
+        tier = "lfr"
+    end
+    return tier, label or ""
+end
 
 local function GetCalendarLockoutEntries()
     if not GetNumSavedInstances or not GetSavedInstanceInfo then return end
@@ -2990,45 +3000,35 @@ local function GetCalendarLockoutEntries()
     for i = 1, GetNumSavedInstances() do
         local name, _, _, difficulty, locked, extended, _, isRaid, _, difficultyName, numEncounters, encounterProgress =
             GetSavedInstanceInfo(i)
-        if name and (locked or extended) and (isRaid or LOCKOUT_DIFFICULTIES[difficulty]) then
-            local diffLabel = difficultyName
-            local _, _, isHeroic, _, displayHeroic, displayMythic
-            if GetDifficultyInfo and difficulty then
-                diffLabel, _, isHeroic, _, displayHeroic, displayMythic = GetDifficultyInfo(difficulty)
-            end
-            diffLabel = diffLabel or ""
+        local held = name and (locked or extended)
+        -- Dungeon rows only matter when the hold tracks real encounters;
+        -- raids always show.
+        if held and not isRaid and not (numEncounters and numEncounters > 0) then
+            held = false
+        end
+        if held then
+            local tier, diffLabel = LockoutTierAndLabel(difficulty, difficultyName)
 
-            local isLFR = LFR_DIFFICULTIES[difficulty]
-            local sortTier
-            if displayMythic then
-                sortTier = "4"
-            elseif isHeroic or displayHeroic then
-                sortTier = "3"
-            elseif isLFR then
-                sortTier = "1"
-            else
-                sortTier = "2"
-            end
-            local sortKey = name .. "\t" .. sortTier
-
-            local leftText = name
             local rightText = diffLabel
             if numEncounters and numEncounters > 0 and encounterProgress and encounterProgress >= 0 then
                 rightText = format("%s %d/%d", diffLabel, encounterProgress, numEncounters)
             end
-            entries[#entries + 1] = { sortKey = sortKey, left = leftText, right = rightText }
+            entries[#entries + 1] = {
+                name = name,
+                tierOrder = LOCKOUT_TIER_ORDER[tier] or LOCKOUT_TIER_ORDER.normal,
+                left = name,
+                right = rightText,
+            }
         end
     end
 
-    table.sort(entries, function(a, b) return a.sortKey < b.sortKey end)
-
     if #entries == 0 then return end
 
-    local result = {}
-    for ei = 1, #entries do
-        result[#result + 1] = { left = entries[ei].left, right = entries[ei].right }
-    end
-    return result
+    table.sort(entries, function(a, b)
+        if a.name ~= b.name then return a.name < b.name end
+        return a.tierOrder < b.tierOrder
+    end)
+    return entries
 end
 
 local function BuildCustomIndicators(minimap)

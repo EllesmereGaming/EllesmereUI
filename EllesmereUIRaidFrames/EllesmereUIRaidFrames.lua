@@ -9394,14 +9394,39 @@ end
 -- were rebased once per scheme by _NormalizeTierOffsetAnchors). For the
 -- base tier or no overrides every corner term cancels, reproducing the
 -- plain base top-left -- identical behavior for no-override profiles.
+-- Per-tier offset for an ANCHORED container.
+--
+-- While anchored, the unlock anchor system owns the container's position, so
+-- the tier offset is contributed to the position IT computes rather than
+-- applied on top afterwards. Applying it afterwards would sit outside the
+-- anchor's idempotent guard, which would then never be satisfied and would
+-- reposition on every pass forever.
+EllesmereUI._anchorExtraOffset = EllesmereUI._anchorExtraOffset or {}
+EllesmereUI._anchorExtraOffset["RF_RaidFrames"] = function()
+    local _, ov = ns._RFResolveTierOverride(ns._GetEffectiveRaidSize())
+    return (ov and ov.offsetX) or 0, (ov and ov.offsetY) or 0
+end
+
 ns._ApplyTierOffset = function()
     if not containerFrame or InCombatLockdown() then return end
-    -- Element-anchored container: the unlock anchor system owns the position
+    -- Element-anchored container: the unlock anchor system owns the POSITION
     -- (absolute coords recomputed from the anchor target), so repositioning
-    -- from unlockPos here would clobber it on every roster/tier pass. The
-    -- anchor's edge-to-edge offsets keep the near edge flush across tier
-    -- size changes; per-tier offsets do not apply while anchored.
-    if EllesmereUI.IsUnlockAnchored and EllesmereUI.IsUnlockAnchored("RF_RaidFrames") then return end
+    -- from unlockPos here would clobber it on every roster/tier pass.
+    --
+    -- The per-tier offset still applies, though: it is added ON TOP of
+    -- whatever the anchor computed, rather than replacing it. Skipping it
+    -- outright is what made the per-tier offset fields silently inert for
+    -- anyone who anchored the raid frames to another element -- the setting
+    -- was saved, shown in the options, and did nothing.
+    if EllesmereUI.IsUnlockAnchored and EllesmereUI.IsUnlockAnchored("RF_RaidFrames") then
+        -- The anchor owns the position and now folds the tier offset into it
+        -- (see _anchorExtraOffset above), so a tier change just needs the
+        -- anchor re-run; moving the container from here would fight it.
+        if EllesmereUI.ReapplyUnlockAnchor then
+            EllesmereUI.ReapplyUnlockAnchor("RF_RaidFrames")
+        end
+        return
+    end
     local s = db.profile
     if not s.unlockPos then return end
     local _, ov = ns._RFResolveTierOverride(ns._GetEffectiveRaidSize())
@@ -16467,6 +16492,19 @@ function ERF:OnEnable()
         -- shared tickers never render a stale overlay across a flip.
         -- Near-zero cost when the overlay gate is inactive.
         if ns._RebuildPvOverlay then ns._RebuildPvOverlay() end
+        -- Solo-visibility recompute. Override/profile transitions can flip
+        -- showWhenSolo (healer solo-frames spec override, field report):
+        -- the DB restore alone never re-derives container visibility or the
+        -- secure showSolo header attributes, so the frames kept the state of
+        -- whichever override page was viewed last. Both recomputes no-op via
+        -- change guards when nothing moved. OOC-gated: the override
+        -- refreshers are REGEN-stashed, but direct callers may not be, and
+        -- the secure attribute writes are combat-blocked; a combat-time skip
+        -- self-heals on the existing combat-exit visibility pass.
+        if not InCombatLockdown() then
+            if ns.UpdateVisibility then ns.UpdateVisibility() end
+            if ns._UpdatePartyVisibility then ns._UpdatePartyVisibility() end
+        end
     end
 
     -- Buff Manager LAYER swap refresh (spec-override BM forks): re-derives

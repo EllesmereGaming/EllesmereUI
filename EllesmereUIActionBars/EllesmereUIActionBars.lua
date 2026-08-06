@@ -1305,7 +1305,12 @@ local function RegisterButtonWithController(btn)
         if (prev ~= cur) or force then
             self:SetAttribute("showgrid", cur)
             local vis
-            if (cur % 32) > 0 and (self:GetAttribute("eab-withincutoff") or 1) ~= 0 then
+            -- >= 2, NOT > 0: Blizzard's own SetShowGrid writes this same
+            -- attribute on native buttons, and its CVAR reason is bit 1 --
+            -- stamped at every login when the user has Blizzard's Always
+            -- Show Buttons on. Counting it here made empty slots
+            -- un-hideable (v8.7.5 report). Transient means bits 2+ only.
+            if (cur % 32) >= 2 and (self:GetAttribute("eab-withincutoff") or 1) ~= 0 then
                 vis = true
             else
                 vis = (cur > 0 or HasAction(self:GetAttribute("action") or 0))
@@ -1335,7 +1340,9 @@ local function RegisterButtonWithController(btn)
         local hasAct = HasAction(self:GetAttribute("action") or 0)
         local hidden = self:GetAttribute("statehidden")
         local vis
-        if (cur % 32) > 0 and (self:GetAttribute("eab-withincutoff") or 1) ~= 0 then
+        -- >= 2, not > 0: bit 1 is Blizzard's CVAR reason (see SetShowGrid
+        -- above) and must never count as a transient reveal.
+        if (cur % 32) >= 2 and (self:GetAttribute("eab-withincutoff") or 1) ~= 0 then
             vis = true
         else
             vis = (cur > 0 or hasAct) and not hidden
@@ -2191,10 +2198,12 @@ function EAB_VTABLE.BuildPagingConditions(barKey, pagingConfig, defaultPage)
             local page = pagingConfig[state.id]
             if page then
                 parts[#parts + 1] = state.macro .. " " .. page
-            elseif page == nil and defs and defs[state.id] then
+            elseif defs and defs[state.id] then
+                -- nil and false both mean "no explicit page": the dropdown
+                -- only offers Default or a bar (stored false = Default in
+                -- older saves), so the native form page always falls back.
                 parts[#parts + 1] = state.macro .. " " .. defs[state.id]
             end
-            -- page == false: explicitly disabled, skip
         end
     end
     if barKey == "MainBar" then
@@ -3060,14 +3069,11 @@ function ns.RepaintAssistIcons()
                             -- This button's cooldown/charges mirror the
                             -- suggested spell, so a suggestion change is a
                             -- content change for THIS button and no other:
-                            -- paint ITS swipe now (two C calls, and immune to
-                            -- the nil-_gcdGen pre-first-cast corner the memo
-                            -- compare has) and drop ITS memos so the next
-                            -- natural walk reconciles charges/desat. Never a
-                            -- bar-wide invalidation or a forced full walk for
-                            -- a one-button change (see ns._ArmAssistTicker).
-                            fd.pushGen = nil
-                            fd.visGen = nil
+                            -- paint ITS swipe now (two C calls); the next
+                            -- natural push-through walk reconciles
+                            -- charges/desat. Never a bar-wide invalidation
+                            -- or a forced full walk for a one-button change
+                            -- (see ns._ArmAssistTicker).
                             ns.ForceCooldownPaint(btn)
                         end
                     end
@@ -3475,14 +3481,12 @@ ns.ApplyBarDormancy = function(key, dormant)
         ns._eabBarNeverWas[key] = nil
         if EAB.ApplyAlwaysShowButtons then EAB:ApplyAlwaysShowButtons(key) end
     end
-    -- Re-seed the cooldown walk for this bar's buttons: arm the existing
-    -- cast-wave (memos ignored for one pass) exactly as a cast does. The
-    -- dirty flag above rebuilds the tier lists to include this bar first;
-    -- the kick delivers the wave next frame.
+    -- Re-seed the cooldown walk for this bar's buttons exactly as a cast
+    -- does. The dirty flag above rebuilds the tier lists to include this
+    -- bar first; the kick delivers a full push-through pass next frame.
     ns._cdDirtyUntil = GetTime() + 2
     ns._cdWalkNext = 0
     ns._cdSlowNext = 0
-    ns._cdCastWave = true
     if ns._cdCastKick and not ns._cdCastKickPending then
         ns._cdCastKickPending = true
         C_Timer.After(0, ns._cdCastKick)
@@ -3711,13 +3715,9 @@ do
         -- update is unconditional. Its numeric SetCooldown path is closed
         -- to addon code (SecretArguments AllowedWhenUntainted), so the
         -- unconditional push goes through the duration-object sink instead.
-        local function PushButtonCooldown(btn, visOn, ci, gDur, force)
+        local function PushButtonCooldown(btn, visOn, ci, gDur)
             local action = btn:GetAttribute("action")
-            if not action or not HasAction(action) then
-                local rr = ns._cdRunningReal
-                if rr then rr[btn] = nil end
-                return
-            end
+            if not action or not HasAction(action) then return end
             local fd = EFD(btn)
             local cd = btn.cooldown
             local durObj = gDur
@@ -3725,43 +3725,29 @@ do
             local active = (cdInfo and cdInfo.isActive) and true or false
             local cdReal = active and not cdInfo.isOnGCD
             local cdClassFlip = cdReal ~= (fd.cdWasReal or false)
-            local cdMoved = cdReal or (active and cdClassFlip)
             if cd then
                 if active then
-                    if force or cdMoved or fd.pushGen ~= ns._gcdGen or not fd.cdWasActive then
-                        -- Spend the once-per-cast gen only on a SETTLED push.
-                        -- A pass running in the cast's OWN frame (events later
-                        -- in the same cascade -- guaranteed when the cast also
-                        -- reset a cooldown, e.g. a proc-reset instant breaking
-                        -- a channel) can read a not-yet-populated duration
-                        -- object, and in combat that object is SECRET so it
-                        -- cannot be inspected (only HasSecretValues is
-                        -- NeverSecret -- every other getter inherits the
-                        -- object's secrecy). So the rule is TIME-based, no
-                        -- reads needed: same frame as the cast = push what we
-                        -- see but leave the gen unspent; the cast kick's
-                        -- next-frame pass is the authoritative spend. Spending
-                        -- it same-frame left pure-GCD buttons blank for the
-                        -- whole GCD (tester recipe).
-                        if ns._gcdCastAt ~= GetTime() then
-                            fd.pushGen = ns._gcdGen
-                        end
-                        if not durObj then
-                            durObj = C_ActionBar.GetActionCooldownDuration(action)
-                        end
-                        if durObj then cd:SetCooldownFromDurationObject(durObj) end
+                    -- PUSH-THROUGH: no change gate. A same-frame-as-cast
+                    -- push may hand over a not-yet-populated (and in combat
+                    -- SECRET, so uninspectable) duration object -- that is
+                    -- fine BECAUSE nothing gates: the cast kick's next-frame
+                    -- pass and every capped pass while active re-deliver
+                    -- fresh objects, so a provisional paint self-corrects
+                    -- within a frame instead of being memo-stranded.
+                    if not durObj then
+                        durObj = C_ActionBar.GetActionCooldownDuration(action)
                     end
+                    if durObj then cd:SetCooldownFromDurationObject(durObj) end
                 elseif fd.cdWasActive then
                     cd:Clear()
                 end
             end
-            if visOn and ((active ~= (fd.cdWasActive or false)) or fd.chargeWasLive
-               or cdClassFlip or (active and fd.visGen ~= ns._gcdGen)) then
-                -- Same provisional rule for the visuals gen (the stale-desat
-                -- variant of the same transient).
-                if active and ns._gcdCastAt ~= GetTime() then
-                    fd.visGen = ns._gcdGen
-                end
+            -- Visuals (desat/alpha) ride the same doctrine: repaint on every
+            -- push while active plus on the falling edge -- cheap setters,
+            -- and Blizzard's UpdateUsable stomps vertex state mid-cooldown,
+            -- so change-gating here re-created the stale-desat class.
+            if visOn and (active or (fd.cdWasActive or false) or fd.chargeWasLive
+               or cdClassFlip) then
                 if active and not durObj then
                     durObj = C_ActionBar.GetActionCooldownDuration(action)
                 end
@@ -3769,11 +3755,6 @@ do
             end
             fd.cdWasActive = active
             fd.cdWasReal = cdReal
-            -- Running-REAL-cooldown set: the bounded re-push target for
-            -- mid-flight CDR detection under combat secrecy (see the pass).
-            local rr = ns._cdRunningReal
-            if not rr then rr = {}; ns._cdRunningReal = rr end
-            if cdReal then rr[btn] = true else rr[btn] = nil end
             if active then return true end
         end
         dispatcher:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
@@ -3907,31 +3888,20 @@ do
             if ns._cdWaveAt == GetTime() and ns._gcdCastAt ~= GetTime() then
                 return
             end
-            -- Re-arm the wave: cooldown events later in the cast's
-            -- OWN same-frame cascade (guaranteed when the cast also
-            -- reset a cooldown, e.g. proc-reset instants fired mid
-            -- channel) can consume the wave while the cooldown API
-            -- is still inside its documented transient-disagreement
-            -- window -- the stolen wave pushes pre-GCD state and the
-            -- memo then sees no edge. The kick IS the guaranteed
-            -- post-cascade frame, so it must run as a wave itself.
-            -- Cost: only in that racy interleaving, one extra push
-            -- of the wave that was owed to the cast anyway.
-            ns._cdCastWave = true
-            -- ...and re-open the two rate gates for the same reason. The cast
-            -- branch zeroes both, but a cooldown event in the cast's OWN frame
-            -- consumes that opening and re-arms them (storm cap to +0.15s, slow
-            -- tier to +0.5s) off state read inside the transient window. The
-            -- kick would then be capped out of the walk entirely, and the slow
-            -- tier -- every utility spell, item and macro, i.e. most of the bar
-            -- -- would keep whatever that transient push painted until its gate
-            -- expired, or until the ~1/sec heartbeat if no event landed at the
-            -- gate. Measured before this: swipe start a mean 231-304ms late
-            -- over two captures, a fifth to a third of them past 500ms, tail
-            -- reaching 616ms; after, 85ms mean with nothing past 208ms and the
-            -- 500ms+ band empty. Reopening is
+            -- Re-open the two rate gates: the cast branch zeroes both, but a
+            -- cooldown event in the cast's OWN frame consumes that opening
+            -- and re-arms them (storm cap to +0.15s, slow tier to +0.5s) off
+            -- state read inside the API's transient-disagreement window. The
+            -- kick would then be capped out of the pass entirely, and the
+            -- slow tier -- every utility spell, item and macro, i.e. most of
+            -- the bar -- would keep whatever that transient push painted
+            -- until its gate expired, or until the ~1/sec heartbeat if no
+            -- event landed at the gate. Measured before this: swipe start a
+            -- mean 231-304ms late over two captures, a fifth to a third of
+            -- them past 500ms, tail reaching 616ms; after, 85ms mean with
+            -- nothing past 208ms and the 500ms+ band empty. Reopening is
             -- self-limiting: the kick is once per cast (pending guard), and
-            -- when the wave was NOT stolen these are already 0.
+            -- when the frame's pass was settled these are already 0.
             ns._cdWalkNext = 0
             ns._cdSlowNext = 0
             -- The kick fires from the timer phase, AFTER the frame's event
@@ -3992,21 +3962,18 @@ do
                         -- Hoisted out of the occlusion call below: the MAIN
                         -- cooldown mirrors the recharge at 0 charges, so
                         -- regaining a charge silently stops it being a real
-                        -- cooldown -- with no cast of ours to bump the
-                        -- generation, and no `active` edge while a GCD is
+                        -- cooldown -- with no `active` edge while a GCD is
                         -- running. A reduction proc that collapses the
                         -- recharge lands here first, so repaint this one
                         -- button now (push-or-clear, three C calls) rather
                         -- than leave the old recharge countdown ticking on a
-                        -- spell that is back up, and drop its memos so the
-                        -- next walk re-derives instead of fighting this.
+                        -- spell that is back up; the push-through walks
+                        -- re-derive the rest.
                         local ci = C_ActionBar.GetActionCooldown(action)
                         local cdReal = (ci and ci.isActive and not ci.isOnGCD) and true or false
                         if cdReal ~= (fd.cdWasReal or false) then
                             ForceCooldownPaint(btn)
                             fd.cdWasReal = cdReal
-                            fd.pushGen = nil
-                            fd.visGen = nil
                         end
                         local chargeCd = btn.chargeCooldown
                         if not chargeCd and chargeInfo.isActive then
@@ -4306,66 +4273,28 @@ do
         end
         -- Targeted-probe body (see the dispatch site below), extracted as
         -- a named function for profiler attribution. g is the tier group
-        -- for key; memo semantics identical to the tier body.
+        -- for key; push-through, same semantics as the tier body -- one
+        -- fetch + one duration object per probe, pushed to the group's
+        -- buttons unconditionally. Payload events fire at chatter rate
+        -- (charge regen ticks), so a probe's cost is a handful of sink
+        -- calls on the one named group -- accepted with the doctrine.
         local function DispProbe(g, key)
                     local p = EAB.db.profile
                     local visOn = p.desaturateOnCooldown
                         or (p.alphaWhenOnCD or 100) ~= 100
-                    local isSec = issecretvalue
                     local GetSpellCd = C_Spell and C_Spell.GetSpellCooldown
                     local GetSpellCdDur = C_Spell and C_Spell.GetSpellCooldownDuration
                     local live = false
-                    if GetSpellCd then
-                        local ci = GetSpellCd(key)
-                        local s2 = ci and ci.startTime
-                        local d2 = ci and ci.duration
-                        -- Same group-level prefetch as the tier body -- one
-                        -- duration object per probe, shared by the group's
-                        -- buttons (isActive is NeverSecret) -- fetched ONLY
-                        -- when the memo actually changed, so the common
-                        -- diff-no-change probe stays allocation-free.
-                        -- NOTE (re-baseline capture 2026-08-03): probes are
-                        -- EDGE-ONLY on purpose. An active-repush here ran on
-                        -- every payload event UNCAPPED and tripled the push
-                        -- volume for zero added correctness -- the capped
-                        -- sweep's secrecy active-repush covers staleness
-                        -- within 150ms and the hot lane covers the pressed
-                        -- spell at event rate already.
-                        local gDur
-                        if isSec and (isSec(s2) or isSec(d2)) then
-                            -- Combat secrecy: same readable-isActive memo
-                            -- fallback as the tier body.
-                            local a2 = (ci and ci.isActive) and true or false
-                            if not g.mSecret or g.mA ~= a2 then
-                                g.mSecret = true
-                                g.mA = a2
-                                g.mS, g.mD = nil, nil
-                                if a2 and GetSpellCdDur then
-                                    gDur = GetSpellCdDur(key)
-                                end
-                                for i = 1, #g do
-                                    if PushButtonCooldown(g[i], visOn, ci, gDur, true) then live = true end
-                                end
-                            end
-                            if g.mA then live = true end
-                        else
-                            if g.mSecret or g.mS ~= s2 or g.mD ~= d2 then
-                                g.mSecret = nil
-                                g.mS, g.mD = s2, d2
-                                if ci and ci.isActive and GetSpellCdDur then
-                                    gDur = GetSpellCdDur(key)
-                                end
-                                for i = 1, #g do
-                                    if PushButtonCooldown(g[i], visOn, ci, gDur) then live = true end
-                                end
-                            end
-                            if g.mD and g.mD ~= 0 then live = true end
-                        end
-                    else
-                        for i = 1, #g do
-                            if PushButtonCooldown(g[i], visOn) then live = true end
-                        end
+                    local ci = GetSpellCd and GetSpellCd(key) or nil
+                    local gDur
+                    if ci and ci.isActive then
                         live = true
+                        if GetSpellCdDur then gDur = GetSpellCdDur(key) end
+                    elseif not GetSpellCd then
+                        live = true
+                    end
+                    for i = 1, #g do
+                        if PushButtonCooldown(g[i], visOn, ci, gDur) then live = true end
                     end
                     -- A live schedule needs the heartbeat awake for its END
                     -- transition: the settled gate would otherwise sleep
@@ -4373,21 +4302,23 @@ do
                     -- desat/alpha recovery rides the passes).
                     if live then ns._cdDirtyUntil = GetTime() + 2 end
         end
-            -- TARGETED COOLDOWN PASSES (spell-keyed; replaces the per-slot
-            -- walk). The broadcast cooldown events stay the trigger, but the
-            -- work is per UNIQUE SPELL with a state memo: fetch + compare
-            -- startTime/duration, and push buttons ONLY on change. During a
-            -- GCD every ready spell's state IS the GCD, so a cast naturally
-            -- changes every fast-tier memo at once = the full push wave;
-            -- between GCDs the memos are static and the pass is pure
-            -- compares. The slow tier + residual slots ride a 0.5s gate that
-            -- casts ZERO (see the cast branch), so their GCD sweeps stay
-            -- same-frame -- the relaxed cadence only delays castless changes
-            -- (item ICDs, utility procs). Falling edges are additionally
-            -- caught per button by the OnCooldownDone hooks. Secret state
-            -- fails open: push the group and clear its memo. A missing
-            -- C_Spell.GetSpellCooldown degrades to pushing every group per
-            -- capped event -- exactly the old walk's behavior.
+            -- TARGETED COOLDOWN PASSES (spell-keyed): PUSH-THROUGH, no value
+            -- memos. Every capped pass fetches per UNIQUE SPELL and pushes
+            -- fresh state to every hosting button unconditionally, sink-style
+            -- (duration objects are handed to the widget, never read). This
+            -- is a SANCTIONED paint-the-world exception on the swipe channel
+            -- (2026-08-04, user-approved): the per-spell startTime/duration
+            -- memos compared against snapshot values that LIE during the
+            -- server-ack window (and are secret in instanced combat), and
+            -- every eaten transition in this saga -- late GCD swipes, stale
+            -- charge overlays, stranded waves -- traced to a memo or a gate
+            -- sitting between the event and SetCooldown. The economy still
+            -- comes from the SPELL-keyed batching (one fetch per unique
+            -- spell, not per button), the same-frame event collapse, the
+            -- 0.15s storm cap, the 0.5s slow-tier cadence, and idle sleep:
+            -- pushes are cheap C sink calls; the comparisons were the bug.
+            -- Falling edges are additionally caught per button by the
+            -- OnCooldownDone hooks.
         -- Extracted from the dispatcher body as a NAMED function so the
         -- profiler attributes the pass separately from event dispatch.
         -- Returns true when any live schedule was seen (the caller ORs
@@ -4397,7 +4328,6 @@ do
                 local p = EAB.db.profile
                 local visOn = p.desaturateOnCooldown
                     or (p.alphaWhenOnCD or 100) ~= 100
-                local isSec = issecretvalue
                 local GetSpellCd = C_Spell and C_Spell.GetSpellCooldown
                 local GetSpellCdDur = C_Spell and C_Spell.GetSpellCooldownDuration
                 -- One duration-object fetch per GROUP (unique spell), never
@@ -4405,133 +4335,40 @@ do
                 -- SHARED one GCD object across every group whose struct
                 -- read isOnGCD=true -- but the API docs say that field is
                 -- only trustworthy in direct SPELL_UPDATE_COOLDOWN response,
-                -- and these waves also run from synthesized dispatches (the
+                -- and these passes also run from synthesized dispatches (the
                 -- cast kick, cap flushes, hot lane). A REAL cooldown that
                 -- read a stale isOnGCD=true got painted with the ~1s GCD
                 -- object: the swipe swept several times too fast, finished
                 -- early, and the button sat swipe-less until a later repaint
                 -- landed mid-cooldown (user-reported as swipes starting
                 -- late/already-advanced under spam). Per-group fetches only.
-                local function RunGroup(g, sid, ci, force)
+                local function RunGroup(g, sid, ci)
                     local gDur
                     if ci and ci.isActive and GetSpellCdDur then
                         gDur = GetSpellCdDur(sid)
                     end
                     for i = 1, #g do
-                        if PushButtonCooldown(g[i], visOn, ci, gDur, force) then liveSeen = true end
+                        if PushButtonCooldown(g[i], visOn, ci, gDur) then liveSeen = true end
                     end
                 end
-                local castWave = ns._cdCastWave
-                if castWave then
-                    ns._cdCastWave = nil
-                    -- Wave-delivery stamp: lets the kick skip its re-wave
-                    -- when a real event already delivered a SETTLED wave in
-                    -- the kick's own frame (GetTime is frame-constant).
-                    ns._cdWaveAt = GetTime()
-                end
+                -- Pass-delivery stamp: lets the cast kick skip its re-pass
+                -- when a real event already ran a settled pass in the
+                -- kick's own frame (GetTime is frame-constant).
+                ns._cdWaveAt = GetTime()
                 local function RunTier(tier)
                     if not tier then return end
                     for sid, g in pairs(tier) do
-                        if castWave then
-                            -- Forced cast wave: push unconditionally and
-                            -- re-seed the memo from the fresh state so the
-                            -- following passes diff against reality.
-                            local ci
-                            if GetSpellCd then
-                                ci = GetSpellCd(sid)
-                                local s2 = ci and ci.startTime
-                                local d2 = ci and ci.duration
-                                if isSec and (isSec(s2) or isSec(d2)) then
-                                    g.mSecret = true
-                                    g.mA = (ci and ci.isActive) and true or false
-                                    g.mS, g.mD = nil, nil
-                                else
-                                    g.mSecret = nil
-                                    g.mS, g.mD = s2, d2
-                                end
-                            end
-                            -- Waves are unconditional BY SEMANTIC: force
-                            -- through the per-button gate too (a gen-less
-                            -- press wave was silently eaten by it).
-                            RunGroup(g, sid, ci, true)
-                            liveSeen = true
-                        elseif GetSpellCd then
-                            local ci = GetSpellCd(sid)
-                            local s2 = ci and ci.startTime
-                            local d2 = ci and ci.duration
-                            if isSec and (isSec(s2) or isSec(d2)) then
-                                -- COMBAT SECRECY: timing values are secret,
-                                -- so the memo falls back to the READABLE
-                                -- isActive bool -- rising/falling edges
-                                -- still detect exactly. Mid-flight CDR on a
-                                -- RUNNING cooldown is invisible to this key;
-                                -- the bounded running-real re-push below
-                                -- owns that class.
-                                local a2 = (ci and ci.isActive) and true or false
-                                if not g.mSecret or g.mA ~= a2 then
-                                    g.mSecret = true
-                                    g.mA = a2
-                                    g.mS, g.mD = nil, nil
-                                    RunGroup(g, sid, ci, true)
-                                elseif a2 then
-                                    -- SECRECY ACTIVE-REPUSH (bisect-proven,
-                                    -- and RE-proven 2026-08-03 evening): an
-                                    -- unreadable schedule changes without
-                                    -- flipping isActive -- queued next GCD,
-                                    -- server-ack backfill, CDR -- and the
-                                    -- GLOBAL cooldown's settling window
-                                    -- belongs to EVERY ready button at
-                                    -- once, so a pressed-button-only hot
-                                    -- ring is NOT a substitute (field-
-                                    -- tested: removing this broke GCD
-                                    -- swipes bar-wide). While a group is
-                                    -- ACTIVE under secrecy every capped
-                                    -- pass re-pushes it from fresh
-                                    -- objects, forced through the per-
-                                    -- button gate. Stable-INACTIVE still
-                                    -- skips (settled bars stay zero-cost);
-                                    -- clean mode keeps exact readable
-                                    -- diffs. ~+1.2ms/s at max spam,
-                                    -- scaling with GCD uptime -- the price
-                                    -- of correct swipes under secrecy.
-                                    RunGroup(g, sid, ci, true)
-                                end
-                                if g.mA then liveSeen = true end
-                            else
-                                if g.mSecret or g.mS ~= s2 or g.mD ~= d2 then
-                                    g.mSecret = nil
-                                    g.mS, g.mD = s2, d2
-                                    RunGroup(g, sid, ci)
-                                end
-                                -- Any running schedule (incl. the GCD) keeps
-                                -- the heartbeat awake so the END transition
-                                -- (state returning to 0/0) is caught.
-                                if g.mD and g.mD ~= 0 then
-                                    liveSeen = true
-                                end
-                            end
-                        else
-                            RunGroup(g)
+                        local ci = GetSpellCd and GetSpellCd(sid) or nil
+                        RunGroup(g, sid, ci)
+                        -- Any active schedule (incl. the GCD, and secret
+                        -- schedules -- isActive stays readable) keeps the
+                        -- heartbeat awake for the END transition.
+                        if not GetSpellCd or (ci and ci.isActive) then
                             liveSeen = true
                         end
                     end
                 end
                 RunTier(ns._cdFastSpells)
-                -- Mid-flight modification coverage (CDR procs, resets):
-                -- under combat secrecy the memos cannot see a RUNNING
-                -- cooldown's schedule change -- but modifications can ONLY
-                -- affect running REAL cooldowns, and PushButtonCooldown
-                -- maintains that exact set. Re-push it every capped pass:
-                -- the same guarantee the old walk gave all 140 slots, on
-                -- the 2-6 buttons it can actually apply to. (The push body
-                -- re-fetches per action and re-pushes real cooldowns, so a
-                -- changed schedule lands within one 0.15s cap window.)
-                local rr = ns._cdRunningReal
-                if rr and next(rr) then
-                    for btn in pairs(rr) do
-                        if PushButtonCooldown(btn, visOn) then liveSeen = true end
-                    end
-                end
                 local nowS = GetTime()
                 if nowS >= (ns._cdSlowNext or 0) then
                     ns._cdSlowNext = nowS + 0.5
@@ -4564,10 +4401,10 @@ do
             local pH = EAB.db.profile
             local visH = pH.desaturateOnCooldown
                 or (pH.alphaWhenOnCD or 100) ~= 100
-            PushButtonCooldown(b1, visH, nil, nil, true)
+            PushButtonCooldown(b1, visH)
             local b2 = ns._cdRecentBtn2
             if b2 and b2 ~= b1 and (nowH - (ns._cdRecentBtn2At or 0)) < 3 then
-                PushButtonCooldown(b2, visH, nil, nil, true)
+                PushButtonCooldown(b2, visH)
             end
         end
         -- Physical-press paint (called from each button's PostClick hook):
@@ -4583,7 +4420,7 @@ do
             local p = EAB.db.profile
             local visOn = p.desaturateOnCooldown
                 or (p.alphaWhenOnCD or 100) ~= 100
-            PushButtonCooldown(btn, visOn, nil, nil, true)
+            PushButtonCooldown(btn, visOn)
             -- Prime the button-keyed hot ring (no ids read -- see
             -- HotPushRecent): the pressed button gets event-rate re-pushes
             -- through its ack window in every ruleset, secrecy included.
@@ -4595,7 +4432,6 @@ do
             ns._cdDirtyUntil = GetTime() + 2
             ns._cdWalkNext = 0
             ns._cdSlowNext = 0
-            ns._cdCastWave = true
             if not ns._cdCastKickPending then
                 ns._cdCastKickPending = true
                 C_Timer.After(0, ns._cdCastKick)
@@ -4625,7 +4461,6 @@ do
                     ns._cdDirtyUntil = GetTime() + 2
                     ns._cdWalkNext = 0
                     ns._cdSlowNext = 0
-                    ns._cdCastWave = true
                     if not ns._cdCastKickPending then
                         ns._cdCastKickPending = true
                         C_Timer.After(0, ns._cdCastKick)
@@ -4634,17 +4469,16 @@ do
                 return
             end
             -- HOT LANE: the spells the player just cast get default-UI
-            -- latency. The storm cap, same-frame dedupe and diff memos are
-            -- correct economics for ~50 settled buttons, but on the button
-            -- being actively pressed they AMPLIFIED the engine's own
-            -- server-ack window (cooldown reads isActive=true before its
-            -- schedule handle populates; under queue spam the real-cooldown
-            -- swipe then waited out caps/flushes, 150-500ms observed and
-            -- worsening with chatter). The recently-cast 1-2 groups are
-            -- re-pushed with a FRESH per-button fetch on EVERY cooldown
-            -- event fire, ahead of every gate, for 3s after their cast --
-            -- so the first event after the engine data turns real paints
-            -- the swipe. Cost: a couple of struct/object fetches per
+            -- latency. The 0.15s storm cap is correct economics for ~50
+            -- settled buttons, but on the button being actively pressed it
+            -- stretches the engine's own server-ack window (cooldown reads
+            -- isActive=true before its schedule handle populates; the
+            -- passes are push-through now, but a capped pass still lands up
+            -- to 150ms after the data turns real). The recently-cast 1-2
+            -- buttons are re-pushed with a FRESH per-button fetch on EVERY
+            -- cooldown event fire, ahead of the cap, for 3s after their
+            -- cast -- so the first event after the engine data turns real
+            -- paints the swipe. Cost: a couple of struct/object fetches per
             -- cooldown event inside the window; one nil-check outside it.
             if ns._cdRecentBtn1 and (event == "ACTIONBAR_UPDATE_COOLDOWN"
                 or event == "SPELL_UPDATE_COOLDOWN") then
@@ -4666,7 +4500,7 @@ do
             -- now paint the same frame. Secret payloads fail open to the
             -- sweep: a secret value cannot be used as a table key.
             if event == "SPELL_UPDATE_COOLDOWN" and arg1 ~= nil
-               and not ns._cdCastWave and not ns._cdFilledDirty
+               and not ns._cdFilledDirty
                and not (issecretvalue and (issecretvalue(arg1) or issecretvalue(arg2))) then
                 local fastT, slowT = ns._cdFastSpells, ns._cdSlowSpells
                 local key = arg1
@@ -4714,32 +4548,21 @@ do
                 -- once per cast instead of once per event.
                 ns._cdWalkNext = 0
                 ns._cdSlowNext = 0
-                -- The cast is the AUTHORITATIVE GCD signal: force the next
-                -- pass to push every tier unconditionally, memos ignored.
-                -- State-diffing alone can miss an entire GCD -- when the
-                -- bars are settled, a cast's cooldown events can arrive
-                -- BEFORE this event (order is not guaranteed), land in a
-                -- skipped pass, and by the next live pass the GCD has fully
-                -- round-tripped so the memo sees no change (tester-reported:
-                -- ~1-in-20 casts with no GCD swipe, plus a stale desat
-                -- healing only on the next wave). The old walk was immune
-                -- via exactly this semantics (gcdGen-driven cast pushes).
-                ns._cdCastWave = true
                 -- Deterministic delivery: don't wait for Blizzard's next
-                -- cooldown event to carry the wave (ordering races are the
-                -- bug this fixes) -- kick one pass next frame ourselves.
-                -- The event-driven passes that follow diff-no-change, so
-                -- the kick costs one wave that was owed anyway.
+                -- cooldown event to run the post-cast pass (a cast's own
+                -- events can arrive BEFORE this one and land while the API
+                -- is inside its transient window) -- kick one authoritative
+                -- pass next frame ourselves.
                 if not ns._cdCastKickPending then
                     ns._cdCastKickPending = true
                     C_Timer.After(0, ns._cdCastKick)
                 end
-                ns._gcdGen = (ns._gcdGen or 0) + 1
                 -- The cast's frame timestamp: pushes running in THIS frame
-                -- are provisional (they may read a pre-settled duration
-                -- object) and must not spend the new gen -- see
-                -- PushButtonCooldown. GetTime is frame-constant, so equality
-                -- identifies the cast's own event cascade exactly.
+                -- are provisional (they may hand over a pre-settled duration
+                -- object); the kick reads this to know its pass must run
+                -- even when a pass already ran this frame. GetTime is
+                -- frame-constant, so equality identifies the cast's own
+                -- event cascade exactly.
                 ns._gcdCastAt = GetTime()
                 return
             end
