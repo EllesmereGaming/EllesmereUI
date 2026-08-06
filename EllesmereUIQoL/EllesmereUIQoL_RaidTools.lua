@@ -1195,7 +1195,7 @@ end
 
 -- Toggle Raid Tools key: profile-stored, applied as an override binding on
 -- the secure toggle button -- the exact arrangement Action Bars uses for
--- Toggle Action Bar Visibility. Pressing the bound key is a hardware click,
+-- Toggle Action Bar. Pressing the bound key is a hardware click,
 -- so the toggle itself works IN combat; only (re)binding defers.
 local function ApplyToggleKeybind()
     if not toggleButton then return end

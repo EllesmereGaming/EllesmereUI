@@ -3362,8 +3362,8 @@ end
 ns._eabBarDormant = {}
 -- HARD dormancy: bars whose visibility mode is "Never" (or which are
 -- disabled) cannot become visible through ANY runtime condition -- no
--- driver state, no combat edge. The only reveal path is a settings write,
--- and every settings path that changes effective visibility funnels
+-- driver state, no combat edge. The only reveal paths are a settings write
+-- or the Toggle Action Bar runtime override; both paths funnel
 -- through RefreshRuntimeVisibility (the driver re-derivation lives there),
 -- which recomputes this map. While a bar is in this map EVERY per-event
 -- walk skips it, content classes included: the dormancy reveal reconcile
@@ -3381,14 +3381,13 @@ ns.RecomputeNeverBars = function()
     for _, info in ipairs(BAR_CONFIG) do
         if not info.isStance and not info.isPetBar and not info.visibilityOnly then
             local s = bars[info.key]
-            local never = (s and (s.alwaysHidden or s.enabled == false)) and true or nil
-            -- The Toggle Action Bar keybind override can runtime-reveal a
-            -- saved-Never bar without any settings write; an overridden bar
-            -- is NOT hard-dormant (both toggle paths re-run
-            -- RefreshRuntimeVisibility, so this recomputes on every flip).
-            if never and EAB._visOverride and EAB._visOverride[info.key] == "always" then
-                never = nil
-            end
+            local override = EAB._visOverride and EAB._visOverride[info.key]
+            local never = s and (s.alwaysHidden or s.enabled == false) or false
+            -- Toggle override wins both ways: hiding an Always bar hard-disables
+            -- its UI work; showing a Never bar wakes it. Action bindings stay live.
+            if override == "never" then never = true
+            elseif override == "always" then never = false end
+            never = never and true or nil
             if map[info.key] ~= never then
                 if map[info.key] and not never then
                     -- Leaving Never: remember it so the reveal reconcile
@@ -9522,8 +9521,9 @@ end
 
 -------------------------------------------------------------------------------
 --  "Toggle Action Bar" visibility keybind
---  A per-bar keybind that flips a bar between always-shown and hidden at RUNTIME
---  only -- the saved barVisibility is never written, so the toggle does not
+--  A per-bar keybind that flips bar UI between active/shown and dormant/hidden
+--  at RUNTIME. Action bindings stay live; saved barVisibility is never written,
+--  so the toggle does not
 --  persist across sessions (a /reload restores the saved state). Only meaningful
 --  when the bar's saved visibility is "always" or "never", and only out of combat
 --  (changing a secure frame's state-visibility driver is combat-blocked).

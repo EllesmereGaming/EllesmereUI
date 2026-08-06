@@ -1071,7 +1071,7 @@ EllesmereUI._WHATSNEW_PATCHES = {
         fixes = {
             { module = "Action Bars", text = "Fixed charge abilities flickering between colored and greyed out while recharging, and sometimes showing two overlapping cooldown numbers." },
             { module = "Action Bars", text = "Fixed the recharge countdown on charge abilities showing in Blizzard's default font instead of your configured cooldown font." },
-            { module = "Action Bars", text = "Fixed a bar set to Never not getting a move handle in unlock mode while the Toggle Action Bar Visibility keybind had it on screen, and a bar set to Always that the keybind had toggled off still getting one." },
+            { module = "Action Bars", text = "Fixed a bar set to Never not getting a move handle in unlock mode while the Toggle Action Bar keybind had it on screen, and a bar set to Always that the keybind had toggled off still getting one." },
             { module = "Action Bars", text = "Fixed combat error spam when the micro menu or bag bar changed visibility during Mythic+ keys and other combat." },
             { module = "Blizz UI Enhanced", text = "Fixed the Crafting Orders type tabs (Public, NPC, Guild, Personal) keeping their highlight stuck on Public no matter which tab was selected." },
             { module = "Blizz UI Enhanced", text = "Added an optional Mana row to the character sheet Attributes stats, off by default in the Attributes cog and hidden for classes with no mana pool." },

@@ -1349,7 +1349,7 @@ L["BAR BACKGROUND"] = "条背景"
 
 --主要文本
 L["Menu, Bags & XP Bars"] = "菜单、背包和经验值条"
-L["Toggle Action Bar Visibility"] = "切换动作条可见性"
+L["Toggle Action Bar"] = "切换动作条"
 L["Micro Menu Visibility"] = "微型菜单可见性"
 L["Bag Bar Visibility"] = "背包条可见性"
 L["Use Blizzard's XP/Rep Bars"] = "使用暴雪经验/声望条"
@@ -1511,7 +1511,7 @@ L["Disable Skyriding Paging"] = "禁用驭龙术切换"
 
 
 -- 动作条鼠标提示 (tooltip)
-L["Toggling action bar visibility is only available out of combat"] = "切换动作条可见性仅在脱离战斗时可用"
+L["Toggling an action bar is only available out of combat"] = "切换动作条仅在脱离战斗时可用"
 L["Left-click to set a keybind."] = "左键设置快捷键。"
 L["Right-click to unbind."] = "右键取消绑定。"
 L["Apply Background Settings to all Bars"] = "将背景设置应用于所有条"
@@ -1566,7 +1566,7 @@ L["Toggles Blizzard's Show Numbers for Cooldowns setting (the countdownForCooldo
 L["The highlight overlay that appears on a spell button while it is the active/current action. Disable to hide it."] = "法术按钮作为当前激活动作时出现的高亮覆盖层。禁用可将其隐藏。"
 L["Dims action button icons to this opacity while on cooldown (100 = off), using the same detection as Desaturate on Cooldown."] = "将动作按钮图标在冷却时调暗至此不透明度（100 = 关闭），使用与“冷却时褪色”相同的检测方式。"
 L["Opacity of the cooldown swipe (the dark radial sweep); use the swatch to set its colour."] = "冷却动画（暗色径向动画）的不透明度；使用色板设置其颜色。"
-L["Toggling action bar visibility is only available out of combat\n\nLeft-click to set a keybind.\nRight-click to unbind."] = "切换动作条可见性仅可在非战斗状态下进行\n\n左键点击设置按键绑定。\n右键点击取消绑定。"
+L["Toggling an action bar is only available out of combat\n\nLeft-click to set a keybind.\nRight-click to unbind."] = "切换动作条仅可在非战斗状态下进行\n\n左键点击设置按键绑定。\n右键点击取消绑定。"
 L["Toggles Blizzard's Show Numbers for Cooldowns setting, which will show number text on any spells that are on cooldown on your action bars."] = "切换暴雪的“显示冷却时间数字”设置，该设置会在动作条上任何处于冷却中的法术上显示数字文本。"
 L["Order of the buttons on this bar; corner options place the first button in that corner."] = "此条上按钮的顺序；角落选项将第一个按钮放置在该角落。"
 L["Combines with conditions: shows on hover only while they pass."] = "与条件组合：仅在条件满足时，悬停才显示。"
