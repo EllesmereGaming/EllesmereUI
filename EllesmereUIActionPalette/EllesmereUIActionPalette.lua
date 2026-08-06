@@ -1001,6 +1001,12 @@ local USABILITY_TINT = {
 -- Macros, markers and palettes answer nil. A macro's usability is whatever its
 -- body resolves to, which is not knowable from here, and tinting one gray on a
 -- guess is worse than saying nothing.
+--
+-- Toys also answer nil. A toy is not a bag item, so C_Item.IsUsableItem says
+-- unusable for every toy a player owns, and graying the whole Hearthstones
+-- palette is exactly what that produced. The toy box itself draws no
+-- usability tint -- Blizzard_ToyBox.lua desaturates only UNCOLLECTED toys --
+-- and the cooldown swipe already tells the one thing a toy has to tell.
 local function SlotUsability(slot)
     if not slot then return nil end
     local k = slot.kind
@@ -1012,7 +1018,7 @@ local function SlotUsability(slot)
         if usable then return nil end
         return noPower and "NOPOWER" or "UNUSABLE"
 
-    elseif k == "item" or k == "toy" then
+    elseif k == "item" then
         if type(slot.id) ~= "number" then return nil end
         if C_Item.ItemHasRange(slot.id)
            and C_Item.IsItemInRange(slot.id, "target") == false then
