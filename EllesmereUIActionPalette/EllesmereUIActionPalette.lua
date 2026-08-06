@@ -43,6 +43,22 @@
 local ADDON_NAME, ns = ...
 local EAP = EllesmereUI.Lite.NewAddon(ADDON_NAME)
 
+-- The live palette's frame. CreateLiveView fills it in, and this is the one
+-- part of it that is not made there.
+--
+-- The engine bills a script handler's whole call tree to the addon whose
+-- execution context called CreateFrame for the frame that carries the handler.
+-- CreateLiveView is reached from OnEnable, which runs under the parent's
+-- lifecycle dispatch, so a frame made there is stamped EllesmereUI for the
+-- session. This frame carries OnPaletteUpdate. Made there, every frame of
+-- steering and hit testing an open palette does was billed to the parent addon
+-- instead of to this one, which hid the cost of the module that causes it. The
+-- main chunk runs as this addon, so the frame is stamped correctly here.
+--
+-- The event frame in EllesmereUI_Lite.lua is created eagerly for this reason.
+local liveFrame = CreateFrame("Frame", "EUIActionPaletteFrame", UIParent)
+liveFrame:Hide()
+
 -- Upvalues
 local floor, ceil, min, max, abs = math.floor, math.ceil, math.min, math.max, math.abs
 local sin, cos, tan, atan2, sqrt, pi =
@@ -3435,7 +3451,15 @@ function ns.CreatePaletteView(parent, opts)
         _steered  = true,
     }, PaletteViewMeta)
 
-    local frame = CreateFrame("Frame", view.opts.frameName, parent)
+    -- A caller can hand in the frame instead of naming one. The live view does,
+    -- because where a frame is created decides which addon its handlers are
+    -- billed to -- see the top of this file.
+    local frame = view.opts.frame
+    if frame then
+        frame:SetParent(parent)
+    else
+        frame = CreateFrame("Frame", view.opts.frameName, parent)
+    end
     frame:SetSize(1, 1)
     frame:EnableMouse(false)
     view.frame = frame
@@ -4201,7 +4225,7 @@ end
 -------------------------------------------------------------------------------
 local function CreateLiveView()
     if liveView then return liveView end
-    liveView = ns.CreatePaletteView(UIParent, { frameName = "EUIActionPaletteFrame", live = true })
+    liveView = ns.CreatePaletteView(UIParent, { frame = liveFrame, live = true })
     local f = liveView:GetFrame()
     f:SetFrameStrata(LIVE_STRATA)
     f:Hide()
@@ -6129,11 +6153,11 @@ function EAP:OnEnable()
     -- until a reload. Disabled costs nothing: UpdateBindings registers no
     -- keys, so nothing can open the palette.
     --
-    -- Nothing is BUILT here either. The palette frames, the scroll catcher and
-    -- the arming gates are all made on demand -- by PushPalette, which only
-    -- runs for a palette that has a secure button, and UpdateBindings builds no
-    -- buttons at all while the module is switched off. A session that never
-    -- enables it creates no frames.
+    -- The secure buttons, the scroll catcher and the arming gates are all made
+    -- on demand -- by PushPalette, which only runs for a palette that has a
+    -- secure button, and UpdateBindings builds no buttons at all while the
+    -- module is switched off. A session that never enables it builds none of
+    -- them. It still holds the one empty frame the main chunk makes.
     for i = 1, PaletteCount() do EnsurePalette(i) end
     ns.UpdateBindings()
     PushAllPalettes()
