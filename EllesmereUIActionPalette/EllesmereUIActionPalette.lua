@@ -796,6 +796,48 @@ local function SlotCooldown(slot)
     return nil
 end
 
+-- WHETHER an entry writes a number in its corner, and WHAT that number is --
+-- deliberately two returns rather than one nilable value. Two things earn a
+-- number: a stack of items, and a spell's charges.
+--
+-- The charge count must never be looked at, not even for truth or for nil.
+-- C_Spell.GetSpellCharges is flagged SecretWhenCooldownsRestricted
+-- (SpellDocumentation.lua:233), so currentCharges comes back a SECRET number
+-- once restrictions are in effect, and touching one from tainted execution
+-- throws -- the same wall the spell cooldown hit. So the caller is told
+-- separately that there IS a count, and the count itself only ever reaches
+-- SetText, which swallows a secret; Blizzard's own action button hands the
+-- identical kind of value to the identical call (ActionButton.lua:810).
+--
+-- What is safe to test is the TABLE the call returns, which is not itself
+-- secret: it comes back as nothing for a spell that has no charges at all.
+--
+-- Neither item call carries a secret flag, so those may be compared -- and
+-- have to be, because a count only means something on a stackable item. A
+-- Hearthstone writing "1" in its corner is noise.
+local function SlotCount(slot)
+    if not slot then return false end
+    local k = slot.kind
+
+    if k == "spell" then
+        if type(slot.id) ~= "number" or not C_Spell.GetSpellCharges then return false end
+        local charges = C_Spell.GetSpellCharges(slot.id)
+        if not charges then return false end
+        return true, charges.currentCharges
+
+    elseif k == "item" then
+        if type(slot.id) ~= "number" then return false end
+        -- Position 8 is the stack size. It is nil until the item's data has
+        -- been cached, which costs at most the count on one open -- the
+        -- palette repaints from scratch every time it is drawn.
+        local stack = select(8, C_Item.GetItemInfo(slot.id))
+        if not stack or stack <= 1 then return false end
+        return true, C_Item.GetItemCount(slot.id)
+    end
+
+    return false
+end
+
 -- Build a slot table from whatever is on the cursor. Returns nil when the
 -- cursor holds something the palette can't fire.
 local function SlotFromCursor()
@@ -980,6 +1022,16 @@ local function CreateSlotWidget(view, index)
     w.cd:SetAllPoints(w.icon)
     w.cd:SetHideCountdownNumbers(false)
     w.cd:SetDrawEdge(false)
+
+    -- Stack size or charges, in the corner an action button writes them in.
+    -- Its text may be a SECRET value (see SlotCount), so it is SHOWN and
+    -- HIDDEN rather than written and cleared: a FontString carrying secret
+    -- text refuses text access to tainted callers, and a refused clear would
+    -- leave the previous entry's number standing.
+    w.count = w:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
+    w.count:SetPoint("BOTTOMRIGHT", w, "BOTTOMRIGHT", -1, 2)
+    w.count:SetJustifyH("RIGHT")
+    w.count:Hide()
 
     w.label = w:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     w.label:SetPoint("TOP", w, "BOTTOM", 0, -2)
@@ -3237,7 +3289,11 @@ end
 -- nested ones, which differ only in where they are placed and when they are
 -- shown -- a second copy of this is how a nested entry ends up with no cooldown
 -- swirl or the wrong label the first time either option moves.
-local function PaintCell(w, slot, placeholder, showLabels, showCooldowns, wantLabel)
+-- iconSize is the size the LAYOUT gave this cell, before any falloff or
+-- selection zoom: the corner count is sized off it, and reading the widget's
+-- current size instead would make the number breathe with the entry.
+local function PaintCell(w, slot, placeholder, showLabels, showCooldowns, wantLabel,
+                         iconSize)
     w.isPlaceholder = placeholder
 
     local icon, name = SlotDisplay(slot)
@@ -3266,6 +3322,20 @@ local function PaintCell(w, slot, placeholder, showLabels, showCooldowns, wantLa
         w.cd:Clear()
         w.cd:Hide()
     end
+
+    -- The value is written and shown, never read back or tested -- not even
+    -- for nil, which is why SlotCount answers WHETHER separately from WHAT. A
+    -- placeholder has no slot to count, and a palette entry's count would be
+    -- whichever of its children happened to be first.
+    local hasCount, count = false, nil
+    if not placeholder and slot and slot.kind ~= "palette" then
+        hasCount, count = SlotCount(slot)
+    end
+    if hasCount then
+        w.count:SetTextHeight(max(8, floor((iconSize or 44) * 0.34)))
+        w.count:SetText(count)
+    end
+    w.count:SetShown(hasCount)
 
     ApplySlotVisual(w, false)
 end
@@ -3379,7 +3449,7 @@ function PaletteView:Layout(paletteIndex)
         -- neighbouring icons collide, and the centre entry -- the only one that
         -- can be fired -- is already named on the hub.
         PaintCell(w, palette.slots[i], palette.slots[i] == nil,
-                  showLabels, showCooldowns, not fan)
+                  showLabels, showCooldowns, not fan, iconSize)
         w:Show()
     end
 
@@ -3409,7 +3479,7 @@ function PaletteView:Layout(paletteIndex)
                 w:SetSize(c.icon, c.icon)
                 w:EnableMouse(false)
                 PaintCell(w, c.slots[j], false, showLabels, showCooldowns,
-                          c.label ~= false)
+                          c.label ~= false, c.icon)
                 -- Hidden until its own claim is previewed or opened -- see
                 -- UpdateNestShown.
                 w:Hide()
