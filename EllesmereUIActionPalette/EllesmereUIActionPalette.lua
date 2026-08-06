@@ -618,12 +618,14 @@ local MARKER_NAMES = {
     "Star", "Circle", "Diamond", "Triangle", "Moon", "Square", "Cross", "Skull",
 }
 
--- "Summon Random Favorite Mount". The Mount Journal's own button calls
--- C_MountJournal.SummonByID(0), which is protected -- the same wall the mount
--- kind hits -- but the button is a spell button
--- (Blizzard_MountCollection.xml:222), and that spell casts the identical roll.
--- It is not in the spellbook, so it goes through CastSpellByName like every
--- other mount here; see the mount branch of ResolveAction.
+-- "Summon Random Favorite Mount", used only to DRAW the entry -- its icon and
+-- its localized name. Firing does not cast it: the spell is neither in the
+-- spellbook nor a journal mount, so CastSpellByName resolves it to nothing
+-- and the release fires nothing. The roll is made by
+-- C_MountJournal.SummonByID(0), which is ordinary API -- the Mount Journal's
+-- own button calls it straight from an insecure click handler
+-- (Blizzard_MountCollection.lua:998) -- so the kind fires through
+-- FireInsecure the way a battle pet does.
 local RANDOM_FAVORITE_MOUNT = 150544
 
 local function MarkerIcon(id)
@@ -650,8 +652,8 @@ end
 -- kind -> attribute triple for the secure button, plus an optional 4th value:
 -- a sibling attribute key that must be cleared because the same action type
 -- would otherwise read it in preference. Returns nil for the kinds with no
--- secure action type at all (battlepet, spec), which FireInsecure handles
--- instead.
+-- secure action type at all (battlepet, spec, randommount), which
+-- FireInsecure handles instead.
 local function ResolveAction(slot)
     if not slot or not slot.kind then return nil end
     local k = slot.kind
@@ -711,15 +713,6 @@ local function ResolveAction(slot)
         if type(castName) ~= "string" or castName == "" then return nil end
         return "spell", "spell", castName
 
-    elseif k == "randommount" then
-        -- By name for the same reason the mount branch is: a numeric value
-        -- routes to CastSpellByID, which does nothing for a spell outside the
-        -- spellbook.
-        local info = C_Spell.GetSpellInfo(RANDOM_FAVORITE_MOUNT)
-        local castName = info and info.name
-        if type(castName) ~= "string" or castName == "" then return nil end
-        return "spell", "spell", castName
-
     elseif k == "raidtarget" then
         -- Fired as the /tm slash command rather than through
         -- SECURE_ACTIONS.raidtarget: that action reads TWO attributes, marker
@@ -773,9 +766,9 @@ local function ResolveAction(slot)
 end
 ns.ResolveAction = ResolveAction
 
--- The kinds with no secure action type at all. Neither call is protected --
--- summoning a battle pet and changing specialization are both ordinary API --
--- so both are safe straight from PostClick.
+-- The kinds with no secure action type at all. None of these calls is
+-- protected -- summoning a battle pet or a mount and changing specialization
+-- are all ordinary API -- so all are safe straight from PostClick.
 --
 -- WHICH cell reaches here is the snippet's answer rather than the live view's
 -- selection; see OnPostClick.
@@ -783,6 +776,13 @@ local function FireInsecure(slot)
     if not slot then return end
     if slot.kind == "battlepet" and slot.guid and C_PetJournal then
         C_PetJournal.SummonPetByGUID(slot.guid)
+
+    elseif slot.kind == "randommount" and C_MountJournal then
+        -- The Mount Journal button's own call
+        -- (Blizzard_MountCollection.lua:998); 0 means "a random favorite".
+        -- Refused by the game itself in combat, where no mount can be
+        -- summoned anyway.
+        C_MountJournal.SummonByID(0)
 
     elseif slot.kind == "spec" then
         local index = SpecIndexFor(slot)
