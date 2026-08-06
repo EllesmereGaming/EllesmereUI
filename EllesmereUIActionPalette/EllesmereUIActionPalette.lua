@@ -1749,6 +1749,31 @@ local function FalloffRatios(p)
 end
 ns.FalloffRatios = function() return FalloffRatios(P()) end
 
+-- Steps, flattened over the entry's own ground. Raw nearness is measured to an
+-- entry's CENTRE, so the entry under the cursor grew and shrank as the cursor
+-- crossed it -- it was at its largest only dead in the middle, and the one thing
+-- on screen that should hold still while you settle on it was the one thing
+-- moving. Everything inside an entry's own ground now reads as zero steps away.
+--
+-- Ground is half a step each side, which is exactly what the hit tests hand an
+-- entry: half a step of arc, half a cell of grid. So the entry drawn at full
+-- size and full alpha is precisely the entry a release would fire.
+--
+-- The identity past one full step is what keeps the settled drawing untouched:
+-- an entry a whole step out is still decay ^ 1, two steps decay ^ 2, a grid
+-- diagonal decay ^ sqrt 2. Only the half-step band between an entry's edge and
+-- its neighbour's centre is redrawn, at twice the rate, and the strip -- whose
+-- entries come to rest at whole steps -- never leaves the identity at all.
+--
+-- Fed ONE AXIS AT A TIME on the grid, then combined: flattening the 2D distance
+-- instead would leave the corners of a cell outside the flat disc, still
+-- breathing, and would pull the diagonal neighbour in off sqrt 2.
+local function FalloffK(k)
+    if k <= 0.5 then return 0 end
+    if k >= 1 then return k end
+    return (k - 0.5) * 2
+end
+
 local function FanOffset(k, size, gap, decay, minScale)
     -- decay ~= 1 makes the integral degenerate (and 1 means "no falloff", so
     -- even spacing is the right answer anyway).
@@ -2764,12 +2789,17 @@ function PaletteView:AdvanceGrid(noPointer)
         local w = self.widgets[i]
         local bx, by = self:GridBase(i, cols, rows, pitch)
 
-        -- Falloff is the true 2D distance, in cells. A grid has no privileged
-        -- axis, so projecting onto one -- as the strip does -- would make the
-        -- zoom respond to sideways movement it should ignore.
+        -- Falloff is the 2D distance, in cells. A grid has no privileged axis,
+        -- so projecting onto one -- as the strip does -- would make the zoom
+        -- respond to sideways movement it should ignore.
+        --
+        -- Each axis is flattened over the cell before they are combined, so the
+        -- whole of a cell -- corners included -- reads as zero cells away. See
+        -- FalloffK.
         local s, a = max(minS, decay), 1
         if dx then
-            local ox, oy = (dx - bx) / pitch, (dy - by) / pitch
+            local ox = FalloffK(abs(dx - bx) / pitch)
+            local oy = FalloffK(abs(dy - by) / pitch)
             local k = (ox * ox + oy * oy) ^ 0.5
             s = max(minS, decay ^ k)
             a = max(minA, aDecay ^ k)
@@ -3763,10 +3793,12 @@ function PaletteView:AdvanceArc()
         local s, a = 1, 1
         if steer then
             -- Shortest way round, so an entry just anticlockwise of slot 1 is
-            -- one step from it rather than a whole turn away.
+            -- one step from it rather than a whole turn away. Flattened over
+            -- the entry's own sector -- see FalloffK -- so the entry the cursor
+            -- is on holds still while the cursor moves about inside it.
             local d = (theta - (arcStart + (i - 1) * step)) % TWO_PI
             if d > pi then d = TWO_PI - d end
-            local k = d / step
+            local k = FalloffK(d / step)
             s = max(minS, decay ^ k)
             a = max(minA, aDecay ^ k)
         end
