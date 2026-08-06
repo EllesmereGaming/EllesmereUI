@@ -216,6 +216,13 @@ local DB_DEFAULTS = {
         -- centre, so one number describes the whole falloff. The floors keep
         -- distant entries legible instead of letting them vanish, and matter
         -- most on the options preview, which draws the whole palette at once.
+        --
+        -- falloff is the whole depth cue, on or off, for every layout at once:
+        -- the arc, the grid and both strips all read the same two decays, so a
+        -- palette that draws its entries flat in one mode draws them flat in
+        -- all of them. The strip spaces itself off the size falloff as well, so
+        -- switching it off there also spreads the strip out to full pitch.
+        falloff       = true,
         fanVisible    = 3,           -- entries drawn each side of the centre
         fanGap        = 10,
         fanScaleDecay = 0.72,
@@ -886,9 +893,10 @@ end
 -- other. Growing it in place moves nothing.
 --
 -- widget.baseSize is the unzoomed size the layout wants, published by whichever
--- geometry pass last placed the entry. The strip and the grid rewrite their
--- sizes every frame, so they apply the zoom themselves as they go; this is what
--- carries it across a selection CHANGE, which is all the arc ever needs.
+-- geometry pass last placed the entry. Every steered layout rewrites its sizes
+-- each frame and applies the zoom itself as it goes; this is what carries the
+-- zoom across a selection CHANGE, and it is the whole of the answer on a view
+-- that never steers -- the options preview, which draws a static arc.
 --
 -- armed marks the entry an armed claim hangs off, which may or may not also be
 -- the selected one. The zoom stays a selection cue alone: an armed parent the
@@ -1725,6 +1733,26 @@ local FAN_EDIT_MIN_ALPHA = 0.45
 -- point keeps closing the gaps under icons that have stopped getting smaller,
 -- and they overlap. Past the knee the strip is therefore evenly spaced at the
 -- floored size.
+-- The size and alpha falloffs in force: one per step away from the entry under
+-- the cursor. Every layout asks here rather than reading the profile itself, so
+-- the toggle means the same thing in all of them and none can be left drawing a
+-- depth cue the others have dropped.
+--
+-- Switched off, both answer 1 -- a no-op wherever they land. decay ^ k is 1 at
+-- every k, so nothing shrinks or fades, and FanOffset's even-spacing branch
+-- takes the strip out to full pitch. Nothing has to test the toggle twice.
+--
+-- ~= false, not == true: the default is ON, so a profile that has never seen
+-- the key gets the falloff.
+local function FalloffRatios(p)
+    if p and p.falloff == false then return 1, 1 end
+    -- Clamped away from 0: FanOffset takes log(decay), which a saved value of
+    -- zero would turn into a division by negative infinity.
+    return min(1, max(0.05, (p and p.fanScaleDecay) or 0.72)),
+           min(1, max(0.05, (p and p.fanAlphaDecay) or 0.62))
+end
+ns.FalloffRatios = function() return FalloffRatios(P()) end
+
 local function FanOffset(k, size, gap, decay, minScale)
     -- decay ~= 1 makes the integral degenerate (and 1 means "no falloff", so
     -- even spacing is the right answer anyway).
@@ -1767,10 +1795,7 @@ function PaletteView:ApplyFanGeometry()
 
     local _, iconSize = self:Geom()
     local gap    = p.fanGap or 10
-    -- Clamped away from 0: FanOffset takes log(decay), which a saved value of
-    -- zero would turn into a division by negative infinity.
-    local decay  = min(1, max(0.05, p.fanScaleDecay or 0.72))
-    local aDecay = min(1, max(0.05, p.fanAlphaDecay or 0.62))
+    local decay, aDecay = FalloffRatios(p)
     local minS   = p.fanMinScale or 0.30
     local minA   = p.fanMinAlpha or 0.12
     if self.opts.interactive then
@@ -2661,8 +2686,7 @@ function PaletteView:AdvanceGrid(noPointer)
 
     local _, iconSize = self:Geom()
     local pitch  = iconSize + (p.fanGap or 10)
-    local decay  = min(1, max(0.05, p.fanScaleDecay or 0.72))
-    local aDecay = min(1, max(0.05, p.fanAlphaDecay or 0.62))
+    local decay, aDecay = FalloffRatios(p)
     local minS   = p.fanMinScale or 0.30
     local minA   = p.fanMinAlpha or 0.12
     if self.opts.interactive then
@@ -2826,7 +2850,7 @@ function PaletteView:FanHalfLength()
     -- narrower than the strip drawn in it and the cancel box would sit inside
     -- the last entry rather than beyond it.
     return FanOffset(window, iconSize, (p and p.fanGap) or 10,
-                     (p and p.fanScaleDecay) or 0.72, minS)
+                     (FalloffRatios(p)), minS)
            + iconSize + iconSize * (SelectedZoom() - 1) * 0.5
 end
 
@@ -3274,8 +3298,8 @@ function PaletteView:Layout(paletteIndex)
         -- Switching modes leaves the other mode's depth cues behind.
         w:SetAlpha(1)
         w:SetScale(1)
-        -- The size a selection zoom is measured from. The strip and the grid
-        -- publish their own, entry by entry, in the geometry passes below.
+        -- The size a selection zoom is measured from. Every steered layout
+        -- publishes its own, entry by entry, in the geometry passes below.
         w.baseSize = iconSize
         if not fan then
             local a = arcStart + (i - 1) * step
@@ -3598,16 +3622,13 @@ function PaletteView:ArmMovementGate()
     self._steered = false
 end
 
--- Cursor -> entry index. nil inside the dead zone, and -- while the movement
--- gate is armed -- until the cursor has actually moved. The gate is what makes
--- "open and release without moving" a cancel in FIXED-POSITION mode, where the
--- cursor starts at some arbitrary point on the palette rather than at the center
--- and would otherwise have a slot pre-selected the instant the palette opens.
-function PaletteView:HitTest()
-    local shown = self.shownCount
-    if shown < 1 then return nil end
-    local _, _, deadZone = self:Geom()
-
+-- Where the cursor is in the arc's own terms: the angle clockwise from straight
+-- up, and the distance from the centre, both in the frame's units. nil while the
+-- movement gate is still armed, or before the frame has been placed.
+--
+-- One copy, read by the hit test and by the falloff alike, so what the arc DRAWS
+-- as nearest and what a release actually FIRES cannot part company.
+function PaletteView:PointerPolar()
     local frame = self.frame
     local es = frame:GetEffectiveScale()
     local mx, my = GetCursorPosition()
@@ -3622,12 +3643,25 @@ function PaletteView:HitTest()
     if not cx then return nil end
 
     local dx, dy = mx - cx, my - cy
-    local dist = sqrt(dx * dx + dy * dy)
-
     -- atan2(dx, dy) measures clockwise from straight up, matching the layout
     -- (slot 1 at 12 o'clock, index increasing clockwise).
     local theta = atan2(dx, dy)
     if theta < 0 then theta = theta + TWO_PI end
+    return theta, sqrt(dx * dx + dy * dy)
+end
+
+-- Cursor -> entry index. nil inside the dead zone, and -- while the movement
+-- gate is armed -- until the cursor has actually moved. The gate is what makes
+-- "open and release without moving" a cancel in FIXED-POSITION mode, where the
+-- cursor starts at some arbitrary point on the palette rather than at the center
+-- and would otherwise have a slot pre-selected the instant the palette opens.
+function PaletteView:HitTest()
+    local shown = self.shownCount
+    if shown < 1 then return nil end
+    local _, _, deadZone = self:Geom()
+
+    local theta, dist = self:PointerPolar()
+    if not theta then return nil end
 
     -- The armed claim's rings, and no other's. A child sector reaches past its
     -- parent entry's own, so answering the parent first
@@ -3681,6 +3715,68 @@ function PaletteView:HitTest()
     local idx = floor(rel / step + 0.5) + 1
     if idx < 1 or idx > shown then return nil end
     return idx
+end
+
+-- Lay the falloff over the ring and select the entry the cursor points at. The
+-- arc's answer to AdvanceGrid, and it reads the same two settings: an entry one
+-- step off the cursor is drawn at the same fraction of full size and full alpha
+-- whichever layout it is standing in.
+--
+-- Nearness on a ring is an ANGLE, not a distance -- every entry is the same
+-- distance out, so a radial measure would say nothing -- and it is counted in
+-- STEPS, which is what makes the falloff mean "each entry along from the one
+-- under the cursor" here as it does everywhere else.
+--
+-- Positions are left exactly where Layout put them. Only size and alpha move:
+-- an entry that also slid along the ring would drag itself out from under the
+-- cursor that had just reached it.
+function PaletteView:AdvanceArc()
+    local p = P()
+    local shown = self.shownCount
+    if not p or shown < 1 then
+        self:SetSelection(nil)
+        return
+    end
+
+    local best = self:HitTest()
+
+    local _, iconSize, deadZone = self:Geom()
+    local decay, aDecay = FalloffRatios(p)
+    local minS   = p.fanMinScale or 0.30
+    local minA   = p.fanMinAlpha or 0.12
+
+    local step, arcStart = self:ArcGeom(shown)
+    local theta, dist = self:PointerPolar()
+    -- Inside the dead zone the cursor is not pointing anywhere yet: an angle
+    -- read a pixel from the centre swings wildly on the smallest movement, and
+    -- the ring would strobe under a hand that had barely left the middle. The
+    -- palette is drawn evenly there, which is also what it opens as.
+    local steer = theta and step > 0 and dist >= deadZone
+
+    local zoom = SelectedZoom()
+    for i = 1, shown do
+        local w = self.widgets[i]
+        local s, a = 1, 1
+        if steer then
+            -- Shortest way round, so an entry just anticlockwise of slot 1 is
+            -- one step from it rather than a whole turn away.
+            local d = (theta - (arcStart + (i - 1) * step)) % TWO_PI
+            if d > pi then d = TWO_PI - d end
+            local k = d / step
+            s = max(minS, decay ^ k)
+            a = max(minA, aDecay ^ k)
+        end
+
+        -- Magnified here rather than left to the selection paint: these sizes
+        -- are rewritten every frame and would erase a zoom applied only where
+        -- the selection changed. Same reason the strip and the grid do it.
+        local z = (i == best) and zoom or 1
+        w:SetAlpha(a)
+        w.baseSize = iconSize * s
+        w:SetSize(iconSize * s * z, iconSize * s * z)
+    end
+
+    self:SetSelection(best)
 end
 
 -------------------------------------------------------------------------------
@@ -3802,7 +3898,7 @@ local function OnPaletteUpdate(_, elapsed)
     elseif liveView:IsFan() then
         liveView:AdvanceFan(elapsed)
     else
-        liveView:SetSelection(liveView:HitTest())
+        liveView:AdvanceArc()
     end
     -- After the steering, not before: the cancel fade reads the same pointer
     -- position the selection was just decided from.
@@ -3863,8 +3959,11 @@ function ns.Open(paletteIndex)
         -- would caption the hub with a slot that is not drawn.
         liveView:SetSelection(liveView:ShownCount() > 0 and 1 or nil)
     else
+        -- Through the same pass every later frame goes through, so the ring is
+        -- drawn on the first frame exactly as the tick would draw it. With the
+        -- gate just armed that is evenly, and nothing selected.
         liveView:ArmMovementGate()
-        liveView:SetSelection(liveView:HitTest())
+        liveView:AdvanceArc()
     end
 
     local palette = liveView:GetFrame()

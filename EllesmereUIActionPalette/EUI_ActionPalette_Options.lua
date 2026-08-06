@@ -398,8 +398,11 @@ initFrame:SetScript("OnEvent", function(self)
                 -- reach grows much faster than a coverflow strip's.
                 reach = ns.FanHoverReach(n, iconSize, Cfg("fanGap") or 10)
             else
+                -- Through the module rather than off the key: with the falloff
+                -- switched off the strip spreads out to full pitch, and a fit
+                -- measured at the stored decay would run it out of the block.
                 reach = ns.FanReach(n, iconSize, Cfg("fanGap") or 10,
-                                    Cfg("fanScaleDecay") or 0.72)
+                                    (ns.FalloffRatios()))
             end
             local vertical = Cfg("fanOrientation") == "VERTICAL"
             -- Both axes, not just the one the strip runs along: a short strip
@@ -1894,8 +1897,9 @@ initFrame:SetScript("OnEvent", function(self)
         -- vanishes when a dropdown moves reads as a bug.
         --
         -- Four predicates, because the layouts do not partition cleanly: the
-        -- grid shares the strip's spacing and falloff settings but steers like
-        -- nothing else, and a pointer-steered fan has no scrolling to describe.
+        -- grid shares the strip's spacing but steers like nothing else, a
+        -- pointer-steered fan has no scrolling to describe, and the falloffs
+        -- belong to all three and so are gated by none of them.
         local function LayoutMode() return Cfg("layout") or "ARC" end
         local function IsFanLayout() return LayoutMode() == "FAN" end
 
@@ -1903,6 +1907,7 @@ initFrame:SetScript("OnEvent", function(self)
             return Disabled() or LayoutMode() ~= "ARC"
         end
         -- Anything laid out as icons at a fixed pitch: both fans and the grid.
+        -- The arc spaces by angle, so a pitch says nothing about it.
         local stripOnly = function()
             return Disabled() or LayoutMode() == "ARC"
         end
@@ -1918,6 +1923,11 @@ initFrame:SetScript("OnEvent", function(self)
         end
         local gridOnly = function()
             return Disabled() or LayoutMode() ~= "GRID"
+        end
+        -- The two falloff ratios say how steep the depth cue is, which is not a
+        -- question at all once it has been switched off.
+        local falloffOff = function()
+            return Disabled() or Cfg("falloff") == false
         end
         -- Every layout nests. Kept as a predicate of its own because the reason
         -- a control is dead is worth saying separately from what it is dead for.
@@ -2162,8 +2172,9 @@ initFrame:SetScript("OnEvent", function(self)
               min=1, max=6, step=1,
               getValue=function() return Cfg("fanVisible") or 3 end,
               setValue=function(v) Set("fanVisible", v); Refresh() end },
-            -- Gap and both falloffs describe the spacing between entries laid
-            -- out at a fixed pitch, which the grid does as much as a fan.
+            -- The gap describes the spacing between entries laid out at a fixed
+            -- pitch, which the grid does as much as a fan. The arc spaces its
+            -- entries by angle instead and has nothing to say here.
             { type="slider", text="Entry Gap",
               disabled=stripOnly, disabledTooltip="a Fan or Grid layout",
               min=0, max=40, step=1,
@@ -2171,16 +2182,35 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v) Set("fanGap", v); Refresh() end })
         y = y - h
 
+        row, h = W:DualRow(parent, y,
+            -- One switch for every layout: the entry under the cursor is drawn
+            -- at full size and full strength and its neighbours draw back, which
+            -- is a step round the ring, along the strip or across the grid
+            -- depending on which one is open.
+            { type="toggle", text="Proximity Falloff",
+              disabled=Disabled, disabledTooltip="the module",
+              tooltip="Draw entries smaller and fainter the further they are from the one under the cursor. "
+                      .."Off draws every entry at full size, and spreads a Fan out to even spacing.",
+              getValue=function() return Cfg("falloff") ~= false end,
+              -- Rebuild, not Refresh: this is what decides whether the two
+              -- falloff sliders below mean anything.
+              setValue=function(v) Set("falloff", v); RebuildPage() end },
+            { type="spacer" })
+        y = y - h
+
         -- The two falloffs are per-STEP ratios, not absolutes: 0.72 means each
-        -- entry out from the centre is 72% of the one before it.
+        -- entry out from the centre is 72% of the one before it. Every layout
+        -- reads them -- a step is a cell on the grid, a place along the strip
+        -- and an entry round the ring -- so the depth cue is the same wherever
+        -- the palette is drawn. Near the top of the travel they flatten out.
         row, h = W:DualRow(parent, y,
             { type="slider", text="Size Falloff",
-              disabled=stripOnly, disabledTooltip="a Fan or Grid layout",
+              disabled=falloffOff, disabledTooltip="Proximity Falloff",
               min=0.40, max=0.95, step=0.01,
               getValue=function() return Cfg("fanScaleDecay") or 0.72 end,
               setValue=function(v) Set("fanScaleDecay", v); Refresh() end },
             { type="slider", text="Fade Falloff",
-              disabled=stripOnly, disabledTooltip="a Fan or Grid layout",
+              disabled=falloffOff, disabledTooltip="Proximity Falloff",
               min=0.20, max=0.95, step=0.01,
               getValue=function() return Cfg("fanAlphaDecay") or 0.62 end,
               setValue=function(v) Set("fanAlphaDecay", v); Refresh() end })
