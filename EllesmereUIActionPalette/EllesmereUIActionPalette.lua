@@ -381,6 +381,91 @@ local function EnsurePalette(index)
 end
 ns.EnsurePalette = EnsurePalette
 
+-------------------------------------------------------------------------------
+--  Per-palette appearance
+--
+--  A palette carries its own SHAPE and PLACE: which layout it is drawn as,
+--  where it opens, how big, and every setting that only means anything inside
+--  one of those layouts. Everything else -- the selection color, the hub art,
+--  the labels, the nesting geometry, flick-ahead -- stays profile-wide, because
+--  those describe the module's look rather than one palette's arrangement, and
+--  a suite of palettes that each looked different would read as several addons.
+--
+--  Every one of these is an OVERRIDE, not a value: a palette that has never
+--  been given one reads the profile's, which is what makes this change invisible
+--  to a profile written before it existed. That is also the whole of the
+--  saved-variables migration -- there is nothing to move, because the old flat
+--  keys are exactly the fallback the new ones fall back to.
+--
+--  Stored under palette.appearance rather than flat on the palette. A palette
+--  already carries name, icon and slots, and a flat store would put profile
+--  keys in the same namespace as those -- fine for today's key set and a trap
+--  for the first profile key ever named "icon".
+-------------------------------------------------------------------------------
+local APPEARANCE_KEYS = {
+    layout = true, fanOrientation = true, fanInput = true,
+    centerMode = true, posX = true, posY = true, scale = true,
+    gridAutoColumns = true, gridColumns = true,
+    arcSpan = true, arcRotation = true,
+    fanVisible = true, fanGap = true, fanAnimTime = true, fanInvert = true,
+    falloff = true, fanScaleDecay = true, fanAlphaDecay = true,
+}
+ns.APPEARANCE_KEYS = APPEARANCE_KEYS
+
+-- The overrides table for a palette, created on demand. Only the options page
+-- writes here; everything else reads through the view below.
+function ns.PaletteAppearance(palette, create)
+    if not palette then return nil end
+    if not palette.appearance and create then palette.appearance = {} end
+    return palette.appearance
+end
+
+-- One READ-ONLY view per palette, with that palette's overrides in front of
+-- the profile. Handing this back as `p` is what let the whole renderer stay
+-- written as `p.layout`: the fallback lives in one metatable instead of at
+-- sixty call sites, none of which could have been left out safely.
+--
+-- Keyed by the palette TABLE rather than by its index: deleting a palette
+-- shifts every palette above it down one, and switching profile replaces the
+-- lot. An override belongs to the palette, and so does its view. Bounded by
+-- MAX_PALETTES per profile the module has touched, which is why nothing here
+-- prunes.
+local appearanceViews = {}
+
+local function PA(paletteIndex)
+    local p = P()
+    if not p then return nil end
+    -- Straight off p.palettes, NOT through EnsurePalette: this runs several
+    -- times per frame on every steered layout, and EnsurePalette rebuilds the
+    -- slot array to compact it. A palette that has never been ensured has no
+    -- overrides to read anyway, so the profile is the whole answer.
+    local palette = paletteIndex and p.palettes and p.palettes[paletteIndex]
+    if type(palette) ~= "table" then return p end
+
+    local view = appearanceViews[palette]
+    if not view then
+        view = setmetatable({}, {
+            __index = function(_, key)
+                if APPEARANCE_KEYS[key] then
+                    local v = palette.appearance and palette.appearance[key]
+                    if v ~= nil then return v end
+                end
+                -- P() rather than a captured profile: a palette table outlives
+                -- nothing, but reading through the accessor keeps the migration
+                -- on first touch running for whichever profile is current.
+                local prof = P()
+                return prof and prof[key]
+            end,
+            -- Nothing writes through this, and a write that slipped in would
+            -- land on the view and be invisible to the saved variables.
+            __newindex = function() error("Action Palette appearance view is read-only", 2) end,
+        })
+        appearanceViews[palette] = view
+    end
+    return view
+end
+ns.PaletteProfile = PA
+
 -- Ordered mutations. All three keep the array dense so #slots stays the
 -- authoritative entry count.
 function ns.AddSlot(palette, slot)
@@ -1172,6 +1257,18 @@ function PaletteView:Geom()
     return (self.opts.geom or DefaultGeom)()
 end
 
+-- The profile as THIS view's palette sees it: its own appearance overrides in
+-- front of the profile's values. Every geometry pass reads through here rather
+-- than through P(), which is what makes two palettes able to be drawn as two
+-- different layouts.
+--
+-- appIndex is a temporary override for a caller measuring a palette this view
+-- is not currently laid out for -- PushPalette does exactly that for every
+-- bound palette in turn while the view still holds whatever was last drawn.
+function PaletteView:P()
+    return PA(self.appIndex or self.paletteIndex)
+end
+
 function PaletteView:GetFrame()     return self.frame end
 function PaletteView:GetPaletteIndex() return self.paletteIndex end
 function PaletteView:GetSelection() return self.selection end
@@ -1183,7 +1280,7 @@ function PaletteView:GetSlotWidget(index) return self.widgets[index] end
 -- pins one so the page can show either without changing what the user plays
 -- with); everything else follows the profile.
 function PaletteView:LayoutMode()
-    local p = P()
+    local p = self:P()
     return self.opts.layout or (p and p.layout) or "ARC"
 end
 
@@ -1192,7 +1289,7 @@ end
 -- layouts that happen to share every setting. Meaningless outside a fan, where
 -- callers do not ask.
 function PaletteView:FanHoriz()
-    local p = P()
+    local p = self:P()
     return not p or p.fanOrientation ~= "VERTICAL"
 end
 
@@ -1207,7 +1304,7 @@ end
 -- The lattice spacing entries are placed on: one icon plus the gap between two
 -- of them. The grid, both strips and a nested arc all measure from this.
 function PaletteView:Pitch()
-    local p = P()
+    local p = self:P()
     local _, iconSize = self:Geom()
     return iconSize + ((p and p.fanGap) or 10)
 end
@@ -1593,7 +1690,7 @@ end
 -- room -- which is unbounded, and used to put children on a claim with several
 -- of them a screen-width past the arc they were supposed to hang off.
 function PaletteView:ChildGeom(shown, palette)
-    local p = P()
+    local p = self:P()
     if not p or not palette or shown < 1 then return nil end
     -- An editor draws no nests. What a nested entry holds is that palette's own
     -- business -- switch to it and it is the whole preview -- and drawing every
@@ -1856,7 +1953,7 @@ end
 -- MINUS ONE instead, which puts the first and last entries ON its ends rather
 -- than leaving a step-wide gap at the seam that belongs to no entry at all.
 function PaletteView:ArcGeom(shown)
-    local p = P()
+    local p = self:P()
     local deg  = min(360, max(30, (p and p.arcSpan) or 360))
     local rot  = ((p and p.arcRotation) or 0) * pi / 180
 
@@ -1874,7 +1971,7 @@ end
 -- lays out stays the arrangement the user actually plays with.
 function PaletteView:IsHoverFan()
     if self:IsGrid() or not self:IsFan() then return false end
-    local p = P()
+    local p = self:P()
     return (p and p.fanInput or "SCROLL") == "CURSOR"
 end
 
@@ -1931,7 +2028,7 @@ local function FalloffRatios(p)
     return min(1, max(0.05, (p and p.fanScaleDecay) or 0.72)),
            min(1, max(0.05, (p and p.fanAlphaDecay) or 0.62))
 end
-ns.FalloffRatios = function() return FalloffRatios(P()) end
+ns.FalloffRatios = function(paletteIndex) return FalloffRatios(PA(paletteIndex)) end
 
 -- Steps, flattened over the entry's own ground. Raw nearness is measured to an
 -- entry's CENTRE, so the entry under the cursor grew and shrank as the cursor
@@ -1992,7 +2089,7 @@ end
 -- from Layout and from every animation step; it never repaints icons, so it is
 -- cheap enough to run each frame while the strip settles.
 function PaletteView:ApplyFanGeometry()
-    local p = P()
+    local p = self:P()
     if not p or not self:IsFan() then return end
 
     local shown = self.shownCount
@@ -2168,7 +2265,7 @@ end
 -- count. PushPalette needs exactly that: it runs while the palette is closed,
 -- when shownCount still describes whatever was drawn last.
 function PaletteView:GridDims(shownOverride)
-    local p = P()
+    local p = self:P()
     local shown = max(1, shownOverride or self.shownCount)
 
     local mode = self:LayoutMode()
@@ -2373,7 +2470,7 @@ end
 -- the options preview fits a palette to its panel, and a band read at its
 -- literal profile size would draw nests at full distance around a shrunken one.
 function PaletteView:NestMetrics(shown)
-    local p = P()
+    local p = self:P()
     local _, iconSize = self:Geom()
     local pitch = self:Pitch()
     local base = p.iconSize or 44
@@ -2890,7 +2987,7 @@ end
 -- Lay the grid out and select the entry nearest the pointer. noPointer draws it
 -- evenly with nothing selected, which is what Layout and the editor want.
 function PaletteView:AdvanceGrid(noPointer)
-    local p = P()
+    local p = self:P()
     local shown = self.shownCount
     if not p or shown < 1 then
         self:SetSelection(nil)
@@ -3056,7 +3153,7 @@ end
 -- visible entry. Sizes the frame and bounds the cancel, from one number: a
 -- second copy of this would drift the moment either falloff setting moved.
 function PaletteView:FanHalfLength()
-    local p = P()
+    local p = self:P()
     local _, iconSize = self:Geom()
     local shown = self.shownCount
     -- The editor culls nothing, so its strip is as long as the palette is.
@@ -3105,7 +3202,7 @@ end
 
 function PaletteView:FanCancelProgress()
     if not self._gateX then return 0 end
-    local p = P()
+    local p = self:P()
     local _, iconSize = self:Geom()
     local along, across = self:StripOffset()
     if not self:FanHoriz() then along, across = across, along end
@@ -3209,7 +3306,7 @@ function PaletteView:AdvanceFan(elapsed)
     local target = self.fanTarget or 1
     local cur    = self.fanVisual or target
     if cur ~= target then
-        local p = P()
+        local p = self:P()
         local t = (p and p.fanAnimTime) or 0.10
         if t <= 0 then
             cur = target
@@ -3264,7 +3361,7 @@ function PaletteView:PlaceHubText()
     -- entry deep, but a grid is as deep as it has rows.
     local pad = iconSize * 0.5 + 14
     if mode == "GRID" then
-        local p = P()
+        local p = self:P()
         local _, rows = self:GridDims()
         pad = rows * (iconSize + ((p and p.fanGap) or 10)) * 0.5 + 14
     end
@@ -3458,7 +3555,10 @@ function PaletteView:Layout(paletteIndex)
     -- Clamped to what can be STORED rather than to what can be bound: a nested
     -- palette is opened through its parent and may well have no key of its own.
     paletteIndex = min(MAX_PALETTES, max(1, paletteIndex or self.paletteIndex or 1))
-    local p, palette = P(), EnsurePalette(paletteIndex)
+    -- PA(paletteIndex), not self:P(): this call is what MOVES the view onto a
+    -- palette, so the index it was pointed at last says nothing about the
+    -- appearance being laid out here.
+    local p, palette = PA(paletteIndex), EnsurePalette(paletteIndex)
     if not p or not palette then return end
 
     local opts = self.opts
@@ -3823,7 +3923,7 @@ function PaletteView:SetSelection(index)
     end
     self.selection = index
 
-    local p = P()
+    local p = self:P()
     local hub = self.hub
 
     if index then
@@ -3999,7 +4099,7 @@ end
 -- an entry that also slid along the ring would drag itself out from under the
 -- cursor that had just reached it.
 function PaletteView:AdvanceArc()
-    local p = P()
+    local p = self:P()
     local shown = self.shownCount
     if not p or shown < 1 then
         self:SetSelection(nil)
@@ -4218,7 +4318,10 @@ end
 -- on-screen drag positioning is being reworked and needs exactly this. Fixed
 -- Position mode itself goes through the same branch via p.centerMode.
 local function PositionPalette(forceFixed)
-    local p = P()
+    -- The palette that is about to be shown, so a palette pinned to a corner
+    -- and one that opens at the cursor can sit side by side in one profile.
+    -- Layout has already moved the view onto it.
+    local p = liveView:P()
     local palette = liveView:GetFrame()
     palette:ClearAllPoints()
     if forceFixed or p.centerMode == "SCREEN" then
@@ -4349,8 +4452,8 @@ local bindOwner
 --   SCROLL   a scroll-steered fan. Its selection is an accumulator driven by
 --            the mouse wheel rather than anything derivable from the cursor,
 --            so the snippet reads the index the wheel handler left behind.
-local function LayoutModel()
-    local p = P()
+local function LayoutModel(paletteIndex)
+    local p = PA(paletteIndex)
     local layout = (p and p.layout) or "ARC"
     if layout == "ARC" then return "ANGULAR" end
     if layout == "GRID" then return "POINTER" end
@@ -5540,7 +5643,7 @@ local pushedClaims = {}
 
 local function PushPalette(index)
     if InCombatLockdown() then return end
-    local p = P()
+    local p = PA(index)
     local btn = secureButtons[index]
     local palette = EnsurePalette(index)
     if not p or not btn or not palette then return end
@@ -5551,6 +5654,14 @@ local function PushPalette(index)
     -- switched off -- which registers no bindings and therefore builds no
     -- buttons -- still builds no frames at all.
     CreateLiveView()
+
+    -- The view is laid out for whatever was last DRAWN, which on a push over
+    -- every bound palette in turn is almost never this one -- and appearance
+    -- is per palette, so every measurement it makes below would otherwise be
+    -- taken against some other palette's layout. appIndex points its own
+    -- profile accessor at this palette for the length of the push. There is no
+    -- early return past here; the clear at the bottom is unconditional.
+    liveView.appIndex = index
 
     for i = 1, MAX_SLOTS do
         local slot = palette.slots[i]
@@ -5577,7 +5688,7 @@ local function PushPalette(index)
     btn:SetAttribute("eapPosY", p.posY or 0)
     btn:SetAttribute("eapScale", p.scale or 1)
 
-    local model = LayoutModel()
+    local model = LayoutModel(index)
     btn:SetAttribute("eapMode", model)
     btn:SetAttribute("eapShown", n)
     btn:SetAttribute("eapInvert", p.fanInvert == true)
@@ -5797,6 +5908,9 @@ local function PushPalette(index)
         end
     end
     btn:SetAttribute("eapClaims", angular and #angular or 0)
+
+    -- Back to whatever the view is actually drawing.
+    liveView.appIndex = nil
 end
 
 -- Raised whenever a push was wanted and combat refused it, cleared by the push

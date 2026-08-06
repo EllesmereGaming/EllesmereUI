@@ -195,14 +195,30 @@ _G.SecureHandlerSetFrameRef = function(f, k, v) f:SetFrameRef(k, v) end
 _G.SetOverrideBindingClick = function() end
 _G.ClearOverrideBindings   = function() end
 _G.RAID_CLASS_COLORS = {}
-_G.UnitClass  = function() return "Mage", "MAGE" end
+_G.UnitClass  = function() return "Mage", "MAGE", 8 end
 _G.GetMacroInfo = function() return nil end
+-- The usability and count getters answer "nothing to say" rather than a state:
+-- what they return decides a tint and a corner number, neither of which this
+-- harness compares. What matters is that they EXIST, so PaintCell takes the
+-- same path it does in game.
 _G.C_Spell = { GetSpellInfo = function(id)
                    return { name = "Spell" .. tostring(id), iconID = 1 } end,
-               GetSpellCooldownDuration = function() return nil end }
+               GetSpellCooldownDuration = function() return nil end,
+               GetSpellCharges = function() return nil end,
+               IsSpellUsable = function() return true end,
+               IsSpellInRange = function() return nil end }
 _G.C_Item = { GetItemInfoInstant = function() return nil end,
               GetItemInfo = function() return nil end,
+              GetItemCount = function() return 0 end,
+              ItemHasRange = function() return false end,
+              IsItemInRange = function() return nil end,
+              IsUsableItem = function() return true end,
               GetItemCooldown = function() return 0, 0, 0 end }
+_G.C_SpecializationInfo = {
+    GetNumSpecializationsForClassID = function() return 0 end,
+    GetSpecializationInfo = function() return nil end,
+    SetSpecialization = function() end,
+}
 _G.C_ToyBox      = { GetToyInfo = function() return nil end }
 _G.C_MountJournal = { GetMountInfoByID = function() return nil end }
 _G.C_PetJournal  = { GetPetInfoByPetID = function() return nil end }
@@ -792,6 +808,30 @@ bad = bad + SweepStrip("scroll fan, side flipped", function()
     p.layout, p.fanInput, p.fanOrientation = "FAN", "SCROLL", "HORIZONTAL"
     p.nestSide = "NEGATIVE"
 end, 2, step)
+
+----------------------------------------------------------------------------
+--  Appearance is PER PALETTE: a palette's own override is what both the
+--  drawing and the push must read, not the profile's value. These two sweeps
+--  set the profile to one layout and the palette to the other, so a read that
+--  went to the profile on either side would draw one layout and fire from the
+--  geometry of a completely different one -- which is not an off-by-one the
+--  sweeps above could ever produce, and would be silent everywhere else.
+----------------------------------------------------------------------------
+bad = bad + Sweep("override: profile FAN, palette ARC", function()
+    Base(5, 3, 5)()
+    p.layout, p.fanInput = "FAN", "CURSOR"
+    Palette(1).appearance = { layout = "ARC", arcSpan = 360 }
+    p.arcChildOverflow = "NONE"
+end, step)
+Palette(1).appearance = nil
+
+bad = bad + SweepCells("override: profile ARC, palette GRID", function()
+    Base(6, 2, 4)()
+    p.layout = "ARC"
+    Palette(1).appearance = { layout = "GRID", gridAutoColumns = false,
+                              gridColumns = 3 }
+end, step)
+Palette(1).appearance = nil
 
 -- Back to the arc for the checks below.
 p.layout, p.fanInput, p.nestSide = "ARC", "SCROLL", "POSITIVE"

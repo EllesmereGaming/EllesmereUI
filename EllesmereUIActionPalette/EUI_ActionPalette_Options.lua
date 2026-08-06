@@ -65,6 +65,41 @@ initFrame:SetScript("OnEvent", function(self)
         return ns.EnsurePalette and ns.EnsurePalette(index or editPalette)
     end
 
+    ---------------------------------------------------------------------------
+    --  Per-palette appearance
+    --
+    --  The settings that describe a palette's SHAPE and PLACE -- its layout,
+    --  where it opens, its scale, and every knob that only means anything
+    --  inside one layout -- are read and written against the palette the
+    --  Editing Palette selector above is pointed at. The module holds the list
+    --  (ns.APPEARANCE_KEYS) and the fallback: a palette with no override of its
+    --  own reads the profile's value, so a profile written before any of this
+    --  existed draws exactly as it did.
+    --
+    --  Everything else on the page -- colors, hub art, labels, nesting
+    --  geometry, flick-ahead -- stays profile-wide and keeps using Cfg/Set.
+    --
+    --  Every row that writes through ASet carries noCapture, for the same
+    --  reason the name and icon boxes do: these live inside p.palettes[n]
+    --  rather than under a flat key, and a per-spec override banked against
+    --  whichever palette happened to be on screen at capture time would rewrite
+    --  a palette the user was not looking at.
+    ---------------------------------------------------------------------------
+    local function ACfg(key)
+        local pal = ns.EnsurePalette and ns.EnsurePalette(editPalette)
+        local a = pal and pal.appearance
+        local v = a and a[key]
+        if v ~= nil then return v end
+        return Cfg(key)
+    end
+
+    local function ASet(key, val)
+        local pal = ns.EnsurePalette and ns.EnsurePalette(editPalette)
+        if not pal then return end
+        pal.appearance = pal.appearance or {}
+        pal.appearance[key] = val
+    end
+
     -- From the module, so the name an emptied box reverts to is the same string
     -- the module hands a fresh palette.
     local function AutoName(index)
@@ -363,7 +398,7 @@ initFrame:SetScript("OnEvent", function(self)
         local radius   = Cfg("radius") or 96
         local iconSize = Cfg("iconSize") or 44
         local deadZone = Cfg("deadZone") or 24
-        local layout = Cfg("layout") or "ARC"
+        local layout = ACfg("layout") or "ARC"
         -- Half the width a selected entry reaches, which every budget has to
         -- leave room for: the preview magnifies whatever the cursor is over.
         local zoom = Cfg("selectedZoom") or 1.15
@@ -378,10 +413,10 @@ initFrame:SetScript("OnEvent", function(self)
             -- The view answers from its last Layout, so it has nothing to say
             -- until the first one has run.
             if not cols or rows < 1 then
-                cols = math.min(Cfg("gridColumns") or 4, n)
+                cols = math.min(ACfg("gridColumns") or 4, n)
                 rows = math.ceil(n / cols)
             end
-            local pitch = iconSize + (Cfg("fanGap") or 10)
+            local pitch = iconSize + (ACfg("fanGap") or 10)
             k = math.min(PREVIEW_MAX_ZOOM,
                 BlockSpan(false) / (cols * pitch * 0.5 + iconSize * (zoom - 1) * 0.5),
                 BlockSpan(true) / (rows * pitch * 0.5 + iconSize * (zoom - 1) * 0.5))
@@ -393,18 +428,18 @@ initFrame:SetScript("OnEvent", function(self)
             local palette = Palette(editPalette)
             local n = (palette and #palette.slots or 0) + 1
             local reach
-            if (Cfg("fanInput") or "SCROLL") == "CURSOR" then
+            if (ACfg("fanInput") or "SCROLL") == "CURSOR" then
                 -- A pointer-steered fan is evenly spaced at full pitch, so its
                 -- reach grows much faster than a coverflow strip's.
-                reach = ns.FanHoverReach(n, iconSize, Cfg("fanGap") or 10)
+                reach = ns.FanHoverReach(n, iconSize, ACfg("fanGap") or 10)
             else
                 -- Through the module rather than off the key: with the falloff
                 -- switched off the strip spreads out to full pitch, and a fit
                 -- measured at the stored decay would run it out of the block.
-                reach = ns.FanReach(n, iconSize, Cfg("fanGap") or 10,
-                                    (ns.FalloffRatios()))
+                reach = ns.FanReach(n, iconSize, ACfg("fanGap") or 10,
+                                    (ns.FalloffRatios(editPalette)))
             end
-            local vertical = Cfg("fanOrientation") == "VERTICAL"
+            local vertical = ACfg("fanOrientation") == "VERTICAL"
             -- Both axes, not just the one the strip runs along: a short strip
             -- fits its own length several times over, and without the crossways
             -- budget it would grow until the icons ran out of the block.
@@ -1406,6 +1441,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- clearing them. A palette added on purpose starts empty.
             palette.slots = {}
             palette.icon = nil
+            palette.appearance = nil
             palette.name = (preset and preset.label) or AutoName(count + 1)
             for _, s in ipairs(slots or {}) do
                 if not ns.AddSlot(palette, s) then break end
@@ -1416,53 +1452,111 @@ initFrame:SetScript("OnEvent", function(self)
         RebuildPage()
     end
 
-    -- A view on the same anchored menu the action picker uses, so the add
-    -- button and the "+" entry cannot both have one open: whichever opens
-    -- second takes the menu over.
-    local function ShowAddPaletteMenu(anchor)
-        if not anchor then return end
+    -- One pooled row of the shared menu, filled in. Shared by the two views
+    -- below that list something other than actions; the action views anchor
+    -- their labels the same two ways inline.
+    local function MenuRow(menu, i, icon, label, onClick)
+        local r = menu:GetRow(i)
+        if icon then
+            r.icon:SetTexture(icon)
+            r.icon:Show()
+            r.label:ClearAllPoints()
+            r.label:SetPoint("LEFT", r.icon, "RIGHT", 6, 0)
+        else
+            r.icon:Hide()
+            r.label:ClearAllPoints()
+            r.label:SetPoint("LEFT", r, "LEFT", 8, 0)
+        end
+        r.label:SetPoint("RIGHT", r, "RIGHT", -6, 0)
+        r.label:SetText(label)
+        r:SetScript("OnClick", onClick)
+        r:Show()
+    end
+
+    -- Open the shared menu as a plain list with `title` at the top, ready for
+    -- MenuRow. Returns the menu, or nil when this click was the one that
+    -- closes an already-open list on the same anchor.
+    local function OpenListMenu(anchor, title)
+        if not anchor then return nil end
         local menu = EnsurePickerMenu()
         if menu:IsShown() and pickerAnchor == anchor then
             HidePicker()
-            return
+            return nil
         end
         pickerAnchor = anchor
         menu:ClearAllPoints()
         menu:SetPoint("TOP", anchor, "BOTTOM", 0, -4)
         menu.cat = nil
-        menu.title:SetText("Add Palette")
+        menu.title:SetText(title)
         menu.back:Hide()
         menu.search:ClearFocus()
         menu.search:Hide()
         menu.custom:Hide()
         menu.scroll:Show()
+        return menu
+    end
 
-        local function FillRow(i, icon, label, onClick)
-            local r = menu:GetRow(i)
-            if icon then
-                r.icon:SetTexture(icon)
-                r.icon:Show()
-                r.label:ClearAllPoints()
-                r.label:SetPoint("LEFT", r.icon, "RIGHT", 6, 0)
-            else
-                r.icon:Hide()
-                r.label:ClearAllPoints()
-                r.label:SetPoint("LEFT", r, "LEFT", 8, 0)
-            end
-            r.label:SetPoint("RIGHT", r, "RIGHT", -6, 0)
-            r.label:SetText(label)
-            r:SetScript("OnClick", onClick)
-            r:Show()
+    -- Copy one palette's SHAPE and PLACE onto the one being edited -- its
+    -- layout, where it opens, its scale, and every knob that only means
+    -- anything inside one layout. Entries are not touched, and neither is
+    -- anything the whole profile shares.
+    --
+    -- The override TABLE is copied rather than the values it resolves to, so a
+    -- key the source inherits is left inherited here as well: both palettes
+    -- then read the same profile value and look identical, and both still
+    -- follow it if it is ever changed.
+    local function CopyAppearance(fromIndex)
+        local src, dst = Palette(fromIndex), Palette(editPalette)
+        if not src or not dst or src == dst then return end
+        local out = {}
+        for key in pairs(ns.APPEARANCE_KEYS or {}) do
+            out[key] = src.appearance and src.appearance[key]
         end
+        dst.appearance = out
+        HidePicker()
+        RebuildPage()
+    end
 
-        FillRow(1, nil, "Empty Palette", function() AddPalette(nil) end)
+    local function ShowCopyAppearanceMenu(anchor)
+        local menu = OpenListMenu(anchor, "Copy Appearance From")
+        if not menu then return end
+
+        local n = 0
+        for i = 1, PaletteCount() do
+            if i ~= editPalette then
+                local palette = Palette(i)
+                n = n + 1
+                MenuRow(menu, n, palette and palette.icon,
+                    (palette and palette.name) or AutoName(i),
+                    function() CopyAppearance(i) end)
+            end
+        end
+        if n == 0 then
+            -- An empty menu reads as broken, so say why it is empty.
+            MenuRow(menu, 1, nil, "No other palettes", nil)
+            n = 1
+        end
+        for i = n + 1, #menu.rows do menu.rows[i]:Hide() end
+
+        PickerFit(menu, n)
+        menu:Show()
+    end
+
+    -- A view on the same anchored menu the action picker uses, so the add
+    -- button and the "+" entry cannot both have one open: whichever opens
+    -- second takes the menu over.
+    local function ShowAddPaletteMenu(anchor)
+        local menu = OpenListMenu(anchor, "Add Palette")
+        if not menu then return end
+
+        MenuRow(menu, 1, nil, "Empty Palette", function() AddPalette(nil) end)
         local n = 1
         for _, preset in ipairs(PALETTE_PRESETS) do
             local slots = preset.build()
             if #slots > 0 then
                 n = n + 1
                 local icon = ns.SlotDisplay(slots[1])
-                FillRow(n, icon or QUESTION_MARK,
+                MenuRow(menu, n, icon or QUESTION_MARK,
                     preset.label .. "  |cff808080(" .. #slots .. ")|r",
                     function() AddPalette(preset, slots) end)
             end
@@ -1951,6 +2045,32 @@ initFrame:SetScript("OnEvent", function(self)
         -- change.
         local editedName = (editedPalette and editedPalette.name)
             or AutoName(editPalette)
+
+        -- Sits with the palette selector rather than in PLACEMENT & SIZE
+        -- because it acts on the whole of the appearance rather than on any one
+        -- section of it. Same upvalue trick as the Add Palette button above:
+        -- the styled button invokes its handler with no arguments, so the menu
+        -- has to reach its anchor some other way.
+        local copyAppearanceBtn
+        row, h = W:DualRow(parent, y,
+            { type="labeledButton", text="Copy Appearance", noCapture=true,
+              disabled=function()
+                  return Disabled() or PaletteCount() <= 1
+              end,
+              disabledTooltip=(PaletteCount() <= 1)
+                  and "a second palette to copy from"
+                  or "the module",
+              tooltip="Give " .. editedName .. " the same layout, opening "
+                  .. "position, scale and layout settings as another palette. "
+                  .. "Entries are not touched, and neither is anything the "
+                  .. "whole profile shares -- colors, hub art, labels, nesting "
+                  .. "and flick-ahead.",
+              buttonText="From another palette...",
+              onClick=function() ShowCopyAppearanceMenu(copyAppearanceBtn) end },
+            { type="spacer" })
+        copyAppearanceBtn = row._leftRegion and row._leftRegion._control
+        y = y - h
+
         row, h = W:DualRow(parent, y,
             { type="labeledButton", text="Delete Palette",
               disabled=function()
@@ -1985,7 +2105,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- palette: the on-screen drag editor is gone, and this module is not yet
         -- registered with Unlock Mode.
         local fixedOnly = function()
-            return Disabled() or (Cfg("centerMode") or "CURSOR") ~= "SCREEN"
+            return Disabled() or (ACfg("centerMode") or "CURSOR") ~= "SCREEN"
         end
 
         -- A fan has no radius, no angle and no centre to steer away from, so the
@@ -1998,7 +2118,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- grid shares the strip's spacing but steers like nothing else, a
         -- pointer-steered fan has no scrolling to describe, and the falloffs
         -- belong to all three and so are gated by none of them.
-        local function LayoutMode() return Cfg("layout") or "ARC" end
+        local function LayoutMode() return ACfg("layout") or "ARC" end
         local function IsFanLayout() return LayoutMode() == "FAN" end
 
         local arcOnly = function()
@@ -2017,7 +2137,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- has no wheel direction to invert.
         local scrollFanOnly = function()
             return Disabled() or not IsFanLayout()
-                or (Cfg("fanInput") or "SCROLL") ~= "SCROLL"
+                or (ACfg("fanInput") or "SCROLL") ~= "SCROLL"
         end
         local gridOnly = function()
             return Disabled() or LayoutMode() ~= "GRID"
@@ -2025,7 +2145,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- The two falloff ratios say how steep the depth cue is, which is not a
         -- question at all once it has been switched off.
         local falloffOff = function()
-            return Disabled() or Cfg("falloff") == false
+            return Disabled() or ACfg("falloff") == false
         end
         -- Every layout nests. Kept as a predicate of its own because the reason
         -- a control is dead is worth saying separately from what it is dead for.
@@ -2048,36 +2168,36 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         row, h = W:DualRow(parent, y,
-            { type="dropdown", text="Layout",
+            { type="dropdown", text="Layout", noCapture=true,
               disabled=Disabled, disabledTooltip="the module",
               values=layoutValues, order=layoutOrder,
-              getValue=function() return Cfg("layout") or "ARC" end,
+              getValue=function() return ACfg("layout") or "ARC" end,
               -- Rebuild, not Refresh: this is what decides which of the two
               -- sets of controls below is live.
-              setValue=function(v) Set("layout", v); RebuildPage() end },
-            { type="dropdown", text="Fan Direction",
+              setValue=function(v) ASet("layout", v); RebuildPage() end },
+            { type="dropdown", text="Fan Direction", noCapture=true,
               disabled=fanOnly, disabledTooltip="a Fan layout",
               values=orientValues, order=orientOrder,
-              getValue=function() return Cfg("fanOrientation") or "HORIZONTAL" end,
-              setValue=function(v) Set("fanOrientation", v); Refresh() end })
+              getValue=function() return ACfg("fanOrientation") or "HORIZONTAL" end,
+              setValue=function(v) ASet("fanOrientation", v); Refresh() end })
         y = y - h
 
         row, h = W:DropdownWithOffsets(parent, y,
-            { type="dropdown", text="Opens",
+            { type="dropdown", text="Opens", noCapture=true,
               disabled=Disabled, disabledTooltip="the module",
               values=centerValues, order=centerOrder,
-              getValue=function() return Cfg("centerMode") or "CURSOR" end,
-              setValue=function(v) Set("centerMode", v); RebuildPage() end },
-            { type="slider", text="X",
+              getValue=function() return ACfg("centerMode") or "CURSOR" end,
+              setValue=function(v) ASet("centerMode", v); RebuildPage() end },
+            { type="slider", text="X", noCapture=true,
               disabled=fixedOnly, disabledTooltip="Fixed Position mode",
               min=-800, max=800, step=1,
-              getValue=function() return Cfg("posX") or 0 end,
-              setValue=function(v) Set("posX", v); Refresh() end },
-            { type="slider", text="Y",
+              getValue=function() return ACfg("posX") or 0 end,
+              setValue=function(v) ASet("posX", v); Refresh() end },
+            { type="slider", text="Y", noCapture=true,
               disabled=fixedOnly, disabledTooltip="Fixed Position mode",
               min=-600, max=600, step=1,
-              getValue=function() return Cfg("posY") or 0 end,
-              setValue=function(v) Set("posY", v); Refresh() end })
+              getValue=function() return ACfg("posY") or 0 end,
+              setValue=function(v) ASet("posY", v); Refresh() end })
         y = y - h
 
         -- Two per row, not three: at a third of the row width a label like
@@ -2099,19 +2219,19 @@ initFrame:SetScript("OnEvent", function(self)
         -- so the rotation only becomes live once the span has been narrowed to
         -- an arc that has somewhere to point.
         row, h = W:DualRow(parent, y,
-            { type="slider", text="Arc Span",
+            { type="slider", text="Arc Span", noCapture=true,
               disabled=arcOnly, disabledTooltip="the Arc layout",
               min=30, max=360, step=5,
-              getValue=function() return Cfg("arcSpan") or 360 end,
-              setValue=function(v) Set("arcSpan", v); Refresh() end },
-            { type="slider", text="Arc Rotation",
+              getValue=function() return ACfg("arcSpan") or 360 end,
+              setValue=function(v) ASet("arcSpan", v); Refresh() end },
+            { type="slider", text="Arc Rotation", noCapture=true,
               disabled=function()
-                  return arcOnly() or (Cfg("arcSpan") or 360) >= 360
+                  return arcOnly() or (ACfg("arcSpan") or 360) >= 360
               end,
               disabledTooltip="an Arc Span below 360",
               min=-180, max=180, step=5,
-              getValue=function() return Cfg("arcRotation") or 0 end,
-              setValue=function(v) Set("arcRotation", v); Refresh() end })
+              getValue=function() return ACfg("arcRotation") or 0 end,
+              setValue=function(v) ASet("arcRotation", v); Refresh() end })
         y = y - h
 
         row, h = W:DualRow(parent, y,
@@ -2122,11 +2242,11 @@ initFrame:SetScript("OnEvent", function(self)
               min=8, max=80, step=1,
               getValue=function() return Cfg("deadZone") or 24 end,
               setValue=function(v) Set("deadZone", v); Refresh() end },
-            { type="slider", text="Scale",
+            { type="slider", text="Scale", noCapture=true,
               disabled=Disabled, disabledTooltip="the module",
               min=0.5, max=2.0, step=0.01,
-              getValue=function() return Cfg("scale") or 1.0 end,
-              setValue=function(v) Set("scale", v); Refresh() end })
+              getValue=function() return ACfg("scale") or 1.0 end,
+              setValue=function(v) ASet("scale", v); Refresh() end })
         y = y - h
 
         -- ── FAN & GRID ───────────────────────────────────────────────────
@@ -2193,7 +2313,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Named for the axis in front of the user rather than for the sign it
         -- stores: "above" and "right" are the same choice to the code and two
         -- quite different sentences to read.
-        local vertical = IsFanLayout() and Cfg("fanOrientation") == "VERTICAL"
+        local vertical = IsFanLayout() and ACfg("fanOrientation") == "VERTICAL"
         local sideValues = vertical
             and { POSITIVE = "Right", NEGATIVE = "Left" }
             or  { POSITIVE = "Above", NEGATIVE = "Below" }
@@ -2227,25 +2347,25 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = W:SectionHeader(parent, "FAN & GRID", y); y = y - h
 
         row, h = W:DualRow(parent, y,
-            { type="dropdown", text="Steering",
+            { type="dropdown", text="Steering", noCapture=true,
               disabled=fanOnly, disabledTooltip="a Fan layout",
               values=fanInputValues, order=fanInputOrder,
-              getValue=function() return Cfg("fanInput") or "SCROLL" end,
+              getValue=function() return ACfg("fanInput") or "SCROLL" end,
               -- Rebuild, not Refresh: pointer steering retires three of the
               -- sliders below, so the row states are built from this.
-              setValue=function(v) Set("fanInput", v); RebuildPage() end },
-            { type="toggle", text="Auto Columns",
+              setValue=function(v) ASet("fanInput", v); RebuildPage() end },
+            { type="toggle", text="Auto Columns", noCapture=true,
               disabled=gridOnly, disabledTooltip="the Grid layout",
-              getValue=function() return Cfg("gridAutoColumns") ~= false end,
+              getValue=function() return ACfg("gridAutoColumns") ~= false end,
               -- Rebuild, not Refresh: this is what decides whether the column
               -- slider below means anything.
-              setValue=function(v) Set("gridAutoColumns", v); RebuildPage() end })
+              setValue=function(v) ASet("gridAutoColumns", v); RebuildPage() end })
         y = y - h
 
         row, h = W:DualRow(parent, y,
-            { type="slider", text="Grid Columns",
+            { type="slider", text="Grid Columns", noCapture=true,
               disabled=function()
-                  return gridOnly() or Cfg("gridAutoColumns") ~= false
+                  return gridOnly() or ACfg("gridAutoColumns") ~= false
               end,
               disabledTooltip="Auto Columns to be off",
               -- The top of the travel is the slot cap, not an arbitrary 8. A
@@ -2257,27 +2377,27 @@ initFrame:SetScript("OnEvent", function(self)
               tooltip="How many entries a row of the grid holds. 1 stacks them into a single column; "
                       ..(ns.MAX_SLOTS or 12).." -- the most slots a palette can hold -- lays them out in a single row.",
               min=1, max=(ns.MAX_SLOTS or 12), step=1,
-              getValue=function() return Cfg("gridColumns") or 4 end,
-              setValue=function(v) Set("gridColumns", v); Refresh() end },
+              getValue=function() return ACfg("gridColumns") or 4 end,
+              setValue=function(v) ASet("gridColumns", v); Refresh() end },
             { type="spacer" })
         y = y - h
 
         row, h = W:DualRow(parent, y,
             -- How much of the strip is drawn at all. Neighbours past this many
             -- steps are hidden rather than shrunk further.
-            { type="slider", text="Visible Each Side",
+            { type="slider", text="Visible Each Side", noCapture=true,
               disabled=scrollFanOnly, disabledTooltip="a scroll-steered Fan layout",
               min=1, max=6, step=1,
-              getValue=function() return Cfg("fanVisible") or 3 end,
-              setValue=function(v) Set("fanVisible", v); Refresh() end },
+              getValue=function() return ACfg("fanVisible") or 3 end,
+              setValue=function(v) ASet("fanVisible", v); Refresh() end },
             -- The gap describes the spacing between entries laid out at a fixed
             -- pitch, which the grid does as much as a fan. The arc spaces its
             -- entries by angle instead and has nothing to say here.
-            { type="slider", text="Entry Gap",
+            { type="slider", text="Entry Gap", noCapture=true,
               disabled=stripOnly, disabledTooltip="a Fan or Grid layout",
               min=0, max=40, step=1,
-              getValue=function() return Cfg("fanGap") or 10 end,
-              setValue=function(v) Set("fanGap", v); Refresh() end })
+              getValue=function() return ACfg("fanGap") or 10 end,
+              setValue=function(v) ASet("fanGap", v); Refresh() end })
         y = y - h
 
         row, h = W:DualRow(parent, y,
@@ -2285,14 +2405,14 @@ initFrame:SetScript("OnEvent", function(self)
             -- at full size and full strength and its neighbours draw back, which
             -- is a step round the ring, along the strip or across the grid
             -- depending on which one is open.
-            { type="toggle", text="Proximity Falloff",
+            { type="toggle", text="Proximity Falloff", noCapture=true,
               disabled=Disabled, disabledTooltip="the module",
               tooltip="Draw entries smaller and fainter the further they are from the one under the cursor. "
                       .."Off draws every entry at full size, and spreads a Fan out to even spacing.",
-              getValue=function() return Cfg("falloff") ~= false end,
+              getValue=function() return ACfg("falloff") ~= false end,
               -- Rebuild, not Refresh: this is what decides whether the two
               -- falloff sliders below mean anything.
-              setValue=function(v) Set("falloff", v); RebuildPage() end },
+              setValue=function(v) ASet("falloff", v); RebuildPage() end },
             { type="spacer" })
         y = y - h
 
@@ -2302,30 +2422,30 @@ initFrame:SetScript("OnEvent", function(self)
         -- and an entry round the ring -- so the depth cue is the same wherever
         -- the palette is drawn. Near the top of the travel they flatten out.
         row, h = W:DualRow(parent, y,
-            { type="slider", text="Size Falloff",
+            { type="slider", text="Size Falloff", noCapture=true,
               disabled=falloffOff, disabledTooltip="Proximity Falloff",
               min=0.40, max=0.95, step=0.01,
-              getValue=function() return Cfg("fanScaleDecay") or 0.72 end,
-              setValue=function(v) Set("fanScaleDecay", v); Refresh() end },
-            { type="slider", text="Fade Falloff",
+              getValue=function() return ACfg("fanScaleDecay") or 0.72 end,
+              setValue=function(v) ASet("fanScaleDecay", v); Refresh() end },
+            { type="slider", text="Fade Falloff", noCapture=true,
               disabled=falloffOff, disabledTooltip="Proximity Falloff",
               min=0.20, max=0.95, step=0.01,
-              getValue=function() return Cfg("fanAlphaDecay") or 0.62 end,
-              setValue=function(v) Set("fanAlphaDecay", v); Refresh() end })
+              getValue=function() return ACfg("fanAlphaDecay") or 0.62 end,
+              setValue=function(v) ASet("fanAlphaDecay", v); Refresh() end })
         y = y - h
 
         row, h = W:DualRow(parent, y,
             -- How long the strip takes to slide to the entry that was scrolled
             -- to. 0 snaps; the selection itself moves on the tick either way.
-            { type="slider", text="Settle Time",
+            { type="slider", text="Settle Time", noCapture=true,
               disabled=scrollFanOnly, disabledTooltip="a scroll-steered Fan layout",
               min=0, max=0.40, step=0.01,
-              getValue=function() return Cfg("fanAnimTime") or 0.10 end,
-              setValue=function(v) Set("fanAnimTime", v); Refresh() end },
-            { type="toggle", text="Invert Scroll",
+              getValue=function() return ACfg("fanAnimTime") or 0.10 end,
+              setValue=function(v) ASet("fanAnimTime", v); Refresh() end },
+            { type="toggle", text="Invert Scroll", noCapture=true,
               disabled=scrollFanOnly, disabledTooltip="a scroll-steered Fan layout",
-              getValue=function() return Cfg("fanInvert") == true end,
-              setValue=function(v) Set("fanInvert", v); Refresh() end })
+              getValue=function() return ACfg("fanInvert") == true end,
+              setValue=function(v) ASet("fanInvert", v); Refresh() end })
         y = y - h
 
         -- ── APPEARANCE ───────────────────────────────────────────────────
