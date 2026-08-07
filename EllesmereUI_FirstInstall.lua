@@ -74,6 +74,7 @@ local GROUPS = {
             { label = "Chat",              addon = "EllesmereUIChat" },
             { label = "Bags",              addon = "EllesmereUIBags" },
             { label = "Mythic+ Timer",     addon = "EllesmereUIMythicTimer" },
+            { label = "Mythic+ Tools",     addon = "EllesmereUIMythicPlus" },
             { label = "Quest Tracker",     addon = "EllesmereUIQuestTracker" },
         },
     },

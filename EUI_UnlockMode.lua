@@ -626,6 +626,10 @@ EllesmereUI._ELEMENT_SETTINGS_MAP = {
     -- Mythic+ Timer
     ["EMT_MythicTimer"]    = { module = "EllesmereUIMythicTimer",     page = "Mythic+ Timer",     sectionName = "DISPLAY",           highlightText = "Scale" },
 
+    -- Mythic+ keystone displays
+    ["EMP_KeystoneList"]   = { module = "EllesmereUIMythicPlus",      page = "Keystones",         sectionName = "PARTY KEYSTONES",   highlightText = "Show Party Keystones" },
+    ["EMP_KeystoneBanner"] = { module = "EllesmereUIMythicPlus",      page = "Keystones",         sectionName = "KEYSTONE OWNERS",   highlightText = "Show Keystone Owners" },
+
     -- Dragon Riding HUD (Blizz UI Enhanced > Dragon Riding page)
     ["EDR_Cluster"]        = { module = "EllesmereUIBlizzardSkin",    page = "Dragon Riding",     sectionName = "GENERAL",           highlightText = "Enable Dragon Riding Bar" },
 

@@ -82,6 +82,7 @@ local FOLDER_BLACKLIST = {
     EllesmereUIDragonRiding      = true,
     EllesmereUIDamageMeters      = true,
     EllesmereUIMythicTimer       = true,
+    EllesmereUIMythicPlus        = true,
     EllesmereUIQuestTracker      = true,
     EllesmereUIFriends           = true,
     EllesmereUIBags              = true,
@@ -113,6 +114,10 @@ local REFRESH_FNS = {
     EllesmereUIChat              = { "_ECHAT_RefreshAll" },
     EllesmereUIFriends           = { "_EFR_ApplyFriends" },
     EllesmereUIMythicTimer       = { "_EMT_Apply" },
+    -- Folder is capture/apply-blacklisted (see FOLDER_BLACKLIST); this entry is
+    -- insurance so a key that slips through can never hit the unmapped-folder
+    -- fallback and escalate into a full RefreshAllAddons.
+    EllesmereUIMythicPlus        = { "_EMP_Apply" },
     EllesmereUIDamageMeters      = { "_EDM_Apply" },
     EllesmereUIDataBars          = { "_EDB_Apply" },
     EllesmereUIAuraBuffReminders = { "_EABR_RequestRefresh", "_EABR_ApplyUnlockPos" },
@@ -2852,6 +2857,7 @@ local EXCLUDED_CONTEXTS = {
     ["EllesmereUIBlizzardSkin"]      = true,
     ["EllesmereUIDamageMeters"]      = true,
     ["EllesmereUIMythicTimer"]       = true,
+    ["EllesmereUIMythicPlus"]        = true,
     ["EllesmereUIQuestTracker"]      = true,
     ["EllesmereUIFriends"]           = true,
     ["EllesmereUIBags"]              = true,

@@ -520,6 +520,46 @@ end
 -------------------------------------------------------------------------------
 EllesmereUI._WHATSNEW_PATCHES = {
     {
+        version = "8.7.7",
+        heroes = {
+            {
+                -- New module. The hero opens the module's first page rather
+                -- than a control: nothing here is a single setting, and the
+                -- master switch is the first row that page builds anyway.
+                module = "Mythic+ Tools",
+                title  = "New Module",
+                desc   = "A Mythic+ companion for the Group Finder: dungeon score and best key drawn onto each dungeon icon, click-to-teleport on the icons themselves, a docked panel listing this week's and the season's runs, plus floating displays for your party's keystones.",
+                nav    = { module = "EllesmereUIMythicPlus", page = "Dungeon Icons", section = "GENERAL", highlight = "Enable Mythic+" },
+            },
+        },
+        features = {
+            {
+                module = "Mythic+ Tools",
+                title  = "Score Overlay",
+                desc   = "Best key level and season score on every dungeon icon",
+                nav    = { module = "EllesmereUIMythicPlus", page = "Dungeon Icons", section = "SCORE OVERLAY", highlight = "Show Score Overlay" },
+            },
+            {
+                module = "Mythic+ Tools",
+                title  = "Dungeon Teleports",
+                desc   = "Click a dungeon icon to cast its teleport, with an optional party announce",
+                nav    = { module = "EllesmereUIMythicPlus", page = "Dungeon Icons", section = "TELEPORTS", highlight = "Teleport Buttons" },
+            },
+            {
+                module = "Mythic+ Tools",
+                title  = "Weekly Panel",
+                desc   = "This week's runs beside the Group Finder; hold Shift for season best",
+                nav    = { module = "EllesmereUIMythicPlus", page = "Weekly Panel", section = "WEEKLY PANEL", highlight = "Show Weekly Panel" },
+            },
+            {
+                module = "Mythic+ Tools",
+                title  = "Party Keystones",
+                desc   = "A movable list of the group's keys, and who holds one for the dungeon you just entered",
+                nav    = { module = "EllesmereUIMythicPlus", page = "Keystones", section = "PARTY KEYSTONES", highlight = "Show Party Keystones" },
+            },
+        },
+    },
+    {
         version = "8.7.6",
         -- No hero tier this patch: features are present, so this is not a
         -- mini patch and the tiers render normally (same shape as 8.6.4).
@@ -4108,6 +4148,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIBlizzardSkin       = "Clean and beautiful visual refreshes for Blizzard UI elements.",
                 EllesmereUIFriends           = "A modern friends list with built-in organization tools.",
                 EllesmereUIMythicTimer       = "A simple Mythic+ timer with full tracking customizations.",
+                EllesmereUIMythicPlus        = "Dungeon scores, weekly runs, teleports and party keystones.",
                 EllesmereUIQuestTracker      = "A clean, updated reskin of Blizzard's Quest Tracker.",
                 EllesmereUIMinimap           = "A new age minimap with clean styling and square layout options.",
                 EllesmereUIDamageMeters      = "Lightweight damage meters with simple but powerful customization.",
@@ -6541,6 +6582,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIBlizzardSkin       = "Clean and beautiful visual refreshes for Blizzard UI elements.",
                 EllesmereUIFriends           = "A modern friends list with built-in organization tools.",
                 EllesmereUIMythicTimer       = "A simple Mythic+ timer with full tracking customizations.",
+                EllesmereUIMythicPlus        = "Dungeon scores, weekly runs, teleports and party keystones.",
                 EllesmereUIQuestTracker      = "A clean, updated reskin of Blizzard's Quest Tracker.",
                 EllesmereUIMinimap           = "A new age minimap with clean styling and square layout options.",
                 EllesmereUIDamageMeters      = "Lightweight damage meters with simple but powerful customization.",

@@ -12,6 +12,7 @@ move-folders:
   EllesmereUI/EllesmereUIDataBars: EllesmereUIDataBars
   EllesmereUI/EllesmereUIFriends: EllesmereUIFriends
   EllesmereUI/EllesmereUIMinimap: EllesmereUIMinimap
+  EllesmereUI/EllesmereUIMythicPlus: EllesmereUIMythicPlus
   EllesmereUI/EllesmereUIMythicTimer: EllesmereUIMythicTimer
   EllesmereUI/EllesmereUINameplates: EllesmereUINameplates
   EllesmereUI/EllesmereUIQoL: EllesmereUIQoL

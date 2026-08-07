@@ -75,6 +75,7 @@ local ADDON_DB_MAP = {
     { folder = "EllesmereUIBags",              display = "Bags",                svName = "EllesmereUIBagsDB",              suffix = "Bags"              },
     { folder = "EllesmereUIFriends",           display = "Friends List",        svName = "EllesmereUIFriendsDB",           suffix = "Friends"           },
     { folder = "EllesmereUIMythicTimer",       display = "Mythic+ Timer",       svName = "EllesmereUIMythicTimerDB",       suffix = "MythicTimer"       },
+    { folder = "EllesmereUIMythicPlus",        display = "Mythic+ Tools",       svName = "EllesmereUIMythicPlusDB",        suffix = "MythicPlus"        },
     { folder = "EllesmereUIQuestTracker",      display = "Quest Tracker",       svName = "EllesmereUIQuestTrackerDB",      suffix = "QuestTracker"      },
     { folder = "EllesmereUIMinimap",           display = "Minimap",             svName = "EllesmereUIMinimapDB",           suffix = "Minimap"           },
     { folder = "EllesmereUIDamageMeters",     display = "Damage Meters",       svName = "EllesmereUIDamageMetersDB",      suffix = "DamageMeters"      },
@@ -193,6 +194,7 @@ local KEY_PREFIX_FOLDER = {
     ["EBS_"]   = "EllesmereUIMinimap",
     ["EDR_"]   = "EllesmereUIBlizzardSkin",
     ["EMT_"]   = "EllesmereUIMythicTimer",
+    ["EMP_"]   = "EllesmereUIMythicPlus",
     ["EABR_"]  = "EllesmereUIAuraBuffReminders",
     ["RF_"]    = "EllesmereUIRaidFrames",
     ["ECL_"]   = "EllesmereUIQoL",
@@ -1424,6 +1426,8 @@ function EllesmereUI.RefreshAllAddons()
     if _G._EFR_ApplyFriends then _G._EFR_ApplyFriends() end
     -- Mythic Timer
     if _G._EMT_Apply then _G._EMT_Apply() end
+    -- Mythic+ (score overlay, weekly panel, teleports, keystone displays)
+    if _G._EMP_Apply then _G._EMP_Apply() end
     -- Damage Meters
     if _G._EDM_Apply then _G._EDM_Apply() end
     -- DataBars (bar set + blocks + layout + positions are all per-profile)
@@ -1446,6 +1450,7 @@ function EllesmereUI.RefreshAllAddons()
     if _G._ECL_RegisterUnlock then _G._ECL_RegisterUnlock() end
     if _G._EUI_BattleRes_RegisterUnlock then _G._EUI_BattleRes_RegisterUnlock() end
     if _G._EDB_RegisterUnlock then _G._EDB_RegisterUnlock() end
+    if _G._EMP_RegisterUnlock then _G._EMP_RegisterUnlock() end
     -- After all addons have rebuilt and positioned their frames from
     -- db.profile.positions, re-apply centralized grow-direction positioning
     -- (handles lazy migration of imported TOPLEFT positions to CENTER format)

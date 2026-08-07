@@ -184,6 +184,7 @@ local function BuildModuleAliases()
     -- registered a module simply don't get their shorthands.
     local EXTRA_ALIASES = {
         EllesmereUIMythicTimer     = { "m+ timer", "m+" },
+        EllesmereUIMythicPlus      = { "mythic plus", "keystone", "key", "m+ score" },
         EllesmereUICooldownManager = { "cdm" },
     }
     for folder, list in pairs(EXTRA_ALIASES) do
