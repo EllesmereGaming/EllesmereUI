@@ -79,6 +79,9 @@ local defaults = {
             coordsMode     = "always",
             coordsPosition = "topLeft",
             coordsScale    = 1.0,
+            -- Map blip (herb/ore/quest dot) scale. Blips are engine textures that
+            -- cannot be resized individually; see the Size section of ApplyMinimap.
+            blipScale      = 1.0,
             -- FPS/MS readout (Text section); options mirror the QoL FPS counter
             showFPS           = false,
             fpsTextSize       = 12,
@@ -479,6 +482,23 @@ local function LayoutFlyoutButtons()
         local xOff = margin + col * (btnSize + FLYOUT_PADDING)
         local yOff = -(margin + row * (btnSize + FLYOUT_PADDING))
 
+        -- Undo the blip counter-scale before grouping: the flyout panel is
+        -- UIParent-owned, so a stuck 1/blipScale factor would render it shrunk.
+        do
+            local ffdB = GetFFD(Minimap)
+            if ffdB.blipChildApplied and ffdB.blipChildApplied[btn] then
+                pcall(btn.SetScale, btn, (ffdB.blipChildBase and ffdB.blipChildBase[btn]) or 1)
+                ffdB.blipChildApplied[btn] = nil
+                if ffdB.blipChildBase then ffdB.blipChildBase[btn] = nil end
+            end
+            -- Also drop the circle icon mask; flyout icons render square.
+            local fhG = GetFFD(btn)
+            if fhG.iconCircleMaskOn then
+                local gIcon = btn.icon or btn.Icon
+                if gIcon then pcall(gIcon.RemoveMaskTexture, gIcon, fhG.iconCircleMask) end
+                fhG.iconCircleMaskOn = nil
+            end
+        end
         btn:SetParent(flyoutPanel)
         -- Unlock fixed strata/level first (LibDBIcon locks these)
         if btn.SetFixedFrameStrata then btn:SetFixedFrameStrata(false) end
@@ -1081,6 +1101,83 @@ end
 
 local _freeMoveHooked = {}  -- [frame] = true, one-time hook guard
 
+-- Free-move magnet: while dragging, snap the button flush to nearby free-move
+-- buttons (stack above/below/beside + edge/center alignment) and to the
+-- minimap border (inside or outside face). Holding Ctrl together with Shift
+-- disables it for precise placement. Returns a screen-space correction
+-- converted to the dragged frame's units.
+do
+    local FM_SNAP_PX = 6
+    -- Best-candidate accumulator, shared by the two functions below as upvalues
+    -- (one drag runs at a time), so the per-frame drag path allocates nothing.
+    local fmBestDX, fmBestDY
+    local function fmConsider(dx, dy)
+        if dx and math.abs(dx) <= FM_SNAP_PX and (not fmBestDX or math.abs(dx) < math.abs(fmBestDX)) then fmBestDX = dx end
+        if dy and math.abs(dy) <= FM_SNAP_PX and (not fmBestDY or math.abs(dy) < math.abs(fmBestDY)) then fmBestDY = dy end
+    end
+    function EBS._FreeMoveSnapDelta(self)
+        if IsControlKeyDown() then return 0, 0 end
+        local es = self:GetEffectiveScale()
+        local L, R, T, B = self:GetLeft(), self:GetRight(), self:GetTop(), self:GetBottom()
+        if not (L and es and es > 0) then return 0, 0 end
+        L, R, T, B = L * es, R * es, T * es, B * es
+        fmBestDX, fmBestDY = nil, nil
+        -- 1) Other free-move buttons
+        for other in pairs(_freeMoveHooked) do
+            if other ~= self and other.IsShown and other:IsShown() and other.GetLeft and other:GetLeft() then
+                local oes = other:GetEffectiveScale()
+                local oL, oR = other:GetLeft() * oes, other:GetRight() * oes
+                local oT, oB = other:GetTop() * oes, other:GetBottom() * oes
+                local xNear = (L < oR + FM_SNAP_PX) and (R > oL - FM_SNAP_PX)
+                local yNear = (B < oT + FM_SNAP_PX) and (T > oB - FM_SNAP_PX)
+                if xNear then
+                    fmConsider(nil, oT - B)                          -- sit on top of it
+                    fmConsider(nil, oB - T)                          -- hang below it
+                    fmConsider(oL - L, nil)                          -- align left edges
+                    fmConsider(oR - R, nil)                          -- align right edges
+                    fmConsider((oL + oR) / 2 - (L + R) / 2, nil)     -- align centers
+                end
+                if yNear then
+                    fmConsider(oR - L, nil)                          -- flush to its right
+                    fmConsider(oL - R, nil)                          -- flush to its left
+                    fmConsider(nil, oT - T)                          -- align top edges
+                    fmConsider(nil, oB - B)                          -- align bottom edges
+                    fmConsider(nil, (oT + oB) / 2 - (T + B) / 2)     -- align middles
+                end
+            end
+        end
+        -- 2) Minimap border. Square shapes snap to the edges (inside or outside
+        -- face); circle shapes snap the button's center onto the rim along its
+        -- current angle (edge snapping would target the invisible square corners).
+        local mm = _G.Minimap
+        if mm and mm.GetLeft and mm:GetLeft() then
+            local mes = mm:GetEffectiveScale()
+            local mL, mR = mm:GetLeft() * mes, mm:GetRight() * mes
+            local mT, mB = mm:GetTop() * mes, mm:GetBottom() * mes
+            local mp = EBS.db and EBS.db.profile and EBS.db.profile.minimap
+            local isCircle = mp and (mp.shape == "circle" or mp.shape == "textured_circle")
+            if isCircle then
+                local mcx, mcy = (mL + mR) / 2, (mT + mB) / 2
+                local bcx, bcy = (L + R) / 2, (T + B) / 2
+                local ddx, ddy = bcx - mcx, bcy - mcy
+                local dist = math.sqrt(ddx * ddx + ddy * ddy)
+                local radius = (mR - mL) / 2
+                if dist > 0.001 and math.abs(dist - radius) <= FM_SNAP_PX * 2 then
+                    local f = radius / dist
+                    fmBestDX = mcx + ddx * f - bcx   -- rim snap overrides edge results
+                    fmBestDY = mcy + ddy * f - bcy
+                end
+            else
+                fmConsider(mL - R, nil); fmConsider(mR - L, nil)   -- outside: left/right of map
+                fmConsider(nil, mB - T); fmConsider(nil, mT - B)   -- outside: below/above map
+                fmConsider(mL - L, nil); fmConsider(mR - R, nil)   -- inside: flush to left/right edge
+                fmConsider(nil, mT - T); fmConsider(nil, mB - B)   -- inside: flush to top/bottom edge
+            end
+        end
+        return (fmBestDX or 0) / es, (fmBestDY or 0) / es
+    end
+end
+
 local function EnableFreeMove(frame)
     if not frame or _freeMoveHooked[frame] then return end
     _freeMoveHooked[frame] = true
@@ -1119,6 +1216,9 @@ local function EnableFreeMove(frame)
             local cx, cy = GetCursorPosition()
             cx, cy = cx / es, cy / es
             local dx, dy = cx - startX, cy - startY
+            dx = dx + (GetFFD(self).fmSnapDX or 0)
+            dy = dy + (GetFFD(self).fmSnapDY or 0)
+            GetFFD(self).fmSnapDX, GetFFD(self).fmSnapDY = nil, nil
             SaveBtnOffset(key, origOffX + dx, origOffY + dy)
             if ApplyMinimap then ApplyMinimap() end
             return
@@ -1131,6 +1231,16 @@ local function EnableFreeMove(frame)
         if origPoint then
             self:ClearAllPoints()
             self:SetPoint(origPoint, origRel, origRelPoint, origX + origOffX + dx, origY + origOffY + dy)
+            -- Magnet: nudge onto nearby buttons / the minimap border. Remember
+            -- the correction so release saves the snapped position.
+            local sdx, sdy = EBS._FreeMoveSnapDelta(self)
+            local ffdS = GetFFD(self)
+            ffdS.fmSnapDX, ffdS.fmSnapDY = sdx, sdy
+            if sdx ~= 0 or sdy ~= 0 then
+                self:ClearAllPoints()
+                self:SetPoint(origPoint, origRel, origRelPoint,
+                    origX + origOffX + dx + sdx, origY + origOffY + dy + sdy)
+            end
         end
     end
 
@@ -1163,6 +1273,9 @@ local function EnableFreeMove(frame)
         local cx, cy = GetCursorPosition()
         cx, cy = cx / es, cy / es
         local dx, dy = cx - startX, cy - startY
+        dx = dx + (GetFFD(self).fmSnapDX or 0)
+        dy = dy + (GetFFD(self).fmSnapDY or 0)
+        GetFFD(self).fmSnapDX, GetFFD(self).fmSnapDY = nil, nil
         SaveBtnOffset(key, origOffX + dx, origOffY + dy)
         -- Clear the drag flag on the next frame (set in OnMouseDown)
         C_Timer.After(0, function() GetFFD(frame).freeMoveJustDragged = nil end)
@@ -3541,7 +3654,31 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
         local rowGap = PP.SnapForES(p.btnRowSpacing or 0, rowES)
         local rowX = PP.SnapForES(rowBaseX, rowES)
         local rowY = PP.SnapForES(rowBaseY, rowES)
+        -- Circle shapes: run the row along the rim instead of a straight line.
+        -- The cursor is an angle; the start corner and travel direction still
+        -- come from Button Row Position, and Distance from Map pushes radially.
+        local CORNER_ANGLE = { TOPLEFT = 135, TOPRIGHT = 45, BOTTOMLEFT = 225, BOTTOMRIGHT = 315 }
+        local rowAng, rowDirSign, rowRadius
+        if circleMode then
+            -- rel = the MAP corner the row starts from (point is the button-side anchor)
+            rowAng = CORNER_ANGLE[rowMode.rel] or 225
+            local t = math.rad(rowAng)
+            -- Sign that makes the rim tangent follow the row's travel direction
+            rowDirSign = ((-math.sin(t)) * rowMode.dirX + math.cos(t) * rowMode.dirY) >= 0 and 1 or -1
+            rowRadius = (minimap:GetWidth() or 0) / 2 + (p.btnRowDistance or 0)
+        end
+        local function PlaceRowButtonOnRim(btn, advance)
+            local sc = btn:GetScale() or 1
+            local t = math.rad(rowAng)
+            btn:SetPoint("CENTER", minimap, "CENTER",
+                math.cos(t) * rowRadius / sc, math.sin(t) * rowRadius / sc)
+            if advance and rowRadius > 0 then
+                local step = math.max(btn:GetWidth() or 0, btn:GetHeight() or 0) * sc + rowGap
+                rowAng = rowAng + math.deg(step / rowRadius) * rowDirSign
+            end
+        end
         local function PlaceRowButton(btn)
+            if circleMode then PlaceRowButtonOnRim(btn, true) return end
             btn:SetPoint(rowMode.point, minimap, rowMode.rel, rowX, rowY)
             local adv = (rowMode.dirX ~= 0) and btn:GetWidth() or btn:GetHeight()
             adv = math.floor(adv / rowPx + 0.001) * rowPx + rowGap
@@ -3552,6 +3689,8 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
         local flyoutVisible = flyoutToggle:IsShown()
         if flyoutVisible then
             PlaceRowButton(flyoutToggle)
+        elseif circleMode then
+            PlaceRowButtonOnRim(flyoutToggle, false)   -- park at the start slot
         else
             flyoutToggle:SetPoint(rowMode.point, minimap, rowMode.rel, rowX, rowY)
         end
@@ -3623,7 +3762,13 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
                 -- above the icon after ungrouping.
                 local ubg = GetFFD(btn).ungroupBg
                 ubg:SetFrameStrata(btn:GetFrameStrata())
-                ubg:SetFrameLevel(btn:GetFrameLevel() - 1)
+                -- Circle shapes park the grown round background just above the
+                -- map so it can never cover a NEIGHBORING button's icon.
+                if circleMode then
+                    ubg:SetFrameLevel((minimap:GetFrameLevel() or 0) + 2)
+                else
+                    ubg:SetFrameLevel(btn:GetFrameLevel() - 1)
+                end
                 ubg:Show()
                 if btn._ungroupRing then btn._ungroupRing:Hide() end
             else
@@ -3840,7 +3985,12 @@ local function PositionOmniumFolio(btn)
     if btn:GetParent() ~= Minimap then btn:SetParent(Minimap) end
     btn:SetFrameStrata("HIGH")
     btn:SetFrameLevel((Minimap:GetFrameLevel() or 0) + 10)
-    btn:SetScale(mp.omniumFolioScale or 0.75)
+    -- Divide by the applied blip scale: the button is a minimap child, so the
+    -- map's blip SetScale would otherwise multiply into this button too. Its
+    -- reassert hooks fire on any SetScale, so this site (not the generic
+    -- counter-scale pass) must own the correction.
+    local blipApplied = (GetFFD(Minimap).blipScaleApplied) or 1
+    btn:SetScale((mp.omniumFolioScale or 0.75) / blipApplied)
     btn:ClearAllPoints()
     -- Anchor the button's chosen corner to the minimap's same corner; X/Y nudge from
     -- there (positive X = right, positive Y = up, regardless of corner).
@@ -4050,6 +4200,107 @@ local function ApplyOmniumFolio()
     PositionOmniumFolio(btn)
     if not btn:IsShown() and btn.RefreshButton then
         btn:RefreshButton(true)
+    end
+end
+
+-- Round the black button backgrounds to match circle map shapes (and square
+-- them back on square shapes). The backgrounds are BackdropTemplate frames,
+-- so we mask their Center texture with the standard round portrait mask.
+function EBS._ApplyBtnBgShape(bgFrame)
+    local tex = bgFrame.Center
+    if not tex then return end
+    local mp = EBS.db and EBS.db.profile and EBS.db.profile.minimap
+    local isCircle = mp and (mp.shape == "circle" or mp.shape == "textured_circle")
+    local ffdB = GetFFD(bgFrame)
+    local host = bgFrame:GetParent()
+    if isCircle then
+        -- Slightly larger than the button: square icon corners would poke out
+        -- of a same-size circle. Restored to a flush fit on square shapes.
+        if host and not ffdB.circleGrown then
+            bgFrame:ClearAllPoints()
+            bgFrame:SetPoint("TOPLEFT", host, "TOPLEFT", -2, 2)
+            bgFrame:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", 2, -2)
+            ffdB.circleGrown = true
+        end
+        -- The grown circle can overlap a NEIGHBORING button's icon, so park all
+        -- circle backgrounds just above the map -- below every button's icons.
+        if _G.Minimap then
+            bgFrame:SetFrameLevel((_G.Minimap:GetFrameLevel() or 0) + 2)
+        end
+        if not ffdB.circleMask then
+            local mask = bgFrame:CreateMaskTexture()
+            mask:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask",
+                "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+            mask:SetAllPoints(tex)
+            ffdB.circleMask = mask
+        end
+        if not ffdB.circleMaskOn then
+            tex:AddMaskTexture(ffdB.circleMask)
+            ffdB.circleMaskOn = true
+        end
+        -- Square addon icons poke past the round background: mask the icon
+        -- itself so it reads as a circle. EUI's own atlas icons (_icon) have
+        -- transparent art already and are left alone.
+        local hIcon = host and (host.icon or host.Icon)
+        if hIcon and hIcon.AddMaskTexture then
+            local fh = GetFFD(host)
+            if not fh.iconCircleMask then
+                local m2 = host:CreateMaskTexture()
+                m2:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask",
+                    "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+                m2:SetAllPoints(hIcon)
+                fh.iconCircleMask = m2
+            end
+            if not fh.iconCircleMaskOn then
+                pcall(hIcon.AddMaskTexture, hIcon, fh.iconCircleMask)
+                fh.iconCircleMaskOn = true
+            end
+        end
+    elseif ffdB.circleMaskOn then
+        tex:RemoveMaskTexture(ffdB.circleMask)
+        ffdB.circleMaskOn = nil
+        if ffdB.circleGrown then
+            if host then
+                bgFrame:ClearAllPoints(); bgFrame:SetAllPoints(host)
+                bgFrame:SetFrameLevel(math.max(0, (host:GetFrameLevel() or 1) - 1))
+            end
+            ffdB.circleGrown = nil
+        end
+        local fh = host and GetFFD(host)
+        if fh and fh.iconCircleMaskOn then
+            local hIcon = host.icon or host.Icon
+            if hIcon then pcall(hIcon.RemoveMaskTexture, hIcon, fh.iconCircleMask) end
+            fh.iconCircleMaskOn = nil
+        end
+    end
+end
+
+-- Counter-scale minimap children so blipScale only affects the map blips.
+-- Skips elements that manage their own scale (clock/location/FPS via their
+-- _EBS_ globals; the Omnium Folio corrects itself in PositionOmniumFolio).
+-- Idempotent via per-child base capture: a scale someone else set since our
+-- last pass becomes the new base instead of compounding our factor.
+function EBS._CounterScaleBlipChildren(minimap, blipScale)
+    local inv = 1 / blipScale
+    local ffdM = GetFFD(minimap)
+    ffdM.blipChildBase    = ffdM.blipChildBase    or setmetatable({}, { __mode = "k" })
+    ffdM.blipChildApplied = ffdM.blipChildApplied or setmetatable({}, { __mode = "k" })
+    local expl = {}
+    if _G._EBS_ClockBg    then expl[_G._EBS_ClockBg] = true end
+    if _G._EBS_LocationBg then expl[_G._EBS_LocationBg] = true end
+    if _G._EBS_FpsBg      then expl[_G._EBS_FpsBg] = true end
+    if _G.ExpansionLandingPageMinimapButton then expl[_G.ExpansionLandingPageMinimapButton] = true end
+    for _, child in ipairs({ minimap:GetChildren() }) do
+        if not expl[child] and child.GetScale and child.SetScale then
+            local cur = child:GetScale() or 1
+            local mine = ffdM.blipChildApplied[child]
+            if mine == nil or math.abs(cur - mine) > 0.005 then
+                ffdM.blipChildBase[child] = cur
+            end
+            local want = (ffdM.blipChildBase[child] or 1) * inv
+            ffdM.blipChildApplied[child] = want
+            pcall(child.SetScale, child, want)
+        end
     end
 end
 
@@ -4323,10 +4574,33 @@ local function ApplyMinimap()
         EllesmereUI.RegAccent({ type = "callback", fn = GetFFD(minimap).accentBorderCB })
     end
 
-    -- Size
-    minimap:SetScale(1.0)
+    -- Size. Blips (herb/ore/quest dots) are engine textures that cannot be
+    -- resized individually: scale the whole Minimap and divide the frame size,
+    -- so the on-screen map stays at mapSize and only the blips grow. Children
+    -- are counter-scaled back (see CounterScaleBlipChildren).
+    local blipScale = tonumber(p.blipScale) or 1.0
+    if blipScale < 0.5 then blipScale = 0.5 elseif blipScale > 3.0 then blipScale = 3.0 end
+    local prevBlip = GetFFD(minimap).blipScaleApplied or 1.0
+    minimap:SetScale(blipScale)
     local mapSize = p.mapSize or 140
-    minimap:SetSize(mapSize, mapSize)
+    minimap:SetSize(mapSize / blipScale, mapSize / blipScale)
+    -- SetScale reinterprets anchor offsets: on a mid-session scale change,
+    -- rescale the current offsets so the on-screen position doesn't move.
+    if GetFFD(minimap).active and math.abs(prevBlip - blipScale) > 0.001
+       and (minimap:GetNumPoints() or 0) > 0 then
+        local pts = {}
+        for i = 1, minimap:GetNumPoints() do pts[i] = { minimap:GetPoint(i) } end
+        minimap:ClearAllPoints()
+        for _, pt in ipairs(pts) do
+            minimap:SetPoint(pt[1], pt[2], pt[3],
+                (pt[4] or 0) * prevBlip / blipScale, (pt[5] or 0) * prevBlip / blipScale)
+        end
+    end
+    GetFFD(minimap).blipScaleApplied = blipScale
+    -- First pass here so the row layout below reads counter-scaled children;
+    -- second pass at the end of ApplyMinimap catches late-created ones.
+    EBS._CounterScaleBlipChildren(minimap, blipScale)
+
     -- Shape mask
     local maskID = isCircle and 186178 or 130937
     minimap:SetMaskTexture(maskID)
@@ -4339,7 +4613,7 @@ local function ApplyMinimap()
         frame:SetFrameLevel(minimap:GetFrameLevel() + 1)
         local tex = frame:CreateTexture(nil, "ARTWORK")
         if isCircle then
-            local inset = -mapSize * 0.10
+            local inset = -(mapSize / blipScale) * 0.10
             tex:SetPoint("TOPLEFT", frame, "TOPLEFT", inset, -inset)
             tex:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -inset, inset)
         else
@@ -4621,7 +4895,7 @@ local function ApplyMinimap()
             clockFrame:SetPoint("CENTER", clockBg, "CENTER", 0, 0)
         end
         local cs = p.clockScale or 1.15
-        clockBg:SetScale(cs)
+        clockBg:SetScale(cs / blipScale)
         _G._EBS_ClockBg = clockBg
         clockBg:Show()
         clockFrame:Show()
@@ -4747,7 +5021,7 @@ local function ApplyMinimap()
             locationFrame:SetPoint("CENTER", locationBg, "CENTER", 0, 0)
         end
         local ls = p.locationScale or 1.15
-        locationBg:SetScale(ls)
+        locationBg:SetScale(ls / blipScale)
         _G._EBS_LocationBg = locationBg
         locationBg:Show()
         locationFrame:Show()
@@ -4769,7 +5043,7 @@ local function ApplyMinimap()
     local cpy = p and p.coordsBelowOffsetY or 0
     coordFrame:ClearAllPoints()
     coordFrame:SetPoint(cpAnchor[1], minimap, cpAnchor[2], cpAnchor[3] + cpx, cpAnchor[4] + cpy)
-    coordFrame:SetScale(p and p.coordsScale or 1.0)
+    coordFrame:SetScale((p and p.coordsScale or 1.0) / blipScale)
     _G._EBS_CoordFrame = coordFrame
     if not coordTicker then
         coordTicker = CreateFrame("Frame")  -- kept for Show/Hide API
@@ -4933,7 +5207,7 @@ local function ApplyMinimap()
         fpsBg:ClearAllPoints()
         fpsBg:SetPoint(fAnchor[1], minimap, fAnchor[2],
             fAnchor[3] + (p.fpsOffsetX or 0), fAnchor[4] + (p.fpsOffsetY or 0))
-        fpsBg:SetScale(p.fpsScale or 1.0)
+        fpsBg:SetScale((p.fpsScale or 1.0) / blipScale)
         _G._EBS_FpsBg = fpsBg
         -- Mouse only while a hover tooltip is assigned, so the readout never
         -- blocks map clicks otherwise
@@ -5091,9 +5365,9 @@ local function ApplyMinimap()
                     py = PPa.SnapForES(py, es)
                 end
             end
-            minimap:SetPoint(p.position.point, UIParent, p.position.relPoint, px, py)
+            minimap:SetPoint(p.position.point, UIParent, p.position.relPoint, px / blipScale, py / blipScale)
         else
-            minimap:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -10, -10)
+            minimap:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -10 / blipScale, -10 / blipScale)
         end
     end
 
@@ -5101,6 +5375,49 @@ local function ApplyMinimap()
     GetFFD(minimap).active = true
 
     ApplyOmniumFolio()
+
+    -- Second pass: catches children created during this apply.
+    EBS._CounterScaleBlipChildren(minimap, blipScale)
+
+    -- Match the button backgrounds to the map shape (round on circle shapes).
+    for _, child in ipairs({ minimap:GetChildren() }) do
+        local bg = child._bg or GetFFD(child).ungroupBg
+        if bg then EBS._ApplyBtnBgShape(bg) end
+    end
+end
+
+-- Live drag preview for the blip slider: scale the map (keeping its screen
+-- anchor and its children pinned) without the full relayout - re-snapping
+-- every icon per tick reads as shimmering. One full refresh runs on settle.
+function _G._EBS_PreviewBlipScale(v)
+    local minimap = _G.Minimap
+    local mp = EBS.db and EBS.db.profile and EBS.db.profile.minimap
+    if not (minimap and mp) then return end
+    v = tonumber(v) or 1
+    if v < 0.5 then v = 0.5 elseif v > 3.0 then v = 3.0 end
+    local ffd = GetFFD(minimap)
+    local prev = ffd.blipScaleApplied or 1
+    if math.abs(prev - v) < 0.0005 then return end
+    local sz = mp.mapSize or 140
+    minimap:SetScale(v)
+    minimap:SetSize(sz / v, sz / v)
+    if (minimap:GetNumPoints() or 0) > 0 then
+        local pts = {}
+        for i = 1, minimap:GetNumPoints() do pts[i] = { minimap:GetPoint(i) } end
+        minimap:ClearAllPoints()
+        for _, pt in ipairs(pts) do
+            minimap:SetPoint(pt[1], pt[2], pt[3],
+                (pt[4] or 0) * prev / v, (pt[5] or 0) * prev / v)
+        end
+    end
+    ffd.blipScaleApplied = v
+    EBS._CounterScaleBlipChildren(minimap, v)
+    if _G._EBS_ClockBg    then pcall(_G._EBS_ClockBg.SetScale,    _G._EBS_ClockBg,    (mp.clockScale or 1.15) / v) end
+    if _G._EBS_LocationBg then pcall(_G._EBS_LocationBg.SetScale, _G._EBS_LocationBg, (mp.locationScale or 1.15) / v) end
+    if _G._EBS_CoordFrame then pcall(_G._EBS_CoordFrame.SetScale, _G._EBS_CoordFrame, (mp.coordsScale or 1.0) / v) end
+    if _G._EBS_FpsBg      then pcall(_G._EBS_FpsBg.SetScale,      _G._EBS_FpsBg,      (mp.fpsScale or 1.0) / v) end
+    local folio = _G.ExpansionLandingPageMinimapButton
+    if folio and folio:IsShown() then pcall(PositionOmniumFolio, folio) end
 end
 
 

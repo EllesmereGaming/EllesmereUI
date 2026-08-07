@@ -1430,7 +1430,10 @@ function EllesmereUI.RefreshAllAddons()
     if _G._EDB_Apply then _G._EDB_Apply() end
     -- Dragon Riding HUD
     if _G._EDR_Rebuild then _G._EDR_Rebuild() end
-    -- Minimap (flyout button state)
+    -- Minimap: settings first (ApplyMinimap re-reads the incoming profile --
+    -- without it size/shape/blip scale keep the outgoing profile's values
+    -- until a reload), then the flyout button state.
+    if _G._EMM_ApplyMinimap then _G._EMM_ApplyMinimap() end
     if _G._EMIN_RefreshFlyout then _G._EMIN_RefreshFlyout() end
     -- Global class/power colors (updates oUF, nameplates, raid frames)
     if EllesmereUI.ApplyColorsToOUF then EllesmereUI.ApplyColorsToOUF() end
