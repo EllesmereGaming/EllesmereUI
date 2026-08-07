@@ -24,6 +24,7 @@ local eventFrame
 --  Frame registry
 -------------------------------------------------------------------------------
 local PRELOADED = {
+    "ContainerFrameCombinedBags"
     "CharacterFrame",
     "FriendsFrame",
     "PVEFrame",
@@ -104,6 +105,7 @@ local DRAG_HEADERS = {
 -- to a child frame: either a global name or a function(frame) -> child.
 local EXTRA_DRAG_TARGETS = {
     ["AchievementFrame"] = function(frame) return frame.Header or _G["AchievementFrameHeader"] end,
+    ["ContainerFrameCombinedBags"] = function(frame) return frame.TitleContainer or _G["ContainerFrameCombinedBags"] end,
 }
 
 -- Blizzard windows that normally dock beside CharacterFrame (Item Upgrade,
