@@ -2077,13 +2077,20 @@ local function GetOrCreateButton(slot, parent, info, index, skipProtected)
         if not btn:GetAttribute("eabPickupWrap") and not InCombatLockdown() then
             btn:SetAttribute("eabPickupWrap", true)
             SecureHandlerWrapScript(btn, "OnClick", btn, [[
-                if down and IsModifiedClick("PICKUPACTION") and self:IsUnderMouse()
+                local flipped = false
+                if button ~= "Keybind" and IsModifiedClick("PICKUPACTION")
+                   and self:IsUnderMouse()
                    and self:GetAttribute("useOnKeyDown") ~= false then
+                    self:SetAttribute("eabPickupBackup", self:GetAttribute("useOnKeyDown") or true)
                     self:SetAttribute("useOnKeyDown", false)
-                    return nil, "restore"
+                    flipped = true
                 end
+                return nil, flipped and "flip" or "noop"
             ]], [[
-                self:SetAttribute("useOnKeyDown", true)
+                if self:GetAttribute("eabPickupBackup") ~= nil then
+                    self:SetAttribute("useOnKeyDown", self:GetAttribute("eabPickupBackup"))
+                    self:SetAttribute("eabPickupBackup", nil)
+                end
             ]])
         end
         if not skipProtected then
