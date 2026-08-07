@@ -249,20 +249,50 @@ local function GetGlobalBindings()
     return cc and cc.globals or {}
 end
 
--- Merge globals + current spec. Spec overrides globals on key conflict.
+-- Types whose global entry may be shadowed by a per-spec copy. Target Unit and
+-- Context Menu are seeded into cc.globals at DB creation and are not deletable
+-- there, so without this the whole account shares one key for them.
+local SPEC_OVERRIDABLE = { target = true, menu = true }
+
+-- The one condition under which a binding takes part in resolution. Anything
+-- asking "is this binding in force?" must go through here, so a keyless or
+-- disabled entry can never be reported as live by one caller and dead by
+-- another.
+local function BindingIsLive(b)
+    return b.enabled ~= false and b.key ~= nil
+end
+
+-- Overridable types the active spec currently shadows. Single source of truth
+-- for the shadow rule: GetActiveBindings enforces it, FindKeyConflicts must not
+-- flag a shadowed global as a conflict, and the options page dims by it.
+-- A spec entry whose key was cleared shadows nothing -- the global is live
+-- again, and every consumer has to agree on that.
+local function GetShadowedTypes()
+    local shadowed = {}
+    for _, b in ipairs(GetSpecBindings()) do
+        if SPEC_OVERRIDABLE[b.type] and BindingIsLive(b) then shadowed[b.type] = true end
+    end
+    return shadowed
+end
+
+-- Merge globals + current spec. Spec overrides globals on key conflict, and --
+-- for the overridable types above -- on type conflict too: rebinding a spec's
+-- Target Unit to a different key has to retire the global key, otherwise both
+-- would target and the spec entry would read as an addition, not an override.
 -- Only includes enabled bindings. Respects master enable toggle.
 local function GetActiveBindings()
     local cc = GetClickCastDB()
     if not cc or not cc.enabled then return {} end
     local result, usedKeys = {}, {}
+    local shadowed = GetShadowedTypes()
     for _, b in ipairs(GetSpecBindings()) do
-        if b.enabled ~= false and b.key then
+        if BindingIsLive(b) then
             result[#result + 1] = b
             usedKeys[b.key] = true
         end
     end
     for _, b in ipairs(cc.globals) do
-        if b.enabled ~= false and b.key and not usedKeys[b.key] then
+        if BindingIsLive(b) and not usedKeys[b.key] and not shadowed[b.type] then
             result[#result + 1] = b
         end
     end
@@ -1557,6 +1587,53 @@ function ns.CC_RemoveGlobalBinding(index)
     ns.CC_ApplyBindings()
 end
 
+ns.CC_SPEC_OVERRIDABLE = SPEC_OVERRIDABLE
+
+-- Returns: index of the active spec's copy of this type (or nil), whether a spec
+-- exists at all, and whether that copy actually shadows the global.
+--
+-- The last two are NOT the same question and callers need both: the index alone
+-- governs "would a second drag duplicate this entry?", while `shadows` governs
+-- "is the global dead?". A copy whose key was cleared still occupies the slot
+-- but leaves the global live, so dimming the global on index alone would tell
+-- the user their global key is inactive while it is in fact the one firing.
+function ns.CC_FindSpecOverride(bindingType)
+    local cc = GetClickCastDB()
+    if not cc then return nil, false, false end
+    local specID = GetCurrentSpecID()
+    if not specID then return nil, false, false end
+    local list = cc.specs[specID]
+    if not list then return nil, true, false end
+    for i, b in ipairs(list) do
+        if b.type == bindingType then return i, true, BindingIsLive(b) end
+    end
+    return nil, true, false
+end
+
+-- Copy a global Target Unit / Context Menu binding into the active spec.
+-- GetActiveBindings walks spec bindings first and de-dups globals on key, so the
+-- copy shadows its global source the moment it exists -- no separate resolution
+-- path is needed, and deleting the copy falls straight back to the global.
+-- Returns the new spec index, or nil plus a reason ("nospec" / "exists").
+function ns.CC_OverrideGlobalInSpec(gb)
+    if not gb or not SPEC_OVERRIDABLE[gb.type] then return nil, "type" end
+    local cc = GetClickCastDB()
+    if not cc then return nil, "type" end
+    local existing, hasSpec = ns.CC_FindSpecOverride(gb.type)
+    if not hasSpec then return nil, "nospec" end
+    if existing then return nil, "exists", existing end
+    local specID = GetCurrentSpecID()
+    if not cc.specs[specID] then cc.specs[specID] = {} end
+    -- Seeded from the global so the override starts behaving identically and the
+    -- user only has to rebind it. target/menu carry no hovercast state (the
+    -- center panel gates those rows on hasAdvancedOpts), so key + oocOnly is the
+    -- binding's entire surface.
+    tinsert(cc.specs[specID], { type = gb.type, key = gb.key,
+        enabled = true, oocOnly = gb.oocOnly })
+    ns.CC_ApplyBindings()
+    return #cc.specs[specID]
+end
+
 function ns.CC_SetGlobalBindingKey(bindingType, newKey)
     local cc = GetClickCastDB()
     if not cc then return end
@@ -1599,8 +1676,15 @@ local function FindKeyConflicts(keyStr, excludeBinding)
     local conflicts = {}
     local cc = GetClickCastDB()
     if not cc then return conflicts end
+    -- A global shadowed by a spec override is not in force, so its key is free.
+    -- Without this, moving a spec's Target Unit off BUTTON1 leaves the global
+    -- still holding BUTTON1 in storage and every later attempt to bind BUTTON1
+    -- draws a phantom conflict against a binding that no longer fires. It also
+    -- stops the seeded copy from reporting the same name twice right after a
+    -- drag, when global and override still share a key.
+    local shadowed = GetShadowedTypes()
     for _, b in ipairs(cc.globals) do
-        if b ~= excludeBinding and b.key == keyStr then
+        if b ~= excludeBinding and b.key == keyStr and not shadowed[b.type] then
             conflicts[#conflicts + 1] = ns.CC_GetBindingName(b)
         end
     end
@@ -1843,6 +1927,181 @@ function ns.CC_Init()
 end
 
 -------------------------------------------------------------------------------
+--  Global -> Spec drag
+--  Target Unit / Context Menu exist only as fixed global entries, so the sole
+--  way to give a spec its own key is to copy one across. Drag is the whole
+--  gesture: no popup, and nothing changes for users who never drag.
+--
+--  The ghost is a single frame reused across drags and parented to UIParent
+--  (the page root is destroyed and rebuilt on every RebuildPage, which would
+--  take a page-parented ghost with it mid-drag).
+-------------------------------------------------------------------------------
+function ns.CC_EnsureDragGhost(fontPath, outlineFlag)
+    local g = ns._ccDragGhost
+    if not g then
+        g = CreateFrame("Frame", nil, UIParent)
+        g:SetSize(200, 40)
+        g:SetFrameStrata("TOOLTIP")
+        g:EnableMouse(false)   -- must never win the drop-zone hit test
+        g:Hide()
+        local bg = g:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints(); bg:SetColorTexture(0, 0, 0, 0.75)
+        g.icon = g:CreateTexture(nil, "ARTWORK")
+        g.icon:SetSize(32, 32)
+        g.icon:SetPoint("LEFT", g, "LEFT", 4, 0)
+        g.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        g.label = g:CreateFontString(nil, "OVERLAY")
+        g.label:SetPoint("LEFT", g.icon, "RIGHT", 8, 0)
+        g.label:SetPoint("RIGHT", g, "RIGHT", -6, 0)
+        g.label:SetJustifyH("LEFT")
+        g.label:SetWordWrap(false)
+        g.label:SetTextColor(1, 1, 1, 1)
+        ns._ccDragGhost = g
+    end
+    -- A FontString with no font set renders nothing, so never leave it unset.
+    g.label:SetFont(fontPath or "Fonts\\FRIZQT__.TTF", 12, outlineFlag or "")
+    return g
+end
+
+-- tile: the global-side tile. gb: its binding. ctx carries the page's font
+-- settings for the ghost; the rebuild is reached through ns._ccRebuild instead,
+-- so a drop always drives the page that is live when the timer fires.
+function ns.CC_AttachSpecOverrideDrag(tile, gb, ctx)
+    tile:RegisterForDrag("LeftButton")
+
+    -- The engine still delivers the drop's mouse-up as a click on the source
+    -- tile (same reason the CDM icon reorder keeps a dragEndTime). Left alone
+    -- it re-selects this global tile and fires a SECOND page rebuild right on
+    -- top of the drop's own -- from a tile that the first rebuild has already
+    -- orphaned, so a stale closure ends up driving the page singleton.
+    local origClick = tile:GetScript("OnClick")
+    tile:SetScript("OnClick", function(self, ...)
+        if GetTime() - (ns._ccDragEndTime or 0) < 0.2 then return end
+        if origClick then origClick(self, ...) end
+    end)
+
+    local function StopDrag()
+        local g = ns._ccDragGhost
+        if g then g:Hide() end
+        if EllesmereUI.Mouse then EllesmereUI.Mouse.UnsubscribeFrame("ccSpecDrag") end
+        if ns._ccDropHint then ns._ccDropHint:Hide() end
+    end
+    -- Belt and braces: a drag interrupted by anything other than OnDragStop
+    -- (page rebuild, panel close) would otherwise strand the ghost on screen
+    -- holding a Mouse service subscription open.
+    tile:HookScript("OnHide", StopDrag)
+
+    tile:SetScript("OnDragStart", function()
+        -- The tile's own hover tooltip is still up at this point and would
+        -- follow the drag around the screen.
+        EllesmereUI.HideWidgetTooltip()
+        local g = ns.CC_EnsureDragGhost(ctx.fontPath, ctx.outlineFlag)
+        g.icon:SetTexture(ns.CC_GetBindingIcon(gb))
+        g.label:SetText(EllesmereUI.L(ns.CC_GetBindingName(gb)))
+        g:SetWidth(32 + 12 + max(60, g.label:GetStringWidth() + 10))
+        g:Show()
+        local hint = ns._ccDropHint
+        if hint then
+            -- Resolved per drag, not cached at build time: the page is not
+            -- rebuilt on a spec change, so a cached spec name could be stale.
+            -- Saying up front that a drag is a no-op beats letting the user
+            -- complete it and wonder why nothing was added.
+            local existing, hasSpec, shadows = ns.CC_FindSpecOverride(gb.type)
+            local msg
+            if not hasSpec then
+                msg = EllesmereUI.L("No active specialization")
+            elseif shadows then
+                msg = EllesmereUI.L("Already overridden for this specialization")
+            elseif existing then
+                -- Slot taken but unbound, so this global is still what fires.
+                -- Claiming "already overridden" here would repeat the very lie
+                -- the shadows/exists split exists to prevent.
+                msg = EllesmereUI.L("An unbound entry already exists here. Drop to select it and give it a key.")
+            else
+                msg = EllesmereUI.Lf("Drop to override for %1$s", GetCurrentSpecName())
+            end
+            hint.text:SetText(msg)
+            hint:Show()
+        end
+        local Mouse = EllesmereUI.Mouse
+        if not Mouse then return end
+        local function Follow(cx, cy)
+            local s = UIParent:GetEffectiveScale()
+            g:ClearAllPoints()
+            g:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", cx / s + 14, cy / s - 6)
+        end
+        -- motionOnly: the ghost only needs a new position when the cursor moves,
+        -- so the service parks the per-frame driver while it sits still.
+        Mouse.SubscribeFrame("ccSpecDrag", Follow, true)
+        Follow(Mouse.Get())   -- place it now; the driver only fires next frame
+    end)
+
+    local function FinishDrop()
+        local newIdx, reason, existingIdx = ns.CC_OverrideGlobalInSpec(gb)
+        if newIdx then
+            ns._ccSelSide = "spec"; ns._ccSelIndex = newIdx
+        elseif reason == "exists" then
+            -- Already has a slot: select it rather than silently doing nothing,
+            -- so the drag still lands somewhere visible (and an unbound slot is
+            -- exactly what the user needs to reach to give it a key).
+            ns._ccSelSide = "spec"; ns._ccSelIndex = existingIdx
+        elseif reason == "nospec" then
+            EllesmereUI:ShowConfirmPopup({
+                title       = EllesmereUI.L("No Specialization"),
+                message     = EllesmereUI.L("Spec bindings need an active specialization. Pick one first."),
+                confirmText = EllesmereUI.L("Okay"),
+                hideCancel  = true,
+            })
+            return
+        else
+            return
+        end
+        -- Deferred a frame, and dispatched through ns rather than this closure:
+        -- tearing the page down from inside the drag handler destroys the very
+        -- tile the engine is still dispatching on, and any later rebuild driven
+        -- by an orphaned closure re-enters CC_BuildPage with a dead parent.
+        -- ns._ccRebuild always points at the live page's rebuild.
+        C_Timer.After(0, function()
+            -- ns._ccRoot is the liveness signal: the panel-close and
+            -- module-switch teardowns both clear it, and rebuilding after one
+            -- of those would resurrect the page behind a closed panel.
+            if ns._ccRoot and ns._ccRebuild then ns._ccRebuild() end
+        end)
+    end
+
+    tile:SetScript("OnDragStop", function()
+        local dropped = ns._ccDropZone and ns._ccDropZone:IsMouseOver()
+        StopDrag()
+        ns._ccDragEndTime = GetTime()
+        if not dropped then return end
+        -- The copy carries the global's key across, and that key can already be
+        -- taken by a spell in this spec. Two spec entries on one key both reach
+        -- the apply pass and the later one wins the attribute, so a silent
+        -- insert would kill the existing binding with no feedback. Warn on the
+        -- same terms as every other key assignment here (BuildKeybindButton).
+        local ccdb = GetClickCastDB()
+        local conflicts = (gb.key and not (ccdb and ccdb.hideKeyWarning))
+            and FindKeyConflicts(gb.key, gb) or nil
+        if conflicts and #conflicts > 0 then
+            EllesmereUI:ShowConfirmPopup({
+                title       = EllesmereUI.L("Duplicate Keybind"),
+                message     = EllesmereUI.Lf("%s is already assigned to:\n%s",
+                                  ns.CC_FormatKey(gb.key), table.concat(conflicts, ", ")),
+                confirmText = EllesmereUI.L("Okay"),
+                cancelText  = EllesmereUI.L("Don't Show Again"),
+                onConfirm   = FinishDrop,
+                onCancel    = function()
+                    if ccdb then ccdb.hideKeyWarning = true end
+                    FinishDrop()
+                end,
+            })
+            return
+        end
+        FinishDrop()
+    end)
+end
+
+-------------------------------------------------------------------------------
 --  Options Page Builder
 --  Layout: Left sidebar (Global) | Center (Options + Per-Binding) | Right sidebar (Spec)
 --  Sidebars are 1:1 replica of Buff Manager tile style.
@@ -1873,6 +2132,10 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     if ns._ccSpecPopup then ns._ccSpecPopup:Hide(); ns._ccSpecPopup = nil end
     -- QB popup is NOT cleaned up here -- it stays open during rebuilds
     if ns._ccSpellStrip then ns._ccSpellStrip:Hide(); ns._ccSpellStrip:SetParent(nil); ns._ccSpellStrip = nil end
+    -- Both live on the root that was just torn down; drop the stale references
+    -- so a drag can never hit-test against an orphaned sidebar.
+    ns._ccDropZone = nil
+    ns._ccDropHint = nil
 
     local root = CreateFrame("Frame", nil, scrollFrame)
     root:SetSize(parentW, visibleH)
@@ -2320,6 +2583,10 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         if ns._ccRoot then ns._ccRoot:Hide(); ns._ccRoot:SetParent(nil); ns._ccRoot = nil end
         ns.CC_BuildPage(pageName, parent, yOffset)
     end
+    -- Latest-wins handle for deferred rebuilds. Each build overwrites it, so a
+    -- callback that fires after the page was rebuilt underneath it reaches the
+    -- current page instead of re-running a dead closure's captured parent.
+    ns._ccRebuild = RebuildPage
 
     local function SelectBinding(side, idx)
         ns._ccSelSide = side
@@ -2361,13 +2628,30 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     for i, gb in ipairs(globals) do
         local isSel = selectedSide == "global" and selectedIndex == i
         local canDelete = gb.type ~= "target" and gb.type ~= "menu" and gb.type ~= "dispel" and gb.type ~= "external" and gb.type ~= "trinket1" and gb.type ~= "trinket2" and gb.type ~= "dynamicrez"
-        BuildTile(leftChild, leftY, gb, isSel, "global", i,
+        local gTile = BuildTile(leftChild, leftY, gb, isSel, "global", i,
             SelectBinding,
             canDelete and function(idx2)
                 ns.CC_RemoveGlobalBinding(idx2)
                 ns._ccSelSide = nil; ns._ccSelIndex = nil
                 RebuildPage()
             end or nil)
+        if ns.CC_SPEC_OVERRIDABLE[gb.type] then
+            ns.CC_AttachSpecOverrideDrag(gTile, gb, {
+                fontPath = fontPath, outlineFlag = outlineFlag,
+            })
+            -- Dimmed while the active spec actually shadows it: the two tiles
+            -- otherwise show the same key with no sign of which one is live.
+            -- Keyed on `shadows`, not on the override merely existing -- an
+            -- override with its key cleared leaves this global in force.
+            local _, _, shadowed = ns.CC_FindSpecOverride(gb.type)
+            if shadowed then gTile:SetAlpha(0.4) end
+            gTile:HookScript("OnEnter", function(self)
+                EllesmereUI.ShowWidgetTooltip(self, shadowed
+                    and EllesmereUI.L("Overridden by a Spec Bindings entry for the current specialization. Delete that entry to make this key live again.")
+                    or EllesmereUI.L("Drag onto Spec Bindings to give the current specialization its own key. The spec copy overrides this one; delete it to fall back here."))
+            end)
+            gTile:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+        end
         leftY = leftY - TILE_H
     end
 
@@ -2609,6 +2893,28 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     rightHeader:SetPoint("TOP", rightOuter, "TOP", 0, -18)
     rightHeader:SetText(EllesmereUI.L("Spec Bindings"))
 
+    -- Drop target for a global Target Unit / Context Menu dragged in from the
+    -- left. The hint layer only exists while a drag is in flight, so the sidebar
+    -- looks and behaves exactly as before for everyone else.
+    ns._ccDropZone = rightOuter
+    do
+        local hint = CreateFrame("Frame", nil, rightOuter)
+        hint:SetAllPoints()
+        hint:SetFrameLevel(rightOuter:GetFrameLevel() + 20)
+        hint:EnableMouse(false)
+        local hintBg = hint:CreateTexture(nil, "BACKGROUND")
+        hintBg:SetAllPoints()
+        hintBg:SetColorTexture(accentColor.r, accentColor.g, accentColor.b, 0.10)
+        EllesmereUI.MakeBorder(hint, accentColor.r, accentColor.g, accentColor.b, 0.9, PP)
+        local hintTxt = MakeFont(hint, 12, 1, 1, 1, 0.9)
+        hintTxt:SetPoint("TOP", rightHeader, "BOTTOM", 0, -12)
+        hintTxt:SetWidth(sidebarW - 20)
+        hintTxt:SetJustifyH("CENTER")
+        hint.text = hintTxt   -- filled in per drag by CC_AttachSpecOverrideDrag
+        hint:Hide()
+        ns._ccDropHint = hint
+    end
+
     local rightScroll = CreateFrame("ScrollFrame", nil, rightOuter)
     rightScroll:SetPoint("TOPLEFT", rightOuter, "TOPLEFT", 0, -38)
     rightScroll:SetPoint("BOTTOMRIGHT", rightOuter, "BOTTOMRIGHT", 0, 0)
@@ -2627,13 +2933,26 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     local specBinds = GetSpecBindings()
     for i, sb in ipairs(specBinds) do
         local isSel = selectedSide == "spec" and selectedIndex == i
-        BuildTile(rightChild, rightY, sb, isSel, "spec", i,
+        local sTile = BuildTile(rightChild, rightY, sb, isSel, "spec", i,
             SelectBinding,
             function(idx2)
                 ns.CC_RemoveSpecBinding(idx2)
                 ns._ccSelSide = nil; ns._ccSelIndex = nil
                 RebuildPage()
             end)
+        if ns.CC_SPEC_OVERRIDABLE[sb.type] then
+            -- Unbound it overrides nothing -- the global is what fires -- so say
+            -- that rather than repeat the override claim over an inert tile.
+            -- Through the shared predicate, never an inline copy of it: this
+            -- tooltip and GetActiveBindings must never disagree on "live".
+            local live = BindingIsLive(sb)
+            sTile:HookScript("OnEnter", function(self)
+                EllesmereUI.ShowWidgetTooltip(self, live
+                    and EllesmereUI.L("Overrides the global binding of the same name for this specialization only. Delete it to go back to the global key.")
+                    or EllesmereUI.L("Unbound, so the global binding of the same name is still what fires. Assign a key to override it."))
+            end)
+            sTile:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+        end
         rightY = rightY - TILE_H
     end
 
