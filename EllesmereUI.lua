@@ -293,7 +293,15 @@ local ICONS_PATH    = MEDIA_PATH .. "icons\\"
 -------------------------------------------------------------------------------
 --  Season M+ Portals -- single source of truth for every portal/teleport
 --  list in the suite (Chat sidebar flyout, Minimap flyout, QoL /keys name
---  resolver, DataBars travel tooltip). Update ONCE here each season.
+--  resolver, QoL LFG teleport prompt, DataBars travel tooltip, Mythic+ Tools
+--  abbreviations and teleports). Update ONCE here each season.
+--
+--  REPLACE the entries at a season rollover, never append: the two flyouts and
+--  the travel tooltip render this list whole, so an early entry for next season
+--  shows up as a dead portal button the moment it is committed. Consumers that
+--  only look an entry up by dungeon name (QoL, Mythic+ Tools) are unaffected --
+--  they intersect against C_ChallengeMode.GetMapTable() and so follow the
+--  season over on their own.
 --    spellID     - primary teleport spell id
 --    short       - abbreviated label used by the flyout buttons
 --    dungeonID   - LFG dungeonID (GetLFGDungeonInfo name lookup)
@@ -328,6 +336,7 @@ local ADDON_ROSTER = {
     { folder = "EllesmereUIBlizzardSkin",      display = "Blizz UI Enhanced",    search_name = "EllesmereUI Blizz UI Enhanced",      syncFolder = "EllesmereUIDragonRiding", syncDisplay = "Dragon Riding" },
     { folder = "EllesmereUIFriends",           display = "Friends List",         search_name = "EllesmereUI Friends List"            },
     { folder = "EllesmereUIMythicTimer",       display = "Mythic+ Timer",        search_name = "EllesmereUI Mythic+ Timer"           },
+    { folder = "EllesmereUIMythicPlus",        display = "Mythic+ Tools",        search_name = "EllesmereUI Mythic Plus Tools"       },
     { folder = "EllesmereUIQuestTracker",      display = "Quest Tracker",        search_name = "EllesmereUI Quest Tracker"           },
     { folder = "EllesmereUIMinimap",           display = "Minimap",              search_name = "EllesmereUI Minimap"                 },
     { folder = "EllesmereUIChat",              display = "Chat",                 search_name = "EllesmereUI Chat"                    },
@@ -377,6 +386,7 @@ EllesmereUI.ADDON_GROUPS = {
             "EllesmereUIBlizzardSkin",
             "EllesmereUIDamageMeters",
             "EllesmereUIMythicTimer",
+            "EllesmereUIMythicPlus",
             "EllesmereUIQuestTracker",
             "EllesmereUIFriends",
             "EllesmereUIMinimap",
@@ -943,6 +953,13 @@ EllesmereUI.RegisterSyncExclusions("EllesmereUIMythicTimer", {
     "frameWidth",
 })
 
+-- The two keystone displays are placed through Unlock Mode, so their positions
+-- stay per-profile on a mirror-group push, matching every other module.
+EllesmereUI.RegisterSyncExclusions("EllesmereUIMythicPlus", {
+    "keystoneList.pos",
+    "centerBanner.pos",
+})
+
 -- Dragon Riding stores its HUD position in its own profile blob (unlockPos).
 -- Keep each profile's placement when syncing, matching every other module.
 EllesmereUI.RegisterSyncExclusions("EllesmereUIDragonRiding", {
@@ -1209,6 +1226,7 @@ do
             EllesmereUICooldownManager = true,
             EllesmereUIResourceBars = true,
             EllesmereUIMythicTimer = true,
+            EllesmereUIMythicPlus = true,
             EllesmereUIRaidFrames = true,
         }
         local hasWarning = WARN_MODULES[folder]
@@ -4137,6 +4155,7 @@ EllesmereUI._addonKeyToFolder = {
     chat         = "EllesmereUIChat",
     questTracker = "EllesmereUIQuestTracker",
     mythicTimer  = "EllesmereUIMythicTimer",
+    mythicPlus   = "EllesmereUIMythicPlus",
     blizzardSkin = "EllesmereUIBlizzardSkin",
     damageMeters = "EllesmereUIDamageMeters",
     dataBars     = "EllesmereUIDataBars",
@@ -10605,6 +10624,7 @@ function EllesmereUI:RegisterModule(folderName, config)
         EllesmereUIResourceBars = true,
         EllesmereUIUnitFrames = true,
         EllesmereUIMythicTimer = true,
+        EllesmereUIMythicPlus = true,
         -- v6.6 split
         EllesmereUIQoL = true,
         EllesmereUIBlizzardSkin = true,

@@ -1,0 +1,22 @@
+## Interface: 120000, 120001, 120005, 120007, 120100
+## Title: |cff0cd29fEllesmereUI|r Mythic+
+## Category: |cff0cd29fEllesmere|rUI
+## Group: EllesmereUI
+## Notes: Dungeon scores, weekly runs, teleports and party keystones.
+## Author: Ellesmere
+## Version: 8.7.6
+## Dependencies: EllesmereUI
+## SavedVariables: EllesmereUIMythicPlusDB
+## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
+
+# Core: database, season data, shared colors/fonts, feature registry
+EllesmereUIMythicPlus.lua
+
+# Features (each self-gates and costs nothing while disabled)
+EUI_MythicPlus_Score.lua
+EUI_MythicPlus_Weekly.lua
+EUI_MythicPlus_Teleport.lua
+EUI_MythicPlus_Keystones.lua
+
+# Options
+EUI_MythicPlus_Options.lua
