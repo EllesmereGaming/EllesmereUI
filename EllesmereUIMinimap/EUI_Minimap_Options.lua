@@ -199,36 +199,6 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
 
-        -- Inline cog on Shape for the Rotate Minimap toggle. Off (default) keeps
-        -- the rotateMinimap CVar at 0; on sets it to 1 (enforced in ApplyMinimap).
-        do
-            local rgn = shapeRow._leftRegion
-            local _, cogShow = EllesmereUI.BuildCogPopup({
-                title = "Shape Settings",
-                rows = {
-                    { type = "toggle", label = "Rotate Minimap",
-                      get = function() local m = MinimapDB(); return m and m.rotateMinimap or false end,
-                      set = function(v)
-                          local m = MinimapDB(); if not m then return end
-                          m.rotateMinimap = v
-                          RefreshMinimap()
-                      end },
-                },
-            })
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(0.4)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints()
-            cogTex:SetTexture(EllesmereUI.COGS_ICON)
-            cogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
-            cogBtn:SetScript("OnClick", function(s) cogShow(s) end)
-        end
-
         -- Border Style (+ offset cog) | Border Size (+ class/custom swatches)
         local texValues, texOrder = EllesmereUI.GetBorderTextureDropdown()
         local borderRow
@@ -473,7 +443,14 @@ initFrame:SetScript("OnEvent", function(self)
                 RefreshMinimap()
                 EllesmereUI:RefreshPage()
               end },
-            { type="label", text="" }
+            { type="toggle", text="Show Line of Sight Cone",
+              tooltip="Draw a blue cone on the minimap showing the direction your character is facing.",
+              getValue=function() local m = MinimapDB(); return m and m.showFacingCone or false end,
+              setValue=function(v)
+                  local m = MinimapDB(); if not m then return end
+                  m.showFacingCone = v
+                  RefreshMinimap()
+              end }
         );  y = y - h
 
         -- "Reset" label next to the Free Move toggle (only visible when enabled)
@@ -503,6 +480,22 @@ initFrame:SetScript("OnEvent", function(self)
             UpdateResetVis()
             EllesmereUI.RegisterWidgetRefresh(UpdateResetVis)
         end
+
+        -- Map orientation controls belong to Display, immediately before the
+        -- next section starts.
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Rotate Minimap with Player",
+              tooltip="Rotate the minimap texture so the direction your character is facing is always at the top. WoW's renderer does not support rotating a square map without exposing empty corners.",
+              disabled=function() local m = MinimapDB(); return m and (m.shape or "square") == "square" end,
+              disabledTooltip="Circle Shape",
+              getValue=function() local m = MinimapDB(); return m and m.rotateMinimap or false end,
+              setValue=function(v)
+                  local m = MinimapDB(); if not m then return end
+                  m.rotateMinimap = v
+                  RefreshMinimap()
+              end },
+            { type="label", text="" }
+        );  y = y - h
 
         y = y - 10
 
