@@ -99,6 +99,7 @@ local L = {
     OPEN_CURRENCIES      = "Open Currencies",
     RESET_SESSION        = "Reset Session",
     REMOVE_CHARACTER     = "Remove Character",
+    PLUS_N_MORE          = "+ %d more",
     TRAVEL_COOLDOWNS     = "Travel Cooldowns",
     HEARTHSTONE          = "Hearthstone",
     READY                = "Ready",
@@ -222,14 +223,7 @@ ns.BLOCK_DEFAULTS = {
 -- Factories are registered by EllesmereUIDataBars_Blocks.lua.
 ns.BlockFactories = {}
 
-local function DeepCopy(src)
-    if type(src) ~= "table" then return src end
-    local dst = {}
-    for k, v in pairs(src) do
-        if type(v) == "table" then dst[k] = DeepCopy(v) else dst[k] = v end
-    end
-    return dst
-end
+local DeepCopy = EllesmereUI.Lite.DeepCopy
 
 -------------------------------------------------------------------------------
 --  Profile access

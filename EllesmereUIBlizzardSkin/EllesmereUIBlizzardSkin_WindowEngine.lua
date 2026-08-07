@@ -769,6 +769,11 @@ end
 -- Square an icon texture (crop the baked bevel) and optionally border it.
 function WSkin.SquareIcon(icon, parent)
     if not icon or not icon.SetTexCoord then return end
+    -- A texture with a MaskTexture rejects SetTexCoord outright (hard Lua
+    -- error, e.g. the special first-catch loot toast masks its icon). Leave
+    -- masked icons fully native -- no crop, and no square border drawn
+    -- around what the mask renders as a shape.
+    if icon.GetNumMaskTextures and icon:GetNumMaskTextures() > 0 then return end
     icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     if parent then WSkin.BorderRegion(parent, icon) end
 end
@@ -862,6 +867,22 @@ function WSkin.Tab(tab, opts)
         return
     end
     d.skinned = true   -- keeps the generic ButtonsIn sweep off skinned tabs
+    -- TabSystem windows swap tabs with no PanelTemplates call, and keybind /
+    -- programmatic swaps never click a tab either -- every one of those
+    -- paths funnels through the system's SetTabVisuallySelected (it is also
+    -- the writer of the selectedTabID field TabIsSelected reads). Hook it
+    -- once per tab system so the underline tracks selection from every path
+    -- (field report: swapping PlayerSpells tabs via keybind while the frame
+    -- was open left the underline on the old tab).
+    local sys = tab:GetParent()
+    if sys and not sys:IsForbidden()
+        and type(sys.SetTabVisuallySelected) == "function" then
+        local sd = GetFFD(sys)
+        if not sd.visSelHooked then
+            sd.visSelHooked = true
+            hooksecurefunc(sys, "SetTabVisuallySelected", UpdateAllTabs)
+        end
+    end
     for j = 1, select("#", tab:GetRegions()) do
         local r = select(j, tab:GetRegions())
         if r and r:IsObjectType("Texture") then

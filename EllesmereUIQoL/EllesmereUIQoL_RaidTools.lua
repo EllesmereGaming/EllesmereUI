@@ -15,6 +15,12 @@
 --    "always" -- always shown (no driver; the visible attribute just stays
 --                true).
 --
+--  On top of the mode sits ONE unconditional gate: in a raid without leader or
+--  assist the whole feature is off the screen, because the server refuses
+--  every button on it there. It is raid-only (a party has no assistants) and
+--  Lua-side, since no macro conditional can express it -- see AssistSuppressed
+--  and RefreshAssistGate.
+--
 --  The Toggle Raid Tools keybind works in every active mode, and what it
 --  toggles follows Default to Collapsed When Shown: with it ON the key rocks
 --  between the collapsed icon and the full windows (the icon is the minimized
@@ -218,6 +224,7 @@ end
 local db
 local applyPending             -- true when combat blocked an Apply()
 local previewOn = false        -- Raid Tools settings page is in front (see ApplyVisibility)
+local lastSuppressed           -- assist gate verdict currently ON SCREEN (see AssistSuppressed)
 local toggleButton             -- keybind target; also the out-of-combat path
 local sections = {}            -- key -> shell frame
 local shellTitle = {}          -- key -> title fontstring
@@ -576,6 +583,24 @@ end
 local function IsLeader()
     if not IsInGroup() then return true end
     return UnitIsGroupLeader("player")
+end
+
+-- In a RAID, every control on the panel needs leader or assist: ready check,
+-- role check, the countdown, convert, disband and the marker buttons are all
+-- refused by the server without it. So the feature steps off the screen there
+-- instead of sitting around fully dimmed.
+--
+-- Raid only, deliberately. A party has no assistants -- UnitIsGroupAssistant
+-- is false for everyone in one -- so the same test would hide the panel from
+-- every non-leader in a 5-man, where marking is open to all of them.
+--
+-- There is no macro conditional for leader/assist, so NO state driver can
+-- express this: the gate is Lua's, it lands on the enabled attribute, and a
+-- promotion mid-combat is picked up on PLAYER_REGEN_ENABLED like every other
+-- Lua-side change (see the combat model in the header).
+local function AssistSuppressed()
+    if previewOn then return false end   -- configuring the thing beats hiding it
+    return IsInRaid() and not HasAssist()
 end
 
 -- Durations are the only pull-timer setting that can change at runtime: the
@@ -974,6 +999,18 @@ end
 --  Layout / position / mode
 -------------------------------------------------------------------------------
 
+-- Menu Grow Direction -> which corner of the primary shell the collapsed
+-- icon occupies. The icon is the piece the user parks, so the corner it
+-- rides decides which way the windows appear to grow from it on expand:
+-- icon at TOPLEFT = windows extend down-right (the original behaviour),
+-- icon at BOTTOMLEFT = up-right, and so on.
+local ICON_CORNER = {
+    downright = "TOPLEFT",
+    upright   = "BOTTOMLEFT",
+    downleft  = "TOPRIGHT",
+    upleft    = "BOTTOMRIGHT",
+}
+
 -- Show-as arrangement. OOC only (Apply gates); the holders are plain frames,
 -- so the re-parent is an ordinary SetParent.
 local function ApplyLayout()
@@ -1020,10 +1057,12 @@ local function ApplyLayout()
 
     -- The collapsed icon rides the shell the mode actually shows: Markers-only
     -- anchors (and scales, see Apply) to the Markers shell, everything else to
-    -- Group & Pull.
+    -- Group & Pull. Which CORNER it rides is the Menu Grow Direction setting
+    -- (see ICON_CORNER above).
+    local corner = ICON_CORNER[p and p.growDir] or "TOPLEFT"
     iconBtn:ClearAllPoints()
-    iconBtn:SetPoint("TOPLEFT",
-        (showAs == "markers") and winMarkers or winGroup, "TOPLEFT", 0, 0)
+    iconBtn:SetPoint(corner,
+        (showAs == "markers") and winMarkers or winGroup, corner, 0, 0)
 
     -- Heights just moved: re-crop the backdrop art so it covers instead of
     -- stretches (the skins hook SetHeight for this; our heights only ever
@@ -1123,10 +1162,14 @@ local function ApplyVisibility()
     -- Which SHELLS may show, straight from Show as: the Group shell is the
     -- window everywhere except Markers-only; the Markers shell exists only in
     -- Two Windows and Markers-only.
+    --
+    -- The assist gate rides on top of that and takes ALL of them, icon
+    -- included -- a raid without assist is a raid where nothing here works.
     local showAs = ShowAs()
+    local suppressed = AssistSuppressed()
     local shellOn = {
-        Group   = showAs ~= "markers",
-        Markers = showAs == "two" or showAs == "markers",
+        Group   = showAs ~= "markers" and not suppressed,
+        Markers = (showAs == "two" or showAs == "markers") and not suppressed,
     }
     -- One seed for every show (see header): Default to Collapsed When Shown.
     -- With the toggle off the seed is "expanded" and the icon never shows.
@@ -1162,12 +1205,17 @@ local function ApplyVisibility()
     end
 
     -- The icon represents the whole feature; every Show as choice shows
-    -- something, so it is simply on while the mode is active.
-    iconBtn:SetAttribute("enabled", true)
+    -- something, so it is on while the mode is active and the assist gate is
+    -- open. With it shut the keybind and the slash command go quiet too --
+    -- both run the secure snippets, and those refuse a disabled frame.
+    iconBtn:SetAttribute("enabled", not suppressed)
     iconBtn:SetAttribute("visible", visNow)
     iconBtn:SetAttribute("override", "")
     iconBtn:SetAttribute("startexpanded", startExpanded)
     iconBtn:SetAttribute("expanded", expandedNow)
+
+    -- What is now ON SCREEN, for the roster handler to compare against.
+    lastSuppressed = suppressed
 
     -- Run the snippets rather than re-deciding in Lua: attributes are set
     -- first so "apply" sees them.
@@ -1181,14 +1229,17 @@ end
 
 -- Toggle Raid Tools key: profile-stored, applied as an override binding on
 -- the secure toggle button -- the exact arrangement Action Bars uses for
--- Toggle Action Bar Visibility. Pressing the bound key is a hardware click,
+-- Toggle Action Bar. Pressing the bound key is a hardware click,
 -- so the toggle itself works IN combat; only (re)binding defers.
 local function ApplyToggleKeybind()
     if not toggleButton then return end
     ClearOverrideBindings(toggleButton)
     local p = P()
     local k = p and p.toggleKey
-    if k and k ~= "" and Mode() ~= "never" then
+    -- The gate takes the binding with it rather than leaving a key that eats
+    -- its own keypress: the snippet would refuse a disabled frame, and an
+    -- override binding swallows whatever the key does otherwise.
+    if k and k ~= "" and Mode() ~= "never" and not AssistSuppressed() then
         SetOverrideBindingClick(toggleButton, false, k, "EllesmereUIRaidToolsToggle")
     end
 end
@@ -1199,6 +1250,19 @@ end
 --  Nothing exists until the mode first leaves "never": no frames, no events,
 --  no bindings, no unlock rows. Apply() is the single entry point.
 -------------------------------------------------------------------------------
+
+-- The assist gate is Lua's, so a promotion, a demotion or a raid you join
+-- without assist has to bring Apply back around -- no state driver will do it
+-- for us. Compared against what ApplyVisibility last put on screen, because
+-- GROUP_ROSTER_UPDATE bursts and Apply is not free.
+--
+-- In combat Apply parks itself behind applyPending, which leaves lastSuppressed
+-- untouched: the next roster event re-enters here and parks again, and
+-- PLAYER_REGEN_ENABLED finishes the job. That is the module's standard
+-- deferral, not an omission.
+local function RefreshAssistGate()
+    if AssistSuppressed() ~= lastSuppressed then Apply() end
+end
 
 -- Events live only while the feature is active (or while a combat-deferred
 -- Apply is pending, since PLAYER_REGEN_ENABLED is what completes it). The
@@ -1218,6 +1282,7 @@ local function EnsureEvents()
             end
             if Mode() == "never" then return end
             RefreshPermissions()
+            RefreshAssistGate()
         end)
     end
     ev:RegisterEvent("GROUP_ROSTER_UPDATE")
@@ -1250,6 +1315,9 @@ local function RegisterUnlock()
             noResize = true,
             getFrame = function()
                 if Mode() == "never" then return nil end
+                -- Nothing to move while the assist gate has the whole feature
+                -- off the screen -- same opt-out as the modes below.
+                if AssistSuppressed() then return nil end
                 -- Offer exactly the shells the Show as choice puts on screen:
                 -- One Window / Only Group & Pull = the Group element alone,
                 -- Two Windows = both, Only Markers = the Markers element alone.
@@ -1390,6 +1458,12 @@ SlashCmdList["EUIRAIDTOOLS"] = function()
     end
     if InCombatLockdown() then
         EllesmereUI.Print("|cff0cd29fEllesmereUI:|r " .. EllesmereUI.L("Raid Tools cannot be toggled by slash command in combat -- use the keybind."))
+        return
+    end
+    -- The snippet would refuse anyway (enabled is false while the gate is
+    -- shut); saying so beats a slash command that looks broken.
+    if AssistSuppressed() then
+        EllesmereUI.Print("|cff0cd29fEllesmereUI:|r " .. EllesmereUI.L("Raid Tools is hidden in a raid without leader or assist -- none of its buttons work there."))
         return
     end
     BuildAll()

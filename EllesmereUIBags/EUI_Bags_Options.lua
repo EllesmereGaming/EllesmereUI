@@ -30,6 +30,7 @@ local BAGS_DEFAULTS = {
         bagRecentInOneBag     = false,
         bagShowPinRecentTips  = true,
         bagShowSortIcon       = true,
+        bagSortToBottom       = false,
         bagHideRandomize      = false,
         bagDefaultBagType     = "all",   -- "all" | "onebag" | "multibag"
         bagDefaultOneBag      = false,   -- legacy; migrated to bagDefaultBagType
@@ -249,7 +250,13 @@ initFrame:SetScript("OnEvent", function(self)
             ); y = y - h
 
             -- Inline cog (RESIZE) on Show BoE / Warbound Text: text size
-            do
+            -- Skipped during the hidden search pre-build: that pass swaps the
+            -- widget factory for the frameless absorber, so DualRow returns a
+            -- plain table and CreateFrame/SetPoint against its regions throw.
+            -- Nothing is lost from the index -- cog popup rows are not search
+            -- entries, and the host rows were already registered by DualRow.
+            -- Same for every region-chrome block below.
+            if not EllesmereUI._prebuilding then
                 local _, btCogShow = EllesmereUI.BuildCogPopup({
                     title = "BoE / Warbound Text Options",
                     rows = {
@@ -320,7 +327,7 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- Inline cog on Show Item Level (right region): Show Gear Track Rank
             -- (gated by Show Item Level; the rank only renders when ilvl is shown).
-            do
+            if not EllesmereUI._prebuilding then
                 local _, ilCogShow = EllesmereUI.BuildCogPopup({
                     title = "Item Level Options",
                     rows = {
@@ -375,7 +382,7 @@ initFrame:SetScript("OnEvent", function(self)
             ); y = y - h
 
             -- Enabled Categories dropdown (left side)
-            do
+            if not EllesmereUI._prebuilding then
                 local catItems = {}
                 if _G.EUI_CategoryManager then
                     local cats = _G.EUI_CategoryManager:GetCategories()
@@ -416,7 +423,7 @@ initFrame:SetScript("OnEvent", function(self)
             end
 
             -- Enabled Currencies dropdown (right side)
-            do
+            if not EllesmereUI._prebuilding then
                 local currencyItems = {}
                 if C_CurrencyInfo and C_CurrencyInfo.GetCurrencyListSize then
                     -- Expand all collapsed headers so we can see every currency,
@@ -520,8 +527,9 @@ initFrame:SetScript("OnEvent", function(self)
             ---------------------------------------------------------------------------
             _, h = W:SectionHeader(parent, "EXTRAS", y); y = y - h
 
-            -- Show Sort Icon | Gold Tracking and History
-            _, h = W:DualRow(parent, y,
+            -- Show Sort Icon (+ inline cog: Sort to Bottom) | Gold Tracking and History
+            local sortRow
+            sortRow, h = W:DualRow(parent, y,
                 { type="toggle", text="Show Sort Icon",
                   tooltip="Display the sort button in the bag header.",
                   getValue=function() return db.profile.bagShowSortIcon ~= false end,
@@ -542,12 +550,78 @@ initFrame:SetScript("OnEvent", function(self)
                               end
                           end
                       end
+                      EllesmereUI:RefreshPage()  -- refresh the cog's disabled state
                   end },
                 { type="toggle", text="Gold Tracking and History",
                   tooltip="Track and display gold amounts from all your characters on hover.",
                   getValue=function() return db.profile.enableGoldTracking ~= false end,
                   setValue=function(v) db.profile.enableGoldTracking = v end }
             ); y = y - h
+
+            -- Inline cog for Show Sort Icon: "Sort to Bottom"
+            if not EllesmereUI._prebuilding then
+                local _, sortCogShow = EllesmereUI.BuildCogPopup({
+                    title = "Sort Options",
+                    rows = {
+                        { type="toggle", label="Sort to Bottom",
+                          tooltip="Sorting normally packs your items into the first free slots, at the top of the grid. Turn this on to pack them into the last slots instead, so the empty slots end up at the top. The item order itself does not change. This affects the OneBag, MultiBag and bank views -- category views fill their own grid with no gaps, so there is nothing to move. MultiBag and the bank use Blizzard's own sorting, so while this is on it also flips Blizzard's cleanup direction; turning it back off restores the direction you had.",
+                          get=function() return db.profile.bagSortToBottom == true end,
+                          set=function(v)
+                              v = v and true or false
+                              local p = db.profile
+                              if v == (p.bagSortToBottom == true) then return end
+                              -- MultiBag and the bank sort through Blizzard, whose
+                              -- fill direction is a real game setting shared with
+                              -- their Clean Up button. Stash the player's own value
+                              -- on the way in so switching back off restores it
+                              -- instead of leaving ours behind.
+                              if C_Container.SetSortBagsRightToLeft and C_Container.GetSortBagsRightToLeft then
+                                  if v then
+                                      p.bagSortBlizzRTLWas = C_Container.GetSortBagsRightToLeft() and true or false
+                                      C_Container.SetSortBagsRightToLeft(false)
+                                  elseif p.bagSortBlizzRTLWas ~= nil then
+                                      C_Container.SetSortBagsRightToLeft(p.bagSortBlizzRTLWas)
+                                      p.bagSortBlizzRTLWas = nil
+                                  end
+                              end
+                              p.bagSortToBottom = v
+                          end },
+                    },
+                })
+                local leftRgn = sortRow._leftRegion
+                local stCog = CreateFrame("Button", nil, leftRgn)
+                stCog:SetSize(26, 26)
+                stCog:SetPoint("RIGHT", leftRgn._control, "LEFT", -8, 0)
+                stCog:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
+                local stCogTex = stCog:CreateTexture(nil, "OVERLAY")
+                stCogTex:SetAllPoints()
+                stCogTex:SetTexture(EllesmereUI.COGS_ICON)
+                local function stCogOff() return db.profile.bagShowSortIcon == false end
+                stCog:SetAlpha(stCogOff() and 0.15 or 0.4)
+                stCog:SetScript("OnEnter", function(self)
+                    if stCogOff() then
+                        EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip("Show Sort Icon"))
+                    else self:SetAlpha(0.7) end
+                end)
+                stCog:SetScript("OnLeave", function(self)
+                    self:SetAlpha(stCogOff() and 0.15 or 0.4)
+                    EllesmereUI.HideWidgetTooltip()
+                end)
+                stCog:SetScript("OnClick", function(self)
+                    if not stCogOff() then sortCogShow(self) end
+                end)
+                local stBlock = CreateFrame("Frame", nil, stCog)
+                stBlock:SetAllPoints(); stBlock:SetFrameLevel(stCog:GetFrameLevel() + 10); stBlock:EnableMouse(true)
+                stBlock:SetScript("OnEnter", function()
+                    EllesmereUI.ShowWidgetTooltip(stCog, EllesmereUI.DisabledTooltip("Show Sort Icon"))
+                end)
+                stBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                if stCogOff() then stBlock:Show() else stBlock:Hide() end
+                EllesmereUI.RegisterWidgetRefresh(function()
+                    if stCogOff() then stCog:SetAlpha(0.15); stBlock:Show()
+                    else stCog:SetAlpha(0.4); stBlock:Hide() end
+                end)
+            end
 
             -- Show Pinned Items | Show Recent Items (each with inline cog for OneBag)
             local pinRecRow
@@ -571,7 +645,7 @@ initFrame:SetScript("OnEvent", function(self)
             ); y = y - h
 
             -- Inline cog for Show Pinned Items: "Show in OneBag"
-            do
+            if not EllesmereUI._prebuilding then
                 local _, pinCogShow = EllesmereUI.BuildCogPopup({
                     title = "Pinned Items Options",
                     rows = {
@@ -619,7 +693,7 @@ initFrame:SetScript("OnEvent", function(self)
             end
 
             -- Inline cog for Show Recent Items: "Show in OneBag"
-            do
+            if not EllesmereUI._prebuilding then
                 local _, recentCogShow = EllesmereUI.BuildCogPopup({
                     title = "Recent Items Options",
                     rows = {

@@ -73,16 +73,6 @@ local _regCount = 0
 local _driver
 local _driverAccum = 0
 
--- Glow profiler state (toggle with /euiglowprof; profiler block at file end).
--- _glowProf is read once per driver tick; when false the only added hot-path
--- cost is that single branch.
-local dps         = debugprofilestop
-local _glowProf   = false
-local _gpTicks    = 0    -- driver ticks measured while profiling
-local _gpTotalMs  = 0    -- summed driver-tick milliseconds
-local _gpPeakMs   = 0    -- worst single driver-tick milliseconds
-local _gpMaxGlows = 0    -- peak simultaneous registered glows seen
-
 local function _DriverOnUpdate(self, elapsed)
     -- Gate the WHOLE loop at ~60fps: accumulate raw elapsed and only run a
     -- dispatch pass once the accumulator reaches the gate. The accumulated dt
@@ -95,8 +85,6 @@ local function _DriverOnUpdate(self, elapsed)
         return
     end
     _driverAccum = 0
-    local _gp0, _gpN
-    if _glowProf then _gp0 = dps(); _gpN = _regCount end
     -- Walk the dense array by index. An engine may unregister itself (or
     -- another wrapper) from inside its own update via Stop*, which swap-removes
     -- and shrinks _regCount; re-read _regCount each step and, when the current
@@ -127,13 +115,6 @@ local function _DriverOnUpdate(self, elapsed)
         if _reg[i] == wrapper then
             i = i + 1
         end
-    end
-    if _gp0 then
-        local ms = dps() - _gp0
-        _gpTicks = _gpTicks + 1
-        _gpTotalMs = _gpTotalMs + ms
-        if ms > _gpPeakMs then _gpPeakMs = ms end
-        if _gpN > _gpMaxGlows then _gpMaxGlows = _gpN end
     end
     if _regCount == 0 then
         self:Hide()
@@ -993,60 +974,3 @@ EllesmereUI.Glows = {
     StopAllGlows        = StopAllGlows,
 }
 
--------------------------------------------------------------------------------
---  Glow profiler: zero cost when off, /euiglowprof to toggle.
---  Times the central driver tick directly (the true glow render cost, avg +
---  peak per dispatch pass) and samples whole-addon CPU for the parent addon
---  (where the driver runs) and AuraBuff Reminders, so glow cost can be read
---  against both addon metrics. Matches the /erfprof profiler pattern.
--------------------------------------------------------------------------------
-do
-    local _names = { "EllesmereUI", "EllesmereUIAuraBuffReminders" }
-    local _frames = 0
-    local _addonTotal, _addonPeak = {}, {}
-
-    local function Reset()
-        _gpTicks, _gpTotalMs, _gpPeakMs, _gpMaxGlows = 0, 0, 0, 0
-        _frames = 0
-        wipe(_addonTotal); wipe(_addonPeak)
-    end
-
-    local sampler = CreateFrame("Frame")
-    sampler:Hide()
-    sampler:SetScript("OnUpdate", function()
-        if not _glowProf then sampler:Hide(); return end
-        if not C_AddOnProfiler or not C_AddOnProfiler.GetAddOnMetric then return end
-        _frames = _frames + 1
-        for _, name in ipairs(_names) do
-            local ms = C_AddOnProfiler.GetAddOnMetric(name, Enum.AddOnProfilerMetric.LastTime) or 0
-            _addonTotal[name] = (_addonTotal[name] or 0) + ms
-            if ms > (_addonPeak[name] or 0) then _addonPeak[name] = ms end
-        end
-    end)
-
-    SLASH_EUIGLOWPROF1 = "/euiglowprof"
-    SlashCmdList["EUIGLOWPROF"] = function(msg)
-        if msg == "reset" then
-            Reset()
-            print("|cff00ccffGlowProf:|r data cleared")
-            return
-        end
-        _glowProf = not _glowProf
-        if _glowProf then
-            Reset()
-            sampler:Show()
-            print("|cff00ccffGlowProf:|r ON -- run /euiglowprof again to stop")
-        else
-            sampler:Hide()
-            local avgTick = _gpTicks > 0 and (_gpTotalMs / _gpTicks) or 0
-            print(format("|cff00ccffGlowProf Report:|r  %d driver ticks, peak %d simultaneous glows",
-                _gpTicks, _gpMaxGlows))
-            print(format("  |cff00ccffDriver tick:|r          avg %.4f ms   peak %.4f ms", avgTick, _gpPeakMs))
-            for _, name in ipairs(_names) do
-                local avg = _frames > 0 and ((_addonTotal[name] or 0) / _frames) or 0
-                print(format("  |cff00ccff%-22s|r avg %.4f ms   peak %.4f ms",
-                    name .. ":", avg, _addonPeak[name] or 0))
-            end
-        end
-    end
-end

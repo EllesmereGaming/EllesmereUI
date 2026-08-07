@@ -99,7 +99,7 @@ initFrame:SetScript("OnEvent", function(self)
               values={ __placeholder = "..." }, order={ "__placeholder" },
               getValue=function() return "__placeholder" end,
               setValue=function() end })
-        do
+        if not EllesmereUI._prebuilding then
             local rightRgn = visRow._rightRegion
             if rightRgn._control then rightRgn._control:Hide() end
             local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
@@ -135,7 +135,7 @@ initFrame:SetScript("OnEvent", function(self)
               values=borderSizeValues, order=borderSizeOrder,
               getValue=function() return tostring(Cfg("windowBorderSize") or 0) end,
               setValue=function(v) Set("windowBorderSize", tonumber(v) or 0); ApplyWindowBrd() end })
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = windowBorderRow._leftRegion
             local _, popupShow = EllesmereUI.BuildCogPopup({
                 title="Border Offset",
@@ -168,7 +168,7 @@ initFrame:SetScript("OnEvent", function(self)
             directionBtn:SetScript("OnClick", function(self) popupShow(self) end)
             rgn._lastInline = directionBtn
         end
-        do
+        if not EllesmereUI._prebuilding then
             local rgn, ctrl = windowBorderRow._rightRegion, windowBorderRow._rightRegion._control
             local swatch, refreshSwatch = EllesmereUI.BuildColorSwatch(
                 rgn, windowBorderRow:GetFrameLevel() + 3,
@@ -198,7 +198,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue = function() return Cfg("showPinnedSelf") ~= false end,
               setValue = function(v) Set("showPinnedSelf", v); Refresh() end })
         -- Inline color swatch on Background Opacity
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = bgRow._leftRegion
             local ctrl = rgn._control
             local bgSwatch, bgSwatchRefresh = EllesmereUI.BuildColorSwatch(
@@ -247,7 +247,7 @@ initFrame:SetScript("OnEvent", function(self)
             suffix:SetText(EllesmereUI.L("(seconds)"))
         end
 
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = rrRow._rightRegion
             local KB_W, KB_H = 120, 26
             local kbBtn = CreateFrame("Button", nil, rgn)
@@ -399,7 +399,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue = function() return Cfg("hdrBgAlpha") or 1 end,
               setValue = function(v) Set("hdrBgAlpha", v); ApplyHdr() end })
         -- Inline color swatch on Opacity
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = hdrRow1._rightRegion
             local ctrl = rgn._control
             local hdrSwatch, hdrSwatchRefresh = EllesmereUI.BuildColorSwatch(
@@ -430,7 +430,7 @@ initFrame:SetScript("OnEvent", function(self)
               min = 20, max = 30, step = 1,
               getValue = function() return Cfg("hdrIconSize") or 22 end,
               setValue = function(v) Set("hdrIconSize", v); ApplyHdr() end })
-        do
+        if not EllesmereUI._prebuilding then
             local rgn, ctrl = hdrBorderRow._leftRegion, hdrBorderRow._leftRegion._control
             local swatch, refreshSwatch = EllesmereUI.BuildColorSwatch(
                 rgn, hdrBorderRow:GetFrameLevel() + 3,
@@ -447,7 +447,7 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(refreshSwatch)
         end
         -- Inline dual swatches on Icon Size: right = Custom, left = Accent
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = hdrBorderRow._rightRegion
             local ctrl = rgn._control
 
@@ -545,7 +545,7 @@ initFrame:SetScript("OnEvent", function(self)
               setValue = function(v) Set("hdrFontSize", v); ApplyHdr() end },
             { type="label", text="" })
         -- Inline dual swatches on Text Size: right = Custom, left = Accent
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = hdrRow2._leftRegion
             local ctrl = rgn._control
 
@@ -724,7 +724,7 @@ initFrame:SetScript("OnEvent", function(self)
         y = y - h
 
         -- Inline cog: Icon Zoom (right region, next to "Icon Style")
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = iconRow._rightRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Icon Zoom",
@@ -798,7 +798,7 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v) Set("borderSize", v); ApplyBrd() end })
         y = y - h
         -- Inline cog for border offset (left region)
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = bsRow._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Border Options",
@@ -889,7 +889,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- sliders are harmless no-ops for solid).
         end
         -- Inline color swatch on Border Size (right region)
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = bsRow._rightRegion
             local ctrl = rgn._control
             local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
@@ -934,7 +934,7 @@ initFrame:SetScript("OnEvent", function(self)
             setValue=function(v) Set("iconBorderSize", v); ApplyIconBrd() end })
         y = y - h
         -- Inline cog for border offset (left region)
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = ibsRow._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Border Offset",
@@ -1004,7 +1004,7 @@ initFrame:SetScript("OnEvent", function(self)
             UpdateCogVis()
         end
         -- Inline color swatch on Border Size (right region)
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = ibsRow._rightRegion
             local ctrl = rgn._control
             local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
@@ -1035,7 +1035,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Inline custom + class color swatches on Background (right region).
         -- Custom paints a fixed track color; class tints each bar's track with
         -- that player's class color. Mirrors the Left/Right Text Size swatches.
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = bdRow._rightRegion
             local ctrl = rgn._control
             local barBgSwatch, barBgSwatchRefresh = EllesmereUI.BuildColorSwatch(
@@ -1099,7 +1099,7 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(refreshBarBg)
             refreshBarBg()
         end
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = bdRow._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Breakdown Settings",
@@ -1185,7 +1185,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue = function() return Cfg("rightFontSize") or Cfg("fontSize") or 11 end,
               setValue = function(v) Set("rightFontSize", v); Refresh() end })
         -- Left text inline swatches
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = btRow._leftRegion
             local ctrl = rgn._control
 
@@ -1279,7 +1279,7 @@ initFrame:SetScript("OnEvent", function(self)
             cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
         end
         -- Right text inline swatches
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = btRow._rightRegion
             local ctrl = rgn._control
 
@@ -1453,7 +1453,7 @@ initFrame:SetScript("OnEvent", function(self)
                     end },
               } })
         -- Inline cog on Standalone Combat Timer for font size
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = satRow._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Standalone Timer Settings",
@@ -1521,7 +1521,7 @@ initFrame:SetScript("OnEvent", function(self)
                   end },
                 { type="label", text="" })
             -- Inline cog on Show Out of Combat for the desaturation option
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = oocRow._leftRegion
                 local _, cogShow = EllesmereUI.BuildCogPopup({
                     title = "Out of Combat Settings",
@@ -1636,7 +1636,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue = function() return "__placeholder" end,
               setValue = function() end }
         );  y = y - h
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = iconVisRow._rightRegion
             if rgn._control then rgn._control:Hide() end
             local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
@@ -1667,7 +1667,7 @@ initFrame:SetScript("OnEvent", function(self)
         );  y = y - h
         -- Inline cog on Icon Size: Icon Zoom (shared by the icon strip and the
         -- bar window, so it stays usable whenever either display is on).
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = shSizeRow._leftRegion
             local shZoomOff = function() return iconOff() and barOff() end
             local _, cogShow = EllesmereUI.BuildCogPopup({
@@ -1755,7 +1755,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue = function() return "__placeholder" end,
               setValue = function() end }
         );  y = y - h
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = barVisRow._rightRegion
             if rgn._control then rgn._control:Hide() end
             local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
@@ -1782,7 +1782,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue = function() return SHDB().hideTopBar end,
               setValue = function(v) SHDB().hideTopBar = v; RefreshSH() end }
         );  y = y - h
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = bgRow._leftRegion
             local ctrl = rgn._control
             local swatch, swatchRefresh = EllesmereUI.BuildColorSwatch(
@@ -1909,7 +1909,7 @@ initFrame:SetScript("OnEvent", function(self)
               setValue = function(v) SHDB().barOpacity = v; RefreshSH() end }
         );  y = y - h
 
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = textRow._rightRegion
             local ctrl = rgn._control
 

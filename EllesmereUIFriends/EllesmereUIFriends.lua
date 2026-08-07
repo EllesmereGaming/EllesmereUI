@@ -535,21 +535,7 @@ local CLASS_ICON_SPRITE_TEX = {}
 for _, style in ipairs({"modern", "dark", "light", "clean"}) do
     CLASS_ICON_SPRITE_TEX[style] = CLASS_ICON_SPRITE_BASE .. style .. ".tga"
 end
-local CLASS_SPRITE_COORDS = {
-    WARRIOR     = { 0,     0.125, 0,     0.125 },
-    MAGE        = { 0.125, 0.25,  0,     0.125 },
-    ROGUE       = { 0.25,  0.375, 0,     0.125 },
-    DRUID       = { 0.375, 0.5,   0,     0.125 },
-    EVOKER      = { 0.5,   0.625, 0,     0.125 },
-    HUNTER      = { 0,     0.125, 0.125, 0.25  },
-    SHAMAN      = { 0.125, 0.25,  0.125, 0.25  },
-    PRIEST      = { 0.25,  0.375, 0.125, 0.25  },
-    WARLOCK     = { 0.375, 0.5,   0.125, 0.25  },
-    PALADIN     = { 0,     0.125, 0.25,  0.375 },
-    DEATHKNIGHT = { 0.125, 0.25,  0.25,  0.375 },
-    MONK        = { 0.25,  0.375, 0.25,  0.375 },
-    DEMONHUNTER = { 0.375, 0.5,   0.25,  0.375 },
-}
+local CLASS_SPRITE_COORDS = EllesmereUI.CLASS_ICON_SPRITE_COORDS
 
 -- Localized class name -> class file token (built once on first use)
 local classFileByLocalName = {}
@@ -769,7 +755,9 @@ local function UpdateClassIcon(button, bnetInfo, wowInfo)
     icon:Show()
 end
 
--- Class color hex codes (built on first use per class)
+-- Class color hex codes (built on first use per class). Shared with the
+-- 12.1 Tiles/Groups files over the addon's _G._EFR_* channel (this file
+-- loads first); one cache serves all three consumers.
 local _classColorCodes = {}
 local function _getClassColorCode(classFile)
     local code = _classColorCodes[classFile]
@@ -780,6 +768,7 @@ local function _getClassColorCode(classFile)
     _classColorCodes[classFile] = code
     return code
 end
+_G._EFR_ClassColorCode = _getClassColorCode
 
 local function UpdateNameColor(button, bnetInfo, wowInfo)
     local p = EBS.db.profile.friends

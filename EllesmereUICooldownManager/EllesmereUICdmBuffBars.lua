@@ -39,54 +39,8 @@ end
 -------------------------------------------------------------------------------
 --  Textures
 -------------------------------------------------------------------------------
-local TBB_TEX_BASE = "Interface\\AddOns\\EllesmereUI\\media\\textures\\"
-local TBB_TEXTURES = {
-    ["none"]          = nil,
-    ["melli"]         = TBB_TEX_BASE .. "melli.tga",
-    ["beautiful"]     = TBB_TEX_BASE .. "beautiful.tga",
-    ["plating"]       = TBB_TEX_BASE .. "plating.tga",
-    ["atrocity"]      = TBB_TEX_BASE .. "atrocity.tga",
-    ["divide"]        = TBB_TEX_BASE .. "divide.tga",
-    ["glass"]         = TBB_TEX_BASE .. "glass.tga",
-    ["fade-right"]    = TBB_TEX_BASE .. "fade-right.tga",
-    ["thin-line-top"]    = TBB_TEX_BASE .. "thin-line-top.tga",
-    ["thin-line-bottom"] = TBB_TEX_BASE .. "thin-line-bottom.tga",
-    ["fade"]          = TBB_TEX_BASE .. "fade.tga",
-    ["gradient-lr"]   = TBB_TEX_BASE .. "gradient-lr.tga",
-    ["gradient-rl"]   = TBB_TEX_BASE .. "gradient-rl.tga",
-    ["gradient-bt"]   = TBB_TEX_BASE .. "gradient-bt.tga",
-    ["gradient-tb"]   = TBB_TEX_BASE .. "gradient-tb.tga",
-    ["matte"]         = TBB_TEX_BASE .. "matte.tga",
-    ["sheer"]         = TBB_TEX_BASE .. "sheer.tga",
-}
-local TBB_TEXTURE_ORDER = {
-    "none", "melli", "atrocity",
-    "fade", "fade-right",
-    "thin-line-top", "thin-line-bottom",
-    "beautiful", "plating",
-    "divide", "glass",
-    "gradient-lr", "gradient-rl", "gradient-bt", "gradient-tb",
-    "matte", "sheer",
-}
-local TBB_TEXTURE_NAMES = {
-    ["none"]        = "None",
-    ["melli"]       = "Melli (ElvUI)",
-    ["beautiful"]   = "Beautiful",
-    ["plating"]     = "Plating",
-    ["atrocity"]    = "Atrocity",
-    ["divide"]      = "Divide",
-    ["glass"]       = "Glass",
-    ["fade-right"]  = "Fade Right",
-    ["thin-line-top"]    = "Thin Line Top",
-    ["thin-line-bottom"] = "Thin Line Bottom",
-    ["fade"]        = "Fade",
-    ["gradient-lr"] = "Gradient Right",
-    ["gradient-rl"] = "Gradient Left",
-    ["gradient-bt"] = "Gradient Up",
-    ["gradient-tb"] = "Gradient Down",
-    ["matte"]       = "Matte",
-    ["sheer"]       = "Sheer",
-}
+local TBB_TEXTURES, TBB_TEXTURE_NAMES, TBB_TEXTURE_ORDER =
+    EllesmereUI.BuildBarTextureTables()
 ns.TBB_TEXTURES      = TBB_TEXTURES
 ns.TBB_TEXTURE_ORDER = TBB_TEXTURE_ORDER
 ns.TBB_TEXTURE_NAMES = TBB_TEXTURE_NAMES
@@ -121,6 +75,19 @@ local function SetFont(fs, size)
     local useShadow = EllesmereUI and EllesmereUI.GetFontUseShadow and EllesmereUI.GetFontUseShadow("cdm")
     if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fs, useShadow) end
     fs:SetFont(GetFont(), size, GetOutline())
+end
+
+local function SetTBBTextColor(fs, cfg, prefix)
+    if not fs or not cfg then return end
+    local r = cfg[prefix .. "TextR"]
+    local g = cfg[prefix .. "TextG"]
+    local b = cfg[prefix .. "TextB"]
+    local a = cfg[prefix .. "TextA"]
+    if r == nil then r = 1 end
+    if g == nil then g = 1 end
+    if b == nil then b = 1 end
+    if a == nil then a = 0.9 end
+    fs:SetTextColor(r, g, b, a)
 end
 
 -------------------------------------------------------------------------------
@@ -287,10 +254,12 @@ local TBB_DEFAULT_BAR = {
     timerPosition = "right",
     timerSize = 11,
     timerX = 0, timerY = 0,
+    timerTextR = 1, timerTextG = 1, timerTextB = 1, timerTextA = 0.9,
     showName  = true,
     namePosition = "left",
     nameSize  = 11,
     nameX = 0, nameY = 0,
+    nameTextR = 1, nameTextG = 1, nameTextB = 1, nameTextA = 0.9,
     showSpark = true,
     iconDisplay = "none",
     iconSize    = 24,
@@ -299,6 +268,7 @@ local TBB_DEFAULT_BAR = {
     stacksPosition = "center",
     stacksSize     = 11,
     stacksX = 0, stacksY = 0,
+    stacksTextR = 1, stacksTextG = 1, stacksTextB = 1, stacksTextA = 0.9,
     stackThresholdEnabled = false,
     stackThreshold = 5,
     stackThresholdR = 0.8, stackThresholdG = 0.1, stackThresholdB = 0.1, stackThresholdA = 1,
@@ -1564,11 +1534,14 @@ local TBB_STYLE_KEYS = {
     "gradientEnabled", "gradientR", "gradientG", "gradientB", "gradientA", "gradientDir",
     "opacity", "hideWhenInactive", "onlyInCombat",
     "showTimer", "timerPosition", "timerSize", "timerX", "timerY",
+    "timerTextR", "timerTextG", "timerTextB", "timerTextA",
     "timerDecimals", "timerDecimalThreshold",
     "showName", "namePosition", "nameSize", "nameX", "nameY",
+    "nameTextR", "nameTextG", "nameTextB", "nameTextA",
     "showSpark",
     "iconDisplay", "iconSize", "iconX", "iconY", "iconBorderSize",
     "stacksPosition", "stacksSize", "stacksX", "stacksY",
+    "stacksTextR", "stacksTextG", "stacksTextB", "stacksTextA",
     "borderSize", "borderTexture", "borderR", "borderG", "borderB",
     "borderTextureOffset", "borderTextureOffsetY",
     "borderTextureShiftX", "borderTextureShiftY", "borderBehind",
@@ -2570,6 +2543,10 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
     -- Opacity
     bar._opacityTarget = cfg.opacity or 1.0
     if not bar._tbbReady then bar:SetAlpha(bar._opacityTarget) end
+
+    SetTBBTextColor(bar._timerText, cfg, "timer")
+    SetTBBTextColor(bar._nameText, cfg, "name")
+    SetTBBTextColor(bar._stacksText, cfg, "stacks")
 
     -- Timer text. Vertical bars honor the same position choices as horizontal
     -- ones: left/right sit OUTSIDE the (thin) bar, top/bottom sit above/below
@@ -4317,75 +4294,6 @@ function ns.UpdateCooldownCastListener()
         end
     end
     _ensureCooldownCastListener(any)
-end
-
--- Debug: /tbbcd -- dumps the cooldown-bar pipeline state, secret-safe.
--- Run it IN COMBAT while a bar is misbehaving and read which leg is dead:
--- listener armed? watch mapped? durCache seeded? mirror live? which API
--- fields are SECRET right now?
-SLASH_TBBCD1 = "/tbbcd"
-SlashCmdList.TBBCD = function()
-    local function V(v)
-        if issecretvalue and issecretvalue(v) then return "SECRET" end
-        return tostring(v)
-    end
-    print("|cff00ccff[TBB CD Debug]|r combat=" .. tostring(InCombatLockdown())
-        .. " listener=" .. tostring(_cdActive))
-    local tbb = ns.GetTrackedBuffBars and ns.GetTrackedBuffBars()
-    if not (tbb and tbb.bars) then print("  no bars") return end
-    local found = false
-    for i, cfg in ipairs(tbb.bars) do
-        if cfg.enabled ~= false and cfg.trackType == "cooldown" then
-            found = true
-            local sid = CooldownBarSpellID(cfg)
-            local name = sid and C_Spell.GetSpellName and C_Spell.GetSpellName(sid)
-            print("  bar " .. i .. " " .. tostring(name)
-                .. " saved=" .. tostring(cfg.spellID)
-                .. " state=" .. tostring(sid)
-                .. " watched=" .. tostring(sid ~= nil and _cdWatch[sid] ~= nil))
-            if sid then
-                print("    durCache=" .. tostring(_cdDurCache[sid])
-                    .. " baseCd=" .. tostring(_cdBaseDuration(sid)))
-                local m = _cdCast[sid]
-                if m and m.dur then
-                    print(string.format("    mirror dur=%.1f rem=%.1f",
-                        m.dur, m.start + m.dur - GetTime()))
-                else
-                    print("    mirror=nil")
-                end
-                local ch = C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(sid)
-                if ch then
-                    print("    charges max=" .. V(ch.maxCharges)
-                        .. " cur=" .. V(ch.currentCharges)
-                        .. " st=" .. V(ch.cooldownStartTime)
-                        .. " du=" .. V(ch.cooldownDuration))
-                else
-                    print("    charges=nil")
-                end
-                local cd = C_Spell.GetSpellCooldown and C_Spell.GetSpellCooldown(sid)
-                if cd then
-                    print("    cd act=" .. V(cd.isActive) .. " gcd=" .. V(cd.isOnGCD)
-                        .. " st=" .. V(cd.startTime) .. " du=" .. V(cd.duration))
-                else
-                    print("    cd=nil")
-                end
-                local dobj = C_Spell.GetSpellCooldownDuration
-                    and C_Spell.GetSpellCooldownDuration(sid)
-                local cobj = C_Spell.GetSpellChargeDuration
-                    and C_Spell.GetSpellChargeDuration(sid)
-                local dorem
-                if dobj and dobj.GetRemainingDuration then
-                    dorem = dobj:GetRemainingDuration()
-                elseif cobj and cobj.GetRemainingDuration then
-                    dorem = cobj:GetRemainingDuration()
-                end
-                print("    durObj cd=" .. tostring(dobj ~= nil)
-                    .. " charge=" .. tostring(cobj ~= nil)
-                    .. " rem=" .. V(dorem))
-            end
-        end
-    end
-    if not found then print("  no cooldown-tracking bars") end
 end
 
 -------------------------------------------------------------------------------

@@ -409,7 +409,7 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
         EllesmereUI._MovementAlertPreview(not EllesmereUI._MovementAlertPreviewActive())
         if previewBtnLbl then previewBtnLbl:SetText(PreviewLabel()) end
     end);  y = y - h
-    do
+    if not EllesmereUI._prebuilding then
         local btn = select(1, previewBtnFrame:GetChildren())
         if btn then
             for i = 1, btn:GetNumRegions() do
@@ -457,7 +457,7 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
 
     -- Enabled-classes checkbox dropdown (same widget/storage convention as
     -- the Resource Bars Totem Bar): nothing checked = zero-cost disabled.
-    do
+    if not EllesmereUI._prebuilding then
         local leftRgn = enableRow._leftRegion
         local classItems = {}
         for _, cf in ipairs(CLASS_ORDER) do
@@ -587,7 +587,7 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
     );  y = y - h
 
     -- Bar settings cog on the Bar Texture slot: Show Icon on Bar lives here.
-    do
+    if not EllesmereUI._prebuilding then
         local rgn = dmRow._rightRegion
         local function BarCogOff() return maOff() or ma.displayMode ~= "bar" end
         local _, barCogShow = EllesmereUI.BuildCogPopup({
@@ -633,7 +633,7 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
     -- Health Bar Left/Right Text rows: dropdown at the right, then the
     -- Custom + Class color swatch pair, then the resize cog. The swatches
     -- (the Use Class Color replacement) only apply to Text and Bar modes.
-    do
+    if not EllesmereUI._prebuilding then
         local leftRgn = dmRow._leftRegion
         local dmAnchor = leftRgn._lastInline or leftRgn._control
 
@@ -767,7 +767,7 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
           end }
     );  y = y - h
 
-    do
+    if not EllesmereUI._prebuilding then
         local leftRgn = ttsRow._rightRegion
         local function TtsCogOff() return maOff() or not ma.maTtsEnabled end
         local _, ttsCogShow = EllesmereUI.BuildCogPopup({
@@ -1123,7 +1123,7 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
     );  y = y - h
 
     -- Time Spiral settings cog (left slot)
-    do
+    if not EllesmereUI._prebuilding then
         local leftRgn = extraRow._leftRegion
         local sndValues2, sndOrder2 = SoundDropdownValues()
         local ttsValues2, ttsOrder2 = TTSVoiceDropdownValues()
@@ -1196,7 +1196,7 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
     end
 
     -- Gateway Shard settings cog (right slot); Combat Only lives in here.
-    do
+    if not EllesmereUI._prebuilding then
         local rgn = extraRow._rightRegion
         local sndValues2, sndOrder2 = SoundDropdownValues()
         local ttsValues2, ttsOrder2 = TTSVoiceDropdownValues()

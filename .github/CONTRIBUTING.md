@@ -1,5 +1,9 @@
 # Contributing to EllesmereUI
 
+**FEATURE REQUESTS ARE TEMPORARILY HALTED.**
+**ONLY BUG FIXES WILL BE ACCEPTED UNTIL**
+**A FEW WEEKS AFTER 12.1 LAUNCH**
+
 Thanks for wanting to contribute! Pull requests are welcome. This document
 explains how PRs are reviewed and the hard rules the codebase lives by, so
 your change can merge quickly instead of bouncing through review rounds.

@@ -247,6 +247,19 @@ local function InstallQuestItemHotkey()
     end
     EQT.UpdateQuestItemAttribute = UpdateQuestItemAttribute
 
+    -- Loot-storm coalescer (memory pass 2026-08-03): QUEST_LOG_UPDATE fires
+    -- in bursts on loot/objective progress, and each fire paid a full quest
+    -- log scan -- an info table per log entry, the suite's single-frame
+    -- allocation peak (~106KB in one frame). One deferred scan per burst
+    -- instead; the scan keeps its own dirty/combat gates, so a burst that
+    -- ends in combat parks on dirty and the existing PLAYER_REGEN_ENABLED
+    -- path picks it up. Prebuilt closure: no per-burst allocation.
+    local scanPending = false
+    local function FlushQuestItemScan()
+        scanPending = false
+        UpdateQuestItemAttribute()
+    end
+
     local qItemFrame = CreateFrame("Frame")
     qItemFrame:RegisterEvent("QUEST_LOG_UPDATE")
     qItemFrame:RegisterEvent("QUEST_ACCEPTED")
@@ -275,7 +288,10 @@ local function InstallQuestItemHotkey()
         end
         if not Cfg("questItemHotkey") then return end
         dirty = true
-        UpdateQuestItemAttribute()
+        if not scanPending then
+            scanPending = true
+            C_Timer.After(0.3, FlushQuestItemScan)
+        end
     end)
 
     C_Timer.After(1.5, function()

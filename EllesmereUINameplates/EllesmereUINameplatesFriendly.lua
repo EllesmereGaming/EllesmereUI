@@ -1537,8 +1537,33 @@ clickThroughRetry:SetScript("OnEvent", function() ApplyFriendlyClickThrough() en
 --  the two toggles that mean "I want friendly plates" (Show EUI Friendly
 --  Player Nameplates / Make Friendly Nameplates Name Only). Every other path
 --  reads the CVars and leaves them alone.
+--
+--  The CVar was renamed along the way: current clients register
+--  nameplateShowFriendlyPlayers, older ones nameplateShowFriends, and reading
+--  a name the client does not register just gives nil. Writes go to both (the
+--  dead one is a harmless no-op), but the READ has to come from whichever is
+--  live -- a nil read used to be recorded as "the user had them hidden" and
+--  then handed back as 0 on the way out of a follower dungeon, which is what
+--  left friendly nameplates switched off after a delve.
 -------------------------------------------------------------------------------
 local FRIENDLY_VIS_CVARS = { "nameplateShowFriendlyPlayers", "nameplateShowFriends" }
+local _liveVisCVar   -- resolved lazily; nil until a name reads back
+
+--- The visibility CVar this client actually registers, or nil if neither
+--- answers yet. Resolved on first successful read and cached, so it never runs
+--- before the CVar system is up and costs nothing afterwards.
+local function LiveFriendlyVisCVar()
+    if _liveVisCVar then return _liveVisCVar end
+    if not GetCVar then return nil end
+    for i = 1, #FRIENDLY_VIS_CVARS do
+        local ok, v = pcall(GetCVar, FRIENDLY_VIS_CVARS[i])
+        if ok and v ~= nil then
+            _liveVisCVar = FRIENDLY_VIS_CVARS[i]
+            return _liveVisCVar
+        end
+    end
+    return nil
+end
 
 --- Force friendly player plates visible. Also drops any pending follower
 --- dungeon capture: an explicit "show them" must not be undone later by a
@@ -1556,10 +1581,15 @@ end
 --- is what re-showed plates for people who had hidden them. Persisted rather
 --- than runtime-only because the player can log out inside the dungeon, and a
 --- lost capture would strand their preference off.
+--- Returns true once there is a capture on file to hand back later.
 local function CaptureFriendlyVis()
-    if not EllesmereUIDB or EllesmereUIDB.friendlyPlateVisSaved ~= nil then return end
-    local cur = GetCVar and GetCVar("nameplateShowFriends")
+    if not EllesmereUIDB then return false end
+    if EllesmereUIDB.friendlyPlateVisSaved ~= nil then return true end
+    local cvar = LiveFriendlyVisCVar()
+    if not cvar then return false end   -- can't read it: don't guess, don't hide
+    local cur = GetCVar(cvar)
     EllesmereUIDB.friendlyPlateVisSaved = (cur == "1" or cur == 1) and 1 or 0
+    return true
 end
 
 local function RestoreFriendlyVis()
@@ -1571,6 +1601,16 @@ local function RestoreFriendlyVis()
         pcall(SetCVar, FRIENDLY_VIS_CVARS[i], saved)
     end
 end
+
+-- SetCVar on nameplate CVars is skipped in combat to avoid taint, so a zone
+-- transition that lands mid-combat drops the whole visibility pass. Without a
+-- retry that silently strands a follower-dungeon capture unclaimed and leaves
+-- friendly plates hidden until the next transition, so re-run once combat ends.
+local visCVarRetry = CreateFrame("Frame")
+visCVarRetry:SetScript("OnEvent", function(self)
+    self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+    ns.UpdateFriendlyNameplateSystem()
+end)
 
 -------------------------------------------------------------------------------
 --  System enable / disable  (called from toggle setValue and on login)
@@ -1587,19 +1627,23 @@ function ns.UpdateFriendlyNameplateSystem()
     -- In instances (dungeons/raids/scenarios/arenas/PvP), force-hide
     -- friendly NPC nameplates because GetNamePlateForUnit returns nil
     -- for protected frames and our suppression can't run.
-    -- SetCVar for nameplate CVars is protected in combat; skip to avoid taint.
+    -- SetCVar for nameplate CVars is protected in combat; skip to avoid taint
+    -- and re-run the pass on PLAYER_REGEN_ENABLED so nothing is lost.
     -- Friendly player CVars are only touched when the user has EUI managing
     -- friendly player nameplates. When disabled we leave those CVars alone
     -- so Blizzard's own Nameplate settings own them. Friendly NPC CVars are
     -- always managed because they have their own EUI toggle.
     if not InCombatLockdown() and SetCVar then
+        visCVarRetry:UnregisterEvent("PLAYER_REGEN_ENABLED")
         local fp = FP()
         local euiManagesPlayers = fp and (fp.showFriendlyPlayers ~= false)
         local _, iType = GetInstanceInfo()
         local inInstance = (iType == "party" or iType == "raid" or iType == "scenario" or iType == "arena" or iType == "pvp")
         if IsInFollowerDungeon() then
-            if euiManagesPlayers then
-                CaptureFriendlyVis()
+            -- Only hide them once the pre-change value is safely on file.
+            -- Hiding without a capture has no matching restore, so the plates
+            -- would never come back.
+            if euiManagesPlayers and CaptureFriendlyVis() then
                 pcall(SetCVar, "nameplateShowFriendlyPlayers", 0)
                 pcall(SetCVar, "nameplateShowFriends", 0)
             end
@@ -1608,7 +1652,11 @@ function ns.UpdateFriendlyNameplateSystem()
         elseif inInstance then
             -- NPC plates only: force off in instances since our frame
             -- suppression doesn't work on protected nameplate frames.
-            -- Player CVars are unaffected.
+            -- Player visibility is not forced here, but a capture taken in a
+            -- follower dungeon still has to be handed back: zoning straight
+            -- from a delve into a dungeon never touches the open-world branch
+            -- below, and the plates would stay hidden for the whole run.
+            if euiManagesPlayers then RestoreFriendlyVis() end
             pcall(SetCVar, "nameplateShowFriendlyNPCs", 0)
             pcall(SetCVar, "nameplateShowFriendlyNpcs", 0)
         else
@@ -1626,6 +1674,9 @@ function ns.UpdateFriendlyNameplateSystem()
                 pcall(SetCVar, "nameplateShowFriendlyNpcs", showNPCs and 1 or 0)
             end
         end
+    elseif SetCVar then
+        -- Skipped for combat: run the visibility pass again once it drops.
+        visCVarRetry:RegisterEvent("PLAYER_REGEN_ENABLED")
     end
 
     if shouldEnable and not friendlyEnabled then

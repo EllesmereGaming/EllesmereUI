@@ -326,7 +326,7 @@ initFrame:SetScript("OnEvent", function(self)
         );  y = y - h
 
         -- Cog on Skip Cinematics (right region of row1)
-        do
+        if not EllesmereUI._prebuilding then
             local rightRgn = row1._rightRegion
             local function cinematicsOff()
                 return not (EllesmereUIDB and EllesmereUIDB.skipCinematics)
@@ -427,7 +427,7 @@ initFrame:SetScript("OnEvent", function(self)
         );  y = y - h
 
         -- Cog on Auto Repair (left region)
-        do
+        if not EllesmereUI._prebuilding then
             local leftRgn = repairRow._leftRegion
             local function repairOff()
                 return not (EllesmereUIDB and EllesmereUIDB.autoRepair ~= false)
@@ -538,7 +538,7 @@ initFrame:SetScript("OnEvent", function(self)
         );  y = y - h
 
         -- Cog on Show Coordinates on Map (left region)
-        do
+        if not EllesmereUI._prebuilding then
             local leftRgn = coordRow._leftRegion
             local function coordsOff()
                 return EllesmereUIDB and EllesmereUIDB.mapCoords == false
@@ -645,7 +645,7 @@ initFrame:SetScript("OnEvent", function(self)
         );  y = y - h
 
         -- Inline cog (Text Size) on the Announce Group Deaths toggle
-        do
+        if not EllesmereUI._prebuilding then
             local leftRgn = deathRow._leftRegion
             local function deathOff()
                 return not (EllesmereUIDB and EllesmereUIDB.announceGroupDeaths)
@@ -760,7 +760,7 @@ initFrame:SetScript("OnEvent", function(self)
         );  y = y - h
 
         -- Inline cog (text, size, colors, mode) on the Combat Alert toggle
-        do
+        if not EllesmereUI._prebuilding then
             local leftRgn = combatAlertRow._leftRegion
             local function caOff()
                 return not (EllesmereUIDB and EllesmereUIDB.combatAlertEnabled)
@@ -900,7 +900,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Inline picker cog on Hide Item Transforms (right slot of the death
         -- row): opens the item checklist popup. Dimmed and inert while the
         -- toggle is off, mirroring the resource-bar spec-picker button.
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = deathRow._rightRegion
             local function hitOff()
                 return not (EllesmereUIDB and EllesmereUIDB.hideTransforms)
@@ -955,7 +955,7 @@ initFrame:SetScript("OnEvent", function(self)
         );  y = y - h
 
         -- Inline color swatch + cog on the FPS toggle (left region)
-        do
+        if not EllesmereUI._prebuilding then
             local leftRgn = fpsRow._leftRegion
             local function fpsOff()
                 return not EllesmereUI.QoLExtrasGet("showFPS")
@@ -1086,7 +1086,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- FPS Toggle Keybind (built into right region of fpsRow)
-        do
+        if not EllesmereUI._prebuilding then
             local rightRgn = fpsRow._rightRegion
             local SIDE_PAD = 20
 
@@ -1104,7 +1104,7 @@ initFrame:SetScript("OnEvent", function(self)
             kbLbl:SetPoint("CENTER")
 
             local function FormatKey(key)
-                if not key then return "Not Bound" end
+                if not key then return EllesmereUI.L("Not Bound") end
                 local parts = {}
                 for mod in key:gmatch("(%u+)%-") do
                     parts[#parts + 1] = mod:sub(1, 1) .. mod:sub(2):lower()
@@ -1239,7 +1239,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- The backend stays two independent booleans; the dropdown is purely a
         -- front-end grouping, so existing disableRightClickTarget users are kept
         -- exactly as-is and Allies is additive (defaults off).
-        do
+        if not EllesmereUI._prebuilding then
             local rcRgn = durWarnRow._rightRegion
             if rcRgn._control then rcRgn._control:Hide() end
             local rcItems = {
@@ -1270,7 +1270,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- Inline: eyeball | cog | color swatch on the durability warning toggle
-        do
+        if not EllesmereUI._prebuilding then
             local leftRgn = durWarnRow._leftRegion
             local function durOff()
                 return EllesmereUIDB and EllesmereUIDB.repairWarning == false
@@ -1390,8 +1390,8 @@ initFrame:SetScript("OnEvent", function(self)
             if durCogInitOff then durCogBlock:Show() else durCogBlock:Hide() end
 
             -- Eye icon to toggle durability warning preview (left of cog)
-            local EYE_VISIBLE   = EllesmereUI.MEDIA_PATH .. "icons\\eui-visible.png"
-            local EYE_INVISIBLE = EllesmereUI.MEDIA_PATH .. "icons\\eui-invisible.png"
+            local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+            local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
             local durPreviewShown = false
             local eyeBtn = CreateFrame("Button", nil, leftRgn)
             eyeBtn:SetSize(26, 26)
@@ -1485,7 +1485,7 @@ initFrame:SetScript("OnEvent", function(self)
         );  y = y - h
 
         -- Inline color swatch + cog on Secondary Stat Display (left region)
-        do
+        if not EllesmereUI._prebuilding then
             local leftRgn = row4._leftRegion
             local function statsOff()
                 return not EllesmereUI.QoLExtrasGet("showSecondaryStats")
@@ -1642,7 +1642,7 @@ initFrame:SetScript("OnEvent", function(self)
         );  y = y - h
 
         -- Inline cog on Rested Indicator (left region) for X/Y offsets
-        do
+        if not EllesmereUI._prebuilding then
             local leftRgn = restedRow._leftRegion
             local function ApplyRestIndicatorPos()
                 local pf = _G["EllesmereUIUnitFrames_Player"]
@@ -1708,7 +1708,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- Target Distance settings cog (right slot of the Rested row)
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = restedRow._rightRegion
             local function tdOff()
                 return not (EllesmereUIDB and EllesmereUIDB.targetDistanceEnabled)
@@ -1904,7 +1904,7 @@ initFrame:SetScript("OnEvent", function(self)
         --   always | combat | instances | instances_combat
         -- "Always" is the base state. Picking it
         -- clears the others; clearing both reverts to it.
-        do
+        if not EllesmereUI._prebuilding then
             local visRgn = crosshairRow._rightRegion
             if visRgn._control then visRgn._control:Hide() end
 
@@ -1972,7 +1972,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- Inline color swatch on the crosshair dropdown (left region)
-        do
+        if not EllesmereUI._prebuilding then
             local leftRgn = crosshairRow._leftRegion
 
             local chSwGet = function()
@@ -2014,7 +2014,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- Inline cog on the crosshair dropdown (left region) for expanded options
-        do
+        if not EllesmereUI._prebuilding then
             local leftRgn = crosshairRow._leftRegion
             local function chCogOff() return crosshairOff() end
             local function presetThick()
@@ -2142,7 +2142,7 @@ initFrame:SetScript("OnEvent", function(self)
             { type="label", text="" }
         );  y = y - h
         -- Inline color swatch (disabled when toggle is off or crosshair is None)
-        do
+        if not EllesmereUI._prebuilding then
             local leftRgn = meleeRow._leftRegion
             local function meleeOff()
                 return crosshairOff() or cget("crosshairMeleeColorEnabled") ~= true
@@ -2306,7 +2306,7 @@ initFrame:SetScript("OnEvent", function(self)
         );  y = y - h
 
         -- Cog on Auto Open Containers (right region)
-        do
+        if not EllesmereUI._prebuilding then
             local rightRgn = autoOpenContainerRow._rightRegion
             local function autoOpenContainerOff()
                 return not (EllesmereUIDB and EllesmereUIDB.autoOpenContainers == true)
@@ -2323,6 +2323,19 @@ initFrame:SetScript("OnEvent", function(self)
                       set=function(v)
                           if not EllesmereUIDB then EllesmereUIDB = {} end
                           EllesmereUIDB.autoOpenContainersExcludeWarbound = v
+                      end },
+                    { type="toggle", label="Hold Capped Artisan Payouts",
+                      tooltip="Keeps Artisan's Consortium Payouts closed while Shard of Dundun is at its maximum, then resumes automatic opening after you spend shards.",
+                      get=function()
+                          return EllesmereUIDB
+                              and EllesmereUIDB.autoOpenContainersHoldCappedArtisanPayouts == true
+                      end,
+                      set=function(v)
+                          if not EllesmereUIDB then EllesmereUIDB = {} end
+                          EllesmereUIDB.autoOpenContainersHoldCappedArtisanPayouts = v
+                          if EllesmereUI._applyAutoOpenContainers then
+                              EllesmereUI._applyAutoOpenContainers()
+                          end
                       end },
                 },
             })
@@ -2435,6 +2448,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.autoUnwrapCollections = false
                 EllesmereUIDB.autoOpenContainers = false
                 EllesmereUIDB.autoOpenContainersExcludeWarbound = true
+                EllesmereUIDB.autoOpenContainersHoldCappedArtisanPayouts = false
                 EllesmereUIDB.autoRepairGuild = false
                 EllesmereUIDB.shifterEnabled = false
                 EllesmereUIDB.shifterPositions = nil

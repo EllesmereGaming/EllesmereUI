@@ -236,6 +236,18 @@ qolFrame:SetScript("OnEvent", function(self)
         local function IsEnabled()
             return EllesmereUIDB and EllesmereUIDB.autoOpenContainers == true
         end
+        -- This payout can award this capped currency; hold only the known pair.
+        local ARTISAN_PAYOUT_ITEM_ID = 246585
+        local SHARD_OF_DUNDUN_CURRENCY_ID = 3376
+        local function ShouldHoldCappedArtisanPayout(itemID)
+            if itemID ~= ARTISAN_PAYOUT_ITEM_ID
+                or not (EllesmereUIDB
+                    and EllesmereUIDB.autoOpenContainersHoldCappedArtisanPayouts == true) then
+                return false
+            end
+            return C_CurrencyInfo and C_CurrencyInfo.PlayerHasMaxQuantity
+                and C_CurrencyInfo.PlayerHasMaxQuantity(SHARD_OF_DUNDUN_CURRENCY_ID) or false
+        end
         -- A merchant being open turns UseContainerItem into a SELL (Blizzard
         -- routes "use item" to the vendor), so auto-open must pause while any
         -- merchant frame is shown -- otherwise freshly-bought containers get
@@ -252,6 +264,9 @@ qolFrame:SetScript("OnEvent", function(self)
         -- while the mailbox is shown and resume cleanly once it closes.
         local function MailOpen()
             return (MailFrame and MailFrame:IsShown()) and true or false
+        end
+        local function BankOpen()
+            return (BankFrame and BankFrame:IsShown()) and true or false
         end
         -- "Exclude Warbound Containers": true only when the option is on AND
         -- the slot is confirmed warband-bank-eligible. Guarded like the bags
@@ -355,6 +370,7 @@ qolFrame:SetScript("OnEvent", function(self)
                 -- interaction-manager events, so the HIDE event is the one
                 -- that actually drives the resume on retail.
                 containerFrame:RegisterEvent("MAIL_CLOSED")
+                containerFrame:RegisterEvent("BANKFRAME_CLOSED")
                 if C_PlayerInteractionManager then
                     containerFrame:RegisterEvent("PLAYER_INTERACTION_MANAGER_FRAME_HIDE")
                 end
@@ -362,6 +378,12 @@ qolFrame:SetScript("OnEvent", function(self)
                 -- linger in the bag) aren't opened over / re-opened while looting.
                 containerFrame:RegisterEvent("LOOT_OPENED")
                 containerFrame:RegisterEvent("LOOT_CLOSED")
+                if EllesmereUIDB.autoOpenContainersHoldCappedArtisanPayouts == true
+                    and C_CurrencyInfo and C_CurrencyInfo.PlayerHasMaxQuantity then
+                    containerFrame:RegisterEvent("CURRENCY_DISPLAY_UPDATE")
+                else
+                    containerFrame:UnregisterEvent("CURRENCY_DISPLAY_UPDATE")
+                end
                 -- Resume opens deferred while the player was casting. Without
                 -- these the deferral would stall until the next bag update.
                 containerFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
@@ -371,17 +393,21 @@ qolFrame:SetScript("OnEvent", function(self)
                     _scanBag = BACKPACK_CONTAINER
                     _scanSlot = 1
                     scanFrame:Show()
+                elseif RequestScan then
+                    RequestScan()
                 end
             else
                 containerFrame:UnregisterEvent("BAG_UPDATE_DELAYED")
                 containerFrame:UnregisterEvent("BAG_UPDATE")
                 containerFrame:UnregisterEvent("MERCHANT_CLOSED")
                 containerFrame:UnregisterEvent("MAIL_CLOSED")
+                containerFrame:UnregisterEvent("BANKFRAME_CLOSED")
                 if C_PlayerInteractionManager then
                     containerFrame:UnregisterEvent("PLAYER_INTERACTION_MANAGER_FRAME_HIDE")
                 end
                 containerFrame:UnregisterEvent("LOOT_OPENED")
                 containerFrame:UnregisterEvent("LOOT_CLOSED")
+                containerFrame:UnregisterEvent("CURRENCY_DISPLAY_UPDATE")
                 containerFrame:UnregisterEvent("UNIT_SPELLCAST_SUCCEEDED")
                 containerFrame:UnregisterEvent("UNIT_SPELLCAST_STOP")
                 containerFrame:UnregisterEvent("UNIT_SPELLCAST_CHANNEL_STOP")
@@ -431,12 +457,13 @@ qolFrame:SetScript("OnEvent", function(self)
         -- with their own 0.5s settle delay (see the dispatcher below), by which
         -- point MailOpen() is reliably false -- this flag is passed there purely
         -- as belt-and-suspenders, not load-bearing the way skipMerchantGate is.
-        ScanAndOpen = function(skipMerchantGate, skipMailGate)
+        ScanAndOpen = function(skipMerchantGate, skipMailGate, skipBankGate)
             if not _cacheBuilt then return end
             if not IsEnabled() then return end
             if InCombatLockdown() then return end
             if not skipMerchantGate and MerchantOpen() then return end
             if not skipMailGate and MailOpen() then return end
+            if not skipBankGate and BankOpen() then return end
             if PlayerIsCasting() then _missedScan = true; return end
             -- A loot window is up (payout container lingering): LOOT_CLOSED
             -- restarts a clean cycle once it has left the bag.
@@ -477,9 +504,9 @@ qolFrame:SetScript("OnEvent", function(self)
                 _openBusy = false
                 if (madeProgress or _missedScan) and IsEnabled()
                     and not InCombatLockdown()
-                    and not MerchantOpen() and not MailOpen() and not _lootOpen then
+                    and not MerchantOpen() and not MailOpen() and not BankOpen() and not _lootOpen then
                     _missedScan = false
-                    C_Timer.After(0.3, function() ScanAndOpen(false, false) end)
+                    C_Timer.After(0.3, function() ScanAndOpen(false, false, false) end)
                 end
             end
 
@@ -487,7 +514,7 @@ qolFrame:SetScript("OnEvent", function(self)
             local function step(idx)
                 if myGen ~= _cycleGen then return end
                 if idx > #toOpen then return finish() end
-                if not IsEnabled() or InCombatLockdown() or MerchantOpen() or MailOpen() then return finish() end
+                if not IsEnabled() or InCombatLockdown() or MerchantOpen() or MailOpen() or BankOpen() then return finish() end
                 -- Re-checked per step, not just at cycle entry: a cycle paces
                 -- itself across several seconds of timers, so a cast can start
                 -- long after the entry gate passed.
@@ -501,7 +528,8 @@ qolFrame:SetScript("OnEvent", function(self)
                 -- (set synchronously below) or Blizzard's isLocked. Re-using a
                 -- container that's still resolving a previous open strands it.
                 if info and info.itemID and not info.isLocked and not _openInProgress[key] then
-                    if IsWarboundExcluded(item.bag, item.slot) then
+                    if IsWarboundExcluded(item.bag, item.slot)
+                        or ShouldHoldCappedArtisanPayout(info.itemID) then
                         return step(idx + 1)
                     end
                     if _openableCache[info.itemID] and not _failedItems[info.itemID] then
@@ -634,6 +662,12 @@ qolFrame:SetScript("OnEvent", function(self)
                 RequestScan()
                 return
             end
+            if event == "CURRENCY_DISPLAY_UPDATE" then
+                if not ShouldHoldCappedArtisanPayout(ARTISAN_PAYOUT_ITEM_ID) then
+                    RequestScan()
+                end
+                return
+            end
             if event == "UNIT_SPELLCAST_SUCCEEDED" or event == "UNIT_SPELLCAST_STOP"
                 or event == "UNIT_SPELLCAST_CHANNEL_STOP" then
                 -- Resume only when the casting gate actually deferred something.
@@ -648,7 +682,13 @@ qolFrame:SetScript("OnEvent", function(self)
             if event == "MAIL_CLOSED" then
                 -- Legacy path: no longer fires on retail (see the registration
                 -- comment), kept for older clients where it still does.
-                C_Timer.After(0.5, function() ScanAndOpen(false, true) end)
+                C_Timer.After(0.5, function() ScanAndOpen(false, true, false) end)
+                return
+            end
+            if event == "BANKFRAME_CLOSED" then
+                -- Legacy path like MAIL_CLOSED above; the interaction-manager
+                -- HIDE below is the live driver on retail.
+                C_Timer.After(0.5, function() ScanAndOpen(false, false, true) end)
                 return
             end
             if event == "PLAYER_INTERACTION_MANAGER_FRAME_HIDE" then
@@ -657,7 +697,12 @@ qolFrame:SetScript("OnEvent", function(self)
                     -- delivery can still be landing and unlocking slots for a
                     -- moment after the frame closes -- the exact race that
                     -- strands a slot -- so settle first, same as LOOT_CLOSED.
-                    C_Timer.After(0.5, function() ScanAndOpen(false, true) end)
+                    C_Timer.After(0.5, function() ScanAndOpen(false, true, false) end)
+                elseif interactionType == Enum.PlayerInteractionType.Banker
+                    or interactionType == Enum.PlayerInteractionType.AccountBanker then
+                    -- AccountBanker: the warband bank signals its own type, and
+                    -- BankOpen() gates both (same BankFrame).
+                    C_Timer.After(0.5, function() ScanAndOpen(false, false, true) end)
                 end
                 return
             end
@@ -2277,7 +2322,7 @@ do
         local fs = durWarnOverlay:CreateFontString(nil, "OVERLAY")
         fs:SetFont(EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF", 18, EllesmereUI.GetFontOutlineFlag("extras"))
         fs:SetPoint("CENTER")
-        fs:SetText("Low Durability")
+        fs:SetText(EllesmereUI.L("Low Durability"))
         durWarnOverlay._text = fs
 
         local function ApplySettings()
@@ -2319,7 +2364,7 @@ do
 
         durWarnOverlay._show = function(pct)
             ApplySettings()
-            durWarnOverlay._text:SetText("Low Durability (" .. math.floor(pct) .. "%)")
+            durWarnOverlay._text:SetText(EllesmereUI.Lf("Low Durability (%d%%)", math.floor(pct)))
             durWarnOverlay:Show()
             ag:Play()
         end
@@ -2340,7 +2385,7 @@ do
     EllesmereUI._durWarnPreview = function()
         CreateDurabilityWarning()
         durWarnOverlay._show(25)
-        durWarnOverlay._text:SetText("Low Durability (Preview)")
+        durWarnOverlay._text:SetText(EllesmereUI.L("Low Durability (Preview)"))
     end
 
     EllesmereUI._durWarnHidePreview = function()
@@ -3296,50 +3341,8 @@ do
     -- "Whisper Sound". Played on the "Master" channel so it stays audible even
     -- when the SFX slider is low. Tables are exposed on EllesmereUI so the options
     -- file can build the same dropdown.
-    local _SOUNDS_DIR = "Interface\\AddOns\\EllesmereUI\\media\\sounds\\"
-    local GROUP_DEATH_SOUND_PATHS = {
-        ["none"]      = nil,
-        ["airhorn"]   = _SOUNDS_DIR .. "AirHorn.ogg",
-        ["banana"]    = _SOUNDS_DIR .. "BananaPeelSlip.ogg",
-        ["bikehorn"]  = _SOUNDS_DIR .. "BikeHorn.ogg",
-        ["bite"]      = _SOUNDS_DIR .. "Bite.ogg",
-        ["boxing"]    = _SOUNDS_DIR .. "BoxingArenaSound.ogg",
-        ["catmeow"]   = _SOUNDS_DIR .. "CatMeow.ogg",
-        ["catmeow2"]  = _SOUNDS_DIR .. "CatMeow2.ogg",
-        ["gunshot"]   = _SOUNDS_DIR .. "FrontalsGunshot.wav",
-        ["glass"]     = _SOUNDS_DIR .. "Glass.mp3",
-        ["kaching"]   = _SOUNDS_DIR .. "Kaching.ogg",
-        ["phone"]     = _SOUNDS_DIR .. "Phone.ogg",
-        ["robotblip"] = _SOUNDS_DIR .. "RobotBlip.ogg",
-        ["sonar"]     = _SOUNDS_DIR .. "Sonar.ogg",
-        ["siren"]     = _SOUNDS_DIR .. "WarningSiren.ogg",
-        ["water"]     = _SOUNDS_DIR .. "WaterDrop.ogg",
-        ["wilhelm"]   = _SOUNDS_DIR .. "Wilhelm.ogg",
-    }
-    local GROUP_DEATH_SOUND_NAMES = {
-        ["none"]      = "None",
-        ["airhorn"]   = "Air Horn",
-        ["banana"]    = "Banana Peel Slip",
-        ["bikehorn"]  = "Bike Horn",
-        ["bite"]      = "Bite",
-        ["boxing"]    = "Boxing Arena",
-        ["catmeow"]   = "Cat Meow",
-        ["catmeow2"]  = "Cat Meow 2",
-        ["gunshot"]   = "Frontals Gunshot",
-        ["glass"]     = "Glass",
-        ["kaching"]   = "Kaching",
-        ["phone"]     = "Phone",
-        ["robotblip"] = "Robot Blip",
-        ["sonar"]     = "Sonar",
-        ["siren"]     = "Warning Siren",
-        ["water"]     = "Water Drop",
-        ["wilhelm"]   = "Wilhelm",
-    }
-    local GROUP_DEATH_SOUND_ORDER = {
-        "none", "airhorn", "banana", "bikehorn", "bite", "boxing", "catmeow",
-        "catmeow2", "gunshot", "glass", "kaching", "phone", "robotblip", "sonar",
-        "siren", "water", "wilhelm",
-    }
+    local GROUP_DEATH_SOUND_PATHS, GROUP_DEATH_SOUND_NAMES, GROUP_DEATH_SOUND_ORDER =
+        EllesmereUI.BuildAlertSoundTables()
     -- SharedMedia sounds are appended at PLAYER_LOGIN (see the boot frame at the
     -- end of this block), NOT here: this do-block runs at addon load, before
     -- other addons have registered their LibSharedMedia sounds, so an append now

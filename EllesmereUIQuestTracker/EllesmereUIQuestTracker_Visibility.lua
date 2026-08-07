@@ -35,6 +35,12 @@ local function TopGapOffset()
     return 0
 end
 
+local function GetBGLeftOffset()
+    -- Blizzard quest icons extend 13px left of the tracker. Preserve the
+    -- existing 6px breathing room without widening icon-disabled layouts.
+    return EQT.Cfg("showQuestIcons") and -19 or -6
+end
+
 -- When "Hide All Objectives" is on, otf.Header/HeaderMenu is Hidden but
 -- Blizzard's topModulePadding still reserves its layout slot above the
 -- first module (the same "dead gap" this suite has run into before) --
@@ -276,9 +282,10 @@ local function EnsureBG()
     -- above) so it doesn't bleed above the content or leave a gap below it.
     -- Bottom edge extends past the last block (re-anchored dynamically below).
     local topOfs = TopGapOffset()
+    local leftOfs = GetBGLeftOffset()
     local anchorFrame, anchorPoint = GetBGTopAnchor()
     anchorFrame = anchorFrame or otf
-    _bgFrame:SetPoint("TOPLEFT", anchorFrame, anchorPoint .. "LEFT", -6, topOfs)
+    _bgFrame:SetPoint("TOPLEFT", anchorFrame, anchorPoint .. "LEFT", leftOfs, topOfs)
     -- Bottom is re-anchored dynamically in ResizeBGToContent(); this is
     -- only the fallback extent when no content has loaded yet (30px tall).
     _bgFrame:SetPoint("BOTTOMRIGHT", anchorFrame, anchorPoint .. "RIGHT", 11, topOfs - 30)
@@ -291,7 +298,7 @@ local function EnsureBG()
     -- directly to it so the line matches tracker width regardless of BG
     -- padding. Same snap pattern as PP.CreateBorder.
     local divider = _bgFrame:CreateTexture(nil, "OVERLAY")
-    divider:SetPoint("TOPLEFT",  anchorFrame, anchorPoint .. "LEFT",  -6, topOfs)
+    divider:SetPoint("TOPLEFT",  anchorFrame, anchorPoint .. "LEFT",  leftOfs, topOfs)
     divider:SetPoint("TOPRIGHT", anchorFrame, anchorPoint .. "RIGHT",  11, topOfs)
     _bgFrame._divider = divider
     return _bgFrame
@@ -438,26 +445,27 @@ local function ResizeBGToContent()
     bg._hideCheck = nil
     if not bg:IsShown() then bg:Show() end
     local topOfs = TopGapOffset()
+    local leftOfs = GetBGLeftOffset()
     local anchorFrame, anchorPoint = GetBGTopAnchor()
     anchorFrame = anchorFrame or otf
     local topY = (anchorPoint == "BOTTOM") and anchorFrame:GetBottom() or anchorFrame:GetTop()
     local lowestBottom = lowest:GetBottom()
     if bg._divider then
         bg._divider:ClearAllPoints()
-        bg._divider:SetPoint("TOPLEFT",  anchorFrame, anchorPoint .. "LEFT",  -6, topOfs)
+        bg._divider:SetPoint("TOPLEFT",  anchorFrame, anchorPoint .. "LEFT",  leftOfs, topOfs)
         bg._divider:SetPoint("TOPRIGHT", anchorFrame, anchorPoint .. "RIGHT", 11, topOfs)
     end
     if topY and lowestBottom then
         local h = topY + topOfs - lowestBottom + 15
         if h < 1 then h = 1 end
         bg:ClearAllPoints()
-        bg:SetPoint("TOPLEFT",  anchorFrame, anchorPoint .. "LEFT",  -6, topOfs)
+        bg:SetPoint("TOPLEFT",  anchorFrame, anchorPoint .. "LEFT",  leftOfs, topOfs)
         bg:SetPoint("TOPRIGHT", anchorFrame, anchorPoint .. "RIGHT", 11, topOfs)
         bg:SetHeight(h)
         bg._lastHeight = h
     elseif bg._lastHeight then
         bg:ClearAllPoints()
-        bg:SetPoint("TOPLEFT",  anchorFrame, anchorPoint .. "LEFT",  -6, topOfs)
+        bg:SetPoint("TOPLEFT",  anchorFrame, anchorPoint .. "LEFT",  leftOfs, topOfs)
         bg:SetPoint("TOPRIGHT", anchorFrame, anchorPoint .. "RIGHT", 11, topOfs)
         bg:SetHeight(bg._lastHeight)
     end

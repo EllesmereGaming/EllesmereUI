@@ -412,7 +412,11 @@ local defaults = {
             castDurationX = 0,
             castDurationY = 0,
             showCastDuration = true,
-            showCastTarget = true,
+            -- Player-only: the spell target never rendered here before the
+            -- display fix, so it defaults OFF to keep the frame unchanged;
+            -- users opt in via the Spell Target side dropdown. Existing
+            -- profiles are pinned to None by uf_player_cast_target_none_v1.
+            showCastTarget = false,
             castbarFillColor = { r = 0.863, g = 0.820, b = 0.639 },
             castbarClassColored = false,
             showClassPowerBar = false,
@@ -645,6 +649,12 @@ local defaults = {
             leaderIndicatorPosition = "topleft",
             leaderIndicatorX = 0,
             leaderIndicatorY = 0,
+            eliteIndicatorEnabled = false,
+            eliteIndicatorSize = 16,
+            eliteIndicatorPosition = "topleft",
+            eliteIndicatorX = 0,
+            eliteIndicatorY = 0,
+            eliteIndicatorShowInInstances = false,
             healthReverseFill = false,
             healthVerticalFill = false,
             smoothBars = false,
@@ -1259,59 +1269,8 @@ local function UnsnapTex(tex)
 end
 
 -- Health bar texture overlay lookup
-local TEXTURE_BASE = "Interface\\AddOns\\EllesmereUI\\media\\textures\\"
-local healthBarTextures = {
-    ["none"]          = nil,
-    ["melli"]         = TEXTURE_BASE .. "melli.tga",
-    ["beautiful"]     = TEXTURE_BASE .. "beautiful.tga",
-    ["plating"]       = TEXTURE_BASE .. "plating.tga",
-    ["atrocity"]      = TEXTURE_BASE .. "atrocity.tga",
-    ["divide"]        = TEXTURE_BASE .. "divide.tga",
-    ["glass"]         = TEXTURE_BASE .. "glass.tga",
-    ["fade-right"]    = TEXTURE_BASE .. "fade-right.tga",
-    ["thin-line-top"]    = TEXTURE_BASE .. "thin-line-top.tga",
-    ["thin-line-bottom"] = TEXTURE_BASE .. "thin-line-bottom.tga",
-    ["fade"]          = TEXTURE_BASE .. "fade.tga",
-    ["gradient-lr"]   = TEXTURE_BASE .. "gradient-lr.tga",
-    ["gradient-rl"]   = TEXTURE_BASE .. "gradient-rl.tga",
-    ["gradient-bt"]   = TEXTURE_BASE .. "gradient-bt.tga",
-    ["gradient-tb"]   = TEXTURE_BASE .. "gradient-tb.tga",
-    ["matte"]         = TEXTURE_BASE .. "matte.tga",
-    ["sheer"]         = TEXTURE_BASE .. "sheer.tga",
-    ["blinkii-diamonds"] = TEXTURE_BASE .. "blinkii-diamonds.tga",
-    ["kringel-window"]   = TEXTURE_BASE .. "kringel-window.tga",
-}
-local healthBarTextureOrder = {
-    "none", "melli", "atrocity",
-    "fade", "fade-right",
-    "thin-line-top", "thin-line-bottom",
-    "beautiful", "plating",
-    "divide", "glass",
-    "gradient-lr", "gradient-rl", "gradient-bt", "gradient-tb",
-    "matte", "sheer",
-    "blinkii-diamonds", "kringel-window",
-}
-local healthBarTextureNames = {
-    ["none"]        = "None",
-    ["melli"]       = "Melli (ElvUI)",
-    ["beautiful"]   = "Beautiful",
-    ["plating"]     = "Plating",
-    ["atrocity"]    = "Atrocity",
-    ["divide"]      = "Divide",
-    ["glass"]       = "Glass",
-    ["fade-right"]  = "Fade Right",
-    ["thin-line-top"]    = "Thin Line Top",
-    ["thin-line-bottom"] = "Thin Line Bottom",
-    ["fade"]        = "Fade",
-    ["gradient-lr"] = "Gradient Right",
-    ["gradient-rl"] = "Gradient Left",
-    ["gradient-bt"] = "Gradient Up",
-    ["gradient-tb"] = "Gradient Down",
-    ["matte"]       = "Matte",
-    ["sheer"]       = "Sheer",
-    ["blinkii-diamonds"] = "Blinkii Diamonds",
-    ["kringel-window"]   = "Kringel Window",
-}
+local healthBarTextures, healthBarTextureNames, healthBarTextureOrder =
+    EllesmereUI.BuildBarTextureTables(true)
 ns.healthBarTextures = healthBarTextures
 ns.healthBarTextureOrder = healthBarTextureOrder
 ns.healthBarTextureNames = healthBarTextureNames
@@ -1400,6 +1359,15 @@ end
 -- tint. Fully inert at 100: nothing is touched unless previously applied
 -- (_fillOpApplied). Value-blind (relational anchors + plain alphas only),
 -- so secret cast states render identically.
+-- castbar._castTintOn mirrors "the last alpha we wrote to castTintLayer was
+-- above zero". It exists because castTintLayer:GetAlpha() cannot be trusted to
+-- return a plain number: this castbar also drives _shieldedTint's alpha from
+-- the SECRET notInterruptible flag (SetAlphaFromBoolean), and once secrecy is
+-- in a castbar's render state an alpha read comes back secret. Comparing that
+-- inside our own (tainted) execution throws "attempt to compare a secret number
+-- value", which aborts the whole styling pass mid-way and leaves the cast bar
+-- unanchored at screen centre. We write every one of these alphas ourselves, so
+-- owning the state costs one boolean and removes the comparison entirely.
 ns.ApplyCastFillOpacity = function(castbar, settings)
     local op = (settings and settings.castFillOpacity) or 100
     local bgHost = castbar:GetParent()
@@ -1412,9 +1380,9 @@ ns.ApplyCastFillOpacity = function(castbar, settings)
                 bgTex:ClearAllPoints()
                 bgTex:SetAllPoints(bgHost)
             end
-            -- Mid-cast restore: the tint's alpha is its active/idle state, so
-            -- only lift it back to full when it is currently active.
-            if castbar.castTintLayer and castbar.castTintLayer:GetAlpha() > 0 then
+            -- Mid-cast restore: the tint's active/idle state comes from our own
+            -- flag, never from reading the widget back (see _castTintOn).
+            if castbar.castTintLayer and castbar._castTintOn then
                 castbar.castTintLayer:SetAlpha(1)
             end
         end
@@ -1434,7 +1402,7 @@ ns.ApplyCastFillOpacity = function(castbar, settings)
         end
     end
     -- Mid-cast application: retune the tint if it is currently active.
-    if castbar.castTintLayer and castbar.castTintLayer:GetAlpha() > 0 then
+    if castbar.castTintLayer and castbar._castTintOn then
         castbar.castTintLayer:SetAlpha(op / 100)
     end
 end
@@ -2863,21 +2831,7 @@ end
 
 local UF_ICONS_PATH = "Interface\\AddOns\\EllesmereUI\\media\\icons\\"
 local CLASS_FULL_SPRITE_BASE = UF_ICONS_PATH .. "class-full\\"
-local CLASS_FULL_COORDS = {
-    WARRIOR     = { 0,     0.125, 0,     0.125 },
-    MAGE        = { 0.125, 0.25,  0,     0.125 },
-    ROGUE       = { 0.25,  0.375, 0,     0.125 },
-    DRUID       = { 0.375, 0.5,   0,     0.125 },
-    EVOKER      = { 0.5,   0.625, 0,     0.125 },
-    HUNTER      = { 0,     0.125, 0.125, 0.25  },
-    SHAMAN      = { 0.125, 0.25,  0.125, 0.25  },
-    PRIEST      = { 0.25,  0.375, 0.125, 0.25  },
-    WARLOCK     = { 0.375, 0.5,   0.125, 0.25  },
-    PALADIN     = { 0,     0.125, 0.25,  0.375 },
-    DEATHKNIGHT = { 0.125, 0.25,  0.25,  0.375 },
-    MONK        = { 0.25,  0.375, 0.25,  0.375 },
-    DEMONHUNTER = { 0.375, 0.5,   0.25,  0.375 },
-}
+local CLASS_FULL_COORDS = EllesmereUI.CLASS_ICON_SPRITE_COORDS
 
 -- Helper: apply class icon from sprite sheet
 local function ApplyClassIconTexture(tex, classToken, style)
@@ -5359,37 +5313,43 @@ local function HideUnitFrameKickTick(castbar)
         castbar._kickTicker = nil
     end
 end
+-- Hoisted defaults for the zero-alloc paint below: these were inline table
+-- literals allocated on EVERY call whenever the setting was absent (the
+-- common case), on a function that runs per castbar update.
+local UF_KICK_READY_TINT = { r = 0.92, g = 0.35, b = 0.20 }
+local UF_UNINTERRUPT_GREY = { r = 0.5, g = 0.5, b = 0.5 }
 local function ApplyUnitFrameCastColor(castbar)
     if not castbar or not castbar.castTintLayer then return end
     local settings = castbar._eufSettings
     local ownerUnit = castbar.__owner and castbar.__owner.unit
-    local cc
+    -- Zero-alloc (memory pass 2026-08-03): this built up to three throwaway
+    -- color tables per call (two default literals + the blended kick tint).
+    -- Same values flow as scalars; the vertex push is unchanged.
+    local r, g, b
     if settings and settings.castbarClassColored and ownerUnit == "player" then
-        if ownerUnit then
-            local _, classToken = UnitClass(ownerUnit)
-            if issecretvalue(classToken) then classToken = nil end
-            if classToken and EllesmereUI.GetClassColor then
-                cc = EllesmereUI.GetClassColor(classToken)
-            end
+        local _, classToken = UnitClass(ownerUnit)
+        if issecretvalue(classToken) then classToken = nil end
+        if classToken and EllesmereUI.GetClassColor then
+            local cc = EllesmereUI.GetClassColor(classToken)
+            if cc then r, g, b = cc.r, cc.g, cc.b end
         end
     end
-    if not cc then
+    if not r then
         local baseTint = (settings and settings.castbarFillColor) or GetCastbarColor()
         if IsKickCastbarUnit(ownerUnit) then
-            local readyTint = (settings and settings.castbarInterruptReadyColor) or { r = 0.92, g = 0.35, b = 0.20 }
-            local cr, cg, cb = ComputeCastBarTint(readyTint, baseTint)
-            cc = { r = cr, g = cg, b = cb }
+            local readyTint = (settings and settings.castbarInterruptReadyColor) or UF_KICK_READY_TINT
+            r, g, b = ComputeCastBarTint(readyTint, baseTint)
         else
-            cc = baseTint
+            r, g, b = baseTint.r, baseTint.g, baseTint.b
         end
     end
-    castbar.castTintLayer:SetVertexColor(cc.r, cc.g, cc.b)
+    castbar.castTintLayer:SetVertexColor(r, g, b)
     if castbar._shieldedTint then
         -- Uninterruptible overlay colour (customizable; defaults to the
         -- previously-hardcoded grey). The overlay's alpha is toggled from the
         -- secret "not interruptible" flag, so the colour is always set and only
         -- becomes visible on uninterruptible casts.
-        local uc = (settings and settings.castbarUninterruptibleColor) or { r = 0.5, g = 0.5, b = 0.5 }
+        local uc = (settings and settings.castbarUninterruptibleColor) or UF_UNINTERRUPT_GREY
         castbar._shieldedTint:SetVertexColor(uc.r, uc.g, uc.b)
         local uninterruptible = GetCastbarUninterruptible(castbar)
         -- Visible alpha honors Fill Opacity (castbar._fillOp, nil at 100);
@@ -5845,6 +5805,7 @@ local function CreateCastBar(frame, unit, settings)
     castTintLayer:SetVertexColor(c.r, c.g, c.b)
     castTintLayer:SetAlpha(0)
     castbar.castTintLayer = castTintLayer
+    castbar._castTintOn = nil
 
     local shieldedTint = castbar:CreateTexture(nil, "ARTWORK", nil, 2)
     shieldedTint:SetPoint("TOPLEFT", castbar:GetStatusBarTexture(), "TOPLEFT")
@@ -5863,6 +5824,7 @@ local function CreateCastBar(frame, unit, settings)
             -- _fillOp is nil unless Fill Opacity is below 100 (see
             -- ns.ApplyCastFillOpacity), so the default path is unchanged.
             self.castTintLayer:SetAlpha(self._fillOp or 1)
+            self._castTintOn = true
             ApplyUnitFrameCastColor(self)
         end
     end
@@ -6055,7 +6017,7 @@ local function SetupShowOnCastBar(frame, unit)
         if self.Target then
             local spellTarget, spellTargetClass
             local ownerUnit = self.__owner and self.__owner.unit
-            if ownerUnit and ownerUnit ~= "player"
+            if ownerUnit
                and UnitShouldDisplaySpellTargetName and UnitShouldDisplaySpellTargetName(ownerUnit) then
                 local rawTarget = UnitSpellTargetName and UnitSpellTargetName(ownerUnit)
                 if rawTarget then
@@ -6825,7 +6787,10 @@ local function CreateTargetAuras(frame, unit)
         buffs.spacingY = PP.FromPixels((settings and settings.buffSpacingY) or 1)
     end
     buffs.num = 4
-    buffs.maxCols = AuraMaxCols(buffGrowthEff, settings and settings.maxBuffs or 4, settings and settings.buffMaxPerRow)
+    -- Simple mode: side-based row cap, never width-based (see the debuff
+    -- twin below for the full mechanism).
+    buffs.maxCols = AuraMaxCols(simpleBuffOn and simpleBuffMode or buffGrowthEff,
+        settings and settings.maxBuffs or 4, settings and settings.buffMaxPerRow)
     buffs.initialAnchor = bia
     buffs.growthX = bgx
     buffs.growthY = bgy
@@ -6910,7 +6875,13 @@ local function CreateTargetAuras(frame, unit)
             debuffs.spacingY = PP.FromPixels((settings and settings.debuffSpacingY) or 1)
         end
         debuffs.num = (dAnc ~= "none") and maxDebuffs or 0
-        debuffs.maxCols = AuraMaxCols(effectiveGrowth, maxDebuffs, settings and settings.debuffMaxPerRow)
+        -- Simple mode is a horizontal strip off the frame edge: compute the
+        -- row cap from the SIDE, not "auto". With "auto" AuraMaxCols returns
+        -- nil and oUF wraps by CONTAINER WIDTH -- frame-height icons overflow
+        -- the frame width at ~5, so rows wrapped early and Max Per Row was
+        -- ignored whenever it sat at or above Max Count.
+        debuffs.maxCols = AuraMaxCols(simpleOn and simpleMode or effectiveGrowth,
+            maxDebuffs, settings and settings.debuffMaxPerRow)
         debuffs.initialAnchor = dia
         debuffs.growthX = dgx
         debuffs.growthY = dgy
@@ -9754,14 +9725,11 @@ local function ReloadFrames()
                                 local tsC = settings.castSpellTargetColor or { r=1, g=1, b=1 }
                                 frame.Castbar.Target:SetTextColor(tsC.r, tsC.g, tsC.b)
                                 frame.Castbar._showTarget = settings.showCastTarget ~= false
-                                frame.Castbar._nameSide = settings.castSpellNameSide or "left"
-                                frame.Castbar._tgtSide  = settings.castSpellTargetSide or "right"
-                                frame.Castbar._durSide  = settings.castDurationSide or "right"
                                 if not frame.Castbar._showTarget then
                                     frame.Castbar.Target:Hide()
                                 end
-                                if frame.Castbar._layoutTextZones then
-                                    frame.Castbar:_layoutTextZones()
+                                if frame.Castbar._syncOffsetsAndLayout then
+                                    frame.Castbar:_syncOffsetsAndLayout(settings)
                                 end
                             end
                         else
@@ -11539,6 +11507,11 @@ local function ReloadFrames()
         frames.target._applyLeaderIndicator()
     end
 
+    -- Refresh elite/rare indicator on the target frame after settings change
+    if frames.target and frames.target._applyEliteIndicator then
+        frames.target._applyEliteIndicator()
+    end
+
     ---------------------------------------------------------------------------
     --  Live-update raid target marker icon (size / alignment / X / Y / enabled)
     --  for player, target, focus, and boss frames.  Uses oUF's EnableElement /
@@ -11790,7 +11763,12 @@ function InitializeFrames()
     RegisterStylesOnce()
 
     local function SetupUnitMenu(frame, unit)
-        frame:RegisterForClicks("AnyUp")
+        -- Left and right only, matching Blizzard's own unit frames: a
+        -- registered click is CONSUMED and never reaches the binding system,
+        -- and these frames bind nothing to middle/thumb buttons themselves.
+        -- The click-cast engine sets its own RegisterForClicks when it takes
+        -- a frame over. Left and right still cover target and the menu.
+        frame:RegisterForClicks("LeftButtonUp", "RightButtonUp")
         -- 12.0.7 gates SecureUnitButton's togglemenu; route right-click securely
         -- through a SecureActionButton proxy so the menu (and its protected items
         -- like Set Focus) work without taint.
@@ -12217,6 +12195,13 @@ function InitializeFrames()
         end)
     end
 
+    -- Seed the built-style marker so the first reload does not mistake a nil
+    -- marker for a change. Written ONLY at build sites (here and the toggle):
+    -- PositionClassPowerBar is repositioning, called by ReassertClassPower from
+    -- Blizzard's SetParent/Hide hooks with no rebuild behind it, and stamping
+    -- there would suppress the rebuild this exists to trigger. frames.player
+    -- guard matches _toggleClassPower.
+    if frames.player then frames._classPowerBuiltStyle = classPowerStyle end
     if classPowerStyle ~= "none" and frames.player then
         if classPowerStyle == "blizzard" then
             if savedClassPowerBar then
@@ -12247,6 +12232,10 @@ function InitializeFrames()
         -- default frame (or hidden), there is no EUI frame to attach it to.
         if not frames.player then return end
         style = style or db.profile.player.classPowerStyle or "none"
+        -- What is actually BUILT right now. Read by the reload pass below to
+        -- notice a style that changed through a path which never calls this
+        -- function (see the reload hook).
+        frames._classPowerBuiltStyle = style
         -- Keep showClassPowerBar in sync with style
         db.profile.player.showClassPowerBar = (style ~= "none")
         db.profile.player.classPowerStyle = style
@@ -12626,6 +12615,109 @@ function InitializeFrames()
                 for i = 1, #_leaderUnits do _leaderRefresh(_leaderUnits[i]) end
             end)
         end
+    end
+
+    -- Elite/Rare indicator (classification badge on the target frame), driven
+    -- the same way as the leader indicator above: own events, own refresh,
+    -- own show/hide. The atlas mapping matches the nameplates classification
+    -- badges exactly, so the two features read as one system. Show in
+    -- Instances (default off) keeps it quiet in dungeons and raids, where
+    -- most enemies are elite.
+    do
+        local function _eliteAtlas(c)
+            if c == "elite" or c == "worldboss" then
+                return "nameplates-icon-elite-gold"
+            elseif c == "rareelite" then
+                return "nameplates-icon-elite-silver"
+            elseif c == "rare" then
+                return "nameplates-icon-rareelite"
+            end
+        end
+
+        local _eliteFrames = {}
+        local eliteEvents
+
+        local function _eliteRefresh(uf)
+            local s = uf and uf._eliteSettings
+            if not (uf and uf._eliteIndicator and s) then return end
+            local tex = uf._eliteIndicator
+            if s.eliteIndicatorEnabled ~= true then tex:Hide(); return end
+            if not s.eliteIndicatorShowInInstances and IsInInstance() then
+                tex:Hide(); return
+            end
+            local c = UnitClassification(uf.unit)
+            -- Secrecy check MUST run before any comparison, same rule as the
+            -- leader checks above.
+            local atlas = (not issecretvalue(c)) and _eliteAtlas(c) or nil
+            if atlas then
+                tex:SetAtlas(atlas)
+                tex:Show()
+            else
+                tex:Hide()
+            end
+        end
+
+        -- Events are registered only while the feature is enabled somewhere
+        -- (zero cost while off) and re-armed from every settings apply.
+        local function _eliteArmEvents()
+            local on = false
+            for i = 1, #_eliteFrames do
+                local s = _eliteFrames[i]._eliteSettings
+                if s and s.eliteIndicatorEnabled == true then on = true; break end
+            end
+            if on then
+                if not eliteEvents then
+                    eliteEvents = CreateFrame("Frame")
+                    eliteEvents:SetScript("OnEvent", function()
+                        for i = 1, #_eliteFrames do _eliteRefresh(_eliteFrames[i]) end
+                    end)
+                end
+                eliteEvents:RegisterEvent("PLAYER_TARGET_CHANGED")
+                eliteEvents:RegisterUnitEvent("UNIT_CLASSIFICATION_CHANGED", "target")
+                eliteEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
+            elseif eliteEvents then
+                eliteEvents:UnregisterAllEvents()
+            end
+        end
+
+        local function _setupEliteIndicator(uf, settings)
+            if not (uf and uf.Health and settings) then return end
+            if not uf._eliteIndicator then
+                -- Same parent and layer choice as the leader crown above.
+                local par = uf._textOverlay or uf
+                local tex = par:CreateTexture(nil, "OVERLAY", nil, 7)
+                tex:Hide()
+                uf._eliteIndicator = tex
+                _eliteFrames[#_eliteFrames + 1] = uf
+            end
+            uf._eliteSettings = settings
+
+            local function ApplyEliteIndicator()
+                local sz  = settings.eliteIndicatorSize or 16
+                local pos = settings.eliteIndicatorPosition or "topleft"
+                local ox  = settings.eliteIndicatorX or 0
+                local oy  = settings.eliteIndicatorY or 0
+                local tex = uf._eliteIndicator
+                tex:SetSize(sz, sz)
+                tex:ClearAllPoints()
+                if pos == "portrait" and uf.Portrait and uf.Portrait.backdrop then
+                    tex:SetPoint("CENTER", uf.Portrait.backdrop, "CENTER", ox, oy)
+                else
+                    local anchor =
+                        (pos == "topright"    and "TOPRIGHT")    or
+                        (pos == "bottomleft"  and "BOTTOMLEFT")  or
+                        (pos == "bottomright" and "BOTTOMRIGHT") or
+                        "TOPLEFT"
+                    tex:SetPoint(anchor, uf.Health or uf, anchor, ox, oy)
+                end
+                _eliteArmEvents()
+                _eliteRefresh(uf)
+            end
+            uf._applyEliteIndicator = ApplyEliteIndicator
+            ApplyEliteIndicator()
+        end
+
+        _setupEliteIndicator(frames.target, db.profile.target)
     end
 
     local petFrameSource = ns.GetUnitFrameSource("pet")
@@ -13462,6 +13554,29 @@ function SetupOptionsPanel()
     local reloadPending = false
     local reloadThrottle = CreateFrame("Frame")
     reloadThrottle:Hide()
+    -- Realise a classPowerStyle that changed through a path which never calls
+    -- _toggleClassPower (a Spec Override applying at login, a profile switch, an
+    -- import). Gated on an actual change because the toggle is a full teardown
+    -- and rebuild; running it every reload would thrash the bar.
+    local cpRegen = CreateFrame("Frame")
+    local function RealiseClassPowerStyle()
+        if not frames._toggleClassPower then return end
+        local wantCP = db.profile.player.classPowerStyle or "none"
+        if wantCP == frames._classPowerBuiltStyle then return end
+        -- The toggle reparents Blizzard's class power frame and re-anchors the
+        -- health bar. The throttle body keeps running after ReloadFrames()'s
+        -- lockdown return (same shape as the UpdateFrameVisibility note above),
+        -- so this needs its own guard plus a regen re-run to re-arm the pass.
+        if InCombatLockdown() then
+            cpRegen:RegisterEvent("PLAYER_REGEN_ENABLED")
+            return
+        end
+        frames._toggleClassPower(wantCP)
+    end
+    cpRegen:SetScript("OnEvent", function(self)
+        self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+        RealiseClassPowerStyle()
+    end)
     reloadThrottle:SetScript("OnUpdate", function(self)
         self:Hide()
         reloadPending = false
@@ -13491,6 +13606,11 @@ function SetupOptionsPanel()
         -- Player private auras re-register with fresh geometry (one boolean
         -- check + return when disabled).
         if ns.PlayerPA_Apply then ns.PlayerPA_Apply() end
+        -- Class power: _toggleClassPower is the only thing that honours a
+        -- classPowerStyle change, and options + the spec watcher are its only
+        -- other callers -- styles changed by overrides, profile switch, or
+        -- import land here.
+        RealiseClassPowerStyle()
     end)
     ns.ReloadFrames = function()
         if not reloadPending then
@@ -13803,7 +13923,10 @@ function SetupOptionsPanel()
         local castbar = frame.Castbar
         local castbarBg = castbar and castbar:GetParent()
         if castbar then
-            if castbar.castTintLayer then castbar.castTintLayer:SetAlpha(0) end
+            if castbar.castTintLayer then
+                castbar.castTintLayer:SetAlpha(0)
+                castbar._castTintOn = nil
+            end
             castbar:Hide()
         end
         if castbarBg then castbarBg:Hide() end
@@ -13841,6 +13964,7 @@ function SetupOptionsPanel()
         -- Active-cast tint -- same path a real cast uses.
         if castbar.castTintLayer then
             castbar.castTintLayer:SetAlpha(castbar._fillOp or 1)
+            castbar._castTintOn = true
             ApplyUnitFrameCastColor(castbar)
         end
         castbarBg:Show()

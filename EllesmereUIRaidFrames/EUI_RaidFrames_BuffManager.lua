@@ -1635,7 +1635,6 @@ end
 -- directly and skips silently whenever that timing is secret (private auras).
 -- The cue therefore only fires for auras with readable timing. 12.0 only for
 -- now; the 12.1 threshold section is inert pending engine bindings.
-local THRESHOLD_SOUND_DIR = "Interface\\AddOns\\EllesmereUI\\media\\sounds\\"
 local _thresholdSoundPaths, _thresholdSoundNames, _thresholdSoundOrder
 -- Built lazily so SharedMedia sounds registered by other addons at login are
 -- included; shared by the ticker (playback) and the options page (dropdown).
@@ -1643,48 +1642,8 @@ local function GetThresholdSoundTables()
     if _thresholdSoundPaths then
         return _thresholdSoundPaths, _thresholdSoundNames, _thresholdSoundOrder
     end
-    _thresholdSoundPaths = {
-        ["airhorn"]   = THRESHOLD_SOUND_DIR .. "AirHorn.ogg",
-        ["banana"]    = THRESHOLD_SOUND_DIR .. "BananaPeelSlip.ogg",
-        ["bikehorn"]  = THRESHOLD_SOUND_DIR .. "BikeHorn.ogg",
-        ["bite"]      = THRESHOLD_SOUND_DIR .. "Bite.ogg",
-        ["boxing"]    = THRESHOLD_SOUND_DIR .. "BoxingArenaSound.ogg",
-        ["catmeow"]   = THRESHOLD_SOUND_DIR .. "CatMeow.ogg",
-        ["catmeow2"]  = THRESHOLD_SOUND_DIR .. "CatMeow2.ogg",
-        ["gunshot"]   = THRESHOLD_SOUND_DIR .. "FrontalsGunshot.wav",
-        ["glass"]     = THRESHOLD_SOUND_DIR .. "Glass.mp3",
-        ["kaching"]   = THRESHOLD_SOUND_DIR .. "Kaching.ogg",
-        ["phone"]     = THRESHOLD_SOUND_DIR .. "Phone.ogg",
-        ["robotblip"] = THRESHOLD_SOUND_DIR .. "RobotBlip.ogg",
-        ["sonar"]     = THRESHOLD_SOUND_DIR .. "Sonar.ogg",
-        ["siren"]     = THRESHOLD_SOUND_DIR .. "WarningSiren.ogg",
-        ["water"]     = THRESHOLD_SOUND_DIR .. "WaterDrop.ogg",
-        ["wilhelm"]   = THRESHOLD_SOUND_DIR .. "Wilhelm.ogg",
-    }
-    _thresholdSoundNames = {
-        ["none"]      = "None",
-        ["airhorn"]   = "Air Horn",
-        ["banana"]    = "Banana Peel Slip",
-        ["bikehorn"]  = "Bike Horn",
-        ["bite"]      = "Bite",
-        ["boxing"]    = "Boxing Arena",
-        ["catmeow"]   = "Cat Meow",
-        ["catmeow2"]  = "Cat Meow 2",
-        ["gunshot"]   = "Frontals Gunshot",
-        ["glass"]     = "Glass",
-        ["kaching"]   = "Kaching",
-        ["phone"]     = "Phone",
-        ["robotblip"] = "Robot Blip",
-        ["sonar"]     = "Sonar",
-        ["siren"]     = "Warning Siren",
-        ["water"]     = "Water Drop",
-        ["wilhelm"]   = "Wilhelm",
-    }
-    _thresholdSoundOrder = {
-        "none", "airhorn", "banana", "bikehorn", "bite", "boxing", "catmeow",
-        "catmeow2", "gunshot", "glass", "kaching", "phone", "robotblip", "sonar",
-        "siren", "water", "wilhelm",
-    }
+    _thresholdSoundPaths, _thresholdSoundNames, _thresholdSoundOrder =
+        EllesmereUI.BuildAlertSoundTables()
     if EllesmereUI.AppendSharedMediaSounds then
         EllesmereUI.AppendSharedMediaSounds(
             _thresholdSoundPaths, _thresholdSoundNames, _thresholdSoundOrder)
@@ -1774,37 +1733,6 @@ end
 
 local function UnregisterThreshold(element)
     thresholdRegistry[element] = nil
-end
-
--- Temporary diagnostic for the threshold sound: /rfthsdbg snapshots every
--- registered threshold element's sound-decision inputs as of right now.
-SLASH_RFTHSDBG1 = "/rfthsdbg"
-SlashCmdList.RFTHSDBG = function()
-    local now = GetTime()
-    local n = 0
-    for element, e in pairs(thresholdRegistry) do
-        n = n + 1
-        local ind = e.ind
-        local sKey = (ind and (ind.thresholdSound or "unset")) or "NIL-IND"
-        local expInfo, remInfo = "no-aura", "?"
-        local aura = C_UnitAuras.GetAuraDataByAuraInstanceID(e.unit, e.iid)
-        if aura then
-            local exp = aura.expirationTime
-            if exp == nil then expInfo = "nil-exp"
-            elseif issecretvalue(exp) then expInfo = "SECRET"
-            else
-                expInfo = "ok"
-                remInfo = string.format("%.1f", exp - now)
-            end
-        end
-        print(("|cff0cd29f[THSND]|r unit=%s iid=%s key=%s exp=%s rem=%s thr=%s fired=%s shown=%s"):format(
-            tostring(e.unit), tostring(e.iid), tostring(sKey), expInfo, remInfo,
-            tostring(ind and (ind.threshold or 3) or "?"), tostring(e.soundFired or false),
-            tostring(element.IsShown and element:IsShown() or false)))
-    end
-    print(("|cff0cd29f[THSND]|r entries=%d IS_121=%s tickerShown=%s throttleAgo=%.1f"):format(
-        n, tostring(EllesmereUI.IS_121 or false), tostring(thresholdTicker:IsShown()),
-        now - _thresholdSoundLast))
 end
 
 -- Per-type apply helpers. All push the (possibly secret) curve color straight
@@ -2363,7 +2291,6 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
         local mode = db and db.profile and db.profile.bmDisplayMode
         if #allActiveIndicators == 0 and mode ~= "simple" then return end
         if not d.health or not UnitExists(unit) or not button:IsVisible() then return end
-        local t0 = nil -- PROF: ns.ProfBegin and ns.ProfBegin("BM:LazyPool")
         ns.BM_CreateIndicators(button, d.health, d, EllesmereUI.PanelPP or EllesmereUI.PP)
         if ns.BM_AnchorIndicators and ns.RF_AnchorHost then
             -- Anchor with the same identity-sensitive proxy each button type's
@@ -2375,7 +2302,6 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
                 ns.BM_AnchorIndicators(d, ns.RF_AnchorHost(d.health, as), as)
             end
         end
-        if ns.ProfEnd and t0 then ns.ProfEnd("BM:LazyPool", t0) end
         if not d.bmIconPool then return end
     end
 
@@ -5503,21 +5429,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
     -------------------------------------------------------------------
     -- Class icon sprite sheet (shared by spec dropdown icons + class icon display)
     local CLASS_SPRITE_TEX = "Interface\\AddOns\\EllesmereUI\\media\\icons\\class-full\\modern.tga"
-    local CLASS_SPRITE_COORDS = {
-        WARRIOR     = { 0,     0.125, 0,     0.125 },
-        MAGE        = { 0.125, 0.25,  0,     0.125 },
-        ROGUE       = { 0.25,  0.375, 0,     0.125 },
-        DRUID       = { 0.375, 0.5,   0,     0.125 },
-        EVOKER      = { 0.5,   0.625, 0,     0.125 },
-        HUNTER      = { 0,     0.125, 0.125, 0.25  },
-        SHAMAN      = { 0.125, 0.25,  0.125, 0.25  },
-        PRIEST      = { 0.25,  0.375, 0.125, 0.25  },
-        WARLOCK     = { 0.375, 0.5,   0.125, 0.25  },
-        PALADIN     = { 0,     0.125, 0.25,  0.375 },
-        DEATHKNIGHT = { 0.125, 0.25,  0.25,  0.375 },
-        MONK        = { 0.25,  0.375, 0.25,  0.375 },
-        DEMONHUNTER = { 0.375, 0.5,   0.25,  0.375 },
-    }
+    local CLASS_SPRITE_COORDS = EllesmereUI.CLASS_ICON_SPRITE_COORDS
     local SPEC_CLASS_MAP = {}
     for _, spec in ipairs(HEALER_SPECS) do
         SPEC_CLASS_MAP[spec.key] = spec.classToken
@@ -5922,8 +5834,8 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
 
         -- Eyeball toggle: show all indicators at full opacity
         do
-            local EYE_VIS = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVIS = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+            local EYE_VIS = EllesmereUI.EYE_VISIBLE_ICON
+            local EYE_INVIS = EllesmereUI.EYE_INVISIBLE_ICON
             ns._bmAllIndicatorsVisible = ns._bmAllIndicatorsVisible or false
 
             local eyeBtn = CreateFrame("Button", nil, leftFrame)
@@ -7774,44 +7686,3 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
     return 0
 end
 
--------------------------------------------------------------------------------
---  TEMP DEBUG: /euifreedom [unit]  (default target, falls back to player)
---  Prints every HELPFUL aura's id/name (SECRET when hidden), its four-filter
---  fingerprint, what BM_IdentifySecretAura resolves it to, and whether the
---  EXTERNAL_DEFENSIVE filter passes -- plus the active spec key and its
---  registered signature table. Remove after the Freedom investigation.
--------------------------------------------------------------------------------
-do
-    local function SafeStr(v)
-        if v == nil then return "nil" end
-        if issecretvalue and issecretvalue(v) then return "SECRET" end
-        return tostring(v)
-    end
-    SLASH_EUIFREEDOM1 = "/euifreedom"
-    SlashCmdList["EUIFREEDOM"] = function(msg)
-        local unit = (msg and msg ~= "" and msg) or "target"
-        if not UnitExists(unit) then unit = "player" end
-        print("|cff0cd29fEUI Freedom debug|r unit=" .. unit
-            .. "  specKey=" .. tostring(activeSpecKey_BM)
-            .. "  borrow=" .. tostring(activeBorrow_BM and "yes" or "no"))
-        if activeSpecKey_BM then
-            local sigs = GetSpecSignatures(activeSpecKey_BM)
-            local parts = {}
-            for k, v in pairs(sigs) do parts[#parts + 1] = k .. "->" .. tostring(v) end
-            print("  registered sigs: " .. (next(parts) and table.concat(parts, "  ") or "none"))
-        end
-        local i = 1
-        while true do
-            local ad = C_UnitAuras.GetAuraDataByIndex(unit, i, "HELPFUL")
-            if not ad then break end
-            local iid = ad.auraInstanceID
-            local sig = iid and MakeSignature(unit, iid) or "noIID"
-            local ident = iid and ns.BM_IdentifySecretAura and ns.BM_IdentifySecretAura(unit, iid)
-            local ext = iid and not C_UnitAuras_IsAuraFilteredOutByInstanceID(unit, iid, "HELPFUL|EXTERNAL_DEFENSIVE")
-            print(("  #%d id=%s name=%s sig=%s ident=%s extFilter=%s"):format(
-                i, SafeStr(ad.spellId), SafeStr(ad.name), tostring(sig),
-                tostring(ident), tostring(ext)))
-            i = i + 1
-        end
-    end
-end

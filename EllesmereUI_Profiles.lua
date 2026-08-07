@@ -1812,6 +1812,8 @@ do
         "reskinProfessions", "reskinWorldMap", "reskinGuild", "reskinCalendar",
         "reskinAchievements", "reskinMail", "reskinCatalyst", "reskinSocket",
         "reskinItemUpgrade", "reskinLoot", "reskinLootToast", "lootToastQualityStrip",
+        "lootToastQualityStripMoney", "lootToastScale",
+        "reskinLootRoll", "reskinLootHistory", "reskinGroupInvite",
         "reskinMicroMenu", "reskinHousing", "reskinDressUp", "reskinTransmog",
         "reskinMerchant", "reskinAuctionHouse", "reskinMacros",
         "reskinSettings", "reskinAddonList", "reskinCraftOrders",
@@ -3039,8 +3041,10 @@ function EllesmereUI.ImportProfile(importStr, profileName)
         if type(imported._migrations) == "table" then
             merged._migrations = DeepCopy(imported._migrations)
         end
-        -- Take fonts/colors from import if present (the partial-import OnClick nils
-        -- these so a subset import keeps the base profile's appearance).
+        -- Take fonts/colors from import if present. A string exported without
+        -- "Global Settings" lacks these keys entirely, so the base copy's
+        -- (recipient's) appearance stands; presence means the exporter chose
+        -- to share the look, and it applies regardless of module selection.
         if imported.fonts then merged.fonts = DeepCopy(imported.fonts) end
         if imported.customColors then merged.customColors = DeepCopy(imported.customColors) end
         if imported.darkMode then merged.darkMode = DeepCopy(imported.darkMode) end
@@ -5302,31 +5306,3 @@ function EllesmereUI.RegisterExternalInstaller(displayName)
         and displayName or true
 end
 
--------------------------------------------------------------------------------
---  /euiapitest -- dev helper for the interactive import API. A real profile
---  string is far past the 255-character /run limit, so this stands in for a
---  partner-addon call: it exports the ACTIVE profile in code and feeds the
---  string straight to ImportProfileInteractive. Nothing is written unless the
---  final Import step is completed, and the prefilled name is "API Test" so
---  the active profile is never the default overwrite target. The callback
---  result prints to chat.
--------------------------------------------------------------------------------
-SLASH_EUIAPITEST1 = "/euiapitest"
-SlashCmdList.EUIAPITEST = function()
-    local str = EllesmereUI.ExportCurrentProfile and EllesmereUI.ExportCurrentProfile()
-    if not str then
-        EllesmereUI.Print("API test: could not export the active profile.")
-        return
-    end
-    local ok, why = EllesmereUI.ImportProfileInteractive({
-        importString = str,
-        profileName  = "API Test",
-        source       = "API Test",
-        callback     = function(accepted)
-            EllesmereUI.Print("ImportProfileInteractive callback -> " .. tostring(accepted))
-        end,
-    })
-    if not ok then
-        EllesmereUI.Print("API test: " .. (why or "could not start the session"))
-    end
-end

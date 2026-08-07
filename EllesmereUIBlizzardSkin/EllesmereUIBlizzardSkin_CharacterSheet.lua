@@ -4011,8 +4011,8 @@ local function SkinCharacterSheet()
     -- Top-left eyeball toggle: temporarily hides all item slot text (item level,
     -- upgrade track, enchants) by alpha-ing the shared overlay. Session-only.
     do
-        local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-        local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+        local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+        local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
         local hidden = false
         local eyeBtn = CreateFrame("Button", "EUI_CharSheet_TextEyeBtn", frame)
         eyeBtn:SetSize(20, 20)

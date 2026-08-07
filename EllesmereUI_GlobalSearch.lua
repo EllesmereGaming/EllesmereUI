@@ -335,6 +335,175 @@ local _CONTENT_HEADER_METHODS = {
 -- selectorKey first via selectorSetter, so options gated behind a
 -- non-default selector value get indexed too -- otherwise they'd only ever
 -- be searchable after the player manually visits that selector value once.
+-------------------------------------------------------------------------------
+--  FRAMELESS INDEX PASS (2026-08-03, user directive: the index pass must
+--  never build frames -- the old hidden prebuild created ~48 real pages =
+--  10-25MB of permanent frames, and WoW frames are never freed).
+--
+--  The pass still RUNS every page builder (attribution, data-driven rows,
+--  selector variants and localization all keep working), but the builders
+--  run against a stub widget factory: EllesmereUI.Widgets is swapped to
+--  AbsorberW for exactly the synchronous buildPage call. Every stub reads
+--  the SAME declarative fields the real factory's TagOptionRow /
+--  IndexSlotForSearch lines read (verified 1:1 against EllesmereUI_Widgets
+--  2026-08-03) and registers the same index entries -- then returns an
+--  "absorber" instead of a frame.
+--
+--  The absorber survives anything a builder does to a widget: any string
+--  key yields another absorber, any call no-ops, arithmetic on it yields
+--  plain numbers (y-offset math), NUMERIC keys yield nil so ipairs/# see an
+--  empty array (an auto-vivifying [1] would never terminate). Builders'
+--  own direct CreateFrame chrome still lands on the real (reused, hidden)
+--  wrapper -- a handful of small frames on the few custom-chrome pages,
+--  not the widget mass. A builder the absorber cannot survive is caught by
+--  the existing pcall and that page falls back to live-navigation indexing,
+--  loudly in dev mode.
+--
+--  MAINTENANCE CONTRACT: a NEW WidgetFactory method that registers search
+--  entries needs a matching stub here, or its rows are invisible to search
+--  until the page is built live. Mirror the real factory's registration
+--  lines exactly (which args/fields, which slots).
+-------------------------------------------------------------------------------
+local _absSection = nil
+local _absWrapper = nil
+local _absorberMeta
+_absorberMeta = {
+    __index = function(_, k)
+        -- Numeric keys read as ABSENT so ipairs()/#/array probes terminate.
+        if type(k) == "number" then return nil end
+        return setmetatable({}, _absorberMeta)
+    end,
+    __call = function() return setmetatable({}, _absorberMeta) end,
+    __add = function() return 100 end,
+    __sub = function() return 100 end,
+    __mul = function() return 100 end,
+    __div = function() return 1 end,
+    __mod = function() return 0 end,
+    __pow = function() return 1 end,
+    __unm = function() return -100 end,
+    __concat = function() return "" end,
+    __len = function() return 0 end,
+    __lt = function() return false end,
+    __le = function() return false end,
+    __tostring = function() return "EUIAbsorber" end,
+}
+local function NewAbsorber()
+    return setmetatable({}, _absorberMeta)
+end
+
+-- Mirrors IndexSlotForSearch in EllesmereUI_Widgets.lua exactly: empty
+-- labels skip, localized form rides along only when it differs, section is
+-- the absorber pass's own tracker (the real path reads it off the parent
+-- frame; the absorber parent is shared, so the pass tracks it here), and
+-- the selector context comes from the same global the live path uses.
+local function AbsorberRegister(labelText, tooltipText, isSection)
+    if not EllesmereUI._RegisterSearchEntry then return end
+    if type(labelText) ~= "string" or labelText == "" then return end
+    local loc = EllesmereUI.L(labelText)
+    local sel = EllesmereUI._buildingSelector
+    EllesmereUI._RegisterSearchEntry(labelText, loc ~= labelText and loc or nil,
+        type(tooltipText) == "string" and tooltipText or nil,
+        EllesmereUI._buildingModule, EllesmereUI._buildingPage,
+        isSection and labelText or _absSection,
+        sel and sel.setter, sel and sel.key, isSection or nil)
+end
+
+local AbsorberW = {}
+function AbsorberW:SectionHeader(parent, text, yOffset)
+    _absSection = text
+    AbsorberRegister(text, nil, true)
+    return NewAbsorber(), 40
+end
+function AbsorberW:Toggle(parent, text, yOffset, getValue, setValue, tooltip)
+    AbsorberRegister(text, tooltip)
+    return NewAbsorber(), 40
+end
+function AbsorberW:Slider(parent, text, yOffset, minVal, maxVal, step, getValue, setValue, tooltip, pixel)
+    AbsorberRegister(text, tooltip)
+    return NewAbsorber(), 40
+end
+function AbsorberW:Dropdown(parent, text, yOffset, values, getValue, setValue, order, tooltip)
+    AbsorberRegister(text, tooltip)
+    return NewAbsorber(), 40
+end
+function AbsorberW:Checkbox(parent, text, yOffset, getValue, setValue, tooltip)
+    AbsorberRegister(text, tooltip)
+    return NewAbsorber(), 40
+end
+function AbsorberW:ColorPicker(parent, text, yOffset, getValue, setValue, hasAlpha)
+    AbsorberRegister(text, nil)
+    return NewAbsorber(), 40
+end
+function AbsorberW:Button(parent, text, yOffset, onClick)
+    AbsorberRegister(text, nil)
+    return NewAbsorber(), 40
+end
+function AbsorberW:WideButton(parent, text, yOffset, onClick, btnWidth)
+    AbsorberRegister(text, nil)
+    return NewAbsorber(), 40
+end
+function AbsorberW:DualRow(parent, yOffset, leftCfg, rightCfg)
+    AbsorberRegister(leftCfg and leftCfg.text, leftCfg and leftCfg.tooltip)
+    AbsorberRegister(rightCfg and rightCfg.text, rightCfg and rightCfg.tooltip)
+    return NewAbsorber(), 40
+end
+function AbsorberW:TripleRow(parent, yOffset, leftCfg, midCfg, rightCfg, splits)
+    AbsorberRegister(leftCfg and leftCfg.text, leftCfg and leftCfg.tooltip)
+    AbsorberRegister(midCfg and midCfg.text, midCfg and midCfg.tooltip)
+    AbsorberRegister(rightCfg and rightCfg.text, rightCfg and rightCfg.tooltip)
+    return NewAbsorber(), 40
+end
+function AbsorberW:MultiSwatchRow(parent, yOffset, cfg)
+    AbsorberRegister(cfg and cfg.text, nil)
+    return NewAbsorber(), 40
+end
+function AbsorberW:DropdownWithOffsets(parent, yOffset, dropdownCfg, xSliderCfg, ySliderCfg)
+    AbsorberRegister(dropdownCfg and dropdownCfg.text, dropdownCfg and dropdownCfg.tooltip)
+    AbsorberRegister(xSliderCfg and xSliderCfg.text, xSliderCfg and xSliderCfg.tooltip)
+    AbsorberRegister(ySliderCfg and ySliderCfg.text, ySliderCfg and ySliderCfg.tooltip)
+    return NewAbsorber(), 40
+end
+function AbsorberW:WideDualButton(parent, text1, text2, yOffset, onClick1, onClick2, btnWidth)
+    AbsorberRegister(text1, nil)
+    AbsorberRegister(text2, nil)
+    return NewAbsorber(), 40
+end
+function AbsorberW:WideTripleButton(parent, text1, text2, text3, yOffset, onClick1, onClick2, onClick3, btnWidth, disabledOpts)
+    AbsorberRegister(text1, nil)
+    AbsorberRegister(text2, nil)
+    AbsorberRegister(text3, nil)
+    return NewAbsorber(), 40
+end
+function AbsorberW:WideDropdown(parent, title, yOffset, values, getValue, setValue, order, btnWidth, disabledValuesFn)
+    AbsorberRegister(title, nil)
+    return NewAbsorber(), 40
+end
+function AbsorberW:TripleDropdown(parent, configs, yOffset)
+    AbsorberRegister(configs and configs[1] and configs[1][1], nil)
+    AbsorberRegister(configs and configs[2] and configs[2][1], nil)
+    AbsorberRegister(configs and configs[3] and configs[3][1], nil)
+    return NewAbsorber(), 40
+end
+function AbsorberW:TripleSlider(parent, configs, yOffset)
+    -- Parity with the real factory: it tags an EMPTY row label and indexes
+    -- no slots, so the absorber registers nothing either.
+    return NewAbsorber(), 40
+end
+function AbsorberW:Spacer(parent, yOffset, height)
+    return NewAbsorber(), height or 20
+end
+-- Any factory method NOT stubbed above (added later, or missed): absorb it
+-- rather than erroring the whole page -- the page still indexes everything
+-- its known widgets register; dev mode announces the gap so the stub gets
+-- added per the maintenance contract.
+setmetatable(AbsorberW, { __index = function(_, k)
+    if EllesmereUI.IsDevModeActive and EllesmereUI.IsDevModeActive() then
+        print("|cffff6060EUI GlobalSearch:|r no absorber stub for W:" .. tostring(k)
+            .. " -- its rows are invisible to search until built live. Add a stub.")
+    end
+    return function() return NewAbsorber(), 40 end
+end })
+
 local function PrebuildOnce(config, folder, page, selectorSetter, selectorKey)
     if not _hiddenParent then
         _hiddenParent = CreateFrame("Frame", nil, UIParent)
@@ -342,8 +511,15 @@ local function PrebuildOnce(config, folder, page, selectorSetter, selectorKey)
     end
     if selectorSetter and selectorKey then selectorSetter(selectorKey) end
 
-    local wrapper = CreateFrame("Frame", nil, _hiddenParent)
-    wrapper:SetSize(1030, 4000)
+    -- ONE reused wrapper for every job: with the widget factory absorbed,
+    -- the only things ever created on it are the rare custom-chrome frames
+    -- a few builders make directly -- not the per-page widget mass.
+    local wrapper = _absWrapper
+    if not wrapper then
+        wrapper = CreateFrame("Frame", nil, _hiddenParent)
+        wrapper:SetSize(1030, 4000)
+        _absWrapper = wrapper
+    end
     EllesmereUI._buildingModule = folder
     EllesmereUI._buildingPage = page
     EllesmereUI._prebuilding = true
@@ -358,7 +534,15 @@ local function PrebuildOnce(config, folder, page, selectorSetter, selectorKey)
     -- such page simply falls back to being indexed by live navigation instead.
     -- Surfaced in dev mode so a genuinely broken builder is not silently
     -- swallowed forever by the indexing pass.
+    -- FRAMELESS: the widget factory is swapped to the absorber for exactly
+    -- this synchronous call (builders fetch `local W = EllesmereUI.Widgets`
+    -- inside their bodies -- verified no file-scope captures 2026-08-03),
+    -- and restored on EVERY exit before anything else can read it.
+    _absSection = nil
+    local realWidgets = EllesmereUI.Widgets
+    EllesmereUI.Widgets = AbsorberW
     local ok, err = pcall(config.buildPage, page, wrapper, -6)
+    EllesmereUI.Widgets = realWidgets
     if not ok and EllesmereUI.IsDevModeActive and EllesmereUI.IsDevModeActive() then
         print("|cffff6060EUI GlobalSearch:|r prebuild failed for "
             .. tostring(folder) .. "::" .. tostring(page) .. ": " .. tostring(err))
@@ -415,12 +599,15 @@ local function PrebuildJob(job)
     end
 end
 
--- Deliberately NOT run at login: building every options page costs real CPU
--- and permanent frame memory (WoW frames are never freed), so only users who
--- actually use the search should ever pay it. The first non-empty query in
--- the search box triggers this pass (see RunSearch in EnsureSearchUI); coarse
--- module/page results need no build and show immediately, and onComplete
--- re-runs the query so late-indexed rows appear without retyping.
+-- Deliberately NOT run at login: even frameless, running every page builder
+-- costs real CPU, so only users who actually use the search ever pay it.
+-- Since 2026-08-03 the pass builds NO frames (absorber layer above): its
+-- entire footprint is the index strings plus transient garbage, versus the
+-- old hidden-build's 10-25MB of permanent page frames. The first non-empty
+-- query in the search box triggers this pass (see RunSearch in
+-- EnsureSearchUI); coarse module/page results need no build and show
+-- immediately, and onComplete re-runs the query so late-indexed rows appear
+-- without retyping.
 local function RunPrebuildPass(onComplete)
     if _prebuildDone then return end
     _prebuildDone = true

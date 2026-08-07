@@ -52,6 +52,14 @@ local DEFAULT_CATEGORIES = {
 --  (renames, reorder, grouping). Saved state keyed by default name.
 -------------------------------------------------------------------------------
 function CategoryManager:InitCategories()
+    -- The category list is a DERIVATION of db.profile, cached in _categories
+    -- and read BACK by SaveState. In a standalone build every file executes
+    -- before the SavedVariables load, so an early build necessarily sees
+    -- defaults and BP()'s empty-table fallback hides that. Record whether this
+    -- build saw a trustworthy profile; GetCategories re-runs until one did.
+    -- Missing framework counts as NOT ready, so the answer can only improve.
+    local Lite = EllesmereUI and EllesmereUI.Lite
+    self._builtReady = (Lite and Lite.IsDBReady and Lite.IsDBReady()) or false
     -- User state: { [defaultName] = { rename, groupName, groupNameCustom } }
     local userState = BP().bagCategoryState or {}
     -- User order: list of default names in display order
@@ -216,6 +224,13 @@ end
 
 -- Save user state (renames, grouping) and order back to DB
 function CategoryManager:SaveState()
+    -- Never write a snapshot built before the SavedVariables merged. This is
+    -- the destructive half of the bug: the category list is cached and then
+    -- written straight back, so a cache built from the pre-SavedVariables
+    -- orphan profile does not merely display defaults, it stamps them over
+    -- the user's real categories on the very next save.
+    local Lite = EllesmereUI and EllesmereUI.Lite
+    if Lite and Lite.IsDBReady and not Lite.IsDBReady() then return end
     local cats = self._categories
     if not cats then return end
 
@@ -263,7 +278,13 @@ end
 --  Accessors
 -------------------------------------------------------------------------------
 function CategoryManager:GetCategories()
-    if not self._categories then
+    -- Rebuild not just when empty, but while the cached list was built before
+    -- the profile could be trusted. Pull, not push: a callback registered at
+    -- file scope would depend on the framework having loaded first, which is
+    -- the same ordering assumption that caused this bug -- and unverifiable in
+    -- the standalone TOC. By the time anything READS categories the framework
+    -- is certainly present.
+    if not self._categories or not self._builtReady then
         self:InitCategories()
     end
     return self._categories

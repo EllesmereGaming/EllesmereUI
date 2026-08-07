@@ -768,8 +768,8 @@ local function SkinInspectSheet()
     -- matches the CharacterSheet eyeball. State lives in FFD so it survives the
     -- frequent inspect re-skins (the SetAlpha above re-applies it each pass).
     if not GetFFD(frame).textEyeBtn then
-        local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-        local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+        local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+        local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
         local eyeBtn = CreateFrame("Button", "EUI_InspectSheet_TextEyeBtn", frame)
         eyeBtn:SetSize(20, 20)
         eyeBtn:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -6)

@@ -2830,6 +2830,21 @@ EllesmereUI._unlockCaptureGrowPin = function(childKey, ai, side)
     return true
 end
 
+-- An anchored element's position is owned by ApplyAnchorPosition, which
+-- leaves an element with its own positional contribution (RaidFrames' per-tier
+-- offset) nowhere to apply it. Registering a getter here lets that
+-- contribution be folded into the position this function computes, rather
+-- than corrected afterwards -- which would defeat the idempotent guard below
+-- and leave the anchor repositioning on every pass forever.
+local function ExtraAnchorOffset(childKey)
+    local t = EllesmereUI._anchorExtraOffset
+    local fn = t and t[childKey]
+    if not fn then return 0, 0 end
+    local ok, dx, dy = pcall(fn, childKey)
+    if not ok or type(dx) ~= "number" or type(dy) ~= "number" then return 0, 0 end
+    return dx, dy
+end
+
 ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove, fromCascade)
     local childBar = GetBarFrame(childKey)
     local targetBar = GetBarFrame(targetKey)
@@ -3380,6 +3395,12 @@ ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove, fromCa
                         or PPa.SnapForES(bEdgeX, cS)
                 end
             end
+            -- Element-contributed offset (RaidFrames' per-tier offset).
+            -- Folded in BEFORE the idempotent guard below, so the guard still
+            -- converges: the offset is part of the position this function is
+            -- aiming for, not a correction applied after it settles.
+            local exDX, exDY = ExtraAnchorOffset(childKey)
+            bEdgeX, bEdgeY = bEdgeX + exDX, bEdgeY + exDY
             local skip = false
             local okPt, point, relTo, relPoint, curX, curY = pcall(childBar.GetPoint, childBar, 1)
             if okPt and point == cdmEdgeAnchor and relPoint == "CENTER" and relTo == UIParent then
@@ -3425,6 +3446,8 @@ ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove, fromCa
                 bCenterX = PPa.SnapCenterForDim(bCenterX, childW, cS)
                 bCenterY = PPa.SnapCenterForDim(bCenterY, childH, cS)
             end
+            local exCX, exCY = ExtraAnchorOffset(childKey)
+            bCenterX, bCenterY = bCenterX + exCX, bCenterY + exCY
             -- Idempotent guard: if the bar is already at this exact position
             -- (within sub-physical-pixel tolerance), skip the SetPoint. This
             -- eliminates visible flicker when multiple cascade passes compute
@@ -4416,6 +4439,16 @@ function EllesmereUI.IsUnlockAnchored(unlockKey)
     local adb = GetAnchorDB()
     local ai = adb and adb[unlockKey]
     return ai and ai.target and true or false
+end
+
+-- Re-run an element's anchor. For an element whose own state feeds the anchored
+-- position (see _anchorExtraOffset), a change in that state has to be pushed
+-- through the anchor rather than applied to the frame directly.
+function EllesmereUI.ReapplyUnlockAnchor(unlockKey)
+    local adb = GetAnchorDB()
+    local ai = adb and adb[unlockKey]
+    if not (ai and ai.target) then return end
+    ApplyAnchorPosition(unlockKey, ai.target, ai.side)
 end
 
 
@@ -9647,7 +9680,7 @@ local function CreateHUD(parent)
 
         local FADE_DUR = 0.1
         local progress, target = 0, 0
-        local function lerp(a, b, t) return a + (b - a) * t end
+        local lerp = EllesmereUI.lerp
         local function Apply(t)
             local c = EllesmereUI.ELLESMERE_GREEN or eg
             lbl:SetTextColor(c.r, c.g, c.b, lerp(0.7, 1, t))
@@ -9922,6 +9955,10 @@ local function SnapshotPositions()
                 refX = info.refX, refY = info.refY,
                 edgeOffX = info.edgeOffX, edgeOffY = info.edgeOffY,
                 refFor = info.refFor,
+                -- COPY, not a reference: _NudgeSelectedFallbackGhost mutates
+                -- fb.offsetX/offsetY in place, so a shared table would drag the
+                -- snapshot along with the edit and make the revert a no-op.
+                fallback = info.fallback and CopyTable(info.fallback) or nil,
             }
         end
     end
@@ -10238,18 +10275,8 @@ local function RevertPositions()
     -- 2) Restore anchor data before repositioning
     local anchorDB = GetAnchorDB()
     if anchorDB then
-        -- Fallback links live OUTSIDE the position transaction: setting or
-        -- adjusting one is an explicit action that survives a discard. The
-        -- snapshot never carried the field, so without this carry-over a
-        -- revert would silently destroy every fallback -- including ones
-        -- from previous sessions.
-        local liveFallbacks
-        for childKey, info in pairs(anchorDB) do
-            if info.fallback then
-                liveFallbacks = liveFallbacks or {}
-                liveFallbacks[childKey] = info.fallback
-            end
-        end
+        -- fallback rides the snapshot (copied both ways), so pre-session
+        -- fallbacks survive the revert and session edits discard with it.
         wipe(anchorDB)
         for childKey, info in pairs(snapshotAnchors) do
             anchorDB[childKey] = {
@@ -10258,15 +10285,11 @@ local function RevertPositions()
                 refX = info.refX, refY = info.refY,
                 edgeOffX = info.edgeOffX, edgeOffY = info.edgeOffY,
                 refFor = info.refFor,
+                -- Restored from the snapshot, so a fallback MOVED this session
+                -- reverts like every other position. Fresh copy so the next
+                -- session's nudges cannot reach back into the snapshot.
+                fallback = info.fallback and CopyTable(info.fallback) or nil,
             }
-        end
-        if liveFallbacks then
-            for childKey, fb in pairs(liveFallbacks) do
-                local entry = anchorDB[childKey]
-                -- Re-attach only where an anchor link still exists: a link
-                -- that reverted away takes its fallback with it.
-                if entry then entry.fallback = fb end
-            end
         end
     end
 
@@ -11972,39 +11995,4 @@ do
     end)
 end
 
--------------------------------------------------------------------------------
---  /euicdmdbg -- TEMPORARY CDM anchor-chain diagnostic (2026-07-16): prints
---  the runtime state of the CDM viewer anchor chain (ERB_ClassResource ->
---  utility -> cooldowns -> buffs) so a screenshot pinpoints where anchor
---  resolution fails. Read-only. Remove after the incident.
--------------------------------------------------------------------------------
-SLASH_EUICDMDBG1 = "/euicdmdbg"
-SlashCmdList.EUICDMDBG = function()
-    local function P(msg) print("|cff0cd29fEUI CDMDBG|r " .. msg) end
-    local act = EllesmereUI.SpecOverrides_UnlockActive
-        and EllesmereUI.SpecOverrides_UnlockActive() or "?"
-    P("s.active=" .. tostring(act) .. "  unlockActive=" .. tostring(EllesmereUI._unlockModeActive))
-    local anchors = EllesmereUIDB and EllesmereUIDB.unlockAnchors or {}
-    for _, key in ipairs({ "ERB_ClassResource", "CDM_utility", "CDM_cooldowns", "CDM_buffs" }) do
-        local elem = registeredElements[key]
-        local f = GetBarFrame and GetBarFrame(key) or nil
-        if not f and elem and elem.getFrame then f = elem.getFrame() end
-        local a = anchors[key]
-        local hidden = elem and elem.isHidden and elem.isHidden(key)
-        P(("%s: reg=%s hidden=%s frame=%s shown=%s L=%s B=%s W=%s H=%s -> anchor=%s side=%s"):format(
-            key, tostring(elem ~= nil), tostring(hidden),
-            tostring(f ~= nil), tostring(f and f:IsShown()),
-            tostring(f and f.GetLeft and f:GetLeft() and math.floor(f:GetLeft() + 0.5)),
-            tostring(f and f.GetBottom and f:GetBottom() and math.floor(f:GetBottom() + 0.5)),
-            tostring(f and math.floor((f:GetWidth() or 0) + 0.5)),
-            tostring(f and math.floor((f:GetHeight() or 0) + 0.5)),
-            tostring(a and a.target), tostring(a and a.side)))
-    end
-    local cdmp = EllesmereUI._cdmBarPositions
-    for _, bk in ipairs({ "cooldowns", "utility", "buffs" }) do
-        local p = cdmp and cdmp[bk]
-        P(("cdmPos[%s]: point=%s x=%s y=%s"):format(bk,
-            tostring(p and p.point), tostring(p and p.x), tostring(p and p.y)))
-    end
-end
 end  -- end deferred init

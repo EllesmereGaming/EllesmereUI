@@ -1072,7 +1072,7 @@ L["The damage dealer cut of Midnight Lily. A focused, low-clutter layout that ke
 L["The signature EllesmereUI layout exactly as designed. Vibrant class colors, clear cd tracking, and every module working in harmony."] = "EllesmereUI 签名布局，完全按设计。鲜艳的职业颜色、清晰的冷却追踪，所有模块和谐工作。"
 L["These settings prioritize frame rate and visual clarity over environmental detail. Textures stay high quality so your character and the world still look perfect."] = "这些设置优先考虑帧率和视觉清晰度，而非环境细节。纹理保持高质量，因此您的角色和世界看起来仍然完美。"
 L["This feature optimizes your in-game graphics settings to give you the best combination of high FPS and visual clarity."] = "此功能优化您的游戏内图形设置，以提供高 FPS 和视觉清晰度的最佳组合。"
-L["This feature optimizes your in-game graphics settings to give you the best combination of high FPS and visual clarity.\n\nYou can revert all changes at any time by clicking \"Restore My Settings\" which will appear after optimizing.\n\n\nWhat we change:\n\nShadow Quality - Fair (balanced quality/FPS)\nLiquid Detail - Disabled\nParticle Density - Set to Ultra (keeps important spell effects)\nSSAO (Ambient Occlusion) - Disabled\nDepth Effects - Disabled\nCompute Effects - Disabled\nOutline Mode - Disabled\nTexture Resolution - Set to High\nSpell Density - Set to Essential\nProjected Textures - Enabled (needed for ground effects)\nView Distance - Reduced to 1\nEnvironment Detail - Reduced to 1\nGround Clutter - Reduced to 1\nRaid/Dungeon Settings - Uses same settings everywhere\nResample Sharpening - Enabled (crisper image)\nContrast - Boosted by +10 (if currently 55 or below)\n\nThese settings prioritize frame rate and visual clarity over environmental detail. Textures stay high quality so your character and the world still look perfect."] = "此功能优化您的游戏内图形设置，以提供高 FPS 和视觉清晰度的最佳组合。\n\n您可以在优化后随时点击“恢复我的设置”来还原所有更改。\n\n\n我们更改的内容：\n\n阴影质量 - 良好（平衡质量/FPS）\n液体细节 - 禁用\n粒子密度 - 设为极高（保留重要法术效果）\nSSAO（环境光遮蔽）- 禁用\n深度效果 - 禁用\n计算效果 - 禁用\n轮廓模式 - 禁用\n纹理分辨率 - 设为高\n法术密度 - 设为必要\n投射纹理 - 启用（地面效果需要）\n视野距离 - 降至 1\n环境细节 - 降至 1\n地面杂物 - 降至 1\n团队/地下城设置 - 各处使用相同设置\n重采样锐化 - 启用（更清晰的图像）\n对比度 - 增加 +10（如果当前为 55 或以下）\n\n这些设置优先考虑帧率和视觉清晰度，而非环境细节。纹理保持高质量，因此您的角色和世界看起来仍然完美。"
+L["This feature optimizes your in-game graphics settings to give you the best combination of high FPS and visual clarity.\n\nYou can revert all changes at any time by clicking \"Restore My Settings\" which will appear after optimizing.\n\n\nWhat we change:\n\nShadow Quality - Fair (balanced quality/FPS)\nLiquid Detail - Disabled\nParticle Density - Set to Ultra (keeps important spell effects)\nSSAO (Ambient Occlusion) - Disabled\nDepth Effects - Disabled\nCompute Effects - Disabled\nOutline Mode - Disabled\nTexture Resolution - Set to High\nSpell Density - Set to Essential\nProjected Textures - Enabled (needed for ground effects)\nView Distance - Reduced to 1\nEnvironment Detail - Reduced to 1\nGround Clutter - Reduced to 1\nRaid/Dungeon Settings - Uses same settings everywhere\nResample Sharpening - Enabled (crisper image)\nContrast - Boosted by +10 (if currently 55 or below)\nEnable Reverb - Disabled (spell and interrupt audio cues stay crisp)\n\nThese settings prioritize frame rate and visual clarity over environmental detail. Textures stay high quality so your character and the world still look perfect."] = "此功能优化您的游戏内图形设置，以提供高 FPS 和视觉清晰度的最佳组合。\n\n您可以在优化后随时点击“恢复我的设置”来还原所有更改。\n\n\n我们更改的内容：\n\n阴影质量 - 良好（平衡质量/FPS）\n液体细节 - 禁用\n粒子密度 - 设为极高（保留重要法术效果）\nSSAO（环境光遮蔽）- 禁用\n深度效果 - 禁用\n计算效果 - 禁用\n轮廓模式 - 禁用\n纹理分辨率 - 设为高\n法术密度 - 设为必要\n投射纹理 - 启用（地面效果需要）\n视野距离 - 降至 1\n环境细节 - 降至 1\n地面杂物 - 降至 1\n团队/地下城设置 - 各处使用相同设置\n重采样锐化 - 启用（更清晰的图像）\n对比度 - 增加 +10（如果当前为 55 或以下）\n启用混响 - 禁用（法术与打断的音效提示保持清晰）\n\n这些设置优先考虑帧率和视觉清晰度，而非环境细节。纹理保持高质量，因此您的角色和世界看起来仍然完美。"
 L["This is where you can control the settings of Unlock Mode.\n\nElements can be repositioned by dragging or arrow keys (+shift)\nAnchor, Height Match, or Width match any element.\nSnapping is based on closest element, but you can snap only to\n a specific element via right click or the settings icon."] = "在这里您可以控制解锁模式的设置。\n\n通过拖动或方向键（+shift）可以重新定位元素\n锚定、高度匹配或宽度匹配任何元素。\n吸附基于最近元素，但您可以通过右键单击或设置图标\n仅吸附到特定元素。"
 L["This preset"] = "此预设"
 L["This resets every EUI addon, not just the current one."] = "这会重置所有 EUI 插件，而不仅仅是当前的。"
@@ -1349,7 +1349,7 @@ L["BAR BACKGROUND"] = "条背景"
 
 --主要文本
 L["Menu, Bags & XP Bars"] = "菜单、背包和经验值条"
-L["Toggle Action Bar Visibility"] = "切换动作条可见性"
+L["Toggle Action Bar"] = "切换动作条"
 L["Micro Menu Visibility"] = "微型菜单可见性"
 L["Bag Bar Visibility"] = "背包条可见性"
 L["Use Blizzard's XP/Rep Bars"] = "使用暴雪经验/声望条"
@@ -1506,9 +1506,12 @@ L["Icon Outset"] = "图标外边距"
 L["Hide Charge Count at 0"] = "充能为0时隐藏文字"
 L["Cooldown Text"] = "冷却数字"
 L["Fit Size to Button"] = "自适应按钮尺寸"
+L["Disable Form Paging"] = "禁用形态切换"
+L["Disable Skyriding Paging"] = "禁用驭龙术切换"
+
 
 -- 动作条鼠标提示 (tooltip)
-L["Toggling action bar visibility is only available out of combat"] = "切换动作条可见性仅在脱离战斗时可用"
+L["Toggling an action bar is only available out of combat"] = "切换动作条仅在脱离战斗时可用"
 L["Left-click to set a keybind."] = "左键设置快捷键。"
 L["Right-click to unbind."] = "右键取消绑定。"
 L["Apply Background Settings to all Bars"] = "将背景设置应用于所有条"
@@ -1563,7 +1566,7 @@ L["Toggles Blizzard's Show Numbers for Cooldowns setting (the countdownForCooldo
 L["The highlight overlay that appears on a spell button while it is the active/current action. Disable to hide it."] = "法术按钮作为当前激活动作时出现的高亮覆盖层。禁用可将其隐藏。"
 L["Dims action button icons to this opacity while on cooldown (100 = off), using the same detection as Desaturate on Cooldown."] = "将动作按钮图标在冷却时调暗至此不透明度（100 = 关闭），使用与“冷却时褪色”相同的检测方式。"
 L["Opacity of the cooldown swipe (the dark radial sweep); use the swatch to set its colour."] = "冷却动画（暗色径向动画）的不透明度；使用色板设置其颜色。"
-L["Toggling action bar visibility is only available out of combat\n\nLeft-click to set a keybind.\nRight-click to unbind."] = "切换动作条可见性仅可在非战斗状态下进行\n\n左键点击设置按键绑定。\n右键点击取消绑定。"
+L["Toggling an action bar is only available out of combat\n\nLeft-click to set a keybind.\nRight-click to unbind."] = "切换动作条仅可在非战斗状态下进行\n\n左键点击设置按键绑定。\n右键点击取消绑定。"
 L["Toggles Blizzard's Show Numbers for Cooldowns setting, which will show number text on any spells that are on cooldown on your action bars."] = "切换暴雪的“显示冷却时间数字”设置，该设置会在动作条上任何处于冷却中的法术上显示数字文本。"
 L["Order of the buttons on this bar; corner options place the first button in that corner."] = "此条上按钮的顺序；角落选项将第一个按钮放置在该角落。"
 L["Combines with conditions: shows on hover only while they pass."] = "与条件组合：仅在条件满足时，悬停才显示。"
@@ -1576,7 +1579,8 @@ L["Shows the rotation-helper ring on the button holding the One Button Assist ac
 L["Controls the opacity of the flat color background behind action button icons."] = "控制动作按钮图标后方纯色背景的不透明度。"
 L["Hide the charge number on action buttons when it reaches 0, instead of showing a 0. The number returns as soon as a charge or item comes back."] = "当充能次数变为0时，在动作按钮上隐藏充能数字，而不是显示0。一旦充能或物品恢复，数字即会重新显示。"
 L["Caps the countdown size so it cannot spill outside small buttons."] = "限制倒计时大小，防止溢出小按钮。"
-
+L["Keep Action Bar 1 on its current page when you shapeshift, stealth, or change stance, instead of swapping to that form's bar.\n\nKeybinds follow what the bar shows, so the key always casts the icon you see. Press-and-hold repeat casting is turned off on Action Bar 1 while this is enabled."] = "在变形、潜行或切换姿态时，保持动作条1停留在当前页面，而不是切换到对应形态的专用条。\n\n按键绑定跟随条上显示的技能，因此按键始终施放你看到的图标。启用此选项后，动作条1上的长按重复施法将被关闭。"
+L["Keep Action Bar 1 on its current page while skyriding, instead of swapping to the skyriding bar.\n\nYour skyriding abilities live on that bar, so put them on another bar before enabling this. Press-and-hold repeat casting is turned off on Action Bar 1 while this is enabled."] = "在驭龙术飞行时，保持动作条1停留在当前页面，而不是切换到驭龙术专用条。\n\n你的驭龙术技能位于该专用条上，因此启用此选项前，请先将它们移动到其他动作条上。启用此选项后，动作条1上的长按重复施法将被关闭。"
 
 -- == 姓名版 (Nameplates) =====================================================
 --标题
@@ -2135,9 +2139,13 @@ L["Unit Frame"] = "单位框架"
 L["Main Frames Buffs & Debuffs"] = "主框架增益与减益"
 L["Boss Frames Buffs & Debuffs"] = "首领框架增益与减益"
 L["Always Show Pet Frame"] = "始终显示宠物框架"
+L["Elite/Rare Indicator"] = "精英/稀有指示器"
+L["Show in Instances"] = "在副本中显示"
+L["Elite Icon Size"] = "精英图标大小"
+L["Elite/Rare Indicator Settings"] = "精英/稀有指示器设置"
 
 
---鼠标提示 (tooltip)
+--单位框架鼠标提示 (tooltip)
 L["Apply Absorb Style to all Frames"] = "将吸收样式应用于所有框架"
 L["Apply Art Style to all Frames"] = "将艺术风格应用于所有框架"
 L["Apply Bar Background to all Frames"] = "将条背景应用于所有框架"
@@ -2283,7 +2291,7 @@ L["Show the unit's tooltip when hovering the frame itself."] = "悬停框架本�
 L["Show aura tooltips when hovering buff and debuff icons on all unit frames except boss frames."] = "悬停除首领框架外的所有单位框架上的增益和减益图标时显示光环提示框。"
 L["Show aura tooltips when hovering buff and debuff icons on boss frames."] = "悬停首领框架上的增益和减益图标时显示光环提示框。"
 L["Show the pet frame whenever you have a pet, ignoring the Player frame's visibility settings."] = "无论何时拥有宠物时都显示宠物框架，忽略玩家框架的可见性设置。"
-
+L["Shows the nameplate-style dragon badge on elite, rare elite, and rare targets."] = "在精英、稀有精英和稀有目标上显示姓名板风格的龙形徽章。"
 
 -- == 团队框架 (RaidFrames) ==================================================
 --标题
@@ -2876,7 +2884,9 @@ L["When you are solo, center the player frame on the party frame instead of anch
 L["When you are solo, center the player frame on the party frame instead of anchoring it at the top."] = "当您单人时，将玩家框架在小队框架上居中，而不是锚定在顶部。"
 L["Widens or narrows the boss frames relative to the raid frame size."] = "相对于团队框架大小加宽或收窄首领框架。"
 L["Widens or narrows the extra frames relative to the raid frame size."] = "相对于团队框架大小加宽或收窄额外框架。"
-
+L["Visibility When Missing"] = "缺失时的可见性"
+L["Desaturated"] = "去饱和"
+L["Hidden (Shift Icons)"] = "隐藏（Shift图标）"
 
 -- == 冷却管理器 (CooldownManager) =============================================
 --标题
@@ -4215,6 +4225,12 @@ L["Cataclysm\n(Cursor)"] = "大灾变\n(指向)"
 L["Pummel\n(Focus)"] = "拳击\n(焦点)"
 L["Intervene\n(Focus)"] = "援护\n(焦点)"
 L["Heroic Leap\n(Cursor)"] = "英勇跳跃\n(指向)"
+L["Menu Grow Direction"] = "菜单增长方向"
+L["Down Right"] = "右下"
+L["Up Right"] = "右上"
+L["Down Left"] = "左下"
+L["Up Left"] = "左上"
+
 
 -- 体验优化鼠标提示 (QoL Tooltip)
 L["Adds a 'Train All' button next to the Train button at profession trainers, allowing you to learn all available skills with one click."] = "在专业训练师处的训练按钮旁添加“全部训练”按钮，让您一键学习所有可用技能。"
@@ -4312,6 +4328,8 @@ L["Raid Tools cannot be toggled by slash command in combat -- use the keybind."]
 L["In-game countdown unavailable in combat; the boss mod pull timer still started."] = "战斗中无法使用游戏内倒计时；首领模组的开怪倒计时仍已启动。"
 L["Always show the crosshair."] = "始终显示准星。"
 L["Disable Class Color to pick a custom color."] = "禁用职业颜色以选择自定义颜色。"
+L["Which way the windows extend from the collapsed icon when they open."] = "窗口从折叠图标展开时的延伸方向。"
+
 
 -- == 暴雪界面增强 (BlizzardSkin) ================================================
 --标题
@@ -4611,6 +4629,9 @@ L["Removing third-party addon skins requires a UI reload."] = "移除第三方�
 L["Show Icon ID"] = "显示图标ID"
 L["Show Item ID"] = "显示物品ID"
 L["Cursor Tooltip Position"] = "光标提示框位置"
+L["Toast Scale"] = "通知缩放"
+L["Gold Toast Strip"] = "金币通知条"
+
 
 -- 暴雪界面增强鼠标提示 (BlizzardSkin Tooltip)
 L["Appends the spell or item ID to tooltips. The same setting as Global Settings > Developer."] = "在提示中附加法术或物品 ID。与全局设置 > 开发者中的设置相同。"
@@ -4705,6 +4726,9 @@ L["Adds a strip down the left edge of a loot toast in the item's quality color. 
 L["Adds a Targeting line showing who the hovered player or NPC is targeting, in green when it's you."] = "添加一行目标信息，显示鼠标悬停的玩家或 NPC 正在指向谁（若目标是你则显示为绿色）。"
 L["Adds the mount a player is riding to their tooltip, with a green check if you own it or a red X if you don't."] = "在玩家提示框中显示其当前骑乘坐骑的信息，若你拥有该坐骑则显示绿色对勾，否则显示红色叉号。"
 L["Makes the game tooltip follow your mouse cursor instead of showing at its fixed screen position (drag the Tooltip box in Unlock Mode to change that). Use the arrows icon to pick the position relative to the cursor and fine-tune the X/Y offset."] = "使游戏提示框跟随鼠标光标，而不是显示在固定的屏幕位置（可在解锁模式下拖动提示框来更改）。使用箭头图标选择相对于光标的位置，并微调X/Y偏移量。"
+L["Also show the strip on gold toasts, in the header's gold color. Gold has no rarity to signal, so this is off by default."] = "也在金币通知上显示此条，使用标题的金色。金币没有稀有度可标识，因此默认关闭。"
+L["Scales the loot and gold toasts."] = "缩放拾取和金币通知。"
+
 
 -- == 好友列表 (Friends) =======================================================
 --主要
@@ -5228,7 +5252,6 @@ L["Mouseover Icons"] = "悬停图标"
 L["New Window"] = "新建窗口"
 L["No death recap available"] = "无死亡回顾可用"
 L["Overall"] = "总体"
-L["Overall "] = "总体 "
 L["Refresh Rate"] = "刷新率"
 L["Reset Data"] = "重置数据"
 L["Reset Data Keybind"] = "重置数据快捷键"
@@ -5318,7 +5341,8 @@ L["Include Icon in Bar Border"] = "在条边框中包含图标"
 L["Above Hovered Row"] = "悬停行上方"
 L["Left of Window"] = "窗口左侧"
 L["Right of Window"] = "窗口右侧"
-
+L["Hide in Delves"] = "在地下堡中隐藏"
+L["Hide in PvP"] = "在PvP中隐藏"
 
 -- 伤害统计鼠标提示 (DamageMeters Tooltip)
 L["Set your window to this Meter Type on dungeon start"] = "在地下城开始时将窗口设为此统计类型"
@@ -6442,10 +6466,13 @@ L["Raid Finder Boss Kill"] = "团队查找器首领击杀"
 L["Mythic 0 Completion"] = "史诗 0 层完成"
 L["Auto Celebration Duration"] = "自动庆祝持续时间"
 L["Random Celebrations Minimum Cooldown"] = "随机庆祝最小冷却时间"
+L["Spin"] = "旋转"
+L["Spinning Action Bars"] = "旋转动作条"
 
 --派对模式鼠标指向
 L["at least one Celebration Trigger"] = "至少一个庆祝触发器"
 L["the Randomly trigger"] = "随机触发"
+L["Slowly orbits your action bar buttons around each bar's centre while Party Mode is active. The buttons stay upright, so clicking, cooldowns and keybinds are unaffected. Pauses in combat, where moving a button is blocked."] = "在派对模式激活时，缓慢地围绕每个动作条的中心旋转动作条按钮。按钮保持直立，因此点击、冷却和按键绑定不受影响。在战斗中暂停，因为移动按钮会被阻止。"
 
 -- == Restored entries ====================================================
 -- The 8.5.2 retranslation (PR #888) dropped these keys; 109 are still live

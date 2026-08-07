@@ -145,7 +145,7 @@ local function BuildUpgradeCalcPage(pageName, parent, yOffset)
           getValue = function() return "__placeholder" end,
           setValue = function() end }
     )
-    do
+    if not EllesmereUI._prebuilding then
         local leftRgn = filterRow._leftRegion
         if leftRgn._control then leftRgn._control:Hide() end
         local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
@@ -167,7 +167,7 @@ local function BuildUpgradeCalcPage(pageName, parent, yOffset)
         leftRgn._lastInline = nil
         EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
     end
-    do
+    if not EllesmereUI._prebuilding then
         local rightRgn = filterRow._rightRegion
         if rightRgn._control then rightRgn._control:Hide() end
         local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(

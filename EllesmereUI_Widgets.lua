@@ -1860,14 +1860,16 @@ end
 HideWidgetTooltip = function(instant)
     local tt = GetTooltipFrame()
     if not tt:IsShown() then return end
-    tt:SetScale(1)
     if tt._fadeOutAG then tt._fadeOutAG:Stop() end
     if tt._fadeAG then tt._fadeAG:Stop() end
     if instant then
-        tt:SetAlpha(0); tt:Hide()
+        tt:SetAlpha(0); tt:Hide(); tt:SetScale(1)
         return
     end
-    -- Fade out
+    -- Fade out. The panel-scale reset happens AFTER the fade completes:
+    -- resetting at hide time visibly resized the still-fading tooltip
+    -- whenever the panel scale wasn't 1 (ShowWidgetTooltip re-sets the
+    -- scale before anchoring anyway).
     if not tt._fadeOutAG then
         tt._fadeOutAG = tt:CreateAnimationGroup()
         tt._fadeOut = tt._fadeOutAG:CreateAnimation("Alpha")
@@ -1876,7 +1878,7 @@ HideWidgetTooltip = function(instant)
     end
     tt._fadeOut:SetFromAlpha(tt:GetAlpha())
     tt._fadeOut:SetToAlpha(0)
-    tt._fadeOutAG:SetScript("OnFinished", function() tt:SetAlpha(0); tt:Hide() end)
+    tt._fadeOutAG:SetScript("OnFinished", function() tt:SetAlpha(0); tt:Hide(); tt:SetScale(1) end)
     tt._fadeOutAG:Play()
 end
 
@@ -8329,6 +8331,10 @@ function EllesmereUI.BuildVisibilityModeRow(W, parent, y, opts, rightCfg)
         end
     end
 
+    -- Search pre-build: the row is an absorber, so the dropdown/PP.Point
+    -- chrome below would throw. The row's label was already indexed by the
+    -- factory stub; nothing here registers.
+    if EllesmereUI._prebuilding then return row, h end
     local leftRgn = row._leftRegion
     if leftRgn._control then leftRgn._control:Hide() end
     cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(

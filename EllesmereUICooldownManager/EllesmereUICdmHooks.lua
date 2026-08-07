@@ -1466,16 +1466,6 @@ do
     end)
 end
 
--- Diagnostic: /cdmreadydbg toggles a one-line print at each CD-ready sound FIRE
--- (live spellID, name, base id, bar, charge state) so a "fires while spamming"
--- report can be traced to the exact spell and reason. Off by default; the print
--- is gated on the flag so it is zero cost unless toggled on.
-ns._cdReadySoundDebug = false
-SLASH_CDMREADYDBG1 = "/cdmreadydbg"
-SlashCmdList.CDMREADYDBG = function()
-    ns._cdReadySoundDebug = not ns._cdReadySoundDebug
-    print("|cff0cd29f[CDReady]|r debug " .. (ns._cdReadySoundDebug and "ON" or "OFF"))
-end
 
 -- Reject armed->ready spans shorter than this: a real cooldown arms the moment
 -- the spell is used, so a sub-GCD-length arm can only be a transient misread
@@ -1515,23 +1505,13 @@ local function CdReadyIsChargeSpell(liveSid)
     return ci ~= nil and (ci.maxCharges or 0) > 1
 end
 
--- Single play point for both drivers: throttled, always disarms, carries the
--- /cdmreadydbg print (src names which driver won the edge).
+-- Single play point for both drivers: throttled, always disarms.
 local function PlayCdReadySound(fd, key, liveSid, sid, bk, src)
     fd._cdReadyArmed = false
     local now = GetTime()
     local last = fd._cdReadySoundAt
     if last and (now - last) < CD_READY_SOUND_GAP then return end
     fd._cdReadySoundAt = now
-    if ns._cdReadySoundDebug then
-        local nm = (C_Spell.GetSpellName and C_Spell.GetSpellName(liveSid)) or "?"
-        local ci = C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(liveSid)
-        print(string.format(
-            "|cff0cd29f[CDReady]|r FIRE(%s) live=%s '%s' base=%s bar=%s maxCharges=%s chargeRecharging=%s",
-            tostring(src), tostring(liveSid), tostring(nm), tostring(sid), tostring(bk),
-            ci and tostring(ci.maxCharges) or "-",
-            ci and tostring(ci.isActive) or "-"))
-    end
     local path = ns.FOCUSKICK_SOUND_PATHS and ns.FOCUSKICK_SOUND_PATHS[key]
     if path then PlaySoundFile(path, "Master") end
 end
@@ -2160,34 +2140,6 @@ local function TryHookSwiftmend(frame, fd)
     if SwiftmendEnabled() then iconWidget:SetVertexColor(1, 1, 1) end
 end
 
--- Temporary diagnostic for the "keep Swiftmend bright" report: dumps every
--- CDM frame currently resolving to Swiftmend plus its hook state.
-SLASH_CDMSMDBG1 = "/cdmsmdbg"
-SlashCmdList.CDMSMDBG = function()
-    local n, hookedN = 0, 0
-    for frame, fd in pairs(hookFrameData) do
-        local dispSID, baseSID = ResolveFrameSpellID(frame)
-        if dispSID and issecretvalue(dispSID) then dispSID = nil end
-        if baseSID and issecretvalue(baseSID) then baseSID = nil end
-        if dispSID == SWIFTMEND_SID or baseSID == SWIFTMEND_SID then
-            n = n + 1
-            if fd._smVCHooked then hookedN = hookedN + 1 end
-            local col = "?"
-            local tex = fd.tex
-            if tex and tex.GetVertexColor then
-                local r, g, b = tex:GetVertexColor()
-                if r and not issecretvalue(r) then
-                    col = string.format("%.2f %.2f %.2f", r, g, b)
-                end
-            end
-            print(("|cff0cd29f[SMDBG]|r sid=%s/%s hooked=%s vc=%s shown=%s"):format(
-                tostring(dispSID), tostring(baseSID), tostring(fd._smVCHooked or false),
-                col, tostring(frame:IsShown())))
-        end
-    end
-    print(("|cff0cd29f[SMDBG]|r swiftmend frames=%d hooked=%d druid=%s enabled=%s"):format(
-        n, hookedN, tostring(_isDruid), tostring(SwiftmendEnabled())))
-end
 
 -------------------------------------------------------------------------------
 --  Per-spell Custom Icon
@@ -3495,7 +3447,12 @@ local function DecorateFrame(frame, barData)
                         end
                     end
                     if not onCD then
-                        if fd.glowOverlay and not fd._cdStateGlowOn then
+                        -- procGlowActive gate: the proc glow shares this
+                        -- overlay and has priority -- never start over it
+                        -- (ShowProcGlow clears the memo, so this is the
+                        -- explicit gate that replaces the old accidental one).
+                        if fd.glowOverlay and not fd._cdStateGlowOn
+                            and not fd.procGlowActive then
                             local style = cse == "pixelGlowReady" and 1 or 3
                             local gr, gg, gb = ns.ResolveGlowColor(ss2)
                             ns.StartNativeGlow(fd.glowOverlay, style, gr or 1, gg or 1, gb or 1)
@@ -3554,7 +3511,10 @@ local function DecorateFrame(frame, barData)
                             end
                             local shouldGlow = (not pOnCD) and (isUsable == true)
                             if shouldGlow then
-                                if fd.glowOverlay and not fd._cdStateGlowOn then
+                                -- procGlowActive: proc owns the shared
+                                -- overlay -- never start over a live proc.
+                                if fd.glowOverlay and not fd._cdStateGlowOn
+                                    and not fd.procGlowActive then
                                     local style = self.cse == "pixelGlowReadyUsable" and 1 or 3
                                     local gr, gg, gb = ns.ResolveGlowColor(self.ss2)
                                     ns.StartNativeGlow(fd.glowOverlay, style, gr or 1, gg or 1, gb or 1)
@@ -4133,7 +4093,10 @@ do
                         shouldGlow = true
                     end
                     if shouldGlow then
-                        if not fd._cdStateGlowOn then
+                        -- procGlowActive: proc owns the shared overlay --
+                        -- never start over a live proc; StopProcGlow queues
+                        -- this flush again once the proc ends.
+                        if not fd._cdStateGlowOn and not fd.procGlowActive then
                             local style = (cse2 == "pixelGlowReady" or cse2 == "pixelGlowReadyUsable") and 1 or 3
                             local gr, gg, gb = ns.ResolveGlowColor(ss2)
                             ns.StartNativeGlow(fd.glowOverlay, style, gr or 1, gg or 1, gb or 1)
@@ -5116,10 +5079,10 @@ local function ProcessPresetCooldowns()
                     if showIC and bd and bd.itemCountOOC and InCombatLockdown() then
                         showIC = false
                     end
-                    local displayCount = showIC
-                        and ((total > 1) and total
-                        or (total == 1 and f._presetData and f._presetData.combatLockout) and total
-                        or nil) or nil
+                    -- Count shows for ANY owned stack, including the last
+                    -- one; it hides only at 0 (where the desaturation below
+                    -- already reads as "none left").
+                    local displayCount = showIC and (total > 0) and total or nil
                     if displayCount then
                         if f._lastItemCount ~= displayCount then
                             f._itemCountText:SetText(displayCount)
@@ -5155,52 +5118,6 @@ ns._MarkPresetCdDirty = function()
     if ns.ArmBuffTicker then ns.ArmBuffTicker() end
 end
 
--- TEMP DEBUG: /cdmcc -- dumps why the "Show Charges" custom-spell count is / is
--- not displaying. Remove once diagnosed.
-SLASH_EUICDMCC1 = "/cdmcc"
-SlashCmdList["EUICDMCC"] = function()
-    local function p(...) print("|cff66ccff[EUICC]|r", ...) end
-    local function safe(v)
-        if issecretvalue and issecretvalue(v) then return "<secret>" end
-        return tostring(v)
-    end
-    p("gate _cdmAnyCustomForceCount =", tostring(ns._cdmAnyCustomForceCount),
-      "| dirty =", tostring(_presetCdDirty))
-    p("APIs: GetSpellCharges=", tostring(C_Spell and C_Spell.GetSpellCharges ~= nil),
-      "GetSpellDisplayCount=", tostring(C_Spell and C_Spell.GetSpellDisplayCount ~= nil),
-      "GetSpellCastCount=", tostring(C_Spell and C_Spell.GetSpellCastCount ~= nil))
-    local count = 0
-    for fkey, f in pairs(_presetFrames) do
-        if f._isCustomSpellFrame and not f._isCustomBuffFrame then
-            count = count + 1
-            local sid = f._cachedPresetSID
-            if not sid then local m = fkey:match(":(%d+)$"); sid = m and tonumber(m) end
-            local fc = _ecmeFC[f]
-            local bk = fc and fc.barKey
-            local sd = bk and ns.GetBarSpellData and ns.GetBarSpellData(bk)
-            local flag = sd and sd.customSpellForceCount and sd.customSpellForceCount[sid]
-            local ci = sid and C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(sid)
-            local disp = sid and C_Spell.GetSpellDisplayCount and C_Spell.GetSpellDisplayCount(sid)
-            local cast = sid and C_Spell.GetSpellCastCount and C_Spell.GetSpellCastCount(sid)
-            p(string.format("[%s] %s | bk=%s shown=%s flag=%s",
-                tostring(sid), tostring(sid and C_Spell.GetSpellName(sid)),
-                tostring(bk), tostring(f:IsShown()), tostring(flag)))
-            local nEff = (ci and disp) or cast
-            local tok, tstr
-            if C_StringUtil and C_StringUtil.TruncateWhenZero then
-                tok, tstr = pcall(C_StringUtil.TruncateWhenZero, nEff)
-            end
-            p(string.format("   forceCountTbl=%s charges=%s displayCount=%s castCount=%s",
-                tostring(sd and sd.customSpellForceCount ~= nil),
-                tostring(ci ~= nil), safe(disp), safe(cast)))
-            p(string.format("   TruncateWhenZero: ok=%s -> %s | text=%s textShown=%s",
-                tostring(tok), safe(tstr),
-                tostring(f._castCountText ~= nil),
-                tostring(f._castCountText and f._castCountText:IsShown())))
-        end
-    end
-    if count == 0 then p("NO custom spell frames present (add one to a CD/utility bar first)") end
-end
 
 -- "Hide Items if Missing": detect when a tracked consumable's bag presence
 -- flips (acquired or fully used up) for any bar that opted in, and queue a
@@ -5592,6 +5509,10 @@ local _scratch_spellOrder = {}  -- CD/utility: spellID -> sort index
 local _scratch_activeFrames = {}
 local _scratch_usedFrames = {}
 local _scratch_cdFrames = {}    -- CD/utility: barKey -> {frame, frame, ...}
+-- CD/utility frames that routed to one of our bars but whose spell could not be
+-- resolved this pass (see the collect loop). "Unknown", NOT "rejected": the
+-- Phase 4 sweep must leave these alone rather than park them offscreen.
+local _scratch_unresolved = {}
 
 local function _sortByLayoutIndex(a, b)
     return (a.layoutIndex or 0) < (b.layoutIndex or 0)
@@ -5651,8 +5572,10 @@ local function CollectAndReanchor()
 
     wipe(_scratch_usedFrames)
     wipe(_scratch_activeFrames)
+    wipe(_scratch_unresolved)
     local allActiveFrames = _scratch_activeFrames
     local usedFrames = _scratch_usedFrames
+    local unresolvedFrames = _scratch_unresolved
 
     -- Always Show Buffs: hide every placeholder up front; the routing path below
     -- re-shows only the placeholders it injects this pass, so stale ones (buff
@@ -5933,6 +5856,18 @@ local function CollectAndReanchor()
                                     fc.barKey = barKey
                                     fc.spellID = baseSID or displaySID
                                     fc.isHostedBuff = nil
+                                else
+                                    -- Routed to one of our bars, but the spell
+                                    -- would not resolve: GetCooldownViewerCooldownInfo
+                                    -- returns nil for a cooldownID while Blizzard is
+                                    -- mid-rebuild (zone-in, PvP talents activating,
+                                    -- a spec swap that just wiped the resolve memos).
+                                    -- This frame is OURS and merely unidentified, so
+                                    -- Phase 4 must not treat it like a deliberately
+                                    -- unrouted one and park it at -10000 -- that is
+                                    -- what empties the bars until a reload, since
+                                    -- nothing re-collects afterwards.
+                                    unresolvedFrames[frame] = true
                                 end
                             end
                         end
@@ -6860,6 +6795,13 @@ local function CollectAndReanchor()
                         if key then
                             fc.sortOrder = key
                         else
+                            -- Remember where this frame last sorted before the
+                            -- marker overwrites it. The interpolation below needs
+                            -- a fallback that holds position rather than guessing
+                            -- when Blizzard has not laid the viewer out yet.
+                            if type(fc.sortOrder) == "number" then
+                                fc.lastSortOrder = fc.sortOrder
+                            end
                             fc.sortOrder = false  -- spillover marker, resolved below
                             hasSpill = true
                         end
@@ -6884,10 +6826,20 @@ local function CollectAndReanchor()
                     for _, frame in ipairs(frames) do
                         local fc = _ecmeFC[frame]
                         local k = fc and fc.sortOrder
-                        if type(k) == "number" and frame.cooldownID ~= nil then
+                        -- layoutIndex must be REAL to anchor anything. It used to
+                        -- fall back to 0, which is below every true layoutIndex, so
+                        -- an anchor that had not been laid out yet became a valid
+                        -- predecessor for every spillover -- and during a full
+                        -- relayout, when they all collapse to 0, the interpolation
+                        -- degenerates to "after whichever anchor came first". An
+                        -- anchor we cannot place is not an anchor; dropping it just
+                        -- narrows the anchor set, and an empty set already has a
+                        -- defined meaning (spillovers fall to the tail).
+                        if type(k) == "number" and frame.cooldownID ~= nil
+                           and frame.layoutIndex then
                             blizzKeys = blizzKeys or {}; blizzLIs = blizzLIs or {}
                             blizzKeys[#blizzKeys + 1] = k
-                            blizzLIs[#blizzKeys] = frame.layoutIndex or 0
+                            blizzLIs[#blizzKeys] = frame.layoutIndex
                         end
                     end
                     -- Full anchor set = Blizzard anchors + preset anchors (interpolated
@@ -6939,8 +6891,9 @@ local function CollectAndReanchor()
                     for _, frame in ipairs(frames) do
                         local fc = _ecmeFC[frame]
                         if fc and fc.sortOrder == false then
-                            if anchorKeys and frame.cooldownID ~= nil then
-                                local L = frame.layoutIndex or 0
+                            if anchorKeys and frame.cooldownID ~= nil
+                               and frame.layoutIndex then
+                                local L = frame.layoutIndex
                                 local predIdx, predLI
                                 for i = 1, #anchorKeys do
                                     local li = anchorLIs[i]
@@ -6954,6 +6907,19 @@ local function CollectAndReanchor()
                                 -- slots and never ties its predecessor.
                                 local baseIdx = predIdx or ((minAnchorIdx or 1) - 1)
                                 fc.sortOrder = baseIdx + ((L + 1) / 1e6)
+                            elseif frame.cooldownID ~= nil and not frame.layoutIndex then
+                                -- Blizzard has not assigned this frame a layout
+                                -- position yet: it re-lays the viewer out on a
+                                -- preset switch, an addon update and at login,
+                                -- which is exactly when this was reported.
+                                -- `layoutIndex or 0` used to stand in here, and 0
+                                -- is below every real layoutIndex, so the frame
+                                -- landed before every anchor -- a tracked spell
+                                -- silently jumping to FIRST place while
+                                -- Blizzard's own order was never wrong.
+                                -- Hold the last known position instead; the next
+                                -- pass, once the layout exists, places it properly.
+                                fc.sortOrder = fc.lastSortOrder or 99999
                             else
                                 fc.sortOrder = 99999
                             end
@@ -7286,9 +7252,35 @@ local function CollectAndReanchor()
     end
     local buffViewer = _G["BuffIconCooldownViewer"]
     local barViewer  = _G["BuffBarCooldownViewer"]
+    -- Only protect NEVER-CLAIMED unresolved frames while the retry budget below
+    -- still has passes left. Once it is spent, a frame that has never been ours
+    -- and still will not resolve is no longer plausibly transient (a stale pool
+    -- entry with a dead cooldownID), and parking it is right again -- otherwise
+    -- it would sit at Blizzard's own Edit Mode position forever, which is the
+    -- "CDM looks scrambled" face of this bug rather than the "CDM is empty" one.
+    local protectUnresolved = (ns._cdmUnresolvedRetries or 0) < 3
     for frame in pairs(allActiveFrames) do
         if usedFrames[frame] then
             -- Claimed: leave alone
+        elseif unresolvedFrames[frame]
+               and (protectUnresolved
+                    or (_ecmeFC[frame] and _ecmeFC[frame].barKey)) then
+            -- Unknown, not rejected: identification failed this pass, so we
+            -- have no basis to park it. Leave it exactly as it is and let the
+            -- re-collect scheduled at the end of this function claim it once
+            -- the cooldown-viewer API answers again.
+            --
+            -- fc.barKey means we HAVE claimed this frame before, and that
+            -- exemption never expires. ScheduleTalentRebuild wipes resolvedSid
+            -- and cachedCdID but deliberately not barKey, so it survives the
+            -- exact rebuild that strips the resolve memos -- which is the zone
+            -- transition where the API answers nil for longer than any fixed
+            -- retry budget can cover. A frame that was on a bar a moment ago
+            -- and is momentarily unidentifiable is transient by definition, and
+            -- parking it is what turns a working CDM blank. Note this cannot
+            -- strand a genuinely retired frame: one whose spell was unassigned
+            -- or ghosted RESOLVES fine and simply routes nowhere, so it never
+            -- reaches this branch at all.
         elseif frame._isRacialFrame or frame._isTrinketFrame
                or frame._isPresetFrame or frame._isItemPresetFrame
                or frame._isCustomSpellFrame then
@@ -7502,6 +7494,29 @@ local function CollectAndReanchor()
         local pv = EllesmereUI._contentHeaderPreview
         if pv and pv.Update then pv:Update() end
     end
+    -- Frames we could not identify this pass were skipped by the Phase 4 sweep
+    -- and are still sitting wherever Blizzard left them. Re-collect shortly so
+    -- they claim as soon as the cooldown-viewer API answers again -- this is
+    -- what makes the recovery timing-independent instead of racing a fixed
+    -- delay against the loading screen. Bounded and self-resetting: a clean
+    -- pass restores the budget, and an id that never resolves falls back to the
+    -- park path above once the budget is spent, so this can never spin.
+    if next(unresolvedFrames) then
+        local tries = ns._cdmUnresolvedRetries or 0
+        if tries < 3 and not ns._cdmUnresolvedPending then
+            ns._cdmUnresolvedRetries = tries + 1
+            ns._cdmUnresolvedPending = true
+            -- Backoff 0.5s / 1.5s / 2.5s: covers a loading-screen settle
+            -- without a poll, since each retry is one queued reanchor.
+            C_Timer.After(0.5 + tries, function()
+                ns._cdmUnresolvedPending = nil
+                if ns.QueueReanchor then ns.QueueReanchor() end
+            end)
+        end
+    elseif ns._cdmUnresolvedRetries then
+        ns._cdmUnresolvedRetries = 0
+    end
+
     -- Claims just settled: retire the proc-alert child map so the next alert
     -- rebuilds it against the fresh claim set.
     if ns._cdmClaimGen then ns._cdmClaimGen = ns._cdmClaimGen + 1 end
@@ -9058,6 +9073,26 @@ do
         end
         wipe(_held); _heldN = 0; _poll:Hide()
         RefreshCdmPressMirrorFlag()
+    end
+
+    -- Click-routed keybinds (Bars 9/10, empower spells, custom paging) go
+    -- through the button via SetOverrideBindingClick and never fire the native
+    -- commands hooked below; the EAB PostClick hook publishes them here.
+    -- PostClick runs after Blizzard's click handler returns, downstream of its
+    -- protected item-use calls -- same taint posture as the native hooks.
+    _G._EUI_OnActionButtonPress = function(btn, down, bindCmd)
+        -- Down edge only: buttons register both edges, and in key-up mode the
+        -- key is already released by the up click.
+        if not down or not btn or not bindCmd or not _anyPressMirror then return end
+        -- Keyboard evidence (a real mouse click must not mirror): a held
+        -- binding key proves keyboard, but wheel binds are never IsKeyDown, so
+        -- the cursor-rect test covers those. Only miss: a wheel bind pressed
+        -- while the cursor rests on its own button.
+        local k1, k2 = GetBindingKey(bindCmd)
+        local b1, b2 = BaseKey(k1), BaseKey(k2)
+        local keyHeld = (b1 and IsKeyDown(b1)) or (b2 and IsKeyDown(b2))
+        if not keyHeld and btn.IsUnderMouse and btn:IsUnderMouse() then return end
+        OnPress(btn, bindCmd)
     end
 
     ---------------------------------------------------------------------------

@@ -240,94 +240,6 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
--- Inspection helper for the slash command.
-function EllesmereUI.GetMigrationStatus()
-    local out = {
-        registered = {},
-        errors     = _migrationErrors,
-    }
-    for _, spec in ipairs(_migrations) do
-        local entry = {
-            id          = spec.id,
-            scope       = spec.scope,
-            description = spec.description or "",
-            ranScopes   = {}, -- list of {target, ran}
-        }
-        if spec.scope == "global" then
-            local flags = EllesmereUIDB and EllesmereUIDB._migrations
-            entry.ranScopes[1] = { target = "global", ran = (flags and flags[spec.id]) and true or false }
-        elseif spec.scope == "profile" then
-            if EllesmereUIDB and EllesmereUIDB.profiles then
-                for profName, profData in pairs(EllesmereUIDB.profiles) do
-                    if type(profData) == "table" then
-                        local flags = profData._migrations
-                        entry.ranScopes[#entry.ranScopes + 1] = {
-                            target = profName,
-                            ran    = (flags and flags[spec.id]) and true or false,
-                        }
-                    end
-                end
-            end
-        elseif spec.scope == "specProfile" then
-            local profiles = EllesmereUIDB and EllesmereUIDB.spellAssignments and EllesmereUIDB.spellAssignments.profiles
-            if profiles then
-                for profName, bucket in pairs(profiles) do
-                    local sp = type(bucket) == "table" and bucket.specProfiles
-                    if type(sp) == "table" then
-                        for specKey, specProfData in pairs(sp) do
-                            if type(specProfData) == "table" then
-                                local flags = specProfData._migrations
-                                entry.ranScopes[#entry.ranScopes + 1] = {
-                                    target = profName .. "/" .. specKey,
-                                    ran    = (flags and flags[spec.id]) and true or false,
-                                }
-                            end
-                        end
-                    end
-                end
-            end
-        end
-        out.registered[#out.registered + 1] = entry
-    end
-    return out
-end
-
--- /eui migrations slash command. Lists registered migrations, run status
--- per scope target, and any session errors.
-SLASH_EUIMIGRATIONS1 = "/euimig"
-SLASH_EUIMIGRATIONS2 = "/euimigrations"
-SlashCmdList["EUIMIGRATIONS"] = function()
-    local status = EllesmereUI.GetMigrationStatus()
-    print("|cff0cd29fEllesmereUI Migrations|r")
-    print(string.format("  Registered: %d", #status.registered))
-    for _, entry in ipairs(status.registered) do
-        local ranCount, totalCount = 0, #entry.ranScopes
-        for _, s in ipairs(entry.ranScopes) do if s.ran then ranCount = ranCount + 1 end end
-        local marker
-        if totalCount == 0 then
-            marker = "|cffaaaaaa(no targets)|r"
-        elseif ranCount == totalCount then
-            marker = "|cff00ff00OK|r"
-        elseif ranCount == 0 then
-            marker = "|cffff8800PENDING|r"
-        else
-            marker = string.format("|cffffff00%d/%d|r", ranCount, totalCount)
-        end
-        print(string.format("  [%s] %s (%s)", marker, entry.id, entry.scope))
-        if entry.description ~= "" then
-            print("      |cffaaaaaa" .. entry.description .. "|r")
-        end
-    end
-    if #status.errors > 0 then
-        print(string.format("|cffff4444Errors this session: %d|r", #status.errors))
-        for _, e in ipairs(status.errors) do
-            print(string.format("  |cffff4444[%s]|r %s", e.id, e.err))
-        end
-    else
-        print("|cff00ff00No errors this session.|r")
-    end
-end
-
 --------------------------------------------------------------------------------
 --  Position snap helpers
 --  File-scope helpers used by the position_snap_v3 migration below AND
@@ -3987,12 +3899,7 @@ do
         disabledSpecs = true, enabled = true,
     }
 
-    local function DeepCopyT(src)
-        if type(src) ~= "table" then return src end
-        local out = {}
-        for k, v in pairs(src) do out[k] = DeepCopyT(v) end
-        return out
-    end
+    local DeepCopyT = EllesmereUI.Lite.DeepCopy
 
     local function DeepEq(a, b)
         if a == b then return true end
@@ -4429,5 +4336,23 @@ EllesmereUI.RegisterMigration({
         local isV1Residue = v1Ran and cur ~= nil and math.abs(cur - oldSeed) < 0.001
         if not isDefault and not isV1Residue then return end
         if seeded ~= (cur or 1.0) then db.panelScale = seeded end
+    end,
+})
+
+--------------------------------------------------------------------------------
+--  Player castbar spell target -> None. The player castbar never rendered the
+--  spell target before the display fix (an "and ownerUnit ~= 'player'" guard
+--  swallowed it), so any inherited or explicitly-set side would make the text
+--  pop in on update. Pin existing profiles to None; the player default is now
+--  false too, so only users who opt back in see it.
+--------------------------------------------------------------------------------
+EllesmereUI.RegisterMigration({
+    id          = "uf_player_cast_target_none_v1",
+    scope       = "profile",
+    description = "Pin the player castbar's spell target to None (it never displayed before the fix).",
+    body = function(ctx)
+        local uf = ctx.profile.addons and ctx.profile.addons.EllesmereUIUnitFrames
+        local p = uf and uf.player
+        if type(p) == "table" then p.showCastTarget = false end
     end,
 })

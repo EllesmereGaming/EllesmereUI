@@ -1277,8 +1277,26 @@ function ECL:OnEnable()
 
     Apply()
 
+    -- Repaint when the accent lands: the lifecycle's PLAYER_LOGIN fires
+    -- before the core resolves the profile accent, so Apply() above painted
+    -- the parse-time fallback and is never called again. Also covers a
+    -- mid-session accent change, which nothing pushed to us before.
+    if EllesmereUI.RegAccent then
+        EllesmereUI.RegAccent({ type = "callback", fn = function()
+            local p = ECL.db and ECL.db.profile
+            if not p then return end
+            if p.useAccentColor then Apply() end
+            if p.gcd and p.gcd.useAccentColor then ApplyGCDCircle() end
+            if p.castCircle and p.castCircle.useAccentColor then ApplyCastCircle() end
+        end })
+    end
+
     -- Apply GCD / Cast circles (creates on demand only when enabled)
     C_Timer.After(0.5, function()
+        -- Re-apply the circle too: the RegAccent callback only lands if we
+        -- registered before the core notified (event-dispatch order, not a
+        -- guarantee). This runs past the login resolution either way.
+        Apply()
         ApplyGCDCircle()
         ApplyCastCircle()
         ApplyTrail()

@@ -120,7 +120,7 @@ initFrame:SetScript("OnEvent", function(self)
               values={ __placeholder = "..." }, order={ "__placeholder" },
               getValue=function() return "__placeholder" end,
               setValue=function() end })
-        do
+        if not EllesmereUI._prebuilding then
             local rightRgn = visRow._rightRegion
             if rightRgn._control then rightRgn._control:Hide() end
             local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
@@ -148,7 +148,7 @@ initFrame:SetScript("OnEvent", function(self)
               order  = { "always", "boss" },
               getValue=function() return Cfg("hideInRaidMode") or "boss" end,
               setValue=function(v) Set("hideInRaidMode", v); if EQT.UpdateVisibility then EQT.UpdateVisibility() end end })
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = bgRow._leftRegion
             local ctrl = rgn._control
             local bgSwatch, bgSwatchRefresh = EllesmereUI.BuildColorSwatch(
@@ -262,8 +262,10 @@ initFrame:SetScript("OnEvent", function(self)
                 PP.Point(sw, "RIGHT", rgn, "RIGHT", -20, 0)
                 EllesmereUI.RegisterWidgetRefresh(function() swRefresh() end)
             end
+            if not EllesmereUI._prebuilding then
             wire(r._leftRegion,  leftKeys,  leftDefault)
             if rightKeys then wire(r._rightRegion, rightKeys, rightDefault) end
+            end
             return r, rowH
         end
 
@@ -346,6 +348,7 @@ initFrame:SetScript("OnEvent", function(self)
                 { type="label", text="Focused Color" },
                 { type="multiSwatch", text="Header Color",
                   swatches = { hClass, hCustom, hAccent } })
+            if not EllesmereUI._prebuilding then
             local sw, swRefresh = EllesmereUI.BuildColorSwatch(
                 r._leftRegion, r:GetFrameLevel() + 3,
                 function() return (Cfg("focusR") or 0.871), (Cfg("focusG") or 0.251), (Cfg("focusB") or 1.0) end,
@@ -353,6 +356,7 @@ initFrame:SetScript("OnEvent", function(self)
                 false, 20)
             PP.Point(sw, "RIGHT", r._leftRegion, "RIGHT", -20, 0)
             EllesmereUI.RegisterWidgetRefresh(function() swRefresh() end)
+            end
             h = rowH
         end
         y = y - h
@@ -379,7 +383,7 @@ initFrame:SetScript("OnEvent", function(self)
             { type="toggle", text="Auto Turn In Quests",
               getValue=function() return Cfg("autoTurnIn") or false end,
               setValue=function(v) Set("autoTurnIn", v) end })
-        do
+        if not EllesmereUI._prebuilding then
             local lrgn = row._leftRegion
             local _, cogShowL = EllesmereUI.BuildCogPopup({
                 title = "Auto Accept Settings",
@@ -412,7 +416,7 @@ initFrame:SetScript("OnEvent", function(self)
         kbRow, h = W:DualRow(parent, y,
             { type="label", text="" },
             { type="label", text="" })
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = kbRow._leftRegion
             local SIDE_PAD = 20
             local KB_W, KB_H = 120, 26
@@ -436,7 +440,7 @@ initFrame:SetScript("OnEvent", function(self)
             kbLbl:SetPoint("CENTER")
 
             local function FormatKey(key)
-                if not key or key == "" then return "Not Bound" end
+                if not key or key == "" then return EllesmereUI.L("Not Bound") end
                 local parts = {}
                 for mod in key:gmatch("(%u+)%-") do
                     parts[#parts + 1] = mod:sub(1, 1) .. mod:sub(2):lower()

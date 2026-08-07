@@ -190,7 +190,7 @@ local function BuildBattleResPage(pageName, parent, yOffset)
     y = y - h
 
     -- Inline RESIZE cogs on Duration Size (left) and Count Size (right): X/Y offsets
-    do
+    if not EllesmereUI._prebuilding then
         local function _attachOffsetCog(rgn, popupTitle, xKey, yKey)
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = popupTitle,
@@ -314,7 +314,7 @@ _G._EUI_BuildBattleResSection = function(parent, yOffset, W, PP)
           setValue=function(v) Set("countSize", v); Refresh() end })
     y = y - h
 
-    do
+    if not EllesmereUI._prebuilding then
         local function _attachOffsetCog(rgn, popupTitle, xKey, yKey)
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = popupTitle,
@@ -366,7 +366,7 @@ _G._EUI_BuildBattleResSection = function(parent, yOffset, W, PP)
           setValue=function(v) Set("textSize", v); Refresh() end })
     y = y - h
 
-    do
+    if not EllesmereUI._prebuilding then
         local rgn = dispRow._leftRegion
         -- Builds one inline color swatch with the blocking-overlay disabled
         -- state (interactive only while Display Style is Text). Anchored
@@ -609,7 +609,7 @@ _G._EUI_BuildBloodlustSection = function(parent, yOffset, W, PP)
           setValue=function(v) BL_Set("countSize", v); BL_Refresh() end })
     y = y - h
 
-    do
+    if not EllesmereUI._prebuilding then
         local function _attachOffsetCog(rgn, popupTitle, xKey, yKey)
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = popupTitle,

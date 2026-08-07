@@ -242,6 +242,19 @@ EUILite._dbRegistry = dbRegistry
 local IS_STANDALONE = type(ADDON_NAME) == "string" and ADDON_NAME:find("Standalone") ~= nil
 local _svLoaded = false   -- true once ADDON_NAME's SavedVariables are live
 local _preSVDBs = {}      -- dbs created before that, awaiting re-root
+--- True once db.profile can be trusted to be the real saved table.
+--
+-- A pre-SavedVariables db is built inside an orphan table and re-rooted in
+-- place at ADDON_LOADED (see _preSVDBs above), which silently invalidates
+-- anything a consumer CACHED from it. A cache that is only READ shows stale
+-- values; one written BACK to the profile destroys real saved data -- Bags'
+-- category list did exactly that. Consumers test this before trusting, or
+-- persisting, anything derived from db.profile.
+--
+-- Always true in the suite, where no db is ever created pre-SavedVariables.
+function EUILite.IsDBReady()
+    return (not IS_STANDALONE) or _svLoaded
+end
 
 --- Create or open a database backed by the central EllesmereUIDB store.
 -- Returns a db object with .profile pointing to the active profile table

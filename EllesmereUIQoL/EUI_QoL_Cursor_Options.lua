@@ -214,7 +214,7 @@ initFrame:SetScript("OnEvent", function(self)
               } }
         );  y = y - h
         -- Block overlay on the right region when Cursor Circle is disabled
-        do
+        if not EllesmereUI._prebuilding then
             local rightRgn = row._rightRegion
             local circleBlock = CreateFrame("Frame", nil, rightRgn)
             circleBlock:SetAllPoints()
@@ -386,7 +386,7 @@ initFrame:SetScript("OnEvent", function(self)
               } }
         );  y = y - h
         -- Block overlay on the right region when GCD Circle is disabled
-        do
+        if not EllesmereUI._prebuilding then
             local rightRgn = row._rightRegion
             local gcdBlock = CreateFrame("Frame", nil, rightRgn)
             gcdBlock:SetAllPoints()
@@ -537,7 +537,7 @@ initFrame:SetScript("OnEvent", function(self)
               } }
         );  y = y - h
         -- Block overlay on the right region when Cast Bar Circle is disabled
-        do
+        if not EllesmereUI._prebuilding then
             local rightRgn = row._rightRegion
             local castBlock = CreateFrame("Frame", nil, rightRgn)
             castBlock:SetAllPoints()
@@ -558,7 +558,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- Inline cog on Enable Cast Bar Circle for "Show Spark"
-        do
+        if not EllesmereUI._prebuilding then
             local leftRgn = row._leftRegion
             local _, cogShowFn = EllesmereUI.BuildCogPopup({
                 title = "Cast Bar Settings",

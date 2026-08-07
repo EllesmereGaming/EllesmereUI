@@ -302,7 +302,11 @@ initFrame:SetScript("OnEvent", function(self)
         title:SetText(L("Preview"))
         oc._title = title
         local hint = EllesmereUI.MakeFont(oc, 10, nil, 1, 1, 1, 0.4)
-        hint:SetPoint("BOTTOM", oc, "BOTTOM", 0, 7)
+        -- Edge-anchored so the text wraps inside the narrow popout instead
+        -- of spilling past its sides (height grows upward from the bottom).
+        hint:SetPoint("BOTTOMLEFT", oc, "BOTTOMLEFT", 8, 7)
+        hint:SetPoint("BOTTOMRIGHT", oc, "BOTTOMRIGHT", -8, 7)
+        hint:SetJustifyH("CENTER")
         hint:SetText(L("Drag to Reorder. Click to Scroll. Right Click to Remove."))
         oc._hint = hint
         -- Self-heal (runs ONLY while shown = zero cost hidden): hide when
@@ -625,6 +629,11 @@ initFrame:SetScript("OnEvent", function(self)
             -- this one is ours).
             local oc = GetPreviewPopout()
             if oc._strip then oc._strip:Hide(); oc._strip:SetParent(nil); oc._strip = nil end
+            -- The add tile is parented to the popout too (not to the strip),
+            -- so it needs the same drop or every rebuild strands another one
+            -- anchored to a dead strip (the "two + buttons, one outside the
+            -- window" report).
+            if oc._addBtn then oc._addBtn:Hide(); oc._addBtn:SetParent(nil); oc._addBtn = nil end
             stripParent = oc
             stripThick = STRIP_V_THICK
             stripLen = STRIP_V_LEN
@@ -647,7 +656,9 @@ initFrame:SetScript("OnEvent", function(self)
             local oc = stripParent
             oc._strip = strip
             -- Sized around strip + title/hint chrome + the add tile below.
-            PP.Size(oc, math.max(stripThick + 90, 150), stripLen + stripThick + 74)
+            -- The extra tail room is for the bottom hint, which wraps to
+            -- multiple lines inside the narrow popout.
+            PP.Size(oc, math.max(stripThick + 90, 150), stripLen + stripThick + 92)
             strip:ClearAllPoints()
             strip:SetPoint("TOP", oc, "TOP", 0, -28)
             strip:SetFrameLevel(oc:GetFrameLevel() + 3)
@@ -676,6 +687,12 @@ initFrame:SetScript("OnEvent", function(self)
         if nBlocks == 0 then
             local hintFS = EllesmereUI.MakeFont(strip, 11, nil, 1, 1, 1, 0.4)
             hintFS:SetPoint("CENTER", strip, "CENTER", 0, 0)
+            if vertical then
+                -- The vertical strip is only a few px wide; cap the hint to
+                -- the popout's inner width so it wraps instead of spilling.
+                hintFS:SetWidth(130)
+                hintFS:SetJustifyH("CENTER")
+            end
             hintFS:SetText(L("Click + to add your first block"))
         end
 
@@ -1282,6 +1299,9 @@ initFrame:SetScript("OnEvent", function(self)
         PP.Size(addBtn, stripThick, stripThick)
         if vertical then
             PP.Point(addBtn, "TOP", strip, "BOTTOM", 0, -4)
+            -- Tracked on the popout so the next rebuild drops it with the
+            -- strip (see the vertical branch above).
+            stripParent._addBtn = addBtn
         else
             PP.Point(addBtn, "LEFT", strip, "RIGHT", 4, 0)
         end
@@ -1401,7 +1421,8 @@ initFrame:SetScript("OnEvent", function(self)
             -- The strip lives in the docked popout; the header only carries
             -- a pointer to it.
             local vh = EllesmereUI.MakeFont(hdr, 12, nil, 1, 1, 1, 0.4)
-            vh:SetPoint("TOPLEFT", hdr, "TOPLEFT", PAD + 4, fy - 2)
+            vh:SetPoint("TOP", hdr, "TOP", 0, fy - 2)
+            vh:SetJustifyH("CENTER")
             vh:SetText(L("Vertical bar: the interactive preview is docked beside this window."))
             fy = fy - 24
         else
@@ -1731,9 +1752,8 @@ initFrame:SetScript("OnEvent", function(self)
                 rows = {
                     { type = "dropdown", label = "Bar Strata",
                       tooltip = "Screen layer this bar renders on. Raise it to draw over other frames, lower it to sit behind them.",
-                      values = { BACKGROUND = "Background", LOW = "Low",
-                                 MEDIUM = "Medium", HIGH = "High", DIALOG = "Dialog" },
-                      order = { "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG" },
+                      values = EllesmereUI.FRAME_STRATA_LABELS,
+                      order = EllesmereUI.FRAME_STRATA_ORDER_BASE,
                       get = function()
                           local c = ns.GetBar(barId)
                           return (c and c.barStrata) or "MEDIUM"
@@ -2825,6 +2845,13 @@ initFrame:SetScript("OnEvent", function(self)
                     -- Off (default) = the letter suffixes; on = coin textures.
                     -- Independent of Coin Colored, which tints those letters.
                     MkToggle("Coin Icons", "coinIcons", "Uses Blizzard's coin textures instead of the letter suffixes."),
+                    -- Rides the slot next to Coin Icons; the checklist
+                    -- dropdown swaps in after the loop (goldTipRow capture).
+                    { type = "dropdown", text = "Show Tooltip Data",
+                      tooltip = "Which sections the gold tooltip shows.",
+                      values = { __placeholder = "..." }, order = { "__placeholder" },
+                      getValue = function() return "__placeholder" end,
+                      setValue = function() end },
                 }
             elseif b.type == "xprep" then
                 typeRows = {
@@ -2971,6 +2998,7 @@ initFrame:SetScript("OnEvent", function(self)
             end
 
             local msIconRow
+            local goldTipRow
             for k = 1, #typeRows, 2 do
                 local rightCfg = typeRows[k + 1]
                 if not rightCfg then rightCfg = { type = "label", text = "" } end
@@ -2978,6 +3006,8 @@ initFrame:SetScript("OnEvent", function(self)
                 -- Latency: the Show Icon toggle rides this row's right slot and
                 -- carries the inline icon-color swatches built after the loop.
                 if b.type == "ms" and k == 1 then msIconRow = row end
+                -- Gold: Show Tooltip Data rides the Coin Icons row's right slot.
+                if b.type == "gold" and k == 3 then goldTipRow = row end
                 -- Deep-link target for an unconfigured currency block: clicking
                 -- its "Select a currency" placeholder on the live bar lands on
                 -- the picker itself, not just the section (ns.OpenBlockSettings).
@@ -3106,6 +3136,36 @@ initFrame:SetScript("OnEvent", function(self)
                     UpdateState()
                 end
                 rgn._lastInline = anchor
+            end
+
+            if b.type == "gold" and goldTipRow then
+                -- Show Tooltip Data: ONE checklist dropdown for the gold
+                -- tooltip's sections (same placeholder-swap idiom as the
+                -- micro menu's Menu Elements below). Characters includes the
+                -- Warbank row and the Total. All three default ON. The
+                -- placeholder itself is the Coin Icons row's right slot.
+                local GOLD_TIP_ELEMENTS = {
+                    { key = "tipSession",    label = "Session" },
+                    { key = "tipCharacters", label = "Characters" },
+                    { key = "tipToken",      label = "WoW Token" },
+                }
+                if not EllesmereUI._prebuilding then
+                    local rightRgn = goldTipRow._rightRegion
+                    if rightRgn._control then rightRgn._control:Hide() end
+                    local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                        rightRgn, 210, rightRgn:GetFrameLevel() + 2,
+                        GOLD_TIP_ELEMENTS,
+                        function(k)
+                            return s[k] ~= false
+                        end,
+                        function(k, v)
+                            if v then s[k] = true else s[k] = false end
+                        end)
+                    PP.Point(cbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
+                    rightRgn._control = cbDD
+                    rightRgn._lastInline = nil
+                    if cbDDRefresh then EllesmereUI.RegisterWidgetRefresh(cbDDRefresh) end
+                end
             end
 
             if b.type == "micromenu" then

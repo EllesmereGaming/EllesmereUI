@@ -318,6 +318,14 @@ end)
 sortBtn:SetScript("OnClick", function()
     if bankSortLocked then return end
     LockBankSort()
+    -- Bank cleanup is Blizzard's, and it reads the same fill-direction setting
+    -- the bags module's MultiBag sort uses. Right-to-left starts at the first
+    -- container (our top); clearing it packs items into the last slots instead.
+    -- Written only while Sort to Bottom is on, so an untouched setup keeps the
+    -- player's own cleanup direction.
+    if BP().bagSortToBottom and C_Container.SetSortBagsRightToLeft then
+        C_Container.SetSortBagsRightToLeft(false)
+    end
     local isWarband = (_selectedView == -2 or _selectedView == -3)
     if not isWarband and _selectedView > 0 and _allTabs[_selectedView] then
         isWarband = _allTabs[_selectedView].isWarband

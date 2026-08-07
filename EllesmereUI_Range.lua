@@ -292,30 +292,6 @@ function EllesmereUI.Range_BeyondCutoff(unit, cutoff)
     return nil
 end
 
--- One-shot diagnostic support (/euirangedbg): every rung and each candidate
--- spell's live answer, through the caller's printer.
-function EllesmereUI.Range_DebugDump(unit, out)
-    EnsureLadder()
-    out("ladder rungs=" .. #RG.ladder .. " activeConsumers=" .. RG.activeCount)
-    local FindOvr = C_SpellBook and C_SpellBook.FindSpellOverrideByID
-    for i = 1, #RG.ladder do
-        local rung = RG.ladder[i]
-        for j = 1, #rung.spells do
-            local sid = rung.spells[j]
-            local res = "no-unit"
-            if unit then
-                local live = (FindOvr and FindOvr(sid)) or sid
-                local raw = C_Spell.IsSpellInRange and C_Spell.IsSpellInRange(live, unit)
-                if issecretvalue and issecretvalue(raw) then
-                    res = "SECRET"
-                else
-                    res = tostring(raw)
-                end
-            end
-            out(("rung %d: %syd spell=%s -> %s"):format(i, tostring(rung.range), tostring(sid), res))
-        end
-    end
-end
 
 -------------------------------------------------------------------------------
 --  Activation

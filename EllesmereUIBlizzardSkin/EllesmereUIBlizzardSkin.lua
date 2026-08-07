@@ -40,6 +40,9 @@ local WINDOW_ENABLE_KEYS = {
     itemupgrade     = "reskinItemUpgrade",
     loot            = "reskinLoot",
     loottoast       = "reskinLootToast",
+    lootroll        = "reskinLootRoll",
+    loothistory     = "reskinLootHistory",
+    groupinvite     = "reskinGroupInvite",
     micromenu       = "reskinMicroMenu",
     housing         = "reskinHousing",
     professions     = "reskinProfessions",
@@ -72,6 +75,62 @@ local WINDOW_ENABLE_KEYS = {
 function EllesmereUI.BlizzWindowSkinsKilled()
     local prof = EllesmereUI.GetActiveProfileData and EllesmereUI.GetActiveProfileData()
     return (prof and prof.disableWindowSkins) and true or false
+end
+
+-------------------------------------------------------------------------------
+--  One-time style seed for the three packs added in 8.7.5 (loot rolls, loot
+--  history, group invite): instead of unconditionally defaulting ON in the
+--  EUI style, each new window adopts whichever style the user already runs
+--  MOST of their windows with -- EllesmereUI, Modern, or Blizzard (off).
+--  Counts RAW stored state, not GetBlizzWindowStyle, so the kill switch
+--  cannot skew the vote; keys the user has already touched are left alone;
+--  ties fall to the suite default (EUI). Marker-gated so it runs once per
+--  account, at ADDON_LOADED (the parent's saved variables are in by then,
+--  which is also before the window engine's PLAYER_LOGIN apply).
+-------------------------------------------------------------------------------
+do
+    local NEW_KEYS = { "lootroll", "loothistory", "groupinvite" }
+    local seedFrame = CreateFrame("Frame")
+    seedFrame:RegisterEvent("ADDON_LOADED")
+    seedFrame:SetScript("OnEvent", function(self, _, name)
+        if name ~= ADDON_NAME then return end
+        self:UnregisterEvent("ADDON_LOADED")
+        if not EllesmereUIDB then EllesmereUIDB = {} end
+        if EllesmereUIDB.lootSkinStyleSeeded then return end
+        EllesmereUIDB.lootSkinStyleSeeded = true
+        local styles = EllesmereUIDB.blizzWindowSkinStyles
+        local isNew = {}
+        for _, k in ipairs(NEW_KEYS) do isNew[k] = true end
+        local off, modern, eui = 0, 0, 0
+        for winKey, ek in pairs(WINDOW_ENABLE_KEYS) do
+            if not isNew[winKey] then
+                if EllesmereUIDB[ek] == false then
+                    off = off + 1
+                elseif styles and styles[winKey] == "modern" then
+                    modern = modern + 1
+                else
+                    eui = eui + 1
+                end
+            end
+        end
+        for _, winKey in ipairs(NEW_KEYS) do
+            local ek = WINDOW_ENABLE_KEYS[winKey]
+            local touched = EllesmereUIDB[ek] ~= nil
+                or (styles and styles[winKey] ~= nil)
+            if not touched then
+                if off > eui and off > modern then
+                    EllesmereUIDB[ek] = false
+                elseif modern > eui and modern >= off then
+                    if not styles then
+                        styles = {}
+                        EllesmereUIDB.blizzWindowSkinStyles = styles
+                    end
+                    styles[winKey] = "modern"
+                end
+                -- EUI majority (or tie): nil already means EUI-on.
+            end
+        end
+    end)
 end
 
 function EllesmereUI.GetBlizzWindowStyle(winKey)
@@ -342,6 +401,17 @@ end
         if not UnitExists(unit) or not UnitIsPlayer(unit) then return nil end
         if not (C_UnitAuras and C_UnitAuras.GetAuraDataByIndex) then return nil end
         if not (C_MountJournal and C_MountJournal.GetMountFromSpell) then return nil end
+        -- In combat, aura data can be a Secret Value and GetAuraDataByIndex
+        -- hard-errors for tainted callers instead of returning nil -- unlike
+        -- every other guard in this function, checking issecretvalue() on the
+        -- result comes too late here. This is a cosmetic tooltip addition, so
+        -- skip it outright rather than risk the taint error. Protected
+        -- instances (active M+ key, rated PvP) keep secret-value restrictions
+        -- in force between pulls too, so the combat check alone is not enough.
+        if InCombatLockdown()
+            or (EllesmereUI.InProtectedInstance and EllesmereUI.InProtectedInstance()) then
+            return nil
+        end
 
         for i = 1, 255 do
             local aura = C_UnitAuras.GetAuraDataByIndex(unit, i, "HELPFUL")

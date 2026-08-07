@@ -177,7 +177,7 @@ initFrame:SetScript("OnEvent", function(self)
         y = y - h
 
         -- Inline RESIZE cog on Scale: Frame Width slider
-        do
+        if not EllesmereUI._prebuilding then
             local PP = EllesmereUI.PP
             local leftRgn = scaleRow._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
@@ -441,6 +441,7 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v) Set("titleSize", v); Refresh() end })
         -- Regular-cog settings popup on Show Title: Show Dungeon Name (default on;
         -- when off the title shows only the +key level, not the dungeon name).
+        if not EllesmereUI._prebuilding then
         _AttachPopupButton(row._leftRegion, EllesmereUI.COGS_ICON, "Title", {
             { type="toggle", label="Show Dungeon Name",
               get=function() return Cfg("showDungeonName") ~= false end,
@@ -461,6 +462,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Inline accent + custom colour swatches on the Title Size slider.
         _AttachInlineAccentSwatches(row._rightRegion, "titleUseAccent", "titleColor", 1, 1, 1,
             function() return Cfg("enabled") == false or Cfg("showTitle") == false end, "Show Title")
+        end
         y = y - h
 
         row, h = W:DualRow(parent, y,
@@ -477,6 +479,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return Cfg("titleAffixPosition") or "ABOVE_TIMER" end,
               setValue=function(v) Set("titleAffixPosition", v); Refresh(); EllesmereUI:RefreshPage() end })
         -- Inline Affix Color swatch on Show Affix (swatch before cog), then Affix Size cog
+        if not EllesmereUI._prebuilding then
         _AttachInlineSwatch(row._leftRegion, "affixTextColor", 1, 1, 1, nil,
             function() return Cfg("enabled") == false or Cfg("showAffixes") == false end, "Show Affix")
         _AttachPopupButton(row._leftRegion, EllesmereUI.RESIZE_ICON, "Affix Size", {
@@ -502,6 +505,7 @@ initFrame:SetScript("OnEvent", function(self)
               get=function() return Cfg("titleAffixBarGap") or Cfg("titleAffixSandwichGap") or 6 end,
               set=function(v) Set("titleAffixBarGap", v); Refresh() end },
         }, function() return Cfg("enabled") == false end)
+        end
         y = y - h
 
         _, h = W:SectionHeader(parent, "TIMER", y); y = y - h
@@ -552,6 +556,7 @@ initFrame:SetScript("OnEvent", function(self)
               min=120, max=420, step=1, isPercent=false,
               getValue=function() return Cfg("barWidth") or 210 end,
               setValue=function(v) Set("barWidth", v); Refresh() end })
+        if not EllesmereUI._prebuilding then
         _AttachPopupButton(row._leftRegion, EllesmereUI.RESIZE_ICON, "Bar Height Options", {
             { type="slider", label="Expanded Height", min=8, max=40, step=1,
               get=function() return Cfg("barHeightExpanded") or 22 end,
@@ -563,6 +568,7 @@ initFrame:SetScript("OnEvent", function(self)
               get=function() return Cfg("timerInBarLeftText") == true end,
               set=function(v) Set("timerInBarLeftText", v); Refresh() end },
         }, function() return Cfg("enabled") == false or Cfg("showTimerBar") == false end)
+        end
         y = y - h
 
         local timerFontValues, timerFontOrder = EllesmereUI.BuildFontDropdownData()
@@ -582,6 +588,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return Cfg("timerFont") or "__global" end,
               setValue=function(v) Set("timerFont", v); Refresh() end })
         -- Inline cog on Bar Texture: the bar's background texture
+        if not EllesmereUI._prebuilding then
         _AttachPopupButton(row._leftRegion, EllesmereUI.COGS_ICON, "Bar Texture", {
             { type="dropdown", label="Background Texture",
               values=texValues, order=texOrder,
@@ -592,6 +599,7 @@ initFrame:SetScript("OnEvent", function(self)
               get=function() return Cfg("customBorderStyle") == true end,
               set=function(v) Set("customBorderStyle", v); ApplyBorder(); EllesmereUI:RefreshPage(true) end },
         }, function() return Cfg("enabled") == false or Cfg("showTimerBar") == false end)
+        end
         y = y - h
 
         --Border Style (+ cog) | Border Size (+ inline swatch)
@@ -636,7 +644,7 @@ initFrame:SetScript("OnEvent", function(self)
                 setValue=function(v) Set("borderSize", v); ApplyBorder(); EllesmereUI:RefreshPage() end })
             y = y - h
             -- Inline cog for border offset (left region)
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = bsRow._leftRegion
                 local _, cogShow = EllesmereUI.BuildCogPopup({
                     title = "Border Options",
@@ -703,7 +711,7 @@ initFrame:SetScript("OnEvent", function(self)
                     cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
                 end
                 -- Inline color swatch on Border Size (right region)
-                do
+                if not EllesmereUI._prebuilding then
                     local rgn = bsRow._rightRegion
                     local ctrl = rgn._control
                     local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
@@ -784,6 +792,7 @@ initFrame:SetScript("OnEvent", function(self)
             p3cfg)
         -- Inline Tick Color swatch (TICKS style only) first so it sits adjacent to
         -- the control, before the cog (swatch-before-cog rule).
+        if not EllesmereUI._prebuilding then
         _AttachInlineSwatch(row._leftRegion, "timerTickColor", 1, 1, 1, nil,
             function() return Cfg("enabled") == false or Cfg("showTimerBar") == false or (Cfg("timerBarStyle") or "TICKS") ~= "TICKS" end, "Ticks")
         _AttachPopupButton(row._leftRegion, EllesmereUI.COGS_ICON, "Ticks / Gaps", {
@@ -799,12 +808,15 @@ initFrame:SetScript("OnEvent", function(self)
               set=function(v) Set("timerBarSegmentGap", v); Refresh() end },
         }, function() return Cfg("enabled") == false or Cfg("showTimerBar") == false end)
         p3attach(row._rightRegion)
+        end
         y = y - h
 
         -- Row 2: +2 Threshold | +1 Threshold
         row, h = W:DualRow(parent, y, p2cfg, p1cfg)
+        if not EllesmereUI._prebuilding then
         p2attach(row._leftRegion)
         p1attach(row._rightRegion)
+        end
         y = y - h
 
         _, h = W:SectionHeader(parent, "FORCES", y); y = y - h
@@ -839,6 +851,7 @@ initFrame:SetScript("OnEvent", function(self)
               order={ "BOTTOM", "UNDER_BAR" },
               getValue=function() return Cfg("enemyForcesPos") or "BOTTOM" end,
               setValue=function(v) Set("enemyForcesPos", v); Refresh() end })
+        if not EllesmereUI._prebuilding then
         _AttachPopupButton(row._leftRegion, EllesmereUI.RESIZE_ICON, "Enemy Forces Text", {
             { type="toggle", label="Hide Label",
               get=function() return Cfg("hideEnemyForcesLabel") == true end,
@@ -853,6 +866,7 @@ initFrame:SetScript("OnEvent", function(self)
               get=function() return Cfg("enemyForcesTextOffsetY") or 0 end,
               set=function(v) Set("enemyForcesTextOffsetY", v); Refresh() end },
         }, function() return Cfg("enabled") == false or Cfg("showEnemyBar") == false end)
+        end
         y = y - h
 
         row, h = W:DualRow(parent, y,
@@ -868,12 +882,14 @@ initFrame:SetScript("OnEvent", function(self)
               disabledTooltip="Show Enemy Forces",
               swatches = _MakeAccentSwatches("enemyBarUseAccent", "enemyBarColor", 0.35, 0.55, 0.8) })
         -- Inline cog on Bar Texture: the bar's background texture
+        if not EllesmereUI._prebuilding then
         _AttachPopupButton(row._leftRegion, EllesmereUI.COGS_ICON, "Bar Texture", {
             { type="dropdown", label="Background Texture",
               values=texValues, order=texOrder,
               get=function() return Cfg("enemyBarBgTexture") or "none" end,
               set=function(v) Set("enemyBarBgTexture", v); Refresh() end },
         }, function() return Cfg("enabled") == false or Cfg("showEnemyBar") == false end)
+        end
         y = y - h
 
         _, h = W:SectionHeader(parent, "BOSS OBJECTIVES", y); y = y - h
@@ -905,6 +921,7 @@ initFrame:SetScript("OnEvent", function(self)
               min=8, max=20, step=1, isPercent=false,
               getValue=function() return Cfg("objectivesSize") or 12 end,
               setValue=function(v) Set("objectivesSize", v); Refresh() end })
+        if not EllesmereUI._prebuilding then
         _AttachPopupButton(row._leftRegion, EllesmereUI.RESIZE_ICON, "Boss Position", {
             { type="slider", label="Boss X", min=-80, max=80, step=1,
               get=function() return Cfg("objectiveTextOffsetX") or 0 end,
@@ -913,6 +930,7 @@ initFrame:SetScript("OnEvent", function(self)
               get=function() return Cfg("objectiveTextOffsetY") or 0 end,
               set=function(v) Set("objectiveTextOffsetY", v); Refresh() end },
         }, function() return Cfg("enabled") == false or Cfg("showObjectives") == false end)
+        end
         y = y - h
 
         row, h = W:DualRow(parent, y,

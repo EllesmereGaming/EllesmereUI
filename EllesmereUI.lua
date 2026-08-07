@@ -256,6 +256,26 @@ local CLASS_COLOR_MAP = {
     WARRIOR      = { r = 0.78, g = 0.61, b = 0.43 },  -- #C69B6D
 }
 
+-- Class icon sprite-sheet UV grid (4-column sheet; left/right/top/bottom).
+-- One shared copy for every module's class-icon rendering; the TEXTURE path
+-- stays per consumer (different modules back different sheets with the same
+-- layout). Read-only everywhere.
+EllesmereUI.CLASS_ICON_SPRITE_COORDS = {
+    WARRIOR     = { 0,     0.125, 0,     0.125 },
+    MAGE        = { 0.125, 0.25,  0,     0.125 },
+    ROGUE       = { 0.25,  0.375, 0,     0.125 },
+    DRUID       = { 0.375, 0.5,   0,     0.125 },
+    EVOKER      = { 0.5,   0.625, 0,     0.125 },
+    HUNTER      = { 0,     0.125, 0.125, 0.25  },
+    SHAMAN      = { 0.125, 0.25,  0.125, 0.25  },
+    PRIEST      = { 0.25,  0.375, 0.125, 0.25  },
+    WARLOCK     = { 0.375, 0.5,   0.125, 0.25  },
+    PALADIN     = { 0,     0.125, 0.25,  0.375 },
+    DEATHKNIGHT = { 0.125, 0.25,  0.25,  0.375 },
+    MONK        = { 0.25,  0.375, 0.25,  0.375 },
+    DEMONHUNTER = { 0.375, 0.5,   0.25,  0.375 },
+}
+
 -- Font (Expressway lives in EllesmereUI/media)
 local EXPRESSWAY = MEDIA_PATH .. "fonts\\Expressway.ttf"
 
@@ -1746,6 +1766,142 @@ EllesmereUI.UNDO_ICON       = MEDIA_PATH .. "icons\\undo.png"
 EllesmereUI.RESIZE_ICON     = MEDIA_PATH .. "icons\\eui-resize-5.png"
 EllesmereUI.DIRECTIONS_ICON = MEDIA_PATH .. "icons\\eui-directions.png"
 EllesmereUI.SYNC_ICON       = MEDIA_PATH .. "icons\\sync.png"
+EllesmereUI.EYE_VISIBLE_ICON   = MEDIA_PATH .. "icons\\eui-visible.png"
+EllesmereUI.EYE_INVISIBLE_ICON = MEDIA_PATH .. "icons\\eui-invisible.png"
+
+-- Shared options-dropdown data. Read-only lookups passed straight into
+-- dropdown configs: the menu renders ONLY the keys its order array lists,
+-- so a site with a subset order may share the full labels dict. Never
+-- mutate these and never feed them to the SharedMedia appenders (those
+-- mutate their arguments in place). Sites with a different sequence
+-- (none-first, bottomright-first, "same"-prefixed) keep their own local
+-- order arrays.
+EllesmereUI.POSITION_GRID_VALUES = {
+    ["topleft"]    = "Top Left",
+    ["top"]        = "Top",
+    ["topright"]   = "Top Right",
+    ["left"]       = "Left",
+    ["center"]     = "Center",
+    ["right"]      = "Right",
+    ["bottomleft"] = "Bottom Left",
+    ["bottom"]     = "Bottom",
+    ["bottomright"] = "Bottom Right",
+}
+EllesmereUI.POSITION_GRID_VALUES_NONE = {
+    ["topleft"]    = "Top Left",
+    ["top"]        = "Top",
+    ["topright"]   = "Top Right",
+    ["left"]       = "Left",
+    ["center"]     = "Center",
+    ["right"]      = "Right",
+    ["bottomleft"] = "Bottom Left",
+    ["bottom"]     = "Bottom",
+    ["bottomright"] = "Bottom Right",
+    ["none"]       = "None",
+}
+EllesmereUI.POSITION_GRID_ORDER = { "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright" }
+EllesmereUI.FRAME_STRATA_LABELS = {
+    BACKGROUND = "Background", LOW = "Low", MEDIUM = "Medium",
+    HIGH = "High", DIALOG = "Dialog", FULLSCREEN = "Fullscreen",
+    FULLSCREEN_DIALOG = "Fullscreen Dialog", TOOLTIP = "Tooltip",
+}
+EllesmereUI.FRAME_STRATA_ORDER_BASE = { "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG" }
+EllesmereUI.FRAME_STRATA_ORDER_FULL = { "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG", "FULLSCREEN", "FULLSCREEN_DIALOG", "TOOLTIP" }
+EllesmereUI.GROW_DIR_VALUES_FULL = { RIGHT = "Right", LEFT = "Left", UP = "Up", DOWN = "Down", CENTER = "Center" }
+EllesmereUI.GROW_DIR_ORDER_FULL  = { "RIGHT", "LEFT", "UP", "DOWN", "CENTER" }
+EllesmereUI.GROW_DIR_VALUES_BASE = { RIGHT = "Right", LEFT = "Left", UP = "Up", DOWN = "Down" }
+EllesmereUI.GROW_DIR_ORDER_BASE  = { "RIGHT", "LEFT", "UP", "DOWN" }
+
+-- Alert sound catalogue: shared LITERAL data only. Every consumer takes its
+-- OWN tables from BuildAlertSoundTables() because the SharedMedia appenders
+-- mutate consumer tables in place and cache them by table identity --
+-- sharing one table object between two dropdowns would collapse them into
+-- one consumer and lose the second dropdown's SM entries.
+EllesmereUI.ALERT_SOUND_FILES = {
+    airhorn = "AirHorn.ogg", banana = "BananaPeelSlip.ogg", bikehorn = "BikeHorn.ogg",
+    bite = "Bite.ogg", boxing = "BoxingArenaSound.ogg", catmeow = "CatMeow.ogg",
+    catmeow2 = "CatMeow2.ogg", gunshot = "FrontalsGunshot.wav", glass = "Glass.mp3",
+    kaching = "Kaching.ogg", phone = "Phone.ogg", robotblip = "RobotBlip.ogg",
+    sonar = "Sonar.ogg", siren = "WarningSiren.ogg", water = "WaterDrop.ogg",
+    wilhelm = "Wilhelm.ogg",
+}
+EllesmereUI.ALERT_SOUND_NAMES = {
+    none = "None", airhorn = "Air Horn", banana = "Banana Peel Slip",
+    bikehorn = "Bike Horn", bite = "Bite", boxing = "Boxing Arena",
+    catmeow = "Cat Meow", catmeow2 = "Cat Meow 2", gunshot = "Frontals Gunshot",
+    glass = "Glass", kaching = "Kaching", phone = "Phone", robotblip = "Robot Blip",
+    sonar = "Sonar", siren = "Warning Siren", water = "Water Drop", wilhelm = "Wilhelm",
+}
+EllesmereUI.ALERT_SOUND_ORDER = {
+    "none", "airhorn", "banana", "bikehorn", "bite", "boxing", "catmeow",
+    "catmeow2", "gunshot", "glass", "kaching", "phone", "robotblip", "sonar",
+    "siren", "water", "wilhelm",
+}
+-- Returns FRESH paths/names/order tables seeded from the catalogue ("none"
+-- stays a name-only key with no path). Safe to hand to the SM appenders.
+function EllesmereUI.BuildAlertSoundTables()
+    local dir = MEDIA_PATH .. "sounds\\"
+    local paths, names, order = {}, {}, {}
+    for i, k in ipairs(EllesmereUI.ALERT_SOUND_ORDER) do
+        order[i] = k
+        names[k] = EllesmereUI.ALERT_SOUND_NAMES[k]
+        local f = EllesmereUI.ALERT_SOUND_FILES[k]
+        if f then paths[k] = dir .. f end
+    end
+    return paths, names, order
+end
+
+-- Statusbar texture catalogue: same contract as the sound catalogue above --
+-- shared LITERAL data, per-consumer table objects via the builder (the SM
+-- texture appender also mutates and identity-caches its argument tables).
+EllesmereUI.BAR_TEXTURE_FILES = {
+    melli = "melli.tga", beautiful = "beautiful.tga", plating = "plating.tga",
+    atrocity = "atrocity.tga", divide = "divide.tga", glass = "glass.tga",
+    ["fade-right"] = "fade-right.tga", ["thin-line-top"] = "thin-line-top.tga",
+    ["thin-line-bottom"] = "thin-line-bottom.tga", fade = "fade.tga",
+    ["gradient-lr"] = "gradient-lr.tga", ["gradient-rl"] = "gradient-rl.tga",
+    ["gradient-bt"] = "gradient-bt.tga", ["gradient-tb"] = "gradient-tb.tga",
+    matte = "matte.tga", sheer = "sheer.tga",
+    ["blinkii-diamonds"] = "blinkii-diamonds.tga",
+    ["kringel-window"] = "kringel-window.tga",
+}
+EllesmereUI.BAR_TEXTURE_NAMES = {
+    none = "None", melli = "Melli (ElvUI)", beautiful = "Beautiful",
+    plating = "Plating", atrocity = "Atrocity", divide = "Divide",
+    glass = "Glass", ["fade-right"] = "Fade Right",
+    ["thin-line-top"] = "Thin Line Top", ["thin-line-bottom"] = "Thin Line Bottom",
+    fade = "Fade", ["gradient-lr"] = "Gradient Right",
+    ["gradient-rl"] = "Gradient Left", ["gradient-bt"] = "Gradient Up",
+    ["gradient-tb"] = "Gradient Down", matte = "Matte", sheer = "Sheer",
+    ["blinkii-diamonds"] = "Blinkii Diamonds", ["kringel-window"] = "Kringel Window",
+}
+EllesmereUI.BAR_TEXTURE_ORDER = {
+    "none", "melli", "atrocity",
+    "fade", "fade-right",
+    "thin-line-top", "thin-line-bottom",
+    "beautiful", "plating",
+    "divide", "glass",
+    "gradient-lr", "gradient-rl", "gradient-bt", "gradient-tb",
+    "matte", "sheer",
+    "blinkii-diamonds", "kringel-window",
+}
+-- Returns FRESH textures/names/order tables. includeExtras=true gives the
+-- full 19-key set; omitted/false gives the core set without the two
+-- pattern textures (blinkii-diamonds / kringel-window) that several
+-- modules deliberately do not offer. "none" is name-only (no path).
+function EllesmereUI.BuildBarTextureTables(includeExtras)
+    local dir = MEDIA_PATH .. "textures\\"
+    local tex, names, order = {}, {}, {}
+    for _, k in ipairs(EllesmereUI.BAR_TEXTURE_ORDER) do
+        if includeExtras or (k ~= "blinkii-diamonds" and k ~= "kringel-window") then
+            order[#order + 1] = k
+            names[k] = EllesmereUI.BAR_TEXTURE_NAMES[k]
+            local f = EllesmereUI.BAR_TEXTURE_FILES[k]
+            if f then tex[k] = dir .. f end
+        end
+    end
+    return tex, names, order
+end
 
 -- Numeric constants
 EllesmereUI.TEXT_WHITE_R = TEXT_WHITE_R
@@ -3506,6 +3662,14 @@ EllesmereUI.CLASS_POWER_MAP = {
     EVOKER       = "MANA",
 }
 
+-- Canonical 13-class token sequence (role order) for class pickers/grids.
+-- Read-only everywhere; sites needing a DIFFERENT order (e.g. alphabetical)
+-- keep their own local list.
+EllesmereUI.CLASS_TOKEN_ORDER = {
+    "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "DEATHKNIGHT",
+    "SHAMAN", "MAGE", "WARLOCK", "MONK", "DRUID", "DEMONHUNTER", "EVOKER",
+}
+
 -- Class -> resource type mapping (nil = no class resource)
 EllesmereUI.CLASS_RESOURCE_MAP = {
     ROGUE       = "ComboPoints",
@@ -4694,12 +4858,58 @@ do
         return false
     end
 
+    -- Deferred award for casts the position probe rejected while the player
+    -- was MOVING: Whirlwind pressed during Charge runs the probe while still
+    -- yards from the target, but the server resolves the swing at landing and
+    -- the real buff is granted (the buff itself is NOT readable: 85739 is
+    -- non-whitelisted -- GetPlayerAuraBySpellID returns nil under live
+    -- restriction CVars, verified 2026-08-05 via the dev-mode flip). So the
+    -- landing IS the event edge: re-run the same probe once on
+    -- PLAYER_STOPPED_MOVING (plain unrestricted event, 69027 docs) inside a
+    -- short validity window. Registered only while an award is pending, so
+    -- the frame is idle everywhere else; a failed re-probe changes nothing.
+    do
+        local _, cls = UnitClass("player")
+        if cls == "WARRIOR" then
+            local pf = CreateFrame("Frame")
+            EllesmereUI._wwPendFrame = pf
+            -- Shared resolver: also driven from the cast handler, because a
+            -- strafing melee can go a whole fight without ever firing
+            -- PLAYER_STOPPED_MOVING -- the next GCD cast is the edge that
+            -- always exists in combat. A FAILED probe keeps the pending award
+            -- armed until the window truly closes (the first one-shot version
+            -- burned it on one bad probe, lost the refresh, and the stale
+            -- expiry timer then cleared live stacks mid-fight).
+            EllesmereUI._wwResolvePend = function()
+                local sid = EllesmereUI._wwPendSid
+                if not sid then return end
+                if GetTime() > (EllesmereUI._wwPendUntil or 0) then
+                    EllesmereUI._wwPendSid = nil
+                    pf:UnregisterEvent("PLAYER_STOPPED_MOVING")
+                    return
+                end
+                if EnemyInStrikeRange(sid) then
+                    EllesmereUI._wwPendSid = nil
+                    pf:UnregisterEvent("PLAYER_STOPPED_MOVING")
+                    stacks = MAX
+                    expiresAt = GetTime() + DURATION
+                end
+                -- Probe still false inside the window: stay armed.
+            end
+            pf:SetScript("OnEvent", EllesmereUI._wwResolvePend)
+        end
+    end
+
     function EllesmereUI.HandleWhirlwindStacks(event, unit, castGUID, spellID)
         if event == "PLAYER_DEAD" or event == "PLAYER_ALIVE" then
             stacks, expiresAt = 0, nil
             bladestormEndsAt = 0
             wipe(seenGUID)
             guidCount = 0
+            if EllesmereUI._wwPendFrame then
+                EllesmereUI._wwPendFrame:UnregisterEvent("PLAYER_STOPPED_MOVING")
+                EllesmereUI._wwPendSid = nil
+            end
             return
         end
         if event == "PLAYER_REGEN_ENABLED" then
@@ -4710,6 +4920,13 @@ do
         end
         if event ~= "UNIT_SPELLCAST_SUCCEEDED" or unit ~= "player" then return end
         if not requiredKnown then return end
+
+        -- Resolve any pending landing award off this cast BEFORE processing
+        -- it: by the next GCD press the player is at the target, so the
+        -- re-probe sees what the whiffed-looking generator actually hit.
+        -- Ordering matters -- the pending Whirlwind landed first, so a
+        -- spender in this very cast correctly drains from the fresh 4.
+        if EllesmereUI._wwResolvePend then EllesmereUI._wwResolvePend() end
 
         if castGUID and seenGUID[castGUID] then return end
         if castGUID then
@@ -4730,8 +4947,24 @@ do
             if (spellID == 6343 or spellID == 435222) and not crashingKnown then
                 return
             end
-            -- Only award if the swing actually had an enemy to land on.
-            if not EnemyInStrikeRange(spellID) then return end
+            -- Only award if the swing actually had an enemy to land on. When
+            -- the probe says no, arm the one-shot landing re-probe instead of
+            -- dropping the cast outright (the mid-Charge case -- see the
+            -- pending frame above).
+            if not EnemyInStrikeRange(spellID) then
+                local pf = EllesmereUI._wwPendFrame
+                if pf then
+                    EllesmereUI._wwPendSid = spellID
+                    EllesmereUI._wwPendUntil = GetTime() + 1.5
+                    pf:RegisterEvent("PLAYER_STOPPED_MOVING")
+                end
+                return
+            end
+            local pf = EllesmereUI._wwPendFrame
+            if pf then
+                pf:UnregisterEvent("PLAYER_STOPPED_MOVING")
+                EllesmereUI._wwPendSid = nil
+            end
             stacks = MAX
             expiresAt = GetTime() + DURATION
         elseif SPENDERS[spellID] and stacks > 0 then
@@ -4745,6 +4978,12 @@ do
         end
     end
 
+    -- NO aura validation here, same doctrine as Sweeping Strikes below: the
+    -- stack buff 85739 is non-whitelisted, so GetPlayerAuraBySpellID returns
+    -- nil under live restriction CVars even while the buff is visibly active
+    -- (verified 2026-08-05 via the dev-mode CVar flip -- 4 with restrictions
+    -- off, NIL with them on). Prediction plus the duration timer IS the
+    -- tracker; the landing re-probe above covers the mid-Charge award.
     function EllesmereUI.GetWhirlwindStacks()
         if not requiredKnown then return 0, 0 end
         if expiresAt and GetTime() >= expiresAt then
@@ -4899,18 +5138,32 @@ do
         if not (UnitExists(u) and UnitCanAttack("player", u) and not UnitIsDead(u)) then
             return false
         end
+        -- The rule (field-measured 2026-08-05): a charge is consumed when at
+        -- least TWO enemies stand within 8 yd of the PLAYER -- the current
+        -- target is irrelevant. NO legal probe measures 8 on non-target
+        -- units (all field-tested 2026-08-05): Charge's 8 yd min range
+        -- evaluates ONLY against the current target token (plate units
+        -- always read "in min range"); UnitPosition dies in instances
+        -- (rejected outright -- context-dependent fidelity); the duel
+        -- interact probe reaches ~9.9 and falsely drained charges on 8-9.9
+        -- bodies the game refused to cleave. So the gauge is the
+        -- melee-spell probe ALONE: hitbox-scaled (~5 yd + combat reach,
+        -- i.e. wider on real mobs than on skinny dummies), uniform in
+        -- every secret context, and its only error is UNDER-counting
+        -- partners in the narrow band between melee reach and 8 yd -- the
+        -- bar can briefly read full-ish, but it never fabricates a spend.
         local isr = C_Spell and C_Spell.IsSpellInRange
         if isr then
-            -- Resolve the live override id (a talent-replaced base id returns
-            -- nil), matching the nameplate range-text / crosshair probes.
+            -- Resolve the live override id (a talent-replaced base id
+            -- returns nil), matching the nameplate range-text probes.
             local ms = (C_SpellBook and C_SpellBook.FindSpellOverrideByID
                 and C_SpellBook.FindSpellOverrideByID(12294)) or 12294
             local r = isr(ms, u)
-            if not (issecretvalue and issecretvalue(r)) and r ~= nil then
+            if not (issecretvalue and issecretvalue(r)) then
                 return r == true
             end
         end
-        return CheckInteractDistance(u, idx or 2) or false
+        return false
     end
     local function EnemiesInReach(need, idx)
         local count, targetPlated = 0, false
@@ -11269,7 +11522,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "8.7.4"
+EllesmereUI.VERSION = "8.7.7"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end
@@ -11577,72 +11830,6 @@ SlashCmdList.EUIOPTIONS = function()
     end)
 end
 
--- Debug: /euimem toggles per-second memory delta readout
-SLASH_EUIMEM1 = "/euimem"
-SlashCmdList.EUIMEM = function()
-    if EllesmereUI._memTicker then
-        EllesmereUI._memTicker:Cancel()
-        EllesmereUI._memTicker = nil
-        EllesmereUI.Print("|cff00ff00[EUI Memory Tracker]|r Stopped.")
-        return
-    end
-    local addons = {}
-    for i = 1, C_AddOns.GetNumAddOns() do
-        local name = C_AddOns.GetAddOnInfo(i)
-        if name and name:find("^Ellesmere") and C_AddOns.IsAddOnLoaded(i) then
-            addons[#addons + 1] = name
-        end
-    end
-    UpdateAddOnMemoryUsage()
-    local lastMem = {}
-    for _, name in ipairs(addons) do
-        lastMem[name] = GetAddOnMemoryUsage(name)
-    end
-    EllesmereUI.Print("|cff00ff00[EUI Memory Tracker]|r Tracking " .. #addons .. " addons. /euimem to stop.")
-    local MEM_INTERVAL = 10
-    local sampleCount = 0
-    local accumMem = {}
-    for _, name in ipairs(addons) do accumMem[name] = 0 end
-    EllesmereUI._memTicker = C_Timer.NewTicker(1, function()
-        UpdateAddOnMemoryUsage()
-        sampleCount = sampleCount + 1
-        for _, name in ipairs(addons) do
-            local cur = GetAddOnMemoryUsage(name)
-            local delta = cur - (lastMem[name] or cur)
-            lastMem[name] = cur
-            accumMem[name] = accumMem[name] + delta
-        end
-        if sampleCount < MEM_INTERVAL then return end
-        -- Print averages (skip GC frames where total is negative)
-        local totalAvg = 0
-        for _, name in ipairs(addons) do
-            totalAvg = totalAvg + accumMem[name] / MEM_INTERVAL
-        end
-        if totalAvg < 0 then
-            for _, name in ipairs(addons) do accumMem[name] = 0 end
-            sampleCount = 0
-            return
-        end
-        totalAvg = 0
-        local lines = {}
-        for _, name in ipairs(addons) do
-            local avg = accumMem[name] / MEM_INTERVAL
-            totalAvg = totalAvg + avg
-            if true then
-                local short = name:gsub("^EllesmereUI", "")
-                if short == "" then short = "Core" end
-                local c = math.abs(avg) > 10 and "ffff6060" or math.abs(avg) > 5 and "ffffff60" or "ff60ff60"
-                lines[#lines + 1] = string.format("  |c%s%s|r %+.1f kb/s", c, short, avg)
-            end
-            accumMem[name] = 0
-        end
-        sampleCount = 0
-        local totalColor = math.abs(totalAvg) > 40 and "ffff6060" or math.abs(totalAvg) > 25 and "ffffff60" or "ff60ff60"
-        EllesmereUI.Print(string.format("|c%s[EUI Memory Tracker]|r %+.1f kb/s avg", totalColor, totalAvg))
-        for _, line in ipairs(lines) do EllesmereUI.Print(line) end
-    end)
-end
-
 -- Quick-access: /ee opens global settings
 SLASH_EUIQUICK1 = "/ee"
 SlashCmdList.EUIQUICK = function()
@@ -11679,7 +11866,7 @@ SlashCmdList.PARTYMODETOGGLE = function()
     end)
 end
 
--- Debug: reset preview hint dismissed flag
+-- Support: reset all one-time hint flags so they show again
 SLASH_EUIRESETHINT1 = "/euiresethint"
 
 -- Quick-access: /unlock opens Unlock Mode directly
@@ -11712,7 +11899,7 @@ SlashCmdList.EUIRESETHINT = function()
     end)
 end
 
--- Debug: wipe saved UI scale so next reload re-snapshots from Blizzard default
+-- Support: wipe saved UI scale so next reload re-snapshots from Blizzard default
 SLASH_EUIRESETSCALE1 = "/euiresetscale"
 SlashCmdList.EUIRESETSCALE = function()
     C_Timer.After(0, function()
@@ -12293,7 +12480,17 @@ initFrame:SetScript("OnEvent", function(self, event)
         -- (per-profile euiAccent -> frozen global root -> theme color). When a
         -- profile has no per-profile accent this reproduces the legacy behavior
         -- exactly, so existing users see zero change.
-        ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b = EllesmereUI.ResolveActiveAccent()
+        --
+        -- Routed through the live-apply path rather than assigning the three
+        -- fields directly: Lite is TOC-ordered ahead of this file, so its
+        -- PLAYER_LOGIN fires first and every module's OnEnable has already
+        -- painted against the parse-time fallback. Notifying repaints them.
+        local accentR, accentG, accentB = EllesmereUI.ResolveActiveAccent()
+        if EllesmereUI.ApplyAccentColorLive then
+            EllesmereUI.ApplyAccentColorLive(accentR, accentG, accentB)
+        else
+            ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b = accentR, accentG, accentB
+        end
     end
 
     -- Spell ID / Item ID + Icon ID / Max Item Stack on Tooltip (developer option)
