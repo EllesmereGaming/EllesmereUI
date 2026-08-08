@@ -358,6 +358,13 @@ local function LayoutSpacing(container, list, isDebuff)
     end
 end
 
+-- Forward: ApplySpacing schedules it when a layout pass carries no aura list
+-- yet (the buttons land a moment later); without the retry that grid would
+-- sit at the stock gap until the next aura event.
+local spacingPending = false
+local spacingRetrying = false   -- the retry pass must not re-schedule itself
+local DeferSpacing
+
 local function ApplySpacing(frame, auras)
     if spacingBusy then return end
     local cfg = PA()
@@ -369,7 +376,13 @@ local function ApplySpacing(frame, auras)
     -- at the stock gap until the next update.
     local list = VisibleAuras(auras)
     if #list == 0 then list = VisibleAuras(container.auras) end
-    if #list == 0 then list = VisibleAuras(frame.auraFrames) end
+    if #list == 0 then
+        list = VisibleAuras(frame.auraFrames)
+        if #list == 0 then
+            if DeferSpacing and not spacingRetrying then DeferSpacing() end
+            return
+        end
+    end
     if #list < 2 then return end
     spacingBusy = true
     LayoutSpacing(container, list, frame == DebuffFrame)
@@ -382,6 +395,17 @@ local function ApplyAllSpacing()
 end
 ns.ApplyPlayerAuraSpacing = ApplyAllSpacing
 
+DeferSpacing = function()
+    if spacingPending or not (C_Timer and C_Timer.After) then return end
+    spacingPending = true
+    C_Timer.After(0, function()
+        spacingPending = false
+        spacingRetrying = true
+        ApplyAllSpacing()
+        spacingRetrying = false
+    end)
+end
+
 -- UpdateGridLayout can fire several times within one frame; each fire used to
 -- queue its own full refresh. Coalesced to one pass per tick. Named rather than
 -- an inline closure so scheduling allocates nothing.
@@ -391,9 +415,11 @@ local function DoPendingRefresh()
     refreshPending = false
     if _paAuraDirty then
         RefreshAll()
-        -- The refresh can reflow the grid; keep the spacing on the same pass.
-        ApplyAllSpacing()
     end
+    -- Unconditional: a grid pass whose hook saw no aura list yet would
+    -- otherwise sit at the stock gap until the next aura event. At the
+    -- default this is two number compares per grid.
+    ApplyAllSpacing()
 end
 
 local function RequestRefresh()
@@ -856,6 +882,14 @@ initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:SetScript("OnEvent", function(self, event, arg1)
     if event == "PLAYER_LOGIN" then
         self:UnregisterEvent("PLAYER_LOGIN")
+
+        -- Early spacing passes: the main install below waits a full second
+        -- for the UF db, and a saved gap showing at the stock spacing for
+        -- that second reads as a visible late snap on every reload.
+        -- ApplyAllSpacing no-ops until the db (and a second aura) exists, so
+        -- firing early is safe; whichever attempt first finds the db wins.
+        C_Timer.After(0.15, ApplyAllSpacing)
+        C_Timer.After(0.4, ApplyAllSpacing)
 
         -- Delay to let UF db initialize
         C_Timer.After(1, function()
