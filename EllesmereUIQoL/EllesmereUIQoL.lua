@@ -1847,8 +1847,25 @@ end
 --  On-screen overlay showing crit/haste/mastery/vers (+ optional tertiaries).
 -------------------------------------------------------------------------------
 do
-    local statsFrame, statsText
+    local statsFrame, statsText, statsValues
     local format = string.format
+
+    -- Two-column layout: labels left-justified, numbers right-justified in a
+    -- second FontString, so values line up regardless of label width. Both
+    -- columns share font/size/spacing, which keeps their rows in step.
+    local COL_GAP = 10   -- gap between the label and value columns
+    local ROW_GAP = 3    -- extra pixels between rows (SetSpacing)
+
+    -- Per-stat label colors, used when no custom color is picked in options.
+    -- One hue per secondary so the rows scan at a glance; tertiaries share a
+    -- single distinct hue so the block reads as its own group.
+    local STAT_HEX = {
+        crit    = "ffd100",   -- gold
+        haste   = "2ecc71",   -- green
+        mastery = "55aaff",   -- blue
+        vers    = "c77dff",   -- violet
+    }
+    -- Tertiaries keep the original default: the player's class color.
 
     -- Secret-safe percent text: stat getters can return secret numbers in
     -- restricted content, and string.format errors on a secret value.
@@ -1862,22 +1879,13 @@ do
         if not statsFrame._classHex then
             local _, cls = UnitClass("player")
             local cc = cls and EllesmereUI.GetClassColor(cls)
-            if cc then
-                statsFrame._classR, statsFrame._classG, statsFrame._classB = cc.r, cc.g, cc.b
-                statsFrame._classHex = format("%02x%02x%02x", cc.r * 255, cc.g * 255, cc.b * 255)
-            else
-                statsFrame._classR, statsFrame._classG, statsFrame._classB = 1, 1, 1
-                statsFrame._classHex = "ffffff"
-            end
+            statsFrame._classHex = cc
+                and format("%02x%02x%02x", cc.r * 255, cc.g * 255, cc.b * 255) or "ffffff"
         end
+        -- A custom color from options paints every secondary label that color
+        -- (as before); with no custom color each stat gets its own hue.
         local c = EllesmereUI.QoLExtrasGet("secondaryStatsColor")
-        local cr, cg, cb
-        if c then
-            cr, cg, cb = c.r, c.g, c.b
-        else
-            cr, cg, cb = statsFrame._classR, statsFrame._classG, statsFrame._classB
-        end
-        local labelHex = c and format("%02x%02x%02x", cr * 255, cg * 255, cb * 255) or statsFrame._classHex
+        local customHex = c and format("%02x%02x%02x", c.r * 255, c.g * 255, c.b * 255) or nil
 
         local crit = GetCritChance("player")
         local haste = UnitSpellHaste("player")
@@ -1892,33 +1900,35 @@ do
             vers = versRating + versBase
         end
 
-        local txt =
-            format("|cff%s%s:|r  |cffffffff%s|r", labelHex, EllesmereUI.L("Crit"), PctText(crit)) .. "\n" ..
-            format("|cff%s%s:|r  |cffffffff%s|r", labelHex, EllesmereUI.L("Haste"), PctText(haste)) .. "\n" ..
-            format("|cff%s%s:|r  |cffffffff%s|r", labelHex, EllesmereUI.L("Mastery"), PctText(mastery)) .. "\n" ..
-            format("|cff%s%s:|r  |cffffffff%s|r", labelHex, EllesmereUI.L("Vers"), PctText(vers))
+        local labels, values = {}, {}
+        -- Value takes the row's color too, so each stat reads as one piece.
+        local function Row(hex, label, value)
+            labels[#labels + 1] = format("|cff%s%s:|r", hex, label)
+            values[#values + 1] = format("|cff%s%s|r", hex, value)
+        end
+        Row(customHex or STAT_HEX.crit,    EllesmereUI.L("Crit"),    PctText(crit))
+        Row(customHex or STAT_HEX.haste,   EllesmereUI.L("Haste"),   PctText(haste))
+        Row(customHex or STAT_HEX.mastery, EllesmereUI.L("Mastery"), PctText(mastery))
+        Row(customHex or STAT_HEX.vers,    EllesmereUI.L("Vers"),    PctText(vers))
 
         if EllesmereUI.QoLExtrasGet("showTertiaryStats") then
             local tc = EllesmereUI.QoLExtrasGet("tertiaryStatsColor")
-            local tr, tg, tb
-            if tc then
-                tr, tg, tb = tc.r, tc.g, tc.b
-            else
-                tr, tg, tb = statsFrame._classR, statsFrame._classG, statsFrame._classB
-            end
-            local tertHex = tc and format("%02x%02x%02x", tr * 255, tg * 255, tb * 255) or statsFrame._classHex
+            local tertHex = tc and format("%02x%02x%02x", tc.r * 255, tc.g * 255, tc.b * 255)
+                or statsFrame._classHex
 
             local leech = GetLifesteal()
             local avoidance = GetAvoidance()
             local speed = GetSpeed()
-            txt = txt .. "\n" ..
-                format("|cff%s%s:|r  |cffffffff%s|r", tertHex, EllesmereUI.L("Leech"), PctText(leech)) .. "\n" ..
-                format("|cff%s%s:|r  |cffffffff%s|r", tertHex, EllesmereUI.L("Avoidance"), PctText(avoidance)) .. "\n" ..
-                format("|cff%s%s:|r  |cffffffff%s|r", tertHex, EllesmereUI.L("Speed"), PctText(speed))
+            Row(tertHex, EllesmereUI.L("Leech"),     PctText(leech))
+            Row(tertHex, EllesmereUI.L("Avoidance"), PctText(avoidance))
+            Row(tertHex, EllesmereUI.L("Speed"),     PctText(speed))
         end
 
-        statsText:SetText(txt)
-        statsFrame:SetSize(statsText:GetStringWidth() + 2, statsText:GetStringHeight() + 2)
+        statsText:SetText(table.concat(labels, "\n"))
+        statsValues:SetText(table.concat(values, "\n"))
+        statsFrame:SetSize(
+            statsText:GetStringWidth() + COL_GAP + statsValues:GetStringWidth() + 2,
+            statsText:GetStringHeight() + 2)
     end
 
     local function ApplySecondaryStats()
@@ -1938,11 +1948,17 @@ do
             statsText = statsFrame:CreateFontString(nil, "OVERLAY")
             statsText:SetPoint("TOPLEFT")
             statsText:SetJustifyH("LEFT")
+            statsValues = statsFrame:CreateFontString(nil, "OVERLAY")
+            statsValues:SetPoint("TOPRIGHT")
+            statsValues:SetJustifyH("RIGHT")
         end
         if statsText then
             local font = EllesmereUI.ResolveFontName(EllesmereUI.GetFontsDB().global)
-            if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(statsText, EllesmereUI.GetFontUseShadow("extras")) end
-            statsText:SetFont(font, 12, EllesmereUI.GetFontOutlineFlag("extras"))
+            for _, fs in ipairs({ statsText, statsValues }) do
+                if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fs, EllesmereUI.GetFontUseShadow("extras")) end
+                fs:SetFont(font, 12, EllesmereUI.GetFontOutlineFlag("extras"))
+                fs:SetSpacing(ROW_GAP)
+            end
         end
         local pos = EllesmereUI.QoLExtrasGet("secondaryStatsPos")
         local scale = 1.0
@@ -1958,8 +1974,12 @@ do
         if statsText then
             local font = EllesmereUI.ResolveFontName(EllesmereUI.GetFontsDB().global)
             local fontSize = math.floor(12 * scale + 0.5)
-            if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(statsText, EllesmereUI.GetFontUseShadow("extras")) end
-            statsText:SetFont(font, fontSize, EllesmereUI.GetFontOutlineFlag("extras"))
+            for _, fs in ipairs({ statsText, statsValues }) do
+                if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fs, EllesmereUI.GetFontUseShadow("extras")) end
+                fs:SetFont(font, fontSize, EllesmereUI.GetFontOutlineFlag("extras"))
+                -- Row gap scales with the font so the block keeps its rhythm.
+                fs:SetSpacing(math.floor(ROW_GAP * scale + 0.5))
+            end
         end
         -- Unit-scoped events filter at the engine (player only); in a raid a
         -- plain RegisterEvent would deliver every member's stat changes.
