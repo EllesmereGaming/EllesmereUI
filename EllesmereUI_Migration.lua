@@ -4365,25 +4365,37 @@ EllesmereUI.RegisterMigration({
 --  tab wrote the shared raid value. The key now files under "healthBar", which
 --  matches where its control lives.
 --
---  A stored party_threatBorderSize normally implies both sections were custom
---  (Health Bar to reach the control, Indicators to route the write), so it
---  stays live and unchanged. The exception is the legacy showThreat -> slider
---  migration, which wrote party_threatBorderSize directly: such a value could
---  be sitting dormant under a synced Health Bar and would switch on here.
---  Neutralize only that case so no party frame changes appearance.
+--  Writing party_threatBorderSize through the UI required both sections custom,
+--  but the legacy showThreat -> slider conversion writes it directly, bypassing
+--  that gate. So the override can be live under one mapping and dormant under
+--  the other, in either direction. Clear it whenever that state would flip: in
+--  the flip-to-live case that preserves exactly what party renders today, and
+--  in the flip-to-dormant case party inherits raid either way while clearing
+--  stops the value reviving later. An override live under BOTH mappings (the
+--  normal both-custom case) is left untouched.
 --------------------------------------------------------------------------------
 EllesmereUI.RegisterMigration({
-    id          = "rf_threat_border_party_section_v1",
+    id          = "rf_threat_border_party_section_v2",
     scope       = "profile",
-    description = "Keep party threat borders rendering as-is after threatBorderSize moved to the Health Bar party-sync section.",
+    description = "Clear a party threat border override whose live/dormant state would flip when threatBorderSize moved to the Health Bar sync section.",
     body = function(ctx)
         local rf = ctx.profile.addons and ctx.profile.addons.EllesmereUIRaidFrames
-        if type(rf) ~= "table" or rf.party_threatBorderSize == nil then return end
+        if type(rf) ~= "table" then return end
+        -- Consume the legacy party conversion HERE. ERF:OnInitialize performs
+        -- the same rewrite, but child addons initialize after the parent's
+        -- ADDON_LOADED, so deferring to it would let a dormant 0 land after
+        -- this body had already decided and stamped. Clearing the flag makes
+        -- that later block a no-op; the raid showThreat key is untouched.
+        if rf.party_showThreat ~= nil then
+            if rf.party_showThreat == false then rf.party_threatBorderSize = 0 end
+            rf.party_showThreat = nil
+        end
+        if rf.party_threatBorderSize == nil then return end
         local ss = type(rf.partySyncSections) == "table" and rf.partySyncSections or nil
-        local wasLive    = ss and ss.indicators == false
-        local willBeLive = ss and ss.healthBar  == false
-        if willBeLive and not wasLive and rf.party_threatBorderSize ~= rf.threatBorderSize then
-            rf.party_threatBorderSize = rf.threatBorderSize
+        local wasLive    = (ss and ss.indicators == false) and true or false
+        local willBeLive = (ss and ss.healthBar  == false) and true or false
+        if wasLive ~= willBeLive then
+            rf.party_threatBorderSize = nil
         end
     end,
 })
