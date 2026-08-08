@@ -8752,15 +8752,10 @@ function EllesmereUI.BuildBorderOptionBlock(parentFrame, y, barData, addonKey, R
                           return "This option requires a non-custom shape to be selected"
                       end
                   end,
-                  getValue=function() return barData.useCustomSize and "custom" or barData.borderThickness or "thin" end,
+                  getValue=function() return barData.borderThickness or "thin" end,
                   setValue=function(v)
-                    if v == "custom" then
-                        barData.useCustomSize = true
-                    else
-                        barData.borderThickness = v; barData.borderSize = BORDER_SIZES[v] or 1
-                        barData.useCustomSize = false
-                    end
-                      Refresh()
+                    barData.borderThickness = v; barData.borderSize = BORDER_SIZES[v] or 1
+                    Refresh()
                   end });  
             -- Inline cog for border offset
             do
@@ -8971,7 +8966,7 @@ function EllesmereUI.BuildBorderOptionBlock(parentFrame, y, barData, addonKey, R
                 EllesmereUI.PanelPP.Point(cogBtn, "RIGHT", anchor, "LEFT", -8, 0)
 
                 local function UpdateCogVis()
-                    if barData.useCustomSize then cogBtn:Show() else cogBtn:Hide() end
+                    if barData.borderThickness and barData.borderThickness == "custom" then cogBtn:Show() else cogBtn:Hide() end
                 end
                 EllesmereUI.RegisterWidgetRefresh(UpdateCogVis)
                 UpdateCogVis()
@@ -8984,6 +8979,7 @@ function EllesmereUI.BuildBorderOptionBlock(parentFrame, y, barData, addonKey, R
                 isSynced = function()
                     local bd = barData
                     local v = bd.borderThickness or "thin"
+                    local sz = bd.borderSize or 1
                     local cc = bd.borderClassColor
                     local bt = bd.borderTexture or "solid"
                     local sx = bd.borderTextureShiftX
@@ -8991,7 +8987,9 @@ function EllesmereUI.BuildBorderOptionBlock(parentFrame, y, barData, addonKey, R
                     local br, bg, bb, ba = bd.borderR or 0, bd.borderG or 0, bd.borderB or 0, bd.borderA or 1
                     local synced = true
                     SyncIterate(function(b)
-                        if (b.borderThickness or "thin") ~= v or b.borderClassColor ~= cc or (b.borderTexture or "solid") ~= bt then synced = false end
+                        local bv = b.borderThickness or "thin"
+                        if bv ~= v or b.borderClassColor ~= cc or (b.borderTexture or "solid") ~= bt then synced = false end
+                        if bv == "custom" and (b.borderSize or 1) ~= sz then synced = false end
                         if b.borderTextureShiftX ~= sx or b.borderTextureShiftY ~= sy then synced = false end
                         if (b.borderR or 0) ~= br or (b.borderG or 0) ~= bg or (b.borderB or 0) ~= bb or (b.borderA or 1) ~= ba then synced = false end
                     end)
