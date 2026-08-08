@@ -4356,3 +4356,34 @@ EllesmereUI.RegisterMigration({
         if type(p) == "table" then p.showCastTarget = false end
     end,
 })
+
+--------------------------------------------------------------------------------
+--  Raid Frames: threatBorderSize moved party-sync sections
+--
+--  The "Threat Borders" slider is drawn on the Health Bar row but the key was
+--  filed under the Indicators party-sync section, so editing it on the Party
+--  tab wrote the shared raid value. The key now files under "healthBar", which
+--  matches where its control lives.
+--
+--  A stored party_threatBorderSize normally implies both sections were custom
+--  (Health Bar to reach the control, Indicators to route the write), so it
+--  stays live and unchanged. The exception is the legacy showThreat -> slider
+--  migration, which wrote party_threatBorderSize directly: such a value could
+--  be sitting dormant under a synced Health Bar and would switch on here.
+--  Neutralize only that case so no party frame changes appearance.
+--------------------------------------------------------------------------------
+EllesmereUI.RegisterMigration({
+    id          = "rf_threat_border_party_section_v1",
+    scope       = "profile",
+    description = "Keep party threat borders rendering as-is after threatBorderSize moved to the Health Bar party-sync section.",
+    body = function(ctx)
+        local rf = ctx.profile.addons and ctx.profile.addons.EllesmereUIRaidFrames
+        if type(rf) ~= "table" or rf.party_threatBorderSize == nil then return end
+        local ss = type(rf.partySyncSections) == "table" and rf.partySyncSections or nil
+        local wasLive    = ss and ss.indicators == false
+        local willBeLive = ss and ss.healthBar  == false
+        if willBeLive and not wasLive and rf.party_threatBorderSize ~= rf.threatBorderSize then
+            rf.party_threatBorderSize = rf.threatBorderSize
+        end
+    end,
+})

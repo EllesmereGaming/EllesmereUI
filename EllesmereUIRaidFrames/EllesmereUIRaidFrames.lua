@@ -7732,7 +7732,8 @@ XF.EnsureBuilt = function(count)
             elseif event == "UNIT_THREAT_LIST_UPDATE" or event == "UNIT_THREAT_SITUATION_UPDATE" then
                 local d = GetFFD(b)
                 if d.threatFrame then
-                    local bs = db.profile.threatBorderSize or 0
+                    local s = d._isExtra and ns._scaledExtraProxy or ns._scaledProfile
+                    local bs = s.threatBorderSize or 0
                     if bs > 0 then
                         local status = UnitThreatSituation(unit)
                         if status and THREAT_ACTIVE[status] and PP then
@@ -10297,7 +10298,8 @@ local function OnEvent(self, event, arg1, ...)
         if btn then
             local d = GetFFD(btn)
             if d.threatFrame then
-                local bs = db.profile.threatBorderSize or 0
+                local s = d._isParty and ns._scaledPartyProxy or (d._isExtra and ns._scaledExtraProxy) or ns._scaledProfile
+                local bs = s.threatBorderSize or 0
                 if bs > 0 then
                     local status = UnitThreatSituation(arg1)
                     if status and THREAT_ACTIVE[status] and PP then
@@ -10539,6 +10541,8 @@ do
             "customBgColor", "bgClassColored", "bgDarkness", "smoothBars",
             "healPrediction", "healPredOpacity", "healPredColor",
             "healthVerticalFill",
+            -- Drawn as "Threat Borders" on the Health Bar row, so it files here.
+            "threatBorderSize",
         },
         absorbs = {
             "absorbStyle", "absorbOpacity", "absorbColor", "absorbEdgeMode", "showOvershield",
@@ -10578,7 +10582,7 @@ do
             "borderBehind", "borderTextureOffset", "borderTextureOffsetY",
             "borderTextureShiftX", "borderTextureShiftY",
             "hoverBorderEnabled", "hoverBorderSize", "hoverBorderColor", "hoverBorderAlpha",
-            "targetBorderEnabled", "targetBorderSize", "targetBorderColor", "targetBorderAlpha", "threatBorderSize",
+            "targetBorderEnabled", "targetBorderSize", "targetBorderColor", "targetBorderAlpha",
         },
         dispels = {
             "dispelBorderSize", "dispelOverlay", "dispelOverlayOpacity", "dispelShowAll",
