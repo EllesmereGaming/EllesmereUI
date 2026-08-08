@@ -15737,6 +15737,7 @@ initFrame:SetScript("OnEvent", function(self)
             db.profile.playerAuras[key] = v
             if ns.RefreshPlayerAuras then ns.RefreshPlayerAuras() end
             if ns.ApplyPlayerAuraScale then ns.ApplyPlayerAuraScale() end
+            if ns.ApplyPlayerAuraSpacing then ns.ApplyPlayerAuraSpacing() end
         end
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
@@ -15766,19 +15767,36 @@ initFrame:SetScript("OnEvent", function(self)
               setValue = function(v) PASet("iconSize", v) end }
         );  y = y - h
 
-        -- Inline cog: Icon Zoom (next to "Icon Size"). Buffs and debuffs
-        -- crop independently.
+        -- Inline cog: Icon Zoom and grid spacing (next to "Icon Size").
+        -- Buffs and debuffs crop and space independently. 5 is Blizzard's own
+        -- gap, so the spacing defaults change nothing; negative values overlap
+        -- the icons deliberately.
         if not EllesmereUI._prebuilding then
             local rgn = paRow1._rightRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Icon Zoom",
                 rows = {
+                    -- Rows are grouped buff-first, debuff-second, so the
+                    -- Spacing X/Y pair under each Zoom slider reads as that
+                    -- group's spacing. Every label reuses an existing locale key.
                     { type = "slider", label = "Buff Zoom", min = 0, max = 0.20, step = 0.01,
                       get = function() return PAGet("buffIconZoom") or 0.055 end,
                       set = function(v) PASet("buffIconZoom", v) end },
+                    { type = "slider", label = "Spacing X", min = -30, max = 30, step = 1,
+                      get = function() return PAGet("buffSpacingX") or 5 end,
+                      set = function(v) PASet("buffSpacingX", v) end },
+                    { type = "slider", label = "Spacing Y", min = -30, max = 30, step = 1,
+                      get = function() return PAGet("buffSpacingY") or 5 end,
+                      set = function(v) PASet("buffSpacingY", v) end },
                     { type = "slider", label = "Debuff Zoom", min = 0, max = 0.20, step = 0.01,
                       get = function() return PAGet("debuffIconZoom") or 0.055 end,
                       set = function(v) PASet("debuffIconZoom", v) end },
+                    { type = "slider", label = "Spacing X", min = -30, max = 30, step = 1,
+                      get = function() return PAGet("debuffSpacingX") or 5 end,
+                      set = function(v) PASet("debuffSpacingX", v) end },
+                    { type = "slider", label = "Spacing Y", min = -30, max = 30, step = 1,
+                      get = function() return PAGet("debuffSpacingY") or 5 end,
+                      set = function(v) PASet("debuffSpacingY", v) end },
                 },
             })
             local cogBtn = CreateFrame("Button", nil, rgn)
