@@ -11571,6 +11571,9 @@ local function ReloadFrames()
     -- path that lands here (fonts, profiles, options) forces their one
     -- explicit refresh instead.
     if ns.RefreshPlayerAuras then ns.RefreshPlayerAuras() end
+    -- Same deal for the grid spacing: a profile switch re-anchors immediately
+    -- instead of waiting for the next aura event.
+    if ns.ApplyPlayerAuraSpacing then ns.ApplyPlayerAuraSpacing() end
 end
 
 -- Toggle a frame's oUF Castbar element without rewriting Blizzard's cast bar
