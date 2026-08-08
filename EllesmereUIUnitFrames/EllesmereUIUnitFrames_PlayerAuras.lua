@@ -282,6 +282,106 @@ local function RefreshAll()
 end
 ns.RefreshPlayerAuras = RefreshAll
 
+-------------------------------------------------------------------------------
+--  Icon spacing (chain re-anchor of the Blizzard grid)
+--
+--  Blizzard lays the grid out with a fixed 5px gap. The spacing sliders
+--  re-anchor the buttons in a chain -- each icon relative to its neighbour,
+--  the first one left on Blizzard's own anchor -- which reproduces the same
+--  grid at any gap. Row and column direction come from the container's own
+--  iconStride / addIconsToRight / addIconsToTop, so the layout follows
+--  whatever the user set in Edit Mode. No aura data is read at any point
+--  (secret on Midnight), and at the default of 5 -- Blizzard's own gap --
+--  the layout pass short-circuits and the grid is untouched.
+-------------------------------------------------------------------------------
+local BLIZZ_GAP = 5
+
+local function SpacingFor(isDebuff)
+    local cfg = PA()
+    if not cfg then return BLIZZ_GAP, BLIZZ_GAP end
+    if isDebuff then
+        return cfg.debuffSpacingX or BLIZZ_GAP, cfg.debuffSpacingY or BLIZZ_GAP
+    end
+    return cfg.buffSpacingX or BLIZZ_GAP, cfg.buffSpacingY or BLIZZ_GAP
+end
+
+-- Shown aura buttons only: hidden pool entries and the container's anchor
+-- dummy would corrupt the chain.
+local function VisibleAuras(auras)
+    local out = {}
+    if type(auras) ~= "table" then return out end
+    for _, button in ipairs(auras) do
+        if button and button.Icon and not button.isAuraAnchor
+            and button.IsShown and button:IsShown() then
+            out[#out + 1] = button
+        end
+    end
+    return out
+end
+
+-- Re-entry guard: our SetPoint calls can fire layout hooks again.
+local spacingBusy = false
+
+-- Whether a non-default layout is currently applied, per grid. Needed so a
+-- return to the default (a profile switch to one with no spacing saved, or
+-- the sliders reset) restores Blizzard's grid immediately: chaining once at
+-- the stock gap reproduces it exactly, and we cannot ask Blizzard to relayout
+-- (driving its aura machinery from addon context taints it). While this is
+-- false the default still short-circuits, so an untouched grid costs nothing.
+local spacingActive = { [false] = false, [true] = false }
+
+local function LayoutSpacing(container, list, isDebuff)
+    if #list < 2 then return end
+    local padX, padY = SpacingFor(isDebuff)
+    local isDefault = (padX == BLIZZ_GAP and padY == BLIZZ_GAP)
+    if isDefault and not spacingActive[isDebuff] then return end
+    spacingActive[isDebuff] = not isDefault
+    local stride   = container.iconStride or 2
+    local addRight = container.addIconsToRight and true or false
+    local addTop   = container.addIconsToTop and true or false
+    local cy    = addTop and "BOTTOM" or "TOP"
+    local cx    = addRight and "LEFT" or "RIGHT"
+    local prevX = addRight and "RIGHT" or "LEFT"
+    local xoff  = addRight and padX or -padX
+    local oppY  = addTop and "TOP" or "BOTTOM"
+    local yoff  = addTop and padY or -padY
+    for i = 2, #list do
+        local button = list[i]
+        local col = (i - 1) % stride
+        button:ClearAllPoints()
+        if col == 0 then
+            -- First icon of a row: hang it off the row above.
+            button:SetPoint(cy .. cx, list[i - stride], oppY .. cx, 0, yoff)
+        else
+            button:SetPoint(cy .. cx, list[i - 1], cy .. prevX, xoff, 0)
+        end
+    end
+end
+
+local function ApplySpacing(frame, auras)
+    if spacingBusy then return end
+    local cfg = PA()
+    if not (cfg and cfg.enabled) then return end
+    local container = frame and frame.AuraContainer
+    if not container then return end
+    -- Prefer the auras Blizzard just laid out: frame.auraFrames does not yet
+    -- contain a button created this pass, and spacing from it left a new aura
+    -- at the stock gap until the next update.
+    local list = VisibleAuras(auras)
+    if #list == 0 then list = VisibleAuras(container.auras) end
+    if #list == 0 then list = VisibleAuras(frame.auraFrames) end
+    if #list < 2 then return end
+    spacingBusy = true
+    LayoutSpacing(container, list, frame == DebuffFrame)
+    spacingBusy = false
+end
+
+local function ApplyAllSpacing()
+    ApplySpacing(BuffFrame)
+    ApplySpacing(DebuffFrame)
+end
+ns.ApplyPlayerAuraSpacing = ApplyAllSpacing
+
 -- UpdateGridLayout can fire several times within one frame; each fire used to
 -- queue its own full refresh. Coalesced to one pass per tick. Named rather than
 -- an inline closure so scheduling allocates nothing.
@@ -291,6 +391,8 @@ local function DoPendingRefresh()
     refreshPending = false
     if _paAuraDirty then
         RefreshAll()
+        -- The refresh can reflow the grid; keep the spacing on the same pass.
+        ApplyAllSpacing()
     end
 end
 
@@ -765,6 +867,10 @@ initFrame:SetScript("OnEvent", function(self, event, arg1)
 
             -- Initial skin pass
             RefreshAll()
+            -- Initial spacing pass: the login grid was laid out before these
+            -- hooks existed, so without this a saved gap only applies on the
+            -- first aura change after logging in.
+            ApplyAllSpacing()
 
             -- Aura-set dirty signal: aura buttons are only born from
             -- aura-list changes, so the grid hooks below sweep only after a
@@ -785,7 +891,11 @@ initFrame:SetScript("OnEvent", function(self, event, arg1)
 
             -- Hook aura updates to catch new/changed buttons
             if BuffFrame and BuffFrame.AuraContainer then
-                hooksecurefunc(BuffFrame.AuraContainer, "UpdateGridLayout", function()
+                hooksecurefunc(BuffFrame.AuraContainer, "UpdateGridLayout", function(_, auras)
+                    -- Space with the aura list Blizzard just laid out, so an
+                    -- aura applied this pass lands at the configured gap on
+                    -- the same frame.
+                    ApplySpacing(BuffFrame, auras)
                     RequestRefresh()
                 end)
                 if BuffFrame.RefreshConsolidationFrameVisibility then
@@ -805,7 +915,8 @@ initFrame:SetScript("OnEvent", function(self, event, arg1)
                 end
             end
             if DebuffFrame and DebuffFrame.AuraContainer then
-                hooksecurefunc(DebuffFrame.AuraContainer, "UpdateGridLayout", function()
+                hooksecurefunc(DebuffFrame.AuraContainer, "UpdateGridLayout", function(_, auras)
+                    ApplySpacing(DebuffFrame, auras)
                     RequestRefresh()
                 end)
             end
