@@ -11,9 +11,18 @@ EllesmereUIUnitFrames/Libs/
 CLAUDE.md
 CLAUDE_PATTERNS.md
 
+# VS Code workspace files
+.vscode/
+
+# Packager build output
+.release/
+
 # 12.1 migration working documents (dev-only, never ship)
 MIDNIGHT_AURA_MIGRATION.md
 MIDNIGHT_MERGE_PLAN.md
 
 # Developer scripts
 *.ps1
+
+# uuf-fuzz scratch output (see .tools/uuf-fuzz/README.md)
+.tools/uuf-fuzz/out/

@@ -1956,6 +1956,16 @@ oUF.Tags.Methods["eui-curpp"] = [[function(u)
 end]]
 oUF.Tags.Events["eui-curpp"] = "UNIT_POWER_UPDATE UNIT_MAXPOWER UNIT_DISPLAYPOWER"
 
+-- eui-curpp-raw: current power as a RAW number, no abbreviation. UUF's plain
+-- [curpp] renders the raw value (only [curpp:abbr] abbreviates), so a converted
+-- profile that used [curpp] must NOT run through AbbreviateNumbers -- otherwise a
+-- full number shows as e.g. "250K". Selected per-unit via s.powerTextRaw.
+oUF.Tags.Methods["eui-curpp-raw"] = [[function(u)
+    local pType = _EUI_ResolvedPowerType[u] or UnitPowerType(u)
+    return tostring(UnitPower(u, pType))
+end]]
+oUF.Tags.Events["eui-curpp-raw"] = "UNIT_POWER_UPDATE UNIT_MAXPOWER UNIT_DISPLAYPOWER"
+
 -- eui-absorb: full absorb amount, blank when zero
 oUF.Tags.Methods["eui-absorb"] = [[function(u)
     if not u or not UnitExists(u) then return "" end
@@ -4857,6 +4867,11 @@ local function CreatePowerBar(frame, unit, settings)
             local r, g, b = EllesmereUI.ResolveUnitPowerColor(unit)
             if r then ppFS:SetTextColor(r, g, b)
             else ppFS:SetTextColor(1, 1, 1) end
+        elseif s.powerPercentTextColorR or s.powerPercentTextColorG or s.powerPercentTextColorB then
+            -- Custom RGB fallback, same shape as the region text color keys
+            -- (leftTextColorR/G/B etc.) -- lets a converted profile carry an
+            -- explicit power-text color instead of falling back to white.
+            ppFS:SetTextColor(s.powerPercentTextColorR or 1, s.powerPercentTextColorG or 1, s.powerPercentTextColorB or 1)
         elseif s.powerTextColor then
             local tc = s.powerTextColor
             ppFS:SetTextColor(tc.r, tc.g, tc.b, tc.a or 1)
@@ -4872,15 +4887,18 @@ local function CreatePowerBar(frame, unit, settings)
         local ox  = s.powerPercentX or 0
         local oy  = s.powerPercentY or 0
 
-        -- Height-0 hotfix (purely additive; only triggers when Power Bar Height is 0).
-        -- At height 0 the power bar collapses to a ZERO-HEIGHT frame, and WoW does not
-        -- resolve a zero-height frame's rect -- GetLeft() returns nil -- so any overlay
-        -- anchored to it collapses to a 0-width, unpositioned strip and the text never
-        -- renders. Anchor the text overlay to the HEALTH bar instead (always a real,
-        -- resolved frame), giving it a real text height in the row the power bar would
-        -- occupy. The _euiHeight0 flag keeps frames that never hit height 0 completely
-        -- untouched; returning to a positive height restores the original SetAllPoints.
-        if (s.powerHeight or 6) <= 0 then
+        -- Height-0 hotfix (purely additive; only triggers when Power Bar Height is 0,
+        -- or when Power Position is "none"). At height 0 the power bar collapses to a
+        -- ZERO-HEIGHT frame, and WoW does not resolve a zero-height frame's rect --
+        -- GetLeft() returns nil -- so any overlay anchored to it collapses to a
+        -- 0-width, unpositioned strip and the text never renders. When powerPosition
+        -- is "none", CreatePowerBar hides the power StatusBar without ever anchoring
+        -- it, hitting the same nil-rect failure. Anchor the text overlay to the
+        -- HEALTH bar instead (always a real, resolved frame), giving it a real text
+        -- height in the row the power bar would occupy. The _euiHeight0 flag keeps
+        -- frames that never hit these cases completely untouched; returning to a
+        -- positive height with a real position restores the original SetAllPoints.
+        if (s.powerHeight or 6) <= 0 or (s.powerPosition or "below") == "none" then
             local pPos = s.powerPosition or "below"
             local anchorTo = frame.Health or power
             ppTextOvr:ClearAllPoints()
@@ -4925,16 +4943,20 @@ local function CreatePowerBar(frame, unit, settings)
         local showPct = s.powerShowPercent ~= false
         local pctSuffix = showPct and "%" or ""
         local fmt = s.powerTextFormat or "perpp"
+        -- UUF's [curpp] is raw; only [curpp:abbr] abbreviates. When the converted
+        -- profile flagged this unit's power text as raw, use the non-abbreviating
+        -- sibling tag everywhere the numeric current-power value appears.
+        local curppTag = s.powerTextRaw and "[eui-curpp-raw]" or "[eui-curpp]"
         local tag
         if fmt == "curpp" then
-            tag = "[eui-curpp]"
+            tag = curppTag
         elseif fmt == "both" then
-            tag = "[eui-curpp] | [eui-perpp]" .. pctSuffix
+            tag = curppTag .. " | [eui-perpp]" .. pctSuffix
         elseif fmt == "smart" then
             -- smart: percent for mana-based specs, numeric for others
             -- resolved at apply time; re-applied on spec change via ReloadAndUpdate
             local isPercent = EUI_IsSmartPowerPercent()
-            tag = isPercent and ("[eui-perpp]" .. pctSuffix) or "[eui-curpp]"
+            tag = isPercent and ("[eui-perpp]" .. pctSuffix) or curppTag
         else -- "perpp" default
             tag = "[eui-perpp]" .. pctSuffix
         end

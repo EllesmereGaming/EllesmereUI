@@ -1,0 +1,23 @@
+## Interface: 120000, 120001, 120005, 120007, 120100
+## Title: |cff0cd29fEllesmereUI|r Unhalted Converter
+## Category: |cff0cd29fEllesmere|rUI
+## Group: EllesmereUI
+## Notes: Experimental: convert Unhalted Unit Frames import strings into EllesmereUI.
+## Author: Ellesmere
+## Version: 8.4.9
+## Dependencies: EllesmereUI
+## SavedVariables: EllesmereUIUnhaltedConverterDB
+## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
+
+# Libraries (AceSerializer decodes Unhalted's !UUF_ strings; LibStub/LibDeflate
+# are provided by the EllesmereUI core addon loaded first via Dependencies).
+Libs\AceSerializer-3.0\AceSerializer-3.0.lua
+
+# Mapping core (pure Lua; no WoW API)
+EllesmereUIUnhaltedConverter_Core.lua
+
+# Main (decode + context + payload + apply)
+EllesmereUIUnhaltedConverter.lua
+
+# Options
+EUI_UnhaltedConverter_Options.lua

@@ -335,6 +335,7 @@ local ADDON_ROSTER = {
     { folder = "EllesmereUIBags",              display = "Bags",                 search_name = "EllesmereUI Bags"                    },
     { folder = "EllesmereUIDataBars",          display = "DataBars",             search_name = "EllesmereUI DataBars"                },
     { folder = "EllesmereUIPartyMode",         display = "Party Mode",           search_name = "EllesmereUI Party Mode",             alwaysLoaded = true },
+    { folder = "EllesmereUIUnhaltedConverter", display = "Unhalted Converter",    search_name = "EllesmereUI Unhalted Converter Migrate Import Unit Frames" },
 }
 
 -------------------------------------------------------------------------------
@@ -368,6 +369,7 @@ EllesmereUI.ADDON_GROUPS = {
             "EllesmereUIAuraBuffReminders",
             "EllesmereUIDataBars",
             "EllesmereUIPartyMode",
+            "EllesmereUIUnhaltedConverter",
         },
     },
     {
@@ -10615,6 +10617,7 @@ function EllesmereUI:RegisterModule(folderName, config)
         EllesmereUIDamageMeters = true,
         EllesmereUIBags = true,
         EllesmereUIDataBars = true,
+        EllesmereUIUnhaltedConverter = true,
     }
     if callerFolder and not ALLOWED[callerFolder] then return end
     -- Suite-core marker (module key is a suite folder): gates the toolbar

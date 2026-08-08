@@ -18,6 +18,7 @@ move-folders:
   EllesmereUI/EllesmereUIQuestTracker: EllesmereUIQuestTracker
   EllesmereUI/EllesmereUIRaidFrames: EllesmereUIRaidFrames
   EllesmereUI/EllesmereUIResourceBars: EllesmereUIResourceBars
+  EllesmereUI/EllesmereUIUnhaltedConverter: EllesmereUIUnhaltedConverter
   EllesmereUI/EllesmereUIUnitFrames: EllesmereUIUnitFrames
 
 externals:

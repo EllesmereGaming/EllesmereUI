@@ -3267,7 +3267,16 @@ function EllesmereUI.ImportProfile(importStr, profileName)
         if EllesmereUI.SpecOverrides_HarvestCurrent then
             EllesmereUI.SpecOverrides_HarvestCurrent()
         end
-        local outgoing = db.profiles[db.activeProfile or "Default"]
+        -- Only flush when there IS a distinct outgoing profile. When
+        -- profileName == db.activeProfile (importing into the profile
+        -- that's already active -- e.g. the Unhalted converter's apply
+        -- flow), db.profiles[profileName] IS `merged`: a raw
+        -- SnapshotUnlockLayout() here would stomp the per-module-filtered
+        -- layout MergeImportedLayout just built (~2538) with the stale,
+        -- pre-apply live tables, resurrecting anchors/width-matches that
+        -- were supposed to be dropped because their module was imported.
+        local outgoing = (db.activeProfile and db.activeProfile ~= profileName)
+            and db.profiles[db.activeProfile] or nil
         if outgoing and EllesmereUIDB then
             outgoing.unlockLayout = SnapshotUnlockLayout()
         end
