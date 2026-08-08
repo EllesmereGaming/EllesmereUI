@@ -8713,9 +8713,9 @@ function EllesmereUI.MakeCogBtn(rgn, showFn, anchorTo, iconPath)
 end
 
 -- Border thickness dropdown
-local BORDER_LABELS = { none="None", thin="Thin", normal="Normal", heavy="Heavy", strong="Strong" }
-local BORDER_ORDER  = { "none", "thin", "normal", "heavy", "strong" }
-local BORDER_SIZES  = { none=0, thin=1, normal=2, heavy=3, strong=4 }
+local BORDER_LABELS = { none="None", thin="Thin", normal="Normal", heavy="Heavy", strong="Strong", custom="Custom" }
+local BORDER_ORDER  = { "none", "thin", "normal", "heavy", "strong", "custom" }
+local BORDER_SIZES  = { none=0, thin=1, normal=2, heavy=3, strong=4 , custom=5 }
 
 function EllesmereUI.BuildBorderOptionBlock(parentFrame, y, barData, addonKey, Refresh, isCustomShape, SyncIterate)
 
@@ -8752,9 +8752,14 @@ function EllesmereUI.BuildBorderOptionBlock(parentFrame, y, barData, addonKey, R
                           return "This option requires a non-custom shape to be selected"
                       end
                   end,
-                  getValue=function() return barData.borderThickness or "thin" end,
+                  getValue=function() return barData.useCustomSize and "custom" or barData.borderThickness or "thin" end,
                   setValue=function(v)
-                      barData.borderThickness = v; barData.borderSize = BORDER_SIZES[v] or 1
+                    if v == "custom" then
+                        barData.useCustomSize = true
+                    else
+                        barData.borderThickness = v; barData.borderSize = BORDER_SIZES[v] or 1
+                        barData.useCustomSize = false
+                    end
                       Refresh()
                   end });  
             -- Inline cog for border offset
@@ -8945,6 +8950,32 @@ function EllesmereUI.BuildBorderOptionBlock(parentFrame, y, barData, addonKey, R
                 end
                 EllesmereUI.RegisterWidgetRefresh(function() updateSwatch(); updateClassBorderSwatch(); UpdateBorderSwatchState() end)
                 UpdateBorderSwatchState()
+            end
+
+            -- Inline cog for custom border size, only active when custom size is selected (right region)
+            do
+                local rgn = bsRow._rightRegion
+                local anchor = rgn._lastInline
+                local _, cogShow = EllesmereUI.BuildCogPopup({
+                    title = "Custom Border Size",
+                    rows = {
+                        { type = "slider", label = "Size", min = 1, max = 50, step = 1,
+                          get = function() return barData.borderSize or 1 end,
+                          set = function(v)
+                              barData.borderSize = v
+                              Refresh();
+                          end },
+                    },
+                })
+                local cogBtn = EllesmereUI.MakeCogBtn(rgn, cogShow)
+                EllesmereUI.PanelPP.Point(cogBtn, "RIGHT", anchor, "LEFT", -8, 0)
+
+                local function UpdateCogVis()
+                    if barData.useCustomSize then cogBtn:Show() else cogBtn:Hide() end
+                end
+                EllesmereUI.RegisterWidgetRefresh(UpdateCogVis)
+                UpdateCogVis()
+
             end
             -- Sync icon on Border Size (right region)
             EllesmereUI.BuildSyncIcon({
