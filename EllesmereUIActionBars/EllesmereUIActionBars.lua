@@ -11253,8 +11253,8 @@ local function UpdateKeybinds()
             -- keybind would fire the un-paged slot while the icon (our explicit
             -- "action" attr) repages. Route those bars' keybinds through the
             -- button (SetOverrideBindingClick) so the keypress reads our paged
-            -- "action" attr -- exactly what empower/flyout already do, and what
-            -- ElvUI/Bartender do for every button via LibActionButton.
+            -- "action" attr -- exactly what empower/flyout already do, and the
+            -- standard approach for any bar whose slots are addon-managed.
             --
             -- Class-default form paging (Druid/Rogue) is NOT custom paging: it
             -- rides on bonusbar, a native engine concept that ACTIONBUTTONn

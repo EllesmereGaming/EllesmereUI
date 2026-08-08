@@ -3276,7 +3276,7 @@ local function Skin_Guild()
     -- secure roster refresh that a protected guild action (SetNote /
     -- SetGuildRankOrder) triggers, tainting that action -> ADDON_ACTION_FORBIDDEN
     -- (root-caused by bisection; @Halt57/@woaw guild-note reports). hooksecurefunc
-    -- post-hooks are taint-safe by design -- the pattern ElvUI uses here.
+    -- post-hooks are taint-safe by design, which is the standard fix here.
     if ml and ml.RefreshListDisplay and not GetFFD(ml).colRefreshHooked then
         GetFFD(ml).colRefreshHooked = true
         hooksecurefunc(ml, "RefreshListDisplay", WSkin.Debounce(SkinRosterColumns))
