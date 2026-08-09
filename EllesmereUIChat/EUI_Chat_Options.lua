@@ -101,13 +101,14 @@ initFrame:SetScript("OnEvent", function(self)
               caps = { partyIncludesRaid = false, noMouseover = true, luaDragonriding = true },
               onChanged = function()
                   if ECHAT.ResetIdleTimer then ECHAT.ResetIdleTimer() end
+                  if ECHAT.ApplyIdleFadeHoverMotion then ECHAT.ApplyIdleFadeHoverMotion() end
                   RefreshAll()
               end },
             { type="dropdown", text="Visibility Options",
               values={ __placeholder = "..." }, order={ "__placeholder" },
               getValue=function() return "__placeholder" end,
               setValue=function() end })
-        do
+        if not EllesmereUI._prebuilding then
             local rightRgn = visRow._rightRegion
             if rightRgn._control then rightRgn._control:Hide() end
             local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
@@ -154,7 +155,7 @@ initFrame:SetScript("OnEvent", function(self)
               values=btValues, order=btOrder,
               getValue=function() return Cfg("bgTexture") or "none" end,
               setValue=function(v) Set("bgTexture", v); RefreshAll() end })
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = bgRow._leftRegion
             local ctrl = rgn._control
             local bgSwatch, bgSwatchRefresh = EllesmereUI.BuildColorSwatch(
@@ -213,7 +214,7 @@ initFrame:SetScript("OnEvent", function(self)
                       })
                   end })
             -- Cog for Outline Mode
-            do
+            if not EllesmereUI._prebuilding then
                 local rrgn = fontRow._rightRegion
                 local outlineValues = {
                     ["__global"] = { text = "EUI Global Default" },
@@ -292,7 +293,7 @@ initFrame:SetScript("OnEvent", function(self)
             y = y - h
 
             -- Border offset dropdown on Border Style.
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = borderRow._leftRegion
                 local _, cogShow = EllesmereUI.BuildCogPopup({
                     title = "Border Offset",
@@ -381,7 +382,7 @@ initFrame:SetScript("OnEvent", function(self)
             end
 
             -- Accent, custom, and class-color selectors beside Border Size.
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = borderRow._rightRegion
                 local ctrl = rgn._control
                 local function ApplyMode(mode)
@@ -464,6 +465,7 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v)
                   Set("idleFadeEnabled", v)
                   if ECHAT.ResetIdleTimer then ECHAT.ResetIdleTimer() end
+                  if ECHAT.ApplyIdleFadeHoverMotion then ECHAT.ApplyIdleFadeHoverMotion() end
                   EllesmereUI:RefreshPage()
               end },
             { type="slider", text="Fade Delay",
@@ -536,7 +538,7 @@ initFrame:SetScript("OnEvent", function(self)
                   if ECHAT.ApplySidebarBackground then ECHAT.ApplySidebarBackground() end
               end })
         -- Cog for Sidebar Visibility
-        do
+        if not EllesmereUI._prebuilding then
             local lrgn = sidebarRow._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Sidebar Settings",
@@ -581,7 +583,7 @@ initFrame:SetScript("OnEvent", function(self)
                   if ECHAT.ApplyExtendedBackground then ECHAT.ApplyExtendedBackground() end
                   EllesmereUI:RefreshPage()
               end })
-        do
+        if not EllesmereUI._prebuilding then
             local lrgn = sidebarLayoutRow._rightRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title="Separate Sidebar",
@@ -666,7 +668,7 @@ initFrame:SetScript("OnEvent", function(self)
               values={ __placeholder = "..." }, order={ "__placeholder" },
               getValue=function() return "__placeholder" end,
               setValue=function() end })
-        do
+        if not EllesmereUI._prebuilding then
             local rightRgn = iconOptionsRow._rightRegion
             if rightRgn._control then rightRgn._control:Hide() end
             local pendingIconReload = false
@@ -724,7 +726,7 @@ initFrame:SetScript("OnEvent", function(self)
                   if ECHAT.ApplySidebarIcons then ECHAT.ApplySidebarIcons() end
                   EllesmereUI:RefreshPage()
               end })
-        do
+        if not EllesmereUI._prebuilding then
             local lrgn = sizeRow._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Icon Settings",
@@ -752,7 +754,7 @@ initFrame:SetScript("OnEvent", function(self)
             cogBtn:SetScript("OnClick", function(s) cogShow(s) end)
         end
         -- "Reset" label next to the Free Move Icons toggle (only visible when enabled)
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = sizeRow._rightRegion
             local resetFS = rgn:CreateFontString(nil, "OVERLAY")
             resetFS:SetFont(EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF", 12, "")
@@ -777,6 +779,18 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(UpdateResetVis)
         end
         y = y - h
+
+        -- Row 4: Scroll Button on Chat Panel | (empty)
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Scroll Button on Chat Panel",
+              tooltip="Anchors the Scroll to Bottom button to the bottom-right corner of the chat panel instead of the sidebar.",
+              getValue=function() return Cfg("scrollButtonOnChat") == true end,
+              setValue=function(v)
+                  Set("scrollButtonOnChat", v)
+                  if ECHAT.ApplySidebarIcons then ECHAT.ApplySidebarIcons() end
+                  if ECHAT.ApplySidebarVisibility then ECHAT.ApplySidebarVisibility() end
+              end },
+            { type="label", text="" });  y = y - h
 
         end -- isSidebar
 
@@ -829,7 +843,8 @@ initFrame:SetScript("OnEvent", function(self)
                   end })
             y = y - h
 
-            _, h = W:DualRow(parent, y,
+            local tabSizeRow
+            tabSizeRow, h = W:DualRow(parent, y,
                 { type="slider", text="Tab Height", min=18, max=40, step=1,
                   getValue=function() return Cfg("tabHeight") or 24 end,
                   setValue=function(v)
@@ -842,6 +857,34 @@ initFrame:SetScript("OnEvent", function(self)
                       Set("tabInnerPaddingX", v)
                       if ECHAT.ApplyTabLayout then ECHAT.ApplyTabLayout() end
                   end })
+            -- Cog on Inner Padding X: Tab Offset X (applies in both tab modes)
+            if not EllesmereUI._prebuilding then
+                local rrgn = tabSizeRow._rightRegion
+                local _, cogShow = EllesmereUI.BuildCogPopup({
+                    title = "Tab Layout",
+                    rows = {
+                        { type="slider", label="Tab Offset X",
+                          min = -100, max = 100, step = 1,
+                          get=function() return Cfg("tabOffsetX") or 0 end,
+                          set=function(v)
+                              Set("tabOffsetX", v)
+                              if ECHAT.ApplyTabPadding then ECHAT.ApplyTabPadding() end
+                          end },
+                    },
+                })
+                local cogBtn = CreateFrame("Button", nil, rrgn)
+                cogBtn:SetSize(26, 26)
+                cogBtn:SetPoint("RIGHT", rrgn._lastInline or rrgn._control, "LEFT", -8, 0)
+                rrgn._lastInline = cogBtn
+                cogBtn:SetFrameLevel(rrgn:GetFrameLevel() + 5)
+                cogBtn:SetAlpha(0.4)
+                local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+                cogTex:SetAllPoints()
+                cogTex:SetTexture(EllesmereUI.COGS_ICON)
+                cogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
+                cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
+                cogBtn:SetScript("OnClick", function(s) cogShow(s) end)
+            end
             y = y - h
 
             _, h = W:SectionHeader(parent, "TYPOGRAPHY", y); y = y - h
@@ -1077,8 +1120,10 @@ initFrame:SetScript("OnEvent", function(self)
                 cogBtn:SetScript("OnLeave",function(self) self:SetAlpha(0.4) end)
                 cogBtn:SetScript("OnClick",function(self) cogShow(self) end)
             end
+            if not EllesmereUI._prebuilding then
             AttachTabBgOpacityCog(tabBgRow._leftRegion, false)
             AttachTabBgOpacityCog(tabBgRow._rightRegion, true)
+            end
             y = y - h
 
             local function UnderlineMode()
@@ -1167,8 +1212,10 @@ initFrame:SetScript("OnEvent", function(self)
                       Set("tabBackgroundTexture", v)
                       if ECHAT.ApplyTabAppearance then ECHAT.ApplyTabAppearance() end
                   end })
+            if not EllesmereUI._prebuilding then
             EllesmereUI.BuildInlineSwatches(
                 underlineRow._leftRegion, UnderlineSwatches())
+            end
             y = y - h
 
             -- (No tab idle-fade section: the per-tab fade layer was removed
@@ -1230,7 +1277,7 @@ initFrame:SetScript("OnEvent", function(self)
                   end })
             y = y - h
 
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = borderRow._leftRegion
                 local _, cogShow = EllesmereUI.BuildCogPopup({
                     title="Tab Border Offset", captureRegion=rgn,
@@ -1275,7 +1322,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUI.RegisterWidgetRefresh(Refresh); Refresh()
             end
 
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn, ctrl = borderRow._rightRegion, borderRow._rightRegion._control
                 local function SetMode(mode)
                     if tabBordersDisabled() then return end
@@ -1321,7 +1368,7 @@ initFrame:SetScript("OnEvent", function(self)
                       EllesmereUI:RefreshPage()
                   end },
                 { type="label", text="" })
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = activeBorderRow._leftRegion
                 local swatch, refreshSwatch = EllesmereUI.BuildColorSwatch(
                     rgn, activeBorderRow:GetFrameLevel() + 3,
@@ -1455,7 +1502,7 @@ initFrame:SetScript("OnEvent", function(self)
                   if ECHAT.ApplyBorders then ECHAT.ApplyBorders() end
                   EllesmereUI:RefreshPage()
               end })
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = extrasBorderRow._rightRegion
             local ctrl = rgn._control
             local function SetInnerMode(mode)

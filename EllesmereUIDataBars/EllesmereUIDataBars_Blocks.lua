@@ -32,59 +32,8 @@ local ICON_GAP = 8
 -- the Unit Frames Bar Texture set (same parent-media files), and gets
 -- SharedMedia statusbar textures appended below plus live at dropdown
 -- build. "none" = the legacy flat color fill.
-local BAR_TEX_BASE = "Interface\\AddOns\\EllesmereUI\\media\\textures\\"
-local barTextures = {
-    ["none"]          = nil,
-    ["melli"]         = BAR_TEX_BASE .. "melli.tga",
-    ["beautiful"]     = BAR_TEX_BASE .. "beautiful.tga",
-    ["plating"]       = BAR_TEX_BASE .. "plating.tga",
-    ["atrocity"]      = BAR_TEX_BASE .. "atrocity.tga",
-    ["divide"]        = BAR_TEX_BASE .. "divide.tga",
-    ["glass"]         = BAR_TEX_BASE .. "glass.tga",
-    ["fade-right"]    = BAR_TEX_BASE .. "fade-right.tga",
-    ["thin-line-top"]    = BAR_TEX_BASE .. "thin-line-top.tga",
-    ["thin-line-bottom"] = BAR_TEX_BASE .. "thin-line-bottom.tga",
-    ["fade"]          = BAR_TEX_BASE .. "fade.tga",
-    ["gradient-lr"]   = BAR_TEX_BASE .. "gradient-lr.tga",
-    ["gradient-rl"]   = BAR_TEX_BASE .. "gradient-rl.tga",
-    ["gradient-bt"]   = BAR_TEX_BASE .. "gradient-bt.tga",
-    ["gradient-tb"]   = BAR_TEX_BASE .. "gradient-tb.tga",
-    ["matte"]         = BAR_TEX_BASE .. "matte.tga",
-    ["sheer"]         = BAR_TEX_BASE .. "sheer.tga",
-    ["blinkii-diamonds"] = BAR_TEX_BASE .. "blinkii-diamonds.tga",
-    ["kringel-window"]   = BAR_TEX_BASE .. "kringel-window.tga",
-}
-local barTextureOrder = {
-    "none", "melli", "atrocity",
-    "fade", "fade-right",
-    "thin-line-top", "thin-line-bottom",
-    "beautiful", "plating",
-    "divide", "glass",
-    "gradient-lr", "gradient-rl", "gradient-bt", "gradient-tb",
-    "matte", "sheer",
-    "blinkii-diamonds", "kringel-window",
-}
-local barTextureNames = {
-    ["none"]        = "None",
-    ["melli"]       = "Melli (ElvUI)",
-    ["beautiful"]   = "Beautiful",
-    ["plating"]     = "Plating",
-    ["atrocity"]    = "Atrocity",
-    ["divide"]      = "Divide",
-    ["glass"]       = "Glass",
-    ["fade-right"]  = "Fade Right",
-    ["thin-line-top"]    = "Thin Line Top",
-    ["thin-line-bottom"] = "Thin Line Bottom",
-    ["fade"]        = "Fade",
-    ["gradient-lr"] = "Gradient Right",
-    ["gradient-rl"] = "Gradient Left",
-    ["gradient-bt"] = "Gradient Up",
-    ["gradient-tb"] = "Gradient Down",
-    ["matte"]       = "Matte",
-    ["sheer"]       = "Sheer",
-    ["blinkii-diamonds"] = "Blinkii Diamonds",
-    ["kringel-window"]   = "Kringel Window",
-}
+local barTextures, barTextureNames, barTextureOrder =
+    EllesmereUI.BuildBarTextureTables(true)
 ns.barTextures = barTextures
 ns.barTextureOrder = barTextureOrder
 ns.barTextureNames = barTextureNames
@@ -1822,6 +1771,12 @@ end
 
 local function GoldLedgerUpdate()
     local money = GetMoney()
+    -- Never let a secret into the ledger or the saved store: every consumer
+    -- (session math, roster threshold, sort, total) compares or does
+    -- arithmetic on these values, and the store persists across sessions.
+    if (issecretvalue and issecretvalue(money)) or type(money) ~= "number" then
+        return
+    end
     if goldLedger.lastMoney then
         local diff = money - goldLedger.lastMoney
         if diff > 0 then goldLedger.profit = goldLedger.profit + diff
@@ -1834,7 +1789,9 @@ end
 local function GoldOnEvent(_, event)
     if event == "TOKEN_MARKET_PRICE_UPDATED" then
         if C_WowTokenPublic and C_WowTokenPublic.GetCurrentMarketPrice then
-            goldLedger.tokenPrice = C_WowTokenPublic.GetCurrentMarketPrice()
+            local price = C_WowTokenPublic.GetCurrentMarketPrice()
+            if issecretvalue and issecretvalue(price) then price = nil end
+            goldLedger.tokenPrice = price
         end
         return
     end
@@ -2070,74 +2027,109 @@ ns.BlockFactories.gold = function(blockCfg, slot, content, barCtx)
         -- Tooltip money lines honor the block's Show Silver and Copper toggle.
         local sm = D().showSmall == true
         local ci = D().coinIcons == true
+        -- Show Tooltip Data checklist: each section defaults ON.
+        local showSession = D().tipSession ~= false
+        local showChars   = D().tipCharacters ~= false
+        local showToken   = D().tipToken ~= false
         local ar, ag, ab = 1, 1, 1
         ns.Tip_Begin(goldButton)
         ns.Tip_AddLine(L["GOLD"], ar, ag, ab)
-        ns.Tip_AddLine(" ")
-        ns.Tip_AddLine(L["SESSION"], 0.8, 0.8, 0.8)
-        ns.Tip_AddDouble(L["EARNED"], ns.FormatMoney(goldLedger.profit, true, sm, ci), 0.6, 0.6, 0.6, 0, 1, 0)
-        ns.Tip_AddDouble(L["SPENT"],  ns.FormatMoney(goldLedger.spent,  true, sm, ci), 0.6, 0.6, 0.6, 1, 0.3, 0.3)
-        local net = goldLedger.profit - goldLedger.spent
-        if net ~= 0 then
-            local label
-            if net > 0 then label = L["PROFIT"] else label = L["DEFICIT"] end
-            local nr, ngr = 1, 0.3
-            if net > 0 then nr, ngr = 0, 1 end
-            ns.Tip_AddDouble(label, ns.FormatMoney(abs(net), true, sm, ci), 0.6, 0.6, 0.6, nr, ngr, 0.3)
-        end
-        local store = GoldStore()
-        -- The list holds store KEYS ("Name-Realm"): a delete needs the key, and
-        -- the entry itself does not carry one.
-        local total, charList = 0, {}
-        for key, cdata in pairs(store) do
-            if cdata and cdata.currentMoney then
-                tinsert(charList, key)
-                total = total + cdata.currentMoney
-            end
-        end
-        tsort(charList, function(a, b)
-            return (store[a].currentMoney or 0) > (store[b].currentMoney or 0)
-        end)
-        if #charList > 0 then
-            local selfKey = GoldCharKey()
+        if showSession then
             ns.Tip_AddLine(" ")
-            ns.Tip_AddLine(GetRealmName() or "?", 0.5, 0.78, 1)
-            for _, key in ipairs(charList) do
-                local char = store[key]
-                local cr, cg, cb = 1, 1, 1
-                if char.class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[char.class] then
-                    local cc = RAID_CLASS_COLORS[char.class]; cr, cg, cb = cc.r, cc.g, cc.b
-                end
-                local label = char.name or "?"
-                local tokens = ns.MoneyTokens(char.currentMoney, sm, ci, true)
-                if key == selfKey then
-                    -- The live character re-saves itself on every money event,
-                    -- so deleting it would only bring it straight back.
-                    label = label .. " |TInterface\\COMMON\\Indicator-Green:14|t"
-                    ns.Tip_AddColumns(label, tokens, cr, cg, cb)
-                else
-                    ns.Tip_AddClickableColumns(label, tokens, function(mouseButton)
-                        if mouseButton ~= "LeftButton" then return end
-                        if not (IsControlKeyDown() and IsAltKeyDown()) then return end
-                        GoldForgetCharacter(key)
-                        ns.Tip_Hide(goldButton)
-                    end, cr, cg, cb)
-                end
+            ns.Tip_AddLine(L["SESSION"], 0.8, 0.8, 0.8)
+            ns.Tip_AddDouble(L["EARNED"], ns.FormatMoney(goldLedger.profit, true, sm, ci), 0.6, 0.6, 0.6, 0, 1, 0)
+            ns.Tip_AddDouble(L["SPENT"],  ns.FormatMoney(goldLedger.spent,  true, sm, ci), 0.6, 0.6, 0.6, 1, 0.3, 0.3)
+            local net = goldLedger.profit - goldLedger.spent
+            if net ~= 0 then
+                local label
+                if net > 0 then label = L["PROFIT"] else label = L["DEFICIT"] end
+                local nr, ngr = 1, 0.3
+                if net > 0 then nr, ngr = 0, 1 end
+                ns.Tip_AddDouble(label, ns.FormatMoney(abs(net), true, sm, ci), 0.6, 0.6, 0.6, nr, ngr, 0.3)
             end
         end
-        local bankType = 2
-        if Enum and Enum.BankType and Enum.BankType.Account then bankType = Enum.BankType.Account end
-        if C_Bank and C_Bank.FetchDepositedMoney then
-            local wbank = C_Bank.FetchDepositedMoney(bankType)
-            if wbank and wbank > 0 then
+        local charCount = 0
+        if showChars then
+            local store = GoldStore()
+            -- The list holds store KEYS ("Name-Realm"): a delete needs the key, and
+            -- the entry itself does not carry one.
+            local selfKey = GoldCharKey()
+            -- Roster shows only balances above 10,000 gold (copper threshold),
+            -- plus the live character. Filtered characters stay in the store
+            -- and still count into the total below.
+            local minCopper = 10000 * 10000
+            local total, charList = 0, {}
+            for key, cdata in pairs(store) do
+                -- issecretvalue-first: stores written before the ledger guard
+                -- existed could carry a secret, and even a truthiness test on
+                -- one is an error.
+                local cm = cdata and cdata.currentMoney
+                if issecretvalue and issecretvalue(cm) then cm = nil end
+                if cm then
+                    if cm > minCopper or key == selfKey then
+                        tinsert(charList, key)
+                    end
+                    total = total + cm
+                end
+            end
+            tsort(charList, function(a, b)
+                return (store[a].currentMoney or 0) > (store[b].currentMoney or 0)
+            end)
+            charCount = #charList
+            if charCount > 0 then
                 ns.Tip_AddLine(" ")
-                ns.Tip_AddDouble(L["WARBANK"], ns.FormatMoney(wbank, true, sm, ci), 0.6, 0.6, 0.6, 1, 1, 1)
-                total = total + wbank
+                ns.Tip_AddLine(GetRealmName() or "?", 0.5, 0.78, 1)
+                -- Cap the roster rows so a large stable of alts cannot push the
+                -- total and the hint rows off screen. The list is sorted richest
+                -- first, so the cap keeps the highest balances; the live
+                -- character always shows; the total below still sums EVERY
+                -- stored character.
+                local maxRows, shownRows, hiddenRows = 10, 0, 0
+                for _, key in ipairs(charList) do
+                    local char = store[key]
+                    if shownRows >= maxRows and key ~= selfKey then
+                        hiddenRows = hiddenRows + 1
+                    else
+                        shownRows = shownRows + 1
+                        local cr, cg, cb = 1, 1, 1
+                        if char.class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[char.class] then
+                            local cc = RAID_CLASS_COLORS[char.class]; cr, cg, cb = cc.r, cc.g, cc.b
+                        end
+                        local label = char.name or "?"
+                        local tokens = ns.MoneyTokens(char.currentMoney, sm, ci, true)
+                        -- Every row gets the same hover affordance. The live
+                        -- character's click is inert: it re-saves itself on
+                        -- every money event, so deleting it would only bring it
+                        -- straight back.
+                        ns.Tip_AddClickableColumns(label, tokens, function(mouseButton)
+                            if key == selfKey then return end
+                            if mouseButton ~= "LeftButton" then return end
+                            if not (IsControlKeyDown() and IsAltKeyDown()) then return end
+                            GoldForgetCharacter(key)
+                            ns.Tip_Hide(goldButton)
+                        end, cr, cg, cb)
+                    end
+                end
+                if hiddenRows > 0 then
+                    ns.Tip_AddLine(format(L["PLUS_N_MORE"], hiddenRows), 0.6, 0.6, 0.6)
+                end
             end
+            -- Warbank rides the character list as its final row -- no
+            -- separator; it reads as one more entry.
+            local bankType = 2
+            if Enum and Enum.BankType and Enum.BankType.Account then bankType = Enum.BankType.Account end
+            if C_Bank and C_Bank.FetchDepositedMoney then
+                local wbank = C_Bank.FetchDepositedMoney(bankType)
+                if issecretvalue and issecretvalue(wbank) then wbank = nil end
+                if wbank and wbank > 0 then
+                    ns.Tip_AddColumns(L["WARBANK"], ns.MoneyTokens(wbank, sm, ci, true), 1, 0.82, 0)
+                    total = total + wbank
+                end
+            end
+            ns.Tip_AddLine(" ")
+            ns.Tip_AddDouble(L["TOTAL"], ns.FormatMoney(total, true, sm, ci), ar, ag, ab, 1, 1, 1)
         end
-        ns.Tip_AddLine(" ")
-        ns.Tip_AddDouble(L["TOTAL"], ns.FormatMoney(total, true, sm, ci), ar, ag, ab, 1, 1, 1)
-        if goldLedger.tokenPrice and goldLedger.tokenPrice > 0 then
+        if showToken and goldLedger.tokenPrice and goldLedger.tokenPrice > 0 then
             ns.Tip_AddLine(" ")
             ns.Tip_AddDouble(L["WOW_TOKEN"], ns.FormatMoney(goldLedger.tokenPrice, true, sm, ci), 0, 0.8, 1, 1, 1, 1)
         end
@@ -2145,7 +2137,7 @@ ns.BlockFactories.gold = function(blockCfg, slot, content, barCtx)
         ns.Tip_AddDouble(L["LEFT_CLICK"],       L["OPEN_BAGS"],       1, 1, 1, ar, ag, ab)
         ns.Tip_AddDouble(L["RIGHT_CLICK"],      L["OPEN_CURRENCIES"], 1, 1, 1, ar, ag, ab)
         ns.Tip_AddDouble(L["CTRL_RIGHT_CLICK"], L["RESET_SESSION"],   1, 1, 1, ar, ag, ab)
-        if #charList > 1 then
+        if charCount > 1 then
             ns.Tip_AddDouble(L["CTRL_ALT_LEFT_CLICK"], L["REMOVE_CHARACTER"], 1, 1, 1, ar, ag, ab)
         end
         ns.Tip_Show()
@@ -2543,6 +2535,11 @@ end
 ns.TravelHearthstoneIDs = HEARTHSTONE_IDS
 ns.TravelIsUsable = TravelIsUsable
 
+-- Returns remaining, known. In restricted combat the cooldown numbers are
+-- SECRET: comparing or dead-reckoning them throws (type() still says
+-- "number"), so those report 0, false and callers degrade -- the tooltip
+-- shows "-" on gray non-clickable rows, the block tints as cooling, and the
+-- probe keeps ticking so state self-corrects once values come back clean.
 local function TravelGetRemainingCooldown(id, isSpell)
     local startTime, duration
     if isSpell then
@@ -2555,10 +2552,13 @@ local function TravelGetRemainingCooldown(id, isSpell)
             startTime, duration = C_Container.GetItemCooldown(id)
         end
     end
-    if type(startTime) == "number" and type(duration) == "number" and duration > 0 then
-        return max(0, startTime + duration - GetTime())
+    if issecretvalue(startTime) or issecretvalue(duration) then
+        return 0, false
     end
-    return 0
+    if type(startTime) == "number" and type(duration) == "number" and duration > 0 then
+        return max(0, startTime + duration - GetTime()), true
+    end
+    return 0, true
 end
 
 local _hearthList = {}
@@ -2592,14 +2592,29 @@ local function TravelPickHearthstone(randomize)
     return list[1]
 end
 
+-- Negative-result cache: when the pool scan finds NO usable hearthstone, the
+-- 1s cooling probe would otherwise re-scan all ~40 candidates every second
+-- forever. Ownership can only change through the edges the travel block
+-- already listens to (hearth bind, world entry, bag/spell changes), which
+-- clear this via ns.TravelInvalidateHearthCache.
+local travelNoHearth
+function ns.TravelInvalidateHearthCache()
+    travelNoHearth = nil
+    travelPrimaryHearthId = nil
+end
 local function TravelGetPrimaryCooldown()
-    if not (travelPrimaryHearthId and TravelIsUsable(travelPrimaryHearthId)) then
-        travelPrimaryHearthId = nil
-    end
+    -- The cached id is trusted between ownership edges: re-validating it per
+    -- 1s probe cost a GetItemCount bag walk every second, and losing the item
+    -- always fires BAG_UPDATE_DELAYED (spells SPELLS_CHANGED), which clears
+    -- the cache via ns.TravelInvalidateHearthCache and forces a re-pick here.
     if not travelPrimaryHearthId then
+        if travelNoHearth then return 0, true end
         travelPrimaryHearthId = TravelPickHearthstone(false)
+        if not travelPrimaryHearthId then
+            travelNoHearth = true
+            return 0, true
+        end
     end
-    if not travelPrimaryHearthId then return 0 end
     return TravelGetRemainingCooldown(travelPrimaryHearthId, false)
 end
 
@@ -2626,7 +2641,10 @@ end
 ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
     local inst = { cfg = blockCfg, slot = slot, content = content, ctx = barCtx }
     inst.key = InstKey(barCtx, blockCfg)
-    inst.events = { "HEARTHSTONE_BOUND", "PLAYER_ENTERING_WORLD" }
+    -- BAG_UPDATE_DELAYED / SPELLS_CHANGED: ownership edges that must clear
+    -- the negative hearthstone cache (rare at idle, cheap refresh).
+    inst.events = { "HEARTHSTONE_BOUND", "PLAYER_ENTERING_WORLD",
+        "BAG_UPDATE_DELAYED", "SPELLS_CHANGED" }
 
     local HEARTH_TEX = MEDIA .. "hearthstone.png"
     local _trvFitBuf1 = { "" }
@@ -2637,7 +2655,7 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
     -- is the static integer teleport spell ID (the click-to-teleport overlay's
     -- secure attribute), kept separate from the displayed dungeon `name`.
     local _mythicLinesBuf = {}
-    for i = 1, #SEASON_TELEPORTS do _mythicLinesBuf[i] = { name = "", cd = 0, spellId = nil } end
+    for i = 1, #SEASON_TELEPORTS do _mythicLinesBuf[i] = { name = "", cd = 0, cdKnown = true, spellId = nil } end
     local _mythicLineCount = 0
 
     local function D() return blockCfg.settings or {} end
@@ -2656,10 +2674,15 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
         ns.Tip_MarkInteractive()
         ns.Tip_AddLine("|cFFFFFFFF[|r" .. L["TRAVEL_COOLDOWNS"] .. "|cFFFFFFFF]|r", ar, ag, ab)
         ns.Tip_AddLine(" ")
-        local cd2 = TravelGetPrimaryCooldown()
-        local cdStr = ns.FormatCooldown(cd2)
-        if not cdStr then cdStr = L["READY"] end
-        local ready = cd2 <= 0
+        local cd2, cdKnown = TravelGetPrimaryCooldown()
+        local cdStr
+        if cdKnown then
+            cdStr = ns.FormatCooldown(cd2)
+            if not cdStr then cdStr = L["READY"] end
+        else
+            cdStr = "-"
+        end
+        local ready = cdKnown and cd2 <= 0
         local rr, rg, rb = 0.5, 0.5, 0.5
         if ready then rr, rg, rb = 0, 1, 0 end
         -- The Hearthstone row itself is click-to-use when ready, firing the
@@ -2713,12 +2736,18 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
                     end
                 end
                 if entryName then
-                    local tcd = TravelGetRemainingCooldown(entryId, isSpell)
-                    local tstr = ns.FormatCooldown(tcd)
-                    if not tstr then tstr = L["READY"] end
+                    local tcd, tKnown = TravelGetRemainingCooldown(entryId, isSpell)
+                    local tstr
+                    if tKnown then
+                        tstr = ns.FormatCooldown(tcd)
+                        if not tstr then tstr = L["READY"] end
+                    else
+                        tstr = "-"
+                    end
+                    local tready = tKnown and tcd <= 0
                     local tr, tg, tb = 0.5, 0.5, 0.5
-                    if tcd <= 0 then tr, tg, tb = 0, 1, 0 end
-                    if tcd <= 0 then
+                    if tready then tr, tg, tb = 0, 1, 0 end
+                    if tready then
                         -- Ready: click-to-use, same secure overlay contract
                         -- as the M+ teleport rows (degrades to text in
                         -- combat). White while ready; the row wash + accent
@@ -2753,8 +2782,10 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
                     if not name2 then name2 = spName end
                     if not name2 then name2 = tostring(spellId) end
                     _mythicLineCount = _mythicLineCount + 1
+                    local mcd, mKnown = TravelGetRemainingCooldown(spellId, true)
                     _mythicLinesBuf[_mythicLineCount].name    = name2
-                    _mythicLinesBuf[_mythicLineCount].cd      = TravelGetRemainingCooldown(spellId, true)
+                    _mythicLinesBuf[_mythicLineCount].cd      = mcd
+                    _mythicLinesBuf[_mythicLineCount].cdKnown = mKnown
                     _mythicLinesBuf[_mythicLineCount].spellId = spellId
                 end
             end
@@ -2768,6 +2799,7 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
                 while j > 1 and _mythicLinesBuf[j].name < _mythicLinesBuf[j - 1].name do
                     _mythicLinesBuf[j].name,    _mythicLinesBuf[j - 1].name    = _mythicLinesBuf[j - 1].name,    _mythicLinesBuf[j].name
                     _mythicLinesBuf[j].cd,      _mythicLinesBuf[j - 1].cd      = _mythicLinesBuf[j - 1].cd,      _mythicLinesBuf[j].cd
+                    _mythicLinesBuf[j].cdKnown, _mythicLinesBuf[j - 1].cdKnown = _mythicLinesBuf[j - 1].cdKnown, _mythicLinesBuf[j].cdKnown
                     _mythicLinesBuf[j].spellId, _mythicLinesBuf[j - 1].spellId = _mythicLinesBuf[j - 1].spellId, _mythicLinesBuf[j].spellId
                     j = j - 1
                 end
@@ -2778,10 +2810,14 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
             -- On-cooldown teleports share one cooldown group, so instead of
             -- a wall of identical timers they collapse into a single
             -- "On Cooldown" line showing the soonest remaining time.
-            local cdMin
+            local cdMin, cdUnknown
             for i = 1, _mythicLineCount do
                 local e = _mythicLinesBuf[i]
-                if e.cd <= 0 then
+                if not e.cdKnown then
+                    -- Secret cooldown (restricted combat): state unknowable,
+                    -- fold into the collapsed On Cooldown line below.
+                    cdUnknown = true
+                elseif e.cd <= 0 then
                     -- Ready teleport: left-click the row to cast it (secure
                     -- overlay button keyed to the static spell ID; the row
                     -- highlights on hover).
@@ -2794,6 +2830,8 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
                 local cs = ns.FormatCooldown(cdMin)
                 if not cs then cs = L["READY"] end
                 ns.Tip_AddDouble(L["ON_COOLDOWN"], cs, 0.65, 0.65, 0.65, 0.5, 0.5, 0.5)
+            elseif cdUnknown then
+                ns.Tip_AddDouble(L["ON_COOLDOWN"], "-", 0.65, 0.65, 0.65, 0.5, 0.5, 0.5)
             end
         end
         ns.Tip_AddLine(" ")
@@ -2913,12 +2951,13 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
 
         -- The block renders only icon + bind location; the remaining cooldown
         -- lives in the tooltip. On cooldown the block dims to disabled gray.
-        local cd = TravelGetPrimaryCooldown()
+        -- An unknown (secret) cooldown tints as cooling too.
+        local cd, cdKnown = TravelGetPrimaryCooldown()
 
         if mouseOver then
             local ar, ag, ab = ns.GetAccent()
             hearthText:SetTextColor(ar, ag, ab, 1); hearthIcon:SetVertexColor(ar, ag, ab, 1)
-        elseif cd > 0 then
+        elseif (not cdKnown) or cd > 0 then
             hearthText:SetTextColor(0.5, 0.5, 0.5, 1); hearthIcon:SetVertexColor(0.5, 0.5, 0.5, 1)
         else
             local br, bgr, bb = BlockColorOf(blockCfg)
@@ -2976,17 +3015,32 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
         MaybeRelayout(inst)
     end
 
-    -- 1s heartbeat: drives the ready/cooldown tint flip, and rebuilds the open
-    -- tooltip on every tick while hovered. The cooldown columns read M:SS, so
-    -- anything slower than the heartbeat shows visibly stale seconds.
+    -- 1s heartbeat. Hovered: the open tooltip's M:SS cooldown columns need
+    -- per-second rebuilds, so the full refresh runs exactly as before.
+    -- Un-hovered, the block renders only icon + bind location + a
+    -- ready/cooling tint that flips twice per hearth use -- so the tick is a
+    -- two-call cooling probe (cached-id usable check + one cooldown read)
+    -- and the full Refresh runs only on the tint EDGE, at the same 1s
+    -- granularity the flip always had. Location changes arrive through the
+    -- HEARTHSTONE_BOUND event, not this tick.
     local function TravelTick()
-        inst:Refresh()
         if built and mouseOver and ns.Tip_IsOwned(hearthButton) then
+            inst:Refresh()
             RefreshTravelTooltip()
+            return
+        end
+        -- Unknown (secret) cooldowns count as cooling: the probe keeps
+        -- ticking through combat and self-corrects on the first clean read.
+        local pcd, pKnown = TravelGetPrimaryCooldown()
+        local cooling = (not pKnown) or pcd > 0
+        if cooling ~= inst._lastCooling then
+            inst._lastCooling = cooling
+            inst:Refresh()
         end
     end
 
     inst.eventFrame = MakeEventFrame(inst, function(self)
+        ns.TravelInvalidateHearthCache()
         self:Refresh()
     end)
 
@@ -5213,7 +5267,10 @@ ns.BlockFactories.currency = function(blockCfg, slot, content, barCtx)
             qr, qg, qb = qc.r, qc.g, qc.b
         end
         ns.Tip_AddLine(info.name or "?", qr, qg, qb)
-        if info.description and info.description ~= "" then
+        -- Some currencies carry several paragraphs of flavor text, which is
+        -- what makes the tooltip tower over the bar. Opt-out keeps the name,
+        -- the total and the click hint -- only the wall of text goes.
+        if s.showDescription ~= false and info.description and info.description ~= "" then
             ns.Tip_AddLine(" ")
             ns.Tip_AddWrappedLine(info.description, 280, 0.8, 0.8, 0.8)
         end

@@ -332,14 +332,6 @@ local defaults = {
             extraTextY = 0,
             extraTextClassColor = false,
             extraTextAlign = "left",
-            leftTextShortNameLength = 0,
-            leftTextShortNameEllipsis = true,
-            rightTextShortNameLength = 0,
-            rightTextShortNameEllipsis = true,
-            centerTextShortNameLength = 0,
-            centerTextShortNameEllipsis = true,
-            extraTextShortNameLength = 0,
-            extraTextShortNameEllipsis = true,
             bottomTextBar = false,
             bottomTextBarHeight = 16,
             btbPosition = "bottom",
@@ -366,12 +358,6 @@ local defaults = {
             btbCenterY = 0,
             btbCenterClassColor = false,
             btbCenterPowerColor = false,
-            btbLeftShortNameLength = 0,
-            btbLeftShortNameEllipsis = true,
-            btbRightShortNameLength = 0,
-            btbRightShortNameEllipsis = true,
-            btbCenterShortNameLength = 0,
-            btbCenterShortNameEllipsis = true,
             btbClassIcon = "none",
             btbClassIconSize = 14,
             btbClassIconLocation = "left",
@@ -426,7 +412,11 @@ local defaults = {
             castDurationX = 0,
             castDurationY = 0,
             showCastDuration = true,
-            showCastTarget = true,
+            -- Player-only: the spell target never rendered here before the
+            -- display fix, so it defaults OFF to keep the frame unchanged;
+            -- users opt in via the Spell Target side dropdown. Existing
+            -- profiles are pinned to None by uf_player_cast_target_none_v1.
+            showCastTarget = false,
             castbarFillColor = { r = 0.863, g = 0.820, b = 0.639 },
             castbarClassColored = false,
             showClassPowerBar = false,
@@ -475,6 +465,7 @@ local defaults = {
             leaderIndicatorX = 0,
             leaderIndicatorY = 0,
             healthReverseFill = false,
+            healthVerticalFill = false,
             smoothBars = false,
             powerReverseFill = false,
         },
@@ -585,14 +576,6 @@ local defaults = {
             extraTextY = 0,
             extraTextClassColor = false,
             extraTextAlign = "left",
-            leftTextShortNameLength = 0,
-            leftTextShortNameEllipsis = true,
-            rightTextShortNameLength = 0,
-            rightTextShortNameEllipsis = true,
-            centerTextShortNameLength = 0,
-            centerTextShortNameEllipsis = true,
-            extraTextShortNameLength = 0,
-            extraTextShortNameEllipsis = true,
             bottomTextBar = false,
             bottomTextBarHeight = 16,
             btbPosition = "bottom",
@@ -619,12 +602,6 @@ local defaults = {
             btbCenterY = 0,
             btbCenterClassColor = false,
             btbCenterPowerColor = false,
-            btbLeftShortNameLength = 0,
-            btbLeftShortNameEllipsis = true,
-            btbRightShortNameLength = 0,
-            btbRightShortNameEllipsis = true,
-            btbCenterShortNameLength = 0,
-            btbCenterShortNameEllipsis = true,
             btbClassIcon = "none",
             btbClassIconSize = 14,
             btbClassIconLocation = "left",
@@ -672,7 +649,14 @@ local defaults = {
             leaderIndicatorPosition = "topleft",
             leaderIndicatorX = 0,
             leaderIndicatorY = 0,
+            eliteIndicatorEnabled = false,
+            eliteIndicatorSize = 16,
+            eliteIndicatorPosition = "topleft",
+            eliteIndicatorX = 0,
+            eliteIndicatorY = 0,
+            eliteIndicatorShowInInstances = false,
             healthReverseFill = false,
+            healthVerticalFill = false,
             smoothBars = false,
             powerReverseFill = false,
         },
@@ -725,6 +709,7 @@ local defaults = {
             playerCastbarWidth = 181,
             playerCastbarHeight = 14,
             healthReverseFill = false,
+            healthVerticalFill = false,
             smoothBars = false,
             powerReverseFill = false,
         },
@@ -751,18 +736,13 @@ local defaults = {
             centerTextClassColor = false,
             centerTextColorR = 1, centerTextColorG = 1, centerTextColorB = 1,
             centerTextX = 0, centerTextY = 0,
-            leftTextShortNameLength = 0,
-            leftTextShortNameEllipsis = true,
-            rightTextShortNameLength = 0,
-            rightTextShortNameEllipsis = true,
-            centerTextShortNameLength = 0,
-            centerTextShortNameEllipsis = true,
             borderSize = 1,
             borderColor = { r = 0, g = 0, b = 0 },
             borderTexture = "solid",
             highlightColor = { r = 1, g = 1, b = 1 },
             powerPosition = "none",
             healthReverseFill = false,
+            healthVerticalFill = false,
             smoothBars = false,
         },
         -- Focus Target: independent clone of Target of Target defaults.
@@ -792,18 +772,13 @@ local defaults = {
             centerTextClassColor = false,
             centerTextColorR = 1, centerTextColorG = 1, centerTextColorB = 1,
             centerTextX = 0, centerTextY = 0,
-            leftTextShortNameLength = 0,
-            leftTextShortNameEllipsis = true,
-            rightTextShortNameLength = 0,
-            rightTextShortNameEllipsis = true,
-            centerTextShortNameLength = 0,
-            centerTextShortNameEllipsis = true,
             borderSize = 1,
             borderColor = { r = 0, g = 0, b = 0 },
             borderTexture = "solid",
             highlightColor = { r = 1, g = 1, b = 1 },
             powerPosition = "none",
             healthReverseFill = false,
+            healthVerticalFill = false,
             smoothBars = false,
         },
         pet = {
@@ -829,18 +804,13 @@ local defaults = {
             centerTextClassColor = false,
             centerTextColorR = 1, centerTextColorG = 1, centerTextColorB = 1,
             centerTextX = 0, centerTextY = 0,
-            leftTextShortNameLength = 0,
-            leftTextShortNameEllipsis = true,
-            rightTextShortNameLength = 0,
-            rightTextShortNameEllipsis = true,
-            centerTextShortNameLength = 0,
-            centerTextShortNameEllipsis = true,
             borderSize = 1,
             borderColor = { r = 0, g = 0, b = 0 },
             borderTexture = "solid",
             highlightColor = { r = 1, g = 1, b = 1 },
             powerPosition = "none",
             healthReverseFill = false,
+            healthVerticalFill = false,
             smoothBars = false,
         },
         focus = {
@@ -915,14 +885,6 @@ local defaults = {
             extraTextY = 0,
             extraTextClassColor = false,
             extraTextAlign = "left",
-            leftTextShortNameLength = 0,
-            leftTextShortNameEllipsis = true,
-            rightTextShortNameLength = 0,
-            rightTextShortNameEllipsis = true,
-            centerTextShortNameLength = 0,
-            centerTextShortNameEllipsis = true,
-            extraTextShortNameLength = 0,
-            extraTextShortNameEllipsis = true,
             bottomTextBar = false,
             bottomTextBarHeight = 16,
             btbPosition = "bottom",
@@ -947,12 +909,6 @@ local defaults = {
             btbCenterY = 0,
             btbCenterClassColor = false,
             btbCenterPowerColor = false,
-            btbLeftShortNameLength = 0,
-            btbLeftShortNameEllipsis = true,
-            btbRightShortNameLength = 0,
-            btbRightShortNameEllipsis = true,
-            btbCenterShortNameLength = 0,
-            btbCenterShortNameEllipsis = true,
             btbClassIcon = "none",
             btbClassIconSize = 14,
             btbClassIconLocation = "left",
@@ -1021,6 +977,7 @@ local defaults = {
             raidMarkerX = 0,
             raidMarkerY = 0,
             healthReverseFill = false,
+            healthVerticalFill = false,
             smoothBars = false,
             powerReverseFill = false,
         },
@@ -1126,8 +1083,6 @@ local defaults = {
             extraTextColorR = 1, extraTextColorG = 1, extraTextColorB = 1,
             extraTextX = 0, extraTextY = 0,
             extraTextAlign = "left",
-            extraTextShortNameLength = 0,
-            extraTextShortNameEllipsis = true,
             leftTextContent = "name",
             leftTextClassColor = false,
             leftTextColorR = 1, leftTextColorG = 1, leftTextColorB = 1,
@@ -1140,12 +1095,6 @@ local defaults = {
             centerTextClassColor = false,
             centerTextColorR = 1, centerTextColorG = 1, centerTextColorB = 1,
             centerTextX = 0, centerTextY = 0,
-            leftTextShortNameLength = 0,
-            leftTextShortNameEllipsis = true,
-            rightTextShortNameLength = 0,
-            rightTextShortNameEllipsis = true,
-            centerTextShortNameLength = 0,
-            centerTextShortNameEllipsis = true,
             borderSize = 1,
             borderColor = { r = 0, g = 0, b = 0 },
             borderTexture = "solid",
@@ -1166,6 +1115,7 @@ local defaults = {
             raidMarkerY = 0,
             bossStackDirection = "down",
             healthReverseFill = false,
+            healthVerticalFill = false,
             smoothBars = false,
         },
         enabledFrames = {
@@ -1319,59 +1269,8 @@ local function UnsnapTex(tex)
 end
 
 -- Health bar texture overlay lookup
-local TEXTURE_BASE = "Interface\\AddOns\\EllesmereUI\\media\\textures\\"
-local healthBarTextures = {
-    ["none"]          = nil,
-    ["melli"]         = TEXTURE_BASE .. "melli.tga",
-    ["beautiful"]     = TEXTURE_BASE .. "beautiful.tga",
-    ["plating"]       = TEXTURE_BASE .. "plating.tga",
-    ["atrocity"]      = TEXTURE_BASE .. "atrocity.tga",
-    ["divide"]        = TEXTURE_BASE .. "divide.tga",
-    ["glass"]         = TEXTURE_BASE .. "glass.tga",
-    ["fade-right"]    = TEXTURE_BASE .. "fade-right.tga",
-    ["thin-line-top"]    = TEXTURE_BASE .. "thin-line-top.tga",
-    ["thin-line-bottom"] = TEXTURE_BASE .. "thin-line-bottom.tga",
-    ["fade"]          = TEXTURE_BASE .. "fade.tga",
-    ["gradient-lr"]   = TEXTURE_BASE .. "gradient-lr.tga",
-    ["gradient-rl"]   = TEXTURE_BASE .. "gradient-rl.tga",
-    ["gradient-bt"]   = TEXTURE_BASE .. "gradient-bt.tga",
-    ["gradient-tb"]   = TEXTURE_BASE .. "gradient-tb.tga",
-    ["matte"]         = TEXTURE_BASE .. "matte.tga",
-    ["sheer"]         = TEXTURE_BASE .. "sheer.tga",
-    ["blinkii-diamonds"] = TEXTURE_BASE .. "blinkii-diamonds.tga",
-    ["kringel-window"]   = TEXTURE_BASE .. "kringel-window.tga",
-}
-local healthBarTextureOrder = {
-    "none", "melli", "atrocity",
-    "fade", "fade-right",
-    "thin-line-top", "thin-line-bottom",
-    "beautiful", "plating",
-    "divide", "glass",
-    "gradient-lr", "gradient-rl", "gradient-bt", "gradient-tb",
-    "matte", "sheer",
-    "blinkii-diamonds", "kringel-window",
-}
-local healthBarTextureNames = {
-    ["none"]        = "None",
-    ["melli"]       = "Melli (ElvUI)",
-    ["beautiful"]   = "Beautiful",
-    ["plating"]     = "Plating",
-    ["atrocity"]    = "Atrocity",
-    ["divide"]      = "Divide",
-    ["glass"]       = "Glass",
-    ["fade-right"]  = "Fade Right",
-    ["thin-line-top"]    = "Thin Line Top",
-    ["thin-line-bottom"] = "Thin Line Bottom",
-    ["fade"]        = "Fade",
-    ["gradient-lr"] = "Gradient Right",
-    ["gradient-rl"] = "Gradient Left",
-    ["gradient-bt"] = "Gradient Up",
-    ["gradient-tb"] = "Gradient Down",
-    ["matte"]       = "Matte",
-    ["sheer"]       = "Sheer",
-    ["blinkii-diamonds"] = "Blinkii Diamonds",
-    ["kringel-window"]   = "Kringel Window",
-}
+local healthBarTextures, healthBarTextureNames, healthBarTextureOrder =
+    EllesmereUI.BuildBarTextureTables(true)
 ns.healthBarTextures = healthBarTextures
 ns.healthBarTextureOrder = healthBarTextureOrder
 ns.healthBarTextureNames = healthBarTextureNames
@@ -1397,6 +1296,8 @@ local function ApplyHealthBarTexture(health, unitKey, texKeyOverride)
     health:SetStatusBarTexture(path)
     local hFill = health:GetStatusBarTexture()
     if hFill then UnsnapTex(hFill) end
+    -- The swap replaced the fill object; re-derive rotation for the bar's axis.
+    ns.ApplyFillRotation(health)
 
     -- Power bar: same texture. Walk up from health to find the oUF frame
     -- (health may be parented to a clip container, not the oUF frame directly).
@@ -1458,6 +1359,15 @@ end
 -- tint. Fully inert at 100: nothing is touched unless previously applied
 -- (_fillOpApplied). Value-blind (relational anchors + plain alphas only),
 -- so secret cast states render identically.
+-- castbar._castTintOn mirrors "the last alpha we wrote to castTintLayer was
+-- above zero". It exists because castTintLayer:GetAlpha() cannot be trusted to
+-- return a plain number: this castbar also drives _shieldedTint's alpha from
+-- the SECRET notInterruptible flag (SetAlphaFromBoolean), and once secrecy is
+-- in a castbar's render state an alpha read comes back secret. Comparing that
+-- inside our own (tainted) execution throws "attempt to compare a secret number
+-- value", which aborts the whole styling pass mid-way and leaves the cast bar
+-- unanchored at screen centre. We write every one of these alphas ourselves, so
+-- owning the state costs one boolean and removes the comparison entirely.
 ns.ApplyCastFillOpacity = function(castbar, settings)
     local op = (settings and settings.castFillOpacity) or 100
     local bgHost = castbar:GetParent()
@@ -1470,9 +1380,9 @@ ns.ApplyCastFillOpacity = function(castbar, settings)
                 bgTex:ClearAllPoints()
                 bgTex:SetAllPoints(bgHost)
             end
-            -- Mid-cast restore: the tint's alpha is its active/idle state, so
-            -- only lift it back to full when it is currently active.
-            if castbar.castTintLayer and castbar.castTintLayer:GetAlpha() > 0 then
+            -- Mid-cast restore: the tint's active/idle state comes from our own
+            -- flag, never from reading the widget back (see _castTintOn).
+            if castbar.castTintLayer and castbar._castTintOn then
                 castbar.castTintLayer:SetAlpha(1)
             end
         end
@@ -1492,7 +1402,7 @@ ns.ApplyCastFillOpacity = function(castbar, settings)
         end
     end
     -- Mid-cast application: retune the tint if it is currently active.
-    if castbar.castTintLayer and castbar.castTintLayer:GetAlpha() > 0 then
+    if castbar.castTintLayer and castbar._castTintOn then
         castbar.castTintLayer:SetAlpha(op / 100)
     end
 end
@@ -1582,7 +1492,19 @@ local function AnchorHealthBg(health)
     local tex = health and health.GetStatusBarTexture and health:GetStatusBarTexture()
     if not bg or not tex then return end
     bg:ClearAllPoints()
-    if health.GetReverseFill and health:GetReverseFill() then
+    local reversed = health.GetReverseFill and health:GetReverseFill()
+    -- Vertical fill empties on the TOP (or the BOTTOM when reversed); read the
+    -- axis off the bar itself so this needs no settings lookup.
+    local vert = health.GetOrientation and health:GetOrientation() == "VERTICAL"
+    if vert then
+        if reversed then
+            bg:SetPoint("TOPLEFT", tex, "BOTTOMLEFT", 0, 0)
+            bg:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
+        else
+            bg:SetPoint("TOPLEFT", health, "TOPLEFT", 0, 0)
+            bg:SetPoint("BOTTOMRIGHT", tex, "TOPRIGHT", 0, 0)
+        end
+    elseif reversed then
         bg:SetPoint("TOPLEFT", health, "TOPLEFT", 0, 0)
         bg:SetPoint("BOTTOMRIGHT", tex, "BOTTOMLEFT", 0, 0)
     else
@@ -2195,30 +2117,12 @@ end
 -- Nickname-aware replacement for the stock [name] tag (see ContentToTag). Returns
 -- the nickname when one applies, else the raw unit name -- identical to [name] for
 -- everyone without a nickname.
-oUF.Tags.Methods["eui-name"] = function(unit, realUnit, lenStr, ellipsisStr)
-    local name = ns.ResolveUnitNickname(unit)
-    local maxLen = tonumber(lenStr) or 0
-    if maxLen <= 0 then return name end
-    -- Secret names (enemy target/focus in protected content) cannot be
-    -- inspected: #, sub and concat all throw. Return the secret raw -- the
-    -- display sink accepts it -- so those names render untruncated.
-    if issecretvalue and issecretvalue(name) then return name end
-    -- Truncate by UTF-8 codepoints, never bytes: multibyte names (Cyrillic,
-    -- CJK, accents) must cut on a character boundary, and byte length would
-    -- overcount their character count.
-    local i, chars = 1, 0
-    local len = #name
-    while i <= len do
-        if chars == maxLen then
-            local cut = name:sub(1, i - 1)
-            if ellipsisStr ~= "0" then return cut .. "..." end
-            return cut
-        end
-        local b = name:byte(i)
-        i = i + ((b >= 240 and 4) or (b >= 224 and 3) or (b >= 192 and 2) or 1)
-        chars = chars + 1
-    end
-    return name
+oUF.Tags.Methods["eui-name"] = function(unit)
+    -- Truncation is width-based (the per-slot Width % clamp in the position
+    -- code), never character-based: FontString width boxes ellipsize in the
+    -- renderer, which also works on SECRET enemy names that Lua cannot
+    -- measure or substring.
+    return ns.ResolveUnitNickname(unit)
 end
 oUF.Tags.Events["eui-name"] = "UNIT_NAME_UPDATE"
 
@@ -2822,12 +2726,11 @@ local function GetBossHealthTag()
     end
 end
 
--- Build a truncated name tag for the given settings prefix (e.g. "leftText", "btbLeft").
-local function BuildShortNameTag(prefix, settings)
-    local len = settings[prefix .. "ShortNameLength"] or 0
-    if len <= 0 then return "[eui-name]" end
-    local ellipsis = settings[prefix .. "ShortNameEllipsis"] ~= false and "1" or "0"
-    return "[eui-name(" .. len .. "," .. ellipsis .. ")]"
+-- Per-slot Width % (of the slot's computed clamp width; default 100 = the
+-- normal truncation amount, above 100 grants extra room). Applied by the
+-- position code to the slot FontString's width box.
+local function SlotWidthMul(settings, prefix)
+    return (settings[prefix .. "WidthPct"] or 100) / 100
 end
 
 -- Build the per-slot "Name > Target" indicator tag. The separator string is
@@ -2858,14 +2761,14 @@ end
 -- Resolve a leftTextContent / rightTextContent value to an oUF tag string.
 -- content: "name", "both", "curhpshort", "perhp", "perhpnosign", "perhpnum", "none"
 local function ContentToTag(content, prefix, settings)
-    if content == "name" then return BuildShortNameTag(prefix, settings)
+    if content == "name" then return "[eui-name]"
     elseif content == "nametotarget" then
-        return BuildShortNameTag(prefix, settings)
+        return "[eui-name]"
             .. BuildTgtSepTag(prefix, settings) .. "[eui-tgtcol][eui-tgtname]"
     elseif content == "levelname" then
-        return "[eui-level] | " .. BuildShortNameTag(prefix, settings)
+        return "[eui-level] | [eui-name]"
     elseif content == "namelevel" then
-        return BuildShortNameTag(prefix, settings) .. " | [eui-level]"
+        return "[eui-name] | [eui-level]"
     elseif content == "level" then return "[eui-level]"
     elseif content == "both" then return "[curhpshort] | [eui-perhp]%"
     elseif content == "bothdash" then return "[curhpshort] - [eui-perhp]%"
@@ -2928,21 +2831,7 @@ end
 
 local UF_ICONS_PATH = "Interface\\AddOns\\EllesmereUI\\media\\icons\\"
 local CLASS_FULL_SPRITE_BASE = UF_ICONS_PATH .. "class-full\\"
-local CLASS_FULL_COORDS = {
-    WARRIOR     = { 0,     0.125, 0,     0.125 },
-    MAGE        = { 0.125, 0.25,  0,     0.125 },
-    ROGUE       = { 0.25,  0.375, 0,     0.125 },
-    DRUID       = { 0.375, 0.5,   0,     0.125 },
-    EVOKER      = { 0.5,   0.625, 0,     0.125 },
-    HUNTER      = { 0,     0.125, 0.125, 0.25  },
-    SHAMAN      = { 0.125, 0.25,  0.125, 0.25  },
-    PRIEST      = { 0.25,  0.375, 0.125, 0.25  },
-    WARLOCK     = { 0.375, 0.5,   0.125, 0.25  },
-    PALADIN     = { 0,     0.125, 0.25,  0.375 },
-    DEATHKNIGHT = { 0.125, 0.25,  0.25,  0.375 },
-    MONK        = { 0.25,  0.375, 0.25,  0.375 },
-    DEMONHUNTER = { 0.375, 0.5,   0.25,  0.375 },
-}
+local CLASS_FULL_COORDS = EllesmereUI.CLASS_ICON_SPRITE_COORDS
 
 -- Helper: apply class icon from sprite sheet
 local function ApplyClassIconTexture(tex, classToken, style)
@@ -2953,6 +2842,78 @@ local function ApplyClassIconTexture(tex, classToken, style)
     return true
 end
 
+
+-- Shared portrait element Override (assigned to the 2D texture and 3D model
+-- objects; the class texture keeps its own). The vendored oUF Update only
+-- guid-gates the eventless OnUpdate poll -- EVERY other trigger (onShow
+-- full updates, target-changed sweeps, any unit event) repainted
+-- unconditionally, so heavy combat re-ran SetPortraitTexture + the re-anchor
+-- PostUpdate over and over for the SAME portrayed unit. This Override
+-- repaints only when the portrayed identity or availability actually
+-- changed, on real appearance events (same-guid model/portrait-file
+-- changes), or on an explicit ForceUpdate (mode swaps). Secret guids
+-- (instanced-PvP identities) cannot be compared, so they fail open to
+-- repainting -- exactly the old behavior. The unitIsUnit head-check is
+-- deliberately absent (secret booleans on eventless frames; the gate makes
+-- the resulting repaint-on-any-event dispatch cheap). PostUpdate is called
+-- only after a real repaint: the 2D PostUpdate exists to heal what
+-- SetPortraitTexture resets, and the 3D PostUpdate re-applies zoom after
+-- SetUnit -- neither ran, nothing to heal.
+local function PortraitOverride(self, event, evtUnit)
+    local element = self.Portrait
+    if not element then return end
+    local u = self.unit
+    if not u then return end
+    if element.PreUpdate then element:PreUpdate(u) end
+    local isAvailable = UnitIsConnected(u) and UnitIsVisible(u)
+    local guid = UnitGUID(u)
+    local changed
+    if issecretvalue(guid) or issecretvalue(element.guid) then
+        changed = true
+    else
+        changed = element.guid ~= guid
+    end
+    local hasStateChanged = changed
+        or element.state ~= isAvailable
+        or event == "UNIT_PORTRAIT_UPDATE"
+        or event == "UNIT_MODEL_CHANGED"
+        or event == "ForceUpdate"
+        -- World transitions can reset PlayerModel widget state while the guid
+        -- stays the same; repaint once per zone so 3D portraits never come
+        -- back blank.
+        or event == "PLAYER_ENTERING_WORLD"
+    if hasStateChanged then
+        if element:IsObjectType("PlayerModel") then
+            if not isAvailable then
+                element:SetCamDistanceScale(0.25)
+                element:SetPortraitZoom(0)
+                element:SetPosition(0, 0, 0.25)
+                element:ClearModel()
+                element:SetModel([[Interface\Buttons\TalkToMeQuestionMark.m2]])
+            else
+                local uKey3d = UnitToSettingsKey(u)
+                local uS3d = uKey3d and db.profile[uKey3d]
+                local camScale = ((uS3d and uS3d.portrait3dZoom) or 100) / 100
+                element:ClearModel()
+                element:SetUnit(u)
+                element:SetPortraitZoom(1)
+                element:SetPosition(0, 0, 0)
+                element:SetCamDistanceScale(camScale)
+            end
+        else
+            if isAvailable then
+                SetPortraitTexture(element, u)
+            else
+                element:SetTexture([[Interface\Icons\INV_Misc_QuestionMark]])
+            end
+        end
+        element.guid = guid
+        element.state = isAvailable
+    end
+    if hasStateChanged and element.PostUpdate then
+        return element:PostUpdate(u, hasStateChanged)
+    end
+end
 
 -- Portrait mask and border paths for detached portrait shapes
 local PORTRAIT_MEDIA = "Interface\\AddOns\\EllesmereUI\\media\\portraits\\"
@@ -3309,6 +3270,7 @@ local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, 
         if lc ~= "none" then
             leftFS:SetJustifyH("LEFT")
             PP.Point(leftFS, "LEFT", textOvr, "LEFT", 5 + (s.btbLeftX or 0), s.btbLeftY or 0)
+            PP.Width(leftFS, totalWidth * 0.9 * SlotWidthMul(s, "btbLeft"))
             leftFS:Show()
         else leftFS:Hide() end
 
@@ -3317,6 +3279,7 @@ local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, 
         if rc ~= "none" then
             rightFS:SetJustifyH("RIGHT")
             PP.Point(rightFS, "RIGHT", textOvr, "RIGHT", -5 + (s.btbRightX or 0), s.btbRightY or 0)
+            PP.Width(rightFS, totalWidth * 0.9 * SlotWidthMul(s, "btbRight"))
             rightFS:Show()
         else rightFS:Hide() end
 
@@ -3325,6 +3288,7 @@ local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, 
         if cc ~= "none" then
             centerFS:SetJustifyH("CENTER")
             PP.Point(centerFS, "CENTER", textOvr, "CENTER", s.btbCenterX or 0, s.btbCenterY or 0)
+            PP.Width(centerFS, totalWidth * 0.9 * SlotWidthMul(s, "btbCenter"))
             centerFS:Show()
         else centerFS:Hide() end
 
@@ -3729,6 +3693,41 @@ end
 
 -- ShowFakeFrames / HideFakeFrames removed -- Unlock Mode handles all positioning
 
+-- Fill-texture rotation, DERIVED -- never set on its own, so it can never go
+-- stale against the bar's axis or a texture swap. Two texture families live on
+-- these bars and they want opposite treatment on a vertical bar:
+--
+--   stretch (shield.tga, striped3, blizzard, WHITE8X8, every health texture):
+--     one image scaled to the fill rect. Designed wide-and-short, so on a tall
+--     bar it must be ROTATED or it smears into a stretched mess.
+--   tiled (stripedReversed, the large* stripe sets, striped-maxhp, the modern
+--     absorb): repeats at native pixel size on BOTH axes, so it already reads
+--     correctly at any bar shape. Rotating it fights the tiling and is exactly
+--     what produced the stretched look -- leave these alone.
+--
+-- Tiling is read back off the live fill texture rather than passed in, so this
+-- stays correct no matter which style function last touched the bar.
+function ns.ApplyFillRotation(bar)
+    if not (bar and bar.SetRotatesTexture) then return end
+    local vert = bar.GetOrientation and bar:GetOrientation() == "VERTICAL"
+    local fill = bar.GetStatusBarTexture and bar:GetStatusBarTexture()
+    local tiled = fill and ((fill.GetHorizTile and fill:GetHorizTile())
+                         or (fill.GetVertTile and fill:GetVertTile()))
+    bar:SetRotatesTexture((vert and not tiled) and true or false)
+end
+
+-- Vertical health fill. SetOrientation drives the bar's fill AXIS; the existing
+-- healthReverseFill still flips the direction WITHIN that axis (horizontal:
+-- left-to-right / right-to-left, vertical: bottom-to-top / top-to-bottom).
+-- Exposed on ns so the options preview paints the same way.
+function ns.ApplyHealthOrientation(bar, settings)
+    if not bar then return end
+    local vert = (settings and settings.healthVerticalFill) and true or false
+    bar:SetOrientation(vert and "VERTICAL" or "HORIZONTAL")
+    ns.ApplyFillRotation(bar)
+    return vert
+end
+
 local function CreateHealthBar(frame, unit, height, xOffset, settings, rightInset)
     height = height or settings.healthHeight
     xOffset = xOffset or 0
@@ -3767,6 +3766,7 @@ local function CreateHealthBar(frame, unit, height, xOffset, settings, rightInse
     ApplyHealthBarTexture(health, UnitToSettingsKey(unit))
     ApplyHealthBarAlpha(health, UnitToSettingsKey(unit))
     health:SetReverseFill(settings.healthReverseFill and true or false)
+    ns.ApplyHealthOrientation(health, settings)
     ApplyDarkTheme(health)
 
     -- Smooth bar interpolation (opt-in; defaults off)
@@ -3845,6 +3845,9 @@ local function ApplyAbsorbStyle(absorbBar, style, settings)
         fill:SetVertTile(tiled)
         if mask then fill:AddMaskTexture(mask) end
     end
+    -- New fill object + new tiling state: re-derive rotation (stretch styles
+    -- rotate on a vertical bar, tiled ones must not).
+    ns.ApplyFillRotation(absorbBar)
     local fw = absorbBar._forward
     if fw then
         fw:SetStatusBarTexture(tex)
@@ -3856,6 +3859,7 @@ local function ApplyAbsorbStyle(absorbBar, style, settings)
             fwFill:SetVertTile(tiled)
             if mask then fwFill:AddMaskTexture(mask) end
         end
+        ns.ApplyFillRotation(fw)
     end
 end
 
@@ -3879,6 +3883,7 @@ local function ApplyHealAbsorbStyle(haBar, style, settings)
         fill:SetVertTile(tiled)
         if mask then fill:AddMaskTexture(mask) end
     end
+    ns.ApplyFillRotation(haBar)
 end
 
 -- Two-segment absorb rendering using dynamic clip-frame trickery, so it
@@ -3911,9 +3916,11 @@ end
 -- HealthPrediction.Override so oUF still owns event registration
 -- (UNIT_HEALTH, UNIT_ABSORB_AMOUNT_CHANGED, etc.) and enable/disable.
 
--- Re-anchor existing absorb bars for the current reverse fill state.
--- Called from the live-update path when the user toggles reverse fill.
-local function UpdateAbsorbBarReverseFill(frame, isReversed)
+-- Re-anchor existing absorb bars for the current fill state (reverse + axis).
+-- Called from the live-update path when the user toggles reverse or vertical
+-- fill. `settingsOverride` lets the creation path pass the settings table it
+-- already holds, for frames whose .unit is not resolvable yet.
+local function UpdateAbsorbBarReverseFill(frame, isReversed, settingsOverride)
     if not frame or not frame.HealthPrediction then return end
     local ab = frame.HealthPrediction.damageAbsorb
     if not ab then return end
@@ -3931,14 +3938,116 @@ local function UpdateAbsorbBarReverseFill(frame, isReversed)
     --   overlay = backfill into the filled health from the HP edge (default)
     --   right   = full bar, fill from the frame's right edge
     --   left    = full bar, fill from the frame's left edge
-    local s = GetSettingsForUnit(frame.unit)
+    local s = settingsOverride or GetSettingsForUnit(frame.unit)
     local absorbMode = (s and s.absorbEdgeMode) or "overlay"
     local healMode = (s and s.healAbsorbEdgeMode) or "overlay"
+
+    -- Vertical fill: the whole HP cluster rotates with the health bar. Every
+    -- anchor below is the horizontal layout with its axis swapped -- the health
+    -- fill's RIGHT edge (the "HP edge" the shields and heal absorb hang off)
+    -- becomes its TOP edge, and reverse fill flips it to the BOTTOM edge. The
+    -- edge modes keep their key names: "right" is the far edge of the fill axis
+    -- (top when vertical), "left" the near one (bottom when vertical).
+    local isVert = (s and s.healthVerticalFill) and true or false
+    ab._isVert = isVert
+    local ha = ab._healAbsorb
+    local healClip = ab._healClip
+    -- Indexed, not ipairs: ha can be nil and ipairs would stop at the hole.
+    local axisBars = { ab, fw, ha }
+    for i = 1, 3 do
+        local bar = axisBars[i]
+        if bar then
+            bar:SetOrientation(isVert and "VERTICAL" or "HORIZONTAL")
+            ns.ApplyFillRotation(bar)  -- derived: rotate stretch styles only
+        end
+    end
 
     curClip:ClearAllPoints()
     missClip:ClearAllPoints()
     ab:ClearAllPoints()
     fw:ClearAllPoints()
+
+    if isVert then
+        -- missClip + forward bar always use the overlay layout; in the edge
+        -- modes the full-bar backfill shows the whole absorb and the Override
+        -- hides fw.
+        if isReversed then
+            missClip:SetPoint("TOPLEFT",     hpTex, "BOTTOMLEFT",  0, 1)
+            missClip:SetPoint("BOTTOMRIGHT", hpBar, "BOTTOMRIGHT", 0, 0)
+            fw:SetReverseFill(true)
+            fw:SetPoint("TOPLEFT",  hpTex, "BOTTOMLEFT",  0, 0)
+            fw:SetPoint("TOPRIGHT", hpTex, "BOTTOMRIGHT", 0, 0)
+        else
+            missClip:SetPoint("BOTTOMLEFT", hpTex, "TOPLEFT",  0, -1)
+            missClip:SetPoint("TOPRIGHT",   hpBar, "TOPRIGHT", 0, 0)
+            fw:SetReverseFill(false)
+            fw:SetPoint("BOTTOMLEFT",  hpTex, "TOPLEFT",  0, 0)
+            fw:SetPoint("BOTTOMRIGHT", hpTex, "TOPRIGHT", 0, 0)
+        end
+
+        -- Shield absorb placement.
+        if absorbMode == "right" or absorbMode == "left" then
+            curClip:SetPoint("TOPLEFT",     hpBar, "TOPLEFT",     0, 0)
+            curClip:SetPoint("BOTTOMRIGHT", hpBar, "BOTTOMRIGHT", 0, 0)
+            if absorbMode == "left" then
+                ab:SetReverseFill(false)
+                ab:SetPoint("BOTTOMLEFT",  hpBar, "BOTTOMLEFT",  0, 0)
+                ab:SetPoint("BOTTOMRIGHT", hpBar, "BOTTOMRIGHT", 0, 0)
+            else
+                ab:SetReverseFill(true)
+                ab:SetPoint("TOPLEFT",  hpBar, "TOPLEFT",  0, 0)
+                ab:SetPoint("TOPRIGHT", hpBar, "TOPRIGHT", 0, 0)
+            end
+        elseif isReversed then
+            curClip:SetPoint("TOPLEFT",     hpBar, "TOPLEFT",       0, 0)
+            curClip:SetPoint("BOTTOMRIGHT", hpTex, "BOTTOMRIGHT",   0, 0)
+            ab:SetReverseFill(false)
+            ab:SetPoint("BOTTOMLEFT",  hpBar, "BOTTOMLEFT",  0, 0)
+            ab:SetPoint("BOTTOMRIGHT", hpBar, "BOTTOMRIGHT", 0, 0)
+        else
+            curClip:SetPoint("BOTTOMLEFT", hpBar, "BOTTOMLEFT", 0, 0)
+            curClip:SetPoint("TOPRIGHT",   hpTex, "TOPRIGHT",   0, 0)
+            ab:SetReverseFill(true)
+            ab:SetPoint("TOPLEFT",  hpBar, "TOPLEFT",  0, 0)
+            ab:SetPoint("TOPRIGHT", hpBar, "TOPRIGHT", 0, 0)
+        end
+
+        -- Heal absorb placement (own clip frame, same rules).
+        if healClip then
+            healClip:ClearAllPoints()
+            if healMode == "right" or healMode == "left" then
+                healClip:SetPoint("TOPLEFT",     hpBar, "TOPLEFT",     0, 0)
+                healClip:SetPoint("BOTTOMRIGHT", hpBar, "BOTTOMRIGHT", 0, 0)
+            elseif isReversed then
+                healClip:SetPoint("TOPLEFT",     hpBar, "TOPLEFT",     0, 0)
+                healClip:SetPoint("BOTTOMRIGHT", hpTex, "BOTTOMRIGHT", 0, 0)
+            else
+                healClip:SetPoint("BOTTOMLEFT", hpBar, "BOTTOMLEFT", 0, 0)
+                healClip:SetPoint("TOPRIGHT",   hpTex, "TOPRIGHT",   0, 0)
+            end
+        end
+        if ha then
+            ha:ClearAllPoints()
+            if healMode == "right" then
+                ha:SetReverseFill(true)
+                ha:SetPoint("TOPLEFT",  hpBar, "TOPLEFT",  0, 0)
+                ha:SetPoint("TOPRIGHT", hpBar, "TOPRIGHT", 0, 0)
+            elseif healMode == "left" then
+                ha:SetReverseFill(false)
+                ha:SetPoint("BOTTOMLEFT",  hpBar, "BOTTOMLEFT",  0, 0)
+                ha:SetPoint("BOTTOMRIGHT", hpBar, "BOTTOMRIGHT", 0, 0)
+            elseif isReversed then
+                ha:SetReverseFill(false)
+                ha:SetPoint("BOTTOMLEFT",  hpTex, "BOTTOMLEFT",  0, 0)
+                ha:SetPoint("BOTTOMRIGHT", hpTex, "BOTTOMRIGHT", 0, 0)
+            else
+                ha:SetReverseFill(true)
+                ha:SetPoint("TOPLEFT",  hpTex, "TOPLEFT",  0, 0)
+                ha:SetPoint("TOPRIGHT", hpTex, "TOPRIGHT", 0, 0)
+            end
+        end
+        return
+    end
 
     -- missClip + forward bar always use the overlay layout; in the edge modes
     -- the full-bar backfill shows the whole absorb and the Override hides fw.
@@ -3988,8 +4097,6 @@ local function UpdateAbsorbBarReverseFill(frame, isReversed)
     -- Heal absorb placement (independent of shield absorb). The heal absorb
     -- has its OWN clip frame (ab._healClip) so right/left span the full bar
     -- (filled + missing health) while overlay stays clipped to filled health.
-    local ha = ab._healAbsorb
-    local healClip = ab._healClip
     if healClip then
         healClip:ClearAllPoints()
         if healMode == "right" or healMode == "left" then
@@ -4276,6 +4383,12 @@ local function CreateAbsorbBar(frame, unit, settings)
         Override = function(self, event, updUnit)
             if self.unit ~= updUnit then return end
 
+            -- Incoming-heal prediction is not rendered anywhere on unit frames,
+            -- so its (frequent, healer-cast-driven) events change nothing we
+            -- paint. Absorb and health changes always arrive via their own
+            -- events, so skipping here can never strand a stale bar or gate.
+            if event == "UNIT_HEAL_PREDICTION" then return end
+
             -- Drive the "Absorb Short" health-text gate(s): feed the raw absorb so
             -- the clip reveals/collapses, AND refresh the text in LOCKSTEP so the
             -- revealed text never flashes the stale "0" (oUF tags update on a
@@ -4423,8 +4536,13 @@ local function CreateAbsorbBar(frame, unit, settings)
 
             -- Re-anchor when the placement settings change. The key starts
             -- nil, so this also applies the saved placement on first update.
+            -- The fill AXIS is part of the placement now, so it belongs in the
+            -- key: the settings-apply path already re-anchors on a Vertical Fill
+            -- toggle, but including it here keeps this gate self-healing if the
+            -- axis ever changes by some route that path does not cover.
             local absorbMode = (s and s.absorbEdgeMode) or "overlay"
             local edgeKey = absorbMode .. ":" .. ((s and s.healAbsorbEdgeMode) or "overlay")
+                .. ":" .. tostring((s and s.healthVerticalFill) and true or false)
             if ab._lastEdgeKey ~= edgeKey then
                 ab._lastEdgeKey = edgeKey
                 UpdateAbsorbBarReverseFill(self, ab._isReversed)
@@ -4508,6 +4626,12 @@ local function CreateAbsorbBar(frame, unit, settings)
             end
         end,
     }
+
+    -- The anchors set above are the horizontal layout. Hand the whole cluster to
+    -- the shared re-anchor pass so a vertical-fill frame starts out correct
+    -- without waiting for the first settings apply. `settings` is passed through
+    -- because frame.unit is not resolvable this early on every frame.
+    UpdateAbsorbBarReverseFill(frame, isReversed, settings)
 
     return backfillBar
 end
@@ -5029,6 +5153,7 @@ local function CreatePortrait(frame, side, frameHeight, unit)
             local cs = ((us and us.portrait3dZoom) or 100) / 100
             self:SetCamDistanceScale(cs)
         end
+        model3D.Override = PortraitOverride
         model3D:Hide()
         backdrop._3d = model3D
         return model3D
@@ -5039,6 +5164,7 @@ local function CreatePortrait(frame, side, frameHeight, unit)
     PP.Point(tex2D, "TOPLEFT", backdrop, "TOPLEFT", 0, 0)
     PP.Point(tex2D, "BOTTOMRIGHT", backdrop, "BOTTOMRIGHT", 0, 0)
     tex2D:SetTexCoord(0.15, 0.85, 0.15, 0.85)
+    tex2D.Override = PortraitOverride
     tex2D:Hide()
 
     -- Class theme icon (static texture, no oUF element needed)
@@ -5187,37 +5313,43 @@ local function HideUnitFrameKickTick(castbar)
         castbar._kickTicker = nil
     end
 end
+-- Hoisted defaults for the zero-alloc paint below: these were inline table
+-- literals allocated on EVERY call whenever the setting was absent (the
+-- common case), on a function that runs per castbar update.
+local UF_KICK_READY_TINT = { r = 0.92, g = 0.35, b = 0.20 }
+local UF_UNINTERRUPT_GREY = { r = 0.5, g = 0.5, b = 0.5 }
 local function ApplyUnitFrameCastColor(castbar)
     if not castbar or not castbar.castTintLayer then return end
     local settings = castbar._eufSettings
     local ownerUnit = castbar.__owner and castbar.__owner.unit
-    local cc
+    -- Zero-alloc (memory pass 2026-08-03): this built up to three throwaway
+    -- color tables per call (two default literals + the blended kick tint).
+    -- Same values flow as scalars; the vertex push is unchanged.
+    local r, g, b
     if settings and settings.castbarClassColored and ownerUnit == "player" then
-        if ownerUnit then
-            local _, classToken = UnitClass(ownerUnit)
-            if issecretvalue(classToken) then classToken = nil end
-            if classToken and EllesmereUI.GetClassColor then
-                cc = EllesmereUI.GetClassColor(classToken)
-            end
+        local _, classToken = UnitClass(ownerUnit)
+        if issecretvalue(classToken) then classToken = nil end
+        if classToken and EllesmereUI.GetClassColor then
+            local cc = EllesmereUI.GetClassColor(classToken)
+            if cc then r, g, b = cc.r, cc.g, cc.b end
         end
     end
-    if not cc then
+    if not r then
         local baseTint = (settings and settings.castbarFillColor) or GetCastbarColor()
         if IsKickCastbarUnit(ownerUnit) then
-            local readyTint = (settings and settings.castbarInterruptReadyColor) or { r = 0.92, g = 0.35, b = 0.20 }
-            local cr, cg, cb = ComputeCastBarTint(readyTint, baseTint)
-            cc = { r = cr, g = cg, b = cb }
+            local readyTint = (settings and settings.castbarInterruptReadyColor) or UF_KICK_READY_TINT
+            r, g, b = ComputeCastBarTint(readyTint, baseTint)
         else
-            cc = baseTint
+            r, g, b = baseTint.r, baseTint.g, baseTint.b
         end
     end
-    castbar.castTintLayer:SetVertexColor(cc.r, cc.g, cc.b)
+    castbar.castTintLayer:SetVertexColor(r, g, b)
     if castbar._shieldedTint then
         -- Uninterruptible overlay colour (customizable; defaults to the
         -- previously-hardcoded grey). The overlay's alpha is toggled from the
         -- secret "not interruptible" flag, so the colour is always set and only
         -- becomes visible on uninterruptible casts.
-        local uc = (settings and settings.castbarUninterruptibleColor) or { r = 0.5, g = 0.5, b = 0.5 }
+        local uc = (settings and settings.castbarUninterruptibleColor) or UF_UNINTERRUPT_GREY
         castbar._shieldedTint:SetVertexColor(uc.r, uc.g, uc.b)
         local uninterruptible = GetCastbarUninterruptible(castbar)
         -- Visible alpha honors Fill Opacity (castbar._fillOp, nil at 100);
@@ -5673,6 +5805,7 @@ local function CreateCastBar(frame, unit, settings)
     castTintLayer:SetVertexColor(c.r, c.g, c.b)
     castTintLayer:SetAlpha(0)
     castbar.castTintLayer = castTintLayer
+    castbar._castTintOn = nil
 
     local shieldedTint = castbar:CreateTexture(nil, "ARTWORK", nil, 2)
     shieldedTint:SetPoint("TOPLEFT", castbar:GetStatusBarTexture(), "TOPLEFT")
@@ -5691,6 +5824,7 @@ local function CreateCastBar(frame, unit, settings)
             -- _fillOp is nil unless Fill Opacity is below 100 (see
             -- ns.ApplyCastFillOpacity), so the default path is unchanged.
             self.castTintLayer:SetAlpha(self._fillOp or 1)
+            self._castTintOn = true
             ApplyUnitFrameCastColor(self)
         end
     end
@@ -5763,15 +5897,31 @@ local function CreateCastBar(frame, unit, settings)
         if self._showDuration == false then
             self.Time:SetText("")
             self.Time:Hide()
+            self._timeBucket = nil
             return
         end
         self.Time:Show()
         if durationObject then
+            -- oUF calls this per RENDER FRAME, but the displayed value has
+            -- %.1f precision -- format + SetText only when the displayed
+            -- tenth actually changes (~6x fewer at 60fps, more uncapped).
+            -- Secret durations (other units' casts in combat) cannot be
+            -- floored: fail open to formatting every call, exactly the old
+            -- path (SetFormattedText accepts secrets). The delay branch is
+            -- rare (pushback) and stays unmemoized.
             local duration = durationObject:GetRemainingDuration()
             if self.delay and self.delay ~= 0 then
+                self._timeBucket = nil
                 self.Time:SetFormattedText('%.1f|cffff0000%s%.2f|r', duration, self.channeling and '-' or '+', self.delay)
-            else
+            elseif issecretvalue and issecretvalue(duration) then
+                self._timeBucket = nil
                 self.Time:SetFormattedText('%.1f', duration)
+            else
+                local bucket = math.floor(duration * 10)
+                if bucket ~= self._timeBucket then
+                    self._timeBucket = bucket
+                    self.Time:SetFormattedText('%.1f', duration)
+                end
             end
         end
     end
@@ -5867,7 +6017,7 @@ local function SetupShowOnCastBar(frame, unit)
         if self.Target then
             local spellTarget, spellTargetClass
             local ownerUnit = self.__owner and self.__owner.unit
-            if ownerUnit and ownerUnit ~= "player"
+            if ownerUnit
                and UnitShouldDisplaySpellTargetName and UnitShouldDisplaySpellTargetName(ownerUnit) then
                 local rawTarget = UnitSpellTargetName and UnitSpellTargetName(ownerUnit)
                 if rawTarget then
@@ -6373,6 +6523,14 @@ end
 function ns.ApplyEUIAuraFilter(element, base, settings)
     element.filter = base
     element.FilterAura = ns.EUIAuraFilter
+    -- The aura-element driver reuses per-instance filter verdicts; a filter
+    -- or classification-flag change invalidates them all. needFullUpdate is
+    -- read before any branch touches these tables, so a nil el.all can
+    -- never meet an incremental pass (library and driver both guard).
+    element.all = nil
+    element.active = nil
+    element._allN = nil
+    element.needFullUpdate = true
     local f = element._euiAuraFlags
     if not f then f = {}; element._euiAuraFlags = f end
     f.player, f.raid, f.cc, f.bigDef, f.extDef = ns.ResolveAuraFlags(base, settings)
@@ -6629,7 +6787,10 @@ local function CreateTargetAuras(frame, unit)
         buffs.spacingY = PP.FromPixels((settings and settings.buffSpacingY) or 1)
     end
     buffs.num = 4
-    buffs.maxCols = AuraMaxCols(buffGrowthEff, settings and settings.maxBuffs or 4, settings and settings.buffMaxPerRow)
+    -- Simple mode: side-based row cap, never width-based (see the debuff
+    -- twin below for the full mechanism).
+    buffs.maxCols = AuraMaxCols(simpleBuffOn and simpleBuffMode or buffGrowthEff,
+        settings and settings.maxBuffs or 4, settings and settings.buffMaxPerRow)
     buffs.initialAnchor = bia
     buffs.growthX = bgx
     buffs.growthY = bgy
@@ -6714,7 +6875,13 @@ local function CreateTargetAuras(frame, unit)
             debuffs.spacingY = PP.FromPixels((settings and settings.debuffSpacingY) or 1)
         end
         debuffs.num = (dAnc ~= "none") and maxDebuffs or 0
-        debuffs.maxCols = AuraMaxCols(effectiveGrowth, maxDebuffs, settings and settings.debuffMaxPerRow)
+        -- Simple mode is a horizontal strip off the frame edge: compute the
+        -- row cap from the SIDE, not "auto". With "auto" AuraMaxCols returns
+        -- nil and oUF wraps by CONTAINER WIDTH -- frame-height icons overflow
+        -- the frame width at ~5, so rows wrapped early and Max Per Row was
+        -- ignored whenever it sat at or above Max Count.
+        debuffs.maxCols = AuraMaxCols(simpleOn and simpleMode or effectiveGrowth,
+            maxDebuffs, settings and settings.debuffMaxPerRow)
         debuffs.initialAnchor = dia
         debuffs.growthX = dgx
         debuffs.growthY = dgy
@@ -7058,7 +7225,7 @@ local function StyleFullFrame(frame, unit)
                 extraText:SetJustifyH("LEFT")
                 PP.Point(extraText, "LEFT", textOverlay, "LEFT", 5 + exo, eyo)
             end
-            PP.Width(extraText, barW * 0.95)
+            PP.Width(extraText, barW * 0.95 * SlotWidthMul(s, "extraText"))
             extraText:Show()
             ApplyClassColor(extraText, unit, s.extraTextClassColor, s.extraTextColorR, s.extraTextColorG, s.extraTextColorB)
         else extraText:Hide() end
@@ -7069,7 +7236,7 @@ local function StyleFullFrame(frame, unit)
         if cc ~= "none" then
             centerText:SetJustifyH("CENTER")
             PP.Point(centerText, "CENTER", textOverlay, "CENTER", cxo, cyo)
-            PP.Width(centerText, barW * 0.9)
+            PP.Width(centerText, barW * 0.9 * SlotWidthMul(s, "centerText"))
             centerText:Show()
             ApplyClassColor(centerText, unit, s.centerTextClassColor, s.centerTextColorR, s.centerTextColorG, s.centerTextColorB)
         else centerText:Hide() end
@@ -7082,9 +7249,9 @@ local function StyleFullFrame(frame, unit)
             -- Constrain width when opposing right text exists
             if rc ~= "none" then
                 local rightUsed = EstimateUFTextWidth(rc)
-                PP.Width(leftText, math.max(barW - rightUsed - 10, 20))
+                PP.Width(leftText, math.max(barW - rightUsed - 10, 20) * SlotWidthMul(s, "leftText"))
             else
-                PP.Width(leftText, barW * 0.9)
+                PP.Width(leftText, barW * 0.9 * SlotWidthMul(s, "leftText"))
             end
             leftText:Show()
             ApplyClassColor(leftText, unit, s.leftTextClassColor, s.leftTextColorR, s.leftTextColorG, s.leftTextColorB)
@@ -7098,9 +7265,9 @@ local function StyleFullFrame(frame, unit)
             -- Constrain width when opposing left text exists
             if lc ~= "none" then
                 local leftUsed = EstimateUFTextWidth(lc)
-                PP.Width(rightText, math.max(barW - leftUsed - 10, 20))
+                PP.Width(rightText, math.max(barW - leftUsed - 10, 20) * SlotWidthMul(s, "rightText"))
             else
-                PP.Width(rightText, barW * 0.9)
+                PP.Width(rightText, barW * 0.9 * SlotWidthMul(s, "rightText"))
             end
             rightText:Show()
             ApplyClassColor(rightText, unit, s.rightTextClassColor, s.rightTextColorR, s.rightTextColorG, s.rightTextColorB)
@@ -7392,7 +7559,7 @@ local function StyleFocusFrame(frame, unit)
                 extraText:SetJustifyH("LEFT")
                 PP.Point(extraText, "LEFT", textOverlay, "LEFT", 5 + exo, eyo)
             end
-            PP.Width(extraText, barW * 0.95)
+            PP.Width(extraText, barW * 0.95 * SlotWidthMul(s, "extraText"))
             extraText:Show()
             ApplyClassColor(extraText, unit, s.extraTextClassColor, s.extraTextColorR, s.extraTextColorG, s.extraTextColorB)
         else extraText:Hide() end
@@ -7403,7 +7570,7 @@ local function StyleFocusFrame(frame, unit)
         if cc ~= "none" then
             centerText:SetJustifyH("CENTER")
             PP.Point(centerText, "CENTER", textOverlay, "CENTER", cxo, cyo)
-            PP.Width(centerText, barW * 0.9)
+            PP.Width(centerText, barW * 0.9 * SlotWidthMul(s, "centerText"))
             centerText:Show()
             ApplyClassColor(centerText, unit, s.centerTextClassColor, s.centerTextColorR, s.centerTextColorG, s.centerTextColorB)
         else centerText:Hide() end
@@ -7415,9 +7582,9 @@ local function StyleFocusFrame(frame, unit)
             PP.Point(leftText, "LEFT", textOverlay, "LEFT", 5 + lxo, lyo)
             if rc ~= "none" then
                 local rightUsed = EstimateUFTextWidth(rc)
-                PP.Width(leftText, math.max(barW - rightUsed - 10, 20))
+                PP.Width(leftText, math.max(barW - rightUsed - 10, 20) * SlotWidthMul(s, "leftText"))
             else
-                PP.Width(leftText, barW * 0.9)
+                PP.Width(leftText, barW * 0.9 * SlotWidthMul(s, "leftText"))
             end
             leftText:Show()
             ApplyClassColor(leftText, unit, s.leftTextClassColor, s.leftTextColorR, s.leftTextColorG, s.leftTextColorB)
@@ -7430,9 +7597,9 @@ local function StyleFocusFrame(frame, unit)
             PP.Point(rightText, "RIGHT", textOverlay, "RIGHT", -5 + rxo, ryo)
             if lc ~= "none" then
                 local leftUsed = EstimateUFTextWidth(lc)
-                PP.Width(rightText, math.max(barW - leftUsed - 10, 20))
+                PP.Width(rightText, math.max(barW - leftUsed - 10, 20) * SlotWidthMul(s, "rightText"))
             else
-                PP.Width(rightText, barW * 0.9)
+                PP.Width(rightText, barW * 0.9 * SlotWidthMul(s, "rightText"))
             end
             rightText:Show()
             ApplyClassColor(rightText, unit, s.rightTextClassColor, s.rightTextColorR, s.rightTextColorG, s.rightTextColorB)
@@ -7503,6 +7670,7 @@ local function StyleSimpleFrame(frame, unit)
     ApplyHealthBarTexture(health, unitKey, ns.ResolveHealthBarTextureKey(settings, donor))
     ApplyHealthBarAlpha(health, unitKey)
     health:SetReverseFill(settings.healthReverseFill and true or false)
+    ns.ApplyHealthOrientation(health, settings)
     ApplyDarkTheme(health)
 
     frame.Health = health
@@ -7663,7 +7831,7 @@ local function StyleSimpleFrame(frame, unit)
         if cc ~= "none" then
             centerText:SetJustifyH("CENTER")
             PP.Point(centerText, "CENTER", textOverlay, "CENTER", cxo, cyo)
-            PP.Width(centerText, barW * 0.9)
+            PP.Width(centerText, barW * 0.9 * SlotWidthMul(s, "centerText"))
             centerText:Show()
             ApplyClassColor(centerText, unit, s.centerTextClassColor, s.centerTextColorR, s.centerTextColorG, s.centerTextColorB)
         else centerText:Hide() end
@@ -7675,9 +7843,9 @@ local function StyleSimpleFrame(frame, unit)
             PP.Point(leftText, "LEFT", textOverlay, "LEFT", 5 + lxo, lyo)
             if rc ~= "none" then
                 local rightUsed = EstimateUFTextWidth(rc)
-                PP.Width(leftText, math.max(barW - rightUsed - 10, 20))
+                PP.Width(leftText, math.max(barW - rightUsed - 10, 20) * SlotWidthMul(s, "leftText"))
             else
-                PP.Width(leftText, barW * 0.9)
+                PP.Width(leftText, barW * 0.9 * SlotWidthMul(s, "leftText"))
             end
             leftText:Show()
             ApplyClassColor(leftText, unit, s.leftTextClassColor, s.leftTextColorR, s.leftTextColorG, s.leftTextColorB)
@@ -7689,9 +7857,9 @@ local function StyleSimpleFrame(frame, unit)
             PP.Point(rightText, "RIGHT", textOverlay, "RIGHT", -5 + rxo, ryo)
             if lc ~= "none" then
                 local leftUsed = EstimateUFTextWidth(lc)
-                PP.Width(rightText, math.max(barW - leftUsed - 10, 20))
+                PP.Width(rightText, math.max(barW - leftUsed - 10, 20) * SlotWidthMul(s, "rightText"))
             else
-                PP.Width(rightText, barW * 0.9)
+                PP.Width(rightText, barW * 0.9 * SlotWidthMul(s, "rightText"))
             end
             rightText:Show()
             ApplyClassColor(rightText, unit, s.rightTextClassColor, s.rightTextColorR, s.rightTextColorG, s.rightTextColorB)
@@ -7748,6 +7916,7 @@ local function StylePetFrame(frame, unit)
     ApplyHealthBarTexture(health, unitKey, ns.ResolveHealthBarTextureKey(settings, donor))
     ApplyHealthBarAlpha(health, unitKey)
     health:SetReverseFill(settings.healthReverseFill and true or false)
+    ns.ApplyHealthOrientation(health, settings)
     ApplyDarkTheme(health)
 
     frame.Health = health
@@ -7908,7 +8077,7 @@ local function StylePetFrame(frame, unit)
         if cc ~= "none" then
             centerText:SetJustifyH("CENTER")
             PP.Point(centerText, "CENTER", textOverlay, "CENTER", cxo, cyo)
-            PP.Width(centerText, barW * 0.9)
+            PP.Width(centerText, barW * 0.9 * SlotWidthMul(s, "centerText"))
             centerText:Show()
             ApplyClassColor(centerText, unit, s.centerTextClassColor, s.centerTextColorR, s.centerTextColorG, s.centerTextColorB)
         else centerText:Hide() end
@@ -7920,9 +8089,9 @@ local function StylePetFrame(frame, unit)
             PP.Point(leftText, "LEFT", textOverlay, "LEFT", 5 + lxo, lyo)
             if rc ~= "none" then
                 local rightUsed = EstimateUFTextWidth(rc)
-                PP.Width(leftText, math.max(barW - rightUsed - 10, 20))
+                PP.Width(leftText, math.max(barW - rightUsed - 10, 20) * SlotWidthMul(s, "leftText"))
             else
-                PP.Width(leftText, barW * 0.9)
+                PP.Width(leftText, barW * 0.9 * SlotWidthMul(s, "leftText"))
             end
             leftText:Show()
             ApplyClassColor(leftText, unit, s.leftTextClassColor, s.leftTextColorR, s.leftTextColorG, s.leftTextColorB)
@@ -7934,9 +8103,9 @@ local function StylePetFrame(frame, unit)
             PP.Point(rightText, "RIGHT", textOverlay, "RIGHT", -5 + rxo, ryo)
             if lc ~= "none" then
                 local leftUsed = EstimateUFTextWidth(lc)
-                PP.Width(rightText, math.max(barW - leftUsed - 10, 20))
+                PP.Width(rightText, math.max(barW - leftUsed - 10, 20) * SlotWidthMul(s, "rightText"))
             else
-                PP.Width(rightText, barW * 0.9)
+                PP.Width(rightText, barW * 0.9 * SlotWidthMul(s, "rightText"))
             end
             rightText:Show()
             ApplyClassColor(rightText, unit, s.rightTextClassColor, s.rightTextColorR, s.rightTextColorG, s.rightTextColorB)
@@ -8197,7 +8366,7 @@ local function StyleBossFrame(frame, unit)
                 extraText:SetJustifyH("LEFT")
                 PP.Point(extraText, "LEFT", textOverlay, "LEFT", 5 + exo, eyo)
             end
-            PP.Width(extraText, barW * 0.95)
+            PP.Width(extraText, barW * 0.95 * SlotWidthMul(s, "extraText"))
             extraText:Show()
             ApplyClassColor(extraText, unit, s.extraTextClassColor, s.extraTextColorR, s.extraTextColorG, s.extraTextColorB)
         else extraText:Hide() end
@@ -8207,7 +8376,7 @@ local function StyleBossFrame(frame, unit)
         if cc ~= "none" then
             centerText:SetJustifyH("CENTER")
             PP.Point(centerText, "CENTER", textOverlay, "CENTER", cxo, cyo)
-            PP.Width(centerText, barW * 0.9)
+            PP.Width(centerText, barW * 0.9 * SlotWidthMul(s, "centerText"))
             centerText:Show()
             ApplyClassColor(centerText, unit, s.centerTextClassColor, s.centerTextColorR, s.centerTextColorG, s.centerTextColorB)
         else centerText:Hide() end
@@ -8219,9 +8388,9 @@ local function StyleBossFrame(frame, unit)
             PP.Point(leftText, "LEFT", textOverlay, "LEFT", 5 + lxo, lyo)
             if rc ~= "none" then
                 local rightUsed = EstimateUFTextWidth(rc)
-                PP.Width(leftText, math.max(barW - rightUsed - 10, 20))
+                PP.Width(leftText, math.max(barW - rightUsed - 10, 20) * SlotWidthMul(s, "leftText"))
             else
-                PP.Width(leftText, barW * 0.9)
+                PP.Width(leftText, barW * 0.9 * SlotWidthMul(s, "leftText"))
             end
             leftText:Show()
             ApplyClassColor(leftText, unit, s.leftTextClassColor, s.leftTextColorR, s.leftTextColorG, s.leftTextColorB)
@@ -8233,9 +8402,9 @@ local function StyleBossFrame(frame, unit)
             PP.Point(rightText, "RIGHT", textOverlay, "RIGHT", -5 + rxo, ryo)
             if lc ~= "none" then
                 local leftUsed = EstimateUFTextWidth(lc)
-                PP.Width(rightText, math.max(barW - leftUsed - 10, 20))
+                PP.Width(rightText, math.max(barW - leftUsed - 10, 20) * SlotWidthMul(s, "rightText"))
             else
-                PP.Width(rightText, barW * 0.9)
+                PP.Width(rightText, barW * 0.9 * SlotWidthMul(s, "rightText"))
             end
             rightText:Show()
             ApplyClassColor(rightText, unit, s.rightTextClassColor, s.rightTextColorR, s.rightTextColorG, s.rightTextColorB)
@@ -8264,42 +8433,13 @@ local function RegisterStylesOnce()
     oUF:RegisterStyle("EllesmerePet", function(frame, unit)
         StylePetFrame(frame, unit)
     end)
-    -- Skip unitIsUnit check in portrait Update for eventless frames to avoid
-    -- secret boolean errors. These frames poll on OnUpdate so redundant
-    -- portrait updates are harmless.
+    -- Eventless frames (TargetTarget/FocusTarget) use the same shared gated
+    -- Override as every other frame: it skips the secret-hazard unitIsUnit
+    -- head-check AND guid-gates the OnUpdate poll, so the poll repaints only
+    -- when the portrayed unit actually changed (see PortraitOverride).
     local function ApplyPortraitOverride(frame)
         if not frame.Portrait then return end
-        frame.Portrait.Override = function(self, event, evtUnit)
-            local element = self.Portrait
-            if not element then return end
-            local u = self.unit
-            if element.PreUpdate then element:PreUpdate(u) end
-            local isAvailable = UnitIsConnected(u) and UnitIsVisible(u)
-            if element:IsObjectType("PlayerModel") then
-                if not isAvailable then
-                    element:SetCamDistanceScale(0.25)
-                    element:SetPortraitZoom(0)
-                    element:SetPosition(0, 0, 0.25)
-                    element:ClearModel()
-                    element:SetModel([[Interface\Buttons\TalkToMeQuestionMark.m2]])
-                else
-                    local uKey3d = UnitToSettingsKey(u)
-                    local uS3d = uKey3d and db.profile[uKey3d]
-                    local camScale = ((uS3d and uS3d.portrait3dZoom) or 100) / 100
-                    element:SetUnit(u)
-                    element:SetPortraitZoom(1)
-                    element:SetPosition(0, 0, 0)
-                    element:SetCamDistanceScale(camScale)
-                end
-            else
-                if isAvailable then
-                    SetPortraitTexture(element, u)
-                else
-                    element:SetTexture([[Interface\Icons\INV_Misc_QuestionMark]])
-                end
-            end
-            if element.PostUpdate then element:PostUpdate(u, isAvailable) end
-        end
+        frame.Portrait.Override = PortraitOverride
     end
     oUF:RegisterStyle("EllesmereTargetTarget", function(frame, unit)
         StyleSimpleFrame(frame, unit)
@@ -9585,14 +9725,11 @@ local function ReloadFrames()
                                 local tsC = settings.castSpellTargetColor or { r=1, g=1, b=1 }
                                 frame.Castbar.Target:SetTextColor(tsC.r, tsC.g, tsC.b)
                                 frame.Castbar._showTarget = settings.showCastTarget ~= false
-                                frame.Castbar._nameSide = settings.castSpellNameSide or "left"
-                                frame.Castbar._tgtSide  = settings.castSpellTargetSide or "right"
-                                frame.Castbar._durSide  = settings.castDurationSide or "right"
                                 if not frame.Castbar._showTarget then
                                     frame.Castbar.Target:Hide()
                                 end
-                                if frame.Castbar._layoutTextZones then
-                                    frame.Castbar:_layoutTextZones()
+                                if frame.Castbar._syncOffsetsAndLayout then
+                                    frame.Castbar:_syncOffsetsAndLayout(settings)
                                 end
                             end
                         else
@@ -11165,8 +11302,9 @@ local function ReloadFrames()
                 ns.ApplyBossBorderState(frame)
             end
             frame.Health:SetReverseFill(settings.healthReverseFill and true or false)
-            ApplyDarkTheme(frame.Health)
-            UpdateAbsorbBarReverseFill(frame, settings.healthReverseFill and true or false)
+            ns.ApplyHealthOrientation(frame.Health, settings)
+            ApplyDarkTheme(frame.Health)  -- re-anchors health.bg for the new axis
+            UpdateAbsorbBarReverseFill(frame, settings.healthReverseFill and true or false, settings)
             -- Smooth bar interpolation (live toggle without /reload)
             if settings.smoothBars then
                 frame.Health.smoothing = Enum and Enum.StatusBarInterpolation
@@ -11369,6 +11507,11 @@ local function ReloadFrames()
         frames.target._applyLeaderIndicator()
     end
 
+    -- Refresh elite/rare indicator on the target frame after settings change
+    if frames.target and frames.target._applyEliteIndicator then
+        frames.target._applyEliteIndicator()
+    end
+
     ---------------------------------------------------------------------------
     --  Live-update raid target marker icon (size / alignment / X / Y / enabled)
     --  for player, target, focus, and boss frames.  Uses oUF's EnableElement /
@@ -11413,6 +11556,21 @@ local function ReloadFrames()
             end
         end
     end
+
+    -- Portrait settings (3D zoom, class style) used to live-apply through the
+    -- ungated ambient portrait repaints; the gated Override skips same-unit
+    -- repaints, so settings changes now force one explicit portrait update
+    -- per frame instead.
+    for _, frame in pairs(frames) do
+        if type(frame) == "table" and frame.Portrait and frame.Portrait.ForceUpdate then
+            frame.Portrait:ForceUpdate()
+        end
+    end
+
+    -- Player Auras stopped polling settings per grid tick; every settings
+    -- path that lands here (fonts, profiles, options) forces their one
+    -- explicit refresh instead.
+    if ns.RefreshPlayerAuras then ns.RefreshPlayerAuras() end
 end
 
 -- Toggle a frame's oUF Castbar element without rewriting Blizzard's cast bar
@@ -11480,9 +11638,13 @@ local function UnitFrame_OnEnter(self)
             -- 3D models don't inherit parent alpha: reveal the portrait too
             local bd3d = self.Portrait and self.Portrait.backdrop and self.Portrait.backdrop._3d
             if bd3d then bd3d:SetAlpha(a) end
-            -- Mini-frame inheritance: the companion frame reveals with us
+            -- Mini-frame inheritance: the companion frame reveals with us.
+            -- Always Show Pet Frame opts the pet out (it is already visible
+            -- and must not pick up the player's fade alpha).
             local mini = ns.UF_MINI_OF and frames[ns.UF_MINI_OF[unitKey]]
-            if mini then mini:SetAlpha(a) end
+            if mini and not (unitKey == "player" and db.profile.pet and db.profile.pet.alwaysShow) then
+                mini:SetAlpha(a)
+            end
         end
     end
     if unit and GameTooltip and GameTooltip_SetDefaultAnchor then
@@ -11538,9 +11700,13 @@ local function UnitFrame_OnLeave(self)
         -- 3D models don't inherit parent alpha: hide/dim the portrait too
         local bd3d = self.Portrait and self.Portrait.backdrop and self.Portrait.backdrop._3d
         if bd3d then bd3d:SetAlpha(leaveAlpha) end
-        -- Mini-frame inheritance: the companion frame hides/dims with us
+        -- Mini-frame inheritance: the companion frame hides/dims with us.
+        -- Always Show Pet Frame opts the pet out (a leave alpha of 0 would
+        -- hide a pet frame that must stay visible).
         local mini = ns.UF_MINI_OF and frames[ns.UF_MINI_OF[unitKey]]
-        if mini then mini:SetAlpha(leaveAlpha) end
+        if mini and not (unitKey == "player" and db.profile.pet and db.profile.pet.alwaysShow) then
+            mini:SetAlpha(leaveAlpha)
+        end
     end
     if self._tooltipTicker then self._tooltipTicker:Cancel(); self._tooltipTicker = nil end
     if GameTooltip and GameTooltip:IsOwned(self) then
@@ -11597,7 +11763,12 @@ function InitializeFrames()
     RegisterStylesOnce()
 
     local function SetupUnitMenu(frame, unit)
-        frame:RegisterForClicks("AnyUp")
+        -- Left and right only, matching Blizzard's own unit frames: a
+        -- registered click is CONSUMED and never reaches the binding system,
+        -- and these frames bind nothing to middle/thumb buttons themselves.
+        -- The click-cast engine sets its own RegisterForClicks when it takes
+        -- a frame over. Left and right still cover target and the menu.
+        frame:RegisterForClicks("LeftButtonUp", "RightButtonUp")
         -- 12.0.7 gates SecureUnitButton's togglemenu; route right-click securely
         -- through a SecureActionButton proxy so the menu (and its protected items
         -- like Set Focus) work without taint.
@@ -12024,6 +12195,13 @@ function InitializeFrames()
         end)
     end
 
+    -- Seed the built-style marker so the first reload does not mistake a nil
+    -- marker for a change. Written ONLY at build sites (here and the toggle):
+    -- PositionClassPowerBar is repositioning, called by ReassertClassPower from
+    -- Blizzard's SetParent/Hide hooks with no rebuild behind it, and stamping
+    -- there would suppress the rebuild this exists to trigger. frames.player
+    -- guard matches _toggleClassPower.
+    if frames.player then frames._classPowerBuiltStyle = classPowerStyle end
     if classPowerStyle ~= "none" and frames.player then
         if classPowerStyle == "blizzard" then
             if savedClassPowerBar then
@@ -12054,6 +12232,10 @@ function InitializeFrames()
         -- default frame (or hidden), there is no EUI frame to attach it to.
         if not frames.player then return end
         style = style or db.profile.player.classPowerStyle or "none"
+        -- What is actually BUILT right now. Read by the reload pass below to
+        -- notice a style that changed through a path which never calls this
+        -- function (see the reload hook).
+        frames._classPowerBuiltStyle = style
         -- Keep showClassPowerBar in sync with style
         db.profile.player.showClassPowerBar = (style ~= "none")
         db.profile.player.classPowerStyle = style
@@ -12433,6 +12615,109 @@ function InitializeFrames()
                 for i = 1, #_leaderUnits do _leaderRefresh(_leaderUnits[i]) end
             end)
         end
+    end
+
+    -- Elite/Rare indicator (classification badge on the target frame), driven
+    -- the same way as the leader indicator above: own events, own refresh,
+    -- own show/hide. The atlas mapping matches the nameplates classification
+    -- badges exactly, so the two features read as one system. Show in
+    -- Instances (default off) keeps it quiet in dungeons and raids, where
+    -- most enemies are elite.
+    do
+        local function _eliteAtlas(c)
+            if c == "elite" or c == "worldboss" then
+                return "nameplates-icon-elite-gold"
+            elseif c == "rareelite" then
+                return "nameplates-icon-elite-silver"
+            elseif c == "rare" then
+                return "nameplates-icon-rareelite"
+            end
+        end
+
+        local _eliteFrames = {}
+        local eliteEvents
+
+        local function _eliteRefresh(uf)
+            local s = uf and uf._eliteSettings
+            if not (uf and uf._eliteIndicator and s) then return end
+            local tex = uf._eliteIndicator
+            if s.eliteIndicatorEnabled ~= true then tex:Hide(); return end
+            if not s.eliteIndicatorShowInInstances and IsInInstance() then
+                tex:Hide(); return
+            end
+            local c = UnitClassification(uf.unit)
+            -- Secrecy check MUST run before any comparison, same rule as the
+            -- leader checks above.
+            local atlas = (not issecretvalue(c)) and _eliteAtlas(c) or nil
+            if atlas then
+                tex:SetAtlas(atlas)
+                tex:Show()
+            else
+                tex:Hide()
+            end
+        end
+
+        -- Events are registered only while the feature is enabled somewhere
+        -- (zero cost while off) and re-armed from every settings apply.
+        local function _eliteArmEvents()
+            local on = false
+            for i = 1, #_eliteFrames do
+                local s = _eliteFrames[i]._eliteSettings
+                if s and s.eliteIndicatorEnabled == true then on = true; break end
+            end
+            if on then
+                if not eliteEvents then
+                    eliteEvents = CreateFrame("Frame")
+                    eliteEvents:SetScript("OnEvent", function()
+                        for i = 1, #_eliteFrames do _eliteRefresh(_eliteFrames[i]) end
+                    end)
+                end
+                eliteEvents:RegisterEvent("PLAYER_TARGET_CHANGED")
+                eliteEvents:RegisterUnitEvent("UNIT_CLASSIFICATION_CHANGED", "target")
+                eliteEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
+            elseif eliteEvents then
+                eliteEvents:UnregisterAllEvents()
+            end
+        end
+
+        local function _setupEliteIndicator(uf, settings)
+            if not (uf and uf.Health and settings) then return end
+            if not uf._eliteIndicator then
+                -- Same parent and layer choice as the leader crown above.
+                local par = uf._textOverlay or uf
+                local tex = par:CreateTexture(nil, "OVERLAY", nil, 7)
+                tex:Hide()
+                uf._eliteIndicator = tex
+                _eliteFrames[#_eliteFrames + 1] = uf
+            end
+            uf._eliteSettings = settings
+
+            local function ApplyEliteIndicator()
+                local sz  = settings.eliteIndicatorSize or 16
+                local pos = settings.eliteIndicatorPosition or "topleft"
+                local ox  = settings.eliteIndicatorX or 0
+                local oy  = settings.eliteIndicatorY or 0
+                local tex = uf._eliteIndicator
+                tex:SetSize(sz, sz)
+                tex:ClearAllPoints()
+                if pos == "portrait" and uf.Portrait and uf.Portrait.backdrop then
+                    tex:SetPoint("CENTER", uf.Portrait.backdrop, "CENTER", ox, oy)
+                else
+                    local anchor =
+                        (pos == "topright"    and "TOPRIGHT")    or
+                        (pos == "bottomleft"  and "BOTTOMLEFT")  or
+                        (pos == "bottomright" and "BOTTOMRIGHT") or
+                        "TOPLEFT"
+                    tex:SetPoint(anchor, uf.Health or uf, anchor, ox, oy)
+                end
+                _eliteArmEvents()
+                _eliteRefresh(uf)
+            end
+            uf._applyEliteIndicator = ApplyEliteIndicator
+            ApplyEliteIndicator()
+        end
+
+        _setupEliteIndicator(frames.target, db.profile.target)
     end
 
     local petFrameSource = ns.GetUnitFrameSource("pet")
@@ -12941,13 +13226,18 @@ function InitializeFrames()
                 end
 
                 local mini = frames[ns.UF_MINI_OF[unitKey]]
+                -- Always Show Pet Frame: the pet opts out of every parent
+                -- visibility inheritance in this pass -- its own unit watch
+                -- alone owns Show/Hide (visible whenever a pet exists).
+                local miniAlways = (unitKey == "player") and db.profile.pet
+                    and db.profile.pet.alwaysShow
 
                 -- The companion mini frame gets its own condition driver
                 -- (parent conditions + its own unit existence), so a
                 -- condition-hidden mini absorbs no clicks either.
                 if mini then
                     local miniWant
-                    if drvSet and EllesmereUI.BuildVisibilityDriverString then
+                    if (not miniAlways) and drvSet and EllesmereUI.BuildVisibilityDriverString then
                         miniWant = EllesmereUI.BuildVisibilityDriverString(
                             "[@" .. ns.UF_MINI_OF[unitKey] .. ",noexists] hide; ", drvSet)
                     end
@@ -12974,7 +13264,7 @@ function InitializeFrames()
                 -- alpha never conflicts with it. Hover reveals mirror in
                 -- the OnEnter/OnLeave handlers.
                 if mini then
-                    mini:SetAlpha(frame:IsShown() and bodyAlpha or 0)
+                    mini:SetAlpha(miniAlways and 1 or (frame:IsShown() and bodyAlpha or 0))
                 end
             elseif frame then
                 -- Parent disabled ("Never" clears enabledFrames): a
@@ -12988,11 +13278,25 @@ function InitializeFrames()
                 end
                 local mini = frames[ns.UF_MINI_OF[unitKey]]
                 if mini then
-                    if not isLocked and mini._euiVisDriver and mini._euiVisDriver ~= "hide" then
-                        RegisterAttributeDriver(mini, "state-visibility", "hide")
-                        mini._euiVisDriver = "hide"
+                    local miniAlways = (unitKey == "player") and db.profile.pet
+                        and db.profile.pet.alwaysShow
+                    if miniAlways then
+                        -- Always Show Pet Frame survives a disabled player
+                        -- frame: unpin any driver so the pet's own unit
+                        -- watch shows it whenever a pet exists.
+                        if not isLocked and mini._euiVisDriver then
+                            UnregisterAttributeDriver(mini, "state-visibility")
+                            RegisterUnitWatch(mini)
+                            mini._euiVisDriver = nil
+                        end
+                        mini:SetAlpha(1)
+                    else
+                        if not isLocked and mini._euiVisDriver and mini._euiVisDriver ~= "hide" then
+                            RegisterAttributeDriver(mini, "state-visibility", "hide")
+                            mini._euiVisDriver = "hide"
+                        end
+                        mini:SetAlpha(0)
                     end
-                    mini:SetAlpha(0)
                 end
             end
         end
@@ -13250,6 +13554,29 @@ function SetupOptionsPanel()
     local reloadPending = false
     local reloadThrottle = CreateFrame("Frame")
     reloadThrottle:Hide()
+    -- Realise a classPowerStyle that changed through a path which never calls
+    -- _toggleClassPower (a Spec Override applying at login, a profile switch, an
+    -- import). Gated on an actual change because the toggle is a full teardown
+    -- and rebuild; running it every reload would thrash the bar.
+    local cpRegen = CreateFrame("Frame")
+    local function RealiseClassPowerStyle()
+        if not frames._toggleClassPower then return end
+        local wantCP = db.profile.player.classPowerStyle or "none"
+        if wantCP == frames._classPowerBuiltStyle then return end
+        -- The toggle reparents Blizzard's class power frame and re-anchors the
+        -- health bar. The throttle body keeps running after ReloadFrames()'s
+        -- lockdown return (same shape as the UpdateFrameVisibility note above),
+        -- so this needs its own guard plus a regen re-run to re-arm the pass.
+        if InCombatLockdown() then
+            cpRegen:RegisterEvent("PLAYER_REGEN_ENABLED")
+            return
+        end
+        frames._toggleClassPower(wantCP)
+    end
+    cpRegen:SetScript("OnEvent", function(self)
+        self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+        RealiseClassPowerStyle()
+    end)
     reloadThrottle:SetScript("OnUpdate", function(self)
         self:Hide()
         reloadPending = false
@@ -13279,6 +13606,11 @@ function SetupOptionsPanel()
         -- Player private auras re-register with fresh geometry (one boolean
         -- check + return when disabled).
         if ns.PlayerPA_Apply then ns.PlayerPA_Apply() end
+        -- Class power: _toggleClassPower is the only thing that honours a
+        -- classPowerStyle change, and options + the spec watcher are its only
+        -- other callers -- styles changed by overrides, profile switch, or
+        -- import land here.
+        RealiseClassPowerStyle()
     end)
     ns.ReloadFrames = function()
         if not reloadPending then
@@ -13591,7 +13923,10 @@ function SetupOptionsPanel()
         local castbar = frame.Castbar
         local castbarBg = castbar and castbar:GetParent()
         if castbar then
-            if castbar.castTintLayer then castbar.castTintLayer:SetAlpha(0) end
+            if castbar.castTintLayer then
+                castbar.castTintLayer:SetAlpha(0)
+                castbar._castTintOn = nil
+            end
             castbar:Hide()
         end
         if castbarBg then castbarBg:Hide() end
@@ -13629,6 +13964,7 @@ function SetupOptionsPanel()
         -- Active-cast tint -- same path a real cast uses.
         if castbar.castTintLayer then
             castbar.castTintLayer:SetAlpha(castbar._fillOp or 1)
+            castbar._castTintOn = true
             ApplyUnitFrameCastColor(castbar)
         end
         castbarBg:Show()
@@ -14746,6 +15082,28 @@ end
 do
     local olTex
     local curve
+    local racialCurve
+
+    -- RAID_PLAYER_DISPELLABLE only knows class and spec dispels, so it answers
+    -- no for every bleed: nothing a class learns removes one, only the dwarf
+    -- racial does. Without this, "Only Dispellable by You" can never light up
+    -- for a bleed, for anyone. A racial cleans its own caster, so this is the
+    -- player frame's business alone and other units are right to ignore it.
+    -- Bleed only, deliberately: Stoneform also clears poison, disease and
+    -- curse, but a class that dispels those already passes the token, and
+    -- treating a two-minute racial as a dispel would put an overlay on most of
+    -- what a dwarf ever catches.
+    local RACIAL_DISPEL_TYPES = {
+        bleed = { Dwarf = true },  -- Stoneform
+    }
+    -- Shared with the 12.1 container slots (EUI_UnitFrames_AuraContainers.lua),
+    -- which apply the same rule by choosing which slot style stays visible.
+    function ns.UF_RacialClearsDispel(typeKey)
+        local races = RACIAL_DISPEL_TYPES[typeKey]
+        if not races then return false end
+        local _, raceToken = UnitRace("player")
+        return raceToken ~= nil and races[raceToken] == true
+    end
 
     local function RebuildCurve()
         if not (C_CurveUtil and C_CurveUtil.CreateColorCurve) then return end
@@ -14763,6 +15121,24 @@ do
         add(4,  "dispelColorPoison",  0.0,   0.706, 0.286)
         add(9,  "dispelColorBleed",   0.75,  0.15,  0.15)
         add(11, "dispelColorBleed",   0.75,  0.15,  0.15)
+
+        -- Racial detection curve. The type a racial clears carries the user's
+        -- opacity; every other index resolves to alpha 0, so an aura of any
+        -- other type paints nothing. The ALPHA does the branching the addon is
+        -- not allowed to do: the type stays secret and unread, and the RGBA
+        -- goes straight into SetColorTexture/SetVertexColor, never into Lua
+        -- arithmetic. Opacity is baked in here for that reason -- scaling a
+        -- secret alpha afterwards is exactly the arithmetic that throws.
+        local a = (p and p.dispelOverlayOpacity or 100) / 100
+        racialCurve = C_CurveUtil.CreateColorCurve()
+        racialCurve:SetType(Enum.LuaCurveType.Step)
+        local bleedCol = p and p.dispelColorBleed
+        local br, bg, bb = bleedCol and bleedCol.r or 0.75, bleedCol and bleedCol.g or 0.15, bleedCol and bleedCol.b or 0.15
+        local bleedAlpha = ns.UF_RacialClearsDispel("bleed") and a or 0
+        for _, idx in ipairs({ 0, 1, 2, 3, 4, 9 }) do
+            racialCurve:AddPoint(idx, CreateColor(br, bg, bb, 0))
+        end
+        racialCurve:AddPoint(11, CreateColor(br, bg, bb, bleedAlpha))
     end
 
     local function Update()
@@ -14804,19 +15180,49 @@ do
                 break
             end
         end
-        if not found then olTex:Hide(); return end
+
+        -- Racial fallback: the token rejected everything, but a type this
+        -- player's RACE can clear would be rejected even when it is present
+        -- (see RACIAL_DISPEL_TYPES). Re-scan unfiltered and let racialCurve
+        -- decide by alpha -- a non-matching type resolves to 0 and paints
+        -- nothing, so no Lua code ever asks what type this aura is.
+        -- Known limit: this takes the FIRST typed aura, so a bleed sitting
+        -- behind another typed debuff paints nothing rather than wrongly. The
+        -- 12.1 container path has a real per-type slot and no such limit.
+        local racialFound
+        if not found and p.dispelOverlayByMe and ns.UF_RacialClearsDispel("bleed") then
+            for i = 1, 40 do
+                local ad = C_UnitAuras.GetAuraDataByIndex("player", i, "HARMFUL")
+                if not ad then break end
+                if ad.dispelName ~= nil then
+                    racialFound = ad
+                    break
+                end
+            end
+        end
+        if not found and not racialFound then olTex:Hide(); return end
 
         -- Resolve the color through the curve. The components may be secret;
         -- they pass straight into SetColorTexture/SetVertexColor natively.
         if not curve then RebuildCurve() end
         local r, g, b = 0.349, 0.475, 1.0
-        if curve and C_UnitAuras.GetAuraDispelTypeColor then
+        local alpha = (p.dispelOverlayOpacity or 100) / 100
+        if racialFound then
+            -- Alpha comes from the curve (opacity already baked in) and may be
+            -- secret: it is only ever handed to a texture setter below.
+            alpha = 0
+            if racialCurve and C_UnitAuras.GetAuraDispelTypeColor then
+                local col = C_UnitAuras.GetAuraDispelTypeColor("player", racialFound.auraInstanceID, racialCurve)
+                if col then
+                    r, g, b, alpha = col:GetRGBA()
+                end
+            end
+        elseif curve and C_UnitAuras.GetAuraDispelTypeColor then
             local col = C_UnitAuras.GetAuraDispelTypeColor("player", found.auraInstanceID, curve)
             if col then
                 r, g, b = col:GetRGB()
             end
         end
-        local alpha = (p.dispelOverlayOpacity or 100) / 100
 
         olTex:ClearAllPoints()
         olTex:SetVertexColor(1, 1, 1, 1)

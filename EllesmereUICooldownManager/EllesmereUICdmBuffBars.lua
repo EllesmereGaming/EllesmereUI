@@ -39,54 +39,8 @@ end
 -------------------------------------------------------------------------------
 --  Textures
 -------------------------------------------------------------------------------
-local TBB_TEX_BASE = "Interface\\AddOns\\EllesmereUI\\media\\textures\\"
-local TBB_TEXTURES = {
-    ["none"]          = nil,
-    ["melli"]         = TBB_TEX_BASE .. "melli.tga",
-    ["beautiful"]     = TBB_TEX_BASE .. "beautiful.tga",
-    ["plating"]       = TBB_TEX_BASE .. "plating.tga",
-    ["atrocity"]      = TBB_TEX_BASE .. "atrocity.tga",
-    ["divide"]        = TBB_TEX_BASE .. "divide.tga",
-    ["glass"]         = TBB_TEX_BASE .. "glass.tga",
-    ["fade-right"]    = TBB_TEX_BASE .. "fade-right.tga",
-    ["thin-line-top"]    = TBB_TEX_BASE .. "thin-line-top.tga",
-    ["thin-line-bottom"] = TBB_TEX_BASE .. "thin-line-bottom.tga",
-    ["fade"]          = TBB_TEX_BASE .. "fade.tga",
-    ["gradient-lr"]   = TBB_TEX_BASE .. "gradient-lr.tga",
-    ["gradient-rl"]   = TBB_TEX_BASE .. "gradient-rl.tga",
-    ["gradient-bt"]   = TBB_TEX_BASE .. "gradient-bt.tga",
-    ["gradient-tb"]   = TBB_TEX_BASE .. "gradient-tb.tga",
-    ["matte"]         = TBB_TEX_BASE .. "matte.tga",
-    ["sheer"]         = TBB_TEX_BASE .. "sheer.tga",
-}
-local TBB_TEXTURE_ORDER = {
-    "none", "melli", "atrocity",
-    "fade", "fade-right",
-    "thin-line-top", "thin-line-bottom",
-    "beautiful", "plating",
-    "divide", "glass",
-    "gradient-lr", "gradient-rl", "gradient-bt", "gradient-tb",
-    "matte", "sheer",
-}
-local TBB_TEXTURE_NAMES = {
-    ["none"]        = "None",
-    ["melli"]       = "Melli (ElvUI)",
-    ["beautiful"]   = "Beautiful",
-    ["plating"]     = "Plating",
-    ["atrocity"]    = "Atrocity",
-    ["divide"]      = "Divide",
-    ["glass"]       = "Glass",
-    ["fade-right"]  = "Fade Right",
-    ["thin-line-top"]    = "Thin Line Top",
-    ["thin-line-bottom"] = "Thin Line Bottom",
-    ["fade"]        = "Fade",
-    ["gradient-lr"] = "Gradient Right",
-    ["gradient-rl"] = "Gradient Left",
-    ["gradient-bt"] = "Gradient Up",
-    ["gradient-tb"] = "Gradient Down",
-    ["matte"]       = "Matte",
-    ["sheer"]       = "Sheer",
-}
+local TBB_TEXTURES, TBB_TEXTURE_NAMES, TBB_TEXTURE_ORDER =
+    EllesmereUI.BuildBarTextureTables()
 ns.TBB_TEXTURES      = TBB_TEXTURES
 ns.TBB_TEXTURE_ORDER = TBB_TEXTURE_ORDER
 ns.TBB_TEXTURE_NAMES = TBB_TEXTURE_NAMES
@@ -123,6 +77,19 @@ local function SetFont(fs, size)
     fs:SetFont(GetFont(), size, GetOutline())
 end
 
+local function SetTBBTextColor(fs, cfg, prefix)
+    if not fs or not cfg then return end
+    local r = cfg[prefix .. "TextR"]
+    local g = cfg[prefix .. "TextG"]
+    local b = cfg[prefix .. "TextB"]
+    local a = cfg[prefix .. "TextA"]
+    if r == nil then r = 1 end
+    if g == nil then g = 1 end
+    if b == nil then b = 1 end
+    if a == nil then a = 0.9 end
+    fs:SetTextColor(r, g, b, a)
+end
+
 -------------------------------------------------------------------------------
 --  Pandemic state via Blizzard hooks
 -------------------------------------------------------------------------------
@@ -140,6 +107,7 @@ ns._pandemicHooked = _pandemicHooked
 local function _PandemicShow(self)
     _pandemicState[self] = true
     ns._btDirty = true
+    if ns.ArmBuffTicker then ns.ArmBuffTicker() end
     -- Hide Blizzard's PandemicIcon unless "Blizzard Default" (-1).
     -- Custom glow styles (>0) replace it; None (0/false) suppresses it.
     local fc = ns._ecmeFC and ns._ecmeFC[self]
@@ -156,6 +124,7 @@ end
 local function _PandemicHide(self)
     _pandemicState[self] = nil
     ns._btDirty = true
+    if ns.ArmBuffTicker then ns.ArmBuffTicker() end
 end
 
 -- Installed LAZILY from the buff tick, per icon, only when that icon's bar
@@ -270,6 +239,7 @@ local TBB_DEFAULT_BAR = {
     width     = 270,
     verticalOrientation = false,
     reverseFill = false,
+    fillUp = false,          -- cooldown bars only: fill as the cooldown recovers
     chargeHashLines = false,
     chargeHashLineWidth = 2,
     chargeHashLineR = 0, chargeHashLineG = 0,
@@ -285,10 +255,12 @@ local TBB_DEFAULT_BAR = {
     timerPosition = "right",
     timerSize = 11,
     timerX = 0, timerY = 0,
+    timerTextR = 1, timerTextG = 1, timerTextB = 1, timerTextA = 0.9,
     showName  = true,
     namePosition = "left",
     nameSize  = 11,
     nameX = 0, nameY = 0,
+    nameTextR = 1, nameTextG = 1, nameTextB = 1, nameTextA = 0.9,
     showSpark = true,
     iconDisplay = "none",
     iconSize    = 24,
@@ -297,6 +269,7 @@ local TBB_DEFAULT_BAR = {
     stacksPosition = "center",
     stacksSize     = 11,
     stacksX = 0, stacksY = 0,
+    stacksTextR = 1, stacksTextG = 1, stacksTextB = 1, stacksTextA = 0.9,
     stackThresholdEnabled = false,
     stackThreshold = 5,
     stackThresholdR = 0.8, stackThresholdG = 0.1, stackThresholdB = 0.1, stackThresholdA = 1,
@@ -900,6 +873,86 @@ end
 local tbbFrames  = {}
 local tbbTickFrame
 local _tbbRebuildPending = false
+-- Assignment memo gate: the cfg->frame pairing only changes when the viewer
+-- pool's composition changes (aura events, pool Acquire, rebuilds, spec/cache
+-- invalidation), so the tick reuses the last pairing until an edge marks this
+-- dirty. Starts dirty so the first tick always pairs.
+local _tbbAssignDirty = true
+local _tbbAssignedFor
+
+-- TBB idle sleeper. UpdateTrackedBuffBarTimers counts consecutive ticks where
+-- nothing is live (no active/fallback aura, no self-timed window, no running
+-- cooldown bar, no placeholder preview); after ~2s it parks the tick frame
+-- (OnUpdate stops entirely) and this frame listens for the cheap edges that
+-- can make a bar live again. Any edge (or a rebuild) restarts the tick.
+-- Lust from other players and the Time Spiral glow arm outside these events,
+-- so their arm sites call Wake directly.
+local _tbbWake = CreateFrame("Frame")
+_tbbWake._idleTicks = 0
+function _tbbWake.Sleep()
+    if tbbTickFrame then tbbTickFrame:Hide() end
+    -- Deliberately NO SPELL_UPDATE_COOLDOWN here: it fires steadily even at
+    -- idle and would defeat the sleep. A tracked spell's cooldown can only
+    -- START via a player cast (item use and shapeshift included), which the
+    -- cast event covers; a RUNNING cooldown keeps the tick awake by liveness.
+    _tbbWake:RegisterUnitEvent("UNIT_AURA", "player")
+    _tbbWake:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+    _tbbWake:RegisterEvent("PLAYER_REGEN_DISABLED")
+end
+function _tbbWake.Wake()
+    _tbbWake:UnregisterAllEvents()
+    -- Stay subscribed to the aura edge while AWAKE: pool composition can only
+    -- change with a player aura event or a pool Acquire (hooked separately),
+    -- and these are what retire the assignment memo between ticks.
+    _tbbWake:RegisterUnitEvent("UNIT_AURA", "player")
+    _tbbWake._idleTicks = 0
+    _tbbAssignDirty = true
+    if _tbbWake._enabled and tbbTickFrame then tbbTickFrame:Show() end
+end
+-- UNIT_AURA fires steadily in group/follower content (allies buffing the
+-- player), and every false wake buys ~0.5s of full ticking. This probe
+-- answers "could any bar actually be live?" in a few reads WITHOUT waking:
+-- an active viewer frame, or a live player aura for a fallback-class config.
+-- Casts and combat entry skip the probe -- they are rare at idle and are the
+-- legitimate start edges for self-timed/cooldown bars the probe cannot see.
+function _tbbWake.Probe()
+    if ns._tbbPlaceholderMode then return true end
+    local viewer = _G["BuffBarCooldownViewer"]
+    if viewer and viewer.itemFramePool then
+        for frame in viewer.itemFramePool:EnumerateActive() do
+            if frame.IsActive and frame:IsActive() then return true end
+        end
+    end
+    if not (ECME and ECME.db) then return true end
+    local tbb = ns.GetTrackedBuffBars and ns.GetTrackedBuffBars()
+    local bars = tbb and tbb.bars
+    if bars and C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
+        for _, cfg in ipairs(bars) do
+            if cfg.enabled ~= false and not cfg.spellIDs and not cfg.popularKey
+               and cfg.trackType ~= "cooldown"
+               and cfg.spellID and cfg.spellID > 0 then
+                if C_UnitAuras.GetPlayerAuraBySpellID(cfg.spellID)
+                   or (cfg.baseSpellID and cfg.baseSpellID > 0
+                       and C_UnitAuras.GetPlayerAuraBySpellID(cfg.baseSpellID)) then
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+function _tbbWake.OnEvent(_, event)
+    -- Awake: this is the composition edge that retires the assignment memo.
+    -- Just mark and let the next tick re-pair -- no probe, no state change.
+    if tbbTickFrame and tbbTickFrame:IsShown() then
+        _tbbAssignDirty = true
+        return
+    end
+    if event == "UNIT_AURA" and not _tbbWake.Probe() then return end
+    _tbbWake.Wake()
+end
+_tbbWake:SetScript("OnEvent", _tbbWake.OnEvent)
+ns.WakeTBBTick = _tbbWake.Wake
 
 function ns.GetTBBFrame(idx) return tbbFrames[idx] end
 
@@ -1473,7 +1526,7 @@ end
 --  and stackThresholds too: a copied style must not carry threshold numbers.
 -------------------------------------------------------------------------------
 local TBB_STYLE_KEYS = {
-    "height", "width", "verticalOrientation", "reverseFill",
+    "height", "width", "verticalOrientation", "reverseFill", "fillUp",
     "chargeHashLines", "chargeHashLineWidth",
     "chargeHashLineR", "chargeHashLineG", "chargeHashLineB", "chargeHashLineA",
     "texture", "strata",
@@ -1482,11 +1535,14 @@ local TBB_STYLE_KEYS = {
     "gradientEnabled", "gradientR", "gradientG", "gradientB", "gradientA", "gradientDir",
     "opacity", "hideWhenInactive", "onlyInCombat",
     "showTimer", "timerPosition", "timerSize", "timerX", "timerY",
+    "timerTextR", "timerTextG", "timerTextB", "timerTextA",
     "timerDecimals", "timerDecimalThreshold",
     "showName", "namePosition", "nameSize", "nameX", "nameY",
+    "nameTextR", "nameTextG", "nameTextB", "nameTextA",
     "showSpark",
     "iconDisplay", "iconSize", "iconX", "iconY", "iconBorderSize",
     "stacksPosition", "stacksSize", "stacksX", "stacksY",
+    "stacksTextR", "stacksTextG", "stacksTextB", "stacksTextA",
     "borderSize", "borderTexture", "borderR", "borderG", "borderB",
     "borderTextureOffset", "borderTextureOffsetY",
     "borderTextureShiftX", "borderTextureShiftY", "borderBehind",
@@ -2489,6 +2545,10 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
     bar._opacityTarget = cfg.opacity or 1.0
     if not bar._tbbReady then bar:SetAlpha(bar._opacityTarget) end
 
+    SetTBBTextColor(bar._timerText, cfg, "timer")
+    SetTBBTextColor(bar._nameText, cfg, "name")
+    SetTBBTextColor(bar._stacksText, cfg, "stacks")
+
     -- Timer text. Vertical bars honor the same position choices as horizontal
     -- ones: left/right sit OUTSIDE the (thin) bar, top/bottom sit above/below
     -- it, center stays inside.
@@ -2760,6 +2820,9 @@ function ns.InvalidateTBBFrameCache()
     _findChildGeneration = _findChildGeneration + 1
     wipe(_findChildCache)
     wipe(_tbbStickyFrame)
+    -- Every structural edge already funnels here (pool Acquire, spec swap,
+    -- rebuilds): the assignment memo retires with the caches.
+    _tbbAssignDirty = true
 end
 
 local function FindChild(cfg)
@@ -2842,6 +2905,17 @@ end
 
 local function AssignFramesToConfigs(bars)
     local assignment = _tbbAssignment
+    -- Memo: the pairing only moves on composition edges (player aura events,
+    -- pool Acquire, cache invalidation, rebuilds -- all of which set the
+    -- dirty flag), so the ~60Hz tick reuses the last map instead of
+    -- re-enumerating the pool and re-resolving canonical ids every frame.
+    -- The bars-table identity check is the belt for spec swaps that replace
+    -- the table without passing an invalidation site.
+    if not _tbbAssignDirty and _tbbAssignedFor == bars then
+        return assignment
+    end
+    _tbbAssignDirty = false
+    _tbbAssignedFor = bars
     wipe(assignment)
     if not bars then return assignment end
 
@@ -3513,6 +3587,7 @@ local function _ensureLustListener(enable)
                 if present and not _satedPresent and not isFull
                     and GetTime() >= _lustZoneGuard then
                     _lustExpiry = GetTime() + 40  -- rising edge: lust just went out
+                    _tbbWake.Wake()  -- lust can come from other players: no local cast/aura edge is guaranteed
                     -- Drive any Custom Auras (icon) lust display sharing this edge.
                     if ns.SignalLustCast then ns.SignalLustCast() end
                 end
@@ -3600,9 +3675,10 @@ local function _UpdateSelfTimedBar(bar, cfg, expiry, duration)
     elseif bar._timerText then
         bar._timerText:Hide()
     end
+    return true  -- window active: keep the tick awake
 end
 local function UpdateLustBar(bar, cfg)
-    _UpdateSelfTimedBar(bar, cfg, _lustExpiry, 40)
+    return _UpdateSelfTimedBar(bar, cfg, _lustExpiry, 40)
 end
 
 -------------------------------------------------------------------------------
@@ -3671,6 +3747,7 @@ local function _ensureTimeSpiralListener(enable)
                     if not TIME_SPIRAL_TRIGGERS[sid] then return end
                     if GetTime() < _ts.suppressUntil then return end
                     _ts.expiry = GetTime() + TIME_SPIRAL_DURATION  -- free move just granted
+                    _tbbWake.Wake()  -- glow edge is outside the sleeper's wake events
                     -- Drive any Custom Auras (icon) display sharing this edge.
                     if ns.SignalTimeSpiralCast then ns.SignalTimeSpiralCast() end
                 elseif event == "SPELL_ACTIVATION_OVERLAY_GLOW_HIDE" then
@@ -4220,84 +4297,20 @@ function ns.UpdateCooldownCastListener()
     _ensureCooldownCastListener(any)
 end
 
--- Debug: /tbbcd -- dumps the cooldown-bar pipeline state, secret-safe.
--- Run it IN COMBAT while a bar is misbehaving and read which leg is dead:
--- listener armed? watch mapped? durCache seeded? mirror live? which API
--- fields are SECRET right now?
-SLASH_TBBCD1 = "/tbbcd"
-SlashCmdList.TBBCD = function()
-    local function V(v)
-        if issecretvalue and issecretvalue(v) then return "SECRET" end
-        return tostring(v)
-    end
-    print("|cff00ccff[TBB CD Debug]|r combat=" .. tostring(InCombatLockdown())
-        .. " listener=" .. tostring(_cdActive))
-    local tbb = ns.GetTrackedBuffBars and ns.GetTrackedBuffBars()
-    if not (tbb and tbb.bars) then print("  no bars") return end
-    local found = false
-    for i, cfg in ipairs(tbb.bars) do
-        if cfg.enabled ~= false and cfg.trackType == "cooldown" then
-            found = true
-            local sid = CooldownBarSpellID(cfg)
-            local name = sid and C_Spell.GetSpellName and C_Spell.GetSpellName(sid)
-            print("  bar " .. i .. " " .. tostring(name)
-                .. " saved=" .. tostring(cfg.spellID)
-                .. " state=" .. tostring(sid)
-                .. " watched=" .. tostring(sid ~= nil and _cdWatch[sid] ~= nil))
-            if sid then
-                print("    durCache=" .. tostring(_cdDurCache[sid])
-                    .. " baseCd=" .. tostring(_cdBaseDuration(sid)))
-                local m = _cdCast[sid]
-                if m and m.dur then
-                    print(string.format("    mirror dur=%.1f rem=%.1f",
-                        m.dur, m.start + m.dur - GetTime()))
-                else
-                    print("    mirror=nil")
-                end
-                local ch = C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(sid)
-                if ch then
-                    print("    charges max=" .. V(ch.maxCharges)
-                        .. " cur=" .. V(ch.currentCharges)
-                        .. " st=" .. V(ch.cooldownStartTime)
-                        .. " du=" .. V(ch.cooldownDuration))
-                else
-                    print("    charges=nil")
-                end
-                local cd = C_Spell.GetSpellCooldown and C_Spell.GetSpellCooldown(sid)
-                if cd then
-                    print("    cd act=" .. V(cd.isActive) .. " gcd=" .. V(cd.isOnGCD)
-                        .. " st=" .. V(cd.startTime) .. " du=" .. V(cd.duration))
-                else
-                    print("    cd=nil")
-                end
-                local dobj = C_Spell.GetSpellCooldownDuration
-                    and C_Spell.GetSpellCooldownDuration(sid)
-                local cobj = C_Spell.GetSpellChargeDuration
-                    and C_Spell.GetSpellChargeDuration(sid)
-                local dorem
-                if dobj and dobj.GetRemainingDuration then
-                    dorem = dobj:GetRemainingDuration()
-                elseif cobj and cobj.GetRemainingDuration then
-                    dorem = cobj:GetRemainingDuration()
-                end
-                print("    durObj cd=" .. tostring(dobj ~= nil)
-                    .. " charge=" .. tostring(cobj ~= nil)
-                    .. " rem=" .. V(dorem))
-            end
-        end
-    end
-    if not found then print("  no cooldown-tracking bars") end
-end
-
 -------------------------------------------------------------------------------
 --  Cooldown-tracking bar (cfg.trackType == "cooldown"): the stock fill drains
---  with the spell's remaining cooldown. Charge Hash Lines instead fill through
---  one section per recovered charge while the timer remains the NEXT charge's
---  remaining cooldown. Stacks text = current charges. Ready (off cooldown /
---  GCD-only / at max charges / spell unknown) counts as INACTIVE for
---  hideWhenInactive; a shown-but-ready bar renders full with no timer.
+--  with the spell's remaining cooldown. cfg.fillUp inverts that, filling as
+--  the cooldown recovers -- it changes only WHICH WAY the value travels, and
+--  every fill source below honours it. Reverse Fill is a different thing
+--  entirely and composes with it: that mirrors the bar's geometry and never
+--  touches the value. Charge Hash Lines instead fill through one section per
+--  recovered charge while the timer remains the NEXT charge's remaining
+--  cooldown, and already fill upward by construction, so fillUp is a no-op
+--  there. Stacks text = current charges. Ready (off cooldown / GCD-only / at
+--  max charges / spell unknown) counts as INACTIVE for hideWhenInactive; a
+--  shown-but-ready bar renders full with no timer, in either direction.
 --
---  FILL SOURCE ORDER:
+--  FILL SOURCE ORDER (each honours cfg.fillUp):
 --  1. Engine duration handle (C_Spell.GetSpellCooldownDuration /
 --     GetSpellChargeDuration + StatusBar:SetTimerDuration): the ENGINE
 --     animates the drain and tracks CDR / resets live, secret-proof by
@@ -4516,11 +4529,19 @@ local function _UpdateCooldownBar(bar, cfg)
             -- the visible clipped texture and spark were updated above.
         elseif durObj and sb.SetTimerDuration and timerDir then
             _restoreTBBNormalFill(bar, cfg)
-            -- Engine-driven drain: the duration handle tracks CDR and
+            -- Engine-driven fill: the duration handle tracks CDR and
             -- resets live, no numbers ever read. The bar timer is re-set
-            -- only when a fresh handle was fetched (event/revalidate) or
-            -- the bar just appeared -- the engine animates in between.
-            if bar._cdNeedSet or not wasShown then
+            -- only when a fresh handle was fetched (event/revalidate), the
+            -- bar just appeared, or the requested direction changed -- the
+            -- engine animates in between. Fill Up asks the engine for
+            -- ElapsedTime instead of RemainingTime, the same constant the
+            -- charge-hash recovery bar uses. The direction term matters
+            -- because toggling the option restyles a LIVE bar in place: with
+            -- only the fetch/show terms the engine would keep animating the
+            -- old direction until the next handle fetch.
+            local wantDir = cfg.fillUp and timerDir.ElapsedTime
+                or timerDir.RemainingTime
+            if bar._cdNeedSet or not wasShown or bar._cdFillDir ~= wantDir then
                 sb:SetMinMaxValues(0, 1)
                 local interpE = Enum.StatusBarInterpolation
                 local interp
@@ -4531,33 +4552,51 @@ local function _UpdateCooldownBar(bar, cfg)
                         interp = interpE.None
                     end
                 end
-                sb:SetTimerDuration(durObj, interp, timerDir.RemainingTime)
-                if not wasShown and sb.SetToTargetValue then
-                    -- Snap on first show: avoids the empty-to-full sweep-in.
+                sb:SetTimerDuration(durObj, interp, wantDir)
+                -- Snap whenever the bar was not already animating THIS
+                -- direction. First show is the original case (the
+                -- empty-to-full sweep-in). The direction term adds two more:
+                -- arriving from the ready state, which parks the bar full and
+                -- clears _cdFillDir, and a mid-cooldown toggle. Both leave the
+                -- bar sitting at the opposite end, and with smooth cooldowns
+                -- on, easing from there plays a visible backwards sweep at the
+                -- exact moment the spell was cast.
+                if (not wasShown or bar._cdFillDir ~= wantDir)
+                    and sb.SetToTargetValue then
                     sb:SetToTargetValue()
                 end
                 bar._cdNeedSet = nil
+                bar._cdFillDir = wantDir
             end
             if cfg.showSpark and bar._spark then bar._spark:Show() end
         elseif remaining then
             _restoreTBBNormalFill(bar, cfg)
             sb:SetMinMaxValues(0, duration)
+            -- Both operands are clean numbers on this branch, and a
+            -- non-positive remaining was normalised away above, so Fill Up
+            -- can simply mirror the fraction in Lua.
+            local fillVal = cfg.fillUp and (duration - remaining) or remaining
             -- Smooth fill is baseline (see UpdateLustBar note).
             local smooth = _smoothCooldowns and wasShown and Enum
                 and Enum.StatusBarInterpolation
                 and Enum.StatusBarInterpolation.ExponentialEaseOut
             if smooth then
-                sb:SetValue(remaining, smooth)
+                sb:SetValue(fillVal, smooth)
             else
-                sb:SetValue(remaining)
+                sb:SetValue(fillVal)
             end
+            -- Plain SetValue cancels the running bar timer, so the cached
+            -- engine direction is stale the moment this branch runs.
+            bar._cdFillDir = nil
             if cfg.showSpark and bar._spark then bar._spark:Show() end
         else
             _restoreTBBNormalFill(bar, cfg)
-            -- Ready (kept on screen) or unreadable fail-open: full bar.
-            -- Plain SetValue also cancels any running bar timer.
+            -- Ready (kept on screen) or unreadable fail-open: full bar in
+            -- either direction. Plain SetValue also cancels any running bar
+            -- timer.
             sb:SetMinMaxValues(0, 1)
             sb:SetValue(1)
+            bar._cdFillDir = nil
             if bar._spark then bar._spark:Hide() end
         end
     end
@@ -4670,6 +4709,10 @@ function ns.UpdateTrackedBuffBarTimers()
     local bars = tbb.bars
     if not bars then if MD then MD("TBBTick") end return end
 
+    -- Liveness for the idle sleeper: set by any branch below that is actually
+    -- animating or tracking something this tick.
+    local tickLive = false
+
     -- Profile-wide smooth-fill switches, resolved once per tick for every
     -- fill site (absent buffs key = enabled; absent cooldowns key = OFF).
     local sm = ns.GetTBBSmoothSettings and ns.GetTBBSmoothSettings()
@@ -4687,6 +4730,9 @@ function ns.UpdateTrackedBuffBarTimers()
         if am ~= "EllesmereUICooldownManager" or ap ~= "Tracking Bars" then
             ns._tbbPlaceholderMode = false
             if ns.HideTBBPlaceholders then ns.HideTBBPlaceholders() end
+            -- Auras may have moved while the placeholder preview was up:
+            -- re-pair on the first real mirror tick.
+            _tbbAssignDirty = true
         end
     end
 
@@ -4701,6 +4747,7 @@ function ns.UpdateTrackedBuffBarTimers()
         if not bar or not bar._tbbReady then
             -- skip
         elseif ns._tbbPlaceholderMode then
+            tickLive = true
             if not bar:IsShown() then bar:Show() end
         elseif cfg.enabled == false then
             bar:Hide()
@@ -4710,18 +4757,22 @@ function ns.UpdateTrackedBuffBarTimers()
             HideTBBBarForCombat(bar)
         elseif cfg.popularKey == "bloodlust" then
             -- Self-driven 40s lust bar; no Blizzard frame to mirror.
-            UpdateLustBar(bar, cfg)
+            if UpdateLustBar(bar, cfg) then tickLive = true end
         elseif cfg.popularKey == "timespiral" then
             -- Self-driven 10s Time Spiral "Free Move" bar; glow-armed, no frame.
-            _UpdateSelfTimedBar(bar, cfg, _ts.expiry, TIME_SPIRAL_DURATION)
+            if _UpdateSelfTimedBar(bar, cfg, _ts.expiry, TIME_SPIRAL_DURATION) then tickLive = true end
         elseif cfg.popularKey and _potionDur[cfg.popularKey] then
             -- Self-cast potion preset: hardcoded window off the spell-cast edge,
             -- no aura tracking / no Blizzard frame to mirror.
-            _UpdateSelfTimedBar(bar, cfg, _potionExpiry[cfg.popularKey] or 0,
-                _potionDur[cfg.popularKey])
+            if _UpdateSelfTimedBar(bar, cfg, _potionExpiry[cfg.popularKey] or 0,
+                _potionDur[cfg.popularKey]) then tickLive = true end
         elseif cfg.trackType == "cooldown" then
             -- Spell-cooldown tracking: self-driven, no Blizzard frame/aura.
             _UpdateCooldownBar(bar, cfg)
+            -- Live while an engine handle drives the fill OR the bar is on
+            -- screen (covers the secret-timing mirror drain and always-shown
+            -- bars, both of which need per-tick updates).
+            if bar._cdDurObj or bar:IsShown() then tickLive = true end
         else
             local blzChild = assignment[cfg]
             if blzChild then ns.HookPandemicState(blzChild) end
@@ -4761,7 +4812,14 @@ function ns.UpdateTrackedBuffBarTimers()
                 if not fbAura and cfg.baseSpellID and cfg.baseSpellID > 0 then
                     fbAura = C_UnitAuras.GetPlayerAuraBySpellID(cfg.baseSpellID)
                 end
+                -- Fallback driving = the viewer has not bound this aura yet,
+                -- and Blizzard's late-bind can land WITHOUT a fresh player
+                -- aura event. Keep the assignment memo dirty while any
+                -- fallback is live so the next tick re-pairs the moment the
+                -- frame appears (restores stacks/pandemic from mirror mode).
+                if fbAura then _tbbAssignDirty = true end
             end
+            if isActive or fbAura then tickLive = true end
 
             -- Read Blizzard's StatusBar (the data source for fill/timer)
             local blizzBar = blzChild and blzChild.Bar
@@ -5118,9 +5176,13 @@ function ns.UpdateTrackedBuffBarTimers()
                     if sb then sb:SetMinMaxValues(0, 1); sb:SetValue(0) end
                     if bar._timerText then bar._timerText:Hide() end
                     if bar._spark then bar._spark:Hide() end
-                else
+                elseif bar:IsShown() then
+                    -- Clear the name latch on the hide EDGE only: clearing it
+                    -- every hidden tick made the deferred name fill below
+                    -- re-resolve the spell via C_Spell.GetSpellInfo every
+                    -- tick for every hidden bar.
                     bar._nameSet = nil
-                    if bar:IsShown() then bar:Hide() end
+                    bar:Hide()
                 end
             end
         end
@@ -5147,7 +5209,10 @@ function ns.UpdateTrackedBuffBarTimers()
     -- their renderer; both paths use AnchorTBBSparkState's scalar signature so
     -- unchanged anchors do no native layout work and allocate nothing.
     for _, bar in ipairs(tbbFrames) do
-        if bar and bar._spark and bar._spark:IsShown() and bar._bar then
+        -- bar:IsShown() gate: a child spark's own shown flag stays latched
+        -- true after its parent bar Hides, so without this the loop keeps
+        -- anchoring sparks of hidden bars every tick forever.
+        if bar and bar:IsShown() and bar._spark and bar._spark:IsShown() and bar._bar then
             if not bar._chargeHashFillActive then
                 local anchor = (bar._gradientActive and bar._gradClip)
                     or bar._cachedOurFillTex
@@ -5176,6 +5241,18 @@ function ns.UpdateTrackedBuffBarTimers()
                 f:SetAlpha(tgt)
             end
         end
+    end
+
+    -- Idle sleeper: after ~0.5s of ticks with nothing live, park the OnUpdate
+    -- entirely and let the wake listeners re-arm it. The settle window lets
+    -- smooth fills and the opacity lerp converge (both ease within ~0.35s)
+    -- before updates stop; kept short so wake-event bursts stay cheap.
+    if tickLive then
+        _tbbWake._idleTicks = 0
+    elseif tbbTickFrame and tbbTickFrame:IsShown() then
+        local n = _tbbWake._idleTicks + 1
+        _tbbWake._idleTicks = n
+        if n >= 30 then _tbbWake.Sleep() end
     end
     if ns._MemDelta then ns._MemDelta("TBBTick") end
 end
@@ -5213,6 +5290,8 @@ function ns.BuildTrackedBuffBars()
         for i = 1, #tbbFrames do
             if tbbFrames[i] then tbbFrames[i]:Hide() end
         end
+        _tbbWake._enabled = false
+        _tbbWake:UnregisterAllEvents()
         if tbbTickFrame then tbbTickFrame:Hide() end
         return
     end
@@ -5365,7 +5444,10 @@ function ns.BuildTrackedBuffBars()
         end
     end
 
-    -- Tick frame (every frame -- bar fill + spark need smooth updates)
+    -- Tick frame (every frame while anything is live -- bar fill + spark need
+    -- smooth updates; the idle sleeper in UpdateTrackedBuffBarTimers parks it
+    -- when nothing is)
+    _tbbWake._enabled = anyEnabled and true or false
     if anyEnabled then
         if not tbbTickFrame then
             tbbTickFrame = ns.TakeShell()
@@ -5378,9 +5460,10 @@ function ns.BuildTrackedBuffBars()
                 ns.UpdateTrackedBuffBarTimers()
             end)
         end
-        tbbTickFrame:Show()
-    elseif tbbTickFrame then
-        tbbTickFrame:Hide()
+        _tbbWake.Wake()
+    else
+        _tbbWake:UnregisterAllEvents()
+        if tbbTickFrame then tbbTickFrame:Hide() end
     end
 
     -- Start/stop the player-only Sated-debuff listener that drives the lust

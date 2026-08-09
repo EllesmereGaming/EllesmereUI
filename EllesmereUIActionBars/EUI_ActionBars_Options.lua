@@ -497,9 +497,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- Disable WoW's automatic pixel snapping on a texture
-        local function UnsnapTex(tex)
-            if tex.SetSnapToPixelGrid then tex:SetSnapToPixelGrid(false); tex:SetTexelSnappingBias(0) end
-        end
+        local UnsnapTex = EllesmereUI.PP.DisablePixelSnap
 
         -- Pre-create per-button sub-frames and textures -----------------------
         -- We allocate for all 12, then show/hide based on numButtonsShowable
@@ -1306,6 +1304,7 @@ initFrame:SetScript("OnEvent", function(self)
             local rightRgn = visRow._rightRegion
             if rightRgn._control then rightRgn._control:Hide() end
             local PP = EllesmereUI.PanelPP
+            if not EllesmereUI._prebuilding then
             local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
                 rightRgn, 210, rightRgn:GetFrameLevel() + 2,
                 EllesmereUI.VIS_OPT_ITEMS,
@@ -1320,6 +1319,7 @@ initFrame:SetScript("OnEvent", function(self)
             rightRgn._control = cbDD
             rightRgn._lastInline = nil
             EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
+            end
 
             return visRow
         end
@@ -1550,7 +1550,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         local xpBarRow = BuildDataBarSection("XPBar",  "EXPERIENCE BAR", "XP Bar Visibility")
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = xpBarRow._leftRegion
             local _, xpCogShow = EllesmereUI.BuildCogPopup({
                 title = "XP Bar Visibility",
@@ -1929,7 +1929,7 @@ initFrame:SetScript("OnEvent", function(self)
         if not visOnly then
             local ctRow
             ctRow, h = W:DualRow(parent, y,
-                { type="label", text="Toggle Action Bar Visibility" },
+                { type="label", text="Toggle Action Bar" },
                 { type="toggle", text="Click Through",
                   getValue=function()
                       return SGet("clickThrough")
@@ -2034,7 +2034,7 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                     kbBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
                     if kbBtn._border and kbBtn._border.SetColor then kbBtn._border:SetColor(1, 1, 1, 0.3) end
-                    EllesmereUI.ShowWidgetTooltip(self, "Toggling action bar visibility is only available out of combat\n\nLeft-click to set a keybind.\nRight-click to unbind.")
+                    EllesmereUI.ShowWidgetTooltip(self, "Toggling an action bar is only available out of combat\n\nLeft-click to set a keybind.\nRight-click to unbind.")
                 end)
                 kbBtn:SetScript("OnLeave", function()
                     if listening then return end
@@ -2058,7 +2058,7 @@ initFrame:SetScript("OnEvent", function(self)
                 -- with a synthetic accessor (the left half is a plain label
                 -- cfg, which carries no get/set of its own).
                 EllesmereUI.AddCaptureAccessor(rgn, {
-                    type = "keybind", text = "Toggle Action Bar Visibility",
+                    type = "keybind", text = "Toggle Action Bar",
                     getValue = function() return SB().toggleVisKey end,
                     setValue = function(v)
                         SB().toggleVisKey = v
@@ -3948,9 +3948,19 @@ initFrame:SetScript("OnEvent", function(self)
             local dtRow
             dtRow, h = W:DualRow(parent, y,
                 { type="toggle", text="Desaturate on Cooldown",
+                  -- setValue runs the one-shot catch-up sweep: the cooldown
+                  -- machinery repaints on edges only, so without it an icon
+                  -- grey at uncheck time stays grey until its next edge.
                   tooltip="Desaturates (grays out) action button icons while the ability is on cooldown. GCD-only cooldowns are excluded.",
                   getValue=function() return EAB.db.profile.desaturateOnCooldown or false end,
-                  setValue=function(v) EAB.db.profile.desaturateOnCooldown = v end },
+                  setValue=function(v)
+                      local p = EAB.db.profile
+                      local was = p.desaturateOnCooldown or false
+                      p.desaturateOnCooldown = v
+                      if was ~= (v or false) and EAB._DesatSettingChanged then
+                          EAB._DesatSettingChanged(v and true or false)
+                      end
+                  end },
                 { type="toggle", text="Disable Tooltips",
                   getValue=function()
                       return SGet("disableTooltips") or false
@@ -4185,6 +4195,17 @@ initFrame:SetScript("OnEvent", function(self)
                 block:SetShown(off0)
             end
 
+            -- Row: Hide Count at 0 (odd last slot -- blank right label)
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Hide Charge Count at 0",
+                  tooltip="Hide the charge number on action buttons when it reaches 0, instead of showing a 0. The number returns as soon as a charge or item comes back.",
+                  getValue=function() return EAB.db.profile.hideZeroCount or false end,
+                  setValue=function(v)
+                      EAB.db.profile.hideZeroCount = v or nil
+                      if EAB.RefreshAllCounts then EAB:RefreshAllCounts() end
+                  end },
+                { type="label", text="" });  y = y - h
+
             BuildBarBackgroundSection()
 
             -------------------------------------------------------------------
@@ -4239,7 +4260,10 @@ initFrame:SetScript("OnEvent", function(self)
                         local bars = EAB.db.profile.bars[selKey]
                         if not bars.paging then bars.paging = {} end
                         if val == "none" then
-                            bars.paging[stateId] = false
+                            -- nil, not false: the driver builder reads nil as
+                            -- "unconfigured -> native form fallback"; false
+                            -- would suppress the form's bonusbar swap.
+                            bars.paging[stateId] = nil
                         else
                             bars.paging[stateId] = tonumber(val)
                         end
@@ -4250,6 +4274,27 @@ initFrame:SetScript("OnEvent", function(self)
                         end
                         if not anySet then bars.paging = {} end
                         if ns.RebuildBarPaging then ns.RebuildBarPaging(selKey) end
+                    end
+
+                    -- Row 0: Auto-paging opt-outs (MainBar only -- it is the only
+                    -- bar the engine pages off bonusbar). These suppress the
+                    -- implicit swaps only; an explicit page picked for a form in
+                    -- the dropdowns below still applies.
+                    if selKey == "MainBar" then
+                        local function SetAutoPageOptOut(key, v)
+                            SSet(key, v, function(k)
+                                if ns.RebuildBarPaging then ns.RebuildBarPaging(k) end
+                            end)
+                        end
+                        _, h = W:DualRow(parent, y,
+                            { type="toggle", text="Disable Form Paging",
+                              getValue=function() return SGet("disableFormPaging") or false end,
+                              setValue=function(v) SetAutoPageOptOut("disableFormPaging", v) end,
+                              tooltip="Keep Action Bar 1 on its current page when you shapeshift, stealth, or change stance, instead of swapping to that form's bar.\n\nKeybinds follow what the bar shows, so the key always casts the icon you see. Press-and-hold repeat casting is turned off on Action Bar 1 while this is enabled." },
+                            { type="toggle", text="Disable Skyriding Paging",
+                              getValue=function() return SGet("disableSkyridingPaging") or false end,
+                              setValue=function(v) SetAutoPageOptOut("disableSkyridingPaging", v) end,
+                              tooltip="Keep Action Bar 1 on its current page while skyriding, instead of swapping to the skyriding bar.\n\nYour skyriding abilities live on that bar, so put them on another bar before enabling this. Press-and-hold repeat casting is turned off on Action Bar 1 while this is enabled." });  y = y - h
                     end
 
                     -- Row 1: Show Paging Arrows (+ inline cog) | Shift Modifier
@@ -4808,11 +4853,13 @@ initFrame:SetScript("OnEvent", function(self)
                         local sz = s.cooldownFontSize or 12
                         local ox = s.cooldownTextXOffset or 0
                         local oy = s.cooldownTextYOffset or 0
+                        local ft = s.cooldownFontFit or false
                         for _, key in ipairs(GROUP_BAR_ORDER) do
                             if c then EAB.db.profile.bars[key].cooldownTextColor = { r=c.r, g=c.g, b=c.b } end
                             EAB.db.profile.bars[key].cooldownFontSize = sz
                             EAB.db.profile.bars[key].cooldownTextXOffset = ox
                             EAB.db.profile.bars[key].cooldownTextYOffset = oy
+                            EAB.db.profile.bars[key].cooldownFontFit = ft
                             EAB:ApplyCooldownFontsForBar(key)
                         end
                         EllesmereUI:RefreshPage()
@@ -4823,11 +4870,13 @@ initFrame:SetScript("OnEvent", function(self)
                         local c = s.cooldownTextColor
                         local ox = s.cooldownTextXOffset or 0
                         local oy = s.cooldownTextYOffset or 0
+                        local ft = s.cooldownFontFit or false
                         for _, key in ipairs(GROUP_BAR_ORDER) do
                             local b = EAB.db.profile.bars[key]
                             if (b.cooldownFontSize or 12) ~= sz then return false end
                             if (b.cooldownTextXOffset or 0) ~= ox then return false end
                             if (b.cooldownTextYOffset or 0) ~= oy then return false end
+                            if (b.cooldownFontFit or false) ~= ft then return false end
                             if c then
                                 local bc = b.cooldownTextColor
                                 if not bc or bc.r ~= c.r or bc.g ~= c.g or bc.b ~= c.b then return false end
@@ -4846,11 +4895,13 @@ initFrame:SetScript("OnEvent", function(self)
                             local sz = s.cooldownFontSize or 12
                             local ox = s.cooldownTextXOffset or 0
                             local oy = s.cooldownTextYOffset or 0
+                            local ft = s.cooldownFontFit or false
                             for _, key in ipairs(checkedKeys) do
                                 if c then EAB.db.profile.bars[key].cooldownTextColor = { r=c.r, g=c.g, b=c.b } end
                                 EAB.db.profile.bars[key].cooldownFontSize = sz
                                 EAB.db.profile.bars[key].cooldownTextXOffset = ox
                                 EAB.db.profile.bars[key].cooldownTextYOffset = oy
+                                EAB.db.profile.bars[key].cooldownFontFit = ft
                                 EAB:ApplyCooldownFontsForBar(key)
                             end
                             EllesmereUI:RefreshPage()
@@ -4880,7 +4931,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUI.RegisterWidgetRefresh(function() cdUpdateSwatch() end)
 
                 local _, cdCogShowRaw = EllesmereUI.BuildCogPopup({
-                    title = "Cooldown Text Offsets",
+                    title = "Cooldown Text",
                     rows = {
                         { type="slider", label="X Offset", min=-150, max=150, step=1,
                           get=function() return SVal("cooldownTextXOffset", 0) end,
@@ -4893,6 +4944,12 @@ initFrame:SetScript("OnEvent", function(self)
                           set=function(v)
                               SSet("cooldownTextYOffset", v, function(k) EAB:ApplyCooldownFontsForBar(k) end)
                               SUpdatePreview()
+                          end },
+                        { type="toggle", label="Fit Size to Button",
+                          tooltip="Caps the countdown size so it cannot spill outside small buttons.",
+                          get=function() return SVal("cooldownFontFit", false) end,
+                          set=function(v)
+                              SSet("cooldownFontFit", v and true or false, function(k) EAB:ApplyCooldownFontsForBar(k) end)
                           end },
                     },
                 })
@@ -5596,7 +5653,7 @@ initFrame:SetScript("OnEvent", function(self)
                   UpdateHighlightPreview(_highlightPreview)
                   EllesmereUI:RefreshPage()
               end })
-        do
+        if not EllesmereUI._prebuilding then
             -- Pushed Type inline elements (left)
             local leftRgn = row._leftRegion
             _pushedPreview = CreatePreviewIcon(leftRgn)
@@ -5798,7 +5855,7 @@ initFrame:SetScript("OnEvent", function(self)
                   UpdateProcGlowPreview(_procGlowPreview)
                   EllesmereUI:RefreshPage()
               end })
-        do
+        if not EllesmereUI._prebuilding then
             local leftRgn = row._leftRegion
             _procGlowPreview = CreatePreviewIcon(leftRgn)
             if _procGlowPreview._icon then

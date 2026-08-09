@@ -225,15 +225,6 @@ qolFrame:SetScript("OnEvent", function(self)
         local _lastBagChurn = 0
         local CHURN_SETTLE_WINDOW = 0.35  -- "recent" churn cutoff, seconds
         local CHURN_SETTLE_DELAY = 0.4    -- extra wait when churn was recent
-        -- Coarse backstop regardless of the churn signal: pause longer after
-        -- every few opens in one cycle so a long mail-dump burst can't
-        -- steamroll through at full cadence. Starting guess, not a measured
-        -- threshold -- see AODbg below for tuning with real capture data if
-        -- the churn signal alone isn't enough. Live-tunable via
-        -- EllesmereUI._aoBurstCooldown (falls back to the default) so a tester
-        -- can try values in one session -- e.g. /run EllesmereUI._aoBurstCooldown = 2
-        local OPEN_BURST_SIZE = 4
-        local OPEN_BURST_COOLDOWN_DEFAULT = 4
         local function AODbg(...)
             if EllesmereUI._AODEBUG then print("|cff33ff99[AutoOpen]|r", ...) end
         end
@@ -245,6 +236,18 @@ qolFrame:SetScript("OnEvent", function(self)
         local function IsEnabled()
             return EllesmereUIDB and EllesmereUIDB.autoOpenContainers == true
         end
+        -- This payout can award this capped currency; hold only the known pair.
+        local ARTISAN_PAYOUT_ITEM_ID = 246585
+        local SHARD_OF_DUNDUN_CURRENCY_ID = 3376
+        local function ShouldHoldCappedArtisanPayout(itemID)
+            if itemID ~= ARTISAN_PAYOUT_ITEM_ID
+                or not (EllesmereUIDB
+                    and EllesmereUIDB.autoOpenContainersHoldCappedArtisanPayouts == true) then
+                return false
+            end
+            return C_CurrencyInfo and C_CurrencyInfo.PlayerHasMaxQuantity
+                and C_CurrencyInfo.PlayerHasMaxQuantity(SHARD_OF_DUNDUN_CURRENCY_ID) or false
+        end
         -- A merchant being open turns UseContainerItem into a SELL (Blizzard
         -- routes "use item" to the vendor), so auto-open must pause while any
         -- merchant frame is shown -- otherwise freshly-bought containers get
@@ -253,6 +256,17 @@ qolFrame:SetScript("OnEvent", function(self)
         -- re-runs on MERCHANT_CLOSED.
         local function MerchantOpen()
             return (MerchantFrame and MerchantFrame:IsShown()) and true or false
+        end
+        -- Same reasoning as MerchantOpen: opening containers while the mailbox
+        -- is up is at best pointless (loot windows / bag churn stacking on top
+        -- of mail's own item delivery) and at worst compounds the exact
+        -- strand-a-slot race the pacing logic above exists to avoid. Pause
+        -- while the mailbox is shown and resume cleanly once it closes.
+        local function MailOpen()
+            return (MailFrame and MailFrame:IsShown()) and true or false
+        end
+        local function BankOpen()
+            return (BankFrame and BankFrame:IsShown()) and true or false
         end
         -- "Exclude Warbound Containers": true only when the option is on AND
         -- the slot is confirmed warband-bank-eligible. Guarded like the bags
@@ -348,21 +362,55 @@ qolFrame:SetScript("OnEvent", function(self)
                 -- suppressed), so without this the just-bought containers would
                 -- never open after leaving the vendor.
                 containerFrame:RegisterEvent("MERCHANT_CLOSED")
+                -- Resume once the mailbox closes. The pause needs no event of
+                -- its own: MailOpen() reads the frame directly at every entry
+                -- point, so only the close edge is registered. MAIL_CLOSED is
+                -- kept for older clients, but as of patch 10.0.0 it no longer
+                -- fires at all -- Blizzard folded it into the generic
+                -- interaction-manager events, so the HIDE event is the one
+                -- that actually drives the resume on retail.
+                containerFrame:RegisterEvent("MAIL_CLOSED")
+                containerFrame:RegisterEvent("BANKFRAME_CLOSED")
+                if C_PlayerInteractionManager then
+                    containerFrame:RegisterEvent("PLAYER_INTERACTION_MANAGER_FRAME_HIDE")
+                end
                 -- Track loot windows so payout containers (which open one and
                 -- linger in the bag) aren't opened over / re-opened while looting.
                 containerFrame:RegisterEvent("LOOT_OPENED")
                 containerFrame:RegisterEvent("LOOT_CLOSED")
+                if EllesmereUIDB.autoOpenContainersHoldCappedArtisanPayouts == true
+                    and C_CurrencyInfo and C_CurrencyInfo.PlayerHasMaxQuantity then
+                    containerFrame:RegisterEvent("CURRENCY_DISPLAY_UPDATE")
+                else
+                    containerFrame:UnregisterEvent("CURRENCY_DISPLAY_UPDATE")
+                end
+                -- Resume opens deferred while the player was casting. Without
+                -- these the deferral would stall until the next bag update.
+                containerFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+                containerFrame:RegisterUnitEvent("UNIT_SPELLCAST_STOP", "player")
+                containerFrame:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_STOP", "player")
                 if not _cacheBuilt then
                     _scanBag = BACKPACK_CONTAINER
                     _scanSlot = 1
                     scanFrame:Show()
+                elseif RequestScan then
+                    RequestScan()
                 end
             else
                 containerFrame:UnregisterEvent("BAG_UPDATE_DELAYED")
                 containerFrame:UnregisterEvent("BAG_UPDATE")
                 containerFrame:UnregisterEvent("MERCHANT_CLOSED")
+                containerFrame:UnregisterEvent("MAIL_CLOSED")
+                containerFrame:UnregisterEvent("BANKFRAME_CLOSED")
+                if C_PlayerInteractionManager then
+                    containerFrame:UnregisterEvent("PLAYER_INTERACTION_MANAGER_FRAME_HIDE")
+                end
                 containerFrame:UnregisterEvent("LOOT_OPENED")
                 containerFrame:UnregisterEvent("LOOT_CLOSED")
+                containerFrame:UnregisterEvent("CURRENCY_DISPLAY_UPDATE")
+                containerFrame:UnregisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+                containerFrame:UnregisterEvent("UNIT_SPELLCAST_STOP")
+                containerFrame:UnregisterEvent("UNIT_SPELLCAST_CHANNEL_STOP")
                 _lootOpen = false
                 _pendingOpen = nil
                 _lootSource = nil
@@ -394,11 +442,29 @@ qolFrame:SetScript("OnEvent", function(self)
         -- anything progressed -- that subsumes nested containers (a bag yielding
         -- more bags) and lingering payout containers without ever running a
         -- second concurrent chain. _openBusy guards the whole cycle.
-        ScanAndOpen = function(skipMerchantGate)
+        -- Using a container item CANCELS whatever the player is casting -- the
+        -- engine treats it as an interrupting action, and it does so silently.
+        -- An auto-open that fires mid-cast therefore eats mounts, ports, and
+        -- every other hardcast, with no error and nothing on screen tying it to
+        -- this addon. A cast is transient, so defer rather than blacklist: the
+        -- cycle resumes from the spellcast events registered above.
+        local function PlayerIsCasting()
+            return (UnitCastingInfo and UnitCastingInfo("player") ~= nil)
+                or (UnitChannelInfo and UnitChannelInfo("player") ~= nil)
+        end
+
+        -- skipMailGate: MAIL_CLOSED / the interaction-manager hide are handled
+        -- with their own 0.5s settle delay (see the dispatcher below), by which
+        -- point MailOpen() is reliably false -- this flag is passed there purely
+        -- as belt-and-suspenders, not load-bearing the way skipMerchantGate is.
+        ScanAndOpen = function(skipMerchantGate, skipMailGate, skipBankGate)
             if not _cacheBuilt then return end
             if not IsEnabled() then return end
             if InCombatLockdown() then return end
             if not skipMerchantGate and MerchantOpen() then return end
+            if not skipMailGate and MailOpen() then return end
+            if not skipBankGate and BankOpen() then return end
+            if PlayerIsCasting() then _missedScan = true; return end
             -- A loot window is up (payout container lingering): LOOT_CLOSED
             -- restarts a clean cycle once it has left the bag.
             if _lootOpen then return end
@@ -427,13 +493,6 @@ qolFrame:SetScript("OnEvent", function(self)
             _cycleGen = _cycleGen + 1
             local myGen = _cycleGen
             local madeProgress = false
-            local openStreak = 0  -- real opens completed so far in THIS cycle
-            -- Cycle-boundary marker: without this, a rescan's first open
-            -- (unpaced, via step(1)) reads identically in the log to a paced
-            -- continuation, especially right after a burst cooldown resets
-            -- openStreak to 0 -- both print "streak=0". Real capture already
-            -- hit this ambiguity (mail refilled a slot right as a burst pause
-            -- ended, and the two cycles read as one continuous run).
             AODbg(("cycle start: %d candidate(s)"):format(#toOpen))
 
             -- The single place _openBusy is cleared. Every step() exit routes
@@ -445,9 +504,9 @@ qolFrame:SetScript("OnEvent", function(self)
                 _openBusy = false
                 if (madeProgress or _missedScan) and IsEnabled()
                     and not InCombatLockdown()
-                    and not MerchantOpen() and not _lootOpen then
+                    and not MerchantOpen() and not MailOpen() and not BankOpen() and not _lootOpen then
                     _missedScan = false
-                    C_Timer.After(0.3, function() ScanAndOpen(false) end)
+                    C_Timer.After(0.3, function() ScanAndOpen(false, false, false) end)
                 end
             end
 
@@ -455,7 +514,11 @@ qolFrame:SetScript("OnEvent", function(self)
             local function step(idx)
                 if myGen ~= _cycleGen then return end
                 if idx > #toOpen then return finish() end
-                if not IsEnabled() or InCombatLockdown() or MerchantOpen() then return finish() end
+                if not IsEnabled() or InCombatLockdown() or MerchantOpen() or MailOpen() or BankOpen() then return finish() end
+                -- Re-checked per step, not just at cycle entry: a cycle paces
+                -- itself across several seconds of timers, so a cast can start
+                -- long after the entry gate passed.
+                if PlayerIsCasting() then _missedScan = true; return finish() end
                 -- Loot window opened mid-cycle: stop; LOOT_CLOSED restarts cleanly.
                 if _lootOpen then return finish() end
                 local item = toOpen[idx]
@@ -465,7 +528,8 @@ qolFrame:SetScript("OnEvent", function(self)
                 -- (set synchronously below) or Blizzard's isLocked. Re-using a
                 -- container that's still resolving a previous open strands it.
                 if info and info.itemID and not info.isLocked and not _openInProgress[key] then
-                    if IsWarboundExcluded(item.bag, item.slot) then
+                    if IsWarboundExcluded(item.bag, item.slot)
+                        or ShouldHoldCappedArtisanPayout(info.itemID) then
                         return step(idx + 1)
                     end
                     if _openableCache[info.itemID] and not _failedItems[info.itemID] then
@@ -474,8 +538,8 @@ qolFrame:SetScript("OnEvent", function(self)
                         _openInProgress[key] = true
                         _pendingOpen = { bag = item.bag, slot = item.slot,
                             itemID = prevID, count = prevCount }
-                        AODbg(("open bag=%d slot=%d item=%d streak=%d"):format(
-                            item.bag, item.slot, prevID, openStreak))
+                        AODbg(("open bag=%d slot=%d item=%d"):format(
+                            item.bag, item.slot, prevID))
                         C_Container.UseContainerItem(item.bag, item.slot)
                         C_Timer.After(0.5, function()
                             -- Always release the slot flag (global bookkeeping),
@@ -518,27 +582,18 @@ qolFrame:SetScript("OnEvent", function(self)
                 C_Timer.After(0.1, function() step(idx + 1) end)
             end
 
-            -- Paces the step AFTER a real open resolves. Two independent
-            -- triggers for extra breathing room, either can apply:
-            --  * recent bag churn -- something else touched the bags just now
-            --    (Blizzard's own mail delivery is exactly this) -- wait for it
-            --    to settle before adding our own action into the mix.
-            --  * the burst backstop -- every OPEN_BURST_SIZE real opens in this
-            --    cycle, pause the burst cooldown regardless (default
-            --    OPEN_BURST_COOLDOWN_DEFAULT, live-tunable via
-            --    EllesmereUI._aoBurstCooldown), so a long "Open All Mail" dump
-            --    can't steamroll through at full pace.
+            -- Paces the step AFTER a real open resolves: if something else
+            -- touched the bags just now (Blizzard's own item delivery is
+            -- exactly this), wait for it to settle before adding our own action
+            -- into the mix. The mailbox case that used to also need a burst
+            -- cooldown backstop is now handled directly by pausing while the
+            -- mailbox is open and settling after it closes, so this is the only
+            -- pacing needed here.
             PaceNext = function(idx)
                 if myGen ~= _cycleGen then return end
-                openStreak = openStreak + 1
                 local extra, why = 0, nil
                 if GetTime() - _lastBagChurn < CHURN_SETTLE_WINDOW then
                     extra, why = CHURN_SETTLE_DELAY, "churn"
-                end
-                if openStreak >= OPEN_BURST_SIZE then
-                    openStreak = 0
-                    local cooldown = EllesmereUI._aoBurstCooldown or OPEN_BURST_COOLDOWN_DEFAULT
-                    if cooldown > extra then extra, why = cooldown, "burst" end
                 end
                 if extra > 0 then
                     AODbg(("pacing +%.1fs (%s)"):format(extra, why))
@@ -565,7 +620,7 @@ qolFrame:SetScript("OnEvent", function(self)
             end)
         end
 
-        containerFrame:SetScript("OnEvent", function(_, event)
+        containerFrame:SetScript("OnEvent", function(_, event, interactionType)
             if event == "BAG_UPDATE" then
                 _lastBagChurn = GetTime()
                 return
@@ -605,6 +660,50 @@ qolFrame:SetScript("OnEvent", function(self)
             end
             if event == "BAG_UPDATE_DELAYED" then
                 RequestScan()
+                return
+            end
+            if event == "CURRENCY_DISPLAY_UPDATE" then
+                if not ShouldHoldCappedArtisanPayout(ARTISAN_PAYOUT_ITEM_ID) then
+                    RequestScan()
+                end
+                return
+            end
+            if event == "UNIT_SPELLCAST_SUCCEEDED" or event == "UNIT_SPELLCAST_STOP"
+                or event == "UNIT_SPELLCAST_CHANNEL_STOP" then
+                -- Resume only when the casting gate actually deferred something.
+                -- These fire for every instant cast as well, and walking the
+                -- bags on each would be constant overhead during combat.
+                if _missedScan and not _openBusy then
+                    _missedScan = false
+                    C_Timer.After(0.1, function() ScanAndOpen(false, false) end)
+                end
+                return
+            end
+            if event == "MAIL_CLOSED" then
+                -- Legacy path: no longer fires on retail (see the registration
+                -- comment), kept for older clients where it still does.
+                C_Timer.After(0.5, function() ScanAndOpen(false, true, false) end)
+                return
+            end
+            if event == "BANKFRAME_CLOSED" then
+                -- Legacy path like MAIL_CLOSED above; the interaction-manager
+                -- HIDE below is the live driver on retail.
+                C_Timer.After(0.5, function() ScanAndOpen(false, false, true) end)
+                return
+            end
+            if event == "PLAYER_INTERACTION_MANAGER_FRAME_HIDE" then
+                if interactionType == Enum.PlayerInteractionType.MailInfo then
+                    -- The event that actually fires on retail. Mail's own item
+                    -- delivery can still be landing and unlocking slots for a
+                    -- moment after the frame closes -- the exact race that
+                    -- strands a slot -- so settle first, same as LOOT_CLOSED.
+                    C_Timer.After(0.5, function() ScanAndOpen(false, true, false) end)
+                elseif interactionType == Enum.PlayerInteractionType.Banker
+                    or interactionType == Enum.PlayerInteractionType.AccountBanker then
+                    -- AccountBanker: the warband bank signals its own type, and
+                    -- BankOpen() gates both (same BankFrame).
+                    C_Timer.After(0.5, function() ScanAndOpen(false, false, true) end)
+                end
                 return
             end
             -- MERCHANT_CLOSED: the interaction is over but the frame may not
@@ -940,13 +1039,14 @@ qolFrame:SetScript("OnEvent", function(self)
     --     session, so the figure cannot be trusted on its own -- it serves as a
     --     ceiling on the deduced share, never as the source of it.
     --   * Hence the guild share is deduced from the player's ledger, and only
-    --     outgoing amounts are summed. The junk sweep above keeps firing passes
-    --     across this window, so a net before/after figure would cancel its
-    --     credits against the repair debit and invent a guild share. Credits
-    --     arrive in their own PLAYER_MONEY and are ignored; only a sale landing
-    --     in the same event as the debit could still net off.
+    --     outgoing amounts are summed, so a credit arriving in its own
+    --     PLAYER_MONEY cannot cancel the repair debit and invent a guild share.
+    --     A credit sharing one event with the debit still nets off, which is why
+    --     the caller holds the junk sweep back until the debit has landed: a
+    --     sale that was never sent has nothing to net against.
     local repairWatcher, repairWatchLast, repairWatchOut
     local repairWatchGen = 0
+    local repairWatchSweep  -- junk sweep on hold; see ReleaseJunkSweep
 
     -- Mirrors the arithmetic behind Blizzard's own guild-repair tooltip: today's
     -- remaining allowance, bounded by the balance; -1 means an unlimited rank.
@@ -972,10 +1072,84 @@ qolFrame:SetScript("OnEvent", function(self)
         EllesmereUI.Print("|cff0CD29DEllesmereUI:|r |cffff6060" .. EllesmereUI.L("Not enough gold to repair.") .. "|r")
     end
 
+    -- Lets the held-back junk sweep go. Idempotent: whichever of the debit or the
+    -- settle timer gets here first is the one that starts it.
+    local function ReleaseJunkSweep()
+        local sweep = repairWatchSweep
+        repairWatchSweep = nil
+        if sweep then sweep() end
+    end
+
+    -- Settling a remainder can outlive the watch, so it gets its own waiter
+    -- rather than a verdict at the half-second mark: the junk sweep the watch
+    -- held back is often exactly what pays for the rest, and at settle time its
+    -- first sale has barely landed. Ends on the first of -- enough gold, the
+    -- merchant closing, or the deadline -- and only then is the player broke.
+    local TOPUP_WINDOW = 8  -- outlasts a full junk sweep (12 passes backing off to 1.6s)
+    local repairTopUp, repairTopUpGen = nil, 0
+
+    local function CancelRepairTopUp()
+        repairTopUpGen = repairTopUpGen + 1
+        if repairTopUp then
+            repairTopUp:UnregisterAllEvents()
+            repairTopUp:SetScript("OnEvent", nil)
+        end
+    end
+
+    local function StartRepairTopUp(remainCost)
+        CancelRepairTopUp()
+        if not repairTopUp then
+            repairTopUp = CreateFrame("Frame", "EUI_RepairTopUp", UIParent)
+        end
+        local gen = repairTopUpGen
+        local settled = false
+
+        local function Finish(afford)
+            settled = true
+            CancelRepairTopUp()
+            -- Giving up is not the same as being broke: the merchant walking away
+            -- with the gold still in the player's pocket is nobody's fault.
+            if not afford then
+                if GetMoney() < remainCost then ReportRepairBroke() end
+                return
+            end
+            -- Re-read rather than trust the figure this waiter was armed with:
+            -- seconds have passed, and the player may have repaired by hand.
+            local nowCost, stillNeed = GetRepairAllCost()
+            if not (stillNeed and nowCost > 0) then return end
+            RepairAllItems(false)
+            ReportRepairOutcome(0, nowCost)
+        end
+
+        local function Poll(_, event)
+            if settled or gen ~= repairTopUpGen then return end
+            -- MERCHANT_CLOSED rather than merchantOpen: two frames listening for
+            -- the same event have no defined order, so the flag may not be down yet.
+            if event == "MERCHANT_CLOSED" or not CanMerchantRepair() then return Finish(false) end
+            if GetMoney() >= remainCost then return Finish(true) end
+        end
+
+        Poll()
+        if settled then return end
+        repairTopUp:SetScript("OnEvent", Poll)
+        repairTopUp:RegisterEvent("PLAYER_MONEY")
+        repairTopUp:RegisterEvent("MERCHANT_CLOSED")
+        C_Timer.After(TOPUP_WINDOW, function()
+            if settled or gen ~= repairTopUpGen then return end
+            Finish(false)
+        end)
+    end
+
     local function OnRepairWatchEvent()  -- PLAYER_MONEY: accumulate only, never decide
         local now = GetMoney()
         local spent = repairWatchLast - now
-        if spent > 0 then repairWatchOut = repairWatchOut + spent end
+        if spent > 0 then
+            repairWatchOut = repairWatchOut + spent
+            -- The debit has landed and is booked, so nothing arriving later can
+            -- net against it. Holding the sweep past this point buys nothing and
+            -- costs the whole sale on a vendor visit that ends within the window.
+            ReleaseJunkSweep()
+        end
         repairWatchLast = now
     end
 
@@ -983,7 +1157,10 @@ qolFrame:SetScript("OnEvent", function(self)
     -- would misread an unrelated purchase in the same window as the player
     -- having paid the whole bill, and MERCHANT_CLOSED would settle before a
     -- deduction still in flight had landed.
-    local function StartRepairWatch(cost, moneyBefore, guildFunds)
+    -- sweep is the junk sweep this watch is holding back; it is released on the
+    -- repair debit, or here at the latest. A watch superseded by a new merchant
+    -- never gets that far, which is correct: that merchant holds its own.
+    local function StartRepairWatch(cost, moneyBefore, guildFunds, sweep)
         if not repairWatcher then
             repairWatcher = CreateFrame("Frame", "EUI_RepairWatcher", UIParent)
             repairWatcher:SetScript("OnEvent", OnRepairWatchEvent)
@@ -994,6 +1171,8 @@ qolFrame:SetScript("OnEvent", function(self)
         repairWatchGen = repairWatchGen + 1
         repairWatchLast = moneyBefore
         repairWatchOut = 0
+        repairWatchSweep = sweep
+        CancelRepairTopUp()  -- a remainder from the last merchant is no longer payable
         repairWatcher:RegisterEvent("PLAYER_MONEY")
 
         local gen = repairWatchGen
@@ -1004,30 +1183,25 @@ qolFrame:SetScript("OnEvent", function(self)
             if not (stillNeed and remainCost > 0) then remainCost = 0 end
 
             local own = repairWatchOut
-
-            -- The funds can run dry mid-bill; settle the rest, but only if the
-            -- merchant is still open to take it.
-            if remainCost > 0 and CanMerchantRepair() and GetMoney() >= remainCost then
-                RepairAllItems(false)
-                own = own + remainCost
-                remainCost = 0
-            end
-
             local paid = cost - remainCost
             if own > paid then own = paid end
             local guildPart = paid - own
 
-            -- A junk sale sharing one PLAYER_MONEY with the repair nets against
-            -- it and inflates the deduced guild share; the pre-repair funds cap
-            -- it back. A stale read is either too high to bind or zero and
-            -- skipped, so it can only ever tighten a wrong answer.
+            -- Backstop for a credit that did share an event with the debit: the
+            -- pre-repair funds cap the deduced share back. Weak on its own -- an
+            -- empty or unread bank is 0 and skips the cap, which is exactly the
+            -- guild-is-broke case -- so it only ever tightens, never decides.
             if guildFunds > 0 and guildPart > guildFunds then
                 guildPart = guildFunds
                 own = paid - guildPart
             end
 
             if paid > 0 then ReportRepairOutcome(guildPart, own) end
-            if remainCost > 0 and GetMoney() < remainCost then ReportRepairBroke() end
+
+            -- Release before handing the remainder over: the funds can run dry
+            -- mid-bill, and the sweep's income is what the top-up waits for.
+            ReleaseJunkSweep()
+            if remainCost > 0 then StartRepairTopUp(remainCost) end
         end)
     end
 
@@ -1042,46 +1216,45 @@ qolFrame:SetScript("OnEvent", function(self)
         merchantOpen = true
         if not EllesmereUIDB then return end
 
-        -- Auto sell junk
-        if EllesmereUIDB.autoSellJunk ~= false then
-            SellJunk()
-        end
+        local sweep = (EllesmereUIDB.autoSellJunk ~= false) and SellJunk or nil
 
-        -- Auto repair
-        if EllesmereUIDB.autoRepair ~= false then
-            if CanMerchantRepair() then
-                local cost, canRepair = GetRepairAllCost()
-                if canRepair and cost > 0 then
-                    -- No affordability test on purpose: Blizzard's own guild
-                    -- repair button just calls RepairAllItems(true) and lets the
-                    -- server split the bill. Gating on "the guild covers it all"
-                    -- threw that split away and billed the player the lot.
-                    local useGuild = (EllesmereUIDB.autoRepairGuild ~= false)
-                        and IsInGuild()
-                        and CanGuildBankRepair()
+        -- Auto repair goes first, and on the guild path the junk sweep is handed
+        -- to the watcher instead of started here: the sweep sells from
+        -- MERCHANT_SHOW onwards, and sale income landing in the same
+        -- PLAYER_MONEY as the repair debit nets against it, leaving the watcher
+        -- to credit the whole bill to the guild bank. The hold lasts only until
+        -- that debit lands (half a second at the outside), which is all it takes
+        -- to buy an unambiguous ledger.
+        if EllesmereUIDB.autoRepair ~= false and CanMerchantRepair() then
+            local cost, canRepair = GetRepairAllCost()
+            if canRepair and cost > 0 then
+                -- No affordability test on purpose: Blizzard's own guild repair
+                -- button just calls RepairAllItems(true) and lets the server
+                -- split the bill. Gating on "the guild covers it all" threw that
+                -- split away and billed the player the lot.
+                local useGuild = (EllesmereUIDB.autoRepairGuild ~= false)
+                    and IsInGuild()
+                    and CanGuildBankRepair()
 
-                    -- Check if we can actually afford the repair
-                    if not useGuild and GetMoney() < cost then
-                        ReportRepairBroke()
-                        return
-                    end
-
+                if not useGuild and GetMoney() < cost then
+                    ReportRepairBroke()  -- nothing was spent, so nothing to watch
+                elseif useGuild then
                     -- Both readings must predate the repair, and neither is of
                     -- any use unless the guild bank is in play.
-                    local moneyBefore, guildFunds
-                    if useGuild then
-                        moneyBefore, guildFunds = GetMoney(), GuildRepairFunds()
-                    end
-                    RepairAllItems(useGuild)
-
-                    if useGuild then
-                        StartRepairWatch(cost, moneyBefore, guildFunds)  -- reports once the real payer is known
-                    else
-                        ReportRepairOutcome(0, cost)  -- own gold: no ambiguity, report now
-                    end
+                    local moneyBefore, guildFunds = GetMoney(), GuildRepairFunds()
+                    RepairAllItems(true)
+                    -- Reports once the real payer is known; the sweep rides along
+                    -- and is let go the moment the ledger is safe.
+                    StartRepairWatch(cost, moneyBefore, guildFunds, sweep)
+                    return
+                else
+                    RepairAllItems(false)
+                    ReportRepairOutcome(0, cost)  -- own gold: no ambiguity, report now
                 end
             end
         end
+
+        if sweep then sweep() end
     end)
 
     ---------------------------------------------------------------------------
@@ -2149,7 +2322,7 @@ do
         local fs = durWarnOverlay:CreateFontString(nil, "OVERLAY")
         fs:SetFont(EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF", 18, EllesmereUI.GetFontOutlineFlag("extras"))
         fs:SetPoint("CENTER")
-        fs:SetText("Low Durability")
+        fs:SetText(EllesmereUI.L("Low Durability"))
         durWarnOverlay._text = fs
 
         local function ApplySettings()
@@ -2191,7 +2364,7 @@ do
 
         durWarnOverlay._show = function(pct)
             ApplySettings()
-            durWarnOverlay._text:SetText("Low Durability (" .. math.floor(pct) .. "%)")
+            durWarnOverlay._text:SetText(EllesmereUI.Lf("Low Durability (%d%%)", math.floor(pct)))
             durWarnOverlay:Show()
             ag:Play()
         end
@@ -2212,7 +2385,7 @@ do
     EllesmereUI._durWarnPreview = function()
         CreateDurabilityWarning()
         durWarnOverlay._show(25)
-        durWarnOverlay._text:SetText("Low Durability (Preview)")
+        durWarnOverlay._text:SetText(EllesmereUI.L("Low Durability (Preview)"))
     end
 
     EllesmereUI._durWarnHidePreview = function()
@@ -3168,50 +3341,8 @@ do
     -- "Whisper Sound". Played on the "Master" channel so it stays audible even
     -- when the SFX slider is low. Tables are exposed on EllesmereUI so the options
     -- file can build the same dropdown.
-    local _SOUNDS_DIR = "Interface\\AddOns\\EllesmereUI\\media\\sounds\\"
-    local GROUP_DEATH_SOUND_PATHS = {
-        ["none"]      = nil,
-        ["airhorn"]   = _SOUNDS_DIR .. "AirHorn.ogg",
-        ["banana"]    = _SOUNDS_DIR .. "BananaPeelSlip.ogg",
-        ["bikehorn"]  = _SOUNDS_DIR .. "BikeHorn.ogg",
-        ["bite"]      = _SOUNDS_DIR .. "Bite.ogg",
-        ["boxing"]    = _SOUNDS_DIR .. "BoxingArenaSound.ogg",
-        ["catmeow"]   = _SOUNDS_DIR .. "CatMeow.ogg",
-        ["catmeow2"]  = _SOUNDS_DIR .. "CatMeow2.ogg",
-        ["gunshot"]   = _SOUNDS_DIR .. "FrontalsGunshot.wav",
-        ["glass"]     = _SOUNDS_DIR .. "Glass.mp3",
-        ["kaching"]   = _SOUNDS_DIR .. "Kaching.ogg",
-        ["phone"]     = _SOUNDS_DIR .. "Phone.ogg",
-        ["robotblip"] = _SOUNDS_DIR .. "RobotBlip.ogg",
-        ["sonar"]     = _SOUNDS_DIR .. "Sonar.ogg",
-        ["siren"]     = _SOUNDS_DIR .. "WarningSiren.ogg",
-        ["water"]     = _SOUNDS_DIR .. "WaterDrop.ogg",
-        ["wilhelm"]   = _SOUNDS_DIR .. "Wilhelm.ogg",
-    }
-    local GROUP_DEATH_SOUND_NAMES = {
-        ["none"]      = "None",
-        ["airhorn"]   = "Air Horn",
-        ["banana"]    = "Banana Peel Slip",
-        ["bikehorn"]  = "Bike Horn",
-        ["bite"]      = "Bite",
-        ["boxing"]    = "Boxing Arena",
-        ["catmeow"]   = "Cat Meow",
-        ["catmeow2"]  = "Cat Meow 2",
-        ["gunshot"]   = "Frontals Gunshot",
-        ["glass"]     = "Glass",
-        ["kaching"]   = "Kaching",
-        ["phone"]     = "Phone",
-        ["robotblip"] = "Robot Blip",
-        ["sonar"]     = "Sonar",
-        ["siren"]     = "Warning Siren",
-        ["water"]     = "Water Drop",
-        ["wilhelm"]   = "Wilhelm",
-    }
-    local GROUP_DEATH_SOUND_ORDER = {
-        "none", "airhorn", "banana", "bikehorn", "bite", "boxing", "catmeow",
-        "catmeow2", "gunshot", "glass", "kaching", "phone", "robotblip", "sonar",
-        "siren", "water", "wilhelm",
-    }
+    local GROUP_DEATH_SOUND_PATHS, GROUP_DEATH_SOUND_NAMES, GROUP_DEATH_SOUND_ORDER =
+        EllesmereUI.BuildAlertSoundTables()
     -- SharedMedia sounds are appended at PLAYER_LOGIN (see the boot frame at the
     -- end of this block), NOT here: this do-block runs at addon load, before
     -- other addons have registered their LibSharedMedia sounds, so an append now
@@ -3989,8 +4120,8 @@ do
 
         -- Toys
         { key = "aqir",       cat = "toys", label = "Aqir Egg Cluster",          ids = { 318452 } },
-        { key = "atomic",     cat = "toys", label = "Atomically Recalibrator",   ids = { 399502 } },
-        { key = "atomgoblin", cat = "toys", label = "Atomically Regoblinator",   ids = { 1215363 } },
+        { key = "atomic",     cat = "toys", label = "Atomically Recalibrator",   ids = { 399502 },  defaultOff = true },
+        { key = "atomgoblin", cat = "toys", label = "Atomically Regoblinator",   ids = { 1215363 }, defaultOff = true },
         { key = "blight",     cat = "toys", label = "Detoxified Blight Grenade", ids = { 290224 } },
         { key = "witch",      cat = "toys", label = "Lucille's Sewing Needle",   ids = { 279509 } },
         { key = "spraybots",  cat = "toys", label = "Spraybots",                 ids = { 301892, 301893, 301894 } },
@@ -4004,11 +4135,18 @@ do
     -- Runtime lookup: [spellID] = true for every included transform.
     local cTable = {}
 
-    -- Transforms are included by default; the picker stores false to exclude.
+    -- Per-key default: included unless the entry sets defaultOff. The picker
+    -- stores only values that differ from the default, so nil = default.
+    local ITEM_DEFAULT = {}
+    for _, item in ipairs(TRANSFORMS) do
+        ITEM_DEFAULT[item.key] = not item.defaultOff
+    end
+
     local function ItemEnabled(key)
         local t = EllesmereUIDB and EllesmereUIDB.hideTransformItems
-        if t and t[key] == false then return false end
-        return true
+        local v = t and t[key]
+        if v ~= nil then return v end
+        return ITEM_DEFAULT[key] ~= false
     end
 
     local function RebuildList()
@@ -4130,11 +4268,12 @@ do
     EllesmereUI.SetHideTransformItem = function(key, enabled)
         if not EllesmereUIDB then EllesmereUIDB = {} end
         EllesmereUIDB.hideTransformItems = EllesmereUIDB.hideTransformItems or {}
-        -- Included is the default -- store only exclusions, keeping the table sparse.
-        if enabled then
+        -- Store only values that differ from the per-key default, keeping the table sparse.
+        enabled = enabled and true or false
+        if enabled == (ITEM_DEFAULT[key] ~= false) then
             EllesmereUIDB.hideTransformItems[key] = nil
         else
-            EllesmereUIDB.hideTransformItems[key] = false
+            EllesmereUIDB.hideTransformItems[key] = enabled
         end
         ApplyHideTransforms()
     end

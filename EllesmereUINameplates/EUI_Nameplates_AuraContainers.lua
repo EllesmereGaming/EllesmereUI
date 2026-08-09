@@ -91,9 +91,15 @@ end
 
 local function CropCoords(cropped)
     if cropped then
-        -- Horizontal zoom 0.08; vertical trimmed so 80%-height icons never
-        -- squish the artwork (mirrors ns.SetAuraIconCrop).
-        return { 0.08, 0.92, 0.164, 0.836 }
+        -- Horizontal zoom 0.08; vertical span scaled to the cropped aspect so
+        -- the artwork never squishes (same math as ns.SetAuraIconCrop).
+        -- `cropped` carries the height factor from GetAuraCrop (Adjust Crop
+        -- slider); plain true from a legacy caller falls back to the classic
+        -- 0.80, which reproduces the old fixed coords exactly (0.164/0.836).
+        local factor = (type(cropped) == "number") and cropped or 0.80
+        local vSpan = (1 - 2 * 0.08) * factor
+        local v0 = 0.5 - vSpan / 2
+        return { 0.08, 0.92, v0, 1 - v0 }
     end
     return { 0.08, 0.92, 0.08, 0.92 }
 end
@@ -107,7 +113,10 @@ end
 local function NPHeight(kind, size)
     local cropped = ns.GetAuraCrop and ns.GetAuraCrop(kind == "cc" and "ccs" or kind)
     if cropped and ns.GetAuraCropHeight then
-        return ns.GetAuraCropHeight(cropped, size), true
+        -- Second return is GetAuraCrop's value itself (the height factor,
+        -- truthy) so CropCoords can derive matching texcoords; truth-testing
+        -- callers behave exactly as with the old literal `true`.
+        return ns.GetAuraCropHeight(cropped, size), cropped
     end
     return size, false
 end
@@ -1511,44 +1520,3 @@ boot:SetScript("OnEvent", function(self, event)
     end
 end)
 
--------------------------------------------------------------------------------
--- TEMPORARY NPF PROBE (/euinpf) -- REMOVE once the slot-filter feature is
--- field-verified. Dumps the per-kind configs, the config fingerprint, and
--- each active bundle's declared record groups so a "filters not applying"
--- report carries data: config wrong vs records undeclared vs engine-side.
--------------------------------------------------------------------------------
-SLASH_EUINPF1 = "/euinpf"
-SlashCmdList["EUINPF"] = function()
-    local function cfgLine(kind)
-        local c = ns.NPF_Config and ns.NPF_Config(kind)
-        if not c then return kind .. ": <nil>" end
-        local f, o = c.f or {}, {}
-        for k in pairs(f) do o[#o + 1] = k end
-        table.sort(o)
-        return kind .. ": all=" .. tostring(c.all) .. " f={" .. table.concat(o, ",") .. "}"
-    end
-    print("|cff66ccffNPF:|r " .. cfgLine("debuffs"))
-    print("|cff66ccffNPF:|r " .. cfgLine("cc"))
-    print("|cff66ccffNPF:|r " .. cfgLine("dcc"))
-    local ex = ns.NPF_Exclude and ns.NPF_Exclude()
-    local xn = 0
-    if ex then for _ in pairs(ex) do xn = xn + 1 end end
-    print("|cff66ccffNPF:|r exclude n=" .. xn
-        .. " includeCC=" .. tostring(PVal("debuffIncludeCC"))
-        .. " FP=" .. (ns.NPF_FP and ns.NPF_FP() or "?"))
-    local nAct = 0
-    for plate, b in pairs(active) do
-        nAct = nAct + 1
-        local d = b.containers.debuffs
-        local keys = {}
-        if d and d._npfGroups then
-            for k in pairs(d._npfGroups) do keys[#keys + 1] = k end
-            table.sort(keys)
-        end
-        print(("|cff66ccffNPF:|r plate unit=%s dbf=%s groups={%s} cc=%s pend=%s"):format(
-            tostring(plate.unit), tostring(d ~= nil), table.concat(keys, ","),
-            tostring(b.containers.cc ~= nil), tostring(b.npcEnsurePending)))
-        if nAct >= 4 then break end
-    end
-    print("|cff66ccffNPF:|r active bundles=" .. nAct .. " pool=" .. #pool)
-end

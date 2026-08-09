@@ -363,7 +363,7 @@ local function Show(id)
     BuildShell()
     local ppScale = (EllesmereUI.GetPopupScale and EllesmereUI.GetPopupScale()) or 1
     ui.dimmer:SetScale(ppScale)
-    ui.popup:SetScale(ppScale * 1.15)
+    ui.popup:SetScale(EllesmereUI.PopupBump(1.15))
     SetGuide(id, def)
     ui.dimmer:Show()
     -- Pre-select the URL so the only keystroke needed is Ctrl+C.

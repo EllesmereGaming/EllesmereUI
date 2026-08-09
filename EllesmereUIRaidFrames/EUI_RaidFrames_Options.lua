@@ -1,4 +1,4 @@
-﻿-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
 --  EUI_RaidFrames_Options.lua
 --  Registers the Raid Frames module with EllesmereUI options panel.
 --  Two tabs: Raid Frames (layout, health, power, text, border, absorbs,
@@ -85,6 +85,7 @@ initFrame:SetScript("OnEvent", function(self)
         else
             db.profile[key] = val
         end
+        if ns._BumpAbsorbGen then ns._BumpAbsorbGen() end
         ReloadAndUpdate()
     end
     local function SVal(key, default)
@@ -103,6 +104,7 @@ initFrame:SetScript("OnEvent", function(self)
         else
             db.profile[key] = val
         end
+        if ns._BumpAbsorbGen then ns._BumpAbsorbGen() end
     end
 
     ---------------------------------------------------------------------------
@@ -474,33 +476,12 @@ initFrame:SetScript("OnEvent", function(self)
     }
     local healthColorOrder = { "class", "dark", "classic", "custom", "customDynamic" }
 
-    local namePositionValues = {
-        ["topleft"]    = "Top Left",
-        ["top"]        = "Top",
-        ["topright"]   = "Top Right",
-        ["left"]       = "Left",
-        ["center"]     = "Center",
-        ["right"]      = "Right",
-        ["bottomleft"] = "Bottom Left",
-        ["bottom"]     = "Bottom",
-        ["bottomright"] = "Bottom Right",
-    }
-    local namePositionOrder = { "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright" }
+    local namePositionValues = EllesmereUI.POSITION_GRID_VALUES
+    local namePositionOrder = EllesmereUI.POSITION_GRID_ORDER
 
     -- Name Position offers an extra "None" (hides the name entirely). Health Text
     -- Position reuses the base tables above, so keep "None" out of the shared set.
-    local namePositionValuesName = {
-        ["topleft"]    = "Top Left",
-        ["top"]        = "Top",
-        ["topright"]   = "Top Right",
-        ["left"]       = "Left",
-        ["center"]     = "Center",
-        ["right"]      = "Right",
-        ["bottomleft"] = "Bottom Left",
-        ["bottom"]     = "Bottom",
-        ["bottomright"] = "Bottom Right",
-        ["none"]       = "None",
-    }
+    local namePositionValuesName = EllesmereUI.POSITION_GRID_VALUES_NONE
     local namePositionOrderName = { "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright", "none" }
 
     local healthTextValues = {
@@ -737,9 +718,9 @@ initFrame:SetScript("OnEvent", function(self)
         -- Eyeball: animate health bars (damage/healing simulation).
         -- Built for both raid and party pages; the animation reads the active
         -- preview frame set at runtime via ns.PvActiveFrames().
-        do
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+        if not EllesmereUI._prebuilding then
+            local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+            local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
             -- Animation state lives on ns (single shared ticker) so the raid and
             -- party eyeball builds drive the same animation and start/stop works
             -- across both. ns._healthAnimActive is the truth read by the renderer.
@@ -1005,16 +986,46 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end  -- close do (health eyeball)
 
-        -- Row 1: Health Bar Texture | Fill Opacity
-        _, h = W:DualRow(parent, y,
+        -- Row 1: Health Bar Texture (+ cog: Vertical Fill) | Fill Opacity
+        local texRow
+        texRow, h = W:DualRow(parent, y,
             { type="dropdown", text="Health Bar Texture", values=hbtValues, order=hbtOrder,
               getValue=function() return SVal("healthBarTexture", "atrocity") end,
               setValue=function(v) SSet("healthBarTexture", v) end },
-            { type="slider", text="Fill Opacity", min=10, max=100, step=1,
+            { type="slider", text="Fill Opacity", min=0, max=100, step=1,
               disabled=function() return SVal("healthColorMode", "class") == "dark" end,
               disabledTooltip="Not available in Dark Mode", rawTooltip=true,
               getValue=function() return SVal("healthBarOpacity", 100) end,
-              setValue=function(v) SSet("healthBarOpacity", v) end });  y = y - h
+              setValue=function(v) SSet("healthBarOpacity", v) end });
+        -- Cog on Health Bar Texture: Vertical Fill. Part of the Health Bar
+        -- party-sync section, so an unsynced party tab keeps its own value.
+        if not EllesmereUI._prebuilding then
+            local lrgn = texRow._leftRegion
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Health Bar Fill",
+                rows = {
+                    { type="toggle", label="Vertical Fill",
+                      tooltip="Fill the health bar bottom-to-top instead of left-to-right. Absorbs, heal prediction and the bar background follow the same axis.",
+                      get=function() return SVal("healthVerticalFill", false) end,
+                      -- RefreshPage re-labels the Absorbs Placement dropdowns for
+                      -- the new axis (cog popups bake the labels in on first build).
+                      set=function(v) SSet("healthVerticalFill", v); EllesmereUI:RefreshPage() end },
+                },
+            })
+            local cogBtn = CreateFrame("Button", nil, lrgn)
+            cogBtn:SetSize(26, 26)
+            cogBtn:SetPoint("RIGHT", lrgn._lastInline or lrgn._control, "LEFT", -8, 0)
+            lrgn._lastInline = cogBtn
+            cogBtn:SetFrameLevel(lrgn:GetFrameLevel() + 5)
+            cogBtn:SetAlpha(0.4)
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+            cogTex:SetAllPoints()
+            cogTex:SetTexture(EllesmereUI.COGS_ICON)
+            cogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
+            cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
+            cogBtn:SetScript("OnClick", function(s) cogShow(s) end)
+        end
+        y = y - h
 
         -- Row 2: Fill Color | Background
         row, h = W:DualRow(parent, y,
@@ -1036,7 +1047,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Raid Frames: lock the dropdown while a Dark Mode conditional is
         -- being edited, or the override could capture a mode change that
         -- flips its own condition.
-        if EllesmereUI.SpecOverrides_AttachEditLock then
+        if EllesmereUI.SpecOverrides_AttachEditLock and not EllesmereUI._prebuilding then
             EllesmereUI.SpecOverrides_AttachEditLock(row._leftRegion,
                 "Fill Color's Dark Mode choice drives a Dark Mode override condition, so it can't be changed while editing an override",
                 EllesmereUI.SpecOverrides_DarkCondEditActive)
@@ -1044,7 +1055,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Inline color swatch for custom fill color, plus the three Custom Dynamic
         -- Colors stop swatches (100% / 50% / 0%). Only one set is interactive at a
         -- time depending on the Fill Color mode; they share the same inline slot.
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = row._leftRegion
 
             -- Single custom-color swatch (Custom Color mode)
@@ -1120,7 +1131,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
         -- Inline swatches for background: Custom + Class pair. Clicking either
         -- toggles bgClassColored; the inactive one dims (mirrors the fill picker).
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = row._rightRegion
             -- Class-colored background swatch (player class color; not editable).
             local bgClassSwatch = EllesmereUI.BuildColorSwatch(
@@ -1204,7 +1215,7 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v) SSet("healPredOpacity", v) end });  y = y - h
         ns._editTargets.healPrediction = healPredRow
         -- Inline color swatch for heal prediction color
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = healPredRow._leftRegion
             local swatch = EllesmereUI.BuildColorSwatch(
                 rgn, healPredRow:GetFrameLevel() + 3,
@@ -1248,9 +1259,9 @@ initFrame:SetScript("OnEvent", function(self)
         absorbsHeader, h = W:SectionHeader(parent, "ABSORBS", y); y = y - h
 
         -- Eyeball: toggle shield/heal-absorb effects on the preview frames.
-        do
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+        if not EllesmereUI._prebuilding then
+            local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+            local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
 
             -- Find the section label FontString
             local abLabel
@@ -1336,7 +1347,7 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v) SSet("absorbOpacity", v) end });  y = y - h
         ns._editTargets.absorbs = absorbRow
         -- Inline color swatch for absorb color
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = absorbRow._leftRegion
             local swatch = EllesmereUI.BuildColorSwatch(
                 rgn, absorbRow:GetFrameLevel() + 3,
@@ -1370,18 +1381,40 @@ initFrame:SetScript("OnEvent", function(self)
             UpdateAbsorbSwatchVis()
         end
         -- Inline cog: absorb placement (overlay / right edge / left edge)
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = absorbRow._leftRegion
+            -- Placement labels follow the FILL AXIS. The saved values stay right/left --
+            -- they have always meant the FAR / NEAR end of the fill -- but on a vertical
+            -- bar "From Left Edge" describes nothing, so the wording becomes top/bottom.
+            -- MUTATED IN PLACE, never rebuilt: RefreshPage's fast path does not rebuild
+            -- the page, and a cog popup is built once then cached, so a freshly-built
+            -- table would never reach the widget. The popup re-reads values[get()] on
+            -- every show, and _invalidateMenu makes an already-built menu rebuild its
+            -- entries from this same table on the next click.
+            local absorbEdgeLabels = { overlay = "Overlay" }
+            local absorbEdgeLabelsVert  -- last applied axis; nil until the first sync
+            -- Returns true only when the axis actually flipped, so the caller can
+            -- skip _invalidateMenu on unrelated refreshes (it nils the cached menu
+            -- and would break the wired click if one were open).
+            local function SyncAbsorbEdgeLabels()
+                local vert = (SVal("healthVerticalFill", false)) and true or false
+                if absorbEdgeLabelsVert == vert then return false end
+                absorbEdgeLabelsVert = vert
+                absorbEdgeLabels.right = vert and "From Top Edge"    or "From Right Edge"
+                absorbEdgeLabels.left  = vert and "From Bottom Edge" or "From Left Edge"
+                return true
+            end
+            SyncAbsorbEdgeLabels()
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Absorb Rendering",
                 rows = {
                     { type="dropdown", label="Placement",
-                      values = { overlay = "Overlay", right = "From Right Edge", left = "From Left Edge" },
+                      values = absorbEdgeLabels,
                       order = { "overlay", "right", "left" },
                       disabled = function() return SVal("absorbStyle", "none") == "blizzardModern" end,
                       disabledTooltip = "Default Blizz Frames uses a fixed placement",
                       rawTooltip = true,
-                      get=function() return SVal("absorbEdgeMode", "overlay") end,
+                      get=function() SyncAbsorbEdgeLabels(); return SVal("absorbEdgeMode", "overlay") end,
                       set=function(v) SSet("absorbEdgeMode", v) end },
                     { type="toggle", label="Show Overshield",
                       tooltip="Show the part of an absorb that exceeds your empty health and backfills over your current health. When off, absorbs only fill the empty part of the health bar; on Default Blizz Frames the glow line stays pinned at the right edge.",
@@ -1389,6 +1422,17 @@ initFrame:SetScript("OnEvent", function(self)
                       set=function(v) SSet("showOvershield", v) end },
                 },
             })
+            -- Re-label on every page refresh (the Vertical Fill toggle fires one) and
+            -- drop any built menu so its entries rebuild with the new wording.
+            EllesmereUI.RegisterWidgetRefresh(function()
+                if not SyncAbsorbEdgeLabels() then return end
+                local pf = cogShow and cogShow._popupFrame
+                if pf and pf.GetChildren then
+                    for _, child in ipairs({ pf:GetChildren() }) do
+                        if child._invalidateMenu then child._invalidateMenu() end
+                    end
+                end
+            end)
             local cogBtn = CreateFrame("Button", nil, rgn)
             cogBtn:SetSize(26, 26)
             cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
@@ -1426,7 +1470,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return SVal("absorbBarHeight", 4) end,
               setValue=function(v) SSet("absorbBarHeight", v) end });  y = y - h
         -- Inline cog: vertical grow direction (shared by both strip bars)
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = absorbBarRow._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Absorb Bar Rendering",
@@ -1476,7 +1520,7 @@ initFrame:SetScript("OnEvent", function(self)
             UpdateAbsorbBarSizeLabel()
         end
         -- Inline color swatch for the absorb bar color
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = absorbBarRow._rightRegion
             local swatch = EllesmereUI.BuildColorSwatch(
                 rgn, absorbBarRow:GetFrameLevel() + 3,
@@ -1519,7 +1563,7 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v) SSet("healAbsorbOpacity", v) end });  y = y - h
         ns._editTargets.healAbsorbs = healAbsorbRow
         -- Inline color swatch for heal absorb color
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = healAbsorbRow._leftRegion
             local swatch = EllesmereUI.BuildColorSwatch(
                 rgn, healAbsorbRow:GetFrameLevel() + 3,
@@ -1551,15 +1595,37 @@ initFrame:SetScript("OnEvent", function(self)
             UpdateHealAbsorbSwatchVis()
         end
         -- Inline cog: heal absorb placement (independent of shield absorb)
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = healAbsorbRow._leftRegion
+            -- Placement labels follow the FILL AXIS. The saved values stay right/left --
+            -- they have always meant the FAR / NEAR end of the fill -- but on a vertical
+            -- bar "From Left Edge" describes nothing, so the wording becomes top/bottom.
+            -- MUTATED IN PLACE, never rebuilt: RefreshPage's fast path does not rebuild
+            -- the page, and a cog popup is built once then cached, so a freshly-built
+            -- table would never reach the widget. The popup re-reads values[get()] on
+            -- every show, and _invalidateMenu makes an already-built menu rebuild its
+            -- entries from this same table on the next click.
+            local healAbsorbEdgeLabels = { overlay = "Overlay" }
+            local healAbsorbEdgeLabelsVert  -- last applied axis; nil until the first sync
+            -- Returns true only when the axis actually flipped, so the caller can
+            -- skip _invalidateMenu on unrelated refreshes (it nils the cached menu
+            -- and would break the wired click if one were open).
+            local function SyncHealAbsorbEdgeLabels()
+                local vert = (SVal("healthVerticalFill", false)) and true or false
+                if healAbsorbEdgeLabelsVert == vert then return false end
+                healAbsorbEdgeLabelsVert = vert
+                healAbsorbEdgeLabels.right = vert and "From Top Edge"    or "From Right Edge"
+                healAbsorbEdgeLabels.left  = vert and "From Bottom Edge" or "From Left Edge"
+                return true
+            end
+            SyncHealAbsorbEdgeLabels()
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Heal Absorb Rendering",
                 rows = {
                     { type="dropdown", label="Placement",
-                      values = { overlay = "Overlay", right = "From Right Edge", left = "From Left Edge" },
+                      values = healAbsorbEdgeLabels,
                       order = { "overlay", "right", "left" },
-                      get=function() return SVal("healAbsorbEdgeMode", "overlay") end,
+                      get=function() SyncHealAbsorbEdgeLabels(); return SVal("healAbsorbEdgeMode", "overlay") end,
                       set=function(v) SSet("healAbsorbEdgeMode", v) end },
                     { type="slider", label="Backing Opacity", min=0, max=100, step=1,
                       get=function() return SVal("healAbsorbBgOpacity", 25) end,
@@ -1569,6 +1635,17 @@ initFrame:SetScript("OnEvent", function(self)
                       set=function(v) SSet("healAbsorbOverDispel", v) end },
                 },
             })
+            -- Re-label on every page refresh (the Vertical Fill toggle fires one) and
+            -- drop any built menu so its entries rebuild with the new wording.
+            EllesmereUI.RegisterWidgetRefresh(function()
+                if not SyncHealAbsorbEdgeLabels() then return end
+                local pf = cogShow and cogShow._popupFrame
+                if pf and pf.GetChildren then
+                    for _, child in ipairs({ pf:GetChildren() }) do
+                        if child._invalidateMenu then child._invalidateMenu() end
+                    end
+                end
+            end)
             local cogBtn = CreateFrame("Button", nil, rgn)
             cogBtn:SetSize(26, 26)
             cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
@@ -1601,7 +1678,7 @@ initFrame:SetScript("OnEvent", function(self)
                   getValue=function() return SVal("healAbsorbBarHeight", 4) end,
                   setValue=function(v) SSet("healAbsorbBarHeight", v) end });  y = y - h
             -- Inline alpha color swatch for the heal absorb bar color
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = healAbsorbBarRow._rightRegion
                 local swatch = EllesmereUI.BuildColorSwatch(
                     rgn, healAbsorbBarRow:GetFrameLevel() + 3,
@@ -1623,7 +1700,7 @@ initFrame:SetScript("OnEvent", function(self)
                 UpdateHealAbsorbBarSwatchVis()
             end
             -- Inline cog: heal absorb bar vertical grow direction
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = healAbsorbBarRow._leftRegion
                 local _, cogShow = EllesmereUI.BuildCogPopup({
                     title = "Heal Absorb Bar Rendering",
@@ -1690,7 +1767,7 @@ initFrame:SetScript("OnEvent", function(self)
                   getValue=function() return SVal("maxHealthOpacity", 100) end,
                   setValue=function(v) SSet("maxHealthOpacity", v) end });  y = y - h
             -- Inline color swatch: tints the max health texture
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = maxHealthRow._leftRegion
                 local swatch = EllesmereUI.BuildColorSwatch(
                     rgn, maxHealthRow:GetFrameLevel() + 3,
@@ -1721,7 +1798,7 @@ initFrame:SetScript("OnEvent", function(self)
                 UpdateMaxHealthSwatchVis()
             end
             -- Inline cog: backing opacity only (no placement -- always right side)
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = maxHealthRow._leftRegion
                 local _, cogShow = EllesmereUI.BuildCogPopup({
                     title = "Max Health Rendering",
@@ -1754,9 +1831,9 @@ initFrame:SetScript("OnEvent", function(self)
         powerHeader, h = W:SectionHeader(parent, "POWER BAR", y); y = y - h
 
         -- Power bar animation (same pattern as health; serves raid + party).
-        do
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+        if not EllesmereUI._prebuilding then
+            local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+            local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
             -- Shared anim state on ns (single ticker, resolves active preview).
             ns._powerAnimState = ns._powerAnimState or {}
 
@@ -1914,7 +1991,7 @@ initFrame:SetScript("OnEvent", function(self)
                   setValue=function(v) SSet("powerHeight", v) end });  y = y - h
             -- Cog: Uniform Icon Anchoring (power bar independence). Greyed +
             -- blocked while no role shows a power bar (nothing to ignore then).
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = row._rightRegion
                 local _, cogShow = EllesmereUI.BuildCogPopup({
                     title = "Power Height",
@@ -1942,7 +2019,7 @@ initFrame:SetScript("OnEvent", function(self)
                 cogBtn:SetScript("OnClick", function(self) if not IsPowerOff() then cogShow(self) end end)
                 EllesmereUI.RegisterWidgetRefresh(function() cogBtn:SetAlpha(IsPowerOff() and 0.15 or 0.4) end)
             end
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = row._leftRegion
                 if rgn._control then rgn._control:Hide() end
                 local cbDD = EllesmereUI.BuildVisOptsCBDropdown(
@@ -1980,7 +2057,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return SVal("powerBorderSize", 1) end,
               setValue=function(v) SSet("powerBorderSize", v) end });  y = y - h
         -- Inline swatch for power border color
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = pwBdrRow._rightRegion
             local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
                 rgn, pwBdrRow:GetFrameLevel() + 3,
@@ -2024,7 +2101,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Inline swatches for power bg: Custom + Power Colored pair. Clicking
         -- either toggles powerBgPowerColored; the inactive one dims (mirrors the
         -- health bar background picker).
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = pwBgRow._rightRegion
             -- Power-colored background swatch (player's power color; not editable).
             local bgPwrSwatch = EllesmereUI.BuildColorSwatch(
@@ -2152,7 +2229,7 @@ initFrame:SetScript("OnEvent", function(self)
               } });  y = y - h
         -- Cog for name character-count cap + text stacking (lives on the Name
         -- Size slider).
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = row._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Name Text",
@@ -2192,7 +2269,7 @@ initFrame:SetScript("OnEvent", function(self)
                   function() return SVal("healthTextMode", "none") ~= "none" end,
                   function(v) SSet("healthTextMode", v) end) });  y = y - h
         -- Cog for name offset X/Y
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = row._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Name Offset",
@@ -2220,7 +2297,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Inline color swatches for Health Text color (custom / class / accent),
         -- mirroring the Name Color triple swatch. Added custom-first so the
         -- _lastInline chain puts custom next to the dropdown (matches Name Color).
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = row._rightRegion
             local function AddHTSwatch(getColor, setColor, mode, opensPicker, tooltip)
                 local sw = EllesmereUI.BuildColorSwatch(
@@ -2292,7 +2369,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return SVal("healthTextSize", 9) end,
               setValue=function(v) SSet("healthTextSize", v) end });  y = y - h
         -- Cog for health text offset X/Y
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = row._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Health Text Offset",
@@ -2339,7 +2416,7 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v) SSet("healAbsorbTextPosition", v) end });  y = y - h
         -- Inline color swatches for Heal Absorb Text color (custom / class / accent),
         -- mirroring the Health Text triple swatch.
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = row._leftRegion
             local function AddHASwatch(getColor, setColor, mode, opensPicker, tooltip)
                 local sw = EllesmereUI.BuildColorSwatch(
@@ -2396,7 +2473,7 @@ initFrame:SetScript("OnEvent", function(self)
                 function() end, "accent", false, "Accent Color")
         end
         -- Offset cog on the Heal Absorb Text Position region (right of Row 4)
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = row._rightRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Heal Absorb Text Offset",
@@ -2443,9 +2520,9 @@ initFrame:SetScript("OnEvent", function(self)
         indicatorHeader, h = W:SectionHeader(parent, "INDICATORS", y); y = y - h
 
         -- Eyeball: toggle indicator visibility on preview (raid + party)
-        do
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+        if not EllesmereUI._prebuilding then
+            local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+            local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
 
             -- Find the section label FontString
             local indLabel
@@ -2516,16 +2593,7 @@ initFrame:SetScript("OnEvent", function(self)
         end  -- close do (indicators eyeball)
 
         -- Row 1: Role Icon Style | Role Icon Size
-        local ROLE_MEDIA = "Interface\\AddOns\\EllesmereUIRaidFrames\\Media\\"
-        local RI_STYLES = {
-            modern = { _isTexture = true, TANK = ROLE_MEDIA .. "tank-modern.png", HEALER = ROLE_MEDIA .. "healer-modern.png", DAMAGER = ROLE_MEDIA .. "dps-modern.png" },
-            modernCircle = { TANK = "UI-LFG-RoleIcon-Tank", HEALER = "UI-LFG-RoleIcon-Healer", DAMAGER = "UI-LFG-RoleIcon-DPS" },
-            styled = { TANK = "UI-LFG-RoleIcon-Tank-Background", HEALER = "UI-LFG-RoleIcon-Healer-Background", DAMAGER = "UI-LFG-RoleIcon-DPS-Background" },
-            classicCircle = { TANK = "UI-LFG-RoleIcon-Tank-Micro-GroupFinder", HEALER = "UI-LFG-RoleIcon-Healer-Micro-GroupFinder", DAMAGER = "UI-LFG-RoleIcon-DPS-Micro-GroupFinder" },
-            classic = { TANK = "roleicon-tiny-tank", HEALER = "roleicon-tiny-healer", DAMAGER = "roleicon-tiny-dps" },
-            blizzDefault = { TANK = "GM-icon-role-tank", HEALER = "GM-icon-role-healer", DAMAGER = "GM-icon-role-dps" },
-            blizzLight = { _isTexture = true, TANK = ROLE_MEDIA .. "tank.png", HEALER = ROLE_MEDIA .. "healer.png", DAMAGER = ROLE_MEDIA .. "dps.png" },
-        }
+        local RI_STYLES = ns.ROLE_ICON_STYLES
         local playerRole = UnitGroupRolesAssigned("player")
         if playerRole == "NONE" then
             local specIdx = GetSpecialization()
@@ -2569,7 +2637,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return "__placeholder" end,
               setValue=function() end });  y = y - h
         -- Replace right side with checkbox dropdown
-        do
+        if not EllesmereUI._prebuilding then
             local rightRgn = row._rightRegion
             if rightRgn._control then rightRgn._control:Hide() end
             local showRoleItems = {
@@ -2590,7 +2658,7 @@ initFrame:SetScript("OnEvent", function(self)
             rightRgn._lastInline = nil
         end
         -- Inline cog on the Role Icons dropdown: Hide In Combat toggle
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = row._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Role Icons",
@@ -2626,7 +2694,7 @@ initFrame:SetScript("OnEvent", function(self)
             bottom      = "Bottom",
             bottomright = "Bottom Right",
         }
-        local rolePositionOrder = { "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright" }
+        local rolePositionOrder = EllesmereUI.POSITION_GRID_ORDER
         local roleRow2
         roleRow2, h = W:DualRow(parent, y,
             { type="dropdown", text="Role Position", values=rolePositionValues, order=rolePositionOrder,
@@ -2640,7 +2708,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return SVal("roleIconSize", 14) end,
               setValue=function(v) SSet("roleIconSize", v) end });  y = y - h
         -- Cog for role icon offset X/Y
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = roleRow2._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Role Icon Offset",
@@ -2702,7 +2770,7 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v) SSet("raidMarkerSize", v) end });  y = y - h
 
         -- Cog for marker offset X/Y
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = row._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Marker Offset",
@@ -2753,7 +2821,7 @@ initFrame:SetScript("OnEvent", function(self)
             bottom      = "Bottom",
             bottomright = "Bottom Right",
         }
-        local readyCheckPositionOrder = { "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright" }
+        local readyCheckPositionOrder = EllesmereUI.POSITION_GRID_ORDER
         local rcRow
         rcRow, h = W:DualRow(parent, y,
             { type="dropdown", text="Ready Check / Summon / Rez", values=readyCheckPositionValues, order=readyCheckPositionOrder,
@@ -2763,7 +2831,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return SVal("readyCheckSize", 20) end,
               setValue=function(v) SSet("readyCheckSize", v) end });  y = y - h
         -- Cog for ready check / summon toggles + offset X/Y
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = rcRow._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Ready Check / Summon / Rez",
@@ -2821,7 +2889,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return SVal("statusTextSize", 14) end,
               setValue=function(v) SSet("statusTextSize", v) end });  y = y - h
         -- Cog for status text offset X/Y
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = stRow._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Status Text",
@@ -2850,7 +2918,7 @@ initFrame:SetScript("OnEvent", function(self)
             cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
         end
         -- Inline color swatch for status text color
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = stRow._rightRegion
             local swatch = EllesmereUI.BuildColorSwatch(
                 rgn, stRow:GetFrameLevel() + 3,
@@ -2902,7 +2970,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return SVal("leaderIconSize", 14) end,
               setValue=function(v) SSet("leaderIconSize", v) end });  y = y - h
         -- Cog for leader icon offset X/Y
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = row._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Leader Icon",
@@ -2982,7 +3050,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return SVal("combatIndicatorSize", 16) end,
               setValue=function(v) SSet("combatIndicatorSize", v) end });  y = y - h
         -- Cog for combat icon style / color / offset X/Y
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = ciRow._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Combat Icon",
@@ -3020,7 +3088,7 @@ initFrame:SetScript("OnEvent", function(self)
             cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
         end
         -- Inline color swatch for the combat icon custom color
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = ciRow._rightRegion
             local swatch = EllesmereUI.BuildColorSwatch(
                 rgn, ciRow:GetFrameLevel() + 3,
@@ -3050,7 +3118,7 @@ initFrame:SetScript("OnEvent", function(self)
                   getValue=function() return SVal("groupNumberSize", 10) end,
                   setValue=function(v) SSet("groupNumberSize", v) end });  y = y - h
             -- Inline color swatch (alpha enabled) on the Number Size region
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = gnRow._rightRegion
                 local swatch = EllesmereUI.BuildColorSwatch(
                     rgn, gnRow:GetFrameLevel() + 3,
@@ -3067,7 +3135,7 @@ initFrame:SetScript("OnEvent", function(self)
                 rgn._lastInline = swatch
             end
             -- Inline cog (X/Y offset) on the Show Group Numbers toggle
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = gnRow._leftRegion
                 local _, cogShow = EllesmereUI.BuildCogPopup({
                     title = "Group Number Offset",
@@ -3109,9 +3177,9 @@ initFrame:SetScript("OnEvent", function(self)
         dispelHeader, h = W:SectionHeader(parent, "DISPELS", y); y = y - h
 
         -- Eyeball: toggle dispel visibility on preview (raid + party)
-        do
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+        if not EllesmereUI._prebuilding then
+            local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+            local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
 
             local dispLabel
             for _, rgn in ipairs({ dispelHeader:GetRegions() }) do
@@ -3225,7 +3293,7 @@ initFrame:SetScript("OnEvent", function(self)
                   EllesmereUI:RefreshPage()
               end });  y = y - h
         -- Cog for dispel icon offset X/Y
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = row._rightRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Dispel Icon",
@@ -3257,7 +3325,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- dispel ring (the engine-tinted border on dispellable debuff
         -- icons) -- its thickness in physical pixels. The ring itself is
         -- container-rendered, so this key has no 12.0 consumer.
-        if EllesmereUI.IS_121 then
+        if EllesmereUI.IS_121 and not EllesmereUI._prebuilding then
             local rgn = row._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Dispel Border",
@@ -3330,8 +3398,8 @@ initFrame:SetScript("OnEvent", function(self)
             bottomright = "Bottom Right",
         }
         local dispLocOrder = { "same", "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright" }
-        local dispGrowValues = { RIGHT = "Right", LEFT = "Left", UP = "Up", DOWN = "Down", CENTER = "Center" }
-        local dispGrowOrder = { "RIGHT", "LEFT", "UP", "DOWN", "CENTER" }
+        local dispGrowValues = EllesmereUI.GROW_DIR_VALUES_FULL
+        local dispGrowOrder = EllesmereUI.GROW_DIR_ORDER_FULL
         local function GetDefaultDispGrow(pos)
             if pos == "right" or pos == "topright" or pos == "bottomright" then return "LEFT" end
             if pos == "left" or pos == "topleft" or pos == "bottomleft" then return "RIGHT" end
@@ -3355,7 +3423,7 @@ initFrame:SetScript("OnEvent", function(self)
         ); y = y - h
         -- Left cog: Dispellable Debuff Location growth direction + X/Y offsets.
         -- Only interactive when a separate location is chosen (not "Same as Debuffs").
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = row._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Dispellable Debuff Location",
@@ -3389,7 +3457,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
         -- Right cog on the toggle: Extra Border Size (physical px on top of the
         -- main debuff border size). Only interactive while the toggle is on.
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = row._rightRegion
             local function clockOn() return SVal("dispelClockBorder", false) end
             local _, cogShow = EllesmereUI.BuildCogPopup({
@@ -3462,7 +3530,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return SVal("topNameBarTextSize", 11) end,
               setValue=function(v) SSet("topNameBarTextSize", v) end });  y = y - h
         -- Inline bg color swatch (left region)
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = tnbRow2._leftRegion
             local bgSwatch = EllesmereUI.BuildColorSwatch(
                 rgn, tnbRow2:GetFrameLevel() + 3,
@@ -3479,7 +3547,7 @@ initFrame:SetScript("OnEvent", function(self)
             rgn._lastInline = bgSwatch
         end
         -- Inline text offset cog (DIRECTIONS) in the Text Size slot
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = tnbRow2._rightRegion
             -- Offset X/Y cog with the DIRECTIONS icon
             local _, cogShow = EllesmereUI.BuildCogPopup({
@@ -3520,7 +3588,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Inline color swatches (custom rightmost = opens picker, class leftmost).
         -- Clicking a swatch switches topNameBarTextColorMode; each dims when not
         -- the active mode. Added custom-first so it sits next to the dropdown.
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = tnbRow3._leftRegion
             local function AddTNBSwatch(getColor, setColor, mode, opensPicker, tooltip)
                 local sw = EllesmereUI.BuildColorSwatch(
@@ -3620,7 +3688,7 @@ initFrame:SetScript("OnEvent", function(self)
             row, h = W:DualRow(parent, y,
                 { type="label", text="Free Move Position" },
                 { type="label", text="Boss Health Color" }); y = y - h
-            do
+            if not EllesmereUI._prebuilding then
                 local btn = CreateFrame("Button", nil, row)
                 btn:SetSize(140, 26)
                 btn:SetPoint("RIGHT", row._leftRegion, "RIGHT", -20, 0)
@@ -3709,7 +3777,7 @@ initFrame:SetScript("OnEvent", function(self)
                 UpdateMoveBtn()
             end
             -- Boss Health Color swatch (right slot of the same row)
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = row._rightRegion
                 local swatch = EllesmereUI.BuildColorSwatch(
                     rgn, row:GetFrameLevel() + 3,
@@ -3807,7 +3875,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end
                       EllesmereUI:RefreshPage()
                   end) }); y = y - h
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = row._leftRegion
                 local kbBtn = CreateFrame("Button", nil, row)
                 kbBtn:SetSize(140, 26)
@@ -3962,7 +4030,7 @@ initFrame:SetScript("OnEvent", function(self)
                       EllesmereUI:RefreshPage(true)
                   end },
                 { type="label", text="Free Move Position" }); y = y - h
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = row._rightRegion
                 local btn = CreateFrame("Button", nil, row)
                 btn:SetSize(140, 26)
@@ -4065,7 +4133,7 @@ initFrame:SetScript("OnEvent", function(self)
                       XFReapply()
                   end }); y = y - h
             -- Inline cog on Wrap Direction: Wrap After slider
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = row._rightRegion
                 local _, cogShow = EllesmereUI.BuildCogPopup({
                     title = "Row Wrapping",
@@ -4136,9 +4204,9 @@ initFrame:SetScript("OnEvent", function(self)
             end
 
             -- Eyeball: toggle targeted spells visibility on the raid preview
-            do
-                local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-                local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+            if not EllesmereUI._prebuilding then
+                local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+                local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
                 local tsLabel
                 for _, rgn in ipairs({ tsHeader:GetRegions() }) do
                     if rgn.GetText and EllesmereUI.EnKey(rgn:GetText()) == "TARGETED SPELLS" then
@@ -4204,7 +4272,7 @@ initFrame:SetScript("OnEvent", function(self)
                   setValue=function(v) SSet("tsRaidIconSize", v); TSApply() end });  y = y - h
             if SVal("tsRaidMode", "never") ~= "never" then
             -- Inline cog on Icon Size: Icon Zoom
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = row._rightRegion
                 local _, cogShow = EllesmereUI.BuildCogPopup({
                     title = "Icon Zoom",
@@ -4239,10 +4307,10 @@ initFrame:SetScript("OnEvent", function(self)
                 bottom      = "Bottom",
                 bottomright = "Bottom Right",
             }
-            local tsPositionOrder = { "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright" }
+            local tsPositionOrder = EllesmereUI.POSITION_GRID_ORDER
 
-            local tsGrowValues = { RIGHT = "Right", LEFT = "Left", UP = "Up", DOWN = "Down", CENTER = "Center" }
-            local tsGrowOrder = { "RIGHT", "LEFT", "UP", "DOWN", "CENTER" }
+            local tsGrowValues = EllesmereUI.GROW_DIR_VALUES_FULL
+            local tsGrowOrder = EllesmereUI.GROW_DIR_ORDER_FULL
 
             local function GetDefaultTSGrow(pos)
                 if pos == "right" or pos == "topright" or pos == "bottomright" then return "LEFT" end
@@ -4265,7 +4333,7 @@ initFrame:SetScript("OnEvent", function(self)
                   getValue=function() return SVal("tsRaidGrowDirection", "CENTER") end,
                   setValue=function(v) SSet("tsRaidGrowDirection", v); TSApply() end });  y = y - h
             -- Cog for targeted spells offset X/Y
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = row._leftRegion
                 local _, cogShow = EllesmereUI.BuildCogPopup({
                     title = "Targeted Spells Offset",
@@ -4335,7 +4403,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- on this dropdown governs the UNIT tooltip and must not veto an aura
         -- tip enabled here (it used to, so a hidden unit tip also killed the
         -- aura tip -- see ns.RaidFrameTooltipAllowed).
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = row._rightRegion
             local tipRows
             if EllesmereUI.IS_121 then
@@ -4455,8 +4523,8 @@ initFrame:SetScript("OnEvent", function(self)
             local CUSTOM_TIERS = { 10, 15, 25, 30 }
             local TIER_LABELS = { [10] = "10 Man", [15] = "15 Man", [25] = "25 Man", [30] = "30 Man" }
             local overrides = db.profile.raidSizeOverrides
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+            local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+            local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
             local CLOSE_ICON    = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.png"
 
             for _, tier in ipairs(CUSTOM_TIERS) do
@@ -4518,7 +4586,7 @@ initFrame:SetScript("OnEvent", function(self)
                           end });  y = y - h
 
                     -- Eyeball: left of the row (preview toggle)
-                    do
+                    if not EllesmereUI._prebuilding then
                         local eyeBtn = CreateFrame("Button", nil, sizeRow)
                         eyeBtn:SetSize(24, 24)
                         eyeBtn:SetPoint("RIGHT", sizeRow, "LEFT", -5, 0)
@@ -4574,7 +4642,7 @@ initFrame:SetScript("OnEvent", function(self)
                     end
 
                     -- Close button: right of the row
-                    do
+                    if not EllesmereUI._prebuilding then
                         local closeBtn = CreateFrame("Button", nil, sizeRow)
                         closeBtn:SetSize(18, 18)
                         closeBtn:SetPoint("LEFT", sizeRow, "RIGHT", 5, 0)
@@ -4616,7 +4684,7 @@ initFrame:SetScript("OnEvent", function(self)
                     end
 
                     -- Inline cog for X/Y offset (on width slider, RESIZE icon)
-                    do
+                    if not EllesmereUI._prebuilding then
                         local rgn = sizeRow._leftRegion
                         local function EnsureTierOv()
                             local ovs = ns._EnsureRaidSizeOverrides()
@@ -4769,7 +4837,7 @@ initFrame:SetScript("OnEvent", function(self)
             end
             -- Overlay the checkbox dropdown onto the right region (mirrors the
             -- "Hover Borders" conversion pattern).
-            do
+            if not EllesmereUI._prebuilding then
                 local rightRgn = autoResizeRow._rightRegion
                 if rightRgn._control then rightRgn._control:Hide() end
                 local arKeyMap = { indicators = "autoResizeIndicators", trackedBuffs = "autoResizeTrackedBuffs" }
@@ -4831,7 +4899,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return SVal("borderSize", 1) end,
               setValue=function(v) SSet("borderSize", v) end });  y = y - h
         -- Offset cog on Border Style (left region): Offset X/Y, Shift X/Y, Show Behind
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = borderStyleRow._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Border Offset",
@@ -4889,7 +4957,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
         -- Swatch on Border Size (right region): Border color (nearest slider).
         -- Hover + Target swatches moved to the "Hover Borders" row below.
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = borderStyleRow._rightRegion
             local lvl = borderStyleRow:GetFrameLevel() + 3
             local borderSwatch, updBorder = EllesmereUI.BuildColorSwatch(
@@ -4927,7 +4995,7 @@ initFrame:SetScript("OnEvent", function(self)
               values={ __placeholder = "All" }, order={ "__placeholder" },
               getValue=function() return "__placeholder" end,
               setValue=function() end });  y = y - h
-        do
+        if not EllesmereUI._prebuilding then
             local rightRgn = hoverBordersRow._rightRegion
             if rightRgn._control then rightRgn._control:Hide() end
             local hbItems = {
@@ -5053,12 +5121,14 @@ initFrame:SetScript("OnEvent", function(self)
             -- Replace the placeholder left dropdown with the shared custom Sort
             -- By control (Group/Role radio + drag-to-reorder roles), wired to the
             -- raid keys.
+            if not EllesmereUI._prebuilding then
             BuildSortByControl(sortRow._leftRegion, {
                 readMode   = function() return SVal("sortMode", "INDEX") end,
                 writeMode  = function(v) SSet("sortMode", v) end,
                 readRoles  = function() return SVal("roleOrder", { "TANK", "HEALER", "DAMAGER" }) end,
                 writeRoles = function(ro) db.profile.roleOrder = ro; ReloadAndUpdate() end,
             })
+            end
         end
 
         -- Row 3: Show Groups (checkbox dropdown) | Merge Groups
@@ -5074,6 +5144,7 @@ initFrame:SetScript("OnEvent", function(self)
                   setValue=function(v) SSet("mergeGroups", v); EllesmereUI:RefreshPage() end });  y = y - h
 
             -- Replace the left dropdown with a checkbox dropdown for groups 1-8
+            if not EllesmereUI._prebuilding then
             local rgn = showGroupsRow._leftRegion
             if rgn._control then rgn._control:Hide() end
 
@@ -5127,6 +5198,7 @@ initFrame:SetScript("OnEvent", function(self)
             cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
             cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
             cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
+            end
         end
 
 
@@ -5242,7 +5314,7 @@ initFrame:SetScript("OnEvent", function(self)
               end });  y = y - h
 
         -- Inline cog on Show When Solo: Center When Solo
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = syncRow._rightRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Show When Solo",
@@ -5287,7 +5359,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- Replace the left dropdown with a checkbox dropdown for per-section sync
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = syncRow._leftRegion
             if rgn._control then rgn._control:Hide() end
 
@@ -5307,6 +5379,7 @@ initFrame:SetScript("OnEvent", function(self)
                             db.profile.partySyncSections = {}
                         end
                         db.profile.partySyncSections[k] = v and true or false
+                        if ns._RefreshProxyModes then ns._RefreshProxyModes() end
                         -- Toggle overlay directly (no page rebuild needed)
                         local ov = ns._syncOverlays and ns._syncOverlays[k]
                         if ov then
@@ -5387,16 +5460,18 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return "__placeholder" end,
               setValue=function() end });  y = y - h
 
+        if not EllesmereUI._prebuilding then
         BuildSortByControl(pSortRow._rightRegion, {
             readMode   = function() return SVal("partySortMode", "ROLE") end,
             writeMode  = function(v) PSSet("partySortMode", v) end,
             readRoles  = function() return db.profile.partyRoleOrder or db.profile.roleOrder or { "TANK", "HEALER", "DAMAGER" } end,
             writeRoles = function(ro) db.profile.partyRoleOrder = ro; PartyReloadAndUpdate() end,
         })
+        end
 
         -- Inline cog next to Sort By: Prioritize Class toggle + drag-to-reorder
         -- Class Order list (party only). The toggle disables the order list.
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = pSortRow._rightRegion
             -- Build the class list in saved order, always covering all 13 classes
             -- (appends any missing/new classes from the default alphabetical order).
@@ -5475,7 +5550,7 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v) PSSet("partyCellSpacing", v) end });  y = y - h
         -- Overlay the checkbox dropdown onto the LEFT region (Auto Resize Icons
         -- sits in the left slot; mirrors the Frames-tab conversion).
-        do
+        if not EllesmereUI._prebuilding then
             local leftRgn = partyAutoResizeRow._leftRegion
             if leftRgn._control then leftRgn._control:Hide() end
             local arKeyMap = { indicators = "partyAutoResizeIndicators", trackedBuffs = "partyAutoResizeTrackedBuffs" }
@@ -5531,9 +5606,9 @@ initFrame:SetScript("OnEvent", function(self)
             end
 
             -- Eyeball: toggle targeted spells visibility on the party preview
-            do
-                local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-                local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+            if not EllesmereUI._prebuilding then
+                local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+                local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
                 local tsLabel
                 for _, rgn in ipairs({ tsHeader:GetRegions() }) do
                     if rgn.GetText and EllesmereUI.EnKey(rgn:GetText()) == "TARGETED SPELLS" then
@@ -5599,7 +5674,7 @@ initFrame:SetScript("OnEvent", function(self)
                   setValue=function(v) SSet("tsIconSize", v); TSApply() end });  y = y - h
             if SVal("tsMode", "whenHealing") ~= "never" then
             -- Inline cog on Icon Size: Icon Zoom
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = row._rightRegion
                 local _, cogShow = EllesmereUI.BuildCogPopup({
                     title = "Icon Zoom",
@@ -5634,10 +5709,10 @@ initFrame:SetScript("OnEvent", function(self)
                 bottom      = "Bottom",
                 bottomright = "Bottom Right",
             }
-            local tsPositionOrder = { "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright" }
+            local tsPositionOrder = EllesmereUI.POSITION_GRID_ORDER
 
-            local tsGrowValues = { RIGHT = "Right", LEFT = "Left", UP = "Up", DOWN = "Down", CENTER = "Center" }
-            local tsGrowOrder = { "RIGHT", "LEFT", "UP", "DOWN", "CENTER" }
+            local tsGrowValues = EllesmereUI.GROW_DIR_VALUES_FULL
+            local tsGrowOrder = EllesmereUI.GROW_DIR_ORDER_FULL
 
             local function GetDefaultTSGrow(pos)
                 if pos == "right" or pos == "topright" or pos == "bottomright" then return "LEFT" end
@@ -5660,7 +5735,7 @@ initFrame:SetScript("OnEvent", function(self)
                   getValue=function() return SVal("tsGrowDirection", "CENTER") end,
                   setValue=function(v) SSet("tsGrowDirection", v); TSApply() end });  y = y - h
             -- Cog for targeted spells offset X/Y
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = row._leftRegion
                 local _, cogShow = EllesmereUI.BuildCogPopup({
                     title = "Targeted Spells Offset",
@@ -5730,6 +5805,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if button ~= "LeftButton" then return end
                 if not db.profile.partySyncSections then db.profile.partySyncSections = {} end
                 db.profile.partySyncSections[sectionKey] = false
+                if ns._RefreshProxyModes then ns._RefreshProxyModes() end
                 self:Hide()
                 if ns.ReloadPartyFrames then ns.ReloadPartyFrames() end
                 if ns.partyPvActive and ns.partyPvActive() and ns.ShowPartyPreview then
@@ -5771,9 +5847,9 @@ initFrame:SetScript("OnEvent", function(self)
         defHeader, h = W:SectionHeader(parent, "DEFENSIVES & EXTERNALS", y); y = y - h
 
         -- Eyeball: toggle defensive visibility on preview (raid + party)
-        do
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+        if not EllesmereUI._prebuilding then
+            local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+            local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
             local defLabel
             for _, rgn in ipairs({ defHeader:GetRegions() }) do
                 if rgn.GetText and EllesmereUI.EnKey(rgn:GetText()) == "DEFENSIVES & EXTERNALS" then
@@ -5839,10 +5915,10 @@ initFrame:SetScript("OnEvent", function(self)
             bottom      = "Bottom",
             bottomright = "Bottom Right",
         }
-        local defPosOrder = { "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright" }
+        local defPosOrder = EllesmereUI.POSITION_GRID_ORDER
 
-        local defGrowValues = { RIGHT = "Right", LEFT = "Left", UP = "Up", DOWN = "Down", CENTER = "Center" }
-        local defGrowOrder = { "RIGHT", "LEFT", "UP", "DOWN", "CENTER" }
+        local defGrowValues = EllesmereUI.GROW_DIR_VALUES_FULL
+        local defGrowOrder = EllesmereUI.GROW_DIR_ORDER_FULL
 
         local function GetDefaultDefGrow(pos)
             if pos == "right" or pos == "topright" or pos == "bottomright" then return "LEFT" end
@@ -5873,7 +5949,7 @@ initFrame:SetScript("OnEvent", function(self)
                   EllesmereUI:RefreshPage()
               end });  y = y - h
         -- Replace left with CB dropdown
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = defShowRow._leftRegion
             if rgn._control then rgn._control:Hide() end
             local cbDD = EllesmereUI.BuildVisOptsCBDropdown(
@@ -5889,7 +5965,7 @@ initFrame:SetScript("OnEvent", function(self)
             rgn._lastInline = nil
         end
         -- Cog for position offset X/Y
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = defShowRow._rightRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Defensive Offset",
@@ -5927,7 +6003,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return SVal("defSize", 22) end,
               setValue=function(v) SSet("defSize", v) end });  y = y - h
         -- Inline cog on Size: Icon Zoom
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = defSizeRow._rightRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Icon Zoom",
@@ -5963,7 +6039,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return SVal("defBorderSize", 1) end,
               setValue=function(v) SSet("defBorderSize", v) end });  y = y - h
         -- Inline swatch for border color
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = defBdrRow._rightRegion
             local swatch = EllesmereUI.BuildColorSwatch(
                 rgn, defBdrRow:GetFrameLevel() + 3,
@@ -5992,7 +6068,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return SVal("defShowDurText", false) end,
               setValue=function(v) SSet("defShowDurText", v) end });  y = y - h
         -- Inline swatch + cog for duration text
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = defDurRow._rightRegion
             local swatch = EllesmereUI.BuildColorSwatch(
                 rgn, defDurRow:GetFrameLevel() + 3,
@@ -6045,9 +6121,9 @@ initFrame:SetScript("OnEvent", function(self)
         paHeader, h = W:SectionHeader(parent, "PRIVATE AURAS", y); y = y - h
 
         -- Eyeball: toggle private aura visibility on preview (raid + party)
-        do
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+        if not EllesmereUI._prebuilding then
+            local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+            local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
             local paLabel
             for _, rgn in ipairs({ paHeader:GetRegions() }) do
                 if rgn.GetText and EllesmereUI.EnKey(rgn:GetText()) == "PRIVATE AURAS" then
@@ -6110,8 +6186,8 @@ initFrame:SetScript("OnEvent", function(self)
             bottomright = "Bottom Right",
         }
         local paPosOrder = { "none", "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright" }
-        local paGrowValues = { RIGHT = "Right", LEFT = "Left", UP = "Up", DOWN = "Down" }
-        local paGrowOrder = { "RIGHT", "LEFT", "UP", "DOWN" }
+        local paGrowValues = EllesmereUI.GROW_DIR_VALUES_BASE
+        local paGrowOrder = EllesmereUI.GROW_DIR_ORDER_BASE
 
         local function GetDefaultPaGrow(pos)
             if pos == "right" or pos == "topright" or pos == "bottomright" then return "LEFT" end
@@ -6140,7 +6216,7 @@ initFrame:SetScript("OnEvent", function(self)
         ns._editTargets = ns._editTargets or {}
         ns._editTargets.privateAuras = paRow1
         -- Cog for position offset X/Y
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = paRow1._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Private Aura Offset",
@@ -6199,9 +6275,9 @@ initFrame:SetScript("OnEvent", function(self)
         debuffHeader, h = W:SectionHeader(parent, "DEBUFF DISPLAY", y); y = y - h
 
         -- Eyeball: toggle debuff visibility on preview (raid + party)
-        do
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+        if not EllesmereUI._prebuilding then
+            local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+            local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
             local dbLabel
             for _, rgn in ipairs({ debuffHeader:GetRegions() }) do
                 if rgn.GetText and EllesmereUI.EnKey(rgn:GetText()) == "DEBUFF DISPLAY" then
@@ -6281,12 +6357,12 @@ initFrame:SetScript("OnEvent", function(self)
             bottom      = "Bottom",
             bottomright = "Bottom Right",
         }
-        local debuffPositionOrder = { "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright" }
+        local debuffPositionOrder = EllesmereUI.POSITION_GRID_ORDER
 
-        local debuffGrowValues = { RIGHT = "Right", LEFT = "Left", UP = "Up", DOWN = "Down", CENTER = "Center" }
-        local debuffGrowOrder = { "RIGHT", "LEFT", "UP", "DOWN", "CENTER" }
-		local debuffWrapValues = { RIGHT = "Right", LEFT = "Left", UP = "Up", DOWN = "Down" }
-        local debuffWrapOrder = { "RIGHT", "LEFT", "UP", "DOWN" }
+        local debuffGrowValues = EllesmereUI.GROW_DIR_VALUES_FULL
+        local debuffGrowOrder = EllesmereUI.GROW_DIR_ORDER_FULL
+		local debuffWrapValues = EllesmereUI.GROW_DIR_VALUES_BASE
+        local debuffWrapOrder = EllesmereUI.GROW_DIR_ORDER_BASE
 
         local function GetDefaultDebuffGrow(pos)
             if pos == "right" or pos == "topright" or pos == "bottomright" then return "LEFT" end
@@ -6312,7 +6388,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return SVal("debuffGrowDirection", "RIGHT") end,
               setValue=function(v) SSet("debuffGrowDirection", v) end });  y = y - h
         -- Cog for debuff offset X/Y
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = row._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Debuff Offset",
@@ -6390,7 +6466,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return SVal("debuffBorderSize", 1) end,
               setValue=function(v) SSet("debuffBorderSize", v) end });  y = y - h
         -- Inline cog on Debuff Size: Icon Zoom
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = dbBorderRow._leftRegion
             local function DbOff() return SVal("debuffFilter", "all") == "none" end
             local _, cogShow = EllesmereUI.BuildCogPopup({
@@ -6415,7 +6491,7 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(function() cogBtn:SetAlpha(DbOff() and 0.15 or 0.4) end)
         end
         -- Inline swatch for border color
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = dbBorderRow._rightRegion
             local swatch = EllesmereUI.BuildColorSwatch(
                 rgn, dbBorderRow:GetFrameLevel() + 3,
@@ -6446,7 +6522,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return SVal("debuffShowStacks", true) end,
               setValue=function(v) SSet("debuffShowStacks", v) end });  y = y - h
         -- Inline swatch for stacks color
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = dbStacksRow._rightRegion
             local swatch = EllesmereUI.BuildColorSwatch(
                 rgn, dbStacksRow:GetFrameLevel() + 3,
@@ -6463,7 +6539,7 @@ initFrame:SetScript("OnEvent", function(self)
             rgn._lastInline = swatch
         end
         -- Cog for stacks size/offset
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = dbStacksRow._rightRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Stacks Text",
@@ -6506,7 +6582,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return SVal("debuffShowDurText", false) end,
               setValue=function(v) SSet("debuffShowDurText", v) end });  y = y - h
         -- Inline swatch + cog for duration text
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = dbDurRow._rightRegion
             local swatch = EllesmereUI.BuildColorSwatch(
                 rgn, dbDurRow:GetFrameLevel() + 3,
@@ -6576,7 +6652,7 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- Inline class + custom colour swatches (left of the dropdown), then the
             -- pixel-glow cog to their left. Mirrors the CDM Buff Glow row.
-            do
+            if not EllesmereUI._prebuilding then
                 local leftRgn = ccGlowRow._leftRegion
                 local ctrl = leftRgn._control
 

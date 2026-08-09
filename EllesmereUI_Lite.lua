@@ -15,6 +15,31 @@ EllesmereUI = EllesmereUI or {}
 EllesmereUI.IS_121 = (select(4, GetBuildInfo()) or 0) >= 120100
 EllesmereUI.Lite = EUILite
 
+-- The options-panel scale is exposed as a fixed-step dropdown ("EUI Options
+-- Panel Scale"), NOT a free slider, and its getValue matches exact percentages
+-- and falls through to "Normal (100%)" for anything else. So a seeded value
+-- that is not one of these steps leaves the control reading 100% while the
+-- panel renders at something else, and the user is snapped the moment they
+-- open that dropdown. Every seeder must round onto this list.
+--
+-- Lives here (first file in the TOC) so the Startup seed, the migration and
+-- the panel itself share ONE list -- three copies of these literals is how
+-- they drift apart.
+EllesmereUI.PANEL_SCALE_STEPS = { 0.75, 0.90, 1.00, 1.10, 1.25, 1.50, 2.00 }
+
+-- Nearest allowed step to v. Ties round up (harmless: the panel reads large
+-- rather than small, which is the direction this whole seed exists to fix).
+function EllesmereUI.SnapPanelScale(v)
+    if type(v) ~= "number" or v ~= v then return 1.00 end
+    local steps = EllesmereUI.PANEL_SCALE_STEPS
+    local best, bestDiff = steps[1], math.abs(v - steps[1])
+    for i = 2, #steps do
+        local diff = math.abs(v - steps[i])
+        if diff <= bestDiff then best, bestDiff = steps[i], diff end
+    end
+    return best
+end
+
 -- Lua APIs
 local pairs, type, next, rawset, rawget, setmetatable, wipe =
       pairs, type, next, rawset, rawget, setmetatable, wipe
@@ -217,6 +242,19 @@ EUILite._dbRegistry = dbRegistry
 local IS_STANDALONE = type(ADDON_NAME) == "string" and ADDON_NAME:find("Standalone") ~= nil
 local _svLoaded = false   -- true once ADDON_NAME's SavedVariables are live
 local _preSVDBs = {}      -- dbs created before that, awaiting re-root
+--- True once db.profile can be trusted to be the real saved table.
+--
+-- A pre-SavedVariables db is built inside an orphan table and re-rooted in
+-- place at ADDON_LOADED (see _preSVDBs above), which silently invalidates
+-- anything a consumer CACHED from it. A cache that is only READ shows stale
+-- values; one written BACK to the profile destroys real saved data -- Bags'
+-- category list did exactly that. Consumers test this before trusting, or
+-- persisting, anything derived from db.profile.
+--
+-- Always true in the suite, where no db is ever created pre-SavedVariables.
+function EUILite.IsDBReady()
+    return (not IS_STANDALONE) or _svLoaded
+end
 
 --- Create or open a database backed by the central EllesmereUIDB store.
 -- Returns a db object with .profile pointing to the active profile table

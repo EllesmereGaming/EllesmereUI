@@ -140,6 +140,38 @@ do
                 local clamped = max(0.4, min(blizzScale, 1.15))
                 EllesmereUIDB.ppUIScale = clamped
                 EllesmereUIDB.ppUIScaleAuto = false
+
+                -- Seed the options-panel scale from the display height. The
+                -- panel is deliberately pinned to physical pixels (baseScale =
+                -- GetScreenWidth()/physW) so it holds a constant physical size
+                -- and does NOT follow the UI Scale slider. At 1080p that reads
+                -- fine, but on a 4K screen the same pixel count covers half as
+                -- much of the display: the panel arrives unreadably small and
+                -- the UI Scale slider appears to do nothing to it.
+                --
+                -- 1440p is the reference look: a panel of H units covers
+                -- H*panelScale/physH of the screen, so physH/1440 reproduces
+                -- 1440p's screen fraction on any display, and 4K seeds 1.5 to
+                -- read exactly like a 2K monitor. Floored at 1 so 1080p (which
+                -- runs a slightly larger fraction, uncomplained-about) keeps
+                -- its current size rather than shrinking, then snapped onto the
+                -- dropdown's real steps (see EllesmereUI.SnapPanelScale) -- an
+                -- off-menu value leaves the control reading 100% while the
+                -- panel renders larger.
+                --
+                -- This sits INSIDE the ppUIScale == nil guard on purpose: it is
+                -- the first-install path only. Existing saves never reach here
+                -- (returning users return at scaleKnown above) and are seeded by
+                -- the panel_scale_highdpi_reset_v3 migration instead.
+                if EllesmereUIDB.panelScale == nil then
+                    local _, physH = GetPhysicalScreenSize()
+                    if type(physH) == "number" and physH > 0 then
+                        local seeded = max(1, min(physH / 1440, 2))
+                        EllesmereUIDB.panelScale =
+                            (EllesmereUI and EllesmereUI.SnapPanelScale
+                                and EllesmereUI.SnapPanelScale(seeded)) or seeded
+                    end
+                end
             end
 
             local scale = EllesmereUIDB.ppUIScale
@@ -184,16 +216,30 @@ end
 -- Reads EllesmereUIDB.fonts directly rather than going through GetFontsDB():
 -- that helper lazy-creates the table, and this can run at the ADDON_LOADED of
 -- Blizzard_CombatText, before our SavedVariables have been restored.
+
+-- Probe a font path before it reaches an engine global: SetFont returns a
+-- success boolean, so a cached path whose providing addon was uninstalled is
+-- detected instead of leaving the engine pointed at a missing file for the
+-- whole session (which kills floating text entirely).
+local probeFS
+local function ProbeFont(path)
+    if type(path) ~= "string" or path == "" then return false end
+    probeFS = probeFS or UIParent:CreateFontString()
+    local ok, success = pcall(probeFS.SetFont, probeFS, path, 12, "")
+    return ok and success == true
+end
+
 local function ApplyUnitNameFont()
     local fonts = EllesmereUIDB and EllesmereUIDB.fonts
     local name = fonts and fonts.unitNameFont
     if not name or name == "" then return end
     local path = fonts.unitNameFontPath
-    if (type(path) ~= "string" or path == "")
-       and EllesmereUI and EllesmereUI.ResolveFontName then
+    local ok = ProbeFont(path)
+    if not ok and EllesmereUI and EllesmereUI.ResolveFontName then
         path = EllesmereUI.ResolveFontName(name)
+        ok = ProbeFont(path)
     end
-    if type(path) == "string" and path ~= "" then
+    if ok then
         _G.UNIT_NAME_FONT = path
     end
 end
@@ -272,19 +318,30 @@ end
 -- CombatTextFont may not exist yet here, so we also hook ADDON_LOADED
 -- to catch it as soon as it becomes available.
 do
+    -- smf: keys resolve via LSM when the providing pack has loaded, else via
+    -- the path cached at selection time (external packs load after us, so at
+    -- our ADDON_LOADED -- the window where the engine caches the global --
+    -- the name is never registered yet). noDefault on Fetch: without it an
+    -- unregistered name silently resolves to the DEFAULT font, not nil.
+    -- Every candidate is probed, so only a loadable path is ever applied or
+    -- kept in the cache.
     local function ApplyCombatTextFont()
-        local saved = EllesmereUIDB and EllesmereUIDB.fctFont
+        local db = EllesmereUIDB
+        local saved = db and db.fctFont
         if not saved or type(saved) ~= "string" or saved == "" then return end
-        -- Resolve "smf:" prefixed SharedMedia font keys to actual paths
         local fontPath = saved
         local smName = saved:match("^smf:(.+)")
         if smName then
             local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
-            local fetched = LSM and LSM:Fetch("font", smName)
-            -- If the SM addon is missing or hasn't loaded yet, skip entirely
-            -- so Blizzard's default combat text font stays intact.
-            if not fetched then return end
-            fontPath = fetched
+            local fetched = LSM and LSM:Fetch("font", smName, true)
+            -- The cache only counts if it was written for the currently
+            -- saved key (fctFontPathFor pairs them).
+            local cached = (db.fctFontPathFor == saved) and db.fctFontPath or nil
+            fontPath = (ProbeFont(fetched) and fetched)
+                or (ProbeFont(cached) and cached) or nil
+            db.fctFontPath = fontPath
+            db.fctFontPathFor = fontPath and saved or nil
+            if not fontPath then return end
         end
         _G.DAMAGE_TEXT_FONT = fontPath
         if _G.CombatTextFont then
@@ -316,7 +373,14 @@ do
             self:UnregisterEvent("PLAYER_LOGIN")
         elseif event == "PLAYER_ENTERING_WORLD" then
             self:UnregisterEvent("PLAYER_ENTERING_WORLD")
-        elseif event == "ADDON_LOADED" then
+        elseif addonName == "Blizzard_CombatText"
+            or not (EllesmereUIDB and EllesmereUIDB.fctFont)
+            or (C_AddOns and C_AddOns.IsAddOnLoaded and C_AddOns.IsAddOnLoaded("Blizzard_CombatText")) then
+            -- The watch exists to restyle the load-on-demand CombatTextFont
+            -- object at its actual load (our own addon always fires first, so
+            -- retiring on the first match missed it). Retire it once that has
+            -- happened, or when it never can: feature unused (a mid-session
+            -- pick needs a relog anyway) or the addon already loaded.
             self:UnregisterEvent("ADDON_LOADED")
         end
     end)

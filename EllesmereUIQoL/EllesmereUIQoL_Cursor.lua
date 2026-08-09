@@ -260,14 +260,24 @@ local function ApplyTrail()
 end
 
 local _unlockHidGCD, _unlockHidCast
-local function OnUpdate(_, elapsed)
+-- Cursor glue + state watch, riding the suite's shared cursor service
+-- (EllesmereUI.Mouse) instead of a per-frame OnUpdate on the cursor frame:
+-- the glue is a Tier A motionOnly subscriber (per render frame while the
+-- cursor MOVES, parked while it rests -- a resting cursor ring needs no
+-- repositioning, and mouselook freezes GetCursorPosition so steering parks
+-- it too, which Only-Show-When-Hidden wants anyway); the unlock-mode
+-- circle sync is pure state and rides the 0.15s Tier B watch. Both are
+-- subscribed ONLY while the frame is visible (UpdateVisibility owns the
+-- edges), preserving the old hidden-frame-stops-OnUpdate behavior.
+local function CursorGlueBody(rawX, rawY)
     local s = UIParent:GetEffectiveScale()
-    local x, y = GetCursorPosition()
-    x, y = floor(x / s + 0.5), floor(y / s + 0.5)
+    local x, y = floor(rawX / s + 0.5), floor(rawY / s + 0.5)
     if x ~= lastX or y ~= lastY then
         lastX, lastY = x, y
         f:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x, y)
     end
+end
+local function CursorWatchBody()
     -- Hide attached GCD/Cast circles during unlock mode
     if EllesmereUI._unlockActive then
         if gcdAttached and gcdRoot and gcdRoot:IsShown() then
@@ -279,6 +289,22 @@ local function OnUpdate(_, elapsed)
     else
         if _unlockHidGCD and gcdRoot then gcdRoot:Show(); _unlockHidGCD = nil end
         if _unlockHidCast and castRoot then castRoot:Show(); _unlockHidCast = nil end
+    end
+end
+local function SetCursorGlue(on)
+    local M = EllesmereUI and EllesmereUI.Mouse
+    if not M then return end
+    if on then
+        -- Snap immediately: the motionOnly subscriber stays parked until
+        -- the cursor moves, so without this the frame would sit wherever
+        -- it last was (OnEnable's CENTER default on login) until the
+        -- first pixel of motion.
+        CursorGlueBody(M.Get())
+        M.SubscribeFrame("qolCursor", CursorGlueBody, true)
+        M.SubscribeTick("qolCursorWatch", 0.15, CursorWatchBody)
+    else
+        M.UnsubscribeFrame("qolCursor")
+        M.UnsubscribeTick("qolCursorWatch")
     end
 end
 
@@ -562,17 +588,19 @@ UpdateVisibility = function()
     if shouldShow and not isVisible then
         isVisible = true
         -- Snap to the current cursor BEFORE showing, otherwise the frame flashes
-        -- at its last (stale) position for one frame -- OnUpdate only repositions
-        -- on the following frame.
+        -- at its last (stale) position for one frame -- the glue only repositions
+        -- on the following motion sample.
         local s = UIParent:GetEffectiveScale()
         local cx, cy = GetCursorPosition()
         cx, cy = floor(cx / s + 0.5), floor(cy / s + 0.5)
         lastX, lastY = cx, cy
         f:SetPoint("CENTER", UIParent, "BOTTOMLEFT", cx, cy)
         f:Show()
+        SetCursorGlue(true)
     elseif not shouldShow and isVisible then
         isVisible = false
         f:Hide()
+        SetCursorGlue(false)
     end
 
     -- Trail: hide dots and suppress spawning when circle is hidden
@@ -1241,12 +1269,34 @@ function ECL:OnEnable()
     t:SetAllPoints(f)
     t:SetTexture(TEX_CUSTOM)
 
-    f:SetScript("OnUpdate", OnUpdate)
+    -- No OnUpdate: the shared cursor service drives positioning. The frame
+    -- is SHOWN by default and isVisible initializes TRUE, so the first
+    -- UpdateVisibility never takes a show TRANSITION -- subscribe here
+    -- explicitly; UpdateVisibility owns both edges from then on.
+    SetCursorGlue(true)
 
     Apply()
 
+    -- Repaint when the accent lands: the lifecycle's PLAYER_LOGIN fires
+    -- before the core resolves the profile accent, so Apply() above painted
+    -- the parse-time fallback and is never called again. Also covers a
+    -- mid-session accent change, which nothing pushed to us before.
+    if EllesmereUI.RegAccent then
+        EllesmereUI.RegAccent({ type = "callback", fn = function()
+            local p = ECL.db and ECL.db.profile
+            if not p then return end
+            if p.useAccentColor then Apply() end
+            if p.gcd and p.gcd.useAccentColor then ApplyGCDCircle() end
+            if p.castCircle and p.castCircle.useAccentColor then ApplyCastCircle() end
+        end })
+    end
+
     -- Apply GCD / Cast circles (creates on demand only when enabled)
     C_Timer.After(0.5, function()
+        -- Re-apply the circle too: the RegAccent callback only lands if we
+        -- registered before the core notified (event-dispatch order, not a
+        -- guarantee). This runs past the login resolution either way.
+        Apply()
         ApplyGCDCircle()
         ApplyCastCircle()
         ApplyTrail()

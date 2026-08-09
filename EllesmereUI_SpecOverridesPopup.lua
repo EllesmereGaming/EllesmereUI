@@ -102,7 +102,7 @@ local function ShowSpecOverridesPopup()
 
     -- Panel
     local popup = CreateFrame("Frame", "EUISpecOvIntroPopup", dimmer)
-    popup:SetScale(ppScale * 1.15)
+    popup:SetScale(EllesmereUI.PopupBump(1.15))
     popup:SetFrameStrata("FULLSCREEN_DIALOG")
     popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
     PP.Size(popup, POPUP_W, POPUP_H)

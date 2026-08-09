@@ -51,13 +51,7 @@ initFrame:SetScript("OnEvent", function(self)
     end
     local function DDB()  local p = DB(); return p and p.display end
 
-    local PREVIEW_TEXT_ANCHORS = {
-        BOTTOM = { "TOP",    "BOTTOM" },
-        TOP    = { "BOTTOM", "TOP"    },
-        CENTER = { "CENTER", "CENTER" },
-        LEFT   = { "RIGHT",  "LEFT"   },
-        RIGHT  = { "LEFT",   "RIGHT"  },
-    }
+    local PREVIEW_TEXT_ANCHORS = _G._EABR_TEXT_ANCHORS
     local function GetPreviewTextAnchor(d)
         local m = PREVIEW_TEXT_ANCHORS[(d and d.textAnchor) or "BOTTOM"] or PREVIEW_TEXT_ANCHORS.BOTTOM
         return m[1], m[2]
@@ -195,7 +189,7 @@ initFrame:SetScript("OnEvent", function(self)
             if co and co.enabled and co.enabled.weapon_enchant then
                 local WEI = _G._EABR_WEAPON_ENCHANT_ITEMS or {}
                 if #WEI > 0 then
-                    icons[#icons+1] = { texture = WEI[1].icon or 134400, label = "Weapon", cat = "consumable", itemKey = "weapon_enchant" }
+                    icons[#icons+1] = { texture = WEI[1].icon or 134400, label = EllesmereUI.L("Weapon"), cat = "consumable", itemKey = "weapon_enchant" }
                 end
             end
         end
@@ -845,6 +839,7 @@ initFrame:SetScript("OnEvent", function(self)
         );  y = y - h
 
         -- Add "(min)" suffix in smaller, dimmer text on both sliders
+        if not EllesmereUI._prebuilding then
         for _, rgn in ipairs({threshRow._leftRegion, threshRow._rightRegion}) do
             local labelText = rgn == threshRow._leftRegion
                 and "Party: Show Consumes Below" or "Raid: Show Consumes Below"
@@ -862,6 +857,7 @@ initFrame:SetScript("OnEvent", function(self)
                 suffix:SetPoint("LEFT", found, "RIGHT", 5, -1)
             end
             suffix:SetText(EllesmereUI.L("(min)"))
+        end
         end
 
         -----------------------------------------------------------------------
@@ -893,7 +889,7 @@ initFrame:SetScript("OnEvent", function(self)
         );  y = y - h
 
         -- Inline color swatch on Glow Type (right of row 3)
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = row2._rightRegion
             local isNone = function()
                 local d = DDB()
@@ -957,7 +953,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- Inline color swatch + cog on Show Text (left of row 2)
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = row2._leftRegion
             local swatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel()+5,
                 function()
@@ -1055,7 +1051,7 @@ initFrame:SetScript("OnEvent", function(self)
         );  y = y - h
 
         -- Inline DIRECTIONS cog on Icon Spacing (left of row 3) for Y offset
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = row3._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Layout Settings",
@@ -1373,7 +1369,7 @@ initFrame:SetScript("OnEvent", function(self)
         local healthstoneRow = row
 
         -- Inline "Choose Zones" button on the right region (Inky Black)
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = row._rightRegion
             local eg = EllesmereUI.ELLESMERE_GREEN or {r=0, g=0.82, b=0.62}
             local lerp = EllesmereUI.lerp
@@ -1481,7 +1477,7 @@ initFrame:SetScript("OnEvent", function(self)
         );  y = y - h
 
         -- Inline: eyeball | cog | color swatch on the mana warning toggle
-        do
+        if not EllesmereUI._prebuilding then
             local leftRgn = row._leftRegion
             local function rcwOff()
                 local c = CDB()
@@ -1556,8 +1552,8 @@ initFrame:SetScript("OnEvent", function(self)
             cogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
 
             -- Eye icon toggles a live preview (left of cog)
-            local EYE_VISIBLE   = EllesmereUI.MEDIA_PATH .. "icons\\eui-visible.png"
-            local EYE_INVISIBLE = EllesmereUI.MEDIA_PATH .. "icons\\eui-invisible.png"
+            local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+            local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
             local eyeBtn = CreateFrame("Button", nil, leftRgn)
             eyeBtn:SetSize(26, 26)
             eyeBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)

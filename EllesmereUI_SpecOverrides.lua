@@ -127,17 +127,8 @@ local GLYPH_SPRITE  = "Interface\\AddOns\\EllesmereUI\\media\\icons\\class-full\
 local MODERN_SPRITE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\class-full\\modern.tga"
 -- Generic multi-spec group icon (standalone image, not a sprite)
 local MULTISPEC_ICON = "Interface\\AddOns\\EllesmereUI\\media\\icons\\class-full\\multispec.png"
-local CLASS_COORDS = {
-    WARRIOR={0,0.125,0,0.125}, MAGE={0.125,0.25,0,0.125}, ROGUE={0.25,0.375,0,0.125},
-    DRUID={0.375,0.5,0,0.125}, EVOKER={0.5,0.625,0,0.125}, HUNTER={0,0.125,0.125,0.25},
-    SHAMAN={0.125,0.25,0.125,0.25}, PRIEST={0.25,0.375,0.125,0.25}, WARLOCK={0.375,0.5,0.125,0.25},
-    PALADIN={0,0.125,0.25,0.375}, DEATHKNIGHT={0.125,0.25,0.25,0.375},
-    MONK={0.25,0.375,0.25,0.375}, DEMONHUNTER={0.375,0.5,0.25,0.375},
-}
-local CLASS_ORDER = {
-    "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "DEATHKNIGHT",
-    "SHAMAN", "MAGE", "WARLOCK", "MONK", "DRUID", "DEMONHUNTER", "EVOKER",
-}
+local CLASS_COORDS = EllesmereUI.CLASS_ICON_SPRITE_COORDS
+local CLASS_ORDER = EllesmereUI.CLASS_TOKEN_ORDER
 -- Modern role icons (shipped with RaidFrames; loaded by path, no addon dep)
 local ROLE_MEDIA = "Interface\\AddOns\\EllesmereUIRaidFrames\\Media\\"
 local ROLE_ICONS = {
@@ -912,8 +903,13 @@ local function WriteDefaultValues()
             if not BlacklistedFKey(fkey) and not MatchOwnedFKey(fkey) then
                 local v = def
                 if v == NIL_SENT then v = nil end
-                -- Same defaults-backed nil-poison skip as WriteSpecValues.
-                if not ((v == nil) and HasRegisteredDefault(fkey)) and ReadLive(fkey) ~= v then
+                -- Same defaults-backed nil-poison skip as WriteSpecValues,
+                -- plus its table guards: a stored table reference never
+                -- equals live, so comparing/writing one registers a phantom
+                -- change and forces a full module refresh on every apply.
+                local nilPoison = (v == nil) and HasRegisteredDefault(fkey)
+                local cur = ReadLive(fkey)
+                if not nilPoison and type(v) ~= "table" and type(cur) ~= "table" and cur ~= v then
                     if WriteLive(fkey, v) then
                         local folder = SplitFKey(fkey)
                         if folder then
@@ -7855,97 +7851,6 @@ if EllesmereUI.RefreshPage then
     end)
 end
 
--- /specov: debug dump of the override state (groups, entries, stored vs live
--- values). Dev tool; inert unless invoked.
-SLASH_EUISPECOV1 = "/specov"
-SlashCmdList.EUISPECOV = function()
-    local p = print
-    p("|cff0cd29f[SpecOv]|r activeSpec=" .. tostring(_activeSpec)
-        .. "  currentSpec=" .. tostring(CurrentSpecID())
-        .. "  editingAs=" .. tostring(_editGroup and _editGroup.name or "none")
-        .. "  defaultView=" .. tostring(_defaultView))
-    for _, g in ipairs(GetGroups() or {}) do
-        local ids = {}
-        for _, id in ipairs(g.specs or {}) do ids[#ids + 1] = tostring(id) end
-        p(string.format("  group '%s' (id %s): specs %s", g.name or "?", tostring(g.id), table.concat(ids, ", ")))
-    end
-    for i, e in ipairs(GetStore() or {}) do
-        p(string.format("  entry %d: '%s'  [%s]  group=%s", i, e.label or "?", e.crumb or "", tostring(e.group)))
-        for fkey, def in pairs(e.values and e.values.default or {}) do
-            local _, path = SplitFKey(fkey)
-            local parts = { "default=" .. tostring(def) }
-            for k, m in pairs(e.values) do
-                if k ~= "default" and type(m) == "table" and m[fkey] ~= nil then
-                    parts[#parts + 1] = tostring(k) .. "=" .. tostring(m[fkey])
-                end
-            end
-            p("    " .. (path and path:gsub(PS, ".") or fkey)
-                .. "  live=" .. tostring(ReadLive(fkey))
-                .. "  " .. table.concat(parts, "  "))
-        end
-    end
-    -- Unlock layout layers: which groups hold a full layout fork, and which
-    -- layer is currently live.
-    local us = GetUnlockStore()
-    if us then
-        local any = false
-        for gid, layer in pairs(us.layouts) do
-            any = true
-            local g = GroupById(gid)
-            local nElems = 0
-            if layer.elems then for _ in pairs(layer.elems) do nElems = nElems + 1 end end
-            local nAnch = 0
-            if layer.anchors then for _ in pairs(layer.anchors) do nAnch = nAnch + 1 end end
-            p(string.format("  unlock layout: group '%s' (id %s)  elems=%d anchors=%d%s",
-                g and g.name or "?", tostring(gid), nElems, nAnch,
-                us.active == gid and "  [ACTIVE]" or ""))
-        end
-        if not any then p("  unlock layouts: store exists, none created") end
-        p("  unlock active layer: " .. (us.active and tostring(us.active) or "baseline")
-            .. (us.baselineLayout and "  (baseline stored)" or "  (baseline live-only)"))
-    else
-        p("  unlock layouts: none")
-    end
-    -- Conditional overrides: groups, applied state, layouts, entry count.
-    local cgroups = EllesmereUI.Conditions_GetGroups and EllesmereUI.Conditions_GetGroups()
-    if cgroups and #cgroups > 0 then
-        local applied = EllesmereUI.Conditions_AppliedGid and EllesmereUI.Conditions_AppliedGid()
-        local ccs = Cond.GetUnlockStore()
-        for _, g in ipairs(cgroups) do
-            local conds = {}
-            for k in pairs(g.conds or {}) do conds[#conds + 1] = k end
-            table.sort(conds)
-            p(string.format("  conditional '%s' (id %s): %s%s%s%s",
-                g.name or "?", tostring(g.id), table.concat(conds, ","),
-                g.key and ("  key=" .. g.key .. (g.keyOn and " ON" or " off")) or "",
-                (ccs and ccs.layouts[g.id]) and "  [LAYOUT]" or "",
-                applied == g.id and "  [APPLIED]" or ""))
-        end
-        local cst = Cond.GetStore()
-        p("  conditional entries: " .. tostring(cst and #cst or 0))
-        for i, e in ipairs(cst or {}) do
-            p(string.format("  cond entry %d: '%s'  [%s]  group=%s",
-                i, e.label or "?", e.crumb or "", tostring(e.group)))
-            for fkey, def in pairs(e.values and e.values.default or {}) do
-                local _, path = SplitFKey(fkey)
-                local parts = { "default=" .. tostring(def) }
-                for k, m in pairs(e.values) do
-                    if k ~= "default" and type(m) == "table" and m[fkey] ~= nil then
-                        parts[#parts + 1] = tostring(k) .. "=" .. tostring(m[fkey])
-                    end
-                end
-                p("    " .. (path and path:gsub(PS, ".") or fkey)
-                    .. "  live=" .. tostring(ReadLive(fkey))
-                    .. "  " .. table.concat(parts, "  ")
-                    .. (EntryOwning(fkey)
-                        and "  |cffff6060[SPEC-OWNED: spec wins, conditional never applies]|r"
-                        or ""))
-            end
-        end
-    else
-        p("  conditionals: none")
-    end
-end
 
 local evFrame = CreateFrame("Frame")
 evFrame:RegisterEvent("PLAYER_LOGIN")
@@ -7995,178 +7900,4 @@ evFrame:SetScript("OnEvent", function(_, event)
     end
 end)
 
--------------------------------------------------------------------------------
---  /euirbdump -- Resource Bars size diagnostic. Read-only: prints every store
---  that can hold an RB size (live module values, spec/conditional value
---  stores, unlock layers, match link tables, profile snapshot) plus the
---  session flags, so one screenshot pinpoints which copy holds a wrong width.
--------------------------------------------------------------------------------
-do
-    local RB_ELEMS = { "ERB_Health", "ERB_Power", "ERB_ClassResource", "ERB_CastBar", "ERB_GCDBar" }
-    local RB_SET = {}
-    for _, k in ipairs(RB_ELEMS) do RB_SET[k] = true end
-
-    local function Fmt(v)
-        if v == nil then return "-" end
-        if v == NIL_SENT then return "NILSENT" end
-        if type(v) == "number" then return string.format("%.4g", v) end
-        return tostring(v)
-    end
-
-    local function P(msg) print("|cff0cd29fEUI RB|r " .. msg) end
-
-    -- Match-link pairs touching any RB element, from any link table.
-    local function LinkStr(t)
-        local ps = {}
-        for c, tg in pairs(t or {}) do
-            if RB_SET[c] or RB_SET[tg] then
-                ps[#ps + 1] = tostring(c) .. "->" .. tostring(tg)
-            end
-        end
-        table.sort(ps)
-        if #ps > 0 then return table.concat(ps, "  ") end
-        return nil
-    end
-
-    local function DumpLayout(tag, layout)
-        if not layout then return end
-        local parts = {}
-        for _, k in ipairs(RB_ELEMS) do
-            local el = layout.elems and layout.elems[k]
-            if el then parts[#parts + 1] = k:sub(5) .. "=" .. Fmt(el.w) .. "x" .. Fmt(el.h) end
-        end
-        local body = "(no RB elems)"
-        if #parts > 0 then body = table.concat(parts, "  ") end
-        P(tag .. ": " .. body)
-        local wm = LinkStr(layout.widthMatch)
-        local hm = LinkStr(layout.heightMatch)
-        if wm then P(tag .. " wm: " .. wm) end
-        if hm then P(tag .. " hm: " .. hm) end
-    end
-
-    local function DumpStore(tag, store)
-        local found = false
-        for i, entry in ipairs(store or {}) do
-            local def = entry.values and entry.values.default
-            if def then
-                for fkey in pairs(def) do
-                    if MATCH_OWNED_FKEYS[fkey] then
-                        found = true
-                        local path = fkey:match("\31(.*)$") or fkey
-                        local short = path:gsub("\30", ".")
-                        local vals = { "def=" .. Fmt(def[fkey]) }
-                        local keys = {}
-                        for k, m in pairs(entry.values) do
-                            if k ~= "default" and type(m) == "table" and m[fkey] ~= nil then
-                                keys[#keys + 1] = k
-                            end
-                        end
-                        table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
-                        for _, k in ipairs(keys) do
-                            vals[#vals + 1] = tostring(k) .. "=" .. Fmt(entry.values[k][fkey])
-                        end
-                        P(("%s[%d] g=%s %s: %s  owned=%s"):format(tag, i,
-                            tostring(entry.group), short, table.concat(vals, " "),
-                            tostring(MatchOwnedFKey(fkey))))
-                    end
-                end
-            end
-        end
-        if not found then P(tag .. ": NO RB SIZE FKEYS CAPTURED") end
-    end
-
-    SLASH_EUIRBDUMP1 = "/euirbdump"
-    SlashCmdList.EUIRBDUMP = function()
-        local cur = CurrentSpecID()
-        P(("== spec=%s (%s)  profile=%s =="):format(tostring(cur),
-            tostring((cur and SpecName(cur)) or "?"),
-            tostring(EllesmereUIDB and EllesmereUIDB.activeProfile)))
-        local sp = EllesmereUIDB and EllesmereUIDB.specProfiles
-        if sp and next(sp) then
-            local ps = {}
-            for sid, pname in pairs(sp) do ps[#ps + 1] = tostring(sid) .. "=" .. tostring(pname) end
-            table.sort(ps)
-            P("specProfiles: " .. table.concat(ps, "  "))
-        end
-
-        local rb = DBFor("EllesmereUIResourceBars")
-        if rb then
-            P(("live: health=%sx%s primary=%sx%s pips=%sx%s cast=%sx%s gcd=%sx%s"):format(
-                Fmt(rb.health and rb.health.width), Fmt(rb.health and rb.health.height),
-                Fmt(rb.primary and rb.primary.width), Fmt(rb.primary and rb.primary.height),
-                Fmt(rb.secondary and rb.secondary.pipWidth), Fmt(rb.secondary and rb.secondary.pipHeight),
-                Fmt(rb.castBar and rb.castBar.width), Fmt(rb.castBar and rb.castBar.height),
-                Fmt(rb.gcdBar and rb.gcdBar.width), Fmt(rb.gcdBar and rb.gcdBar.height)))
-        else
-            P("live: ResourceBars module NOT LOADED")
-        end
-        local regs = EllesmereUI._unlockRegisteredElements
-        if regs then
-            local ps = {}
-            for _, k in ipairs(RB_ELEMS) do
-                local el = regs[k]
-                if el and el.getSize then
-                    local ok, w, h = pcall(el.getSize)
-                    if ok then ps[#ps + 1] = k:sub(5) .. "=" .. Fmt(w) .. "x" .. Fmt(h) end
-                end
-            end
-            if #ps > 0 then P("getSize: " .. table.concat(ps, "  ")) end
-        end
-
-        DumpStore("store", GetStore())
-        if EllesmereUI._CondOv and EllesmereUI._CondOv.GetStore then
-            DumpStore("condstore", EllesmereUI._CondOv.GetStore())
-        end
-
-        for _, g in ipairs(GetGroups() or {}) do
-            local specs = {}
-            for _, sid in ipairs(g.specs or {}) do specs[#specs + 1] = tostring(sid) end
-            P(("group %s '%s': specs=%s"):format(tostring(g.id), tostring(g.name),
-                table.concat(specs, ",")))
-        end
-        P("unlock owner (current spec): " .. tostring(OwnerGid(cur)))
-
-        local s = GetUnlockStore()
-        if s then
-            P("s.active=" .. tostring(s.active))
-            DumpLayout("baseline", s.baselineLayout)
-            local gids = {}
-            for gid in pairs(s.layouts or {}) do gids[#gids + 1] = gid end
-            table.sort(gids, function(a, b) return tostring(a) < tostring(b) end)
-            for _, gid in ipairs(gids) do
-                DumpLayout("layer[" .. tostring(gid) .. "]", s.layouts[gid])
-            end
-        end
-        local cs = EllesmereUI._CondOv and EllesmereUI._CondOv.GetUnlockStore
-            and EllesmereUI._CondOv.GetUnlockStore()
-        if cs then
-            for gid, lay in pairs(cs.layouts or {}) do
-                DumpLayout("cond-layer[" .. tostring(gid) .. "]", lay)
-            end
-        end
-
-        local lw = LinkStr(EllesmereUIDB and EllesmereUIDB.unlockWidthMatch)
-        local lh = LinkStr(EllesmereUIDB and EllesmereUIDB.unlockHeightMatch)
-        P("LIVE wm: " .. (lw or "(none touching RB)"))
-        P("LIVE hm: " .. (lh or "(none touching RB)"))
-        local prof = EllesmereUIDB and EllesmereUIDB.profiles
-            and EllesmereUIDB.profiles[EllesmereUIDB.activeProfile]
-        local ul = prof and prof.unlockLayout
-        if ul then
-            local sw = LinkStr(ul.widthMatch)
-            local sh = LinkStr(ul.heightMatch)
-            if sw then P("snap wm: " .. sw) end
-            if sh then P("snap hm: " .. sh) end
-        end
-
-        P(("flags: panel=%s unlock=%s specialGrp=%s defaultView=%s editGroup=%s condEdit=%s condApplied=%s"):format(
-            tostring(EllesmereUI.IsShown and EllesmereUI:IsShown()),
-            tostring(EllesmereUI._unlockModeActive),
-            tostring(EllesmereUI._specialUnlockGroup),
-            tostring(_defaultView),
-            tostring(_editGroup and _editGroup.id),
-            tostring(Cond._edit and Cond._edit.id),
-            tostring(EllesmereUI.Conditions_AppliedGid and EllesmereUI.Conditions_AppliedGid())))
-    end
-end
 

@@ -1814,7 +1814,10 @@ function ns.CC_Init()
     header:SetAttribute("eui_hover_set", "")
     header:SetAttribute("eui_hover_clear", "")
 
-    ccEventFrame = CreateFrame("Frame")
+    -- Shell-pool adoption (ns.TakeShell, main file): click-cast init runs
+    -- under the parent's lifecycle dispatch, which would bill this frame's
+    -- event tree to the parent addon.
+    ccEventFrame = (ns.TakeShell and ns.TakeShell()) or CreateFrame("Frame")
     ccEventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
     ccEventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
     ccEventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")

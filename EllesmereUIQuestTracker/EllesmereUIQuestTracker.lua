@@ -157,6 +157,11 @@ _G._EQT_RefreshAll = function()
     if EQT.RestyleAll then EQT.RestyleAll() end
     if EQT.ApplyBackground then EQT.ApplyBackground() end
     if EQT.ApplyForceOnScreen then EQT.ApplyForceOnScreen() end
+    -- The hotkey is a per-profile setting backed by an override binding, so a
+    -- profile or spec swap has to re-point it. Without this the outgoing
+    -- profile's key stays overridden -- taken from whatever the player really
+    -- has bound there -- and the incoming profile's key is never laid down.
+    if EQT.ApplyQuestItemHotkey then EQT.ApplyQuestItemHotkey() end
 end
 
 -------------------------------------------------------------------------------

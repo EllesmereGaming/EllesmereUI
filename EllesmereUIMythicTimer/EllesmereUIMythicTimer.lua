@@ -21,54 +21,7 @@ local COMPARE_DUNGEON = "DUNGEON"
 local COMPARE_LEVEL = "LEVEL"
 local COMPARE_LEVEL_AFFIX = "LEVEL_AFFIX"
 
-local TEXTURE_BASE = "Interface\\AddOns\\EllesmereUI\\media\\textures\\"
-local barTextures = {
-    ["none"]          = nil,
-    ["melli"]         = TEXTURE_BASE .. "melli.tga",
-    ["beautiful"]     = TEXTURE_BASE .. "beautiful.tga",
-    ["plating"]       = TEXTURE_BASE .. "plating.tga",
-    ["atrocity"]      = TEXTURE_BASE .. "atrocity.tga",
-    ["divide"]        = TEXTURE_BASE .. "divide.tga",
-    ["glass"]         = TEXTURE_BASE .. "glass.tga",
-    ["fade-right"]    = TEXTURE_BASE .. "fade-right.tga",
-    ["thin-line-top"] = TEXTURE_BASE .. "thin-line-top.tga",
-    ["thin-line-bottom"] = TEXTURE_BASE .. "thin-line-bottom.tga",
-    ["fade"]          = TEXTURE_BASE .. "fade.tga",
-    ["gradient-lr"]   = TEXTURE_BASE .. "gradient-lr.tga",
-    ["gradient-rl"]   = TEXTURE_BASE .. "gradient-rl.tga",
-    ["gradient-bt"]   = TEXTURE_BASE .. "gradient-bt.tga",
-    ["gradient-tb"]   = TEXTURE_BASE .. "gradient-tb.tga",
-    ["matte"]         = TEXTURE_BASE .. "matte.tga",
-    ["sheer"]         = TEXTURE_BASE .. "sheer.tga",
-}
-local barTextureOrder = {
-    "none", "melli", "atrocity",
-    "fade", "fade-right",
-    "thin-line-top", "thin-line-bottom",
-    "beautiful", "plating",
-    "divide", "glass",
-    "gradient-lr", "gradient-rl", "gradient-bt", "gradient-tb",
-    "matte", "sheer",
-}
-local barTextureNames = {
-    ["none"]          = "None",
-    ["melli"]         = "Melli (ElvUI)",
-    ["beautiful"]     = "Beautiful",
-    ["plating"]       = "Plating",
-    ["atrocity"]      = "Atrocity",
-    ["divide"]        = "Divide",
-    ["glass"]         = "Glass",
-    ["fade-right"]    = "Fade Right",
-    ["thin-line-top"] = "Thin Line Top",
-    ["thin-line-bottom"] = "Thin Line Bottom",
-    ["fade"]          = "Fade",
-    ["gradient-lr"]   = "Gradient Right",
-    ["gradient-rl"]   = "Gradient Left",
-    ["gradient-bt"]   = "Gradient Up",
-    ["gradient-tb"]   = "Gradient Down",
-    ["matte"]         = "Matte",
-    ["sheer"]         = "Sheer",
-}
+local barTextures, barTextureNames, barTextureOrder = EllesmereUI.BuildBarTextureTables()
 ns.barTextures = barTextures
 ns.barTextureOrder = barTextureOrder
 ns.barTextureNames = barTextureNames
@@ -93,14 +46,7 @@ local function ApplyBarTexture(tex, texKey, r, g, b, a)
     end
 end
 
-local function CopyTable(src)
-    if type(src) ~= "table" then return src end
-    local out = {}
-    for key, value in pairs(src) do
-        out[key] = type(value) == "table" and CopyTable(value) or value
-    end
-    return out
-end
+local CopyTable = EllesmereUI.Lite.DeepCopy
 
 
 local function CalculateBonusTimers(maxTime, affixes)
@@ -536,12 +482,14 @@ local function FormatEnemyForcesText(enemyObj, formatId, compact)
     local rawTotal = enemyObj.rawTotalQuantity or enemyObj.totalQuantity or 100
     local percent = enemyObj.percent or enemyObj.quantity or 0
     local remaining = max(0, rawTotal - rawCurrent)
-    local suffix = compact and "" or " Enemy Forces"
+    local suffix = compact and "" or EllesmereUI.L(" Enemy Forces")
 
     if formatId == "COUNT" then
         return format("%d/%d%s", RoundToInt(rawCurrent), RoundToInt(rawTotal), suffix)
     elseif formatId == "COUNT_PERCENT" then
         return format("%d/%d - %.2f%%%s", RoundToInt(rawCurrent), RoundToInt(rawTotal), percent, suffix)
+    elseif formatId == "COUNT_REMAINING" then
+        return format("%d/%d (%d left)%s", RoundToInt(rawCurrent), RoundToInt(rawTotal), RoundToInt(remaining), suffix)
     elseif formatId == "REMAINING" then
         if compact then
             return format("%d left", RoundToInt(remaining))
@@ -948,6 +896,24 @@ local PREVIEW_RUN = {
         { name = "Enemy Forces",            completed = false, elapsed = 0,    quantity = 78.42, totalQuantity = 100, rawQuantity = 188, rawTotalQuantity = 240, percent = 78.42, isWeighted = true },
     },
 }
+
+-- The preview is a hardcoded dummy run, so its dungeon and affix names would
+-- stay English on every client. Both carry an ID and the live-run path already
+-- resolves names from those same IDs, so do the same here. When an ID is not in
+-- the current season the API returns nil, so the hardcoded English falls back
+-- through L() instead.
+local function LocalizePreview()
+    local run = PREVIEW_RUN
+    if C_ChallengeMode and C_ChallengeMode.GetMapUIInfo then
+        run.mapName = C_ChallengeMode.GetMapUIInfo(run.mapID) or EllesmereUI.L(run.mapName)
+    end
+    if run._previewAffixIDs and C_ChallengeMode and C_ChallengeMode.GetAffixInfo then
+        for i, id in ipairs(run._previewAffixIDs) do
+            local name = C_ChallengeMode.GetAffixInfo(id)
+            run._previewAffixNames[i] = name or EllesmereUI.L(run._previewAffixNames[i])
+        end
+    end
+end
 
 _G._EMT_Apply = function()
     -- Render before CENTER re-apply so height is known (placeholder is 200px).
@@ -1478,6 +1444,7 @@ local function RenderStandalone()
     if not run.active and not run.completed then
         if p.showPreview or unlockLayoutActive then
             run = PREVIEW_RUN
+            LocalizePreview()
             isPreview = true
         else
             if standaloneFrame then standaloneFrame:Hide() end
@@ -1624,8 +1591,9 @@ local function RenderStandalone()
         ApplyShadow(f._deathFS)
         local dR, dG, dB = GetColor(p.deathTextColor, 0.93, 0.33, 0.33)
         f._deathFS:SetTextColor(dR, dG, dB)
-        f._deathFS:SetText(format("%d Death%s  -%s",
-            run.deaths, run.deaths ~= 1 and "s" or "", FormatTime(run.deathTimeLost)))
+        f._deathFS:SetText(run.deaths == 1
+            and EllesmereUI.Lf("%1$d Death  -%2$s", run.deaths, FormatTime(run.deathTimeLost))
+            or EllesmereUI.Lf("%1$d Deaths  -%2$s", run.deaths, FormatTime(run.deathTimeLost)))
         f._deathFS:ClearAllPoints()
         f._deathFS:SetPoint("TOPLEFT", f, "TOPLEFT", dPad, y - 5)
         f._deathFS:SetPoint("TOPRIGHT", f, "TOPRIGHT", -dPad, y - 5)
@@ -1966,7 +1934,7 @@ local function RenderStandalone()
         elseif hideLabel then
             label = ""
         else
-            label = "Enemy Forces"
+            label = EllesmereUI.L("Enemy Forces")
         end
 
         local enemyTextSize = p.enemyForcesTextSize or p.objectivesSize or 12
@@ -2473,6 +2441,8 @@ local function RenderStandalone()
                 ApplyShadow(timeFS)
 
                 local displayName = StripDefeated(obj.name) or ("Objective " .. i)
+                -- Preview only: a real run gets its objective names from the game.
+                if isPreview then displayName = EllesmereUI.L(displayName) end
                 if obj.totalQuantity and obj.totalQuantity > 1 then
                     displayName = format("%d/%d %s", obj.quantity or 0, obj.totalQuantity, displayName)
                 end
@@ -2588,7 +2558,7 @@ local function RenderStandalone()
     if isPreview and p.showPreview then
         SetFS(f._previewFS, 8)
         f._previewFS:SetTextColor(0.5, 0.5, 0.5, 0.6)
-        f._previewFS:SetText("PREVIEW")
+        f._previewFS:SetText(EllesmereUI.L("PREVIEW"))
         f._previewFS:ClearAllPoints()
         f._previewFS:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -PAD, 4)
         f._previewFS:Show()
@@ -2896,16 +2866,30 @@ function EMT:OnEnable()
                     end
                 end,
                 loadPos = function()
-                    -- Unlock Mode expects { point, relPoint, x, y }; we store
-                    -- centerX/centerY in UIParent-logical units.
+                    -- RAW UIParent-logical units, NOT _centerPosFromSaved.
+                    -- savePos stores UIParent-logical centerX/centerY, and the
+                    -- consumers of loadPos (Unlock Mode's centralized
+                    -- ApplySavedPositions pass in particular) divide by the
+                    -- frame's scale themselves at SetPoint time. Returning the
+                    -- scale-divided value here made that pass divide TWICE:
+                    -- its SetPoint landed at stored/scale on screen, shrinking
+                    -- a scaled floating timer toward screen center on every
+                    -- pass -- the "wrong place at every key start, unlock
+                    -- mode fixes it" field report (/emtdbg capture: our apply
+                    -- wrote 696.3 at scale 1.26 = 877 on screen, then the
+                    -- centralized pass stomped it with 552.6 = 696 on
+                    -- screen). At scale 1.0 both forms are identical, which
+                    -- is why only scaled timers ever drifted. The /scale
+                    -- division belongs ONLY at the module's own SetPoint
+                    -- (ApplyStandalonePosition / _centerPosFromSaved), never
+                    -- in the interchange format.
                     local pos = db.profile.standalonePos
-                    local sx, sy = _centerPosFromSaved(pos)
-                    if sx == nil then return nil end
+                    if not (pos and pos.centerX and pos.centerY) then return nil end
                     return {
                         point = "CENTER",
                         relPoint = "CENTER",
-                        x = sx,
-                        y = sy,
+                        x = pos.centerX,
+                        y = pos.centerY,
                     }
                 end,
                 clearPos = function()

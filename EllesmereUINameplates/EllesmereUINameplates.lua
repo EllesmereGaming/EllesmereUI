@@ -150,6 +150,7 @@ function ns._appendDisplayPresetKeys(t)
         "debuffTimerPosition", "buffTimerPosition", "ccTimerPosition",
         "auraDurationTextSize", "auraDurationTextColor",
         "debuffCropIcons", "buffCropIcons", "ccCropIcons",
+        "debuffCropPercent", "buffCropPercent", "ccCropPercent",
         "showCastLockoutAsCrowdControl",
         "castIconOffsetX", "castIconOffsetY",
         "targetGlowEllesmereUI", "targetGlowBorderColor", "targetGlowHighlight", "targetBorderColor",
@@ -264,6 +265,11 @@ local defaults = {
     friendlyNPCColor = { r = 0, g = 1, b = 0 },
     friendlyNPCNameSize = 13,
     friendlyNameTextSize = 12,
+    friendlyBelowName = "none",
+    friendlyBelowNameSize = 12,
+    friendlyBelowNameColor = { r = 0.8, g = 0.8, b = 0.8 },
+    friendlyBelowNameClassColor = false,
+    friendlyBelowNameGuildBrackets = true,
     showEnemyPets = false,
     font = "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF",
     textSlotTop = "enemyName",
@@ -329,6 +335,12 @@ local defaults = {
     debuffCropIcons = false,
     buffCropIcons = false,
     ccCropIcons = false,
+    -- Per-side trim percentage for the cropped mode (5-25). 10 reproduces the
+    -- classic fixed crop (height = 80% of width) exactly, so existing cropped
+    -- setups render identically until the slider is moved.
+    debuffCropPercent = 10,
+    buffCropPercent = 10,
+    ccCropPercent = 10,
     debuffIconSize = 26,
     buffIconSize = 24,
     buffTextSize = 12,
@@ -605,61 +617,8 @@ function ns.HideCustomBorder(plate)
 end
 
 -- Health bar texture overlay tables (stored on ns to avoid local count pressure)
-do
-    local TB = "Interface\\AddOns\\EllesmereUI\\media\\textures\\"
-    ns.healthBarTextures = {
-        ["none"]          = nil,
-        ["melli"]         = TB .. "melli.tga",
-        ["beautiful"]     = TB .. "beautiful.tga",
-        ["plating"]       = TB .. "plating.tga",
-        ["atrocity"]      = TB .. "atrocity.tga",
-        ["divide"]        = TB .. "divide.tga",
-        ["glass"]         = TB .. "glass.tga",
-        ["fade-right"]    = TB .. "fade-right.tga",
-        ["thin-line-top"]    = TB .. "thin-line-top.tga",
-        ["thin-line-bottom"] = TB .. "thin-line-bottom.tga",
-        ["fade"]          = TB .. "fade.tga",
-        ["gradient-lr"]   = TB .. "gradient-lr.tga",
-        ["gradient-rl"]   = TB .. "gradient-rl.tga",
-        ["gradient-bt"]   = TB .. "gradient-bt.tga",
-        ["gradient-tb"]   = TB .. "gradient-tb.tga",
-        ["matte"]         = TB .. "matte.tga",
-        ["sheer"]         = TB .. "sheer.tga",
-        ["blinkii-diamonds"] = TB .. "blinkii-diamonds.tga",
-        ["kringel-window"]   = TB .. "kringel-window.tga",
-    }
-    ns.healthBarTextureOrder = {
-        "none", "melli", "atrocity",
-        "fade", "fade-right",
-        "thin-line-top", "thin-line-bottom",
-        "beautiful", "plating",
-        "divide", "glass",
-        "gradient-lr", "gradient-rl", "gradient-bt", "gradient-tb",
-        "matte", "sheer",
-        "blinkii-diamonds", "kringel-window",
-    }
-    ns.healthBarTextureNames = {
-        ["none"]        = "None",
-        ["melli"]       = "Melli (ElvUI)",
-        ["beautiful"]   = "Beautiful",
-        ["plating"]     = "Plating",
-        ["atrocity"]    = "Atrocity",
-        ["divide"]      = "Divide",
-        ["glass"]       = "Glass",
-        ["fade-right"]  = "Fade Right",
-        ["thin-line-top"]    = "Thin Line Top",
-        ["thin-line-bottom"] = "Thin Line Bottom",
-        ["fade"]        = "Fade",
-        ["gradient-lr"] = "Gradient Right",
-        ["gradient-rl"] = "Gradient Left",
-        ["gradient-bt"] = "Gradient Up",
-        ["gradient-tb"] = "Gradient Down",
-        ["matte"]       = "Matte",
-        ["sheer"]       = "Sheer",
-        ["blinkii-diamonds"] = "Blinkii Diamonds",
-        ["kringel-window"]   = "Kringel Window",
-    }
-end
+ns.healthBarTextures, ns.healthBarTextureNames, ns.healthBarTextureOrder =
+    EllesmereUI.BuildBarTextureTables(true)
 
 local function NoTintFlag(db, key)
     local v = db and db[key]
@@ -1200,15 +1159,17 @@ local function SetCombinedHealthText(fs, element, pctText, numText)
 end
 ns.SetCombinedHealthText = SetCombinedHealthText
 
--- Name-family text elements: display variants all rendered by the plate's
--- single name FontString (enemy name, level+name combos, standalone level).
--- Exactly one of these can occupy a slot at a time; the options-side slot
--- assignment enforces the family-wide exclusivity. Wrapped in do/end + ns
--- functions so no new main-chunk locals are added (this file is at the Lua
--- 5.1 local cap).
+-- Name-family text elements: display variants rendered by the plate's single
+-- name FontString (enemy name and the level+name combos). Exactly one of
+-- these can occupy a slot at a time; the options-side slot assignment
+-- enforces the family-wide exclusivity. STANDALONE level is deliberately NOT
+-- in the family: it renders on its own FontString (plate.levelText, through
+-- the health-text slot machinery) so name and level can occupy different
+-- slots at once (field request). Wrapped in do/end + ns functions so no new
+-- main-chunk locals are added (this file is at the Lua 5.1 local cap).
 do
     local NAME_FAMILY = {
-        enemyName = true, levelName = true, nameLevel = true, level = true,
+        enemyName = true, levelName = true, nameLevel = true,
     }
     function ns.IsNameElement(element)
         return NAME_FAMILY[element] == true
@@ -1259,6 +1220,7 @@ local healthTextWidths = {
     healthNumPct  = 75,
     healthPctNumDash = 75,
     healthNumPctDash = 75,
+    level = 24,   -- standalone level: "70" / "??"
 }
 local function EstimateHealthTextWidth(element)
     return (healthTextWidths[element] or 0) + HEALTH_TEXT_PADDING
@@ -1338,19 +1300,35 @@ ns.GetCCIconSize = GetCCIconSize
 do
     local AURA_CROP_HEIGHT = 0.80
     local AURA_ZOOM = 0.08
+    -- Returns FALSE when uncropped, or the height FACTOR (a truthy number)
+    -- when cropped: factor = 1 - 2 * (cropPercent / 100), so the default 10%
+    -- yields the classic 0.80. Callers that only truth-test the result stay
+    -- byte-identical; the height math below reads the number when present.
     function ns.GetAuraCrop(element)
+        local on, pct
         if element == "debuffs" then
-            return (p and p.debuffCropIcons) or defaults.debuffCropIcons
+            on = (p and p.debuffCropIcons) or defaults.debuffCropIcons
+            pct = p and p.debuffCropPercent
         elseif element == "buffs" then
-            return (p and p.buffCropIcons) or defaults.buffCropIcons
+            on = (p and p.buffCropIcons) or defaults.buffCropIcons
+            pct = p and p.buffCropPercent
         elseif element == "ccs" then
-            return (p and p.ccCropIcons) or defaults.ccCropIcons
+            on = (p and p.ccCropIcons) or defaults.ccCropIcons
+            pct = p and p.ccCropPercent
         end
-        return false
+        if not on then return false end
+        pct = tonumber(pct) or 10
+        if pct < 5 then pct = 5 elseif pct > 25 then pct = 25 end
+        return 1 - 2 * (pct / 100)
     end
-    -- Frame height for a given icon width: shorter when cropped, square when not.
+    -- Frame height for a given icon width: shorter when cropped, square when
+    -- not. `cropped` is GetAuraCrop's result -- a factor number when adjustable,
+    -- plain true from any legacy caller (falls back to the classic constant).
     function ns.GetAuraCropHeight(cropped, w)
-        if cropped then return math.floor(w * AURA_CROP_HEIGHT + 0.5) end
+        if cropped then
+            local factor = (type(cropped) == "number") and cropped or AURA_CROP_HEIGHT
+            return math.floor(w * factor + 0.5)
+        end
         return w
     end
     -- Texcoord trim. Cropped scales the vertical span to the rectangle's aspect
@@ -1570,6 +1548,26 @@ if C_CurveUtil and C_CurveUtil.CreateCurve then
 end
 ns.pandemicCurve = pandemicCurve
 
+-- Extension clamp: while a DoT is unextended, remaining% <= 30% IS the
+-- pandemic window (total == base). Duration extensions (e.g. Starfall on
+-- Moonfire/Sunfire) grow the total, inflating that window to 20s+, and every
+-- per-spell base source (aura spellId, GetAuraBaseDuration,
+-- GetRefreshExtendedDuration) is secret in combat, so the base cannot be
+-- re-derived. Instead the glow requires a second condition: remaining time
+-- <= a flat seconds cap. The two conditions AND together through frame
+-- alpha inheritance (wrapper alpha x gate alpha) -- both stay engine-side.
+-- The cap only bites when 30% of total exceeds it, i.e. bases above ~33s
+-- or extended totals; normal dots keep their exact 30% window.
+local PANDEMIC_CAP_SECONDS = 10
+local pandemicCapCurve
+if C_CurveUtil and C_CurveUtil.CreateCurve then
+    pandemicCapCurve = C_CurveUtil.CreateCurve()
+    pandemicCapCurve:SetType(Enum.LuaCurveType.Step)
+    pandemicCapCurve:AddPoint(0, 1)
+    pandemicCapCurve:AddPoint(PANDEMIC_CAP_SECONDS, 0)
+end
+ns.pandemicCapCurve = pandemicCapCurve
+
 -------------------------------------------------------------------------------
 --  Glow Engines provided by shared EllesmereUI_Glows.lua
 --  Local aliases for the pandemic glow wrapper below.
@@ -1598,9 +1596,9 @@ local function StopPandemicGlow(slot)
     if not pg or not pg.active then return end
     if pg.animGroup then pg.animGroup:Stop() end
     if pg.flipTex then pg.flipTex:Hide() end
-    StopProceduralAnts(pg.wrapper)
-    StopButtonGlow(pg.wrapper)
-    StopAutoCastShine(pg.wrapper)
+    StopProceduralAnts(pg.gate)
+    StopButtonGlow(pg.gate)
+    StopAutoCastShine(pg.gate)
     pg.wrapper:Hide()
     pg.active = false
 end
@@ -1617,18 +1615,22 @@ local function StartPandemicGlow(slot, slotSize)
         wrapper:SetAllPoints()
         -- Sit ABOVE the cooldown frame (slot.cd at +2) so the duration swipe
         -- can't render on top of the pandemic border and dim it. Matches the
-        -- dispel glow (slot+5); the glow is an edge border, so it doesn't
-        -- meaningfully obscure the corner countdown / stack numbers. (At the old
+        -- dispel glow (slot+5). The countdown / stack text lives on the slot's
+        -- countCarrier at slot+6, so it always draws over the glow. (At the old
         -- slot+1 the swipe drew over the glow, making it hard to see.)
         wrapper:SetFrameLevel(slot:GetFrameLevel() + 5)
-        local flipTex = wrapper:CreateTexture(nil, "OVERLAY", nil, 7)
+        -- Inner gate frame hosts all glow visuals so the extension clamp can
+        -- ride a second alpha channel: effective alpha = wrapper x gate.
+        local gate = CreateFrame("Frame", nil, wrapper)
+        gate:SetAllPoints()
+        local flipTex = gate:CreateTexture(nil, "OVERLAY", nil, 7)
         flipTex:SetPoint("CENTER")
         local animGroup = flipTex:CreateAnimationGroup()
         animGroup:SetLooping("REPEAT")
         local flipAnim = animGroup:CreateAnimation("FlipBook")
         wrapper:Show()
         wrapper:SetAlpha(0)
-        pg = { wrapper = wrapper, flipTex = flipTex, animGroup = animGroup, flipAnim = flipAnim, active = false }
+        pg = { wrapper = wrapper, gate = gate, flipTex = flipTex, animGroup = animGroup, flipAnim = flipAnim, active = false }
         slot.pandemicGlow = pg
     end
 
@@ -1648,8 +1650,8 @@ local function StartPandemicGlow(slot, slotSize)
         -- Pixel Glow: procedural ants mode
         pg.flipTex:Hide()
         pg.animGroup:Stop()
-        StopButtonGlow(pg.wrapper)
-        StopAutoCastShine(pg.wrapper)
+        StopButtonGlow(pg.gate)
+        StopAutoCastShine(pg.gate)
         local N = GetPandemicGlowLines()
         local th = GetPandemicGlowThickness()
         local speed = GetPandemicGlowSpeed()
@@ -1658,27 +1660,27 @@ local function StartPandemicGlow(slot, slotSize)
         lineLen = min(lineLen, sz)
         if lineLen < 1 then lineLen = 1 end
         local br, bg, bb = ns.GetPandemicGlowBackgroundColor()
-        StartProceduralAnts(pg.wrapper, N, th, period, lineLen, cr, cg, cb, sz, nil,
+        StartProceduralAnts(pg.gate, N, th, period, lineLen, cr, cg, cb, sz, nil,
             ns.GetPandemicGlowBackground() and br or nil, bg, bb)
     elseif entry.buttonGlow then
         -- Action Button Glow: animated ants texture
         pg.flipTex:Hide()
         pg.animGroup:Stop()
-        StopProceduralAnts(pg.wrapper)
-        StopAutoCastShine(pg.wrapper)
-        StartButtonGlow(pg.wrapper, sz, cr, cg, cb, entry.scale or 1.36)
+        StopProceduralAnts(pg.gate)
+        StopAutoCastShine(pg.gate)
+        StartButtonGlow(pg.gate, sz, cr, cg, cb, entry.scale or 1.36)
     elseif entry.autocast then
         -- Auto-Cast Shine: orbiting sparkle dots
         pg.flipTex:Hide()
         pg.animGroup:Stop()
-        StopProceduralAnts(pg.wrapper)
-        StopButtonGlow(pg.wrapper)
-        StartAutoCastShine(pg.wrapper, sz, cr, cg, cb)
+        StopProceduralAnts(pg.gate)
+        StopButtonGlow(pg.gate)
+        StartAutoCastShine(pg.gate, sz, cr, cg, cb)
     else
         -- FlipBook mode: GCD, Modern WoW Glow, Classic WoW Glow
-        StopProceduralAnts(pg.wrapper)
-        StopButtonGlow(pg.wrapper)
-        StopAutoCastShine(pg.wrapper)
+        StopProceduralAnts(pg.gate)
+        StopButtonGlow(pg.gate)
+        StopAutoCastShine(pg.gate)
         local texSz = sz * (entry.scale or 1)
         pg.flipTex:SetSize(texSz, texSz)
         if entry.atlas then
@@ -1725,7 +1727,11 @@ local function ApplyPandemicGlow(slot)
     end
     StartPandemicGlow(slot, GetDebuffIconSize())
     -- Secret boolean/number EvaluateColorValueFromBoolean SetAlpha (all Blizzard APIs, no Lua comparisons)
-    slot.pandemicGlow.wrapper:SetAlpha(C_CurveUtil.EvaluateColorValueFromBoolean(durObj:IsZero(), 0, durObj:EvaluateRemainingPercent(pandemicCurve)))
+    local pg = slot.pandemicGlow
+    pg.wrapper:SetAlpha(C_CurveUtil.EvaluateColorValueFromBoolean(durObj:IsZero(), 0, durObj:EvaluateRemainingPercent(pandemicCurve)))
+    if pandemicCapCurve and pg.gate then
+        pg.gate:SetAlpha(durObj:EvaluateRemainingDuration(pandemicCapCurve))
+    end
     -- Register for alpha-only tick updates
     activePandemicSlots[slot] = true
     if ns._pandemicTickFrame then ns._pandemicTickFrame:Show() end
@@ -1881,6 +1887,8 @@ local function PositionAuraSlot(frames, count, slot, plate, sizeW, sizeH, gap, x
             anchor = plate.name
         elseif topElement == "healthNumber" then
             anchor = plate.hpNumber
+        elseif topElement == "level" then
+            anchor = plate.levelText
         elseif topElement ~= "none" then
             anchor = plate.hpText  -- healthPercent, healthPctNum, healthNumPct
         else
@@ -2934,6 +2942,12 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     SetFSFont(plate.hpNumber, 10, GetNPOutline())
     plate.hpNumber:SetPoint("CENTER", plate.health, "CENTER", 0, 0)
     plate.hpNumber:Hide()
+    -- Standalone level text: its own FontString so it can share the plate
+    -- with the name (see the NAME_FAMILY note). Content is static per unit.
+    plate.levelText = plate.healthTextFrame:CreateFontString(nil, "OVERLAY")
+    SetFSFont(plate.levelText, 10, GetNPOutline())
+    plate.levelText:SetPoint("CENTER", plate.health, "CENTER", 0, 0)
+    plate.levelText:Hide()
     -- Mouseover highlight: parented to the health bar (not the higher-level
     -- text frame) so it renders BEHIND the border, which lives on a child
     -- frame at health level + 1.
@@ -3294,24 +3308,24 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     plate.castTimer:SetWordWrap(false)
     plate.castTimer:SetMaxLines(1)
     plate.castTimer:SetTextColor(1, 1, 1, 1)
-    -- OnUpdate: tick the cast timer while a cast is active, throttled to
-    -- 10 Hz -- the text renders %.1f precision, so the displayed tenth
-    -- digit cannot change faster than every 0.1s and per-frame updates
-    -- are pure waste (3 duration-object API calls + SetFormattedText per
-    -- frame per casting plate at uncapped FPS).
+    -- Cast timer on a 10 Hz ANIM TICKER (engine sleeps between fires), not
+    -- a per-frame OnUpdate: the text renders %.1f precision, so the
+    -- displayed tenth digit cannot change faster than every 0.1s -- yet the
+    -- old accumulator paid a per-render-frame ENTRY per casting plate at
+    -- uncapped FPS just to gate the 10 Hz job (measured 60.8ms/min in a
+    -- caster-heavy pull; the dispatch-floor disease). Armed by
+    -- NotifyCastStarted; the body self-stops when the cast ends.
     -- Uses UnitCastingDuration/UnitChannelDuration duration objects and their
     -- :GetRemainingDuration() method to avoid taint from UnitCastingInfo's
     -- secret endTime/startTime values, which cannot be used in arithmetic.
-    plate.cast:SetScript("OnUpdate", function(self, elapsed)
+    plate.cast._timerTick = function(force)
+        local self = plate.cast
         local owner = self._timerPlate
-        if not owner or not owner.unit or not owner.isCasting then return end
-        if not owner._showCastTimer then return end
-        local acc = (self._timerAcc or 0.1) + elapsed
-        if acc < 0.1 then
-            self._timerAcc = acc
-            return
-        end
-        self._timerAcc = 0
+        -- force = the synchronous arm-time paint from NotifyCastStarted,
+        -- which fires BEFORE the caller sets isCasting (Notify IS the
+        -- rising-edge detector, so isCasting is still false there).
+        if not owner or not owner.unit or (not owner.isCasting and not force) then return end
+        if not owner._showCastTimer then return true end
         if UnitCastingDuration then
             local durObj = UnitCastingDuration(owner.unit)
                 or (UnitEmpoweredChannelDuration and UnitEmpoweredChannelDuration(owner.unit, true))
@@ -3333,7 +3347,9 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
                 owner.castTimer:SetText("")
             end
         end
-    end)
+        return true
+    end
+    plate.cast._timerTicker = EllesmereUI.Tick.NewAnimTicker(plate.cast, plate.cast._timerTick, 0.1)
     plate.cast._timerPlate = plate
     -- Full-size cast icon: its side-slot reserve is only valid while the cast bar
     -- is shown, so re-anchor the reserving side elements on every cast show/hide.
@@ -3380,12 +3396,14 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
         if d.cd.SetDrawBling then d.cd:SetDrawBling(false) end
         if d.cd.SetReverse then d.cd:SetReverse(true) end
         if d.cd.SetHideCountdownNumbers then d.cd:SetHideCountdownNumbers(false) end
-        -- Stack count lives on a carrier ABOVE the cooldown so the zero-duration
-        -- alpha mask on d.cd (which kills the permanent-aura swipe strobe) never
-        -- hides the stack number.
+        -- Stack count and countdown text live on a carrier ABOVE the cooldown so
+        -- the zero-duration alpha mask on d.cd (which kills the permanent-aura
+        -- swipe strobe) never hides them. The carrier sits at slot+6, above the
+        -- pandemic/dispel glow wrappers (slot+5), so glow styles never draw over
+        -- the duration or stack text.
         d.countCarrier = CreateFrame("Frame", nil, d)
         d.countCarrier:SetAllPoints(d)
-        d.countCarrier:SetFrameLevel(d.cd:GetFrameLevel() + 1)
+        d.countCarrier:SetFrameLevel(d:GetFrameLevel() + 6)
         d.count = d.countCarrier:CreateFontString(nil, "OVERLAY")
         SetFSFont(d.count, 11, "OUTLINE, SLUG")
         PP.Point(d.count, "BOTTOMRIGHT", d, "BOTTOMRIGHT", 1, 1)
@@ -3394,6 +3412,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
         for _, region in ipairs(cdRegions) do
             if region:GetObjectType() == "FontString" then
                 d.cd.text = region
+                region:SetParent(d.countCarrier)
                 SetFSFont(region, 11, "OUTLINE, SLUG")
                 region:ClearAllPoints()
                 PP.Point(region, "TOPLEFT", d, "TOPLEFT", -3, 4)
@@ -3427,11 +3446,13 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
         if b.cd.SetDrawBling then b.cd:SetDrawBling(false) end
         if b.cd.SetReverse then b.cd:SetReverse(true) end
         if b.cd.SetHideCountdownNumbers then b.cd:SetHideCountdownNumbers(false) end
-        -- Stack count on a carrier ABOVE the cooldown (see debuff slot) so the
-        -- zero-duration alpha mask on b.cd never hides the stack number.
+        -- Stack count and countdown text on a carrier ABOVE the cooldown (see
+        -- debuff slot) so the zero-duration alpha mask on b.cd never hides them.
+        -- Carrier at slot+6, above the dispel glow wrapper (slot+5), so glow
+        -- styles never draw over the duration or stack text.
         b.countCarrier = CreateFrame("Frame", nil, b)
         b.countCarrier:SetAllPoints(b)
-        b.countCarrier:SetFrameLevel(b.cd:GetFrameLevel() + 1)
+        b.countCarrier:SetFrameLevel(b:GetFrameLevel() + 6)
         b.count = b.countCarrier:CreateFontString(nil, "OVERLAY")
         SetFSFont(b.count, 9, "OUTLINE, SLUG")
         PP.Point(b.count, "BOTTOMRIGHT", b, "BOTTOMRIGHT", 2, -2)
@@ -3439,6 +3460,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
         for _, region in ipairs(bCdRegions) do
             if region:GetObjectType() == "FontString" then
                 b.cd.text = region
+                region:SetParent(b.countCarrier)
                 SetFSFont(region, 12, "OUTLINE, SLUG")
                 region:ClearAllPoints()
                 region:SetPoint("CENTER", b, "CENTER", 0, 0)
@@ -3897,10 +3919,15 @@ local _castColorTicker
 local function NotifyCastStarted(plate)
     if plate then
         ns._castingPlates[plate] = true
-        -- Arm the throttled cast-timer OnUpdate to render on its first
-        -- tick (accumulator starts at threshold) so the timer text is
-        -- never blank for the first 0.1s of a cast.
-        if plate.cast then plate.cast._timerAcc = 0.1 end
+        -- Arm the 10 Hz cast-timer ticker (engine-slept between fires; the
+        -- body self-stops when the cast ends), and paint ONCE synchronously
+        -- -- the old accumulator armed at-threshold so the text appeared on
+        -- the cast's first frame; the ticker's first fire alone would leave
+        -- it blank for 0.1s.
+        if plate.cast and plate.cast._timerTicker then
+            if plate.cast._timerTick then plate.cast._timerTick(true) end
+            plate.cast._timerTicker.Start()
+        end
     end
     activeCastCount = activeCastCount + 1
     if activeCastCount == 1 then
@@ -5481,9 +5508,13 @@ local function KillAuraRowMouse(frame)
         mouseDeadAuraItems[frame] = true
         frame:EnableMouse(false)
     end
-    for i = 1, frame:GetNumChildren() do
-        KillAuraRowMouse((select(i, frame:GetChildren())))
-    end
+    -- One GetChildren call per frame: the old select(i, frame:GetChildren())
+    -- re-unpacked the whole child list per index -- O(n^2) per sweep, and
+    -- this sweeps on every plate add plus every Blizzard aura-row refresh.
+    -- Table-capture form, NOT a varargs helper: this file sits AT the Lua
+    -- 5.1 200-local cap and a second file-scope local does not fit.
+    local kids = { frame:GetChildren() }
+    for i = 1, #kids do KillAuraRowMouse(kids[i]) end
 end
 local function HideBlizzardFrame(nameplate, unit)
     if not nameplate then return end
@@ -5748,7 +5779,11 @@ ns._pandemicTickFrame:SetScript("OnUpdate", function(self, elapsed)
         anyActive = true
         local durObj = slot._durationObj
         if durObj and slot.pandemicGlow and slot.pandemicGlow.active then
-            slot.pandemicGlow.wrapper:SetAlpha(C_CurveUtil.EvaluateColorValueFromBoolean(durObj:IsZero(), 0, durObj:EvaluateRemainingPercent(ns.pandemicCurve)))
+            local pg = slot.pandemicGlow
+            pg.wrapper:SetAlpha(C_CurveUtil.EvaluateColorValueFromBoolean(durObj:IsZero(), 0, durObj:EvaluateRemainingPercent(ns.pandemicCurve)))
+            if ns.pandemicCapCurve and pg.gate then
+                pg.gate:SetAlpha(durObj:EvaluateRemainingDuration(ns.pandemicCapCurve))
+            end
         else
             ns.StopPandemicGlow(slot)
         end
@@ -6156,10 +6191,16 @@ end
 function NameplateFrame:ApplyHealthTextAppearance()
     self.hpText:Hide()
     self.hpNumber:Hide()
+    if self.levelText then self.levelText:Hide() end
+    -- Slot assignments may change element kinds: drop the value memo so the
+    -- next UpdateHealthValues rewrites every slot's content.
+    self._hpTxtPct, self._hpTxtCur = nil, nil
     if not self._cachedHealthSlots then
         self._cachedHealthSlots = { _count = 0 }
     end
     local ca = self._cachedHealthSlots
+    -- Slot kinds may change: re-derive the lazily-computed number/combo flag.
+    ca._anyNum = nil
     local ci = 0
 
     for si = 1, #HP_BAR_SLOTS do
@@ -6222,6 +6263,29 @@ function NameplateFrame:ApplyHealthTextAppearance()
             ca[ci].element = element
             ca[ci].fs = fs
             ca[ci].slotKey = slot.key
+        elseif element == "level" then
+            -- Standalone level: own FontString, NOT registered in the health
+            -- slot cache (its content is static per unit -- written here and
+            -- by UpdateName on acquire, never on health ticks). Width/wrap
+            -- applied inline since the cache loop below skips it.
+            local fs = self.levelText
+            fs:SetParent(self.healthTextFrame)
+            SetFSFont(fs, slotFontSz, GetNPOutline())
+            fs:ClearAllPoints()
+            if slot.anchor == "CENTER" then
+                fs:SetPoint("CENTER", self.health, "CENTER", txOff, tyOff)
+            else
+                PP.Point(fs, slot.anchor, self.health, slot.point, slot.xOff + txOff, tyOff)
+            end
+            fs:SetJustifyH(slot.anchor)
+            fs:SetTextColor(sr, sg, sb, 1)
+            if self.unit then fs:SetText(ns.GetUnitLevelText(self.unit)) end
+            local lwpct = (p and p[slot.key .. "WidthPct"]) or 100
+            fs:SetWidth(lwpct < 100 and (GetHealthBarWidth() * lwpct / 100) or 0)
+            local lwrap = (p and p[slot.key .. "Wrap"]) and true or false
+            fs:SetWordWrap(lwrap)
+            fs:SetMaxLines(lwrap and 2 or 1)
+            fs:Show()
         end
     end
 
@@ -6252,6 +6316,28 @@ function NameplateFrame:ApplyHealthTextAppearance()
         ca[ci].element = topElement
         ca[ci].fs = fs
         ca[ci].slotKey = "textSlotTop"
+    elseif topElement == "level" then
+        -- Standalone level in the top slot: same shape as the health block
+        -- above, on levelText, no cache entry (static content).
+        local nameYOff = GetNameYOffset()
+        local cpPush = GetClassPowerTopPush(self)
+        local txOff, tyOff = GetTextSlotOffsets("textSlotTop")
+        local topFontSz = GetTextSlotSize("textSlotTop")
+        local tr, tg, tb = GetTextSlotColor("textSlotTop")
+        local fs = self.levelText
+        SetFSFont(fs, topFontSz, GetNPOutline())
+        fs:SetParent(self.topTextFrame)
+        fs:ClearAllPoints()
+        PP.Point(fs, "BOTTOM", self.health, "TOP", txOff, 4 + nameYOff + cpPush + tyOff)
+        fs:SetJustifyH("CENTER")
+        fs:SetTextColor(tr, tg, tb, 1)
+        if self.unit then fs:SetText(ns.GetUnitLevelText(self.unit)) end
+        local lwpct = (p and p.textSlotTopWidthPct) or 100
+        fs:SetWidth(lwpct < 100 and (GetHealthBarWidth() * lwpct / 100) or 0)
+        local lwrap = (p and p.textSlotTopWrap) and true or false
+        fs:SetWordWrap(lwrap)
+        fs:SetMaxLines(lwrap and 2 or 1)
+        fs:Show()
     end
     ca._count = ci
     -- Per-slot health % decimal preference. Resolved here (appearance pass,
@@ -6491,6 +6577,9 @@ function NameplateFrame:ClearUnit()
     self._auraGroupMask = nil
     self._buffsBuiltAttackable = nil
     self._lastHCr, self._lastHCg, self._lastHCb = nil, nil, nil
+    -- Health-text value memo (UpdateHealthValues): a recycled plate must
+    -- always write its first values, never skip against the old unit's.
+    self._hpTxtPct, self._hpTxtCur = nil, nil
     self._ovFocShown, self._ovTgtShown = nil, nil
     self._focusLetterShown = nil
     self._kickIsChannel = nil
@@ -6601,10 +6690,9 @@ function NameplateFrame:UpdateHealthValues()
         curHealth = self.hpCalculator:GetCurrentHealth()
         maxHealth = self.hpCalculator:GetMaximumHealth()
         absorbAmt = self.hpCalculator:GetDamageAbsorbs()
-
-        self.hpCalculator:SetMaximumHealthMode(Enum.UnitMaximumHealthMode.WithAbsorbs)
-        maxWithAbsorbs = self.hpCalculator:GetMaximumHealth()
-        self.hpCalculator:SetMaximumHealthMode(Enum.UnitMaximumHealthMode.Default)
+        -- maxWithAbsorbs is fetched LAZILY in the secret-absorb branch below
+        -- (its only consumer): the dominant no-absorb fast path paid the two
+        -- mode swaps + getter on every health tick for nothing.
     else
         curHealth = UnitHealth(unit)
         maxHealth = UnitHealthMax(unit)
@@ -6623,6 +6711,11 @@ function NameplateFrame:UpdateHealthValues()
         self.health:SetValue(curHealth)
     elseif absorbIsSecret then
         self._absorbHidden = false
+        if maxWithAbsorbs == nil and self.hpCalculator and self.hpCalculator.GetMaximumHealth then
+            self.hpCalculator:SetMaximumHealthMode(Enum.UnitMaximumHealthMode.WithAbsorbs)
+            maxWithAbsorbs = self.hpCalculator:GetMaximumHealth()
+            self.hpCalculator:SetMaximumHealthMode(Enum.UnitMaximumHealthMode.Default)
+        end
         self.absorb:ClearAllPoints()
         if self.absorbForward then self.absorbForward:ClearAllPoints() end
         self.health:SetMinMaxValues(0, maxWithAbsorbs or maxHealth)
@@ -6699,13 +6792,21 @@ function NameplateFrame:UpdateHealthValues()
     local hlEnabled = (p and p.hashLineEnabled)
     local hlPct = (p and p.hashLinePercent) or defaults.hashLinePercent
     if hlEnabled and hlPct and hlPct > 0 and self._isTarget then
+        -- Input-gated: the anchor/color pushes only depend on bar width and
+        -- settings, none of which change per health tick (bar width is our
+        -- frame -- never secret). Re-pushed only when an input moves.
         local barW = self.health:GetWidth()
-        local xPos = barW * (hlPct / 100)
-        self.hashLine:ClearAllPoints()
-        self.hashLine:SetPoint("TOP", self.health, "TOPLEFT", xPos, 0)
-        self.hashLine:SetPoint("BOTTOM", self.health, "BOTTOMLEFT", xPos, 0)
         local hlc = (p and p.hashLineColor) or defaults.hashLineColor
-        self.hashLine:SetColorTexture(hlc.r, hlc.g, hlc.b, 0.8)
+        if self._hlW ~= barW or self._hlPct ~= hlPct
+           or self._hlR ~= hlc.r or self._hlG ~= hlc.g or self._hlB ~= hlc.b then
+            self._hlW = barW; self._hlPct = hlPct
+            self._hlR, self._hlG, self._hlB = hlc.r, hlc.g, hlc.b
+            local xPos = barW * (hlPct / 100)
+            self.hashLine:ClearAllPoints()
+            self.hashLine:SetPoint("TOP", self.health, "TOPLEFT", xPos, 0)
+            self.hashLine:SetPoint("BOTTOM", self.health, "BOTTOMLEFT", xPos, 0)
+            self.hashLine:SetColorTexture(hlc.r, hlc.g, hlc.b, 0.8)
+        end
         self.hashLine:Show()
     else
         self.hashLine:Hide()
@@ -6716,16 +6817,61 @@ function NameplateFrame:UpdateHealthValues()
     -- on every UNIT_HEALTH tick so it must be as lean as possible.
     local ca = self._cachedHealthSlots
     if ca and ca._count > 0 then
+        -- Value memo: health ticks on big pools land on the same DISPLAYED
+        -- values constantly, and the string.format + SetText churn was the
+        -- hottest allocation source on plates. Keys are quantized to display
+        -- granularity -- the raw percent is a FLOAT that moves every tick,
+        -- so keying on it raw never repeated and the memo never hit
+        -- (allocation-verified in combat capture #4). Raw health gates the
+        -- skip ONLY when a slot actually renders it (number/combo slots): a
+        -- percent-only layout keeps its hits through per-tick raw churn,
+        -- while a raw-number layout rewrites per change by definition.
+        -- Secret values cannot be compared or floored: any secret input
+        -- fails open to writing (today's behavior) and clears its key.
+        local isSec = issecretvalue
+        local dead = UnitIsDeadOrGhost(unit)
+        local anyDec = ca._anyDecimal
+        local pctVal
+        if not dead and UnitHealthPercent then
+            pctVal = UnitHealthPercent(unit, true, CurveConstants.ScaleTo100)
+        end
+        local pctKey
+        if dead then
+            pctKey = -1
+        elseif pctVal ~= nil and not (isSec and isSec(pctVal)) then
+            pctKey = anyDec and math.floor(pctVal * 10 + 0.5) or math.floor(pctVal)
+        end
+        local anyNum = ca._anyNum
+        if anyNum == nil then
+            anyNum = false
+            for si = 1, ca._count do
+                local el = ca[si].element
+                if el == "healthNumber" or IsComboHealthText(el) then anyNum = true break end
+            end
+            ca._anyNum = anyNum
+        end
+        local hpKey
+        if not anyNum then
+            hpKey = 0
+        elseif dead then
+            hpKey = -1
+        elseif curHealth ~= nil and not (isSec and isSec(curHealth)) then
+            hpKey = curHealth
+        end
+        local skipText = pctKey ~= nil and hpKey ~= nil
+            and self._hpTxtPct == pctKey and self._hpTxtCur == hpKey
+        if not skipText then
+        self._hpTxtPct = pctKey
+        self._hpTxtCur = hpKey
         local pctText, pctNoSignText, numText
         local pctTextDec, pctNoSignTextDec
         local anyDec = ca._anyDecimal
-        if UnitIsDeadOrGhost(unit) then
+        if dead then
             pctText = "0%"
             pctNoSignText = "0"
             numText = "0"
             if anyDec then pctTextDec = "0.0%"; pctNoSignTextDec = "0.0" end
-        elseif UnitHealthPercent then
-            local pctVal = UnitHealthPercent(unit, true, CurveConstants.ScaleTo100)
+        elseif pctVal ~= nil then
             pctText = string.format("%d%%", pctVal)
             pctNoSignText = string.format("%d", pctVal)
             numText = AbbreviateNumbers(curHealth)
@@ -6754,6 +6900,7 @@ function NameplateFrame:UpdateHealthValues()
                 SetCombinedHealthText(fs, el, entry.pctDecimal and pctTextDec or pctText, numText)
             end
         end
+        end -- skipText
     end
 
     -- Execute Pulse Glow gate: evaluate the player's execute-window curve
@@ -6905,18 +7052,17 @@ function NameplateFrame:UpdateName()
             unit = actualUnit
         end
     end
-    -- The slotted name-family variant decides what renders: name, level+name
-    -- combos, or standalone level. nil slot keeps the plain-name write (the
-    -- FontString is hidden by RefreshNamePosition in that case anyway).
+    -- Standalone level renders on its own FontString and can share the plate
+    -- with a name-family slot; refresh its content here (this runs on plate
+    -- acquire/unit swap, so pooled reuse never shows a stale level).
+    if self.levelText and self.levelText:IsShown() then
+        self.levelText:SetText(ns.GetUnitLevelText(unit))
+    end
+    -- The slotted name-family variant decides what renders: name or a
+    -- level+name combo. nil slot keeps the plain-name write (the FontString
+    -- is hidden by RefreshNamePosition in that case anyway).
     local el = ns.FindNameSlot()
     el = el and GetTextSlot(el) or "enemyName"
-    if el == "level" then
-        -- Level needs no unit name, so it renders even for units whose name
-        -- is not yet available.
-        ns.SetNameElementText(self.name, el, nil, unit)
-        if p and p.nameRaidMarkerEnabled == true then self:RefreshNamePosition(true) end
-        return
-    end
     local name = UnitName(unit)
     if type(name) == "string" then
         ns.SetNameElementText(self.name, el, name, unit)
@@ -8345,11 +8491,14 @@ function NameplateFrame:ApplyCastColor(uninterruptible)
         local isImp = self._castImportant
         if type(isImp) == "nil" then isImp = false end
         local ev = C_CurveUtil.EvaluateColorValueFromBoolean
-        normalCastTint = {
-            r = ev(isImp, imp.r, normalCastTint.r),
-            g = ev(isImp, imp.g, normalCastTint.g),
-            b = ev(isImp, imp.b, normalCastTint.b),
-        }
+        -- Scratch table (same pattern as _dispelScratch): this runs per cast
+        -- event per plate, and a fresh color table per call was pure GC churn.
+        local sc = ns._castImpScratch
+        if not sc then sc = {}; ns._castImpScratch = sc end
+        sc.r = ev(isImp, imp.r, normalCastTint.r)
+        sc.g = ev(isImp, imp.g, normalCastTint.g)
+        sc.b = ev(isImp, imp.b, normalCastTint.b)
+        normalCastTint = sc
     end
     local cr, cg, cb = ComputeCastBarTint(kickReadyTint, normalCastTint)
     self.cast:GetStatusBarTexture():SetVertexColor(cr, cg, cb)
@@ -9092,13 +9241,20 @@ CreatePendingWatcher = function(unit, nameplate)
         self:UnregisterAllEvents()
         pendingWatchers[u] = nil
         pendingUnits[u] = nil
+        local currentPlate = C_NamePlate.GetNamePlateForUnit(u)
+        -- Name-only friendly NPCs are suppressed via a nameplate-keyed name
+        -- overlay, not the friendlyPlates[] pool the calls below clean up.
+        -- Tear it down here or the old friendly name text is left rendering
+        -- on top of the new enemy plate/bar.
+        if ns.RemoveFriendlyNPCOverlayForUnit then
+            ns.RemoveFriendlyNPCOverlayForUnit(u, currentPlate)
+        end
         -- Remove friendly plate WITHOUT restoring Blizzard UF (we'll suppress it as enemy)
         if ns.RemoveFriendlyPlateNoRestore then
             ns.RemoveFriendlyPlateNoRestore(u)
         elseif ns.RemoveFriendlyPlate then
             ns.RemoveFriendlyPlate(u)
         end
-        local currentPlate = C_NamePlate.GetNamePlateForUnit(u)
         if currentPlate then
             local plate = frameCache:Acquire()
             if not plate._mixedIn then
@@ -9252,11 +9408,23 @@ function ns._UpdateMouseover()
     end
     ns._EnsureMouseoverTicker()
 end
+-- Baseline lift for friendly plates, applied to BOTH distance settings:
+-- Name Distance (name-only) and the Distance slider in the friendly plate
+-- cog (full plate). Name-only needs it because the friendly module collapses
+-- Blizzard's two-point name anchor onto the UnitFrame's centre (so long
+-- names stop truncating and the guild line has room), landing the name this
+-- far below where Blizzard's own anchor put it; the full plate carries the
+-- same lift so the two modes sit at the same height and switching between
+-- them does not jump. Both settings keep their stored values and their
+-- meaning of "relative to where the plate normally sits".
+-- On ns, not a new file local: this file is at the Lua 5.1 200-local cap.
+ns.FRIENDLY_Y_BASE = 26
+
 -- Refresh Y-offset on all visible friendly name-only plates
 function ns.RefreshFriendlyNameOnlyOffset()
     local db = p or defaults
     local nameOnly = (db.friendlyNameOnly ~= false)
-    local yOff = nameOnly and (db.friendlyNameOnlyYOffset or 0) or 0
+    local yOff = nameOnly and ((db.friendlyNameOnlyYOffset or 0) + ns.FRIENDLY_Y_BASE) or 0
     for unit, nameplate in pairs(pendingUnits) do
         if nameplate.UnitFrame then
             local uf = nameplate.UnitFrame
@@ -9312,8 +9480,9 @@ manager:SetScript("OnEvent", function(self, event, unit)
                         RestoreFromOffscreen(uf.RaidTargetFrame)
                     end
                 end
-                -- Apply Y-offset
-                local yOff = db.friendlyNameOnlyYOffset or 0
+                -- Apply Y-offset (+ the name-only baseline lift; see
+                -- ns.FRIENDLY_Y_BASE)
+                local yOff = (db.friendlyNameOnlyYOffset or 0) + ns.FRIENDLY_Y_BASE
                 if yOff ~= 0 and nameplate.UnitFrame then
                     nameplate.UnitFrame:SetPoint("TOPLEFT", nameplate, "TOPLEFT", 0, yOff)
                     nameplate.UnitFrame:SetPoint("BOTTOMRIGHT", nameplate, "BOTTOMRIGHT", 0, yOff)
@@ -9666,6 +9835,8 @@ do
         local anchorTo
         if ns.IsNameElement(rightEl) then
             anchorTo = plate.name
+        elseif rightEl == "level" then
+            anchorTo = plate.levelText
         elseif rightEl and rightEl ~= "none" then
             local ca = plate._cachedHealthSlots
             if ca then
@@ -9766,43 +9937,5 @@ do
         end
     end
 
-    -- /euirangedbg: user-invoked one-shot diagnostic (same role as
-    -- /cdmdbg). Prints every link in the chain so a single paste names the
-    -- failure: setting, driver, target plate, ladder rungs, and each
-    -- rung's live IsSpellInRange answer (SECRET called out explicitly).
-    SLASH_EUIRANGEDBG1 = "/euirangedbg"
-    SlashCmdList.EUIRANGEDBG = function()
-        local function out(msg) print("|cffD05B38[RangeText]|r " .. msg) end
-        out("enabled=" .. tostring(p and p.rangeTextEnabled)
-            .. " driver=" .. tostring(RT.drv and RT.drv:IsShown() or false)
-            .. " targetPlate=" .. tostring(ns._cachedTargetPlate ~= nil)
-            .. " attached=" .. tostring(RT.plate ~= nil)
-            .. " text=" .. tostring(RT.fs and RT.fs:IsShown() and RT.fs:GetText() or "hidden"))
-        if RT.fs then
-            -- Geometry/visibility chain: IsVisible false with IsShown true
-            -- means a hidden ancestor; a nil rect means the anchor never
-            -- resolved; width 0 means the font never applied.
-            out(("fs visible=%s rect=%s,%s strW=%s alpha=%s")
-                :format(tostring(RT.fs:IsVisible()),
-                    tostring(RT.fs:GetLeft()), tostring(RT.fs:GetBottom()),
-                    tostring(RT.fs:GetStringWidth()),
-                    tostring(RT.fs:GetAlpha())))
-        end
-        if RT.carrier then
-            out(("carrier visible=%s level=%s strata=%s scale=%s")
-                :format(tostring(RT.carrier:IsVisible()),
-                    tostring(RT.carrier:GetFrameLevel()),
-                    tostring(RT.carrier:GetFrameStrata()),
-                    tostring(RT.carrier:GetEffectiveScale())))
-        end
-        local tp = ns._cachedTargetPlate
-        if tp then
-            out(("plate level=%s strata=%s healthLevel=%s rightSlot=%s")
-                :format(tostring(tp:GetFrameLevel()), tostring(tp:GetFrameStrata()),
-                    tostring(tp.health and tp.health:GetFrameLevel()),
-                    tostring(GetTextSlot("textSlotRight"))))
-        end
-        local unit = ns._cachedTargetPlate and ns._cachedTargetPlate.unit
-        EllesmereUI.Range_DebugDump(unit, out)
-    end
 end
+

@@ -546,12 +546,7 @@ local function ShouldShow()
     return false
 end
 
-function FormatTime(s)
-    if not s or s <= 0 then return "" end
-    local m = math.floor(s / 60)
-    local sec = math.floor(s % 60)
-    return string.format("%d:%02d", m, sec)
-end
+FormatTime = select(2, ...).FormatTime
 
 local _lastDurText
 local function _setDur(s)

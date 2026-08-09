@@ -22,10 +22,13 @@ local ComputeTopRowStride    = ns.ComputeTopRowStride
 --  Heroism (32182) and Bloodlust override variants as the same logical entry
 --  without ever calling them duplicates.
 --
---  StoreVariantValue(target, spellID, value, preserveExisting):
+--  StoreVariantValue(target, spellID, value, preserveExisting, directSet):
 --      Writes value into target under every key in spellID's variant family.
---      If preserveExisting is true, only writes when target[key] is nil
---      (first-write-wins).
+--      preserveExisting applies to the EXACT id only (first-write-wins); the
+--      derived family keys never overwrite an entry that is already there, so
+--      one spell's family expansion cannot displace another spell's exact
+--      assignment. directSet, when given, records the exact id on its own so
+--      callers can tell an explicit assignment from a derived one.
 --
 --  ResolveVariantValue(sourceMap, spellID):
 --      Returns sourceMap[k] for the first k in spellID's variant family
@@ -65,14 +68,24 @@ local function _StoreIfValid(target, id, value, preserveExisting)
     target[id] = value
 end
 
-local function StoreVariantValue(target, spellID, value, preserveExisting)
+-- directSet (optional): records the EXACT id that was stored, separately from
+-- the variant keys derived from it. Two spells of one variant family can be
+-- assigned to different bars (e.g. Divine Toll and its Lightsmith override Holy
+-- Bulwark, which share cooldownID and base 375576), and each expands over the
+-- other's keys. Without knowing which entry was exact, the winner is decided by
+-- collection order and by whichever override happened to be live at build time,
+-- so the slot changes bars as the spell transforms. The derived keys therefore
+-- only ever FILL GAPS, and the exact id always overwrites, so an explicit
+-- assignment can never be clobbered by another spell's family expansion.
+local function StoreVariantValue(target, spellID, value, preserveExisting, directSet)
     if type(target) ~= "table" or not _IsUsableSID(spellID) then return end
     _StoreIfValid(target, spellID, value, preserveExisting)
-    _StoreIfValid(target, _GetOverride(spellID), value, preserveExisting)
+    if type(directSet) == "table" then directSet[spellID] = value end
+    _StoreIfValid(target, _GetOverride(spellID), value, true)
     local baseID = _GetBase(spellID)
     if baseID then
-        _StoreIfValid(target, baseID, value, preserveExisting)
-        _StoreIfValid(target, _GetOverride(baseID), value, preserveExisting)
+        _StoreIfValid(target, baseID, value, true)
+        _StoreIfValid(target, _GetOverride(baseID), value, true)
     end
 end
 
@@ -345,6 +358,14 @@ function ns.AddSpellToBar(barKey, spellID)
     end
     local frame = cdmBarFrames[barKey]
     if frame then frame._blizzCache = nil; frame._prevVisibleCount = nil end
+    -- FocusKick arms its proxies on bar CONTENT, and nothing re-runs that when
+    -- the content changes here: adding the interrupt to an empty kick bar left
+    -- the cast sound unarmed until an unrelated rebuild (a spec change or a
+    -- loading screen) happened to run it. Field-reported as "added the spell,
+    -- still no sound; took a portal and it started working".
+    if barKey == ns.FOCUSKICK_BAR_KEY and ns.RefreshFocusKickProxies then
+        ns.RefreshFocusKickProxies("spell-added")
+    end
     return true
 end
 
@@ -395,9 +416,19 @@ function ns.RemoveSpellFromBar(barKey, spellID)
        and not (ns.ListHasHostedMarker and ns.ListHasHostedMarker(sd.assignedSpells, removed)) then
         hostedSid = removed
     end
-    if hostedSid and sd.hostedBuffSpellIDs then sd.hostedBuffSpellIDs[hostedSid] = nil end
+    if hostedSid and sd.hostedBuffSpellIDs then
+        sd.hostedBuffSpellIDs[hostedSid] = nil
+        -- Host flip changes resolution routing: retire memoized results.
+        ns._cdmResGen = (ns._cdmResGen or 0) + 1
+    end
     local frame = cdmBarFrames[barKey]
     if frame then frame._blizzCache = nil; frame._prevVisibleCount = nil end
+    -- Same reason as AddSpellToBar: emptying the kick bar must re-evaluate the
+    -- proxies. The cast sound survives an empty bar when an explicit interrupt
+    -- spell is set, so this is a re-evaluation, not an unconditional teardown.
+    if barKey == ns.FOCUSKICK_BAR_KEY and ns.RefreshFocusKickProxies then
+        ns.RefreshFocusKickProxies("spell-removed")
+    end
     return removed
 end
 
@@ -1011,6 +1042,15 @@ end
 --- Enumerate default-buffs-bar entries (viewer pool + this bar's customs/items),
 --- minus spells diverted to other buff-family or hosted CD/utility bars.
 function ns.CollectDefaultBuffTrackEntries()
+    -- Variant-aware (base/override family), not a plain sid set: a claimed
+    -- buff's stored id and the id this same viewer slot enumerates as later
+    -- can legitimately differ (a talent-override swap, or a fresh clean-cache
+    -- forcing GetCanonicalSpellIDForFrame down its cooldownInfo fallback --
+    -- see the comment there). An exact-number set misses that drift and the
+    -- claimed buff reappears here as a phantom duplicate of the other bar's
+    -- entry. StoreVariantValue/ResolveVariantValue are the same mechanism
+    -- RebuildSpellRouteMap and ns.GetCDMSpellsForBar already use to answer
+    -- "is this the same buff" everywhere else in this file.
     local diverted = {}
     local divertedCd = {}  -- cooldownID-level diversions (collided-buff slots)
     local p = ECME and ECME.db and ECME.db.profile
@@ -1021,7 +1061,9 @@ function ns.CollectDefaultBuffTrackEntries()
                 if otherBd.barType == "buffs" or otherBd.barType == "custom_buff" then
                     if otherSd and otherSd.assignedSpells then
                         for _, sid in ipairs(otherSd.assignedSpells) do
-                            if type(sid) == "number" and sid > 0 then diverted[sid] = true end
+                            if type(sid) == "number" and sid > 0 then
+                                StoreVariantValue(diverted, sid, true, false)
+                            end
                         end
                     end
                     local otherClaims = otherSd and ns.CollectCdClaimSet(otherSd)
@@ -1030,7 +1072,9 @@ function ns.CollectDefaultBuffTrackEntries()
                     end
                 elseif otherSd and otherSd.hostedBuffSpellIDs then
                     for sid in pairs(otherSd.hostedBuffSpellIDs) do
-                        if type(sid) == "number" and sid > 0 then diverted[sid] = true end
+                        if type(sid) == "number" and sid > 0 then
+                            StoreVariantValue(diverted, sid, true, false)
+                        end
                     end
                 end
             end
@@ -1046,7 +1090,7 @@ function ns.CollectDefaultBuffTrackEntries()
         -- (Diabolist Demonic Art vs Diabolic Ritual). Keying on sid here would
         -- re-merge what EnumerateCDMViewerSpells now keeps separate.
         local key = BuffDisplayStableKey(e.sid, e.cdID)
-        if e.sid and not diverted[e.sid]
+        if e.sid and not ResolveVariantValue(diverted, e.sid)
            and not (e.cdID and divertedCd[e.cdID])
            and key and not seen[key] then
             seen[key] = true
@@ -1151,6 +1195,8 @@ end
 function ns.MarkBuffFamHasCdKey()
     local store = ns.GetSpellSettingsStore and ns.GetSpellSettingsStore("buffs")
     _cdKeyGate = { store = store, has = true }
+    -- The cdID-key gate feeds resolution: retire memoized results.
+    ns._cdmResGen = (ns._cdmResGen or 0) + 1
 end
 
 --- Reorder present keys to match Blizzard viewer order while absent keys (talent
@@ -1731,6 +1777,8 @@ function ns.AddBuffToCDUtilBar(barKey, spellID)
     -- frame still resolves regardless of its talent/override form.
     if not sd.hostedBuffSpellIDs then sd.hostedBuffSpellIDs = {} end
     sd.hostedBuffSpellIDs[spellID] = true
+    -- Host flip changes resolution routing: retire memoized results.
+    ns._cdmResGen = (ns._cdmResGen or 0) + 1
     if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
     if ns.QueueReanchor then ns.QueueReanchor() end
     return true
@@ -1797,7 +1845,11 @@ function ns.RemoveTrackedSpell(barKey, idx)
         -- here (it returns to the buffs bar). Never ghost-route a hosted
         -- buff -- the ghost bar hides by spellID, so it would also hide the
         -- spell's COOLDOWN form everywhere.
-        if sd.hostedBuffSpellIDs then sd.hostedBuffSpellIDs[hostedSid] = nil end
+        if sd.hostedBuffSpellIDs then
+            sd.hostedBuffSpellIDs[hostedSid] = nil
+            -- Host flip changes resolution routing: retire memoized results.
+            ns._cdmResGen = (ns._cdmResGen or 0) + 1
+        end
     else
         -- Auxiliary metadata cleanup (kept here so the wrapper exposes the
         -- same side effects RemoveSpellFromBar does for symmetry with

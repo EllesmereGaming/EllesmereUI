@@ -91,7 +91,7 @@ initFrame:SetScript("OnEvent", function(self)
         local kbRow
         kbRow, h = W:DualRow(parent, y,
             { type = "dropdown", text = "Show Raid Tools",
-              tooltip = "A raid control panel with ready check, pull timer and raid markers.",
+              tooltip = "A raid control panel with ready check, pull timer and raid markers. In a raid it only shows while you are the leader or an assistant, since none of its buttons work without that; in a party it always shows.",
               values = { never = "Never", raid = "In Raid Group",
                          group = "In Any Group", always = "Always" },
               order = { "never", "raid", "group", "always" },
@@ -109,7 +109,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- to capture, right-click to unbind, Escape cancels. The bound key is
         -- an override binding on the secure toggle button, so pressing it
         -- works in combat; only the (re)binding itself waits for combat end.
-        do
+        if not EllesmereUI._prebuilding then
             local PP  = EllesmereUI.PanelPP
             local rgn = kbRow._rightRegion
             local kbBtn = CreateFrame("Button", nil, rgn)
@@ -262,7 +262,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Row 3: one scale for the whole feature -- both shells and the
         -- collapsed icon wear it, whichever windows the Show as choice puts
-        -- on screen.
+        -- on screen | which way the windows extend from the collapsed icon.
         _, h = W:DualRow(parent, y,
             { type = "slider", text = "Window Scale", min = 0.5, max = 2.0, step = 0.05,
               disabled = Disabled,
@@ -271,7 +271,17 @@ initFrame:SetScript("OnEvent", function(self)
                   Set("scale", v)
                   Refresh()
               end },
-            { type = "label", text = "" }
+            { type = "dropdown", text = "Menu Grow Direction",
+              tooltip = "Which way the windows extend from the collapsed icon when they open.",
+              disabled = Disabled,
+              values = { downright = "Down Right", upright = "Up Right",
+                         downleft = "Down Left", upleft = "Up Left" },
+              order = { "downright", "upright", "downleft", "upleft" },
+              getValue = function() return Cfg("growDir") or "downright" end,
+              setValue = function(v)
+                  Set("growDir", v)
+                  Refresh()
+              end }
         );  y = y - h
 
         -- PULL TIMER

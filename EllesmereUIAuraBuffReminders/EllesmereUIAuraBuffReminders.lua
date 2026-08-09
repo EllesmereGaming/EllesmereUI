@@ -69,100 +69,14 @@ local TEXT_ANCHOR_POINTS = {
     LEFT   = { "RIGHT",  "LEFT"   },
     RIGHT  = { "LEFT",   "RIGHT"  },
 }
+-- Shared with the options file's preview (read-only there); the established
+-- cross-file channel for this addon pair is _G._EABR_* (main loads first).
+_G._EABR_TEXT_ANCHORS = TEXT_ANCHOR_POINTS
 local function GetTextAnchorPoints(p)
     local m = TEXT_ANCHOR_POINTS[(p and p.textAnchor) or "BOTTOM"] or TEXT_ANCHOR_POINTS.BOTTOM
     return m[1], m[2]
 end
 
--------------------------------------------------------------------------------
---  Profiler: zero cost when off, /eabrprof to toggle. debugprofilestop for
---  per-label timing + C_AddOnProfiler for whole-addon avg/peak. Mirrors the
---  RaidFrames /erfprof pattern. (do..end block adds no file-scope locals.)
--------------------------------------------------------------------------------
-do
-    local _profData, _profActive = {}, false
-    local dps = debugprofilestop
-    local _addonName = "EllesmereUIAuraBuffReminders"
-    local _frameCount, _totalAddonMs, _peakAddonMs, _startTime = 0, 0, 0, 0
-    local _curFrameLabels, _curFrameTotal, _curFrameTime = {}, 0, 0
-    local _peakFrameLabels, _peakFrameTotal = {}, 0
-
-    EABR.ProfBegin = function(label)
-        if not _profActive then return 0 end
-        return dps()
-    end
-    EABR.ProfEnd = function(label, t0)
-        if not _profActive then return end
-        local elapsed = dps() - t0
-        local now = GetTime()
-        if now ~= _curFrameTime then
-            if _curFrameTotal > _peakFrameTotal then
-                _peakFrameTotal = _curFrameTotal
-                wipe(_peakFrameLabels)
-                for k, v in pairs(_curFrameLabels) do _peakFrameLabels[k] = v end
-            end
-            wipe(_curFrameLabels); _curFrameTotal = 0; _curFrameTime = now
-        end
-        local d = _profData[label]
-        if not d then d = { n = 0, total = 0 }; _profData[label] = d end
-        d.n = d.n + 1
-        d.total = d.total + elapsed
-        _curFrameLabels[label] = (_curFrameLabels[label] or 0) + elapsed
-        _curFrameTotal = _curFrameTotal + elapsed
-    end
-
-    local profFrame = CreateFrame("Frame")
-    profFrame:Hide()
-    profFrame:SetScript("OnUpdate", function()
-        if not _profActive then profFrame:Hide(); return end
-        if not C_AddOnProfiler or not C_AddOnProfiler.GetAddOnMetric then return end
-        local addonMs = C_AddOnProfiler.GetAddOnMetric(_addonName, Enum.AddOnProfilerMetric.LastTime) or 0
-        _frameCount = _frameCount + 1
-        _totalAddonMs = _totalAddonMs + addonMs
-        if addonMs > _peakAddonMs then _peakAddonMs = addonMs end
-    end)
-
-    local function ResetProf()
-        wipe(_profData); wipe(_curFrameLabels); wipe(_peakFrameLabels)
-        _frameCount = 0; _totalAddonMs = 0; _peakAddonMs = 0
-        _peakFrameTotal = 0; _curFrameTotal = 0; _curFrameTime = 0; _startTime = 0
-    end
-
-    SLASH_EABRPROF1 = "/eabrprof"
-    SlashCmdList["EABRPROF"] = function(msg)
-        if msg == "reset" then ResetProf(); print("|cff00ccffEABRProf:|r data cleared"); return end
-        _profActive = not _profActive
-        if _profActive then
-            ResetProf(); _startTime = GetTime(); profFrame:Show()
-            print("|cff00ccffEABRProf:|r ON -- type /eabrprof again to stop")
-        else
-            profFrame:Hide()
-            if _curFrameTotal > _peakFrameTotal then
-                _peakFrameTotal = _curFrameTotal
-                wipe(_peakFrameLabels)
-                for k, v in pairs(_curFrameLabels) do _peakFrameLabels[k] = v end
-            end
-            local dur = GetTime() - _startTime
-            local avgAddon = _frameCount > 0 and (_totalAddonMs / _frameCount) or 0
-            print("|cff00ccffEABRProf Report:|r  " .. _frameCount .. " frames, " .. format("%.1f", dur) .. "s")
-            print(format("  |cff00ccffAddon Peak:|r  %.3f ms   |cff00ccffAvg:|r %.3f ms", _peakAddonMs, avgAddon))
-            local scale = (_peakFrameTotal > 0) and (_peakAddonMs / _peakFrameTotal) or 1
-            local sorted = {}
-            for label, ms in pairs(_peakFrameLabels) do
-                local d = _profData[label]
-                local avg = (d and _frameCount > 0) and (d.total / _frameCount) or 0
-                local n = d and d.n or 0
-                local per = (n > 0) and (d.total / n) or 0
-                sorted[#sorted + 1] = { label = label, peak = ms * scale, avg = avg, n = n, per = per }
-            end
-            table.sort(sorted, function(a, b) return a.avg > b.avg end)
-            print(format("  %-20s %8s %8s %7s %8s", "Label", "avg ms", "peak ms", "calls", "ms/call"))
-            for _, e in ipairs(sorted) do
-                print(format("  %-20s %8.3f %8.3f %7d %8.4f", e.label, e.avg, e.peak, e.n, e.per))
-            end
-        end
-    end
-end
 
 -- Hunter's Mark combat state: set true on PLAYER_REGEN_DISABLED, cleared on
 -- cast or combat end. OOC falls back to target debuff check.
@@ -2709,9 +2623,7 @@ local function Refresh()
     local _m0, _m1, _m2, _m3, _m4, _m5, _m6, _m7
     if _memProbe then collectgarbage("stop"); _m0 = collectgarbage("count") end
 
-    local _pt = EABR.ProfBegin("AuraCache")
     BuildPlayerAuraCache()
-    EABR.ProfEnd("AuraCache", _pt)
     if _memProbe then _m1 = collectgarbage("count") end
 
     local playerClass = GetPlayerClass()
@@ -2729,9 +2641,7 @@ local function Refresh()
     ---------------------------------------------------------------------------
     if remindersOn then
         local inInstance = InRealInstancedContent()
-        _pt = EABR.ProfBegin("RaidBuffs")
         CollectRaidBuffs(missing, playerClass, inInstance, inCombat)
-        EABR.ProfEnd("RaidBuffs", _pt)
     end
     if _memProbe then _m2 = collectgarbage("count") end
 
@@ -2751,9 +2661,7 @@ local function Refresh()
     --  2) Auras (suppressed in M+ keystones and combat)
     ---------------------------------------------------------------------------
     if remindersOn and not inCombat and not inKeystone then
-        _pt = EABR.ProfBegin("Auras")
         CollectAuras(missing, playerClass, specID, inInstance, inCombat)
-        EABR.ProfEnd("Auras", _pt)
     end
     if _memProbe then _m3 = collectgarbage("count") end
 
@@ -2761,9 +2669,7 @@ local function Refresh()
     --  3) Consumables (suppressed in M+ keystones, combat, and PvP)
     ---------------------------------------------------------------------------
     if remindersOn and not inCombat and not inKeystone and not inPvP then
-        _pt = EABR.ProfBegin("Consumables")
         CollectConsumables(missing, playerClass, specID, inInstance, inKeystone, inCombat)
-        EABR.ProfEnd("Consumables", _pt)
     end
     if _memProbe then _m4 = collectgarbage("count") end
 
@@ -2855,7 +2761,6 @@ local function Refresh()
     --  Apply results
     ---------------------------------------------------------------------------
     if inCombat then
-        _pt = EABR.ProfBegin("Display")
         -- Combat path: use non-secure visual-only icons.
         -- Fade out stale secure buttons (SetAlpha is safe during combat).
         FadeOutSecureIcons()
@@ -2909,12 +2814,10 @@ local function Refresh()
             if combatIdx > 0 then EllesmereUI.SetElementVisibility(combatAnchor, true); LayoutCombatIcons() end
             if cursorIdx > 0 then cursorAnchor:Show(); EllesmereUI.SetElementVisibility(cursorAnchor, true); LayoutCursorIcons() end
         end
-        EABR.ProfEnd("Display", _pt)
         return
     end
 
     -- OOC path: full secure button display
-    _pt = EABR.ProfBegin("Display")
     HideCombatIcons()
     HideCursorIcons()
     HideAllIcons()
@@ -2965,7 +2868,6 @@ local function Refresh()
         EllesmereUI.SetElementVisibility(iconAnchor, false)
     end
 
-    EABR.ProfEnd("Display", _pt)
 
     -- MEMORY PROBE REPORT (temporary)
     if _memProbe then
@@ -3524,15 +3426,8 @@ function EABR:OnEnable()
     _G._EABR_WEAPON_ENCHANT_CHOICES = WEAPON_ENCHANT_CHOICES
     -- _EABR_TALENT_REMINDER_ZONES set by EllesmereUIABR_TalentReminders.lua
 
-    local STRATA_VALUES = {
-        BACKGROUND = "Background", LOW = "Low", MEDIUM = "Medium",
-        HIGH = "High", DIALOG = "Dialog", FULLSCREEN = "Fullscreen",
-        FULLSCREEN_DIALOG = "Fullscreen Dialog", TOOLTIP = "Tooltip",
-    }
-    local STRATA_ORDER = {
-        "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG",
-        "FULLSCREEN", "FULLSCREEN_DIALOG", "TOOLTIP",
-    }
+    local STRATA_VALUES = EllesmereUI.FRAME_STRATA_LABELS
+    local STRATA_ORDER = EllesmereUI.FRAME_STRATA_ORDER_FULL
     _G._EABR_STRATA_VALUES = STRATA_VALUES
     _G._EABR_STRATA_ORDER = STRATA_ORDER
 
@@ -3562,17 +3457,34 @@ function EABR:OnEnable()
     cursorAnchor:EnableMouse(false)
     cursorAnchor:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
     do
+        -- Cursor glue on the suite's shared cursor service (Tier A
+        -- motionOnly: per render frame while the cursor MOVES, parked at
+        -- rest -- a resting anchor needs no repositioning). Subscription
+        -- follows the frame's own OnShow/OnHide, which every show/hide
+        -- site passes through, mirroring the old hidden-frame-stops-
+        -- OnUpdate gate. OnShow snaps once via M.Get() so a cursor that
+        -- moved while the anchor was hidden never shows it stale.
         local lastMX, lastMY
-        cursorAnchor:SetScript("OnUpdate", function()
+        local function GlueBody(rawX, rawY)
             local s = UIParent:GetEffectiveScale()
-            local cx, cy = GetCursorPosition()
-            cx = floor(cx / s + 0.5)
-            cy = floor(cy / s + 0.5)
+            local cx = floor(rawX / s + 0.5)
+            local cy = floor(rawY / s + 0.5)
             if cx ~= lastMX or cy ~= lastMY then
                 lastMX, lastMY = cx, cy
                 cursorAnchor:ClearAllPoints()
                 cursorAnchor:SetPoint("CENTER", UIParent, "BOTTOMLEFT", cx, cy + 60)
             end
+        end
+        cursorAnchor:SetScript("OnShow", function()
+            local M = EllesmereUI.Mouse
+            if M then
+                GlueBody(M.Get())
+                M.SubscribeFrame("abrCursor", GlueBody, true)
+            end
+        end)
+        cursorAnchor:SetScript("OnHide", function()
+            local M = EllesmereUI.Mouse
+            if M then M.UnsubscribeFrame("abrCursor") end
         end)
     end
     -- Start hidden: OnUpdate only runs while :IsShown(), saving CPU
@@ -4089,7 +4001,7 @@ local SetupReadyCheckManaWarning = function()
         ag:SetLooping("REPEAT")
         warnFrame._breathe = ag
         EABR.RCWApplySettings()
-        warnFS:SetText("LOW MANA")
+        warnFS:SetText(EllesmereUI.L("LOW MANA"))
     end
 
     -- Only listen for READY_CHECK when out of combat AND in a raid.

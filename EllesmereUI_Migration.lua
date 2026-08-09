@@ -240,94 +240,6 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
--- Inspection helper for the slash command.
-function EllesmereUI.GetMigrationStatus()
-    local out = {
-        registered = {},
-        errors     = _migrationErrors,
-    }
-    for _, spec in ipairs(_migrations) do
-        local entry = {
-            id          = spec.id,
-            scope       = spec.scope,
-            description = spec.description or "",
-            ranScopes   = {}, -- list of {target, ran}
-        }
-        if spec.scope == "global" then
-            local flags = EllesmereUIDB and EllesmereUIDB._migrations
-            entry.ranScopes[1] = { target = "global", ran = (flags and flags[spec.id]) and true or false }
-        elseif spec.scope == "profile" then
-            if EllesmereUIDB and EllesmereUIDB.profiles then
-                for profName, profData in pairs(EllesmereUIDB.profiles) do
-                    if type(profData) == "table" then
-                        local flags = profData._migrations
-                        entry.ranScopes[#entry.ranScopes + 1] = {
-                            target = profName,
-                            ran    = (flags and flags[spec.id]) and true or false,
-                        }
-                    end
-                end
-            end
-        elseif spec.scope == "specProfile" then
-            local profiles = EllesmereUIDB and EllesmereUIDB.spellAssignments and EllesmereUIDB.spellAssignments.profiles
-            if profiles then
-                for profName, bucket in pairs(profiles) do
-                    local sp = type(bucket) == "table" and bucket.specProfiles
-                    if type(sp) == "table" then
-                        for specKey, specProfData in pairs(sp) do
-                            if type(specProfData) == "table" then
-                                local flags = specProfData._migrations
-                                entry.ranScopes[#entry.ranScopes + 1] = {
-                                    target = profName .. "/" .. specKey,
-                                    ran    = (flags and flags[spec.id]) and true or false,
-                                }
-                            end
-                        end
-                    end
-                end
-            end
-        end
-        out.registered[#out.registered + 1] = entry
-    end
-    return out
-end
-
--- /eui migrations slash command. Lists registered migrations, run status
--- per scope target, and any session errors.
-SLASH_EUIMIGRATIONS1 = "/euimig"
-SLASH_EUIMIGRATIONS2 = "/euimigrations"
-SlashCmdList["EUIMIGRATIONS"] = function()
-    local status = EllesmereUI.GetMigrationStatus()
-    print("|cff0cd29fEllesmereUI Migrations|r")
-    print(string.format("  Registered: %d", #status.registered))
-    for _, entry in ipairs(status.registered) do
-        local ranCount, totalCount = 0, #entry.ranScopes
-        for _, s in ipairs(entry.ranScopes) do if s.ran then ranCount = ranCount + 1 end end
-        local marker
-        if totalCount == 0 then
-            marker = "|cffaaaaaa(no targets)|r"
-        elseif ranCount == totalCount then
-            marker = "|cff00ff00OK|r"
-        elseif ranCount == 0 then
-            marker = "|cffff8800PENDING|r"
-        else
-            marker = string.format("|cffffff00%d/%d|r", ranCount, totalCount)
-        end
-        print(string.format("  [%s] %s (%s)", marker, entry.id, entry.scope))
-        if entry.description ~= "" then
-            print("      |cffaaaaaa" .. entry.description .. "|r")
-        end
-    end
-    if #status.errors > 0 then
-        print(string.format("|cffff4444Errors this session: %d|r", #status.errors))
-        for _, e in ipairs(status.errors) do
-            print(string.format("  |cffff4444[%s]|r %s", e.id, e.err))
-        end
-    else
-        print("|cff00ff00No errors this session.|r")
-    end
-end
-
 --------------------------------------------------------------------------------
 --  Position snap helpers
 --  File-scope helpers used by the position_snap_v3 migration below AND
@@ -3987,12 +3899,7 @@ do
         disabledSpecs = true, enabled = true,
     }
 
-    local function DeepCopyT(src)
-        if type(src) ~= "table" then return src end
-        local out = {}
-        for k, v in pairs(src) do out[k] = DeepCopyT(v) end
-        return out
-    end
+    local DeepCopyT = EllesmereUI.Lite.DeepCopy
 
     local function DeepEq(a, b)
         if a == b then return true end
@@ -4363,6 +4270,171 @@ EllesmereUI.RegisterMigration({
                 local qol = addons["EllesmereUIQoL"]
                 if type(qol) == "table" then qol.chars = nil end
             end
+        end
+    end,
+})
+
+-- The options panel is pinned to physical pixels (baseScale =
+-- GetScreenWidth()/physW) so it holds a constant physical size and does NOT
+-- follow the UI Scale slider. That reads fine at 1080p, but above it the same
+-- pixel count covers far less of the screen: the panel arrives small and the
+-- UI Scale slider appears to do nothing to it. New installs seed panelScale
+-- from the display height in EllesmereUI_Startup.lua; this brings existing
+-- displays onto the same value.
+--
+-- 1440p is the reference: a panel of H units covers H*panelScale/physH of the
+-- screen, so physH/1440 reproduces 1440p's screen fraction anywhere. 4K seeds
+-- 1.5 and reads exactly like a 2K monitor.
+--
+-- The two halves are deliberately asymmetric, because "the user picked this"
+-- means different things above and below the reference:
+--
+--   ABOVE 1440p -- ONE-TIME RESET, overwriting whatever is stored. On these
+--   displays the old default (1.0) rendered the panel at a fraction of the
+--   reference size, so a raised value there is a WORKAROUND for that bug, not
+--   a preference, and leaving it would strand the user on a stale compensation
+--   now that the default is correct (and oversized, since popups no longer
+--   scale quadratically with it). Migrations stamp done and never run again,
+--   so this fires exactly once; anything chosen afterwards is kept forever.
+--
+--   AT OR BELOW 1440p -- nothing was ever broken, the seed is 1.0 anyway, and a
+--   stored value can only be a genuine preference. Left alone, except for
+--   residue from a v1 seed (physH/1080) that went out in pre-release branch
+--   builds and never in a release: a value matching v1's output ON a save
+--   carrying v1's stamp is that seed's leftover rather than a choice.
+EllesmereUI.RegisterMigration({
+    id          = "panel_scale_highdpi_reset_v3",
+    scope       = "global",
+    description = "Reset the options-panel scale on displays above 1440p to the corrected default, and seed it elsewhere.",
+    body        = function(ctx)
+        local db = ctx.db
+        if not db then return end
+        local _, physH = GetPhysicalScreenSize()
+        if type(physH) ~= "number" or physH <= 0 then return end
+        -- Snap BEFORE the reset test, not after. The dropdown only offers fixed
+        -- steps, so an off-menu seed (1600p lands on 1.111) leaves the control
+        -- reading "Normal (100%)" while the panel renders larger, and the user
+        -- is snapped the moment they open it. Testing the SNAPPED value also
+        -- keeps the reset honest: a display close enough to the reference that
+        -- it rounds back to 1.00 has nothing to correct, so it must not fire
+        -- the overwrite branch and clobber a genuine preference.
+        local seeded = math.max(1, math.min(physH / 1440, 2))
+        if EllesmereUI.SnapPanelScale then seeded = EllesmereUI.SnapPanelScale(seeded) end
+
+        if seeded > 1 then
+            -- Above the reference: one-time reset (see above).
+            db.panelScale = seeded
+            return
+        end
+
+        -- At or below the reference: only fill in an unset/default value, or
+        -- clear v1 residue.
+        local cur = db.panelScale
+        local isDefault = (cur == nil or cur == 1.0)
+        local v1Ran = db._migrations and db._migrations.panel_scale_highdpi_seed_v1
+        local oldSeed = math.max(1, math.min(physH / 1080, 2))
+        local isV1Residue = v1Ran and cur ~= nil and math.abs(cur - oldSeed) < 0.001
+        if not isDefault and not isV1Residue then return end
+        if seeded ~= (cur or 1.0) then db.panelScale = seeded end
+    end,
+})
+
+--------------------------------------------------------------------------------
+--  Player castbar spell target -> None. The player castbar never rendered the
+--  spell target before the display fix (an "and ownerUnit ~= 'player'" guard
+--  swallowed it), so any inherited or explicitly-set side would make the text
+--  pop in on update. Pin existing profiles to None; the player default is now
+--  false too, so only users who opt back in see it.
+--------------------------------------------------------------------------------
+EllesmereUI.RegisterMigration({
+    id          = "uf_player_cast_target_none_v1",
+    scope       = "profile",
+    description = "Pin the player castbar's spell target to None (it never displayed before the fix).",
+    body = function(ctx)
+        local uf = ctx.profile.addons and ctx.profile.addons.EllesmereUIUnitFrames
+        local p = uf and uf.player
+        if type(p) == "table" then p.showCastTarget = false end
+    end,
+})
+
+--------------------------------------------------------------------------------
+--  Raid Frames: dispellableDebuff* keys moved party-sync sections
+--
+--  Their controls are drawn under the DISPELS header but the keys were filed
+--  under "debuffDisplay", so on the Party tab they were editable whenever
+--  Dispels was unsynced while the write routed through Debuff Display. They now
+--  file under "dispels".
+--
+--  Writing one required BOTH sections custom, but re-syncing DISPELS afterwards
+--  only deleted keys mapped to "dispels", so these could survive as a live
+--  override under a custom Debuff Display with Dispels synced. Under the new
+--  mapping that value would go dormant; the mirror case (dormant under a synced
+--  Debuff Display, live once Dispels is custom) would switch on.
+--
+--  Clear the override whenever its live/dormant state would flip. In the
+--  flip-to-live case that preserves exactly what the party renders today; in
+--  the flip-to-dormant case the party inherits raid either way, and clearing
+--  stops the value reviving later. An override live in BOTH mappings (both
+--  sections custom, the normal case) is left untouched.
+--------------------------------------------------------------------------------
+EllesmereUI.RegisterMigration({
+    id          = "rf_dispellable_debuff_party_section_v1",
+    scope       = "profile",
+    description = "Clear dispellableDebuff* party overrides whose live/dormant state would flip when the keys moved to the Dispels sync section.",
+    body = function(ctx)
+        local rf = ctx.profile.addons and ctx.profile.addons.EllesmereUIRaidFrames
+        if type(rf) ~= "table" then return end
+        local ss = type(rf.partySyncSections) == "table" and rf.partySyncSections or nil
+        local wasLive    = (ss and ss.debuffDisplay == false) and true or false
+        local willBeLive = (ss and ss.dispels       == false) and true or false
+        if wasLive == willBeLive then return end
+        rf.party_dispellableDebuffLocation      = nil
+        rf.party_dispellableDebuffGrowDirection = nil
+        rf.party_dispellableDebuffOffsetX       = nil
+        rf.party_dispellableDebuffOffsetY       = nil
+        rf.party_dispellableDebuffSize          = nil
+    end,
+})
+
+--------------------------------------------------------------------------------
+--  Raid Frames: threatBorderSize moved party-sync sections
+--
+--  The "Threat Borders" slider is drawn on the Health Bar row but the key was
+--  filed under the Indicators party-sync section, so editing it on the Party
+--  tab wrote the shared raid value. The key now files under "healthBar", which
+--  matches where its control lives.
+--
+--  Writing party_threatBorderSize through the UI required both sections custom,
+--  but the legacy showThreat -> slider conversion writes it directly, bypassing
+--  that gate. So the override can be live under one mapping and dormant under
+--  the other, in either direction. Clear it whenever that state would flip: in
+--  the flip-to-live case that preserves exactly what party renders today, and
+--  in the flip-to-dormant case party inherits raid either way while clearing
+--  stops the value reviving later. An override live under BOTH mappings (the
+--  normal both-custom case) is left untouched.
+--------------------------------------------------------------------------------
+EllesmereUI.RegisterMigration({
+    id          = "rf_threat_border_party_section_v2",
+    scope       = "profile",
+    description = "Clear a party threat border override whose live/dormant state would flip when threatBorderSize moved to the Health Bar sync section.",
+    body = function(ctx)
+        local rf = ctx.profile.addons and ctx.profile.addons.EllesmereUIRaidFrames
+        if type(rf) ~= "table" then return end
+        -- Consume the legacy party conversion HERE. ERF:OnInitialize performs
+        -- the same rewrite, but child addons initialize after the parent's
+        -- ADDON_LOADED, so deferring to it would let a dormant 0 land after
+        -- this body had already decided and stamped. Clearing the flag makes
+        -- that later block a no-op; the raid showThreat key is untouched.
+        if rf.party_showThreat ~= nil then
+            if rf.party_showThreat == false then rf.party_threatBorderSize = 0 end
+            rf.party_showThreat = nil
+        end
+        if rf.party_threatBorderSize == nil then return end
+        local ss = type(rf.partySyncSections) == "table" and rf.partySyncSections or nil
+        local wasLive    = (ss and ss.indicators == false) and true or false
+        local willBeLive = (ss and ss.healthBar  == false) and true or false
+        if wasLive ~= willBeLive then
+            rf.party_threatBorderSize = nil
         end
     end,
 })

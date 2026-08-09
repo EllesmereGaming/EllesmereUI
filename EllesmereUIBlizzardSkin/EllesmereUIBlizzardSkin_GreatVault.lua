@@ -30,7 +30,6 @@ local STYLE = {
         icon = 2,
     },
     sizes = {
-        buttonFont = 10,
         itemName = 10,
         threshold = 10,
         progress = 11,
@@ -51,8 +50,6 @@ local STYLE = {
         selectedBorder = 0.75,
         activityUnlockedBorder = 0.45,
         activityLockedBorder = 0.15,
-        buttonEnabledBorder = 0.5,
-        buttonDisabledBackground = 0.55,
         overlayText = 0.9,
         warningText = 0.85,
         progressRewardFill = 0.95,
@@ -65,13 +62,9 @@ local STYLE = {
         progressUnlockedText = 0.9,
         rewardsLabel = 0.75,
         itemName = 0.95,
-        buttonHighlight = 0.08,
     },
     colors = {
         white = { r = 1, g = 1, b = 1 },
-        buttonBackground = { r = 0x18/255, g = 0x14/255, b = 0x11/255, a = 1 },
-        buttonDisabledText = { r = 0.45, g = 0.45, b = 0.45, a = 1 },
-        buttonDisabledBorder = { r = 0.35, g = 0.35, b = 0.35, a = 0.4 },
         itemSlotBackground = { r = 0.5, g = 0.5, b = 0.5, a = 0.7 },
         itemDefaultBorder = { r = 0.4, g = 0.4, b = 0.4, a = 1 },
         progressInactive = { r = 0.55, g = 0.55, b = 0.55, a = 1 },
@@ -131,17 +124,6 @@ local function SuppressTexture(texture)
             self:Hide()
             self:SetAlpha(0)
         end)
-    end
-end
-
-local function StripFrameRegions(frame)
-    if not frame then return end
-
-    for i = 1, select("#", frame:GetRegions()) do
-        local region = select(i, frame:GetRegions())
-        if region and region:IsObjectType("Texture") and not region._euiOwned then
-            region:SetAlpha(0)
-        end
     end
 end
 
@@ -409,51 +391,6 @@ local function SuppressItemButtonChrome(itemFrame)
     end
 end
 
-local function HideButtonTextures(button)
-    if not button then return end
-
-    StripFrameRegions(button)
-    if button.Left then button.Left:SetAlpha(0) end
-    if button.Middle then button.Middle:SetAlpha(0) end
-    if button.Right then button.Right:SetAlpha(0) end
-    if button.Background then button.Background:SetAlpha(0) end
-end
-
-local function EnsureButtonChrome(button, theme)
-    if not button then return end
-    local d = GetFFD(button)
-    if d.styled then return end
-
-    d.styled = true
-    HideButtonTextures(button)
-
-    for _, key in ipairs({ "Left", "Middle", "Right" }) do
-        local texture = button[key]
-        if texture and texture.SetAlpha then
-            hooksecurefunc(texture, "SetAlpha", function(self, alpha)
-                if alpha and alpha > 0 then
-                    self:SetAlpha(0)
-                end
-            end)
-        end
-    end
-
-    local bg = button:CreateTexture(nil, "BACKGROUND", nil, -6)
-    bg:SetAllPoints()
-    bg._euiOwned = true
-    d.bg = bg
-
-    local highlight = button:CreateTexture(nil, "HIGHLIGHT")
-    highlight:SetAllPoints()
-    highlight._euiOwned = true
-    d.highlight = highlight
-
-    local pp = theme.borderAPI
-    if pp and pp.CreateBorder then
-        pp.CreateBorder(button, 1, 1, 1, theme.reskin.BRD_ALPHA, 1, "OVERLAY", 7)
-    end
-end
-
 local function ApplyStoredAnchorOffset(frame, cacheKey, offsetX, offsetY)
     if not frame then return end
 
@@ -493,44 +430,21 @@ end
 -------------------------------------------------------------------------------
 --  Component Stylers
 -------------------------------------------------------------------------------
-local function RefreshButtonState(button, theme)
+local function RefreshButtonState(button)
     if not button then return end
-
-    EnsureButtonChrome(button, theme)
-    HideButtonTextures(button)
-
-    local d = GetFFD(button)
-    if not d.sizeAdjusted then
-        d.sizeAdjusted = true
-        local w, h = button:GetSize()
-        if w and w > 0 and h and h > 0 then
-            button:SetSize(w + 4, h + 4)
-        end
-    end
-    ApplyColorTexture(d.bg, STYLE.colors.buttonBackground)
-    ApplyColorTexture(d.highlight, STYLE.colors.white, STYLE.alpha.buttonHighlight)
-
-    local fontString = button.GetFontString and button:GetFontString()
-    local enabled = not button.IsEnabled or button:IsEnabled()
-
-    if fontString then
-        if enabled then
-            ApplyFont(fontString, theme, STYLE.sizes.buttonFont, theme.accent.r, theme.accent.g, theme.accent.b, 1)
-        else
-            local disabledText = STYLE.colors.buttonDisabledText
-            ApplyFont(fontString, theme, STYLE.sizes.buttonFont, disabledText.r, disabledText.g, disabledText.b, disabledText.a)
-        end
-    end
-
-    if d.bg then
-        d.bg:SetAlpha(enabled and 1 or 0.9)
-    end
-
-    if enabled then
-        SetBorderColor(button, theme, theme.accent, STYLE.alpha.buttonEnabledBorder)
-    else
-        local disabledBorder = STYLE.colors.buttonDisabledBorder
-        SetBorderColor(button, theme, disabledBorder, disabledBorder.a)
+    -- Engine button treatment: flat theme block, 1px border, white hover, and
+    -- a label that mirrors the enabled/disabled state. Idempotent, so calling
+    -- it from every refresh pass is free after the first.
+    local WSkin = ns.WSkin
+    if not WSkin or not WSkin.Button then return end
+    WSkin.Button(button)
+    WSkin.StateButtonLabel(button)
+    -- Fully opaque fill: the engine block carries the theme backdrop's
+    -- translucency, which reads washed out over the vault scene.
+    local d = WSkin.GetFFD and WSkin.GetFFD(button)
+    local theme = WSkin.Theme
+    if d and d.bg and theme then
+        d.bg:SetColorTexture(theme.bgR or 0, theme.bgG or 0, theme.bgB or 0, 1)
     end
 end
 
@@ -845,6 +759,9 @@ local function RefreshWarningDialogState(frame, theme)
     if frame.Description then
         ApplyFont(frame.Description, theme, STYLE.sizes.warningText, 1, 1, 1, STYLE.alpha.warningText)
     end
+    -- Any standard buttons on the dialog get the engine treatment too
+    -- (depth-capped, no-op when there are none).
+    if ns.WSkin and ns.WSkin.ButtonsIn then ns.WSkin.ButtonsIn(frame) end
 end
 
 -------------------------------------------------------------------------------
@@ -870,18 +787,16 @@ RefreshGreatVaultFrame = function(frame)
     if not frame or frame:IsForbidden() or not frame:IsShown() or not IsGreatVaultSkinEnabled() then return end
 
     local theme = BuildThemeContext()
-    local pp = theme.borderAPI
 
-    -- PP border overlay on main frame (our own frame, not touching Blizzard's)
+    -- Window border: the engine's shared atlas frame, so the vault carries the
+    -- same soft-edged border as every other Window Skins pack. The 0.2 darken
+    -- wash that tames the vault scene stays, on our own overlay frame.
     local d = GetFFD(frame)
     if not d.borderOverlay then
         local overlay = CreateFrame("Frame", nil, frame)
         overlay:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, -8)
         overlay:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -10, 8)
         overlay:SetFrameLevel(frame:GetFrameLevel() + 2)
-        if pp and pp.CreateBorder then
-            pp.CreateBorder(overlay, 1, 1, 1, theme.reskin.BRD_ALPHA, 2, "OVERLAY", 7)
-        end
 
         local darken = overlay:CreateTexture(nil, "BACKGROUND", nil, 1)
         darken:SetAllPoints()
@@ -889,6 +804,15 @@ RefreshGreatVaultFrame = function(frame)
         darken._euiOwned = true
 
         d.borderOverlay = overlay
+    end
+    -- The atlas border hangs on the inset overlay, not the frame: the vault
+    -- frame's bounds extend ~10px past its visible panel, so a border on the
+    -- frame itself draws off the panel edge. At half opacity so it sits back
+    -- against the vault scene.
+    if ns.WSkin and ns.WSkin.AtlasBorder then
+        ns.WSkin.AtlasBorder(d.borderOverlay)
+        local ab = ns.WSkin.GetFFD and ns.WSkin.GetFFD(d.borderOverlay).atlasBorderFrame
+        if ab then ab:SetAlpha(0.65) end
     end
 
     -- Hide Blizzard's border decorations
@@ -958,33 +882,11 @@ RefreshGreatVaultFrame = function(frame)
         STYLE.offsets.selectRewardButton.x,
         STYLE.offsets.selectRewardButton.y
     )
-    RefreshButtonState(frame.SelectRewardButton, theme)
+    RefreshButtonState(frame.SelectRewardButton)
 
-    -- Close button
-    local closeBtn = frame.CloseButton
-    if closeBtn then
-        local cbd = GetFFD(closeBtn)
-        if not cbd.styled then
-            cbd.styled = true
-            StripFrameRegions(closeBtn)
-            if closeBtn.NormalTexture then closeBtn.NormalTexture:SetAlpha(0) end
-            if closeBtn.PushedTexture then closeBtn.PushedTexture:SetAlpha(0) end
-            if closeBtn.HighlightTexture then closeBtn.HighlightTexture:SetAlpha(0) end
-            if closeBtn.DisabledTexture then closeBtn.DisabledTexture:SetAlpha(0) end
-
-            cbd.x = closeBtn:CreateTexture(nil, "OVERLAY")
-            cbd.x:SetAtlas("uitools-icon-close")
-            cbd.x:SetSize(14, 14)
-            cbd.x:SetPoint("CENTER", -2, 0)
-            cbd.x:SetVertexColor(1, 1, 1, 0.75)
-
-            closeBtn:HookScript("OnEnter", function()
-                GetFFD(closeBtn).x:SetVertexColor(1, 1, 1, 1)
-            end)
-            closeBtn:HookScript("OnLeave", function()
-                GetFFD(closeBtn).x:SetVertexColor(1, 1, 1, 0.75)
-            end)
-        end
+    -- Close button: engine primitive, same X glyph and hover as every pack.
+    if frame.CloseButton and ns.WSkin and ns.WSkin.CloseButton then
+        ns.WSkin.CloseButton(frame.CloseButton)
     end
 
     RefreshOverlayState(frame.Overlay, theme)

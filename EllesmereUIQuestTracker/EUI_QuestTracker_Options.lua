@@ -120,7 +120,7 @@ initFrame:SetScript("OnEvent", function(self)
               values={ __placeholder = "..." }, order={ "__placeholder" },
               getValue=function() return "__placeholder" end,
               setValue=function() end })
-        do
+        if not EllesmereUI._prebuilding then
             local rightRgn = visRow._rightRegion
             if rightRgn._control then rightRgn._control:Hide() end
             local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
@@ -148,7 +148,7 @@ initFrame:SetScript("OnEvent", function(self)
               order  = { "always", "boss" },
               getValue=function() return Cfg("hideInRaidMode") or "boss" end,
               setValue=function(v) Set("hideInRaidMode", v); if EQT.UpdateVisibility then EQT.UpdateVisibility() end end })
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = bgRow._leftRegion
             local ctrl = rgn._control
             local bgSwatch, bgSwatchRefresh = EllesmereUI.BuildColorSwatch(
@@ -262,8 +262,10 @@ initFrame:SetScript("OnEvent", function(self)
                 PP.Point(sw, "RIGHT", rgn, "RIGHT", -20, 0)
                 EllesmereUI.RegisterWidgetRefresh(function() swRefresh() end)
             end
+            if not EllesmereUI._prebuilding then
             wire(r._leftRegion,  leftKeys,  leftDefault)
             if rightKeys then wire(r._rightRegion, rightKeys, rightDefault) end
+            end
             return r, rowH
         end
 
@@ -346,6 +348,7 @@ initFrame:SetScript("OnEvent", function(self)
                 { type="label", text="Focused Color" },
                 { type="multiSwatch", text="Header Color",
                   swatches = { hClass, hCustom, hAccent } })
+            if not EllesmereUI._prebuilding then
             local sw, swRefresh = EllesmereUI.BuildColorSwatch(
                 r._leftRegion, r:GetFrameLevel() + 3,
                 function() return (Cfg("focusR") or 0.871), (Cfg("focusG") or 0.251), (Cfg("focusB") or 1.0) end,
@@ -353,6 +356,7 @@ initFrame:SetScript("OnEvent", function(self)
                 false, 20)
             PP.Point(sw, "RIGHT", r._leftRegion, "RIGHT", -20, 0)
             EllesmereUI.RegisterWidgetRefresh(function() swRefresh() end)
+            end
             h = rowH
         end
         y = y - h
@@ -379,7 +383,7 @@ initFrame:SetScript("OnEvent", function(self)
             { type="toggle", text="Auto Turn In Quests",
               getValue=function() return Cfg("autoTurnIn") or false end,
               setValue=function(v) Set("autoTurnIn", v) end })
-        do
+        if not EllesmereUI._prebuilding then
             local lrgn = row._leftRegion
             local _, cogShowL = EllesmereUI.BuildCogPopup({
                 title = "Auto Accept Settings",
@@ -412,7 +416,7 @@ initFrame:SetScript("OnEvent", function(self)
         kbRow, h = W:DualRow(parent, y,
             { type="label", text="" },
             { type="label", text="" })
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = kbRow._leftRegion
             local SIDE_PAD = 20
             local KB_W, KB_H = 120, 26
@@ -436,7 +440,7 @@ initFrame:SetScript("OnEvent", function(self)
             kbLbl:SetPoint("CENTER")
 
             local function FormatKey(key)
-                if not key or key == "" then return "Not Bound" end
+                if not key or key == "" then return EllesmereUI.L("Not Bound") end
                 local parts = {}
                 for mod in key:gmatch("(%u+)%-") do
                     parts[#parts + 1] = mod:sub(1, 1) .. mod:sub(2):lower()
@@ -464,19 +468,50 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             kbBtn:SetScript("OnKeyDown", function(self, key)
                 if not listening then self:SetPropagateKeyboardInput(true); return end
-                if key == "LSHIFT" or key == "RSHIFT" or key == "LCTRL" or key == "RCTRL"
-                   or key == "LALT" or key == "RALT" then
+                -- Blizzard's own test, which also covers LMETA/RMETA and
+                -- UNKNOWN. The hardcoded list missed the Windows/Command key,
+                -- so pressing it stored a modifier-only chord (or an empty
+                -- string) and closed the listener as if a key had been chosen.
+                local ignore
+                if IsKeyPressIgnoredForBinding then
+                    ignore = IsKeyPressIgnoredForBinding(key)
+                else
+                    ignore = (key == "LSHIFT" or key == "RSHIFT"
+                        or key == "LCTRL" or key == "RCTRL"
+                        or key == "LALT" or key == "RALT"
+                        or key == "LMETA" or key == "RMETA"
+                        or key == "UNKNOWN")
+                end
+                if ignore then
                     self:SetPropagateKeyboardInput(true); return
                 end
                 self:SetPropagateKeyboardInput(false)
                 if key == "ESCAPE" then
                     listening = false; self:EnableKeyboard(false); RefreshLabel(); return
                 end
-                local mods = ""
-                if IsShiftKeyDown() then mods = mods .. "SHIFT-" end
-                if IsControlKeyDown() then mods = mods .. "CTRL-" end
-                if IsAltKeyDown() then mods = mods .. "ALT-" end
-                local fullKey = mods .. key
+                -- Blizzard's canonical chord order is ALT-CTRL-SHIFT-KEY, and
+                -- CreateKeyChordStringUsingMetaKeyState is what produces it.
+                -- Hand-rolling the modifiers built SHIFT-CTRL-ALT-KEY, a chord
+                -- string the engine never generates, so any bind using more
+                -- than one modifier was stored in a form nothing could match.
+                -- Single-modifier binds happen to agree, which is why this
+                -- survived.
+                local fullKey
+                if CreateKeyChordStringUsingMetaKeyState then
+                    fullKey = CreateKeyChordStringUsingMetaKeyState(key)
+                else
+                    -- Mirror the helper's order exactly, META included.
+                    -- Dropping META would store CMD+F as plain "F" and then
+                    -- priority-override the bare key.
+                    local mods = ""
+                    if IsAltKeyDown() then mods = mods .. "ALT-" end
+                    if IsControlKeyDown() then mods = mods .. "CTRL-" end
+                    if IsShiftKeyDown() then mods = mods .. "SHIFT-" end
+                    if IsMetaKeyDown and IsMetaKeyDown() then
+                        mods = mods .. "META-"
+                    end
+                    fullKey = mods .. key
+                end
                 Set("questItemHotkey", fullKey)
                 if EQT.ApplyQuestItemHotkey then EQT.ApplyQuestItemHotkey() end
                 listening = false

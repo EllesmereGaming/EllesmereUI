@@ -384,19 +384,3 @@ function ns.TBBDecimals_Sync()
     signature = container and sig or nil
 end
 
--- Diagnostic: /tbbdec prints each stage of the binding chain so a silent
--- failure (empty desired set, rejected formatter, missing container, unbound
--- slots) is identifiable in one run without guesswork.
-SLASH_EUITBBDEC1 = "/tbbdec"
-SlashCmdList.EUITBBDEC = function()
-    AK = AK or (EllesmereUI and EllesmereUI.AuraKit)
-    print("|cff0cd29fTBB Decimals|r diag:")
-    print("  AuraKit:", AK and "ok" or "MISSING")
-    print("  formatter:", GetDecimalFormatter(5) and "ok" or "REJECTED")
-    local desired, sig = CollectDesired()
-    print("  desired bars:", desired and #desired or 0, "| sig:", sig ~= "" and sig or "(none)")
-    print("  container:", container and "live" or "nil", "| applied sig:", signature or "(none)")
-    local n = 0
-    for _ in pairs(boundIndex) do n = n + 1 end
-    print("  bound slots:", n, "| pendingRegen:", tostring(pendingRegen))
-end

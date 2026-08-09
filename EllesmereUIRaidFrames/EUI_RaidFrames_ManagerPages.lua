@@ -24,9 +24,9 @@ local TILE_H = 66 -- Buff Manager sidebar tile height (visual parity)
 
 local POS_VALUES = { topleft = "Top Left", top = "Top", topright = "Top Right", left = "Left",
     center = "Center", right = "Right", bottomleft = "Bottom Left", bottom = "Bottom", bottomright = "Bottom Right" }
-local POS_ORDER = { "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright" }
-local GROW_VALUES = { RIGHT = "Right", LEFT = "Left", UP = "Up", DOWN = "Down", CENTER = "Center" }
-local GROW_ORDER = { "RIGHT", "LEFT", "UP", "DOWN", "CENTER" }
+local POS_ORDER = EllesmereUI.POSITION_GRID_ORDER
+local GROW_VALUES = EllesmereUI.GROW_DIR_VALUES_FULL
+local GROW_ORDER = EllesmereUI.GROW_DIR_ORDER_FULL
 
 local CAT_VALUES = { boss = "Boss", role = "Role", priority = "Important",
     cc = "Crowd Control", raid = "Raid", raidcombat = "Raid In Combat", dispel = "Dispellable" }
@@ -535,7 +535,7 @@ local function TileSubtitle(t)
     local names = {}
     if t.claim then
         for _, cat in ipairs(CAT_ORDER) do
-            if t.claim[cat] then names[#names + 1] = CAT_VALUES[cat] end
+            if t.claim[cat] then names[#names + 1] = L(CAT_VALUES[cat]) end
         end
     end
     if #names == 0 then return L("No filters routed") end
@@ -2438,8 +2438,8 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
 
     -- Eyeball toggle: show all tiles at full opacity (BM parity)
     do
-        local EYE_VIS = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
-        local EYE_INVIS = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+        local EYE_VIS = EllesmereUI.EYE_VISIBLE_ICON
+        local EYE_INVIS = EllesmereUI.EYE_INVISIBLE_ICON
         ns._dmAllVisible = ns._dmAllVisible or false
 
         local eyeBtn = CreateFrame("Button", nil, leftFixed)
@@ -2641,9 +2641,7 @@ local function Bm2Apply()
     if ns.ReloadFrames then ns.ReloadFrames() end
 end
 
-local CLASS_ORDER = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST",
-    "DEATHKNIGHT", "SHAMAN", "MAGE", "WARLOCK", "MONK", "DRUID",
-    "DEMONHUNTER", "EVOKER" }
+local CLASS_ORDER = EllesmereUI.CLASS_TOKEN_ORDER
 
 local function SpellLabel(id)
     local name = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id)

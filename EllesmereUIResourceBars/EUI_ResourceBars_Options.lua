@@ -138,11 +138,7 @@ initFrame:SetScript("OnEvent", function(self)
     --  of PixelUtil, which snaps to screen pixels and can disagree with the
     --  preview's own pixel grid at certain panel scales.
     ---------------------------------------------------------------------------
-    local function UnsnapTex(tex)
-        if tex.SetSnapToPixelGrid then
-            tex:SetSnapToPixelGrid(false); tex:SetTexelSnappingBias(0)
-        end
-    end
+    local UnsnapTex = EllesmereUI.PP.DisablePixelSnap
 
     -- Snap helper created per-preview-build so it reads the correct effective scale
     local _previewSnap  -- set in _previewHeaderBuilder
@@ -3005,7 +3001,9 @@ initFrame:SetScript("OnEvent", function(self)
                   c.orientation = v; Refresh()
               end }
         );  y = y - h
+        if not EllesmereUI._prebuilding then
         AddFormBarBtn(healthEnableRow._leftRegion, cfg, RebuildHealth)
+        end
 
         -- (Per-spec enable picker removed: per-spec enables now live in Spec
         -- Overrides -- capture "Show Health Bar" while editing as a group.)
@@ -3052,7 +3050,7 @@ initFrame:SetScript("OnEvent", function(self)
         if not ctx.advanced and ctx.syncRows then
             ctx.syncRows.healthHeight = healthSizeRow._leftRegion
             ctx.syncRows.healthWidth  = healthSizeRow._rightRegion
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = healthSizeRow._leftRegion
                 EllesmereUI.BuildSyncIcon({
                     region  = rgn,
@@ -3071,7 +3069,7 @@ initFrame:SetScript("OnEvent", function(self)
                     flashTargets = function() return { ctx.syncRows.healthHeight, ctx.syncRows.classHeight, ctx.syncRows.powerHeight } end,
                 })
             end
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = healthSizeRow._rightRegion
                 EllesmereUI.BuildSyncIcon({
                     region  = rgn,
@@ -3126,7 +3124,7 @@ initFrame:SetScript("OnEvent", function(self)
                       EllesmereUI:RefreshPage()
                   end });  y = y - h
             -- Inline color swatch on Border Size (right region)
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = hpBsRow._rightRegion
                 local ctrl = rgn._control
                 local borderSwatch, updateBorderSwatch = EllesmereUI.BuildColorSwatch(
@@ -3157,7 +3155,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUI.RegisterWidgetRefresh(UpdateBorderSwDis)
                 UpdateBorderSwDis()
             end
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = hpBsRow._leftRegion
                 local _, cogShow = EllesmereUI.BuildCogPopup({
                     title = "Border Offset",
@@ -3230,6 +3228,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- Cross-bar "apply to all" sync icons -- Simple only.
             if not ctx.advanced and ctx.syncRows then
                 ctx.syncRows.healthBorder = hpBsRow._rightRegion
+                if not EllesmereUI._prebuilding then
                 EllesmereUI.BuildSyncIcon({
                     region  = hpBsRow._leftRegion,
                     tooltip = "Apply Border Style to all Bars",
@@ -3279,6 +3278,7 @@ initFrame:SetScript("OnEvent", function(self)
                     end,
                     flashTargets = function() return { ctx.syncRows.healthBorder, ctx.syncRows.classBorder, ctx.syncRows.powerBorder } end,
                 })
+                end
             end
         end
 
@@ -3308,6 +3308,7 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
         -- Inline swatches on Fill Color (gradient end / custom / class)
+        if not EllesmereUI._prebuilding then
         EllesmereUI.BuildInlineSwatches(healthBorderRow._rightRegion, {
                 { tooltip = "Gradient End Color", hasAlpha = true,
                   disabled = function()
@@ -3380,8 +3381,10 @@ initFrame:SetScript("OnEvent", function(self)
                       return isClassColored and 1 or 0.3
                   end },
         }, { disabled = healthOff, disabledTooltip = "Health Bar" })
+        end
         if not ctx.advanced and ctx.syncRows then
             ctx.syncRows.healthOpacity = healthBorderRow._leftRegion
+            if not EllesmereUI._prebuilding then
             local rgn = healthBorderRow._leftRegion
             EllesmereUI.BuildSyncIcon({
                 region  = rgn,
@@ -3399,9 +3402,10 @@ initFrame:SetScript("OnEvent", function(self)
                 end,
                 flashTargets = function() return { ctx.syncRows.healthOpacity, ctx.syncRows.classOpacity, ctx.syncRows.powerOpacity } end,
             })
+            end
         end
         -- Inline cog on Fill Color for gradient settings
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = healthBorderRow._rightRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Fill Settings",
@@ -3444,7 +3448,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Out of Combat Opacity: inline cog on the Opacity slider. Dims the Health
         -- bar to this alpha while out of combat (100 = no fade). Applied via
         -- ns.ResolveBarAlpha in UpdateVisibility; reacts to combat.
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = healthBorderRow._leftRegion
             local _, oocCogShow = EllesmereUI.BuildCogPopup({
                 title = "Out of Combat Opacity",
@@ -3560,7 +3564,7 @@ initFrame:SetScript("OnEvent", function(self)
               } }
         );  y = y - h
         -- Inline cog (RESIZE) on Health Text for x/y offsets
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = healthTextSizeRow._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Health Text",
@@ -3663,6 +3667,7 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
+        if not EllesmereUI._prebuilding then
         local healthSettingsBtn = BuildThresholdSettingsButton({
             parentRgn = healthColorRow._rightRegion,
             getBarData = function() return cfg() end,
@@ -3686,9 +3691,10 @@ initFrame:SetScript("OnEvent", function(self)
             refreshFn = function() RebuildHealth() end,
             popupTitle = EllesmereUI.L("Health Bar Hash Lines"),
         })
+        end
         -- Thresholds have their own per-spec system: lock the slot whenever a
         -- Spec Overrides editing session is active.
-        if EllesmereUI.SpecOverrides_AttachEditLock then
+        if EllesmereUI.SpecOverrides_AttachEditLock and not EllesmereUI._prebuilding then
             EllesmereUI.SpecOverrides_AttachEditLock(healthColorRow._rightRegion,
                 "Thresholds have their own per-spec system and can't be edited while editing a spec group")
         end
@@ -3789,7 +3795,9 @@ initFrame:SetScript("OnEvent", function(self)
                   c.orientation = v; Refresh()
               end }
         );  y = y - h
+        if not EllesmereUI._prebuilding then
         AddFormBarBtn(powerEnableRow._leftRegion, cfg, RebuildPower)
+        end
 
         -- (Per-spec enable picker removed: per-spec enables now live in Spec
         -- Overrides -- capture "Show Power Bar" while editing as a group.)
@@ -3832,7 +3840,7 @@ initFrame:SetScript("OnEvent", function(self)
         if not ctx.advanced and ctx.syncRows then
             ctx.syncRows.powerHeight = powerSizeRow._leftRegion
             ctx.syncRows.powerWidth  = powerSizeRow._rightRegion
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = powerSizeRow._leftRegion
                 EllesmereUI.BuildSyncIcon({
                     region  = rgn,
@@ -3851,7 +3859,7 @@ initFrame:SetScript("OnEvent", function(self)
                     flashTargets = function() return { ctx.syncRows.powerHeight, ctx.syncRows.classHeight, ctx.syncRows.healthHeight } end,
                 })
             end
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = powerSizeRow._rightRegion
                 EllesmereUI.BuildSyncIcon({
                     region  = rgn,
@@ -3903,7 +3911,7 @@ initFrame:SetScript("OnEvent", function(self)
                       c.borderSize = v; RebuildPower()
                       EllesmereUI:RefreshPage()
                   end });  y = y - h
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = pwrBsRow._rightRegion
                 local ctrl = rgn._control
                 local borderSwatch, updateBorderSwatch = EllesmereUI.BuildColorSwatch(
@@ -3934,7 +3942,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUI.RegisterWidgetRefresh(UpdateBorderSwDis)
                 UpdateBorderSwDis()
             end
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = pwrBsRow._leftRegion
                 local _, cogShow = EllesmereUI.BuildCogPopup({
                     title = "Border Offset",
@@ -4006,6 +4014,7 @@ initFrame:SetScript("OnEvent", function(self)
             end
             if not ctx.advanced and ctx.syncRows then
                 ctx.syncRows.powerBorder = pwrBsRow._rightRegion
+                if not EllesmereUI._prebuilding then
                 EllesmereUI.BuildSyncIcon({
                     region  = pwrBsRow._leftRegion,
                     tooltip = "Apply Border Style to all Bars",
@@ -4055,6 +4064,7 @@ initFrame:SetScript("OnEvent", function(self)
                     end,
                     flashTargets = function() return { ctx.syncRows.powerBorder, ctx.syncRows.classBorder, ctx.syncRows.healthBorder } end,
                 })
+                end
             end
         end
 
@@ -4082,6 +4092,7 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
         -- Inline swatches on Fill Color (gradient end / custom / power)
+        if not EllesmereUI._prebuilding then
         EllesmereUI.BuildInlineSwatches(powerBorderRow._rightRegion, {
                 { tooltip = "Gradient End Color", hasAlpha = true,
                   disabled = function()
@@ -4153,8 +4164,10 @@ initFrame:SetScript("OnEvent", function(self)
                       return isPowerColored and 1 or 0.3
                   end },
         }, { disabled = powerOff, disabledTooltip = powerDisTip })
+        end
         if not ctx.advanced and ctx.syncRows then
             ctx.syncRows.powerOpacity = powerBorderRow._leftRegion
+            if not EllesmereUI._prebuilding then
             local rgn = powerBorderRow._leftRegion
             EllesmereUI.BuildSyncIcon({
                 region  = rgn,
@@ -4172,8 +4185,9 @@ initFrame:SetScript("OnEvent", function(self)
                 end,
                 flashTargets = function() return { ctx.syncRows.powerOpacity, ctx.syncRows.classOpacity, ctx.syncRows.healthOpacity } end,
             })
+            end
         end
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = powerBorderRow._rightRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Fill Settings",
@@ -4216,7 +4230,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Out of Combat Opacity: inline cog on the Opacity slider. Dims the Power
         -- bar to this alpha while out of combat (100 = no fade). Applied via
         -- ns.ResolveBarAlpha in UpdateVisibility; reacts to combat.
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = powerBorderRow._leftRegion
             local _, oocCogShow = EllesmereUI.BuildCogPopup({
                 title = "Out of Combat Opacity",
@@ -4346,7 +4360,7 @@ initFrame:SetScript("OnEvent", function(self)
             { type = "label", text = "Threshold Settings" }
         );  y = y - h
         -- Inline cog (RESIZE) on Power Text for percent sign + x/y offsets
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = powerTextSizeRow._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Power Text",
@@ -4439,6 +4453,7 @@ initFrame:SetScript("OnEvent", function(self)
                 c.thresholdSpecs = { single }
             end
         end
+        if not EllesmereUI._prebuilding then
         local powerSettingsBtn = BuildThresholdSettingsButton({
             parentRgn = powerColorRow._rightRegion,
             getBarData = function() return cfg() end,
@@ -4463,9 +4478,10 @@ initFrame:SetScript("OnEvent", function(self)
             refreshFn = function() RebuildPower() end,
             popupTitle = EllesmereUI.L("Power Bar Hash Lines"),
         })
+        end
         -- Thresholds have their own per-spec system: lock the slot whenever a
         -- Spec Overrides editing session is active.
-        if EllesmereUI.SpecOverrides_AttachEditLock then
+        if EllesmereUI.SpecOverrides_AttachEditLock and not EllesmereUI._prebuilding then
             EllesmereUI.SpecOverrides_AttachEditLock(powerColorRow._rightRegion,
                 "Thresholds have their own per-spec system and can't be edited while editing a spec group")
         end
@@ -4671,7 +4687,7 @@ initFrame:SetScript("OnEvent", function(self)
         );  y = y - h
         -- Hide-Power cog + per-spec enable picker -- Simple only.
         if not ctx.advanced then
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = classEnableRow._leftRegion
                 local _, cogShow = EllesmereUI.BuildCogPopup({
                     title = "Class Resource",
@@ -4706,7 +4722,9 @@ initFrame:SetScript("OnEvent", function(self)
         end
         -- Chains left of the Hide-Power cog in Simple mode (rgn._lastInline),
         -- or the toggle itself in Advanced.
+        if not EllesmereUI._prebuilding then
         AddFormBarBtn(classEnableRow._leftRegion, cfg, RebuildClass)
+        end
 
         -- Everything below Row 1 is HIDDEN entirely while the bar is off (the
         -- toggle's DependentSetValue forces the rebuild on flips).
@@ -4752,7 +4770,7 @@ initFrame:SetScript("OnEvent", function(self)
         if not ctx.advanced and ctx.syncRows then
             ctx.syncRows.classHeight = classSizeRow._leftRegion
             ctx.syncRows.classWidth  = classSizeRow._rightRegion
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = classSizeRow._leftRegion
                 EllesmereUI.BuildSyncIcon({
                     region  = rgn,
@@ -4771,7 +4789,7 @@ initFrame:SetScript("OnEvent", function(self)
                     flashTargets = function() return { ctx.syncRows.classHeight, ctx.syncRows.powerHeight, ctx.syncRows.healthHeight } end,
                 })
             end
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = classSizeRow._rightRegion
                 EllesmereUI.BuildSyncIcon({
                     region  = rgn,
@@ -4824,7 +4842,7 @@ initFrame:SetScript("OnEvent", function(self)
                   end });  y = y - h
             if not ctx.advanced and ctx.syncRows then ctx.syncRows.classBorder = classBsRow._rightRegion end
             -- Inline color swatch on Border Size (right region)
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = classBsRow._rightRegion
                 local ctrl = rgn._control
                 local borderSwatch, updateBorderSwatch = EllesmereUI.BuildColorSwatch(
@@ -4843,7 +4861,7 @@ initFrame:SetScript("OnEvent", function(self)
                 PP.Point(borderSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
                 EllesmereUI.RegisterWidgetRefresh(function() updateBorderSwatch() end)
             end
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = classBsRow._leftRegion
                 local _, cogShow = EllesmereUI.BuildCogPopup({
                     title = "Border Offset",
@@ -4916,6 +4934,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- Cross-bar sync icons (Simple page only).
             if not ctx.advanced and ctx.syncRows then
                 -- Sync icon: Border Style (class -> primary + health)
+                if not EllesmereUI._prebuilding then
                 EllesmereUI.BuildSyncIcon({
                     region  = classBsRow._leftRegion,
                     tooltip = "Apply Border Style to all Bars",
@@ -4967,6 +4986,7 @@ initFrame:SetScript("OnEvent", function(self)
                     flashTargets = function() return { ctx.syncRows.classBorder, ctx.syncRows.powerBorder, ctx.syncRows.healthBorder } end,
                 })
             end
+                end
         end
 
         -- Row: Bar Spacing (slider + opt-in gap-color toggle/swatch) | Empty Bar Overlay (opacity slider + inline color swatch)
@@ -4994,7 +5014,7 @@ initFrame:SetScript("OnEvent", function(self)
                       EllesmereUI:RefreshPage()
                   end });  y = y - h
             -- Inline enable toggle + gap-color swatch on Bar Spacing (left region).
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = classGapRow._leftRegion
                 local ctrl = rgn._control
                 local gapSwatch, updateGapSwatch = EllesmereUI.BuildColorSwatch(
@@ -5042,7 +5062,7 @@ initFrame:SetScript("OnEvent", function(self)
                 })
             end
             -- Inline overlay-color swatch on Empty Bar Overlay (right region, RGB only).
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = classGapRow._rightRegion
                 local ctrl = rgn._control
                 local ovSwatch, updateOvSwatch = EllesmereUI.BuildColorSwatch(
@@ -5087,6 +5107,7 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
         -- Inline swatches on Fill Color (custom / class / resource)
+        if not EllesmereUI._prebuilding then
         EllesmereUI.BuildInlineSwatches(classBorderRow._rightRegion, {
                 { tooltip = "Custom Colored",
                   hasAlpha = false,
@@ -5104,7 +5125,12 @@ initFrame:SetScript("OnEvent", function(self)
                       local c = cfg(); if not c then return end
                       local inCustom = (not c.resourceColored) and (c.classColored == false)
                       if not inCustom then
-                          c.resourceColored = nil
+                          -- false, never nil: a removed key harvests into
+                          -- spec overrides as a key-removal marker the apply
+                          -- guard can never re-apply (the soul-bar colour
+                          -- revert); the runtime only tests truthiness, so
+                          -- false is behaviourally identical.
+                          c.resourceColored = false
                           c.classColored = false; RebuildClass()
                           EllesmereUI:RefreshPage()
                           return
@@ -5126,7 +5152,7 @@ initFrame:SetScript("OnEvent", function(self)
                   setValue = function() end,
                   onClick = function()
                       local c = cfg(); if not c then return end
-                      c.resourceColored = nil
+                      c.resourceColored = false   -- false, never nil (see Custom swatch)
                       c.classColored = true; RebuildClass()
                       EllesmereUI:RefreshPage()
                   end,
@@ -5169,8 +5195,9 @@ initFrame:SetScript("OnEvent", function(self)
                  if c and c.darkTheme then return "This option requires Dark Mode Class Resource to be disabled. Dark Mode colors can be adjusted in Global Settings -> Fonts & Colors." end
                  return "Class Resource"
              end })
+        end
         -- Inline cog for Charged Combo Point color (on Fill Color)
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = classBorderRow._rightRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Fill Settings",
@@ -5214,7 +5241,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
         if not ctx.advanced and ctx.syncRows then
             ctx.syncRows.classOpacity = classBorderRow._leftRegion
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = classBorderRow._leftRegion
                 EllesmereUI.BuildSyncIcon({
                     region  = rgn,
@@ -5238,7 +5265,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Out of Combat Opacity: inline cog on the Opacity slider. Dims the Class
         -- Resource bar to this alpha while out of combat (100 = no fade). Applied
         -- via ns.ResolveBarAlpha in UpdateVisibility; reacts to combat.
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = classBorderRow._leftRegion
             local _, oocCogShow = EllesmereUI.BuildCogPopup({
                 title = "Out of Combat Opacity",
@@ -5304,7 +5331,7 @@ initFrame:SetScript("OnEvent", function(self)
             { type = "label", text = "Threshold & Hash Lines" }
         );  y = y - h
         -- Inline color swatch on Resource Text
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = classColorRow._leftRegion
             local ctrl = rgn._control
             local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
@@ -5338,7 +5365,7 @@ initFrame:SetScript("OnEvent", function(self)
             UpdateSwatchDis()
         end
         -- Inline cog on Resource Text for size + position
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = classColorRow._leftRegion
             local resTextRows = {
                 { type = "toggle", label = "Show %",
@@ -5430,7 +5457,7 @@ initFrame:SetScript("OnEvent", function(self)
 
 		-- class settings [start]
         -- Settings button + popup on Threshold & Hash Lines (row 5 slot 2)
-        do
+        if not EllesmereUI._prebuilding then
             local settingsRgn = classColorRow._rightRegion
             -- Thresholds have their own per-spec system: lock the slot
             -- whenever a Spec Overrides editing session is active.
@@ -7121,7 +7148,7 @@ initFrame:SetScript("OnEvent", function(self)
                           RebuildClass()
                       end }); y = y - h
                 -- Inline color swatch for custom recharge color (left region)
-                do
+                if not EllesmereUI._prebuilding then
                     local rgn = simpleRuneRow._leftRegion
                     local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
                         rgn, simpleRuneRow:GetFrameLevel() + 3,
@@ -7195,7 +7222,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                     { type = "label", text = "" }); y = y - h
                 -- Inline color swatch for overflow color
-                do
+                if not EllesmereUI._prebuilding then
                     local rgn = enhRow._leftRegion
                     local swatch = EllesmereUI.BuildColorSwatch(
                         rgn, enhRow:GetFrameLevel() + 3,
@@ -7364,7 +7391,7 @@ initFrame:SetScript("OnEvent", function(self)
         );  y = y - h
 
         -- Replace the dummy right dropdown with our checkbox dropdown
-        do
+        if not EllesmereUI._prebuilding then
             local rightRgn = visRow._rightRegion
             if rightRgn._control then rightRgn._control:Hide() end
             local visItems = EllesmereUI.VIS_OPT_ITEMS_RESOURCE_BARS
@@ -7396,10 +7423,17 @@ initFrame:SetScript("OnEvent", function(self)
         -- The Background colour is shared by Health & Power (and, when Dark Mode is
         -- off, the class resource bar). While Dark Mode is on the class resource bar
         -- stays dark, so the label calls out that only Health & Power are affected.
+        -- With "Use unique backgrounds for each bar" on (splitBg, via the cog),
+        -- the per-bar rows below own Health & Power and this row narrows to the
+        -- class resource bar only -- it stays live, never disabled.
         local bgLabel = "Background"
         do
             local p0 = DB()
-            if p0 and p0.secondary.darkTheme then bgLabel = "Background (Health & Power)" end
+            if p0 and p0.splitBg == true then
+                bgLabel = "Background (Class Resource)"
+            elseif p0 and p0.secondary.darkTheme then
+                bgLabel = "Background (Health & Power)"
+            end
         end
         local bgRow
         bgRow, h = W:DualRow(parent, y,
@@ -7417,14 +7451,24 @@ initFrame:SetScript("OnEvent", function(self)
               end },
             { type = "slider", text = bgLabel, min = 0, max = 100, step = 1, trackWidth = 120,
               getValue = function()
-                  local p = DB(); return math.floor(((p and p.health.bgA or 0.75) * 100) + 0.5)
+                  local p = DB(); if not p then return 75 end
+                  if p.splitBg == true then
+                      return math.floor(((p.secondary.barBgA or 0.5) * 100) + 0.5)
+                  end
+                  return math.floor(((p.health.bgA or 0.75) * 100) + 0.5)
               end,
               setValue = function(v)
                   local p = DB(); if not p then return end
                   local a = v / 100
-                  p.health.bgA = a
-                  p.primary.bgA = a
-                  p.secondary.barBgA = a
+                  if p.splitBg == true then
+                      -- Split mode: Health/Power own their keys via the rows
+                      -- below; this row still owns the class resource bar.
+                      p.secondary.barBgA = a
+                  else
+                      p.health.bgA = a
+                      p.primary.bgA = a
+                      p.secondary.barBgA = a
+                  end
                   SmoothRefresh()
                   EllesmereUI:RefreshPage()
               end }
@@ -7432,33 +7476,168 @@ initFrame:SetScript("OnEvent", function(self)
         -- Inline color swatch on Background (right region). Opacity lives in
         -- the slider (a view over the same bgA keys the old picker wrote), so
         -- the swatch is color-only.
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = bgRow._rightRegion
             local ctrl = rgn._control
             local bgSwatch, bgUpdateSwatch = EllesmereUI.BuildColorSwatch(
                 rgn, bgRow:GetFrameLevel() + 3,
                 function()
                     local p = DB()
+                    if p and p.splitBg == true then
+                        return p.secondary.barBgR or 0, p.secondary.barBgG or 0,
+                               p.secondary.barBgB or 0
+                    end
                     return (p and p.health.bgR or 0x11/255), (p and p.health.bgG or 0x11/255),
                            (p and p.health.bgB or 0x11/255)
                 end,
                 function(r, g, b)
                     local p = DB(); if not p then return end
-                    p.health.bgR, p.health.bgG, p.health.bgB = r, g, b
-                    p.primary.bgR, p.primary.bgG, p.primary.bgB = r, g, b
-                    p.secondary.barBgR, p.secondary.barBgG, p.secondary.barBgB = r, g, b
+                    if p.splitBg == true then
+                        p.secondary.barBgR, p.secondary.barBgG, p.secondary.barBgB = r, g, b
+                    else
+                        p.health.bgR, p.health.bgG, p.health.bgB = r, g, b
+                        p.primary.bgR, p.primary.bgG, p.primary.bgB = r, g, b
+                        p.secondary.barBgR, p.secondary.barBgG, p.secondary.barBgB = r, g, b
+                    end
                     SmoothRefresh()
                     EllesmereUI:RefreshPage()
                 end,
                 nil, 20)
             PP.Point(bgSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
             EllesmereUI.RegisterWidgetRefresh(bgUpdateSwatch)
+
+            -- Split cog. This whole feature is an options-side VIEW: the bars
+            -- already read their own keys at runtime (health.bg*, primary.bg*,
+            -- secondary.barBg*) and the unified row merely writes them in
+            -- lockstep -- so splitting only changes which rows write which
+            -- keys (Health/Power move to their own rows, this row narrows to
+            -- the class resource). Zero runtime change, and nothing is written
+            -- to the DB unless the user opts in here.
+            -- Declared BEFORE the build so the toggle's set closure (created
+            -- inside the argument table) captures the local as an upvalue --
+            -- assigning on the same line would leave the closure seeing nil.
+            -- The popup frame itself is built LAZILY on first show (the
+            -- builder's first return is nil at this point), so the closure
+            -- reaches it via showFn._popupFrame, which the show wrapper
+            -- stamps on first open.
+            local splitCogShow
+            splitCogShow = select(2, EllesmereUI.BuildCogPopup({
+                title = "Background",
+                minWidth = 290,
+                rows = {
+                    { type = "toggle", label = "Use unique backgrounds for each bar",
+                      get = function()
+                          local p = DB(); return (p and p.splitBg) == true
+                      end,
+                      set = function(v)
+                          local p = DB(); if not p then return end
+                          if v then
+                              p.splitBg = true
+                              -- Close the popup so the newly revealed per-bar
+                              -- rows are immediately visible under it. The
+                              -- frame always exists here (this toggle lives
+                              -- inside the popup), but guard anyway.
+                              local pfr = splitCogShow and splitCogShow._popupFrame
+                              if pfr then pfr:Hide() end
+                          else
+                              -- Toggling the split OFF re-unifies from Health
+                              -- (the unified row's read source), so "off"
+                              -- honestly means one background again instead of
+                              -- silently keeping diverged bars.
+                              p.splitBg = nil
+                              local hp = p.health
+                              p.primary.bgR, p.primary.bgG, p.primary.bgB, p.primary.bgA =
+                                  hp.bgR, hp.bgG, hp.bgB, hp.bgA
+                              p.secondary.barBgR, p.secondary.barBgG, p.secondary.barBgB, p.secondary.barBgA =
+                                  hp.bgR, hp.bgG, hp.bgB, hp.bgA
+                              SmoothRefresh()
+                          end
+                          EllesmereUI:RefreshPage(true)
+                      end },
+                },
+            }))
+            MakeCogBtn(rgn, splitCogShow, bgSwatch)
         end
 
-        -- Row 3: Texture | Frame Strata
-        local strataValues = { BACKGROUND = "Background", LOW = "Low", MEDIUM = "Medium", HIGH = "High", DIALOG = "Dialog" }
-        local strataOrder = { "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG" }
-        _, h = W:DualRow(parent, y,
+        -- Split rows: built ONLY while the split is enabled, so the page is
+        -- byte-identical for everyone else. Health writes health.*; Power
+        -- writes primary.* only -- the class resource's barBg* stays with the
+        -- unified Background row above, which relabels to "(Class Resource)"
+        -- and narrows to those keys while the split is on.
+        do
+            local p0 = DB()
+            if p0 and p0.splitBg == true then
+                local splitRow
+                splitRow, h = W:DualRow(parent, y,
+                    { type = "slider", text = "Health Background", min = 0, max = 100, step = 1, trackWidth = 120,
+                      getValue = function()
+                          local p = DB(); return math.floor(((p and p.health.bgA or 0.75) * 100) + 0.5)
+                      end,
+                      setValue = function(v)
+                          local p = DB(); if not p then return end
+                          p.health.bgA = v / 100
+                          SmoothRefresh()
+                          EllesmereUI:RefreshPage()
+                      end },
+                    { type = "slider", text = "Power Background", min = 0, max = 100, step = 1, trackWidth = 120,
+                      getValue = function()
+                          local p = DB(); return math.floor(((p and p.primary.bgA or 0.75) * 100) + 0.5)
+                      end,
+                      setValue = function(v)
+                          local p = DB(); if not p then return end
+                          p.primary.bgA = v / 100
+                          SmoothRefresh()
+                          EllesmereUI:RefreshPage()
+                      end }
+                );  y = y - h
+                if not EllesmereUI._prebuilding then
+                    local rgn = splitRow._leftRegion
+                    local ctrl = rgn._control
+                    local hSwatch, hUpdateSwatch = EllesmereUI.BuildColorSwatch(
+                        rgn, splitRow:GetFrameLevel() + 3,
+                        function()
+                            local p = DB()
+                            return (p and p.health.bgR or 0x11/255), (p and p.health.bgG or 0x11/255),
+                                   (p and p.health.bgB or 0x11/255)
+                        end,
+                        function(r, g, b)
+                            local p = DB(); if not p then return end
+                            p.health.bgR, p.health.bgG, p.health.bgB = r, g, b
+                            SmoothRefresh()
+                            EllesmereUI:RefreshPage()
+                        end,
+                        nil, 20)
+                    PP.Point(hSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
+                    EllesmereUI.RegisterWidgetRefresh(hUpdateSwatch)
+                end
+                if not EllesmereUI._prebuilding then
+                    local rgn = splitRow._rightRegion
+                    local ctrl = rgn._control
+                    local pSwatch, pUpdateSwatch = EllesmereUI.BuildColorSwatch(
+                        rgn, splitRow:GetFrameLevel() + 3,
+                        function()
+                            local p = DB()
+                            return (p and p.primary.bgR or 0x11/255), (p and p.primary.bgG or 0x11/255),
+                                   (p and p.primary.bgB or 0x11/255)
+                        end,
+                        function(r, g, b)
+                            local p = DB(); if not p then return end
+                            p.primary.bgR, p.primary.bgG, p.primary.bgB = r, g, b
+                            SmoothRefresh()
+                            EllesmereUI:RefreshPage()
+                        end,
+                        nil, 20)
+                    PP.Point(pSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
+                    EllesmereUI.RegisterWidgetRefresh(pUpdateSwatch)
+                end
+            end
+        end
+
+        -- Row 3: Texture (+ cog: Blizzard atlas for the class resource) | Frame Strata
+        local strataValues = EllesmereUI.FRAME_STRATA_LABELS
+        local strataOrder = EllesmereUI.FRAME_STRATA_ORDER_BASE
+        local texRow
+        texRow, h = W:DualRow(parent, y,
             { type = "dropdown", text = "Texture", values = hbtValues, order = hbtOrder,
               getValue = function()
                   local p = DB(); if not p then return "none" end
@@ -7478,7 +7657,46 @@ initFrame:SetScript("OnEvent", function(self)
                   local p = DB(); if not p then return end
                   p.general.frameStrata = v; SmoothRefresh()
               end }
-        );  y = y - h
+        );
+        -- Cog on Texture: Blizzard atlas fill for the class resource bar
+        if not EllesmereUI._prebuilding then
+            local lrgn = texRow._leftRegion
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Texture Settings",
+                rows = {
+                    { type = "toggle", label = "Blizzard Atlas Class Resource",
+                      tooltip = "Bar-style class resources (Insanity, Maelstrom, Astral Power, etc.) use Blizzard's default player frame bar artwork instead of the texture above.",
+                      get = function()
+                          local p = DB(); return (p and p.secondary.useBlizzardAtlas) or false
+                      end,
+                      set = function(v)
+                          local p = DB(); if not p then return end
+                          p.secondary.useBlizzardAtlas = v
+                          RebuildClass()
+                          if v then
+                              EllesmereUI:ShowConfirmPopup({
+                                  title = "Blizzard Atlas Texture",
+                                  message = "Blizzard's bar artwork is never recolored, so fill color modes and threshold colors will not tint the bar while this is enabled. To keep threshold colors visible, use Recolor Text Instead.",
+                                  confirmText = "Okay",
+                              })
+                          end
+                      end },
+                },
+            })
+            local cogBtn = CreateFrame("Button", nil, lrgn)
+            cogBtn:SetSize(26, 26)
+            cogBtn:SetPoint("RIGHT", lrgn._lastInline or lrgn._control, "LEFT", -8, 0)
+            lrgn._lastInline = cogBtn
+            cogBtn:SetFrameLevel(lrgn:GetFrameLevel() + 5)
+            cogBtn:SetAlpha(0.4)
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+            cogTex:SetAllPoints()
+            cogTex:SetTexture(EllesmereUI.COGS_ICON)
+            cogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
+            cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
+            cogBtn:SetScript("OnClick", function(s) cogShow(s) end)
+        end
+        y = y - h
 
         -- Row 4: Shift Elements if No Resource | Expand Power Bar if No Resource
         local shiftResRow
@@ -7557,7 +7775,7 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
         -- Inline reposition cog on "Shift Elements if No Resource": Extra Y Offset
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = shiftResRow._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Shift Offset",
@@ -7597,7 +7815,7 @@ initFrame:SetScript("OnEvent", function(self)
               setValue = function() end }
         );  y = y - h
         -- Inline reposition cog on "Shift Elements if No Power": Extra Y Offset
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = shiftPowRow._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Shift Offset",
@@ -7617,7 +7835,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Replace the dummy "Smooth Bars" right dropdown with a checkbox dropdown.
         -- Each item enables native StatusBar interpolation on its bar; off = a
         -- plain SetValue with zero added cost. Defaults all off.
-        do
+        if not EllesmereUI._prebuilding then
             local rightRgn = shiftPowRow._rightRegion
             if rightRgn._control then rightRgn._control:Hide() end
             local smoothItems = {
@@ -7661,7 +7879,7 @@ initFrame:SetScript("OnEvent", function(self)
                 W = W, parent = parent, y = y,
                 getData = function() local p = DB(); return p and p.secondary or {} end,
                 onApply = function() RebuildClass(); SmoothRefresh() end,
-                makeCogBtn = MakeCogBtn,
+                makeCogBtn = (not EllesmereUI._prebuilding) and MakeCogBtn or nil,
             })
             y = y - cursorH
         end
@@ -7683,7 +7901,7 @@ initFrame:SetScript("OnEvent", function(self)
                 W = W, parent = parent, y = y,
                 getData = function() local p = DB(); return p and p.primary or {} end,
                 onApply = function() RebuildPower(); SmoothRefresh() end,
-                makeCogBtn = MakeCogBtn,
+                makeCogBtn = (not EllesmereUI._prebuilding) and MakeCogBtn or nil,
             })
             y = y - cursorH
         end
@@ -7763,7 +7981,7 @@ initFrame:SetScript("OnEvent", function(self)
                 W = W, parent = parent, y = y,
                 getData = function() local p = DB(); return p and p.health or {} end,
                 onApply = function() RebuildHealth(); SmoothRefresh() end,
-                makeCogBtn = MakeCogBtn,
+                makeCogBtn = (not EllesmereUI._prebuilding) and MakeCogBtn or nil,
             })
             y = y - cursorH
         end
@@ -8287,8 +8505,8 @@ initFrame:SetScript("OnEvent", function(self)
         castSection, h = W:SectionHeader(parent, "LAYOUT", y);  y = y - h
 
         -- Strata dropdown values for the Cast Bar Frame Strata control.
-        local cbStrataValues = { BACKGROUND = "Background", LOW = "Low", MEDIUM = "Medium", HIGH = "High", DIALOG = "Dialog" }
-        local cbStrataOrder = { "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG" }
+        local cbStrataValues = EllesmereUI.FRAME_STRATA_LABELS
+        local cbStrataOrder = EllesmereUI.FRAME_STRATA_ORDER_BASE
 
         -- Row 1: Enable Player Cast Bar | Frame Strata
         local castEnableRow
@@ -8361,7 +8579,7 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
         -- Inline cog on Show Spell Icon: Icon on Right
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = iconRow._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Spell Icon Settings",
@@ -8406,7 +8624,16 @@ initFrame:SetScript("OnEvent", function(self)
                   local p = DB(); if not p then return end
                   p.castBar.alwaysShow = v; RefreshCast()
               end },
-            { type = "spacer" }
+            { type = "toggle", text = "Smooth Bar Animation",
+              tooltip = "Eases the cast fill between updates. Turn off for a raw, uneased fill.",
+              disabled = castOff,
+              disabledTooltip = "Player Cast Bar",
+              getValue = function() local p = DB(); return not (p and p.castBar.smoothFill == false) end,
+              setValue = function(v)
+                  local p = DB(); if not p then return end
+                  if v then p.castBar.smoothFill = nil else p.castBar.smoothFill = false end
+                  RefreshCast()
+              end }
         );  y = y - h
 
         _, h = W:Spacer(parent, y, 16);  y = y - h
@@ -8447,7 +8674,7 @@ initFrame:SetScript("OnEvent", function(self)
                       p.castBar.borderSize = v; RefreshCast(); EllesmereUI:RefreshPage()
                   end });  y = y - h
             -- Inline border color swatch on Border slider (right region)
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = cbBsRow._rightRegion
                 local ctrl = rgn._control
                 local borderSwatch, updateBorderSwatch = EllesmereUI.BuildColorSwatch(
@@ -8482,7 +8709,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUI.RegisterWidgetRefresh(function() updateBorderSwatch(); UpdateBorderSwatchState() end)
                 UpdateBorderSwatchState()
             end
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = cbBsRow._leftRegion
                 local _, cogShow = EllesmereUI.BuildCogPopup({
                     title = "Border Offset",
@@ -8648,7 +8875,7 @@ initFrame:SetScript("OnEvent", function(self)
                     end },
         }, { disabled = castOff, disabledTooltip = "Player Cast Bar" })
         -- Inline cog on Fill Color for gradient settings
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = castColorRow._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Gradient Settings",
@@ -8689,7 +8916,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- Inline color swatch on Background (right region)
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = castColorRow._rightRegion
             local ctrl = rgn._control
             local bgSwatch, bgUpdateSwatch = EllesmereUI.BuildColorSwatch(
@@ -8753,7 +8980,7 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
         -- Inline cog (RESIZE) on Spell Text for text size + x/y
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = textRow._rightRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Spell Text Settings",
@@ -8831,7 +9058,7 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
         -- Inline cog (RESIZE) on Duration Text for timer size + x/y
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = timerRow._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Timer Settings",
@@ -8885,6 +9112,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Helper: attach an inline color swatch to a region with disabled overlay
         local function AttachInlineSwatch(rgn, getFunc, setFunc, disabledFunc, disabledTooltip)
+            if EllesmereUI._prebuilding then return end
             local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, getFunc, setFunc, true, 20)
             PP.Point(swatch, "RIGHT", rgn._control, "LEFT", -12, 0)
 
@@ -9093,11 +9321,7 @@ initFrame:SetScript("OnEvent", function(self)
         local layoutSection
         layoutSection, h = W:SectionHeader(parent, "LAYOUT", y);  y = y - h
 
-        local ALL_CLASSES = {
-            "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST",
-            "DEATHKNIGHT", "SHAMAN", "MAGE", "WARLOCK", "MONK",
-            "DRUID", "DEMONHUNTER", "EVOKER",
-        }
+        local ALL_CLASSES = EllesmereUI.CLASS_TOKEN_ORDER
 
         -- Row 1: Enabled Classes dropdown | Icon Size (+ spacing cog)
         local row1
@@ -9126,6 +9350,7 @@ initFrame:SetScript("OnEvent", function(self)
             );  y = y - h
 
             -- Class dropdown on left region
+            if not EllesmereUI._prebuilding then
             local leftRgn = row1._leftRegion
             local cbDD, cbDDRefresh
             cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
@@ -9184,6 +9409,7 @@ initFrame:SetScript("OnEvent", function(self)
                 },
             })
             MakeCogBtn(rgn, cogShow)
+            end
         end
 
         -- Row 2: Timer Size | Show Timer
@@ -9244,7 +9470,7 @@ initFrame:SetScript("OnEvent", function(self)
             );  y = y - h
 
             -- Inline border color swatch on Border Size slider
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = bsRow._rightRegion
                 local ctrl = rgn._control
                 local PP = EllesmereUI.PP
@@ -9347,8 +9573,8 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- Row 4: Frame Strata | Orientation
-        local tmStrataValues = { BACKGROUND = "Background", LOW = "Low", MEDIUM = "Medium", HIGH = "High", DIALOG = "Dialog" }
-        local tmStrataOrder = { "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG" }
+        local tmStrataValues = EllesmereUI.FRAME_STRATA_LABELS
+        local tmStrataOrder = EllesmereUI.FRAME_STRATA_ORDER_BASE
         _, h = W:DualRow(parent, y,
             { type = "dropdown", text = "Frame Strata",
               tooltip = "Controls the order that overlapping elements display in. Set higher to show above other elements.",
@@ -9422,8 +9648,8 @@ initFrame:SetScript("OnEvent", function(self)
         local _sec
         _sec, h = W:SectionHeader(parent, "LAYOUT", y);  y = y - h
 
-        local gStrataValues = { BACKGROUND = "Background", LOW = "Low", MEDIUM = "Medium", HIGH = "High", DIALOG = "Dialog" }
-        local gStrataOrder = { "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG" }
+        local gStrataValues = EllesmereUI.FRAME_STRATA_LABELS
+        local gStrataOrder = EllesmereUI.FRAME_STRATA_ORDER_BASE
 
         -- Row: Enable GCD Bar (+ position cog) | Frame Strata
         local enableRow
@@ -9443,7 +9669,7 @@ initFrame:SetScript("OnEvent", function(self)
               setValue = function(v) local p = DB(); if not p then return end; p.gcdBar.frameStrata = v; RefreshGCD() end }
         );  y = y - h
         -- Inline position cog (X/Y + unlock) on Enable
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = enableRow._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "GCD Bar Position",
@@ -9534,8 +9760,9 @@ initFrame:SetScript("OnEvent", function(self)
               setValue = function(v) local p = DB(); if not p then return end; p.gcdBar.instanceOnly = v; RefreshGCD() end }
         );  y = y - h
 
-        -- Row: Only Instant Casts | Always Show
-        _, h = W:DualRow(parent, y,
+        -- Row: Only Instant Casts | Always Show (+ idle fill cog)
+        local gcdShowRow
+        gcdShowRow, h = W:DualRow(parent, y,
             { type = "toggle", text = "Only Instant Casts",
               tooltip = "Only show the GCD bar for instant-cast abilities. While hard-casting or channeling a spell, the bar stays hidden (the cast bar already shows that progress).",
               disabled = gcdOff, disabledTooltip = "GCD Bar",
@@ -9547,6 +9774,23 @@ initFrame:SetScript("OnEvent", function(self)
               getValue = function() local p = DB(); return p and p.gcdBar.alwaysShow end,
               setValue = function(v) local p = DB(); if not p then return end; p.gcdBar.alwaysShow = v; RefreshGCD() end }
         );  y = y - h
+        -- Inline cog on Always Show: idle fill appearance
+        if not EllesmereUI._prebuilding then
+            local _, gcdIdleCogShow = EllesmereUI.BuildCogPopup({
+                title = "Always Show",
+                rows = {
+                    { type = "toggle", label = "Show Fill Color When Idle",
+                      tooltip = "Show the bar full of its fill color while no global cooldown is running, instead of the background color.",
+                      get = function() local p = DB(); return (p and p.gcdBar.idleShowFill) == true end,
+                      set = function(v)
+                          local p = DB(); if not p then return end
+                          if v then p.gcdBar.idleShowFill = true else p.gcdBar.idleShowFill = nil end
+                          RefreshGCD()
+                      end },
+                },
+            })
+            MakeCogBtn(gcdShowRow._rightRegion, gcdIdleCogShow)
+        end
 
         _, h = W:Spacer(parent, y, 16);  y = y - h
 
@@ -9577,7 +9821,7 @@ initFrame:SetScript("OnEvent", function(self)
                   getValue = function() local p = DB(); return p and (p.gcdBar.borderSize or 0) or 0 end,
                   setValue = function(v) local p = DB(); if not p then return end; p.gcdBar.borderSize = v; RefreshGCD(); EllesmereUI:RefreshPage() end });  y = y - h
             -- Border color swatch on the size slider (right region)
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = bsRow._rightRegion
                 local ctrl = rgn._control
                 local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
@@ -9610,7 +9854,7 @@ initFrame:SetScript("OnEvent", function(self)
                 UpdateSwatchState()
             end
             -- Offset cog on Border Style (left region), hidden for "solid"
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = bsRow._leftRegion
                 local _, cogShow = EllesmereUI.BuildCogPopup({
                     title = "Border Offset",
@@ -9669,7 +9913,7 @@ initFrame:SetScript("OnEvent", function(self)
               setValue = function(v) local p = DB(); if not p then return end; p.gcdBar.bgA = v / 100; RefreshGCD() end }
         );  y = y - h
         -- Gradient cog on Color
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = colorRow._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Gradient Settings",
@@ -9708,7 +9952,7 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(UpdateGradientSwatch)
         end
         -- Background color swatch on the Background slider (right region)
-        do
+        if not EllesmereUI._prebuilding then
             local rgn = colorRow._rightRegion
             local ctrl = rgn._control
             local bgSwatch, bgUpdateSwatch = EllesmereUI.BuildColorSwatch(

@@ -40,6 +40,9 @@ local WINDOW_ENABLE_KEYS = {
     itemupgrade     = "reskinItemUpgrade",
     loot            = "reskinLoot",
     loottoast       = "reskinLootToast",
+    lootroll        = "reskinLootRoll",
+    loothistory     = "reskinLootHistory",
+    groupinvite     = "reskinGroupInvite",
     micromenu       = "reskinMicroMenu",
     housing         = "reskinHousing",
     professions     = "reskinProfessions",
@@ -72,6 +75,62 @@ local WINDOW_ENABLE_KEYS = {
 function EllesmereUI.BlizzWindowSkinsKilled()
     local prof = EllesmereUI.GetActiveProfileData and EllesmereUI.GetActiveProfileData()
     return (prof and prof.disableWindowSkins) and true or false
+end
+
+-------------------------------------------------------------------------------
+--  One-time style seed for the three packs added in 8.7.5 (loot rolls, loot
+--  history, group invite): instead of unconditionally defaulting ON in the
+--  EUI style, each new window adopts whichever style the user already runs
+--  MOST of their windows with -- EllesmereUI, Modern, or Blizzard (off).
+--  Counts RAW stored state, not GetBlizzWindowStyle, so the kill switch
+--  cannot skew the vote; keys the user has already touched are left alone;
+--  ties fall to the suite default (EUI). Marker-gated so it runs once per
+--  account, at ADDON_LOADED (the parent's saved variables are in by then,
+--  which is also before the window engine's PLAYER_LOGIN apply).
+-------------------------------------------------------------------------------
+do
+    local NEW_KEYS = { "lootroll", "loothistory", "groupinvite" }
+    local seedFrame = CreateFrame("Frame")
+    seedFrame:RegisterEvent("ADDON_LOADED")
+    seedFrame:SetScript("OnEvent", function(self, _, name)
+        if name ~= ADDON_NAME then return end
+        self:UnregisterEvent("ADDON_LOADED")
+        if not EllesmereUIDB then EllesmereUIDB = {} end
+        if EllesmereUIDB.lootSkinStyleSeeded then return end
+        EllesmereUIDB.lootSkinStyleSeeded = true
+        local styles = EllesmereUIDB.blizzWindowSkinStyles
+        local isNew = {}
+        for _, k in ipairs(NEW_KEYS) do isNew[k] = true end
+        local off, modern, eui = 0, 0, 0
+        for winKey, ek in pairs(WINDOW_ENABLE_KEYS) do
+            if not isNew[winKey] then
+                if EllesmereUIDB[ek] == false then
+                    off = off + 1
+                elseif styles and styles[winKey] == "modern" then
+                    modern = modern + 1
+                else
+                    eui = eui + 1
+                end
+            end
+        end
+        for _, winKey in ipairs(NEW_KEYS) do
+            local ek = WINDOW_ENABLE_KEYS[winKey]
+            local touched = EllesmereUIDB[ek] ~= nil
+                or (styles and styles[winKey] ~= nil)
+            if not touched then
+                if off > eui and off > modern then
+                    EllesmereUIDB[ek] = false
+                elseif modern > eui and modern >= off then
+                    if not styles then
+                        styles = {}
+                        EllesmereUIDB.blizzWindowSkinStyles = styles
+                    end
+                    styles[winKey] = "modern"
+                end
+                -- EUI majority (or tie): nil already means EUI-on.
+            end
+        end
+    end)
 end
 
 function EllesmereUI.GetBlizzWindowStyle(winKey)
@@ -342,6 +401,17 @@ end
         if not UnitExists(unit) or not UnitIsPlayer(unit) then return nil end
         if not (C_UnitAuras and C_UnitAuras.GetAuraDataByIndex) then return nil end
         if not (C_MountJournal and C_MountJournal.GetMountFromSpell) then return nil end
+        -- In combat, aura data can be a Secret Value and GetAuraDataByIndex
+        -- hard-errors for tainted callers instead of returning nil -- unlike
+        -- every other guard in this function, checking issecretvalue() on the
+        -- result comes too late here. This is a cosmetic tooltip addition, so
+        -- skip it outright rather than risk the taint error. Protected
+        -- instances (active M+ key, rated PvP) keep secret-value restrictions
+        -- in force between pulls too, so the combat check alone is not enough.
+        if InCombatLockdown()
+            or (EllesmereUI.InProtectedInstance and EllesmereUI.InProtectedInstance()) then
+            return nil
+        end
 
         for i = 1, 255 do
             local aura = C_UnitAuras.GetAuraDataByIndex(unit, i, "HELPFUL")
@@ -793,8 +863,17 @@ end
     -- Back-compat full init (data + visual), used by the live re-apply path.
     local function _ttInit() _ttInitData(); _ttInitVisual() end
 
-    -- Context menu skinning
-    local _menuSkinned = {}
+    -- Context menu skinning.
+    --
+    -- Deliberately NOT memoised per frame. Menu frames are pooled: Blizzard
+    -- hands the same frame back for the next menu and rebuilds its textures from
+    -- the new description, which silently undoes our background. An "already
+    -- skinned" flag keyed on the frame therefore skips every reuse and leaves
+    -- Blizzard's background showing with our own border frame still drawn over
+    -- it. _menuSkinFrame is idempotent (it skips regions we own and re-anchors
+    -- relative to the frame, so nothing accumulates), so simply letting every
+    -- pass run is both correct across reuse and self-healing when Blizzard
+    -- writes a texture after our first pass.
 
     local function _menuSkinFrame(frame)
         if not frame or frame:IsForbidden() or not _pmEnabled() then return end
@@ -809,7 +888,6 @@ end
                 region:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -1, 1)
             end
         end
-        _menuSkinned[frame] = true
         _applyConfiguredBorder(frame, "popupMenu", 1)
     end
 
@@ -837,13 +915,67 @@ end
         -- after the open, which is what the callback was there for.
         local function skinOpenMenu()
             local menu = manager.GetOpenMenu and manager:GetOpenMenu()
-            if menu and not _menuSkinned[menu] then
+            if menu then
                 _menuSkinFrame(menu)
             end
         end
         C_Timer.After(0, skinOpenMenu)
         C_Timer.After(0.05, skinOpenMenu)
         C_Timer.After(0.15, skinOpenMenu)
+    end
+
+    -- Submenu coverage via the style mixin.
+    --
+    -- The manager hooks above only ever see the ROOT menu: GetOpenMenu returns
+    -- the root even while a flyout is open, a submenu frame is a parentless
+    -- SIBLING of the root, and hovering a submenu parent fires neither OpenMenu
+    -- nor OpenContextMenu. But Blizzard styles every menu level through one
+    -- code path (Menu.lua, MenuManagerMixin:AcquireMenu -> SecureGenerate):
+    --
+    --     Mixin(proxy, menuDescription:GetMenuMixin());
+    --     proxy:Generate();
+    --
+    -- GetMenuMixin() resolves to the GLOBAL MenuStyle1Mixin (MenuStyle2Mixin for
+    -- WowStyle2 dropdowns), and the Mixin() copy happens at every open, so a
+    -- hooksecurefunc placed on the mixin's Generate is copied onto each menu
+    -- frame and hands us that exact frame as self -- root and every flyout, with
+    -- no frame identification at all.
+    --
+    -- Why this is NOT the AddMenuAcquiredCallback mistake: that callback was a
+    -- plain insecure closure stored in Blizzard's table and invoked BARE
+    -- (Menu.lua 2354, no securecallfunction), and the same execution then built
+    -- the entry click handlers, which is exactly how the whisper secret-name
+    -- taint happened. Here the containment is double: hooksecurefunc's contract
+    -- is that the hook's taint does not propagate into the calling execution
+    -- (the wrapper it installs is itself secure, so the Mixin() copy stays
+    -- secure), and Blizzard additionally wraps the call site in
+    -- securecallfunction because addon-supplied menu mixins are an anticipated
+    -- input to this pipeline (see MenuUtil.lua's comment on overriding
+    -- GetDefaultContextMenuMixin). Never ASSIGN into the mixin table -- that
+    -- would plant a tainted function value; only hooksecurefunc.
+    --
+    -- The hook body itself still does nothing but collect and schedule; the
+    -- skinning runs from our own timer after the secure execution has finished.
+    -- One compositor constraint on that pass, already satisfied by
+    -- _menuSkinFrame: while a menu is open the compositor replaces the frame's
+    -- metatable and disallows CreateTexture/CreateFontString/CreateLine on it,
+    -- so only the EXISTING background region may be recoloured.
+    local _stylePending, _styleArmed = {}, false
+    local function _styleFlush()
+        _styleArmed = false
+        for i = #_stylePending, 1, -1 do
+            local f = _stylePending[i]
+            _stylePending[i] = nil
+            -- _menuSkinFrame re-checks IsForbidden and the enable toggle.
+            _menuSkinFrame(f)
+        end
+    end
+    local function _onStyleGenerate(menuFrame)
+        _stylePending[#_stylePending + 1] = menuFrame
+        if not _styleArmed then
+            _styleArmed = true
+            C_Timer.After(0, _styleFlush)
+        end
     end
 
     local function _menuInit()
@@ -856,6 +988,12 @@ end
         hooksecurefunc(mgr, "OpenContextMenu", function(self, ownerRegion, menuDescription)
             _menuOnOpen(self, ownerRegion, menuDescription)
         end)
+        if _G.MenuStyle1Mixin and type(_G.MenuStyle1Mixin.Generate) == "function" then
+            hooksecurefunc(_G.MenuStyle1Mixin, "Generate", _onStyleGenerate)
+        end
+        if _G.MenuStyle2Mixin and type(_G.MenuStyle2Mixin.Generate) == "function" then
+            hooksecurefunc(_G.MenuStyle2Mixin, "Generate", _onStyleGenerate)
+        end
     end
 
     -- Static popup skinning
@@ -2006,6 +2144,45 @@ end
 --  so it's a no-op (Blizzard's default anchor stands) when toggled back off, and
 --  the cursor-tracking frame only ticks while a tooltip is actually shown.
 -------------------------------------------------------------------------------
+
+-- Is a tooltip owner handed to us by a Blizzard hook safe to anchor to?
+--
+-- It can be a FORBIDDEN frame. Blizzard's nameplate aura buttons are forbidden
+-- and call GameTooltip_SetDefaultAnchor on hover, so passing one straight to
+-- SetOwner from our own (tainted) hook raises "Attempt to access forbidden
+-- object from code tainted by an AddOn" -- reported 25x during a single key.
+--
+-- Testing the tooltip alone was not enough: the tooltip is GameTooltip and
+-- perfectly fine, it is the OWNER that is off limits. Nothing can be anchored
+-- to a forbidden frame, so both anchor modes leave Blizzard's own anchoring
+-- alone in that case. IsForbidden is the only method safe to call on such a
+-- frame, so it is asked first and nothing else is touched.
+--
+-- File scope on purpose: the cursor and fixed anchor modes live in separate
+-- do-blocks and both need it.
+local function TooltipOwnerUsable(parent)
+    if not parent then return false end
+    local fn = parent.IsForbidden
+    if type(fn) == "function" and fn(parent) then return false end
+    return true
+end
+
+-- Stand-in tooltips: taint-sensitive callers that cannot touch the global
+-- GameTooltip build their own GameTooltipTemplate frame and flag it
+-- LIKE_GLOBAL_GAMETOOLTIP -- the ecosystem convention asking to be treated
+-- as _G.GameTooltip. They still route through GameTooltip_SetDefaultAnchor,
+-- so honour the flag for the ANCHOR decision only. The armed-state
+-- bookkeeping stays strict-identity: it gates SetPoint enforcement hooked
+-- onto GameTooltip's OWN setters, so arming it for a stand-in would enforce
+-- against another frame's state. A stand-in needs no ongoing enforcement:
+-- GameTooltip_SetDefaultAnchor is a pure one-shot (SetOwner + corner
+-- SetPoint, no registration), so nothing Blizzard-side ever re-anchors a
+-- stand-in -- every re-build re-enters these hooks.
+local function TooltipIsGlobalLike(tooltip)
+    if tooltip == GameTooltip then return true end
+    return type(tooltip) == "table" and tooltip.LIKE_GLOBAL_GAMETOOLTIP == true
+end
+
 do
     -- Selected position = where the tooltip sits relative to the cursor, so the
     -- tooltip corner that touches the cursor is the opposite one.
@@ -2059,12 +2236,14 @@ do
     end
 
     local function ApplyCursorAnchor(tooltip, parent)
-        if tooltip ~= GameTooltip then return end
+        if not TooltipIsGlobalLike(tooltip) then return end
         -- Gated by the "Reskin Tooltip" master (matches the grayed-out option), so
         -- disabling the reskin restores the default tooltip position.
         if EllesmereUIDB and EllesmereUIDB.customTooltips == false then return end
         if not (EllesmereUIDB and EllesmereUIDB.tooltipAnchorCursor) then return end
-        if not parent or tooltip:IsForbidden() then return end
+        -- Owner checked as well as the tooltip: a forbidden owner cannot be
+        -- passed to SetOwner below. See TooltipOwnerUsable.
+        if not TooltipOwnerUsable(parent) or tooltip:IsForbidden() then return end
         -- "Show Tooltips" suppression parks the tip in a hidden host (see the
         -- Show Tooltips block below): it stays alive and invisible so the
         -- peek modifier can reveal it. Anchor it normally -- it must already
@@ -2290,9 +2469,18 @@ do
     end
 
     local function ApplyFixedAnchor(tooltip, parent)
-        if tooltip ~= GameTooltip then return end
+        if not TooltipIsGlobalLike(tooltip) then return end
         if not WantFixed() then return end
-        if not parent or tooltip:IsForbidden() then return end
+        if tooltip:IsForbidden() then return end
+        -- A forbidden owner (a nameplate aura button) cannot be anchored to, so
+        -- leave Blizzard's anchoring alone AND disarm the SetPoint enforcement:
+        -- the arming happens in the SetDefaultAnchor hook before this runs, and
+        -- leaving it armed would let EnforceFixed yank the tooltip into our box
+        -- with no matching SetOwner. See TooltipOwnerUsable.
+        if not TooltipOwnerUsable(parent) then
+            _fixedArmed = false
+            return
+        end
         -- While an Unlock Mode session is open, the session owns the anchor
         -- frame (live drags + uncommitted pending edits); re-parking from the
         -- saved position would snap the frame back mid-session. Pin the
@@ -2307,8 +2495,10 @@ do
     end
 
     hooksecurefunc("GameTooltip_SetDefaultAnchor", function(tooltip, parent)
-        if tooltip ~= GameTooltip then return end
-        _fixedArmed = true
+        if not TooltipIsGlobalLike(tooltip) then return end
+        -- Only the global tooltip can be armed: the SetPoint enforcement below
+        -- is hooked onto GameTooltip's own setters. See TooltipIsGlobalLike.
+        if tooltip == GameTooltip then _fixedArmed = true end
         ApplyFixedAnchor(tooltip, parent)
     end)
     -- Every explicit tooltip build starts with SetOwner (it runs BEFORE the
@@ -2466,8 +2656,10 @@ do
     end
 
     hooksecurefunc("GameTooltip_SetDefaultAnchor", function(tooltip)
-        if tooltip ~= GameTooltip then return end
-        _growthDefaultAnchored = true
+        if not TooltipIsGlobalLike(tooltip) then return end
+        -- Only the global tooltip can be armed: the SetPoint enforcement below
+        -- is hooked onto GameTooltip's own setters. See TooltipIsGlobalLike.
+        if tooltip == GameTooltip then _growthDefaultAnchored = true end
         Enforce(tooltip)
     end)
     -- Every tooltip build starts with SetOwner (it runs BEFORE the

@@ -256,6 +256,26 @@ local CLASS_COLOR_MAP = {
     WARRIOR      = { r = 0.78, g = 0.61, b = 0.43 },  -- #C69B6D
 }
 
+-- Class icon sprite-sheet UV grid (4-column sheet; left/right/top/bottom).
+-- One shared copy for every module's class-icon rendering; the TEXTURE path
+-- stays per consumer (different modules back different sheets with the same
+-- layout). Read-only everywhere.
+EllesmereUI.CLASS_ICON_SPRITE_COORDS = {
+    WARRIOR     = { 0,     0.125, 0,     0.125 },
+    MAGE        = { 0.125, 0.25,  0,     0.125 },
+    ROGUE       = { 0.25,  0.375, 0,     0.125 },
+    DRUID       = { 0.375, 0.5,   0,     0.125 },
+    EVOKER      = { 0.5,   0.625, 0,     0.125 },
+    HUNTER      = { 0,     0.125, 0.125, 0.25  },
+    SHAMAN      = { 0.125, 0.25,  0.125, 0.25  },
+    PRIEST      = { 0.25,  0.375, 0.125, 0.25  },
+    WARLOCK     = { 0.375, 0.5,   0.125, 0.25  },
+    PALADIN     = { 0,     0.125, 0.25,  0.375 },
+    DEATHKNIGHT = { 0.125, 0.25,  0.25,  0.375 },
+    MONK        = { 0.25,  0.375, 0.25,  0.375 },
+    DEMONHUNTER = { 0.375, 0.5,   0.25,  0.375 },
+}
+
 -- Font (Expressway lives in EllesmereUI/media)
 local EXPRESSWAY = MEDIA_PATH .. "fonts\\Expressway.ttf"
 
@@ -1746,6 +1766,142 @@ EllesmereUI.UNDO_ICON       = MEDIA_PATH .. "icons\\undo.png"
 EllesmereUI.RESIZE_ICON     = MEDIA_PATH .. "icons\\eui-resize-5.png"
 EllesmereUI.DIRECTIONS_ICON = MEDIA_PATH .. "icons\\eui-directions.png"
 EllesmereUI.SYNC_ICON       = MEDIA_PATH .. "icons\\sync.png"
+EllesmereUI.EYE_VISIBLE_ICON   = MEDIA_PATH .. "icons\\eui-visible.png"
+EllesmereUI.EYE_INVISIBLE_ICON = MEDIA_PATH .. "icons\\eui-invisible.png"
+
+-- Shared options-dropdown data. Read-only lookups passed straight into
+-- dropdown configs: the menu renders ONLY the keys its order array lists,
+-- so a site with a subset order may share the full labels dict. Never
+-- mutate these and never feed them to the SharedMedia appenders (those
+-- mutate their arguments in place). Sites with a different sequence
+-- (none-first, bottomright-first, "same"-prefixed) keep their own local
+-- order arrays.
+EllesmereUI.POSITION_GRID_VALUES = {
+    ["topleft"]    = "Top Left",
+    ["top"]        = "Top",
+    ["topright"]   = "Top Right",
+    ["left"]       = "Left",
+    ["center"]     = "Center",
+    ["right"]      = "Right",
+    ["bottomleft"] = "Bottom Left",
+    ["bottom"]     = "Bottom",
+    ["bottomright"] = "Bottom Right",
+}
+EllesmereUI.POSITION_GRID_VALUES_NONE = {
+    ["topleft"]    = "Top Left",
+    ["top"]        = "Top",
+    ["topright"]   = "Top Right",
+    ["left"]       = "Left",
+    ["center"]     = "Center",
+    ["right"]      = "Right",
+    ["bottomleft"] = "Bottom Left",
+    ["bottom"]     = "Bottom",
+    ["bottomright"] = "Bottom Right",
+    ["none"]       = "None",
+}
+EllesmereUI.POSITION_GRID_ORDER = { "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright" }
+EllesmereUI.FRAME_STRATA_LABELS = {
+    BACKGROUND = "Background", LOW = "Low", MEDIUM = "Medium",
+    HIGH = "High", DIALOG = "Dialog", FULLSCREEN = "Fullscreen",
+    FULLSCREEN_DIALOG = "Fullscreen Dialog", TOOLTIP = "Tooltip",
+}
+EllesmereUI.FRAME_STRATA_ORDER_BASE = { "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG" }
+EllesmereUI.FRAME_STRATA_ORDER_FULL = { "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG", "FULLSCREEN", "FULLSCREEN_DIALOG", "TOOLTIP" }
+EllesmereUI.GROW_DIR_VALUES_FULL = { RIGHT = "Right", LEFT = "Left", UP = "Up", DOWN = "Down", CENTER = "Center" }
+EllesmereUI.GROW_DIR_ORDER_FULL  = { "RIGHT", "LEFT", "UP", "DOWN", "CENTER" }
+EllesmereUI.GROW_DIR_VALUES_BASE = { RIGHT = "Right", LEFT = "Left", UP = "Up", DOWN = "Down" }
+EllesmereUI.GROW_DIR_ORDER_BASE  = { "RIGHT", "LEFT", "UP", "DOWN" }
+
+-- Alert sound catalogue: shared LITERAL data only. Every consumer takes its
+-- OWN tables from BuildAlertSoundTables() because the SharedMedia appenders
+-- mutate consumer tables in place and cache them by table identity --
+-- sharing one table object between two dropdowns would collapse them into
+-- one consumer and lose the second dropdown's SM entries.
+EllesmereUI.ALERT_SOUND_FILES = {
+    airhorn = "AirHorn.ogg", banana = "BananaPeelSlip.ogg", bikehorn = "BikeHorn.ogg",
+    bite = "Bite.ogg", boxing = "BoxingArenaSound.ogg", catmeow = "CatMeow.ogg",
+    catmeow2 = "CatMeow2.ogg", gunshot = "FrontalsGunshot.wav", glass = "Glass.mp3",
+    kaching = "Kaching.ogg", phone = "Phone.ogg", robotblip = "RobotBlip.ogg",
+    sonar = "Sonar.ogg", siren = "WarningSiren.ogg", water = "WaterDrop.ogg",
+    wilhelm = "Wilhelm.ogg",
+}
+EllesmereUI.ALERT_SOUND_NAMES = {
+    none = "None", airhorn = "Air Horn", banana = "Banana Peel Slip",
+    bikehorn = "Bike Horn", bite = "Bite", boxing = "Boxing Arena",
+    catmeow = "Cat Meow", catmeow2 = "Cat Meow 2", gunshot = "Frontals Gunshot",
+    glass = "Glass", kaching = "Kaching", phone = "Phone", robotblip = "Robot Blip",
+    sonar = "Sonar", siren = "Warning Siren", water = "Water Drop", wilhelm = "Wilhelm",
+}
+EllesmereUI.ALERT_SOUND_ORDER = {
+    "none", "airhorn", "banana", "bikehorn", "bite", "boxing", "catmeow",
+    "catmeow2", "gunshot", "glass", "kaching", "phone", "robotblip", "sonar",
+    "siren", "water", "wilhelm",
+}
+-- Returns FRESH paths/names/order tables seeded from the catalogue ("none"
+-- stays a name-only key with no path). Safe to hand to the SM appenders.
+function EllesmereUI.BuildAlertSoundTables()
+    local dir = MEDIA_PATH .. "sounds\\"
+    local paths, names, order = {}, {}, {}
+    for i, k in ipairs(EllesmereUI.ALERT_SOUND_ORDER) do
+        order[i] = k
+        names[k] = EllesmereUI.ALERT_SOUND_NAMES[k]
+        local f = EllesmereUI.ALERT_SOUND_FILES[k]
+        if f then paths[k] = dir .. f end
+    end
+    return paths, names, order
+end
+
+-- Statusbar texture catalogue: same contract as the sound catalogue above --
+-- shared LITERAL data, per-consumer table objects via the builder (the SM
+-- texture appender also mutates and identity-caches its argument tables).
+EllesmereUI.BAR_TEXTURE_FILES = {
+    melli = "melli.tga", beautiful = "beautiful.tga", plating = "plating.tga",
+    atrocity = "atrocity.tga", divide = "divide.tga", glass = "glass.tga",
+    ["fade-right"] = "fade-right.tga", ["thin-line-top"] = "thin-line-top.tga",
+    ["thin-line-bottom"] = "thin-line-bottom.tga", fade = "fade.tga",
+    ["gradient-lr"] = "gradient-lr.tga", ["gradient-rl"] = "gradient-rl.tga",
+    ["gradient-bt"] = "gradient-bt.tga", ["gradient-tb"] = "gradient-tb.tga",
+    matte = "matte.tga", sheer = "sheer.tga",
+    ["blinkii-diamonds"] = "blinkii-diamonds.tga",
+    ["kringel-window"] = "kringel-window.tga",
+}
+EllesmereUI.BAR_TEXTURE_NAMES = {
+    none = "None", melli = "Melli (ElvUI)", beautiful = "Beautiful",
+    plating = "Plating", atrocity = "Atrocity", divide = "Divide",
+    glass = "Glass", ["fade-right"] = "Fade Right",
+    ["thin-line-top"] = "Thin Line Top", ["thin-line-bottom"] = "Thin Line Bottom",
+    fade = "Fade", ["gradient-lr"] = "Gradient Right",
+    ["gradient-rl"] = "Gradient Left", ["gradient-bt"] = "Gradient Up",
+    ["gradient-tb"] = "Gradient Down", matte = "Matte", sheer = "Sheer",
+    ["blinkii-diamonds"] = "Blinkii Diamonds", ["kringel-window"] = "Kringel Window",
+}
+EllesmereUI.BAR_TEXTURE_ORDER = {
+    "none", "melli", "atrocity",
+    "fade", "fade-right",
+    "thin-line-top", "thin-line-bottom",
+    "beautiful", "plating",
+    "divide", "glass",
+    "gradient-lr", "gradient-rl", "gradient-bt", "gradient-tb",
+    "matte", "sheer",
+    "blinkii-diamonds", "kringel-window",
+}
+-- Returns FRESH textures/names/order tables. includeExtras=true gives the
+-- full 19-key set; omitted/false gives the core set without the two
+-- pattern textures (blinkii-diamonds / kringel-window) that several
+-- modules deliberately do not offer. "none" is name-only (no path).
+function EllesmereUI.BuildBarTextureTables(includeExtras)
+    local dir = MEDIA_PATH .. "textures\\"
+    local tex, names, order = {}, {}, {}
+    for _, k in ipairs(EllesmereUI.BAR_TEXTURE_ORDER) do
+        if includeExtras or (k ~= "blinkii-diamonds" and k ~= "kringel-window") then
+            order[#order + 1] = k
+            names[k] = EllesmereUI.BAR_TEXTURE_NAMES[k]
+            local f = EllesmereUI.BAR_TEXTURE_FILES[k]
+            if f then tex[k] = dir .. f end
+        end
+    end
+    return tex, names, order
+end
 
 -- Numeric constants
 EllesmereUI.TEXT_WHITE_R = TEXT_WHITE_R
@@ -1869,6 +2025,65 @@ EllesmereUI.TRIPLE_GAP    = TRIPLE_GAP
 EllesmereUI.CLASS_COLOR_MAP = CLASS_COLOR_MAP
 EllesmereUI.CLASS_ART_MAP   = CLASS_ART_MAP
 
+-- Upgrade track identification (locale-agnostic).
+-- Deliberately NOT gated behind a feature check: the QoL upgrade calculator
+-- needs this even when the skin and bag modules are disabled. The table is
+-- tiny and built once, so there is nothing to lazy-init.
+do
+    -- Every localized C_Item.GetItemUpgradeInfo().trackString we know of,
+    -- mapped back to a canonical English key. The upgrade calculator's
+    -- season tables are keyed by these names.
+    local KEYS = {
+        -- Explorer / Delve
+        Explorer = "Explorer", Expedicionario = "Explorer", Forscher = "Explorer",
+        Explorateur = "Explorer", Esploratore = "Explorer", Explorador = "Explorer",
+        Delve = "Explorer",
+        -- Adventurer
+        Adventurer = "Adventurer", Aventurero = "Adventurer", Abenteurer = "Adventurer",
+        Aventurier = "Adventurer", Avventuriero = "Adventurer", Aventureiro = "Adventurer",
+        -- Veteran
+        Veteran = "Veteran", Veterano = "Veteran", ["V\195\169t\195\169ran"] = "Veteran",
+        -- Champion
+        Champion = "Champion", ["Campe\195\179n"] = "Champion", Campione = "Champion",
+        ["Campe\195\163o"] = "Champion",
+        -- Hero
+        Hero = "Hero", ["H\195\169roe"] = "Hero", Held = "Hero",
+        ["H\195\169ros"] = "Hero", Eroe = "Hero", ["Hero\195\173"] = "Hero",
+        -- Myth
+        Myth = "Myth", Mito = "Myth", Mythos = "Myth", Mythe = "Myth",
+        -- ruRU
+        ["\208\152\209\129\209\129\208\187\208\181\208\180\208\190\208\178\208\176\209\130\208\181\208\187\209\140"] = "Explorer",
+        ["\208\152\209\129\208\186\208\176\209\130\208\181\208\187\209\140 \208\191\209\128\208\184\208\186\208\187\209\142\209\135\208\181\208\189\208\184\208\185"] = "Adventurer",
+        ["\208\146\208\181\209\130\208\181\209\128\208\176\208\189"] = "Veteran",
+        ["\208\151\208\176\209\137\208\184\209\130\208\189\208\184\208\186"] = "Champion",
+        ["\208\147\208\181\209\128\208\190\208\185"] = "Hero",
+        ["\208\155\208\181\208\179\208\181\208\189\208\180\208\176"] = "Myth",
+        -- koKR
+        ["\237\131\144\237\151\152\234\176\128"] = "Explorer", ["\235\170\168\237\151\152\234\176\128"] = "Adventurer",
+        ["\235\133\184\235\160\168\234\176\128"] = "Veteran", ["\236\177\148\237\148\188\236\150\184"] = "Champion",
+        ["\236\152\129\236\155\133"] = "Hero", ["\236\139\160\237\153\148"] = "Myth",
+        -- zhCN
+        ["\230\142\162\231\180\162\232\128\133"] = "Explorer", ["\229\134\146\233\153\169\232\128\133"] = "Adventurer",
+        ["\232\128\129\229\133\181"] = "Veteran", ["\229\139\135\229\163\171"] = "Champion",
+        ["\232\139\177\233\155\132"] = "Hero", ["\231\165\158\232\175\157"] = "Myth",
+        -- zhTW
+        ["\230\142\162\233\154\170\232\128\133"] = "Explorer", ["\229\134\146\233\154\170\232\128\133"] = "Adventurer",
+        ["\231\178\190\229\133\181"] = "Veteran", ["\231\165\158\232\169\177"] = "Myth",
+    }
+
+    EllesmereUI.UPGRADE_TRACK_KEYS = KEYS
+
+    -- Returns: trackKey (canonical English name) | nil, currentLevel, maxLevel.
+    -- trackKey is nil for items with no upgrade track (crafted gear, older
+    -- items) or for a trackString we have no translation for.
+    function EllesmereUI.GetUpgradeTrackKey(itemLink)
+        if not itemLink or not (C_Item and C_Item.GetItemUpgradeInfo) then return nil end
+        local info = C_Item.GetItemUpgradeInfo(itemLink)
+        if not info then return nil end
+        return KEYS[info.trackString or ""], info.currentLevel, info.maxLevel
+    end
+end
+
 -- Upgrade track color data (shared by BlizzardSkin character/inspect sheets + Bags)
 -- Only initialized when a consumer feature is actually enabled.
 do
@@ -1891,54 +2106,22 @@ do
         EllesmereUI._TRACK_WHITE = W
         EllesmereUI._TRACK_RANK = { [GR] = 1, [W] = 2, [VE] = 3, [CH] = 4, [HE] = 5, [MY] = 6 }
 
-        -- Locale-agnostic track color lookup (all known localized trackString values)
+        -- Canonical track key -> hue. The localized trackString translation
+        -- lives in EllesmereUI.UPGRADE_TRACK_KEYS above, so the list of
+        -- localized names exists in exactly one place.
         local map = {
-            -- Explorer / Delve (gray)
-            Explorer = GR, Expedicionario = GR, Forscher = GR,
-            Explorateur = GR, Esploratore = GR, Explorador = GR, Delve = GR,
-            -- Adventurer (white)
-            Adventurer = W, Aventurero = W, Abenteurer = W,
-            Aventurier = W, Avventuriero = W, Aventureiro = W,
-            -- Veteran (green)
-            Veteran = VE, Veterano = VE, ["V\195\169t\195\169ran"] = VE,
-            -- Champion (blue)
-            Champion = CH, ["Campe\195\179n"] = CH, Campione = CH,
-            ["Campe\195\163o"] = CH,
-            -- Hero (purple)
-            Hero = HE, ["H\195\169roe"] = HE, Held = HE,
-            ["H\195\169ros"] = HE, Eroe = HE, ["Hero\195\173"] = HE,
-            -- Myth (orange)
-            Myth = MY, Mito = MY, Mythos = MY, Mythe = MY,
-            -- ruRU
-            ["\208\152\209\129\209\129\208\187\208\181\208\180\208\190\208\178\208\176\209\130\208\181\208\187\209\140"] = GR,
-            ["\208\152\209\129\208\186\208\176\209\130\208\181\208\187\209\140 \208\191\209\128\208\184\208\186\208\187\209\142\209\135\208\181\208\189\208\184\208\185"] = W,
-            ["\208\146\208\181\209\130\208\181\209\128\208\176\208\189"] = VE,
-            ["\208\151\208\176\209\137\208\184\209\130\208\189\208\184\208\186"] = CH,
-            ["\208\147\208\181\209\128\208\190\208\185"] = HE,
-            ["\208\155\208\181\208\179\208\181\208\189\208\180\208\176"] = MY,
-            -- koKR
-            ["\237\131\144\237\151\152\234\176\128"] = GR, ["\235\170\168\237\151\152\234\176\128"] = W,
-            ["\235\133\184\235\160\168\234\176\128"] = VE, ["\236\177\148\237\148\188\236\150\184"] = CH,
-            ["\236\152\129\236\155\133"] = HE, ["\236\139\160\237\153\148"] = MY,
-            -- zhCN
-            ["\230\142\162\231\180\162\232\128\133"] = GR, ["\229\134\146\233\153\169\232\128\133"] = W,
-            ["\232\128\129\229\133\181"] = VE, ["\229\139\135\229\163\171"] = CH,
-            ["\232\139\177\233\155\132"] = HE, ["\231\165\158\232\175\157"] = MY,
-            -- zhTW
-            ["\230\142\162\233\154\170\232\128\133"] = GR, ["\229\134\146\233\154\170\232\128\133"] = W,
-            ["\231\178\190\229\133\181"] = VE, ["\231\165\158\232\169\177"] = MY,
+            Explorer   = GR,
+            Adventurer = W,
+            Veteran    = VE,
+            Champion   = CH,
+            Hero       = HE,
+            Myth       = MY,
         }
 
         function EllesmereUI.GetUpgradeTrack(itemLink)
-            if not itemLink or not (C_Item and C_Item.GetItemUpgradeInfo) then
-                return "", W
-            end
-            local info = C_Item.GetItemUpgradeInfo(itemLink)
-            if not info then return "", W end
-            local cur, maxL = info.currentLevel, info.maxLevel
+            local key, cur, maxL = EllesmereUI.GetUpgradeTrackKey(itemLink)
             local text = (cur and maxL and maxL > 0) and (cur .. "/" .. maxL) or ""
-            local color = map[info.trackString or ""] or W
-            return text, color
+            return text, map[key or ""] or W
         end
 
         -- Resolve the item-level text color using the exact same precedence as
@@ -3206,6 +3389,22 @@ do
             if not bdFrame then
                 bdFrame = CreateFrame("Frame", nil, borderFrame, "BackdropTemplate")
                 bdFrame:EnableMouse(false)
+                -- This frame is addon-born, so its scripts always execute
+                -- tainted -- and when the owner rides a Blizzard frame whose
+                -- size derives from secret content (map-pin tooltips, menus
+                -- with secret text), GetWidth() hands the template's resize
+                -- recompute a SECRET number and its texcoord arithmetic
+                -- throws (Backdrop.lua:226 storm, tester-reported on world
+                -- map hover). Secret size = skip the recompute: the edges
+                -- keep their last-good texcoords and stretch, which is the
+                -- best any tainted code can do there -- the throwing path
+                -- also left them stale, plus an error per resize. Non-secret
+                -- sizes recompute exactly as the template always did.
+                bdFrame:SetScript("OnSizeChanged", function(self)
+                    if issecretvalue and (issecretvalue(self:GetWidth())
+                        or issecretvalue(self:GetHeight())) then return end
+                    self:OnBackdropSizeChanged()
+                end)
                 _bdBorderData[borderFrame] = bdFrame
             end
             bdFrame:SetFrameLevel(borderFrame:GetFrameLevel())
@@ -3258,11 +3457,30 @@ do
             bdFrame:ClearAllPoints()
             bdFrame:SetPoint("TOPLEFT", borderFrame, "TOPLEFT", -offsetX + sx, offsetY + sy)
             bdFrame:SetPoint("BOTTOMRIGHT", borderFrame, "BOTTOMRIGHT", offsetX + sx, -offsetY + sy)
-            bdFrame:SetBackdrop({
-                edgeFile = texPath,
-                edgeSize = edgeSize,
-                insets = { left = 0, right = 0, top = 0, bottom = 0 },
-            })
+            -- SetBackdrop re-runs the template's nine-slice texcoord math,
+            -- which divides by this frame's CURRENT width/height -- and this
+            -- frame rides owners whose size can be secret (map-pin tooltips).
+            -- The owner-width guard upstream can pass while THIS anchored
+            -- rect still resolves secret in here, so the guard must sit on
+            -- this frame at this call. Re-applying an unchanged style is the
+            -- overwhelmingly common call (tooltips re-skin every Show): skip
+            -- the template entirely then. On a real style change under a
+            -- secret size, keep the last-good backdrop and retry on the next
+            -- apply. The color write below is vertex-only and always safe.
+            local bdKey = texPath .. "@" .. edgeSize
+            if bdFrame._euiBdKey ~= bdKey then
+                if issecretvalue and (issecretvalue(bdFrame:GetWidth())
+                    or issecretvalue(bdFrame:GetHeight())) then
+                    bdFrame._euiBdKey = nil
+                else
+                    bdFrame:SetBackdrop({
+                        edgeFile = texPath,
+                        edgeSize = edgeSize,
+                        insets = { left = 0, right = 0, top = 0, bottom = 0 },
+                    })
+                    bdFrame._euiBdKey = bdKey
+                end
+            end
             bdFrame:SetBackdropBorderColor(r, g, b, a)
             bdFrame:Show()
             borderFrame:Show()
@@ -3445,6 +3663,14 @@ EllesmereUI.CLASS_POWER_MAP = {
     DRUID        = "MANA",
     DEMONHUNTER  = "FURY",
     EVOKER       = "MANA",
+}
+
+-- Canonical 13-class token sequence (role order) for class pickers/grids.
+-- Read-only everywhere; sites needing a DIFFERENT order (e.g. alphabetical)
+-- keep their own local list.
+EllesmereUI.CLASS_TOKEN_ORDER = {
+    "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "DEATHKNIGHT",
+    "SHAMAN", "MAGE", "WARLOCK", "MONK", "DRUID", "DEMONHUNTER", "EVOKER",
 }
 
 -- Class -> resource type mapping (nil = no class resource)
@@ -4635,12 +4861,58 @@ do
         return false
     end
 
+    -- Deferred award for casts the position probe rejected while the player
+    -- was MOVING: Whirlwind pressed during Charge runs the probe while still
+    -- yards from the target, but the server resolves the swing at landing and
+    -- the real buff is granted (the buff itself is NOT readable: 85739 is
+    -- non-whitelisted -- GetPlayerAuraBySpellID returns nil under live
+    -- restriction CVars, verified 2026-08-05 via the dev-mode flip). So the
+    -- landing IS the event edge: re-run the same probe once on
+    -- PLAYER_STOPPED_MOVING (plain unrestricted event, 69027 docs) inside a
+    -- short validity window. Registered only while an award is pending, so
+    -- the frame is idle everywhere else; a failed re-probe changes nothing.
+    do
+        local _, cls = UnitClass("player")
+        if cls == "WARRIOR" then
+            local pf = CreateFrame("Frame")
+            EllesmereUI._wwPendFrame = pf
+            -- Shared resolver: also driven from the cast handler, because a
+            -- strafing melee can go a whole fight without ever firing
+            -- PLAYER_STOPPED_MOVING -- the next GCD cast is the edge that
+            -- always exists in combat. A FAILED probe keeps the pending award
+            -- armed until the window truly closes (the first one-shot version
+            -- burned it on one bad probe, lost the refresh, and the stale
+            -- expiry timer then cleared live stacks mid-fight).
+            EllesmereUI._wwResolvePend = function()
+                local sid = EllesmereUI._wwPendSid
+                if not sid then return end
+                if GetTime() > (EllesmereUI._wwPendUntil or 0) then
+                    EllesmereUI._wwPendSid = nil
+                    pf:UnregisterEvent("PLAYER_STOPPED_MOVING")
+                    return
+                end
+                if EnemyInStrikeRange(sid) then
+                    EllesmereUI._wwPendSid = nil
+                    pf:UnregisterEvent("PLAYER_STOPPED_MOVING")
+                    stacks = MAX
+                    expiresAt = GetTime() + DURATION
+                end
+                -- Probe still false inside the window: stay armed.
+            end
+            pf:SetScript("OnEvent", EllesmereUI._wwResolvePend)
+        end
+    end
+
     function EllesmereUI.HandleWhirlwindStacks(event, unit, castGUID, spellID)
         if event == "PLAYER_DEAD" or event == "PLAYER_ALIVE" then
             stacks, expiresAt = 0, nil
             bladestormEndsAt = 0
             wipe(seenGUID)
             guidCount = 0
+            if EllesmereUI._wwPendFrame then
+                EllesmereUI._wwPendFrame:UnregisterEvent("PLAYER_STOPPED_MOVING")
+                EllesmereUI._wwPendSid = nil
+            end
             return
         end
         if event == "PLAYER_REGEN_ENABLED" then
@@ -4651,6 +4923,13 @@ do
         end
         if event ~= "UNIT_SPELLCAST_SUCCEEDED" or unit ~= "player" then return end
         if not requiredKnown then return end
+
+        -- Resolve any pending landing award off this cast BEFORE processing
+        -- it: by the next GCD press the player is at the target, so the
+        -- re-probe sees what the whiffed-looking generator actually hit.
+        -- Ordering matters -- the pending Whirlwind landed first, so a
+        -- spender in this very cast correctly drains from the fresh 4.
+        if EllesmereUI._wwResolvePend then EllesmereUI._wwResolvePend() end
 
         if castGUID and seenGUID[castGUID] then return end
         if castGUID then
@@ -4671,8 +4950,24 @@ do
             if (spellID == 6343 or spellID == 435222) and not crashingKnown then
                 return
             end
-            -- Only award if the swing actually had an enemy to land on.
-            if not EnemyInStrikeRange(spellID) then return end
+            -- Only award if the swing actually had an enemy to land on. When
+            -- the probe says no, arm the one-shot landing re-probe instead of
+            -- dropping the cast outright (the mid-Charge case -- see the
+            -- pending frame above).
+            if not EnemyInStrikeRange(spellID) then
+                local pf = EllesmereUI._wwPendFrame
+                if pf then
+                    EllesmereUI._wwPendSid = spellID
+                    EllesmereUI._wwPendUntil = GetTime() + 1.5
+                    pf:RegisterEvent("PLAYER_STOPPED_MOVING")
+                end
+                return
+            end
+            local pf = EllesmereUI._wwPendFrame
+            if pf then
+                pf:UnregisterEvent("PLAYER_STOPPED_MOVING")
+                EllesmereUI._wwPendSid = nil
+            end
             stacks = MAX
             expiresAt = GetTime() + DURATION
         elseif SPENDERS[spellID] and stacks > 0 then
@@ -4686,6 +4981,12 @@ do
         end
     end
 
+    -- NO aura validation here, same doctrine as Sweeping Strikes below: the
+    -- stack buff 85739 is non-whitelisted, so GetPlayerAuraBySpellID returns
+    -- nil under live restriction CVars even while the buff is visibly active
+    -- (verified 2026-08-05 via the dev-mode CVar flip -- 4 with restrictions
+    -- off, NIL with them on). Prediction plus the duration timer IS the
+    -- tracker; the landing re-probe above covers the mid-Charge award.
     function EllesmereUI.GetWhirlwindStacks()
         if not requiredKnown then return 0, 0 end
         if expiresAt and GetTime() >= expiresAt then
@@ -4840,18 +5141,32 @@ do
         if not (UnitExists(u) and UnitCanAttack("player", u) and not UnitIsDead(u)) then
             return false
         end
+        -- The rule (field-measured 2026-08-05): a charge is consumed when at
+        -- least TWO enemies stand within 8 yd of the PLAYER -- the current
+        -- target is irrelevant. NO legal probe measures 8 on non-target
+        -- units (all field-tested 2026-08-05): Charge's 8 yd min range
+        -- evaluates ONLY against the current target token (plate units
+        -- always read "in min range"); UnitPosition dies in instances
+        -- (rejected outright -- context-dependent fidelity); the duel
+        -- interact probe reaches ~9.9 and falsely drained charges on 8-9.9
+        -- bodies the game refused to cleave. So the gauge is the
+        -- melee-spell probe ALONE: hitbox-scaled (~5 yd + combat reach,
+        -- i.e. wider on real mobs than on skinny dummies), uniform in
+        -- every secret context, and its only error is UNDER-counting
+        -- partners in the narrow band between melee reach and 8 yd -- the
+        -- bar can briefly read full-ish, but it never fabricates a spend.
         local isr = C_Spell and C_Spell.IsSpellInRange
         if isr then
-            -- Resolve the live override id (a talent-replaced base id returns
-            -- nil), matching the nameplate range-text / crosshair probes.
+            -- Resolve the live override id (a talent-replaced base id
+            -- returns nil), matching the nameplate range-text probes.
             local ms = (C_SpellBook and C_SpellBook.FindSpellOverrideByID
                 and C_SpellBook.FindSpellOverrideByID(12294)) or 12294
             local r = isr(ms, u)
-            if not (issecretvalue and issecretvalue(r)) and r ~= nil then
+            if not (issecretvalue and issecretvalue(r)) then
                 return r == true
             end
         end
-        return CheckInteractDistance(u, idx or 2) or false
+        return false
     end
     local function EnemiesInReach(need, idx)
         local count, targetPlated = 0, false
@@ -5935,10 +6250,100 @@ local function GetPopupScale()
 end
 EllesmereUI.GetPopupScale = GetPopupScale
 
+-- Reference density for dialog popups: 1440p at 0.64 UI scale, which is the
+-- look the suite is designed against. There the pre-fix popups rendered at
+-- 768/(1440*0.64) = 0.8333 physical pixels per unit, and that is the size to
+-- hold. Removing the squared scale alone would have normalized every display
+-- to 1.0 px/unit instead -- correct in the abstract, but 20% larger than the
+-- reference look, which is what it was reported as.
+--
+-- Applying it as a CONSTANT is the point: it pins the reference size on every
+-- display while still dropping both defects the squared scale carried --
+-- popup size no longer moves INVERSELY with UI scale, and no longer grows
+-- QUADRATICALLY with the panel-scale dropdown. px/unit is now
+-- 0.8333 * panelScale everywhere, full stop.
+--
+-- THE INVARIANT this serves: every popup occupies the same fraction of the
+-- screen that it does at 1440p / 0.64. Screen-height fraction works out to
+-- (units * POPUP_REF_DENSITY * panelScale) / physH, so the invariant holds
+-- exactly when panelScale == physH/1440 -- which is what the Startup seed and
+-- the panel_scale_highdpi_reset_v3 migration set it to. Do NOT "fix" this
+-- constant to 1.0: that normalizes every display to 1 px/unit, which is 20%
+-- larger than the reference and was reported as such.
+--
+-- Known and deliberate deviation: the seed is FLOORED at 1, so below 1440p
+-- the fraction runs larger than the reference (1080p by 33%). Enforcing the
+-- invariant there would seed 0.75 and shrink the options panel a quarter for
+-- the largest resolution segment. The floor is the accepted trade.
+-- On the namespace, NOT a file local: this file is at the Lua 5.1 200-local
+-- cap, and one more local here is a load-time error.
+EllesmereUI.POPUP_REF_DENSITY = 768 / (1440 * 0.64)
+
+-- Scale a dialog sets on ITSELF, on top of the dimmer that already carries
+-- GetPopupScale(). mult is the dialog's own relative bump (1, or 1.15 for the
+-- intro popups). Always route through this so the reference density lives in
+-- exactly one place and the dialogs can never drift apart again.
+function EllesmereUI.PopupBump(mult)
+    return (mult or 1) * EllesmereUI.POPUP_REF_DENSITY
+end
+
+-- Dialog popups sit on a dimmer that GetPopupScale has ALREADY scaled, and
+-- used to call SetScale(ppScale) on themselves as well. Being children of that
+-- dimmer they rendered at ppScale SQUARED. Since baseScale is
+-- 768/(physH * uiScale), that works out to panelScale^2 * baseScale physical
+-- pixels per unit instead of panelScale, so popups were oversized on every
+-- display and, with uiScale in the denominator, LOWERING your UI scale made
+-- popups BIGGER. Dialogs now take their scale ONCE, from the dimmer, and set
+-- only their own relative bump (1, or 1.15 for the intro popups), which makes
+-- px/unit == panelScale, exactly matching the options panel.
+--
+-- Careful with the units, it is easy to get wrong: GetEffectiveScale() is NOT
+-- physical pixels per unit. WoW maps the UI through a 768-tall virtual space,
+-- so px/unit = GetEffectiveScale() * physH/768. Work that through and baseScale
+-- is exactly 1 at the pixel-perfect uiScale (768/physH) on every resolution,
+-- which is what makes the corrected formula collapse to panelScale.
+--
+-- _popupFrames entries come in TWO shapes, and which one a popup registers is
+-- exactly what decides where its scale belongs (see RefreshPopupScales):
+--   { popup = p }             -- unscaled parent, so the popup carries the scale
+--   { popup = p, dimmer = d } -- scaled dimmer, so the popup carries only its bump
+-- The raid-frame manager popups and the nameplate filter panel are the former
+-- and were never doubled, which is why GetPopupScale itself is unchanged.
+
+-- Hard ceiling for modal setup popups. They sit on a full-screen dimmer that
+-- eats every click behind it, so one that overflows the display does not just
+-- look wrong: its buttons land off-screen and there is no way back to the game
+-- menu. A 4K tester was left unable to log out.
+--
+-- Measured, not derived: GetEffectiveScale reports what the frame will really
+-- render at, including however many parent scales are stacked above it, so this
+-- holds regardless of what the scale math upstream does. Only ever shrinks.
+function EllesmereUI.ClampPopupToScreen(popup, w, h)
+    if not popup or not w or not h or w <= 0 or h <= 0 then return end
+    local es = popup:GetEffectiveScale()
+    if type(es) ~= "number" or es <= 0 then return end
+    local pw, ph = GetPhysicalScreenSize()
+    if type(pw) ~= "number" or type(ph) ~= "number" or pw <= 0 or ph <= 0 then return end
+    local fit = math.min((pw * 0.92) / (w * es), (ph * 0.92) / (h * es))
+    if fit >= 1 then return end
+    popup:SetScale(popup:GetScale() * fit)
+end
+
+-- Re-apply the scale to the frame that actually OWNS it. A popup registered
+-- with a dimmer takes its scale from that dimmer and carries only its own
+-- relative bump, so writing GetPopupScale() onto the popup here would restore
+-- the squared double-scale on the first slider change -- silently undoing the
+-- fix for exactly the popups that were built to avoid it. Scaling the dimmer
+-- also fixes the older half of the same bug: the dimmer used to keep its
+-- creation-time scale forever while the popup rescaled underneath it.
 local function RefreshPopupScales()
     local s = GetPopupScale()
     for _, entry in ipairs(_popupFrames) do
-        if entry.popup then entry.popup:SetScale(s) end
+        if entry.dimmer then
+            entry.dimmer:SetScale(s)
+        elseif entry.popup then
+            entry.popup:SetScale(s)
+        end
     end
 end
 
@@ -10749,28 +11154,32 @@ function EllesmereUI._applySidebarSearch(text)
         end
     end
 
+    -- Bilingual: index the localized form too, only when it differs from the
+    -- original, so the English haystack stays byte-identical on English clients.
+    local function addLocalized(parts, s)
+        s = tostring(s)
+        parts[#parts + 1] = s:lower()
+        local loc = tostring(EllesmereUI.L(s))
+        if loc ~= s then parts[#parts + 1] = loc:lower() end
+    end
+
     local function childMatches(info)
         if #queryWords == 0 then return true end
-        local parts = { (info.display or ""):lower() }
-        -- Bilingual: index localized module/page names too (only when they differ,
-        -- so the English haystack is byte-identical on English clients).
-        local dispLoc = EllesmereUI.L(info.display or "")
-        if dispLoc ~= (info.display or "") then parts[#parts + 1] = dispLoc:lower() end
+        local parts = {}
+        addLocalized(parts, info.display or "")
         local mod = modules[info.folder]
         if mod and mod.pages then
             for _, p in ipairs(mod.pages) do
-                parts[#parts + 1] = tostring(p):lower()
-                local pLoc = EllesmereUI.L(p)
-                if pLoc ~= p then parts[#parts + 1] = tostring(pLoc):lower() end
+                addLocalized(parts, p)
             end
         end
         if mod and mod.searchTerms then
             if type(mod.searchTerms) == "table" then
                 for _, t in ipairs(mod.searchTerms) do
-                    parts[#parts + 1] = tostring(t):lower()
+                    addLocalized(parts, t)
                 end
             else
-                parts[#parts + 1] = tostring(mod.searchTerms):lower()
+                addLocalized(parts, mod.searchTerms)
             end
         end
         local haystack = table.concat(parts, " ")
@@ -11009,7 +11418,7 @@ local function ShowSidebarUnlockTip()
         msg:SetWidth(TIP_W - 30)
         msg:SetJustifyH("CENTER")
         msg:SetSpacing(6)
-        msg:SetText("Unlock Mode is where you can adjust\npositioning for all the elements of EllesmereUI")
+        msg:SetText(EllesmereUI.L("Unlock Mode is where you can adjust\npositioning for all the elements of EllesmereUI"))
 
         -- Okay button
         local okBtn = CreateFrame("Button", nil, tip)
@@ -11116,7 +11525,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "8.6.7"
+EllesmereUI.VERSION = "8.7.8"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end
@@ -11424,72 +11833,6 @@ SlashCmdList.EUIOPTIONS = function()
     end)
 end
 
--- Debug: /euimem toggles per-second memory delta readout
-SLASH_EUIMEM1 = "/euimem"
-SlashCmdList.EUIMEM = function()
-    if EllesmereUI._memTicker then
-        EllesmereUI._memTicker:Cancel()
-        EllesmereUI._memTicker = nil
-        EllesmereUI.Print("|cff00ff00[EUI Memory Tracker]|r Stopped.")
-        return
-    end
-    local addons = {}
-    for i = 1, C_AddOns.GetNumAddOns() do
-        local name = C_AddOns.GetAddOnInfo(i)
-        if name and name:find("^Ellesmere") and C_AddOns.IsAddOnLoaded(i) then
-            addons[#addons + 1] = name
-        end
-    end
-    UpdateAddOnMemoryUsage()
-    local lastMem = {}
-    for _, name in ipairs(addons) do
-        lastMem[name] = GetAddOnMemoryUsage(name)
-    end
-    EllesmereUI.Print("|cff00ff00[EUI Memory Tracker]|r Tracking " .. #addons .. " addons. /euimem to stop.")
-    local MEM_INTERVAL = 10
-    local sampleCount = 0
-    local accumMem = {}
-    for _, name in ipairs(addons) do accumMem[name] = 0 end
-    EllesmereUI._memTicker = C_Timer.NewTicker(1, function()
-        UpdateAddOnMemoryUsage()
-        sampleCount = sampleCount + 1
-        for _, name in ipairs(addons) do
-            local cur = GetAddOnMemoryUsage(name)
-            local delta = cur - (lastMem[name] or cur)
-            lastMem[name] = cur
-            accumMem[name] = accumMem[name] + delta
-        end
-        if sampleCount < MEM_INTERVAL then return end
-        -- Print averages (skip GC frames where total is negative)
-        local totalAvg = 0
-        for _, name in ipairs(addons) do
-            totalAvg = totalAvg + accumMem[name] / MEM_INTERVAL
-        end
-        if totalAvg < 0 then
-            for _, name in ipairs(addons) do accumMem[name] = 0 end
-            sampleCount = 0
-            return
-        end
-        totalAvg = 0
-        local lines = {}
-        for _, name in ipairs(addons) do
-            local avg = accumMem[name] / MEM_INTERVAL
-            totalAvg = totalAvg + avg
-            if true then
-                local short = name:gsub("^EllesmereUI", "")
-                if short == "" then short = "Core" end
-                local c = math.abs(avg) > 10 and "ffff6060" or math.abs(avg) > 5 and "ffffff60" or "ff60ff60"
-                lines[#lines + 1] = string.format("  |c%s%s|r %+.1f kb/s", c, short, avg)
-            end
-            accumMem[name] = 0
-        end
-        sampleCount = 0
-        local totalColor = math.abs(totalAvg) > 40 and "ffff6060" or math.abs(totalAvg) > 25 and "ffffff60" or "ff60ff60"
-        EllesmereUI.Print(string.format("|c%s[EUI Memory Tracker]|r %+.1f kb/s avg", totalColor, totalAvg))
-        for _, line in ipairs(lines) do EllesmereUI.Print(line) end
-    end)
-end
-
 -- Quick-access: /ee opens global settings
 SLASH_EUIQUICK1 = "/ee"
 SlashCmdList.EUIQUICK = function()
@@ -11526,7 +11869,7 @@ SlashCmdList.PARTYMODETOGGLE = function()
     end)
 end
 
--- Debug: reset preview hint dismissed flag
+-- Support: reset all one-time hint flags so they show again
 SLASH_EUIRESETHINT1 = "/euiresethint"
 
 -- Quick-access: /unlock opens Unlock Mode directly
@@ -11559,7 +11902,7 @@ SlashCmdList.EUIRESETHINT = function()
     end)
 end
 
--- Debug: wipe saved UI scale so next reload re-snapshots from Blizzard default
+-- Support: wipe saved UI scale so next reload re-snapshots from Blizzard default
 SLASH_EUIRESETSCALE1 = "/euiresetscale"
 SlashCmdList.EUIRESETSCALE = function()
     C_Timer.After(0, function()
@@ -12140,7 +12483,17 @@ initFrame:SetScript("OnEvent", function(self, event)
         -- (per-profile euiAccent -> frozen global root -> theme color). When a
         -- profile has no per-profile accent this reproduces the legacy behavior
         -- exactly, so existing users see zero change.
-        ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b = EllesmereUI.ResolveActiveAccent()
+        --
+        -- Routed through the live-apply path rather than assigning the three
+        -- fields directly: Lite is TOC-ordered ahead of this file, so its
+        -- PLAYER_LOGIN fires first and every module's OnEnable has already
+        -- painted against the parse-time fallback. Notifying repaints them.
+        local accentR, accentG, accentB = EllesmereUI.ResolveActiveAccent()
+        if EllesmereUI.ApplyAccentColorLive then
+            EllesmereUI.ApplyAccentColorLive(accentR, accentG, accentB)
+        else
+            ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b = accentR, accentG, accentB
+        end
     end
 
     -- Spell ID / Item ID + Icon ID / Max Item Stack on Tooltip (developer option)
@@ -12221,15 +12574,25 @@ initFrame:SetScript("OnEvent", function(self, event)
             if not IsSpellIDModifierHeld() then return end
             if not data or not data.id then return end
             if _isSecret and _isSecret(data.id) then return end
+            -- 12.1 no-modifier configs render aura IDs engine-side via the
+            -- tooltipShowAuraSpellIDs CVar (see SyncAuraSpellIDCVar); adding
+            -- the Lua line too would show the ID twice on aura tooltips.
+            if EllesmereUI.IS_121 and Enum.TooltipDataType
+                and data.type == Enum.TooltipDataType.UnitAura
+                and (EllesmereUIDB.spellIDModifier or "none") == "none" then
+                return
+            end
             if not tooltip or not tooltip.GetName then return end
             local ok, name = pcall(tooltip.GetName, tooltip)
             if not ok or not name then return end
             if hasDupLine(tooltip, name, "SpellID") then return end
             tooltip:AddDoubleLine("SpellID", tostring(data.id), 1, 1, 1, 1, 1, 1)
-            local iconID = C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(data.id)
-                or (GetSpellTexture and GetSpellTexture(data.id))
-            if iconID then
-                tooltip:AddDoubleLine("IconID", tostring(iconID), 1, 1, 1, 1, 1, 1)
+            if EllesmereUIDB.showIconID ~= false then
+                local iconID = C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(data.id)
+                    or (GetSpellTexture and GetSpellTexture(data.id))
+                if iconID then
+                    tooltip:AddDoubleLine("IconID", tostring(iconID), 1, 1, 1, 1, 1, 1)
+                end
             end
             tooltip:Show()
         end
@@ -12246,11 +12609,18 @@ initFrame:SetScript("OnEvent", function(self, event)
             -- ID lines do not belong inside that window.
             if name == "ItemSocketingDescription" then return end
             if hasDupLine(tooltip, name, "ItemID") then return end
-            tooltip:AddDoubleLine("ItemID", tostring(data.id), 1, 1, 1, 1, 1, 1)
-            local iconID = C_Item.GetItemIconByID and C_Item.GetItemIconByID(data.id)
-                or (GetItemIcon and GetItemIcon(data.id))
-            if iconID then
-                tooltip:AddDoubleLine("IconID", tostring(iconID), 1, 1, 1, 1, 1, 1)
+            local showItem = EllesmereUIDB.showItemID ~= false
+            local showIcon = EllesmereUIDB.showIconID ~= false
+            if not showItem and not showIcon then return end
+            if showItem then
+                tooltip:AddDoubleLine("ItemID", tostring(data.id), 1, 1, 1, 1, 1, 1)
+            end
+            if showIcon then
+                local iconID = C_Item.GetItemIconByID and C_Item.GetItemIconByID(data.id)
+                    or (GetItemIcon and GetItemIcon(data.id))
+                if iconID then
+                    tooltip:AddDoubleLine("IconID", tostring(iconID), 1, 1, 1, 1, 1, 1)
+                end
             end
             tooltip:Show()
         end
@@ -12293,10 +12663,12 @@ initFrame:SetScript("OnEvent", function(self, event)
             if not okN or not name then return end
             if hasDupLine(tooltip, name, "SpellID") then return end
             tooltip:AddDoubleLine("SpellID", tostring(spellID), 1, 1, 1, 1, 1, 1)
-            local iconID = C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spellID)
-                or (GetSpellTexture and GetSpellTexture(spellID))
-            if iconID then
-                tooltip:AddDoubleLine("IconID", tostring(iconID), 1, 1, 1, 1, 1, 1)
+            if EllesmereUIDB.showIconID ~= false then
+                local iconID = C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spellID)
+                    or (GetSpellTexture and GetSpellTexture(spellID))
+                if iconID then
+                    tooltip:AddDoubleLine("IconID", tostring(iconID), 1, 1, 1, 1, 1, 1)
+                end
             end
             tooltip:Show()
         end

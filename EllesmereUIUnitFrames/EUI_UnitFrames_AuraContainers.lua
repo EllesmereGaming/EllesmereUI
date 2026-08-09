@@ -440,6 +440,21 @@ local function BuildStyle(unit, base, s, unitFrame)
     }
 end
 
+-- A cast bar that was free-moved off the frame in unlock mode no longer sits
+-- between the frame and a bottom-anchored aura stack, so the stack must not
+-- reserve its height. Detached = the unlock anchor record is gone AND a saved
+-- free position exists; with neither (fresh install, anchor seed not yet run)
+-- the reserve is kept.
+local CB_UNLOCK_KEYS = { player = "playerCastbar", target = "targetCastbar", focus = "focusCastbar" }
+local function CastbarDetached(unit)
+    local key = CB_UNLOCK_KEYS[unit]
+    if not key then return false end
+    if EllesmereUI.IsUnlockAnchored and EllesmereUI.IsUnlockAnchored(key) then return false end
+    local db = ns.db
+    local pos = db and db.profile and db.profile.positions
+    return (pos and pos[key]) ~= nil
+end
+
 -- Container anchoring: mirrors the legacy element's SetPoint(ia, frame, fp,
 -- ox + userX, oy + castbarPush + userY) with gap = 1.
 -- buffContainer (HARMFUL calls only): the unit's buff container, needed by
@@ -497,7 +512,8 @@ local function AnchorContainer(container, frame, unit, base, s, buffContainer)
     else
         showCb, cbH = s.showCastbar, s.castbarHeight
     end
-    if showCb and (anchor == "bottomleft" or anchor == "bottomright" or anchor == "left" or anchor == "right") then
+    if showCb and (anchor == "bottomleft" or anchor == "bottomright" or anchor == "left" or anchor == "right")
+        and not CastbarDetached(unit) then
         if not cbH or cbH <= 0 then cbH = 14 end
         cbOff = -cbH
     end
@@ -680,7 +696,8 @@ local function CfgFP(unit, base, s)
         Pick(isBuff, s.buffMaxPerRow, s.debuffMaxPerRow), s.showBuffs, s.showLustDebuff,
         mAB, mAB and s.debuffAnchor or nil, mAB and s.debuffGrowth or nil,
         mAB and s.debuffOffsetX or nil, mAB and s.debuffOffsetY or nil,
-        mAB and s.debuffSpacingY or nil)
+        mAB and s.debuffSpacingY or nil,
+        CastbarDetached(unit))
 end
 
 ------------------------------------------------------------------------------
@@ -702,6 +719,17 @@ local DISPEL_SLOTS = {
     { key = "bleed",   colorKey = "dispelColorBleed",   fallback = { 0.75, 0.15, 0.15 },   level = 1 },
 }
 local DISPEL_TYPE_TOKENS = { magic = "Magic", curse = "Curse", disease = "Disease", poison = "Poison", bleed = "Bleed" }
+
+-- A dispel type only the player's RACE can clear (bleeds, via Stoneform) is
+-- rejected by RAID_PLAYER_DISPELLABLE, which knows class and spec dispels
+-- only. Handled here by keeping the PLAIN slot lit for such a type rather than
+-- giving the by-me twin a filter that would match it: two slots declaring one
+-- filter string share a single engine parse batch (see AK.Filter) and both are
+-- not guaranteed to receive the aura. The rule itself lives with the legacy
+-- overlay in EllesmereUIUnitFrames.lua, which needs the same answer.
+local function RacialCoversDispelSlot(slotKey)
+    return ns.UF_RacialClearsDispel ~= nil and ns.UF_RacialClearsDispel(slotKey)
+end
 local GRADIENT_TEXTURE = "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-tb.tga"
 local GRADIENT_SHARP_TEXTURE = "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-sharp.tga"
 
@@ -767,6 +795,10 @@ local function BuildDispelStyles(frame)
     local op = p.dispelOverlayOpacity or 100
     for i = 1, #DISPEL_SLOTS do
         local slot = DISPEL_SLOTS[i]
+        -- A type only the player's RACE can clear keeps using the PLAIN slot in
+        -- "by me" mode: the engine token can never match it, so its by-me twin
+        -- stays dark and would swallow the setting entirely.
+        local racial = RacialCoversDispelSlot(slot.key)
         local col = p[slot.colorKey]
         local color = { r = col and col.r or slot.fallback[1], g = col and col.g or slot.fallback[2], b = col and col.b or slot.fallback[3] }
         AK.styles[DispelStyleKey(slot.key)] = {
@@ -774,7 +806,7 @@ local function BuildDispelStyles(frame)
             noRegions = true,
             mode = mode,
             color = color,
-            opacity = byMe and 0 or op,
+            opacity = (byMe and not racial) and 0 or op,
             level = slot.level,
             healthFrame = frame.Health,
             applyExtra = ApplyDispelSlotStyle,
@@ -784,7 +816,7 @@ local function BuildDispelStyles(frame)
             noRegions = true,
             mode = mode,
             color = color,
-            opacity = byMe and op or 0,
+            opacity = (byMe and not racial) and op or 0,
             level = slot.level,
             healthFrame = frame.Health,
             applyExtra = ApplyDispelSlotStyle,
