@@ -3767,6 +3767,20 @@ local function PermanentEditBoxIndex(eb)
     return nil
 end
 
+-- Shared registration point for the focus-gained side. Everything that used to
+-- HookScript("OnEditFocusGained") on a Blizzard edit box goes through here: the
+-- gate to permanent frames and the securecallfunction laundering are applied
+-- once, and a constant owner string means a repeated skin pass replaces its
+-- registration instead of stacking another one. On ECHAT rather than a file
+-- local because this file runs close to the 200-local ceiling.
+function ECHAT._RegisterEditBoxFocusGained(owner, fn)
+    if not (EventRegistry and EventRegistry.RegisterCallback) then return end
+    EventRegistry:RegisterCallback("ChatFrame.OnEditBoxFocusGained", function(_, eb)
+        if not PermanentEditBoxIndex(eb) then return end
+        fn(eb)
+    end, owner)
+end
+
 local function EnsureChatStateCallbacks()
     if _chatStateCallbacksDone then return end
     if not (EventRegistry and EventRegistry.RegisterCallback) then return end
@@ -3789,6 +3803,18 @@ local function EnsureChatStateCallbacks()
         -- ParseText has already run them and cleared the box by this point,
         -- so the empty-text bail above is the primary filter and this is the
         -- belt-and-braces one. Both stay.
+        --
+        -- KNOWN, ACCEPTED NARROWING vs the old OnTextChanged shadow: any
+        -- non-secure slash command ("/dance", "/pull 10") is also gone by
+        -- here, because ParseText:257-262 runs it and then ClearChat empties
+        -- the box, so this callback sees "" and bails. The old shadow
+        -- deliberately ignored that programmatic empty write and therefore
+        -- recorded the command. Plain Up/Down recall is now chat lines only.
+        -- Blizzard's own AddHistoryLine still holds the commands, so
+        -- Alt+Up/Down (untouched, see rule 2) recalls them as before. Trading
+        -- the wider recall for a send path that cannot be tainted is the
+        -- point of this change; capturing the text earlier would mean another
+        -- script hook on the edit box, which is the thing being removed.
         local cmd = text:match("^%s*(/%S+)")
         if cmd and IsSecureCmd and IsSecureCmd(cmd) then return end
         if h[#h] ~= text then
@@ -3872,8 +3898,17 @@ local function SkinEditBox(cf)
     -- skinning only. (This matches the function header's stated intent and the
     -- 1-10 header-font gate in ECHAT.ApplyFonts.)
     if idx <= 10 then
-        eb:HookScript("OnEditFocusGained", function(self)
-            ApplyEditBoxHeaderFont(self)
+        -- The header re-font on focus is an EventRegistry callback, not a
+        -- HookScript. OnEditFocusGained is dispatched by the SetFocus() inside
+        -- ChatFrameUtil.ActivateChat, so a script hook there runs NESTED in
+        -- ActivateChat, which then reaches UpdateHeader() and writes the edit
+        -- box's chatType attribute in the same execution. That is the mirror
+        -- image of the Deactivate case documented below, and it seeds the same
+        -- tainted attribute. Blizzard triggers this callback from the first
+        -- line of its own OnEditFocusGained, before ActivateChat, and
+        -- CallbackRegistry launders it through securecallfunction.
+        ECHAT._RegisterEditBoxFocusGained("EUI_Chat_HeaderFont", function(editBox)
+            ApplyEditBoxHeaderFont(editBox)
         end)
 
         -- Plain Up/Down input recall. The Midnight edit box performs no
@@ -3950,15 +3985,21 @@ local function SkinEditBox(cf)
             eb:HookScript("OnKeyDown", function(self, key)
                 if key ~= "UP" and key ~= "DOWN" then return end
                 if IsAltKeyDown() then return end
-                -- Restriction guards. InChatMessagingLockdown is now VERIFIED
-                -- against 12.0.7: it is documented with no HasRestrictions and
-                -- no SecretArguments (safe to call from tainted code) and it
-                -- covers the whole documented regime -- encounter, challenge
-                -- mode, PvP match, plus any communication-restricted map.
-                -- That is precisely where a SetText of addon-tainted text
-                -- would get the following send refused, so recall is off
-                -- there. The cost is deliberate and visible: plain Up/Down
-                -- recall does nothing in dungeons, raids, M+ and PvP matches.
+                -- Restriction guards. InChatMessagingLockdown is used as a
+                -- deliberately CONSERVATIVE SUPERSET, not as the documented
+                -- predicate for this call: SendChatMessage is marked
+                -- HasRestrictions + RestrictedForMacroChatMessages
+                -- (ChatInfoDocumentation.lua:564-568), whose own text scopes
+                -- it to instance encounters, while InChatMessagingLockdown
+                -- reports the wider regime (encounter, challenge mode, PvP
+                -- match, communication-restricted map). Guarding on the wider
+                -- one may switch recall off in places the send would in fact
+                -- have allowed it; that direction of error is the safe one,
+                -- and the exact boundary is C-side and not verifiable from
+                -- source. It is safe to CALL from tainted code (no
+                -- HasRestrictions, no SecretArguments of its own). The cost is
+                -- deliberate and visible: plain Up/Down recall does nothing in
+                -- dungeons, raids, M+ and PvP matches.
                 -- The two older clauses stay: addonChatRestrictionsForced has
                 -- no occurrence in the 12.0.7 source and returns nil
                 -- harmlessly, and dropping either one would be an unverified
@@ -5204,16 +5245,20 @@ initFrame:SetScript("OnEvent", function(self)
         -- inside ChatFrameEditBoxMixin:Deactivate, which then writes the edit
         -- box's chatType attribute in the same execution -- see the rationale
         -- block in SkinEditBox. The trade is that OnChar does not fire for
-        -- backspace/delete or some IME composition paths, so a long non-
-        -- committing compose can let chat fade; OnEditFocusGained below and
-        -- the CHAT_MSG event frame above still cover the common cases, and
-        -- any keystroke that commits a character un-fades it.
+        -- backspace/delete, for a clipboard paste, or for some IME
+        -- composition paths, so composing by pasting and then pausing can let
+        -- chat fade mid-edit; the focus-gained callback below and the CHAT_MSG
+        -- event frame above still cover the common cases, and any keystroke
+        -- that commits a character un-fades it.
+        -- Focus-gained goes through the EventRegistry helper for the same
+        -- reason the header re-font does: a script hook there runs nested
+        -- inside ActivateChat, ahead of its chatType write.
+        ECHAT._RegisterEditBoxFocusGained("EUI_Chat_IdleFade", function()
+            OnActiveMessage()
+        end)
         for i = 1, 10 do
             local eb = _G["ChatFrame" .. i .. "EditBox"]
             if eb then
-                eb:HookScript("OnEditFocusGained", function(...)
-                    OnActiveMessage(...)
-                end)
                 eb:HookScript("OnChar", function(...)
                     OnActiveMessage(...)
                 end)
@@ -5364,11 +5409,15 @@ initFrame:SetScript("OnEvent", function(self)
         -- execution context, causing secret value errors on BN_WHISPER tellTarget.
         local eb1 = _G["ChatFrame1EditBox"]
         if eb1 then
-            -- The GAINED side stays a HookScript: it is a post-hook that runs
-            -- after ActivateChat has fully returned, so it precedes no
-            -- attribute write.
-            eb1:HookScript("OnEditFocusGained", function()
-                _editFocusCount = _editFocusCount + 1; UpdateHoverState()
+            -- Neither side can be a HookScript. GAINED is dispatched by the
+            -- SetFocus() inside ChatFrameUtil.ActivateChat (ChatFrameUtil.lua
+            -- :458), which then calls UpdateHeader() at :467 and writes the
+            -- chatType attribute still inside that execution, so a hook here
+            -- taints the attribute exactly like the LOST side below does.
+            ECHAT._RegisterEditBoxFocusGained("EUI_Chat_HoverEditFocus", function(eb)
+                if eb ~= eb1 then return end
+                _editFocusCount = _editFocusCount + 1
+                UpdateHoverState()
             end)
             -- The LOST side cannot be one. Blizzard's OnEditFocusLost goes on
             -- to DeactivateChat -> Deactivate, which writes the edit box's
