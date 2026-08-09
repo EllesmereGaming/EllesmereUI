@@ -4281,8 +4281,8 @@ local function SkinChatFrame(cf)
         scrollBtn:SetScript("OnClick", function()
             local selected = GENERAL_CHAT_DOCK and FCFDock_GetSelectedWindow
                 and FCFDock_GetSelectedWindow(GENERAL_CHAT_DOCK)
-            local cf = selected or ChatFrame1
-            if cf and cf.ScrollToBottom then cf:ScrollToBottom() end
+            local target = selected or ChatFrame1
+            if target and target.ScrollToBottom then target:ScrollToBottom() end
         end)
 
         -- Copy chat history from the active tab (reads directly from the frame)
