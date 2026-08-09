@@ -4270,12 +4270,19 @@ local function SkinChatFrame(cf)
         if settingsBtn then HookIconTooltip(settingsBtn, "Settings") end
         HookIconTooltip(scrollBtn, "Scroll to Bottom")
 
-        -- Scroll to bottom
+        -- Scroll to bottom. One sidebar serves the whole docked panel, so the
+        -- target has to be resolved at click time: docked windows other than the
+        -- selected one are Hide()n by FCFDock_UpdateTabs, and scrolling a hidden
+        -- ChatFrame1 from the Guild or Loot tab does nothing the user can see.
+        -- Same lookup the Copy icon uses (ReadActiveChatText), and ScrollToBottom
+        -- is the call Blizzard's own jump-to-bottom button makes, so the restyled
+        -- ScrollBar follows through the message frame's display-refreshed callback
+        -- instead of being driven directly.
         scrollBtn:SetScript("OnClick", function()
-            local cf1 = ChatFrame1
-            if cf1 and cf1.ScrollBar and cf1.ScrollBar.SetScrollPercentage then
-                cf1.ScrollBar:SetScrollPercentage(1)
-            end
+            local selected = GENERAL_CHAT_DOCK and FCFDock_GetSelectedWindow
+                and FCFDock_GetSelectedWindow(GENERAL_CHAT_DOCK)
+            local cf = selected or ChatFrame1
+            if cf and cf.ScrollToBottom then cf:ScrollToBottom() end
         end)
 
         -- Copy chat history from the active tab (reads directly from the frame)
