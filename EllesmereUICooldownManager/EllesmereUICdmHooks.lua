@@ -1207,6 +1207,74 @@ local function CdmFrameIsActive(frame)
     return false
 end
 
+-- Recharge state of a charge spell, split into the two cases the cooldown API
+-- cannot tell apart on its own. Returns recharging, atZero.
+--
+-- C_Spell.GetSpellCooldown reports the GLOBAL cooldown whenever the global
+-- outlasts the spell's own remaining time, so at zero charges every read of it
+-- turns into "on GCD" for the last global of the recharge. Blizzard's Cooldown
+-- Manager inherits that: isOnActualCooldown is
+--     not self.isOnGCD and self.cooldownIsActive
+-- and isOnGCD is NeverSecret, so a true value short-circuits the and before the
+-- secret operand is ever evaluated and a clean false drops out. The icon
+-- un-greys mid-recharge and the widget is re-armed with global geometry. Action
+-- bars never show this: ActionButton_ApplyCooldown keeps a SEPARATE
+-- chargeCooldown widget driven from chargeInfo.isActive.
+--
+-- Two clean signals separate the states:
+--   ci.isActive          NeverSecret; true for ANY count below max.
+--   frame.wasSetFromCharges  Blizzard's own currentCharges > 0 answer. It is
+--       computed in their UNTAINTED code and cached as a plain bool, so reading
+--       the cached field here is clean even though comparing currentCharges
+--       ourselves would be secret. True means a charge is in hand.
+--
+-- Field-captured 2026-08-09 (/euidiag chargewatch 20271, Ret Judgment): the
+-- field read clean at every sample, stayed TRUE at one charge with a global
+-- running, and tracked the count alone. It does NOT follow the global -- the
+-- comments elsewhere in this file that say otherwise predate that capture.
+--
+-- atZero is nil, NOT false, when the oracle cannot be read: our own placeholder
+-- frames have no Blizzard cache at all, and the field could yet read secret on a
+-- path this capture did not cover. Callers must treat nil as "unknown" and leave
+-- their existing verdict alone -- answering "not at zero" there would keep a
+-- genuinely exhausted icon lit, which is the bug this is fixing.
+local function CdmChargeRecharge(frame, effID, sid)
+    if not (C_Spell and C_Spell.GetSpellCharges) then return false, nil end
+    local ci = C_Spell.GetSpellCharges(effID)
+    if not ci and effID ~= sid then ci = C_Spell.GetSpellCharges(sid) end
+    if not (ci and ci.isActive == true) then return false, nil end
+    local maxc = ci.maxCharges
+    if issecretvalue and issecretvalue(maxc) then return false, nil end
+    if type(maxc) ~= "number" or maxc <= 1 then return false, nil end
+    if not frame then return true, nil end
+    -- Only CooldownViewerCooldownItemMixin ever sets wasSetFromCharges TRUE:
+    -- AddVisualDataSource_Charges is reached from CheckCacheCooldownValuesFromCharges
+    -- and nowhere else. The buff mixins descend from CooldownViewerItemMixin, so
+    -- BuffIconItemMixin:RefreshData calls ClearVisualDataSource and never re-adds
+    -- the charge source -- the field is a permanent plain FALSE there, which reads
+    -- as "out of charges" for every charge spell on a buff viewer. Test for the
+    -- method that can set it rather than for a viewer name: it is the exact
+    -- condition, and it costs one type() on a field the mixin already carries.
+    if type(frame.CheckCacheCooldownValuesFromCharges) ~= "function" then
+        return true, nil
+    end
+    -- An aura owns the display. CheckCacheCooldownValuesFromAura runs AFTER the
+    -- charge and cooldown passes and takes precedence: it re-points the widget at
+    -- the buff duration and clears cooldownDesaturated for a player aura, so
+    -- Blizzard is deliberately showing a lit icon running the buff. Greying it or
+    -- re-arming the recharge over it would fight a decision that is correct. The
+    -- charge count is still whatever it is; we simply have no business answering.
+    local aura = frame.wasSetFromAura
+    if issecretvalue and issecretvalue(aura) then return true, nil end
+    if aura == true then return true, nil end
+    -- issecretvalue BEFORE type, the order classify() uses: a secret is probed
+    -- with the one call that is defined on it, never with a plain operator.
+    local claimed = frame.wasSetFromCharges
+    if issecretvalue and issecretvalue(claimed) then return true, nil end
+    if type(claimed) ~= "boolean" then return true, nil end
+    return true, claimed == false
+end
+
 -- Apply charge cooldown style. Returns true for charge spells (caller then skips
 -- its own swipe forcing). BASELINE edge is drawn for every charge spell; the
 -- swipe is hidden only when the per-spell Hide Swipe toggle is set (resolved
@@ -1722,17 +1790,40 @@ function ns.CdmShouldHideCountdown(frame, baseHide)
     -- Charge-spell test via static charge data (stable through the GCD).
     local ci = C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(liveSid)
     if not (ci and (ci.maxCharges or 0) > 1) then return baseHide end
-    -- "charges > 0"  <=>  NOT on a real (non-GCD) cooldown. A charge spell with a
-    -- charge in hand reports GetSpellCooldown().isActive == false, OR true with
-    -- isOnGCD during the global cooldown right after a cast (still have a charge);
-    -- 0 charges == isActive true AND not on GCD. So gating on isActive alone wrongly
-    -- shows the duration through every GCD -- the isOnGCD term is required. Both
-    -- flags are clean; the secret currentCharges is never read.
+    -- "charges > 0" has no single reliable source here, so ask BOTH and let
+    -- either one prove zero charges. They fail in opposite windows, never at the
+    -- same moment, and both fail the same way -- claiming a charge that is not
+    -- there:
+    --
+    --   GetSpellCooldown: `isActive and not isOnGCD` is right until the last
+    --   global of a recharge. That call returns the GLOBAL once the global
+    --   outlasts what is left, so isOnGCD flips true and it reports a charge in
+    --   hand. This hid the duration for the final second of every recharge the
+    --   player cast something during.
+    --
+    --   wasSetFromCharges: Blizzard's own verdict, exact -- but only once it has
+    --   been refreshed. This resolver runs off SPELL_UPDATE_CHARGES, and on the
+    --   spend that empties the spell our handler can run BEFORE Blizzard's, so
+    --   the field still describes the previous state and reports the charge that
+    --   was just spent. Nothing re-evaluates until the refill, so the duration
+    --   stayed hidden for most of the recharge.
+    --
+    -- (The hooks that drive the greying and the swipe do not need this union:
+    -- they run from Blizzard's own writes, so the cache is current by the time
+    -- they read it. Only this event-driven path can outrun the refresh.)
+    --
+    -- A false zero costs only a duration shown where it could have been hidden,
+    -- which is the direction this setting already tolerates -- see the 8.7.1
+    -- note below.
+    local recharging, atZero = CdmChargeRecharge(frame, liveSid, sid)
+    if not recharging then return true end      -- at max charges -> hide
+    if atZero == true then return baseHide end  -- cache says empty -> show
     local cdInfo = C_Spell.GetSpellCooldown and C_Spell.GetSpellCooldown(liveSid)
-    if not cdInfo then return baseHide end
-    local onRealCd = cdInfo.isActive and not cdInfo.isOnGCD
-    if not onRealCd then return true end  -- at least one charge -> hide duration
-    return baseHide
+    if not cdInfo then return baseHide end      -- no reading at all -> do not hide
+    if cdInfo.isActive and not cdInfo.isOnGCD then
+        return baseHide                         -- real cooldown -> empty -> show
+    end
+    return true                                 -- both say a charge is in hand
 end
 
 -- Only icons with the toggle enabled live in this set, so each SPELL_UPDATE_CHARGES
@@ -1773,7 +1864,21 @@ local function WatchChargeCdTextFrame(frame, fd)
     if not ns._chargeCdTextEventFrame then
         local ef = ns.TakeShell()
         ef:RegisterEvent("SPELL_UPDATE_CHARGES")
-        ef:SetScript("OnEvent", function()
+        -- Settle pass, one frame later. Blizzard refreshes wasSetFromCharges from
+        -- its OWN handler for this same event and the order between the two
+        -- handlers is not ours to choose, so the pass below can read the previous
+        -- charge state. Re-reading next frame settles it whichever way the order
+        -- fell. Coalesced by Show/Hide -- many charge events in one frame cost one
+        -- extra pass, and the frame only exists for players using the setting.
+        ef:Hide()
+        ef:SetScript("OnUpdate", function(self)
+            self:Hide()
+            for f, d in pairs(ns._chargeCdTextWatch) do
+                EvalChargeCdTextFrame(f, d)
+            end
+        end)
+        ef:SetScript("OnEvent", function(self)
+            self:Show()
             for f, d in pairs(ns._chargeCdTextWatch) do
                 EvalChargeCdTextFrame(f, d)
             end
@@ -1824,9 +1929,9 @@ end
 --  NOT universal: Roll-class wiring -- native, or talent-granted charges on
 --  cooldown spells like Feint / Survival of the Fittest -- keeps the main
 --  cooldown record active while charges are banked, which hid a real count.
---  Field report 8.7.1. CdmShouldHideCountdown still uses that inference and
---  shares the blind spot in the harmless direction: it shows the duration
---  where it could hide it.) Driven
+--  Field report 8.7.1. CdmShouldHideCountdown used to share that inference and
+--  the blind spot with it; it now asks CdmChargeRecharge instead and keeps the
+--  inference only as a fallback for when Blizzard has cached no verdict.) Driven
 --  by the same SPELL_UPDATE_CHARGES edge as the other charge features (fires
 --  on every spend AND refill, nothing else); the event shell is created
 --  lazily on first enrollment and the watch set self-drains, so a user who
@@ -3078,10 +3183,6 @@ local function DecorateFrame(frame, barData)
             -- SetUseAuraDisplayTime / SetCooldownFromDurationObject writes below.
             local function ReArmChargeRecharge()
                 if fd._isProcessingOverride then return end
-                if not fd._hideActiveOverriding then return end
-                local hasCharges = type(frame.HasVisualDataSource_Charges) == "function"
-                    and frame:HasVisualDataSource_Charges()
-                if not hasCharges then return end
                 local fc2 = _ecmeFC[frame]
                 local sid2 = fc2 and fc2.spellID
                 if not sid2 or not C_Spell or not C_Spell.GetSpellCharges
@@ -3093,10 +3194,29 @@ local function DecorateFrame(frame, barData)
                     local ovr = C_SpellBook.FindSpellOverrideByID(sid2)
                     if ovr and ovr > 0 and ovr ~= sid2 then effID = ovr end
                 end
-                -- Only while a recharge is genuinely running. isActive is a clean
-                -- bool; currentCharges (secret) is never read.
-                local ci = C_Spell.GetSpellCharges(effID) or C_Spell.GetSpellCharges(sid2)
-                if not (ci and ci.isActive == true) then return end
+                -- Two reasons to re-arm, covering different frames:
+                --
+                --   Hide-Active window with a charge in hand. Blizzard's
+                --   aura-display pushes wipe the recharge we are showing. This is
+                --   the original case and it stays scoped to the override window,
+                --   so non-override charge spells keep the native display.
+                --
+                --   Zero charges, on ANY charge spell. Blizzard has dropped the
+                --   recharge from the widget entirely and is drawing
+                --   GetSpellCooldown, which turns into the global the moment
+                --   another ability is pressed -- the broken swipe in the report.
+                --   Nothing about that is specific to Hide Active State, so this
+                --   half is not gated on it.
+                --
+                -- HasVisualDataSource_Charges is only consulted for the first
+                -- case; CdmChargeRecharge reads the same field for the second and
+                -- explains why it is clean.
+                local recharging, atZero = CdmChargeRecharge(frame, effID, sid2)
+                if not recharging then return end
+                local inHideActive = fd._hideActiveOverriding
+                    and type(frame.HasVisualDataSource_Charges) == "function"
+                    and frame:HasVisualDataSource_Charges() and true or false
+                if not (inHideActive or atZero == true) then return end
                 local durObj = C_Spell.GetSpellChargeDuration(effID)
                 if not durObj and effID ~= sid2 then
                     durObj = C_Spell.GetSpellChargeDuration(sid2)
@@ -3107,6 +3227,14 @@ local function DecorateFrame(frame, barData)
                     cd:SetUseAuraDisplayTime(false)
                 end
                 cd:SetCooldownFromDurationObject(durObj)
+                -- No-op on the zero-charge path, deliberately: this returns early
+                -- unless HasVisualDataSource_Charges, which reads wasSetFromCharges
+                -- and is false exactly when atZero is true. That scoping is what
+                -- the per-spell charge styling wants. "Hide Recharge Swipe" means
+                -- "do not draw the recharge while I still have a charge to spend";
+                -- at zero charges the swipe is the only thing showing when the
+                -- spell comes back, and hiding it there leaves a bare edge over an
+                -- empty icon. Forcing the styling on here did exactly that.
                 ApplyCdmChargeStyle(frame, cd)
                 -- We have just re-armed the REAL recharge, so whatever is now
                 -- displayed is the recharge -- never a GCD. Suppress-GCD's alpha-0
@@ -3115,9 +3243,18 @@ local function DecorateFrame(frame, barData)
                 -- until the active state ends. Restore the normal black
                 -- hide-active swipe unconditionally; black where black is already
                 -- correct is a no-op for the Suppress-GCD-off case.
-                local bkSw = fc2 and fc2.barKey
-                local bdSw = bkSw and barDataByKey and barDataByKey[bkSw]
-                cd:SetSwipeColor(0, 0, 0, (bdSw and bdSw.swipeAlpha) or 0.7)
+                --
+                -- Only inside the Hide-Active window. The zero-charge path above
+                -- re-arms geometry alone: at zero charges the swipe colour is
+                -- already whatever the not-active branch painted, and forcing it
+                -- here would overwrite the per-bar Suppress-GCD tail fade that
+                -- ns.GCDTailAlpha deliberately applies to the last global of a
+                -- recharge.
+                if inHideActive then
+                    local bkSw = fc2 and fc2.barKey
+                    local bdSw = bkSw and barDataByKey and barDataByKey[bkSw]
+                    cd:SetSwipeColor(0, 0, 0, (bdSw and bdSw.swipeAlpha) or 0.7)
+                end
                 fd._isProcessingOverride = false
             end
             if cd.SetCooldownFromDurationObject then
@@ -3149,9 +3286,76 @@ local function DecorateFrame(frame, barData)
         -- Blizzard can't revert it between ticks.
         if fd.tex and not fd._desatOverrideHooked then
             fd._desatOverrideHooked = true
+            -- Zero-charge greying, OUTSIDE the Hide-Active window.
+            --
+            -- Blizzard un-greys a charge spell that is out of charges the moment
+            -- another ability lays a global over the recharge: isOnActualCooldown
+            -- is `not isOnGCD and cooldownIsActive`, and isOnGCD is NeverSecret,
+            -- so a true value short-circuits to a clean false before the secret
+            -- operand is read. Nothing about that depends on Hide Active State --
+            -- but everything in onDesatChange below does. It returns at the
+            -- _hideActiveOverriding gate, and that flag only rises while an ACTIVE
+            -- state is showing (it is derived from the swipe colour being
+            -- non-black, and a recharge paints ITEM_COOLDOWN_COLOR), so during a
+            -- plain recharge the verdict there is unreachable. Hence a separate,
+            -- ungated pass.
+            --
+            -- This only ever ADDS greying, and only on a confirmed zero-charge
+            -- read: atZero false or nil leaves Blizzard's value untouched, so a
+            -- castable icon can never be greyed by this path.
+            local function onZeroChargeDesat()
+                if not fd.tex then return end
+                -- Cheapest gate first, and it is permanent per frame: a buff
+                -- viewer item can never answer the zero-charge question at all
+                -- (see CdmChargeRecharge), so every one of those icons leaves on
+                -- a single type() instead of a spell lookup. The override
+                -- resolution below is deliberately NOT memoised -- a proc can
+                -- swap the override in and out without the frame's spellID
+                -- changing, so a memo keyed on that id would go stale mid-combat
+                -- and silently stop greying the spell it was keyed to.
+                if type(frame.CheckCacheCooldownValuesFromCharges) ~= "function" then
+                    return
+                end
+                local fc2 = _ecmeFC[frame]
+                local sid2 = fc2 and fc2.spellID
+                if not sid2 then return end
+                local effID2 = sid2
+                if C_SpellBook and C_SpellBook.FindSpellOverrideByID then
+                    local ovr = C_SpellBook.FindSpellOverrideByID(sid2)
+                    if ovr and ovr > 0 and ovr ~= sid2 then effID2 = ovr end
+                end
+                local recharging, atZero = CdmChargeRecharge(frame, effID2, sid2)
+                if not recharging then return end
+                if atZero == nil then return end
+                if atZero == false then return end
+                -- Keep Colored (On CD) wins. That setting is the user asking, per
+                -- spell, for no cooldown grey at all, and running out of charges is
+                -- a cooldown -- so asserting grey here would quietly overrule it.
+                -- The same precedence _keepColored itself applies: Desaturate When
+                -- Not Active is the more specific request and outranks it, and
+                -- greys anyway, so there is nothing to stand down from.
+                -- The ns flag keeps this free for everyone who never enables it --
+                -- ResolveSpellSettings only runs once a spell actually uses it.
+                if ns._cdmAnyNoDesatOnCD then
+                    local bk2 = fc2 and fc2.barKey
+                    local ss2 = bk2 and ResolveSpellSettings(frame, sid2, ns.GetBarSpellData(bk2))
+                    if ss2 and ss2.noDesatOnCD and not ss2.desatNotActive then return end
+                end
+                fd._isProcessingOverride = true
+                fd.tex:SetDesaturated(true)
+                fd._isProcessingOverride = false
+            end
+            -- Registered as its own hook AFTER every other SetDesaturated hook on
+            -- this icon, further down -- not called from onDesatChange. Post-hooks
+            -- run in registration order, onDesatChange is the FIRST of five, and
+            -- the icon wears whichever write lands last -- so asserting the grey
+            -- from inside onDesatChange put it where a later hook could undo it.
+            fd._zeroChargeDesat = onZeroChargeDesat
             local function onDesatChange()
                 if fd._isProcessingOverride then return end
-                if not fd._hideActiveOverriding then return end
+                if not fd._hideActiveOverriding then
+                    return
+                end
                 fd._isProcessingOverride = true
                 local cdw = fd.cooldown
                 local fc2 = _ecmeFC[frame]
@@ -3239,40 +3443,27 @@ local function DecorateFrame(frame, barData)
                     and (C_Spell.GetSpellCooldown(effID2)
                         or (effID2 ~= sid2 and C_Spell.GetSpellCooldown(sid2)) or nil)
                 local onRealCD = cdInfo2 and cdInfo2.isActive and not cdInfo2.isOnGCD
-                -- Charge spells report cooldown isActive while a recharge is in
-                -- progress even when a castable charge remains, which would wrongly
-                -- desaturate a still-usable icon. currentCharges is a SECRET value
-                -- in this tainted hook (can't be compared), so use Blizzard's clean
-                -- isOnActualCooldown flag instead -- false means at least one charge
-                -- is usable, so stay saturated until the spell is genuinely out.
+                -- Charge spells need both halves of CdmChargeRecharge, because the
+                -- cooldown read above is wrong in OPPOSITE directions at one charge
+                -- and at zero.
                 --
-                -- The charge-SPELL test is static charge data, NOT
-                -- frame:HasVisualDataSource_Charges(): that getter is documented
-                -- three times in this file as flipping FALSE while a GCD swipe is
-                -- layered on top, and a field dump shows it absent entirely (nil, not
-                -- false) on every CDM frame on a 12.0 client, so gating on it made
-                -- this whole branch dead code. maxCharges is stable, present, and
-                -- clean; the secret currentCharges is still never read. Same signal
-                -- the swipe guard, Max Stacks Glow and Hide CD Text already use.
-                local baseCI = sid2 and C_Spell and C_Spell.GetSpellCharges
-                    and C_Spell.GetSpellCharges(sid2)
-                local baseMax = baseCI and baseCI.maxCharges
-                local isChargeSpell = baseMax ~= nil
-                    and not (issecretvalue and issecretvalue(baseMax))
-                    and baseMax > 1
-                local outOfCharges
-                if onRealCD and isChargeSpell then
-                    local actualCD = frame.isOnActualCooldown
-                    if not issecretvalue or not issecretvalue(actualCD) then
-                        if actualCD == false then
-                            outOfCharges = false
-                        elseif actualCD == true then
-                            outOfCharges = true
-                        end
-                    end
-                end
-                if outOfCharges == false then
-                    onRealCD = false
+                -- At one charge the recharge still reports isActive, which would grey
+                -- a perfectly castable icon. At zero charges the recharge is the only
+                -- thing running, but pressing any other ability lays a global over it
+                -- and flips isOnGCD -- so `not isOnGCD` clears the verdict and the
+                -- icon lights up with nothing to cast. Field capture 2026-08-09 timed
+                -- that window at 1.18s on Ret Judgment, and the bug report describes
+                -- exactly it.
+                --
+                -- This replaces an isOnActualCooldown guard that was dead code in
+                -- combat: that field reads SECRET at zero charges (its cooldownIsActive
+                -- operand is a secret comparison), so the issecretvalue early-out
+                -- skipped the whole branch and left the verdict untouched. It is also
+                -- the WRONG signal -- it carries the same isOnGCD term this is here to
+                -- undo.
+                local recharging, atZero = CdmChargeRecharge(frame, effID2, sid2)
+                if recharging and atZero ~= nil then
+                    onRealCD = atZero
                 end
                 -- The transform guard that used to sit here is gone. It existed only
                 -- because the verdict above asked the BASE: for a castable proc
@@ -3618,6 +3809,34 @@ local function DecorateFrame(frame, barData)
             hooksecurefunc(fd.tex, "SetDesaturated", _keepColored)
             if fd.tex.SetDesaturation then
                 hooksecurefunc(fd.tex, "SetDesaturation", _keepColored)
+            end
+        end
+
+        -- Zero-charge grey, LAST WORD. Deliberately the final SetDesaturated hook
+        -- registered on this icon: post-hooks run in registration order, so the
+        -- last one to write is the one the icon wears. The verdict itself lives in
+        -- onZeroChargeDesat above (it needs that block's closure) and is published
+        -- on fd for this registration to reach.
+        --
+        -- Ordering is the whole point of this block, so it must stay after every
+        -- other SetDesaturated hook above. A new hook added below this one would
+        -- silently outrank it and re-open the bug.
+        --
+        -- Still cheap for everyone else: onZeroChargeDesat returns on the first
+        -- GetSpellCharges read for any spell that is not mid-recharge, which is
+        -- every icon that is not a charge spell with a charge missing.
+        if fd.tex and fd._zeroChargeDesat and not fd._zeroChargeDesatHooked then
+            fd._zeroChargeDesatHooked = true
+            local function _zeroChargeLastWord()
+                if fd._isProcessingOverride then return end
+                if fd._zeroChargeDesat then fd._zeroChargeDesat() end
+            end
+            hooksecurefunc(fd.tex, "SetDesaturated", _zeroChargeLastWord)
+            -- BOTH setters, like every desaturation hook above. Keep Colored
+            -- re-saturates with SetDesaturation(0) as well as SetDesaturated,
+            -- and a last word that only watches one of the two is not one.
+            if fd.tex.SetDesaturation then
+                hooksecurefunc(fd.tex, "SetDesaturation", _zeroChargeLastWord)
             end
         end
 
