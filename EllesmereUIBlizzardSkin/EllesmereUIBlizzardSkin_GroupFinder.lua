@@ -293,6 +293,26 @@ local function LiftButton(btn)
     for i = 1, #pts do local t = pts[i]; btn:SetPoint(t[1], t[2], t[3], t[4], t[5]) end
 end
 
+-- Nudge a button by an arbitrary (dx, dy) offset (one-shot: captured original
+-- anchors + fixed offset, so repeated skin passes never compound it). Handles
+-- multi-point anchoring by nudging every point, not just the first.
+local function NudgeButton(btn, dx, dy)
+    if not btn or btn:IsForbidden() then return end
+    local d = GetFFD(btn)
+    if d.nudged then return end
+    local n = btn:GetNumPoints() or 0
+    if n < 1 then return end
+    local pts = {}
+    for i = 1, n do
+        local p, rel, rp, x, y = btn:GetPoint(i)
+        if not p then return end
+        pts[i] = { p, rel, rp, (x or 0) + (dx or 0), (y or 0) + (dy or 0) }
+    end
+    d.nudged = true
+    btn:ClearAllPoints()
+    for i = 1, #pts do local t = pts[i]; btn:SetPoint(t[1], t[2], t[3], t[4], t[5]) end
+end
+
 -- Search / input box -> flat block, keep the magnifier + clear button art.
 local function SkinEditBox(eb)
     if not eb or eb:IsForbidden() then return end
@@ -431,8 +451,12 @@ local function SkinScrollBar(sb)
     end
 end
 
--- Close (X) button -> strip art, draw the house close glyph.
-local function SkinCloseButton(btn)
+-- Close (X) button -> strip art, draw the house close glyph. tightHitbox
+-- shrinks the clickable area down to the glyph (plus a little padding)
+-- instead of leaving Blizzard's original, larger hit rect -- for small
+-- buttons like FilterButton.ResetButton where the old oversized hitbox
+-- reaches past the visible X into neighboring widgets.
+local function SkinCloseButton(btn, offsetX, tightHitbox, fixedSize)
     if not btn or btn:IsForbidden() then return end
     local d = GetFFD(btn)
     if d.x then return end
@@ -441,12 +465,44 @@ local function SkinCloseButton(btn)
     if btn.SetHighlightTexture then btn:SetHighlightTexture("") end
     if btn.SetDisabledTexture then btn:SetDisabledTexture("") end
     FadeRegions(btn)
+-- Size the glyph to the button's own footprint (min 8px, capped at the
+-- previous 14px) so it can never overflow past a small button's bounds
+-- and overlap a neighboring widget (textures aren't clipped to their
+-- parent frame in WoW). Falls back to 14 if the button isn't sized yet.
+-- fixedSize bypasses this auto-detect entirely -- needed for buttons
+-- like FilterButton.ResetButton that may report 0 width/height here
+-- because they're only sized once a filter is actually active.
+local bw, bh = btn:GetWidth(), btn:GetHeight()
+local sz = fixedSize or 14
+    if not fixedSize and bw and bh and bw > 0 and bh > 0 then
+        sz = math.max(8, math.min(14, math.floor(math.min(bw, bh)) - 4))
+end
     local x = btn:CreateTexture(nil, "OVERLAY")
     x:SetAtlas("uitools-icon-close")
-    x:SetSize(14, 14)
-    x:SetPoint("CENTER", -2, 0)
+    x:SetSize(sz, sz)
++   x:SetPoint("CENTER", offsetX or 0, 0)
     x:SetVertexColor(1, 1, 1, 0.75)
     d.x = x
+-- Force this button above its parent's own layer stack. FilterButton's
+-- border (AddBorder) can end up rendering above ResetButton's glyph
+-- depending on how the border overlay is implemented internally, so
+-- explicitly out-rank the parent rather than relying on draw-layer
+-- ordering alone.
+    local parent = btn:GetParent()
+    if parent and btn.SetFrameLevel and parent.GetFrameLevel then
+        btn:SetFrameLevel(parent:GetFrameLevel() + 20)
+    end
+    if tightHitbox and btn.SetHitRectInsets then
+        local ox = offsetX or 0
+        local pad = 2
+        local hbw = (bw and bw > 0) and bw or (sz + 8)
+        local hbh = (bh and bh > 0) and bh or (sz + 8)
+        local left = math.max(0, (hbw / 2 + ox) - sz / 2 - pad)
+        local right = math.max(0, (hbw / 2 - ox) - sz / 2 - pad)
+        local top = math.max(0, (hbh - sz) / 2 - pad)
+        local bottom = top
+        btn:SetHitRectInsets(left, right, top, bottom)
+    end
     btn:HookScript("OnEnter", function() if d.x then d.x:SetVertexColor(1, 1, 1, 1) end end)
     btn:HookScript("OnLeave", function() if d.x then d.x:SetVertexColor(1, 1, 1, 0.75) end end)
 end
@@ -938,13 +994,13 @@ local function Skin_LFGList()
         SkinPanel(SP, { noBg = true, noBorder = true })
         if SP.ResultsInset then FadeInset(SP.ResultsInset) end
         if SP.SearchBox then SkinEditBox(SP.SearchBox) end
-        if SP.FilterButton then SkinButton(SP.FilterButton) end
+        if SP.RefreshButton then SkinRefreshGlyph(SP.RefreshButton); NudgeButton(SP.RefreshButton, -5, 0) end
         if SP.RefreshButton then SkinRefreshGlyph(SP.RefreshButton) end
         if SP.BackButton then SkinButton(SP.BackButton) end
         if SP.BackToGroupButton then SkinButton(SP.BackToGroupButton) end
         if SP.SignUpButton then SkinButton(SP.SignUpButton) end
         if SP.ScrollBar then SkinScrollBar(SP.ScrollBar) end
-        if SP.FilterButton and SP.FilterButton.ResetButton then SkinCloseButton(SP.FilterButton.ResetButton) end
+        if SP.FilterButton and SP.FilterButton.ResetButton then SkinCloseButton(SP.FilterButton.ResetButton, -3, true, 10) end
     end
 
     local EC = LFGListFrame.EntryCreation
