@@ -2021,8 +2021,12 @@ local function GetOrCreateButton(slot, parent, info, index, skipProtected)
         if btn.cooldown and not EFD(btn).cdDoneHooked then
             EFD(btn).cdDoneHooked = true
             btn.cooldown:HookScript("OnCooldownDone", function(cd)
+                local b = cd:GetParent()
+                -- Displayed schedule finished: scrub the trusted memo so a
+                -- mid-GCD refetch cannot keep dimming off a stale bit.
+                EFD(b).cdRealTrusted = false
                 if EAB._RefreshCooldownVisuals then
-                    EAB._RefreshCooldownVisuals(cd:GetParent())
+                    EAB._RefreshCooldownVisuals(b)
                 end
             end)
         end
@@ -3270,7 +3274,7 @@ function ns.UpdateChargeNumbersVisibility(btn, chargeCd, cdInfo)
     if not (chargeCd and chargeCd.SetHideCountdownNumbers) then return end
     local hideNums = (EAB.db.profile.showChargeRechargeNumbers == false)
         or (not GetCVarBool("countdownForCooldowns"))
-        or (cdInfo and cdInfo.isActive and not cdInfo.isOnGCD and true)
+        or (ns._CdRealFor and ns._CdRealFor(btn, cdInfo))
         or false
     local cfd = EFD(chargeCd)
     if cfd.rechargeNumbersHidden ~= hideNums then
@@ -3595,6 +3599,30 @@ do
             end
             return cdAlphaCurve
         end
+        -- Real-vs-GCD classification. isOnGCD is only trustworthy inside a
+        -- real cooldown-event dispatch (see the pass note below); synthesized
+        -- dispatches can read it stale, which dimmed ready buttons mid-GCD.
+        -- Read + memoize per button under ns._cdTrustedCtx (stamped by the
+        -- trust wrapper); every other context reuses the last trusted bit,
+        -- and inactive reads scrub it (isActive is context-trustworthy) --
+        -- at worst one event cascade late, in the no-dim direction.
+        local function CdRealFor(btn, cdInfo, fd)
+            local activeNow = (cdInfo and cdInfo.isActive) and true or false
+            fd = fd or EFD(btn)
+            if ns._cdTrustedCtx then
+                local real = activeNow and not cdInfo.isOnGCD or false
+                fd.cdRealTrusted = real
+                return real
+            end
+            if not activeNow then
+                fd.cdRealTrusted = false
+                return false
+            end
+            return fd.cdRealTrusted or false
+        end
+        -- On ns for ApplyCDAlphaAll/UpdateChargeNumbersVisibility: the main
+        -- chunk is at the 200-local cap.
+        ns._CdRealFor = CdRealFor
         -- Desaturation + on-CD alpha for ONE button, from live cooldown data.
         -- Called from the cooldown event loop (data prefetched; false = known
         -- absent) and from each button's OnCooldownDone edge + the infrequent
@@ -3633,6 +3661,7 @@ do
                 useRealCurve = true
             end
             local active = cdInfo and cdInfo.isActive and durObj
+            local cdReal = CdRealFor(btn, cdInfo)
             if desatOn then
                 local val = 0
                 if active then
@@ -3650,7 +3679,7 @@ do
                     -- banked charge mid-GCD -> isActive=true isOnGCD=true dur=1.05.
                     -- One guard for BOTH classes, hoisted: a GCD is never a
                     -- cooldown for these purposes.
-                    if not cdInfo.isOnGCD then
+                    if cdReal then
                         if useRealCurve then
                             if durObj.EvaluateTotalDuration and desatCurveReal then
                                 val = durObj:EvaluateTotalDuration(desatCurveReal, 0)
@@ -3670,9 +3699,9 @@ do
             end
             if alphaOn then
                 if active then
-                    if useRealCurve and not cdInfo.isOnGCD and durObj.EvaluateTotalDuration then
+                    if useRealCurve and cdReal and durObj.EvaluateTotalDuration then
                         -- Same total-duration classification as desat, and the
-                        -- same isOnGCD guard for the same reason: the total is
+                        -- same trusted real-CD bit for the same reason: the total is
                         -- the RECHARGE PERIOD for a charge spell, so the 1.6s
                         -- step alone does not filter out the GCD and a spell at
                         -- full charges dimmed on every cast. (The old comment
@@ -3684,7 +3713,7 @@ do
                             icon:SetAlpha(1)
                         end
                     elseif icon.SetAlphaFromBoolean and durObj.IsZero
-                       and not cdInfo.isOnGCD then
+                       and cdReal then
                         -- IsZero() is a secret boolean; SetAlphaFromBoolean
                         -- consumes it without any Lua comparison.
                         icon:SetAlphaFromBoolean(durObj:IsZero(), 1, cdAlpha / 100)
@@ -3757,7 +3786,7 @@ do
             local durObj = gDur
             local cdInfo = ci or C_ActionBar.GetActionCooldown(action)
             local active = (cdInfo and cdInfo.isActive) and true or false
-            local cdReal = active and not cdInfo.isOnGCD
+            local cdReal = CdRealFor(btn, cdInfo, fd)
             local cdClassFlip = cdReal ~= (fd.cdWasReal or false)
             if cd then
                 if active then
@@ -3786,6 +3815,11 @@ do
                     durObj = C_ActionBar.GetActionCooldownDuration(action)
                 end
                 RefreshCooldownVisuals(btn, action, cdInfo or false, durObj, nil)
+            end
+            if cdClassFlip and btn.chargeCooldown then
+                -- Charge ticks only see the memo; re-apply the recharge-number
+                -- occlusion from the walk that refreshed the classification.
+                ns.UpdateChargeNumbersVisibility(btn, btn.chargeCooldown, cdInfo)
             end
             fd.cdWasActive = active
             fd.cdWasReal = cdReal
@@ -3956,7 +3990,11 @@ do
             if st2 then st2["ACTIONBAR_UPDATE_COOLDOWN"] = nil end
             local d2 = ns._cdDispatcher
             local h2 = d2 and d2:GetScript("OnEvent")
-            if h2 then h2(d2, "ACTIONBAR_UPDATE_COOLDOWN") end
+            if h2 then
+                ns._cdSynthDispatch = true
+                h2(d2, "ACTIONBAR_UPDATE_COOLDOWN")
+                ns._cdSynthDispatch = nil
+            end
             -- If this kick's wave landed inside a NEWER cast's own frame
             -- (cancel -> instant weaves: that cast's SUCCEEDED saw our
             -- pending flag and armed nothing), the delivery above was
@@ -4004,11 +4042,11 @@ do
                         -- spell that is back up; the push-through walks
                         -- re-derive the rest.
                         local ci = C_ActionBar.GetActionCooldown(action)
-                        local cdReal = (ci and ci.isActive and not ci.isOnGCD) and true or false
-                        if cdReal ~= (fd.cdWasReal or false) then
-                            ForceCooldownPaint(btn)
-                            fd.cdWasReal = cdReal
-                        end
+                        local cdReal = CdRealFor(btn, ci)
+                        -- Untrusted context cannot observe the class flip:
+                        -- repaint unconditionally (push-or-clear, three C calls).
+                        ForceCooldownPaint(btn)
+                        fd.cdWasReal = cdReal
                         local chargeCd = btn.chargeCooldown
                         if not chargeCd and chargeInfo.isActive then
                             chargeCd = ns.EnsureChargeCooldown(btn)
@@ -4475,7 +4513,8 @@ do
         -- triggers UpdateButtonArt (noop + hook), icon bg hook, and other
         -- per-button overhead. With 60 populated buttons, the mixin path
         -- caused visible frame drops on high-frequency events.
-        dispatcher:SetScript("OnEvent", function(_, event, arg1, arg2, arg3)
+        -- On ns (no new local); SetScript installs the trust wrapper below.
+        ns._cdDispInner = function(_, event, arg1, arg2, arg3)
             -- Press-time triggers for the hot set: a press QUEUED inside
             -- the running GCD updates the engine's cooldown record at the
             -- press itself (client-side), and these are the earliest edges
@@ -4769,7 +4808,11 @@ do
                                     ns._cdWalkNext = 0
                                     local d = ns._cdDispatcher
                                     local h = d and d:GetScript("OnEvent")
-                                    if h then h(d, "ACTIONBAR_UPDATE_COOLDOWN") end
+                                    if h then
+                                        ns._cdSynthDispatch = true
+                                        h(d, "ACTIONBAR_UPDATE_COOLDOWN")
+                                        ns._cdSynthDispatch = nil
+                                    end
                                 end
                             end
                             C_Timer.After((nextAt - now) + 0.02, ns._cdFlushFn)
@@ -5108,7 +5151,11 @@ do
                                             ns._infreqPassAt = nil
                                             local d = ns._cdDispatcher
                                             local h = d and d:GetScript("OnEvent")
-                                            if h then h(d, ns._infreqFlushEvent) end
+                                            if h then
+                                                ns._cdSynthDispatch = true
+                                                h(d, ns._infreqFlushEvent)
+                                                ns._cdSynthDispatch = nil
+                                            end
                                         end
                                     end
                                     C_Timer.After(0, ns._infreqFlushFn)
@@ -5224,6 +5271,21 @@ do
             if event ~= "ACTIONBAR_UPDATE_COOLDOWN" then
                 EAB:QueueHotkeyColorReassert()
             end
+        end
+        -- Trust wrapper: stamps ns._cdTrustedCtx for real cooldown-event
+        -- dispatches -- the only window where CdRealFor reads isOnGCD.
+        -- Self-dispatches raise ns._cdSynthDispatch; it is consumed at entry
+        -- and the inner call is pcall-guarded so neither flag can outlive a
+        -- dispatch on an error.
+        dispatcher:SetScript("OnEvent", function(f, event, arg1, arg2, arg3)
+            local synth = ns._cdSynthDispatch
+            ns._cdSynthDispatch = nil
+            ns._cdTrustedCtx = (not synth)
+                and (event == "ACTIONBAR_UPDATE_COOLDOWN"
+                     or event == "SPELL_UPDATE_COOLDOWN") or nil
+            local ok, err = pcall(ns._cdDispInner, f, event, arg1, arg2, arg3)
+            ns._cdTrustedCtx = nil
+            if not ok then geterrorhandler()(err) end
         end)
     end
 end
@@ -7590,12 +7652,9 @@ function EAB:ApplyCDAlphaAll()
                                     local durObj = C_ActionBar.GetActionCooldownDuration(action)
                                     if durObj and durObj.IsZero then
                                         -- Secret-safe: never compare the remaining duration; feed
-                                        -- IsZero() into SetAlphaFromBoolean. Same real-CD gating as
-                                        -- the live handler (GCD excluded for plain spells).
-                                        local chargeInfo = C_ActionBar.GetActionCharges(action)
-                                        local realCd = (chargeInfo and chargeInfo.maxCharges and chargeInfo.maxCharges > 1)
-                                            or (GetActionInfo(action) == "item")
-                                            or (not cdInfo.isOnGCD)
+                                        -- IsZero() into SetAlphaFromBoolean. Real-vs-GCD via the
+                                        -- trusted-context memo (ns._CdRealFor).
+                                        local realCd = ns._CdRealFor and ns._CdRealFor(btn, cdInfo) or false
                                         if realCd then
                                             icon:SetAlphaFromBoolean(durObj:IsZero(), 1, cdAlpha / 100)
                                             applied = true
