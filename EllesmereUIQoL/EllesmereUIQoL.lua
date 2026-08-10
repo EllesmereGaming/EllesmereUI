@@ -1858,9 +1858,6 @@ do
     local WHITE = "|cffffffff"
     local DIM   = "|cff9d9d9d"
 
-    -- Base pitch between rows. Zero = the font's own line height.
-    local ROW_SPACING = 0
-
     -- Clearance under a row whose LABEL descends ("Speed", "Mastery"). Keyed off
     -- the label because the figures -- percentages, "20 ms" -- never descend.
     local DESCENDER_PAD = 1
@@ -1875,9 +1872,15 @@ do
     local labelGap = "  "
     local latSep = labelGap .. DIM .. "||" .. "|r" .. labelGap
 
+    -- Floor under every row gap, user-set. A row that already earns more -- a
+    -- descender, a group seam -- keeps what it earned, so raising this lifts
+    -- the tight rows first instead of stepping the whole block apart.
+    local rowSpacing = 0
+
     local function ResolveGaps()
         labelGap = EllesmereUI.QoLExtrasGet("secondaryStatsCompactGap") and " " or "  "
         latSep = labelGap .. DIM .. "||" .. "|r" .. labelGap
+        rowSpacing = EllesmereUI.QoLExtrasGet("secondaryStatsRowSpacing") or 0
     end
 
     -- "Crit:" plus the gap before its figure.
@@ -1965,13 +1968,15 @@ do
         return v
     end
 
-    -- Space above `row`; every reason for space adds. Called by both the layout
-    -- and measuring passes so they cannot disagree about the block's height.
+    -- Space above `row`: the reasons for space add, then the user's floor
+    -- applies. Called by both the layout and measuring passes so they cannot
+    -- disagree about the block's height.
     local function RowGap(prev, row)
         if not prev then return 0 end
-        local gap = ROW_SPACING
+        local gap = 0
         if LabelDescends(prev.label) then gap = gap + DESCENDER_PAD end
         if prev.group ~= row.group then gap = gap + GROUP_GAP end
+        if gap < rowSpacing then gap = rowSpacing end
         return gap
     end
 

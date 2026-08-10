@@ -1581,6 +1581,15 @@ initFrame:SetScript("OnEvent", function(self)
                           EllesmereUI.QoLExtrasSet("secondaryStatsCompactGap", v)
                           if EllesmereUI._applySecondaryStats then EllesmereUI._applySecondaryStats() end
                       end },
+                    { type = "slider", label = "Row Spacing", min = 0, max = 5, step = 1,
+                      tooltip = "Minimum gap between rows, in pixels. Rows that already sit further apart -- under a descender, or where one group of stats meets the next -- keep their own gap until this exceeds it.",
+                      get = function()
+                          return EllesmereUI.QoLExtrasGet("secondaryStatsRowSpacing") or 0
+                      end,
+                      set = function(v)
+                          EllesmereUI.QoLExtrasSet("secondaryStatsRowSpacing", v)
+                          if EllesmereUI._applySecondaryStats then EllesmereUI._applySecondaryStats() end
+                      end },
                     { type = "slider", label = "Scale", min = 50, max = 200, step = 5,
                       get = function()
                           local pos = EllesmereUI.QoLExtrasGet("secondaryStatsPos")
