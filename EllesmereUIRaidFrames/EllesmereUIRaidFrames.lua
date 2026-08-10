@@ -163,9 +163,7 @@ local C_UnitAuras_AddPrivateAuraAnchor    = C_UnitAuras and C_UnitAuras.AddPriva
 local C_UnitAuras_RemovePrivateAuraAnchor = C_UnitAuras and C_UnitAuras.RemovePrivateAuraAnchor
 
 -- Strata bump for the per-slot private aura ICON frames (workaround for 12.0.5
--- bug where private aura icons render behind the parent frame). The dispel
--- OVERLAY container does NOT use this -- it stays on the button's own strata at
--- a below-text frame level so it renders behind the text (see RegisterDispelContainer).
+-- bug where private aura icons render behind the parent frame).
 local PA_STRATA_FIX = {
     BACKGROUND = "LOW", LOW = "MEDIUM", MEDIUM = "HIGH", HIGH = "DIALOG",
 }
@@ -3209,49 +3207,6 @@ local function StyleButton(button)
         d.dispelIconTextures[idx] = tex
     end
 
-    -- Private aura dispel container (Blizzard-rendered overlay for private
-    -- dispellable debuffs). Only way to show dispel info for re-privated
-    -- auras in 12.0.5+. Uses alpha gating: our custom overlay wins for
-    -- normal debuffs, container catches private ones we can't see.
-    -- Frame level sits BELOW the name/health text (LVL_DISPEL_OVERLAY = +7,
-    -- text = +12) so the gradient renders behind text. RegisterDispelContainer
-    -- re-applies this level and forces Blizzard to re-read it (no strata bump).
-    if C_UnitAuras_AddPrivateAuraAnchor then
-        local dcWrapper = CreateFrame("Frame", nil, button)
-        dcWrapper:SetAllPoints(health)
-        dcWrapper:SetFrameLevel(button:GetFrameLevel() + ns.LVL_DISPEL_OVERLAY)
-        dcWrapper:EnableMouse(false)
-        if dcWrapper.SetMouseClickEnabled then dcWrapper:SetMouseClickEnabled(false) end
-        -- Set all required attributes BEFORE AddPrivateAuraAnchor
-        dcWrapper:SetAttribute("max-buffs", 0)
-        dcWrapper:SetAttribute("max-debuffs", 0)
-        dcWrapper:SetAttribute("max-dispel-debuffs", 1)
-        dcWrapper:SetAttribute("ignore-buffs", true)
-        dcWrapper:SetAttribute("ignore-debuffs", true)
-        dcWrapper:SetAttribute("ignore-dispel-debuffs", true)
-        dcWrapper:SetAttribute("show-dispel-indicator-overlay", true)
-        dcWrapper:SetAttribute("suppress-dispel-border-icons", true)
-        -- The container is the private-aura fallback for re-privated debuffs our
-        -- own overlay cannot see; Blizzard applies the dispel filter for us via this
-        -- attribute. When the user wants every dispellable debuff we ask Blizzard for
-        -- the wider set, otherwise we restrict it to what this character can remove.
-        -- Re-applied in RegisterDispelContainer so the setting survives a reload.
-        dcWrapper:SetAttribute("dispel-indicator-option", (s.dispelShowAll ~= false) and 2 or 1)
-        dcWrapper:SetAttribute("aura-organization-type", s.dispelOverlayPosition or 0)   -- 0=Top, 1=Bottom, 2=Left
-        dcWrapper:SetAttribute("always-hide-duration", true)
-        dcWrapper:SetAttribute("set-aura-size-to-icon-size", true)
-        dcWrapper:SetAttribute("icon-size", 12)
-        dcWrapper:SetAttribute("power-bar-used-height", 0)
-        dcWrapper:SetAttribute("group-type", 5)  -- updated per-unit in RebuildUnitMap
-        -- Start hidden via alpha (not Show/Hide -- container eventFrame
-        -- unregisters from UNIT_AURA on OnHide, so we keep it Shown and
-        -- gate visibility with alpha)
-        dcWrapper:SetAlpha(0)
-        dcWrapper:Show()
-        d.dispelContainer = dcWrapper
-        d.dispelContainerAnchorID = nil  -- set when unit is assigned
-    end
-
     -- Per-slot private aura icon frames for boss debuffs (isContainer=false).
     -- Created lazily here, anchors registered when units are assigned.
     if C_UnitAuras_AddPrivateAuraAnchor then
@@ -4180,7 +4135,7 @@ local function StyleButton(button)
             -- and recreates Blizzard's private aura anchors each time, making
             -- the Blizzard-rendered icons visibly blink.
             if C_UnitAuras_AddPrivateAuraAnchor and ns._RegisterPrivateAuras
-                and (d.dispelContainerUnit ~= u or d.privateAuraUnit ~= u) then
+                and d.privateAuraUnit ~= u then
                 ns._RegisterPrivateAuras(self, u)
             end
         elseif ns._UnregisterPrivateAuras then
@@ -5534,119 +5489,8 @@ local function ApplyDispelIcon(d, unit, iid)
 end
 
 -------------------------------------------------------------------------------
---  Private aura container management (12.0.5+)
---  Dispel container: registers an isContainer=true anchor on a wrapper frame
---  so Blizzard renders its native dispel gradient for private auras.
---  Per-slot private auras: registers isContainer=false anchors for individual
---  boss debuff icon display.
+--  Private aura management (12.0.5+)
 -------------------------------------------------------------------------------
-
--- Register the dispel container anchor for a button's unit
-local function RegisterDispelContainer(button, unit)
-    if not C_UnitAuras_AddPrivateAuraAnchor then return end
-    local d = GetFFD(button)
-    local wrapper = d.dispelContainer
-    if not wrapper then return end
-
-    -- Remove old anchor if unit changed
-    if d.dispelContainerAnchorID then
-        C_UnitAuras_RemovePrivateAuraAnchor(d.dispelContainerAnchorID)
-        d.dispelContainerAnchorID = nil
-    end
-
-    if not unit or not UnitExists(unit) then return end
-
-    -- Set group type from unit token
-    local groupType = unit:find("^party") and 4 or 5
-    wrapper:SetAttribute("group-type", groupType)
-    -- Re-apply dispel mode (follows dispelShowAll; runs on reload so the toggle takes effect)
-    local s = (groupType == 4) and ns._scaledPartyProxy or ns._scaledProfile
-    wrapper:SetAttribute("dispel-indicator-option", (s and s.dispelShowAll ~= false) and 2 or 1)
-    wrapper:SetAttribute("aura-organization-type", s and s.dispelOverlayPosition or 0)   -- 0=Top, 1=Bottom, 2=Left
-    wrapper:SetAttribute("update-settings", true)
-
-    -- Pin to the button's OWN strata + a below-text frame level (NO strata bump)
-    -- so the overlay renders BEHIND the name/health text. Re-applied here (not
-    -- only at creation) so it survives any button-level change before register.
-    wrapper:SetFrameStrata(button:GetFrameStrata())
-    wrapper:SetFrameLevel(button:GetFrameLevel() + ns.LVL_DISPEL_OVERLAY)
-
-    local ok, anchorID = pcall(function()
-        return C_UnitAuras_AddPrivateAuraAnchor({
-            unitToken     = unit,
-            parent        = wrapper,
-            isContainer   = true,
-            auraIndex     = 1,
-            -- 12.1 renamed this anchor key; retail keeps the old spelling.
-            [EllesmereUI.IS_121 and "showCooldownFrame" or "showCountdownFrame"] = false,
-            showCountdownNumbers = false,
-        })
-    end)
-    if ok and anchorID then
-        d.dispelContainerAnchorID = anchorID
-        -- AddPrivateAuraAnchor caches the parent's frame level on first register
-        -- and ignores later changes; toggling to 0 and back forces Blizzard to
-        -- re-read it on the next paint so our below-text level actually applies
-        -- (without this the overlay can render behind the whole frame).
-        local lvl = wrapper:GetFrameLevel()
-        wrapper:SetFrameLevel(0)
-        wrapper:SetFrameLevel(lvl)
-    end
-    d.dispelContainerUnit = unit
-end
-
--- Remove the dispel container anchor (cleanup)
-local function UnregisterDispelContainer(button)
-    if not C_UnitAuras_RemovePrivateAuraAnchor then return end
-    local d = GetFFD(button)
-    if d.dispelContainerAnchorID then
-        C_UnitAuras_RemovePrivateAuraAnchor(d.dispelContainerAnchorID)
-        d.dispelContainerAnchorID = nil
-    end
-    d.dispelContainerUnit = nil
-    if d.dispelContainer then
-        d.dispelContainer:SetAlpha(0)
-    end
-end
-
--- Hybrid visibility gate: suppress Blizzard container when our overlay is
--- handling a normal (non-private) dispellable debuff; reveal container when
--- our overlay sees nothing (private aura only Blizzard can detect).
--- Uses alpha, never Show/Hide, so the container keeps receiving aura updates while suppressed.
-local function UpdateDispelContainerVisibility(button)
-    if not C_UnitAuras_AddPrivateAuraAnchor then return end
-    local d = GetFFD(button)
-    local wrapper = d.dispelContainer
-    if not wrapper then return end
-
-    -- Our custom visuals are active = we handle this debuff, suppress container.
-    -- Must include the dispel-type ICON: with an icon-only setup (border 0,
-    -- overlay "none") the border/overlay checks alone read false and Blizzard's
-    -- container un-suppresses, drawing a second dispel indicator next to ours.
-    local ourShowing = (d.dispelFrame and d.dispelFrame:IsShown())
-        or (d.dispelOLTex and d.dispelOLTex:IsShown())
-        or (d.dispelIcon and d.dispelIcon:IsShown())
-    if ourShowing then
-        wrapper:SetAlpha(0)
-        return
-    end
-
-    -- Our overlay not showing = might be a private aura. Reveal on the next
-    -- frame so the container's own pending refresh settles first, preventing a
-    -- brief stale-overlay flash; re-check below since our overlay may reclaim
-    -- the slot within that frame.
-    C_Timer.After(0, function()
-        if not wrapper then return end
-        local d2 = GetFFD(button)
-        if not d2 then return end
-        local stillOurs = (d2.dispelFrame and d2.dispelFrame:IsShown())
-            or (d2.dispelOLTex and d2.dispelOLTex:IsShown())
-            or (d2.dispelIcon and d2.dispelIcon:IsShown())
-        if not stillOurs then
-            wrapper:SetAlpha(1)
-        end
-    end)
-end
 
 -- Register per-slot private aura anchors for boss debuff icons
 local function RegisterPrivateAuraSlots(button, unit)
@@ -5827,15 +5671,13 @@ local function UnregisterPrivateAuraSlots(button)
     d.privateAuraUnit = nil
 end
 
--- Register all private aura anchors for a button (both container + per-slot)
+-- Register private aura slots for a button.
 local function RegisterPrivateAuras(button, unit)
-    RegisterDispelContainer(button, unit)
     RegisterPrivateAuraSlots(button, unit)
 end
 
--- Remove all private aura anchors from a button
+-- Remove private aura slots from a button.
 local function UnregisterPrivateAuras(button)
-    UnregisterDispelContainer(button)
     UnregisterPrivateAuraSlots(button)
 end
 
@@ -6000,7 +5842,6 @@ local function UpdateDispelBorder(button, unit, updateInfo)
         elseif d.dispelIcon then
             d.dispelIcon:Hide()
         end
-        UpdateDispelContainerVisibility(button)
     end
 
     -- Scan HARMFUL auras for the dispel highlight/icon.
@@ -6063,8 +5904,6 @@ local function UpdateDispelBorder(button, unit, updateInfo)
 
     d.dispelInstanceID = nil
     HideDispelVisuals(d)
-    -- Our overlay found nothing -- let container show (private aura fallback)
-    UpdateDispelContainerVisibility(button)
 end
 
 -------------------------------------------------------------------------------
@@ -6159,14 +5998,14 @@ local function RebuildUnitMap()
                 local _, classToken = UnitClass(u)
                 d.classToken = classToken
                 -- Re-register private aura anchors if unit token changed
-                if d.dispelContainerUnit ~= u or d.privateAuraUnit ~= u then
+                if d.privateAuraUnit ~= u then
                     RegisterPrivateAuras(btn, u)
                 end
             end
         else
             -- Button not visible -- clean up any stale private aura anchors
             local d = GetFFD(btn)
-            if d.dispelContainerAnchorID or (d.privateAuraAnchorIDs and #d.privateAuraAnchorIDs > 0) then
+            if d.privateAuraAnchorIDs and #d.privateAuraAnchorIDs > 0 then
                 UnregisterPrivateAuras(btn)
             end
         end
@@ -11011,13 +10850,13 @@ ns._RebuildPartyUnitMap = function()
                 local d = GetFFD(btn)
                 local _, classToken = UnitClass(u)
                 d.classToken = classToken
-                if d.dispelContainerUnit ~= u or d.privateAuraUnit ~= u then
+                if d.privateAuraUnit ~= u then
                     RegisterPrivateAuras(btn, u)
                 end
             end
         else
             local d = GetFFD(btn)
-            if d.dispelContainerAnchorID or (d.privateAuraAnchorIDs and #d.privateAuraAnchorIDs > 0) then
+            if d.privateAuraAnchorIDs and #d.privateAuraAnchorIDs > 0 then
                 UnregisterPrivateAuras(btn)
             end
         end
