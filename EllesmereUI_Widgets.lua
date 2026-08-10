@@ -8974,46 +8974,48 @@ function EllesmereUI.BuildBorderOptionBlock(parentFrame, y, barData, addonKey, R
 
             if not EllesmereUI._prebuilding then
                 -- Sync icon: Border Style (left region of bsRow)
-                EllesmereUI.BuildSyncIcon({
-                    region  = bsRow._leftRegion,
-                    tooltip = "Apply Border Style to all Bars",
-                    onClick = function()
-                        local bd = barData
-                        local bt = bd.borderTexture or "solid"
-                        local ox = bd.borderTextureOffset
-                        local oy = bd.borderTextureOffsetY
-                        local sx = bd.borderTextureShiftX
-                        local sy = bd.borderTextureShiftY
-                        local th = bd.borderThickness or "thin"
-                        local sz = bd.borderSize or 1
-                        local bh = bd.borderBehind
-                        SyncIterate(function(b)
-                            b.borderTexture = bt
-                            b.borderTextureOffset = ox; b.borderTextureOffsetY = oy
-                            b.borderTextureShiftX = sx; b.borderTextureShiftY = sy
-                            b.borderThickness = th; b.borderSize = sz
-                            b.borderBehind = bh
-                        end)
-                        Refresh(); EllesmereUI:RefreshPage()
-                    end,
-                    isSynced = function()
-                        local bd = barData
-                        local bt = bd.borderTexture or "solid"
-                        local ox = bd.borderTextureOffset
-                        local oy = bd.borderTextureOffsetY
-                        local sx = bd.borderTextureShiftX
-                        local sy = bd.borderTextureShiftY
-                        local bh = bd.borderBehind or false
-                        local synced = true
-                        SyncIterate(function(b)
-                            if (b.borderTexture or "solid") ~= bt then synced = false end
-                            if b.borderTextureOffset ~= ox or b.borderTextureOffsetY ~= oy then synced = false end
-                            if b.borderTextureShiftX ~= sx or b.borderTextureShiftY ~= sy then synced = false end
-                            if (b.borderBehind or false) ~= bh then synced = false end
-                        end)
-                        return synced
-                    end,
-                })
+                if SyncIterate then
+                    EllesmereUI.BuildSyncIcon({
+                        region  = bsRow._leftRegion,
+                        tooltip = "Apply Border Style to all Bars",
+                        onClick = function()
+                            local bd = barData
+                            local bt = bd.borderTexture or "solid"
+                            local ox = bd.borderTextureOffset
+                            local oy = bd.borderTextureOffsetY
+                            local sx = bd.borderTextureShiftX
+                            local sy = bd.borderTextureShiftY
+                            local th = bd.borderThickness or "thin"
+                            local sz = bd.borderSize or 1
+                            local bh = bd.borderBehind
+                            SyncIterate(function(b)
+                                b.borderTexture = bt
+                                b.borderTextureOffset = ox; b.borderTextureOffsetY = oy
+                                b.borderTextureShiftX = sx; b.borderTextureShiftY = sy
+                                b.borderThickness = th; b.borderSize = sz
+                                b.borderBehind = bh
+                            end)
+                            Refresh(); EllesmereUI:RefreshPage()
+                        end,
+                        isSynced = function()
+                            local bd = barData
+                            local bt = bd.borderTexture or "solid"
+                            local ox = bd.borderTextureOffset
+                            local oy = bd.borderTextureOffsetY
+                            local sx = bd.borderTextureShiftX
+                            local sy = bd.borderTextureShiftY
+                            local bh = bd.borderBehind or false
+                            local synced = true
+                            SyncIterate(function(b)
+                                if (b.borderTexture or "solid") ~= bt then synced = false end
+                                if b.borderTextureOffset ~= ox or b.borderTextureOffsetY ~= oy then synced = false end
+                                if b.borderTextureShiftX ~= sx or b.borderTextureShiftY ~= sy then synced = false end
+                                if (b.borderBehind or false) ~= bh then synced = false end
+                            end)
+                            return synced
+                        end,
+                    })
+                end
                 -- Inline color swatches on Border Size (right region)
                 do
                     local rightRgn = bsRow._rightRegion
@@ -9113,58 +9115,60 @@ function EllesmereUI.BuildBorderOptionBlock(parentFrame, y, barData, addonKey, R
 
                 end
                 -- Sync icon on Border Size (right region)
-                EllesmereUI.BuildSyncIcon({
-                    region  = bsRow._rightRegion,
-                    tooltip = "Apply Border Size to all Bars",
-                    isSynced = function()
-                        local bd = barData
-                        local v = bd.borderThickness or "thin"
-                        local sz = bd.borderSize or 1
-                        local cc = bd.borderClassColor
-                        local bt = bd.borderTexture or "solid"
-                        local sx = bd.borderTextureShiftX
-                        local sy = bd.borderTextureShiftY
-                        local bColor = bd.borderColor or { r=bd.borderR or 0, g=bd.borderG or 0, b=bd.borderB or 0 }
-                        local br, bg, bb, ba = bColor.r, bColor.g, bColor.b, bd.borderA or bd.borderAlpha or 1
-                        local synced = true
-                        SyncIterate(function(b)
-                            local bv = b.borderThickness or "thin"
-                            if bv ~= v or b.borderClassColor ~= cc or (b.borderTexture or "solid") ~= bt then synced = false end
-                            if bv == "custom" and (b.borderSize or 1) ~= sz then synced = false end
-                            if b.borderTextureShiftX ~= sx or b.borderTextureShiftY ~= sy then synced = false end
+                if SyncIterate then
+                    EllesmereUI.BuildSyncIcon({
+                        region  = bsRow._rightRegion,
+                        tooltip = "Apply Border Size to all Bars",
+                        isSynced = function()
+                            local bd = barData
+                            local v = bd.borderThickness or "thin"
+                            local sz = bd.borderSize or 1
+                            local cc = bd.borderClassColor
+                            local bt = bd.borderTexture or "solid"
+                            local sx = bd.borderTextureShiftX
+                            local sy = bd.borderTextureShiftY
+                            local bColor = bd.borderColor or { r=bd.borderR or 0, g=bd.borderG or 0, b=bd.borderB or 0 }
+                            local br, bg, bb, ba = bColor.r, bColor.g, bColor.b, bd.borderA or bd.borderAlpha or 1
+                            local synced = true
+                            SyncIterate(function(b)
+                                local bv = b.borderThickness or "thin"
+                                if bv ~= v or b.borderClassColor ~= cc or (b.borderTexture or "solid") ~= bt then synced = false end
+                                if bv == "custom" and (b.borderSize or 1) ~= sz then synced = false end
+                                if b.borderTextureShiftX ~= sx or b.borderTextureShiftY ~= sy then synced = false end
 
-                            if b.borderColor then
-                                local bcol = b.borderColor
-                                if bcol.r ~= br or bcol.g ~= bg or bcol.b ~= bb or (b.borderAlpha or 1) ~= ba then synced = false end
-                            else
-                                if (b.borderR or 0) ~= br or (b.borderG or 0) ~= bg or (b.borderB or 0) ~= bb or (b.borderA or 1) ~= ba then synced = false end
-                            end                            
-                        end)
-                        return synced
-                    end,
-                    onClick = function()
-                        local bd = barData
-                        local v = bd.borderThickness or "thin"
-                        local sz = bd.borderSize or 1
-                        local cc = bd.borderClassColor
-                        local bt = bd.borderTexture or "solid"
-                        local sx = bd.borderTextureShiftX
-                        local sy = bd.borderTextureShiftY
-                        local bColor = bd.borderColor or { r=bd.borderR or 0, g=bd.borderG or 0, b=bd.borderB or 0 }
-                        local br, bg, bb, ba = bColor.r, bColor.g, bColor.b, bd.borderA or bd.borderAlpha or 1
-                        SyncIterate(function(b)
-                            b.borderThickness = v; b.borderSize = sz
-                            b.borderClassColor = cc; b.borderTexture = bt
-                            b.borderTextureShiftX = sx; b.borderTextureShiftY = sy
-                            if b.borderColor then
-                                b.borderColor.r = br; b.borderColor.g = bg; b.borderColor.b = bb; b.borderAlpha = ba
-                            else
-                                b.borderR = br; b.borderG = bg; b.borderB = bb; b.borderA = ba
-                            end
-                        end)
-                        Refresh(); EllesmereUI:RefreshPage()
-                    end,
-                })
+                                if b.borderColor then
+                                    local bcol = b.borderColor
+                                    if bcol.r ~= br or bcol.g ~= bg or bcol.b ~= bb or (b.borderAlpha or 1) ~= ba then synced = false end
+                                else
+                                    if (b.borderR or 0) ~= br or (b.borderG or 0) ~= bg or (b.borderB or 0) ~= bb or (b.borderA or 1) ~= ba then synced = false end
+                                end                            
+                            end)
+                            return synced
+                        end,
+                        onClick = function()
+                            local bd = barData
+                            local v = bd.borderThickness or "thin"
+                            local sz = bd.borderSize or 1
+                            local cc = bd.borderClassColor
+                            local bt = bd.borderTexture or "solid"
+                            local sx = bd.borderTextureShiftX
+                            local sy = bd.borderTextureShiftY
+                            local bColor = bd.borderColor or { r=bd.borderR or 0, g=bd.borderG or 0, b=bd.borderB or 0 }
+                            local br, bg, bb, ba = bColor.r, bColor.g, bColor.b, bd.borderA or bd.borderAlpha or 1
+                            SyncIterate(function(b)
+                                b.borderThickness = v; b.borderSize = sz
+                                b.borderClassColor = cc; b.borderTexture = bt
+                                b.borderTextureShiftX = sx; b.borderTextureShiftY = sy
+                                if b.borderColor then
+                                    b.borderColor.r = br; b.borderColor.g = bg; b.borderColor.b = bb; b.borderAlpha = ba
+                                else
+                                    b.borderR = br; b.borderG = bg; b.borderB = bb; b.borderA = ba
+                                end
+                            end)
+                            Refresh(); EllesmereUI:RefreshPage()
+                        end,
+                    })
+                end
             end
             return bsRow, h
 end
