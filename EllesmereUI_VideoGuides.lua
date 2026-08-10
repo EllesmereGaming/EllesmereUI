@@ -495,7 +495,7 @@ SlashCmdList["EUIVIDEOS"] = function()
         EllesmereUIDB.tutorialTipsSeen = nil
     end
     RefreshTips()
-    print("|cff00ff98EllesmereUI:|r Video guides and tutorial tips reset. Badges are back; one-time popups will fire again.")
+    print(EllesmereUI.L("|cff00ff98EllesmereUI:|r Video guides and tutorial tips reset. Badges are back; one-time popups will fire again."))
 end
 
 -------------------------------------------------------------------------------
