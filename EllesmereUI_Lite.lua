@@ -314,7 +314,7 @@ function EUILite.NewDB(svName, defaults, defaultToCharKey)
             if not EUILite._corruptionWarned then
                 EUILite._corruptionWarned = true
                 C_Timer.After(5, function()
-                    EllesmereUI.Print("|cffff6600EllesmereUI:|r Profile data for " .. folder .. " was corrupted and has been repaired. Your settings may have been reset to defaults.")
+                    EllesmereUI.Print(EllesmereUI.Lf("|cffff6600EllesmereUI:|r Profile data for %1$s was corrupted and has been repaired. Your settings may have been reset to defaults.", folder))
                 end)
             end
         end
