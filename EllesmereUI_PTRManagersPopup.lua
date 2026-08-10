@@ -368,5 +368,5 @@ SlashCmdList["EUIMANAGERSINTRO"] = function()
     if EllesmereUIDB then
         EllesmereUIDB.ptrManagersIntroShown = nil
     end
-    print("|cff00ff98EllesmereUI:|r Managers intro reset. The announcement popup fires on your next /reload.")
+    print(EllesmereUI.L("|cff00ff98EllesmereUI:|r Managers intro reset. The announcement popup fires on your next /reload."))
 end
