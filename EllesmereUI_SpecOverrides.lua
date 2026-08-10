@@ -179,7 +179,13 @@ end
 local function SpecName(specID)
     local _, name, _, _, _, _, className = GetSpecializationInfoByID(specID)
     if name and className then
-        return name .. " - " .. className:sub(1, 1):upper() .. className:sub(2):lower()
+        -- Title-case is byte-based; only safe on ASCII class names. Localized
+        -- clients (koKR and friends) return multibyte names -- mangling the
+        -- first byte drops the first character, so leave those untouched.
+        if className:find("^%a") then
+            className = className:sub(1, 1):upper() .. className:sub(2):lower()
+        end
+        return name .. " - " .. className
     end
     return name or ("Spec " .. tostring(specID))
 end
