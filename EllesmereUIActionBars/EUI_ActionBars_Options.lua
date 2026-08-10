@@ -5482,6 +5482,16 @@ initFrame:SetScript("OnEvent", function(self)
         if loopIdx < 1 or loopIdx > #LOOP then loopIdx = 1 end
         local loopEntry = LOOP[loopIdx]
 
+        -- "Hide": show the icon dimmed with no glow, matching how "None" reads,
+        -- since the point of the option is that nothing is drawn. Without this
+        -- the dispatch below would fall through to the FlipBook arm with an
+        -- entry that has no atlas or texture.
+        if loopEntry and loopEntry.hide then
+            f:Show()
+            f:SetAlpha(0.15)
+            return
+        end
+
         local iconSize = PREVIEW_ICON_SIZE
         local cr, cg, cb
         if p.procGlowUseClassColor then
@@ -5793,7 +5803,16 @@ initFrame:SetScript("OnEvent", function(self)
         -------------------------------------------------------------------
         _, h = W:SectionHeader(parent, SECTION_PROC_GLOW, y);  y = y - h
 
-        local function procGlowOff() return (p.procGlowType == 0) or (p.procGlowEnabled == false) end
+        -- "Hide" counts as off for the dependent controls: there is no glow to
+        -- colour, so the colour swatch and Use Class Color grey out just as
+        -- they do for "None".
+        local function procGlowIsHide()
+            local e = ns.LOOP_GLOW_TYPES and ns.LOOP_GLOW_TYPES[p.procGlowType or 0]
+            return (e and e.hide) and true or false
+        end
+        local function procGlowOff()
+            return (p.procGlowType == 0) or (p.procGlowEnabled == false) or procGlowIsHide()
+        end
 
         -- Check if any bar uses a custom shape (not "none")
         local function AnyBarHasCustomShape()
@@ -5820,7 +5839,11 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() if p.procGlowEnabled == false then return 0 end; return p.procGlowType or 1 end,
               setValue=function(v)
                   local wasOff = (p.procGlowType == 0) or (p.procGlowEnabled == false)
-                  local turningOn = wasOff and v ~= 0
+                  -- "Hide" does strictly LESS work than Blizzard's own glow, so
+                  -- it must not trigger the custom-glow performance warning.
+                  local vEntry = ns.LOOP_GLOW_TYPES and ns.LOOP_GLOW_TYPES[v]
+                  local vIsHide = (vEntry and vEntry.hide) and true or false
+                  local turningOn = wasOff and v ~= 0 and not vIsHide
                   if turningOn then
                       EllesmereUI:ShowConfirmPopup({
                           title       = "Custom Proc Glow Settings",
