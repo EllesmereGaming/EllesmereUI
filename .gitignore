@@ -17,3 +17,6 @@ MIDNIGHT_MERGE_PLAN.md
 
 # Developer scripts
 *.ps1
+
+# BigWigs Packager Output
+.release/
