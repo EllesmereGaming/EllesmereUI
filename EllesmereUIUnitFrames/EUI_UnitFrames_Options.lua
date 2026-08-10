@@ -1842,6 +1842,11 @@ initFrame:SetScript("OnEvent", function(self)
         -- Individual textures with PixelUtil sizing render reliably.
         local bdrSize = settings.borderSize or 1
         local bdrColor = settings.borderColor or { r = 0, g = 0, b = 0 }
+        if settings.borderClassColor then
+            local _, playerClass = UnitClass("player")
+            local cc = playerClass and RAID_CLASS_COLORS[playerClass]
+            if cc then bdrColor = cc end
+        end
         local bdrTexKey = settings.borderTexture or "solid"
         local border = CreateFrame("Frame", nil, pf)
         border:SetPoint("TOPLEFT", barArea, "TOPLEFT", 0, 0)
@@ -2899,6 +2904,11 @@ initFrame:SetScript("OnEvent", function(self)
             -- Border size and color (encompasses health+power+BTB+above pips)
             local bs = ds.borderSize or 1
             local bc = ds.borderColor or { r = 0, g = 0, b = 0 }
+            if ds.borderClassColor then
+                local _, playerClass = UnitClass("player")
+                local cc = playerClass and RAID_CLASS_COLORS[playerClass]
+                if cc then bc = cc end
+            end
             local bTexKey = ds.borderTexture or "solid"
             local borderH = bh2 + (s.bottomTextBar and btbIsAtt and (s.bottomTextBarHeight or 16) or 0)
             border:ClearAllPoints()
@@ -3525,7 +3535,13 @@ initFrame:SetScript("OnEvent", function(self)
             if border then
                 local bs2 = ds.borderSize or 1
                 local bTex2 = ds.borderTexture or "solid"
-                EllesmereUI.ApplyBorderStyle(border, bs2, (ds.borderColor or {r=0,g=0,b=0}).r, (ds.borderColor or {r=0,g=0,b=0}).g, (ds.borderColor or {r=0,g=0,b=0}).b, ds.borderAlpha or 1, bTex2, ds.borderTextureOffset, ds.borderTextureOffsetY, ds.borderTextureShiftX, ds.borderTextureShiftY, "unitframes", ds.borderThickness or bs2)
+                local bc = ds.borderColor or {r=0,g=0,b=0}
+                if ds.borderClassColor then
+                    local _, playerClass = UnitClass("player")
+                    local cc = playerClass and RAID_CLASS_COLORS[playerClass]
+                    if cc then bc = cc end
+                end
+                EllesmereUI.ApplyBorderStyle(border, bs2, bc.r, bc.g, bc.b, ds.borderAlpha or 1, bTex2, ds.borderTextureOffset, ds.borderTextureOffsetY, ds.borderTextureShiftX, ds.borderTextureShiftY, "unitframes", ds.borderThickness or bs2)
             end
             if castbar then
                 if PP.GetBorders(castbar) then PP.SetBorderSize(castbar, 1) end
