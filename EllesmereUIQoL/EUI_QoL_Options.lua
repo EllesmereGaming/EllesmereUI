@@ -948,7 +948,7 @@ initFrame:SetScript("OnEvent", function(self)
               end,
               setValue=function(v)
                 EllesmereUI.QoLExtrasSet("showFPS", v)
-                if EllesmereUI._applyFPSCounter then EllesmereUI._applyFPSCounter() end
+                if EllesmereUI._applyFPSDisplay then EllesmereUI._applyFPSDisplay() end
                 EllesmereUI:RefreshPage()
               end },
             { type="label", text="FPS Toggle Keybind" }
@@ -968,7 +968,7 @@ initFrame:SetScript("OnEvent", function(self)
             end
             local fpsSwSet = function(r, g, b, a)
                 EllesmereUI.QoLExtrasSet("fpsColor", { r = r, g = g, b = b, a = a })
-                if EllesmereUI._applyFPSCounter then EllesmereUI._applyFPSCounter() end
+                if EllesmereUI._applyFPSDisplay then EllesmereUI._applyFPSDisplay() end
             end
             local fpsSwatch, fpsUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, fpsSwGet, fpsSwSet, true, 20)
             PP.Point(fpsSwatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
@@ -1004,12 +1004,19 @@ initFrame:SetScript("OnEvent", function(self)
                 rows = {
                     { type="slider", label="Text Size",
                       min=8, max=30, step=1,
+                      -- Attached rows take the Secondary Stats font size.
+                      disabled=function()
+                        return EllesmereUI._fpsAttachedToStats
+                            and EllesmereUI._fpsAttachedToStats() or false
+                      end,
+                      disabledTooltip="Attach to Secondary Stats",
+                      requireState="disabled",
                       get=function()
                         return EllesmereUI.QoLExtrasGet("fpsTextSize") or 12
                       end,
                       set=function(v)
                         EllesmereUI.QoLExtrasSet("fpsTextSize", v)
-                        if EllesmereUI._applyFPSCounter then EllesmereUI._applyFPSCounter() end
+                        if EllesmereUI._applyFPSDisplay then EllesmereUI._applyFPSDisplay() end
                       end },
                     { type="toggle", label="Show Local MS",
                       get=function()
@@ -1019,7 +1026,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end,
                       set=function(v)
                         EllesmereUI.QoLExtrasSet("fpsShowLocalMS", v)
-                        if EllesmereUI._applyFPSCounter then EllesmereUI._applyFPSCounter() end
+                        if EllesmereUI._applyFPSDisplay then EllesmereUI._applyFPSDisplay() end
                       end },
                     { type="toggle", label="Show World MS",
                       get=function()
@@ -1027,7 +1034,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end,
                       set=function(v)
                         EllesmereUI.QoLExtrasSet("fpsShowWorldMS", v)
-                        if EllesmereUI._applyFPSCounter then EllesmereUI._applyFPSCounter() end
+                        if EllesmereUI._applyFPSDisplay then EllesmereUI._applyFPSDisplay() end
                       end },
                     { type="toggle", label="Hide Local/World Label",
                       get=function()
@@ -1035,7 +1042,20 @@ initFrame:SetScript("OnEvent", function(self)
                       end,
                       set=function(v)
                         EllesmereUI.QoLExtrasSet("fpsHideLabel", v)
-                        if EllesmereUI._applyFPSCounter then EllesmereUI._applyFPSCounter() end
+                        if EllesmereUI._applyFPSDisplay then EllesmereUI._applyFPSDisplay() end
+                      end },
+                    { type="toggle", label="Attach to Secondary Stats",
+                      -- Nothing to attach to until that block exists.
+                      disabled=function()
+                        return not EllesmereUI.QoLExtrasGet("showSecondaryStats")
+                      end,
+                      disabledTooltip="Secondary Stat Display",
+                      get=function()
+                        return EllesmereUI.QoLExtrasGet("fpsAttachToStats") or false
+                      end,
+                      set=function(v)
+                        EllesmereUI.QoLExtrasSet("fpsAttachToStats", v)
+                        if EllesmereUI._applyFPSDisplay then EllesmereUI._applyFPSDisplay() end
                       end },
                     { type="slider", label="Update Interval", min=1, max=5, step=1,
                       get=function()
@@ -1043,7 +1063,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end,
                       set=function(v)
                         EllesmereUI.QoLExtrasSet("fpsUpdateInterval", v)
-                        if EllesmereUI._applyFPSCounter then EllesmereUI._applyFPSCounter() end
+                        if EllesmereUI._applyFPSDisplay then EllesmereUI._applyFPSDisplay() end
                       end },
                 },
             })
@@ -1469,7 +1489,12 @@ initFrame:SetScript("OnEvent", function(self)
               end,
               setValue=function(v)
                 EllesmereUI.QoLExtrasSet("showSecondaryStats", v)
-                if EllesmereUI._applySecondaryStats then EllesmereUI._applySecondaryStats() end
+                -- Releases an attached FPS readout back to its own frame.
+                if EllesmereUI._applyFPSDisplay then
+                    EllesmereUI._applyFPSDisplay()
+                elseif EllesmereUI._applySecondaryStats then
+                    EllesmereUI._applySecondaryStats()
+                end
                 EllesmereUI:RefreshPage()
               end },
             { type="toggle", text="Guild Chat Privacy Cover",
@@ -1545,6 +1570,15 @@ initFrame:SetScript("OnEvent", function(self)
                       end,
                       set = function(r, g, b)
                           EllesmereUI.QoLExtrasSet("tertiaryStatsColor", { r = r, g = g, b = b })
+                          if EllesmereUI._applySecondaryStats then EllesmereUI._applySecondaryStats() end
+                      end },
+                    { type = "toggle", label = "Compact Label Gap",
+                      tooltip = "Puts one space between each label and its figure instead of two.",
+                      get = function()
+                          return EllesmereUI.QoLExtrasGet("secondaryStatsCompactGap") or false
+                      end,
+                      set = function(v)
+                          EllesmereUI.QoLExtrasSet("secondaryStatsCompactGap", v)
                           if EllesmereUI._applySecondaryStats then EllesmereUI._applySecondaryStats() end
                       end },
                     { type = "slider", label = "Scale", min = 50, max = 200, step = 5,
