@@ -27,6 +27,8 @@ local C_UnitAuras   = C_UnitAuras
 local C_Spell       = C_Spell
 local UnitExists    = UnitExists
 local UnitIsUnit    = UnitIsUnit
+local UnitIsDeadOrGhost = UnitIsDeadOrGhost
+local UnitIsConnected   = UnitIsConnected
 
 local MAX_PER_SPEC = 20
 
@@ -121,6 +123,10 @@ local ORIENT_ORDER = { "HORIZONTAL", "VERTICAL" }
 -- Show when mode (for frame effects)
 local SHOW_WHEN_VALUES = { present = "When Any Present", allPresent = "When All Present", anyMissing = "When Any Missing", missing = "When All Missing" }
 local SHOW_WHEN_ORDER = { "present", "allPresent", "anyMissing", "missing" }
+
+-- Show when mode (Square indicators only, per-spell: no all/any variants needed)
+local SQUARE_SHOW_WHEN_VALUES = { present = "When Present", missing = "When Missing" }
+local SQUARE_SHOW_WHEN_ORDER = { "present", "missing" }
 
 -- Indicator frame level (layering relative to the unit button). For Icon/Square
 -- the indicator's own border sits at base + 1 and its count/duration text carrier
@@ -359,6 +365,12 @@ end
 local spellToIndicators = {}   -- [spellID] = { ind1, ind2, ... }
 local trackedSpellIDs   = {}   -- set of all tracked spell IDs (including secret)
 local allActiveIndicators = {} -- flat list of all enabled indicators
+-- True when the active spec has at least one Square indicator in "When
+-- Missing" mode. UNIT_HEALTH is far too frequent an event to drive a full BM
+-- rescan on every tick just to catch death/resurrect -- this lets the health
+-- path (ns._UpdateButtonHealth) skip that extra work entirely for everyone
+-- who isn't using the feature.
+local anyMissingSquares_BM = false
 
 -- Simple Setup mode: the active spec's FULL tracked whitelist (every non-hidden
 -- spell), independent of which spells the user assigned to indicators. Kept in
@@ -596,6 +608,7 @@ local function NewIndicator(indType, spells)
         ind.frameLevel    = "medium"
         ind.growDirection = "RIGHT"
         ind.spacing      = 0
+        ind.showWhen     = "present"
     elseif indType == "bar" then
         ind.ownOnly          = true
         ind.color = { r = 0x0C/255, g = 0xD2/255, b = 0x9D/255 }
@@ -779,6 +792,13 @@ function ns.BM_SimpleTrackedSpellIDs()
     return simpleTrackedSpellIDs
 end
 
+-- Whether the active spec has any Square-When-Missing indicator (see
+-- anyMissingSquares_BM). Lets the health-tick path gate its extra
+-- death/resurrect refresh to only the users who need it.
+function ns.BM_HasMissingSquares()
+    return anyMissingSquares_BM
+end
+
 local function CountSpecIndicators(db, specKey)
     local list = GetSpecIndicators(db, specKey)
     return #list
@@ -792,6 +812,7 @@ local function RebuildLookup(db)
     wipe(spellToIndicators)
     wipe(trackedSpellIDs)
     wipe(allActiveIndicators)
+    anyMissingSquares_BM = false
     if not db or not db.profile then return end
 
     -- Ensure defaults are populated for all specs (triggers on first load)
@@ -818,6 +839,9 @@ local function RebuildLookup(db)
                 if ind.enabled and ind.spells
                    and (not flaggedOnly or ind.showOwnAllSpecs) then
                     allActiveIndicators[#allActiveIndicators + 1] = ind
+                    if ind.type == "square" and ind.showWhen == "missing" then
+                        anyMissingSquares_BM = true
+                    end
                     for _, sid in ipairs(ind.spells) do
                         -- Borrow specs (Enh/Ele) only track the spells they can
                         -- cast; the borrowed spec's other indicators stay inert
@@ -2595,6 +2619,16 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
                 local sz = (ind.size or 12) * iscale
                 local snap = ns.PixelSnap or function(v) return v end
                 local gap = snap((ind.spacing or 1) * iscale)
+                -- Square, When Missing: render one slot per spell whose aura is
+                -- ABSENT instead of present (see the wantMissing branch below).
+                -- Icon and Square-When-Present are entirely unaffected. Present
+                -- mode never needs this guard -- a dead/offline unit simply has
+                -- no auras, so it naturally renders nothing -- but "missing"
+                -- inverts that: every tracked spell reads as absent on a dead
+                -- or disconnected unit, which would otherwise light up every
+                -- Missing-mode square for no useful reason.
+                local wantMissing = indType == "square" and (ind.showWhen == "missing")
+                    and not UnitIsDeadOrGhost(unit) and UnitIsConnected(unit)
                 -- Running cursor: each icon advances the next by its OWN size, so a
                 -- per-spell size offset reflows its neighbors instead of overlapping.
                 -- CENTER needs the total run width up front to center it. (Computed
@@ -2603,7 +2637,9 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
                 if growDir == "CENTER" then
                     local totalW, cnt = 0, 0
                     for _, sid2 in ipairs(ind.spells) do
-                        if GetAura(sid2) then
+                        local present2 = GetAura(sid2)
+                        local counts2 = wantMissing and (not present2) or ((not wantMissing) and present2)
+                        if counts2 then
                             local so2 = ind.sizeOffsets and ind.sizeOffsets[sid2] or 0
                             local s2 = sz + so2 * iscale
                             if s2 < 1 then s2 = 1 end
@@ -2613,41 +2649,82 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
                     if cnt > 1 then totalW = totalW + gap * (cnt - 1) end
                     cursor = -totalW / 2
                 end
+                -- Shared growth-layout placement for one consumed slot (present-
+                -- mode icon/square, or missing-mode square). Cumulative growth by
+                -- actual icon size: place at the accumulated size of the PREVIOUS
+                -- icons (cursor), then advance by this icon's OWN size. LEFT/UP
+                -- just negate the axis. Returns the slot's clamped size.
+                local function PlaceGrowthSlot(f, sid)
+                    local soff = ind.sizeOffsets and ind.sizeOffsets[sid] or 0
+                    local iconSz = sz + soff * iscale
+                    if iconSz < 1 then iconSz = 1 end
+                    f:SetSize(iconSz, iconSz)
+                    f:ClearAllPoints()
+                    local gx, gy = 0, 0
+                    if growDir == "RIGHT" or growDir == "CENTER" then
+                        gx = cursor; cursor = cursor + iconSz + gap
+                    elseif growDir == "DOWN" then
+                        gy = -cursor; cursor = cursor + iconSz + gap
+                    elseif growDir == "LEFT" then
+                        gx = -cursor; cursor = cursor + iconSz + gap
+                    elseif growDir == "UP" then
+                        gy = cursor; cursor = cursor + iconSz + gap
+                    end
+                    f:SetPoint(ind.position or "TOPLEFT", health, ind.position or "TOPLEFT",
+                               (ind.offsetX or 0) * iscale + gx, (ind.offsetY or 0) * iscale + gy)
+                    return iconSz
+                end
                 local spellIdx = 0
                 for _, sid in ipairs(ind.spells) do
                     local aura = GetAura(sid)
-                    if aura then
+                    if wantMissing then
+                        -- Missing-buff square: no aura instance exists, so this
+                        -- only ever renders color/position/border. Duration
+                        -- swipe/text, stacks, threshold, and glow are all
+                        -- meaningless here and are forced off (they're also
+                        -- greyed out in the options UI - see SquareMissing).
+                        if not aura then
+                            iconPoolIdx = iconPoolIdx + 1
+                            local f = d.bmIconPool[iconPoolIdx]
+                            if f then
+                                BM_SetTipTarget(f, unit, nil)
+                                BM_ApplyIconLevel(f, ind, buttonLvl)
+                                PlaceGrowthSlot(f, sid)
+                                f._count:SetText("")
+                                local c = (ind.spellColors and ind.spellColors[sid])
+                                    or ind.color or { r=0, g=1, b=0 }
+                                f._tex:SetColorTexture(1, 1, 1, 1)
+                                f._tex:SetVertexColor(c.r, c.g, c.b, (ind.iconOpacity or 100) / 100)
+                                f._tex:SetTexCoord(0, 1, 0, 1)
+                                if f._bdr and PP then
+                                    local ibs = ind.indBorderSize or 1
+                                    if ibs > 0 then
+                                        local ibc = ind.indBorderColor or { r=0, g=0, b=0 }
+                                        PP.UpdateBorder(f._bdr, ibs, ibc.r, ibc.g, ibc.b, 1)
+                                        f._bdr:Show()
+                                    else
+                                        f._bdr:Hide()
+                                    end
+                                end
+                                if f._cooldown then f._cooldown:Hide() end
+                                UnregisterThreshold(f)
+                                if f._bmGlowOverlay then
+                                    UnregisterGlow(f._bmGlowOverlay)
+                                    if f._bmGlowOverlay._euiGlowActive and EllesmereUI.Glows and EllesmereUI.Glows.StopGlow then
+                                        EllesmereUI.Glows.StopGlow(f._bmGlowOverlay)
+                                    end
+                                end
+                                f:Show()
+                                spellIdx = spellIdx + 1
+                            end
+                        end
+                    elseif aura then
                         iconPoolIdx = iconPoolIdx + 1
                         local f = d.bmIconPool[iconPoolIdx]
                         if f then
                             BM_SetTipTarget(f, unit, aura.auraInstanceID)
                             BM_ApplyIconLevel(f, ind, buttonLvl)
-                            -- Per-spell size offset (right-click in preview): base
-                            -- size + this spell's offset, clamped to >= 1px.
-                            local soff = ind.sizeOffsets and ind.sizeOffsets[sid] or 0
-                            local iconSz = sz + soff * iscale
-                            if iconSz < 1 then iconSz = 1 end
-                            f:SetSize(iconSz, iconSz)
-                            f:ClearAllPoints()
-                            -- Cumulative growth by actual icon size (see cursor note).
-                            -- All four directions share one structure: place the icon
-                            -- at the accumulated size of the PREVIOUS icons (cursor),
-                            -- then advance by this icon's OWN size. LEFT/UP just negate
-                            -- the axis. (cursor starts at 0 so icon 1 lands flush at the
-                            -- anchor with no special-case guard.)
-                            local gx, gy = 0, 0
-                            if growDir == "RIGHT" or growDir == "CENTER" then
-                                gx = cursor; cursor = cursor + iconSz + gap
-                            elseif growDir == "DOWN" then
-                                gy = -cursor; cursor = cursor + iconSz + gap
-                            elseif growDir == "LEFT" then
-                                gx = -cursor; cursor = cursor + iconSz + gap
-                            elseif growDir == "UP" then
-                                gy = cursor; cursor = cursor + iconSz + gap
-                            end
-                            f:SetPoint(ind.position or "TOPLEFT", health, ind.position or "TOPLEFT",
-                                       (ind.offsetX or 0) * iscale + gx, (ind.offsetY or 0) * iscale + gy)
-
+                            local iconSz = PlaceGrowthSlot(f, sid)
 
                             -- Apply stacks font + position once per assignment
                             if f._count and ind.showStacks then
@@ -3378,6 +3455,10 @@ function ns.BM_ApplyPreviewIndicators(f, index, s)
                 if ind.enabled and ind.spells and #ind.spells > 0 then
                     local indType = ind.type
                     local typeInfo = INDICATOR_TYPE_MAP[indType]
+                    -- Square, When Missing: the preview has no real "absent" aura
+                    -- to key off, so it just renders the square without the
+                    -- duration/stacks demo, honestly matching the live look.
+                    local squareMissingPv = indType == "square" and ind.showWhen == "missing"
 
                     -- Frame effects: show when selected or when all-indicators eyeball is on
                     if not typeInfo or not typeInfo.placed then
@@ -3587,7 +3668,7 @@ function ns.BM_ApplyPreviewIndicators(f, index, s)
                                     end
                                     -- Blistering Scales (360827): show hardcoded "8" stacks in preview
                                     local previewStacks = (sid == 360827 and "8") or (sid == 33763 and "2")
-                                    if ind.showStacks and previewStacks then
+                                    if ind.showStacks and previewStacks and not squareMissingPv then
                                         local sSz = (ind.stacksTextSize or 8) * iscale
                                         local sc = ind.stacksTextColor or { r=1, g=1, b=1 }
                                         local sOX = (ind.stacksOffsetX or 0) * iscale
@@ -3607,7 +3688,10 @@ function ns.BM_ApplyPreviewIndicators(f, index, s)
                                     fr:Show()
                                     -- Preview cooldown swipe (frame must be visible first)
                                     if fr._cooldown then
-                                        if not PREVIEW_NO_DURATION[sid] then
+                                        if squareMissingPv then
+                                            fr._cooldown:Hide()
+                                            if fr._durText then fr._durText:Hide() end
+                                        elseif not PREVIEW_NO_DURATION[sid] then
                                             local seed = GetPvCDSeed(index, sid)
                                             local fakeDisplay = math.floor(3 + seed * 17)
                                             -- Use a long future expiry so swipe barely moves
@@ -6192,18 +6276,26 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
         --   Row 1: Enable Threshold (toggle) | Threshold (sec) slider (1-10s).
         --   Row 2: Color (picker) | Opacity (full slider).
         -- Frame Alpha (useAlpha) has no colour, so Row 2 is a single Alpha slider.
-        local function BuildThresholdRow(useAlpha)
+        -- extraDisabled: optional predicate (e.g. SquareMissing) that greys out
+        -- the WHOLE section, Enable Threshold included -- not just its
+        -- sub-rows -- for callers where threshold tracking can't apply at all.
+        local function BuildThresholdRow(useAlpha, extraDisabled)
             _, h = W:SectionHeader(leftFrame, "THRESHOLD", sy); sy = sy - h
             local thContentStart = sy -- overlay spans content below the header
 
-            -- Sub-settings are interactive only while Enable Threshold is on.
-            local thOff = function() return not ind.thresholdEnabled end
+            -- Sub-settings are interactive only while Enable Threshold is on
+            -- (and, when set, extraDisabled is false).
+            local thOff = function() return not ind.thresholdEnabled or (extraDisabled and extraDisabled()) end
 
             -- Row 1: Enable Threshold | Threshold (sec)
             SettingsRow(
                 { type="toggle", text="Enable Threshold",
+                  disabled=extraDisabled, disabledTooltip="Show When",
                   getValue=function() return ind.thresholdEnabled or false end,
-                  setValue=function(v) ind.thresholdEnabled = v; ReloadAndUpdate(); EllesmereUI:RefreshPage() end },
+                  setValue=function(v)
+                      if extraDisabled and extraDisabled() then return end
+                      ind.thresholdEnabled = v; ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                  end },
                 { type="slider", text="Threshold (sec)", min=1, max=10, step=1, trackWidth=120,
                   disabled=thOff, disabledTooltip="Enable Threshold",
                   getValue=function() return ind.threshold or 3 end,
@@ -6694,6 +6786,26 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
             end
 
+            -- Row 3 (square only): Show When Present/Missing. Icon and Bar
+            -- keep tracking presence only; Square can flip to render while
+            -- the aura is absent (see SquareMissing below for what that
+            -- disables in DISPLAY/THRESHOLD).
+            if indType == "square" then
+                local showWhenRow = SettingsRow(
+                    { type="dropdown", text="Show When", values=SQUARE_SHOW_WHEN_VALUES, order=SQUARE_SHOW_WHEN_ORDER,
+                      getValue=function() return ind.showWhen or "present" end,
+                      setValue=function(v) ind.showWhen = v; ReloadAndUpdate(); EllesmereUI:RefreshPage() end },
+                    { type="label", text="" })
+                -- 12.1: aura-container slots are only ever populated for
+                -- present auras (see BuildBmSlots), so Missing is inert
+                -- there until the engine supports it. The panel rebuilds on
+                -- every setValue above, so this overlay tracks the chosen
+                -- value with no extra wiring.
+                if EllesmereUI.IS_121 and ind.showWhen == "missing" then
+                    PTRSlotOverlay("Show When: Missing", showWhenRow._leftRegion)
+                end
+            end
+
             -----------------------------------------------------------
             --  DISPLAY
             -----------------------------------------------------------
@@ -6701,6 +6813,12 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
 
             -- Row 1: Size (+ icon zoom cog) | Spacing
             local IconHidden = function() return indType == "icon" and ind.hideIcon == true end
+            -- Square, When Missing: no aura instance exists, so duration
+            -- swipe/text, stacks, max duration, and threshold are all
+            -- meaningless -- greyed out via CoreDisabled/CoreDisabledTip below.
+            local SquareMissing = function() return indType == "square" and ind.showWhen == "missing" end
+            local CoreDisabled = function() return IconHidden() or SquareMissing() end
+            local CoreDisabledTip = function() return SquareMissing() and "Show When" or "Hide Icons" end
             local sizeRow = SettingsRow(
                 { type="slider", text="Size", min=4, max=40, step=1,
                   getValue=function() return ind.size or 12 end,
@@ -6765,22 +6883,24 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             -- Duration Swipe | Duration Text (+ swatch + cog)
             local durRow = SettingsRow(
                 { type="toggle", text="Duration Swipe",
-                  disabled=IconHidden, disabledTooltip="Hide Icons",
+                  disabled=CoreDisabled, disabledTooltip=CoreDisabledTip,
                   getValue=function() return ind.showDuration ~= false end,
                   setValue=function(v) ind.showDuration = v; ReloadAndUpdate() end },
                 { type="toggle", text="Duration Text",
+                  disabled=SquareMissing, disabledTooltip="Show When",
                   getValue=function() return ind.showDurationText or false end,
                   setValue=function(v) ind.showDurationText = v; ReloadAndUpdate() end })
             -- Inline swatch + cog for text color/size
             do
                 local rgn = durRow._rightRegion
-                local swatch = EllesmereUI.BuildColorSwatch(
+                local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
                     rgn, durRow:GetFrameLevel() + 3,
                     function()
                         local c = ind.durationTextColor or { r=1, g=1, b=1 }
                         return c.r, c.g, c.b, 1
                     end,
                     function(r, g, b)
+                        if SquareMissing() then return end
                         ind.durationTextColor = { r=r, g=g, b=b }
                         ReloadAndUpdate()
                     end, false, 20)
@@ -6809,14 +6929,24 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 cogBtn:SetAlpha(0.4)
                 local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
                 cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
-                cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-                cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
-                cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
+                cogBtn:SetScript("OnEnter", function(self) if not SquareMissing() then self:SetAlpha(0.7) end end)
+                cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(SquareMissing() and 0.15 or 0.4) end)
+                cogBtn:SetScript("OnClick", function(self) if not SquareMissing() then cogShow(self) end end)
+                local function UpdateDurTextState()
+                    local off = SquareMissing()
+                    if updateSwatch then updateSwatch() end
+                    swatch:SetAlpha(off and 0.3 or 1)
+                    cogBtn:SetAlpha(off and 0.15 or 0.4)
+                    cogBtn:EnableMouse(not off)
+                end
+                EllesmereUI.RegisterWidgetRefresh(UpdateDurTextState)
+                UpdateDurTextState()
             end
 
             -- Row 4: Show Stacks (+ swatch + cog) | Color (square only) / Hide Icons (icon only)
             local stacksRow = SettingsRow(
                 { type="toggle", text="Show Stacks",
+                  disabled=SquareMissing, disabledTooltip="Show When",
                   getValue=function() return ind.showStacks ~= false end,
                   setValue=function(v) ind.showStacks = v; ReloadAndUpdate() end },
                 (indType == "square") and { type="label", text="Colors" }
@@ -6827,18 +6957,25 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             -- Inline swatch for stacks color
             do
                 local rgn = stacksRow._leftRegion
-                local swatch = EllesmereUI.BuildColorSwatch(
+                local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
                     rgn, stacksRow:GetFrameLevel() + 3,
                     function()
                         local c = ind.stacksTextColor or { r=1, g=1, b=1 }
                         return c.r, c.g, c.b, 1
                     end,
                     function(r, g, b)
+                        if SquareMissing() then return end
                         ind.stacksTextColor = { r=r, g=g, b=b }
                         ReloadAndUpdate()
                     end, false, 20)
                 swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
                 rgn._lastInline = swatch
+                local function UpdateStacksSwatch()
+                    if updateSwatch then updateSwatch() end
+                    swatch:SetAlpha(SquareMissing() and 0.3 or 1)
+                end
+                EllesmereUI.RegisterWidgetRefresh(UpdateStacksSwatch)
+                UpdateStacksSwatch()
             end
             do
                 local rgn = stacksRow._leftRegion
@@ -6864,13 +7001,13 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 cogBtn:SetAlpha(0.15)
                 local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
                 cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
-                cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+                cogBtn:SetScript("OnEnter", function(self) if not SquareMissing() then self:SetAlpha(0.7) end end)
                 cogBtn:SetScript("OnLeave", function(self)
-                    self:SetAlpha((ind.showStacks ~= false) and 0.4 or 0.15)
+                    self:SetAlpha((ind.showStacks ~= false and not SquareMissing()) and 0.4 or 0.15)
                 end)
-                cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
+                cogBtn:SetScript("OnClick", function(self) if not SquareMissing() then cogShow(self) end end)
                 local function UpdateStacksCog()
-                    local off = not (ind.showStacks ~= false)
+                    local off = SquareMissing() or not (ind.showStacks ~= false)
                     cogBtn:SetAlpha(off and 0.15 or 0.4)
                     cogBtn:EnableMouse(not off)
                 end
@@ -6942,19 +7079,33 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             end
             local mdRow = SettingsRow(
                 { type="input", text="Max Duration", inputWidth=56,
+                  disabled=SquareMissing, disabledTooltip="Show When",
                   getValue=function() return ind.maxDuration and tostring(ind.maxDuration) or "" end,
                   setValue=function(txt)
+                      if SquareMissing() then return end
                       local n = tonumber(txt)
                       ind.maxDuration = (n and n > 0) and n or nil
                       ReloadAndUpdate()
                   end },
                 dispGlowCfg or { type="label", text="" })
-            EllesmereUI.BuildInlineToggle({
+            local mdToggle = EllesmereUI.BuildInlineToggle({
                 region = mdRow._leftRegion,
                 getValue = function() return ind.maxDurationEnabled == true end,
-                setValue = function(v) ind.maxDurationEnabled = v end,
-                onToggle = function() ReloadAndUpdate() end,
+                setValue = function(v) if not SquareMissing() then ind.maxDurationEnabled = v end end,
+                onToggle = function() if not SquareMissing() then ReloadAndUpdate() end end,
             })
+            -- BuildInlineToggle has no disabled= option; mirror it manually
+            -- (mute + dim) so it greys out along with the rest of the row
+            -- when Show When == Missing.
+            if mdToggle then
+                local function UpdateMdToggle()
+                    local off = SquareMissing()
+                    mdToggle:SetAlpha(off and 0.3 or 1)
+                    mdToggle:EnableMouse(not off)
+                end
+                EllesmereUI.RegisterWidgetRefresh(UpdateMdToggle)
+                UpdateMdToggle()
+            end
             -- 12.1: no baseline/cap option on the engine duration bindings.
             if EllesmereUI.IS_121 then
                 PTRSlotOverlay("Max Duration", mdRow._leftRegion)
@@ -7019,8 +7170,10 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 UpdateDispGlowState()
             end
 
-            -- THRESHOLD section (Enable, seconds, color, opacity)
-            BuildThresholdRow(false)
+            -- THRESHOLD section (Enable, seconds, color, opacity). Square,
+            -- When Missing: no aura instance to watch, so grey out the whole
+            -- section (SquareMissing is always false for Icon).
+            BuildThresholdRow(false, SquareMissing)
 
         elseif typeInfo and typeInfo.placed then
 

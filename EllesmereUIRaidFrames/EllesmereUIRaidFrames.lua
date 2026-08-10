@@ -6521,6 +6521,22 @@ ns._UpdateButtonHealth = function(button)
     -- Background + dead/offline status tint. This path owns death/resurrect
     -- transitions arriving via UNIT_HEALTH, so it restores the bg when alive.
     ns._ApplyHealthBg(d, health, s, unit)
+
+    -- Buff Manager "Show When: Missing" squares read as absent on a dead or
+    -- disconnected unit (no auras exist either way), so they need a refresh
+    -- exactly on the death/resurrect transition -- BM only otherwise updates
+    -- on UNIT_AURA, which death/rez doesn't reliably fire. Gated to only the
+    -- users who have such an indicator configured (ns.BM_HasMissingSquares),
+    -- and to the transition edge (d._bmWasDead cache) so this doesn't add a
+    -- full aura rescan to every UNIT_HEALTH tick, which fires far more often
+    -- than aura changes.
+    if ns.BM_HasMissingSquares and ns.BM_HasMissingSquares() then
+        local isDead = UnitIsDeadOrGhost(unit) or not UnitIsConnected(unit)
+        if d._bmWasDead ~= isDead then
+            d._bmWasDead = isDead
+            if ns.BM_UpdateIndicators then ns.BM_UpdateIndicators(button, unit, db) end
+        end
+    end
 end
 
 -------------------------------------------------------------------------------
