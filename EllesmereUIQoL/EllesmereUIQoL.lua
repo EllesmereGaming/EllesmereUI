@@ -1929,6 +1929,13 @@ do
     -- The block, in order. `group` selects visibility and colour; `pct` rows go
     -- through PctText, `text` rows return a finished coloured string; `hidden`
     -- is a per-row veto on top of the group.
+    --
+    -- Labels are translated at use time via Label -> row.label, which the static
+    -- key extractor cannot follow. Declared literally here so they stay in
+    -- Locales/_keys.txt for translators:
+    --   EllesmereUI.L("Crit")  EllesmereUI.L("Haste")     EllesmereUI.L("Mastery")
+    --   EllesmereUI.L("Vers")  EllesmereUI.L("Leech")     EllesmereUI.L("Avoidance")
+    --   EllesmereUI.L("Speed") EllesmereUI.L("FPS")       EllesmereUI.L("Latency")
     local ROWS = {
         { key = "crit",      label = "Crit",      group = "secondary", pct = function() return GetCritChance("player") end },
         { key = "haste",     label = "Haste",     group = "secondary", pct = function() return UnitSpellHaste("player") end },
