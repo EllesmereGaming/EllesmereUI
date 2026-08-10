@@ -6,6 +6,43 @@
 local L = EllesmereUI.RegisterLocale("zhCN")
 if not L then return end
 
+-- == Social Data Bar =======================================================
+L["%d / %d"] = true
+L["Battle.net"] = true
+L["Battle.net Account"] = "战网账号"
+L["Choose the optional fields shown beside each player name. Character name is always visible."] = "选择显示在每位玩家姓名旁的可选字段。角色名始终可见。"
+L["Controls the online-count text shown on the Data Bar."] = "控制数据条上显示的在线人数文本。"
+L["Counts Only"] = "仅数字"
+L["DND"] = "忙碌"
+L["Data Mode"] = "数据模式"
+L["Friends shows online WoW friends. Guild shows online guild members. Both shows separate Friends and Guild sections. Left click opens the selected social window; in Both mode, Shift-Left Click opens Guild instead of Friends."] = "好友显示在线的魔兽世界好友。公会显示在线的公会成员。两者会分别显示好友和公会区域。左键点击可打开所选社交窗口；在两者模式下，Shift + 左键点击会打开公会而非好友。"
+L["Friends: %d"] = "好友：%d"
+L["Friends: %d / Guild: %d"] = "好友：%d / 公会：%d"
+L["Guild Rank"] = "公会会阶"
+L["Guild roster is not available yet"] = "公会名单暂不可用"
+L["Guild: %d"] = "公会：%d"
+L["Guild: %s"] = "公会：%s"
+L["Hold this modifier while left-clicking a player row to invite instead of whispering. Off disables modifier-click invites."] = "按住此修饰键并左键点击玩家行可发送邀请而非密语。关闭会禁用修饰键点击邀请。"
+L["Invite Modifier"] = "邀请修饰键"
+L["Labels & Counts"] = "标签与数量"
+L["Left click whispers; modifier-click invites."] = "左键点击发送密语；修饰键点击发送邀请。"
+L["Left click: whisper."] = "左键点击：密语。"
+L["Left click: whisper. Modifier-Left Click: invite."] = "左键点击：密语。修饰键 + 左键点击：邀请。"
+L["Maximum Popup Height"] = "弹窗最大高度"
+L["No friends online"] = "没有在线好友"
+L["No guild members online"] = "没有在线公会成员"
+L["Note"] = "备注"
+L["Online: %d"] = "在线：%d"
+L["Public Guild Note"] = "公会公开备注"
+L["Rank"] = "会阶"
+L["Server"] = "服务器"
+L["Social data is unavailable during combat."] = "战斗中无法使用社交数据。"
+L["Sorts each popup section with name as a stable secondary sort."] = "对弹窗中的每个区域排序，并将姓名作为稳定的次级排序条件。"
+L["The popup becomes mouse-wheel scrollable when its content exceeds this height."] = "内容超过此高度时，可使用鼠标滚轮滚动弹窗。"
+L["Total Online"] = "在线总数"
+L["Visible Columns"] = "可见列"
+L["You are not in a guild"] = "你尚未加入公会"
+
 -- == 常用标签 (Common labels) ===============================================
 L["Anchor"] = "锚点"
 L["Anchor Point"] = "锚点位置"

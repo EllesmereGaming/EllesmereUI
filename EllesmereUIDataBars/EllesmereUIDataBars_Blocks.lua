@@ -5825,8 +5825,1081 @@ ns.BlockFactories.greatvault = function(blockCfg, slot, content, barCtx)
 end
 
 -------------------------------------------------------------------------------
---  SPACER (transparent block; the slot's optional bg tint still applies)
+--  EllesmereUI DataBars - Social block
+--  Shared, lazy, event-driven friends/guild cache and interactive popup.
 -------------------------------------------------------------------------------
+local ROW_H = 24
+local SECTION_H = ROW_H
+local PAD = 10
+local HEADER_H = 52
+local FOOTER_H = 28
+local BAR_FONT_SIZE = 13
+
+local controller = {}
+
+function controller:Initialize()
+    if self.instances then return self end
+    self.instances = {}
+    self.friends = {}
+    self.guild = {}
+    self.registeredEvents = {}
+    self.friendsDirty = true
+    self.guildDirty = true
+    self.friendsActive = false
+    self.guildActive = false
+    self.guildRequested = false
+    self.guildReady = false
+    return self
+end
+
+local function Plain(value, fallback)
+    if issecretvalue and issecretvalue(value) then return fallback end
+    if value == nil then return fallback end
+    return value
+end
+
+local function PlainString(value, fallback)
+    value = Plain(value)
+    if type(value) == "string" then return value end
+    return fallback or ""
+end
+
+local function BlockColorOf(blockCfg)
+    if blockCfg.useDynamicColor and ns.BlockTextDynamic then
+        return ns.BlockTextDynamic(blockCfg.type)
+    end
+    if blockCfg.useClassColor then
+        local _, classFile = UnitClass("player")
+        local cc = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
+        if cc then return cc.r, cc.g, cc.b end
+    elseif blockCfg.useAccentColor then
+        return ns.GetAccent()
+    end
+    local c = blockCfg.color
+    if c then return c.r or 1, c.g or 1, c.b or 1 end
+    return 1, 1, 1
+end
+
+local classFileByName
+local function ClassFileFromName(className)
+    if type(className) ~= "string" or className == "" then return nil end
+    if not classFileByName then
+        classFileByName = {}
+        if LOCALIZED_CLASS_NAMES_MALE then
+            for token, name in pairs(LOCALIZED_CLASS_NAMES_MALE) do classFileByName[name] = token end
+        end
+        if LOCALIZED_CLASS_NAMES_FEMALE then
+            for token, name in pairs(LOCALIZED_CLASS_NAMES_FEMALE) do classFileByName[name] = token end
+        end
+    end
+    return classFileByName[className]
+end
+
+local function ClassFileFromGameInfo(info)
+    if not info then return nil end
+    local classID = tonumber(Plain(info.classID)) or 0
+    if classID > 0 then
+        if C_CreatureInfo and C_CreatureInfo.GetClassInfo then
+            local ok, ci = pcall(C_CreatureInfo.GetClassInfo, classID)
+            ci = ok and Plain(ci) or nil
+            if ci then return PlainString(ci.classFile, nil) end
+        elseif GetClassInfo then
+            local ok, _localizedName, classFile = pcall(GetClassInfo, classID)
+            if ok then return PlainString(classFile, nil) end
+        end
+    end
+    return ClassFileFromName(PlainString(info.className))
+end
+
+local function FullName(name, realm)
+    name = PlainString(name)
+    realm = PlainString(realm)
+    if name == "" then return nil end
+    if name:find("%-") or realm == "" then return name end
+    return name .. "-" .. realm:gsub("%s+", "")
+end
+
+local function RealmFromName(name, fallback)
+    name = PlainString(name)
+    local realm = name:match("^[^-]+%-(.+)$")
+    if realm and realm ~= "" then return realm end
+    return PlainString(fallback)
+end
+
+local function ResetDataRow(row)
+    if not row then row = {} end
+    row.source = nil
+    row.name = ""
+    row.account = ""
+    row.level = 0
+    row.classFile = nil
+    row.rank = ""
+    row.rankIndex = 999
+    row.zone = ""
+    row.note = ""
+    row.status = ""
+    row.realm = ""
+    row.whisperName = nil
+    row.bnetName = nil
+    row.inviteName = nil
+    row.sequence = 0
+    return row
+end
+
+local function FriendGameAccount(friendIndex, accountInfo, gameIndex)
+    if C_BattleNet and C_BattleNet.GetFriendGameAccountInfo and gameIndex then
+        local ok, info = pcall(C_BattleNet.GetFriendGameAccountInfo, friendIndex, gameIndex)
+        info = ok and Plain(info) or nil
+        if ok and info then return info end
+    end
+    if gameIndex == 1 then return accountInfo and Plain(accountInfo.gameAccountInfo) end
+    return nil
+end
+
+local function FriendGameAccountCount(friendIndex, accountInfo)
+    if C_BattleNet and C_BattleNet.GetFriendNumGameAccounts then
+        local ok, count = pcall(C_BattleNet.GetFriendNumGameAccounts, friendIndex)
+        count = ok and Plain(count, 0) or 0
+        if type(count) == "number" and count > 0 then return count end
+    end
+    if accountInfo and Plain(accountInfo.gameAccountInfo) then return 1 end
+    return 0
+end
+
+function controller:RebuildFriends()
+    if not self.friendsActive or InCombatLockdown() then
+        self.friendsDirty = true
+        return
+    end
+    local rows = self.friends
+    local used = 0
+    local seen = self.friendNames
+    if not seen then seen = {}; self.friendNames = seen else wipe(seen) end
+    local totalBN = 0
+    if BNGetNumFriends then
+        local ok, count = pcall(BNGetNumFriends)
+        if ok then totalBN = Plain(count, 0) end
+    end
+    if type(totalBN) ~= "number" then totalBN = 0 end
+    for i = 1, totalBN do
+        local accountInfo
+        if C_BattleNet and C_BattleNet.GetFriendAccountInfo then
+            local ok, info = pcall(C_BattleNet.GetFriendAccountInfo, i)
+            if ok then accountInfo = Plain(info) end
+        end
+        if accountInfo then
+            local count = FriendGameAccountCount(i, accountInfo)
+            for gameIndex = 1, count do
+                local gameInfo = FriendGameAccount(i, accountInfo, gameIndex)
+                local program = gameInfo and PlainString(gameInfo.clientProgram)
+                local online = gameInfo and Plain(gameInfo.isOnline, false)
+                local charName = gameInfo and PlainString(gameInfo.characterName) or ""
+                if online and (program == BNET_CLIENT_WOW or program == "WoW") and charName ~= "" then
+                    local full = FullName(charName, PlainString(gameInfo.realmName))
+                    local key = full and full:lower()
+                    if key and not seen[key] then
+                        seen[key] = true
+                        used = used + 1
+                        local row = ResetDataRow(rows[used])
+                        rows[used] = row
+                        row.source = "friends"
+                        row.name = charName
+                        row.account = PlainString(accountInfo.accountName, PlainString(accountInfo.battleTag))
+                        row.level = tonumber(Plain(gameInfo.characterLevel, Plain(gameInfo.level, 0))) or 0
+                        row.classFile = ClassFileFromGameInfo(gameInfo)
+                        row.zone = PlainString(gameInfo.areaName)
+                        row.realm = PlainString(gameInfo.realmName)
+                        local isAFK = Plain(accountInfo.isAFK, false) or Plain(gameInfo.isGameAFK, false)
+                        local isDND = Plain(accountInfo.isDND, false) or Plain(gameInfo.isGameBusy, false)
+                        if isDND then row.status = DEFAULT_DND_MESSAGE or EllesmereUI.L("DND")
+                        elseif isAFK then row.status = DEFAULT_AFK_MESSAGE or EllesmereUI.L("AFK") end
+                        row.bnetName = PlainString(accountInfo.accountName, nil)
+                        row.whisperName = full
+                        row.inviteName = full
+                        row.sequence = used
+                    end
+                end
+            end
+        end
+    end
+    local totalWoW = 0
+    if C_FriendList and C_FriendList.GetNumFriends and C_FriendList.GetFriendInfoByIndex then
+        local ok, count = pcall(C_FriendList.GetNumFriends)
+        if ok then totalWoW = Plain(count, 0) end
+    end
+    if type(totalWoW) ~= "number" then totalWoW = 0 end
+    local playerRealm = GetRealmName and PlainString(GetRealmName()) or ""
+    for i = 1, totalWoW do
+        local info
+        local ok, friendInfo = pcall(C_FriendList.GetFriendInfoByIndex, i)
+        if ok then info = Plain(friendInfo) end
+        local connected = info and Plain(info.connected, false)
+        local name = info and PlainString(info.name) or ""
+        if connected and name ~= "" then
+            local full = FullName(name, playerRealm)
+            local key = full and full:lower()
+            if key and not seen[key] then
+                seen[key] = true
+                used = used + 1
+                local row = ResetDataRow(rows[used])
+                rows[used] = row
+                row.source = "friends"
+                row.name = name:match("[^-]+") or name
+                row.level = tonumber(Plain(info.level, 0)) or 0
+                row.classFile = ClassFileFromName(PlainString(info.className))
+                row.zone = PlainString(info.area)
+                row.realm = RealmFromName(name, playerRealm)
+                if Plain(info.dnd, false) then row.status = DEFAULT_DND_MESSAGE or EllesmereUI.L("DND")
+                elseif Plain(info.afk, false) then row.status = DEFAULT_AFK_MESSAGE or EllesmereUI.L("AFK") end
+                row.whisperName = full
+                row.inviteName = full
+                row.sequence = used
+            end
+        end
+    end
+    for i = #rows, used + 1, -1 do rows[i] = nil end
+    self.friendsDirty = false
+end
+
+function controller:RebuildGuild()
+    if not self.guildActive or InCombatLockdown() then
+        self.guildDirty = true
+        return
+    end
+    local rows = self.guild
+    local used = 0
+    if IsInGuild and IsInGuild() and GetGuildRosterInfo then
+        local total = 0
+        if GetNumGuildMembers then
+            local ok, count = pcall(GetNumGuildMembers)
+            if ok then total = Plain(count, 0) end
+        end
+        if type(total) ~= "number" then total = 0 end
+        if total > 0 then self.guildReady = true end
+        local playerRealm = GetRealmName and PlainString(GetRealmName()) or ""
+        for i = 1, total do
+            local ok, name, rank, rankIndex, level, _className, zone, note, _officerNote,
+                online, status, classFile = pcall(GetGuildRosterInfo, i)
+            if not ok then name, online = "", false end
+            online = Plain(online, false)
+            name = PlainString(name)
+            if online and name ~= "" then
+                used = used + 1
+                local row = ResetDataRow(rows[used])
+                rows[used] = row
+                row.source = "guild"
+                row.name = name:match("[^-]+") or name
+                row.level = tonumber(Plain(level, 0)) or 0
+                row.classFile = PlainString(classFile, nil)
+                row.rank = PlainString(rank)
+                row.rankIndex = tonumber(Plain(rankIndex, 999)) or 999
+                row.zone = PlainString(zone)
+                row.note = PlainString(note)
+                row.realm = RealmFromName(name, playerRealm)
+                status = tonumber(Plain(status, 0)) or 0
+                if status == 2 then row.status = DEFAULT_DND_MESSAGE or EllesmereUI.L("DND")
+                elseif status == 1 then row.status = DEFAULT_AFK_MESSAGE or EllesmereUI.L("AFK") end
+                row.whisperName = name
+                row.inviteName = name
+                row.sequence = used
+            end
+        end
+    end
+    for i = #rows, used + 1, -1 do rows[i] = nil end
+    self.guildDirty = false
+end
+
+local function ModeUsesFriends(mode)
+    return mode == "friends" or mode == "both"
+end
+
+local function ModeUsesGuild(mode)
+    return mode == "guild" or mode == "both"
+end
+
+function controller:RequestGuildRoster()
+    if self.guildRequested or not self.guildActive then return end
+    if not (IsInGuild and IsInGuild()) then return end
+    if InCombatLockdown() then return end
+    self.guildRequested = true
+    if C_GuildInfo and C_GuildInfo.GuildRoster then pcall(C_GuildInfo.GuildRoster) end
+end
+
+function controller:SetEvent(event, enabled)
+    if not self.frame then return end
+    local current = self.registeredEvents[event]
+    if current == enabled then return end
+    if current == nil and not enabled then
+        self.registeredEvents[event] = false
+        return
+    end
+    local ok
+    if enabled then
+        ok = pcall(self.frame.RegisterEvent, self.frame, event)
+    else
+        ok = pcall(self.frame.UnregisterEvent, self.frame, event)
+    end
+    if ok then self.registeredEvents[event] = enabled end
+end
+
+function controller:Reconcile()
+    local wantFriends, wantGuild, any = false, false, false
+    for inst in pairs(self.instances) do
+        any = true
+        local mode = (inst.cfg.settings and inst.cfg.settings.mode) or "both"
+        if ModeUsesFriends(mode) then wantFriends = true end
+        if ModeUsesGuild(mode) then wantGuild = true end
+    end
+    if not any then
+        if self.frame then self.frame:UnregisterAllEvents() end
+        wipe(self.registeredEvents)
+        self.friendsActive = false
+        self.guildActive = false
+        self.guildRequested = false
+        self.guildReady = false
+        self.friendsDirty = true
+        self.guildDirty = true
+        wipe(self.friends)
+        wipe(self.guild)
+        if self.popup then self.popup:Hide() end
+        return
+    end
+    local friendsStarted = wantFriends and not self.friendsActive
+    local guildStarted = wantGuild and not self.guildActive
+    self.friendsActive = wantFriends
+    self.guildActive = wantGuild
+    self:SetEvent("FRIENDLIST_UPDATE", wantFriends)
+    self:SetEvent("BN_FRIEND_LIST_SIZE_CHANGED", wantFriends)
+    self:SetEvent("BN_FRIEND_INFO_CHANGED", wantFriends)
+    self:SetEvent("GUILD_ROSTER_UPDATE", wantGuild)
+    self:SetEvent("PLAYER_GUILD_UPDATE", wantGuild)
+    self:SetEvent("PLAYER_REGEN_ENABLED", true)
+    self:SetEvent("PLAYER_REGEN_DISABLED", true)
+    if friendsStarted then self.friendsDirty = true end
+    if guildStarted then
+        self.guildDirty = true
+        self.guildRequested = false
+        self.guildReady = false
+    end
+    if not wantFriends then wipe(self.friends); self.friendsDirty = true end
+    if not wantGuild then
+        wipe(self.guild)
+        self.guildDirty = true
+        self.guildRequested = false
+        self.guildReady = false
+    end
+    if self.friendsDirty and wantFriends then self:RebuildFriends() end
+    if self.guildDirty and wantGuild then self:RebuildGuild() end
+    if wantGuild then self:RequestGuildRoster() end
+end
+
+function controller:RefreshInstances()
+    for inst in pairs(self.instances) do
+        if inst.Refresh then inst:Refresh() end
+    end
+    if self.popup and self.popup:IsShown() and self.popupOwner then
+        self:RefreshPopup(self.popupOwner)
+    end
+end
+
+function controller:OnEvent(event)
+    if event == "PLAYER_REGEN_ENABLED" then
+        if self.friendsDirty then self:RebuildFriends() end
+        if self.guildDirty then self:RebuildGuild() end
+        self:RequestGuildRoster()
+    elseif event == "PLAYER_REGEN_DISABLED" then
+        -- RefreshInstances replaces an open popup with its combat-safe notice.
+    elseif event == "PLAYER_GUILD_UPDATE" then
+        self.guildDirty = true
+        self.guildRequested = false
+        self.guildReady = false
+        self:RebuildGuild()
+        self:RequestGuildRoster()
+    elseif event == "GUILD_ROSTER_UPDATE" then
+        self.guildDirty = true
+        self.guildReady = true
+        self:RebuildGuild()
+    else
+        self.friendsDirty = true
+        self:RebuildFriends()
+    end
+    self:RefreshInstances()
+end
+
+function controller:Register(inst)
+    self:Initialize()
+    if not self.frame then
+        self.frame = CreateFrame("Frame")
+        self.frame:SetScript("OnEvent", function(_, event) controller:OnEvent(event) end)
+    end
+    self.instances[inst] = true
+    self:Reconcile()
+end
+
+function controller:Unregister(inst)
+    if not self.instances then return end
+    self.instances[inst] = nil
+    if self.popupOwner == inst then
+        self.popupOwner = nil
+        if self.popup then self.popup:Hide() end
+    end
+    self:Reconcile()
+end
+
+local function SortRows(rows, mode)
+    local function NameOf(row) return (row.name or ""):lower() end
+    tsort(rows, function(a, b)
+        if mode == "level" and a.level ~= b.level then return a.level > b.level end
+        if mode == "zone" and a.zone ~= b.zone then return (a.zone or ""):lower() < (b.zone or ""):lower() end
+        if mode == "rank" and a.rankIndex ~= b.rankIndex then return a.rankIndex < b.rankIndex end
+        local an, bn = NameOf(a), NameOf(b)
+        if an ~= bn then return an < bn end
+        return a.sequence < b.sequence
+    end)
+end
+
+local function OpenWhisper(row)
+    if EllesmereUI.IsDevModeActive and EllesmereUI.IsDevModeActive() then return end
+    if EllesmereUI.InProtectedInstance and EllesmereUI.InProtectedInstance() then return end
+    if row.bnetName and row.bnetName ~= "" then
+        local sendBN = (ChatFrameUtil and ChatFrameUtil.SendBNetTell) or ChatFrame_SendBNetTell
+        if sendBN then pcall(sendBN, row.bnetName, DEFAULT_CHAT_FRAME) end
+    elseif row.whisperName and row.whisperName ~= "" then
+        local sendTell = (ChatFrameUtil and ChatFrameUtil.SendTell) or ChatFrame_SendTell
+        if sendTell then pcall(sendTell, row.whisperName, DEFAULT_CHAT_FRAME) end
+    end
+end
+
+local function InviteModifierDown(setting)
+    if setting == "SHIFT" then return IsShiftKeyDown() end
+    if setting == "CTRL" then return IsControlKeyDown() end
+    if setting == "ALT" then return IsAltKeyDown() end
+    return false
+end
+
+local function HandleRowClick(inst, row, mouseButton)
+    if mouseButton ~= "LeftButton" or not inst or not row or InCombatLockdown() then return end
+    local settings = inst.cfg.settings or {}
+    if InviteModifierDown(settings.inviteModifier or "SHIFT") then
+        if row.inviteName and C_PartyInfo and C_PartyInfo.InviteUnit then
+            pcall(C_PartyInfo.InviteUnit, row.inviteName)
+        end
+    else
+        OpenWhisper(row)
+    end
+end
+
+local function EnsurePopupRow(index)
+    local popup = controller.popup
+    local row = popup.rows[index]
+    if row then return row end
+    row = CreateFrame("Button", nil, popup.child)
+    row:RegisterForClicks("LeftButtonUp")
+    local highlight = row:CreateTexture(nil, "HIGHLIGHT")
+    highlight:SetAllPoints()
+    highlight:SetColorTexture(1, 1, 1, 0.10)
+    row.highlight = highlight
+    local background = row:CreateTexture(nil, "BACKGROUND")
+    background:SetAllPoints()
+    row.background = background
+    local sourceStripe = row:CreateTexture(nil, "ARTWORK")
+    sourceStripe:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
+    sourceStripe:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 0)
+    sourceStripe:SetWidth(2)
+    row.sourceStripe = sourceStripe
+    local separator = row:CreateTexture(nil, "ARTWORK")
+    separator:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", PAD, 0)
+    separator:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -PAD, 0)
+    separator:SetHeight(1)
+    separator:SetColorTexture(1, 1, 1, 0.035)
+    row.separator = separator
+    row.fields = {}
+    local keys = { "name", "account", "level", "rank", "zone", "realm", "note" }
+    for i = 1, #keys do
+        local key = keys[i]
+        local fs = EllesmereUI.MakeFont(row, key == "name" and 12 or 11, nil, 1, 1, 1, key == "name" and 1 or 0.72)
+        fs:SetJustifyH(key == "level" and "CENTER" or "LEFT")
+        fs:SetWordWrap(false)
+        row.fields[key] = fs
+    end
+    row:SetScript("OnClick", function(self, button)
+        HandleRowClick(controller.popupOwner, self.data, button)
+    end)
+    popup.rows[index] = row
+    return row
+end
+
+local COLUMN_WIDTHS = { name = 203, account = 125, level = 42, rank = 95, zone = 125,
+    realm = 110, note = 155 }
+local function ColumnLabel(key)
+    if key == "name" then return EllesmereUI.L("Character") end
+    if key == "account" then return EllesmereUI.L("Battle.net") end
+    if key == "level" then return EllesmereUI.L("Level") end
+    if key == "rank" then return EllesmereUI.L("Rank") end
+    if key == "zone" then return EllesmereUI.L("Zone") end
+    if key == "realm" then return EllesmereUI.L("Server") end
+    if key == "note" then return EllesmereUI.L("Note") end
+    return ""
+end
+
+local function FillVisibleColumnKeys(keys, settings)
+    wipe(keys)
+    local mode = settings.mode or "both"
+    keys[#keys + 1] = "name"
+    if mode ~= "guild" and settings.showAccount ~= false then keys[#keys + 1] = "account" end
+    if settings.showRealm == true then keys[#keys + 1] = "realm" end
+    if settings.showLevel ~= false then keys[#keys + 1] = "level" end
+    if mode ~= "friends" and settings.showRank == true then keys[#keys + 1] = "rank" end
+    if settings.showZone ~= false then keys[#keys + 1] = "zone" end
+    if mode ~= "friends" and settings.showNote == true then keys[#keys + 1] = "note" end
+    return keys
+end
+
+local function PopupWidth(keys)
+    local width = PAD * 2 + 12
+    for i = 1, #keys do width = width + COLUMN_WIDTHS[keys[i]] end
+    return min(width, 980)
+end
+
+local function PositionColumnHeaders(popup)
+    for _, fs in pairs(popup.columnHeaders) do fs:Hide() end
+    local x = PAD
+    for i = 1, #popup.columnKeys do
+        local key = popup.columnKeys[i]
+        local fs = popup.columnHeaders[key]
+        fs:ClearAllPoints()
+        fs:SetPoint("TOPLEFT", popup, "TOPLEFT", x, -32)
+        fs:SetWidth(COLUMN_WIDTHS[key] - 8)
+        fs:SetText(ColumnLabel(key))
+        fs:Show()
+        x = x + COLUMN_WIDTHS[key]
+    end
+end
+
+local function PaintPopupRow(row, data, source, settings, y, width)
+    row:Show()
+    row:ClearAllPoints()
+    row:SetPoint("TOPLEFT", controller.popup.child, "TOPLEFT", 0, -y)
+    row:SetSize(width, ROW_H)
+    row.data = data
+    row.highlight:SetShown(data ~= nil)
+    row:EnableMouse(data ~= nil)
+    row.background:SetColorTexture(1, 1, 1, data.sequence % 2 == 0 and 0.035 or 0.015)
+    row.background:Show()
+    if source == "friends" then
+        row.sourceStripe:SetColorTexture(0.28, 0.65, 1, 0.7)
+    else
+        local ar, ag, ab = ns.GetAccent()
+        row.sourceStripe:SetColorTexture(ar, ag, ab, 0.75)
+    end
+    row.sourceStripe:Show()
+    row.separator:Show()
+    for _, fs in pairs(row.fields) do fs:Hide() end
+    local keys = controller.popup.columnKeys
+    local x = PAD
+    for i = 1, #keys do
+        local key = keys[i]
+        local fs = row.fields[key]
+        local value = data and data[key] or ""
+        if key == "level" and value == 0 then value = "" end
+        if key == "name" and data and data.status ~= "" then
+            value = format("%s  |cffffb833%s|r", value, data.status)
+        end
+        fs:ClearAllPoints()
+        fs:SetPoint("LEFT", row, "LEFT", x, 0)
+        fs:SetWidth(COLUMN_WIDTHS[key] - 8)
+        fs:SetText(value or "")
+        if key == "name" and data then
+            local cc = data.classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[data.classFile]
+            if cc then fs:SetTextColor(cc.r, cc.g, cc.b, 1) else fs:SetTextColor(1, 1, 1, 1) end
+        else
+            fs:SetTextColor(0.75, 0.75, 0.75, 0.9)
+        end
+        fs:Show()
+        x = x + COLUMN_WIDTHS[key]
+    end
+end
+
+local function PaintSectionHeader(row, title, y, width)
+    row:Show()
+    row:ClearAllPoints()
+    row:SetPoint("TOPLEFT", controller.popup.child, "TOPLEFT", 0, -y)
+    row:SetSize(width, SECTION_H)
+    row.data = nil
+    row:EnableMouse(false)
+    row.highlight:Hide()
+    local ar, ag, ab = ns.GetAccent()
+    row.background:SetColorTexture(ar, ag, ab, 0.10)
+    row.background:Show()
+    row.sourceStripe:SetColorTexture(ar, ag, ab, 0.95)
+    row.sourceStripe:Show()
+    row.separator:Hide()
+    for _, fs in pairs(row.fields) do fs:Hide() end
+    local fs = row.fields.name
+    fs:ClearAllPoints()
+    fs:SetPoint("LEFT", row, "LEFT", PAD, 0)
+    fs:SetWidth(width - PAD * 2)
+    fs:SetText(title)
+    fs:SetTextColor(ar, ag, ab, 1)
+    fs:Show()
+end
+
+local function PaintEmptyRow(row, message, y, width)
+    PaintSectionHeader(row, message, y, width)
+    row:SetHeight(ROW_H)
+    row.background:SetColorTexture(1, 1, 1, 0.015)
+    row.sourceStripe:Hide()
+    row.fields.name:SetTextColor(0.6, 0.6, 0.6, 1)
+end
+
+local function PaintVisiblePopupRows()
+    local popup = controller.popup
+    if not popup then return end
+    local count = popup.displayCount or 0
+    local offset = popup.scroll:GetVerticalScroll() or 0
+    local first = floor(offset / ROW_H) + 1
+    local last = min(count, first + floor((popup.viewHeight or ROW_H) / ROW_H) + 1)
+    local poolIndex = 0
+    for index = first, last do
+        local item = popup.display[index]
+        if item then
+            poolIndex = poolIndex + 1
+            local row = EnsurePopupRow(poolIndex)
+            local y = (index - 1) * ROW_H
+            if item.kind == "header" then
+                PaintSectionHeader(row, item.text, y, popup.contentWidth)
+            elseif item.kind == "empty" then
+                PaintEmptyRow(row, item.text, y, popup.contentWidth)
+            else
+                PaintPopupRow(row, item.data, item.source, popup.settings, y, popup.contentWidth)
+            end
+        end
+    end
+    for i = poolIndex + 1, #popup.rows do popup.rows[i]:Hide() end
+end
+
+local function UpdateScrollRange()
+    local popup = controller.popup
+    local range = max(0, popup.contentHeight - popup.viewHeight)
+    popup.scrollRange = range
+    local offset = min(popup.scroll:GetVerticalScroll() or 0, range)
+    popup.scroll:SetVerticalScroll(offset)
+    popup.scrollbar:SetShown(range > 0)
+    if range > 0 then
+        local trackH = popup.scrollbar:GetHeight()
+        local thumbH = max(24, trackH * popup.viewHeight / popup.contentHeight)
+        local travel = max(1, trackH - thumbH)
+        popup.thumb:SetHeight(thumbH)
+        popup.thumb:ClearAllPoints()
+        popup.thumb:SetPoint("TOP", popup.scrollbar, "TOP", 0, -travel * offset / range)
+    end
+    PaintVisiblePopupRows()
+end
+
+local function HidePopupUnlessHovered()
+    local popup = controller.popup
+    if not (popup and popup:IsShown()) then return end
+    local owner = controller.popupOwner and controller.popupOwner.button
+    local bridge = popup.bridge
+    if (owner and owner:IsMouseOver()) or popup:IsMouseOver()
+        or (bridge and bridge:IsMouseOver()) then return end
+    popup:Hide()
+end
+
+local function FrameRectInUI(frame)
+    if not frame then return end
+    local left, right = frame:GetLeft(), frame:GetRight()
+    local bottom, top = frame:GetBottom(), frame:GetTop()
+    local frameScale = frame:GetEffectiveScale()
+    local uiScale = UIParent:GetEffectiveScale()
+    if not (left and right and bottom and top and frameScale and uiScale and uiScale > 0) then return end
+    local scale = frameScale / uiScale
+    return left * scale, right * scale, bottom * scale, top * scale
+end
+
+local function PositionPopupBridge(inst, popup)
+    local bridge = popup and popup.bridge
+    local owner = inst and inst.button
+    if not (bridge and owner and popup:IsShown()) then return end
+    local ol, oright, ob, ot = FrameRectInUI(owner)
+    local pl, pr, pb, pt = FrameRectInUI(popup)
+    if not (ol and oright and ob and ot and pl and pr and pb and pt) then
+        bridge:Hide()
+        return
+    end
+    local overlap = 4
+    local left, right, bottom, top
+    if popup.bridgeAxis == "right" then
+        left, right = oright - overlap, pl + overlap
+        bottom, top = ob - overlap, ot + overlap
+    elseif popup.bridgeAxis == "left" then
+        left, right = pr - overlap, ol + overlap
+        bottom, top = ob - overlap, ot + overlap
+    elseif popup.bridgeAxis == "above" then
+        left, right = ol - overlap, oright + overlap
+        bottom, top = ot - overlap, pb + overlap
+    else
+        left, right = ol - overlap, oright + overlap
+        bottom, top = pt - overlap, ob + overlap
+    end
+    if right <= left or top <= bottom then
+        bridge:Hide()
+        return
+    end
+    bridge:ClearAllPoints()
+    bridge:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", left, bottom)
+    bridge:SetSize(right - left, top - bottom)
+    bridge:Show()
+end
+
+local function EnsurePopup()
+    if controller.popup then return controller.popup end
+    local popup = ns.CreatePopupFrame(UIParent)
+    popup._wbNoCatcher = true
+    popup.rows = {}
+    popup.display = {}
+    popup.columnKeys = {}
+    popup.columnHeaders = {}
+    popup:EnableMouse(true)
+    local bridge = CreateFrame("Frame", nil, UIParent)
+    bridge:SetFrameStrata("TOOLTIP")
+    bridge:SetFrameLevel(max(1, popup:GetFrameLevel() - 1))
+    bridge:EnableMouse(true)
+    bridge:Hide()
+    bridge:SetScript("OnLeave", HidePopupUnlessHovered)
+    popup.bridge = bridge
+    local headerBg = popup:CreateTexture(nil, "BACKGROUND", nil, 1)
+    headerBg:SetPoint("TOPLEFT", popup, "TOPLEFT", 1, -1)
+    headerBg:SetPoint("TOPRIGHT", popup, "TOPRIGHT", -1, -1)
+    headerBg:SetHeight(HEADER_H - 1)
+    headerBg:SetColorTexture(1, 1, 1, 0.025)
+    local accentLine = popup:CreateTexture(nil, "ARTWORK")
+    accentLine:SetPoint("BOTTOMLEFT", headerBg, "BOTTOMLEFT", PAD, 0)
+    accentLine:SetPoint("BOTTOMRIGHT", headerBg, "BOTTOMRIGHT", -PAD, 0)
+    accentLine:SetHeight(1)
+    local ar, ag, ab = ns.GetAccent()
+    accentLine:SetColorTexture(ar, ag, ab, 0.55)
+    popup.accentLine = accentLine
+    local title = EllesmereUI.MakeFont(popup, 13, nil, 1, 1, 1, 1)
+    title:SetPoint("TOPLEFT", popup, "TOPLEFT", PAD, -8)
+    popup.title = title
+    local headerKeys = { "name", "account", "level", "rank", "zone", "realm", "note" }
+    for i = 1, #headerKeys do
+        local key = headerKeys[i]
+        local fs = EllesmereUI.MakeFont(popup, 9, nil, 1, 1, 1, 0.42)
+        fs:SetJustifyH(key == "level" and "CENTER" or "LEFT")
+        fs:SetWordWrap(false)
+        popup.columnHeaders[key] = fs
+    end
+    local scroll = CreateFrame("ScrollFrame", nil, popup)
+    scroll:SetPoint("TOPLEFT", popup, "TOPLEFT", 1, -HEADER_H)
+    scroll:EnableMouseWheel(true)
+    local child = CreateFrame("Frame", nil, scroll)
+    child:SetSize(1, 1)
+    scroll:SetScrollChild(child)
+    popup.scroll = scroll
+    popup.child = child
+    local scrollbar = CreateFrame("Button", nil, popup)
+    scrollbar:SetWidth(6)
+    scrollbar:SetPoint("TOPRIGHT", scroll, "TOPRIGHT", -3, -2)
+    scrollbar:SetPoint("BOTTOMRIGHT", scroll, "BOTTOMRIGHT", -3, 2)
+    local track = scrollbar:CreateTexture(nil, "BACKGROUND")
+    track:SetAllPoints()
+    track:SetColorTexture(1, 1, 1, 0.05)
+    local thumb = scrollbar:CreateTexture(nil, "ARTWORK")
+    thumb:SetWidth(4)
+    thumb:SetColorTexture(1, 1, 1, 0.35)
+    popup.scrollbar = scrollbar
+    popup.thumb = thumb
+    local footer = EllesmereUI.MakeFont(popup, 10, nil, 1, 1, 1, 0.55)
+    footer:SetPoint("BOTTOMLEFT", popup, "BOTTOMLEFT", PAD, 8)
+    footer:SetText(EllesmereUI.L("Left click: whisper. Modifier-Left Click: invite."))
+    popup.footer = footer
+    scroll:SetScript("OnMouseWheel", function(_, delta)
+        local offset = scroll:GetVerticalScroll() or 0
+        scroll:SetVerticalScroll(min(popup.scrollRange or 0, max(0, offset - delta * ROW_H * 3)))
+        UpdateScrollRange()
+    end)
+    scrollbar:SetScript("OnClick", function()
+        local _, cursorY = GetCursorPosition()
+        local scale = scrollbar:GetEffectiveScale()
+        local top = scrollbar:GetTop()
+        if not (cursorY and scale and top) then return end
+        local at = (top - cursorY / scale) / max(1, scrollbar:GetHeight())
+        scroll:SetVerticalScroll(min(popup.scrollRange or 0, max(0, at * (popup.scrollRange or 0))))
+        UpdateScrollRange()
+    end)
+    popup:SetScript("OnLeave", HidePopupUnlessHovered)
+    popup:HookScript("OnHide", function()
+        controller.popupOwner = nil
+        scroll:SetVerticalScroll(0)
+        bridge:Hide()
+    end)
+    controller.popup = popup
+    return popup
+end
+
+local function AnchorPopup(inst, popup)
+    local owner = inst.button
+    local bar = owner:GetParent()
+    while bar do
+        local name = bar.GetName and bar:GetName()
+        if name and name:find("^EllesmereUIDataBarsBar%d+$") then break end
+        bar = bar:GetParent()
+    end
+    popup:ClearAllPoints()
+    local ocx, ocy = owner:GetCenter()
+    if bar and ocx then
+        local os = owner:GetEffectiveScale()
+        local ps = popup:GetEffectiveScale()
+        local bcx, bcy = bar:GetCenter()
+        local bs = bar:GetEffectiveScale()
+        local uiScale = UIParent:GetEffectiveScale()
+        local halfW = UIParent:GetWidth() * uiScale / 2
+        local halfH = UIParent:GetHeight() * uiScale / 2
+        if bar:GetHeight() > bar:GetWidth() then
+            local oy = (ocy * os - bcy * bs) / ps
+            if bcx * bs < halfW then
+                popup:SetPoint("LEFT", bar, "RIGHT", 6, oy)
+                popup.bridgeAxis = "right"
+            else
+                popup:SetPoint("RIGHT", bar, "LEFT", -6, oy)
+                popup.bridgeAxis = "left"
+            end
+        else
+            local ox = (ocx * os - bcx * bs) / ps
+            if bcy * bs < halfH then
+                popup:SetPoint("BOTTOM", bar, "TOP", ox, 6)
+                popup.bridgeAxis = "above"
+            else
+                popup:SetPoint("TOP", bar, "BOTTOM", ox, -6)
+                popup.bridgeAxis = "below"
+            end
+        end
+    else
+        local halfH = UIParent:GetHeight() / 2
+        if ocy and ocy < halfH then
+            popup:SetPoint("BOTTOM", owner, "TOP", 0, 6)
+            popup.bridgeAxis = "above"
+        else
+            popup:SetPoint("TOP", owner, "BOTTOM", 0, -6)
+            popup.bridgeAxis = "below"
+        end
+    end
+end
+
+function controller:RefreshPopup(inst)
+    if not inst then return end
+    local popup = EnsurePopup()
+    local settings = inst.cfg.settings or {}
+    local mode = settings.mode or "both"
+    if not InCombatLockdown() then
+        if ModeUsesFriends(mode) and self.friendsDirty then self:RebuildFriends() end
+        if ModeUsesGuild(mode) and self.guildDirty then self:RebuildGuild() end
+    end
+    FillVisibleColumnKeys(popup.columnKeys, settings)
+    local width = PopupWidth(popup.columnKeys)
+    local display = popup.display
+    local displayCount = 0
+    local function AddDisplay(kind, text, source, data)
+        displayCount = displayCount + 1
+        local item = display[displayCount]
+        if not item then item = {}; display[displayCount] = item end
+        item.kind = kind
+        item.text = text
+        item.source = source
+        item.data = data
+    end
+    local function AddSection(title, source, rows, emptyMessage)
+        AddDisplay("header", title, source)
+        SortRows(rows, settings.sort or "name")
+        if #rows == 0 then
+            AddDisplay("empty", emptyMessage, source)
+        else
+            for i = 1, #rows do
+                AddDisplay("data", nil, source, rows[i])
+            end
+        end
+    end
+    if InCombatLockdown() then
+        AddDisplay("empty", EllesmereUI.L("Social data is unavailable during combat."))
+    else
+        if ModeUsesFriends(mode) then
+            AddSection(EllesmereUI.L("Friends"), "friends", self.friends, EllesmereUI.L("No friends online"))
+        end
+        if ModeUsesGuild(mode) then
+            local empty
+            if not (IsInGuild and IsInGuild()) then empty = EllesmereUI.L("You are not in a guild")
+            elseif not self.guildReady and #self.guild == 0 then empty = EllesmereUI.L("Guild roster is not available yet")
+            else empty = EllesmereUI.L("No guild members online") end
+            local guildTitle = EllesmereUI.L("Guild")
+            local guildName = ""
+            if GetGuildInfo then
+                local ok, name = pcall(GetGuildInfo, "player")
+                if ok then guildName = PlainString(name) end
+            end
+            if guildName ~= "" then
+                guildTitle = format(EllesmereUI.L("Guild: %s"), guildName)
+            end
+            AddSection(guildTitle, "guild", self.guild, empty)
+        end
+    end
+    for i = displayCount + 1, #display do
+        display[i].kind = nil
+        display[i].text = nil
+        display[i].source = nil
+        display[i].data = nil
+    end
+    popup.displayCount = displayCount
+    popup.contentHeight = max(ROW_H, displayCount * ROW_H)
+    local maxHeight = min(700, max(180, tonumber(settings.maxHeight) or 360))
+    local viewHeight = min(popup.contentHeight, maxHeight - HEADER_H - FOOTER_H)
+    popup.viewHeight = max(ROW_H, viewHeight)
+    popup:SetSize(width, HEADER_H + popup.viewHeight + FOOTER_H)
+    popup.scroll:ClearAllPoints()
+    popup.scroll:SetPoint("TOPLEFT", popup, "TOPLEFT", 1, -HEADER_H)
+    popup.scroll:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", -1, FOOTER_H)
+    popup.child:SetSize(width, popup.contentHeight)
+    popup.contentWidth = width
+    popup.settings = settings
+    popup.title:SetText(EllesmereUI.L("Social"))
+    local ar, ag, ab = ns.GetAccent()
+    popup.accentLine:SetColorTexture(ar, ag, ab, 0.55)
+    PositionColumnHeaders(popup)
+    if (settings.inviteModifier or "SHIFT") == "OFF" then
+        popup.footer:SetText(EllesmereUI.L("Left click: whisper."))
+    else
+        popup.footer:SetText(EllesmereUI.L("Left click: whisper. Modifier-Left Click: invite."))
+    end
+    UpdateScrollRange()
+    if popup:IsShown() then PositionPopupBridge(inst, popup) end
+end
+
+function controller:ShowPopup(inst)
+    local popup = EnsurePopup()
+    self.popupOwner = inst
+    popup.scroll:SetVerticalScroll(0)
+    self:RefreshPopup(inst)
+    AnchorPopup(inst, popup)
+    popup:Show()
+    PositionPopupBridge(inst, popup)
+end
+
+ns.BlockFactories.social = function(blockCfg, slot, content, barCtx)
+    controller:Initialize()
+    local inst = { cfg = blockCfg, slot = slot, content = content, ctx = barCtx }
+    local button = CreateFrame("Button", nil, content)
+    button:SetSize(150, 20)
+    button:SetPoint("CENTER")
+    button:EnableMouse(true)
+    button:RegisterForClicks("LeftButtonUp")
+    local text = button:CreateFontString(nil, "OVERLAY")
+    text:SetPoint("CENTER")
+    text:SetJustifyH("CENTER")
+    text:SetWordWrap(false)
+    inst.button = button
+    inst.text = text
+    local mouseOver = false
+
+    local function D() return blockCfg.settings or {} end
+    local function FormatText()
+        local mode = D().mode or "both"
+        local style = D().format or "labels"
+        local friends = #controller.friends
+        local guild = #controller.guild
+        if style == "total" then
+            local total = (ModeUsesFriends(mode) and friends or 0) + (ModeUsesGuild(mode) and guild or 0)
+            return format(EllesmereUI.L("Online: %d"), total)
+        end
+        if mode == "friends" then
+            if style == "counts" then return tostring(friends) end
+            return format(EllesmereUI.L("Friends: %d"), friends)
+        elseif mode == "guild" then
+            if style == "counts" then return tostring(guild) end
+            return format(EllesmereUI.L("Guild: %d"), guild)
+        end
+        if style == "counts" then return format(EllesmereUI.L("%d / %d"), friends, guild) end
+        return format(EllesmereUI.L("Friends: %d / Guild: %d"), friends, guild)
+    end
+
+    local function ApplyColor()
+        local r, g, b
+        if mouseOver then r, g, b = ns.GetAccent() else r, g, b = BlockColorOf(blockCfg) end
+        text:SetTextColor(r, g, b, 1)
+    end
+
+    function inst:RefreshText()
+        ns.SetFont(text, BAR_FONT_SIZE, barCtx.cfg)
+        text:SetText(FormatText())
+        ApplyColor()
+    end
+
+    function inst:Refresh()
+        controller:Reconcile()
+        self:RefreshText()
+        local oldLength = self:GetAutoLength()
+        local width = max(60, text:GetStringWidth() + 8)
+        if barCtx.IsVertical() then
+            width = max(60, slot:GetWidth() - 8)
+            text:SetWidth(width)
+            text:SetWordWrap(true)
+            button:SetSize(width, max(20, text:GetStringHeight() + 6))
+            content:SetSize(width, button:GetHeight())
+        else
+            text:SetWordWrap(false)
+            text:SetWidth(0)
+            button:SetSize(width, max(20, text:GetStringHeight()))
+            content:SetSize(width, button:GetHeight())
+        end
+        if self:GetAutoLength() ~= oldLength then ns.RequestLayout(barCtx.id) end
+    end
+
+    button:SetScript("OnEnter", function()
+        mouseOver = true
+        ApplyColor()
+        controller:ShowPopup(inst)
+    end)
+    button:SetScript("OnLeave", function()
+        mouseOver = false
+        ApplyColor()
+        HidePopupUnlessHovered()
+    end)
+    button:SetScript("OnClick", function(_, mouseButton)
+        if mouseButton ~= "LeftButton" or InCombatLockdown() then return end
+        local mode = D().mode or "both"
+        if mode == "guild" or (mode == "both" and IsShiftKeyDown()) then
+            if ToggleGuildFrame then pcall(ToggleGuildFrame) end
+        else
+            if ToggleFriendsFrame then pcall(ToggleFriendsFrame) end
+        end
+    end)
+
+    function inst:Enable()
+        content:Show()
+        controller:Register(self)
+        self:Refresh()
+    end
+
+    function inst:Disable()
+        controller:Unregister(self)
+        content:Hide()
+    end
+
+    function inst:GetAutoLength()
+        if barCtx.IsVertical() then return max(60, button:GetHeight()) end
+        return max(60, button:GetWidth())
+    end
+
+    function inst:Destroy()
+        self._dead = true
+        controller:Unregister(self)
+        content:Hide()
+    end
+
+    return inst
+end
+
+
 -------------------------------------------------------------------------------
 --  AUDIO (interactive volume bar; channel picked in block settings)
 --  Volume rides the sound CVars (same model as XIV's volume module); the
@@ -6091,6 +7164,9 @@ ns.BlockFactories.audio = function(blockCfg, slot, content, barCtx)
     return inst
 end
 
+-------------------------------------------------------------------------------
+--  SPACER (transparent block; the slot's optional bg tint still applies)
+-------------------------------------------------------------------------------
 ns.BlockFactories.spacer = function(blockCfg, slot, content, barCtx)
     local inst = { cfg = blockCfg, slot = slot, content = content, ctx = barCtx }
     inst.key = InstKey(barCtx, blockCfg)

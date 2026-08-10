@@ -4,6 +4,43 @@
 -- to generate the full remaining key list. Untranslated keys fall back to English.
 local L = EllesmereUI.RegisterLocale("zhTW")
 if not L then return end
+
+-- == Social Data Bar =======================================================
+L["%d / %d"] = true
+L["Battle.net"] = true
+L["Battle.net Account"] = "Battle.net 帳號"
+L["Choose the optional fields shown beside each player name. Character name is always visible."] = "選擇顯示在每位玩家名稱旁的選用欄位。角色名稱永遠可見。"
+L["Control"] = "Ctrl"
+L["Controls the online-count text shown on the Data Bar."] = "控制資料列上顯示的上線人數文字。"
+L["Counts Only"] = "僅數字"
+L["DND"] = "忙碌"
+L["Data Mode"] = "資料模式"
+L["Friends shows online WoW friends. Guild shows online guild members. Both shows separate Friends and Guild sections. Left click opens the selected social window; in Both mode, Shift-Left Click opens Guild instead of Friends."] = "好友會顯示上線中的魔獸世界好友。公會會顯示上線中的公會成員。兩者會分別顯示好友與公會區塊。左鍵點擊會開啟所選的社交視窗；在兩者模式下，Shift + 左鍵點擊會開啟公會而非好友。"
+L["Friends: %d"] = "好友：%d"
+L["Friends: %d / Guild: %d"] = "好友：%d / 公會：%d"
+L["Guild Rank"] = "公會階級"
+L["Guild roster is not available yet"] = "公會名冊目前無法使用"
+L["Guild: %d"] = "公會：%d"
+L["Guild: %s"] = "公會：%s"
+L["Hold this modifier while left-clicking a player row to invite instead of whispering. Off disables modifier-click invites."] = "按住此輔助鍵並左鍵點擊玩家列，可傳送邀請而非密語。關閉會停用輔助鍵點擊邀請。"
+L["Invite Modifier"] = "邀請輔助鍵"
+L["Labels & Counts"] = "標籤與數量"
+L["Left click whispers; modifier-click invites."] = "左鍵點擊傳送密語；輔助鍵點擊傳送邀請。"
+L["Left click: whisper."] = "左鍵點擊：密語。"
+L["Left click: whisper. Modifier-Left Click: invite."] = "左鍵點擊：密語。輔助鍵 + 左鍵點擊：邀請。"
+L["Maximum Popup Height"] = "彈出視窗最大高度"
+L["No guild members online"] = "沒有上線中的公會成員"
+L["Note"] = "註記"
+L["Online: %d"] = "上線：%d"
+L["Public Guild Note"] = "公會公開註記"
+L["Rank"] = "階級"
+L["Server"] = "伺服器"
+L["Social data is unavailable during combat."] = "戰鬥中無法使用社交資料。"
+L["Sorts each popup section with name as a stable secondary sort."] = "排序彈出視窗中的每個區塊，並將名稱作為穩定的次要排序條件。"
+L["The popup becomes mouse-wheel scrollable when its content exceeds this height."] = "內容超過此高度時，可使用滑鼠滾輪捲動彈出視窗。"
+L["Total Online"] = "上線總數"
+L["Visible Columns"] = "可見欄位"
+L["You are not in a guild"] = "你尚未加入公會"
 L["Behind Unit Frame"] = "顯示於單位框架後方"
 
 -- == Common labels =========================================================
