@@ -8862,7 +8862,12 @@ function EllesmereUI.BuildBorderOptionBlock(parentFrame, y, barData, addonKey, R
                       local bd = barData
                       bd.borderTexture = v; bd.borderTextureOffset = nil; bd.borderTextureOffsetY = nil; bd.borderTextureShiftX = nil; bd.borderTextureShiftY = nil
                       local _bcol, _bbehind = EllesmereUI.GetBorderStyleSelectDefaults(v)
-                      bd.borderR = _bcol.r; bd.borderG = _bcol.g; bd.borderB = _bcol.b; bd.borderA = 1
+                      if bd.borderColor then
+                        bd.borderColor = _bcol
+                      else
+                        bd.borderR = _bcol.r; bd.borderG = _bcol.g; bd.borderB = _bcol.b; bd.borderA = 1
+                      end
+
                       bd.borderClassColor = false
                       bd.borderBehind = _bbehind
                       local defTh = EllesmereUI.GetBorderDefaultSize(addonKey, v)
@@ -8982,16 +8987,12 @@ function EllesmereUI.BuildBorderOptionBlock(parentFrame, y, barData, addonKey, R
                         local th = bd.borderThickness or "thin"
                         local sz = bd.borderSize or 1
                         local bh = bd.borderBehind
-                        local br, bg, bb, ba = bd.borderR, bd.borderG, bd.borderB, bd.borderA
-                        local cc = bd.borderClassColor
                         SyncIterate(function(b)
                             b.borderTexture = bt
                             b.borderTextureOffset = ox; b.borderTextureOffsetY = oy
                             b.borderTextureShiftX = sx; b.borderTextureShiftY = sy
                             b.borderThickness = th; b.borderSize = sz
                             b.borderBehind = bh
-                            b.borderR = br; b.borderG = bg; b.borderB = bb; b.borderA = ba
-                            b.borderClassColor = cc
                         end)
                         Refresh(); EllesmereUI:RefreshPage()
                     end,
@@ -9043,9 +9044,15 @@ function EllesmereUI.BuildBorderOptionBlock(parentFrame, y, barData, addonKey, R
                     -- Custom color swatch (left of class swatch)
                     local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
                         rightRgn, bsRow:GetFrameLevel() + 3,
-                        function() return barData.borderR or 0, barData.borderG or 0, barData.borderB or 0 end,
+                        function()
+                            local bColor = barData.borderColor or { r = barData.borderR or 0, g = barData.borderG or 0, b = barData.borderB or 0 }
+                            return bColor.r , bColor.g, bColor.b end,
                         function(r, g, b)
-                            barData.borderR, barData.borderG, barData.borderB = r, g, b
+                            if barData.borderColor then
+                                barData.borderColor.r, barData.borderColor.g, barData.borderColor.b = r, g, b
+                            else
+                                barData.borderR, barData.borderG, barData.borderB = r, g, b
+                            end
                             Refresh();
                         end,
                         false, 20)
@@ -9117,14 +9124,21 @@ function EllesmereUI.BuildBorderOptionBlock(parentFrame, y, barData, addonKey, R
                         local bt = bd.borderTexture or "solid"
                         local sx = bd.borderTextureShiftX
                         local sy = bd.borderTextureShiftY
-                        local br, bg, bb, ba = bd.borderR or 0, bd.borderG or 0, bd.borderB or 0, bd.borderA or 1
+                        local bColor = bd.borderColor or { r=bd.borderR or 0, g=bd.borderG or 0, b=bd.borderB or 0 }
+                        local br, bg, bb, ba = bColor.r, bColor.g, bColor.b, bd.borderA or bd.borderAlpha or 1
                         local synced = true
                         SyncIterate(function(b)
                             local bv = b.borderThickness or "thin"
                             if bv ~= v or b.borderClassColor ~= cc or (b.borderTexture or "solid") ~= bt then synced = false end
                             if bv == "custom" and (b.borderSize or 1) ~= sz then synced = false end
                             if b.borderTextureShiftX ~= sx or b.borderTextureShiftY ~= sy then synced = false end
-                            if (b.borderR or 0) ~= br or (b.borderG or 0) ~= bg or (b.borderB or 0) ~= bb or (b.borderA or 1) ~= ba then synced = false end
+
+                            if b.borderColor then
+                                local bcol = b.borderColor
+                                if bcol.r ~= br or bcol.g ~= bg or bcol.b ~= bb or (b.borderAlpha or 1) ~= ba then synced = false end
+                            else
+                                if (b.borderR or 0) ~= br or (b.borderG or 0) ~= bg or (b.borderB or 0) ~= bb or (b.borderA or 1) ~= ba then synced = false end
+                            end                            
                         end)
                         return synced
                     end,
@@ -9136,12 +9150,17 @@ function EllesmereUI.BuildBorderOptionBlock(parentFrame, y, barData, addonKey, R
                         local bt = bd.borderTexture or "solid"
                         local sx = bd.borderTextureShiftX
                         local sy = bd.borderTextureShiftY
-                        local br, bg, bb, ba = bd.borderR, bd.borderG, bd.borderB, bd.borderA
+                        local bColor = bd.borderColor or { r=bd.borderR or 0, g=bd.borderG or 0, b=bd.borderB or 0 }
+                        local br, bg, bb, ba = bColor.r, bColor.g, bColor.b, bd.borderA or bd.borderAlpha or 1
                         SyncIterate(function(b)
                             b.borderThickness = v; b.borderSize = sz
                             b.borderClassColor = cc; b.borderTexture = bt
                             b.borderTextureShiftX = sx; b.borderTextureShiftY = sy
-                            b.borderR = br; b.borderG = bg; b.borderB = bb; b.borderA = ba
+                            if b.borderColor then
+                                b.borderColor.r = br; b.borderColor.g = bg; b.borderColor.b = bb; b.borderAlpha = ba
+                            else
+                                b.borderR = br; b.borderG = bg; b.borderB = bb; b.borderA = ba
+                            end
                         end)
                         Refresh(); EllesmereUI:RefreshPage()
                     end,
