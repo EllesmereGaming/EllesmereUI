@@ -417,5 +417,5 @@ SlashCmdList["EUIOVERRIDESINTRO"] = function()
             EllesmereUIDB.videoGuidesSeen.settings_overrides = nil
         end
     end
-    print("|cff00ff98EllesmereUI:|r Overrides intro reset. The announcement popup fires on your next /reload; the video guide fires on your next click of the overrides glyph.")
+    print(EllesmereUI.L("|cff00ff98EllesmereUI:|r Overrides intro reset. The announcement popup fires on your next /reload; the video guide fires on your next click of the overrides glyph."))
 end
