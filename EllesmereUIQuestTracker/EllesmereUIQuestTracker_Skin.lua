@@ -554,6 +554,16 @@ local function ClassifyQuest(questID)
     return QUEST_ICON_ATLAS[key], key
 end
 
+-- Atlas for Wowhead modal / external UI (uses classify cache + on-demand fill).
+function EQT.GetQuestIconAtlas(questID)
+    if not questID then return nil end
+    if not _classifyCache[questID] then
+        local computed = _computeClassification(questID)
+        if computed then _classifyCache[questID] = computed end
+    end
+    return ClassifyQuest(questID)
+end
+
 -- Refresh the classify cache outside any skin / tracker-Update chain.
 -- Only driven by quest-log events so secure-API reads never happen inside
 -- the debounced tracker Update or block hover paths that surround

@@ -136,6 +136,7 @@ local function TryInit()
     if EQT.InitSkin       then EQT.InitSkin()       end
     if EQT.InitVisibility then EQT.InitVisibility() end
     if EQT.InitQoL        then EQT.InitQoL()        end
+    if EQT.InitWowhead    then EQT.InitWowhead()    end
     loader:UnregisterAllEvents()
 end
 

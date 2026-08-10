@@ -15,6 +15,7 @@ EllesmereUIQuestTracker.lua
 # Modules
 EllesmereUIQuestTracker_Skin.lua
 EllesmereUIQuestTracker_Visibility.lua
+EllesmereUIQuestTracker_Wowhead.lua
 EllesmereUIQuestTracker_QoL.lua
 
 # Options
