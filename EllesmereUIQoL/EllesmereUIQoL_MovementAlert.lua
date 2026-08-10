@@ -154,6 +154,25 @@ local function GetKnownCategoryDuration(spellId)
     return 0
 end
 
+-- Shared lockout vs. the ability's own cooldown. Casting one charge-type
+-- ability briefly locks out its siblings through a start-recovery/cooldown
+-- category -- Druid Skull Bash does this to Wild Charge for ~2s -- and the
+-- client reports that window through the very same cooldown fields a real
+-- cooldown uses, with isOnGCD false, so the GCD gate above it never catches
+-- it. The discriminator is magnitude: a window far shorter than the ability's
+-- own base cooldown cannot BE that cooldown, so it is not something to alert
+-- on. Blizzard classifies the same way in Blizzard_CooldownViewer
+-- (MIN_GLOBAL_RECOVERY_TIME), just at GCD length. Gated on the base cooldown
+-- being the longer of the two, so a user-added spell that genuinely has a
+-- 1-2s cooldown still tracks normally.
+local MIN_REAL_COOLDOWN = 3
+local function IsLockoutWindow(entry, seconds)
+    local base = entry and entry.baseDuration
+    if type(base) ~= "number" or IsSecret(base) or base <= MIN_REAL_COOLDOWN then return false end
+    if type(seconds) ~= "number" or IsSecret(seconds) then return false end
+    return seconds < MIN_REAL_COOLDOWN
+end
+
 -------------------------------------------------------------------------------
 --  DB
 -------------------------------------------------------------------------------
@@ -675,7 +694,11 @@ local function UpdateCachedCharges()
             end
         else
             local cdInfo = C_Spell.GetSpellCooldown(entry.spellId)
-            if cdInfo and cdInfo.duration and not IsSecret(cdInfo.duration) and cdInfo.duration > 0 then
+            -- A shared lockout must not be adopted as the ability's base
+            -- cooldown either -- that would poison the very value
+            -- IsLockoutWindow classifies against.
+            if cdInfo and cdInfo.duration and not IsSecret(cdInfo.duration) and cdInfo.duration > 0
+               and not IsLockoutWindow(entry, cdInfo.duration) then
                 entry.baseDuration = cdInfo.duration
             end
         end
@@ -961,7 +984,7 @@ local function ShowMovementSlot(index, cdInfo, spellEntry, duration)
     -- falls through to the main path, whose engine sinks accept secrets.
     local recov = cdInfo and cdInfo.timeUntilEndOfStartRecovery
     if issecretvalue and issecretvalue(recov) then recov = nil end
-    if type(recov) == "number" and recov > 0 then
+    if type(recov) == "number" and recov > 0 and not IsLockoutWindow(spellEntry, recov) then
         if displayMode == "icon" and spellIcon then
             slot.icon.tex:SetTexture(spellIcon)
             -- Recharge swipe: derived from the entry's recharge duration
@@ -1003,7 +1026,7 @@ local function ShowMovementSlot(index, cdInfo, spellEntry, duration)
             hasSecretDuration = true
             cdRemaining, cdDuration = rem, total
             cdStart, cdModRate = duration:GetStartTime(), duration:GetModRate()
-        elseif total and total > 1.5 and rem and rem > 0 then
+        elseif total and total > 1.5 and not IsLockoutWindow(spellEntry, total) and rem and rem > 0 then
             cdRemaining, cdDuration = rem, total
             cdStart, cdModRate = duration:GetStartTime(), duration:GetModRate()
         end
@@ -1014,7 +1037,10 @@ local function ShowMovementSlot(index, cdInfo, spellEntry, duration)
         if IsSecret(s) or IsSecret(d) then
             hasSecretDuration = true
             cdStart, cdDuration, cdModRate, cdRemaining = s, d, m, true
-        elseif d > 0 then
+        -- This fallback never had the duration-object branch's own GCD floor,
+        -- so anything the branch above rejected as too short landed here and
+        -- rendered anyway.
+        elseif d > 0 and not IsLockoutWindow(spellEntry, d) then
             cdStart, cdDuration, cdModRate = s, d, m
             cdRemaining = math.max(0, (s + d) - GetTime())
         end
