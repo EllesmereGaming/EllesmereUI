@@ -138,6 +138,24 @@ end
 DYNAMIC_HEALTH_RECOVERY]]
 
 
+-------------------------------------------------------------------------------
+--  Set Focus extras -- auto raid marker, ping and group announce
+--
+--  All three are plain macro lines appended by the def's extraBody below, and
+--  all three default OFF. Nothing here registers an event or creates a frame:
+--  the game runs the macro, so a disabled toggle costs exactly nothing.
+-------------------------------------------------------------------------------
+local FOCUS_DEFAULT_MARK = 8 -- Skull
+
+-- TexCoords into UI-RaidTargetingIcons, in marker order 1-8 (Star .. Skull).
+local FOCUS_MARK_COORDS = {
+    {0.00, 0.25, 0.00, 0.25}, {0.25, 0.50, 0.00, 0.25},
+    {0.50, 0.75, 0.00, 0.25}, {0.75, 1.00, 0.00, 0.25},
+    {0.00, 0.25, 0.25, 0.50}, {0.25, 0.50, 0.25, 0.50},
+    {0.50, 0.75, 0.25, 0.50}, {0.75, 1.00, 0.25, 0.50},
+}
+
+
 -- Resolve an option's display name from its first item ID so the macro menus
 -- read in the client's language. Falls back to the hard-coded English label
 -- (run through L() in case a translation exists) until item data is cached;
@@ -231,6 +249,44 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
             macroIcon = 236203,
             label = "Set Focus",
             fixedBody = "/focus [@mouseover,exists,nodead] []",
+            -- Each toggle stands alone: any combination is valid, and with all
+            -- three off the macro body is byte-for-byte what it has always been.
+            extraToggles = {
+                { key = "autoMark", label = "Auto Mark Focus" },
+                { key = "ping",     label = "Ping Focus" },
+                { key = "announce", label = "Announce Focus" },
+            },
+            -- Independent of the toggles above -- pick the marker whenever, it
+            -- only takes effect once Auto Mark is on.
+            extraChoices = {
+                { key = "markIcon", label = "Focus Marker", default = FOCUS_DEFAULT_MARK },
+            },
+            extraBody = function(db)
+                if not (db.autoMark or db.ping or db.announce) then return nil end
+                -- Every trailing command acts on the focus, so bail out when none
+                -- was acquired rather than marking, pinging or announcing whatever
+                -- happens to be targeted.
+                local lines = { "/stopmacro [@focus,noexists]" }
+                local mark = db.markIcon
+                if not FOCUS_MARK_COORDS[mark] then mark = FOCUS_DEFAULT_MARK end
+                if db.autoMark then
+                    -- `~` is the 12.0.7 macro extension that declines to overwrite
+                    -- a marker a group member already placed.
+                    lines[#lines + 1] = "/tm [@focus] ~" .. mark
+                end
+                if db.ping then
+                    lines[#lines + 1] = "/ping [@focus] onmyway"
+                end
+                if db.announce then
+                    -- %f is the built-in chat substitution for the focus unit's
+                    -- name. The marker icon is only advertised when Auto Mark is
+                    -- on -- otherwise the message would name a marker nothing set.
+                    lines[#lines + 1] = db.autoMark
+                        and ("/p Focus: {rt" .. mark .. "} %f")
+                        or "/p Focus: %f"
+                end
+                return table.concat(lines, "\n")
+            end,
         },
     }
 
@@ -675,6 +731,14 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
             elseif db.showTooltip ~= false then
                 body = "#showtooltip\n"
             end
+            -- Optional trailing lines driven by the def's own extra toggles. Returns
+            -- nil when every toggle is off, leaving the body untouched.
+            if def.extraBody then
+                local extra = def.extraBody(db)
+                if extra and extra ~= "" then
+                    return body .. fbody .. "\n" .. extra
+                end
+            end
             return body .. fbody
         end
         return ""
@@ -1031,8 +1095,17 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
                 local MH, DH, HH, MW = 28, 14, 20, 240
                 local cbItems = def.checkboxes
                 local hasCheckboxes = cbItems and #cbItems > 0
+                local xToggles = def.extraToggles
+                local xChoices = def.extraChoices
+                local xRows = (xToggles and #xToggles or 0) + (xChoices and #xChoices or 0)
+                -- Popups that hang outside the menu's own rect but still count as
+                -- "inside" for the click-outside-to-close test below.
+                local menuChildren = {}
 
                 local menuH = 4 + MH + MH + 4
+                if xRows > 0 then
+                    menuH = menuH + DH + (xRows * MH)
+                end
                 if hasCheckboxes then
                     menuH = menuH + DH + HH + (#cbItems * MH)
                 end
@@ -1115,6 +1188,140 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
                     UpdateMacro(def, db)
                 end)
                 mY = mY - MH
+
+                -- Extra per-macro rows: toggles first, then value pickers. Toggles
+                -- keep the Show Tooltip row's shape but default OFF (absent key ==
+                -- off), and every row here is independent of every other one.
+                if xRows > 0 then
+                    local xdv = CreateFrame("Frame", nil, menuFrame); xdv:SetHeight(DH)
+                    xdv:SetPoint("TOPLEFT", menuFrame, "TOPLEFT", 1, mY)
+                    xdv:SetPoint("TOPRIGHT", menuFrame, "TOPRIGHT", -1, mY)
+                    local xdl = xdv:CreateTexture(nil, "ARTWORK"); xdl:SetHeight(1)
+                    xdl:SetPoint("LEFT", xdv, "LEFT", 10, 0); xdl:SetPoint("RIGHT", xdv, "RIGHT", -10, 0)
+                    xdl:SetColorTexture(1, 1, 1, 0.08)
+                    mY = mY - DH
+
+                    for _, xt in ipairs(xToggles or {}) do
+                        local xR = CreateFrame("Button", nil, menuFrame)
+                        xR:SetHeight(MH); xR:SetFrameLevel(menuFrame:GetFrameLevel() + 2)
+                        xR:SetPoint("TOPLEFT", menuFrame, "TOPLEFT", 1, mY)
+                        xR:SetPoint("TOPRIGHT", menuFrame, "TOPRIGHT", -1, mY)
+                        local xB = CreateFrame("Frame", nil, xR); xB:SetSize(16, 16); xB:SetPoint("RIGHT", xR, "RIGHT", -10, 0)
+                        local xBg = xB:CreateTexture(nil, "BACKGROUND"); xBg:SetAllPoints(); xBg:SetColorTexture(0.12, 0.12, 0.14, 1)
+                        local xBrd = EllesmereUI.MakeBorder(xB, 0.4, 0.4, 0.4, 0.6, PP)
+                        local xCk = xB:CreateTexture(nil, "ARTWORK"); PP.SetInside(xCk, xB, 2, 2)
+                        xCk:SetColorTexture(EG.r, EG.g, EG.b, 1); xCk:SetSnapToPixelGrid(false)
+                        local xL = xR:CreateFontString(nil, "OVERLAY"); xL:SetFont(fontPath, 13, "")
+                        xL:SetTextColor(0.75, 0.75, 0.75, 1); xL:SetPoint("LEFT", xR, "LEFT", 12, 0)
+                        xL:SetText(EllesmereUI.L(xt.label))
+                        local xHL = xR:CreateTexture(nil, "ARTWORK"); xHL:SetAllPoints(); xHL:SetColorTexture(1, 1, 1, 0)
+                        local function RefX()
+                            local db = GetDB()
+                            if db[xt.key] then xCk:Show(); xBrd:SetColor(EG.r, EG.g, EG.b, 0.8)
+                            else xCk:Hide(); xBrd:SetColor(0.4, 0.4, 0.4, 0.6) end
+                        end
+                        RefX()
+                        xR:SetScript("OnEnter", function() xL:SetTextColor(1, 1, 1, 1); xHL:SetColorTexture(1, 1, 1, 0.04) end)
+                        xR:SetScript("OnLeave", function() xL:SetTextColor(0.75, 0.75, 0.75, 1); xHL:SetColorTexture(1, 1, 1, 0) end)
+                        xR:SetScript("OnClick", function()
+                            local db = GetDB()
+                            -- Store nil rather than false when off, so an untouched
+                            -- default leaves no key behind in SavedVariables.
+                            db[xt.key] = (not db[xt.key]) or nil
+                            RefX()
+                            UpdateMacro(def, db)
+                        end)
+                        mY = mY - MH
+                    end
+
+                    -- Value pickers: a closed row showing the current marker, and a
+                    -- list that drops out of it. The list is parented to the menu so
+                    -- closing the menu takes it with it, but sits in a higher strata
+                    -- so it draws over the rows beneath.
+                    for _, xc in ipairs(xChoices or {}) do
+                        local cR = CreateFrame("Button", nil, menuFrame)
+                        cR:SetHeight(MH); cR:SetFrameLevel(menuFrame:GetFrameLevel() + 2)
+                        cR:SetPoint("TOPLEFT", menuFrame, "TOPLEFT", 1, mY)
+                        cR:SetPoint("TOPRIGHT", menuFrame, "TOPRIGHT", -1, mY)
+                        local cHL = cR:CreateTexture(nil, "ARTWORK"); cHL:SetAllPoints(); cHL:SetColorTexture(1, 1, 1, 0)
+                        local cL = cR:CreateFontString(nil, "OVERLAY"); cL:SetFont(fontPath, 13, "")
+                        cL:SetTextColor(0.75, 0.75, 0.75, 1); cL:SetPoint("LEFT", cR, "LEFT", 12, 0)
+                        cL:SetText(EllesmereUI.L(xc.label))
+
+                        local cAr = cR:CreateFontString(nil, "OVERLAY"); cAr:SetFont(fontPath, 9, "")
+                        cAr:SetTextColor(0.55, 0.55, 0.55, 1); cAr:SetPoint("RIGHT", cR, "RIGHT", -10, 0)
+                        cAr:SetText("v")
+                        local cVal = cR:CreateFontString(nil, "OVERLAY"); cVal:SetFont(fontPath, 12, "")
+                        cVal:SetTextColor(1, 1, 1, 0.9); cVal:SetPoint("RIGHT", cAr, "LEFT", -6, 0)
+                        local cIc = cR:CreateTexture(nil, "ARTWORK"); cIc:SetSize(16, 16)
+                        cIc:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
+                        cIc:SetPoint("RIGHT", cVal, "LEFT", -5, 0)
+
+                        -- SavedVariables are user-editable and shared across client
+                        -- versions, so an out-of-range stored value falls back rather
+                        -- than indexing the coord table with nil.
+                        local function RefChoice()
+                            local v = GetDB()[xc.key]
+                            if not FOCUS_MARK_COORDS[v] then v = xc.default end
+                            cIc:SetTexCoord(unpack(FOCUS_MARK_COORDS[v]))
+                            cVal:SetText(_G["RAID_TARGET_" .. v] or tostring(v))
+                        end
+                        RefChoice()
+                        cR:SetScript("OnEnter", function() cL:SetTextColor(1, 1, 1, 1); cHL:SetColorTexture(1, 1, 1, 0.04) end)
+                        cR:SetScript("OnLeave", function() cL:SetTextColor(0.75, 0.75, 0.75, 1); cHL:SetColorTexture(1, 1, 1, 0) end)
+
+                        local list
+                        local function BuildList()
+                            if list then return end
+                            local LRH = 24
+                            -- Inherits the menu's strata; a higher level is enough to
+                            -- draw over the rows it covers, and staying out of the
+                            -- TOOLTIP strata keeps it from sitting over real tooltips.
+                            list = CreateFrame("Frame", nil, menuFrame)
+                            list:SetFrameLevel(menuFrame:GetFrameLevel() + 20)
+                            list:SetClampedToScreen(true); list:EnableMouse(true)
+                            list:SetSize(MW - 24, (8 * LRH) + 4)
+                            list:Hide()
+                            local lBg = list:CreateTexture(nil, "BACKGROUND"); lBg:SetAllPoints()
+                            lBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, 0.98)
+                            EllesmereUI.MakeBorder(list, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
+                            for oi = 1, 8 do
+                                local oY = -2 - (oi - 1) * LRH
+                                local oR = CreateFrame("Button", nil, list)
+                                oR:SetHeight(LRH); oR:SetFrameLevel(list:GetFrameLevel() + 2)
+                                oR:SetPoint("TOPLEFT", list, "TOPLEFT", 1, oY)
+                                oR:SetPoint("TOPRIGHT", list, "TOPRIGHT", -1, oY)
+                                local oHL = oR:CreateTexture(nil, "ARTWORK"); oHL:SetAllPoints(); oHL:SetColorTexture(1, 1, 1, 0)
+                                local oIc = oR:CreateTexture(nil, "OVERLAY"); oIc:SetSize(16, 16)
+                                oIc:SetPoint("LEFT", oR, "LEFT", 10, 0)
+                                oIc:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
+                                oIc:SetTexCoord(unpack(FOCUS_MARK_COORDS[oi]))
+                                local oFs = oR:CreateFontString(nil, "OVERLAY"); oFs:SetFont(fontPath, 12, "")
+                                oFs:SetTextColor(0.8, 0.8, 0.8, 1); oFs:SetPoint("LEFT", oIc, "RIGHT", 8, 0)
+                                oFs:SetText(_G["RAID_TARGET_" .. oi] or tostring(oi))
+                                oR:SetScript("OnEnter", function() oFs:SetTextColor(1, 1, 1, 1); oHL:SetColorTexture(1, 1, 1, 0.06) end)
+                                oR:SetScript("OnLeave", function() oFs:SetTextColor(0.8, 0.8, 0.8, 1); oHL:SetColorTexture(1, 1, 1, 0) end)
+                                oR:SetScript("OnClick", function()
+                                    local db = GetDB()
+                                    db[xc.key] = oi
+                                    RefChoice()
+                                    list:Hide()
+                                    UpdateMacro(def, db)
+                                end)
+                            end
+                            menuChildren[#menuChildren + 1] = list
+                        end
+
+                        cR:SetScript("OnClick", function()
+                            BuildList()
+                            if list:IsShown() then list:Hide(); return end
+                            list:ClearAllPoints()
+                            list:SetPoint("TOPRIGHT", cR, "BOTTOMRIGHT", -10, 2)
+                            list:Show()
+                        end)
+                        mY = mY - MH
+                    end
+                end
 
                 -- Item checkboxes (only for item-based macros)
                 if hasCheckboxes then
@@ -1283,11 +1490,14 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
                     menuFrame:SetScript("OnHide", function(self) self:UnregisterEvent("GET_ITEM_INFO_RECEIVED") end)
                 end  -- hasCheckboxes
 
-                -- Close on click outside
+                -- Close on click outside. A dropped-out list extends past the menu's
+                -- own rect, so clicking one would otherwise read as "outside".
                 menuFrame:SetScript("OnUpdate", function(self)
-                    if not self:IsMouseOver() and not btn:IsMouseOver() and IsMouseButtonDown("LeftButton") then
-                        self:Hide()
+                    if self:IsMouseOver() or btn:IsMouseOver() or not IsMouseButtonDown("LeftButton") then return end
+                    for _, child in ipairs(menuChildren) do
+                        if child:IsShown() and child:IsMouseOver() then return end
                     end
+                    self:Hide()
                 end)
             end -- BuildMenu
 
