@@ -198,7 +198,7 @@ local function ShowPatchNotesPopup()
         ReleaseConflictCheck()
         if view then
             if InCombatLockdown() then
-                EllesmereUI.Print("|cffff6060[EllesmereUI]|r Cannot open options during combat. Use /eui to view Patch Notes.")
+                EllesmereUI.Print(EllesmereUI.L("|cffff6060[EllesmereUI]|r Cannot open options during combat. Use /eui to view Patch Notes."))
                 return
             end
             -- Patch Notes is its own sidebar module now (_EUIPatchNotes), not a
