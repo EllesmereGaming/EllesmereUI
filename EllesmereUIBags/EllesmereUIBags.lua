@@ -3862,11 +3862,11 @@ local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember
 
         if isGroupHeader and myGroup then
             -- Group header: Rename + Disband
-            rootDescription:CreateButton("Rename", function()
+            rootDescription:CreateButton(EllesmereUI.L("Rename"), function()
                 if not EUI.ShowInputPopup then return end
                 EUI:ShowInputPopup({
                     title = "Rename Group",
-                    message = "Enter a new name for this group:",
+                    message = EllesmereUI.L("Enter a new name for this group:"),
                     placeholder = myGroup,
                     confirmText = "Rename",
                     cancelText = "Cancel",
@@ -3887,17 +3887,17 @@ local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember
                 EUI_Bags:RefreshInventory()
             end)
             local groupHidden = hiddenSet[myGroup]
-            rootDescription:CreateButton(groupHidden and "Show in All Items" or "Hide in All Items", function()
+            rootDescription:CreateButton(groupHidden and EllesmereUI.L("Show in All Items") or EllesmereUI.L("Hide in All Items"), function()
                 hiddenSet[myGroup] = not groupHidden or nil
                 EUI_Bags:RefreshInventory()
             end)
         elseif isGroupMember and myGroup then
             -- Group member: Rename + Ungroup
-            rootDescription:CreateButton("Rename", function()
+            rootDescription:CreateButton(EllesmereUI.L("Rename"), function()
                 if not EUI.ShowInputPopup then return end
                 EUI:ShowInputPopup({
                     title = "Rename Category",
-                    message = "Enter a new name for \"" .. cat.name .. "\":",
+                    message = EllesmereUI.Lf("Enter a new name for \"%1$s\":", cat.name),
                     placeholder = cat.name,
                     confirmText = "Rename",
                     cancelText = "Cancel",
@@ -3909,17 +3909,17 @@ local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember
                     end,
                 })
             end)
-            rootDescription:CreateButton("Ungroup " .. cat.name, function()
+            rootDescription:CreateButton(EllesmereUI.Lf("Ungroup %1$s", cat.name), function()
                 ClearGroupOrder(myGroup)
                 EUI_CategoryManager:UngroupCategory(catIdx)
                 EUI_Bags:RefreshInventory()
             end)
         else
-            rootDescription:CreateButton("Rename", function()
+            rootDescription:CreateButton(EllesmereUI.L("Rename"), function()
                 if not EUI.ShowInputPopup then return end
                 EUI:ShowInputPopup({
                     title = "Rename Category",
-                    message = "Enter a new name for \"" .. cat.name .. "\":",
+                    message = EllesmereUI.Lf("Enter a new name for \"%1$s\":", cat.name),
                     placeholder = cat.name,
                     confirmText = "Rename",
                     cancelText = "Cancel",
@@ -3934,7 +3934,7 @@ local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember
 
             if not cat.noGroup then
                 -- "Create Group With" submenu
-                local groupSub = rootDescription:CreateButton("Create Group With")
+                local groupSub = rootDescription:CreateButton(EllesmereUI.L("Create Group With"))
                 local hasOptions = false
                 for ci, other in ipairs(cats) do
                     if ci ~= catIdx and not other.groupName and not other.noGroup then
@@ -3949,7 +3949,7 @@ local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember
                 -- "Add to existing group..." if groups exist
                 local groupNames = EUI_CategoryManager:GetGroupNames()
                 if #groupNames > 0 then
-                    local addSub = rootDescription:CreateButton("Add to Group")
+                    local addSub = rootDescription:CreateButton(EllesmereUI.L("Add to Group"))
                     for _, gn in ipairs(groupNames) do
                         addSub:CreateButton(gn, function()
                             EUI_CategoryManager:AddToGroup(catIdx, gn)
@@ -3962,7 +3962,7 @@ local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember
             if not cat.noMove then
                 local catKey = cat._defaultName
                 local catHidden = hiddenSet[catKey]
-                rootDescription:CreateButton(catHidden and "Show in All Items" or "Hide in All Items", function()
+                rootDescription:CreateButton(catHidden and EllesmereUI.L("Show in All Items") or EllesmereUI.L("Hide in All Items"), function()
                     hiddenSet[catKey] = not catHidden or nil
                     EUI_Bags:RefreshInventory()
                 end)
@@ -5232,8 +5232,8 @@ function EUI_Bags:RefreshInventory()
             warn:SetPoint("TOP", child, "TOP", 0, curY)
             warn:SetJustifyH("CENTER")
             warn:SetText(isMulti
-                and "Changes made in MultiBag will affect the positions of items in default Blizzard bags"
-                or "Changes made in OneBag will affect the positions of items in default Blizzard bags")
+                and EllesmereUI.L("Changes made in MultiBag will affect the positions of items in default Blizzard bags")
+                or EllesmereUI.L("Changes made in OneBag will affect the positions of items in default Blizzard bags"))
             warn:Show()
             curY = curY - 14 - 5
         end
