@@ -1375,7 +1375,7 @@ initFrame:SetScript("OnEvent", function(self)
                           end
                       end
                       if anyMissing then
-                          print("|cff00ccffEllesmere:|r Reload required to create custom bars. Type /reload")
+                          print(EllesmereUI.L("|cff00ccffEllesmere:|r Reload required to create custom bars. Type /reload"))
                       end
                       if StatusTrackingBarManager then
                           StatusTrackingBarManager:UnregisterAllEvents()
