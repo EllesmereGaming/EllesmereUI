@@ -8741,8 +8741,7 @@ local function LayoutGroups()
     -- so it stays diagnosable instead of silently masking a real bug.
     if ns._layoutGroupsDirty and not ns._layoutLoopWarned and not InCombatLockdown() then
         ns._layoutLoopWarned = true
-        print("|cffff5555EllesmereUI Raid Frames:|r layout did not settle after 3 passes; " ..
-            "a re-entrant loop was bounded. Please report this if frames look wrong.")
+        print(EllesmereUI.L("|cffff5555EllesmereUI Raid Frames:|r layout did not settle after 3 passes; a re-entrant loop was bounded. Please report this if frames look wrong."))
     end
 end
 
