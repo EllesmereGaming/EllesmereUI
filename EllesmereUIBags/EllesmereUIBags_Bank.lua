@@ -1765,12 +1765,12 @@ function EUI_Bank:RefreshBank()
     if _selectedView == -1 then
         -- OneBank: character bank only, flat with "Bank" header
         local slots, filled = BuildOneView(charTabs)
-        LayoutFlatSlots(slots, "Bank (" .. filled .. " / " .. #slots .. ")")
+        LayoutFlatSlots(slots, EllesmereUI.Lf("Bank (%1$d / %2$d)", filled, #slots))
 
     elseif _selectedView == -3 then
         -- OneWarbank: warband bank only, flat with "Warband Bank" header
         local slots, filled = BuildOneView(warbTabs)
-        LayoutFlatSlots(slots, "Warband Bank (" .. filled .. " / " .. #slots .. ")")
+        LayoutFlatSlots(slots, EllesmereUI.Lf("Warband Bank (%1$d / %2$d)", filled, #slots))
 
     elseif _selectedView == -2 then
         -- All Warbank Tabs: per-tab headers for warband only
