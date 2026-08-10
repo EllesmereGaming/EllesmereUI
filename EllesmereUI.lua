@@ -334,6 +334,7 @@ local ADDON_ROSTER = {
     { folder = "EllesmereUIDamageMeters",      display = "Damage Meters",        search_name = "EllesmereUI Damage Meters"           },
     { folder = "EllesmereUIBags",              display = "Bags",                 search_name = "EllesmereUI Bags"                    },
     { folder = "EllesmereUIDataBars",          display = "DataBars",             search_name = "EllesmereUI DataBars"                },
+    { folder = "EllesmereUIActionPalette",     display = "Action Palette",       search_name = "EllesmereUI Action Palette"          },
     { folder = "EllesmereUIPartyMode",         display = "Party Mode",           search_name = "EllesmereUI Party Mode",             alwaysLoaded = true },
 }
 
@@ -367,6 +368,7 @@ EllesmereUI.ADDON_GROUPS = {
             "EllesmereUIQoL",
             "EllesmereUIAuraBuffReminders",
             "EllesmereUIDataBars",
+            "EllesmereUIActionPalette",
             "EllesmereUIPartyMode",
         },
     },
@@ -4128,23 +4130,24 @@ EllesmereUI.ResolveFontName = ResolveFontName
 -- Per-module font overrides: all state stored on the EllesmereUI table
 -- to stay under the 200-local / 60-upvalue Lua 5.1 caps.
 EllesmereUI._addonKeyToFolder = {
-    actionBars   = "EllesmereUIActionBars",
-    nameplates   = "EllesmereUINameplates",
-    unitFrames   = "EllesmereUIUnitFrames",
-    cdm          = "EllesmereUICooldownManager",
-    resourceBars = "EllesmereUIResourceBars",
-    auraBuff     = "EllesmereUIAuraBuffReminders",
-    extras       = "EllesmereUIQoL",
-    friends      = "EllesmereUIFriends",
-    minimap      = "EllesmereUIMinimap",
-    chat         = "EllesmereUIChat",
-    questTracker = "EllesmereUIQuestTracker",
-    mythicTimer  = "EllesmereUIMythicTimer",
-    blizzardSkin = "EllesmereUIBlizzardSkin",
-    damageMeters = "EllesmereUIDamageMeters",
-    dataBars     = "EllesmereUIDataBars",
-    raidFrames   = "EllesmereUIRaidFrames",
-    bags         = "EllesmereUIBags",
+    actionBars    = "EllesmereUIActionBars",
+    nameplates    = "EllesmereUINameplates",
+    unitFrames    = "EllesmereUIUnitFrames",
+    cdm           = "EllesmereUICooldownManager",
+    resourceBars  = "EllesmereUIResourceBars",
+    auraBuff      = "EllesmereUIAuraBuffReminders",
+    extras        = "EllesmereUIQoL",
+    friends       = "EllesmereUIFriends",
+    minimap       = "EllesmereUIMinimap",
+    chat          = "EllesmereUIChat",
+    questTracker  = "EllesmereUIQuestTracker",
+    mythicTimer   = "EllesmereUIMythicTimer",
+    blizzardSkin  = "EllesmereUIBlizzardSkin",
+    damageMeters  = "EllesmereUIDamageMeters",
+    dataBars      = "EllesmereUIDataBars",
+    raidFrames    = "EllesmereUIRaidFrames",
+    bags          = "EllesmereUIBags",
+    actionPalette = "EllesmereUIActionPalette",
 }
 EllesmereUI._moduleFontCache = {}
 EllesmereUI._moduleFontCacheVer = 0
@@ -10618,6 +10621,7 @@ function EllesmereUI:RegisterModule(folderName, config)
         EllesmereUIDamageMeters = true,
         EllesmereUIBags = true,
         EllesmereUIDataBars = true,
+        EllesmereUIActionPalette = true,
     }
     if callerFolder and not ALLOWED[callerFolder] then return end
     -- Suite-core marker (module key is a suite folder): gates the toolbar

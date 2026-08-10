@@ -4770,10 +4770,14 @@ local function BuildCogPopup(opts)
     -- Spec Overrides capture: a cog's settings belong to the slot hosting the
     -- cog -- one setting, captured whole. When the call site passes
     -- captureRegion (the DualRow half-region the cog sits in), every row with
-    -- get/set joins that slot's capture group.
+    -- get/set joins that slot's capture group. row.noCapture opts a single
+    -- row out, the same flag DualRow honors per widget: a popup can then mix
+    -- profile-wide rows that capture with rows that must not (settings stored
+    -- per palette rather than under a flat key).
     if opts.captureRegion and EllesmereUI.AddCaptureAccessor and opts.rows then
         for _, row in ipairs(opts.rows) do
-            if row.get and row.set and row.type ~= "button" and row.type ~= "reorder" then
+            if row.get and row.set and not row.noCapture
+               and row.type ~= "button" and row.type ~= "reorder" then
                 EllesmereUI.AddCaptureAccessor(opts.captureRegion, {
                     type = row.type, text = row.label, getValue = row.get, setValue = row.set,
                     min = row.min, max = row.max, step = row.step,
