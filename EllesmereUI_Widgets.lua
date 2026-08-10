@@ -8889,7 +8889,7 @@ function EllesmereUI.BuildBorderOptionBlock(parentFrame, y, barData, addonKey, R
                     Refresh()
                   end });  
             -- Inline cog for border offset
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = bsRow._leftRegion
                 local _, cogShow = EllesmereUI.BuildCogPopup({
                     title = "Border Offset",
@@ -8966,186 +8966,186 @@ function EllesmereUI.BuildBorderOptionBlock(parentFrame, y, barData, addonKey, R
                 EllesmereUI.RegisterWidgetRefresh(UpdateCogVis)
                 UpdateCogVis()
             end
-            -- Sync icon: Border Style (left region of bsRow)
-            EllesmereUI.BuildSyncIcon({
-                region  = bsRow._leftRegion,
-                tooltip = "Apply Border Style to all Bars",
-                onClick = function()
-                    local bd = barData
-                    local bt = bd.borderTexture or "solid"
-                    local ox = bd.borderTextureOffset
-                    local oy = bd.borderTextureOffsetY
-                    local sx = bd.borderTextureShiftX
-                    local sy = bd.borderTextureShiftY
-                    local th = bd.borderThickness or "thin"
-                    local sz = bd.borderSize or 1
-                    local bh = bd.borderBehind
-                    local br, bg, bb, ba = bd.borderR, bd.borderG, bd.borderB, bd.borderA
-                    local cc = bd.borderClassColor
-                    SyncIterate(function(b)
-                        b.borderTexture = bt
-                        b.borderTextureOffset = ox; b.borderTextureOffsetY = oy
-                        b.borderTextureShiftX = sx; b.borderTextureShiftY = sy
-                        b.borderThickness = th; b.borderSize = sz
-                        b.borderBehind = bh
-                        b.borderR = br; b.borderG = bg; b.borderB = bb; b.borderA = ba
-                        b.borderClassColor = cc
-                    end)
-                    Refresh(); EllesmereUI:RefreshPage()
-                end,
-                isSynced = function()
-                    local bd = barData
-                    local bt = bd.borderTexture or "solid"
-                    local ox = bd.borderTextureOffset
-                    local oy = bd.borderTextureOffsetY
-                    local sx = bd.borderTextureShiftX
-                    local sy = bd.borderTextureShiftY
-                    local bh = bd.borderBehind or false
-                    local synced = true
-                    SyncIterate(function(b)
-                        if (b.borderTexture or "solid") ~= bt then synced = false end
-                        if b.borderTextureOffset ~= ox or b.borderTextureOffsetY ~= oy then synced = false end
-                        if b.borderTextureShiftX ~= sx or b.borderTextureShiftY ~= sy then synced = false end
-                        if (b.borderBehind or false) ~= bh then synced = false end
-                    end)
-                    return synced
-                end,
-            })
-            -- Inline color swatches on Border Size (right region)
-            do
-                local rightRgn = bsRow._rightRegion
-                local ctrl = rightRgn._control
 
-                -- Class color swatch (rightmost)
-                local classBorderSwatch, updateClassBorderSwatch = EllesmereUI.BuildColorSwatch(
-                    rightRgn, bsRow:GetFrameLevel() + 3,
-                    function()
-                        local _, classFile = UnitClass("player")
-                        local cc = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
-                        if cc then return cc.r, cc.g, cc.b end
-                        return 1, 1, 1
+            if not EllesmereUI._prebuilding then
+                -- Sync icon: Border Style (left region of bsRow)
+                EllesmereUI.BuildSyncIcon({
+                    region  = bsRow._leftRegion,
+                    tooltip = "Apply Border Style to all Bars",
+                    onClick = function()
+                        local bd = barData
+                        local bt = bd.borderTexture or "solid"
+                        local ox = bd.borderTextureOffset
+                        local oy = bd.borderTextureOffsetY
+                        local sx = bd.borderTextureShiftX
+                        local sy = bd.borderTextureShiftY
+                        local th = bd.borderThickness or "thin"
+                        local sz = bd.borderSize or 1
+                        local bh = bd.borderBehind
+                        local br, bg, bb, ba = bd.borderR, bd.borderG, bd.borderB, bd.borderA
+                        local cc = bd.borderClassColor
+                        SyncIterate(function(b)
+                            b.borderTexture = bt
+                            b.borderTextureOffset = ox; b.borderTextureOffsetY = oy
+                            b.borderTextureShiftX = sx; b.borderTextureShiftY = sy
+                            b.borderThickness = th; b.borderSize = sz
+                            b.borderBehind = bh
+                            b.borderR = br; b.borderG = bg; b.borderB = bb; b.borderA = ba
+                            b.borderClassColor = cc
+                        end)
+                        Refresh(); EllesmereUI:RefreshPage()
                     end,
-                    function() end,
-                    false, 20)
-                EllesmereUI.PanelPP.Point(classBorderSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
-                classBorderSwatch:SetScript("OnClick", function()
-                    barData.borderClassColor = true
-                    Refresh();
-                    EllesmereUI:RefreshPage()
-                end)
-                classBorderSwatch:SetScript("OnEnter", function()
-                    EllesmereUI.ShowWidgetTooltip(classBorderSwatch, "Class Colored")
-                end)
-                classBorderSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-
-                -- Custom color swatch (left of class swatch)
-                local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
-                    rightRgn, bsRow:GetFrameLevel() + 3,
-                    function() return barData.borderR or 0, barData.borderG or 0, barData.borderB or 0 end,
-                    function(r, g, b)
-                        barData.borderR, barData.borderG, barData.borderB = r, g, b
-                        Refresh();
+                    isSynced = function()
+                        local bd = barData
+                        local bt = bd.borderTexture or "solid"
+                        local ox = bd.borderTextureOffset
+                        local oy = bd.borderTextureOffsetY
+                        local sx = bd.borderTextureShiftX
+                        local sy = bd.borderTextureShiftY
+                        local bh = bd.borderBehind or false
+                        local synced = true
+                        SyncIterate(function(b)
+                            if (b.borderTexture or "solid") ~= bt then synced = false end
+                            if b.borderTextureOffset ~= ox or b.borderTextureOffsetY ~= oy then synced = false end
+                            if b.borderTextureShiftX ~= sx or b.borderTextureShiftY ~= sy then synced = false end
+                            if (b.borderBehind or false) ~= bh then synced = false end
+                        end)
+                        return synced
                     end,
-                    false, 20)
-                EllesmereUI.PanelPP.Point(swatch, "RIGHT", classBorderSwatch, "LEFT", -8, 0)
-                swatch:SetScript("OnEnter", function()
-                    EllesmereUI.ShowWidgetTooltip(swatch, "Custom Color")
-                end)
-                swatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                })
+                -- Inline color swatches on Border Size (right region)
+                do
+                    local rightRgn = bsRow._rightRegion
+                    local ctrl = rightRgn._control
 
-                rightRgn._lastInline = swatch
-                -- Click the dimmed custom swatch to switch back from class color (no block overlay)
-                local origClick = swatch:GetScript("OnClick")
-                swatch:SetScript("OnClick", function(self, ...)
-                    if barData.borderClassColor then
-                        barData.borderClassColor = false
+                    -- Class color swatch (rightmost)
+                    local classBorderSwatch, updateClassBorderSwatch = EllesmereUI.BuildColorSwatch(
+                        rightRgn, bsRow:GetFrameLevel() + 3,
+                        function()
+                            local _, classFile = UnitClass("player")
+                            local cc = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
+                            if cc then return cc.r, cc.g, cc.b end
+                            return 1, 1, 1
+                        end,
+                        function() end,
+                        false, 20)
+                    EllesmereUI.PanelPP.Point(classBorderSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
+                    classBorderSwatch:SetScript("OnClick", function()
+                        barData.borderClassColor = true
                         Refresh();
                         EllesmereUI:RefreshPage()
-                        return
+                    end)
+                    classBorderSwatch:SetScript("OnEnter", function()
+                        EllesmereUI.ShowWidgetTooltip(classBorderSwatch, "Class Colored")
+                    end)
+                    classBorderSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+                    -- Custom color swatch (left of class swatch)
+                    local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
+                        rightRgn, bsRow:GetFrameLevel() + 3,
+                        function() return barData.borderR or 0, barData.borderG or 0, barData.borderB or 0 end,
+                        function(r, g, b)
+                            barData.borderR, barData.borderG, barData.borderB = r, g, b
+                            Refresh();
+                        end,
+                        false, 20)
+                    EllesmereUI.PanelPP.Point(swatch, "RIGHT", classBorderSwatch, "LEFT", -8, 0)
+                    swatch:SetScript("OnEnter", function()
+                        EllesmereUI.ShowWidgetTooltip(swatch, "Custom Color")
+                    end)
+                    swatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+                    rightRgn._lastInline = swatch
+                    -- Click the dimmed custom swatch to switch back from class color (no block overlay)
+                    local origClick = swatch:GetScript("OnClick")
+                    swatch:SetScript("OnClick", function(self, ...)
+                        if barData.borderClassColor then
+                            barData.borderClassColor = false
+                            Refresh();
+                            EllesmereUI:RefreshPage()
+                            return
+                        end
+                        -- No border selected: allow swapping boxes but do not open the color picker
+                        if (barData.borderThickness or "thin") == "none" then return end
+                        if origClick then origClick(self, ...) end
+                    end)
+
+                    local function UpdateBorderSwatchState()
+                        local isClassColored = barData.borderClassColor
+                        local isNone = (barData.borderThickness or "thin") == "none"
+                        swatch:SetAlpha((isClassColored or isNone) and 0.3 or 1)
+                        classBorderSwatch:SetAlpha((isClassColored and not isNone) and 1 or 0.3)
                     end
-                    -- No border selected: allow swapping boxes but do not open the color picker
-                    if (barData.borderThickness or "thin") == "none" then return end
-                    if origClick then origClick(self, ...) end
-                end)
-
-                local function UpdateBorderSwatchState()
-                    local isClassColored = barData.borderClassColor
-                    local isNone = (barData.borderThickness or "thin") == "none"
-                    swatch:SetAlpha((isClassColored or isNone) and 0.3 or 1)
-                    classBorderSwatch:SetAlpha((isClassColored and not isNone) and 1 or 0.3)
+                    EllesmereUI.RegisterWidgetRefresh(function() updateSwatch(); updateClassBorderSwatch(); UpdateBorderSwatchState() end)
+                    UpdateBorderSwatchState()
                 end
-                EllesmereUI.RegisterWidgetRefresh(function() updateSwatch(); updateClassBorderSwatch(); UpdateBorderSwatchState() end)
-                UpdateBorderSwatchState()
-            end
 
-            -- Inline cog for custom border size, only active when custom size is selected (right region)
-            do
-                local rgn = bsRow._rightRegion
-                local anchor = rgn._lastInline
-                local _, cogShow = EllesmereUI.BuildCogPopup({
-                    title = "Custom Border Size",
-                    rows = {
-                        { type = "slider", label = "Size", min = 1, max = 50, step = 1,
-                          get = function() return barData.borderSize or 1 end,
-                          set = function(v)
-                              barData.borderSize = v
-                              Refresh();
-                          end },
-                    },
+                -- Inline cog for custom border size, only active when custom size is selected (right region)
+                do
+                    local rgn = bsRow._rightRegion
+                    local anchor = rgn._lastInline
+                    local _, cogShow = EllesmereUI.BuildCogPopup({
+                        title = "Custom Border Size",
+                        rows = {
+                            { type = "slider", label = "Size", min = 1, max = 50, step = 1,
+                            get = function() return barData.borderSize or 1 end,
+                            set = function(v)
+                                barData.borderSize = v
+                                Refresh();
+                            end },
+                        },
+                    })
+                    local cogBtn = EllesmereUI.MakeCogBtn(rgn, cogShow)
+                    EllesmereUI.PanelPP.Point(cogBtn, "RIGHT", anchor, "LEFT", -8, 0)
+
+                    local function UpdateCogVis()
+                        if barData.borderThickness and barData.borderThickness == "custom" then cogBtn:Show() else cogBtn:Hide() end
+                    end
+                    EllesmereUI.RegisterWidgetRefresh(UpdateCogVis)
+                    UpdateCogVis()
+
+                end
+                -- Sync icon on Border Size (right region)
+                EllesmereUI.BuildSyncIcon({
+                    region  = bsRow._rightRegion,
+                    tooltip = "Apply Border Size to all Bars",
+                    isSynced = function()
+                        local bd = barData
+                        local v = bd.borderThickness or "thin"
+                        local sz = bd.borderSize or 1
+                        local cc = bd.borderClassColor
+                        local bt = bd.borderTexture or "solid"
+                        local sx = bd.borderTextureShiftX
+                        local sy = bd.borderTextureShiftY
+                        local br, bg, bb, ba = bd.borderR or 0, bd.borderG or 0, bd.borderB or 0, bd.borderA or 1
+                        local synced = true
+                        SyncIterate(function(b)
+                            local bv = b.borderThickness or "thin"
+                            if bv ~= v or b.borderClassColor ~= cc or (b.borderTexture or "solid") ~= bt then synced = false end
+                            if bv == "custom" and (b.borderSize or 1) ~= sz then synced = false end
+                            if b.borderTextureShiftX ~= sx or b.borderTextureShiftY ~= sy then synced = false end
+                            if (b.borderR or 0) ~= br or (b.borderG or 0) ~= bg or (b.borderB or 0) ~= bb or (b.borderA or 1) ~= ba then synced = false end
+                        end)
+                        return synced
+                    end,
+                    onClick = function()
+                        local bd = barData
+                        local v = bd.borderThickness or "thin"
+                        local sz = bd.borderSize or 1
+                        local cc = bd.borderClassColor
+                        local bt = bd.borderTexture or "solid"
+                        local sx = bd.borderTextureShiftX
+                        local sy = bd.borderTextureShiftY
+                        local br, bg, bb, ba = bd.borderR, bd.borderG, bd.borderB, bd.borderA
+                        SyncIterate(function(b)
+                            b.borderThickness = v; b.borderSize = sz
+                            b.borderClassColor = cc; b.borderTexture = bt
+                            b.borderTextureShiftX = sx; b.borderTextureShiftY = sy
+                            b.borderR = br; b.borderG = bg; b.borderB = bb; b.borderA = ba
+                        end)
+                        Refresh(); EllesmereUI:RefreshPage()
+                    end,
                 })
-                local cogBtn = EllesmereUI.MakeCogBtn(rgn, cogShow)
-                EllesmereUI.PanelPP.Point(cogBtn, "RIGHT", anchor, "LEFT", -8, 0)
-
-                local function UpdateCogVis()
-                    if barData.borderThickness and barData.borderThickness == "custom" then cogBtn:Show() else cogBtn:Hide() end
-                end
-                EllesmereUI.RegisterWidgetRefresh(UpdateCogVis)
-                UpdateCogVis()
-
             end
-            -- Sync icon on Border Size (right region)
-            EllesmereUI.BuildSyncIcon({
-                region  = bsRow._rightRegion,
-                tooltip = "Apply Border Size to all Bars",
-                isSynced = function()
-                    local bd = barData
-                    local v = bd.borderThickness or "thin"
-                    local sz = bd.borderSize or 1
-                    local cc = bd.borderClassColor
-                    local bt = bd.borderTexture or "solid"
-                    local sx = bd.borderTextureShiftX
-                    local sy = bd.borderTextureShiftY
-                    local br, bg, bb, ba = bd.borderR or 0, bd.borderG or 0, bd.borderB or 0, bd.borderA or 1
-                    local synced = true
-                    SyncIterate(function(b)
-                        local bv = b.borderThickness or "thin"
-                        if bv ~= v or b.borderClassColor ~= cc or (b.borderTexture or "solid") ~= bt then synced = false end
-                        if bv == "custom" and (b.borderSize or 1) ~= sz then synced = false end
-                        if b.borderTextureShiftX ~= sx or b.borderTextureShiftY ~= sy then synced = false end
-                        if (b.borderR or 0) ~= br or (b.borderG or 0) ~= bg or (b.borderB or 0) ~= bb or (b.borderA or 1) ~= ba then synced = false end
-                    end)
-                    return synced
-                end,
-                onClick = function()
-                    local bd = barData
-                    local v = bd.borderThickness or "thin"
-                    local sz = bd.borderSize or 1
-                    local cc = bd.borderClassColor
-                    local bt = bd.borderTexture or "solid"
-                    local sx = bd.borderTextureShiftX
-                    local sy = bd.borderTextureShiftY
-                    local br, bg, bb, ba = bd.borderR, bd.borderG, bd.borderB, bd.borderA
-                    SyncIterate(function(b)
-                        b.borderThickness = v; b.borderSize = sz
-                        b.borderClassColor = cc; b.borderTexture = bt
-                        b.borderTextureShiftX = sx; b.borderTextureShiftY = sy
-                        b.borderR = br; b.borderG = bg; b.borderB = bb; b.borderA = ba
-                    end)
-                    Refresh(); EllesmereUI:RefreshPage()
-                end,
-            })
-            
-            DevTool:AddData(bsRow, "My local var")
-
             return bsRow, h
 end
