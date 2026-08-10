@@ -1695,7 +1695,7 @@ qolFrame:SetScript("OnEvent", function(self)
                     local customMsg = (EllesmereUIDB.instanceResetAnnounceMsg and
                                        EllesmereUIDB.instanceResetAnnounceMsg ~= "")
                                       and EllesmereUIDB.instanceResetAnnounceMsg
-                                      or "Instance has been reset - you can re-enter now!"
+                                      or EllesmereUI.L("Instance has been reset - you can re-enter now!")
                     SendChatMessage("[EUI] " .. customMsg, channel)
                 end)
             elseif MatchesAny(msg, FAIL_PATTERNS) then
@@ -1704,7 +1704,7 @@ qolFrame:SetScript("OnEvent", function(self)
                 C_Timer.After(0.3, function()
                     resetFailPending = false
                     local channel = IsInRaid() and "RAID" or "PARTY"
-                    SendChatMessage("[EUI] Reset failed - there are still players inside the instance.", channel)
+                    SendChatMessage("[EUI] " .. EllesmereUI.L("Reset failed - there are still players inside the instance."), channel)
                 end)
             end
         end)
