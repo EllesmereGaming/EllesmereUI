@@ -3103,7 +3103,7 @@ local function BuildBars()
                 SmoothBarAnimate(healthBar, "h", hpHeight, function() ApplyHealthBarTransform() end)
             end
         end
-        healthBar:ApplyBorder(hp.borderSize, hp.borderR, hp.borderG, hp.borderB, hp.borderA, hp.borderTexture, hp.borderTextureOffset, hp.borderTextureOffsetY, hp.borderTextureShiftX, hp.borderTextureShiftY, "resourcebars", hp.borderSize, hp.borderBehind)
+        healthBar:ApplyBorder(hp.borderSize, hp.borderR, hp.borderG, hp.borderB, hp.borderA, hp.borderTexture, hp.borderTextureOffset, hp.borderTextureOffsetY, hp.borderTextureShiftX, hp.borderTextureShiftY, "resourcebars", hp.borderThickness or hp.borderSize, hp.borderBehind)
 
         -- Bar texture (must be applied before colors since SetStatusBarTexture resets vertex color)
         ApplyBarTexture(healthBar, g.barTexture or "none")
@@ -3278,7 +3278,7 @@ local function BuildBars()
         -- bar sits (above -> up, below -> down) via ppDirSign / ResolveExpandDirSign.
         -- Implemented for the free + dragged (unlockPos) branches above; the
         -- anchorTo and unlock-anchored branches grow per their own anchor edge.
-        primaryBar:ApplyBorder(pp.borderSize, pp.borderR, pp.borderG, pp.borderB, pp.borderA, pp.borderTexture, pp.borderTextureOffset, pp.borderTextureOffsetY, pp.borderTextureShiftX, pp.borderTextureShiftY, "resourcebars", pp.borderSize, pp.borderBehind)
+        primaryBar:ApplyBorder(pp.borderSize, pp.borderR, pp.borderG, pp.borderB, pp.borderA, pp.borderTexture, pp.borderTextureOffset, pp.borderTextureOffsetY, pp.borderTextureShiftX, pp.borderTextureShiftY, "resourcebars", pp.borderThickness or pp.borderSize, pp.borderBehind)
 
         -- Bar texture (must be applied before colors since SetStatusBarTexture resets vertex color)
         ApplyBarTexture(primaryBar, g.barTexture or "none")
@@ -3768,7 +3768,7 @@ local function BuildBars()
         end
         secondaryFrame._barBorder:ApplyStyle(sp.borderSize, sp.borderR, sp.borderG, sp.borderB, sp.borderA,
             sp.borderTexture, sp.borderTextureOffset, sp.borderTextureOffsetY,
-            sp.borderTextureShiftX, sp.borderTextureShiftY, "resourcebars", sp.borderSize)
+            sp.borderTextureShiftX, sp.borderTextureShiftY, "resourcebars", sp.borderThickness or sp.borderSize)
 
         -- Full-bar background (behind all pips) -- this is what shows through
         -- the pip spacing/gaps. In dark theme the inactive pips are opaque gray
@@ -6522,7 +6522,7 @@ BuildCastBar = function()
         EllesmereUI.ApplyBorderStyle(castBarFrame._border, bs,
             cb.borderR or 0, cb.borderG or 0, cb.borderB or 0, cb.borderA or 1,
             texKey, cb.borderTextureOffset, cb.borderTextureOffsetY,
-            cb.borderTextureShiftX, cb.borderTextureShiftY, "resourcebars", bs)
+            cb.borderTextureShiftX, cb.borderTextureShiftY, "resourcebars", cb.borderThickness or bs)
     end
 
     -- Icon: left or right side (iconOnRight), full height, no inset
@@ -7986,7 +7986,7 @@ BuildGCDBar = function()
         EllesmereUI.ApplyBorderStyle(gcdBarFrame._border, bs,
             g.borderR or 0, g.borderG or 0, g.borderB or 0, g.borderA or 1,
             g.borderTexture or "solid", g.borderTextureOffset, g.borderTextureOffsetY,
-            g.borderTextureShiftX, g.borderTextureShiftY, "resourcebars", bs)
+            g.borderTextureShiftX, g.borderTextureShiftY, "resourcebars", g.borderThickness or bs)
     end
 
     -- Clip + bar layout. The 1px inset keeps the fill from bleeding past the
@@ -8362,7 +8362,7 @@ local function LayoutTotemBar()
         EllesmereUI.ApplyBorderStyle(overlay, bs,
             tb.borderR or 0, tb.borderG or 0, tb.borderB or 0, tb.borderA or 1,
             texKey, tb.borderTextureOffset, tb.borderTextureOffsetY,
-            tb.borderTextureShiftX, tb.borderTextureShiftY, "resourcebars", bs)
+            tb.borderTextureShiftX, tb.borderTextureShiftY, "resourcebars", tb.borderThickness or bs)
     end
 
     -- Hide overlays for buttons no longer active (O(n) via set lookup)
