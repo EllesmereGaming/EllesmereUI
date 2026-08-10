@@ -497,6 +497,18 @@ initFrame:SetScript("OnEvent", function(self)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
                   EllesmereUIDB.ahCurrentExpansion = v
               end },
+            { type="toggle", text="Crafting Current Expansion Only",
+              tooltip="Automatically enables the 'Current Expansion Only' filter whenever you open the Place Crafter Order window.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.craftingCurrentExpansion or false
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.craftingCurrentExpansion = v
+              end }
+        );  y = y - h
+
+        _, h = W:DualRow(parent, y,
             { type="toggle", text="Hide Talking Head",
               tooltip="Hides the large NPC dialogue popup that appears during quests and dungeons.",
               getValue=function()
@@ -505,7 +517,8 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
                   EllesmereUIDB.hideTalkingHead = v
-              end }
+              end },
+            { type="label", text="" }
         );  y = y - h
 
         -- Row 5: Show Coordinates on Map (left, with cog) | Suppress Lua Errors
@@ -2438,6 +2451,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.quickSignup = false
                 EllesmereUIDB.persistSignupNote = false
                 EllesmereUIDB.ahCurrentExpansion = false
+                EllesmereUIDB.craftingCurrentExpansion = false
                 EllesmereUIDB.healthMacroEnabled = false
                 EllesmereUIDB.healthMacroPrio1 = 1
                 EllesmereUIDB.healthMacroPrio2 = 2
