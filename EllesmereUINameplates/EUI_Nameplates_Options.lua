@@ -10612,7 +10612,7 @@ initFrame:SetScript("OnEvent", function(self)
     SLASH_ELLESMERENAMEPLATES1 = "/enp"
     SlashCmdList.ELLESMERENAMEPLATES = function(msg)
         if InCombatLockdown and InCombatLockdown() then
-            print("Cannot open options in combat")
+            print(EllesmereUI.L("Cannot open options in combat"))
             return
         end
 
