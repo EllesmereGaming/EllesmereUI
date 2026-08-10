@@ -644,6 +644,8 @@ local REGION_ICON_PATH = "Interface\\AddOns\\EllesmereUIFriends\\Media\\regions\
 -- Lookup a realm name -> mini region
 -- realmName should have spaces removed
 local function GetRealmMiniRegion(realmName)
+    -- BN realm names are SECRET values in combat/instances
+    if issecretvalue and issecretvalue(realmName) then return nil end
     if not realmName or realmName == "" then return nil end
     local clean = realmName:gsub("%s+", "")
     -- Check player's own region table first (handles overlapping realm names)
@@ -671,6 +673,8 @@ local function GetFriendMiniRegion(gameAccountInfo)
     -- Fallback: parse richPresence ("Zone - Realm" format)
     -- If realmName was empty, the friend is likely cross-region, so check OTHER tables first
     local rich = gameAccountInfo.richPresence
+    -- richPresence is a SECRET value in combat/instances
+    if issecretvalue and issecretvalue(rich) then return nil end
     if rich and rich ~= "" then
         local realmFromRich = rich:match("%s%-%s(.+)$")
         if realmFromRich and realmFromRich ~= "" then

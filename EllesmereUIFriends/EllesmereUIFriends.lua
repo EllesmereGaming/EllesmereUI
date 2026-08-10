@@ -611,10 +611,11 @@ local function GetFriendClassFile(bnetInfo, wowInfo)
             local _, classFile = GetClassInfo(gi.classID)
             return classFile
         end
-        if gi.className then
+        if gi.className and not (issecretvalue and issecretvalue(gi.className)) then
             return classFileByLocalName[gi.className]
         end
-    elseif wowInfo and wowInfo.className then
+    elseif wowInfo and wowInfo.className
+        and not (issecretvalue and issecretvalue(wowInfo.className)) then
         return classFileByLocalName[wowInfo.className]
     end
     return nil
@@ -626,6 +627,8 @@ local EUI_NOTE_TAG = "||EUI:"
 local EUI_NOTE_END = "||"
 
 local function ParseGroupFromNote(note)
+    -- BN notes are SECRET values in combat/instances; string ops on them throw
+    if issecretvalue and issecretvalue(note) then return nil, nil end
     if not note or note == "" then return nil, note end
     local tagStart = note:find(EUI_NOTE_TAG, 1, true)
     if not tagStart then return nil, note end
@@ -786,6 +789,8 @@ local function UpdateNameColor(button, bnetInfo, wowInfo)
     elseif bnetInfo then
         local text = nameText:GetText()
         if not text then return end
+        -- BN row text (accountName/characterName) is SECRET in combat
+        if issecretvalue and issecretvalue(text) then return end
         local colorCode = _getClassColorCode(classFile)
         if not colorCode then return end
         local colored = text:gsub("%((.-)%)", "(" .. colorCode .. "%1|r)")
@@ -962,10 +967,16 @@ local function PostUpdateFriendButton(button)
         local origInfo = GetFFD(button)._origInfo
         if not origInfo then
             origInfo = infoText:GetText() or ""
-            -- Strip any previously-appended note suffix to avoid stacking
-            -- (button recycling can leave our old text in infoText)
-            origInfo = origInfo:match("^(.-)  |cff888888|") or origInfo
-            GetFFD(button)._origInfo = origInfo
+            -- BN presence text is SECRET in combat/instances; skip the note
+            -- append (retries once the value is readable) rather than throw.
+            if issecretvalue and issecretvalue(origInfo) then
+                origInfo = nil
+            else
+                -- Strip any previously-appended note suffix to avoid stacking
+                -- (button recycling can leave our old text in infoText)
+                origInfo = origInfo:match("^(.-)  |cff888888|") or origInfo
+                GetFFD(button)._origInfo = origInfo
+            end
         end
         local userNote
         if button.buttonType == FRIENDS_BUTTON_TYPE_BNET then
@@ -981,7 +992,7 @@ local function PostUpdateFriendButton(button)
                 if clean and clean ~= "" then userNote = clean end
             end
         end
-        if userNote then
+        if userNote and origInfo then
             if origInfo ~= "" then
                 infoText:SetText(origInfo .. "  |cff888888|  " .. userNote .. "|r")
             else
@@ -2440,16 +2451,22 @@ local function SkinFriendsFrame()
             local matches = {}
             for key, info in pairs(_friendCache) do
                 if key <= _FC_WOW_OFFSET then
-                    -- BNet friend
-                    local btag = (info.battleTag or ""):lower()
-                    local acctName = (info.accountName or ""):lower()
+                    -- BNet friend. These fields are SECRET values in
+                    -- combat/instances; :lower() on a secret throws, so
+                    -- treat secret fields as non-matching.
+                    local _isv = issecretvalue
+                    local rawTag, rawAcct = info.battleTag, info.accountName
+                    local btag = (rawTag and not (_isv and _isv(rawTag))) and rawTag:lower() or ""
+                    local acctName = (rawAcct and not (_isv and _isv(rawAcct))) and rawAcct:lower() or ""
                     local charName = ""
-                    if info.gameAccountInfo and info.gameAccountInfo.characterName then
-                        charName = info.gameAccountInfo.characterName:lower()
+                    local rawChar = info.gameAccountInfo and info.gameAccountInfo.characterName
+                    if rawChar and not (_isv and _isv(rawChar)) then
+                        charName = rawChar:lower()
                     end
                     local areaName = ""
-                    if info.gameAccountInfo and info.gameAccountInfo.areaName then
-                        areaName = info.gameAccountInfo.areaName:lower()
+                    local rawArea = info.gameAccountInfo and info.gameAccountInfo.areaName
+                    if rawArea and not (_isv and _isv(rawArea)) then
+                        areaName = rawArea:lower()
                     end
                     if strfind(btag, term, 1, true) or strfind(acctName, term, 1, true) or strfind(charName, term, 1, true) or strfind(areaName, term, 1, true) then
                         local displayName = info.accountName or info.battleTag or ""
