@@ -15792,6 +15792,7 @@ initFrame:SetScript("OnEvent", function(self)
             db.profile.playerAuras[key] = v
             if ns.RefreshPlayerAuras then ns.RefreshPlayerAuras() end
             if ns.ApplyPlayerAuraScale then ns.ApplyPlayerAuraScale() end
+            if ns.ApplyPlayerAuraMouseover then ns.ApplyPlayerAuraMouseover() end
         end
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
@@ -16077,6 +16078,18 @@ initFrame:SetScript("OnEvent", function(self)
         );  y = y - h
 
         end -- PAGet("enabled") section gate
+
+        -- Mouseover fades the buff and debuff frames out and reveals each on
+        -- hover. Deliberately outside the section gate: it drives Blizzard's
+        -- frames directly and works with the skin off, so it stays available
+        -- and stays the section's last row in both states.
+        _, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Mouseover",
+              tooltip = "Hide the buff and debuff frames until you mouse over them.",
+              getValue = function() return PAGet("mouseover") or false end,
+              setValue = function(v) PASet("mouseover", v) end },
+            { type = "label", text = "" }
+        );  y = y - h
 
         -----------------------------------------------------------------------
         --  External Defensives Frame (our own frame; live enable, no reload)

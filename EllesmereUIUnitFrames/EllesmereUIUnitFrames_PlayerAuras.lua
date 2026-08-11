@@ -352,6 +352,143 @@ ns.ApplyPlayerAuraScale = ApplyScale
 
 
 -------------------------------------------------------------------------------
+--  Mouseover fade (player buffs & debuffs)
+--
+--  Fades BuffFrame / DebuffFrame out and reveals each only while the cursor is
+--  over it. SetAlpha is taint-free and unrestricted in combat, and an alpha-0
+--  frame still receives mouse input, so the aura buttons keep their tooltips
+--  and keep firing OnEnter/OnLeave while invisible.
+--
+--  Driven by the buttons' own enter/leave rather than a ticker: the buttons are
+--  the only mouse-enabled pieces of the container, so hooking them needs no
+--  polling at all. Moving between two icons in the same frame fires OnLeave
+--  then OnEnter, so the fade-out is deferred one frame and then re-tests
+--  IsMouseOver -- which also covers the gaps between icons, where no button is
+--  under the cursor but the frame still is.
+--
+--  Independent per frame: hovering buffs does not reveal debuffs. Works whether
+--  or not the styled-aura skin is enabled, so it keeps its own aura event and
+--  never leans on the skin's refresh path.
+-------------------------------------------------------------------------------
+local _moOn = false
+local _moSweepQueued = false
+local _moBuffQueued, _moDebuffQueued = false, false
+local _moEvt
+
+-- Hover test against the BUTTONS, never the parent frame. BuffFrame's rect is
+-- far larger than the icons it lays out (Edit Mode region, expand button,
+-- consolidation frame), so frame:IsMouseOver() stays true long after the cursor
+-- has left the visible auras -- the frame would then sit revealed until the next
+-- unrelated aura event happened to re-settle it. Walks the same short
+-- auraFrames list the skin pass uses, and only ever from a leave.
+local function MO_AnyButtonHovered(frame)
+    if not (frame and frame.auraFrames) then return false end
+    for _, btn in pairs(frame.auraFrames) do
+        if btn and not btn.isAuraAnchor and btn:IsShown() and btn:IsMouseOver() then
+            return true
+        end
+    end
+    return false
+end
+
+-- Deferred settle: run one frame after a leave, so a slide between two icons
+-- does not flicker. Re-reads the live hover state instead of trusting the event.
+local function MO_SettleBuff()
+    _moBuffQueued = false
+    if not (_moOn and BuffFrame) then return end
+    BuffFrame:SetAlpha(MO_AnyButtonHovered(BuffFrame) and 1 or 0)
+end
+
+local function MO_SettleDebuff()
+    _moDebuffQueued = false
+    if not (_moOn and DebuffFrame) then return end
+    DebuffFrame:SetAlpha(MO_AnyButtonHovered(DebuffFrame) and 1 or 0)
+end
+
+-- Four shared handlers, never per-button closures: HookScript cannot be undone,
+-- so these stay installed for the session and bail on the single _moOn read once
+-- the setting goes back off.
+local function MO_EnterBuff()
+    if _moOn and BuffFrame then BuffFrame:SetAlpha(1) end
+end
+
+local function MO_LeaveBuff()
+    if not _moOn or _moBuffQueued then return end
+    _moBuffQueued = true
+    C_Timer.After(0, MO_SettleBuff)
+end
+
+local function MO_EnterDebuff()
+    if _moOn and DebuffFrame then DebuffFrame:SetAlpha(1) end
+end
+
+local function MO_LeaveDebuff()
+    if not _moOn or _moDebuffQueued then return end
+    _moDebuffQueued = true
+    C_Timer.After(0, MO_SettleDebuff)
+end
+
+local function MO_HookButtons(frame, isDebuff)
+    if not (frame and frame.auraFrames) then return end
+    local enter = isDebuff and MO_EnterDebuff or MO_EnterBuff
+    local leave = isDebuff and MO_LeaveDebuff or MO_LeaveBuff
+    for _, btn in pairs(frame.auraFrames) do
+        if btn and not btn.isAuraAnchor then
+            local ffd = GetFFD(btn)
+            if ffd and not ffd._paMoHooked then
+                ffd._paMoHooked = true
+                btn:HookScript("OnEnter", enter)
+                btn:HookScript("OnLeave", leave)
+            end
+        end
+    end
+end
+
+-- Buttons are only born from aura-list changes, so one deferred sweep per
+-- player UNIT_AURA catches every new button. Already-hooked buttons are skipped
+-- on the ffd flag, so the steady-state sweep walks a short list and does nothing.
+local function MO_Sweep()
+    _moSweepQueued = false
+    if not _moOn then return end
+    MO_HookButtons(BuffFrame, false)
+    MO_HookButtons(DebuffFrame, true)
+    -- New buttons are born at the frame's alpha, but the frame itself may have
+    -- been left visible by a hover that ended while hidden; re-assert both.
+    MO_SettleBuff()
+    MO_SettleDebuff()
+end
+
+local function MO_QueueSweep()
+    if _moSweepQueued or not _moOn then return end
+    _moSweepQueued = true
+    C_Timer.After(0, MO_Sweep)
+end
+
+local function ApplyMouseover()
+    local cfg = PA()
+    local on = (cfg and cfg.mouseover) or false
+    if on == _moOn then return end
+    _moOn = on
+
+    if on then
+        -- Nothing above exists until the first enable: no frame, no event, no
+        -- hooks. A user who never turns this on pays for one boolean compare.
+        if not _moEvt then
+            _moEvt = CreateFrame("Frame")
+            _moEvt:SetScript("OnEvent", MO_QueueSweep)
+        end
+        _moEvt:RegisterUnitEvent("UNIT_AURA", "player")
+        MO_Sweep()
+    else
+        if _moEvt then _moEvt:UnregisterEvent("UNIT_AURA") end
+        if BuffFrame then BuffFrame:SetAlpha(1) end
+        if DebuffFrame then DebuffFrame:SetAlpha(1) end
+    end
+end
+ns.ApplyPlayerAuraMouseover = ApplyMouseover
+
+
+-------------------------------------------------------------------------------
 --  External Defensives Frame -- standalone EUI frame showing the external
 --  defensive buffs currently on the player (Pain Suppression, Ironbark, ...),
 --  matched by the engine's native EXTERNAL_DEFENSIVE aura filter. Cheap by
@@ -758,6 +895,10 @@ initFrame:SetScript("OnEvent", function(self, event, arg1)
         -- Delay to let UF db initialize
         C_Timer.After(1, function()
             local cfg = PA()
+
+            -- Independent of the styled-aura skin, so it runs before the gate.
+            ApplyMouseover()
+
             if not cfg or not cfg.enabled then return end
 
             -- Apply scale
