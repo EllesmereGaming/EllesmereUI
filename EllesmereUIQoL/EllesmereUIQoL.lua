@@ -1853,7 +1853,7 @@ do
     local floor = math.floor
     local ceil = math.ceil
 
-    -- Inline colour spans. Every span opens and closes rather than nesting,
+    -- Inline color spans. Every span opens and closes rather than nesting,
     -- since |r restores one level only.
     local WHITE = "|cffffffff"
     local DIM   = "|cff9d9d9d"
@@ -1912,7 +1912,7 @@ do
         return EllesmereUI.QoLExtrasGet("fpsShowWorldMS"), showLocal
     end
 
-    -- Pre-coloured, since the two figures carry their own spans and a divider.
+    -- Pre-colored, since the two figures carry their own spans and a divider.
     local function LatencyText()
         local showWorld, showLocal = LatencySources()
         local hideLabel = EllesmereUI.QoLExtrasGet("fpsHideLabel")
@@ -1929,8 +1929,8 @@ do
         return table.concat(parts, latSep)
     end
 
-    -- The block, in order. `group` selects visibility and colour; `pct` rows go
-    -- through PctText, `text` rows return a finished coloured string; `hidden`
+    -- The block, in order. `group` selects visibility and color; `pct` rows go
+    -- through PctText, `text` rows return a finished colored string; `hidden`
     -- is a per-row veto on top of the group.
     --
     -- Labels are translated at use time via Label -> row.label, which the static
@@ -1956,7 +1956,7 @@ do
           end },
     }
 
-    -- Cached per localised label. Non-Latin scripts report false, so no padding.
+    -- Cached per localized label. Non-Latin scripts report false, so no padding.
     local hasDescender = {}
     local function LabelDescends(word)
         local text = EllesmereUI.L(word)
@@ -2000,37 +2000,40 @@ do
         return row.fs
     end
 
-    -- Position authority. Unlock mode stores every position as CENTER/CENTER,
-    -- which walks a text-sized frame sideways by half of each width change -- and
-    -- its resize handler re-applies that centre on the OnSizeChanged our own
-    -- resize fires. So the block is registered noInitHook (that handler then
-    -- delegates to applyPos) and resolves the stored centre to a top-left corner
-    -- once, re-pinning the same corner afterwards. The stored CENTER is never
-    -- rewritten, so drags still round-trip.
-    local function ResetStatsPin()
-        if statsFrame then statsFrame._pinL, statsFrame._pinT = nil, nil end
+    -- Position authority. A center names a corner only once you know the size,
+    -- so a CENTER/CENTER anchor walks a text-sized block sideways by half of
+    -- every width change -- a digit on the latency, a row appearing -- and puts
+    -- it somewhere new on each reload. This element stores an EDGE anchor
+    -- instead, the convention the growth-direction bars already use, after
+    -- which nothing about the block's size can move it.
+    --
+    -- Whole pixels: a center lands on a half pixel for odd sizes, and text
+    -- drawn from a fractional origin is free to round either way.
+    local function CornerFromCenter(cx, cy, w, h)
+        return floor(UIParent:GetWidth() / 2 + cx - w / 2 + 0.5),
+               floor(UIParent:GetHeight() / 2 + cy + h / 2 + 0.5)
     end
+    EllesmereUI._secondaryStatsCorner = CornerFromCenter
 
     local function ApplyStatsPosition()
         -- Unlock mode owns positioning while a session is open.
         if not statsFrame or EllesmereUI._unlockActive then return end
-        if not statsFrame._pinL then
-            local pos = EllesmereUI.QoLExtrasGet("secondaryStatsPos")
-            if pos and pos.point then
-                statsFrame:ClearAllPoints()
-                statsFrame:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
-            end
-            local l, t = statsFrame:GetLeft(), statsFrame:GetTop()
-            -- Whole pixels: a centre anchor half-pixels the edge, and text from
-            -- a fractional origin is free to round either way.
-            if l then l = floor(l + 0.5) end
-            if t then t = floor(t + 0.5) end
-            statsFrame._pinL, statsFrame._pinT = l, t
+        local pos = EllesmereUI.QoLExtrasGet("secondaryStatsPos")
+        if not (pos and pos.point) then return end
+        -- Saved as a center by an earlier build. Resolve it once, at a size we
+        -- know is real, and keep the corner from then on -- otherwise it would
+        -- go on resolving to a different corner for the life of the profile.
+        if pos.point == "CENTER" and statsFrame._measured then
+            local copy = {}
+            for k, v in pairs(pos) do copy[k] = v end
+            copy.point, copy.relPoint = "TOPLEFT", "BOTTOMLEFT"
+            copy.x, copy.y = CornerFromCenter(pos.x or 0, pos.y or 0,
+                                              statsFrame:GetWidth(), statsFrame:GetHeight())
+            EllesmereUI.QoLExtrasSet("secondaryStatsPos", copy)
+            pos = copy
         end
-        local l, t = statsFrame._pinL, statsFrame._pinT
-        if not l or not t then return end
         statsFrame:ClearAllPoints()
-        statsFrame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", l, t)
+        statsFrame:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
     end
 
     -- Live extent of the visible rows, in whole pixels. Measuring a string that
@@ -2049,25 +2052,28 @@ do
                 prev = row
             end
         end
-        if w < 1 then return 160, 60 end
-        return ceil(w + 2), ceil(h + 2)
+        -- The third return says whether that is a real measurement or the
+        -- placeholder below, which stands in before there is anything to draw.
+        if w < 1 then return 160, 60, false end
+        return ceil(w + 2), ceil(h + 2), true
     end
 
-    -- Deliberately NOT called for every content change: SetSize fires
-    -- OnSizeChanged, where unlock mode re-centres the block. A figure getting
-    -- wider must never reach the frame -- only a change in row count does.
+    -- Called on a change of row count, not on every content change: the size
+    -- only feeds the unlock drag box, and the block hangs off its top-left
+    -- corner, so a figure gaining a digit has nothing to say to the frame.
     local function SyncFrameSize()
         if not statsFrame then return end
-        local w, h = MeasureBlock()
+        local w, h, real = MeasureBlock()
         if w then statsFrame:SetSize(w, h) end
+        -- Gates the one-time migration in ApplyStatsPosition: neither the
+        -- creation size nor the placeholder is a size to resolve a center at.
+        if real then statsFrame._measured = true end
         ApplyStatsPosition()
     end
     EllesmereUI._secondaryStatsSyncSize = SyncFrameSize
 
-    -- For the unlock element, registered in the FPS block below. Reset-then-apply
-    -- re-derives from the stored position; apply alone holds the corner.
+    -- For the unlock element, registered in the FPS block below.
     EllesmereUI._secondaryStatsPin = ApplyStatsPosition
-    EllesmereUI._secondaryStatsResetPin = ResetStatsPin
 
     local function UpdateSecondaryStats()
         if not statsFrame or not statsFrame:IsShown() then return end
@@ -2084,7 +2090,7 @@ do
             end
         end
 
-        -- Each group carries its own label colour, falling back to class colour.
+        -- Each group carries its own label color, falling back to class color.
         local function GroupHex(key)
             local c = EllesmereUI.QoLExtrasGet(key)
             if not c then return statsFrame._classHex end
@@ -2182,11 +2188,8 @@ do
         for _, row in ipairs(ROWS) do
             if row.fs then ApplyRowFont(row.fs) end
         end
-        -- Drop the pin and the row signature rather than re-deriving here: the
-        -- frame still carries its old size, and a corner derived from a centre
-        -- anchor at the wrong width lands wide of where the block was dropped.
-        -- UpdateSecondaryStats below re-chains and re-derives at the true size.
-        ResetStatsPin()
+        -- Force the re-chain: the font may have changed under the rows, so the
+        -- gaps and the footprint both have to be taken again.
         statsFrame._rowSig = nil
         -- Unit-scoped events filter at the engine (player only); in a raid a
         -- plain RegisterEvent would deliver every member's stat changes.
@@ -2507,17 +2510,28 @@ do
                 end,
                 noResize = true,
                 -- Self-positioning: makes NotifyElementResized call applyPos
-                -- below instead of re-applying the stored CENTER.
+                -- below rather than re-applying a stored center over the top.
                 noInitHook = true,
                 savePos = function(key, point, relPoint, x, y)
                     if not point then return end
                     -- Scale lives in this same table; carry it over so a drag doesn't wipe it.
                     local prev = EllesmereUI.QoLExtrasGet("secondaryStatsPos")
-                    EllesmereUI.QoLExtrasSet("secondaryStatsPos", { point = point, relPoint = relPoint, x = x, y = y, scale = prev and prev.scale })
-                    if not EllesmereUI._unlockActive then
-                        -- New drop point: re-derive the pinned corner from it.
-                        if EllesmereUI._secondaryStatsResetPin then EllesmereUI._secondaryStatsResetPin() end
-                        if EllesmereUI._secondaryStatsPin then EllesmereUI._secondaryStatsPin() end
+                    local newPos = { point = point, relPoint = relPoint, x = x, y = y, scale = prev and prev.scale }
+                    -- Rebase the center unlock mode converted to onto the corner
+                    -- it currently resolves to, and store THAT -- a center would
+                    -- name a different corner the moment a figure gains a digit.
+                    -- Taken from the handed-over center rather than the live
+                    -- frame, which on Save & Exit may not have moved to it yet.
+                    local f = EllesmereUI._getSecondaryStatsFrame and EllesmereUI._getSecondaryStatsFrame()
+                    if f and point == "CENTER" and (relPoint or "CENTER") == "CENTER"
+                       and EllesmereUI._secondaryStatsCorner then
+                        newPos.point, newPos.relPoint = "TOPLEFT", "BOTTOMLEFT"
+                        newPos.x, newPos.y = EllesmereUI._secondaryStatsCorner(
+                            x or 0, y or 0, f:GetWidth(), f:GetHeight())
+                    end
+                    EllesmereUI.QoLExtrasSet("secondaryStatsPos", newPos)
+                    if not EllesmereUI._unlockActive and EllesmereUI._secondaryStatsPin then
+                        EllesmereUI._secondaryStatsPin()
                     end
                 end,
                 loadPos = function()
@@ -2525,11 +2539,9 @@ do
                 end,
                 clearPos = function()
                     EllesmereUI.QoLExtrasSet("secondaryStatsPos", nil)
-                    if EllesmereUI._secondaryStatsResetPin then EllesmereUI._secondaryStatsResetPin() end
                 end,
-                -- Holds the pinned corner -- NotifyElementResized calls this
-                -- after every resize, so it must NOT re-centre. Callers wanting
-                -- the stored position re-read reset the pin first.
+                -- NotifyElementResized calls this after every resize. Re-applying
+                -- an edge anchor at a new size is a no-op, which is the point.
                 applyPos = function()
                     if EllesmereUI._secondaryStatsPin then EllesmereUI._secondaryStatsPin() end
                 end,
