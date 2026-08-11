@@ -62,12 +62,14 @@ end
 -- Duration text formatters
 --
 -- SetDurationText accepts a NumericFormatter object evaluated engine-side against the
--- (possibly secret) remaining duration. The suite's duration text has always been bare
--- seconds under a minute ("10"), then floored "2m"/"1h"/"1d" with no space -- a
--- SecondsFormatter cannot drop the unit on seconds, so this is a banded
--- NumericRuleFormatter. Seconds round UP so the text never reads 0 while time remains;
+-- (possibly secret) remaining duration. Every band carries its unit with no space --
+-- "10s"/"2m"/"1h"/"1d". Seconds used to render bare ("10") while every larger unit was
+-- suffixed, which read as an inconsistency on screen and also disagreed with the
+-- SecondsFormatter fallback below, which CANNOT drop the unit on seconds -- so the two
+-- code paths printed different text for the same duration. Suffixed seconds is the one
+-- form both can produce. Seconds round UP so the text never reads 0 while time remains;
 -- larger units floor, matching the legacy text exactly at the 60s boundary ("1m" at 60,
--- "59" at 59). The one-second Up bucket AT 60 exists for the sub-second crossing INTO
+-- "59s" at 59). The one-second Up bucket AT 60 exists for the sub-second crossing INTO
 -- the minute -- see the note inside the breakpoint table.
 ------------------------------------------------------------------------------
 
@@ -86,7 +88,7 @@ local function BuildRuleDurationFormatter()
     -- (The original nested step/rounding inside components -- silently
     -- rejected or default-rounded depending on validation strictness.)
     local ok = pcall(formatter.SetBreakpoints, formatter, {
-        { threshold = 0,     format = "%d",  step = 1, rounding = Up },
+        { threshold = 0,     format = "%ds", step = 1, rounding = Up },
         -- Minute-boundary catcher (field report: text flashed "0" just under a minute).
         -- Seconds round UP, so a raw value in (59, 60) can reach 60 and land at this
         -- threshold; the old Down bucket here floored the raw back to 0 -> "0m" for a
@@ -104,7 +106,8 @@ local function BuildRuleDurationFormatter()
 end
 
 -- Fallback if the rule formatter is unavailable/rejected: compact
--- one-letter units ("10s"/"2m") -- closest a SecondsFormatter gets.
+-- one-letter units ("10s"/"2m"), which the banded formatter above now
+-- matches exactly at every unit.
 local function BuildSecondsDurationFormatter()
     local curve = C_CurveUtil.CreateCurve()
     curve:AddPoint(61,        Enum.SecondsFormatterInterval.Minutes)
