@@ -860,10 +860,16 @@ local function ForceCooldownPaint(btn)
     if not btn then return end
     local cd = btn.cooldown
     local action = btn:GetAttribute("action")
-    if cd and action and HasAction(action) and C_ActionBar and C_ActionBar.GetActionCooldown then
-        local cdInfo = C_ActionBar.GetActionCooldown(action)
-        local durObj = cdInfo and cdInfo.isActive and C_ActionBar.GetActionCooldownDuration
-            and C_ActionBar.GetActionCooldownDuration(action)
+    -- Go straight to GetActionCooldownDuration; skip GetActionCooldown's
+    -- isActive field entirely. isActive is secret while restricted (combat),
+    -- and reading it as a plain and-chain truthy value (no issecretvalue
+    -- guard) threw and aborted the whole function, silently skipping the
+    -- paint. Since 12.0.1 duration-object APIs never return nil -- a
+    -- zero-span object comes back when there's no active cooldown -- so it's
+    -- always safe to hand straight to SetCooldownFromDurationObject, secret
+    -- or not, without a pre-check.
+    if cd and action and HasAction(action) and C_ActionBar and C_ActionBar.GetActionCooldownDuration then
+        local durObj = C_ActionBar.GetActionCooldownDuration(action)
         if durObj then
             cd:SetCooldownFromDurationObject(durObj)
         else
@@ -871,7 +877,113 @@ local function ForceCooldownPaint(btn)
         end
     end
 end
+-- Also used for the two Blizzard-native buttons we don't rebuild
+-- (OverrideActionBarButton1-6, ExtraActionButton1), for their initial paint
+-- when they first appear. Blizzard's own Update()/ActionButton_UpdateCooldown
+-- was tried here instead and didn't work: called from OUR insecure stack,
+-- its secret-value cooldown writes are silently rejected under taint (same
+-- reason ForceButtonRefresh below never routes through the mixin's Update()),
+-- so it ran without ever painting anything. GetActionCooldownDuration +
+-- SetCooldownFromDurationObject is the one pairing that's actually safe to
+-- call with secret values regardless of taint state.
 ns.ForceCooldownPaint = ForceCooldownPaint
+
+-- BLIZZARD-NATIVE BUTTONS ONLY (ExtraActionButton1, OverrideActionBarButton1-6):
+-- our own cooldown swipe/text, layered on top of Blizzard's native one
+-- rather than replacing it. Blizzard's swipe (now correctly painted via the
+-- broadcaster) stays underneath; this overlay exists purely so these
+-- buttons' countdowns match our own bars' font/size/color instead of
+-- Blizzard's default styling, same as EnsureChargeCooldown does for the
+-- recharge ring on our own buttons.
+--
+-- These buttons are Blizzard-owned, so we never write a custom field
+-- directly onto them (see ns._eabFD note above) -- the overlay frame is kept
+-- in EFD(btn) instead.
+function ns.EnsureOverlayCooldown(btn)
+    local fd = EFD(btn)
+    if fd.overlayCooldown then return fd.overlayCooldown end
+    local overlay = CreateFrame("Cooldown", nil, btn, "CooldownFrameTemplate")
+    overlay:SetAllPoints(btn)
+    -- Above Blizzard's own "cooldown" widget, so ours draws on top of it.
+    overlay:SetFrameLevel((btn.cooldown and btn.cooldown:GetFrameLevel() or btn:GetFrameLevel()) + 1)
+    fd.overlayCooldown = overlay
+    return overlay
+end
+
+-- Resolve a duration object for one of these buttons. The secure "action"
+-- attribute can be nil even for a real, slotted action -- confirmed via live
+-- testing on both ExtraActionButton1 (a Fairbreeze Favors quest-reward extra
+-- action) and OverrideActionBarButton1/2 (vehicle content). Blizzard's own
+-- native swipe works regardless because it reads self.action internally, a
+-- plain Lua field the mixin keeps in sync separately from the secure
+-- attribute. We fall back to that field, then to a spell-ID path for the
+-- genuinely slot-less case (delve companion abilities and similar, extra
+-- action button only in practice). Hung on ns, no top-level local: 200-local cap.
+function ns.GetOverlayDurationObject(btn)
+    local action = btn:GetAttribute("action") or btn.action
+    if action and HasAction(action) and C_ActionBar and C_ActionBar.GetActionCooldownDuration then
+        return C_ActionBar.GetActionCooldownDuration(action)
+    end
+    local spellID = btn.spellID or btn:GetAttribute("spell")
+    if spellID and C_Spell and C_Spell.GetSpellCooldownDuration then
+        return C_Spell.GetSpellCooldownDuration(spellID)
+    end
+    return nil
+end
+
+-- Paint the overlay. Same taint-safe pairing as ForceCooldownPaint (duration
+-- object straight into SetCooldownFromDurationObject, no isActive precheck).
+function ns.PaintOverlayCooldown(btn)
+    if not btn then return end
+    -- Force off Blizzard's native countdown NUMBER on this button's own
+    -- cooldown widget -- not the global "Show Numbers for Cooldowns" CVar,
+    -- which would hide/show it on every OTHER action button too. Scoped to
+    -- just btn.cooldown via SetHideCountdownNumbers, same widget-level API
+    -- EnsureChargeCooldown already uses elsewhere in this file. Otherwise
+    -- Blizzard's own number renders duplicated/unstyled underneath ours.
+    -- Reasserted every paint, not memoized: Blizzard's own repaint (driven
+    -- by the same broadcaster events) can re-apply the CVar default on its
+    -- own update, and this call is cheap enough on one button not to matter.
+    if btn.cooldown and btn.cooldown.SetHideCountdownNumbers then
+        btn.cooldown:SetHideCountdownNumbers(true)
+    end
+    local overlay = ns.EnsureOverlayCooldown(btn)
+    local durObj = ns.GetOverlayDurationObject(btn)
+    if durObj then
+        overlay:SetCooldownFromDurationObject(durObj)
+    else
+        overlay:Clear()
+    end
+    -- Match our own bars' cooldown text styling rather than Blizzard's
+    -- default. Neither of these buttons has per-bar font settings of its own
+    -- (BAR_CONFIG marks ExtraActionButton visibilityOnly, and the vehicle bar
+    -- isn't in BAR_CONFIG at all), so GetSettings' fallbacks apply uniformly.
+    local fontPath, cdSize, cdOX, cdOY, cdColor, cdFit = EAB_VTABLE.CooldownFonts.GetSettings({})
+    EAB_VTABLE.CooldownFonts.ApplyToFrame(overlay, fontPath, cdSize, cdOX, cdOY, cdColor, cdFit)
+end
+
+-- Permanent listener (not tied to the on/off broadcaster ref-counting --
+-- this only touches our own overlay frames, not Blizzard's, so there's no
+-- mass-redraw concern to gate it behind). Mirrors the two events Blizzard's
+-- own broadcaster uses to keep these buttons current: SPELL_UPDATE_COOLDOWN
+-- for the spell-typed case, ACTIONBAR_UPDATE_COOLDOWN for the action-slot case.
+do
+    local overlayWatcher = ns.TakeShell()
+    overlayWatcher:RegisterEvent("SPELL_UPDATE_COOLDOWN")
+    overlayWatcher:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
+    overlayWatcher:SetScript("OnEvent", function()
+        local eab1 = ExtraActionButton1
+        if eab1 and eab1:IsShown() then
+            ns.PaintOverlayCooldown(eab1)
+        end
+        for i = 1, 6 do
+            local btn = _G["OverrideActionBarButton" .. i]
+            if btn and btn:IsShown() then
+                ns.PaintOverlayCooldown(btn)
+            end
+        end
+    end)
+end
 
 -- Stock bar frames to disable. Each entry carries flags for how to handle it:
 --   retainEvents  = true  -> do NOT unregister events (needed for override state)
@@ -1058,20 +1170,43 @@ do
     barFrame:RegisterEvent("UPDATE_EXTRA_ACTIONBAR")
     barFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     barFrame:SetScript("OnEvent", function(_, event, unit)
-        -- Deferred so IsShown reflects Blizzard's post-event state.
+        -- Deferred so IsShown reflects Blizzard's post-event state. This
+        -- remains the authority for turning the broadcaster back OFF (a
+        -- frame's delay there just defers a teardown, not a missed paint).
         C_Timer.After(0, RefreshBroadcasterNeeds)
-        -- On vehicle/override entry, force-paint the OverrideActionBar buttons'
-        -- cooldowns immediately -- the broadcaster only catches the NEXT change,
-        -- so an ability already on cooldown when the bar appears needs an
-        -- initial paint (see ForceCooldownPaint).
+        -- Extra action button: same early-enable reasoning as the vehicle
+        -- branch below -- flip the broadcaster on now so Blizzard's own
+        -- cooldown paint for this transition isn't missed.
+        if event == "UPDATE_EXTRA_ACTIONBAR" then
+            _extraNeed = true
+            ApplyBroadcaster()
+        end
+        -- On vehicle/override entry, paint the OverrideActionBar buttons'
+        -- cooldowns immediately -- the broadcaster only catches the NEXT
+        -- change, so an ability already on cooldown when the bar appears
+        -- needs an initial paint. Uses ForceCooldownPaint (the duration-object
+        -- API), NOT Blizzard's own Update()/ActionButton_UpdateCooldown --
+        -- those run in OUR insecure call stack when invoked from here, and
+        -- their secret-value cooldown writes get silently rejected under
+        -- tainted execution (same reason ForceButtonRefresh below never
+        -- routes through the mixin's Update()). GetActionCooldownDuration +
+        -- SetCooldownFromDurationObject is the one pairing that's actually
+        -- safe to call with secret values regardless of taint state.
         if (event == "UNIT_ENTERED_VEHICLE" or event == "UPDATE_VEHICLE_ACTIONBAR"
             or event == "UPDATE_OVERRIDE_ACTIONBAR") and not (unit and unit ~= "player") then
+            -- Enable the broadcaster synchronously, not via the deferred
+            -- IsShown poll below: Blizzard's own cooldown paint for this
+            -- transition can land before that poll runs, and we'd otherwise
+            -- miss it and be back to relying solely on this catch-up pass.
+            _vehNeed = true
++           ApplyBroadcaster()    
             C_Timer.After(0, function()
                 for i = 1, 6 do
                     local btn = _G["OverrideActionBarButton" .. i]
                     if btn then
                         if btn.UpdateAction then btn:UpdateAction() end
                         ForceCooldownPaint(btn)
+                        ns.PaintOverlayCooldown(btn)        
                         local hk = btn.HotKey
                         if hk then
                             local key1 = GetBindingKey("ACTIONBUTTON" .. i)
@@ -13040,6 +13175,19 @@ function EAB:OnInitialize()
 end
 
 function EAB:OnEnable()
+-- Force Blizzard's global cooldown-number display off while this module
+    -- is active. Our own bars, and now the vehicle bar / Extra Action Button
+    -- overlay, supply their own styled countdown text via CooldownFonts;
+    -- leaving the CVar on double-renders Blizzard's default-styled number
+    -- underneath ours on every button, everywhere. Set here rather than only
+    -- at FinishSetup: FinishSetup is guarded to run once ever (ns._eabFinishSetupDone),
+    -- but OnEnable itself dispatches on every fresh load AND on an in-session
+    -- module disable/re-enable, so this is the one place guaranteed to run
+    -- every time the module actually comes online -- which is what makes a
+    -- manual Options toggle "not persist through reload" in the first place:
+    -- nothing was re-asserting it on load before this.
+    C_CVar.SetCVar("countdownForCooldowns", "0")
+
     -- If this is a first install (or reset), we need to capture Blizzard's
     -- Edit Mode layout BEFORE hiding bars. The capture must run once Edit Mode
     -- has applied bar positions/sizes, i.e. at/after PLAYER_ENTERING_WORLD.
@@ -13067,6 +13215,15 @@ function EAB:OnEnable()
     else
         self:FinishSetup()
     end
+end
+
+-- Mirrors OnEnable's CVar force: restore Blizzard's own default the moment
+-- this module (and its own countdown-text styling) is no longer active,
+-- rather than leaving the player's cooldown numbers off UI-wide after
+-- disabling Action Bars. GetCVarDefault, not a hardcoded "1": Blizzard owns
+-- what its own default actually is.
+function EAB:OnDisable()
+    C_CVar.SetCVar("countdownForCooldowns", GetCVarDefault("countdownForCooldowns"))
 end
 
 -- Called on PLAYER_ENTERING_WORLD for first-install only.
@@ -15547,14 +15704,17 @@ local function SetupBlizzardMovableFrame(barKey)
                     hk:Show()
                 end
             end
-            ForceCooldownPaint(eab1)
-            -- Re-evaluate the broadcaster need now: this container Show/AddFrame
-            -- refresh is a reliable delve-entry signal (the button's own OnShow
-            -- doesn't fire then), and RefreshBroadcaster reads the button's
-            -- actual visibility to decide.
+            -- Re-evaluate the broadcaster need FIRST: this container
+            -- Show/AddFrame refresh is a reliable delve-entry signal (the
+            -- button's own OnShow doesn't fire then), and RefreshBroadcaster
+            -- reads the button's actual visibility to decide. Ordered ahead
+            -- of the paint below so Blizzard's own cooldown update is already
+            -- listening rather than being enabled after the fact.
             if ns.RefreshBroadcaster then
                 ns.RefreshBroadcaster()
             end
+            ForceCooldownPaint(eab1)
+            ns.PaintOverlayCooldown(eab1)
         end
 
         -- Hook AddFrame so newly added ability buttons stay clickable, and
