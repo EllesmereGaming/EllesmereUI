@@ -53,8 +53,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --
 -- Producer records (nil = display inactive/filtered), poked via
 -- ns.WeaponEnchants_Layout():
---   ns._weaponEnchPAB = { parent, corner, dir, lineX, lineY, lineGap, pad,
---                         styleKey, canCancel }
+--   ns._weaponEnchPAB = { parent, corner, dir, lineCorner, lineX, lineY,
+--                         lineGap, lineOffX, lineOffY, pad, styleKey,
+--                         canCancel }
 --   ns._weaponEnchUF  = { frame, ia, fp, x, y, gX, pad, styleKey }
 
 local _, ns = ...
@@ -305,10 +306,11 @@ local function Paint()
                             -- along the grow axis, so the line shares the grid's
                             -- edge and the container never has to move.
                             local step = (style.width or 32) + (rec.lineGap or 0)
+                            local anchor = rec.lineCorner or rec.corner
                             b:ClearAllPoints()
-                            b:SetPoint(rec.corner, rec.parent, rec.corner,
-                                dx * idx * cell + (rec.lineX or 0) * step,
-                                dy * idx * cell + (rec.lineY or 0) * step)
+                            b:SetPoint(anchor, rec.parent, anchor,
+                                dx * idx * cell + (rec.lineX or 0) * step + (rec.lineOffX or 0),
+                                dy * idx * cell + (rec.lineY or 0) * step + (rec.lineOffY or 0))
                             b._cell = idx
                             b._noTooltip = style.noTooltips == true
                         end

@@ -68,6 +68,11 @@ local FONT_OUTLINE_VALUES = {
     outline = "Outline", thick = "Thick Outline",
 }
 local FONT_OUTLINE_ORDER = { "default", "none", "outline", "thick" }
+-- Cross-axis side for the weapon-enchant line. "Above"/"Below" read naturally for the
+-- horizontal growth directions; under Up/Down growth the same two values mean the side
+-- before/after the columns, mirrored the same way.
+local ENCHANT_LINE_VALUES = { ABOVE = "Above", BELOW = "Below" }
+local ENCHANT_LINE_ORDER = { "ABOVE", "BELOW" }
 local GROW_DIR_VALUES = { LEFT = "Left", RIGHT = "Right", UP = "Up", DOWN = "Down" }
 local GROW_DIR_ORDER = { "LEFT", "RIGHT", "UP", "DOWN" }
 local ICON_WRAP_VALUES = { LEFT = "Left", RIGHT = "Right" }
@@ -758,7 +763,7 @@ end
 
 -- "Display": Border Size [swatch] | Spacing; Icons per Row (+Max Rows/Max
 -- Total/Row Spacing cog) | spacer.
-local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
+local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff, isDefaultBar)
     local W = EllesmereUI.Widgets
     local PP = EllesmereUI.PanelPP
     local _, hh = 0, 0
@@ -879,15 +884,44 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
     -- Buff bars only: debuffs are never player-cancelable, so the row would
     -- be a dead switch there.
     if isBuff then
-        _, hh = W:DualRow(frame, sy,
+        -- Weapon enchants render on the DEFAULT buffs bar only (it is the one
+        -- that publishes ns._weaponEnchPAB), so the placement control would be
+        -- a dead setting on a custom buff bar.
+        local enchantSlot = { type = "label", text = "" }
+        if isDefaultBar then
+            enchantSlot = {
+                type = "dropdown", text = "Weapon Enchant Line",
+                tooltip = "Which side of the bar oils, poisons and imbues sit on. They are not auras, so they get their own line rather than a grid cell -- putting them back in the grid is what used to push wrapped rows out of alignment. Use Below if the bar sits at the top of the screen, where an Above line has no room.",
+                values = ENCHANT_LINE_VALUES, order = ENCHANT_LINE_ORDER,
+                getValue = function() return string.upper(cfg.enchantLinePosition or "ABOVE") end,
+                setValue = function(v) cfg.enchantLinePosition = v; apply() end
+            }
+        end
+        local encRow
+        encRow, hh = W:DualRow(frame, sy,
             {
                 type = "toggle", text = "Right-Click to Cancel",
                 tooltip = "Right-clicking a buff icon cancels the buff. Turning this off makes the bar's icons click-through; tooltips still follow the Show Tooltips setting.",
                 getValue = function() return cfg.rightClickCancel ~= false end,
                 setValue = function(v) cfg.rightClickCancel = v; apply() end
             },
-            { type = "label", text = "" }
+            enchantSlot
         ); sy = sy - hh
+        if isDefaultBar then
+            local rgn = encRow._rightRegion
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Weapon Enchant Line",
+                rows = {
+                    { type = "slider", label = "Offset X", min = -200, max = 200, step = 1,
+                      get = function() return cfg.enchantLineOffsetX or 0 end,
+                      set = function(v) cfg.enchantLineOffsetX = v; apply() end },
+                    { type = "slider", label = "Offset Y", min = -200, max = 200, step = 1,
+                      get = function() return cfg.enchantLineOffsetY or 0 end,
+                      set = function(v) cfg.enchantLineOffsetY = v; apply() end },
+                },
+            })
+            ns._PAMakeCogBtn(rgn, cogShow)
+        end
     end
 
     return sy
@@ -1287,7 +1321,7 @@ local function BuildDefaultBarDetail(frame, fontPath, isBuff)
         sy = BuildAssignedDebuffsFields(body, fontPath, sy, cfg, ApplyBar)
     end
     sy = BuildCoreFields(body, fontPath, sy, cfg, ApplyBar, isBuff)
-    sy = BuildDisplayFields(body, fontPath, sy, cfg, ApplyBar, isBuff)
+    sy = BuildDisplayFields(body, fontPath, sy, cfg, ApplyBar, isBuff, true)
     if not isBuff then
         sy = BuildDispelColorFields(body, fontPath, sy, cfg, ApplyBar)
         sy = BuildFxEffects(body, sy, cfg, ApplyBar)

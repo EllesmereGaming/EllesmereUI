@@ -1521,17 +1521,38 @@ end
 -- enchants now sit on their OWN line just outside the grid instead, so the container
 -- never moves and the grid stays a clean rectangle at every enchant count.
 --
--- Returns the unit direction from the grid's fixed corner to that line, i.e. the cross
--- axis, pointing AWAY from where the flow's lines extend. Horizontal growth wraps
--- downward always (ToGrowthV), so the line goes UP; vertical growth wraps along
--- iconWrapDirection, so the line goes against it. The enchant buttons still pack along
--- the GROW axis from the corner, keeping main-hand-adjacent order and the grid's edge.
-local function EnchantLineOffset(cfg)
+-- Returns (anchorCorner, unitX, unitY) for that line: the cross axis, one step off the
+-- grid. "Above" leaves from the flow's own fixed corner, away from where its lines
+-- extend (horizontal growth always wraps downward per ToGrowthV, so that is UP;
+-- vertical growth wraps along iconWrapDirection, so it is against that). "Below" leaves
+-- from the MIRRORED corner instead -- stepping down from a TOP corner would land on row
+-- 1, so the far edge of the reserved grid is the only anchor that clears it. Buttons
+-- still pack along the GROW axis, so either way the line shares the grid's edge.
+--
+-- Position is a per-bar setting because there is no placement that always fits: a bar
+-- parked at the top of the screen pushes an "above" line off-screen entirely (field
+-- report: only the duration text stayed visible), while "below" sits against the
+-- RESERVED row count, so it floats away from the icons when fewer rows are in use.
+local function MirrorCornerV(corner)
+    if string.find(corner, "^TOP") then return (string.gsub(corner, "^TOP", "BOTTOM")) end
+    if string.find(corner, "^BOTTOM") then return (string.gsub(corner, "^BOTTOM", "TOP")) end
+    return corner
+end
+local function MirrorCornerH(corner)
+    if string.find(corner, "LEFT$") then return (string.gsub(corner, "LEFT$", "RIGHT")) end
+    if string.find(corner, "RIGHT$") then return (string.gsub(corner, "RIGHT$", "LEFT")) end
+    return corner
+end
+local function EnchantLineSpec(cfg, corner)
     local dir = cfg.growDirection or "LEFT"
+    local below = (string.upper(cfg.enchantLinePosition or "ABOVE") == "BELOW")
     if dir == "UP" or dir == "DOWN" then
-        return ((cfg.iconWrapDirection or "LEFT") == "RIGHT") and -1 or 1, 0
+        local away = ((cfg.iconWrapDirection or "LEFT") == "RIGHT") and -1 or 1
+        if below then return MirrorCornerH(corner), -away, 0 end
+        return corner, away, 0
     end
-    return 0, 1
+    if below then return MirrorCornerV(corner), 0, -1 end
+    return corner, 0, 1
 end
 
 local function CreateBars()
@@ -1611,10 +1632,13 @@ local function CreateBars()
     -- Duration on -- the same gate as the catch-all group). They render with
     -- the bar's live style, so every customization follows automatically.
     if buffCfg.showAllBuffs ~= false or buffCfg.hasDuration == true then
-        local lineX, lineY = EnchantLineOffset(buffCfg)
+        local lineCorner, lineX, lineY = EnchantLineSpec(buffCfg, buffCorner)
         ns._weaponEnchPAB = { parent = buffsParent, corner = buffCorner,
             dir = buffCfg.growDirection or "LEFT",
-            lineX = lineX, lineY = lineY, lineGap = buffGrid.rowGap,
+            lineCorner = lineCorner, lineX = lineX, lineY = lineY,
+            lineGap = buffGrid.rowGap,
+            lineOffX = buffCfg.enchantLineOffsetX or 0,
+            lineOffY = buffCfg.enchantLineOffsetY or 0,
             pad = buffPad, styleKey = STYLE_BUFFS, canCancel = true }
     else
         ns._weaponEnchPAB = nil
@@ -1805,10 +1829,13 @@ local function ApplyLiveConfig(isBuff)
         -- filter state (same broad-content gate as the catch-all group).
         if cfg.showAllBuffs ~= false or cfg.hasDuration == true then
             local liveCorner = BuildContainerSpec(parent, cfg, grid)
-            local lineX, lineY = EnchantLineOffset(cfg)
+            local lineCorner, lineX, lineY = EnchantLineSpec(cfg, liveCorner)
             ns._weaponEnchPAB = { parent = parent, corner = liveCorner,
                 dir = cfg.growDirection or "LEFT",
-                lineX = lineX, lineY = lineY, lineGap = grid.rowGap,
+                lineCorner = lineCorner, lineX = lineX, lineY = lineY,
+                lineGap = grid.rowGap,
+                lineOffX = cfg.enchantLineOffsetX or 0,
+                lineOffY = cfg.enchantLineOffsetY or 0,
                 pad = pad, styleKey = STYLE_BUFFS, canCancel = true }
         else
             ns._weaponEnchPAB = nil
