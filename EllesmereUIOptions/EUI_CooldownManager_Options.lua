@@ -18568,6 +18568,15 @@ initFrame:SetScript("OnEvent", function(self)
         if not isBuffGlowBar
            and (barData.barType == "cooldowns" or barData.barType == "utility") then
             _, h = W:DualRow(parent, y,
+                { type="toggle", text="Show Cooldown Edge",
+                  tooltip="Always show Blizzard's bright rotating edge on cooldowns in this bar. Hide Recharge Edge still overrides this for individual charge spells.",
+                  getValue=function() return BD().showCooldownEdge == true end,
+                  setValue=function(v)
+                      BD().showCooldownEdge = v and true or nil
+                      ns.BuildAllCDMBars(); Refresh()
+                  end },
+                { type="spacer" });  y = y - h
+            _, h = W:DualRow(parent, y,
                 { type="toggle", text="Charges/Stacks Only (No Icon)",
                   tooltip="Hide this bar's icon art, cooldown swipe, recharge edge and cooldown text, leaving only the charge or stack count.",
                   getValue=function() return BD().chargesOnly == true end,
