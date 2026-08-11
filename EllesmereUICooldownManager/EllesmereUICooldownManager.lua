@@ -5876,16 +5876,31 @@ local function RefreshCDMIconAppearance(barKey)
                 -- A hosted buff (buff frame on a CD/util bar) uses the BUFF baseline
                 -- (fill-up), not the cd baseline, so "Reverse" flips the same way it
                 -- would on a real buffs bar.
-                local rfBuff = (barData.barType == "buffs" or barKey == "buffs"
-                    or barData.barType == "custom_buff" or (fd and fd._isBuffViewerFrame)) or false
-                local rfReverse = rfBuff
                 local rfFc = _ecmeFC[icon]
+                -- "Fills like a buff" has to agree with the claim loops in
+                -- EllesmereUICdmHooks (DecorateFrame's isBuff, the CD claim pass's
+                -- wantRev): a hosted buff and its placeholder fill UP even though
+                -- they render on a CD/util bar. Omitting those two kept a hosted
+                -- buff on the cd baseline here, and because this pass writes the
+                -- widget directly it also has to stamp fd._revKind below -- the
+                -- claim-pass repairs are gated on that memo, so an unstamped write
+                -- left the memo and the widget disagreeing and the repair was
+                -- skipped for the rest of the session.
+                local rfBuff = (barData.barType == "buffs" or barKey == "buffs"
+                    or barData.barType == "custom_buff"
+                    or (rfFc and rfFc.isHostedBuff)
+                    or (fd and fd._isBuffViewerFrame)
+                    or icon._isPlaceholderFrame) and true or false
+                local rfReverse = rfBuff
                 local rfSid = rfFc and rfFc.spellID
                 if rfSid then
                     -- Regular per-spell setting (per-bar spellSettings).
                     local rev
                     if ns.ResolveSpellSettings then
-                        local rfSs = ns.ResolveSpellSettings(icon, rfSid, ns.GetBarSpellData(barKey))
+                        -- Pass barKey explicitly: the resolver picks the FAMILY
+                        -- store from the bar identity, and leaving it to be
+                        -- inferred resolves a hosted buff against the CD store.
+                        local rfSs = ns.ResolveSpellSettings(icon, rfSid, ns.GetBarSpellData(barKey), barKey)
                         rev = rfSs and rfSs.reverseSwipe
                     end
                     -- Preset / custom cd-utility spell setting (profile customActiveStates;
@@ -5897,6 +5912,9 @@ local function RefreshCDMIconAppearance(barKey)
                     if rev then rfReverse = not rfBuff end
                 end
                 cd:SetReverse(rfReverse)
+                -- Keep the kind memo equal to what is RENDERED, so the
+                -- kind-gated re-asserts in the claim loops stay sound.
+                if fd then fd._revKind = rfReverse end
             end
             -- Per-spell Hide CD Swipe: removes the cooldown swipe entirely for
             -- cd/utility spells (non-charge -- charge spells use "Hide Swipe (Charges)").

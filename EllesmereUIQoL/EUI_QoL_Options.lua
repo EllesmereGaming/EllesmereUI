@@ -1491,34 +1491,121 @@ initFrame:SetScript("OnEvent", function(self)
                 return not EllesmereUI.QoLExtrasGet("showSecondaryStats")
             end
 
-            -- Color swatch for label color (defaults to class color)
-            local ssSwGet = function()
-                local c = EllesmereUI.QoLExtrasGet("secondaryStatsColor")
-                if c then return c.r, c.g, c.b end
-                local _, cls = UnitClass("player")
-                local cc = cls and EllesmereUI.GetClassColor(cls)
-                if cc then return cc.r, cc.g, cc.b end
-                return 1, 1, 1
+            -- Inline default + class + custom colour swatches, following the
+            -- minimap border's swatch-row convention: the active mode renders
+            -- at full alpha, the others dimmed, each with a naming tooltip.
+            local function ssMode()
+                local m = EllesmereUI.QoLExtrasGet("secondaryStatsColorMode")
+                if m then return m end
+                -- No mode saved: an old profile with a stored color was using it.
+                return EllesmereUI.QoLExtrasGet("secondaryStatsColor") and "custom" or "palette"
             end
-            local ssSwSet = function(r, g, b)
-                EllesmereUI.QoLExtrasSet("secondaryStatsColor", { r = r, g = g, b = b })
+            local ssUpdateState   -- forward: swatches reference it from OnClick
+            local function ssSetMode(v)
+                EllesmereUI.QoLExtrasSet("secondaryStatsColorMode", v)
+                if EllesmereUI._applySecondaryStats then EllesmereUI._applySecondaryStats() end
+                if ssUpdateState then ssUpdateState() end
+            end
+
+            -- Custom swatch (nearest the control): stored custom colour. A
+            -- click switches to custom mode first; a second click opens the
+            -- picker (same two-step as the minimap border swatches).
+            local ssCustom, ssUpdCustom = EllesmereUI.BuildColorSwatch(
+                leftRgn, leftRgn:GetFrameLevel() + 5,
+                function()
+                    local c = EllesmereUI.QoLExtrasGet("secondaryStatsColor")
+                    if c then return c.r, c.g, c.b end
+                    return 1, 1, 1
+                end,
+                function(r, g, b)
+                    EllesmereUI.QoLExtrasSet("secondaryStatsColor", { r = r, g = g, b = b })
+                    EllesmereUI.QoLExtrasSet("secondaryStatsColorMode", "custom")
+                    if EllesmereUI._applySecondaryStats then EllesmereUI._applySecondaryStats() end
+                    if ssUpdateState then ssUpdateState() end
+                end, nil, 20)
+            do
+                local openPicker = ssCustom:GetScript("OnClick")
+                ssCustom:SetScript("OnClick", function(self)
+                    if ssMode() ~= "custom" then ssSetMode("custom") return end
+                    if openPicker then openPicker(self) end
+                end)
+            end
+            PP.Point(ssCustom, "RIGHT", leftRgn._control, "LEFT", -12, 0)
+            leftRgn._lastInline = ssCustom
+
+            -- Class-colour swatch: live player class colour.
+            local ssClass, ssUpdClass = EllesmereUI.BuildColorSwatch(
+                leftRgn, leftRgn:GetFrameLevel() + 5,
+                function()
+                    local cc = EllesmereUI.GetClassColor and EllesmereUI.GetClassColor(select(2, UnitClass("player")))
+                    if cc then return cc.r, cc.g, cc.b end
+                    return 1, 1, 1
+                end,
+                function() end, nil, 20)
+            ssClass:SetScript("OnClick", function() ssSetMode("class") end)
+            PP.Point(ssClass, "RIGHT", leftRgn._lastInline, "LEFT", -8, 0)
+            leftRgn._lastInline = ssClass
+
+            -- Default swatch (outermost): the per-stat palette, previewed by
+            -- its first hue (crit gold).
+            local ssDefault, ssUpdDefault = EllesmereUI.BuildColorSwatch(
+                leftRgn, leftRgn:GetFrameLevel() + 5,
+                function() return 1, 209 / 255, 0 end,
+                function() end, nil, 20)
+            ssDefault:SetScript("OnClick", function() ssSetMode("palette") end)
+            PP.Point(ssDefault, "RIGHT", leftRgn._lastInline, "LEFT", -8, 0)
+            leftRgn._lastInline = ssDefault
+
+            local ssTips = { { ssDefault, "Default" }, { ssClass, "Class Color" }, { ssCustom, "Custom Color" } }
+            for _, e in ipairs(ssTips) do
+                e[1]:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(e[1], e[2]) end)
+                e[1]:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            end
+
+            -- Blocking overlays while Secondary Stat Display is off (shown from
+            -- the single refresh below, like the swatch alphas).
+            local ssBlocks = {}
+            for _, e in ipairs(ssTips) do
+                local sw = e[1]
+                local block = CreateFrame("Frame", nil, sw)
+                block:SetAllPoints()
+                block:SetFrameLevel(sw:GetFrameLevel() + 10)
+                block:EnableMouse(true)
+                block:SetScript("OnEnter", function()
+                    EllesmereUI.ShowWidgetTooltip(sw, EllesmereUI.DisabledTooltip("Secondary Stat Display"))
+                end)
+                block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                ssBlocks[#ssBlocks + 1] = block
+            end
+
+            -- While the display is off every swatch dims flat; while on, the
+            -- active mode is bright and the others dimmed. One refresh owns
+            -- both, plus the swatch fills (class color changes, custom picks).
+            ssUpdateState = function()
+                if ssUpdCustom then ssUpdCustom() end
+                if ssUpdClass then ssUpdClass() end
+                if ssUpdDefault then ssUpdDefault() end
+                local off = statsOff()
+                for _, block in ipairs(ssBlocks) do block:SetShown(off) end
+                local m = not off and ssMode() or nil
+                ssDefault:SetAlpha(m == "palette" and 1 or 0.3)
+                ssClass:SetAlpha(m == "class" and 1 or 0.3)
+                ssCustom:SetAlpha(m == "custom" and 1 or 0.3)
+            end
+            EllesmereUI.RegisterWidgetRefresh(ssUpdateState)
+            ssUpdateState()
+
+            -- Cog popup: Show Tertiary Stats toggle + tertiary swatch pair + Scale
+            local function tsMode()
+                local m = EllesmereUI.QoLExtrasGet("tertiaryStatsColorMode")
+                if m then return m end
+                -- No mode saved: an old profile with a stored color was using it.
+                return EllesmereUI.QoLExtrasGet("tertiaryStatsColor") and "custom" or "class"
+            end
+            local function tsSetMode(v)
+                EllesmereUI.QoLExtrasSet("tertiaryStatsColorMode", v)
                 if EllesmereUI._applySecondaryStats then EllesmereUI._applySecondaryStats() end
             end
-            local ssSwatch, ssUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, ssSwGet, ssSwSet, nil, 20)
-            PP.Point(ssSwatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
-            leftRgn._lastInline = ssSwatch
-
-            -- Blocking overlay for swatch when Secondary Stat Display is off
-            local ssSwBlock = CreateFrame("Frame", nil, ssSwatch)
-            ssSwBlock:SetAllPoints()
-            ssSwBlock:SetFrameLevel(ssSwatch:GetFrameLevel() + 10)
-            ssSwBlock:EnableMouse(true)
-            ssSwBlock:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(ssSwatch, EllesmereUI.DisabledTooltip("Secondary Stat Display"))
-            end)
-            ssSwBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-
-            -- Cog popup: Show Tertiary Stats toggle + Tertiary Label Color + Scale slider
             local _, ssCogShow = EllesmereUI.BuildCogPopup({
                 title = "Secondary Stats Settings",
                 rows = {
@@ -1530,23 +1617,41 @@ initFrame:SetScript("OnEvent", function(self)
                           EllesmereUI.QoLExtrasSet("showTertiaryStats", v)
                           if EllesmereUI._applySecondaryStats then EllesmereUI._applySecondaryStats() end
                       end },
-                    { type = "colorpicker", label = "Tertiary Label Color",
+                    -- Class / custom swatch pair, the same convention as the
+                    -- minimap border row: the active mode at full alpha, a
+                    -- naming tooltip on each swatch.
+                    { type = "multiswatch", label = "Tertiary Label Color",
                       disabled = function()
                           return not EllesmereUI.QoLExtrasGet("showTertiaryStats")
                       end,
                       disabledTooltip = "Show Tertiary Stats",
-                      get = function()
-                          local c = EllesmereUI.QoLExtrasGet("tertiaryStatsColor")
-                          if c then return c.r, c.g, c.b end
-                          local _, cls = UnitClass("player")
-                          local cc = cls and EllesmereUI.GetClassColor(cls)
-                          if cc then return cc.r, cc.g, cc.b end
-                          return 1, 1, 1
-                      end,
-                      set = function(r, g, b)
-                          EllesmereUI.QoLExtrasSet("tertiaryStatsColor", { r = r, g = g, b = b })
-                          if EllesmereUI._applySecondaryStats then EllesmereUI._applySecondaryStats() end
-                      end },
+                      swatches = {
+                          { tooltip = "Class Color",
+                            getValue = function()
+                                local cc = EllesmereUI.GetClassColor and EllesmereUI.GetClassColor(select(2, UnitClass("player")))
+                                if cc then return cc.r, cc.g, cc.b end
+                                return 1, 1, 1
+                            end,
+                            onClick = function() tsSetMode("class") end,
+                            refreshAlpha = function() return tsMode() == "class" and 1 or 0.3 end },
+                          { tooltip = "Custom Color",
+                            getValue = function()
+                                local c = EllesmereUI.QoLExtrasGet("tertiaryStatsColor")
+                                if c then return c.r, c.g, c.b end
+                                return 1, 1, 1
+                            end,
+                            setValue = function(r, g, b)
+                                EllesmereUI.QoLExtrasSet("tertiaryStatsColor", { r = r, g = g, b = b })
+                                EllesmereUI.QoLExtrasSet("tertiaryStatsColorMode", "custom")
+                                if EllesmereUI._applySecondaryStats then EllesmereUI._applySecondaryStats() end
+                            end,
+                            -- First click switches to custom; a second opens the picker.
+                            onClick = function(self, ...)
+                                if tsMode() ~= "custom" then tsSetMode("custom") return end
+                                if self._eabOrigClick then self._eabOrigClick(self, ...) end
+                            end,
+                            refreshAlpha = function() return tsMode() == "custom" and 1 or 0.3 end },
+                      } },
                     { type = "slider", label = "Scale", min = 50, max = 200, step = 5,
                       get = function()
                           local pos = EllesmereUI.QoLExtrasGet("secondaryStatsPos")
@@ -1587,27 +1692,15 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             ssCogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
 
-            -- Refresh: dim + block swatch/cog when toggle is off
-            EllesmereUI.RegisterWidgetRefresh(function()
+            -- Refresh: dim + block the cog with the toggle. The swatches and
+            -- their overlays are owned by ssUpdateState above.
+            local function ssCogRefresh()
                 local off = statsOff()
-                if off then
-                    ssSwatch:SetAlpha(0.3)
-                    ssSwBlock:Show()
-                    ssCogBtn:SetAlpha(0.15)
-                    ssCogBlock:Show()
-                else
-                    ssSwatch:SetAlpha(1)
-                    ssSwBlock:Hide()
-                    ssCogBtn:SetAlpha(0.4)
-                    ssCogBlock:Hide()
-                end
-                ssUpdateSwatch()
-            end)
-            local ssInitOff = statsOff()
-            ssSwatch:SetAlpha(ssInitOff and 0.3 or 1)
-            if ssInitOff then ssSwBlock:Show() else ssSwBlock:Hide() end
-            ssCogBtn:SetAlpha(ssInitOff and 0.15 or 0.4)
-            if ssInitOff then ssCogBlock:Show() else ssCogBlock:Hide() end
+                ssCogBtn:SetAlpha(off and 0.15 or 0.4)
+                ssCogBlock:SetShown(off)
+            end
+            EllesmereUI.RegisterWidgetRefresh(ssCogRefresh)
+            ssCogRefresh()
         end
 
         -- Row 4: Rested Indicator (left) |

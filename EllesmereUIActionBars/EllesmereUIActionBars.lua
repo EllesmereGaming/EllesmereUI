@@ -641,6 +641,9 @@ end
 
 -- Blizzard data bar override (let Blizzard control XP + Rep via Edit Mode)
 defaults.profile.useBlizzardDataBars = false
+-- Stock vehicle / override bar suppression. Opt-in, and inert until switched
+-- on: no frame, no events and no hook exist while it is false.
+defaults.profile.hideBlizzardVehicleBar = false
 
 ns.defaults = defaults
 
@@ -921,12 +924,61 @@ do
     -- (ExtraActionButton1 -- its spell-typed delve abilities have no action
     -- slot, so our own dispatch can't paint their cooldown; only Blizzard's
     -- native update, driven by this broadcaster, can).
-    local _vehNeed, _extraNeed, _broadcasterActive = false, false, false
+    -- A THIRD need, and a partial one: press-and-hold.
+    --
+    -- Empower keys ride the native command, so ACTIONBUTTON<n> resolves through
+    -- GetActionButtonForID to BLIZZARD's button, not ours -- which is why the
+    -- mouse was never affected. Those twins learn their pressAndHoldAction only
+    -- from Update() -> UpdatePressAndHoldAction, reached from the mixin OnEvent,
+    -- and the only thing that ever calls that OnEvent is this broadcaster. With
+    -- it dead the attribute is never initialised at all, so SecureTemplates
+    -- computes releasePressAndHoldAction = (not down) and (pressAndHoldAction or
+    -- CVar) and, with Press and Hold Casting off, key-up has nothing to release
+    -- the empower with. Broken since the empower keys became native, for every
+    -- login, not just after a spec change.
+    --
+    -- We cannot repair those buttons ourselves: writing any field or attribute
+    -- on them from here taints them, and their own later updates then fail
+    -- (blocked SetAttribute, and secret cooldown args rejected). Let Blizzard do
+    -- it in its own untainted execution instead, and buy the smallest possible
+    -- slice of the broadcaster to make that happen.
+    --
+    -- ACTIONBAR_SLOT_CHANGED ONLY, and that is the whole cost story. The event
+    -- the perf campaign profiled out is ACTIONBAR_UPDATE_COOLDOWN, which fires
+    -- ~11x/sec at total idle; this one fires only when a slot actually changes,
+    -- and Blizzard's own handler gates on "arg1 == 0 or arg1 == self.action" so
+    -- a single button does real work per event. Idle cost is zero.
+    local _vehNeed, _extraNeed, _phNeed = false, false, false
+    local _broadcasterMode = "off"
+    -- Class gate, and it exists purely for ORDERING. The survey that sets
+    -- _phNeed reads the action slots, and on a cold login those are still empty
+    -- when it first runs -- so it reports "no press-and-hold", we stay off, and
+    -- the ACTIONBAR_SLOT_CHANGED that arrives WITH the slot data is the one
+    -- event we needed and the one we are not listening for. The class is known
+    -- before any of that and cannot change mid-session, so it turns the listener
+    -- on early enough to catch the first fill. _phNeed remains the general
+    -- path: if press-and-hold ever reaches another class, the survey still
+    -- switches this on without touching this gate.
+    local _classPH
+    local function ClassMayPressHold()
+        if _classPH == nil then
+            local _, class = UnitClass("player")
+            if not class then return false end   -- too early; ask again later
+            _classPH = (class == "EVOKER")
+        end
+        return _classPH
+    end
     local function ApplyBroadcaster()
-        local want = _vehNeed or _extraNeed
-        if want == _broadcasterActive then return end
-        _broadcasterActive = want
-        if want then
+        local want = (_vehNeed or _extraNeed) and "full"
+            or ((_phNeed or ClassMayPressHold()) and "ph" or "off")
+        if want == _broadcasterMode then return end
+        _broadcasterMode = want
+        -- Always drop to a known state first: "full" and "ph" are different
+        -- registration sets, so switching between them directly would leave the
+        -- wider set's events behind.
+        if ActionBarButtonEventsFrame then ActionBarButtonEventsFrame:UnregisterAllEvents() end
+        if ActionBarActionEventsFrame then ActionBarActionEventsFrame:UnregisterAllEvents() end
+        if want == "full" then
             if ActionBarButtonEventsFrame then
                 for _, ev in ipairs(_abefEvents) do
                     ActionBarButtonEventsFrame:RegisterEvent(ev)
@@ -937,10 +989,46 @@ do
                     ActionBarActionEventsFrame:RegisterUnitEvent(ev, "player")
                 end
             end
-        else
-            if ActionBarButtonEventsFrame then ActionBarButtonEventsFrame:UnregisterAllEvents() end
-            if ActionBarActionEventsFrame then ActionBarActionEventsFrame:UnregisterAllEvents() end
+        elseif want == "ph" then
+            if ActionBarButtonEventsFrame then
+                ActionBarButtonEventsFrame:RegisterEvent("ACTIONBAR_SLOT_CHANGED")
+                -- PLAYER_ENTERING_WORLD as well, because SLOT_CHANGED alone
+                -- cannot seed a login. Blizzard gates that one on
+                -- "arg1 == 0 or arg1 == tonumber(self.action)", so a button only
+                -- re-checks when ITS slot is the one that changed -- and at login
+                -- a slot that never changes never fires, leaving that button
+                -- unset while its neighbours are fine. Measured: one empowered
+                -- slot read true at login and the other still false. The PEW
+                -- branch calls self:Update() with no gate at all, so every button
+                -- re-derives once per loading screen. Costs one pass per zone-in.
+                ActionBarButtonEventsFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+            end
         end
+    end
+    -- Driven from UpdateKeybinds, where the press-and-hold survey already runs,
+    -- so a character with no empowered spells never turns this on and pays
+    -- nothing at all.
+    -- No "unchanged value" early-out on purpose: the resolved mode also depends
+    -- on the class gate and on the vehicle/extra needs, so a survey reporting
+    -- the same _phNeed as last time can still need a different mode -- and at
+    -- load it reports false into an already-false _phNeed, which is exactly when
+    -- the class gate has to get its first look. ApplyBroadcaster early-outs on an
+    -- unchanged resolved mode, so calling it unconditionally costs nothing.
+    ns.SetBroadcasterPressHoldNeed = function(v)
+        _phNeed = v and true or false
+        ApplyBroadcaster()
+    end
+    -- For callers that unregister the broadcasters DIRECTLY rather than through
+    -- ApplyBroadcaster. The setup path has a "redundant kill, in case Blizzard
+    -- re-creates them" safety net that runs after we may already have
+    -- registered: it leaves the frames bare while _broadcasterMode still claims
+    -- "ph", and the mode check above then early-outs forever, so we never
+    -- register again. That is precisely how press-and-hold mode ended up
+    -- silently inert -- registered once at login, wiped moments later, and the
+    -- state machine none the wiser. Any direct wipe must come back through here.
+    ns.ResyncBroadcaster = function()
+        _broadcasterMode = "off"   -- the caller has just put the frames in that state
+        ApplyBroadcaster()
     end
     -- Recompute both needs from ground truth -- the actual visibility of the
     -- buttons that depend on the broadcaster -- and apply. We poll visibility on
@@ -1675,8 +1763,28 @@ end
 
 local function HideBlizzardBars()
     -- Fully hide all Blizzard action buttons. We create our own buttons
-    -- instead, so these are parented to a hidden frame and silenced.
+    -- instead, so these are silenced and hidden.
     -- Stance and Pet buttons are still reused, so only hide action buttons.
+    --
+    -- NOT reparented, and that is deliberate. The template sets
+    -- "useparent-actionpage" and then seeds self.action from UpdateAction() in
+    -- its OnLoad, so the button derives its slot from whichever frame is its
+    -- PARENT. Moving it to hiddenParent breaks that inheritance and freezes
+    -- self.action at whatever it resolved to at load -- and Blizzard's own
+    -- ACTIONBAR_SLOT_CHANGED handler gates on
+    -- "arg1 == 0 or arg1 == tonumber(self.action)", so a button with a stale
+    -- cached slot can never match the slot that actually changed and simply
+    -- stops updating. That is what left pressAndHoldAction unset on the
+    -- natively-routed twins and killed Hold and Release on empower KEYBINDS,
+    -- while mouse clicks (which go through our own buttons) were fine.
+    -- Measured in game: at login the twins read pressAndHoldAction=false, and
+    -- only ever flipped true for whichever buttons happened to match, which is
+    -- also why a spec change helped -- it fires arg1 == 0 and bypasses the gate.
+    --
+    -- Leaving them under their real bar costs no visibility: every stock bar is
+    -- in STOCK_BAR_DISPOSAL, which hides it and hooks OnShow to re-hide, so a
+    -- child of one is never drawn. statehidden and Hide still apply here; only
+    -- the reparent had to go.
     for _, info in ipairs(BAR_CONFIG) do
         if info.blizzBtnPrefix and not info.isStance and not info.isPetBar then
             for i = 1, info.count do
@@ -1684,7 +1792,6 @@ local function HideBlizzardBars()
                 if btn then
                     btn:UnregisterAllEvents()
                     btn:SetAttributeNoHandler("statehidden", true)
-                    btn:SetParent(hiddenParent)
                     btn:Hide()
                 end
             end
@@ -2630,13 +2737,73 @@ ns._eabEmpowerSnippet = [[
 -- re-checks (pass 3 of UpdateKeybinds, the combat-drop re-assert) correct
 -- any kept value as soon as identity is readable again.
 
+-- Un-park a slot that "Always Show Buttons" off left hidden. Parking writes
+-- four things (alpha 0, mouse off, statehidden, Hide) and un-parking must undo
+-- all four -- but EnableMouse on a protected button is combat-blocked, so
+-- SafeEnableMouse silently returns and the insecure pass can only restore the
+-- three unprotected ones. A form or page flip that fills the slot mid-combat
+-- therefore left the button VISIBLE (alpha is unprotected) yet deaf to hover
+-- and clicks, while keybinds -- which route through override bindings and need
+-- no mouse -- kept working (reported: druid stance change in combat).
+--
+-- The restore cannot come from the OnShow -> UpdateShown wrapper: that snippet
+-- gates on not IsShown(), and OnShow fires after the frame is already shown.
+-- It has to happen here, before the Show. Gated on the hidden->shown edge so a
+-- live on-cooldown alpha on an already-visible button is never stomped, and on
+-- eab-click so a reveal never makes a click-through bar clickable.
+ns._eabPageUnparkSnippet = [[
+if not self:IsShown() then
+    self:SetAlpha(1)
+    if (self:GetAttribute('eab-click') or 1) ~= 0 then
+        self:EnableMouse(true)
+    end
+end
+]]
+
 -- Build the _childupdate-eab-page snippet for a button at the given 1-based bar
--- index. On a page change: action = baseIndex + (page-1)*12, then re-check
--- hold-release. ALL install sites (SetupBar, RebuildBarPaging) call this so the
--- handler is byte-identical everywhere -- the page change rewrites the secure
--- "action" attribute (our buttons are ID=0, so actionpage is never consulted).
+-- index. On a page change: action = baseIndex + (page-1)*12, re-evaluate parked
+-- visibility, then re-check hold-release. ALL install sites (SetupBar,
+-- RebuildBarPaging) call this so the handler is byte-identical everywhere --
+-- the page change rewrites the secure "action" attribute (our buttons are
+-- ID=0, so actionpage is never consulted).
+--
+-- The visibility half is gated on eab-showempty EXISTING: it is stamped by
+-- ApplyAlwaysShowButtons out of combat, and a button that has never seen a
+-- stamp keeps the pre-existing behaviour (action only, visibility left to the
+-- controller's deferred UpdateShown) rather than guessing at a default.
+ns._eabPageVisSnippet = [[
+local showEmpty = self:GetAttribute('eab-showempty')
+if showEmpty then
+    local withinCutoff = self:GetAttribute('eab-withincutoff') ~= 0
+    local visible = withinCutoff
+    if visible and showEmpty == 0 then
+        visible = HasAction(slot)
+    end
+    -- A transient grid reveal outranks the empty-slot park, exactly as
+    -- UpdateShown does: a page flip during a combat spell drag must not
+    -- delete the drop targets under the cursor. Bits 2+ only -- bit 1 is
+    -- Blizzard's CVAR reason and is not a transient reveal. statehidden is
+    -- cleared only for a genuinely filled slot, so drag end still re-parks.
+    local grid = self:GetAttribute('showgrid') or 0
+    local transient = withinCutoff and (grid % 32) >= 2
+    if visible or transient then
+        if visible and self:GetAttribute('statehidden') then
+            self:SetAttribute('statehidden', nil)
+        end
+]] .. ns._eabPageUnparkSnippet .. [[
+        self:Show(true)
+    else
+        if not self:GetAttribute('statehidden') then
+            self:SetAttribute('statehidden', true)
+        end
+        self:Hide(true)
+    end
+end
+]]
+
 function ns._eabBuildPageChildSnippet(baseIndex)
-    return ("local page = tonumber(message) or 1; self:SetAttribute('action', %d + (page - 1) * 12)"):format(baseIndex) .. ns._eabEmpowerSnippet
+    return ("local page = tonumber(message) or 1; local slot = %d + (page - 1) * 12; self:SetAttribute('action', slot)\n"):format(baseIndex)
+        .. ns._eabPageVisSnippet .. ns._eabEmpowerSnippet
 end
 
 -------------------------------------------------------------------------------
@@ -8001,9 +8168,15 @@ function EAB:ApplyAlwaysShowButtons(barKey)
 
             -- Stamp the secure-side facts the restricted reveal needs
             -- (see the SetShowGrid snippet): this button is within the icon
-            -- cutoff, and whether a reveal may enable mouse clicks.
+            -- cutoff, whether empty slots are shown at all, and whether a
+            -- reveal may enable mouse clicks. eab-showempty is what lets the
+            -- paging snippet (ns._eabPageVisSnippet) re-evaluate a parked slot
+            -- during combat on every bar, not just MainBar -- without it a
+            -- custom-paged bar 2-10 leaves the slot statehidden for the whole
+            -- fight.
             if not InCombatLockdown() then
                 btn:SetAttributeNoHandler("eab-withincutoff", 1)
+                btn:SetAttributeNoHandler("eab-showempty", showEmpty and 1 or 0)
                 btn:SetAttributeNoHandler("eab-click", clickable and 1 or 0)
             end
             if not visible then
@@ -8052,6 +8225,7 @@ function EAB:ApplyAlwaysShowButtons(barKey)
                 -- Cutoff buttons are excluded from the secure drag reveal:
                 -- revealing them would paint slots the user configured away.
                 btn:SetAttributeNoHandler("eab-withincutoff", 0)
+                btn:SetAttributeNoHandler("eab-showempty", showEmpty and 1 or 0)
                 btn:SetAttributeNoHandler("statehidden", true)
                 btn:Hide()
             end
@@ -8118,24 +8292,37 @@ function EAB_VTABLE.MainBarPageSync.InstallButton(btn)
     local info = buttonToBar[btn]
     local baseIdx = info and info.index or 1
 
+    -- Only the slot arithmetic is interpolated. The body is concatenated raw:
+    -- it contains a modulo, and string.format eats a bare "%" as a broken
+    -- conversion spec.
     btn:SetAttributeNoHandler("_childupdate-eab-page", ([[
         local page = tonumber(message) or 1
         local slot = %d + (page - 1) * %d
         self:SetAttribute("action", slot)
-        local visible = self:GetAttribute("eab-withincutoff") ~= 0
+    ]]):format(baseIdx, NUM_ACTIONBAR_BUTTONS) .. [[
+        local withinCutoff = self:GetAttribute("eab-withincutoff") ~= 0
+        local visible = withinCutoff
 
         if visible and self:GetAttribute("eab-showempty") == 0 then
             visible = HasAction(slot)
         end
 
+        -- Transient grid reveal outranks the empty-slot park (see
+        -- ns._eabPageVisSnippet, which carries the same rule for bars 2-10):
+        -- a page flip during a combat spell drag must not delete the drop
+        -- targets. Bits 2+ only -- bit 1 is Blizzard's CVAR reason.
+        local grid = self:GetAttribute("showgrid") or 0
+        local transient = withinCutoff and (grid % 32) >= 2
+
         local hidden = self:GetAttribute("statehidden")
         local changed = false
 
-        if visible then
-            if hidden then
+        if visible or transient then
+            if visible and hidden then
                 self:SetAttribute("statehidden", nil)
                 changed = true
             end
+    ]] .. ns._eabPageUnparkSnippet .. [[
             self:Show(true)
         else
             if not hidden then
@@ -8149,7 +8336,7 @@ function EAB_VTABLE.MainBarPageSync.InstallButton(btn)
             local token = self:GetAttribute("eab-pagesync-token") or 0
             self:SetAttribute("eab-pagesync-token", token == 0 and 1 or 0)
         end
-    ]]):format(baseIdx, NUM_ACTIONBAR_BUTTONS))
+    ]])
 
     btn:SetAttributeNoHandler("_eabPageSyncInstalled", true)
 end
@@ -10131,6 +10318,14 @@ do
         -- "CTRL-Q" → "Q"). IsKeyDown only accepts raw key names.
         local function BaseKey(binding)
             if not binding then return nil end
+            -- The hyphen/minus key is itself bound as the literal string "-"
+            -- (default ACTIONBUTTON11 keybind). A modifier combo ending in
+            -- the hyphen key (e.g. "SHIFT--") also ends in "-". In both
+            -- cases the trailing character IS the base key, so check for
+            -- that before stripping the "everything after the last '-'"
+            -- modifier prefix -- otherwise the pattern below finds no
+            -- non-hyphen run and returns nil.
+            if binding:sub(-1) == "-" then return "-" end
             return binding:match("[^%-]+$")
         end
         local function ShowPushedForSlot(slot)
@@ -11332,7 +11527,7 @@ local function UpdateKeybinds()
     -- editor close (housingCleared reset -> UpdateKeybinds; sigValid stays
     -- false while cleared, so that rebuild is never skipped).
     if _bindState.housingCleared then return false end
-    -- Empower/flyout detection for one action slot, shared by the current-page
+    -- Empower detection for one action slot, shared by the current-page
     -- and base-slot checks in pass 1.
     local function SlotIsPH(slot)
         if not (slot and HasAction(slot)) then return false end
@@ -11351,6 +11546,17 @@ local function UpdateKeybinds()
             end
         end
         return false
+    end
+    -- Flyout detection, split out from SlotIsPH. A flyout MUST click-route to
+    -- our visible EABButton: SpellFlyout:Toggle anchors to self, and native
+    -- command routing (ACTIONBUTTONn) fires on Blizzard's original button,
+    -- which we hide/reparent off-screen (see stock-bar hiding above) --
+    -- opening the popup there produces no visible menu even though the key
+    -- was received. Empowers have no popup to anchor, so they're unaffected
+    -- and must stay on the native command (see routing comment below).
+    local function SlotIsFlyout(slot)
+        if not (slot and HasAction(slot)) then return false end
+        return GetActionInfo(slot) == "flyout"
     end
     -- Pass 1: compute per-button routing signature (k1, k2, useClick, isPH)
     -- and compare against the last applied build.
@@ -11402,7 +11608,8 @@ local function UpdateKeybinds()
                     local cmd = prefix .. i
                     local k1, k2 = GetBindingKey(cmd)
                     -- Routing is native for everything on standard bars,
-                    -- empowers included: the engine's keystate-paired
+                    -- empowers included (flyouts are the exception -- see
+                    -- isFlyout below): the engine's keystate-paired
                     -- hold-and-release is the only queue-safe empower path
                     -- (stateless click routes latch queued releases at
                     -- rank 1). Click routing exists ONLY where a native
@@ -11412,13 +11619,14 @@ local function UpdateKeybinds()
                     -- Custom bars (Bar9/Bar10) have no native binding command, so
                     -- their keys MUST route through the button (SetOverrideBindingClick);
                     -- SetOverrideBinding to a non-existent command would do nothing.
-                    -- isPH tracks empower/flyout separately from useClick: on a
+                    -- isPH tracks empower state separately from useClick: on a
                     -- custom-paged bar useClick is always true, but the secure
                     -- empower snippet still needs a re-trigger when a slot's
                     -- press-and-hold state flips.
                     local isPH = SlotIsPH(slot)
-                    -- Base-slot check: isPH no longer decides ROUTING (keys
-                    -- are native either way); it stays in the signature so
+                    -- Base-slot check: isPH no longer decides ROUTING on its
+                    -- own (empowers stay native either way); it stays in the
+                    -- signature so
                     -- pass 3 re-fires the attr re-check when a slot's
                     -- press-and-hold state genuinely changes (mouse-click
                     -- correctness), and it feeds the combat-drop re-assert
@@ -11428,6 +11636,7 @@ local function UpdateKeybinds()
                     -- mount and dismount (skyriding page flips). Guarded on
                     -- the offsets table so Pet/Stance buttons (action attr
                     -- nil) never alias into MainBar slots.
+                    local isFlyout = SlotIsFlyout(slot)
                     if not isPH then
                         local off = BAR_SLOT_OFFSETS[info.key]
                         if off then
@@ -11438,9 +11647,12 @@ local function UpdateKeybinds()
                         end
                     end
                     if isPH then anyPH = true end
-                    -- isPH deliberately NOT part of the routing decision:
-                    -- empower keys must ride the native command.
-                    local useClick = barHasCustomPaging or (info.customPage ~= nil)
+                    -- isPH (empower) deliberately NOT part of the routing
+                    -- decision: empower keys must ride the native command.
+                    -- isFlyout IS part of it: flyouts need self to be the
+                    -- visible button so SpellFlyout anchors somewhere the
+                    -- player can actually see.
+                    local useClick = barHasCustomPaging or (info.customPage ~= nil) or isFlyout
                     k1 = k1 or false
                     k2 = k2 or false
                     if sig[n + 1] ~= k1 or sig[n + 2] ~= k2
@@ -11458,6 +11670,12 @@ local function UpdateKeybinds()
     -- combat-drop attr re-assert knows whether any press-and-hold slot
     -- exists at all -- non-empower classes never pay for it.
     _bindState.hasPH = anyPH
+    -- Same survey drives the broadcaster's press-and-hold need: Blizzard's twin
+    -- buttons are what a natively-routed empower key actually drives, and only
+    -- the broadcaster can keep their pressAndHoldAction current (we cannot write
+    -- it ourselves without tainting them). Costs nothing for a character with no
+    -- press-and-hold slots, which is every class but one.
+    if ns.SetBroadcasterPressHoldNeed then ns.SetBroadcasterPressHoldNeed(anyPH) end
     if not changed then return false end
     _bindState.sigValid = true
     -- Pass 2: apply. Reads the routing decisions computed above.
@@ -11640,6 +11858,144 @@ do
             end
         end)
     end
+end
+
+-------------------------------------------------------------------------------
+--  Hide Blizzard's Vehicle / Override Bar  (opt-in)
+--
+--  Nothing is lost when it is on: bar 1 already pages to
+--  [vehicleui][possessbar], so the vehicle's own slots appear there, and
+--  MainMenuBarVehicleLeaveButton is reparented to UIParent just above.
+--
+--  Suppression is alpha + mouse on the BAR ITSELF, never SetParent and never
+--  Hide. OverrideActionBar is a protected, EditMode-managed frame: reparenting
+--  it taints Blizzard's transition code and blocks the next vehicle, while
+--  SetAlpha is unprotected, works in combat and needs no /reload to undo.
+--
+--  Deliberately NOT recursive. Walking Blizzard's frame tree to force mouse
+--  state on descendants is how you end up owning frames you never meant to,
+--  and re-enabling them blind on the way back out is worse -- it hands the
+--  player a mouse state Blizzard never set. Only the top-level frame is
+--  touched, and only what we disabled is restored.
+--
+--  The micro menu is the one descendant that matters, because Blizzard docks
+--  it INTO this bar and it would inherit alpha 0. That is solved by moving it
+--  out (see ReclaimMicroMenu), not by disabling it in place.
+-------------------------------------------------------------------------------
+
+-- Snapshot where MicroMenu lives while it is still home, so the reclaim has a
+-- real anchor to restore instead of guessing one.
+function EAB:CacheMicroMenuHome()
+    if self._eabMicroHome then return end
+    if not (MicroMenu and MicroMenu.GetPoint) then return end
+    -- Never snapshot while Blizzard has it docked elsewhere. Reloading inside a
+    -- vehicle would otherwise record the DOCKED anchor as "home", and every
+    -- later reclaim would faithfully restore it to the wrong place -- silently,
+    -- since the cache is write-once.
+    if self:MicroMenuDockedIn(OverrideActionBar) then return end
+    local p, rel, relP, x, y = MicroMenu:GetPoint(1)
+    if p then
+        self._eabMicroHome = { p, rel, relP, x or 0, y or 0 }
+    end
+end
+
+-- Blizzard docks MicroMenu several levels deep, so a one-level parent test
+-- misses it. Walk the chain.
+function EAB:MicroMenuDockedIn(root)
+    if not (MicroMenu and root) then return false end
+    local p = MicroMenu.GetParent and MicroMenu:GetParent()
+    local guard = 0
+    while p and guard < 8 do
+        if p == root then return true end
+        p = p.GetParent and p:GetParent()
+        guard = guard + 1
+    end
+    return false
+end
+
+-- Hand MicroMenu back to its own container. Without this it stays parented
+-- inside the bar, inherits alpha 0, and sits invisible on top of the vehicle
+-- exit button still taking clicks.
+--
+-- ResetMicroMenuPosition() looks like the right call and is not: it re-derives
+-- the dock from CURRENT game state, and with a vehicle up that resolves right
+-- back to the bar being hidden, so the reclaim silently no-ops. Force the
+-- parent and restore the cached anchor instead.
+function EAB:ReclaimMicroMenu()
+    if InCombatLockdown() then return end
+    if not (MicroMenu and MicroMenuContainer) then return end
+    self:CacheMicroMenuHome()
+    if not self:MicroMenuDockedIn(OverrideActionBar) then return end
+    MicroMenu:SetParent(MicroMenuContainer)
+    local h = self._eabMicroHome
+    if h then
+        MicroMenu:ClearAllPoints()
+        MicroMenu:SetPoint(h[1], h[2] or MicroMenuContainer, h[3], h[4], h[5])
+    end
+    MicroMenu:SetAlpha(1)
+end
+
+function EAB:ApplyVehicleBarVisibility()
+    local bar = OverrideActionBar
+    if not bar then return end
+    local hide = self.db and self.db.profile and self.db.profile.hideBlizzardVehicleBar
+    if hide then
+        self:ReclaimMicroMenu()
+        bar:SetAlpha(0)
+        -- Guarded so the restore below can only ever undo OUR change: if the
+        -- bar already had mouse off for Blizzard's own reasons, we never
+        -- touched it and must not switch it back on.
+        if not self._eabVehMouseOff then
+            self._eabVehMouseOff = true
+            SafeEnableMouse(bar, false)
+        end
+    else
+        bar:SetAlpha(1)
+        if self._eabVehMouseOff then
+            self._eabVehMouseOff = nil
+            SafeEnableMouse(bar, true)
+        end
+    end
+end
+
+-- Arm or disarm the watch. Everything is created on first enable, so a user
+-- who never turns this on pays nothing: no event frame, no registrations and
+-- no OnShow hook are ever created.
+--
+-- HookScript cannot be undone, so the hook is installed at most once and is
+-- gated on the setting from the inside; disabling unregisters the events,
+-- which is what actually stops the work.
+function EAB:UpdateVehicleBarWatch()
+    local on = self.db and self.db.profile and self.db.profile.hideBlizzardVehicleBar
+    local f = self._eabVehWatch
+    if not on then
+        if f then f:UnregisterAllEvents() end
+        self:ApplyVehicleBarVisibility()
+        return
+    end
+    if not f then
+        f = ns.TakeShell()
+        f:SetScript("OnEvent", function()
+            EAB:CacheMicroMenuHome()
+            EAB:ApplyVehicleBarVisibility()
+        end)
+        self._eabVehWatch = f
+    end
+    f:RegisterEvent("PLAYER_ENTERING_WORLD")
+    -- The bar's own OnShow is the deterministic edge: Blizzard raises it as
+    -- part of the transition, so there is nothing to race and no need to poll
+    -- a ladder of timers. One deferred re-assert follows it because the micro
+    -- menu dock can land in the same frame, just after the show.
+    if not self._eabVehShowHooked and OverrideActionBar then
+        self._eabVehShowHooked = true
+        OverrideActionBar:HookScript("OnShow", function()
+            if not (EAB.db and EAB.db.profile
+                    and EAB.db.profile.hideBlizzardVehicleBar) then return end
+            EAB:ApplyVehicleBarVisibility()
+            C_Timer_After(0, function() EAB:ApplyVehicleBarVisibility() end)
+        end)
+    end
+    self:ApplyVehicleBarVisibility()
 end
 
 -------------------------------------------------------------------------------
@@ -14091,6 +14447,11 @@ function EAB:FinishSetup()
         -- Redundant kill here as safety net in case Blizzard re-creates them.
         if _G.ActionBarButtonEventsFrame then _G.ActionBarButtonEventsFrame:UnregisterAllEvents() end
         if _G.ActionBarActionEventsFrame then _G.ActionBarActionEventsFrame:UnregisterAllEvents() end
+        -- ...then hand control back to the mode machine. This safety net runs
+        -- after the press-and-hold mode may already have registered, so without
+        -- the resync it silently wipes that registration and the mode check
+        -- believes it is still active, leaving empower keybinds unfixable.
+        if ns.ResyncBroadcaster then ns.ResyncBroadcaster() end
     end)
 
     -- Hook Show on stock bars so they can never re-appear regardless
@@ -14128,6 +14489,7 @@ function EAB:FinishSetup()
     -- ApplyAll pass is a no-op for these. Extra bars (built on a later
     -- timer) are nil-skipped here, exactly as on a normal login.
     self:ApplyCombatVisibility()
+    self:UpdateVehicleBarWatch()
 
     -- Dormancy initial sync: bars that START hidden never fire an OnHide
     -- edge, and the creation-time OnHide fired before buttons existed. Runs

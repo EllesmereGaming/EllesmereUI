@@ -10139,6 +10139,14 @@ initFrame:SetScript("OnEvent", function(self)
                                 -- opens on hover (Exclude / Include / Apply to Bar), never by
                                 -- re-selecting the value. A bar-applied "+ " toggle counts too.
                                 local function itemIsBarApplied()
+                                    -- A hosted buff never chains to the bar tiers (its
+                                    -- effective read passes nil for the bar/spec tiers,
+                                    -- and the runtime resolver strips them too), so a
+                                    -- bar-wide apply can never drive it. Reporting
+                                    -- "bar applied" here would dead-lock its toggle
+                                    -- rows: the OnClick bails on bar-applied items and
+                                    -- hosted rows have no Apply strip to escape through.
+                                    if hostedBuffNoApply then return false end
                                     if not (applyKeys and AB.KeysBarApplied(applyKeys)) then return false end
                                     if isChargeToggle or isActiveBorder or isFnToggle then return true end
                                     local barTier = ns.GetBarTierSettings and ns.GetBarTierSettings(sd, barKey)
@@ -10358,7 +10366,11 @@ initFrame:SetScript("OnEvent", function(self)
                                     --    is the break-out for a bar-applied-ON toggle.)
                                     -- Once the spell owns a value it reports editable and
                                     -- writes straight through (the excluded state).
-                                    if AB.KeysBarApplied(applyKeys) and not AB.SpellHasOwn(applyKeys) then
+                                    -- canApply: hosted-buff rows (and rows with no apply
+                                    -- write) never enter the break-out flow -- it flashes
+                                    -- an Apply strip those rows suppress -- they just
+                                    -- write their own value below.
+                                    if canApply and AB.KeysBarApplied(applyKeys) and not AB.SpellHasOwn(applyKeys) then
                                         if not (isChargeToggle or isActiveBorder or isFnToggle) then
                                             local cv = getVal()
                                             if (cv == item.val) or (cv == nil and item.val == nil) then
@@ -19000,6 +19012,20 @@ initFrame:SetScript("OnEvent", function(self)
                   end
               end });  y = y - h
 
+        -- Show Item Quality: the crafted-rank pip the action bars draw for
+        -- ranked items, for tracked items here. Off by default. Ranks of a
+        -- potion share their icon art, so two entries for different ranks are
+        -- otherwise indistinguishable on the bar.
+        _, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Show Item Quality",
+              tooltip = "Show the crafted quality rank on tracked items, matching the rank icon on the action bars. Items with no crafted quality are unaffected.",
+              getValue = function() return BD().showItemQuality == true end,
+              setValue = function(v)
+                  BD().showItemQuality = v
+                  if ns.FullCDMRebuild then ns.FullCDMRebuild("item_quality_toggle") end
+              end },
+            { type = "label", text = "" });  y = y - h
+
         end -- custom_buff extras guard
 
         return math.abs(y)
@@ -19280,6 +19306,11 @@ initFrame:SetScript("OnEvent", function(self)
                     _G._ECME_AceDB.sv._capturedOnce_CDM = nil
                 end
             end
+            -- Learned variant->base pairs are game data rather than settings,
+            -- but they sit on the SV root where StripDefaults and the profile
+            -- system never reach, so a pair learned wrong would survive every
+            -- other reset. This is the only path that clears them.
+            if ns.ResetVariantBaseStore then ns.ResetVariantBaseStore() end
             -- Wipe spell assignments for the current spec so the init
             -- snapshot re-populates from Blizzard's CDM. Spell data lives
             -- in EllesmereUIDB (per-profile store), not the AceDB profile, so

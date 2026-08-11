@@ -387,6 +387,29 @@ local function CreateDisplaySlot()
     slot.icon.timeText:SetText("")
     slot.icon:Hide()
 
+    -- PROTOTYPE: engine-drawn countdown for text modes. See ShowEngineCountdown.
+    slot.cdNum = CreateFrame("Cooldown", nil, slot, "CooldownFrameTemplate")
+    slot.cdNum:SetDrawSwipe(false)
+    slot.cdNum:SetDrawEdge(false)
+    if slot.cdNum.SetDrawBling then slot.cdNum:SetDrawBling(false) end
+    slot.cdNum:SetHideCountdownNumbers(false)
+    if slot.cdNum.SetCountdownFont then
+        slot.cdNum:SetCountdownFont("EUI_MovementAlertCdFont")
+    end
+    -- Blizzard suppresses countdown text on short cooldowns by default, which
+    -- would silently drop the number on exactly the short mobility cooldowns
+    -- this feature exists for.
+    if slot.cdNum.SetMinimumCountdownDuration then
+        slot.cdNum:SetMinimumCountdownDuration(0)
+    end
+    -- The engine exposes the FontString it draws into, so the number can be
+    -- placed and sized against our own text instead of being inferred from the
+    -- host frame's geometry (which is what made it render at a different size).
+    if slot.cdNum.GetCountdownFontString then
+        slot.cdNumText = slot.cdNum:GetCountdownFontString()
+    end
+    slot.cdNum:Hide()
+
     slot.bar = CreateFrame("StatusBar", nil, slot)
     slot.bar:SetSize(150, 20)
     slot.bar:SetPoint("CENTER")
@@ -440,6 +463,13 @@ local function StyleSlot(slot)
     end
     slot.text:SetTextColor(tR, tG, tB)
     slot.icon.timeText:SetTextColor(tR, tG, tB)
+    -- Pin the engine's countdown FontString to the same font object and colour
+    -- every pass: left alone it sizes itself against its host frame rather than
+    -- the user's Text Size.
+    if slot.cdNumText then
+        slot.cdNumText:SetFontObject(movementCdFont)
+        slot.cdNumText:SetTextColor(tR, tG, tB)
+    end
 
     local barH = math.max(12, math.floor(frameH * 0.5))
     local barW = frameW - (ma.barShowIcon ~= false and (barH + 8) or 0) - 10
@@ -455,6 +485,10 @@ local function StyleSlot(slot)
     else
         movementCdFont:SetFont(fontPath, fontSize, outline)
     end
+    -- The engine draws its countdown numbers straight from this font object,
+    -- so the colour has to live here too or the prototype's number ignores the
+    -- user's Text Colour.
+    movementCdFont:SetTextColor(tR, tG, tB)
 
     -- Bar texture (change-guarded: StyleSlot runs on every poll tick)
     local texPath = (EllesmereUI.ResolveTexturePath
@@ -467,6 +501,156 @@ local function StyleSlot(slot)
 
     local iconSz = math.max(16, math.min(128, ma.iconSize or 40))
     slot.icon:SetSize(iconSz, iconSz)
+end
+
+-------------------------------------------------------------------------------
+--  PROTOTYPE: engine-drawn countdown for the text modes
+--
+--  A secret remaining cannot be formatted in Lua (that is the 0.0 bug), but
+--  the ENGINE can draw it: a Cooldown widget handed the same duration object
+--  renders the number itself, which is exactly why icon mode still counts down
+--  in combat. Everything except the number is switched off here, so all this
+--  widget contributes is text sitting beside the name.
+--
+--  The assumption this exists to test: Blizzard READS countdownForCooldowns
+--  and passes it into SetHideCountdownNumbers for its own buttons
+--  (Blizzard_ActionBar/Shared/ActionButton.lua), so the CVar gates Blizzard's
+--  buttons rather than the widget. Forcing false should therefore draw numbers
+--  whatever the user's CVar says. The comments elsewhere in this file claim
+--  otherwise; if they are right, this renders nothing and the prototype dies.
+-------------------------------------------------------------------------------
+-- The duration OBJECT is the only safe way to drive this. Cooldown:SetCooldown
+-- is SecretArguments = "AllowedWhenUntainted", so handing it the secret start
+-- and duration from the cdInfo path would error out of our own tainted ticker;
+-- the object itself is not a secret value, so passing it is fine. When there is
+-- no object there is simply no number, which is the same degradation as before.
+local function BindEngineCountdown(cd, duration)
+    if duration and cd.SetCooldownFromDurationObject then
+        cd:SetCooldownFromDurationObject(duration)
+        return true
+    end
+    return false
+end
+
+local function HideEngineCountdown(slot)
+    if slot.cdNum then slot.cdNum:Hide() end
+    -- ShowEngineCountdown slides the name off centre to make room for the
+    -- number, so every render has to start from the plain centred layout or
+    -- the offset accumulates across modes.
+    if slot.text then
+        slot.text:ClearAllPoints()
+        slot.text:SetPoint("CENTER")
+    end
+end
+
+local function ShowEngineCountdown(slot, displayMode, duration)
+    local cd = slot.cdNum
+    if not cd then return false end
+    local ma = MA()
+    local fontSize = math.max(8, math.min(72, ma.textSize or 24))
+    -- Decimals: this is the engine's version of the Show Decimal toggle. Above
+    -- the threshold it prints whole seconds, below it one decimal place, so
+    -- "always" is a threshold past any cooldown and "never" is zero.
+    local precision = ((tonumber(ma.precision) or 1) > 0) and 1 or 0
+    if cd.SetCountdownMillisecondsThreshold then
+        cd:SetCountdownMillisecondsThreshold(precision == 1 and 86400 or 0)
+    end
+    -- Blizzard abbreviates past two minutes by default, so a 90s cooldown would
+    -- print "1:30" where every other path in this feature prints "90".
+    if cd.SetCountdownAbbrevThreshold then
+        cd:SetCountdownAbbrevThreshold(0)
+    end
+    -- Layout. The number is a separate object from the name, so the pair has to
+    -- be centred as a unit: reserve a fixed width for the number and slide the
+    -- name half of that the other way. The width is RESERVED rather than
+    -- measured because the number's own width changes as it counts down
+    -- (100.0 -> 9.9), and centring on a measured width would shuffle the name
+    -- sideways on every tick.
+    local gap = math.max(2, fontSize * 0.15)
+    local reserved = fontSize * (precision == 1 and 2.4 or 1.6)
+    local shift = (reserved + gap) / 2
+    local numberFirst = (displayMode ~= "text_nd")
+
+    slot.text:ClearAllPoints()
+    slot.text:SetPoint("CENTER", slot, "CENTER", numberFirst and shift or -shift, 0)
+
+    -- Position the FontString itself when the engine hands it over, so the
+    -- number matches our own text exactly; fall back to moving the host frame
+    -- (whose centred number only approximates the same place) when it does not.
+    cd:ClearAllPoints()
+    local fs = slot.cdNumText
+    if fs then
+        cd:SetSize(1, 1)
+        cd:SetPoint("CENTER", slot.text, "CENTER", 0, 0)
+        fs:ClearAllPoints()
+        -- No SetWidth: the anchor below already grows the digits outward, and a
+        -- hard width clips five-glyph values like "120.0" (Stampeding Roar).
+        -- reserved is only an estimate for the centring shift above.
+        if numberFirst then
+            fs:SetJustifyH("RIGHT")
+            fs:SetPoint("RIGHT", slot.text, "LEFT", -gap, 0)
+        else
+            fs:SetJustifyH("LEFT")
+            fs:SetPoint("LEFT", slot.text, "RIGHT", gap, 0)
+        end
+    else
+        cd:SetSize(reserved, fontSize * 1.4)
+        if numberFirst then
+            cd:SetPoint("RIGHT", slot.text, "LEFT", -gap, 0)
+        else
+            cd:SetPoint("LEFT", slot.text, "RIGHT", gap, 0)
+        end
+    end
+    if not BindEngineCountdown(cd, duration) then
+        -- Nothing to drive the number with: undo the room made for it, or the
+        -- name is left sitting off centre with an empty gap beside it.
+        HideEngineCountdown(slot)
+        return false
+    end
+    cd:Show()
+    return true
+end
+
+-- Bar mode's number lives centred in the bar with no name beside it, so it
+-- needs the binding but none of the two-object layout above.
+local function ShowEngineCountdownCentred(slot, anchor, duration)
+    local cd = slot.cdNum
+    if not cd then return false end
+    local ma = MA()
+    local fontSize = math.max(8, math.min(72, ma.textSize or 24))
+    local precision = ((tonumber(ma.precision) or 1) > 0) and 1 or 0
+    if cd.SetCountdownMillisecondsThreshold then
+        cd:SetCountdownMillisecondsThreshold(precision == 1 and 86400 or 0)
+    end
+    -- Blizzard abbreviates past two minutes by default, so a 90s cooldown would
+    -- print "1:30" where every other path in this feature prints "90".
+    if cd.SetCountdownAbbrevThreshold then
+        cd:SetCountdownAbbrevThreshold(0)
+    end
+    cd:ClearAllPoints()
+    -- The host frame is created before slot.bar, so without this the number is
+    -- painted under the bar's background and fill and never appears.
+    if anchor.GetFrameLevel then
+        cd:SetFrameLevel(anchor:GetFrameLevel() + 5)
+    end
+    local fs = slot.cdNumText
+    if fs then
+        cd:SetSize(1, 1)
+        cd:SetPoint("CENTER", anchor, "CENTER", 0, 0)
+        fs:ClearAllPoints()
+        fs:SetWidth(0)
+        fs:SetJustifyH("CENTER")
+        fs:SetPoint("CENTER", anchor, "CENTER", 0, 0)
+    else
+        cd:SetSize(fontSize * 3, fontSize * 1.4)
+        cd:SetPoint("CENTER", anchor, "CENTER", 0, 0)
+    end
+    if not BindEngineCountdown(cd, duration) then
+        cd:Hide()
+        return false
+    end
+    cd:Show()
+    return true
 end
 
 -------------------------------------------------------------------------------
@@ -917,7 +1101,7 @@ local function HideMovementDisplay()
     wipe(readyAlertShown)
     movementFrame:Hide()
     for _, slot in ipairs(displayPool) do
-        slot.text:Hide(); slot.icon:Hide(); slot.icon.cooldown:Clear(); slot.bar:Hide(); slot:Hide()
+        slot.text:Hide(); slot.icon:Hide(); slot.icon.cooldown:Clear(); slot.bar:Hide(); HideEngineCountdown(slot); slot:Hide()
     end
     activeSlotCount = 0
     CancelMovementCountdown()
@@ -951,6 +1135,7 @@ local function ShowMovementSlot(index, cdInfo, spellEntry, duration)
     end
 
     slot.text:Hide(); slot.icon:Hide(); slot.bar:Hide()
+    HideEngineCountdown(slot)
 
     -- Start-recovery branch. GetSpellCooldown's timeUntilEndOfStartRecovery
     -- is ALWAYS present as a number on this client (0 outside an actual
@@ -997,13 +1182,21 @@ local function ShowMovementSlot(index, cdInfo, spellEntry, duration)
 
     local cdRemaining, cdStart, cdDuration, cdModRate
     local hasSecretDuration = false
+    -- True only when the duration OBJECT supplied the values below. The engine
+    -- countdown is driven from that object, so anything resolved from cdInfo
+    -- instead must not try to use it: the object was either absent or already
+    -- rejected here, and SetCooldownFromDurationObject clears to nothing on an
+    -- expired one while still reporting success.
+    local fromDuration = false
     if duration then
         local rem, total = duration:GetRemainingDuration(), duration:GetTotalDuration()
         if IsSecret(rem) or IsSecret(total) then
             hasSecretDuration = true
+            fromDuration = true
             cdRemaining, cdDuration = rem, total
             cdStart, cdModRate = duration:GetStartTime(), duration:GetModRate()
         elseif total and total > 1.5 and rem and rem > 0 then
+            fromDuration = true
             cdRemaining, cdDuration = rem, total
             cdStart, cdModRate = duration:GetStartTime(), duration:GetModRate()
         end
@@ -1022,6 +1215,23 @@ local function ShowMovementSlot(index, cdInfo, spellEntry, duration)
 
     if not cdRemaining then return false end
     if not hasSecretDuration and cdRemaining <= 0 then return false end
+
+    -- The text branches format cdRemaining themselves, so what decides them is
+    -- whether THAT value can be rendered, not whether some other field of the
+    -- same cooldown happened to be secret: hasSecretDuration is set when EITHER
+    -- the remaining or the total is secret, and a secret total leaves a
+    -- perfectly renderable remaining behind. Bar mode keeps using
+    -- hasSecretDuration because it also feeds cdDuration to SetMinMaxValues.
+    -- Both tests are secret-safe (no comparison against a secret): the sentinel
+    -- is a plain boolean, and IsSecret is issecretvalue.
+    local unreadableRemaining = type(cdRemaining) == "boolean" or IsSecret(cdRemaining)
+    -- Show a number only when there is a real, positive one to show. The <= 0
+    -- test is reachable ONLY once unreadableRemaining is false, so it never
+    -- compares against a secret. It matters because the guard above lets a
+    -- non-positive remaining through whenever hasSecretDuration was set by the
+    -- OTHER field, which is the last route by which a literal 0.0 could still
+    -- reach the display.
+    local showRemaining = not unreadableRemaining and cdRemaining > 0
 
     if displayMode == "icon" then
         if spellIcon then
@@ -1048,9 +1258,10 @@ local function ShowMovementSlot(index, cdInfo, spellEntry, duration)
             slot.icon:Show()
         else
             -- Icon mode with no icon falls back to text, so it needs the same
-            -- sentinel guard as the text branch below.
-            if type(cdRemaining) == "boolean" then
+            -- guard as the text branch below.
+            if not showRemaining then
                 slot.text:SetText("No " .. spellName)
+                if fromDuration then ShowEngineCountdown(slot, displayMode, duration) end
             else
                 slot.text:SetFormattedText(fmtStr, cdRemaining)
             end
@@ -1060,40 +1271,54 @@ local function ShowMovementSlot(index, cdInfo, spellEntry, duration)
         local r, g, b = ResolveAlertColor("textColor", "textColorUseClass")
         slot.bar:SetStatusBarColor(r, g, b)
         if type(cdRemaining) == "boolean" then
-            -- Unreadable remaining (see the text branch): show a full bar so the
-            -- alert still reads as "unavailable" instead of an empty one, which
-            -- would look like the cooldown had just finished.
+            -- Only the sentinel leaves nothing to scale the fill with: show a
+            -- full bar so the alert still reads as "unavailable" instead of an
+            -- empty one, which would look like a cooldown that just finished.
             slot.bar:SetMinMaxValues(0, 1)
             slot.bar:SetValue(1)
-            slot.bar.text:SetShown(false)
         else
+            -- A SECRET remaining still animates: SimpleStatusBar's SetValue and
+            -- SetMinMaxValues are both AllowedWhenTainted, so the engine scales
+            -- the fill from values Lua may not read. Gating this on
+            -- hasSecretDuration would freeze the bar at 100% for no reason.
             slot.bar:SetMinMaxValues(0, cdDuration)
             slot.bar:SetValue(cdRemaining)
-            slot.bar.text:SetShown(ma.barShowDuration ~= false)
-            if ma.barShowDuration ~= false then
-                slot.bar.text:SetFormattedText("%." .. precision .. "f", cdRemaining)
-            end
+        end
+        -- The NUMBER is the part Lua cannot produce, so it comes from our own
+        -- formatter when readable and from the engine when not.
+        if ma.barShowDuration == false then
+            slot.bar.text:SetShown(false)
+        elseif showRemaining then
+            slot.bar.text:SetShown(true)
+            slot.bar.text:SetFormattedText("%." .. precision .. "f", cdRemaining)
+        else
+            slot.bar.text:SetShown(false)
+            if fromDuration then ShowEngineCountdownCentred(slot, slot.bar, duration) end
         end
         if ma.barShowIcon ~= false and spellIcon then slot.bar.icon:SetTexture(spellIcon); slot.bar.icon:Show() else slot.bar.icon:Hide() end
         slot.bar:Show()
     else -- any text mode (text_nd / text_dn / legacy "text")
-        if type(cdRemaining) == "boolean" then
-            -- The cdInfo fallback stores a BOOLEAN sentinel when the cooldown is
-            -- secret, because Lua cannot compute a remaining from secret
-            -- start/duration. Feeding that to a "%.1f" renders 0.0, which reads
-            -- as "ready" -- the exact opposite of what the alert means, and what
-            -- made the countdown appear to reset the instant combat started in
-            -- instanced content. Drop the number instead: the alert still says
-            -- the ability is unavailable, which is the part that matters.
+        if not showRemaining then
+            -- Whenever the remaining is unreadable, drop the number: the alert
+            -- still says the ability is unavailable, which is the part that
+            -- matters. Formatting it ourselves renders 0.0, which reads as
+            -- "ready" -- the exact opposite of what the alert means.
             --
-            -- Only the sentinel is special-cased. A genuine secret NUMBER is
-            -- passed straight through, because SetFormattedText is
-            -- AllowedWhenTainted and the engine renders the real value from it.
-            -- Sentinel test is type-based, NOT `== true`: the Duration-object
-            -- path above stores a raw SECRET number in cdRemaining, and
-            -- equality against a secret is not a comparison we ever risk;
-            -- type() is secret-safe and the sentinel is a plain boolean.
+            -- BOTH producers land here, which is what the first pass at this
+            -- got wrong. The cdInfo fallback stores a BOOLEAN sentinel (Lua
+            -- cannot compute a remaining from a secret start plus duration),
+            -- and the Duration-object path above stores a raw SECRET NUMBER.
+            -- Only the sentinel used to be guarded, on the assumption that
+            -- SetFormattedText being AllowedWhenTainted meant the engine would
+            -- render a secret's real value. It does not: field-confirmed on
+            -- 8.7.8, a secret remaining renders as 0.0 here. Icon mode never
+            -- relied on that assumption -- it blanks its own text and lets the
+            -- Cooldown widget draw the secret -- so the two branches disagreed
+            -- and the text one was wrong. Gating on hasSecretDuration covers
+            -- both producers and drops the fragile type() test with it.
             slot.text:SetText("No " .. spellName)
+            -- PROTOTYPE: the number Lua cannot format, drawn by the engine.
+            if fromDuration then ShowEngineCountdown(slot, displayMode, duration) end
         else
             slot.text:SetFormattedText(fmtStr, cdRemaining)
         end
@@ -1113,6 +1338,7 @@ local function ShowBuffActiveSlot(index, spellEntry)
     local spellIcon = spellEntry.spellIcon
 
     slot.text:Hide(); slot.icon:Hide(); slot.bar:Hide()
+    HideEngineCountdown(slot)
 
     if displayMode == "icon" and spellIcon then
         slot.icon.tex:SetTexture(spellIcon)
@@ -1242,7 +1468,7 @@ CheckMovementCooldown = function()
 
     for i = count + 1, activeSlotCount do
         local slot = displayPool[i]
-        if slot then slot.text:Hide(); slot.icon:Hide(); slot.icon.cooldown:Clear(); slot.bar:Hide(); slot:Hide() end
+        if slot then slot.text:Hide(); slot.icon:Hide(); slot.icon.cooldown:Clear(); slot.bar:Hide(); HideEngineCountdown(slot); slot:Hide() end
     end
 
     if count > 0 then
@@ -1339,7 +1565,7 @@ local function PreviewTick()
     if ShowMovementSlot(1, previewCdInfo, previewEntry) then
         for i = 2, activeSlotCount do
             local slot = displayPool[i]
-            if slot then slot.text:Hide(); slot.icon:Hide(); slot.icon.cooldown:Clear(); slot.bar:Hide(); slot:Hide() end
+            if slot then slot.text:Hide(); slot.icon:Hide(); slot.icon.cooldown:Clear(); slot.bar:Hide(); HideEngineCountdown(slot); slot:Hide() end
         end
         activeSlotCount = 1
         LayoutDisplaySlots(1)

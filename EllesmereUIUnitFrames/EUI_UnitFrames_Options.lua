@@ -4725,11 +4725,8 @@ initFrame:SetScript("OnEvent", function(self)
             { type="dropdown", text="Frame Strata",
               tooltip="Controls the order that overlapping elements display in. Set higher to show above other elements.",
               values = ufStrataValues, order = ufStrataOrder,
-              getValue=function() return db.profile.frameStrata or "MEDIUM" end,
-              setValue=function(v)
-                  db.profile.frameStrata = v
-                  ReloadAndUpdate()
-              end });  y = y - h
+              getValue=function() return SGet("frameStrata") or db.profile.frameStrata or "MEDIUM" end,
+              setValue=function(v) SSet("frameStrata", v) end });  y = y - h
 
         -- Show Tooltip For checkbox-dropdown (left region)
         if not EllesmereUI._prebuilding then
@@ -4805,6 +4802,44 @@ initFrame:SetScript("OnEvent", function(self)
             if strataRgn then
                 MakeCogBtn(strataRgn, cogShow)
             end
+        end
+
+        -- Sync icon: Frame Strata (right region) -- pushes this unit's strata to
+        -- the other main frames. Each frame keeps its own value; unset frames
+        -- fall back to the profile-wide default.
+        if not EllesmereUI._prebuilding then
+            local rgn = tipStrataRow._rightRegion
+            local function CurStrata(key)
+                return UNIT_DB_MAP[key]().frameStrata or db.profile.frameStrata or "MEDIUM"
+            end
+            local function ApplyStrataTo(keys)
+                local strata = CurStrata(selectedUnit)
+                for _, key in ipairs(keys) do
+                    if key ~= selectedUnit then
+                        UNIT_DB_MAP[key]().frameStrata = strata
+                    end
+                end
+                ReloadAndUpdate(); EllesmereUI:RefreshPage()
+            end
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Frame Strata to all Frames",
+                onClick = function() ApplyStrataTo(GROUP_UNIT_ORDER) end,
+                isSynced = function()
+                    local cur = CurStrata(selectedUnit)
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if CurStrata(key) ~= cur then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys) ApplyStrataTo(checkedKeys) end,
+                },
+            })
         end
 
         -- Show Decimal on Health Text (global): one decimal on health value
@@ -12228,6 +12263,26 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUI.RegisterWidgetRefresh(function() updHover(); updTarget(); UpdateHBSwatchVis() end)
                 UpdateHBSwatchVis()
             end
+        end
+
+        -- DISPLAY bottom row for boss: the mini frames carry their Strata
+        -- override in the Bar Texture row's right slot, which boss spends on
+        -- Hover Borders, so boss gets its own row here. Without it nothing in
+        -- the UI writes a boss strata at all -- the main frames' dropdown is
+        -- per-frame and the profile-wide value is only the fallback.
+        if unitKey == "boss" then
+            local bossStrataValues = EllesmereUI.FRAME_STRATA_LABELS
+            local bossStrataOrder = EllesmereUI.FRAME_STRATA_ORDER_BASE
+            _, h = W:DualRow(parent, y,
+                { type="dropdown", text="Strata",
+                  tooltip="Overrides the Frame Strata set in the main frames for this frame only. Controls the order that overlapping frames display in; set higher to show above other frames.",
+                  values = bossStrataValues, order = bossStrataOrder,
+                  getValue=function() return settingsTable.frameStrata or db.profile.frameStrata or "MEDIUM" end,
+                  setValue=function(v)
+                      settingsTable.frameStrata = v
+                      ReloadAndUpdate()
+                  end },
+                { type="label", text="" });  y = y - h
         end
 
         -- DISPLAY bottom row: per-frame Border Size override for ToT / Focus

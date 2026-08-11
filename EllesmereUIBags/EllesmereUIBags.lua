@@ -278,37 +278,6 @@ local function SetItemPanelOpen(key, open)
     return true
 end
 
--- Merge duplicate non-gear items by itemLink within an already-ordered list.
--- itemLink encodes stats/bonuses, so items with different stats stay separate.
--- Must run AFTER ApplySavedOrder so the first occurrence in visual order wins.
--- Returns a new list; originals are not modified (except _mergedCount on winners).
-local function MergeDuplicates(items)
-    -- Clear stale _mergedCount from prior merge passes in the same refresh
-    -- (the same data table can be merged in multiple sections: category + pinned/recent)
-    for _, data in ipairs(items) do data._mergedCount = nil end
-    -- Record what this paint was built with, so the bags OnShow can tell that
-    -- the state changed while they were hidden and repaint (see OnShow).
-    _paintedPanelOpen = _anyItemPanelOpen
-    if _anyItemPanelOpen or BP().bagMergeDuplicates == false then return items end
-    local seen = {}
-    local out = {}
-    for _, data in ipairs(items) do
-        local key = data.itemLink
-        if key and not IsGearCategory(data.categoryIndex or 0) then
-            local prev = seen[key]
-            if prev then
-                prev._mergedCount = (prev._mergedCount or prev.info.stackCount) + (data.info.stackCount or 1)
-            else
-                seen[key] = data
-                out[#out + 1] = data
-            end
-        else
-            out[#out + 1] = data
-        end
-    end
-    return out
-end
-
 -- Pre-cache sort fields onto item data tables to avoid API calls in comparator
 local function PreCacheSortFields(items)
     for _, d in ipairs(items) do
@@ -460,6 +429,53 @@ local function ReleaseAllSlotTables()
         _activeSlotTables[i] = nil
     end
     _activeSlotN = 0
+end
+
+-- Merge duplicate non-gear items by itemLink within an already-ordered list.
+-- itemLink encodes stats/bonuses, so items with different stats stay separate.
+-- Must run AFTER ApplySavedOrder so the first occurrence in visual order wins.
+-- Returns a new list; the caller's tables are NEVER modified. A merged winner is
+-- replaced in the returned list by a pooled, display-only shallow copy carrying
+-- the aggregate in _mergedCount. Invariant: only those copies ever carry
+-- _mergedCount, which is also the "already a copy" test below. If anyone ever
+-- writes _mergedCount back onto a canonical slot table, both break.
+-- The result must not outlive the render pass that produced it: the copies come
+-- from the slot pool and are recycled by ReleaseAllSlotTables on the next refresh.
+local function MergeDuplicates(items)
+    -- Record what this paint was built with, so the bags OnShow can tell that
+    -- the state changed while they were hidden and repaint (see OnShow).
+    _paintedPanelOpen = _anyItemPanelOpen
+    if _anyItemPanelOpen or BP().bagMergeDuplicates == false then return items end
+    local seen = {}
+    local out = {}
+    for _, data in ipairs(items) do
+        local key = data.itemLink
+        if key and not IsGearCategory(data.categoryIndex or 0) then
+            local idx = seen[key]
+            if idx then
+                local prev = out[idx]
+                if not prev._mergedCount then
+                    -- First duplicate for this key: swap the winner out for a copy.
+                    -- The aggregate cannot live on the winner itself, because the
+                    -- OneBag/MultiBag bag grid paints those same slot tables with no
+                    -- merge pass of its own and would show one slot's count inflated
+                    -- by its twins. data.info stays shared by reference on purpose.
+                    local proxy = AcquireSlotTable()
+                    for k, v in pairs(prev) do proxy[k] = v end
+                    proxy._mergedCount = prev.info.stackCount or 1
+                    out[idx] = proxy
+                    prev = proxy
+                end
+                prev._mergedCount = prev._mergedCount + (data.info.stackCount or 1)
+            else
+                out[#out + 1] = data
+                seen[key] = #out
+            end
+        else
+            out[#out + 1] = data
+        end
+    end
+    return out
 end
 
 -- Saved visual order per category/group. Keyed by category index (number) or

@@ -3144,6 +3144,7 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
         EVOKER      = { "evoker-dev", "evoker-pres", "evoker-aug" },
     }
     local POPUP_FONT_SIZE = 12
+    local POPUP_PAD = 8
 
     local specCache, numSpecs = {}, 0
     local currentSpecIdx, currentLootSpecID = nil, 0
@@ -3236,7 +3237,7 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
         local ar, ag, ab = ns.GetAccent()
         local fontSize = POPUP_FONT_SIZE
         local iconSz = fontSize + 2
-        local PAD, LINE = 8, 18
+        local PAD, LINE = POPUP_PAD, 18
 
         -- Title is optional: a nil/empty title (the loadout subnav) renders
         -- a plain list with even PAD margins on all four sides.
@@ -3432,7 +3433,7 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
             subnavPool._popup:Hide()
         end
     end
-    local function OpenLoadoutSubnav()
+    local function OpenLoadoutSubnav(rowBtn)
         if subnavPool and subnavPool._popup and subnavPool._popup:IsShown() then return end
         if not (C_ClassTalents and C_ClassTalents.GetConfigIDsBySpecID
                 and C_Traits and C_Traits.GetConfigInfo) then return end
@@ -3457,16 +3458,27 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
             C_ClassTalents.UpdateLastSelectedSavedConfigID(specId, e.configID)
             inst:Refresh()
         end, true)
-        -- Flyout anchoring: flush against the spec popup's edge; flips to
-        -- the left side when the screen runs out (clamped either way).
+        -- Flyout anchoring: flush against the spec popup's edge, with its
+        -- FIRST entry level with the row the cursor is on, so a straight
+        -- rightward move lands inside the list. Anchoring to the popup with
+        -- a row-derived offset, rather than to the row button itself, keeps
+        -- the anchor between two long-lived frames: the rows are POOLED and
+        -- ResetPooledFrame clears their points on release, which _wbOnHide
+        -- does BEFORE it closes this flyout. Vertical overflow is left to
+        -- SetClampedToScreen (already set), so the flyout only bumps when it
+        -- would leave the screen.
         local main = specPool and specPool._popup
         if pop and main then
+            local mainTop = main:GetTop()
+            local rowTop  = rowBtn and rowBtn.GetTop and rowBtn:GetTop()
+            local dy = 0
+            if mainTop and rowTop then dy = POPUP_PAD - (mainTop - rowTop) end
             pop:ClearAllPoints()
             local right = main:GetRight() or 0
             if right + (pop:GetWidth() or 0) > UIParent:GetWidth() then
-                pop:SetPoint("TOPRIGHT", main, "TOPLEFT", 0, 0)
+                pop:SetPoint("TOPRIGHT", main, "TOPLEFT", 0, dy)
             else
-                pop:SetPoint("TOPLEFT", main, "TOPRIGHT", 0, 0)
+                pop:SetPoint("TOPLEFT", main, "TOPRIGHT", 0, dy)
             end
         end
     end

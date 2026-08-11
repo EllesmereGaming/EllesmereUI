@@ -309,10 +309,22 @@ local function ResolveSpellSettingsUncached(frame, sid2, sd2, barKey)
     -- must keep the normal CD-family resolution. A buff frame only reaches a
     -- non-buff bar through an explicit host, so the frame identity is exact.
     -- Cheap: sd2.hostedBuffSpellIDs is nil on bars with no host.
+    -- All four signals are frame-scoped, and FC.isHostedBuff / viewerFrame are
+    -- readable BEFORE the frame is decorated (the claim pass stamps the first;
+    -- the second is the Blizzard field DecorateFrame later reads). Testing only
+    -- the decoration stamps made a pre-decoration resolve report "not hosted",
+    -- and the miss is SILENT: the family store below falls back to
+    -- spellSettingsCD and applies a CD-era entry under the same id to the buff.
+    -- Only bites ids where the aura and spell id coincide (Agony 980, Unstable
+    -- Affliction 1259790), which is why one hosted DoT of three looked correct.
     local hostedFrame = false
     if frame and bk and sd2 and sd2.hostedBuffSpellIDs then
         local fdH = ns._hookFrameData and ns._hookFrameData[frame]
-        if (fdH and fdH._isBuffViewerFrame) or frame._isPlaceholderFrame then
+        if (fc0 and fc0.isHostedBuff)
+           or (fdH and fdH._isBuffViewerFrame)
+           or frame._isPlaceholderFrame
+           or frame.viewerFrame == _G.BuffIconCooldownViewer
+           or frame.viewerFrame == _G.BuffBarCooldownViewer then
             local bdH = ns.barDataByKey and ns.barDataByKey[bk]
             if bdH and bdH.barType ~= "buffs" and bdH.barType ~= "custom_buff" then
                 hostedFrame = true
@@ -717,7 +729,107 @@ local _divertedVarBaseCD   = {}
 -- half the time -- and these transforms rebuild constantly. Learning it the
 -- moment it IS observable and keeping it is what makes the result stable, and
 -- keeping it is safe precisely because the relationship never changes.
+--
+-- Learning it in-session still leaves one hole, which is what the store below
+-- closes: a slot only ever names its base and the form live RIGHT NOW, so a
+-- fresh login can never witness the pair for an assigned variant that is not
+-- the live one. The claim is therefore missing from the very first build and
+-- the base falls through to whatever a repopulate assigned, until a cast
+-- transforms the slot and a later rebuild finally observes it. Persisting is
+-- what lets a login start where the last session left off.
+--
+-- SCOPED PER SPEC, and that is load-bearing. GetBaseSpell takes a `spec`
+-- argument documented as "overrides may vary by Spec", and we call it without
+-- one, so every answer describes the CURRENT spec only. The links are not
+-- always the tidy same-ability pair the armaments suggest, either: #842 saw
+-- GetBaseSpell tie SV Kill Command to a different ability entirely. Seeding one
+-- spec's answer into another would hand varMap a base that belongs to a
+-- different family there, and ResolveCDIDToBar consults varBaseMap BEFORE
+-- directMap[info.spellID], so a bogus pair would outrank that spell's own
+-- explicit assignment. Keying by spec confines every pair to the state it was
+-- measured in. Sharing across characters within one spec is fine: same spec,
+-- same links.
+--
+-- Lives on the SV root beside _capturedOnce_CDM rather than in a profile
+-- because it describes the game, not the user's settings. StripDefaults only
+-- walks keys present in DEFAULTS, so a root key it does not know about survives
+-- logout untouched -- which also means nothing else can ever clear it, hence
+-- ns.ResetVariantBaseStore below.
 local _variantBaseLearned = {}
+local _variantBaseSpec = nil   -- spec key the live table was loaded for
+
+local function _variantBaseSV()
+    local db = ECME and ECME.db
+    return db and db.sv or nil
+end
+
+-- Seeds the live table for the current spec, and reloads it when the spec
+-- changes, since the previous spec's pairs do not describe the new one. Reads
+-- WITHOUT creating; only _learnVariantBase creates, so the table appears the
+-- first time a pair is actually observed. Bails without latching while the db
+-- or the spec is not up yet, so a later rebuild retries.
+local function _loadVariantBases()
+    local specKey = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
+    if not specKey then return end
+    if _variantBaseSpec == specKey then return end
+    local sv = _variantBaseSV()
+    if not sv then return end
+    wipe(_variantBaseLearned)
+    _variantBaseSpec = specKey
+    local root = sv._variantBase
+    if type(root) == "table" then
+        -- Pre-release test builds stored pairs flat, keyed by spellID, before
+        -- spec scoping existed. Those answers cannot be attributed to a spec so
+        -- they cannot be trusted; drop them rather than leave them orphaned.
+        -- Clearing existing fields during pairs() is defined behaviour in Lua.
+        for k in pairs(root) do
+            if type(k) ~= "string" then root[k] = nil end
+        end
+    end
+    local store = (type(root) == "table") and root[specKey] or nil
+    if type(store) ~= "table" then return end
+    for variant, base in pairs(store) do
+        if type(variant) == "number" and type(base) == "number"
+           and base > 0 and base ~= variant then
+            _variantBaseLearned[variant] = base
+        end
+    end
+end
+
+-- Record a pair in the live table and the current spec's store. Callers gate
+-- ids for secrecy before calling: a secret must never index a table, let alone
+-- reach SavedVariables. The unchanged-pair early-out keeps the resolve path,
+-- which relearns the live pairing on every call, from touching the store per
+-- frame. Persists only once the spec is known, so a pair observed before that
+-- still routes this session without being filed under the wrong spec.
+local function _learnVariantBase(variant, base)
+    if _variantBaseLearned[variant] == base then return end
+    _variantBaseLearned[variant] = base
+    if not _variantBaseSpec then return end
+    local sv = _variantBaseSV()
+    if not sv then return end
+    local root = sv._variantBase
+    if type(root) ~= "table" then
+        root = {}
+        sv._variantBase = root
+    end
+    local store = root[_variantBaseSpec]
+    if type(store) ~= "table" then
+        store = {}
+        root[_variantBaseSpec] = store
+    end
+    store[variant] = base
+end
+
+-- Reset hook for the CDM's own reset path. Without it a pair learned wrong is
+-- permanent: StripDefaults never walks this key and no profile operation
+-- touches it, so there would be no way back short of editing SavedVariables.
+function ns.ResetVariantBaseStore()
+    wipe(_variantBaseLearned)
+    _variantBaseSpec = nil
+    local sv = _variantBaseSV()
+    if sv then sv._variantBase = nil end
+end
 ns._divertedSpellsBuff = _divertedSpellsBuff
 ns._divertedSpellsCD   = _divertedSpellsCD
 
@@ -770,6 +882,11 @@ function ns.RebuildSpellRouteMap()
     local p = ECME.db and ECME.db.profile
     if not p or not p.cdmBars then return end
 
+    -- Before any StoreDirect: the recall below is the only thing that can supply
+    -- a base for an assigned variant that is not the live form, and this is the
+    -- first build of the session.
+    _loadVariantBases()
+
     local SVV = ns.StoreVariantValue
     if not SVV then return end
 
@@ -794,7 +911,7 @@ function ns.RebuildSpellRouteMap()
             local ok, b = pcall(GetBase, sid)
             if ok and type(b) == "number" and b > 0 and b ~= sid then
                 base = b
-                _variantBaseLearned[sid] = b
+                _learnVariantBase(sid, b)
             end
         end
         base = base or _variantBaseLearned[sid]
@@ -978,7 +1095,7 @@ local function ResolveCDIDToBar(cdID, viewerDefaultBar)
     -- known from then on.
     if CdidIDReadable(info.spellID) and CdidIDReadable(info.overrideSpellID)
        and info.overrideSpellID ~= info.spellID then
-        _variantBaseLearned[info.overrideSpellID] = info.spellID
+        _learnVariantBase(info.overrideSpellID, info.spellID)
     end
 
     local routedBar = nil
@@ -3372,33 +3489,67 @@ local function DecorateFrame(frame, barData)
                 local onRealCD = cdInfo2 and cdInfo2.isActive and not cdInfo2.isOnGCD
                 -- Charge spells report cooldown isActive while a recharge is in
                 -- progress even when a castable charge remains, which would wrongly
-                -- desaturate a still-usable icon. currentCharges is a SECRET value
-                -- in this tainted hook (can't be compared), so use Blizzard's clean
-                -- isOnActualCooldown flag instead -- false means at least one charge
-                -- is usable, so stay saturated until the spell is genuinely out.
+                -- desaturate a still-usable icon. currentCharges is SECRET in this
+                -- tainted hook, so the usable-charge verdict has to come from
+                -- somewhere else -- see the guard below.
                 --
-                -- The charge-SPELL test is static charge data, NOT
-                -- frame:HasVisualDataSource_Charges(): that getter is documented
-                -- three times in this file as flipping FALSE while a GCD swipe is
-                -- layered on top, and a field dump shows it absent entirely (nil, not
-                -- false) on every CDM frame on a 12.0 client, so gating on it made
-                -- this whole branch dead code. maxCharges is stable, present, and
-                -- clean; the secret currentCharges is still never read. Same signal
-                -- the swipe guard, Max Stacks Glow and Hide CD Text already use.
-                local baseCI = sid2 and C_Spell and C_Spell.GetSpellCharges
-                    and C_Spell.GetSpellCharges(sid2)
-                local baseMax = baseCI and baseCI.maxCharges
-                local isChargeSpell = baseMax ~= nil
-                    and not (issecretvalue and issecretvalue(baseMax))
-                    and baseMax > 1
+                -- The charge-SPELL test is static charge data, NOT the
+                -- HasVisualDataSource_Charges flag: that one is documented three
+                -- times in this file as answering "is this icon drawing its recharge
+                -- right now", which is false at full charges and during a GCD, so
+                -- gating the whole branch on it made it dead code. maxCharges is
+                -- stable and clean; the secret currentCharges is never read.
+                -- Resolve it through Blizzard's own accessor rather than a base-ID
+                -- read: CdmChargeInfoFor documents the two disagreeing on override
+                -- spells (captured on Blink 1953 -> Shimmer 212653), where a base
+                -- read reports the charge-less base, so this test came back false
+                -- and the guard never ran on a 2-charge ability. The swipe guard
+                -- already resolves charges this way and the two verdicts must agree.
+                local chargeCI = CdmChargeInfoFor(frame, sid2)
+                local maxCh = chargeCI and chargeCI.maxCharges
+                local isChargeSpell = type(maxCh) == "number"
+                    and not (issecretvalue and issecretvalue(maxCh))
+                    and maxCh > 1
                 local outOfCharges
                 if onRealCD and isChargeSpell then
-                    local actualCD = frame.isOnActualCooldown
-                    if not issecretvalue or not issecretvalue(actualCD) then
-                        if actualCD == false then
-                            outOfCharges = false
-                        elseif actualCD == true then
-                            outOfCharges = true
+                    -- Preferred signal: Blizzard's own charge visual-data-source
+                    -- flag. isOnActualCooldown below is derived from the cooldown
+                    -- startTime + duration, both SECRET inside instanced content,
+                    -- so it comes back unreadable from this tainted hook the
+                    -- moment a key starts -- the guard then set nothing and a
+                    -- banked charge desaturated. Fresh login looked fine because
+                    -- nothing was secret yet. wasSetFromCharges is a plain literal
+                    -- assigned inside an untainted branch, so it survives that,
+                    -- and RefreshData clears it and CacheCooldownValues re-sets it
+                    -- immediately before the SetDesaturated call this hooks, so it
+                    -- is never stale here.
+                    -- Only TRUE is informative: Blizzard sets it for
+                    -- "cooldownStartTime > 0 and currentCharges > 0", so false is
+                    -- equally what a full-charge icon and an aura-driven one
+                    -- report -- those keep falling through to the read below, which
+                    -- is why this cannot re-break greying at zero charges.
+                    -- Read the field, falling back to the getter: a past field
+                    -- dump on a 12.0 client reported the getter as nil on these
+                    -- frames while isOnActualCooldown beside it read fine, so
+                    -- take whichever of the two this client actually carries.
+                    local fromCharges = frame.wasSetFromCharges
+                    if type(fromCharges) ~= "boolean"
+                        and type(frame.HasVisualDataSource_Charges) == "function" then
+                        fromCharges = frame:HasVisualDataSource_Charges()
+                    end
+                    if type(fromCharges) == "boolean"
+                        and not (issecretvalue and issecretvalue(fromCharges))
+                        and fromCharges then
+                        outOfCharges = false
+                    end
+                    if type(outOfCharges) ~= "boolean" then
+                        local actualCD = frame.isOnActualCooldown
+                        if not issecretvalue or not issecretvalue(actualCD) then
+                            if actualCD == false then
+                                outOfCharges = false
+                            elseif actualCD == true then
+                                outOfCharges = true
+                            end
                         end
                     end
                 end
@@ -4727,6 +4878,122 @@ local function GetOrCreateItemPresetFrame(barKey, itemID)
 end
 ns.GetOrCreateItemPresetFrame = GetOrCreateItemPresetFrame
 
+-- Crafted-quality pip for item frames -- the action bars' Show Rank Icon, for
+-- CDM. Those read C_ActionBar.GetProfessionQualityInfo, which needs an action
+-- slot; an item frame has only an item id, so this asks the item-side call that
+-- returns the same CraftingQualityInfo struct, and takes iconInventory off it
+-- exactly as the action bars do. Blizzard's own callers pass a LINK rather than
+-- a bare id (and the action bar work recorded bare-id reads coming back nil), so
+-- prefer the link and keep the id as the fallback.
+-- Per bar and off by default: nothing here is created or called until a bar
+-- turns it on. The resolved atlas is memoised per item so the steady state is
+-- one compare; it re-reads when the icon changes which item it is showing,
+-- which for a pot preset is the point (the pip follows the rank resolved).
+-- The memo is deliberately TRI-STATE. An item whose data the client has not
+-- cached yet answers nil, and that is the state on the pass right after login,
+-- so caching it as "no quality" would leave the pip permanently missing on
+-- exactly the items it is for: nil = unresolved, retry next pass (item data is
+-- requested here, so the retry has something to find); false = resolved, this
+-- item has no crafted quality, stop asking.
+local _cdmQualityAtlas = {}
+local function CdmQualityAtlasFor(q)
+    local hit = _cdmQualityAtlas[q]
+    if hit ~= nil then return hit or nil end
+    local probe = C_Texture and C_Texture.GetAtlasInfo
+    local names = {
+        "Professions-Icon-Quality-Tier" .. q .. "-Inv-Small",
+        "Professions-Icon-Quality-Tier" .. q .. "-Small",
+        "Professions-Icon-Quality-Tier" .. q,
+    }
+    for i = 1, #names do
+        if probe and probe(names[i]) then
+            _cdmQualityAtlas[q] = names[i]
+            return names[i]
+        end
+    end
+    _cdmQualityAtlas[q] = false
+    return nil
+end
+
+local function ApplyItemQualityPip(f, itemID, on)
+    if not on then
+        if f._qualityHolder then f._qualityHolder:Hide() end
+        f._qualityItemID, f._qualityAtlas = nil, nil
+        return
+    end
+    if not itemID then return end
+    -- Resolved already for this exact item (false = resolved as "no quality").
+    if f._qualityItemID == itemID and f._qualityAtlas ~= nil then return end
+
+    local atlas
+    local ts = C_TradeSkillUI
+    local link = C_Item and C_Item.GetItemInfo and select(2, C_Item.GetItemInfo(itemID))
+    if not link and C_Item and C_Item.RequestLoadItemDataByID then
+        -- Not cached yet. Ask for it and leave the memo unresolved so the next
+        -- pass retries rather than baking in the miss.
+        C_Item.RequestLoadItemDataByID(itemID)
+    end
+    -- Blizzard's own item buttons (SetItemCraftingQualityOverlay in
+    -- ItemButtonTemplate) ask REAGENT quality first and only then CRAFTED, and
+    -- that order is the whole fix: a live probe on this bar had the crafted
+    -- calls answering nil for every potion on it -- ranked consumables carry a
+    -- reagent quality, not a crafted one. Both return the same
+    -- CraftingQualityInfo, so iconInventory comes off whichever answers.
+    if ts and ts.GetItemReagentQualityInfo then
+        local ok, info = pcall(ts.GetItemReagentQualityInfo, link or itemID)
+        atlas = ok and info and info.iconInventory or nil
+    end
+    if not atlas and ts and ts.GetItemCraftedQualityInfo then
+        local ok, info = pcall(ts.GetItemCraftedQualityInfo, link or itemID)
+        atlas = ok and info and info.iconInventory or nil
+    end
+    if not atlas and ts and ts.GetItemCraftedQualityByItemInfo then
+        -- Same fallback shape the action bars keep: a bare quality number,
+        -- mapped through the probe.
+        local ok, q = pcall(ts.GetItemCraftedQualityByItemInfo, link or itemID)
+        if ok and type(q) == "number" and q >= 1 and q <= 5 then
+            atlas = CdmQualityAtlasFor(q)
+        end
+    end
+    if not atlas then
+        if f._qualityHolder then f._qualityHolder:Hide() end
+        -- Only settle on "no quality" once the item is actually known.
+        if link then f._qualityItemID, f._qualityAtlas = itemID, false end
+        return
+    end
+    f._qualityItemID, f._qualityAtlas = itemID, atlas
+
+    local holder = f._qualityHolder
+    if not holder then
+        -- Own holder frame rather than a texture on f: the item frame's
+        -- Cooldown is a CHILD frame, and a child draws above every texture of
+        -- its parent whatever the draw layer, so a pip parented to f sits under
+        -- the swipe. This is why the item count text is reparented to a text
+        -- overlay too, and what the action bars' rank icon does.
+        holder = CreateFrame("Frame", nil, f)
+        holder:SetAllPoints(f)
+        holder:SetFrameLevel((f:GetFrameLevel() or 1) + 18)
+        holder:EnableMouse(false)
+        f._qualityHolder = holder
+        f._qualityTex = holder:CreateTexture(nil, "OVERLAY", nil, 7)
+    end
+    local tex = f._qualityTex
+    -- Unknown atlas reads as no pip, never as an error.
+    if not pcall(tex.SetAtlas, tex, atlas, true) then
+        f._qualityAtlas = false
+        holder:Hide()
+        return
+    end
+    -- Same proportion the action bars use (Blizzard centers the overlay 14,-14
+    -- from the TOPLEFT of a 45px button), scaled to whatever size the bar runs.
+    local sc = (f:GetWidth() or 36) / 36
+    tex:ClearAllPoints()
+    tex:SetPoint("CENTER", holder, "TOPLEFT", 11 * sc, -11 * sc)
+    tex:SetScale(sc)
+    tex:Show()
+    holder:Show()
+end
+
 -- ---------------------------------------------------------------------------
 -- Dynamic potion display for every pot preset carrying a displayOrder (Light's
 -- Potential, Potion of Recklessness, health). The preset icon resolves to the best variant
@@ -4832,6 +5099,23 @@ ns.GetPresetPotChain = function(itemID)
 end
 -- Options toggle: force every pot frame to re-resolve on the next pass.
 ns._BumpPotResolveGen = PotSwap.Bump
+
+-- True when this frame IS the preset rather than one specific variant of it.
+-- The picker only ever stores -(preset.itemID), so a frame sitting on an ALT id
+-- can only have come from the user typing that exact item id into Custom Item
+-- ID -- they asked for that rank, not for the family.
+-- Frames still carry _presetData either way: the preset icon and the keybind
+-- fallback (which deliberately answers across ranks) want it. Only the
+-- family-wide reads below are primary-only -- summing the family's bag counts
+-- made a hand-added rank-2 pot report its rank-1 siblings as its own count,
+-- point _itemCdSource at a sibling's cooldown and, with Hide Items if Missing
+-- on, stay on the bar while the user owned none of it. Two such entries then
+-- showed the same count off the same art (ranks share an icon), which reads as
+-- one pot tracked twice. Mirrors PotSwap.Ensure's own primary check.
+local function IsPresetFamilyFrame(f)
+    local pd = f and f._presetData
+    return (pd and pd.altItemIDs and f._presetItemID == pd.itemID) and true or false
+end
 
 -- Guard: after ENCOUNTER_END clears item-preset caches, subsequent events
 -- fire before Blizzard has finished resetting potion CDs. Without this guard
@@ -5190,7 +5474,7 @@ local function ProcessPresetCooldowns()
                     f._countArm = false
                     total = C_Item.GetItemCount(f._presetItemID, false, true) or 0
                     local owned = total > 0 and f._presetItemID or nil
-                    if total == 0 and f._presetData and f._presetData.altItemIDs then
+                    if total == 0 and IsPresetFamilyFrame(f) then
                         for _, altID in ipairs(f._presetData.altItemIDs) do
                             local c = C_Item.GetItemCount(altID, false, true) or 0
                             total = total + c
@@ -5228,6 +5512,16 @@ local function ProcessPresetCooldowns()
                         f._itemCountText:Hide()
                         f._lastItemCount = nil
                     end
+                end
+                do
+                    -- Quality pip follows the variant actually being SHOWN: a pot
+                    -- preset resolves its icon across ranks, so keying this on the
+                    -- primary would label the icon with a rank it is not drawing.
+                    local fc2 = _ecmeFC[f]
+                    local bk2 = fc2 and fc2.barKey
+                    local bd2 = bk2 and barDataByKey[bk2]
+                    ApplyItemQualityPip(f, f._displayItemID or f._presetItemID,
+                        bd2 and bd2.showItemQuality == true)
                 end
                 local shouldDesat = (total == 0 or itemOnCD or f._inCombatLockout) and true or false
                 if shouldDesat ~= f._lastDesat then
@@ -5271,7 +5565,7 @@ local function CheckItemPresenceForHide()
                     total = f._displayCount or 0
                 else
                     total = C_Item.GetItemCount(f._presetItemID, false, true) or 0
-                    if total == 0 and f._presetData and f._presetData.altItemIDs then
+                    if total == 0 and IsPresetFamilyFrame(f) then
                         for _, altID in ipairs(f._presetData.altItemIDs) do
                             total = total + (C_Item.GetItemCount(altID, false, true) or 0)
                         end
@@ -6152,7 +6446,7 @@ local function CollectAndReanchor()
                                         total = f._displayCount or 0
                                     else
                                         total = C_Item.GetItemCount(itemID, false, true) or 0
-                                        if total == 0 and f._presetData and f._presetData.altItemIDs then
+                                        if total == 0 and IsPresetFamilyFrame(f) then
                                             for _, altID in ipairs(f._presetData.altItemIDs) do
                                                 total = total + (C_Item.GetItemCount(altID, false, true) or 0)
                                             end
@@ -6705,7 +6999,7 @@ local function CollectAndReanchor()
                                         total = f._displayCount or 0
                                     else
                                         total = C_Item.GetItemCount(itemID, false, true) or 0
-                                        if total == 0 and f._presetData and f._presetData.altItemIDs then
+                                        if total == 0 and IsPresetFamilyFrame(f) then
                                             for _, altID in ipairs(f._presetData.altItemIDs) do
                                                 total = total + (C_Item.GetItemCount(altID, false, true) or 0)
                                             end
@@ -8922,7 +9216,9 @@ end
 --  key-down/up CVar. The pushed texture + colour are read live from the
 --  EllesmereUI action bars settings, so the CDM press matches real buttons
 --  (falling back to a border-cropped Blizzard depress texture if that module
---  isn't present). Per-frame data lives in an external weak-keyed table.
+--  isn't present). On a custom-shape bar the press is masked to the shape, so
+--  a hexagon icon flashes a hexagon rather than the full square it sits in.
+--  Per-frame data lives in an external weak-keyed table.
 -------------------------------------------------------------------------------
 do
     local AB_MEDIA      = "Interface\\AddOns\\EllesmereUIActionBars\\Media\\"
@@ -8999,6 +9295,34 @@ do
         return edges
     end
 
+    -- Custom shape of a CDM icon (hexagon/circle/...), or nil for a square one.
+    -- A square press drawn over a shaped icon spills past the shape, so the
+    -- overlay has to follow it. We reuse the icon's own shapeMask -- masking is
+    -- screen-space and the overlay covers the same rect -- exactly like the
+    -- fake-active overlay does (ns.ApplyShapeToOverlay). none/cropped return
+    -- nil: their icon art fills the frame rect, so a square press is correct.
+    local function IconShape(icon)
+        local ifc = _ecmeFC and _ecmeFC[icon]
+        if not (ifc and ifc.shapeApplied and ifc.shapeMask) then return nil end
+        local shape = ifc.shapeName
+        if not shape or shape == "none" or shape == "cropped" then return nil end
+        return shape, ifc.shapeMask
+    end
+
+    -- Ring art for "border" pushed mode on a shaped icon: four straight edges
+    -- around a hexagon leave the corners hanging in space, so press-flash the
+    -- shape's own border texture instead. Its thickness is baked into the art,
+    -- so the bars' pushed border size doesn't apply -- colour still does.
+    local function EnsureShapeRing(ov)
+        if ov._shapeRing then return ov._shapeRing end
+        local t = ov:CreateTexture(nil, "OVERLAY", nil, 2)
+        t:SetSnapToPixelGrid(false)
+        t:SetTexelSnappingBias(0)
+        t:Hide()
+        ov._shapeRing = t
+        return t
+    end
+
     local function ShowPush(icon)
         local ov = _pushOverlay[icon]
         if not ov then
@@ -9010,14 +9334,40 @@ do
             ov._tex = tex
             _pushOverlay[icon] = ov
         end
+        -- Re-sync the shape mask on every press: the shape can change or be
+        -- cleared between presses, and a cleared shapeMask is emptied + hidden
+        -- rather than destroyed -- left attached it would blank the overlay.
+        -- A shape swap keeps the same mask object (re-textured), so it stays.
+        local shape, mask = IconShape(icon)
+        if ov._shapeMask and ov._shapeMask ~= mask then
+            pcall(ov._tex.RemoveMaskTexture, ov._tex, ov._shapeMask)
+            ov._shapeMask = nil
+        end
+        if mask and not ov._shapeMask then
+            pcall(ov._tex.AddMaskTexture, ov._tex, mask)
+            ov._shapeMask = mask
+        end
         local result, cr, cg, cb, bsz = StylePush(ov._tex)
         if not result then ov:Hide(); return nil end
-        local region = icon.Icon or icon
+        -- Shaped icons expand their icon texture past the frame (and expand the
+        -- texcoords to match), so anchor to the frame itself -- the rect the
+        -- shapeMask covers -- rather than to the oversized texture.
+        local region = (shape and icon) or icon.Icon or icon
         ov:ClearAllPoints()
         ov:SetPoint("TOPLEFT", region, "TOPLEFT", 0, 0)
         ov:SetPoint("BOTTOMRIGHT", region, "BOTTOMRIGHT", 0, 0)
-        if result == "border" then
+        local ringTex = shape and ns.CDM_SHAPE_BORDERS and ns.CDM_SHAPE_BORDERS[shape]
+        if result == "border" and ringTex then
             ov._tex:Hide()
+            if ov._borderEdges then for j = 1, 4 do ov._borderEdges[j]:Hide() end end
+            local ring = EnsureShapeRing(ov)
+            ring:SetTexture(ringTex)
+            ring:SetVertexColor(cr, cg, cb, 1)
+            ring:ClearAllPoints(); ring:SetAllPoints(ov)
+            ring:Show()
+        elseif result == "border" then
+            ov._tex:Hide()
+            if ov._shapeRing then ov._shapeRing:Hide() end
             local edges = EnsureBorderEdges(ov)
             for j = 1, 4 do edges[j]:SetVertexColor(cr, cg, cb, 1) end
             edges[1]:ClearAllPoints(); edges[1]:SetPoint("TOPLEFT", ov); edges[1]:SetPoint("TOPRIGHT", ov); edges[1]:SetHeight(bsz); edges[1]:Show()
@@ -9027,6 +9377,7 @@ do
         else
             ov._tex:Show()
             if ov._borderEdges then for j = 1, 4 do ov._borderEdges[j]:Hide() end end
+            if ov._shapeRing then ov._shapeRing:Hide() end
         end
         ov:Show()
         return ov

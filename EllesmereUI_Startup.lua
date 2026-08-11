@@ -217,16 +217,24 @@ end
 -- that helper lazy-creates the table, and this can run at the ADDON_LOADED of
 -- Blizzard_CombatText, before our SavedVariables have been restored.
 
--- Probe a font path before it reaches an engine global: SetFont returns a
--- success boolean, so a cached path whose providing addon was uninstalled is
--- detected instead of leaving the engine pointed at a missing file for the
--- whole session (which kills floating text entirely).
+-- Probe a font path before it reaches an engine global, so a cached path whose
+-- providing addon was uninstalled is detected instead of leaving the engine
+-- pointed at a missing file for the whole session (which kills floating text
+-- entirely).
+--
+-- Only the RAISE counts. SetFont is RequiresValidFontAsset, so a path the
+-- client cannot find raises ("Invalid font asset (<path>): file not found").
+-- The success boolean it returns when it does NOT raise is a different signal
+-- and is not evidence of loadability: field capture (8.7.8) has it returning
+-- false for a font file the very same call proved present, in a session where
+-- a stock Blizzard path raised. Reading that false as "missing" vetoed a font
+-- that was there. So: raised = the client could not find the file, anything
+-- else = it could, and we say nothing about the rest.
 local probeFS
 local function ProbeFont(path)
     if type(path) ~= "string" or path == "" then return false end
     probeFS = probeFS or UIParent:CreateFontString()
-    local ok, success = pcall(probeFS.SetFont, probeFS, path, 12, "")
-    return ok and success == true
+    return (pcall(probeFS.SetFont, probeFS, path, 12, ""))
 end
 
 local function ApplyUnitNameFont()
@@ -234,12 +242,15 @@ local function ApplyUnitNameFont()
     local name = fonts and fonts.unitNameFont
     if not name or name == "" then return end
     local path = fonts.unitNameFontPath
-    local ok = ProbeFont(path)
-    if not ok and EllesmereUI and EllesmereUI.ResolveFontName then
-        path = EllesmereUI.ResolveFontName(name)
-        ok = ProbeFont(path)
+    if not ProbeFont(path) and EllesmereUI and EllesmereUI.ResolveFontName then
+        -- Advisory probe (see ApplyCombatTextFont): a live resolve of the saved
+        -- name is better evidence than a probe that false-negatives on macOS
+        -- and Linux, so prefer it over dropping the setting back to Blizzard's
+        -- default.
+        local resolved = EllesmereUI.ResolveFontName(name)
+        if resolved and resolved ~= "" then path = resolved end
     end
-    if ok then
+    if path and path ~= "" then
         _G.UNIT_NAME_FONT = path
     end
 end
@@ -323,8 +334,32 @@ do
     -- our ADDON_LOADED -- the window where the engine caches the global --
     -- the name is never registered yet). noDefault on Fetch: without it an
     -- unregistered name silently resolves to the DEFAULT font, not nil.
-    -- Every candidate is probed, so only a loadable path is ever applied or
-    -- kept in the cache.
+    -- Candidates are ranked by the advisory probe, then confirmed against the
+    -- real font object when it exists; only a path that was applied, or that
+    -- there was no way to test, is kept in the cache.
+
+    -- Blizzard's own value, captured before we ever write it, so a path the
+    -- real font object later rejects can be backed out instead of leaving
+    -- floating text dead for the whole session.
+    local defaultDamageFont = _G.DAMAGE_TEXT_FONT
+
+    -- CombatTextFont is the object we are actually configuring, so applying to
+    -- it here also does the real work when it exists.
+    --   true  = the client found the file
+    --   false = it did not (SetFont raised: RequiresValidFontAsset)
+    --   nil   = nothing to test with yet (Blizzard_CombatText not loaded)
+    -- Only the raise is read, for the same reason as ProbeFont above: moving
+    -- the veto off the synthetic probe and onto the real object did not help,
+    -- because the unreliable part was never the object, it was the success
+    -- boolean. Both witnesses run the same call and return the same false for
+    -- a font that is present. This runs at file scope, where an unhandled
+    -- error would abort the rest of the file, hence the pcall.
+    local function TryRealFont(path)
+        local f = _G.CombatTextFont
+        if not f then return nil end
+        return (pcall(f.SetFont, f, path, 120, ""))
+    end
+
     local function ApplyCombatTextFont()
         local db = EllesmereUIDB
         local saved = db and db.fctFont
@@ -337,15 +372,42 @@ do
             -- The cache only counts if it was written for the currently
             -- saved key (fctFontPathFor pairs them).
             local cached = (db.fctFontPathFor == saved) and db.fctFontPath or nil
+            -- The probe is ADVISORY, never a veto. Reported on macOS and Linux
+            -- (8.7.8): it rejects paths that load correctly when applied, and
+            -- because a rejection both skipped the apply AND nil'd the cache
+            -- below, one false negative reverted the font permanently -- the
+            -- retry chain had nothing left to retry with.
+            --
+            -- LSM resolving the name RIGHT NOW proves the providing pack is
+            -- installed, which is better evidence than the probe, so a fetched
+            -- path is used even if the probe dislikes it. The cache is only
+            -- consulted when nothing resolves, which is the uninstalled-pack
+            -- case the probe was added for, and there the probe still guards
+            -- against pointing the engine at a missing file.
             fontPath = (ProbeFont(fetched) and fetched)
-                or (ProbeFont(cached) and cached) or nil
-            db.fctFontPath = fontPath
-            db.fctFontPathFor = fontPath and saved or nil
+                or (ProbeFont(cached) and cached)
+                or fetched
             if not fontPath then return end
         end
+
+        -- Validate against the real object when it exists. A rejection here is
+        -- a raise, i.e. the client could not find the file at all, so back the
+        -- global out to Blizzard's value: an engine global left pointing at a
+        -- missing path kills floating text for the session, which is worse
+        -- than falling back to the default.
+        if TryRealFont(fontPath) == false then
+            _G.DAMAGE_TEXT_FONT = defaultDamageFont
+            return
+        end
         _G.DAMAGE_TEXT_FONT = fontPath
-        if _G.CombatTextFont then
-            _G.CombatTextFont:SetFont(fontPath, 120, "")
+
+        -- Cache only a path that was applied (or that we had no way to test).
+        -- Never nil the cache: an early pass runs before external font packs
+        -- load, and the later ADDON_LOADED / PLAYER_LOGIN /
+        -- PLAYER_ENTERING_WORLD passes need it to still be there to succeed.
+        if smName then
+            db.fctFontPath = fontPath
+            db.fctFontPathFor = saved
         end
     end
 

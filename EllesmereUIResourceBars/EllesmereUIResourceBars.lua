@@ -4176,6 +4176,18 @@ local function UpdatePrimaryBar()
     local cur = UnitPower("player", cachedPrimary)
     local mx = UnitPowerMax("player", cachedPrimary)
     if not mx or mx <= 0 then return end
+	-- Some custom power types (e.g. Devourer Fury) can transiently report a
+    -- negative value from the server between spend and the next power sync.
+    -- The StatusBar widget itself clamps the *fill* to [0, mx] automatically,
+    -- but nothing was clamping the raw number handed to the text formatters
+    -- below, so "smart"/"curpp"/"both" text could show a negative number
+    -- while the bar visually read empty. Floor it once here, and use the
+    -- clamped value everywhere after this point (fill + text) so both stay
+    -- consistent. issecretvalue()'d numbers can't be compared, so skip the
+    -- floor for those (SetValue's own clamp still protects the fill).
+    if not (issecretvalue and issecretvalue(cur)) and cur < 0 then
+        cur = 0
+    end
 
     primaryBar:SetMinMaxValues(0, mx)
 
@@ -7865,9 +7877,21 @@ BuildGCDBar = function()
             end
         end
 
-        gcdBarFrame:SetScript("OnEvent", function(self, event, unit, _, spellID)
+        -- How each spell last behaved, keyed by spellID: "hard" once it has
+        -- ever opened a cast, channel or empower bar, "instant" once it has
+        -- finished with no cast bar at all. "hard" is sticky -- a proc (e.g.
+        -- Infusion of Light) makes one CAST instant, not the spell -- so a
+        -- procced cast simply falls back to the slower, always-correct
+        -- SUCCEEDED edge. Instant-only reads this to decide whether a press
+        -- may arm the bar; see the SPELL_UPDATE_COOLDOWN edge below.
+        local castKind = {}
+
+        gcdBarFrame:SetScript("OnEvent", function(self, event, unit, arg2, arg3, arg4)
             local gc = ERB.db.profile.gcdBar
             if not gc or not gc.enabled then return end
+            -- UNIT_SPELLCAST_SENT carries an extra target argument, so its
+            -- spellID sits one slot further along than the other cast events'.
+            local spellID = (event == "UNIT_SPELLCAST_SENT") and arg4 or arg3
 
             -- Press-parity edge (the action bar swipe lesson): the client
             -- PREDICTS the GCD and fires SPELL_UPDATE_COOLDOWN the moment
@@ -7880,19 +7904,35 @@ BuildGCDBar = function()
                 if self._gcdCapStamp == now then return end
                 self._gcdCapStamp = now
                 if gc.instantOnly then
-                    -- Hard casts also start a GCD, and cast info may not be
-                    -- readable yet on this exact frame -- check one later.
-                    C_Timer.After(0, function()
-                        if UnitCastingInfo("player") or UnitChannelInfo("player") then return end
-                        local gc2 = ERB.db.profile.gcdBar
-                        if gc2 and gc2.enabled then captureGCD(self, gc2, true) end
-                    end)
-                    return
+                    -- Hard casts and channels predict a GCD at the press too,
+                    -- and this edge IS the press: UNIT_SPELLCAST_START only
+                    -- lands a round trip later, so reading the cast one frame
+                    -- on read nothing at all on any real latency and the bar
+                    -- filled for every hard cast. Arm only when the spell just
+                    -- sent has already been seen finishing instantly; every
+                    -- other press waits for its own SUCCEEDED, which arrives
+                    -- classified. Unknown always means "wait", so the first
+                    -- cast of a spell is late rather than wrong.
+                    local sent = self._sentSpellID
+                    self._sentSpellID = nil   -- one press edge per send
+                    if not (sent and castKind[sent] == "instant"
+                        and (now - (self._sentAt or 0)) < 1) then return end
+                    -- An off-GCD press landing mid-cast must not open the bar
+                    -- on the hard cast's own GCD.
+                    if UnitCastingInfo("player") or UnitChannelInfo("player") then return end
                 end
                 captureGCD(self, gc, true)
                 return
             end
             if unit ~= "player" then return end
+
+            if event == "UNIT_SPELLCAST_SENT" then
+                -- Press-time bookkeeping for the edge above. Recording only --
+                -- this event never shows the bar.
+                self._sentSpellID = spellID
+                self._sentAt = GetTime()
+                return
+            end
 
             -- Stop events: clear the bar the moment the GCD is no longer active.
             if event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_INTERRUPTED"
@@ -7933,10 +7973,12 @@ BuildGCDBar = function()
                 -- (e.g. Swiftness Regrowth) will count as instant cast
                 if event ~= "UNIT_SPELLCAST_START" then
                     self._realCastSpellID = spellID
+                    if spellID then castKind[spellID] = "hard" end
                 else
                     local _, _, _, st, et = UnitCastingInfo("player")
                     if st and et and et > st then
                         self._realCastSpellID = spellID
+                        if spellID then castKind[spellID] = "hard" end
                     end
                 end
                 if gc.instantOnly then return end  -- instant-only: don't fill for hard casts
@@ -7954,8 +7996,16 @@ BuildGCDBar = function()
                 -- A channel's succeeded can fire before its channel_start.
                 -- Defer the capture one frame and skip it if channeling.
                 -- Avoids a 1-frame flash on channel start
+                local succeededID = spellID
                 C_Timer.After(0, function()
                     if UnitChannelInfo and UnitChannelInfo("player") then return end
+                    -- The option promises the bar stays down for the whole of
+                    -- a hard cast, so an off-GCD instant fired mid-cast must
+                    -- not open it on the cast's own GCD either.
+                    if UnitCastingInfo("player") then return end
+                    -- Got here with no cast bar of its own: this spell is an
+                    -- instant, so its next press may arm the bar directly.
+                    if succeededID and not castKind[succeededID] then castKind[succeededID] = "instant" end
                     local gc2 = ERB.db.profile.gcdBar
                     if gc2 and gc2.enabled then captureGCD(self, gc2) end
                 end)
@@ -7968,7 +8018,10 @@ BuildGCDBar = function()
     -- register the cast events that start a GCD. SPELL_UPDATE_COOLDOWN is
     -- the press-parity edge (client GCD prediction); the UNIT_SPELLCAST
     -- events carry the instant-only bookkeeping and the stop/clear edges.
+    -- SENT names the spell behind the press, which is the only thing the
+    -- press edge has to go on before the server answers.
     gcdBarFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
+    gcdBarFrame:RegisterUnitEvent("UNIT_SPELLCAST_SENT", "player")
     gcdBarFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
     gcdBarFrame:RegisterUnitEvent("UNIT_SPELLCAST_START", "player")
     gcdBarFrame:RegisterUnitEvent("UNIT_SPELLCAST_FAILED", "player")

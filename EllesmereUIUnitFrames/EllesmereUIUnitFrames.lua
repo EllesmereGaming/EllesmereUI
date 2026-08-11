@@ -2873,6 +2873,7 @@ local function PortraitOverride(self, event, evtUnit)
     else
         changed = element.guid ~= guid
     end
+    local isModel = element:IsObjectType("PlayerModel")
     local hasStateChanged = changed
         or element.state ~= isAvailable
         or event == "UNIT_PORTRAIT_UPDATE"
@@ -2882,8 +2883,19 @@ local function PortraitOverride(self, event, evtUnit)
         -- stays the same; repaint once per zone so 3D portraits never come
         -- back blank.
         or event == "PLAYER_ENTERING_WORLD"
+        -- The repaint above runs mid-loading-screen, where SetPortraitTexture
+        -- has no portrait art to hand back yet and paints a blank one. The
+        -- client fires PORTRAITS_UPDATED once that art is ready, and it is the
+        -- only trigger that follows: the guid and the availability state both
+        -- come back unchanged, so without this the blank is what the gate
+        -- caches until the next reload. Blizzard's own player portrait (the
+        -- character micro button) re-runs SetPortraitTexture on the same event
+        -- for the same reason. 2D only: the event says portrait ART is ready,
+        -- which the model path does not read, and repainting it would mean a
+        -- ClearModel + SetUnit reload every time the client streams a batch.
+        or (event == "PORTRAITS_UPDATED" and not isModel)
     if hasStateChanged then
-        if element:IsObjectType("PlayerModel") then
+        if isModel then
             if not isAvailable then
                 element:SetCamDistanceScale(0.25)
                 element:SetPortraitZoom(0)
@@ -9226,12 +9238,15 @@ local function ReloadFrames()
     local ufStrata = profile.frameStrata or "MEDIUM"
     for unitKey, frame in pairs(frames) do
         if type(frame) == "table" and frame.SetFrameStrata then
-            -- Mini frames (ToT / Focus Target / Pet) can override the global strata.
+            -- Any unit with its own settings table can override the global
+            -- strata; nil (the default) means "follow the global value".
+            -- GetSettingsForUnit maps boss1..boss5 onto the shared boss table
+            -- and falls back to the player's settings, which is what the
+            -- non-unit entries in `frames` (the class power bar above all)
+            -- should ride with anyway.
             local strata = ufStrata
-            if unitKey == "targettarget" or unitKey == "focustarget" or unitKey == "pet" then
-                local us = profile[unitKey]
-                if us and us.frameStrata then strata = us.frameStrata end
-            end
+            local us = GetSettingsForUnit(unitKey)
+            if us and us.frameStrata then strata = us.frameStrata end
             frame:SetFrameStrata(strata)
             -- Re-apply or reset custom strata for detached bars
             if frame.BottomTextBar and frame.BottomTextBar._isDetached then
@@ -11783,12 +11798,16 @@ function InitializeFrames()
     RegisterStylesOnce()
 
     local function SetupUnitMenu(frame, unit)
-        -- Left and right only, matching Blizzard's own unit frames: a
-        -- registered click is CONSUMED and never reaches the binding system,
-        -- and these frames bind nothing to middle/thumb buttons themselves.
-        -- The click-cast engine sets its own RegisterForClicks when it takes
-        -- a frame over. Left and right still cover target and the menu.
-        frame:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        -- Register ALL mouse buttons (matches raid/party's "AnyUp"), not just
+        -- left/right. These frames bind nothing to middle/thumb themselves, so
+        -- an unbound middle/thumb click still does nothing here -- but Blizzard's
+        -- built-in click-casting (and Clique) sets its own type3/type4/type5
+        -- attributes on frames registered in ClickCastFrames, and needs the
+        -- click event to actually be delivered to fire. Left-button-only
+        -- registration silently ate those clicks whenever EUI's own click-cast
+        -- engine wasn't the one driving RegisterForClicks (i.e. EUI's engine
+        -- disabled, native/Clique click-casting relied on instead).
+        frame:RegisterForClicks("AnyUp")
         -- 12.0.7 gates SecureUnitButton's togglemenu; route right-click securely
         -- through a SecureActionButton proxy so the menu (and its protected items
         -- like Set Focus) work without taint.
@@ -12840,12 +12859,13 @@ function InitializeFrames()
     local ufStrata = db.profile.frameStrata or "MEDIUM"
     for unitKey, frame in pairs(frames) do
         if type(frame) == "table" and frame.SetFrameStrata then
-            -- Mini frames (ToT / Focus Target / Pet) can override the global strata.
+            -- Any unit with its own settings table can override the global
+            -- strata; nil (the default) means "follow the global value". See
+            -- the matching comment in the other frameStrata-apply pass for why
+            -- this resolves through GetSettingsForUnit.
             local strata = ufStrata
-            if unitKey == "targettarget" or unitKey == "focustarget" or unitKey == "pet" then
-                local us = db.profile[unitKey]
-                if us and us.frameStrata then strata = us.frameStrata end
-            end
+            local us = GetSettingsForUnit(unitKey)
+            if us and us.frameStrata then strata = us.frameStrata end
             frame:SetFrameStrata(strata)
             if frame.BottomTextBar and frame.BottomTextBar._isDetached then
                 if db.profile.enableCustomBarStratas then
@@ -13411,6 +13431,35 @@ function InitializeFrames()
             if ct then
                 local classStyle = (uSettings and uSettings.classThemeStyle) or "modern"
                 ApplyClassIconTexture(backdrop._class, ct, classStyle)
+            end
+        end
+    end)
+
+    ---------------------------------------------------------------------------
+    --  Portrait art readiness for the OnUpdate-polled frames (Target of Target
+    --  / Focus Target). PORTRAITS_UPDATED is how the client says portrait art
+    --  finished loading, and PortraitOverride acts on it -- but the event is
+    --  never registered on these frames: once __eventless is set, the unit
+    --  frame library's RegisterEvent drops everything except
+    --  UNIT_PORTRAIT_UPDATE and UNIT_MODEL_CHANGED. PLAYER_ENTERING_WORLD
+    --  still reaches them (UpdateAllElements pushes it to every element), so
+    --  they take the mid-loading blank paint with nothing to heal it: the poll
+    --  just re-runs the same guid-gated Override. ForceUpdate is the trigger
+    --  that gate always honors. 2D only -- a PlayerModel does not read portrait
+    --  art, and repainting one costs a ClearModel + SetUnit reload.
+    ---------------------------------------------------------------------------
+    if not frames._portraitArtUpdater then
+        frames._portraitArtUpdater = CreateFrame("Frame")
+        frames._portraitArtUpdater:RegisterEvent("PORTRAITS_UPDATED")
+    end
+    frames._portraitArtUpdater:SetScript("OnEvent", function()
+        for _, frame in pairs(frames) do
+            if type(frame) == "table" and frame.__eventless and frame.IsElementEnabled then
+                local p = frame.Portrait
+                if p and p.ForceUpdate and not p:IsObjectType("PlayerModel")
+                    and frame:IsElementEnabled("Portrait") then
+                    p:ForceUpdate()
+                end
             end
         end
     end)

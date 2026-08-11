@@ -460,7 +460,12 @@ end
 -- state: "enabled" (default) or "disabled" -- controls the trailing verb so negative
 -- requirements ("disabled because X must be OFF") read "...to be disabled".
 local function DisabledTooltip(requirement, state)
-    if type(requirement) == "string" and requirement:find("^This option") then return requirement end
+    -- Already a whole sentence: skip the wrapper, but still translate it. The
+    -- catalog keys the whole sentence, so L() resolves it (and is identity on
+    -- English or when the key is missing).
+    if type(requirement) == "string" and requirement:find("^This option") then
+        return EllesmereUI.L(requirement)
+    end
     local verb = (state == "disabled") and "disabled" or "enabled"
     -- Compose via a positional template so the wrapper sentence, the requirement
     -- noun, and the verb each localize independently (word order is translator
@@ -480,7 +485,8 @@ local function ResolveDisabledTip(cfg)
     if tt == nil then return nil end
     local raw = cfg.rawTooltip
     if type(raw) == "function" then raw = raw() end
-    if raw then return tt end
+    -- rawTooltip skips the wrapper sentence, not the translation.
+    if raw then return EllesmereUI.L(tt) end
     return DisabledTooltip(tt, cfg.requireState)
 end
 

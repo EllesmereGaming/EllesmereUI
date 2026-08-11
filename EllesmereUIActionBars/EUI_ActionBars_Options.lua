@@ -1334,6 +1334,22 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = W:Spacer(parent, y, 12);  y = y - h
 
         -------------------------------------------------------------------
+        --  VEHICLE BAR
+        -------------------------------------------------------------------
+        _, h = W:SectionHeader(parent, "VEHICLE BAR", y);  y = y - h
+
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Hide Blizzard's Vehicle Bar",
+              getValue=function() return EAB.db.profile.hideBlizzardVehicleBar end,
+              setValue=function(v)
+                  EAB.db.profile.hideBlizzardVehicleBar = v
+                  if EAB.UpdateVehicleBarWatch then EAB:UpdateVehicleBarWatch() end
+                  EllesmereUI:RefreshPage()
+              end,
+              tooltip="Hide Blizzard's stock vehicle and override bar." },
+            { type="label", text="" });  y = y - h
+
+        -------------------------------------------------------------------
         --  XP / REP BAR STYLE
         -------------------------------------------------------------------
         _, h = W:SectionHeader(parent, "XP/REP BAR STYLE", y);  y = y - h
