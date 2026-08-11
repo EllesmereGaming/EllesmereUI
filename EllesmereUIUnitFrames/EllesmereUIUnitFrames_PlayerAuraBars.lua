@@ -1215,6 +1215,24 @@ local function MigratePlayerAuraStyle(buffCfg, debuffCfg)
     end
 end
 
+-- The retired module never anchored the duration text: it only restyled the FONT on
+-- Blizzard's own FontString, so its users kept Blizzard's placement -- BELOW the icon
+-- (Blizzard_BuffFrame anchors Duration "TOP" to the icon's "BOTTOM"). PAB's fallback is
+-- CENTER, so the 8.8 carry-over silently moved the numbers onto the icon for everyone
+-- the pabEnableSeeded hand-off brought across. Kept OUT of MigratePlayerAuraStyle: that
+-- one rides pabEditModeSeeded, which 8.8-8.8.2 profiles have already consumed, so it can
+-- never run again for exactly the users who need this. Only fills a nil -- a position
+-- picked in the options page (including a deliberate CENTER) is a real choice and stays.
+local function SeedLegacyDurationPosition(s)
+    if s.pabLegacyDurPosSeeded then return end
+    s.pabLegacyDurPosSeeded = true
+    local old = ns.db and ns.db.profile and ns.db.profile.playerAuras
+    if not (old and old.enabled) then return end
+    local buffCfg, debuffCfg = DefaultBuffsCfg(s), DefaultDebuffsCfg(s)
+    if buffCfg.durationPosition == nil then buffCfg.durationPosition = "BOTTOM" end
+    if debuffCfg.durationPosition == nil then debuffCfg.durationPosition = "BOTTOM" end
+end
+
 -- One-shot filter-model upgrade (v2, per profile): debuff bars moved to the unified
 -- All Debuffs + filters dropdown, where checked classes SUBTRACT while Show All is on.
 -- Stale add-mode selections that Show All used to bypass would suddenly subtract
@@ -1579,6 +1597,7 @@ local function CreateBars()
     -- values are what their first lazy-create populates. One-time-ever seed, not a
     -- re-appliable migration (see SeedDefaultBuffsDebuffsFromLegacySources).
     SeedDefaultBuffsDebuffsFromLegacySources(s)
+    SeedLegacyDurationPosition(s)
     EnsureDebuffFilterV2(s)
 
     -- Must run before buffCfg/custom-bar spell resolution below: the curated presets
