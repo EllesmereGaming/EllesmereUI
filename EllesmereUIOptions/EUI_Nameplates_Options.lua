@@ -2353,6 +2353,7 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                 end
                 if ns.UpdateFriendlyNameplateSystem then ns.UpdateFriendlyNameplateSystem() end
+                ns.RefreshHitboxSize()
                 -- Re-assert stacking after friendly CVar changes (Blizzard can reset the stacking bitfield as a side effect).
                 ns.RefreshStackingMotion()
                 EllesmereUI:RefreshPage()

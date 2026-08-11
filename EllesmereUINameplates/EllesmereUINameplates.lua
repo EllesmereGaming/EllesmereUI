@@ -3184,7 +3184,16 @@ function ns.RefreshHitboxSize()
     local baseW = GetHealthBarWidth()
     local baseH = GetHealthBarHeight()
     local newH  = baseH * sy
-    C_NamePlate.SetNamePlateSize(baseW * sx, newH)
+    -- Native nameplate geometry is global. Restore Blizzard's size while Blizzard owns
+    -- friendly plates so protected friendly visuals keep a matching hit target.
+    if db.showFriendlyPlayers == false and NamePlateDriverFrame
+       and NamePlateDriverFrame.GetNamePlateScale and NamePlateDriverFrame.UpdateNamePlateSize then
+        local scale = NamePlateDriverFrame:GetNamePlateScale()
+        NamePlateDriverFrame:UpdateNamePlateSize(
+            GetCVarNumberOrDefault(NamePlateConstants.STYLE_CVAR), scale)
+    else
+        C_NamePlate.SetNamePlateSize(baseW * sx, newH)
+    end
     -- The frame grows from its CENTER, so a taller size enlarges the hitbox evenly above and
     -- below the unit. -10000 insets let the hit rect fill the full (centered) frame.
     if C_NamePlateManager and C_NamePlateManager.SetNamePlateHitTestInsets
@@ -3537,22 +3546,10 @@ local function SetupAuraCVars()
     -- Apply stacking state via the Midnight bitfield CVar.
     ns.RefreshStackingMotion()
     local function ApplyNamePlateClickArea()
-        if InCombatLockdown() then return end
-        local db = p or defaults
-        local sx = (db.hitboxScaleX or 100) / 100
-        local sy = (db.hitboxScaleY or 100) / 100
-        local baseH = GetHealthBarHeight()
-        local newH  = baseH * sy
-        if C_NamePlate and C_NamePlate.SetNamePlateSize then
-            C_NamePlate.SetNamePlateSize(GetHealthBarWidth() * sx, newH)
-        end
-        if C_NamePlateManager and C_NamePlateManager.SetNamePlateHitTestInsets and Enum and Enum.NamePlateType then
-            C_NamePlateManager.SetNamePlateHitTestInsets(Enum.NamePlateType.Enemy, -10000, -10000, -10000, -10000)
-            C_NamePlateManager.SetNamePlateHitTestInsets(Enum.NamePlateType.Friendly, -10000, -10000, -10000, -10000)
-        end
+        ns.RefreshHitboxSize()
     end
     ApplyNamePlateClickArea()
-    -- Prevent Blizzard resetting nameplate sizes on display changes (jitter).
+    -- Prevent Blizzard resetting EUI-owned nameplate sizes on display changes (jitter).
     if NamePlateDriverFrame then
         NamePlateDriverFrame:UnregisterEvent("DISPLAY_SIZE_CHANGED")
         NamePlateDriverFrame:UnregisterEvent("CVAR_UPDATE")
