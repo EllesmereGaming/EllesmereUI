@@ -4,6 +4,7 @@
 --  Sidebar category filter + flat item grid layout.
 -------------------------------------------------------------------------------
 EUI_Bags = CreateFrame("Frame", "EUI_MainBagFrame", UIParent)
+EUI_Bags:SetToplevel(true)
 EUI_Bags:Hide()
 -- Auto-size (grow-to-fit) state. Reset on close so the next open sizes itself
 -- from its first/active tab; while open it only ever grows (never shrinks).
@@ -14,9 +15,11 @@ EUI_Bags:HookScript("OnHide", function(self)
 end)
 
 EUI_BagsReagent = CreateFrame("Frame", "EUI_ReagentBagFrame", UIParent)
+EUI_BagsReagent:SetToplevel(true)
 EUI_BagsReagent:Hide()
 
 EUI_BagsWindow = CreateFrame("Frame", "EUI_BagsWindowFrame", UIParent)
+EUI_BagsWindow:SetToplevel(true)
 EUI_BagsWindow:Hide()
 
 local SLOT_SIZE, SPACING = 34, 4
@@ -82,52 +85,6 @@ local EUI = EllesmereUI
 -- Profile access helper (DB created in EUI_Bags_Options.lua, loaded first per TOC)
 local _emptyP = {}
 local function BP() return (EUI._bagsDB and EUI._bagsDB.profile) or _emptyP end
-
--- Tracked currencies are PER CHARACTER: their input feed (Blizzard's currency
--- tab via the TokenFrame.OnTokenWatchChanged sync below) is per-character, so
--- a shared store can only bleed across characters. Stored at the EllesmereUIDB
--- ROOT beside the module's other per-character data (characterGold,
--- bagPinnedItems, bagItemAssignments), NEVER in the bag profile:
--- ApplyProfileData wipes db.profile wholesale on import (would erase every
--- character's currencies), and profile exports must not ship a character
--- roster (the PRIVATE_ADDON_KEYS leak class).
-local _bagsCharKey  -- session-constant; UpdateCurrencyDisplays is a render path
-local function BagsCharKey()
-    if not _bagsCharKey then
-        local n, r = UnitName("player"), GetRealmName()
-        if not n or not r then return nil end  -- too early; do not cache a stub
-        _bagsCharKey = n .. " - " .. r
-    end
-    return _bagsCharKey
-end
-
--- The per-character order table, seeded on this character's first use.
--- Returns nil only when the DB or the player identity is not up yet (callers
--- already handle that).
-local function CurrencyOrder()
-    if not EllesmereUIDB then return nil end
-    local key = BagsCharKey()
-    if not key then return nil end
-    local byChar = EllesmereUIDB.bagCurrencyByChar
-    if type(byChar) ~= "table" then byChar = {}; EllesmereUIDB.bagCurrencyByChar = byChar end
-    local t = byChar[key]
-    if type(t) ~= "table" then
-        t = {}
-        -- Seed once per character from the legacy shared profile table. The
-        -- legacy table is deliberately never deleted: a per-character
-        -- migration is never a one-shot (a character that has not logged in
-        -- yet still seeds from it later), and nothing writes it any more.
-        local legacy = BP().currencyOrder
-        if type(legacy) == "table" then
-            for cID, order in pairs(legacy) do
-                if type(order) == "number" then t[cID] = order end
-            end
-        end
-        byChar[key] = t
-    end
-    return t
-end
-EUI._BagsCurrencyOrder = CurrencyOrder
 
 -- Resolve the default bag-type view ("all" | "onebag" | "multibag"). Reads the
 -- new bagDefaultBagType key, falling back to the legacy bagDefaultOneBag boolean
@@ -1713,7 +1670,7 @@ local function UpdateCurrencyDisplays(footerWidth)
 
     -- Build tracked list from internal order table (decoupled from Blizzard)
     local tracked = {}
-    local orderDB = CurrencyOrder()
+    local orderDB = BP().currencyOrder
     if orderDB and C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo then
         for cID, order in pairs(orderDB) do
             if type(order) == "number" then
@@ -2758,9 +2715,9 @@ ExitPinSelectMode = function()
         end
         ov._fadeOut:Play()
     end
-    -- Restore scroll frame strata
+    -- Restore the normal bag-window strata after the temporary modal layer.
     local sf = EUI_Bags._scrollFrame
-    if sf then sf:SetFrameStrata("HIGH") end
+    if sf then sf:SetFrameStrata(EUI_Bags:GetFrameStrata()) end
 end
 
 -------------------------------------------------------------------------------
@@ -2786,7 +2743,7 @@ local function ExitAssignSelectMode()
         ov._fadeOut:Play()
     end
     local sf = EUI_Bags._scrollFrame
-    if sf then sf:SetFrameStrata("HIGH") end
+    if sf then sf:SetFrameStrata(EUI_Bags:GetFrameStrata()) end
 end
 
 EnterAssignSelectMode = function(catKey)
@@ -6333,8 +6290,7 @@ local function StartAddon()
     end
 
     EUI_Bags:SetClampedToScreen(true)
-    EUI_Bags:SetFrameStrata("HIGH")
-    EUI_Bags:SetFrameLevel(100)
+    EUI_Bags:SetFrameStrata("MEDIUM")
     EUI_Bags:EnableMouse(true)
     EUI_Bags:SetMovable(true)
 
@@ -6467,7 +6423,7 @@ local function StartAddon()
     -- Bag overview window
     EUI_BagsWindow:SetSize(280, 80)
     EUI_BagsWindow:SetPoint("BOTTOMRIGHT", EUI_Bags._bagsBtn, "TOPRIGHT", 0, 2)
-    EUI_BagsWindow:SetFrameStrata("HIGH")
+    EUI_BagsWindow:SetFrameStrata("MEDIUM")
     EUI_BagsWindow:EnableMouse(true)
     EUI_BagsWindow.bg = EUI_BagsWindow:CreateTexture(nil, "BACKGROUND")
     EUI_BagsWindow.bg:SetAllPoints()
@@ -6478,7 +6434,7 @@ local function StartAddon()
     -- Reagent bag
     EUI_BagsReagent:SetSize(320, 300)
     EUI_BagsReagent:SetPoint("BOTTOMRIGHT", EUI_Bags, "BOTTOMLEFT", -10, 0)
-    EUI_BagsReagent:SetFrameStrata("HIGH")
+    EUI_BagsReagent:SetFrameStrata("MEDIUM")
     EUI_BagsReagent:EnableMouse(true)
     EUI_BagsReagent.bg = EUI_BagsReagent:CreateTexture(nil, "BACKGROUND")
     EUI_BagsReagent.bg:SetAllPoints()
@@ -6702,16 +6658,14 @@ local function StartAddon()
         end
     end
 
-    -- Seed this character's tracked currencies from Blizzard's on first load
+    -- Seed currencyOrder from Blizzard's tracked currencies on first load
     if EllesmereUIDB and C_CurrencyInfo and C_CurrencyInfo.GetBackpackCurrencyInfo then
-        -- Only seed when this character's table is empty: first install, a
-        -- fresh profile, or a character whose legacy seed was empty too.
-        local co = CurrencyOrder()
+        if not BP().currencyOrder then BP().currencyOrder = {} end
+        local co = BP().currencyOrder
+        -- Only seed if our table is empty (first install or fresh profile)
         local hasAny = false
-        if co then
-            for _ in pairs(co) do hasAny = true; break end
-        end
-        if co and not hasAny then
+        for _ in pairs(co) do hasAny = true; break end
+        if not hasAny then
             local order = 0
             for i = 1, 20 do
                 local info = C_CurrencyInfo.GetBackpackCurrencyInfo(i)
@@ -6743,8 +6697,8 @@ local function StartAddon()
     if EventRegistry and EventRegistry.RegisterCallback then
         EventRegistry:RegisterCallback("TokenFrame.OnTokenWatchChanged", function()
             if not EllesmereUIDB then return end
-            local co = CurrencyOrder()
-            if not co then return end
+            if not BP().currencyOrder then BP().currencyOrder = {} end
+            local co = BP().currencyOrder
             local blizzSet = ReadBlizzSet()
             -- Add newly checked currencies
             for cID in pairs(blizzSet) do
