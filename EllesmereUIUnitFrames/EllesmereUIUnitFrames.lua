@@ -1419,8 +1419,10 @@ local function ApplyHealthBarAlpha(health, unitKey)
     local fillA = opacity / 100
     local fillTex = health:GetStatusBarTexture()
     -- When a gradient is active the opacity is baked into the gradient endpoints,
-    -- so the texture region alpha must stay 1 to avoid double-dimming.
-    if fillTex then fillTex:SetAlpha((s and s.gradientEnabled) and 1 or fillA) end
+    -- so the texture region alpha must stay 1 to avoid double-dimming. The
+    -- value-based fill modes suppress the gradient (PostUpdateColor skips it),
+    -- so the region alpha must carry the opacity again.
+    if fillTex then fillTex:SetAlpha((s and s.gradientEnabled and not ns.UF_IsCurveMode(s)) and 1 or fillA) end
     if health.bg then health.bg:SetAlpha((s and (s.customBgAlpha or 100) or 100) / 100) end
 end
 
@@ -1589,6 +1591,93 @@ local function UF_SecretSafeHealthColor(self, event, unit)
     end
 end
 
+-- Health By Value: the fill color follows current health through three
+-- user-chosen gradient stops (full / half / empty). Live frames feed a
+-- C_CurveUtil color curve to UnitHealthPercent so the percent itself is never
+-- read (it can be a secret value); only the resulting color reaches
+-- SetStatusBarColor. One curve is cached per unit key and rebuilt only when a
+-- stop color changes. Wrapped in a do-block so the cache state does not
+-- consume main-chunk local slots.
+do
+    local DEF100 = { r = 0, g = 1, b = 0 }
+    local DEF50  = { r = 1, g = 1, b = 0 }
+    local DEF0   = { r = 1, g = 0, b = 0 }
+    local curves = {}
+    function ns.GetHealthByValueCurve(unitKey, s)
+        local c0   = s.dynamicColor0   or DEF0
+        local c50  = s.dynamicColor50  or DEF50
+        local c100 = s.dynamicColor100 or DEF100
+        local e = curves[unitKey]
+        if not (e
+            and e.r0   == c0.r   and e.g0   == c0.g   and e.b0   == c0.b
+            and e.r50  == c50.r  and e.g50  == c50.g  and e.b50  == c50.b
+            and e.r100 == c100.r and e.g100 == c100.g and e.b100 == c100.b) then
+            local curve = C_CurveUtil.CreateColorCurve()
+            curve:SetType(Enum.LuaCurveType.Linear)
+            curve:AddPoint(0,   CreateColor(c0.r,   c0.g,   c0.b,   1))
+            curve:AddPoint(0.5, CreateColor(c50.r,  c50.g,  c50.b,  1))
+            curve:AddPoint(1,   CreateColor(c100.r, c100.g, c100.b, 1))
+            e = { curve = curve,
+                  r0 = c0.r,     g0 = c0.g,     b0 = c0.b,
+                  r50 = c50.r,   g50 = c50.g,   b50 = c50.b,
+                  r100 = c100.r, g100 = c100.g, b100 = c100.b }
+            curves[unitKey] = e
+        end
+        return e.curve
+    end
+
+    -- Clean-number interpolation matching the curve above, for the options
+    -- preview where the health percent is a known fake value (0-1).
+    function ns.ResolveHealthByValueColor(s, pct01)
+        local c0   = s.dynamicColor0   or DEF0
+        local c50  = s.dynamicColor50  or DEF50
+        local c100 = s.dynamicColor100 or DEF100
+        if pct01 >= 0.5 then
+            local t = (pct01 - 0.5) * 2
+            return c50.r + (c100.r - c50.r) * t,
+                   c50.g + (c100.g - c50.g) * t,
+                   c50.b + (c100.b - c50.b) * t
+        end
+        local t = pct01 * 2
+        return c0.r + (c50.r - c0.r) * t,
+               c0.g + (c50.g - c0.g) * t,
+               c0.b + (c50.b - c0.b) * t
+    end
+
+    -- "classic" is the value-based fill with nothing customized: an empty
+    -- stops table falls through to the green / yellow / red defaults above.
+    local CLASSIC_STOPS = {}
+    ns.UF_CLASSIC_STOPS = CLASSIC_STOPS
+
+    -- Effective fill-color mode for a unit's settings table:
+    -- "class" | "classic" | "custom" | "customDynamic". An explicit
+    -- healthColorMode wins; profiles that predate the dropdown derive the mode
+    -- from the legacy keys (Health By Value toggle, class/custom swatch state).
+    function ns.GetUnitHealthColorMode(s)
+        if not s then return "class" end
+        local m = s.healthColorMode
+        if m then return m end
+        if s.healthByValue then return "customDynamic" end
+        if s.healthClassColored then return "class" end
+        if s.customFillColor then return "custom" end
+        return "class"
+    end
+
+    -- The two value-based modes paint through a curve and suppress the
+    -- gradient path (their RGB can be secret values).
+    function ns.UF_IsCurveMode(s)
+        local m = ns.GetUnitHealthColorMode(s)
+        return m == "classic" or m == "customDynamic"
+    end
+
+    function ns.GetUnitHealthModeCurve(mode, unitKey, s)
+        if mode == "classic" then
+            return ns.GetHealthByValueCurve("__classic", CLASSIC_STOPS)
+        end
+        return ns.GetHealthByValueCurve(unitKey, s)
+    end
+end
+
 local function ApplyDarkTheme(health)
     if not health then return end
     -- TEMPORARY (see UF_SecretSafeHealthColor above). Idempotent: this
@@ -1652,15 +1741,29 @@ local function ApplyDarkTheme(health)
         end
         local customFill = unitSettings and unitSettings.customFillColor
         local customBg   = unitSettings and unitSettings.customBgColor
-        if customFill then
-            -- Custom fill overrides class coloring; skip if class color is enabled
-            if not (unitSettings and unitSettings.healthClassColored) then
-                health.colorClass = false
-                health.colorReaction = false
-                health.colorTapped = false
-                health.colorDisconnected = false
-                health:SetStatusBarColor(customFill.r, customFill.g, customFill.b)
+        local colorMode = ns.GetUnitHealthColorMode(unitSettings)
+        local curveMode = colorMode == "classic" or colorMode == "customDynamic"
+        if curveMode then
+            -- Value-based fill overrides class/reaction coloring; the live
+            -- color re-applies on every health update in PostUpdateColor.
+            health.colorClass = false
+            health.colorReaction = false
+            health.colorTapped = false
+            health.colorDisconnected = false
+            local u = health.__owner and health.__owner.unit
+            if u and UnitExists(u) then
+                local col = UnitHealthPercent(u, true, ns.GetUnitHealthModeCurve(colorMode, unitKey, unitSettings))
+                if col and col.GetRGB then
+                    health:SetStatusBarColor(col:GetRGB())
+                end
             end
+        elseif colorMode == "custom" and customFill then
+            -- Custom fill overrides class coloring
+            health.colorClass = false
+            health.colorReaction = false
+            health.colorTapped = false
+            health.colorDisconnected = false
+            health:SetStatusBarColor(customFill.r, customFill.g, customFill.b)
         end
         -- Tint bg to 20% of the class/reaction color, or use custom bg color.
         -- Alpha is NOT re-applied -- SetStatusBarColor(r,g,b) preserves
@@ -1672,31 +1775,48 @@ local function ApplyDarkTheme(health)
             local cBg   = uSettings and uSettings.customBgColor
             local classColored = uSettings and uSettings.healthClassColored
             local bgClassColored = uSettings and uSettings.bgClassColored
-            -- Resolve base fill color (custom, or oUF's class/reaction color), then apply
-            -- gradient additively when enabled; otherwise the existing flat behavior.
-            local bR, bG, bB
-            if cFill and not classColored then
-                bR, bG, bB = cFill.r, cFill.g, cFill.b
-            elseif classColored and uKey == "pet" then
-                local _, ct = UnitClass("player")
-                local cc = ct and not issecretvalue(ct) and EllesmereUI.GetClassColor(ct)
-                if cc then bR, bG, bB = cc.r, cc.g, cc.b end
-            elseif color and color.GetRGB then
-                bR, bG, bB = color:GetRGB()
-            end
-            if uSettings and uSettings.gradientEnabled and bR then
-                local gc = uSettings.gradientColor
-                -- A gradient overrides the texture's region alpha, so Bar Opacity
-                -- is baked into the gradient endpoint alphas instead of SetAlpha.
-                local ga = uSettings.healthBarOpacity or 90
-                if ga > 1.0 then ga = ga / 100 end
-                ApplyBarGradient(self:GetStatusBarTexture(), uSettings.gradientDir or "HORIZONTAL",
-                    bR, bG, bB, ga,
-                    gc and gc.r or 0.20, gc and gc.g or 0.20, gc and gc.b or 0.80, ga)
-            elseif classColored and uKey == "pet" and bR then
-                self:SetStatusBarColor(bR, bG, bB)
-            elseif cFill and not classColored then
-                self:SetStatusBarColor(cFill.r, cFill.g, cFill.b)
+            local pMode = ns.GetUnitHealthColorMode(uSettings)
+            if pMode == "classic" or pMode == "customDynamic" then
+                -- Value-based fill: evaluate the stop curve at the unit's
+                -- current health. The color components can be secret, so they
+                -- go straight into SetStatusBarColor (documented
+                -- AllowedWhenTainted) and never feed the gradient path, which
+                -- would truthiness-test them.
+                local u = unit or (self.__owner and self.__owner.unit)
+                if u and UnitExists(u) then
+                    local col = UnitHealthPercent(u, true, ns.GetUnitHealthModeCurve(pMode, uKey, uSettings))
+                    if col and col.GetRGB then
+                        self:SetStatusBarColor(col:GetRGB())
+                    end
+                end
+            else
+                -- eui-style: allow thirdparty (vendored oUF is this module's own framework)
+                -- Resolve base fill color (custom, or oUF's class/reaction color), then apply
+                -- gradient additively when enabled; otherwise the existing flat behavior.
+                local bR, bG, bB
+                if pMode == "custom" and cFill then
+                    bR, bG, bB = cFill.r, cFill.g, cFill.b
+                elseif classColored and uKey == "pet" then
+                    local _, ct = UnitClass("player")
+                    local cc = ct and not issecretvalue(ct) and EllesmereUI.GetClassColor(ct)
+                    if cc then bR, bG, bB = cc.r, cc.g, cc.b end
+                elseif color and color.GetRGB then
+                    bR, bG, bB = color:GetRGB()
+                end
+                if uSettings and uSettings.gradientEnabled and bR then
+                    local gc = uSettings.gradientColor
+                    -- A gradient overrides the texture's region alpha, so Bar Opacity
+                    -- is baked into the gradient endpoint alphas instead of SetAlpha.
+                    local ga = uSettings.healthBarOpacity or 90
+                    if ga > 1.0 then ga = ga / 100 end
+                    ApplyBarGradient(self:GetStatusBarTexture(), uSettings.gradientDir or "HORIZONTAL",
+                        bR, bG, bB, ga,
+                        gc and gc.r or 0.20, gc and gc.g or 0.20, gc and gc.b or 0.80, ga)
+                elseif classColored and uKey == "pet" and bR then
+                    self:SetStatusBarColor(bR, bG, bB)
+                elseif pMode == "custom" and cFill then
+                    self:SetStatusBarColor(cFill.r, cFill.g, cFill.b)
+                end
             end
             if self.bg then
                 -- Keep bg covering only the empty (missing-health) portion as
@@ -1719,7 +1839,7 @@ local function ApplyDarkTheme(health)
                     self.bg:SetColorTexture(bgClassR, bgClassG, bgClassB, 1)
                 elseif cBg then
                     self.bg:SetColorTexture(cBg.r, cBg.g, cBg.b, 1)
-                elseif cFill and not classColored then
+                elseif pMode == "custom" and cFill then
                     self.bg:SetColorTexture(cFill.r * 0.2, cFill.g * 0.2, cFill.b * 0.2, 1)
                 elseif color and color.GetRGB then
                     local r, g, b = color:GetRGB()
@@ -1753,7 +1873,7 @@ local function ApplyDarkTheme(health)
                 health.bg:SetColorTexture(bgClassR, bgClassG, bgClassB, 1)
             elseif customBg then
                 health.bg:SetColorTexture(customBg.r, customBg.g, customBg.b, 1)
-            elseif customFill then
+            elseif colorMode == "custom" and customFill then
                 health.bg:SetColorTexture(customFill.r * 0.2, customFill.g * 0.2, customFill.b * 0.2, 1)
             else
                 -- No custom colors set -- use default dark bg (#111)
