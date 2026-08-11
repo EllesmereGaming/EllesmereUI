@@ -1,0 +1,5 @@
+<Bindings>
+	<Binding name="EUI_BAGS_PIN_ITEM" header="EUI_BAGS" category="EllesmereUI">
+		EUI_Bags:TogglePinUnderMouse()
+	</Binding>
+</Bindings>
