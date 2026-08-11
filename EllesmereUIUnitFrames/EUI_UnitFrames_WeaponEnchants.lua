@@ -9,12 +9,15 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -- same reason (and may read secrets untainted; we cannot copy that path).
 --
 -- Integration model -- first-class citizens of BOTH displays:
---   * IN-GRID CELLS: while N enchants are active, the display's engine
---     container is SHIFTED inward by N cells (the producers own that shift;
---     this file exposes ns.WeaponEnchants_Count and pokes them on change),
---     and the enchant buttons occupy the bar's actual first cells -- main
---     hand adjacent to the run, Blizzard's temp-enchants-first ordering.
---     No oils = zero shift = byte-identical layout.
+--   * OWN LINE (PAB): the buttons sit on a dedicated line one icon + row gap
+--     off the bar's fixed corner (rec.lineX/lineY), on the cross axis, so the
+--     line reads as "before" the grid -- Blizzard's temp-enchants-first
+--     ordering. They pack along the grow axis and share the grid's edge, and
+--     the engine container never moves, so the grid stays a clean rectangle
+--     at every count. The old model shifted the container inward by N cells,
+--     which every wrapped row inherited (row 2+ inset from row 1, full rows
+--     overflowing the reserved grid). The UF display keeps its own in-line
+--     lead strip and is untouched by this.
 --   * LIVE STYLE: buttons render from the display's own AK.styles table and
 --     speak both style dialects (PAB BuildStyle and the unit-frame
 --     BuildStyle: texCoord rect vs iconCrop/iconZoom, cdText* vs duration*,
@@ -50,7 +53,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --
 -- Producer records (nil = display inactive/filtered), poked via
 -- ns.WeaponEnchants_Layout():
---   ns._weaponEnchPAB = { parent, corner, dir, pad, styleKey, canCancel }
+--   ns._weaponEnchPAB = { parent, corner, dir, lineX, lineY, lineGap, pad,
+--                         styleKey, canCancel }
 --   ns._weaponEnchUF  = { frame, ia, fp, x, y, gX, pad, styleKey }
 
 local _, ns = ...
@@ -261,7 +265,9 @@ local function Paint()
             -- any ancestor of them is combat-blocked); visibility rides
             -- button alpha exclusively. Out of combat: full geometry/style
             -- pass; in combat: alpha + content only. Cells pack active slots
-            -- with MAIN HAND adjacent to the engine run.
+            -- along the enchant line, MAIN HAND taking the innermost cell
+            -- (highest index, furthest along the grow direction) -- the order
+            -- the shifted-container model used, kept as-is here.
             local active = rec and style or nil
             local cellIndex = {}
             if active then
@@ -293,9 +299,16 @@ local function Paint()
                             local dx, dy = 0, 0
                             if dir == "RIGHT" then dx = 1 elseif dir == "LEFT" then dx = -1
                             elseif dir == "UP" then dy = 1 elseif dir == "DOWN" then dy = -1 end
+                            -- Cross-axis step onto the bar's dedicated enchant
+                            -- line (rec.lineX/lineY, one icon + the grid's row
+                            -- gap away from the corner). Buttons still pack
+                            -- along the grow axis, so the line shares the grid's
+                            -- edge and the container never has to move.
+                            local step = (style.width or 32) + (rec.lineGap or 0)
                             b:ClearAllPoints()
                             b:SetPoint(rec.corner, rec.parent, rec.corner,
-                                dx * idx * cell, dy * idx * cell)
+                                dx * idx * cell + (rec.lineX or 0) * step,
+                                dy * idx * cell + (rec.lineY or 0) * step)
                             b._cell = idx
                             b._noTooltip = style.noTooltips == true
                         end
@@ -304,11 +317,15 @@ local function Paint()
                     if info then
                         PaintContent(b, SLOTS[i], info)
                         -- In combat positions are frozen: a button whose
-                        -- last-packed cell now belongs to the shifted engine
-                        -- run (or to another enchant) goes alpha 0 instead
-                        -- of overlapping; the regen pass repacks everything.
+                        -- last-packed cell is already taken by another enchant
+                        -- goes alpha 0 instead of overlapping; the regen pass
+                        -- repacks everything. No "cell >= count" test: the
+                        -- enchant line is the enchants' own, so a stale cell
+                        -- can only leave a gap, never collide with the engine
+                        -- run -- hiding a still-active oil there would be a
+                        -- disappearing icon for the rest of the fight.
                         local cellBad = combat and (b._cell == nil
-                            or b._cell > n - 1 or usedCells[b._cell])
+                            or usedCells[b._cell])
                         if cellBad then
                             b:SetAlpha(0)
                         else
@@ -351,16 +368,13 @@ local function Paint()
     if anyShown then UpdateTexts() end
 end
 
--- Count changes re-anchor the displays (their containers shift inward by
--- the new count). Container re-seating is combat-legal and runs IMMEDIATELY
--- (the engine run repositions live); only the SECURE trio's geometry is
--- lockdown-blocked, so in combat PAB takes the minimal container-only path
--- (the full ApplyLiveConfig would trip the anchor-poisoned parent:SetSize)
--- and a regen pass repacks the buttons afterward.
+-- Count changes re-anchor the displays. PAB has nothing to do in combat now
+-- that its grid no longer shifts with the count: the container stays put, and
+-- the SECURE trio's own geometry is lockdown-blocked anyway, so the regen pass
+-- repacks the buttons. Out of combat the full pass runs (ApplyLiveConfig is the
+-- combat-illegal one -- it would trip the anchor-poisoned parent:SetSize).
 local function PokeProducers(combat)
-    if combat then
-        if ns.PAB_ReShiftEnchants then ns.PAB_ReShiftEnchants() end
-    else
+    if not combat then
         if ns.PAB_ApplyLiveConfig then ns.PAB_ApplyLiveConfig(true) end
     end
     if ns.UF_ReloadAllAuraContainers then ns.UF_ReloadAllAuraContainers() end

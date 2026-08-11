@@ -1514,45 +1514,24 @@ local function HideBlizzardPlayerAuras()
     end
 end
 
--- Shifts the default Buffs container inward by the active weapon-enchant
--- count (see EUI_UnitFrames_WeaponEnchants.lua): the enchant buttons occupy
--- the bar's first cells and the engine run starts after them -- Blizzard's
--- temp-enchants-first ordering. Zero enchants (or a filtered-out record)
--- leaves the anchor byte-identical. Full rows overflow the reserved grid by
--- the shift while an oil is up -- accepted; the shift is transient.
-local function ShiftBuffsForEnchants(container, parent, cfg, grid)
-    local n = (ns._weaponEnchPAB and ns.WeaponEnchants_Count and ns.WeaponEnchants_Count()) or 0
-    if n == 0 then return end
-    local corner = BuildContainerSpec(parent, cfg, grid)
+-- Weapon-enchant lead cells used to be carved out of the grid by SHIFTING the whole
+-- Buffs container inward by the active count. Every wrapped row inherits a container
+-- shift, so row 2+ ended up inset from row 1's edge whenever an oil was up and the
+-- buffs wrapped, and a full row overflowed the reserved grid by the shift. The
+-- enchants now sit on their OWN line just outside the grid instead, so the container
+-- never moves and the grid stays a clean rectangle at every enchant count.
+--
+-- Returns the unit direction from the grid's fixed corner to that line, i.e. the cross
+-- axis, pointing AWAY from where the flow's lines extend. Horizontal growth wraps
+-- downward always (ToGrowthV), so the line goes UP; vertical growth wraps along
+-- iconWrapDirection, so the line goes against it. The enchant buttons still pack along
+-- the GROW axis from the corner, keeping main-hand-adjacent order and the grid's edge.
+local function EnchantLineOffset(cfg)
     local dir = cfg.growDirection or "LEFT"
-    local dx, dy = 0, 0
-    if dir == "RIGHT" then dx = 1 elseif dir == "LEFT" then dx = -1
-    elseif dir == "UP" then dy = 1 elseif dir == "DOWN" then dy = -1 end
-    local cell = EllesmereUI.PP.Scale(cfg.iconSize or 32) + (cfg.padding or 5)
-    container:ClearAllPoints()
-    container:SetPoint(corner, parent, corner, dx * n * cell, dy * n * cell)
-end
-
--- Combat-path re-shift for enchant count changes: re-seating the CONTAINER
--- is combat-legal (plain SetPoint, same class as the merged-debuff ride),
--- but the full ApplyLiveConfig is not -- the secure enchant trio anchors
--- into the bar frame's family, which blocks the bar's own SetSize in
--- lockdown. Recomputes the live grid and re-seats ONLY the container,
--- INCLUDING the shift-to-zero reset when the last oil expires.
-function ns.PAB_ReShiftEnchants()
-    local s = PAB()
-    if not (AK and s and buffsContainer and buffsParent) then return end
-    local cfg = DefaultBuffsCfg(s)
-    local grid = ComputeGrid(true, cfg)
-    local corner = BuildContainerSpec(buffsParent, cfg, grid)
-    local n = (ns._weaponEnchPAB and ns.WeaponEnchants_Count and ns.WeaponEnchants_Count()) or 0
-    local dir = cfg.growDirection or "LEFT"
-    local dx, dy = 0, 0
-    if dir == "RIGHT" then dx = 1 elseif dir == "LEFT" then dx = -1
-    elseif dir == "UP" then dy = 1 elseif dir == "DOWN" then dy = -1 end
-    local cell = EllesmereUI.PP.Scale(cfg.iconSize or 32) + (cfg.padding or 5)
-    buffsContainer:ClearAllPoints()
-    buffsContainer:SetPoint(corner, buffsParent, corner, dx * n * cell, dy * n * cell)
+    if dir == "UP" or dir == "DOWN" then
+        return ((cfg.iconWrapDirection or "LEFT") == "RIGHT") and -1 or 1, 0
+    end
+    return 0, 1
 end
 
 local function CreateBars()
@@ -1632,8 +1611,10 @@ local function CreateBars()
     -- Duration on -- the same gate as the catch-all group). They render with
     -- the bar's live style, so every customization follows automatically.
     if buffCfg.showAllBuffs ~= false or buffCfg.hasDuration == true then
+        local lineX, lineY = EnchantLineOffset(buffCfg)
         ns._weaponEnchPAB = { parent = buffsParent, corner = buffCorner,
             dir = buffCfg.growDirection or "LEFT",
+            lineX = lineX, lineY = lineY, lineGap = buffGrid.rowGap,
             pad = buffPad, styleKey = STYLE_BUFFS, canCancel = true }
     else
         ns._weaponEnchPAB = nil
@@ -1670,7 +1651,6 @@ local function CreateBars()
     AK.RequestContainer(buffsParent, "player", buffSpec, function(container)
         buffsContainer = container
         AK.SetContainerAxis(container, buffVertical)
-        ShiftBuffsForEnchants(container, buffsParent, buffCfg, buffGrid)
         declared.buffs = {}
         ApplyGroupConfig(container, buffAllChain, declared.buffs, STYLE_BUFFS, buffGrid.effectiveMax, buffPad, buffGrid.rowGap, buffCfg, BuffCandidateExtras(buffCfg))
         if #buffSpells > 0 then
@@ -1821,18 +1801,18 @@ local function ApplyLiveConfig(isBuff)
     ApplyContainerAnchorAndGrowth(container, parent, cfg, grid)
 
     if isBuff then
-        -- Keep the weapon-enchant cells riding the bar's live geometry and
-        -- filter state (same broad-content gate as the catch-all group),
-        -- then shift the engine run inward past them.
+        -- Keep the weapon-enchant line riding the bar's live geometry and
+        -- filter state (same broad-content gate as the catch-all group).
         if cfg.showAllBuffs ~= false or cfg.hasDuration == true then
             local liveCorner = BuildContainerSpec(parent, cfg, grid)
+            local lineX, lineY = EnchantLineOffset(cfg)
             ns._weaponEnchPAB = { parent = parent, corner = liveCorner,
                 dir = cfg.growDirection or "LEFT",
+                lineX = lineX, lineY = lineY, lineGap = grid.rowGap,
                 pad = pad, styleKey = STYLE_BUFFS, canCancel = true }
         else
             ns._weaponEnchPAB = nil
         end
-        ShiftBuffsForEnchants(container, parent, cfg, grid)
         if ns.WeaponEnchants_Layout then ns.WeaponEnchants_Layout() end
     end
 
@@ -1852,7 +1832,6 @@ local function ApplyLiveConfig(isBuff)
             AK.RequestContainer(parent, "player", spec, function(newContainer)
                 buffsContainer = newContainer
                 AK.SetContainerAxis(newContainer, specVertical)
-                ShiftBuffsForEnchants(newContainer, parent, cfg, grid)
                 declared.buffs = {}
                 ApplyGroupConfig(newContainer, allChain, declared.buffs, STYLE_BUFFS, grid.effectiveMax, pad, grid.rowGap, cfg, BuffCandidateExtras(cfg))
                 if #spells > 0 then
