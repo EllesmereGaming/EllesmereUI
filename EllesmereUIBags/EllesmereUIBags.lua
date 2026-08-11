@@ -1970,6 +1970,73 @@ _itemDragFrame:SetScript("OnUpdate", function(self)
 end)
 
 -------------------------------------------------------------------------------
+--  Pin / category-unassign toggle for a single bag slot. Both input paths land
+--  here (middle-click on the item button, and the "Pin/Unpin Item Under Cursor"
+--  keybind below) so the two can never drift apart.
+-------------------------------------------------------------------------------
+local function TogglePinForSlot(bagID, slotID)
+    if not bagID or not slotID or slotID == 0 then return end
+    local info = C_Container.GetContainerItemInfo(bagID, slotID)
+    if not info or not info.itemID then return end
+    -- If this item has a custom category assignment, the toggle unassigns it
+    local assignments = EllesmereUIDB and EllesmereUIDB.bagItemAssignments
+    if assignments and assignments[info.itemID] then
+        EUI_CategoryManager:UnassignItem(info.itemID)
+        if EUI_Bags.RefreshInventory then EUI_Bags:RefreshInventory() end
+        return
+    end
+    if not EllesmereUIDB then EllesmereUIDB = {} end
+    if not EllesmereUIDB.bagPinnedItems then EllesmereUIDB.bagPinnedItems = {} end
+    local pinned = EllesmereUIDB.bagPinnedItems
+    local itemLink = C_Container.GetContainerItemLink(bagID, slotID)
+    local isGear = IsGearItem(itemLink)
+    local cur = pinned[info.itemID] or 0
+    if isGear then
+        -- Gear: per-stack count toggle
+        if cur > 0 then
+            cur = cur - 1
+            pinned[info.itemID] = cur > 0 and cur or nil
+        else
+            pinned[info.itemID] = cur + 1
+        end
+    else
+        -- Non-gear: pin/unpin all stacks at once
+        if cur > 0 then
+            pinned[info.itemID] = nil
+        else
+            pinned[info.itemID] = 999
+        end
+    end
+    if EUI_Bags.RefreshInventory then EUI_Bags:RefreshInventory() end
+end
+
+-- Keybind entry point (Bindings.xml, auto-loaded from the addon root). Acts on
+-- whatever bag slot the cursor is over, so a mouse whose middle button is
+-- remapped to a keyboard chord -- or that has no middle button at all -- can
+-- still reach pinning. Unbound by default: nothing here runs until the user
+-- assigns a key, and middle-click is untouched.
+--
+-- The hovered button is matched by IDENTITY against the slot pool rather than
+-- by a marker field on the frame. Writing custom keys onto a
+-- ContainerFrameItemButtonTemplate button taints it and gets UseContainerItem()
+-- blocked as ADDON_ACTION_FORBIDDEN (see the PreClick note in GetOrCreateSlot).
+_G.BINDING_HEADER_EUI_BAGS = "EllesmereUI Bags"
+_G.BINDING_NAME_EUI_BAGS_PIN_ITEM = "Pin/Unpin Item Under Cursor"
+
+function EUI_Bags:TogglePinUnderMouse()
+    local foci = (GetMouseFoci and GetMouseFoci()) or (GetMouseFocus and { GetMouseFocus() })
+    if not foci then return end
+    for _, frame in ipairs(foci) do
+        for _, btn in pairs(itemSlots) do
+            if btn == frame then
+                TogglePinForSlot(btn:GetParent():GetID(), btn:GetID())
+                return
+            end
+        end
+    end
+end
+
+-------------------------------------------------------------------------------
 --  Slot Factory (preserved with square icon fix)
 -------------------------------------------------------------------------------
 local function GetOrCreateSlot(idx)
@@ -2022,41 +2089,7 @@ local function GetOrCreateSlot(idx)
 
     btn:HookScript("OnMouseUp", function(self, button)
         if button ~= "MiddleButton" then return end
-        local bagID = self:GetParent():GetID()
-        local slotID = self:GetID()
-        if not bagID or not slotID or slotID == 0 then return end
-        local info = C_Container.GetContainerItemInfo(bagID, slotID)
-        if not info or not info.itemID then return end
-        -- If this item has a custom category assignment, middle-click unassigns it
-        local assignments = EllesmereUIDB and EllesmereUIDB.bagItemAssignments
-        if assignments and assignments[info.itemID] then
-            EUI_CategoryManager:UnassignItem(info.itemID)
-            if EUI_Bags.RefreshInventory then EUI_Bags:RefreshInventory() end
-            return
-        end
-        if not EllesmereUIDB then EllesmereUIDB = {} end
-        if not EllesmereUIDB.bagPinnedItems then EllesmereUIDB.bagPinnedItems = {} end
-        local pinned = EllesmereUIDB.bagPinnedItems
-        local itemLink = C_Container.GetContainerItemLink(bagID, slotID)
-        local isGear = IsGearItem(itemLink)
-        local cur = pinned[info.itemID] or 0
-        if isGear then
-            -- Gear: per-stack count toggle
-            if cur > 0 then
-                cur = cur - 1
-                pinned[info.itemID] = cur > 0 and cur or nil
-            else
-                pinned[info.itemID] = cur + 1
-            end
-        else
-            -- Non-gear: pin/unpin all stacks at once
-            if cur > 0 then
-                pinned[info.itemID] = nil
-            else
-                pinned[info.itemID] = 999
-            end
-        end
-        if EUI_Bags.RefreshInventory then EUI_Bags:RefreshInventory() end
+        TogglePinForSlot(self:GetParent():GetID(), self:GetID())
     end)
 
     -- Shift-click split hint: when the user shift-clicks an item while

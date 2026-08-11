@@ -16,3 +16,8 @@ EUI_Bags_Options.lua
 EllesmereUIBags_Categories.lua
 EllesmereUIBags.lua
 EllesmereUIBags_Bank.lua
+
+# Note: Bindings.xml (the Pin/Unpin Item Under Cursor command) is intentionally
+# NOT listed here -- WoW auto-loads a file named Bindings.xml from the addon
+# root. Listing it would load it a second time through the UI-XML parser
+# ("Unrecognized XML: Binding").
