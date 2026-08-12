@@ -168,9 +168,25 @@ end
 -- 1-2s cooldown still tracks normally.
 local MIN_REAL_COOLDOWN = 3
 local function IsLockoutWindow(entry, seconds)
-    local base = entry and entry.baseDuration
-    if type(base) ~= "number" or IsSecret(base) or base <= MIN_REAL_COOLDOWN then return false end
     if type(seconds) ~= "number" or IsSecret(seconds) then return false end
+    local base = entry and entry.baseDuration
+    if type(base) ~= "number" or IsSecret(base) then
+        -- entry.baseDuration is learned from LIVE cooldown reads, and those are secret in
+        -- instanced content, so an entry first cached there carries no base at all. That
+        -- disabled this classifier exactly where the lockout is most visible: in combat.
+        -- Static spell data is not live cooldown state and stays readable, so fall back to
+        -- it rather than treating an unknown base as "cannot classify".
+        local id = entry and (entry.baseSpellId or entry.spellId)
+        base = 0
+        if id then
+            if C_Spell.GetSpellBaseCooldown then
+                local ms = C_Spell.GetSpellBaseCooldown(id)
+                if type(ms) == "number" and not IsSecret(ms) then base = ms / 1000 end
+            end
+            if base <= MIN_REAL_COOLDOWN then base = GetKnownCategoryDuration(id) end
+        end
+    end
+    if type(base) ~= "number" or base <= MIN_REAL_COOLDOWN then return false end
     return seconds < MIN_REAL_COOLDOWN
 end
 
@@ -703,7 +719,9 @@ end
 
 local function SafeGetBaseDuration(spellId)
     if C_Spell.GetSpellCooldownDuration then
-        local dur = C_Spell.GetSpellCooldownDuration(spellId)
+        -- ignoreGCD: without it this reads the global cooldown whenever one is running,
+        -- and the 1.5 floor below then throws the answer away.
+        local dur = C_Spell.GetSpellCooldownDuration(spellId, true)
         if dur then
             local total = dur:GetTotalDuration()
             if not IsSecret(total) and total and total > 1.5 then return total end
@@ -1489,11 +1507,28 @@ CheckMovementCooldown = function()
             local spellInfo  = C_Spell.GetSpellCooldown(spellId)
             if spellInfo and spellInfo.timeUntilEndOfStartRecovery and
                (spellInfo.isOnGCD == false or (spellInfo.isOnGCD == nil and not hasCharges)) then
+                -- The duration OBJECT is the only thing that can put a number on screen
+                -- while the cooldown is secret, so getting one matters more than which
+                -- API supplies it. Two reasons it used to come back empty in combat:
+                -- GetSpellCooldownDuration's second argument is ignoreGCD and it DEFAULTS
+                -- TO FALSE, so while the global cooldown is running -- which in combat is
+                -- most of the time -- it describes the GCD rather than the spell's own
+                -- cooldown, and a GCD-length total is then rejected downstream; and an
+                -- entry cached while its charge data was secret has isChargeSpell false
+                -- even for a charge spell, sending it to the wrong API entirely. Ask for
+                -- the real cooldown, and fall back to the other API rather than giving up.
                 local duration
                 if entry.isChargeSpell and C_Spell.GetSpellChargeDuration then
                     duration = C_Spell.GetSpellChargeDuration(spellId)
-                elseif not entry.isChargeSpell and C_Spell.GetSpellCooldownDuration then
-                    duration = C_Spell.GetSpellCooldownDuration(spellId)
+                elseif C_Spell.GetSpellCooldownDuration then
+                    duration = C_Spell.GetSpellCooldownDuration(spellId, true)
+                end
+                if not duration then
+                    if entry.isChargeSpell and C_Spell.GetSpellCooldownDuration then
+                        duration = C_Spell.GetSpellCooldownDuration(spellId, true)
+                    elseif C_Spell.GetSpellChargeDuration then
+                        duration = C_Spell.GetSpellChargeDuration(spellId)
+                    end
                 end
                 if ShowMovementSlot(count + 1, spellInfo, entry, duration) then
                     count = count + 1
