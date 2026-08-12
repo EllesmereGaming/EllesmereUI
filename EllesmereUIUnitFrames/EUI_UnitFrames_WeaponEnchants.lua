@@ -9,15 +9,15 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -- same reason (and may read secrets untainted; we cannot copy that path).
 --
 -- Integration model -- first-class citizens of BOTH displays:
---   * OWN LINE (PAB): the buttons sit on a dedicated line one icon + row gap
---     off the bar's fixed corner (rec.lineX/lineY), on the cross axis, so the
---     line reads as "before" the grid -- Blizzard's temp-enchants-first
---     ordering. They pack along the grow axis and share the grid's edge, and
---     the engine container never moves, so the grid stays a clean rectangle
---     at every count. The old model shifted the container inward by N cells,
---     which every wrapped row inherited (row 2+ inset from row 1, full rows
---     overflowing the reserved grid). The UF display keeps its own in-line
---     lead strip and is untouched by this.
+--   * PLACEMENT (PAB), per-bar three-way (rec.inline / rec.lineX/lineY):
+--     "In Line" (default, the default UI's model) packs the buttons into the
+--     bar's actual first cells -- the producer shifts its engine container
+--     inward by the active count to reserve them (ApplyEnchantShift), main
+--     hand adjacent to the run, Blizzard's temp-enchants-first ordering.
+--     "Above"/"Below" put them on a dedicated line one icon + row gap off
+--     the bar's fixed corner on the cross axis instead; the container never
+--     moves and every row keeps an identical width. The UF display keeps its
+--     own in-line lead strip and is untouched by any of this.
 --   * LIVE STYLE: buttons render from the display's own AK.styles table and
 --     speak both style dialects (PAB BuildStyle and the unit-frame
 --     BuildStyle: texCoord rect vs iconCrop/iconZoom, cdText* vs duration*,
@@ -53,8 +53,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --
 -- Producer records (nil = display inactive/filtered), poked via
 -- ns.WeaponEnchants_Layout():
---   ns._weaponEnchPAB = { parent, corner, dir, lineCorner, lineX, lineY,
---                         lineGap, lineOffX, lineOffY, pad, styleKey,
+--   ns._weaponEnchPAB = { parent, corner, dir, inline, lineCorner, lineX,
+--                         lineY, lineGap, lineOffX, lineOffY, pad, styleKey,
 --                         canCancel }
 --   ns._weaponEnchUF  = { frame, ia, fp, x, y, gX, pad, styleKey }
 
@@ -321,13 +321,15 @@ local function Paint()
                         -- In combat positions are frozen: a button whose
                         -- last-packed cell is already taken by another enchant
                         -- goes alpha 0 instead of overlapping; the regen pass
-                        -- repacks everything. No "cell >= count" test: the
-                        -- enchant line is the enchants' own, so a stale cell
-                        -- can only leave a gap, never collide with the engine
-                        -- run -- hiding a still-active oil there would be a
+                        -- repacks everything. The "cell >= count" test applies
+                        -- ONLY in In Line mode, where a stale cell can land
+                        -- under the shifted engine run; on a dedicated
+                        -- Above/Below line a stale cell just leaves a gap, and
+                        -- hiding a still-active oil there would be a
                         -- disappearing icon for the rest of the fight.
                         local cellBad = combat and (b._cell == nil
-                            or usedCells[b._cell])
+                            or usedCells[b._cell]
+                            or (rec.inline and b._cell > n - 1))
                         if cellBad then
                             b:SetAlpha(0)
                         else
@@ -370,13 +372,16 @@ local function Paint()
     if anyShown then UpdateTexts() end
 end
 
--- Count changes re-anchor the displays. PAB has nothing to do in combat now
--- that its grid no longer shifts with the count: the container stays put, and
--- the SECURE trio's own geometry is lockdown-blocked anyway, so the regen pass
--- repacks the buttons. Out of combat the full pass runs (ApplyLiveConfig is the
--- combat-illegal one -- it would trip the anchor-poisoned parent:SetSize).
+-- Count changes re-anchor the displays. In combat PAB takes the minimal
+-- container-only re-seat (PAB_ReShiftEnchants -- plain SetPoint, combat-legal;
+-- a no-op offset unless the bar is in In Line mode), because the full
+-- ApplyLiveConfig is combat-illegal: the secure trio anchors into the bar
+-- frame's family, which blocks the bar's own SetSize in lockdown. The trio's
+-- own geometry is also lockdown-frozen, so the regen pass repacks the buttons.
 local function PokeProducers(combat)
-    if not combat then
+    if combat then
+        if ns.PAB_ReShiftEnchants then ns.PAB_ReShiftEnchants() end
+    else
         if ns.PAB_ApplyLiveConfig then ns.PAB_ApplyLiveConfig(true) end
     end
     if ns.UF_ReloadAllAuraContainers then ns.UF_ReloadAllAuraContainers() end

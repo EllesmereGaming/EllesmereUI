@@ -68,11 +68,12 @@ local FONT_OUTLINE_VALUES = {
     outline = "Outline", thick = "Thick Outline",
 }
 local FONT_OUTLINE_ORDER = { "default", "none", "outline", "thick" }
--- Cross-axis side for the weapon-enchant line. "Above"/"Below" read naturally for the
--- horizontal growth directions; under Up/Down growth the same two values mean the side
--- before/after the columns, mirrored the same way.
-local ENCHANT_LINE_VALUES = { ABOVE = "Above", BELOW = "Below" }
-local ENCHANT_LINE_ORDER = { "ABOVE", "BELOW" }
+-- Weapon-enchant placement. "In Line" = the default UI's model (first cells of the
+-- bar's top row). "Above"/"Below" = a dedicated line on the cross axis; they read
+-- naturally for the horizontal growth directions, and under Up/Down growth mean the
+-- side before/after the columns, mirrored the same way.
+local ENCHANT_LINE_VALUES = { INLINE = "In Line", ABOVE = "Above", BELOW = "Below" }
+local ENCHANT_LINE_ORDER = { "INLINE", "ABOVE", "BELOW" }
 local GROW_DIR_VALUES = { LEFT = "Left", RIGHT = "Right", UP = "Up", DOWN = "Down" }
 local GROW_DIR_ORDER = { "LEFT", "RIGHT", "UP", "DOWN" }
 local ICON_WRAP_VALUES = { LEFT = "Left", RIGHT = "Right" }
@@ -890,10 +891,10 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff, isDef
         local enchantSlot = { type = "label", text = "" }
         if isDefaultBar then
             enchantSlot = {
-                type = "dropdown", text = "Weapon Enchant Line",
-                tooltip = "Which side of the bar oils, poisons and imbues sit on. They are not auras, so they get their own line rather than a grid cell -- putting them back in the grid is what used to push wrapped rows out of alignment. Use Below if the bar sits at the top of the screen, where an Above line has no room.",
+                type = "dropdown", text = "Weapon Enchants",
+                tooltip = "Where oils, poisons and imbues sit. In Line matches the default UI: they take the first spots of the top row, which extends by one spot per enchant. Above and Below give them their own line so every row stays the same width; the cog offsets apply to those two. Avoid Above when the bar sits at the top of the screen.",
                 values = ENCHANT_LINE_VALUES, order = ENCHANT_LINE_ORDER,
-                getValue = function() return string.upper(cfg.enchantLinePosition or "ABOVE") end,
+                getValue = function() return string.upper(cfg.enchantLinePosition or "INLINE") end,
                 setValue = function(v) cfg.enchantLinePosition = v; apply() end
             }
         end
@@ -910,7 +911,10 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff, isDef
         if isDefaultBar then
             local rgn = encRow._rightRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
-                title = "Weapon Enchant Line",
+                title = "Weapon Enchants",
+                -- Above/Below only: In Line buttons sit in reserved grid cells,
+                -- where a free offset would detach them from the cells the
+                -- container shift is holding open (publisher zeroes them there).
                 rows = {
                     { type = "slider", label = "Offset X", min = -200, max = 200, step = 1,
                       get = function() return cfg.enchantLineOffsetX or 0 end,

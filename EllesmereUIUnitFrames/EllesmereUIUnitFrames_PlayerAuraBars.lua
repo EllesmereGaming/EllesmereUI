@@ -1514,25 +1514,22 @@ local function HideBlizzardPlayerAuras()
     end
 end
 
--- Weapon-enchant lead cells used to be carved out of the grid by SHIFTING the whole
--- Buffs container inward by the active count. Every wrapped row inherits a container
--- shift, so row 2+ ended up inset from row 1's edge whenever an oil was up and the
--- buffs wrapped, and a full row overflowed the reserved grid by the shift. The
--- enchants now sit on their OWN line just outside the grid instead, so the container
--- never moves and the grid stays a clean rectangle at every enchant count.
---
--- Returns (anchorCorner, unitX, unitY) for that line: the cross axis, one step off the
--- grid. "Above" leaves from the flow's own fixed corner, away from where its lines
--- extend (horizontal growth always wraps downward per ToGrowthV, so that is UP;
--- vertical growth wraps along iconWrapDirection, so it is against that). "Below" leaves
--- from the MIRRORED corner instead -- stepping down from a TOP corner would land on row
--- 1, so the far edge of the reserved grid is the only anchor that clears it. Buttons
--- still pack along the GROW axis, so either way the line shares the grid's edge.
---
--- Position is a per-bar setting because there is no placement that always fits: a bar
--- parked at the top of the screen pushes an "above" line off-screen entirely (field
--- report: only the duration text stayed visible), while "below" sits against the
--- RESERVED row count, so it floats away from the icons when fewer rows are in use.
+-- Weapon-enchant placement, a per-bar three-way ("In Line"/"Above"/"Below") because no
+-- single placement fits everyone:
+--   * In Line (default; the default UI's model and this bar's original one): the
+--     buttons take the bar's first cells and the container shifts inward to reserve
+--     them. Field history: this briefly LOOKED like it misaligned wrapped rows, but
+--     that was the ComputeGrid trailing-gap off-by-one (fixed separately) stacking on
+--     top of the honest one-cell top-row overhang.
+--   * Above/Below: a dedicated line on the cross axis, one step off the grid -- every
+--     row identical width. "Above" leaves from the flow's own fixed corner, away from
+--     where its lines extend (horizontal growth always wraps downward per ToGrowthV,
+--     so that is UP; vertical growth wraps along iconWrapDirection, so it is against
+--     that). "Below" leaves from the MIRRORED corner -- stepping down from a TOP
+--     corner would land on row 1. Neither is a safe default: a bar parked at the top
+--     of the screen pushes an "above" line off-screen entirely (field report: only the
+--     duration text stayed visible), and "below" sits against the RESERVED row count,
+--     floating away from the icons when fewer rows are in use.
 local function MirrorCornerV(corner)
     if string.find(corner, "^TOP") then return (string.gsub(corner, "^TOP", "BOTTOM")) end
     if string.find(corner, "^BOTTOM") then return (string.gsub(corner, "^BOTTOM", "TOP")) end
@@ -1543,9 +1540,18 @@ local function MirrorCornerH(corner)
     if string.find(corner, "RIGHT$") then return (string.gsub(corner, "RIGHT$", "LEFT")) end
     return corner
 end
+-- Returns (anchorCorner, unitX, unitY, inline). "In Line" (the default -- it is the
+-- default UI's placement and the model this bar always had) puts the buttons IN the
+-- bar's first cells: unit vector zero, and ApplyEnchantShift below reserves the cells
+-- by shifting the engine container inward. The one visual departure from the default
+-- UI is that wrapped rows do not tuck under the enchant cells -- the engine has ONE
+-- wrap width per container, so row 1 cannot hold fewer buffs than row 2; the top row
+-- extends by one cell per active enchant instead.
 local function EnchantLineSpec(cfg, corner)
+    local pos = string.upper(cfg.enchantLinePosition or "INLINE")
+    if pos ~= "ABOVE" and pos ~= "BELOW" then return corner, 0, 0, true end
     local dir = cfg.growDirection or "LEFT"
-    local below = (string.upper(cfg.enchantLinePosition or "ABOVE") == "BELOW")
+    local below = (pos == "BELOW")
     if dir == "UP" or dir == "DOWN" then
         local away = ((cfg.iconWrapDirection or "LEFT") == "RIGHT") and -1 or 1
         if below then return MirrorCornerH(corner), -away, 0 end
@@ -1553,6 +1559,34 @@ local function EnchantLineSpec(cfg, corner)
     end
     if below then return MirrorCornerV(corner), 0, -1 end
     return corner, 0, 1
+end
+
+-- In Line's cell reservation: seat the engine container one cell inward per active
+-- enchant so the buttons occupy the bar's true first cells, Blizzard's
+-- temp-enchants-first ordering. ALWAYS re-seats (n = 0 -> offset 0), so an
+-- Above/Below flip or the last oil expiring resets the shift rather than
+-- leaving a stale one. Plain SetPoint on the container -- combat-legal, which
+-- is why ns.PAB_ReShiftEnchants below is safe as the in-combat poke (the full
+-- ApplyLiveConfig is not: the secure enchant trio anchors into the bar frame's
+-- family, which blocks the bar's own SetSize in lockdown).
+local function ApplyEnchantShift(container, parent, cfg, grid)
+    local rec = ns._weaponEnchPAB
+    local n = (rec and rec.inline and ns.WeaponEnchants_Count and ns.WeaponEnchants_Count()) or 0
+    local corner = BuildContainerSpec(parent, cfg, grid)
+    local dir = cfg.growDirection or "LEFT"
+    local dx, dy = 0, 0
+    if dir == "RIGHT" then dx = 1 elseif dir == "LEFT" then dx = -1
+    elseif dir == "UP" then dy = 1 elseif dir == "DOWN" then dy = -1 end
+    local cell = EllesmereUI.PP.Scale(cfg.iconSize or 32) + (cfg.padding or 5)
+    container:ClearAllPoints()
+    container:SetPoint(corner, parent, corner, dx * n * cell, dy * n * cell)
+end
+
+function ns.PAB_ReShiftEnchants()
+    local s = PAB()
+    if not (AK and s and buffsContainer and buffsParent) then return end
+    local cfg = DefaultBuffsCfg(s)
+    ApplyEnchantShift(buffsContainer, buffsParent, cfg, ComputeGrid(true, cfg))
 end
 
 local function CreateBars()
@@ -1632,13 +1666,13 @@ local function CreateBars()
     -- Duration on -- the same gate as the catch-all group). They render with
     -- the bar's live style, so every customization follows automatically.
     if buffCfg.showAllBuffs ~= false or buffCfg.hasDuration == true then
-        local lineCorner, lineX, lineY = EnchantLineSpec(buffCfg, buffCorner)
+        local lineCorner, lineX, lineY, inline = EnchantLineSpec(buffCfg, buffCorner)
         ns._weaponEnchPAB = { parent = buffsParent, corner = buffCorner,
-            dir = buffCfg.growDirection or "LEFT",
+            dir = buffCfg.growDirection or "LEFT", inline = inline,
             lineCorner = lineCorner, lineX = lineX, lineY = lineY,
             lineGap = buffGrid.rowGap,
-            lineOffX = buffCfg.enchantLineOffsetX or 0,
-            lineOffY = buffCfg.enchantLineOffsetY or 0,
+            lineOffX = (not inline and (buffCfg.enchantLineOffsetX or 0)) or 0,
+            lineOffY = (not inline and (buffCfg.enchantLineOffsetY or 0)) or 0,
             pad = buffPad, styleKey = STYLE_BUFFS, canCancel = true }
     else
         ns._weaponEnchPAB = nil
@@ -1675,6 +1709,7 @@ local function CreateBars()
     AK.RequestContainer(buffsParent, "player", buffSpec, function(container)
         buffsContainer = container
         AK.SetContainerAxis(container, buffVertical)
+        ApplyEnchantShift(container, buffsParent, buffCfg, buffGrid)
         declared.buffs = {}
         ApplyGroupConfig(container, buffAllChain, declared.buffs, STYLE_BUFFS, buffGrid.effectiveMax, buffPad, buffGrid.rowGap, buffCfg, BuffCandidateExtras(buffCfg))
         if #buffSpells > 0 then
@@ -1829,17 +1864,18 @@ local function ApplyLiveConfig(isBuff)
         -- filter state (same broad-content gate as the catch-all group).
         if cfg.showAllBuffs ~= false or cfg.hasDuration == true then
             local liveCorner = BuildContainerSpec(parent, cfg, grid)
-            local lineCorner, lineX, lineY = EnchantLineSpec(cfg, liveCorner)
+            local lineCorner, lineX, lineY, inline = EnchantLineSpec(cfg, liveCorner)
             ns._weaponEnchPAB = { parent = parent, corner = liveCorner,
-                dir = cfg.growDirection or "LEFT",
+                dir = cfg.growDirection or "LEFT", inline = inline,
                 lineCorner = lineCorner, lineX = lineX, lineY = lineY,
                 lineGap = grid.rowGap,
-                lineOffX = cfg.enchantLineOffsetX or 0,
-                lineOffY = cfg.enchantLineOffsetY or 0,
+                lineOffX = (not inline and (cfg.enchantLineOffsetX or 0)) or 0,
+                lineOffY = (not inline and (cfg.enchantLineOffsetY or 0)) or 0,
                 pad = pad, styleKey = STYLE_BUFFS, canCancel = true }
         else
             ns._weaponEnchPAB = nil
         end
+        ApplyEnchantShift(container, parent, cfg, grid)
         if ns.WeaponEnchants_Layout then ns.WeaponEnchants_Layout() end
     end
 
@@ -1859,6 +1895,7 @@ local function ApplyLiveConfig(isBuff)
             AK.RequestContainer(parent, "player", spec, function(newContainer)
                 buffsContainer = newContainer
                 AK.SetContainerAxis(newContainer, specVertical)
+                ApplyEnchantShift(newContainer, parent, cfg, grid)
                 declared.buffs = {}
                 ApplyGroupConfig(newContainer, allChain, declared.buffs, STYLE_BUFFS, grid.effectiveMax, pad, grid.rowGap, cfg, BuffCandidateExtras(cfg))
                 if #spells > 0 then
