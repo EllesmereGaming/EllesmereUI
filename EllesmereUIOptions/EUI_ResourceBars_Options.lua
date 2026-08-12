@@ -461,10 +461,16 @@ initFrame:SetScript("OnEvent", function(self)
                             pip._borderFrame = bf
                         end
                         pip._borderFrame:SetFrameLevel(sp.borderBehind and math.max(0, pip:GetFrameLevel() - 1) or (pip:GetFrameLevel() + 2))
+
+                        local spBorderColor = {sp.borderR or 0, sp.borderG or 0, sp.borderB or 0}
+                        if sp.borderClassColor then
+                            if cc then spBorderColor = {cc[1], cc[2], cc[3]} end
+                        end
+
                         EllesmereUI.ApplyBorderStyle(pip._borderFrame, sp.borderSize or 1,
-                            sp.borderR or 0, sp.borderG or 0, sp.borderB or 0, sp.borderA or 1,
+                            spBorderColor[1], spBorderColor[2], spBorderColor[3], sp.borderA or 1,
                             sp.borderTexture or "solid", sp.borderTextureOffset, sp.borderTextureOffsetY,
-                            sp.borderTextureShiftX, sp.borderTextureShiftY)
+                            sp.borderTextureShiftX, sp.borderTextureShiftY, "resourcebars", sp.borderThickness or sp.borderSize)
                         pip._borderFrame:Show()
                     else
                         if pip._borderFrame then pip._borderFrame:Hide() end
@@ -571,8 +577,12 @@ initFrame:SetScript("OnEvent", function(self)
             if sp.borderOnPips and cf ~= "DEATHKNIGHT" and not isBar then
                 pc._barBorderFrame:Hide()
             else
+                local spBorderColor = {sp.borderR or 0, sp.borderG or 0, sp.borderB or 0}
+                if sp.borderClassColor then
+                    if cc then spBorderColor = {cc[1], cc[2], cc[3]} end
+                end
                 EllesmereUI.ApplyBorderStyle(pc._barBorderFrame, sp.borderSize or 1,
-                    sp.borderR or 0, sp.borderG or 0, sp.borderB or 0, sp.borderA or 1,
+                    spBorderColor[1], spBorderColor[2], spBorderColor[3], sp.borderA or 1,
                     sp.borderTexture or "solid", sp.borderTextureOffset, sp.borderTextureOffsetY,
                     sp.borderTextureShiftX, sp.borderTextureShiftY, "resourcebars", sp.borderThickness or sp.borderSize)
                 pc._barBorderFrame:Show()
@@ -4339,6 +4349,39 @@ initFrame:SetScript("OnEvent", function(self)
                 local p = DB(); if not p then return false end
                 fn(p.primary) fn(p.secondary) fn(p.health) end)
             y = y - h
+
+            -- Toggle pip border on/off
+            if not EllesmereUI._prebuilding then
+                local rgn = bsRow._leftRegion
+                local lastInline = rgn._lastInline or rgn._control
+                local _, cogShow = EllesmereUI.BuildCogPopup({
+                    title = "Pip Border",
+                    rows = {
+                        { type = "toggle", label = "Border on individual pips",
+                        tooltip = "Draws a border around each pip instead of the bar as a whole.",
+                            get = function() local c = cfg(); return c and c.borderOnPips end,
+                            set = function(v)
+                                local c = cfg(); if not c then return end
+                                c.borderOnPips = v; RebuildClass(); EllesmereUI:RefreshPage()
+                            end },
+                    },
+                })
+
+                local cogBtn = MakeCogBtn(rgn, cogShow, nil, EllesmereUI.COGS_ICON)
+                cogBtn:Show()
+
+                local function UpdateCogVis()
+                    local c = cfg()
+                    local tex = c and c.borderTexture or "solid"
+                    if tex == "solid" then 
+                        PP.Point(cogBtn, "RIGHT", rgn._control, "LEFT", -8, 0)
+                    else
+                        PP.Point(cogBtn, "RIGHT", lastInline, "LEFT", -8, 0)
+                    end
+                end
+                EllesmereUI.RegisterWidgetRefresh(UpdateCogVis)
+                UpdateCogVis()
+            end
         end
 
         -- Row: Bar Spacing | Empty Bar Overlay. Empty Bar Overlay exposes bgR/G/B/A, the

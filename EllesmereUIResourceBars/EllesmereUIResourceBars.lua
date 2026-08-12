@@ -3632,9 +3632,19 @@ local function BuildBars()
                 pip["_barAnim_ph"] = pipH
                 ApplyPipPos()
                 if sp.borderOnPips then
-                    pips[i]:ApplyBorder(sp.borderSize, sp.borderR, sp.borderG, sp.borderB, sp.borderA,
+                    if pips[i]._border._frame then
+                        local pl = pips[i]:GetFrameLevel()
+                        pips[i]._border._frame:SetFrameLevel(sp.borderBehind and math.max(0, pl - 1) or (pl + 5))
+                    end
+
+                    local spBorderColor = {sp.borderR or 0, sp.borderG or 0, sp.borderB or 0}
+                    if sp.borderClassColor then
+                        local cc = CLASS_COLORS[cachedClass]
+                        if cc then spBorderColor = {cc[1], cc[2], cc[3]} end
+                    end
+                    pips[i]:ApplyBorder(sp.borderSize, spBorderColor[1], spBorderColor[2], spBorderColor[3], sp.borderA,
                         sp.borderTexture, sp.borderTextureOffset, sp.borderTextureOffsetY,
-                        sp.borderTextureShiftX, sp.borderTextureShiftY, "resourcebars", sp.borderSize)
+                        sp.borderTextureShiftX, sp.borderTextureShiftY, "resourcebars", sp.borderThickness or sp.borderSize)
                 else
                     pips[i]:ApplyBorder(0, 0, 0, 0, 0)
                 end
