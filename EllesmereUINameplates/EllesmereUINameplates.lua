@@ -200,6 +200,13 @@ local defaults = {
     castBarUninterruptible = { r = 0.45, g = 0.45, b = 0.45 },
     castBarImportant = { r = 1, g = 0.2, b = 0.2 },
     importantCastColorEnabled = false,
+    executeRangeEnabled = false,
+    executeRangeColor = { r = 1, g = 0.1, b = 0.1 },
+    executeRangeColorEnabled = true,
+    executeRangeGlowColor = { r = 1, g = 0.1, b = 0.1 },
+    executeRangeMode = "auto",
+    executeRangeCustomPct = 20,
+    executeRangeGlowStyle = 0,
     castBarShieldEnabled = true,
     interruptedFlashEnabled = true,
     interruptedFlashColor = { r = 0.8, g = 0.0, b = 0.0 },
@@ -3262,6 +3269,8 @@ function ns.RefreshAllSettings()
     end
     if ns.NT_RefreshSetting then ns.NT_RefreshSetting() end
     if ns.ApplyClassPowerSetting then ns.ApplyClassPowerSetting() end
+    -- Defined later in this file; guard covers the load-order window.
+    if ns.RebuildExecuteState then ns.RebuildExecuteState() end
     -- Aura containers: fingerprint-guarded, near-free when no aura setting changed.
     if ns.NPC_ReloadAll then ns.NPC_ReloadAll() end
 end
@@ -5835,6 +5844,8 @@ function NameplateFrame:ClearUnit()
     self.nameplate = nil
     self._absorbHidden = nil
     self._lastHCr, self._lastHCg, self._lastHCb = nil, nil, nil
+    self._baseHCr, self._baseHCg, self._baseHCb = nil, nil, nil
+    if self._execGlowOn then ns._ExecClearPlate(self) end
     -- Health-text value memo (UpdateHealthValues): a recycled plate must
     -- always write its first values, never skip against the old unit's.
     self._hpTxtPct, self._hpTxtCur = nil, nil
@@ -6166,6 +6177,262 @@ function NameplateFrame:UpdateHealthValues()
         end
     end
 end
+-------------------------------------------------------------------------------
+--  EXECUTE-RANGE HEALTH COLOR
+--  Recolors the health bar while the unit is below the player's execute
+--  threshold. Secret-value safe: health is never read or branched on in Lua.
+--  A two-point step color curve (execute color at/below the threshold, base
+--  color above) is evaluated on the C side via
+--  UnitHealthPercent(unit, false, curve) -- the same recipe as the
+--  ResourceBars threshold coloring (GetBarThresholdCurve).
+--  Perf contract (this feeds UpdateHealthColor, a UNIT_HEALTH/threat hot
+--  path):
+--    * ns._ExecTint is nil while the feature is off, so the disabled cost in
+--      UpdateHealthColor is a single nil check.
+--    * Options/talents resolve ONLY in RebuildExecuteState (login, spec or
+--      talent change, preset refresh, options edit) -- never per health tick.
+--    * Curves are cached per quantized base color under a numeric key (no
+--      string allocs in the hot path); wiped on rebuild and size-capped.
+-------------------------------------------------------------------------------
+do
+    -- Single block-local table: this file is at the Lua 5.1 200-local cap and
+    -- even do-block locals occupy main-chunk registers while in scope, so all
+    -- state and functions live in E (one local at peak).
+    -- Auto-mode thresholds per class; Warrior upgrades to 35 with Massacre.
+    -- VERIFY IN-GAME: /dump IsPlayerSpell(281001) (Arms) / IsPlayerSpell(206315)
+    -- (Fury) on a talented Warrior; adjust if the Midnight IDs differ.
+    local E = {
+        pct = 20,
+        r = 1, g = 0.1, b = 0.1,      -- bar recolor
+        gr = 1, gg = 0.1, gb = 0.1,   -- glow
+        colorOn = true,
+        curves = {}, n = 0,
+        AUTO = { WARRIOR = 20, HUNTER = 20, PALADIN = 20 },
+        MASSACRE_ARMS = 281001, MASSACRE_FURY = 206315,
+    }
+
+    function E.CurveFor(baseR, baseG, baseB)
+        local floor = math.floor
+        local key = floor(baseR * 255 + 0.5) * 65536
+                  + floor(baseG * 255 + 0.5) * 256
+                  + floor(baseB * 255 + 0.5)
+        local curve = E.curves[key]
+        if curve then return curve end
+        if not (C_CurveUtil and C_CurveUtil.CreateColorCurve) then return nil end
+        curve = C_CurveUtil.CreateColorCurve()
+        local t = math.max(0, math.min(1, E.pct / 100))
+        local EPS = 0.0001
+        -- Alpha doubles as the in-execute-range flag (1 below the threshold,
+        -- 0 above): the bar only consumes r,g,b, and the glow reads the flag
+        -- without ever branching on health in Lua.
+        curve:AddPoint(0.0, CreateColor(E.r, E.g, E.b, 1))
+        if t > EPS then curve:AddPoint(t, CreateColor(E.r, E.g, E.b, 1)) end
+        if t < 1.0 then curve:AddPoint(math.min(1.0, t + EPS), CreateColor(baseR, baseG, baseB, 0)) end
+        curve:AddPoint(1.0, CreateColor(baseR, baseG, baseB, 0))
+        -- Base colors are profile/threat-sourced so the key space stays small;
+        -- cap defensively anyway (wipe + refill beats unbounded growth).
+        if E.n >= 64 then wipe(E.curves); E.n = 0 end
+        E.curves[key] = curve
+        E.n = E.n + 1
+        return curve
+    end
+
+    -- Raw evaluation isolated for pcall (hoisted named function -- never a
+    -- literal closure in the hot path). Returns r, g, b, a; may be secret,
+    -- the caller filters.
+    function E.EvalRaw(unit, curve)
+        local col = UnitHealthPercent(unit, false, curve)
+        if col and col.GetRGBA then return col:GetRGBA() end
+    end
+
+    -- Glow start/stop, driven only on execute-range TRANSITIONS (never per
+    -- tick) through the shared self-hiding glow driver (EllesmereUI_Glows).
+    function E.SetGlow(plate, on)
+        if on == plate._execGlowOn then return end
+        plate._execGlowOn = on
+        local Glows = EllesmereUI.Glows
+        if not Glows or not plate.health then return end
+        local wrapper = plate._execGlow
+        if on then
+            if not wrapper then
+                wrapper = CreateFrame("Frame", nil, plate.health)
+                wrapper:SetAllPoints()
+                wrapper:SetFrameLevel(plate.health:GetFrameLevel() + 1)
+                plate._execGlow = wrapper
+            end
+            local w = plate.health:GetWidth() or 150
+            local hgt = plate.health:GetHeight() or 17
+            -- StartGlow stops any previous engine itself, so style switches
+            -- on a reused wrapper are safe.
+            Glows.StartGlow(wrapper, E.glowStyle, w, E.gr, E.gg, E.gb, nil, hgt)
+        elseif wrapper then
+            Glows.StopGlow(wrapper)
+        end
+    end
+
+    -- Plate recycle cleanup (called from ClearUnit; plates are pooled).
+    function ns._ExecClearPlate(plate)
+        if plate._execGlowOn then E.SetGlow(plate, false) end
+    end
+
+    -- Worker isolated for pcall: EVERYTHING that can touch secret values
+    -- (predicates, curve eval, passthrough setters) lives here so a secret
+    -- leaking into a Lua branch degrades to "keep base color", never an
+    -- error. Returns:
+    --   "skip"                  -- not attackable / no curve: keep base color
+    --   "plain", r, g, b, inEx  -- readable components: caller compare path
+    --   "glow"                  -- secret mode, bar color disabled: glow alpha
+    --                              pushed here, bar untouched
+    --   "applied"               -- secret components: color (and glow alpha)
+    --                              already pushed to the C setters here
+    function E.Work(plate, unit, baseR, baseG, baseB)
+        if not UnitCanAttack("player", unit) then return "skip" end
+        local curve = E.CurveFor(baseR, baseG, baseB)
+        if not curve then return "skip" end
+        local col = UnitHealthPercent(unit, false, curve)
+        if not (col and col.GetRGBA) then return "skip" end
+        local r, g, b, a = col:GetRGBA()
+        local isSecret = issecretvalue
+        if not (isSecret and (isSecret(r) or isSecret(g) or isSecret(b) or isSecret(a))) then
+            return "plain", r, g, b, (a or 0) >= 0.5
+        end
+        -- Secret components: Lua may not read or compare them, but the C
+        -- setters accept them -- same passthrough ResourceBars uses with
+        -- SetVertexColor. The glow engine stays armed and its VISIBILITY is
+        -- driven by the secret alpha flag (1 in execute range, 0 above), so
+        -- no Lua branch ever sees the health value.
+        if E.glowStyle > 0 then
+            if not plate._execGlowOn then E.SetGlow(plate, true) end
+            if plate._execGlow then plate._execGlow:SetAlpha(a) end
+        end
+        if not E.colorOn then return "glow" end
+        plate.health:SetStatusBarColor(r, g, b)
+        return "applied"
+    end
+
+    -- Hot-path tint, installed as ns._ExecTint only while enabled.
+    -- Returns replacement r,g,b; true when the color was applied inside
+    -- (secret mode); or nil to keep the base color (including glow-only mode).
+    function E.Tint(plate, unit, baseR, baseG, baseB)
+        local ok, mode, r, g, b, inExec = pcall(E.Work, plate, unit, baseR, baseG, baseB)
+        if not ok then
+            -- Secret value reached a Lua branch/setter that rejects it; make
+            -- sure no half-armed glow sticks and keep the base color.
+            if plate._execGlowOn then pcall(E.SetGlow, plate, false) end
+            return nil
+        end
+        if mode == "plain" then
+            if E.glowStyle > 0 then E.SetGlow(plate, inExec) end
+            if E.colorOn then return r, g, b end
+            return nil
+        end
+        if mode == "applied" then return true end
+        if mode == "skip" and plate._execGlowOn then E.SetGlow(plate, false) end
+        -- "glow": bar untouched, glow already driven inside Work
+        return nil
+    end
+
+    -- UNIT_HEALTH fast path: health changed, so re-evaluate ONLY the
+    -- threshold tint against the plate's cached base color (stored by
+    -- UpdateHealthColor while the feature is armed) -- the full
+    -- reaction-color cascade does not rerun on health ticks by design.
+    -- Mirrors the UpdateHealthColor hook's apply/cache logic.
+    function ns._ExecHealthTick(plate)
+        local unit = plate.unit
+        local hr = plate._baseHCr
+        if not unit or hr == nil then return end
+        local hg, hb = plate._baseHCg, plate._baseHCb
+        local er, eg, eb = E.Tint(plate, unit, hr, hg, hb)
+        if er == true then
+            plate._lastHCr, plate._lastHCg, plate._lastHCb = nil, nil, nil
+            return
+        end
+        if er == nil then er, eg, eb = hr, hg, hb end
+        if er ~= plate._lastHCr or eg ~= plate._lastHCg or eb ~= plate._lastHCb then
+            plate._lastHCr, plate._lastHCg, plate._lastHCb = er, eg, eb
+            plate.health:SetStatusBarColor(er, eg, eb)
+        end
+    end
+
+    -- Temporary in-game diagnostic (harmless to ship): target an enemy and
+    -- run /euiexecdebug to print each decision stage of the pipeline.
+    SLASH_EUIEXECDEBUG1 = "/euiexecdebug"
+    SlashCmdList.EUIEXECDEBUG = function()
+        local db = p or defaults
+        print("|cff0cd29fEUI ExecRange|r enabled=" .. tostring(db.executeRangeEnabled)
+            .. " armed=" .. tostring(ns._ExecTint ~= nil)
+            .. " pct=" .. tostring(E.pct) .. " glowStyle=" .. tostring(E.glowStyle))
+        print("  UnitHealthPercent=" .. tostring(UnitHealthPercent ~= nil)
+            .. " C_CurveUtil.CreateColorCurve=" .. tostring(C_CurveUtil and C_CurveUtil.CreateColorCurve ~= nil))
+        if not UnitExists("target") then print("  (no target -- target an enemy and rerun)") return end
+        local okAtk, atk = pcall(UnitCanAttack, "player", "target")
+        print("  CanAttack ok=" .. tostring(okAtk) .. " value=" .. tostring(okAtk and atk))
+        local curve = E.CurveFor(0.11, 0.22, 0.33)  -- junk base color; cache is wiped on rebuild
+        print("  CurveBuilt=" .. tostring(curve ~= nil))
+        if not curve then return end
+        local ok, r, g, b, a = pcall(E.EvalRaw, "target", curve)
+        if not ok then print("  EvalERROR: " .. tostring(r)) return end
+        if r == nil then print("  Eval returned nil (no Color object / no GetRGBA)") return end
+        local isSec = issecretvalue
+        local anySecret = isSec and (isSec(r) or isSec(g) or isSec(b) or isSec(a))
+        print("  Eval ok. type(r)=" .. type(r) .. " secret=" .. tostring(anySecret or false))
+        if not anySecret then
+            print(string.format("  rgba = %.2f %.2f %.2f %.2f (a>=0.5 means in execute range)",
+                r or -1, g or -1, b or -1, a or -1))
+        end
+    end
+
+    -- Re-reads options + talents and arms/disarms the hot path.
+    function ns.RebuildExecuteState()
+        local db = p or defaults
+        wipe(E.curves)
+        E.n = 0
+        local enabled = db.executeRangeEnabled
+        if enabled == nil then enabled = defaults.executeRangeEnabled end
+        local style = db.executeRangeGlowStyle
+        if style == nil then style = defaults.executeRangeGlowStyle end
+        E.glowStyle = style or 0
+        local colorOn = db.executeRangeColorEnabled
+        if colorOn == nil then colorOn = defaults.executeRangeColorEnabled end
+        E.colorOn = colorOn and true or false
+        -- Stop any live glows: style/color/threshold may all have changed.
+        -- Still-applicable glows re-arm on the next health recolor.
+        if ns.plates then
+            for _, plate in pairs(ns.plates) do
+                if plate._execGlowOn then E.SetGlow(plate, false) end
+            end
+        end
+        -- Disarm when nothing would render (also when both effects are off).
+        if not enabled or not UnitHealthPercent
+            or (not E.colorOn and E.glowStyle == 0) then
+            ns._ExecTint = nil
+            return
+        end
+        local c = db.executeRangeColor or defaults.executeRangeColor
+        E.r, E.g, E.b = c.r, c.g, c.b
+        local gc = db.executeRangeGlowColor or defaults.executeRangeGlowColor
+        E.gr, E.gg, E.gb = gc.r, gc.g, gc.b
+        if (db.executeRangeMode or defaults.executeRangeMode) == "custom" then
+            E.pct = db.executeRangeCustomPct or defaults.executeRangeCustomPct
+        else
+            E.pct = E.AUTO[PLAYER_CLASS] or 20
+            if PLAYER_CLASS == "WARRIOR" and IsPlayerSpell
+                and (IsPlayerSpell(E.MASSACRE_ARMS) or IsPlayerSpell(E.MASSACRE_FURY)) then
+                E.pct = 35
+            end
+        end
+        ns._ExecTint = E.Tint
+    end
+
+    E.watcher = CreateFrame("Frame")
+    E.watcher:RegisterEvent("PLAYER_LOGIN")
+    E.watcher:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+    E.watcher:RegisterEvent("TRAIT_CONFIG_UPDATED")
+    E.watcher:SetScript("OnEvent", function(_, event, arg1)
+        if event == "PLAYER_SPECIALIZATION_CHANGED" and arg1 ~= "player" then return end
+        ns.RebuildExecuteState()
+    end)
+end
 function NameplateFrame:UpdateHealthColor()
     local unit = self.unit
     if not unit then return end
@@ -6173,7 +6440,28 @@ function NameplateFrame:UpdateHealthColor()
     -- path verified non-secret). Threat events fire constantly with an unchanged result, so
     -- compare against the last applied values and skip the setter. Cache nil'd in ClearUnit.
     local hr, hg, hb = GetReactionColor(unit)
-    if hr ~= self._lastHCr or hg ~= self._lastHCg or hb ~= self._lastHCb then
+    -- Execute-range recolor: ns._ExecTint is nil unless the feature is
+    -- enabled (see the EXECUTE-RANGE block above). Returns plain numbers
+    -- (compare path stays valid), or true when the curve components were
+    -- secret and the color was pushed to the bar inside the tint.
+    local execApplied
+    local execTint = ns._ExecTint
+    if execTint then
+        -- Base color cache for the UNIT_HEALTH fast path (ns._ExecHealthTick):
+        -- health ticks re-tint against this without rerunning GetReactionColor.
+        self._baseHCr, self._baseHCg, self._baseHCb = hr, hg, hb
+        local er, eg, eb = execTint(self, unit, hr, hg, hb)
+        if er == true then
+            execApplied = true
+        elseif er then
+            hr, hg, hb = er, eg, eb
+        end
+    end
+    if execApplied then
+        -- Poison the skip cache: the bar holds a secret-valued color now, so
+        -- the next plain recolor must go through the setter unconditionally.
+        self._lastHCr, self._lastHCg, self._lastHCb = nil, nil, nil
+    elseif hr ~= self._lastHCr or hg ~= self._lastHCg or hb ~= self._lastHCb then
         self._lastHCr, self._lastHCg, self._lastHCb = hr, hg, hb
         self.health:SetStatusBarColor(hr, hg, hb)
     end
@@ -7409,6 +7697,8 @@ function NameplateFrame:UNIT_HEALTH()
         self:ApplyNameVisibility()
     end
     self:UpdateHealthValues()
+    -- Execute-range tint follows health changes; one nil check when off.
+    if ns._ExecTint then ns._ExecHealthTick(self) end
 end
 function NameplateFrame:UNIT_ABSORB_AMOUNT_CHANGED()
     self:UpdateHealthValues()
@@ -8135,6 +8425,9 @@ function npAddon:OnEnable()
     ApplyClassPowerSetting()
     -- Apply spec-assigned preset on login (before UI is opened)
     if ns._ApplySpecPresetFromDB then ns._ApplySpecPresetFromDB() end
+    -- Execute-range state reads the profile, so (re)build it here where the
+    -- profile pointer is final (covers PLAYER_LOGIN/OnEnable ordering).
+    if ns.RebuildExecuteState then ns.RebuildExecuteState() end
     if ns.RangeText_Apply then ns.RangeText_Apply() end
 end
 

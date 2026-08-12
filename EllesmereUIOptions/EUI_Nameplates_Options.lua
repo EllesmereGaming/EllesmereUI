@@ -9961,6 +9961,185 @@ initFrame:SetScript("OnEvent", function(self)
             darkenCogBtn:SetScript("OnClick", function(s) darkenCogShow(s) end)
         end
 
+        -- Execute Range Color | Execute Threshold
+        local execRangeRow
+        local function execOff()
+            local db = DB()
+            local on = db and db.executeRangeEnabled
+            if on == nil then on = defaults.executeRangeEnabled end
+            return not on
+        end
+        -- Re-arms the runtime state (threshold/curves) and repaints live plates.
+        local function RefreshExecuteRange()
+            if ns.RebuildExecuteState then ns.RebuildExecuteState() end
+            for _, plate in pairs(ns.plates) do
+                plate:UpdateHealthColor()
+            end
+        end
+        execRangeRow, h = W:DualRow(parent, y,
+            { type="toggle", text="Execute Range Indicator",
+              tooltip="Marks enemy health bars once the target drops below your execute threshold: bar recolor, glow animation, or both (configure in the cog beside the threshold dropdown). \"Auto\" resolves the threshold from your class and talents (Warrior: 20%, or 35% with Massacre).",
+              getValue=function() return DBVal("executeRangeEnabled") == true end,
+              setValue=function(v)
+                DB().executeRangeEnabled = v
+                RefreshExecuteRange()
+                EllesmereUI:RefreshPage()
+              end },
+            { type="dropdown", text="Execute Threshold",
+              values={ auto = "Auto (Class)", custom = "Custom" },
+              order={ "auto", "custom" },
+              tooltip="Auto uses your class/talent execute threshold. Custom uses the percentage from the cog beside this dropdown.",
+              disabled=execOff,
+              disabledTooltip="Execute Range Indicator",
+              getValue=function() return DBVal("executeRangeMode") or defaults.executeRangeMode end,
+              setValue=function(v)
+                DB().executeRangeMode = v
+                RefreshExecuteRange()
+              end });  y = y - h
+
+        -- Inline swatches beside the toggle: bar recolor color + glow color.
+        -- Each greys with its own effect (bar swatch with "Change Bar Color",
+        -- glow swatch with the Glow Animation style).
+        do
+            local leftRgn = execRangeRow._leftRegion
+            local function execBarColorOff()
+                if execOff() then return true end
+                local v = DBVal("executeRangeColorEnabled")
+                if v == nil then v = defaults.executeRangeColorEnabled end
+                return not v
+            end
+            local function execGlowColorOff()
+                if execOff() then return true end
+                local v = DBVal("executeRangeGlowStyle")
+                if v == nil then v = defaults.executeRangeGlowStyle end
+                return (v or 0) == 0
+            end
+            -- Bar color (nearest the toggle)
+            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5,
+                function()
+                    local c = DB().executeRangeColor or defaults.executeRangeColor
+                    return c.r, c.g, c.b
+                end,
+                function(r, g, b)
+                    DB().executeRangeColor = { r = r, g = g, b = b }
+                    RefreshExecuteRange()
+                end, nil, 20)
+            PP.Point(swatch, "RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -12, 0)
+            leftRgn._lastInline = swatch
+            swatch:SetScript("OnEnter", function(s) EllesmereUI.ShowWidgetTooltip(s, "Execute Bar Color") end)
+            swatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            -- Glow color (left of the bar swatch)
+            local gSwatch, updateGSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5,
+                function()
+                    local c = DB().executeRangeGlowColor or defaults.executeRangeGlowColor
+                    return c.r, c.g, c.b
+                end,
+                function(r, g, b)
+                    DB().executeRangeGlowColor = { r = r, g = g, b = b }
+                    RefreshExecuteRange()
+                end, nil, 20)
+            PP.Point(gSwatch, "RIGHT", swatch, "LEFT", -8, 0)
+            leftRgn._lastInline = gSwatch
+            gSwatch:SetScript("OnEnter", function(s) EllesmereUI.ShowWidgetTooltip(s, "Execute Glow Color") end)
+            gSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            local function refreshSwatches()
+                local bOff = execBarColorOff()
+                swatch:SetAlpha(bOff and 0.15 or 1)
+                swatch:EnableMouse(not bOff)
+                updateSwatch()
+                local gOff = execGlowColorOff()
+                gSwatch:SetAlpha(gOff and 0.15 or 1)
+                gSwatch:EnableMouse(not gOff)
+                updateGSwatch()
+            end
+            EllesmereUI.RegisterWidgetRefresh(refreshSwatches)
+            refreshSwatches()
+        end
+
+        -- Cog beside the threshold dropdown: Custom Threshold % slider +
+        -- Glow Animation style picker (shared EllesmereUI glow styles).
+        do
+            local rightRgn = execRangeRow._rightRegion
+            local GLOW_VALUES = { [0] = "None" }
+            local GLOW_ORDER = { 0 }
+            local Styles = EllesmereUI.Glows and EllesmereUI.Glows.STYLES
+            if Styles then
+                for i, entry in ipairs(Styles) do
+                    -- Shape Glow needs mask textures from the caller; skip it
+                    -- like the other suite glow dropdowns do.
+                    if not entry.shapeGlow then
+                        GLOW_VALUES[i] = entry.name
+                        GLOW_ORDER[#GLOW_ORDER + 1] = i
+                    end
+                end
+            end
+            local _, execCogShow = EllesmereUI.BuildCogPopup({
+                title = "Execute Range Indicator",
+                rows = {
+                    { type = "toggle", label = "Change Bar Color",
+                      tooltip = "Recolor the health bar while in execute range. Turn off to keep the normal bar color and use only the glow animation.",
+                      get = function()
+                        local v = DBVal("executeRangeColorEnabled")
+                        if v == nil then v = defaults.executeRangeColorEnabled end
+                        return v
+                      end,
+                      set = function(v)
+                        DB().executeRangeColorEnabled = v
+                        RefreshExecuteRange()
+                        -- Re-grey the inline bar-color swatch on the row.
+                        C_Timer.After(0, function() EllesmereUI:RefreshPage() end)
+                      end,
+                      disabled = execOff,
+                      disabledTooltip = "Execute Range Indicator" },
+                    { type = "slider", label = "Custom Threshold %", min = 5, max = 50, step = 1,
+                      get = function() return DBVal("executeRangeCustomPct") or defaults.executeRangeCustomPct end,
+                      set = function(v)
+                        DB().executeRangeCustomPct = v
+                        RefreshExecuteRange()
+                      end,
+                      disabled = function()
+                        if execOff() then return true end
+                        return (DBVal("executeRangeMode") or defaults.executeRangeMode) ~= "custom"
+                      end,
+                      disabledTooltip = "Custom Threshold Mode" },
+                    { type = "dropdown", label = "Glow Animation",
+                      values = GLOW_VALUES, order = GLOW_ORDER,
+                      tooltip = "Animates a glow around the health bar while the target is in execute range. Uses the glow color swatch on the row.",
+                      get = function()
+                        local v = DBVal("executeRangeGlowStyle")
+                        if v == nil then v = defaults.executeRangeGlowStyle end
+                        return v
+                      end,
+                      set = function(v)
+                        DB().executeRangeGlowStyle = v
+                        RefreshExecuteRange()
+                        -- Re-grey the inline glow-color swatch on the row.
+                        C_Timer.After(0, function() EllesmereUI:RefreshPage() end)
+                      end,
+                      disabled = execOff,
+                      disabledTooltip = "Execute Range Indicator" },
+                },
+            })
+            local execCogBtn = CreateFrame("Button", nil, rightRgn)
+            execCogBtn:SetSize(26, 26)
+            execCogBtn:SetPoint("RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
+            rightRgn._lastInline = execCogBtn
+            execCogBtn:SetFrameLevel(rightRgn:GetFrameLevel() + 5)
+            execCogBtn:SetAlpha(0.4)
+            local execCogTex = execCogBtn:CreateTexture(nil, "OVERLAY")
+            execCogTex:SetAllPoints(); execCogTex:SetTexture(EllesmereUI.COGS_ICON)
+            if execCogTex.SetSnapToPixelGrid then execCogTex:SetSnapToPixelGrid(false); execCogTex:SetTexelSnappingBias(0) end
+            execCogBtn:SetScript("OnEnter", function(s)
+                s:SetAlpha(0.7)
+                EllesmereUI.ShowWidgetTooltip(s, "Execute Threshold Settings")
+            end)
+            execCogBtn:SetScript("OnLeave", function(s)
+                s:SetAlpha(0.4)
+                EllesmereUI.HideWidgetTooltip()
+            end)
+            execCogBtn:SetScript("OnClick", function(s) execCogShow(s) end)
+        end
+
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
         -----------------------------------------------------------------------
