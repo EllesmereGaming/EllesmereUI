@@ -4350,7 +4350,8 @@ initFrame:SetScript("OnEvent", function(self)
                 fn(p.primary) fn(p.secondary) fn(p.health) end)
             y = y - h
 
-            -- Toggle pip border on/off
+            -- Pip Border cog on Border Style (left region): per-pip borders
+            -- instead of one border around the whole bar.
             if not EllesmereUI._prebuilding then
                 local rgn = bsRow._leftRegion
                 local lastInline = rgn._lastInline or rgn._control
@@ -4359,28 +4360,30 @@ initFrame:SetScript("OnEvent", function(self)
                     rows = {
                         { type = "toggle", label = "Border on individual pips",
                         tooltip = "Draws a border around each pip instead of the bar as a whole.",
-                            get = function() local c = cfg(); return c and c.borderOnPips end,
-                            set = function(v)
-                                local c = cfg(); if not c then return end
-                                c.borderOnPips = v; RebuildClass(); EllesmereUI:RefreshPage()
-                            end },
+                        get = function() local c = cfg(); return c and c.borderOnPips end,
+                        set = function(v)
+                            local c = cfg(); if not c then return end
+                            c.borderOnPips = v; RebuildClass(); EllesmereUI:RefreshPage()
+                        end },
                     },
                 })
 
                 local cogBtn = MakeCogBtn(rgn, cogShow, nil, EllesmereUI.COGS_ICON)
                 cogBtn:Show()
 
-                local function UpdateCogVis()
+                -- Position only: the texture-style dropdown adds/removes its own
+                -- inline elements, so the cog re-seats beside whichever is last.
+                local function UpdateCogPos()
                     local c = cfg()
                     local tex = c and c.borderTexture or "solid"
-                    if tex == "solid" then 
+                    if tex == "solid" then
                         PP.Point(cogBtn, "RIGHT", rgn._control, "LEFT", -8, 0)
                     else
                         PP.Point(cogBtn, "RIGHT", lastInline, "LEFT", -8, 0)
                     end
                 end
-                EllesmereUI.RegisterWidgetRefresh(UpdateCogVis)
-                UpdateCogVis()
+                EllesmereUI.RegisterWidgetRefresh(UpdateCogPos)
+                UpdateCogPos()
             end
         end
 
