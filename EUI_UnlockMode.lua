@@ -7103,22 +7103,22 @@ local function CreateMover(barKey)
                 isVert = v3
             end
         elseif barKey:sub(1, 4) == "PAB_" then
-            -- Player Aura Bars support vertical growth too (Up/Down) -- read the bar's
+            -- Player Aura Bars support vertical growth too -- read the bar's
             -- own current growDirection (same bridge the currentVal lookup below uses)
             -- to decide which pair of grow options this popup offers.
             local euf3 = EllesmereUI.Lite.GetAddon("EllesmereUIUnitFrames", true)
             local pabDir = (euf3 and euf3.GetGrowDirectionForBar and euf3:GetGrowDirectionForBar(barKey)) or "LEFT"
-            isVert = (pabDir == "UP" or pabDir == "DOWN")
+            isVert = (pabDir == "UP" or pabDir == "DOWN" or pabDir == "CENTER_VERTICAL")
         else
             local eab3 = EllesmereUI.Lite.GetAddon("EllesmereUIActionBars", true)
             local s3 = eab3 and eab3.db and eab3.db.profile and eab3.db.profile.bars and eab3.db.profile.bars[barKey]
             if s3 then isVert = (s3.orientation == "vertical") end
         end
-        -- Player Aura Bars: no "Grow Centered" -- AK's SetFlowLayoutGrowthDirection
-        -- (AnchorUtil.FlowDirection) is a strict Left/Right/Up/Down axis, it has
-        -- no centered concept, unlike CDM/ActionBars' own bar renderer.
         local growDirs = {}
-        if barKey:sub(1, 4) ~= "PAB_" then
+        if barKey:sub(1, 4) == "PAB_" then
+            growDirs[#growDirs + 1] = { label = "Grow Centered Horizontal", val = "CENTER_HORIZONTAL" }
+            growDirs[#growDirs + 1] = { label = "Grow Centered Vertical", val = "CENTER_VERTICAL" }
+        else
             growDirs[#growDirs + 1] = { label = "Grow Centered", val = "CENTER" }
         end
         if isVert then

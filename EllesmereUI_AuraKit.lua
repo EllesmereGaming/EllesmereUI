@@ -919,6 +919,9 @@ function AK.CreateContainerShell(parent, spec)
     -- Combat creation is legal since 68914 (PTR-7 notes; /euit3 field PASS
     -- 2026-07-23). The old in-combat zombie soft-fail -- and the OOC assert
     -- that guarded against it -- are gone.
+    if not C_AddOns.IsAddOnLoaded("Blizzard_AuraContainer") then
+        C_AddOns.LoadAddOn("Blizzard_AuraContainer")
+    end
     local container = CreateFrame("AuraContainer", nil, parent, "CustomAuraContainerTemplate")
 
     -- Anchor and a provisional size up front: the engine drains its parse and
@@ -1177,9 +1180,8 @@ end
 ------------------------------------------------------------------------------
 -- Restriction probe
 --
--- There is no official "are auras secret" query. This is a best-effort helper
--- for the surviving spellID-lookup paths that want to know whether silent
--- absence semantics are in effect. Never treat it as a data source.
+-- Prefer Blizzard's official secrecy query; retain the aura-data probe as a fallback
+-- for builds where that API is unavailable. Never treat either as a data source.
 --
 -- Cached per frame time: while restricted, the probe THROWS (and catches) a
 -- real Lua error, and error construction is the expensive part -- callers
@@ -1197,6 +1199,10 @@ end
 local restrictedStamp = -1
 function AK.AurasRestricted()
     local now = GetTime()
+    if C_Secrets and C_Secrets.ShouldAurasBeSecret and C_Secrets.ShouldAurasBeSecret() then
+        restrictedStamp = now
+        return true
+    end
     if now == restrictedStamp then return true end
     if pcall(C_UnitAuras.GetAuraDataByIndex, "player", 1, "HELPFUL") then
         return false

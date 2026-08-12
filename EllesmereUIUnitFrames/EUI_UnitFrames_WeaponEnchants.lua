@@ -297,8 +297,10 @@ local function Paint()
                             if dir == "RIGHT" then dx = 1 elseif dir == "LEFT" then dx = -1
                             elseif dir == "UP" then dy = 1 elseif dir == "DOWN" then dy = -1 end
                             b:ClearAllPoints()
-                            b:SetPoint(rec.corner, rec.parent, rec.corner,
-                                dx * idx * cell, dy * idx * cell)
+                            local point = rec.point or rec.corner
+                            b:SetPoint(point, rec.parent, rec.relativePoint or rec.corner or point,
+                                (rec.x or 0) + dx * idx * cell,
+                                (rec.y or 0) + dy * idx * cell)
                             b._cell = idx
                             b._noTooltip = style.noTooltips == true
                         end
