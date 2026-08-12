@@ -1222,7 +1222,9 @@ local DEFAULTS = {
             protIgnorePainBar = true,      -- Prot Warrior: Ignore Pain bar (absorbs vs the IP cap = 30% max health; aura stacks are secret). New-user default; existing profiles pinned off by migration "resourcebars_protwar_ignorepain_existing_off_v1".
             protIgnorePainHashLine = true, -- Prot Ignore Pain: draw the moving duration hash line (resets on cast)
             armsSweepingStrikesBar = false, -- Arms Warrior: Sweeping Strikes charge pips on the resource bar (opt-in, default off). Unit Frames + personal Nameplate show them regardless.
-            runesSimple = false,  -- DK: treat runes as flat pips (no recharge animation/timer)
+            runesSimple = false,  -- DK: treat runes as flat pips and show the ready count
+            runesSimpleAnimation = false,  -- DK simple mode: show recharge progress inside cooling runes
+            runesSimpleCountdown = false,  -- DK simple mode: show remaining recharge time inside cooling runes
             runesCustomRecharge = false,  -- DK: use a custom color for recharging runes instead of a dimmed version of the rune color
             runesRechargeR = 0.5, runesRechargeG = 0.5, runesRechargeB = 0.5, runesRechargeA = 1,
             chargedR = 0.44, chargedG = 0.77, chargedB = 1.00, chargedA = 1,
@@ -4801,7 +4803,11 @@ local function UpdateSecondaryResource()
         local _runeTiTrig = runeUseThresh and true or false
         if _runeTI then runeUseThresh = false end
 
-        if sp.runesSimple then
+        local runeSimpleAnimation = sp.runesSimple and sp.runesSimpleAnimation
+        local runeSimpleCountdown = sp.runesSimple and sp.runesSimpleCountdown
+        local runeSimpleDetailed = runeSimpleAnimation or runeSimpleCountdown
+
+        if sp.runesSimple and not runeSimpleDetailed then
             -- Simple mode: flat pips like Holy Power (active/inactive, no recharge animation)
             local numPips = 6
             local totalW = sp.pipWidth or 214
@@ -4837,6 +4843,8 @@ local function UpdateSecondaryResource()
                     else
                         rf:SetActive(active, r, g, b, a)
                     end
+                    -- Restore empty-pip backgrounds after leaving an animated mode.
+                    if not active and not rf._fillOp then rf._bg:SetAlpha(1) end
                     if rf._rechargeBar then rf._rechargeBar:Hide() end
                     if rf._cdText then rf._cdText:SetText("") end
                 end
@@ -4848,9 +4856,16 @@ local function UpdateSecondaryResource()
                 colorText(_runeTI, _runeTiTrig, tr, tg, tb, _spTextBaseR, _spTextBaseG, _spTextBaseB)
             end
         else
-            -- Full rune mode: sort ready left, cooling right with recharge animation
-            -- Clear central count text (used by simple mode)
-            if secondaryFrame._countText then secondaryFrame._countText:SetText("") end
+            -- Full rune mode, or simple mode with optional recharge details:
+            -- sort ready runes left and cooling runes right.
+            if secondaryFrame._countText then
+                if sp.runesSimple and sp.showText then
+                    secondaryFrame._countText:SetText(tostring(readyN))
+                    colorText(_runeTI, _runeTiTrig, tr, tg, tb, _spTextBaseR, _spTextBaseG, _spTextBaseB)
+                else
+                    secondaryFrame._countText:SetText("")
+                end
+            end
             -- Append cd runes after ready runes in _runeOrder
             local ci = readyN
             for i = 1, 6 do
@@ -4925,62 +4940,73 @@ local function UpdateSecondaryResource()
                         -- zeroing it left the un-recharged portion fully
                         -- transparent. SetActive(false) has just restored the
                         -- bg for the Fill Opacity case.
+                        local showRecharge = not sp.runesSimple or runeSimpleAnimation
                         rf:SetActive(false, r, g, b, a)
-                        if not rf._fillOp then rf._bg:SetAlpha(0) end
+                        if showRecharge and not rf._fillOp then
+                            rf._bg:SetAlpha(0)
+                        elseif not showRecharge then
+                            rf._bg:SetAlpha(1)
+                        end
 
-                        -- Lazily create a StatusBar overlay for recharge progress
-                        if not rf._rechargeBar then
-                            local sb = CreateFrame("StatusBar", nil, rf)
-                            sb:SetAllPoints(rf)
-                            sb:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
-                            sb:SetFrameLevel(rf:GetFrameLevel())
-                            sb:SetMinMaxValues(0, 1)
-                            -- Apply the same bar texture if one is set
-                            if rf._texKey then
-                                local path = EllesmereUI.ResolveTexturePath(_G._ERB_BarTextures, rf._texKey, nil)
-                                if path then sb:SetStatusBarTexture(path) end
+                        if showRecharge then
+                            -- Lazily create a StatusBar overlay for recharge progress
+                            if not rf._rechargeBar then
+                                local sb = CreateFrame("StatusBar", nil, rf)
+                                sb:SetAllPoints(rf)
+                                sb:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+                                sb:SetFrameLevel(rf:GetFrameLevel())
+                                sb:SetMinMaxValues(0, 1)
+                                -- Apply the same bar texture if one is set
+                                if rf._texKey then
+                                    local path = EllesmereUI.ResolveTexturePath(_G._ERB_BarTextures, rf._texKey, nil)
+                                    if path then sb:SetStatusBarTexture(path) end
+                                end
+                                rf._rechargeBar = sb
                             end
-                            rf._rechargeBar = sb
+
+                            -- Recharge fill follows the pip orientation: a lazily
+                            -- created StatusBar defaults to HORIZONTAL and persists
+                            -- across orientation swaps. Same direction convention
+                            -- as ApplyBarOrientation (VERTICAL_DOWN = reverse =
+                            -- fills from the top). Change-guarded on the full
+                            -- orientation token (up/down differ only in reverse).
+                            if rf._rechargeOri ~= pipOri then
+                                local vertPip = pipOri ~= "HORIZONTAL"
+                                rf._rechargeBar:SetOrientation(vertPip and "VERTICAL" or "HORIZONTAL")
+                                rf._rechargeBar:SetRotatesTexture(vertPip)
+                                rf._rechargeBar:SetReverseFill(
+                                    pipOri == "VERTICAL_DOWN" or pipOri == "VERTICAL")
+                                rf._rechargeOri = pipOri
+                            end
+
+                            -- Compute recharge fraction (0 = just started, 1 = almost ready)
+                            local frac = 0
+                            local rStart, rDur = _runeStart[runeIdx], _runeDuration[runeIdx]
+                            if rStart and rDur and rDur > 0 then
+                                local elapsed = now - rStart
+                                frac = max(0, min(1, elapsed / rDur))
+                            end
+                            rf._rechargeBar:SetValue(frac)
+                            -- Recharge color: custom color when enabled, otherwise 75%
+                            -- brightness (subtle dim), matching threshold color when active
+                            if sp.runesCustomRecharge then
+                                rf._rechargeBar:SetStatusBarColor(sp.runesRechargeR or 0.5, sp.runesRechargeG or 0.5, sp.runesRechargeB or 0.5, sp.runesRechargeA or 1)
+                            elseif runeUseThresh then
+                                rf._rechargeBar:SetStatusBarColor(tr * 0.75, tg * 0.75, tb * 0.75, a)
+                            else
+                                rf._rechargeBar:SetStatusBarColor(r * 0.75, g * 0.75, b * 0.75, a)
+                            end
+                            rf._rechargeBar:Show()
+                        elseif rf._rechargeBar then
+                            rf._rechargeBar:Hide()
                         end
 
-                        -- Recharge fill follows the pip orientation: a lazily
-                        -- created StatusBar defaults to HORIZONTAL and persists
-                        -- across orientation swaps. Same direction convention
-                        -- as ApplyBarOrientation (VERTICAL_DOWN = reverse =
-                        -- fills from the top). Change-guarded on the full
-                        -- orientation token (up/down differ only in reverse).
-                        if rf._rechargeOri ~= pipOri then
-                            local vertPip = pipOri ~= "HORIZONTAL"
-                            rf._rechargeBar:SetOrientation(vertPip and "VERTICAL" or "HORIZONTAL")
-                            rf._rechargeBar:SetRotatesTexture(vertPip)
-                            rf._rechargeBar:SetReverseFill(
-                                pipOri == "VERTICAL_DOWN" or pipOri == "VERTICAL")
-                            rf._rechargeOri = pipOri
-                        end
-
-                        -- Compute recharge fraction (0 = just started, 1 = almost ready)
-                        local frac = 0
-                        local rStart, rDur = _runeStart[runeIdx], _runeDuration[runeIdx]
-                        if rStart and rDur and rDur > 0 then
-                            local elapsed = now - rStart
-                            frac = max(0, min(1, elapsed / rDur))
-                        end
-                        rf._rechargeBar:SetValue(frac)
-                        -- Recharge color: custom color when enabled, otherwise 75%
-                        -- brightness (subtle dim), matching threshold color when active
-                        if sp.runesCustomRecharge then
-                            rf._rechargeBar:SetStatusBarColor(sp.runesRechargeR or 0.5, sp.runesRechargeG or 0.5, sp.runesRechargeB or 0.5, sp.runesRechargeA or 1)
-                        elseif runeUseThresh then
-                            rf._rechargeBar:SetStatusBarColor(tr * 0.75, tg * 0.75, tb * 0.75, a)
-                        else
-                            rf._rechargeBar:SetStatusBarColor(r * 0.75, g * 0.75, b * 0.75, a)
-                        end
-                        rf._rechargeBar:Show()
-
-                        -- Show duration text if Resource Text is enabled (DK runes use it for cooldown)
+                        -- Full mode follows Resource Text; simple mode has its own countdown toggle.
                         if rf._cdText then
                             local rem = _runeRemaining[runeIdx]
-                            if sp.showText and rem > 0 and rem < 999 then
+                            local showCountdown = (sp.runesSimple and runeSimpleCountdown)
+                                or (not sp.runesSimple and sp.showText)
+                            if showCountdown and rem > 0 and rem < 999 then
                                 rf._cdText:SetText(format("%d", ceil(rem)))
                             else
                                 rf._cdText:SetText("")
@@ -9062,4 +9088,3 @@ SlashCmdList.ERB = function(msg)
         EllesmereUI:ShowModule("EllesmereUIResourceBars")
     end
 end
-

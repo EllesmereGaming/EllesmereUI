@@ -6949,13 +6949,41 @@ initFrame:SetScript("OnEvent", function(self)
                           EllesmereUI:RefreshPage()
                       end },
                     { type = "toggle", text = "Simple Runes",
-                      tooltip = "Show rune count in center and remove recharge text/animation",
+                      tooltip = "Show rune count in the center and use optional simplified recharge details.",
                       disabled = classOff,
                       disabledTooltip = "Class Resource",
                       getValue = function() local c = cfg(); return c and c.runesSimple end,
                       setValue = function(v)
                           local c = cfg(); if not c then return end
                           c.runesSimple = v
+                          RebuildClass()
+                          EllesmereUI:RefreshPage()
+                      end }); y = y - h
+                _, h = W:DualRow(parent, y,
+                    { type = "toggle", text = "Simple Rune Animation",
+                      tooltip = "Show recharge progress inside cooling runes while Simple Runes is enabled.",
+                      disabled = function()
+                          local c = cfg()
+                          return not (c and c.enabled and c.runesSimple)
+                      end,
+                      disabledTooltip = "Requires Simple Runes with Class Resource enabled.", rawTooltip = true,
+                      getValue = function() local c = cfg(); return c and c.runesSimpleAnimation end,
+                      setValue = function(v)
+                          local c = cfg(); if not c then return end
+                          c.runesSimpleAnimation = v
+                          RebuildClass()
+                      end },
+                    { type = "toggle", text = "Simple Rune Countdown",
+                      tooltip = "Show remaining recharge time inside cooling runes while Simple Runes is enabled.",
+                      disabled = function()
+                          local c = cfg()
+                          return not (c and c.enabled and c.runesSimple)
+                      end,
+                      disabledTooltip = "Requires Simple Runes with Class Resource enabled.", rawTooltip = true,
+                      getValue = function() local c = cfg(); return c and c.runesSimpleCountdown end,
+                      setValue = function(v)
+                          local c = cfg(); if not c then return end
+                          c.runesSimpleCountdown = v
                           RebuildClass()
                       end }); y = y - h
                 -- Custom recharge color inline swatch
