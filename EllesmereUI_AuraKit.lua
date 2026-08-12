@@ -209,7 +209,23 @@ local function ApplyStyleToRegions(button, style)
         d.cooldown:SetReverse(style.cooldownReverse ~= false)
         d.cooldown:SetDrawEdge(style.cooldownDrawEdge == true)
         d.cooldown:SetHideCountdownNumbers(true) -- duration text comes from the binding, not the swipe
-        d.cooldown:SetShown(style.hideSwipe ~= true)
+        -- Hidden-swipe gate. SetShown alone does not stick: the engine calls
+        -- Cooldown:SetCooldown on this frame whenever the slot's aura data
+        -- refreshes, and that native API implicitly re-Shows the frame.
+        -- Withholding the frame from SetDurationCooldown does not work either --
+        -- that registration is the button's DURATION SOURCE, so a button without
+        -- one loses its duration TEXT along with the swipe.
+        -- SetDrawSwipe is the knob that means what we want: keep the cooldown
+        -- registered and running, draw no swipe from it. It is a CooldownStyle
+        -- aspect rather than visibility, so an aura refresh has no reason to
+        -- clear it, and it is annotated AllowedWhenTainted so our own call is
+        -- legal in the contexts where this matters.
+        local hideSwipe = style.hideSwipe == true
+        d.cooldown:SetShown(not hideSwipe)
+        if d.akHideSwipe ~= hideSwipe then
+            d.akHideSwipe = hideSwipe
+            if d.cooldown.SetDrawSwipe then d.cooldown:SetDrawSwipe(not hideSwipe) end
+        end
     end
 
     -- Modules with their own text pipeline (fonts, anchors, outline rules) set
@@ -662,15 +678,7 @@ function AK.MakeInitializer(styleKey, extra)
         ApplyStyleToRegions(button, style)
 
         button:SetIcon(d.icon)
-        -- Registering the cooldown hands OWNERSHIP to the engine, which then draws and
-        -- re-shows the swipe on its own schedule. ApplyStyleToRegions' SetShown(false)
-        -- above runs before this line and does not survive it, so a hidden swipe has to
-        -- be hidden by never handing the widget over -- inside the creation window,
-        -- because touching an engine-owned region afterwards is forbidden-object access
-        -- (the same lesson EllesmereUICdmFakeActive.lua records at its own binding).
-        -- Duration TEXT is unaffected: it comes from SetDurationTextSafe below, not from
-        -- the swipe, which is what makes the text-only setup possible at all.
-        button:SetDurationCooldown(style.hideSwipe ~= true and d.cooldown or nil)
+        button:SetDurationCooldown(d.cooldown)
         button:SetApplicationCount(d.stack, {})
 
         local durationOpts = AK.BuildDurationTextOpts(
