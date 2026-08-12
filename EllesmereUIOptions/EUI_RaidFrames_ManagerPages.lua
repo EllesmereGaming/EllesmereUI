@@ -891,8 +891,15 @@ local function BuildBaseDetailDM(frame, fontPath)
             { key = DM_ALL_KEY, label = "All Debuffs",
               tooltip = "Show every debuff. While this is on, checked filters below are hidden from the grid instead of added." },
             { isHeader = true, label = "" },
+            -- The examples this used to lead with (Sated, Forbearance) sold the
+            -- category as small noise, but it is EVERY debuff no player applied --
+            -- which in dungeon and raid content is nearly all of them. Checking it
+            -- while All Debuffs is on therefore empties the frames, and that read as
+            -- a broken filter rather than as the subtract working. Sated is also
+            -- already excluded by its own default, so it was never a reason to
+            -- check this.
             { key = "nonplayer", label = "Non-Player Auras",
-              tooltip = "Debuffs not caused by any player or player pet, like Sated and Forbearance." },
+              tooltip = "Debuffs not caused by a player or player pet, which in dungeons and raids is nearly every debuff you take. While All Debuffs is on, checking this hides almost everything. Sated is already hidden by default without it." },
             { key = "priority", label = "Important",
               tooltip = "Debuffs Blizzard flags as priority for raid frames." },
             { key = "cc", label = "Crowd Control",
