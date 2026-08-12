@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUI_Startup.lua
 --  Runs as early as possible (first file after the Lite framework).
@@ -87,13 +88,12 @@ do
                 -- window: the engine decodes with the scale that encoded.
                 -- The PLAYER_LOGIN apply below stays as an idempotent belt.
                 --
-                -- FIELD RESULT (2026-07-28): this did NOT stop the drift.
-                -- Blizzard applies the user's CVar scale during login AFTER
-                -- addon ADDON_LOADED (this file's own PLAYER_ENTERING_WORLD
-                -- comment says so), so the chat restore still ran at the CVar
-                -- scale. Kept anyway: it is idempotent, costs nothing, and
-                -- closes the same window for anything restored before
-                -- Blizzard's CVar apply. The chat fix is below.
+                -- FIELD RESULT (2026-07-28): this did NOT stop the drift. Blizzard
+                -- applies the user's CVar scale during login AFTER addon ADDON_LOADED
+                -- (this file's own PLAYER_ENTERING_WORLD comment says so), so the chat
+                -- restore still ran at the CVar scale. Kept anyway: it is idempotent,
+                -- costs nothing, and closes the same window for anything restored
+                -- before Blizzard's CVar apply. The chat fix is below.
                 ApplyScaleSafe(EllesmereUIDB.ppUIScale)
             end
 
@@ -150,14 +150,13 @@ do
                 -- the UI Scale slider appears to do nothing to it.
                 --
                 -- 1440p is the reference look: a panel of H units covers
-                -- H*panelScale/physH of the screen, so physH/1440 reproduces
-                -- 1440p's screen fraction on any display, and 4K seeds 1.5 to
-                -- read exactly like a 2K monitor. Floored at 1 so 1080p (which
-                -- runs a slightly larger fraction, uncomplained-about) keeps
-                -- its current size rather than shrinking, then snapped onto the
-                -- dropdown's real steps (see EllesmereUI.SnapPanelScale) -- an
-                -- off-menu value leaves the control reading 100% while the
-                -- panel renders larger.
+                -- H*panelScale/physH of the screen, so physH/1440 reproduces 1440p's
+                -- screen fraction on any display, and 4K seeds 1.5 to read exactly like
+                -- a 2K monitor. Floored at 1 so 1080p (which runs a slightly larger
+                -- fraction, uncomplained-about) keeps its current size rather than
+                -- shrinking, then snapped onto the dropdown's real steps (see
+                -- EllesmereUI.SnapPanelScale) -- an off-menu value leaves the control
+                -- reading 100% while the panel renders larger.
                 --
                 -- This sits INSIDE the ppUIScale == nil guard on purpose: it is
                 -- the first-install path only. Existing saves never reach here
@@ -324,10 +323,9 @@ do
     end)
 end
 
--- Apply the saved combat text font immediately at file scope.
--- DAMAGE_TEXT_FONT must be set before the engine caches it at login.
--- CombatTextFont may not exist yet here, so we also hook ADDON_LOADED
--- to catch it as soon as it becomes available.
+-- Apply the saved combat text font immediately at file scope. DAMAGE_TEXT_FONT must be
+-- set before the engine caches it at login. CombatTextFont may not exist yet here, so
+-- we also hook ADDON_LOADED to catch it as soon as it becomes available.
 do
     -- smf: keys resolve via LSM when the providing pack has loaded, else via
     -- the path cached at selection time (external packs load after us, so at
@@ -500,11 +498,20 @@ do
     end)
 end
 
--- (The DataBars auto-disable block was removed 2026-07-13: after the
--- multi-bar rewrite the module does literally nothing until the user
--- creates a bar, so it ships enabled with zero cost. If a prior build
--- auto-disabled it, re-enabling once sticks -- the latch keys
--- dataBarsAutoDisabled/dataBarsUserChosen are simply no longer read.)
+-- (The DataBars auto-disable block was removed 2026-07-13: after the multi-bar rewrite
+-- the module does literally nothing until the user creates a bar, so it ships enabled
+-- with zero cost. If a prior build auto-disabled it, re-enabling once sticks -- the
+-- latch keys dataBarsAutoDisabled/dataBarsUserChosen are simply no longer read.)
+
+-- Retire stale EllesmereUIBasics copies: the v6.6 split shim was removed from the
+-- package, but updaters that don't prune deleted folders leave the old copy
+-- installed (inert -- its one file is comments only). Disable it so it drops off
+-- the AddOn List; DisableAddOn is deferred by design, so it takes effect next
+-- session. Zero cost once the folder is gone (DoesAddOnExist is false).
+if C_AddOns and C_AddOns.DoesAddOnExist and C_AddOns.DoesAddOnExist("EllesmereUIBasics")
+   and C_AddOns.GetAddOnEnableState and C_AddOns.GetAddOnEnableState("EllesmereUIBasics") > 0 then
+    C_AddOns.DisableAddOn("EllesmereUIBasics")
+end
 
 -- /rl reload shortcut -- only
 if not SlashCmdList["RL"] then

@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUIDamageMeters_SpellHistory.lua
 --  Standalone spell history tracker.  Two independent display modes:
@@ -497,10 +498,9 @@ local function StopFadeClock()
     if _fadeDriver then _fadeDriver:Hide() end
 end
 
--- Arms exactly one of: the fast driver (an icon is mid-fade) or a one-shot
--- timer for the next fade start. Out-of-combat only; entries are newest
--- first, so effective ages grow with the index and the scan can stop at
--- the first fully-faded entry.
+-- Arms exactly one of: the fast driver (an icon is mid-fade) or a one-shot timer for
+-- the next fade start. Out-of-combat only; entries are newest first, so effective ages
+-- grow with the index and the scan can stop at the first fully-faded entry.
 local function ScheduleFade(fadeTime, maxIcons)
     StopFadeClock()
     local n = min(#_history, maxIcons)

@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUIQoL_Bloodlust.lua
 --  Runtime for the Bloodlust Tracker icon. Detects the player's Sated /
@@ -371,20 +372,16 @@ local function _findSated()
 end
 
 -- 12.1: duration APIs (GetAuraDuration included) hard-error while aura
--- restrictions are active, even with a clean auraInstanceID. Hard false on
--- a 12.0 client so every restricted branch below is provably dead there.
+-- restrictions are active, even with a clean auraInstanceID.
 local function AurasRestricted()
-    if not (EllesmereUI and EllesmereUI.IS_121) then return false end
     local AK = EllesmereUI.AuraKit
     if AK and AK.AurasRestricted then return AK.AurasRestricted() end
     return false
 end
 
 -- Sync the expiry cache from the aura whenever the real value is readable
--- (out of combat / unrestricted content). 12.1-only machinery: the cache is
--- only ever displayed under aura restrictions, which do not exist on 12.0.
+-- (out of combat / unrestricted content).
 local function _syncSatedGuess(aura)
-    if not (EllesmereUI and EllesmereUI.IS_121) then return end
     local exp = aura and aura.expirationTime
     if exp and not issecretvalue(exp) and exp > 0 then
         _satedExpiryGuess = exp
@@ -556,10 +553,9 @@ local function _setDur(s)
     end
 end
 
--- Text ticker: updates the countdown number and re-confirms the debuff is still
--- present (a safety net in case a UNIT_AURA removal event is ever missed). When
--- the remaining time is secret (in combat) the swipe still animates but the
--- number is left blank.
+-- Text ticker: updates the countdown number and re-confirms the debuff is still present
+-- (a safety net in case a UNIT_AURA removal event is ever missed). When the remaining
+-- time is secret (in combat) the swipe still animates but the number is left blank.
 local function PollSated()
     if not frame then return end
     local aura = _findSated()
@@ -574,7 +570,7 @@ local function PollSated()
         _syncSatedGuess(aura)
         local rem = exp - GetTime()
         _setDur(rem > 0 and FormatTime(rem) or "")
-    elseif EllesmereUI.IS_121 and _satedExpiryGuess > GetTime() then
+    elseif _satedExpiryGuess > GetTime() then
         -- Real value secret (12.1 combat): count down on the cached expiry.
         _setDur(FormatTime(_satedExpiryGuess - GetTime()))
     else
@@ -624,7 +620,9 @@ local function _onEvent(_, event, _, updateInfo)
         -- on a genuine incremental application: never on a full aura refresh
         -- (zone/login resends every aura) and never inside the post-zone grace
         -- window, so a Sated debuff we already carry when zoning out of a dungeon
-        -- can't re-pop the overlay.
+        -- can't re-pop the overlay. (The lust BUFF itself is secret-flagged on
+        -- 12.1 -- presence reads absent in restricted combat -- so the READABLE
+        -- Sated edge is the only viable trigger.)
         -- 12.1: the UNIT_AURA payload (and its fields) can be SECRET in combat;
         -- a secret payload is treated as incremental (full refreshes come from
         -- zone/login, which the zone guard covers; boolean use of a secret errors).
@@ -634,14 +632,12 @@ local function _onEvent(_, event, _, updateInfo)
             if not issecretvalue(v) and v then isFull = true end
         end
         if present and not was and not isFull and GetTime() >= _buffZoneGuard then
-            if EllesmereUI.IS_121 then
-                -- Fresh application: the lockout is a known 10 minutes, so
-                -- the cache is exact even while the real expiry is secret.
-                -- Re-apply so the swipe picks it up now, not on the next event.
-                _satedExpiryGuess = GetTime() + 600
-                local aura, sid = _findSated()
-                if aura then _applyActiveAura(aura, sid) end
-            end
+            -- Fresh application: the lockout is a known 10 minutes, so
+            -- the cache is exact even while the real expiry is secret.
+            -- Re-apply so the swipe picks it up now, not on the next event.
+            _satedExpiryGuess = GetTime() + 600
+            local aura, sid = _findSated()
+            if aura then _applyActiveAura(aura, sid) end
             _showBuffOverlay()
         end
     elseif event == "PLAYER_DEAD" then

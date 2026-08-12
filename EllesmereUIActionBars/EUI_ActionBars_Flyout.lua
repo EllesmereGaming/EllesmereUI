@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUI Action Bars - Spell Flyout Reskin
 --  Reskins Blizzard's native SpellFlyout buttons to match the parent bar's

@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -- EUI_ResourceBars_EbonMight121.lua
 -- 12.1 ONLY: engine-slot driver for the Aug Evoker Ebon Might power bar.
 --
@@ -7,26 +8,20 @@
 -- fake-active port: a hidden one-slot aura container on the player
 -- (includeSpellIDs -- helpful-on-self passes the identity gate regardless
 -- of secrecy) whose slot subtree IS the display, engine-driven end to end:
--- the button shows only while the aura is up, a slot-child StatusBar bound
--- via SetDurationBar renders remaining time (extensions included), and a
--- bound FontString renders the countdown text. Everything is styled INSIDE
--- the creation window -- the subtree is denied to addon code afterward,
--- reads and writes both (engine contract #7) -- baked from the live bar's
--- settings, so styling edits apply on the next /reload.
+-- the button shows only while the aura is up, a slot-child StatusBar bound via
+-- SetDurationBar renders remaining time (extensions included), and a bound FontString
+-- renders the countdown text. Everything is styled INSIDE the creation window -- the
+-- subtree is denied to addon code afterward, reads and writes both (engine contract #7)
+-- -- baked from the live bar's settings, so styling edits apply on the next /reload.
 --
--- The main file's Ebon Might fill/text paths early-return under
--- ns.EMB121_Owns and call ns.EMB121_Sync from UpdatePrimaryBar's Ebon
--- Might branch -- which always runs with the live bar and resolved
--- settings in hand, so there is no build race: Sync IS the trigger.
--- ns.EMB121_Gate parks the overlay whenever the primary power type is no
+-- The main file's Ebon Might fill/text paths early-return under ns.EMB121_Owns and call
+-- ns.EMB121_Sync from UpdatePrimaryBar's Ebon Might branch -- which always runs with
+-- the live bar and resolved settings in hand, so there is no build race: Sync IS the
+-- trigger. ns.EMB121_Gate parks the overlay whenever the primary power type is no
 -- longer Ebon Might (spec change).
---
--- Retail: this file self-gates on IS_121; every ns.EMB121_* consumer in
--- the main file is nil-dead there, so retail behavior is byte-identical.
 
 local _, ns = ...
 local EllesmereUI = _G.EllesmereUI
-if not (EllesmereUI and EllesmereUI.IS_121) then return end
 
 local EBON_AURA_ID = 395296
 

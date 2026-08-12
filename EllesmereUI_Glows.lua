@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUI_Glows.lua
 --  Shared glow rendering engine for the EllesmereUI addon suite.
@@ -59,12 +60,11 @@ local SPARKLE_LAYER_SIZES = { 7, 6, 5, 4 }
 -------------------------------------------------------------------------------
 local DRIVER_GATE = 0.016  -- ~60fps ceiling for the entire dispatch loop
 
--- Array-based registry for cheap churn. _reg is a dense 1..N array of wrapper
--- frames; _regFn the parallel array of their engine update functions (called
--- directly in the hot loop, so dispatch is pure array access with no kind->fn
--- lookup); _regIndex maps wrapper -> its slot in _reg (for O(1) swap-remove);
--- _regKind maps wrapper -> its kind tag, read only by Unregister (cold path).
--- _regCount is the live entry count.
+-- Array-based registry for cheap churn. _reg is a dense 1..N array of wrapper frames;
+-- _regFn the parallel array of their engine update functions (called directly in the
+-- hot loop, so dispatch is pure array access with no kind->fn lookup); _regIndex maps
+-- wrapper -> its slot in _reg (for O(1) swap-remove); _regKind maps wrapper -> its kind
+-- tag, read only by Unregister (cold path). _regCount is the live entry count.
 local _reg      = {}
 local _regFn    = {}
 local _regIndex = {}
@@ -72,6 +72,31 @@ local _regKind  = {}
 local _regCount = 0
 local _driver
 local _driverAccum = 0
+
+-- Unregister a wrapper. Safe no-op when the wrapper was never registered (Stop
+-- without Start), so calling every Stop* in StopAllGlows is fine. When a kind is
+-- passed it must match the wrapper's current registration: this makes a lone
+-- cross-kind Stop* (e.g. StopButtonGlow on an "ants"-registered wrapper) a no-op
+-- instead of tearing down the still-active engine. A nil kind stays kind-agnostic.
+-- Swap-removes the entry so churn stays O(1); hides the driver when empty.
+-- (Defined above the driver loop: the loop drops forbidden wrappers itself.)
+local function _Unregister(wrapper, kind)
+    local idx = _regIndex[wrapper]
+    if not idx then return end
+    if kind and _regKind[wrapper] ~= kind then return end
+    local last = _reg[_regCount]
+    _reg[idx] = last
+    _regFn[idx] = _regFn[_regCount]
+    _regIndex[last] = idx
+    _reg[_regCount] = nil
+    _regFn[_regCount] = nil
+    _regCount = _regCount - 1
+    _regIndex[wrapper] = nil
+    _regKind[wrapper] = nil
+    if _regCount == 0 and _driver then _driver:Hide() end
+end
+
+local function _VisProbe(w) return w:IsVisible() end
 
 local function _DriverOnUpdate(self, elapsed)
     -- Gate the WHOLE loop at ~60fps: accumulate raw elapsed and only run a
@@ -101,13 +126,28 @@ local function _DriverOnUpdate(self, elapsed)
         -- animating exactly as it did under its own OnUpdate; only Hide()-d or
         -- hidden-ancestor wrappers are skipped, and they resume automatically.
         -- 12.1: a wrapper inside an ENGINE aura-button subtree has a SECRET
-        -- visibility (the engine drives the button's shown state); a boolean
-        -- test on it errors. Treat secret as hidden: the animation freezes
-        -- for those wrappers while restricted (the glow still renders when
-        -- its parent is actually shown) instead of ticking on the engine's
-        -- 10x hidden pool buttons.
-        local vis = (not wrapper.IsVisible) or wrapper:IsVisible()
-        if issecretvalue and issecretvalue(vis) then vis = false end
+        -- visibility (the engine drives the button's shown state); a boolean test on it
+        -- errors. Treat secret as hidden: the animation freezes for those wrappers
+        -- while restricted (the glow still renders when its parent is actually shown)
+        -- instead of ticking on the engine's 10x hidden pool buttons. Since PTR build
+        -- 68914 the aura-button subtree is FORBIDDEN to addon code outside sanctioned
+        -- windows: the IsVisible call itself throws instead of returning a secret, and
+        -- one throwing wrapper would error every driver pass and freeze every other
+        -- registered glow behind it. Probe under pcall and drop a throwing wrapper
+        -- permanently -- forbidden-partition membership never recovers. (Driver styles
+        -- should not be hosted there at all; StartEngineGlow is the sanctioned path.
+        -- This guard makes a mistake non-fatal.)
+        local vis = true
+        if wrapper.IsVisible then
+            local okv
+            okv, vis = pcall(_VisProbe, wrapper)
+            if not okv then
+                _Unregister(wrapper)
+                vis = false
+            elseif issecretvalue and issecretvalue(vis) then
+                vis = false
+            end
+        end
         if vis then
             local fn = _regFn[i]
             if fn then fn(wrapper, dt) end
@@ -150,28 +190,6 @@ local function _Register(wrapper, fn, kind)
     if _regCount == 1 then _Arm() end
 end
 
--- Unregister a wrapper. Safe no-op when the wrapper was never registered (Stop
--- without Start), so calling every Stop* in StopAllGlows is fine. When a kind is
--- passed it must match the wrapper's current registration: this makes a lone
--- cross-kind Stop* (e.g. StopButtonGlow on an "ants"-registered wrapper) a no-op
--- instead of tearing down the still-active engine. A nil kind stays kind-agnostic.
--- Swap-removes the entry so churn stays O(1); hides the driver when empty.
-local function _Unregister(wrapper, kind)
-    local idx = _regIndex[wrapper]
-    if not idx then return end
-    if kind and _regKind[wrapper] ~= kind then return end
-    local last = _reg[_regCount]
-    _reg[idx] = last
-    _regFn[idx] = _regFn[_regCount]
-    _regIndex[last] = idx
-    _reg[_regCount] = nil
-    _regFn[_regCount] = nil
-    _regCount = _regCount - 1
-    _regIndex[wrapper] = nil
-    _regKind[wrapper] = nil
-    if _regCount == 0 and _driver then _driver:Hide() end
-end
-
 -------------------------------------------------------------------------------
 --  Procedural Ants Engine (texcoord-scroll)
 --  4 fixed edge textures whose dashes march by scrolling a tileable strip via
@@ -182,11 +200,10 @@ end
 local DASH_H = [[Interface\AddOns\EllesmereUI\media\glow-dash-h.tga]]
 local DASH_V = [[Interface\AddOns\EllesmereUI\media\glow-dash-v.tga]]
 
--- Resolve the wrapper's pixel-snapped size and precompute the per-edge phase
--- endpoints (invariant until the next resize). Returns false while the size is
--- still 0, the scale chain is degenerate, or the pixel grid is unusable, so the
--- caller retries on a later tick. Shared by the animated (_AntsOnUpdate) and
--- static (_AntsStaticSettle) paths.
+-- Resolve the wrapper's pixel-snapped size and precompute the per-edge phase endpoints
+-- (invariant until the next resize). Returns false while the size is still 0, the scale
+-- chain is degenerate, or the pixel grid is unusable, so the caller retries on a later
+-- tick. Shared by the animated (_AntsOnUpdate) and static (_AntsStaticSettle) paths.
 local function _AntsResolveSize(self, d)
     local w, h = self:GetSize()
     -- Taint-strip (reparented frames can return secret-number sizes).
@@ -752,6 +769,17 @@ local function StopFlipBookGlow(wrapper)
     end
 end
 
+-- Defined above StopAllGlows so engine-hosted ants (StartEngineGlow /
+-- StartAnimatedAnts) tear down through the same unified stop path.
+local function StopAnimatedAnts(wrapper)
+    local d = wrapper._euiAnimAnts
+    if not d then return end
+    for i = 1, 4 do
+        d.groups[i]:Stop()
+        d.strips[i]:Hide()
+    end
+end
+
 -------------------------------------------------------------------------------
 --  StopAllGlows — clears any active glow engine on a wrapper frame
 -------------------------------------------------------------------------------
@@ -762,6 +790,7 @@ local function StopAllGlows(wrapper)
     StopAutoCastShine(wrapper)
     StopShapeGlow(wrapper)
     StopFlipBookGlow(wrapper)
+    StopAnimatedAnts(wrapper)
     -- Defensive scrub: the central driver owns the only OnUpdate now, so the
     -- five Stop* calls above already unregistered this wrapper from the driver.
     -- This clears any stale OnUpdate a pre-migration build may have left on the
@@ -842,13 +871,12 @@ end
 -------------------------------------------------------------------------------
 local ANIM_MASK_TEX = [[Interface\Buttons\WHITE8X8]]
 
--- Marching dashes: per edge, a dash strip one pattern-cycle longer than the
--- edge slides by exactly one cycle and loops; a rect mask clips it to the
--- edge, so the snap-back is invisible and the march is seamless. Strip
--- texcoords carry the cumulative perimeter phase, keeping dashes
--- corner-continuous exactly like the driver-ticked ants (phase matters
--- modulo one cycle, so the one-cycle anchor offsets cancel out).
-local function StartAnimatedAnts(wrapper, N, th, period, cr, cg, cb, w, h)
+-- Marching dashes: per edge, a dash strip one pattern-cycle longer than the edge slides
+-- by exactly one cycle and loops; a rect mask clips it to the edge, so the snap-back is
+-- invisible and the march is seamless. Strip texcoords carry the cumulative perimeter
+-- phase, keeping dashes corner-continuous exactly like the driver-ticked ants (phase
+-- matters modulo one cycle, so the one-cycle anchor offsets cancel out).
+local function StartAnimatedAnts(wrapper, N, th, period, cr, cg, cb, w, h, ca)
     N = (N and N > 0) and N or 8
     th = th or 2
     period = period or 4
@@ -886,7 +914,7 @@ local function StartAnimatedAnts(wrapper, N, th, period, cr, cg, cb, w, h)
         local mask, strip, ag, tr = d.masks[i], d.strips[i], d.groups[i], d.trs[i]
         ag:Stop()
         strip:SetTexture(e.tex, "REPEAT", "REPEAT")
-        strip:SetVertexColor(cr or 1, cg or 1, cb or 1, 1)
+        strip:SetVertexColor(cr or 1, cg or 1, cb or 1, ca or 1)
         mask:ClearAllPoints()
         strip:ClearAllPoints()
         local cyc = (e.len + P) / P
@@ -920,26 +948,53 @@ local function StartAnimatedAnts(wrapper, N, th, period, cr, cg, cb, w, h)
     end
 end
 
-local function StopAnimatedAnts(wrapper)
-    local d = wrapper._euiAnimAnts
-    if not d then return end
-    for i = 1, 4 do
-        d.groups[i]:Stop()
-        d.strips[i]:Hide()
+-------------------------------------------------------------------------------
+--  StartEngineGlow — StartGlow for wrappers on ENGINE aura-button subtrees
+--  (12.1 forbidden partition: NP purge, RF DM fx, RF BM icon glow, ...).
+--  Driver-ticked engines cannot run there -- the driver's Lua reads on the
+--  wrapper throw outside sanctioned windows -- so every driver style routes
+--  to its C-side equivalent and animates identically in and out of secret
+--  contexts: Pixel Glow renders its GENUINE dash march through the animated
+--  ants engine (not a lookalike remap), Action Button Glow plays its
+--  flipbook twin (the same IconAlertAnts sheet the driver version scrolls),
+--  and Auto-Cast Shine / Shape Glow -- no C-side equivalent built -- fall
+--  back to the Modern WoW Glow loop (options on engine-hosted pickers hide
+--  those two; the fallback only covers stale saved values). FlipBook picks
+--  pass through untouched. Never registers with the central driver.
+-------------------------------------------------------------------------------
+local function StartEngineGlow(wrapper, styleIdx, szOrW, cr, cg, cb, opts, szH)
+    if not wrapper then return end
+    styleIdx = tonumber(styleIdx) or 1
+    if styleIdx < 1 or styleIdx > #GLOW_STYLES then styleIdx = 1 end
+    local entry = GLOW_STYLES[styleIdx]
+    if entry.procedural then
+        opts = opts or {}
+        local w = szOrW or 36
+        StopAllGlows(wrapper)
+        StartAnimatedAnts(wrapper, opts.N or 8, opts.th or 2, opts.period or 4,
+            cr or 1, cg or 1, cb or 1, w, szH or w)
+        wrapper._euiGlowActive = true
+        wrapper:SetAlpha(1)
+        return
     end
+    if entry.buttonGlow then
+        styleIdx = 7
+    elseif entry.autocast or entry.shapeGlow then
+        styleIdx = 6
+    end
+    StartGlow(wrapper, styleIdx, szOrW, cr, cg, cb, opts, szH)
 end
 
 -------------------------------------------------------------------------------
 --  Public API — attached to EllesmereUI.Glows
 -------------------------------------------------------------------------------
--- Styles that render through C-side FlipBook AnimationGroups (GCD, Modern
--- WoW Glow, Classic WoW Glow) animate IDENTICALLY under 12.1 aura
--- restrictions; driver-ticked styles (Pixel, Action Button, Auto-Cast,
--- Shape) cannot -- secret visibility blocks their Lua ticks, leaving a
--- frozen artifact. Gameplay glows living on ENGINE aura buttons must remap
--- through this so the glow looks the same in and out of restricted content:
--- Pixel -> Classic WoW Glow (ants), everything else driver-based -> Modern
--- WoW Glow (the standard proc loop).
+-- Styles that render through C-side FlipBook AnimationGroups (GCD, Modern WoW Glow,
+-- Classic WoW Glow) animate IDENTICALLY under 12.1 aura restrictions; driver-ticked
+-- styles (Pixel, Action Button, Auto-Cast, Shape) cannot -- secret visibility blocks
+-- their Lua ticks, leaving a frozen artifact. Kept for external callers that want a
+-- plain style REMAP (in-tree engine-button hosts use StartEngineGlow instead, which
+-- renders Pixel genuinely): Pixel -> Classic WoW Glow (ants), everything else
+-- driver-based -> Modern WoW Glow (the standard proc loop).
 local SAFE_STYLE_MAP = { [1] = 7, [2] = 6, [3] = 6, [4] = 6 }
 local function RestrictionSafeStyle(idx)
     local entry = GLOW_STYLES[idx]
@@ -954,6 +1009,7 @@ EllesmereUI.Glows = {
 
     -- High-level API (recommended)
     StartGlow           = StartGlow,
+    StartEngineGlow     = StartEngineGlow,
     StopGlow            = StopGlow,
     RestrictionSafeStyle = RestrictionSafeStyle,
 

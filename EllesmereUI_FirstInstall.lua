@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUI_FirstInstall.lua
 --
@@ -59,7 +60,7 @@ local GROUPS = {
             { label = "Quality of Life",     addon = "EllesmereUIQoL" },
             { label = "AuraBuff Reminders",  addon = "EllesmereUIAuraBuffReminders" },
             { label = "DataBars",            addon = "EllesmereUIDataBars" },
-            { label = "Action Palette",      addon = "EllesmereUIActionPalette" },
+            { label = "Quickdraw",           addon = "EllesmereUIQuickdraw" },
             -- Cursor Circle is a feature inside the QoL addon (cursor.enabled).
             -- The checkbox here is a front-end shortcut that writes directly to
             -- the QoL profile so users get a sensible default on first install.
@@ -543,15 +544,14 @@ EllesmereUI.ShowFirstInstallPopup = ShowFirstInstallPopup
 -------------------------------------------------------------------------------
 --  Trigger on first install only
 -------------------------------------------------------------------------------
--- First-install detection captured at parent ADDON_LOADED. At that moment
--- EllesmereUIDB still reflects the PREVIOUS session's data: child addons
--- have not yet initialized their DBs this session, so any profile.addons
--- entries can only have come from a prior version. This cleanly separates
--- upgrades from fresh installs without needing version stamps.
--- Standalone: never arm the suite first-install picker (see note at top of file).
--- This makes the non-firing explicit rather than relying on the incidental
--- addon-name mismatch (the renamed "EllesmereUI" ADDON_LOADED gate would point at
--- the core token, never the real child/folder token, so it never matched anyway).
+-- First-install detection captured at parent ADDON_LOADED. At that moment EllesmereUIDB
+-- still reflects the PREVIOUS session's data: child addons have not yet initialized
+-- their DBs this session, so any profile.addons entries can only have come from a prior
+-- version. This cleanly separates upgrades from fresh installs without needing version
+-- stamps. Standalone: never arm the suite first-install picker (see note at top of
+-- file). This makes the non-firing explicit rather than relying on the incidental
+-- addon-name mismatch (the renamed "EllesmereUI" ADDON_LOADED gate would point at the
+-- core token, never the real child/folder token, so it never matched anyway).
 if IS_STANDALONE then return end
 
 local _showPopupOnLogin = false

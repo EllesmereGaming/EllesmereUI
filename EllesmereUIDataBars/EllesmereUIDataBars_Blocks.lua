@@ -1,45 +1,37 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -- EllesmereUIDataBars_Blocks.lua
 -- Per-instance block factories for the DataBars multi-bar engine.
 --
 -- Contract (engine calls, see EllesmereUIDataBars.lua):
 --   ns.BlockFactories[typeKey] = function(blockCfg, slot, content, barCtx) -> inst
---   inst:Refresh()        re-read settings + game state, update visuals,
---                         re-measure; requests re-layout when the measured
---                         auto extent changed
---   inst:Enable()         register events + heartbeat (idempotent)
---   inst:Disable()        unregister everything (safe to call twice)
---   inst:GetAutoLength()  content extent along the bar axis (px). 0 means
---                         COLLAPSED: the solver drops the block entirely
---                         (content gaps included in auto mode, its share in
---                         even mode) as if it were not in the bar.
+--   inst:Refresh()        re-read settings+state, repaint, re-measure; re-layouts
+--                         when the measured auto extent changed
+--   inst:Enable()/Disable()  register/unregister events+heartbeat (idempotent)
+--   inst:GetAutoLength()  content extent along the bar axis (px); 0 = COLLAPSED
+--                         (solver drops it: content gaps in auto, share in even mode)
 --   inst:Destroy()        full teardown; secure frames park OOC
 --
--- All frames created here are OURS (CreateFrame by this file), so SetScript
--- and custom fields are allowed. The only Blizzard frames touched are the
--- micro menu containers (via a SecureHandlerStateTemplate hider) and the
--- Blizzard MicroButtons / ProfessionMicroButton / QuestLogMicroButton (via
--- secure attributes).
+-- All frames here are OURS (CreateFrame by this file), so SetScript and custom fields
+-- are allowed. Only Blizzard frames touched: micro menu containers (via a
+-- SecureHandlerStateTemplate hider) and the MicroButtons/ProfessionMicroButton/QuestLogMicroButton (via secure attributes).
 
 local ADDON_NAME, ns = ...
 local L = ns.L
 local MEDIA = ns.MEDIA
 
--- Icon -> content spacing shared by every icon-bearing block (durability,
--- gold, travel, spec, professions, currency, great vault). One knob.
+-- One knob: icon -> content spacing for every icon-bearing block.
 local ICON_GAP = 8
 
--- Bar fill textures for block statusbars (XP/Rep, professions): mirrors
--- the Unit Frames Bar Texture set (same parent-media files), and gets
--- SharedMedia statusbar textures appended below plus live at dropdown
--- build. "none" = the legacy flat color fill.
+-- Bar fill textures for block statusbars (XP/Rep, professions): mirrors the
+-- Unit Frames Bar Texture set; SharedMedia appended below + at dropdown build.
+-- "none" = flat fill.
 local barTextures, barTextureNames, barTextureOrder =
     EllesmereUI.BuildBarTextureTables(true)
 ns.barTextures = barTextures
 ns.barTextureOrder = barTextureOrder
 ns.barTextureNames = barTextureNames
 
--- Seed SharedMedia statusbar textures once at load so a saved LSM key
--- resolves at login; the parent helper also registers for late LSM packs.
+-- Seed SharedMedia statusbar textures once at load so a saved LSM key resolves at login; the parent helper also registers for late LSM packs.
 if EllesmereUI.AppendSharedMediaTextures then
     EllesmereUI.AppendSharedMediaTextures(barTextureNames, barTextureOrder, nil, barTextures)
 end
@@ -90,42 +82,35 @@ local function UnregisterInstEvents(inst)
     if inst.eventFrame then inst.eventFrame:UnregisterAllEvents() end
 end
 
--- Content sizing baseline: fonts and icons derive from this CONSTANT, never
--- the live bar thickness -- the bar's Height setting only resizes the BAR
--- itself. Content size is controlled by Text Scale / Content Scale / the
--- per-block font settings. (30 = the default thickness the classic content
--- ratios were tuned against.)
+-- Content sizing baseline: fonts/icons derive from this CONSTANT, never the
+-- live bar thickness (Height resizes the BAR only; size comes from Text
+-- Scale / Content Scale / per-block fonts). 30 = the thickness they were tuned at.
 local CONTENT_BASE = 30
 
--- Content scale of a block: content frames are SetScale'd as a group, so
--- fit budgets must convert slot pixels into the content's own coordinate
--- space (slot / scale).
+-- Content scale of a block: content frames are SetScale'd as a group, so fit budgets must convert slot pixels into content space (slot / scale).
 local function ContentScaleOf(inst)
     local s = ((inst.cfg and inst.cfg.scale) or 100) / 100
     if s <= 0 then return 1 end
     return s
 end
 
--- Horizontal text budget: every block fits into its solver-assigned slot
--- width (sizing is share-based for auto and fixed blocks alike).
+-- Horizontal text budget: every block fits into its solver-assigned slot width (sizing is share-based for auto and fixed blocks alike).
 local function HBudget(inst, fallback)
     local w = inst.slot and inst.slot:GetWidth()
     if w and w > 8 then return w / ContentScaleOf(inst) end
     return fallback
 end
 
--- Vertical cross-axis width (bar thickness; falls back when the slot has
--- not been laid out yet).
+-- Vertical cross-axis width (bar thickness; falls back before slot layout).
 local function VSlotW(inst)
     local w = inst.slot and inst.slot:GetWidth()
     if w and w > 2 then return w / ContentScaleOf(inst) end
     return inst.ctx.GetThickness()
 end
 
--- Request a re-layout only when the measured auto extent actually changed
--- (breaks the Refresh -> layout -> Refresh feedback loop). Only auto-mode
--- bars size from content, and the fill block's px is the remainder -- its
--- own content never drives layout.
+-- Re-layout only when the measured auto extent actually changed (breaks the
+-- Refresh -> layout -> Refresh loop). Only auto-mode bars size from content --
+-- the fill block's px is the remainder, so its content never drives layout.
 local function MaybeRelayout(inst)
     local b = inst.cfg
     local barCfg = inst.ctx and inst.ctx.cfg
@@ -133,9 +118,8 @@ local function MaybeRelayout(inst)
     local w = 0
     if inst.GetAutoLength then w = inst:GetAutoLength() or 0 end
     if ns.BarSizingMode(barCfg) ~= "auto" then
-        -- Even mode ignores widths, but a block flipping between existing
-        -- and collapsed (extent 0) changes the SHARE COUNT -- re-solve on
-        -- that crossing so the freed share redistributes immediately.
+        -- Even mode ignores widths, but flipping to/from collapsed (extent 0)
+        -- changes the SHARE COUNT -- re-solve so the freed share redistributes.
         local was = inst._lastAuto
         inst._lastAuto = w
         if was ~= nil and ((was <= 0) ~= (w <= 0)) then
@@ -150,16 +134,10 @@ local function MaybeRelayout(inst)
     end
 end
 
--- Text-only X/Y offset (b.textXOff/b.textYOff): wraps a PRIMARY text
--- FontString's SetPoint so every anchor the factory ever gives it --
--- creation and every mode-dependent re-anchor alike -- carries the offset
--- read live from the cfg. Wrap ONLY texts anchored to non-text targets:
--- texts chained to a wrapped one (bagText -> goldText, eventText ->
--- clockText, infoText -> specText) follow it
--- through their anchor and would double-shift if wrapped too. These are
--- OUR FontStrings, so shadowing the method on the widget table is safe.
--- Offset changes re-render via ns.ReflowBlocks (factories re-anchor in
--- Refresh).
+-- Text-only X/Y offset (b.textXOff/b.textYOff): wraps a PRIMARY text FontString's
+-- SetPoint so every anchor carries the live cfg offset. Wrap ONLY texts anchored to
+-- non-text targets -- chained texts (bagText->goldText, eventText->clockText,
+-- infoText->specText) inherit the shift and would double-shift. Safe to shadow (our own FontStrings); re-renders via ns.ReflowBlocks.
 local function AttachTextOffset(inst, fs)
     if not fs or fs._edbTxo then return end
     fs._edbTxo = true
@@ -178,11 +156,9 @@ local function AttachTextOffset(inst, fs)
     end
 end
 
--- Per-block content color (options Color row: Custom/Class/Accent
--- swatches; default custom white). Colors the block's TEXT and
--- vertex-tints its ICONS; status-bar fills are unaffected, and
--- state-driven colors (hover accent, travel's cooldown red) still take
--- precedence at their sites.
+-- Per-block content color (options Color row: Custom/Class/Accent; default
+-- white). Colors TEXT and vertex-tints ICONS, not status-bar fills;
+-- state-driven colors (hover accent, travel red) win at their call site.
 local function BlockColorOf(b)
     if b.useDynamicColor then
         -- Opt-in state-driven text mode (the Text Color row's 4th swatch).
@@ -200,9 +176,7 @@ local function BlockColorOf(b)
     return 1, 1, 1
 end
 
--- Reactive zone coloring by the current zone's PvP ruleset. Kept identical
--- to EllesmereUIMinimap's GetZoneReactionColor so the bar's location text and
--- the minimap's zone text never disagree about the zone they both name.
+-- Zone coloring by the current PvP ruleset; identical to the minimap module's GetZoneReactionColor so bar location text and minimap zone text agree.
 local function ZoneReactionColor()
     local pvpType = C_PvP and C_PvP.GetZonePVPInfo and C_PvP.GetZonePVPInfo()
     if pvpType == "friendly" then
@@ -215,30 +189,23 @@ local function ZoneReactionColor()
     return 0.9, 0.85, 0.05
 end
 
--- Themed per-block icon defaults (the Icon Color row's "Default" swatch).
--- Values are starting points, tuned by hand; spec resolves to the live
--- class color, professions to the live accent (matching their skill-bar
--- fill -- they have no Default swatch, Accent doubles as it), durability
--- to a DYNAMIC red->green tint fed by its sampler (swatch shown as
--- "Dynamic").
+-- Themed per-block icon defaults (Icon Color row's "Default" swatch): spec ->
+-- live class color; professions -> live accent (matches their skill-bar fill,
+-- so no separate Default swatch there); durability -> DYNAMIC red->green tint
+-- from its sampler (swatch "Dynamic").
 local ICON_DEFAULTS = {
     gold        = { 0.886, 0.675, 0.478 },  -- E2AC7A
     travel      = { 0.596, 0.804, 0.961 },  -- 98CDF5
     currency    = { 0.886, 0.675, 0.478 },  -- E2AC7A
     greatvault  = { 0.569, 0.502, 1 },  -- 9180FF
     audio       = { 1, 1, 1 },
-    -- Map-marker red. Deliberately NOT the module's soft red (1, 0.35, 0.35):
-    -- at 65% saturation that one reads salmon, where a pin has to read
-    -- unmistakably red. Pure #FF0000 is the other wrong end -- it blooms at
-    -- icon size. A plain stored default: unlike the text beside it, the pin
-    -- never follows the zone.
+    -- Map-marker red, not the soft module red (salmon at 65% sat; blooms as pure FF0000 at icon size).
+    -- Plain stored default: unlike the text beside it, the pin never follows the zone.
     location    = { 0.918, 0.263, 0.208 },  -- EA4335
-    -- Map-marker yellow for the coordinate readout. Distinct from gold's
-    -- peachy E2AC7A so the two never read as the same block at a glance.
+    -- Map-marker yellow, distinct from gold's peachy E2AC7A at a glance.
     coords      = { 0.961, 0.784, 0.259 },  -- F5C842
 }
--- Lowest equipped-durability percent, written by the durability block's
--- sampler; read by the dynamic tint below (and its swatch preview).
+-- Lowest equipped-durability percent, written by the durability block's sampler; read by the dynamic tint below (and its swatch preview).
 local _lastDurabilityPct
 function ns.BlockIconDefault(bType)
     if bType == "spec" then
@@ -251,9 +218,7 @@ function ns.BlockIconDefault(bType)
         return ns.GetAccent()
     end
     if bType == "durability" then
-        -- White (100%) fading to soft red (1, 0.35, 0.35). The gradient
-        -- spans 20..100: at or below 20% durability the tint is already
-        -- fully red.
+        -- White(100%) fades to soft red(1,.35,.35) over 20..100; <=20% is fully red.
         local pct = _lastDurabilityPct or 100
         local t = (pct - 20) * (100 / 80)
         if t < 0 then t = 0 elseif t > 100 then t = 100 end
@@ -265,12 +230,10 @@ function ns.BlockIconDefault(bType)
     return 1, 1, 1
 end
 
--- Per-block STATE-DRIVEN TEXT color (the Text Color row's 4th swatch).
--- Normally the same source as the icon's themed default -- durability tints
--- both from its red->green gradient -- so the fallback is BlockIconDefault.
--- Types listed here override that: the location blocks split the two
--- deliberately: the zone name follows the PvP ruleset while the map pin keeps
--- a plain user-owned color.
+-- Per-block STATE-DRIVEN TEXT color (Text Color row's 4th swatch). Fallback is
+-- BlockIconDefault (same source as the icon; durability tints both from its
+-- red->green gradient). Override: location's zone name follows the PvP
+-- ruleset, its map pin stays user-owned.
 local TEXT_DYNAMIC = {
     location = ZoneReactionColor,
     coords   = ZoneReactionColor,
@@ -281,10 +244,7 @@ function ns.BlockTextDynamic(bType)
     return ns.BlockIconDefault(bType)
 end
 
--- Per-block ICON color (options Icon Color row: Custom/Class/Accent/Default
--- swatches). Nothing stored = the block's themed default above. State-driven
--- colors (hover accent, travel's cooldown gray) take precedence at their
--- sites, exactly like the text color.
+-- Per-block ICON color (Icon Color row: Custom/Class/Accent/Default). Nothing stored = the themed default above; state-driven colors win at their sites.
 local function IconColorOf(b)
     if b.useIconDefaultColor then
         -- Explicit Default mode: the stored custom color stays stashed.
@@ -302,8 +262,7 @@ local function IconColorOf(b)
     return ns.BlockIconDefault(b.type)
 end
 
--- Retire a secure frame: hide + reparent to the engine park frame, deferred
--- to out-of-combat when needed (alpha-hidden immediately in combat).
+-- Retire a secure frame: hide + reparent to the engine park frame, deferred to OOC when needed (alpha-hidden immediately in combat).
 local function ParkSecureFrame(f, key)
     if not f then return end
     if InCombatLockdown() then
@@ -337,8 +296,7 @@ ns.BlockFactories.clock = function(blockCfg, slot, content, barCtx)
     local function D() return blockCfg.settings or {} end
     local function BC() return barCtx.cfg end
 
-    -- Fixed content defaults (26 / 16 off CONTENT_BASE): the bar's Height
-    -- setting never scales the clock text.
+    -- Fixed defaults (26 / 16 off CONTENT_BASE); bar Height never scales text.
     local function FontSizeClock()
         local d = D()
         if d.fontSizeClock then return d.fontSizeClock end
@@ -350,9 +308,7 @@ ns.BlockFactories.clock = function(blockCfg, slot, content, barCtx)
         return max(9, floor(CONTENT_BASE * 0.53 + 0.5))
     end
 
-    -- Effective mode resolution: untouched toggles follow the game's Time
-    -- Manager CVars -- the same source the minimap clock reads -- so both
-    -- clocks agree out of the box; an explicit toggle overrides per block.
+    -- Untouched toggles follow the game's Time Manager CVars (same source the minimap clock reads) so both clocks agree; explicit toggle overrides.
     local function ClockUses()
         local d = D()
         local useLocal = d.localTime
@@ -362,8 +318,7 @@ ns.BlockFactories.clock = function(blockCfg, slot, content, barCtx)
         return useLocal, use24
     end
 
-    -- Matches the minimap clock exactly: padded hour in 24-hour mode
-    -- (01:04), unpadded hour + AM/PM in 12-hour mode (1:04 PM).
+    -- Matches the minimap clock exactly: padded hour in 24-hour mode (01:04), unpadded hour + AM/PM in 12-hour mode (1:04 PM).
     local function FormatClock(h, m, use24)
         if use24 then return format("%02d:%02d", h, m) end
         local ampm = h >= 12 and "PM" or "AM"
@@ -385,13 +340,11 @@ ns.BlockFactories.clock = function(blockCfg, slot, content, barCtx)
     end
 
     local function RebuildInfoItems()
-        -- (Mail left the rotating text: it is the mail ICON beside the
-        -- clock now. The rotation machinery stays for future info lines.)
+        -- Empty by design (mail is an icon); rotation kept for future lines.
         wipe(infoItems)
         if infoIndex > #infoItems then infoIndex = 1 end
     end
 
-    -- Frames
     local clockTextFrame = CreateFrame("Button", nil, content)
     clockTextFrame:SetSize(100, 20)
     clockTextFrame:SetPoint("CENTER")
@@ -407,21 +360,17 @@ ns.BlockFactories.clock = function(blockCfg, slot, content, barCtx)
     eventText:SetPoint("CENTER", clockText, "TOP", 0, 6)
     eventText:Hide()
 
-    -- Resting indicator: Blizzard's PlayerFrame rest flipbook, replicated
-    -- verbatim from Blizzard_UnitFrame/PlayerFrame.xml. The texture MUST
-    -- be set via the ATLAS (the sheet is a sub-rect of the file; a raw
-    -- SetTexture makes the FlipBook slice the padding too), it renders
-    -- 1.5x the frame size center-anchored (the art has transparent
-    -- margins), and the grid is 6 columns x 7 rows, 42 frames, 1.5s
-    -- REPEAT with setToFinalAlpha. No OnUpdate: the animation only runs
-    -- while the frame is shown.
+    -- Resting indicator: Blizzard's PlayerFrame rest flipbook, replicated verbatim from
+    -- Blizzard_UnitFrame/PlayerFrame.xml. MUST use SetAtlas
+    -- (raw SetTexture slices the sheet's padding into the FlipBook); renders 1.5x
+    -- frame size centered (transparent margins); grid 6x7 = 42 frames, 1.5s
+    -- REPEAT, setToFinalAlpha. No OnUpdate -- animates only while shown.
     local restFrame = CreateFrame("Frame", nil, content)
     restFrame:SetSize(16, 21)
     restFrame:Hide()
     local restIcon = restFrame:CreateTexture(nil, "OVERLAY")
     restIcon:SetDrawLayer("OVERLAY", 7)
-    -- Nudged 5px up from the frame center (user-tuned), desaturated so the
-    -- gold Blizzard art reads white.
+    -- Nudged 5px up from center; desaturated so the gold art reads white.
     restIcon:SetPoint("CENTER", restFrame, "CENTER", 0, 5)
     restIcon:SetAtlas("UI-HUD-UnitFrame-Player-Rest-Flipbook")
     restIcon:SetDesaturated(true)
@@ -445,15 +394,12 @@ ns.BlockFactories.clock = function(blockCfg, slot, content, barCtx)
         restFrame:SetScript("OnHide", function() anim:Stop() end)
     end
 
-    -- Mail indicator: shown LEFT of the clock while unread mail waits
-    -- (replaced the old "You've got mail!" rotating text line). Gated by
-    -- the same Mail Alert (showMail) setting.
+    -- Mail indicator: LEFT of the clock while mail waits, gated by showMail.
     local mailIcon = clockTextFrame:CreateTexture(nil, "OVERLAY")
     mailIcon:SetAtlas("Crosshair_mail_64")
     mailIcon:Hide()
 
-    -- One color authority for the clock: text and resting icon follow the
-    -- block's color selection together (accent while hovered).
+    -- One color authority: text and resting icon move together (accent on hover).
     local function ApplyClockColor()
         local r, g, b
         if isMouseOver then
@@ -467,15 +413,13 @@ ns.BlockFactories.clock = function(blockCfg, slot, content, barCtx)
 
     function inst:Refresh()
         if InCombatLockdown() then
-            -- Combat: text-only refresh -- every region here is an insecure
-            -- FontString/frame, so SetText/colors/shown-state are safe. Only
-            -- the sizing/anchoring below waits for PLAYER_REGEN_ENABLED via
-            -- needsResize, so the time keeps ticking through long fights.
+            -- Combat: text-only refresh (insecure FontStrings, so SetText/color
+            -- /shown are safe); sizing+anchoring wait for PLAYER_REGEN_ENABLED
+            -- via needsResize so the clock keeps ticking.
             needsResize = true
             clockText:SetText(GetTimeString())
             ApplyClockColor()
-            -- Mail can arrive mid-fight; showing/hiding our own texture is
-            -- combat-legal (geometry still waits for needsResize).
+            -- Mail can arrive mid-fight; our own texture is combat-legal.
             local dCombat = D()
             mailIcon:SetShown(dCombat.showMail ~= false and HasNewMail())
             RebuildInfoItems()
@@ -503,8 +447,7 @@ ns.BlockFactories.clock = function(blockCfg, slot, content, barCtx)
         local timeText = GetTimeString()
         local barH = barCtx.GetThickness()
 
-        -- No fit-to-slot: content renders at its fixed size (base font x
-        -- Text Scale x Content Scale) regardless of the block's share.
+        -- No fit-to-slot: fixed size (base font x Text Scale x Content Scale).
 
         ns.SetFont(clockText, clockSz, barCfg)
         clockText:SetText(timeText)
@@ -530,9 +473,7 @@ ns.BlockFactories.clock = function(blockCfg, slot, content, barCtx)
         mailIcon:SetShown(dc.showMail ~= false and HasNewMail())
 
         local barAtTop = barCtx.IsBarAtTop()
-        -- Square frame; the texture draws 1.5x the frame size, centered
-        -- (Blizzard's 30-on-20 ratio -- the art has transparent margins).
-        -- 0.5 ratio = 25% smaller than the original 0.66 (user-tuned).
+        -- Square frame; texture draws 1.5x centered (art has transparent margins).
         local restW = floor(CONTENT_BASE * 0.5 + 0.5)
         local restH = restW
         restFrame:SetSize(restW, restH)
@@ -654,10 +595,7 @@ ns.BlockFactories.clock = function(blockCfg, slot, content, barCtx)
         -- Tooltips are all-white by design (no accent tinting).
         local ar, ag, ab = 1, 1, 1
         ns.Tip_Begin(clockTextFrame)
-        -- date()'s %A and %B come from the C runtime, which is English in every
-        -- client, so the tooltip read "Monday 21 July 2026" on a French one.
-        -- The calendar globals are localized and FULLDATE carries each locale's
-        -- own field order, so the day/month order is the client's too.
+        -- date()'s %A/%B come from the C runtime (English in every client), so use the localized calendar globals; FULLDATE carries locale field order.
         local today = C_DateAndTime.GetCurrentCalendarTime()
         ns.Tip_AddLine(format(FULLDATE, CALENDAR_WEEKDAY_NAMES[today.weekday],
             CALENDAR_FULLDATE_MONTH_NAMES[today.month], today.monthDay, today.year), 1, 1, 1)
@@ -708,8 +646,7 @@ ns.BlockFactories.clock = function(blockCfg, slot, content, barCtx)
     end)
     clockTextFrame:SetScript("OnClick", function(_, button)
         if button == "MiddleButton" and IsShiftKeyDown() then
-            -- Never reload mid-combat: an accidental shift-middle during a
-            -- pull would drop the player out of the fight.
+            -- Never reload mid-combat: it drops the player out of the fight.
             if InCombatLockdown() then return end
             ReloadUI()
         elseif button == "LeftButton" then
@@ -779,10 +716,7 @@ local function GetFPSColor(fps)
     return ns.SlowColorGradient(perc)
 end
 
--- Latency quality, three discrete bands the way a ping meter reads: green good,
--- yellow fair, red poor. Colours are the client's own font-colour globals so
--- they match the rest of the UI (with plain fallbacks if one is ever absent);
--- thresholds are in ms and live here for easy retuning.
+-- Latency quality in three bands (green/yellow/red = good/fair/poor); colors are the client's own font-color globals so they match the UI (plain fallbacks if absent). Thresholds in ms.
 local LAT_GOOD, LAT_FAIR = 100, 250
 local function BandColor(fontColor, dr, dg, db)
     if fontColor and fontColor.GetRGB then return fontColor:GetRGB() end
@@ -825,8 +759,7 @@ local function MakeStatBlock(blockCfg, slot, content, barCtx, opts)
     local text = frame:CreateFontString(nil, "OVERLAY")
     AttachTextOffset(inst, text)
     text:SetPoint("LEFT")
-    -- Hidden ruler: the block's width is reserved from a stable TEMPLATE,
-    -- never the live string, so value changes cannot shift neighbors.
+    -- Hidden ruler: the block's width is reserved from a stable TEMPLATE, never the live string, so value changes cannot shift neighbors.
     local measureFS = frame:CreateFontString(nil, "OVERLAY")
     measureFS:Hide()
 
@@ -852,8 +785,7 @@ local function MakeStatBlock(blockCfg, slot, content, barCtx, opts)
     function inst:Refresh()
         local barCfg = BC()
         local barH = barCtx.GetThickness()
-        -- 0.4333 ratio = 13px at the 30 base (stat blocks run 1px smaller
-        -- than the standard 0.46 block text by user direction).
+        -- 0.4333 = 13px at the 30 base (1px under the standard 0.46 block text).
         local fontSize = max(9, floor(CONTENT_BASE * 0.4333 + 0.5))
         local d = D()
         local gap = ICON_GAP
@@ -866,8 +798,7 @@ local function MakeStatBlock(blockCfg, slot, content, barCtx, opts)
             iconSz = fontSize + (opts.iconExtra or 0)
         end
 
-        -- No fit-to-slot: content renders at its fixed size (base font x
-        -- Text Scale x Content Scale) regardless of the block's share.
+        -- No fit-to-slot: fixed size (base font x Text Scale x Content Scale).
 
         ns.SetFont(text, fontSize, barCfg)
         text:SetText(str)
@@ -907,11 +838,9 @@ local function MakeStatBlock(blockCfg, slot, content, barCtx, opts)
             end
             text:ClearAllPoints()
             text:SetPoint("LEFT", frame, "LEFT", iconPad, 0)
-            -- Reserve width from a template: every digit becomes "8" and
-            -- the numeric part pads to at least 3 digits, so the width only
-            -- moves on a digit-count crossing past 3 (e.g. 999ms -> 1000ms),
-            -- never on ordinary value changes. Icon and number stay
-            -- LEFT-anchored; the slack sits on the right.
+            -- Template width: digits become "8" padded to >=3, so width only
+            -- moves on a digit-count crossing (999ms->1000ms), never on ordinary
+            -- changes. Icon/number stay LEFT-anchored; slack sits on the right.
             local digits = #tostring(lastVal)
             if digits < 3 then digits = 3 end
             ns.SetFont(measureFS, fontSize, barCfg)
@@ -988,8 +917,7 @@ ns.BlockFactories.fps = function(blockCfg, slot, content, barCtx)
         ns.Tip_AddDouble(L["FPS"], fps .. ns.GetFPSSuffix(), 0.6, 0.6, 0.6, fr2, fg2, fb2)
 
         local now = GetTime()
-        -- UpdateAddOnMemoryUsage() iterates every loaded addon and is a
-        -- noticeable spike; amortise the rescan to once per 30s.
+        -- UpdateAddOnMemoryUsage() iterates every loaded addon and is a noticeable spike; amortise the rescan to once per 30s.
         if not skipMemoryScan and (now - sysLastMemScanTime) >= 30 then
             sysLastMemScanTime = now
             UpdateAddOnMemoryUsage()
@@ -1036,8 +964,7 @@ ns.BlockFactories.fps = function(blockCfg, slot, content, barCtx)
         click    = function(inst, isOver)
             return function(_, button)
                 if button ~= "LeftButton" then return end
-                -- A full GC cycle stalls a frame; only force it when Shift
-                -- is held so a casual click just prints the snapshot.
+                -- A full GC cycle stalls a frame; only force it when Shift is held so a casual click just prints the snapshot.
                 if IsShiftKeyDown() then collectgarbage("collect") end
                 local memKb = collectgarbage("count")
                 local msg
@@ -1049,16 +976,12 @@ ns.BlockFactories.fps = function(blockCfg, slot, content, barCtx)
     })
 end
 
--- LATENCY. Its own factory rather than the shared MakeStatBlock: it shows one
--- OR two links (home / world / both), each labelled by its own house/globe
--- icon, which the single-icon stat helper cannot do. The bar stays in the
--- block colour like every other module; criticality green/yellow/red lives in
--- the tooltip only (GetLatColor).
+-- LATENCY. Own factory, not MakeStatBlock: shows one OR two links (home/world/both), each
+-- with its own house/globe icon, which the single-icon stat helper cannot do. Bar keeps the
+-- block color; green/yellow/red criticality is tooltip-only (GetLatColor).
 local LAT_ICON = { home = MEDIA .. "home_latency.png", world = MEDIA .. "world_latency.png" }
 
--- home | world | both. Reads the old useWorldLatency boolean as a fallback so
--- an existing block keeps its link. Shared by the block and its options row,
--- which must agree on what "selected" means.
+-- home | world | both. Falls back to the useWorldLatency boolean. Shared by the block and its options row, which must agree on what "selected" means.
 function ns.LatencyMode(s)
     if s.latencyMode then return s.latencyMode end
     if s.useWorldLatency then return "world" end
@@ -1079,8 +1002,7 @@ ns.BlockFactories.ms = function(blockCfg, slot, content, barCtx)
     button:EnableMouse(true)
     button:RegisterForClicks("AnyUp")
 
-    -- Two reusable segments (icon + value); the second stays hidden unless the
-    -- block is in "both" mode.
+    -- Two reusable segments (icon + value); the second stays hidden unless the block is in "both" mode.
     local seg = {}
     for i = 1, 2 do
         local s = { icon = button:CreateTexture(nil, "OVERLAY"), text = button:CreateFontString(nil, "OVERLAY") }
@@ -1092,8 +1014,7 @@ ns.BlockFactories.ms = function(blockCfg, slot, content, barCtx)
         ns.Tip_Begin(content)
         local inKB, outKB, home, world = GetNetStats()
         home = floor(home); world = floor(world)
-        -- The colours the bar deliberately does not carry, plus the bandwidth
-        -- that is on no bar at all: the tooltip is the full quality read.
+        -- The tooltip is the full quality read: the colours the bar does not carry, plus bandwidth that is on no bar at all.
         local hr, hg, hb = GetLatColor(home)
         local wr, wg, wb = GetLatColor(world)
         local ms = ns.GetMSSuffix()
@@ -1130,8 +1051,7 @@ ns.BlockFactories.ms = function(blockCfg, slot, content, barCtx)
             tr, tg, tb = BlockColorOf(blockCfg); ir, ig, ib = IconColorOf(blockCfg)
         end
 
-        -- Fill each segment; every value carries the unit ("45ms  92ms"), so a
-        -- lone number never reads as unitless in "both" mode.
+        -- Fill each segment; every value carries the unit ("45ms  92ms"), so a lone number never reads as unitless in "both" mode.
         for i = 1, 2 do
             local s, link = seg[i], links[i]
             if link then
@@ -1195,8 +1115,7 @@ ns.BlockFactories.ms = function(blockCfg, slot, content, barCtx)
         MaybeRelayout(inst)
     end
 
-    -- Latency only moves every ~30s (GetNetStats is cached), so re-lay-out only
-    -- when the shown value, mode or icon state actually changes.
+    -- Latency only moves every ~30s (GetNetStats is cached), so re-lay-out only when the shown value, mode or icon state actually changes.
     local function Tick()
         local _, _, home, world = GetNetStats()
         local sig = ns.LatencyMode(D()) .. (D().showIcon and "I" or "") .. floor(home) .. "/" .. floor(world)
@@ -1227,8 +1146,7 @@ ns.BlockFactories.ms = function(blockCfg, slot, content, barCtx)
 end
 
 ns.BlockFactories.durability = function(blockCfg, slot, content, barCtx)
-    -- Same reading as the Chat sidebar's durability icon: the LOWEST
-    -- percent across equipped slots 1-18.
+    -- Same reading as the Chat sidebar's durability icon: the LOWEST percent across equipped slots 1-18.
     local function SampleDurability()
         local lowest = 100
         for slotId = 1, 18 do
@@ -1265,29 +1183,19 @@ end
 -------------------------------------------------------------------------------
 --  LOCATION + COORDINATES (two block types on one text renderer)
 -------------------------------------------------------------------------------
--- Where the player is, in two blocks: the zone name, and the coordinates.
--- Split because they are placed independently -- a bar commonly wants the
--- coordinates alone, or the name centred with the numbers off to one side --
--- and because only one of them can be sized from its text (see below).
---
--- Everything reads live client APIs. There is no zone level range or battle
--- pet range here: the client exposes neither, and the data libraries that do
--- carry them are hand-maintained Classic-era tables whose numbers say very
--- little once level scaling is in play.
+-- Location and coords are separate blocks, placed independently (a bar may want coords
+-- alone, or the name centered with numbers to one side); only one sizes from its own text
+-- (below). Sourced from live client APIs -- no zone level range or battle pet range, since the client exposes neither, and the data libraries that do carry them are hand-maintained Classic-era tables that say little once level scaling applies.
 
--- Width the location block holds in Manual mode, in px. Wide enough for a
--- typical "Zone: Subzone" pair at the default font without clipping. Exported
--- because the options slider must report the same number the block renders at
--- while maxWidth is still unset -- two literals would drift.
+-- Location block width in Manual mode (px): fits a typical "Zone: Subzone" pair at the
+-- default font. Exported so the options slider reports the same number the block renders while maxWidth is unset (two literals would drift).
 local LOC_MAX_WIDTH_DEFAULT = 200
 ns.LOC_MAX_WIDTH_DEFAULT = LOC_MAX_WIDTH_DEFAULT
 
--- Icon size above the text size. The map pin is a tall, narrow glyph, so it
--- needs less headroom than the wide icons (durability's forge runs at +7).
+-- Icon size above the text size. The map pin is a tall, narrow glyph, so it needs less headroom than the wide icons (durability's forge runs at +7).
 local LOC_ICON_EXTRA = 4
 
--- Effective width mode, resolved in one place so the block and the options
--- page can never disagree (same reason ns.LatencyMode is exported).
+-- Effective width mode, resolved in one place so the block and the options page can never disagree (same reason ns.LatencyMode is exported).
 function ns.LocationWidthMode(s)
     return s.widthMode or "auto"
 end
@@ -1297,9 +1205,7 @@ local COORD_FMT = {
     [1] = "%.1f, %.1f",
     [2] = "%.2f, %.2f",
 }
--- Width rulers: the readout changes every step, so the coords block reserves
--- its width from the widest value each precision can produce, never from the
--- live one (same rule as the stat blocks' "888" template).
+-- Width rulers: the readout changes every step, so coords reserves width from each precision's widest value, never the live one (as with "888" stats).
 local COORD_TEMPLATE = {
     [0] = "88, 88",
     [1] = "88.8, 88.8",
@@ -1309,10 +1215,9 @@ local COORD_TEMPLATE = {
 local CONTINENT_MAP_TYPE = (Enum and Enum.UIMapType and Enum.UIMapType.Continent) or 2
 
 local function LocDisplayText(showSubZone)
-    -- Two different reads on purpose: the real zone name builds the
-    -- "Zone: Subzone" form, while the minimap zone already falls back to the
-    -- zone name wherever there is no subzone -- which IS the subzone-only
-    -- form, with no extra branch needed.
+    -- Two reads on purpose: the real zone name builds "Zone: Subzone", while
+    -- the minimap zone already falls back to the zone name where there is no
+    -- subzone, which IS the subzone-only form with no extra branch.
     local zone = GetRealZoneText() or ""
     local sub = GetMinimapZoneText() or ""
     if showSubZone and sub ~= "" and sub ~= zone then
@@ -1329,7 +1234,7 @@ local function LocPlayerPosition()
     local pos = C_Map.GetPlayerMapPosition(mapID, "player")
     if not pos then return nil end
     local x, y = pos:GetXY()
-    -- Instances with no player map report a flat 0,0 rather than nothing.
+    -- Instances with no player map report flat 0,0 rather than nothing.
     if not (x and y) or (x == 0 and y == 0) then return nil end
     return x * 100, y * 100
 end
@@ -1352,9 +1257,7 @@ local function LocContinentName()
     return nil
 end
 
--- Status label. The COLOR comes from ZoneReactionColor so the tooltip's status
--- line and the block's Dynamic text mode never disagree; the labels themselves
--- are Blizzard globals and are already localized by the client.
+-- Status label. COLOR comes from ZoneReactionColor so the tooltip status line and the block's Dynamic text mode agree; labels are localized Blizz globals.
 local function LocZoneStatus()
     local pvpType = C_PvP and C_PvP.GetZonePVPInfo and C_PvP.GetZonePVPInfo()
     if pvpType == "sanctuary" then return SANCTUARY_TERRITORY end
@@ -1367,8 +1270,7 @@ local function LocZoneStatus()
     return CONTESTED_TERRITORY
 end
 
--- One tooltip for both blocks: they name the same place, so they say the same
--- thing. Blizzard globals for the labels, module keys for the click hints.
+-- One tooltip for both blocks: they name the same place, so they say the same thing. Blizzard globals for the labels, module keys for the click hints.
 local function LocTooltip(ownerFrame)
     local ar, ag, ab = ns.GetAccent()
     ns.Tip_Begin(ownerFrame)
@@ -1386,16 +1288,13 @@ end
 
 -- Shared single-line text block. opts:
 --   text()        -> string to display
---   template()    -> stable width-reservation string; nil sizes from the live
---                    text instead
+--   template()    -> stable width-reservation string; nil sizes from the live text instead
 --   width()       -> fixed width in px, or nil to size from the text
 --   collapse()    -> true drops the block from the bar entirely
---   texture       -> optional icon file, gated by the block's own showIcon
---                    setting (default on)
+--   texture       -> optional icon file, gated by the block's own showIcon setting (default on)
 --   events        -> event list driving Refresh
 --   tickSeconds   -> dedicated ticker period, for values no event announces
--- The tooltip and the click action are the same for both blocks -- they name
--- the same place -- so they are wired straight in rather than passed.
+-- Tooltip and click are identical for both blocks (same place), so they are wired straight in rather than passed.
 local function MakeLocationBlock(blockCfg, slot, content, barCtx, opts)
     local inst = { cfg = blockCfg, slot = slot, content = content, ctx = barCtx }
     inst.key = InstKey(barCtx, blockCfg)
@@ -1419,7 +1318,7 @@ local function MakeLocationBlock(blockCfg, slot, content, barCtx, opts)
     local text = frame:CreateFontString(nil, "OVERLAY")
     AttachTextOffset(inst, text)
     text:SetPoint("LEFT")
-    -- Hidden ruler, only for the block that reserves width from a template.
+    -- Hidden ruler, only for the block reserving width from a template.
     local measureFS
     if opts.template then
         measureFS = frame:CreateFontString(nil, "OVERLAY")
@@ -1455,16 +1354,11 @@ local function MakeLocationBlock(blockCfg, slot, content, barCtx, opts)
         ApplyColors()
     end
 
-    -- Secure click passthrough to Blizzard's Quest Log micro button, which is
-    -- what opens the map. The click runs inside Blizzard's own handler, so
-    -- nothing here ever enters the map's panel flow -- the same mechanism the
-    -- micro menu block uses for every button it hosts.
-    --
-    -- Lazily created and never in lockdown (secure frames cannot be configured
-    -- there). Until it exists the block still displays and still shows its
-    -- tooltip, it just does not click; PLAYER_REGEN_ENABLED drives Refresh,
-    -- which retries. Both blocks listen for it, so a block built during a
-    -- fight becomes clickable the moment the fight ends.
+    -- Secure click passthrough to Blizzard's QuestLogMicroButton (opens the map): click
+    -- runs inside Blizzard's own handler, so nothing here touches the map's panel flow
+    -- (same mechanism as the micro menu block). Created lazily, never in lockdown (secure
+    -- frames can't be configured there) -- until built the block displays/tooltips but can't
+    -- click; PLAYER_REGEN_ENABLED drives Refresh's retry so a block built mid-fight becomes clickable once combat ends.
     local clickBtn
     local function EnsureClickButton()
         if clickBtn or InCombatLockdown() then return clickBtn end
@@ -1474,15 +1368,12 @@ local function MakeLocationBlock(blockCfg, slot, content, barCtx, opts)
             "SecureActionButtonTemplate,SecureHandlerStateTemplate")
         clickBtn:SetAllPoints(frame)
         clickBtn:SetAttribute("*clickbutton1", micro)
-        -- Without this, the ActionButtonUseKeyDown CVar makes the secure
-        -- handler act on key-down only, discarding our "AnyUp" clicks.
+        -- Without this, the ActionButtonUseKeyDown CVar makes the secure handler act on key-down only, discarding our "AnyUp" clicks.
         clickBtn:SetAttribute("useOnKeyDown", false)
         clickBtn:SetAttribute("*type1", "click")
         clickBtn:EnableMouse(true)
         clickBtn:RegisterForClicks("AnyUp")
-        -- Combat: drop the click ACTION only, from within the secure
-        -- environment. The button stays mouse-enabled so hover keeps working;
-        -- a click while *type1 is nil simply does nothing.
+        -- Combat: drop the click ACTION only, from inside the secure env. Stays mouse-enabled so hover works; a click while *type1 is nil does nothing.
         RegisterStateDriver(clickBtn, "combatlock", "[combat] combat; nocombat")
         clickBtn:SetAttribute("_onstate-combatlock", [[
             if newstate == 'combat' then
@@ -1491,9 +1382,8 @@ local function MakeLocationBlock(blockCfg, slot, content, barCtx, opts)
                 self:SetAttribute('*type1', 'click')
             end
         ]])
-        -- The overlay covers the display frame, so it owns hover from here on.
-        -- Same handlers, and the tooltip still anchors to the display frame so
-        -- its position does not shift when the button materialises.
+        -- Overlay covers the display frame and owns hover from here; tooltip stays
+        -- anchored to the display frame so it doesn't shift when the button appears.
         clickBtn:SetScript("OnEnter", HoverIn)
         clickBtn:SetScript("OnLeave", HoverOut)
         return clickBtn
@@ -1503,10 +1393,9 @@ local function MakeLocationBlock(blockCfg, slot, content, barCtx, opts)
         EnsureClickButton()
 
         local collapsed = (opts.collapse and opts.collapse()) or false
-        -- Show/Hide are protected calls: the secure click button above puts
-        -- this block's whole bar under protection, so flip only on a real
-        -- state change and never in lockdown. The collapse edges are all
-        -- event-driven and PLAYER_REGEN_ENABLED re-runs this pass.
+        -- Show/Hide are protected (the secure click button puts this block's whole
+        -- bar under protection): flip only on a real state change, never in
+        -- lockdown. Collapse edges are event-driven; regen re-runs.
         if content:IsShown() == collapsed and not InCombatLockdown() then
             if collapsed then content:Hide() else content:Show() end
         end
@@ -1525,9 +1414,8 @@ local function MakeLocationBlock(blockCfg, slot, content, barCtx, opts)
         local gap = ICON_GAP
 
         -- `pre` is the string the caller already computed (the ticker tests it
-        -- before deciding to refresh at all). Re-reading it here would double
-        -- the position lookups -- and every C_Map.GetPlayerMapPosition hands
-        -- back a fresh table -- twice a second, forever.
+        -- before refreshing). Re-reading would double the position lookups
+        -- twice a second forever, and each GetPlayerMapPosition allocates.
         local str = pre or opts.text()
         lastText = str
         ns.SetFont(text, fontSize, barCfg)
@@ -1572,12 +1460,10 @@ local function MakeLocationBlock(blockCfg, slot, content, barCtx, opts)
             end
             text:ClearAllPoints()
             text:SetPoint("LEFT", frame, "LEFT", iconPad, 0)
-            -- Manual width: the block is exactly this wide whatever the zone
-            -- is called, and a longer name is clipped. It is the only mode
-            -- that never moves its neighbours. The value deliberately does NOT
-            -- come from the assigned slot: under auto sizing the slot IS this
-            -- block's own measured width, so deriving it from there would
-            -- shrink the block a little further on every pass. Icon included.
+            -- Manual width: exactly this wide whatever the zone is called (longer names
+            -- clip); the only mode that never moves neighbours. NOT derived from the
+            -- assigned slot: under auto sizing the slot IS this block's own measured
+            -- width, so that would shrink it further on every pass. Icon included.
             local w = opts.width and opts.width()
             if w then
                 text:SetWidth(max(20, w - iconPad - 2))
@@ -1603,9 +1489,7 @@ local function MakeLocationBlock(blockCfg, slot, content, barCtx, opts)
         MaybeRelayout(inst)
     end
 
-    -- Fallback hover surface: used until the secure overlay exists (a block
-    -- built mid-combat), and harmless afterwards -- the overlay sits on top,
-    -- so only one of the two ever fires.
+    -- Fallback hover surface: used until the secure overlay exists (block built mid-combat); harmless after, since the overlay sits on top.
     frame:SetScript("OnEnter", HoverIn)
     frame:SetScript("OnLeave", HoverOut)
 
@@ -1618,23 +1502,17 @@ local function MakeLocationBlock(blockCfg, slot, content, barCtx, opts)
         lastText = nil
         EnsureClickButton()
         RegisterInstEvents(self)
-        -- Movement raises no event, and the engine heartbeat is 1s -- coarse
-        -- enough that the numbers visibly jump while running. Same 0.5s period
-        -- and lazy lifecycle as EllesmereUIMinimap's own coordinate ticker.
+        -- Movement raises no event and the 1s engine heartbeat is coarse enough that
+        -- numbers visibly jump while running. Same 0.5s period and lazy lifecycle as the minimap module's coordinate ticker.
         if opts.tickSeconds and not ticker then
             ticker = C_Timer.NewTicker(opts.tickSeconds, function()
-                -- Collapsed: nothing to render, and the un-collapse edge is
-                -- event-driven (PLAYER_ENTERING_WORLD / ZONE_CHANGED_NEW_AREA
-                -- both fire on instance entry and exit). Leaving it to the
-                -- guard below instead would re-enter the whole hide path twice
-                -- a second for as long as the player is in the dungeon.
+                -- Collapsed: nothing to render; the un-collapse edge is event-driven
+                -- (PLAYER_ENTERING_WORLD/ZONE_CHANGED_NEW_AREA fire on instance entry/exit).
+                -- Without this the hide path re-runs twice a second for the whole dungeon.
                 if opts.collapse and opts.collapse() then return end
-                -- Same guard as the stat blocks' heartbeat: a full Refresh
-                -- re-sets the font, re-measures the ruler, re-anchors and
-                -- re-sizes every frame -- all invariant between ticks. Standing
-                -- still now costs one position read instead of that whole pass,
-                -- and a moving player hands the string straight on rather than
-                -- paying for it twice.
+                -- Dirty gate: a full Refresh re-sets the font, re-measures the ruler,
+                -- re-anchors and re-sizes -- all invariant between ticks. Standing still
+                -- costs one position read; a moving player hands the string on instead of computing it twice.
                 local str = opts.text()
                 if str == lastText then return end
                 inst:Refresh(str)
@@ -1645,9 +1523,7 @@ local function MakeLocationBlock(blockCfg, slot, content, barCtx, opts)
     function inst:Disable()
         UnregisterInstEvents(self)
         if ticker then ticker:Cancel(); ticker = nil end
-        -- Protected once the secure click button exists; the engine's own
-        -- combat gate defers the ApplyBar that reaches here, so this only
-        -- guards the paths that do not go through it.
+        -- Protected once the secure click button exists; the engine's combat gate covers the ApplyBar that reaches here, so this guards only the paths that bypass it.
         if not InCombatLockdown() then content:Hide() end
     end
 
@@ -1666,8 +1542,7 @@ local function MakeLocationBlock(blockCfg, slot, content, barCtx, opts)
             ParkSecureFrame(clickBtn, self.key .. "_loc")
             clickBtn = nil
         end
-        -- Same protected-call guard as Disable: parking the secure child is
-        -- itself deferred in combat, so the bar is still protected here.
+        -- Same protected-call guard as Disable: parking the secure child is itself deferred in combat, so the bar is still protected here.
         if not InCombatLockdown() then content:Hide() end
     end
 
@@ -1678,16 +1553,12 @@ ns.BlockFactories.location = function(blockCfg, slot, content, barCtx)
     local function D() return blockCfg.settings or {} end
 
     return MakeLocationBlock(blockCfg, slot, content, barCtx, {
-        -- PLAYER_REGEN_ENABLED: Refresh can only re-anchor and resize out of
-        -- combat, so a zone change mid-fight leaves stale geometry until the
-        -- fight ends. Same reason the clock block listens for it.
+        -- PLAYER_REGEN_ENABLED: Refresh can only re-anchor/resize out of combat, so a mid-fight zone change leaves stale geometry until then.
         events = { "ZONE_CHANGED", "ZONE_CHANGED_INDOORS", "ZONE_CHANGED_NEW_AREA",
                    "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED" },
         texture = MEDIA .. "location.png",
         text = function() return LocDisplayText(D().showSubZone ~= false) end,
-        -- No template: the block sizes from the live name. Zone changes are
-        -- rare, so one relayout each is cheaper than permanently reserving
-        -- room for the longest zone name in the game.
+        -- No template: sizes from the live name. Zone changes are rare, so one relayout each beats permanently reserving the longest zone name.
         width = function()
             local d = D()
             if ns.LocationWidthMode(d) ~= "manual" then return nil end
@@ -1705,8 +1576,7 @@ ns.BlockFactories.coords = function(blockCfg, slot, content, barCtx)
     end
 
     return MakeLocationBlock(blockCfg, slot, content, barCtx, {
-        -- PLAYER_REGEN_ENABLED: geometry, the collapse flip and the secure
-        -- click button all wait for regen, so the block needs a pass there.
+        -- PLAYER_REGEN_ENABLED: geometry, the collapse flip and the secure click button all wait for regen, so the block needs a pass there.
         events = { "ZONE_CHANGED_NEW_AREA", "PLAYER_ENTERING_WORLD",
                    "PLAYER_REGEN_ENABLED" },
         tickSeconds = 0.5,
@@ -1716,9 +1586,7 @@ ns.BlockFactories.coords = function(blockCfg, slot, content, barCtx)
         collapse = function()
             if D().hideInInstance == false then return false end
             if not IsInInstance() then return false end
-            -- Housing counts as an instance but has a real player map, so its
-            -- coordinates work and are worth keeping. Sanctuary is what tells
-            -- it apart from a dungeon or a raid.
+            -- Housing counts as an instance but has a real player map, so its coords work; sanctuary is what tells it apart from dungeon/raid.
             local pvpType = C_PvP and C_PvP.GetZonePVPInfo and C_PvP.GetZonePVPInfo()
             return pvpType ~= "sanctuary"
         end,
@@ -1728,8 +1596,7 @@ end
 -------------------------------------------------------------------------------
 --  GOLD (engine-level session ledger + cross-character store)
 -------------------------------------------------------------------------------
--- One PLAYER_MONEY ledger shared by every gold instance; instances render
--- from it and ctrl-right-click resets the shared session.
+-- One PLAYER_MONEY ledger shared by every gold instance; instances render from it and ctrl-right-click resets the shared session.
 local goldLedger = { profit = 0, spent = 0, lastMoney = nil, tokenPrice = nil }
 local goldInstances = {}
 local goldEventFrame
@@ -1738,15 +1605,12 @@ local function GoldCharKey()
     return (UnitName("player") or "Unknown") .. "-" .. (GetRealmName() or "Unknown")
 end
 
--- ACCOUNT-level, deliberately not the profile: the ledger is a list of the
--- player's characters with their balances, and profiles get shared. Held in
--- the profile it rode every export string, so importers saw the exporter's
--- alts and gold in their own tooltip. Sits top-level in EllesmereUIDB next to
--- the Bags module's own gold ledger, which is where it should always have
--- been -- it also means the ledger no longer resets when profiles switch.
+-- ACCOUNT-level, NOT the profile: the ledger lists the player's characters and
+-- balances, and profiles get shared -- inside a profile it rides export
+-- strings, so importers would see the exporter's alts and gold. Top-level in
+-- EllesmereUIDB next to the Bags gold ledger; also survives profile switches.
 local function GoldStore()
-    -- Throwaway fallback if the parent DB is somehow absent: never assign the
-    -- global here, or a pre-SavedVariables call could shadow the real table.
+    -- Throwaway fallback if the parent DB is somehow absent: never assign the global here, or a pre-SavedVariables call could shadow the real table.
     if type(EllesmereUIDB) ~= "table" then return {} end
     local store = EllesmereUIDB.dataBarsGold
     if type(store) ~= "table" then
@@ -1756,8 +1620,7 @@ local function GoldStore()
     return store
 end
 
--- Drop a character the player no longer has (renamed, deleted, transferred).
--- Sits next to the writer so both mutations of the store are in one place.
+-- Drop a character the player no longer has (renamed, deleted, transferred); sits next to the writer so both mutations of the store are in one place.
 local function GoldForgetCharacter(key)
     GoldStore()[key] = nil
     for gi in pairs(goldInstances) do gi:QueueRefresh() end
@@ -1771,9 +1634,7 @@ end
 
 local function GoldLedgerUpdate()
     local money = GetMoney()
-    -- Never let a secret into the ledger or the saved store: every consumer
-    -- (session math, roster threshold, sort, total) compares or does
-    -- arithmetic on these values, and the store persists across sessions.
+    -- Never let a secret into the ledger or the persisted store: every consumer (session math, roster threshold, sort, total) does arithmetic on it.
     if (issecretvalue and issecretvalue(money)) or type(money) ~= "number" then
         return
     end
@@ -1834,10 +1695,9 @@ ns.BlockFactories.gold = function(blockCfg, slot, content, barCtx)
     local mouseOver = false
 
     -- Coin Colored is the gold block's default text mode (white numbers,
-    -- coin-tinted g/s/c letters). One-time FORCED onto existing blocks
-    -- whatever mode they were on (user decision 2026-07-19); the marker
-    -- makes every later swatch choice stick. Runs here in the factory so
-    -- every profile / import converges the moment its block builds.
+    -- coin-tinted g/s/c letters), FORCED once onto existing blocks whatever
+    -- mode they were on; the marker makes every later swatch choice stick.
+    -- In the factory so every profile/import converges when its block builds.
     if not blockCfg.coinForced then
         blockCfg.coinForced = true
         blockCfg.useCoinColor = true
@@ -1866,8 +1726,7 @@ ns.BlockFactories.gold = function(blockCfg, slot, content, barCtx)
         local iconSz = 0
         -- +4: the bag icon runs bigger than the text size (user-tuned).
         if dg.showIcons ~= false then iconSz = fontSize + 4 end
-        -- -2: the coin icon sits tighter to its text than the shared
-        -- default (user-tuned).
+        -- -2: the coin icon sits tighter to its text than the shared default.
         local gap = ICON_GAP - 2
         local isSide = barCtx.IsVertical()
 
@@ -1879,9 +1738,8 @@ ns.BlockFactories.gold = function(blockCfg, slot, content, barCtx)
         if isSide then
             local slotW = VSlotW(inst)
             local innerW = max(30, slotW - 8)
-            -- One token per coin, one coin per line. Coin Colored tints the
-            -- suffix letters (nothing to tint once Coin Icons is on, so the two
-            -- compose); hovering drops it so the accent wash reads.
+            -- One token per coin, one coin per line. Coin Colored tints the suffix letters
+            -- (nothing to tint once Coin Icons is on, so the two compose); hovering drops it so the accent wash reads.
             local lines = ns.MoneyTokens(money, dg.showSmall == true, ci,
                 blockCfg.useCoinColor == true and not mouseOver)
             local startSize = min(fontSize, max(10, floor(CONTENT_BASE * 0.52 + 0.5)))
@@ -1964,9 +1822,7 @@ ns.BlockFactories.gold = function(blockCfg, slot, content, barCtx)
             goldButton:ClearAllPoints(); goldButton:SetPoint("CENTER", content, "CENTER", 0, 0)
         else
             local slotW = HBudget(inst, 100)
-            -- Fit against BOTH money formats so font/icon size (and the frame
-            -- width below) stay identical whether hovered or not; otherwise
-            -- the element visibly resizes on mouseover.
+            -- Fit against BOTH money formats so font/icon size and frame width stay identical hovered or not; otherwise it resizes on mouseover.
             local plainText = ns.FormatMoneyPlain(money, dg.showSmall == true, ci)
             local fancyText = ns.FormatMoney(money, blockCfg.useCoinColor == true, dg.showSmall == true, ci)
             local moneyText
@@ -2051,18 +1907,13 @@ ns.BlockFactories.gold = function(blockCfg, slot, content, barCtx)
         local charCount = 0
         if showChars then
             local store = GoldStore()
-            -- The list holds store KEYS ("Name-Realm"): a delete needs the key, and
-            -- the entry itself does not carry one.
+            -- The list holds store KEYS ("Name-Realm"): a delete needs the key, and the entry itself does not carry one.
             local selfKey = GoldCharKey()
-            -- Roster shows only balances above 10,000 gold (copper threshold),
-            -- plus the live character. Filtered characters stay in the store
-            -- and still count into the total below.
+            -- Roster shows only balances above 10,000 gold (copper threshold) plus the live char; filtered chars still count into the total.
             local minCopper = 10000 * 10000
             local total, charList = 0, {}
             for key, cdata in pairs(store) do
-                -- issecretvalue-first: stores written before the ledger guard
-                -- existed could carry a secret, and even a truthiness test on
-                -- one is an error.
+                -- issecretvalue-first: a stored value may be secret, and even a truthiness test on one is an error.
                 local cm = cdata and cdata.currentMoney
                 if issecretvalue and issecretvalue(cm) then cm = nil end
                 if cm then
@@ -2079,11 +1930,9 @@ ns.BlockFactories.gold = function(blockCfg, slot, content, barCtx)
             if charCount > 0 then
                 ns.Tip_AddLine(" ")
                 ns.Tip_AddLine(GetRealmName() or "?", 0.5, 0.78, 1)
-                -- Cap the roster rows so a large stable of alts cannot push the
-                -- total and the hint rows off screen. The list is sorted richest
-                -- first, so the cap keeps the highest balances; the live
-                -- character always shows; the total below still sums EVERY
-                -- stored character.
+                -- Cap roster rows so many alts cannot push the total and hint rows off
+                -- screen. Sorted richest first, so the cap keeps the highest balances; the
+                -- live character always shows; the total still sums EVERY stored character.
                 local maxRows, shownRows, hiddenRows = 10, 0, 0
                 for _, key in ipairs(charList) do
                     local char = store[key]
@@ -2097,10 +1946,8 @@ ns.BlockFactories.gold = function(blockCfg, slot, content, barCtx)
                         end
                         local label = char.name or "?"
                         local tokens = ns.MoneyTokens(char.currentMoney, sm, ci, true)
-                        -- Every row gets the same hover affordance. The live
-                        -- character's click is inert: it re-saves itself on
-                        -- every money event, so deleting it would only bring it
-                        -- straight back.
+                        -- Every row gets the same hover affordance; the live character's
+                        -- click is inert (it re-saves on every money event, so a delete returns instantly).
                         ns.Tip_AddClickableColumns(label, tokens, function(mouseButton)
                             if key == selfKey then return end
                             if mouseButton ~= "LeftButton" then return end
@@ -2114,8 +1961,7 @@ ns.BlockFactories.gold = function(blockCfg, slot, content, barCtx)
                     ns.Tip_AddLine(format(L["PLUS_N_MORE"], hiddenRows), 0.6, 0.6, 0.6)
                 end
             end
-            -- Warbank rides the character list as its final row -- no
-            -- separator; it reads as one more entry.
+            -- Warbank rides the character list as its final row, no separator: it reads as one more entry.
             local bankType = 2
             if Enum and Enum.BankType and Enum.BankType.Account then bankType = Enum.BankType.Account end
             if C_Bank and C_Bank.FetchDepositedMoney then
@@ -2144,8 +1990,7 @@ ns.BlockFactories.gold = function(blockCfg, slot, content, barCtx)
     end)
     goldButton:SetScript("OnLeave", function()
         mouseOver = false
-        -- The character rows are clickable, so the tooltip has to survive the
-        -- cursor leaving the block to be reachable at all.
+        -- The character rows are clickable, so the tooltip has to survive the cursor leaving the block to be reachable at all.
         ns.Tip_HideUnlessInteractive(goldButton)
         inst:Refresh()
     end)
@@ -2189,8 +2034,7 @@ ns.BlockFactories.gold = function(blockCfg, slot, content, barCtx)
         if barCtx.IsVertical() then
             local barH = barCtx.GetThickness()
             local fontSize = max(9, floor(CONTENT_BASE * 0.4333 + 0.5))
-            -- Mirror Refresh: no icon budget when Show Icons is off, else
-            -- the segment measures taller than its rendered content.
+            -- Mirror Refresh: no icon budget when Show Icons is off, else the segment measures taller than its rendered content.
             local iconTerm = 0
             local dg = blockCfg.settings
             if not dg or dg.showIcons ~= false then iconTerm = fontSize + 2 end
@@ -2214,9 +2058,7 @@ end
 
 -------------------------------------------------------------------------------
 --  XPREP (XP / Reputation bar)
---  The measured auto extent for this type means "reasonable fixed content
---  size" (icon + 120px minimum bar); it is the type users will normally set
---  to pct mode, and the templates ship it pct.
+--  Auto extent here means "reasonable fixed content size" (icon + 120px minimum bar); templates ship this type in pct mode.
 -------------------------------------------------------------------------------
 ns.BlockFactories.xprep = function(blockCfg, slot, content, barCtx)
     local inst = { cfg = blockCfg, slot = slot, content = content, ctx = barCtx }
@@ -2229,17 +2071,30 @@ ns.BlockFactories.xprep = function(blockCfg, slot, content, barCtx)
     local function D() return blockCfg.settings or {} end
     local function BC() return barCtx.cfg end
 
+    -- Max-level check with layered fallbacks, matching the Action Bars XP bar's:
+    -- the Is* helpers are nil-guarded, so client API churn can silently disable
+    -- them -- a plain numeric compare against the expansion max level backstops
+    -- the check so XP mode can never show for a max-level character.
+    local function XPAtMaxLevel()
+        local level = UnitLevel("player") or 0
+        if IsPlayerAtEffectiveMaxLevel and IsPlayerAtEffectiveMaxLevel() then return true end
+        if IsLevelAtEffectiveMaxLevel and IsLevelAtEffectiveMaxLevel(level) then return true end
+        local maxLevel = (GetMaxLevelForPlayerExpansion and GetMaxLevelForPlayerExpansion())
+            or (GetMaxPlayerLevel and GetMaxPlayerLevel())
+        return (maxLevel and level >= maxLevel) or false
+    end
+
     local function UpdateMode()
         local d = D()
         if d.mode == "xp"  then mode = "xp";  return end
         if d.mode == "rep" then mode = "rep"; return end
-        local atMax = IsPlayerAtEffectiveMaxLevel and IsPlayerAtEffectiveMaxLevel()
+        local atMax = XPAtMaxLevel()
         local xpOff = IsXPUserDisabled and IsXPUserDisabled()
         mode = "rep"
         if not atMax and not xpOff then mode = "xp" end
     end
 
-    -- Compat: legacy GetWatchedFactionInfo vs C_Reputation.GetWatchedFactionData
+    -- Compat: legacy GetWatchedFactionInfo vs C_Reputation.GetWatchedFactionData.
     local LegacyGetWatchedFactionInfo = rawget(_G, "GetWatchedFactionInfo")
     local C_Rep = C_Reputation
     local function GetWatchedFactionInfoCompat()
@@ -2294,11 +2149,9 @@ ns.BlockFactories.xprep = function(blockCfg, slot, content, barCtx)
     local function ComputeState()
         UpdateMode()
         if mode == "xp" then
-            -- Nothing to track: at the level cap (or with XP gains turned
-            -- off) there is no XP to show -- collapse exactly like rep mode
-            -- with no watched faction, even when the user explicitly forced
-            -- Experience mode ("0% to level cap+1" junk otherwise).
-            local atMax = IsPlayerAtEffectiveMaxLevel and IsPlayerAtEffectiveMaxLevel()
+            -- At the level cap (or with XP gains off) there is no XP: collapse like rep mode
+            -- with no watched faction, even when the user forced Experience mode (otherwise "0% to level cap+1" junk).
+            local atMax = XPAtMaxLevel()
             local xpOff = IsXPUserDisabled and IsXPUserDisabled()
             if atMax or xpOff then return nil end
             local curXP = UnitXP("player") or 0
@@ -2324,7 +2177,6 @@ ns.BlockFactories.xprep = function(blockCfg, slot, content, barCtx)
                 minV = 0; maxV = mfd.renownLevelThreshold; curV = mfd.renownReputationEarned or 0
             end
         end
-        -- Normalise
         if type(minV) == "number" and type(maxV) == "number" and type(curV) == "number" then
             local nMax = maxV - minV
             local nCur = curV - minV
@@ -2365,8 +2217,7 @@ ns.BlockFactories.xprep = function(blockCfg, slot, content, barCtx)
         -- Auto-size measure needs the XP-only bar extension (see below).
         inst._xpExtend = (state.isXP and 40) or 0
 
-        -- Block color: label text (the progress bar itself keeps its own
-        -- accent/faction color).
+        -- Block color applies to the label; the bar keeps its accent/faction color.
         do
             local br, bgr, bb = BlockColorOf(blockCfg)
             nameText:SetTextColor(br, bgr, bb, 1)
@@ -2409,9 +2260,7 @@ ns.BlockFactories.xprep = function(blockCfg, slot, content, barCtx)
             slotW = max(slotW, 60)
             local bH = max(2, floor(CONTENT_BASE * 0.2 + 0.5) - 1)
 
-            -- No icon: text on top, bar underneath, sharing the same left
-            -- edge, with the stack centered in the bar height. The bar
-            -- tracks the TEXT width.
+            -- No icon: text on top, bar underneath sharing the left edge, stack centered in the bar height. The bar tracks the TEXT width.
             _dbFitBuf[1] = state.label
             local fitSize = textHeight
             ns.SetFont(nameText, fitSize, barCfg)
@@ -2427,8 +2276,7 @@ ns.BlockFactories.xprep = function(blockCfg, slot, content, barCtx)
             if textW < 20 then textW = 20 end
             if ns.SnapToPixelGrid then textW = ns.SnapToPixelGrid(textW) end
 
-            -- XP mode only: the bar runs 40px past the text's right edge
-            -- (rep and professions keep bar width = text width).
+            -- XP mode only: the bar runs 40px past the text's right edge (rep and professions keep bar width = text width).
             local barW = textW
             if state.isXP then barW = min(textW + 40, maxTextW) end
 
@@ -2464,18 +2312,14 @@ ns.BlockFactories.xprep = function(blockCfg, slot, content, barCtx)
     end
 
     function inst:GetAutoLength()
-        -- Nothing to render (rep mode with no watched faction, or below-max
-        -- with no XP source): claim no bar length, so the solver never
-        -- reserves a dead gap for an invisible block. The changed-extent
-        -- relayout gate restores the width when content returns.
+        -- Nothing to render (rep with no watched faction, or below-max with no XP source):
+        -- claim no length so the solver reserves no dead gap; the changed-extent relayout gate restores the width when content returns.
         if not content:IsShown() then return 0 end
         local barH = barCtx.GetThickness()
         if barCtx.IsVertical() then
             return max(content:GetHeight() or 40, 40)
         end
-        -- Auto size tracks the live text width (the bar matches it, plus
-        -- the XP-only 40px bar extension). No icon term: the block is
-        -- text + bar only.
+        -- Auto size tracks the live text width (the bar matches it, plus the XP-only 40px extension). No icon term: text + bar only.
         local tw = nameText:GetStringWidth() or 0
         if tw < 20 then tw = 120 end
         return tw + (self._xpExtend or 0)
@@ -2509,10 +2353,9 @@ local HEARTHSTONE_IDS = {
 }
 
 -- Standalone travel-cooldown entries listed under the Hearthstone tooltip line
--- when owned. Each has its own cooldown, separate from the shared hearthstone
--- one -- which is why Astral Recall belongs here and not in the pool above,
--- even though it also returns to the bind point. Spell IDs (for a future
--- clickable overlay): Dalaran 222695, Arcantina 1255801, Garrison 171253.
+-- when owned. Each has its OWN cooldown, separate from the shared hearthstone
+-- one -- why Astral Recall is here, not the pool above, despite also returning
+-- to the bind point. Spell IDs: Dalaran 222695, Arcantina 1255801, Garrison 171253.
 local TRAVEL_EXTRAS = {
     140192,  -- Dalaran Hearthstone
     253629,  -- Key to the Arcantina
@@ -2535,11 +2378,9 @@ end
 ns.TravelHearthstoneIDs = HEARTHSTONE_IDS
 ns.TravelIsUsable = TravelIsUsable
 
--- Returns remaining, known. In restricted combat the cooldown numbers are
--- SECRET: comparing or dead-reckoning them throws (type() still says
--- "number"), so those report 0, false and callers degrade -- the tooltip
--- shows "-" on gray non-clickable rows, the block tints as cooling, and the
--- probe keeps ticking so state self-corrects once values come back clean.
+-- Returns remaining, known. In restricted combat cooldown numbers are SECRET: comparing
+-- or dead-reckoning them throws (type() still says "number"), so those report 0, false and
+-- callers degrade -- tooltip "-" on gray rows, block tints as cooling, probe keeps ticking and self-corrects on a clean read.
 local function TravelGetRemainingCooldown(id, isSpell)
     local startTime, duration
     if isSpell then
@@ -2592,21 +2433,18 @@ local function TravelPickHearthstone(randomize)
     return list[1]
 end
 
--- Negative-result cache: when the pool scan finds NO usable hearthstone, the
--- 1s cooling probe would otherwise re-scan all ~40 candidates every second
--- forever. Ownership can only change through the edges the travel block
--- already listens to (hearth bind, world entry, bag/spell changes), which
--- clear this via ns.TravelInvalidateHearthCache.
+-- Negative-result cache: with NO usable hearthstone the 1s cooling probe would re-scan all
+-- ~40 candidates every second forever. Ownership only changes via edges the block already
+-- listens to (hearth bind, world entry, bag/spell changes), which clear this through ns.TravelInvalidateHearthCache.
 local travelNoHearth
 function ns.TravelInvalidateHearthCache()
     travelNoHearth = nil
     travelPrimaryHearthId = nil
 end
 local function TravelGetPrimaryCooldown()
-    -- The cached id is trusted between ownership edges: re-validating it per
-    -- 1s probe cost a GetItemCount bag walk every second, and losing the item
-    -- always fires BAG_UPDATE_DELAYED (spells SPELLS_CHANGED), which clears
-    -- the cache via ns.TravelInvalidateHearthCache and forces a re-pick here.
+    -- The cached id is trusted between ownership edges: re-validating per 1s probe costs a
+    -- GetItemCount bag walk every second, and item loss always fires BAG_UPDATE_DELAYED
+    -- (spells: SPELLS_CHANGED), which clears the cache via ns.TravelInvalidateHearthCache and forces a re-pick here.
     if not travelPrimaryHearthId then
         if travelNoHearth then return 0, true end
         travelPrimaryHearthId = TravelPickHearthstone(false)
@@ -2641,8 +2479,7 @@ end
 ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
     local inst = { cfg = blockCfg, slot = slot, content = content, ctx = barCtx }
     inst.key = InstKey(barCtx, blockCfg)
-    -- BAG_UPDATE_DELAYED / SPELLS_CHANGED: ownership edges that must clear
-    -- the negative hearthstone cache (rare at idle, cheap refresh).
+    -- BAG_UPDATE_DELAYED / SPELLS_CHANGED: ownership edges that must clear the negative hearthstone cache (rare at idle, cheap refresh).
     inst.events = { "HEARTHSTONE_BOUND", "PLAYER_ENTERING_WORLD",
         "BAG_UPDATE_DELAYED", "SPELLS_CHANGED" }
 
@@ -2651,9 +2488,7 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
     local _trvFitBuf2 = { "" }
     local mouseOver = false
 
-    -- Pre-allocated tooltip line buffers (avoid per-show garbage). `spellId`
-    -- is the static integer teleport spell ID (the click-to-teleport overlay's
-    -- secure attribute), kept separate from the displayed dungeon `name`.
+    -- Pre-allocated tooltip line buffers (no per-show garbage). `spellId` is the static teleport spell ID (click overlay attribute), not the shown `name`.
     local _mythicLinesBuf = {}
     for i = 1, #SEASON_TELEPORTS do _mythicLinesBuf[i] = { name = "", cd = 0, cdKnown = true, spellId = nil } end
     local _mythicLineCount = 0
@@ -2668,9 +2503,7 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
     local function RefreshTravelTooltip()
         local ar, ag, ab = 1, 1, 1
         ns.Tip_Begin(hearthButton)
-        -- Hover-persistent like the spec tip: readable (and its ready
-        -- teleport rows clickable) by mousing down onto it, even when no
-        -- row happens to be clickable right now.
+        -- Hover-persistent like the spec tip: the cursor can travel onto it to click ready teleport rows, even when no row is clickable right now.
         ns.Tip_MarkInteractive()
         ns.Tip_AddLine("|cFFFFFFFF[|r" .. L["TRAVEL_COOLDOWNS"] .. "|cFFFFFFFF]|r", ar, ag, ab)
         ns.Tip_AddLine(" ")
@@ -2685,12 +2518,10 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
         local ready = cdKnown and cd2 <= 0
         local rr, rg, rb = 0.5, 0.5, 0.5
         if ready then rr, rg, rb = 0, 1, 0 end
-        -- The Hearthstone row itself is click-to-use when ready, firing the
-        -- same macro the block's own click seeds (selected or random
-        -- hearthstone) through the shared overlay. White while ready, the
-        -- M+ "On Cooldown" gray while not; plain label (no embedded codes)
-        -- so state and hover color the whole line, and the plain-state row
-        -- is pad-marked so its spacing matches the clickable state.
+        -- Hearthstone row is click-to-use when ready, firing the same macro the block's
+        -- click seeds (selected or random) through the shared overlay. White while ready,
+        -- M+ "On Cooldown" gray otherwise; plain label (no embedded codes) so state and hover
+        -- color the whole line; the plain-state row is pad-marked to match the clickable row's spacing.
         local hsLabel = L["HEARTHSTONE"] .. " (" .. (GetBindLocation() or "?") .. ")"
         local hsMacro
         if ready then
@@ -2713,11 +2544,9 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
             ns.Tip_PadRow()
         end
 
-        -- Collected travel entries ride the same section; each has its own
-        -- cooldown. A spell entry takes the spell-side name, cooldown and
-        -- click overlay -- and IsPlayerSpell gates it to its class for free.
-        -- Name lookups can be nil on a cold cache -- the row just appears on
-        -- the next tooltip refresh.
+        -- Travel entries ride the same section, each with its own cooldown. A spell entry
+        -- takes the spell-side name/cooldown/click overlay, and IsPlayerSpell gates it to its
+        -- class. Name lookups can be nil on a cold cache: the row appears on the next tooltip refresh.
         for _, entryId in ipairs(TRAVEL_EXTRAS) do
             local isToy   = PlayerHasToy(entryId)
             local isSpell = not isToy and IsPlayerSpell(entryId)
@@ -2748,27 +2577,20 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
                     local tr, tg, tb = 0.5, 0.5, 0.5
                     if tready then tr, tg, tb = 0, 1, 0 end
                     if tready then
-                        -- Ready: click-to-use, same secure overlay contract
-                        -- as the M+ teleport rows (degrades to text in
-                        -- combat). White while ready; the row wash + accent
-                        -- recolor carry the hover affordance. Both helpers
-                        -- take the same arguments; only the secure attribute
-                        -- they seed differs.
+                        -- Ready: click-to-use, same secure overlay contract as the M+ rows
+                        -- (degrades to text in combat). Both helpers take the same args; only the seeded secure attribute differs.
                         local AddActionRow = isSpell and ns.Tip_AddActionDouble
                                                       or ns.Tip_AddToyActionDouble
                         AddActionRow(entryName, tstr, entryId, 1, 1, 1, tr, tg, tb)
                     else
-                        -- On cooldown: the same gray as the M+ "On Cooldown"
-                        -- label.
+                        -- On cooldown: same gray as the M+ "On Cooldown" label.
                         ns.Tip_AddDouble(entryName, tstr, 0.65, 0.65, 0.65, tr, tg, tb)
                     end
                 end
             end
         end
 
-        -- Show M+ Portals: nil reads as shown, so existing blocks keep the
-        -- section without migration. OFF skips the section (and its spell
-        -- resolution work) entirely.
+        -- Show M+ Portals: nil reads as shown (no migration needed). OFF skips the section and its spell-resolution work entirely.
         _mythicLineCount = 0
         if D().clickableTeleports ~= false then
             for _, entry in ipairs(SEASON_TELEPORTS) do
@@ -2804,12 +2626,7 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
                     j = j - 1
                 end
             end
-            -- Ready rows are always click-to-teleport: the old Clickable
-            -- Teleports toggle became Show M+ Portals (section visibility,
-            -- gated above) -- clickability is no longer configurable.
-            -- On-cooldown teleports share one cooldown group, so instead of
-            -- a wall of identical timers they collapse into a single
-            -- "On Cooldown" line showing the soonest remaining time.
+            -- Ready rows are always click-to-teleport (not configurable). On-cooldown teleports share one group, collapsing into one "On Cooldown" line (soonest remaining).
             local cdMin, cdUnknown
             for i = 1, _mythicLineCount do
                 local e = _mythicLinesBuf[i]
@@ -2818,9 +2635,8 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
                     -- fold into the collapsed On Cooldown line below.
                     cdUnknown = true
                 elseif e.cd <= 0 then
-                    -- Ready teleport: left-click the row to cast it (secure
-                    -- overlay button keyed to the static spell ID; the row
-                    -- highlights on hover).
+                    -- Ready teleport: left-click casts it (secure overlay button
+                    -- keyed to the static spell ID; row highlights on hover).
                     ns.Tip_AddActionDouble(e.name, L["READY"], e.spellId, 0.8, 0.8, 0.8, 0, 1, 0)
                 elseif not cdMin or e.cd < cdMin then
                     cdMin = e.cd
@@ -2846,10 +2662,8 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
         if placeholder then placeholder:Hide() end
 
         hearthButton = CreateFrame("Button", "EllesmereUIDataBarsHearth_" .. inst.key, content, "SecureActionButtonTemplate")
-        -- Up only + useOnKeyDown=false: registering both Up and Down lets
-        -- the ActionButtonUseKeyDown CVar fire the macro twice (the second
-        -- /use cancels the hearth cast the first one started). Middle click
-        -- is deliberately left unregistered so it does nothing.
+        -- Up only + useOnKeyDown=false: registering both Up and Down lets the
+        -- ActionButtonUseKeyDown CVar fire the macro twice (2nd /use cancels the cast).
         hearthButton:SetAllPoints()
         hearthButton:EnableMouse(true)
         hearthButton:RegisterForClicks("LeftButtonUp", "RightButtonUp")
@@ -2868,9 +2682,8 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
         local function SeedMacro()
             if InCombatLockdown() then return end
             local dt = D()
-            -- Hearthstone choice: "random" or a specific pool item id.
-            -- hsChoice nil derives from the legacy randomizeHs boolean
-            -- (nil/false = plain-hearthstone-preferred, the old behavior).
+            -- Hearthstone choice: "random" or a pool item id. nil derives from
+            -- the randomizeHs boolean (nil/false = plain hearthstone preferred).
             local choice = dt.hsChoice
             if choice == nil then
                 choice = dt.randomizeHs and "random" or 6948
@@ -2879,8 +2692,7 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
             if choice ~= "random" and TravelIsUsable(choice) then
                 id = choice
             else
-                -- Random pick, or fallback when the chosen hearthstone is
-                -- no longer owned/usable.
+                -- Random pick, or fallback when the chosen hearthstone is no longer owned/usable.
                 id = TravelPickHearthstone(choice == "random")
             end
             if id then hearthButton:SetAttribute("*macrotext1", TravelBuildMacro(id)) end
@@ -2889,9 +2701,9 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
             if rid then hearthButton:SetAttribute("*macrotext2", TravelBuildMacro(rid)) end
         end
 
-        -- Reseed on every PreClick (out of combat only) so the button always
-        -- fires the currently owned / random hearthstone without a protected
-        -- call from OnClick. SetScript is fine: WE created this button.
+        -- Reseed on every PreClick (OOC only) so the button always fires the currently
+        -- owned/random hearthstone without a protected call from OnClick. SetScript is
+        -- fine here: WE created this button.
         hearthButton:SetScript("PreClick", function()
             if InCombatLockdown() then return end
             SeedMacro()
@@ -2949,9 +2761,8 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
 
         hearthText:SetText(location)
 
-        -- The block renders only icon + bind location; the remaining cooldown
-        -- lives in the tooltip. On cooldown the block dims to disabled gray.
-        -- An unknown (secret) cooldown tints as cooling too.
+        -- Block renders only icon + bind location; remaining cooldown lives in
+        -- the tooltip. On cooldown (or an unknown/secret one) it dims to gray.
         local cd, cdKnown = TravelGetPrimaryCooldown()
 
         if mouseOver then
@@ -2967,8 +2778,7 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
 
         if InCombatLockdown() then return end
 
-        -- +2 icon size and -2 gap: hearthstone runs bigger and tighter to
-        -- its text than the shared defaults (user-tuned).
+        -- +2 icon size, -2 gap: hearthstone runs bigger and tighter than default.
         local iconSz, gap = fontSize + 2, ICON_GAP - 2
         if isSide then
             iconSz = min(iconSz, max(14, floor(CONTENT_BASE * 0.72 + 0.5)))
@@ -3000,8 +2810,7 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
             _trvFitBuf2[1] = "00:00:00"
             ns.SetFont(hearthText, fontSize, barCfg)
             hearthText:SetText(location)
-            -- +2 matches the top-of-Refresh sizing: this branch re-derives
-            -- iconSz, which silently swallowed earlier size bumps.
+            -- +2 matches the top-of-Refresh sizing: this branch re-derives iconSz, which would otherwise silently swallow earlier size bumps.
             iconSz = min(fontSize + 2, max(14, floor(CONTENT_BASE * 0.72 + 0.5)))
             hearthIcon:SetSize(iconSz, iconSz)
             ns.ResetInlineText(hearthText, "LEFT")
@@ -3015,22 +2824,17 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
         MaybeRelayout(inst)
     end
 
-    -- 1s heartbeat. Hovered: the open tooltip's M:SS cooldown columns need
-    -- per-second rebuilds, so the full refresh runs exactly as before.
-    -- Un-hovered, the block renders only icon + bind location + a
-    -- ready/cooling tint that flips twice per hearth use -- so the tick is a
-    -- two-call cooling probe (cached-id usable check + one cooldown read)
-    -- and the full Refresh runs only on the tint EDGE, at the same 1s
-    -- granularity the flip always had. Location changes arrive through the
-    -- HEARTHSTONE_BOUND event, not this tick.
+    -- 1s heartbeat. Hovered: the open tooltip's M:SS columns need per-second full
+    -- refreshes. Un-hovered: the block shows only icon+location+ready/cooling tint,
+    -- so the tick is a cheap two-call cooling probe and Refresh runs only on the
+    -- tint EDGE. Location changes arrive via HEARTHSTONE_BOUND.
     local function TravelTick()
         if built and mouseOver and ns.Tip_IsOwned(hearthButton) then
             inst:Refresh()
             RefreshTravelTooltip()
             return
         end
-        -- Unknown (secret) cooldowns count as cooling: the probe keeps
-        -- ticking through combat and self-corrects on the first clean read.
+        -- Unknown (secret) cooldowns count as cooling: the probe keeps ticking through combat and self-corrects on the first clean read.
         local pcd, pKnown = TravelGetPrimaryCooldown()
         local cooling = (not pKnown) or pcd > 0
         if cooling ~= inst._lastCooling then
@@ -3082,12 +2886,10 @@ end
 -------------------------------------------------------------------------------
 --  SPEC (specialisation, loot-spec, loadout popups)
 -------------------------------------------------------------------------------
--- Loadout-name freshness: the "last selected loadout" pointer the spec
--- block displays is written AFTER the talent-commit events fire (both
--- TRAIT_CONFIG_UPDATED and SPELLS_CHANGED race it and read the OLD name).
--- So hook the WRITE itself: Blizzard's talent UI and every loadout addon
--- funnel through UpdateLastSelectedSavedConfigID. Combat skips (the
--- registered PLAYER_REGEN_ENABLED refresh catches up).
+-- Loadout-name freshness: the "last selected loadout" pointer is written AFTER
+-- talent-commit events fire (TRAIT_CONFIG_UPDATED/SPELLS_CHANGED both race it and
+-- read the OLD name), so hook the WRITE itself -- talent UI and loadout addons all
+-- funnel through UpdateLastSelectedSavedConfigID. Skips in combat; PLAYER_REGEN_ENABLED catches up.
 local specInstances = {}
 local specPointerHooked = false
 local function HookLoadoutPointer()
@@ -3110,24 +2912,19 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
     specInstances[#specInstances + 1] = inst
     HookLoadoutPointer()
     inst.events = { "PLAYER_SPECIALIZATION_CHANGED", "PLAYER_LOOT_SPEC_UPDATED",
-                    -- TRAIT_CONFIG_UPDATED fires BEFORE the last-selected
-                    -- loadout pointer moves, so the name read there is
-                    -- stale; SPELLS_CHANGED fires once the swap has really
-                    -- applied (same signal the CDM keys its talent-swap
-                    -- rebuilds off) and re-reads the settled name.
+                    -- TRAIT_CONFIG_UPDATED fires BEFORE the last-selected pointer moves, so
+                    -- its name read is stale; SPELLS_CHANGED fires once the swap applied
+                    -- (same signal CDM keys its talent-swap rebuilds off) and re-reads the settled name.
                     "TRAIT_CONFIG_UPDATED", "SPELLS_CHANGED",
                     "PLAYER_ENTERING_WORLD",
-                    -- Refresh runs in combat too (our frames only); the
-                    -- regen entry stays as a cheap belt-and-suspenders
-                    -- catch-up for anything a combat event path missed.
+                    -- Refresh runs in combat too (our frames only); regen is a cheap catch-up for anything a combat path missed.
                     "PLAYER_REGEN_ENABLED" }
 
     local SPEC_MEDIA = MEDIA .. "spec\\"
     local _specFitBuf1 = { "" }
     local _specFitBuf2 = { "" }
-    -- One PNG per spec in media\spec\, named <class>-<spec>.png and listed
-    -- here in SPEC INDEX order per class token (GetSpecializationInfo order
-    -- is fixed), so no spec-ID table is needed -- new specs just append.
+    -- One PNG per spec in media\spec\, named <class>-<spec>.png, listed here in SPEC
+    -- INDEX order per class (GetSpecializationInfo order is fixed) -- no spec-ID table; new specs just append.
     local SPEC_ICON_FILES = {
         WARRIOR     = { "warrior-arms", "warrior-fury", "warrior-prot" },
         PALADIN     = { "paladin-holy", "paladin-prot", "paladin-ret" },
@@ -3150,8 +2947,7 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
     local currentSpecIdx, currentLootSpecID = nil, 0
     local mouseOver = false
 
-    -- Per-instance popup pools (lazy). Two spec blocks never fight over the
-    -- same popup frames.
+    -- Per-instance popup pools (lazy). Two spec blocks never fight over the same popup frames.
     local specPool, lootPool, loadoutPool
 
     local function D() return blockCfg.settings or {} end
@@ -3239,8 +3035,7 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
         local iconSz = fontSize + 2
         local PAD, LINE = POPUP_PAD, 18
 
-        -- Title is optional: a nil/empty title (the loadout subnav) renders
-        -- a plain list with even PAD margins on all four sides.
+        -- Title is optional: a nil/empty title (the loadout subnav) renders a plain list with even PAD margins on all four sides.
         if not popup._title then
             popup._title = popup:CreateFontString(nil, "OVERLAY")
         end
@@ -3249,9 +3044,7 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
         local maxW, yOff
         if title and title ~= "" then
             ns.SetFont(popup._title, fontSize)
-            -- Localize here: these popups draw through SetText instead of the
-            -- Tip_* helpers, which are what normally route fixed UI strings
-            -- through the shared locale (see ns.Tip_AddLine).
+            -- Localize here: these popups SetText directly instead of the Tip_* helpers that normally route fixed strings through the locale.
             popup._title:SetText(EllesmereUI.L(title)); popup._title:SetTextColor(1, 1, 1, 1)
             popup._title:Show()
             maxW = popup._title:GetStringWidth()
@@ -3266,16 +3059,13 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
         for _, entry in ipairs(entries) do
             local btn = pool:Acquire()
             btn:SetParent(popup)
-            -- 2px band above/below the content, matching the shared tip's
-            -- clickable rows.
+            -- 2px band above/below the content, matching the shared tip's clickable rows.
             btn:SetHeight(iconSz + 4)
             btn:SetPoint("TOPLEFT", popup, "TOPLEFT", PAD, -yOff)
             btn:EnableMouse(true); btn:RegisterForClicks("AnyUp")
-            -- Full-row white hover wash (house style 0.10), same as the
-            -- shared tip's clickable rows; HIGHLIGHT layer needs no scripts.
-            -- The color is RE-ASSERTED every build: a HIGHLIGHT-layer
-            -- texture is the button's official highlight texture, and the
-            -- pool resetter nils it on every release.
+            -- Full-row white hover wash (house style 0.10), same as the shared tip's
+            -- clickable rows; HIGHLIGHT layer needs no scripts. Color RE-ASSERTED every
+            -- build: the pool resetter nils the highlight texture on every release.
             if not btn._hl then
                 btn._hl = btn:CreateTexture(nil, "HIGHLIGHT")
                 btn._hl:SetAllPoints()
@@ -3299,8 +3089,7 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
                 btn._icon:Show()
                 btn._label:SetPoint("LEFT", btn._icon, "RIGHT", 4, 0)
             else
-                -- Icon-less rows (loadouts): flush left -- anchoring to the
-                -- hidden icon's stale rect left a phantom indent.
+                -- Icon-less rows (loadouts): flush left -- anchoring to the hidden icon's stale rect left a phantom indent.
                 btn._icon:Hide()
                 btn._label:SetPoint("LEFT", btn, "LEFT", 0, 0)
             end
@@ -3308,15 +3097,12 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
             if entry.isActive then btn._label:SetTextColor(ar, ag, ab, 1)
             else btn._label:SetTextColor(1, 1, 1, 1) end
 
-            -- Right-edge arrow (entry.arrow): the active spec row uses it to
-            -- signal its loadout subnav.
+            -- Right-edge arrow (entry.arrow): the active spec row uses it to signal its loadout subnav.
             if entry.arrow then
                 if not btn._arrow then
                     btn._arrow = btn:CreateTexture(nil, "OVERLAY")
                 end
-                -- FULL re-assert every build: the pool resetter hides and
-                -- strips regions on release, so nothing set only at
-                -- creation survives a hide/reshow cycle.
+                -- FULL re-assert every build: the pool resetter hides and strips regions on release, so creation-only setup does not survive.
                 btn._arrow:SetSize(10, 10)
                 btn._arrow:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-right.png")
                 btn._arrow:ClearAllPoints()
@@ -3329,8 +3115,7 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
 
             btn:SetScript("OnEnter", function()
                 btn._label:SetTextColor(ar, ag, ab, 1)
-                -- Row hover callback (spec popup: open/close the loadout
-                -- subnav depending on which row the cursor is on).
+                -- Row hover callback (spec popup: open/close the loadout subnav depending on which row the cursor is on).
                 if entry.onHover then entry.onHover(btn) end
             end)
             btn:SetScript("OnLeave", function()
@@ -3338,11 +3123,9 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
                 else btn._label:SetTextColor(1, 1, 1, 1) end
             end)
             btn:SetScript("OnClick", function(_, mb)
-                -- entry.noClick: informational row (the active spec opens a
-                -- subnav instead of re-selecting itself).
+                -- entry.noClick: informational row (the active spec opens a subnav instead of re-selecting itself).
                 if entry.noClick then return end
-                -- combatClicks: the loot-spec popup's action is combat-legal
-                -- (unprotected preference call); everything else stays gated.
+                -- combatClicks: the loot-spec popup's action is combat-legal (unprotected preference call); everything else stays gated.
                 if mb == "LeftButton" and (combatClicks or not InCombatLockdown()) then
                     onClickEntry(entry)
                     popup:Hide()
@@ -3361,8 +3144,7 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
         -- Trim the last row's trailing gap so the bottom padding stays PAD.
         if #entries > 0 then yOff = yOff - 3 end
 
-        -- Optional footer descriptor lines ({left, right} pairs): the same
-        -- Left Click / Right Click hints the shared tip footers use.
+        -- Optional footer descriptor lines ({left, right} pairs): the same Left Click / Right Click hints the shared tip footers use.
         if not popup._foot then popup._foot = {} end
         local footCount = footerLines and #footerLines or 0
         if footCount > 0 then
@@ -3393,8 +3175,7 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
         end
 
         popup:SetSize(maxW + PAD * 2, yOff + PAD)
-        -- Stretch every row to the popup's inner width: the wash and the
-        -- click target span the full row, not just the text.
+        -- Stretch every row to the popup's inner width: the wash and the click target span the full row, not just the text.
         for i = 1, #rowBtns do rowBtns[i]:SetWidth(maxW) end
         popup:ClearAllPoints()
         if barCtx.IsVertical() then
@@ -3420,13 +3201,10 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
         return popup
     end
 
-    -- Forward-declared: the loot toggle arms it for in-combat dismissal and
-    -- it is built (as a frame) below the popups.
+    -- Forward-declared: the loot toggle arms it for in-combat dismissal and it is built (as a frame) below the popups.
     local hoverWatch
 
-    -- Loadout SUBNAV: a flyout beside the spec hover popup, opened by
-    -- hovering the ACTIVE spec row (which is not clickable -- you are that
-    -- spec already), listing the spec's talent loadouts click-to-swap.
+    -- Loadout SUBNAV: flyout beside the spec popup, opened by hovering the ACTIVE spec row (not clickable), listing its loadouts click-to-swap.
     local subnavPool
     local function CloseLoadoutSubnav()
         if subnavPool and subnavPool._popup and subnavPool._popup:IsShown() then
@@ -3498,9 +3276,7 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
                 entries[#entries + 1] = {
                     name = info.name, icon = info.icon, isActive = isActive,
                     specIndex = i,
-                    -- Active spec: not clickable (already that spec); its
-                    -- hover opens the loadout subnav, the arrow marks it.
-                    -- Hovering any other row closes the subnav.
+                    -- Active spec: not clickable; hover opens the loadout subnav (arrow marks it), any other row closes it.
                     noClick = isActive,
                     arrow = isActive,
                     onHover = isActive and OpenLoadoutSubnav or CloseLoadoutSubnav,
@@ -3537,11 +3313,9 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
             end
         end
         -- Loot spec switching is combat-legal: SetLootSpecialization is an
-        -- unprotected server-preference call (verified in-game 2026-07-20,
-        -- in combat and in instance). In lockdown the popup opens WITHOUT
-        -- the fullscreen click-catcher -- an invisible click-eater must
-        -- never go live in combat -- and dismisses via the hover watcher,
-        -- exactly like the hover spec popup.
+        -- unprotected server-preference call. In lockdown the popup opens
+        -- WITHOUT the fullscreen click-catcher (an invisible click-eater must
+        -- never go live in combat) and dismisses via the hover watcher.
         local inCombat = InCombatLockdown()
         BuildPopup(lootPool, specButton, L["CHANGE_LOOT_SPEC"], entries, function(e)
             local id = 0
@@ -3576,9 +3350,8 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
                 entries[#entries + 1] = { name = info.name, isActive = (cid == activeConfigID), configID = cid }
             end
         end
-        -- In lockdown: catcher-free + hover-watch dismissal, same rule as
-        -- the loot popup. Row clicks stay combat-gated (LoadConfig is
-        -- blocked in combat) -- the list is just viewable.
+        -- In lockdown: catcher-free + hover-watch dismissal like the loot popup.
+        -- Row clicks stay gated (LoadConfig is blocked); the list is viewable.
         local inCombat = InCombatLockdown()
         BuildPopup(loadoutPool, specButton, L["CHANGE_LOADOUT"], entries, function(e)
             C_ClassTalents.LoadConfig(e.configID, true)
@@ -3598,9 +3371,8 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
     end
 
     function inst:Refresh()
-        -- No combat gate: everything here touches our own insecure frames
-        -- (text, textures, sizes), all combat-legal -- and an in-combat
-        -- loot spec change must repaint the block immediately.
+        -- No combat gate: only our own insecure frames (text, textures, sizes),
+        -- and an in-combat loot spec change must repaint immediately.
         UpdateCurrentSpec()
         local d = D()
         local barCfg = BC()
@@ -3666,8 +3438,7 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
             infoText:Hide()
         end
 
-        -- Show Icon (default ON): hidden drops the icon's width and gap
-        -- from the layout entirely.
+        -- Show Icon (default ON): hidden drops the icon width and gap entirely.
         local showIcon = d.showIcon ~= false
         if showIcon then specIcon:Show() else specIcon:Hide(); iconSz = 0 end
 
@@ -3723,9 +3494,8 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
             ns.ResetInlineText(specText, "LEFT")
             ns.ResetInlineText(infoText, "LEFT")
             local tw = ns.SnapToPixelGrid(specText:GetStringWidth())
-            -- Loot spec sits INLINE to the right of the spec/loadout label
-            -- (below it on vertical bars); the content width includes it so
-            -- Auto Sized bars reserve the full extent.
+            -- Loot spec sits INLINE right of the spec/loadout label (below on
+            -- vertical bars); content width includes it so Auto bars reserve it.
             local iw = 0
             if infoText:IsShown() then
                 iw = ns.SnapToPixelGrid(infoText:GetStringWidth() or 0)
@@ -3743,15 +3513,13 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
         MaybeRelayout(inst)
     end
 
-    -- The spec popup opens on hover and closes only once the cursor is over
-    -- neither the block nor the popup. Both rects are padded 8px so the 4px
-    -- anchor gap between bar and popup never counts as "outside" mid-travel.
+    -- The spec popup opens on hover, closes only once the cursor is over neither
+    -- the block nor the popup; both rects padded 8px so the 4px anchor gap never counts as "outside" mid-travel.
     hoverWatch = CreateFrame("Frame")
     hoverWatch:Hide()
     hoverWatch:SetScript("OnUpdate", function(self)
-        -- Watches whichever pool armed it (spec hover popup, or the loot
-        -- popup when opened in combat without its click-catcher). The
-        -- loadout subnav counts as inside-bounds and hides with the popup.
+        -- Watches whichever pool armed it (spec hover popup, or loot popup
+        -- opened catcher-free in combat). The subnav counts as inside-bounds.
         local pool = self._watchPool or specPool
         local popup = pool and pool._popup
         if not (popup and popup:IsShown()) then self:Hide(); return end
@@ -3766,11 +3534,9 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
 
     specButton:SetScript("OnEnter", function()
         mouseOver = true; inst:Refresh()
-        -- No combat gate: the hover popup is our own insecure frames,
-        -- always opens catcher-free, and dismisses via the hover watcher --
-        -- all combat-legal. Only the actual swap clicks are gated (spec /
-        -- loadout rows; loot spec rows are combat-legal and enabled).
-        -- Never stomp a click-opened popup (loot spec / loadout).
+        -- No combat gate: the hover popup is our own insecure frames, opens
+        -- catcher-free and dismisses via the hover watcher; only swap clicks
+        -- are gated. Never stomp a click-opened popup (loot spec / loadout).
         if lootPool and lootPool._popup and lootPool._popup:IsShown() then return end
         if loadoutPool and loadoutPool._popup and loadoutPool._popup:IsShown() then return end
         if not (specPool and specPool._popup and specPool._popup:IsShown()) then
@@ -3781,10 +3547,8 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
     end)
     specButton:SetScript("OnLeave", function() mouseOver = false; inst:Refresh() end)
     specButton:SetScript("OnClick", function(_, button)
-        -- No blanket combat gate: popups open catcher-free in lockdown and
-        -- the talent frame is viewable in combat. The only combat-locked
-        -- actions are the ROW clicks that actually swap (spec / loadout --
-        -- gated in BuildPopup); loot spec rows are combat-legal.
+        -- No blanket combat gate: popups open catcher-free in lockdown and the talent
+        -- frame is viewable in combat; only swapping ROW clicks are locked (loot spec is legal).
         if button == "LeftButton" then
             if IsControlKeyDown() then
                 if loadoutPool and loadoutPool._popup and loadoutPool._popup:IsShown() then loadoutPool._popup:Hide(); return end
@@ -3842,8 +3606,7 @@ end
 -------------------------------------------------------------------------------
 --  PROFESSION (SECURE right-click passthrough to ProfessionMicroButton)
 -------------------------------------------------------------------------------
--- Skill-line ID -> icon file in media\profession\ (one PNG per profession;
--- filenames follow the art set's own stems, e.g. "blacksmith"/"engineer").
+-- Skill-line ID -> icon file in media\profession\ (one PNG per profession; filenames follow the art set's own stems, e.g. "blacksmith"/"engineer").
 local profIcons = {
     [164] = "prof-blacksmith",   [165] = "prof-leatherworking", [171] = "prof-alchemy",
     [182] = "prof-herbalism",    [186] = "prof-mining",         [202] = "prof-engineer",
@@ -3852,10 +3615,8 @@ local profIcons = {
     [356] = "prof-fishing",
 }
 
--- Shared builder for both profession blocks. secondary = false shows the
--- two primary professions (right-click = profession book); secondary =
--- true shows Cooking + Fishing (right-click = Basic Campfire, a secure
--- spell cast).
+-- Shared builder for both profession blocks. secondary=false shows the two primary
+-- professions (right-click = profession book); secondary=true shows Cooking+Fishing (right-click = Basic Campfire, a secure spell cast).
 local CAMPFIRE_SPELL = 818   -- Basic Campfire
 local function MakeProfessionBlock(blockCfg, slot, content, barCtx, secondary)
     local inst = { cfg = blockCfg, slot = slot, content = content, ctx = barCtx }
@@ -3904,9 +3665,7 @@ local function MakeProfessionBlock(blockCfg, slot, content, barCtx, secondary)
         if profIcons[profData.id] then
             iconTex = MEDIA_PROF .. profIcons[profData.id] .. ".png"
         end
-        -- Show Icon (default ON): hidden drops the icon and its gap from
-        -- the layout entirely; the text/bar stack keeps the icon's vertical
-        -- band so nothing shifts up or down.
+        -- Show Icon (default ON): hidden drops the icon and its gap from the layout; the text/bar stack keeps the icon's vertical band.
         local showIcon = (blockCfg.settings or {}).showIcon ~= false
         profIcon:SetTexture(iconTex)
         if showIcon then
@@ -3920,8 +3679,7 @@ local function MakeProfessionBlock(blockCfg, slot, content, barCtx, secondary)
             profIcon:SetVertexColor(ir, ig, ib, 1)
         end
 
-        -- Font derives from CONTENT_BASE like every other block: the bar
-        -- Height setting must never resize content.
+        -- Font derives from CONTENT_BASE like every other block: the bar Height setting must never resize content.
         ns.SetFont(profText, fontSize, barCfg)
         profText:SetTextColor(pbr, pbg, pbb, 1); profText:SetText(profData.name or "")
 
@@ -3964,9 +3722,7 @@ local function MakeProfessionBlock(blockCfg, slot, content, barCtx, secondary)
             ns.ResetInlineText(profText, "LEFT")
             profIcon:ClearAllPoints(); profIcon:SetPoint("LEFT", profFrame, "LEFT", 0, 0)
 
-            -- Hidden icon: the stack anchors to the frame's LEFT center
-            -- with the same half-band offsets the icon's rect provided, so
-            -- text and bar keep their vertical rhythm, just flush left.
+            -- Hidden icon: the stack anchors to the frame's LEFT center with the icon rect's half-band offsets, keeping vertical rhythm flush left.
             local halfBand = iconSize / 2
             if profData.rank == profData.maxRank then
                 profBar:Hide()
@@ -3987,9 +3743,8 @@ local function MakeProfessionBlock(blockCfg, slot, content, barCtx, secondary)
                 local ar, ag, ab = ns.GetAccent()
                 profBar:SetMinMaxValues(1, profData.maxRank); profBar:SetValue(profData.rank)
                 profBar:SetStatusBarColor(ar, ag, ab, 1); profBarBg:SetColorTexture(0.15, 0.15, 0.15, 0.6)
-                -- Icon left; text top-right; bar bottom-right -- the bar
-                -- shares the text's left edge and tracks the TEXT width,
-                -- bottom-aligned to the icon (same recipe as xprep).
+                -- Icon left; text top-right; bar bottom-right, sharing the text's
+                -- left edge and tracking TEXT width, bottom-aligned to the icon (same recipe as xprep).
                 local textW = max(profText:GetStringWidth(), 20)
                 local bH = max(2, iconSize - fontSize - 3)
                 profBar:SetSize(textW, bH)
@@ -4048,9 +3803,8 @@ local function MakeProfessionBlock(blockCfg, slot, content, barCtx, secondary)
         for i = 1, 2 do
             local frame = frames[i]
             local isFirst = (i == 1)
-            -- HookScript, NOT SetScript: SetScript("OnClick") would overwrite
-            -- SecureActionButton_OnClick and kill the secure *clickbutton2
-            -- passthrough to ProfessionMicroButton (right-click).
+            -- HookScript, NOT SetScript: SetScript("OnClick") would overwrite SecureActionButton_OnClick
+            -- and kill the secure *clickbutton2 passthrough to ProfessionMicroButton (right-click).
             frame:HookScript("OnClick", function(_, button)
                 if button == "LeftButton" then
                     if isFirst then OpenProf(prof1) else OpenProf(prof2) end
@@ -4089,9 +3843,7 @@ local function MakeProfessionBlock(blockCfg, slot, content, barCtx, secondary)
                 if isFirst then txt, ic = prof1Text, prof1Icon end
                 local br, bgr, bb = BlockColorOf(blockCfg)
                 txt:SetTextColor(br, bgr, bb, 1)
-                -- Icon restores through ICON color (accent by default for
-                -- professions), not the text color -- restoring the text
-                -- color here painted the icon white after every hover.
+                -- Icon restores through ICON color (accent by default for professions), NOT the text color, which paints it white.
                 if ic then
                     local ir, ig, ib = IconColorOf(blockCfg)
                     ic:SetVertexColor(ir, ig, ib, 1)
@@ -4211,17 +3963,14 @@ end
 -------------------------------------------------------------------------------
 --  MICROMENU (SECURE; three verbatim mechanisms)
 --    1. Secure click-passthrough buttons (*clickbutton1 -> Blizzard button)
---    2. Combat lockout via RegisterStateDriver _onstate-combatlock snippet
---       (never addon-Lua EnableMouse/SetAlpha on these frames post-creation)
---    3. Blizzard micro menu hider via SecureHandlerStateTemplate _onstate-vis
---       (never :Hide() on MicroMenuContainer from insecure code)
+--    2. Combat lockout via RegisterStateDriver _onstate-combatlock snippet (never addon-Lua EnableMouse/SetAlpha on these frames post-creation)
+--    3. Blizzard micro menu hider via SecureHandlerStateTemplate _onstate-vis (never :Hide() on MicroMenuContainer from insecure code)
 -------------------------------------------------------------------------------
 local MM_SPACING = 2
 local MM_MEDIA = MEDIA .. "micromenu\\"
 
--- Button key -> icon file in media\micromenu\ (one PNG per button; the
--- filenames are the art set's own naming, incl. the "acheivements"
--- spelling -- must match the files on disk exactly).
+-- Button key -> icon file in media\micromenu\ (one PNG per button; filenames
+-- follow the art set, incl. the "acheivements" spelling -- must match disk).
 local MM_ICON_FILE = {
     menu    = "menu-options",
     guild   = "menu-guild",
@@ -4264,11 +4013,9 @@ for _, def in ipairs(mmButtonDefs) do
     mmButtonDefsByKey[def.key] = def
 end
 
--- String names for Blizzard MicroButtons, resolved via _G at creation time.
--- Spellbook/talents/journal MUST be opened via a secure click on the
--- Blizzard micro button: opening them from addon Lua taints the frame's
--- execution and SetCooldown then rejects secret values (12.x) inside
--- Blizzard_SpellBookItem. Candidate lists: first existing global wins.
+-- String names for Blizzard MicroButtons, resolved via _G at creation (first existing
+-- global wins). Spellbook/talents/journal MUST open via a secure click on the micro
+-- button -- addon-Lua opening taints the frame, and SetCooldown then rejects secrets inside Blizzard_SpellBookItem.
 local MM_MICRO_BUTTON_NAMES = {
     guild   = "GuildMicroButton",
     social  = "QuickJoinToastButton",
@@ -4284,8 +4031,7 @@ local MM_MICRO_BUTTON_NAMES = {
     help    = "HelpMicroButton",
 }
 
--- Plain-button click handlers (no Blizzard secure backing). Shared table:
--- they close over no instance state.
+-- Plain-button click handlers (no Blizzard secure backing). Shared table: they close over no instance state.
 local mmClickFunctions = {}
 mmClickFunctions.menu = function(_, button)
     if button == "LeftButton" then
@@ -4309,8 +4055,7 @@ mmClickFunctions.pvp = function(_, button)
     if _G.TogglePVPUI then
         _G.TogglePVPUI()
     elseif _G.PVEFrame and _G.PVEFrame:IsShown() then
-        -- Behave as a toggle: close when already on the PvP tab, otherwise
-        -- switch to it.
+        -- Behave as a toggle: close when already on the PvP tab, otherwise switch to it.
         if PanelTemplates_GetSelectedTab and PanelTemplates_GetSelectedTab(_G.PVEFrame) == 2 then
             HideUIPanel(_G.PVEFrame)
         elseif PanelTemplates_SetTab then
@@ -4329,8 +4074,7 @@ mmClickFunctions.pvp = function(_, button)
 end
 mmClickFunctions.journal = function(_, button)
     if MMBlockedInCombat(button) then return end
-    -- Go through Blizzard's toggle so the frame is placed by the UI panel
-    -- system; ej:Show() directly would bypass ShowUIPanel.
+    -- Go through Blizzard's toggle so the frame is placed by the UI panel system; ej:Show() directly would bypass ShowUIPanel.
     if _G.ToggleEncounterJournal then
         _G.ToggleEncounterJournal()
     else
@@ -4342,10 +4086,9 @@ mmClickFunctions.journal = function(_, button)
     end
 end
 
--- Blizzard micro menu hider. Calling frame:Hide() from addon Lua on Edit
--- Mode managed frames (MicroMenuContainer) writes taint into the managed
--- frame system; the next ActionBarController_UpdateAll (e.g. vehicle exit)
--- is then blocked. The hider's _onstate-vis runs inside the secure context.
+-- Blizzard micro menu hider. Calling frame:Hide() from addon Lua on Edit Mode managed
+-- frames (MicroMenuContainer) taints the managed frame system, blocking the next
+-- ActionBarController_UpdateAll (e.g. vehicle exit); the hider's _onstate-vis runs inside the secure context instead.
 local mmHiders = {}
 local function MMGetHider(frame)
     local hider = mmHiders[frame]
@@ -4361,19 +4104,14 @@ local function MMGetHider(frame)
     return hider
 end
 
--- Union semantics (DECIDED): Blizzard's micro menu is hidden iff ANY
--- micromenu block on an enabled, non-deleted bar has
--- settings.disableBlizzardMicroMenu. Recomputed on every micromenu
--- Refresh/Destroy and every bar enable/disable/delete (engine calls this
--- from AfterBarStateChange).
+-- Union semantics: Blizzard's micro menu is hidden iff ANY micromenu block on an
+-- enabled, non-deleted bar sets settings.disableBlizzardMicroMenu. Recomputed on
+-- every micromenu Refresh/Destroy and every bar enable/disable/delete (engine calls this from AfterBarStateChange).
 local mmLastApplied = nil  -- last driver state pushed ("hide"/"show"); nil = never touched
--- force: re-push the driver even when the wanted state has not changed. The
--- driver is registered with a CONSTANT state string, so its snippet runs once
--- at registration and never re-evaluates -- which means anything that hides
--- the container afterwards (a pet battle taking the screen) is never undone,
--- and the steady-state guard below makes every later refresh a no-op. Callers
--- that know an EXTERNAL actor moved the container pass force to re-assert it.
--- Settings-driven callers pass nothing and are unchanged.
+-- force: re-push the driver even when the wanted state is unchanged. The driver registers
+-- a CONSTANT state string, so its snippet runs once and never re-evaluates: anything that
+-- hides the container later (a pet battle) is never undone, and the steady-state guard below
+-- makes later refreshes no-ops. Callers repairing an EXTERNAL actor's move pass force; settings-driven callers pass nothing.
 function ns.RefreshMicroMenuHider(force)
     local hide = false
     local profile = ns.GetProfile()
@@ -4391,20 +4129,15 @@ function ns.RefreshMicroMenuHider(force)
             end
         end
     end
-    -- Never touch Blizzard's micro menu until a block has actually opted in:
-    -- with nothing ever applied, a "show" result needs no restore, so bars
-    -- without micromenu blocks never create hiders on the managed frames.
+    -- Never touch Blizzard's micro menu until a block opts in: with nothing applied a "show" needs no restore, so no hiders on the managed frames.
     if not hide and mmLastApplied == nil then return end
-    -- Steady-state guard: re-registering the same driver re-runs the secure
-    -- snippet (and re-Shows the target) for no reason. Only push changes --
-    -- unless a caller is repairing an external hide, where re-running the
-    -- snippet IS the repair.
+    -- Steady-state guard: re-registering the same driver re-runs the secure snippet (and
+    -- re-Shows the target) for nothing. Push only changes, unless a caller is repairing an external hide, where the re-run IS the repair.
     local want = hide and "hide" or "show"
     if not force and want == mmLastApplied then return end
     mmLastApplied = want
     ns.DeferUntilOOC("edb_mm_blizz", function()
-        -- Build the target list without array holes (any of these globals
-        -- may be absent on a given client).
+        -- Build the target list without array holes (any of these globals may be absent on a given client).
         local targets = {}
         if _G.MicroMenuContainer then targets[#targets + 1] = _G.MicroMenuContainer end
         if _G.MainMenuBarMicroButtons then targets[#targets + 1] = _G.MainMenuBarMicroButtons end
@@ -4419,13 +4152,10 @@ function ns.RefreshMicroMenuHider(force)
     end)
 end
 
--- Character stats tooltip (opt-in via the micromenu block's charStatsTooltip
--- setting). Fixed set: equipped item level, primary stat, and the four
--- secondary percentages with their raw combat rating in parentheses. The
--- versatility read is wrapped in pcall -- GetVersatilityBonus /
--- GetCombatRatingBonus can hand back a Midnight "secret value" under
--- addon-tainted execution, and any arithmetic on it errors, so the line is
--- dropped rather than crashing the whole tooltip.
+-- Character stats tooltip (opt-in via charStatsTooltip). Fixed set: equipped item
+-- level, primary stat, and the four secondary percentages with raw combat rating in
+-- parentheses. Versatility is pcall-wrapped: GetVersatilityBonus/GetCombatRatingBonus
+-- can return a secret value under tainted execution (arithmetic on it errors), so drop the line instead.
 local CS_DIM = "|cffaaaaaa"
 
 local function MMPrimaryStat()
@@ -4440,11 +4170,9 @@ end
 
 local function MMAddCharStats()
     local ar, ag, ab = ns.GetAccent()
-    -- Stat reads return SECRET numbers in restricted content. They do NOT
-    -- error on read: format() quietly carries the secret into the row text,
-    -- which then detonates in Tip_Show's width measuring. Check every value
-    -- and drop that row alone, so the tooltip shortens per stat instead of
-    -- aborting mid-build (Tip_AddDouble also refuses secret rows as a net).
+    -- Stat reads return SECRET numbers in restricted content. They do NOT error on
+    -- read: format() carries the secret into the row text, which detonates in
+    -- Tip_Show's width measuring. Check every value and drop that row alone (Tip_AddDouble also refuses secret rows as a net).
     local function clean(v)
         if issecretvalue(v) then return nil end
         return v or 0
@@ -4489,27 +4217,20 @@ local function MMAddCharStats()
     end
 end
 
--- Interactive Social / Guild tooltips (opt-in via socialTooltip): the online
--- member lists ported from the WonderBar micro menu WITHOUT LibQTip. Rows go
--- through the owned Tip system's insecure clickable-row primitive
--- (Tip_AddClickable); every action taken -- whisper, invite, BNet whisper --
--- is an UNPROTECTED call, so the rows stay clickable in and out of combat.
--- Shift is the fixed invite modifier (the WonderBar default).
+-- Interactive Social / Guild tooltips (opt-in via socialTooltip): online member lists
+-- built on the owned Tip system's insecure clickable-row primitive (Tip_AddClickable).
+-- Every action (whisper/invite/BNet whisper) is UNPROTECTED, so rows stay clickable in and out of combat. Shift is the fixed invite modifier.
 
--- Taint-safe whisper (mirrors the EllesmereUI minimap friends tooltip): BNet
--- friends are reached by Battle.net account name (any character/faction/realm),
--- everyone else by character name. The explicit DEFAULT_CHAT_FRAME argument
--- skips ChatFrame_SendTell's FCF_OpenTemporaryWindow path, which drives the 12.0
--- secret window list and tainted all of chat. Whispering is suppressed in
--- protected content (Mythic+/raid), where chat is taint-sensitive; invites are
--- unaffected (C_PartyInfo.InviteUnit opens no chat window).
+-- Taint-safe whisper (mirrors the minimap friends tooltip): BNet friends by
+-- Battle.net account name (any character/faction/realm), everyone else by character
+-- name. Explicit DEFAULT_CHAT_FRAME skips ChatFrame_SendTell's FCF_OpenTemporaryWindow
+-- path, which drives the secret window list and taints all of chat. Whispers are
+-- suppressed in protected content (Mythic+/raid); invites are unaffected (InviteUnit opens no window).
 local function MMOpenWhisper(charName, bnetName)
-    -- Suppress whispers wherever chat is taint-sensitive: (1) protected content,
-    -- and (2) while /euidev is on -- it forces addonChallengeModeRestrictionsForced,
-    -- i.e. the same secret-value restricted environment as a real Mythic+, so chat
-    -- would taint there too. InProtectedInstance() does NOT see the forced CVar, so
-    -- the dev-mode check is separate. Same guard shape as the minimap friends
-    -- tooltip whisper.
+    -- Suppress whispers wherever chat is taint-sensitive: (1) protected content, (2)
+    -- while /euidev is on -- it forces the same secret-value restricted environment
+    -- as a real Mythic+. InProtectedInstance() itself reports true in dev mode; the
+    -- separate branch exists only for the clearer message.
     local blocked
     if EllesmereUI and EllesmereUI.IsDevModeActive and EllesmereUI.IsDevModeActive() then
         blocked = "This action is protected while dev mode (/euidev) is on."
@@ -4530,8 +4251,7 @@ local function MMOpenWhisper(charName, bnetName)
     end
 end
 
--- GuildRoster() itself fires GUILD_ROSTER_UPDATE, and the server rate-limits
--- it (~10s); throttle so hovering the guild button does not spam requests.
+-- GuildRoster() itself fires GUILD_ROSTER_UPDATE, and the server rate-limits it (~10s); throttle so hovering the guild button does not spam requests.
 local mmLastTipRoster = 0
 
 local function MMBuildSocialTip()
@@ -4542,9 +4262,7 @@ local function MMBuildSocialTip()
 
     ns.Tip_AddLine(" ")
 
-    -- Only people actually in WoW: Battle.net app / other-game friends add
-    -- nothing in-game and are one click away in the real menu. Same filter the
-    -- minimap friends tooltip uses (gameAccountInfo.clientProgram == "WoW").
+    -- Only people actually in WoW: app / other-game friends add nothing here. Same filter as the minimap tooltip (gameAccountInfo.clientProgram=="WoW").
     local shown = 0
 
     -- BNet friends in WoW. Indices are unsorted, so iterate all and filter.
@@ -4557,9 +4275,7 @@ local function MMBuildSocialTip()
             local icon    = FRIENDS_TEXTURE_ONLINE
             if acc.isAFK or ga.isGameAFK  then icon = FRIENDS_TEXTURE_AFK end
             if acc.isDND or ga.isGameBusy then icon = FRIENDS_TEXTURE_DND end
-            -- Left text carries NO |c codes so the hover recolor (Tip_Show)
-            -- shows; its normal color (Battle.net blue) rides the left-color
-            -- args. The right column keeps its own codes (it never recolors).
+            -- Left text carries NO |c codes so hover recolor (Tip_Show) shows; its blue rides the left-color args. Right column keeps its codes.
             local left  = format("|T%s:16|t %s", icon, acc.accountName or "?")
             local right = format("|cffecd672%s|r %s", charName or "?", ga.areaName or "")
             local bnetName   = acc.accountName
@@ -4588,8 +4304,7 @@ local function MMBuildSocialTip()
                 local icon = FRIENDS_TEXTURE_ONLINE
                 if fi.afk then icon = FRIENDS_TEXTURE_AFK end
                 if fi.dnd then icon = FRIENDS_TEXTURE_DND end
-                -- No |c codes on the left (hover recolor needs a plain string);
-                -- normal color rides the left-color args.
+                -- No |c codes on the left (hover recolor needs a plain string); normal color rides the left-color args.
                 local left = format("|T%s:16|t %s  %s", icon, fi.name or "?", fi.level or "")
                 local fname = fi.name
                 ns.Tip_AddClickable(left, fi.area or "", function(mouseButton)
@@ -4612,9 +4327,7 @@ local function MMBuildSocialTip()
         return
     end
 
-    -- Left-click BNet-whispers (reaches them cross-realm/faction), right-click
-    -- whispers the character directly -- distinct actions, distinct labels
-    -- (matches the WonderBar micro menu: no duplicated "Whisper" hint).
+    -- Left-click BNet-whispers (reaches them cross-realm/faction), right-click whispers the character directly: distinct actions, distinct labels.
     ns.Tip_AddLine(" ")
     ns.Tip_AddDouble(L["LEFT_CLICK"],       L["WHISPER_BNET"], 1, 1, 1, ar, ag, ab)
     ns.Tip_AddDouble(L["SHIFT_LEFT_CLICK"], L["INVITE"],       1, 1, 1, ar, ag, ab)
@@ -4646,8 +4359,7 @@ local function MMBuildGuildTip()
             if cc then clr, clg, clb = cc.r, cc.g, cc.b end
             local st  = (status == 1 and DEFAULT_AFK_MESSAGE) or (status == 2 and DEFAULT_DND_MESSAGE) or ""
             local cn  = name and name:match("[^-]+") or "?"
-            -- Left plain (no |c): the class color rides the left-color args so
-            -- the hover recolor to accent shows, like the M+ teleport rows.
+            -- Left plain (no |c): the class color rides the left-color args so the hover recolor to accent shows, like the M+ teleport rows.
             local left  = format("%s  %s %s", level or "", cn, st)
             local fname = name
             ns.Tip_AddClickable(left, zone or "", function(mouseButton)
@@ -4672,15 +4384,11 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
         "GUILD_ROSTER_UPDATE", "BN_FRIEND_ACCOUNT_ONLINE", "BN_FRIEND_ACCOUNT_OFFLINE",
         "FRIENDLIST_UPDATE",
         "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED", "PLAYER_ENTERING_WORLD",
-        -- A pet battle takes the screen over and hides both this block's
-        -- buttons and, with Disable Blizzard Micro Menu on, Blizzard's own
-        -- container. Neither comes back on its own (see the handler below).
-        -- Both end events are registered: OVER fires while the result panel is
-        -- still up and CLOSE when the world UI actually returns, and which one
-        -- lands last differs between a win, a forfeit and a flee. The handler
-        -- is idempotent, so the occasional double call is harmless.
-        -- OPENING_START is deliberately NOT registered: refreshing into the
-        -- takeover restores nothing and only risks fighting it.
+        -- A pet battle hides this block's buttons and, with Disable Blizzard Micro
+        -- Menu on, Blizzard's container; neither returns on its own. BOTH end events
+        -- are registered: OVER fires while the result panel is up, CLOSE when the world
+        -- UI returns, and which lands last differs per win/forfeit/flee (handler is
+        -- idempotent). OPENING_START is NOT registered: refreshing into the takeover restores nothing.
         "PET_BATTLE_OVER", "PET_BATTLE_CLOSE",
     }
 
@@ -4695,14 +4403,12 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
     local function BC() return barCtx.cfg end
 
     local function GetIconSize()
-        -- Fixed content size: the bar's Height setting never scales the
-        -- icons (Content Scale does).
+        -- Fixed content size: bar Height never scales icons (Content Scale does).
         return max(16, floor(CONTENT_BASE * 0.82 + 0.5))
     end
 
     local function SocialFontSize()
-        -- 0.3667 ratio = 11px at the 30px base (user-tuned: 16 -> 12 ->
-        -- 9 -> 11).
+        -- 0.3667 ratio = 11px at the 30px base.
         return max(7, floor(CONTENT_BASE * 0.3667 + 0.5))
     end
 
@@ -4766,11 +4472,8 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
         end
 
         if name == 'char' and D().charStatsTooltip then
-            -- Secret handling lives inside: every stat value is
-            -- issecretvalue-checked (secret reads do not error, they poison
-            -- the row text and detonate later in Tip_Show's measuring). The
-            -- pcall is only a last resort so an API surprise never kills the
-            -- rest of the tooltip.
+            -- Secret handling lives inside (every stat value is issecretvalue-checked);
+            -- pcall is only a last resort so an API surprise never kills the rest of the tooltip.
             pcall(MMAddCharStats)
         end
 
@@ -4784,9 +4487,8 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
     local function SetupButtonScripts(name, frame)
         local isSecure = frame:GetAttribute("*clickbutton1") ~= nil
         if not isSecure then
-            -- Plain button (special actions with no Blizzard micro button:
-            -- menu, pvp; plus spell/journal on clients missing the global).
-            -- Safe to call EnableMouse and SetScript freely.
+            -- Plain button (special actions with no Blizzard micro button: menu, pvp;
+            -- plus spell/journal on clients missing the global). Safe to call EnableMouse/SetScript freely.
             frame:EnableMouse(true)
             frame:RegisterForClicks("AnyUp")
             local fn = mmClickFunctions[name]
@@ -4813,9 +4515,8 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
                 textFS[name]:SetTextColor(r, g, b, 1)
             end
             if InCombatLockdown() then
-                -- The FULL tooltip reads combat-restricted surfaces (char
-                -- stat secrets, guild/social rosters) -- in lockdown show a
-                -- plain our-Tip notice instead of nothing.
+                -- The FULL tooltip reads combat-restricted surfaces (char stat
+                -- secrets, guild/social rosters); in lockdown show a notice.
                 local def = mmButtonDefsByKey[name]
                 ns.Tip_Begin(frame)
                 ns.Tip_AddLine('|cFFFFFFFF' .. ((def and def.label) or name) .. '|r', 1, 1, 1)
@@ -4833,14 +4534,12 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
         end)
     end
 
-    -- Create one button frame (idempotent). Returns nil in combat: secure
-    -- frame creation/attribute setup must wait for PLAYER_REGEN_ENABLED.
+    -- Create one button frame (idempotent). Returns nil in combat: secure frame creation/attribute setup must wait for PLAYER_REGEN_ENABLED.
     local function EnsureButtonFrame(def)
         local key = def.key
         if frames[key] then return frames[key] end
         if InCombatLockdown() then
-            -- Secure creation must wait for regen; the deferred marker is
-            -- the only thing that still hides the strip in combat.
+            -- Secure creation must wait for regen; the deferred marker is the only thing that still hides the strip in combat.
             inst._mmDeferred = true
             return nil
         end
@@ -4865,16 +4564,13 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
             frame = CreateFrame("Button", gname, content,
                 "SecureActionButtonTemplate,SecureHandlerStateTemplate")
             frame:SetAttribute("*clickbutton1", microRef)
-            -- Without this, the ActionButtonUseKeyDown CVar makes the secure
-            -- handler act on key-down only, discarding our "AnyUp" clicks.
+            -- Without this, the ActionButtonUseKeyDown CVar makes the secure handler act on key-down only, discarding our "AnyUp" clicks.
             frame:SetAttribute("useOnKeyDown", false)
             frame:SetAttribute("*type1", "click")
             frame:EnableMouse(true)
             frame:RegisterForClicks("AnyUp")
-            -- Combat: drop the click ACTION only, from within the secure
-            -- environment. The button stays mouse-enabled so hover keeps
-            -- working (OnEnter shows the combat notice tooltip); a click
-            -- while *type1 is nil simply does nothing.
+            -- Combat: drop the click ACTION only, from inside the secure env. Stays
+            -- mouse-enabled so hover works (OnEnter shows the combat notice); a click while *type1 is nil does nothing.
             RegisterStateDriver(frame, "combatlock", "[combat] combat; nocombat")
             frame:SetAttribute("_onstate-combatlock", [[
                 if newstate == 'combat' then
@@ -4900,26 +4596,21 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
         return frame
     end
 
-    -- Materialise buttons for every enabled key. Tolerates a nil/partial
-    -- set in combat; the REGEN_ENABLED event retries.
+    -- Materialise buttons for every enabled key. Tolerates a nil/partial set in combat; the REGEN_ENABLED event retries.
     local function CreateFramesInner()
         local mm = D()
         for _, def in ipairs(mmButtonDefs) do
             if mm[def.key] then EnsureButtonFrame(def) end
         end
-        -- A full out-of-combat pass clears the deferred marker (buttons
-        -- that legitimately cannot exist, e.g. housing without its micro
-        -- button, do not count as deferred).
+        -- A full out-of-combat pass clears the deferred marker (buttons that cannot exist, e.g. housing without its micro button, do not count).
         if not InCombatLockdown() then inst._mmDeferred = nil end
     end
 
     local function ApplyCombatState()
-        -- Combat no longer hides the strip or kills mouse: every button
-        -- stays visible and hoverable (the combat notice tooltip), and
-        -- clicks are inert in lockdown (secure buttons drop *type1 via
-        -- their state driver). The one combat hide left: a strip whose
-        -- enabled buttons could not all be built yet (first enable during
-        -- combat) stays hidden until the REGEN retry materialises them.
+        -- Combat does not hide the strip or kill mouse: buttons stay visible and
+        -- hoverable (combat notice tooltip), clicks are inert in lockdown (secure
+        -- buttons drop *type1 via their state driver). The one combat hide left: a strip
+        -- whose enabled buttons could not all be built yet stays hidden until the REGEN retry materializes them.
         if inst._mmDeferred and InCombatLockdown() then
             content:Hide()
         else
@@ -4934,8 +4625,7 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
             textFS.guild:Hide()
             return
         end
-        -- Throttled: GuildRoster() itself fires GUILD_ROSTER_UPDATE, which
-        -- re-enters this function; unthrottled that is a request loop.
+        -- Throttled: GuildRoster() itself fires GUILD_ROSTER_UPDATE, which re-enters this function; unthrottled that is a request loop.
         local now = GetTime()
         if not InCombatLockdown() and (now - lastRosterRequest) >= 15 then
             lastRosterRequest = now
@@ -4951,8 +4641,7 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
             textFS.guild:SetTextColor(BlockColorOf(blockCfg))
         end
         textFS.guild:SetText(online)
-        -- Plain button-center anchor: the block's Text Position offsets are
-        -- the ONE positioning input (the wrapper injects them here).
+        -- Plain button-center anchor: the block's Text Position offsets are the ONE positioning input (the wrapper injects them here).
         textFS.guild:SetPoint('CENTER', frames.guild, 'CENTER', 0, 0)
         if bgTexture.guild then
             bgTexture.guild:SetPoint('CENTER', textFS.guild)
@@ -5010,10 +4699,8 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
                 if icons[key] then
                     icons[key]:ClearAllPoints()
                     icons[key]:SetPoint("CENTER")
-                    -- The drawn image sits 6px smaller than the button (the
-                    -- click target and layout keep ICON_SIZE). Uniform for
-                    -- the whole set: the old housing 84% special case was
-                    -- compensation for the previous art and is gone.
+                    -- The drawn image sits 6px smaller than the button (click target and
+                    -- layout keep ICON_SIZE). Uniform for the whole set, no per-button special cases.
                     local iconSize = max(8, ICON_SIZE - 6)
                     icons[key]:SetSize(iconSize, iconSize)
                     icons[key]:SetVertexColor(BlockColorOf(blockCfg))
@@ -5059,24 +4746,17 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
             or event == 'FRIENDLIST_UPDATE' then
             UpdateFriendText()
         elseif event == 'PET_BATTLE_OVER' or event == 'PET_BATTLE_CLOSE' then
-            -- Two separate things are hidden by a pet battle and neither
-            -- restores itself:
-            --   * this block's own buttons -- rebuilt by the same
-            --     ApplyCombatState + Refresh pair the REGEN branch below uses;
-            --   * Blizzard's micro menu container, when a block has opted into
-            --     hiding it. Its hider runs off a CONSTANT state driver, so the
-            --     snippet fired once at registration and nothing re-asserts it.
-            --     force makes the refresh re-push instead of no-opping on the
-            --     unchanged state, and re-registering re-runs the snippet.
-            -- Both are safe here: Refresh is what the REGEN path already calls
-            -- in combat, and the hider defers its driver work until out of
-            -- combat on its own.
+            -- A pet battle hides two things, neither self-restoring: this block's
+            -- buttons (rebuilt by the same ApplyCombatState+Refresh pair REGEN uses),
+            -- and Blizzard's micro menu container if a block opted into hiding it --
+            -- its hider runs off a CONSTANT state driver, so the snippet fires once and
+            -- nothing re-asserts it; force makes the refresh re-push and re-register it.
+            -- Both safe here: REGEN already calls Refresh in combat, and the hider defers its driver work until OOC.
             ApplyCombatState()
             self:Refresh()
             ns.RefreshMicroMenuHider(true)
         else
-            -- REGEN x2 / PLAYER_ENTERING_WORLD: retry deferred button
-            -- creation and re-apply the combat state.
+            -- REGEN x2 / PLAYER_ENTERING_WORLD: retry deferred button creation and re-apply the combat state.
             ApplyCombatState()
             self:Refresh()
         end
@@ -5165,10 +4845,8 @@ ns.BlockFactories.currency = function(blockCfg, slot, content, barCtx)
         local info = GetInfo()
         local text
         if not s.currencyId then
-            -- Bar text is drawn straight through SetText, which does not route
-            -- through the locale the way the Tip_* helpers do -- so this is the
-            -- one place the module's English table needs translating by hand,
-            -- exactly as the Great Vault block does for its own label.
+            -- Bar text goes straight through SetText, which does not route through the
+            -- locale like the Tip_* helpers, so translate by hand (as the Great Vault block does for its own label).
             text = EllesmereUI.L(L["SELECT_CURRENCY"])
         elseif info then
             if BreakUpLargeNumbers then
@@ -5257,8 +4935,7 @@ ns.BlockFactories.currency = function(blockCfg, slot, content, barCtx)
     local function ShowCurrencyTooltip()
         local s = D()
         local ar, ag, ab = ns.GetAccent()
-        -- Unconfigured: the placeholder is the whole block, so the tooltip
-        -- has to say where the currency is actually picked.
+        -- Unconfigured: the placeholder is the whole block, so the tooltip has to say where the currency is actually picked.
         if not s.currencyId then
             ns.Tip_Begin(button)
             ns.Tip_AddLine(L["SELECT_CURRENCY"], 1, 1, 1)
@@ -5279,9 +4956,7 @@ ns.BlockFactories.currency = function(blockCfg, slot, content, barCtx)
             qr, qg, qb = qc.r, qc.g, qc.b
         end
         ns.Tip_AddLine(info.name or "?", qr, qg, qb)
-        -- Some currencies carry several paragraphs of flavor text, which is
-        -- what makes the tooltip tower over the bar. Opt-out keeps the name,
-        -- the total and the click hint -- only the wall of text goes.
+        -- Some currencies carry paragraphs of flavor text that tower over the bar. Opt-out keeps name, total and click hint; only the text goes.
         if s.showDescription ~= false and info.description and info.description ~= "" then
             ns.Tip_AddLine(" ")
             ns.Tip_AddWrappedLine(info.description, 280, 0.8, 0.8, 0.8)
@@ -5313,9 +4988,10 @@ ns.BlockFactories.currency = function(blockCfg, slot, content, barCtx)
     end)
     button:SetScript("OnClick", function(_, mb)
         if mb == "LeftButton" then
-            -- No currency picked yet: the Blizzard panel cannot assign one,
-            -- so send the player to the picker instead of dead-ending there.
+            -- No currency picked yet: the Blizzard panel cannot assign one, so send the player to the picker instead of dead-ending there.
             if not D().currencyId then
+                -- Options surface is LoadOnDemand; load it so OpenBlockSettings exists.
+                if not ns.OpenBlockSettings then EllesmereUI:EnsureLoaded() end
                 if ns.OpenBlockSettings then
                     ns.OpenBlockSettings(barCtx.id, blockCfg.id, "currency")
                 end
@@ -5361,16 +5037,13 @@ end
 -------------------------------------------------------------------------------
 --  GREAT VAULT (weekly reward progress + owned / party keystones)
 --
---  The three reward rows mirror the minimap's vault tooltip: same activity
---  types, same thresholds, same done/partial/empty colors. Like the minimap,
---  the reward data is read live when the tooltip opens, so this block
---  registers no vault events at all.
+--  The three reward rows mirror the minimap's vault tooltip (same activity types,
+--  thresholds, done/partial/empty colors); reward data is read live when the
+--  tooltip opens, so this block registers NO vault events.
 --
---  Party keystones are the only asynchronous part. They ride LibKeystone
---  (BigWigs/DBM), which is injected at package time (.pkgmeta) and is absent
---  from a source checkout -- when it is missing the party section simply
---  never renders, which is also what happens for group members whose client
---  broadcasts nothing.
+--  Party keystones are the only async part, riding LibKeystone (injected at package
+--  time via .pkgmeta, absent from a source checkout -- missing, the party section
+--  just never renders, same as for group members whose client broadcasts nothing).
 -------------------------------------------------------------------------------
 local GV_RAID  = (Enum and Enum.WeeklyRewardChestThresholdType and Enum.WeeklyRewardChestThresholdType.Raid) or 3
 local GV_MPLUS = (Enum and Enum.WeeklyRewardChestThresholdType and Enum.WeeklyRewardChestThresholdType.Activities) or 1
@@ -5398,9 +5071,8 @@ end
 local _gvSortBuf  = {}
 local _gvTokenBuf = { "", "", "" }
 
--- One reward row as three tokens, each carrying its own state color inline.
--- Tip_AddColumns lays them out in pixel-aligned sub-columns so the three rows
--- line up vertically; the shared buffer is safe because it copies.
+-- One reward row as three tokens, each carrying its own state color inline. Tip_AddColumns
+-- lays them out in pixel-aligned sub-columns so the three rows line up vertically; the shared buffer is safe because it copies.
 local function GVRowTokens(activityType, isRaid)
     local acts
     if C_WeeklyRewards and C_WeeklyRewards.GetActivities then
@@ -5425,8 +5097,7 @@ local function GVRowTokens(activityType, isRaid)
             if threshold > 0 then
                 if progress >= threshold then
                     state = "done"
-                    -- A cleared M+ / world slot reports the reward level it
-                    -- earned; raids have no such level and keep the count.
+                    -- A cleared M+ / world slot reports the reward level it earned; raids have no such level and keep the count.
                     if not isRaid and level > 0 then
                         text = "+" .. level
                     else
@@ -5466,8 +5137,7 @@ local function GVShortName(name)
     return name:match("^([^-]+)") or name
 end
 
--- Keystone feed: registered on the first Enable of a Great Vault block, so a
--- user without one pays nothing per incoming keystone message.
+-- Keystone feed: registered on the first Enable of a Great Vault block, so a user without one pays nothing per incoming keystone message.
 local _gvKeys        = {}   -- ["Name-Realm"] = { mapID = n, level = n }
 local _gvLibToken    = {}
 local _gvRegistered  = false
@@ -5477,13 +5147,11 @@ local function GVLib()
     return LibStub and LibStub("LibKeystone", true)
 end
 
--- The open tooltip, so a reply landing a second after the hover can repaint it
--- in place instead of waiting for the next hover.
+-- The open tooltip, so a reply landing a second after the hover can repaint it in place instead of waiting for the next hover.
 local _gvOpenBtn, _gvOpenFn
 local _gvRepaintQueued = false
 
--- Debounced like the QoL keystone popup: a request solicits a reply from every
--- group member, and each rebuild re-lays-out the whole tooltip.
+-- Debounced like the QoL keystone popup: a request solicits a reply from every group member, and each rebuild re-lays-out the whole tooltip.
 local function GVRepaintOpenTooltip()
     if not _gvOpenFn or _gvRepaintQueued then return end
     _gvRepaintQueued = true
@@ -5500,11 +5168,9 @@ local function GVEnsureKeystoneFeed()
     local lib = GVLib()
     if not lib then return end
     _gvRegistered = true
-    -- Filtered on group membership, NOT on the delivery channel: a group member
-    -- who is also a guildmate can have their reply arrive tagged GUILD, and
-    -- dropping it would leave their row blank until some later PARTY delivery.
-    -- Membership is still required so a guild-wide reply burst (any /keys in
-    -- the guild) cannot flood the cache with players who can never be shown.
+    -- Filtered on group membership, NOT the delivery channel: a group member who is
+    -- also a guildmate can have their reply arrive tagged GUILD, and dropping it
+    -- blanks their row. Membership is still required so a guild-wide reply burst cannot flood the cache with unshowable players.
     lib.Register(_gvLibToken, function(keyLevel, keyMapID, _, playerName)
         if not playerName or not GVInGroup(playerName) then return end
         local e = _gvKeys[playerName]
@@ -5514,18 +5180,14 @@ local function GVEnsureKeystoneFeed()
     end)
 end
 
--- Polls the group over LibKeystone. Silent: this is an addon-channel request,
--- and QoL's keystone popup ignores incoming data while it is closed, so it
--- never surfaces a window. Throttled because a group filling up fires
--- GROUP_ROSTER_UPDATE repeatedly and hovering the block is cheap to repeat.
+-- Polls the group over LibKeystone. Silent: an addon-channel request, and QoL's keystone
+-- popup ignores incoming data while closed, so no window surfaces. Throttled: a filling group fires GROUP_ROSTER_UPDATE repeatedly.
 local GV_REQUEST_THROTTLE = 5
 local GV_REQUEST_FLOOR    = 1
 
--- `emptyHand` means the caller has nothing to show for this group. That is
--- exactly when the poll matters most, so it only respects a short floor: a
--- member who joined a moment ago may not have answered the roster-change
--- request yet, and swallowing the hover request too would leave the tooltip
--- blank until the user happened to re-hover after the full throttle.
+-- `emptyHand` = the caller has nothing to show for this group, exactly when the poll
+-- matters most, so it respects only a short floor: a member who just joined may not
+-- have answered the roster-change request, and swallowing the hover request too would leave the tooltip blank until a later re-hover.
 local function GVRequestKeys(emptyHand)
     local lib = GVLib()
     if not lib or not IsInGroup() then return end
@@ -5536,15 +5198,13 @@ local function GVRequestKeys(emptyHand)
     lib.Request("PARTY")
 end
 
--- The player's own unit is excluded everywhere: their key has its own row,
--- read straight from C_MythicPlus.
+-- The player's own unit is excluded everywhere: their key has its own row, read straight from C_MythicPlus.
 local function GVGroupRange()
     if IsInRaid() then return "raid", GetNumGroupMembers() end
     return "party", GetNumGroupMembers() - 1
 end
 
--- Matched on the short name, exactly like the render path, so a sender is
--- recognised whether the library reports "Name" or "Name-Realm".
+-- Matched on the short name, exactly like the render path, so a sender is recognised whether the library reports "Name" or "Name-Realm".
 function GVInGroup(playerName)
     if not IsInGroup() then return false end
     local short = GVShortName(playerName)
@@ -5556,18 +5216,14 @@ function GVInGroup(playerName)
     return false
 end
 
--- The cache is roster-scoped: without this, every player met across an evening
--- of pugs would leave a permanent entry that can never be displayed again,
--- since rendering only ever looks at the current group. Pruning only drops
--- names that are already gone, so it can never blank out a member who is still
--- here while the request throttle is closed.
+-- The cache is roster-scoped: otherwise every player met across an evening of pugs
+-- leaves a permanent entry that can never display again, since rendering only looks
+-- at the current group. Pruning drops only names already gone, so it can never blank a member still here while the request throttle is closed.
 local function GVPruneKeys()
     if not next(_gvKeys) then return end
     if not IsInGroup() then wipe(_gvKeys) return end
 
-    -- GROUP_ROSTER_UPDATE can land before the units resolve; pruning against an
-    -- unresolved roster would throw away keys that are still current, and the
-    -- next hover would pay a fresh request round-trip to get them back.
+    -- GROUP_ROSTER_UPDATE can land before units resolve; pruning an unresolved roster discards live keys and costs a request round-trip on next hover.
     local prefix, count = GVGroupRange()
     local resolved = false
     for i = 1, count do
@@ -5585,9 +5241,7 @@ local function GVSortPartyRows(a, b)
     return a.name < b.name
 end
 
--- Reused row tables (see the travel block: tooltips here avoid per-show
--- garbage). The sort swaps table REFERENCES inside the buffer, so the row
--- tables survive to be refilled on the next hover.
+-- Reused row tables (no per-show garbage). The sort swaps table REFERENCES inside the buffer, so the row tables survive to be refilled next hover.
 local _gvPartyBuf   = {}
 local _gvPartyCount = 0
 local _gvShortIdx   = {}
@@ -5601,10 +5255,8 @@ local function GVAddPartyRow(name, dungeon, level, r, g, b)
 end
 
 -- LibKeystone reports "Name-Realm" while the roster hands back a bare name for
--- same-realm members, so an exact match is tried first and the short name only
--- as a fallback. Two cross-realm members CAN share a first name, so colliding
--- short names are marked ambiguous (false) and skipped -- showing nothing beats
--- showing one member another player's key.
+-- same-realm members: try the exact match first, short name only as fallback. Two
+-- cross-realm members CAN share a first name, so colliding short names are marked ambiguous (false) and skipped -- better nothing than the wrong key.
 local function GVBuildPartyRows()
     _gvPartyCount = 0
     if not IsInGroup() then return 0 end
@@ -5686,9 +5338,7 @@ ns.BlockFactories.greatvault = function(blockCfg, slot, content, barCtx)
         local barH = barCtx.GetThickness()
         local fontSize = max(9, floor(CONTENT_BASE * 0.4333 + 0.5))
         local isSide = barCtx.IsVertical()
-        -- Routed through the core translator, not the file's English-only `L`
-        -- table: the vault terms already have catalog entries shared with the
-        -- minimap's vault tooltip, so both read the same in every locale.
+        -- Core translator, not the file's English-only `L` table: vault terms share catalog entries with the minimap's vault tooltip.
         local text = EllesmereUI.L("Great Vault")
         local iconSz = fontSize + 4
 
@@ -5773,11 +5423,9 @@ ns.BlockFactories.greatvault = function(blockCfg, slot, content, barCtx)
     button:SetScript("OnEnter", function()
         mouseOver = true
         inst:Refresh()
-        -- Paint from the cache first, then poll: a member can pick up a new key
-        -- mid-session without the group ever changing, and the row count we
-        -- just painted says whether we had anything to show -- an empty section
-        -- makes the request urgent enough to bypass the throttle. Replies land
-        -- ~1s later and repaint the tip in place.
+        -- Paint from the cache first, then poll: a member can pick up a new key without
+        -- the group changing, and the painted row count says whether we had anything --
+        -- an empty section bypasses the throttle. Replies land ~1s later and repaint the tip in place.
         local shown = ShowVaultTooltip()
         _gvOpenBtn, _gvOpenFn = button, ShowVaultTooltip
         GVRequestKeys(shown == 0)
@@ -5792,17 +5440,14 @@ ns.BlockFactories.greatvault = function(blockCfg, slot, content, barCtx)
         if mb == "LeftButton" then GVToggleVault() end
     end)
 
-    -- The block's own visuals never change with the roster; the events exist
-    -- purely to drop departed members from the cache and keep it warm ahead of
-    -- the next hover.
+    -- The block's visuals never change with the roster; these events exist only to drop departed members and keep the cache warm for the next hover.
     inst.eventFrame = MakeEventFrame(inst, function()
         GVPruneKeys()
         GVRequestKeys()
     end)
 
-    -- Teardown can happen while the tip is open (a bar rebuild never fires
-    -- OnLeave), and _gvOpenFn is module-level: left set, it would pin this
-    -- factory's whole scope for the rest of the session.
+    -- Teardown can happen while the tip is open (a bar rebuild never fires OnLeave),
+    -- and _gvOpenFn is module-level: left set, it would pin this factory's whole scope for the rest of the session.
     local function ForgetOpenTip()
         if _gvOpenBtn == button then _gvOpenBtn, _gvOpenFn = nil, nil end
     end
@@ -5841,8 +5486,7 @@ end
 -------------------------------------------------------------------------------
 -------------------------------------------------------------------------------
 --  AUDIO (interactive volume bar; channel picked in block settings)
---  Volume rides the sound CVars (same model as XIV's volume module); the
---  CVars are unprotected, so reads and writes are combat-legal.
+--  Volume rides the sound CVars, which are unprotected: reads and writes are combat-legal.
 -------------------------------------------------------------------------------
 local AUDIO_CHANNELS = {
     master   = { cvar = "Sound_MasterVolume",   label = "AUDIO_MASTER" },
@@ -5888,16 +5532,14 @@ ns.BlockFactories.audio = function(blockCfg, slot, content, barCtx)
     local audioIcon = audioButton:CreateTexture(nil, "OVERLAY")
     audioIcon:SetTexture(AUDIO_TEX)
 
-    -- Volume bar: flat fill + dark track, same visual recipe as the
-    -- profession skill bars.
+    -- Volume bar: flat fill + dark track, same visual recipe as the profession skill bars.
     local volTrack = audioButton:CreateTexture(nil, "BACKGROUND")
     volTrack:SetColorTexture(0.15, 0.15, 0.15, 0.6)
     local volBar = CreateFrame("StatusBar", nil, audioButton)
     volBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
     volBar:SetMinMaxValues(0, 1)
 
-    -- Drag hit frame: covers the track plus 4px above/below so the thin
-    -- bar is easy to grab; clicks on the icon never set the volume.
+    -- Drag hit frame: covers the track plus 4px above/below so the thin bar is easy to grab; clicks on the icon never set the volume.
     local hit = CreateFrame("Button", nil, audioButton)
     hit:EnableMouse(true)
 
@@ -5911,8 +5553,7 @@ ns.BlockFactories.audio = function(blockCfg, slot, content, barCtx)
         local frac = (cx - left) / w
         if frac < 0 then frac = 0 elseif frac > 1 then frac = 1 end
         SetVol(frac)
-        -- Direct paint for zero-lag feedback; the CVAR_UPDATE refresh
-        -- reconciles anything else (tooltip, other blocks).
+        -- Direct paint for zero-lag feedback; the CVAR_UPDATE refresh reconciles anything else (tooltip, other blocks).
         volBar:SetValue(frac)
     end
 
@@ -5935,8 +5576,7 @@ ns.BlockFactories.audio = function(blockCfg, slot, content, barCtx)
         inst:Refresh()
     end)
 
-    -- Right-click: exact-value entry through the house input popup (never
-    -- StaticPopup). Accepts 0-100; non-numbers are ignored.
+    -- Right-click: exact-value entry through the house input popup (never StaticPopup). Accepts 0-100; non-numbers are ignored.
     local function OpenVolumeInput()
         local ch = Chan()
         local cur = floor(GetVol() * 100 + 0.5)
@@ -6012,8 +5652,7 @@ ns.BlockFactories.audio = function(blockCfg, slot, content, barCtx)
         local barW = max(40, floor(CONTENT_BASE * 2 + 0.5))
         local bH = 5
 
-        -- Show Icon (default ON): hidden drops the icon and its gap from
-        -- the layout entirely.
+        -- Show Icon (default ON): hidden drops the icon and its gap entirely.
         local showIcon = D().showIcon ~= false
         if showIcon then audioIcon:Show() else audioIcon:Hide(); iconSz = 0 end
 

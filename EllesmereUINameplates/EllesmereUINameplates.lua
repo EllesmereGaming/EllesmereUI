@@ -1,42 +1,22 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 local addon, ns = ...
+if not (EllesmereUI and EllesmereUI._ModuleNS) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+EllesmereUI._ModuleNS[addon] = ns  -- LOD options files read this module ns via the registry
 
 local ENP = EllesmereUI.Lite.NewAddon("EllesmereUINameplates")
 
--- Profile alias: set in OnInitialize, nil before that.
--- Getters fall back to defaults when p is nil (brief window before init).
+-- Profile alias: set in OnInitialize; getters fall back to defaults while nil.
 local p
 
 local pairs, ipairs, type = pairs, ipairs, type
 local PP = EllesmereUI.PP
--- Pre-hook SetTexture original for pooled aura-slot icons (snap-disabled
--- once at creation, so the pixel-snap hook is pure overhead for them).
--- Upgraded to PP.RawSetTexture in OnEnable; starts as a plain wrapper so
--- it is never nil.
+-- Pre-hook SetTexture for pooled aura-slot icons (snap-disabled at creation, so
+-- the pixel-snap hook is pure overhead). Upgraded to PP.RawSetTexture in
+-- OnEnable; starts as a plain wrapper so it is never nil.
 local RawSetTex = function(t, v) t:SetTexture(v) end
 local UnitHealth, UnitHealthMax = UnitHealth, UnitHealthMax
 local UnitGetTotalAbsorbs = UnitGetTotalAbsorbs
 local C_UnitAuras = C_UnitAuras
-local C_UnitAuras_GetAuraAppDisplayCount = C_UnitAuras and C_UnitAuras.GetAuraApplicationDisplayCount
-local C_UnitAuras_GetAuraDuration = C_UnitAuras and C_UnitAuras.GetAuraDuration
--- Permanent / no-duration auras (enemy buffs in M+, until-dispelled debuffs)
--- return a degenerate (0,0) duration object whose armed CooldownFrame strobes:
--- the client internally shows the reversed swipe then self-hides on every aura
--- rescan, and Lua show/hide gating CANNOT stop it. Mask it with ALPHA (which is
--- orthogonal to the client's internal show/hide) so the strobe renders
--- invisibly -- the exact fix used at the raid-frame aura sites. IsZero() may be
--- a secret boolean for enemy auras, so it is only ever fed to SetAlphaFromBoolean,
--- never branched on. baseAlpha is 1 (the cd frame's normal opacity); the stack
--- count lives on a separate carrier so it survives the mask.
-local function NP_ArmAuraCooldown(cd, durObj)
-    if not (cd and durObj and cd.SetCooldownFromDurationObject) then return false end
-    cd:SetCooldownFromDurationObject(durObj)
-    if durObj.IsZero and cd.SetAlphaFromBoolean then
-        cd:SetAlphaFromBoolean(durObj:IsZero(), 0, 1)
-    elseif cd.SetAlpha then
-        cd:SetAlpha(1)
-    end
-    return true
-end
 local UnitName, UnitGUID = UnitName, UnitGUID
 local UnitIsUnit, UnitCanAttack = UnitIsUnit, UnitCanAttack
 local UnitIsEnemy, UnitIsTapDenied = UnitIsEnemy, UnitIsTapDenied
@@ -56,13 +36,12 @@ local function GetFont()
     if EllesmereUI and EllesmereUI.GetFontPath then
         return EllesmereUI.GetFontPath("nameplates")
     end
-    -- The `defaults` local is declared below this function, so it is not in
-    -- scope here; fall back to the literal default font path.
+    -- `defaults` is declared below this function, so use the literal path.
     return (p and p.font) or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
 end
 local function GetNPOutline()
-    -- Already slug-gated at the source (GetFontOutlineFlag); SetFSFont also
-    -- gates the explicit-flag path, so aura literals are covered too.
+    -- Slug-gated at the source (GetFontOutlineFlag); SetFSFont gates the
+    -- explicit-flag path too, so aura literals are covered.
     return (EllesmereUI and EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("nameplates")) or "OUTLINE, SLUG"
 end
 local function GetNPUseShadow()
@@ -71,10 +50,10 @@ end
 local function SetFSFont(fs, size, flags)
   if not (fs and fs.SetFont) then return end
   local f = flags or GetNPOutline()
-  -- "Never Show Slug": gate the explicit-flag path here so hardcoded aura
-  -- "OUTLINE, SLUG" literals drop the slug too (body text is already gated).
+  -- "Never Show Slug": gates the explicit-flag path so hardcoded aura
+  -- "OUTLINE, SLUG" literals drop the slug (body text is gated at the source).
   if EllesmereUI and EllesmereUI.SlugFlag then f = EllesmereUI.SlugFlag(f) end
-  -- 12.0.7: drop shadows only render from a FontObject; prime before SetFont.
+  -- Drop shadows only render from a FontObject; prime before SetFont.
   if EllesmereUI and EllesmereUI.PrimeFontShadow then
     EllesmereUI.PrimeFontShadow(fs, f == "")
   end
@@ -88,12 +67,11 @@ ns.SetFSFont = SetFSFont
 ns.plates = {}
 _G.EllesmereNameplates_NS = ns
 
--- External weak-keyed table for nameplate Y-offset state (never write custom
--- keys onto Blizzard C_NamePlate frames -- causes taint).
+-- Weak-keyed external state for nameplate Y-offsets: never write custom keys
+-- onto Blizzard C_NamePlate frames (taint).
 local _npYOffsetState = setmetatable({}, { __mode = "k" })
 
--- Constant table for health text bar slots (hoisted to file scope to avoid
--- per-call allocation inside UpdateHealthValues).
+-- Health text bar slots; file scope to avoid per-call alloc in UpdateHealthValues.
 local HP_BAR_SLOTS = {
     { key = "textSlotRight",  anchor = "RIGHT",  point = "RIGHT",  xOff = -2 },
     { key = "textSlotLeft",   anchor = "LEFT",   point = "LEFT",   xOff = 4 },
@@ -111,8 +89,8 @@ ns.NP_ABSORB_STYLE_ALPHA = {
     clean    = 0.3,
 }
 
--- Overflow for _displayPresetKeys: defined outside the main function
--- scope to stay under Lua 5.1's 200-local limit.
+-- Overflow for _displayPresetKeys; outside the main function scope to stay
+-- under Lua 5.1's 200-local limit.
 function ns._appendDisplayPresetKeys(t)
     for _, k in ipairs({
         "topSlotSize", "topSlotXOffset", "topSlotYOffset", "topSlotRaiseStrata",
@@ -120,10 +98,10 @@ function ns._appendDisplayPresetKeys(t)
         "leftSlotSize", "leftSlotXOffset", "leftSlotYOffset", "leftSlotRaiseStrata",
         "toprightSlotSize", "toprightSlotXOffset", "toprightSlotYOffset", "toprightSlotGrowth", "toprightSlotRaiseStrata",
         "topleftSlotSize", "topleftSlotXOffset", "topleftSlotYOffset", "topleftSlotGrowth", "topleftSlotRaiseStrata",
-        "textSlotTopSize", "textSlotTopXOffset", "textSlotTopYOffset",
-        "textSlotRightSize", "textSlotRightXOffset", "textSlotRightYOffset",
-        "textSlotLeftSize", "textSlotLeftXOffset", "textSlotLeftYOffset",
-        "textSlotCenterSize", "textSlotCenterXOffset", "textSlotCenterYOffset",
+        "textSlotTopSize", "textSlotTopXOffset", "textSlotTopYOffset", "textSlotTopStrata",
+        "textSlotRightSize", "textSlotRightXOffset", "textSlotRightYOffset", "textSlotRightStrata",
+        "textSlotLeftSize", "textSlotLeftXOffset", "textSlotLeftYOffset", "textSlotLeftStrata",
+        "textSlotCenterSize", "textSlotCenterXOffset", "textSlotCenterYOffset", "textSlotCenterStrata",
         "textSlotTopColor", "textSlotRightColor", "textSlotLeftColor", "textSlotCenterColor",
         "tankHasAggroEnabled", "tankHasAggro", "classicTankAggro", "tankHasAggroOverrideMobType",
         "tankHasAggroOverrideBoss",
@@ -170,14 +148,8 @@ local defaults = {
     focusOverlayTexture = "striped-v2",
     focusOverlayAlpha = 1.0,
     focusOverlayColor = { r = 1.0, g = 1.0, b = 1.0 },
-    -- When on, the empty portion of the bar shows the focus texture at full
-    -- opacity instead of the dimmed (30%) default, so the pattern reads evenly.
-    focusOverlayFullBgAlpha = false,
-    -- No Tint: the focus overlay renders exactly as normal but tints with
-    -- the bar's current health color instead of focusOverlayColor, so the
-    -- pattern reads in the bar's own color. Opacity/FullBgAlpha still apply;
-    -- only the custom color is bypassed.
-    focusOverlayNoTint = false,
+    focusOverlayFullBgAlpha = false,  -- on: empty bar shows focus texture at full opacity (vs dimmed 30% default)
+    focusOverlayNoTint = false,  -- on: overlay tints with the bar's health color instead of focusOverlayColor
     focusLetterEnabled = false,
     focusLetterAnchor = "CENTER",
     focusLetterX = 0,
@@ -188,55 +160,39 @@ local defaults = {
     targetOverlayTexture = "none",
     targetOverlayAlpha = 1.0,
     targetOverlayColor = { r = 1.0, g = 1.0, b = 1.0 },
-    -- When on, the empty portion of the bar shows the target texture at full
-    -- opacity instead of the dimmed (30%) default, so the pattern reads evenly.
-    targetOverlayFullBgAlpha = false,
-    -- No Tint: mirrors focusOverlayNoTint above, for the target overlay
-    -- (bar-color tint source; opacity/fullbg still apply).
-    targetOverlayNoTint = false,
+    targetOverlayFullBgAlpha = false,  -- on: empty bar shows target texture at full opacity instead of dimmed 30%
+    targetOverlayNoTint = false,  -- mirrors focusOverlayNoTint, for the target overlay
     hoverOverlayTexture = "none",
     caster  = { r = 0.231, g = 0.510, b = 0.965 },
     miniboss = { r = 0.518, g = 0.243, b = 0.984 },
     boss = { r = 0.518, g = 0.243, b = 0.984 },
     enemyInCombat = { r = 0.800, g = 0.137, b = 0.137 },
-    -- "Mini Enemies" (non-elite trash) has NO static default: when unset it views
-    -- the user's enemyInCombat color, so it starts identical to "Enemies" and the
-    -- user customizes from there (see GetReactionColor).
-    -- Mini Coloring M+ Only: on = restrict the Mini Enemies color to 5-man
-    -- dungeons; off = apply it everywhere (default; see GetReactionColor).
-    miniColoringMPlusOnly = false,
-    -- Full Coloring M+ Only (inline cog on Enemy Types): off by default.
-    -- On: outside 5-man dungeons, the mob-type special colors (Mini Enemies,
-    -- Spell Casters, Mini-Bosses, Bosses) collapse into the single flat
-    -- owBasicColor; Neutral keeps its own color (see GetReactionColor).
-    -- Keys keep their original owBasic* names (formerly "Open World Basic
-    -- Coloring", which gated on any instance instead of dungeons).
+    -- "Mini Enemies" (non-elite trash) has no static default: unset views enemyInCombat, so it
+    -- starts identical to "Enemies" (see GetReactionColor).
+    miniColoringMPlusOnly = false,  -- on = Mini Enemies color only in 5-mans; off = everywhere
+    -- Full Coloring M+ Only (inline cog on Enemy Types): outside 5-mans, mob-type colors (Mini
+    -- Enemies/Casters/Mini-Bosses/Bosses) collapse to owBasicColor; Neutral stays own color.
     owBasicColoring = false,
     owBasicColor = { r = 0.800, g = 0.137, b = 0.137 },
     darkenEnemiesOOC = true,
+    darkenOOCRecolor = false,  -- "Change Color Instead": recolor OOC enemies rather than dimming
+    darkenOOCColor   = { r = 0.5, g = 0.5, b = 0.5 },
     tankHasAggro = { r = 0.05, g = 0.82, b = 0.62 },
     tankHasAggroEnabled = false,
-    -- When on, the tank has-aggro color overrides the Mini-Boss and Caster
-    -- colors (promotes it above priority step 7); off = it stays low priority.
-    tankHasAggroOverrideMobType = false,
-    -- When on (default), the tank has-aggro color overrides the Boss color; off =
-    -- the has-aggro color is held just below the Boss color in priority.
-    tankHasAggroOverrideBoss = true,
+    tankHasAggroOverrideMobType = false,  -- on: overrides Mini-Boss/Caster (above priority step 7); off = stays low
+    tankHasAggroOverrideBoss = true,  -- on (default): overrides Boss color; off = held just below Boss
     classicTankAggro = false,
     tankLosingAggro = { r = 0.81, g = 0.72, b = 0.19 },
     tankNoAggro = { r = 1.00, g = 0.22, b = 0.17 },
     dpsNearAggro = { r = 0.81, g = 0.72, b = 0.19 },
+    threatNearAggroGlow = false,  -- Non-Tank Threat cog: red glow while the Near Aggro color is active
     dpsHasAggro = { r = 1.00, g = 0.50, b = 0.00 },
     offTankAggro = { r = 0.188, g = 0.761, b = 0.812 },
     offTankAggroEnabled = true,
     dpsNoAggro = { r = 0.35, g = 0.75, b = 0.35 },
     dpsNoAggroEnabled = false,
-    -- When on, the DPS/healer No Aggro color overrides the Mini-Boss color
-    -- (promotes it above priority step 7); off (default) = it stays low priority.
-    dpsNoAggroOverrideMiniBoss = false,
-    -- When on, the DPS/healer No Aggro color overrides the Caster color (promotes
-    -- it above priority step 8); off (default) = Casters keep their own color.
-    dpsNoAggroOverrideCaster = false,
+    dpsNoAggroOverrideMiniBoss = false,  -- on: overrides Mini-Boss (above priority step 7); off = stays low
+    dpsNoAggroOverrideCaster = false,  -- on: overrides Caster (above priority step 8); off = Casters keep own color
     interruptReady = { r = 0.92, g = 0.35, b = 0.20 },  
     castBar = { r = 0.70, g = 0.40, b = 0.90 },
     interruptMidCastEnabled = false,
@@ -324,21 +280,13 @@ local defaults = {
     sideAuraXOffset = 2,
     nameYOffset = 0,
     auraSpacing = 2,
-    -- Per-element icon spacing (gap between icons). All default to the legacy
-    -- auraSpacing value (2) so existing users are completely unaffected.
-    debuffSpacing = 2,
+    debuffSpacing = 2,  -- per-element icon gap; all default to the global auraSpacing value
     buffSpacing = 2,
     ccSpacing = 2,
-    -- Cropped icons: trim the icon top/bottom so it becomes rectangular
-    -- (height = 80% of width), mirroring the Unit Frames "Cropped Icons"
-    -- option. Off by default so existing layouts are unchanged.
-    debuffCropIcons = false,
+    debuffCropIcons = false,  -- cropped icons: trim top/bottom to rectangular (80% of width), mirrors Unit Frames
     buffCropIcons = false,
     ccCropIcons = false,
-    -- Per-side trim percentage for the cropped mode (5-25). 10 reproduces the
-    -- classic fixed crop (height = 80% of width) exactly, so existing cropped
-    -- setups render identically until the slider is moved.
-    debuffCropPercent = 10,
+    debuffCropPercent = 10,  -- per-side trim % for cropped mode (5-25); 10 == the fixed 80%-of-width crop
     buffCropPercent = 10,
     ccCropPercent = 10,
     debuffIconSize = 26,
@@ -349,28 +297,20 @@ local defaults = {
     ccTextSize = 12,
     ccTextColor = { r = 1, g = 1, b = 1 },
     targetGlowStyle = "ellesmereui",
-    -- Target "Border Color" tint (default white), applied to the custom border
-    -- when the Border Color toggle is on. The three multi-toggle keys
-    -- (targetGlowEllesmereUI / targetGlowBorderColor / targetGlowHighlight) are
-    -- intentionally NOT defaulted here: they stay nil so the getters can
-    -- live-convert from the legacy targetGlowStyle string.
+    -- Target "Border Color" tint for the custom border when Border Color toggle is on.
+    -- targetGlowEllesmereUI/targetGlowBorderColor/targetGlowHighlight deliberately have NO
+    -- default: they stay nil so getters can live-convert from the targetGlowStyle string.
     targetBorderColor = { r = 1, g = 1, b = 1 },
-    -- Target "Glow Color" + opacity for the EUI background glow (default = the
-    -- signature blue at full opacity).
-    targetGlowColor = { r = 0.4117, g = 0.6667, b = 1.0 },
+    targetGlowColor = { r = 0.4117, g = 0.6667, b = 1.0 },  -- "Glow Color" for the EUI background glow (signature blue)
     targetGlowAlpha = 1.0,
-    -- Target Highlight wash color/opacity (defaults match the formerly
-    -- hardcoded white at 30%, so existing users are unaffected).
-    targetHighlightColor = { r = 1, g = 1, b = 1 },
+    targetHighlightColor = { r = 1, g = 1, b = 1 },  -- Target Highlight wash color/opacity
     targetHighlightAlpha = 0.20,
     nameRaidMarkerEnabled = false,
     nameRaidMarkerSize = 14,
     raidMarkerPos = "topright",
     raidMarkerSize = 24,
     classificationSlot = "topleft",
-    -- Rare/Quest Indicator "Show In Instances" (slot cog): lifts the
-    -- open-world-only gates in UpdateClassification + IsQuestMob.
-    classificationShowInInstances = false,
+    classificationShowInInstances = false,  -- Rare/Quest "Show In Instances" (slot cog): lifts the open-world-only gate in UpdateClassification + IsQuestMob
     rareEliteIconSize = 20,
     castBarHeight = 17,
     castBarOffsetY = 0,
@@ -381,11 +321,8 @@ local defaults = {
     castNameColor = { r = 1, g = 1, b = 1 },
     castNameOffsetX = 0,
     castNameOffsetY = 0,
-    -- Side the spell name occupies on the cast bar text line: "left" | "right" | "center" | "none".
-    -- Default "left" reproduces the historical fixed layout.
-    castNameSide = "left",
-    -- Spell name truncation: width as a % of the cast bar width (default 42 reproduces
-    -- the historical castW*0.42 clamp) and a wrap toggle (off = single line + ellipsis).
+    castNameSide = "left",  -- cast bar text line side for spell name: left|right|center|none
+    -- Spell name truncation: width as a % of cast bar width; wrap off = single line + ellipsis.
     castNameWidthPct = 42,
     castNameWrap = false,
     castCombineNameTarget = false,
@@ -394,30 +331,24 @@ local defaults = {
     castTargetColor = { r = 1, g = 1, b = 1 },
     castTargetOffsetX = 0,
     castTargetOffsetY = 0,
-    -- Side the spell target occupies: "left" | "right" | "center" | "none". Default "right".
-    castTargetSide = "right",
-    -- Spell target truncation: % of cast bar width (default 42 = historical clamp) + wrap toggle.
+    castTargetSide = "right",  -- side the spell target occupies: left|right|center|none
+    -- Spell target truncation: % of cast bar width + wrap toggle.
     castTargetWidthPct = 42,
     castTargetWrap = false,
     showCastTimer = true,
-    -- Side the cast timer occupies when shown: "left" | "right". Visibility stays governed
-    -- by showCastTimer (the dropdown's "None" option simply sets showCastTimer = false).
-    castTimerSide = "right",
+    castTimerSide = "right",  -- side when shown; visibility governed by showCastTimer
     castTimerSize = 10,
     castTimerColor = { r = 1, g = 1, b = 1 },
     castTimerOffsetX = 0,
     castTimerOffsetY = 0,
-    -- Enemy unit name truncation. Width is a % of the name's computed (bar-derived)
-    -- width, so 100 reproduces the historical behaviour exactly (full available width
-    -- minus raid-marker / classification reserves); lower = narrower / more truncation.
-    -- Wrap off = single line + ellipsis; on = up to two lines.
+    -- Enemy name truncation: % of the name's computed (bar-derived) width (100 = full width
+    -- minus raid-marker/classification reserves). Wrap off = single line + ellipsis, on = 2 lines.
     enemyNameWidthPct = 100,
     enemyNameWrap = false,
     targetScale = 100,
     nonTargetKeepFocus = true,
     showAllDebuffs = false,
-    -- Distance to Target Text (range bucket on the target's nameplate)
-    rangeTextEnabled = false,
+    rangeTextEnabled = false,  -- Distance to Target Text (range bucket on the target's nameplate)
     rangeTextSize = 11,
     rangeTextOffsetX = 0,
     rangeTextOffsetY = 0,
@@ -426,16 +357,11 @@ local defaults = {
     showBorder = true,
     borderSize = 1,
     borderColor = { r = 0.067, g = 0.067, b = 0.067 },
-    -- "Wrap Border Around Castbar": when on, the main health border extends down
-    -- to enclose the cast bar while the enemy is casting, forming one unified
-    -- border around the health + cast stack. OFF by default and fully additive --
-    -- nothing in the wrap machinery runs unless this is enabled.
+    -- "Wrap Border Around Castbar": health border extends down to enclose the cast bar while casting,
+    -- forming one unified border. Fully additive: no wrap machinery runs unless enabled.
     wrapBorderCastbar = false,
-    -- Custom border (opt-in) -- reuses the shared EllesmereUI border engine
-    -- (same system as Unit Frames, full SharedMedia support). When
-    -- customBorderEnabled is false (the default) NONE of these keys are read
-    -- and the simple border above is rendered exactly as before, so existing
-    -- users see zero change.
+    -- Custom border (opt-in): shared EllesmereUI border engine (same as Unit Frames, full
+    -- SharedMedia). When false, NONE of these keys are read; the simple border above renders instead.
     customBorderEnabled = false,
     customBorderTexture = "solid",
     customBorderSize = 1,
@@ -450,8 +376,7 @@ local defaults = {
     pandemicGlowSpeed = 4,
     pandemicGlowBackground = false,
     pandemicGlowBackgroundColor = { r = 0, g = 0, b = 0 },
-    -- Execute Pulse Glow (Extras): red glow around plates below 30% health
-    lowHpGlow = false,
+    lowHpGlow = false,  -- Execute Pulse Glow (Extras): red glow around plates below 30% health
     dispelGlow = false,
     dispelGlowStyle = 2,
     dispelGlowColor = { r = 1.0, g = 1.0, b = 1.0 },
@@ -474,9 +399,7 @@ local defaults = {
     bgColor = { r = 0.12, g = 0.12, b = 0.12 },
     hoverColor = { r = 1, g = 1, b = 1 },
     hoverAlpha = 0.3,
-    -- When on, the empty portion of the bar shows the hover texture at full
-    -- opacity instead of the dimmed (30%) default, so the pattern reads evenly.
-    hoverOverlayFullBgAlpha = false,
+    hoverOverlayFullBgAlpha = false,  -- on: empty bar shows hover texture at full opacity instead of dimmed 30%
     castBgAlpha = 0.9,
     castBgColor = { r = 0.1, g = 0.1, b = 0.1 },
     castBorderSize = 0,
@@ -506,13 +429,15 @@ local defaults = {
     textSlotRightSize = 10,  textSlotRightXOffset = 0, textSlotRightYOffset = 0,
     textSlotLeftSize = 10,   textSlotLeftXOffset = 0,  textSlotLeftYOffset = 0,
     textSlotCenterSize = 10, textSlotCenterXOffset = 0, textSlotCenterYOffset = 0,
+    -- Core Text Positions: slot-based strata (MEDIUM = the shared text tier)
+    textSlotTopStrata = "MEDIUM",  textSlotRightStrata = "MEDIUM",
+    textSlotLeftStrata = "MEDIUM", textSlotCenterStrata = "MEDIUM",
     -- Core Text Positions: slot-based colors
     textSlotTopColor = { r = 1, g = 1, b = 1 },
     textSlotRightColor = { r = 1, g = 1, b = 1 },
     textSlotLeftColor = { r = 1, g = 1, b = 1 },
     textSlotCenterColor = { r = 1, g = 1, b = 1 },
-    -- Bar texture overlay
-    healthBarTexture = "none",
+    healthBarTexture = "none",  -- bar texture overlay
     castBarTexture = "none",
 }
 local BAR_W = 150
@@ -521,9 +446,8 @@ ns.BAR_W = BAR_W
 local CAST_H = 17
 
 -- Custom nameplate border (opt-in) -----------------------------------------
--- Register per-style/size offset defaults with the shared border engine,
--- mirroring the Unit Frames registration. Wrapped in do/end so no file-scope
--- locals leak (this file runs near Lua 5.1's main-chunk local cap).
+-- Per-style/size offset defaults for the shared border engine (mirrors Unit Frames). do/end
+-- keeps these locals from leaking (file is near Lua 5.1's main-chunk local cap).
 do
     if EllesmereUI and EllesmereUI.RegisterBorderDefaults then
         local function AllSizes(ox, oy, sx, sy)
@@ -558,20 +482,16 @@ do
     end
 end
 
--- Custom border apply helpers. They read the enemy profile `p` (friendly
--- plates intentionally mirror the enemy border settings 1:1) and route through
--- the shared EllesmereUI border engine. The custom border lives on a dedicated
--- child frame we own (plate._customBorder), so it never collides with the
--- simple PP.CreateBorder that decorates plate.health directly. Defined as ns
--- fields (not new file-scope locals) to respect the local cap.
+-- Custom border apply helpers. Read the enemy profile `p` (friendly plates mirror it 1:1) and
+-- route through the shared border engine. Lives on plate._customBorder (a child frame we own)
+-- so it never collides with the simple PP.CreateBorder on plate.health. ns fields, not new
+-- file-scope locals (local cap).
 function ns.IsCustomBorderEnabled()
     local v = p and p.customBorderEnabled
     if v == nil then return defaults.customBorderEnabled end
     return v
 end
--- szOverride: optional size override used by the "Border Size" target effect
--- (the targeted plate rebuilds its custom border at the override size). All
--- existing callers pass one arg and are unchanged.
+-- szOverride: optional size for the "Border Size" target effect (rebuilds at that size).
 function ns.ApplyCustomBorderStyle(plate, szOverride)
     if not plate or not plate.health then return end
     if not (EllesmereUI and EllesmereUI.ApplyBorderStyle) then return end
@@ -587,13 +507,9 @@ function ns.ApplyCustomBorderStyle(plate, szOverride)
         bf:SetAllPoints(plate.health)
         plate._customBorder = bf
     end
-    -- Nameplate health bars flatten render layers, which voids inter-frame
-    -- ordering -- a textured backdrop border drawn on the BORDER draw layer
-    -- would be clipped by the ARTWORK health fill. Lift the border onto an
-    -- explicit MEDIUM strata (the same flatten escape the plate uses for its
-    -- text and aura layers) so it renders above the fill. Strata is set before
-    -- ApplyBorderStyle so the backdrop child it may create inherits it; setting
-    -- it again on reuse re-propagates to that child.
+    -- Health bars flatten render layers: a BORDER-layer backdrop would be clipped by the
+    -- ARTWORK health fill, so lift it onto MEDIUM strata (same escape the plate uses for
+    -- text/aura layers). Set before ApplyBorderStyle so any backdrop child it creates inherits it.
     bf:SetFrameStrata("MEDIUM")
     bf:SetFrameLevel(behind and math.max(1, plate.health:GetFrameLevel() - 1) or (plate.health:GetFrameLevel() + 1))
     EllesmereUI.ApplyBorderStyle(bf, sz, col.r, col.g, col.b, a, tex,
@@ -635,20 +551,17 @@ local function ApplyHealthBarTexture(plate)
 end
 ns.ApplyHealthBarTexture = ApplyHealthBarTexture
 
--- Cast bar texture -- mirrors ApplyHealthBarTexture exactly, using the same
--- texture set (EUI built-ins + SharedMedia, appended into ns.healthBarTextures
--- at options-build time). Attached to ns (no new file-scope local).
+-- Cast bar texture: mirrors ApplyHealthBarTexture with the same texture set (EUI built-ins +
+-- SharedMedia, appended into ns.healthBarTextures at options-build time). On ns (local cap).
 function ns.ApplyCastBarTexture(plate)
     local cast = plate.cast
     if not cast then return end
     local texKey = (p and p.castBarTexture) or defaults.castBarTexture or "none"
     local path   = EllesmereUI.ResolveTexturePath(ns.healthBarTextures, texKey, "Interface\\Buttons\\WHITE8x8")
     cast:SetStatusBarTexture(path)
-    -- The uninterruptible overlay is a flat WHITE8x8 drawn over the fill (tinted
-    -- grey, shown via SetAlphaFromBoolean), so it would hide the fill texture on
-    -- uninterruptible casts. Give it the same texture so the pattern shows
-    -- through in the uninterruptible colour. The per-cast SetVertexColor (grey)
-    -- is re-applied on every cast start, so changing the texture here is safe.
+    -- The uninterruptible overlay is a flat WHITE8x8 (grey tint via SetAlphaFromBoolean) that
+    -- would hide the fill texture; give it the same texture so the pattern shows through. The
+    -- per-cast grey SetVertexColor is re-applied on every cast start, so this is safe.
     if plate.castBarOverlay then
         plate.castBarOverlay:SetTexture(path)
     end
@@ -659,10 +572,8 @@ function ns.ApplyAbsorbStyle(plate)
     -- blizzard/striped/clean live in NP_ABSORB_STYLE_TEX; the stripe keys
     -- (shared with the Focus Texture dropdown) resolve via ResolveOverlayTexPath.
     local tex   = ns.NP_ABSORB_STYLE_TEX[style] or ns.ResolveOverlayTexPath(style) or ns.NP_ABSORB_STYLE_TEX.blizzard
-    -- Opacity applies to every style. absorbAlpha (0-100) is the single source
-    -- of truth once the user touches the slider or picks a style; until then we
-    -- fall back to the original per-style defaults so existing profiles are
-    -- unchanged.
+    -- Opacity applies to every style. absorbAlpha (0-100) is the single source of truth
+    -- once set (slider touched or style picked); until then, per-style defaults.
     local alpha = p and p.absorbAlpha
     if alpha then
         alpha = alpha / 100
@@ -739,7 +650,7 @@ local function GetPandemicGlow()
     return (p and p.pandemicGlow) or defaults.pandemicGlow
 end
 
--- Pandemic glow style definitions (replaces LibCustomGlow)
+-- Pandemic glow style definitions.
 -- 1 = Pixel Glow (procedural ants), 2 = Action Button Glow (animated ants texture),
 -- 3 = Auto-Cast Shine (orbiting sparkles), 4 = GCD (FlipBook atlas),
 -- 5 = Modern WoW Glow (FlipBook atlas), 6 = Classic WoW Glow (FlipBook texture)
@@ -753,11 +664,8 @@ local PANDEMIC_GLOW_STYLES = {
       rows = 5, columns = 5, frames = 25, duration = 0.3, frameW = 48, frameH = 48, scale = 1.47, previewScale = 1.47 },
 }
 ns.PANDEMIC_GLOW_STYLES = PANDEMIC_GLOW_STYLES
--- Expose the nameplate glow-style list cross-addon so other modules (e.g. the
--- CDM "Apply Pandemic Glow to all" sync) can translate a style by NAME instead
--- of copying a raw index. Nameplates order their styles differently from CDM
--- (their list omits "Custom Shape Glow"), so a raw index means a different
--- style on each side.
+-- Exposed cross-addon (e.g. CDM "Apply Pandemic Glow to all" sync) so styles translate by NAME,
+-- never raw index: this list omits "Custom Shape Glow", so the same index differs per side.
 if EllesmereUI then EllesmereUI.NameplatePandemicGlowStyles = PANDEMIC_GLOW_STYLES end
 
 local function GetPandemicGlowStyle()
@@ -783,8 +691,7 @@ local function GetPandemicGlowSpeed()
     return (p and p.pandemicGlowSpeed) or defaults.pandemicGlowSpeed
 end
 ns.GetPandemicGlowSpeed = GetPandemicGlowSpeed
--- Namespaced (not file-scope locals) to stay under this file's Lua 5.1 200-local
--- cap; both still close over the p / defaults upvalues.
+-- On ns, not file-scope locals (Lua 5.1 200-local cap); both still close over the p/defaults upvalues.
 function ns.GetPandemicGlowBackground()
     return p and p.pandemicGlowBackground == true
 end
@@ -803,9 +710,7 @@ do
     local DISPEL_POISON  = 4
     local DISPEL_ENRAGE  = 9
 
-    -- Build a color curve for taint-safe dispel type detection.
-    -- Magic → blue, Enrage → red, all others → transparent.
-    -- Step curve: each point covers its exact ID; fill gaps with transparent.
+    -- Color curve for taint-safe dispel detection. Step curve: each point = exact ID. Magic->blue, Enrage->red, others transparent.
     local dispelDetectionCurve
     if C_CurveUtil and C_CurveUtil.CreateColorCurve and Enum and Enum.LuaCurveType then
         dispelDetectionCurve = C_CurveUtil.CreateColorCurve()
@@ -840,7 +745,6 @@ do
         for _, entry in ipairs(OFFENSIVE_DISPEL_SPELLS) do
             local spellID, cat, reqClass, reqTalent = entry[1], entry[2], entry[3], entry[4]
             if reqClass and playerClass ~= reqClass then
-                -- skip: wrong class for this spell
             else
                 local known = false
                 if reqClass and not reqTalent then
@@ -879,12 +783,9 @@ do
     end)
     RebuildDispelTypes()
 
-    -- Returns: shouldGlow, typeColor (ColorMixin or nil)
-    -- All aura fields on enemy nameplates are secret in Midnight.
-    -- The typeColor's alpha (from the detection curve) drives visibility:
-    -- Magic/Enrage → alpha 1 (visible), everything else → alpha 0 (hidden).
-    -- Secret RGBA values pass safely through C visual functions (SetAlpha,
-    -- SetVertexColor) without Lua ever testing or comparing them.
+    -- Returns shouldGlow, typeColor (ColorMixin or nil). Enemy aura fields are secret in
+    -- Midnight; the curve's typeColor alpha drives visibility (Magic/Enrage=1, else 0). Secret
+    -- RGBA passes safely to C visual functions (SetAlpha/SetVertexColor) since Lua never tests it.
     ns.CanDispelAura = function(unit, aura)
         if not (canDispelMagic or canDispelEnrage) then return false end
         local typeColor
@@ -930,10 +831,8 @@ local function GetCastIconScale()
     return (p and p.castIconScale) or defaults.castIconScale
 end
 ns.GetCastIconScale = GetCastIconScale
--- "Make Icon Part of the Bar": when true (and the icon is shown), the spell
--- icon is counted inside the cast bar's width -- the bar is shifted right and
--- narrowed by the icon width so the icon (anchored to the bar's left edge)
--- sits inside the footprint. Default false (off for everyone, no migration).
+-- "Make Icon Part of the Bar": bar shifts right and narrows by the icon width so the icon
+-- (anchored to the bar's left edge) sits inside the footprint instead of hanging off it.
 function ns.GetCastIconInWidth()
     if p and p.castbarIconInWidth ~= nil then return p.castbarIconInWidth end
     return defaults.castbarIconInWidth
@@ -954,12 +853,10 @@ local function GetHideEnemyNameWhileCasting()
     return defaults.hideEnemyNameWhileCasting
 end
 
--- Position + size the cast bar within `footprintW`, accounting for the
--- icon-in-width setting. A full-size icon spans the health band too (which the
--- cast bar cannot reserve), so in-width applies only at normal size. Left icon:
--- shift the bar right into the reserved gap. Right icon: keep the left edge
--- fixed and narrow only the right edge. iconW uses the icon's rendered size
--- (castH * icon scale) so a scaled icon reserves the right amount of space.
+-- Position + size the cast bar within `footprintW` per the icon-in-width setting. A full-size
+-- icon spans the health band too (which the cast bar cannot reserve), so in-width applies only
+-- at normal size. Left icon: shift bar right into the reserved gap; right icon: fix left edge,
+-- narrow only the right. iconW = castH * icon scale (rendered size).
 function ns.LayoutCastBar(plate, footprintW, castH)
     local iconW = 0
     local shiftX = 0
@@ -971,12 +868,10 @@ function ns.LayoutCastBar(plate, footprintW, castH)
     end
     plate.cast:ClearAllPoints()
     plate.cast:SetSize(math.max(1, footprintW - iconW), castH)
-    -- Cast Bar Y Offset: positive = up, negative = down (default 0 = unchanged).
-    -- 0 is truthy in Lua, so the `or` fallback only fires when the key is nil.
+    -- Cast Bar Y Offset: + up, - down; `or` fallback only fires when nil (0 is truthy in Lua).
     local offsetY = (p and p.castBarOffsetY) or defaults.castBarOffsetY
-    -- Snap to a whole number of PHYSICAL pixels at the PLATE's own scale (not
-    -- UIParent's -- nameplates have their own scale stack), so the gap between the
-    -- health bottom and cast top stays a constant integer-pixel count instead of
+    -- Snap to whole physical pixels at the plate's own scale (nameplates have their own scale
+    -- stack, not UIParent's) so the health-bottom/cast-top gap stays constant instead of
     -- oscillating +/-1px as the plate slides to fractional screen positions.
     if offsetY ~= 0 and PP then
         local plateES = plate:GetEffectiveScale()
@@ -986,14 +881,10 @@ function ns.LayoutCastBar(plate, footprintW, castH)
     plate.cast:SetPoint("TOPLEFT", plate.health, "BOTTOMLEFT", shiftX, offsetY)
 end
 
--- Size + anchor the cast spell icon for the current side / full-size settings.
--- Always a square. Normal: cast-bar height, hangs off the bar's left (default)
--- or right edge, top-aligned with the cast bar, scaled by the Scale setting.
--- Full: a (healthH + castH) square anchored to a cast BOTTOM corner -- the
--- zero-gap bar stack lands the top edge flush with the health top -- with scale
--- forced to 1 so it stays flush to both bar edges. The icon's frame level is
--- fixed at creation (health+1), so this never touches it. Clean profile
--- numbers only (no secret values).
+-- Size + anchor the cast spell icon; always square. Normal: cast-bar height, hangs off the
+-- bar's left (default) or right edge, top-aligned, scaled by Scale. Full: a (healthH + castH)
+-- square anchored to a cast BOTTOM corner (top flush with health top) with scale forced to 1
+-- to stay flush to both edges. Frame level fixed at creation (health+1), never touched here.
 function ns.LayoutCastIcon(plate, castH)
     local icon = plate.castIconFrame
     local onRight = ns.GetCastIconOnRight()
@@ -1003,13 +894,11 @@ function ns.LayoutCastIcon(plate, castH)
     if ns.GetCastIconFullSize() then
         local side = GetHealthBarHeight() + castH
         icon:SetScale(1)
-        -- Link the icon's three shared edges DIRECTLY to the bar edges instead of
-        -- deriving them from its own size: top = health top, bottom = cast bottom,
-        -- inner side = the bars' outer edge. Anchored to the exact same points the
-        -- health/cast borders use, those edges resolve to identical positions and
-        -- pixel-snap together, so they stay flush and shift as ONE unit under
-        -- nameplate motion instead of each rounding independently. SetWidth keeps
-        -- the icon square (its height is fixed by the top/bottom anchors = side).
+        -- Link the icon's three shared edges DIRECTLY to the bar edges (top=health top,
+        -- bottom=cast bottom, inner side=bars' outer edge) instead of deriving from its own
+        -- size: anchored to the same points the health/cast borders use, they pixel-snap
+        -- together and shift as ONE unit instead of rounding independently. SetWidth keeps it
+        -- square (height is fixed by the top/bottom anchors = side).
         icon:SetWidth(side)
         if onRight then
             icon:SetPoint("TOPLEFT", plate.health, "TOPRIGHT", xOff, yOff)
@@ -1029,23 +918,18 @@ function ns.LayoutCastIcon(plate, castH)
     end
 end
 
--- How far the cast icon protrudes past the bar edge on its side, plus that side
--- ("left"/"right"). The target arrow + side-slot core icons reserve this so
--- they never land under the icon. Returns 0 for the legacy default (left,
--- normal) and for in-width-tucked icons, so existing layouts are unchanged.
--- All inputs are clean profile numbers, safe to add.
--- The optional `plate` only matters for the full-size icon: that icon is a child
--- of the cast bar and only renders during a cast, so its (large) reserve is
--- gated on the plate's cast bar being shown. A settings-only query (no plate)
--- assumes the space is reserved.
+-- How far the cast icon protrudes past the bar edge, plus that side ("left"/"right"). The
+-- target arrow + side-slot core icons reserve this so they never land under the icon. Returns
+-- 0 for left/normal and in-width-tucked icons. Optional `plate` matters only for the full-size
+-- icon (a cast-bar child rendered only during a cast): its reserve is gated on the cast bar
+-- being shown; a settings-only query (no plate) assumes the space is reserved.
 function ns.GetCastIconReserve(plate)
     if not GetShowCastIcon() then return 0, nil end
     local onRight = ns.GetCastIconOnRight()
     local side = onRight and "right" or "left"
     if ns.GetCastIconFullSize() then
-        -- Only reserve the full-size icon's footprint while it is actually
-        -- visible (cast bar up), so side elements sit flush against the bar
-        -- when nothing is casting instead of being shoved out by a phantom gap.
+        -- Reserve the full-size icon's footprint only while visible (cast bar up), so side
+        -- elements sit flush against the bar when idle instead of shoved out by a phantom gap.
         if plate and plate.cast and not plate.cast:IsShown() then
             return 0, side
         end
@@ -1066,9 +950,8 @@ local function GetKickTickColor()
     return c.r, c.g, c.b
 end
 ns.GetKickTickColor = GetKickTickColor
--- Optional element ("debuffs", "buffs", "ccs") selects per-element spacing;
--- no arg falls back to the legacy global auraSpacing. Kept as a single function
--- (not a second local) to respect this file's 200-local cap.
+-- Optional element ("debuffs", "buffs", "ccs") selects per-element spacing; no arg
+-- falls back to the global auraSpacing. One function, not two locals (200-local cap).
 local function GetAuraSpacing(element)
     if element == "debuffs" then
         return (p and p.debuffSpacing) or defaults.debuffSpacing
@@ -1132,9 +1015,8 @@ local function FindSlotForElement(element)
 end
 ns.FindSlotForElement = FindSlotForElement
 
--- The four combined health-text elements (percent + number, either order,
--- "|" or "-" separator). Kept as one set so every eligibility check that treats
--- them as a single "combined health" category stays in lockstep.
+-- The four combined health-text elements (percent + number, either order, "|" or "-"
+-- separator). One set so every eligibility check treating them as one category stays in sync.
 local COMBO_HEALTH_ELEMENTS = {
     healthPctNum     = true, healthNumPct     = true,
     healthPctNumDash = true, healthNumPctDash = true,
@@ -1159,14 +1041,11 @@ local function SetCombinedHealthText(fs, element, pctText, numText)
 end
 ns.SetCombinedHealthText = SetCombinedHealthText
 
--- Name-family text elements: display variants rendered by the plate's single
--- name FontString (enemy name and the level+name combos). Exactly one of
--- these can occupy a slot at a time; the options-side slot assignment
--- enforces the family-wide exclusivity. STANDALONE level is deliberately NOT
--- in the family: it renders on its own FontString (plate.levelText, through
--- the health-text slot machinery) so name and level can occupy different
--- slots at once (field request). Wrapped in do/end + ns functions so no new
--- main-chunk locals are added (this file is at the Lua 5.1 local cap).
+-- Name-family text elements: display variants rendered by the plate's single name FontString
+-- (enemy name and level+name combos). Exactly one may occupy a slot at a time (enforced by the
+-- options-side slot assignment). STANDALONE level is deliberately NOT in the family: it renders
+-- on its own FontString (plate.levelText, via health-text slot machinery) so name and level can
+-- occupy different slots. do/end + ns funcs: no new locals (cap).
 do
     local NAME_FAMILY = {
         enemyName = true, levelName = true, nameLevel = true,
@@ -1181,9 +1060,8 @@ do
         end
         return nil
     end
-    -- Display string for the unit's effective level. "??" for skull-ranked
-    -- (-1) or unreadable (secret) levels, matching the default UI. Effective
-    -- level (not raw) so scaling / Chromie time read like the game ranks them.
+    -- Display string for the unit's EFFECTIVE level (so scaling/Chromie time read as the game
+    -- ranks them). "??" for skull-ranked (-1) or unreadable (secret) levels, matching default UI.
     function ns.GetUnitLevelText(unit)
         local lvl = UnitEffectiveLevel(unit)
         if type(lvl) ~= "number" or (issecretvalue and issecretvalue(lvl))
@@ -1192,9 +1070,8 @@ do
         end
         return tostring(lvl)
     end
-    -- Write a name-family element's display text into a FontString. name may
-    -- be SECRET: it is only ever passed as a %s display arg, never inspected.
-    -- Shared by the runtime name update and the options preview.
+    -- Write a name-family element's text into a FontString (shared by runtime update and
+    -- options preview). name may be SECRET: only ever passed as a %s display arg, never inspected.
     function ns.SetNameElementText(fs, element, name, unit)
         if element == "level" then
             fs:SetFormattedText("%s", ns.GetUnitLevelText(unit))
@@ -1208,9 +1085,8 @@ do
     end
 end
 
--- Estimate pixel width of health text for a given element type.
--- We can't read actual rendered widths (WoW secret values), so we use
--- flat pixel assumptions based on typical worst-case rendered widths.
+-- Estimate pixel width of health text per element. Actual rendered widths are
+-- unreadable (secret values), so use flat worst-case pixel assumptions.
 local HEALTH_TEXT_PADDING = 10  -- safety margin in px
 local healthTextWidths = {
     healthPercent       = 38,
@@ -1233,21 +1109,15 @@ local function GetHealthBarWidth()
 end
 ns.GetHealthBarWidth = GetHealthBarWidth
 
--- Y offset for plate content relative to the nameplate frame. Always 0: the
--- Blizzard nameplate frame grows from its CENTER (not its base), so a taller
--- SetNamePlateSize enlarges the clickable hitbox evenly above AND below the
--- unit. Anchoring our content at the frame center therefore keeps the bar in
--- place AND keeps the hitbox centered on it -- no compensation needed.
--- (An earlier base-anchor assumption shifted content down by half the extra
--- height, which made the hitbox extend only above the bar.)
+-- Y offset for plate content relative to the nameplate frame. Always 0: the Blizzard nameplate
+-- frame grows from its CENTER, not its base, so a taller SetNamePlateSize enlarges the hitbox
+-- evenly above AND below the unit; anchoring content at the frame center needs no compensation.
 local function GetHitboxYShift()
     return 0
 end
 ns.GetHitboxYShift = GetHitboxYShift
--- Slot-based size/offset getters. Key strings are memoized per posKey
--- (closed set of six literals, lazy-filled) so these hot getters are
--- allocation-free; the VALUES are still read live from the profile, so
--- profile swaps cannot stale anything.
+-- Slot-based size/offset getters. Key strings memoized per posKey (closed set of six literals,
+-- lazy-filled) so these hot getters allocate nothing; VALUES still read live so profile swaps cannot stale.
 ns._slotKeyMemo = ns._slotKeyMemo or {}
 local function GetSlotKeys(posKey)
     local m = ns._slotKeyMemo[posKey]
@@ -1291,19 +1161,14 @@ local function GetCCIconSize()
     return GetSlotSize(slot)
 end
 ns.GetCCIconSize = GetCCIconSize
--- Cropped aura icons (mirrors the Unit Frames "Cropped Icons" option). When
--- on, the icon frame is made rectangular (height = 80% of width) and the
--- texture is trimmed top/bottom so the artwork is never squished. The
--- horizontal zoom stays at the nameplate aura default (0.08) so an uncropped
--- icon is pixel-identical to before. Wrapped in a do/end + ns functions so no
--- new main-chunk locals are added (this file is near the Lua 5.1 local cap).
+-- Cropped aura icons (mirrors Unit Frames "Cropped Icons"). On: icon frame goes rectangular
+-- (height = 80% of width), texture trimmed top/bottom so artwork is never squished; horizontal
+-- zoom stays at the nameplate default (0.08). do/end + ns functions: no new main-chunk locals (cap).
 do
     local AURA_CROP_HEIGHT = 0.80
     local AURA_ZOOM = 0.08
-    -- Returns FALSE when uncropped, or the height FACTOR (a truthy number)
-    -- when cropped: factor = 1 - 2 * (cropPercent / 100), so the default 10%
-    -- yields the classic 0.80. Callers that only truth-test the result stay
-    -- byte-identical; the height math below reads the number when present.
+    -- Returns FALSE when uncropped, else the height FACTOR: 1 - 2*(cropPercent/100), so default
+    -- 10% yields 0.80. Callers that only truth-test the result work unchanged.
     function ns.GetAuraCrop(element)
         local on, pct
         if element == "debuffs" then
@@ -1321,9 +1186,8 @@ do
         if pct < 5 then pct = 5 elseif pct > 25 then pct = 25 end
         return 1 - 2 * (pct / 100)
     end
-    -- Frame height for a given icon width: shorter when cropped, square when
-    -- not. `cropped` is GetAuraCrop's result -- a factor number when adjustable,
-    -- plain true from any legacy caller (falls back to the classic constant).
+    -- Frame height for an icon width: shorter when cropped, square when not. `cropped` is
+    -- GetAuraCrop's result: a factor number, or plain true (falls back to AURA_CROP_HEIGHT).
     function ns.GetAuraCropHeight(cropped, w)
         if cropped then
             local factor = (type(cropped) == "number") and cropped or AURA_CROP_HEIGHT
@@ -1358,13 +1222,10 @@ local function GetTargetGlowStyle()
     return defaults.targetGlowStyle
 end
 ns.GetTargetGlowStyle = GetTargetGlowStyle
--- Multi-toggle target glow model (EllesmereUI / Border Color / Highlight).
--- Live conversion, NO migration: each toggle returns its own stored key when
--- the user has set it, otherwise derives from the legacy targetGlowStyle
--- string. targetGlowStyle stays in defaults ("ellesmereui") so the fallback
--- source is always present. Legacy mapping: ellesmereui -> EllesmereUI;
--- vibrant -> EllesmereUI + Border Color; none -> nothing. Defined on ns (not
--- file-scope locals) to respect this file's near-cap local budget.
+-- Multi-toggle target glow model (EllesmereUI / Border Color / Highlight). Live conversion, NO
+-- migration: each toggle returns its own stored key when set, else derives from targetGlowStyle
+-- (stays in defaults so the fallback source is always present). Mapping: ellesmereui ->
+-- EllesmereUI; vibrant -> EllesmereUI + Border Color; none -> nothing. On ns (local budget).
 function ns.GetTargetGlowEllesmereUI()
     if p and p.targetGlowEllesmereUI ~= nil then return p.targetGlowEllesmereUI end
     local style = (p and p.targetGlowStyle) or defaults.targetGlowStyle
@@ -1383,9 +1244,8 @@ function ns.GetTargetGlowBorderSize()
     if p and p.targetGlowBorderSize ~= nil then return p.targetGlowBorderSize end
     return false  -- no legacy equivalent
 end
--- The target border size value is nil until the effect's first enable
--- snapshots the user's then-current border size (options side); nil = the
--- effect applies nothing (fail-safe for imported partial profiles).
+-- nil until the effect's first enable snapshots the user's current border size (options side);
+-- nil = applies nothing (fail-safe for imported partial profiles).
 function ns.GetTargetBorderSizeValue()
     local v = p and p.targetBorderSizeValue
     return v
@@ -1418,8 +1278,7 @@ local function GetShowClassPower()
     return defaults.showClassPower
 end
 ns.GetShowClassPower = GetShowClassPower
--- These getters live on ns (not file locals) to keep the main chunk under Lua's
--- 200-local limit; callers in this file use ns.GetClassPower*().
+-- On ns, not file locals (Lua's 200-local limit); callers use ns.GetClassPower*().
 ns.GetClassPowerPos = function()
     return (p and p.classPowerPos) or defaults.classPowerPos
 end
@@ -1453,7 +1312,7 @@ ns.GetClassPowerEmptyColor = function()
     local c = (p and p.classPowerEmptyColor) or defaults.classPowerEmptyColor
     return c
 end
--- Defined on ns (not as file locals) to stay under Lua's 200 main-chunk local limit.
+-- On ns, not file locals (Lua's 200 main-chunk local limit).
 function ns.GetClassPowerShape()
     return (p and p.classPowerShape) or defaults.classPowerShape
 end
@@ -1479,8 +1338,8 @@ local function GetBorderColor()
     return c.r, c.g, c.b
 end
 ns.GetBorderColor = GetBorderColor
--- "Wrap Border Around Castbar" toggle. Defaults to false; the cast-visibility
--- hook reads this on each cast show/hide, so it stays a trivial table lookup.
+-- "Wrap Border Around Castbar". The cast-visibility hook reads this on every
+-- cast show/hide, so it must stay a trivial table lookup.
 function ns.GetWrapBorderCastbar()
     local v = p and p.wrapBorderCastbar
     if v == nil then return defaults.wrapBorderCastbar end
@@ -1494,10 +1353,8 @@ local function GetAuraSlots()
 end
 ns.GetAuraSlots = GetAuraSlots
 
--- Raise Strata: per-slot Core Positions toggle. When on, whichever element
--- occupies that slot is bumped one strata level (MEDIUM -> HIGH) so it renders
--- above the rest of the plate. Default off for every slot. Defined on ns (not a
--- file local) to respect this file's local budget.
+-- Raise Strata: per-slot Core Positions toggle. On, the element in that slot is bumped
+-- MEDIUM -> HIGH so it renders above the rest of the plate. On ns (local budget).
 function ns.GetSlotRaiseStrata(posKey)
     if not posKey or posKey == "none" then return false end
     local key = posKey .. "SlotRaiseStrata"
@@ -1505,10 +1362,9 @@ function ns.GetSlotRaiseStrata(posKey)
     return defaults[key] or false
 end
 
--- Apply each slot's Raise Strata setting to the element frame(s) sitting in it.
--- Element frames otherwise share MEDIUM strata (see the plate build comments);
--- raising to HIGH lifts that element above the flattened text/aura/indicator
--- tiers. Children (cooldown, count carrier, border) inherit the frame's strata.
+-- Apply each slot's Raise Strata setting to its element frame(s). Frames otherwise share MEDIUM
+-- strata; HIGH lifts that element above the flattened text/aura/indicator tiers. Children
+-- (cooldown, count carrier, border) inherit the frame's strata.
 function ns.ApplySlotStrata(plate)
     if not plate then return end
     local function StrataFor(slot)
@@ -1533,44 +1389,11 @@ function ns.ApplySlotStrata(plate)
     end
 end
 
--- Pandemic glow engine: procedural ants, button glow, autocast shine, FlipBook
--- Wrapped in do...end to keep all internal locals out of the main chunk's 200-local budget.
--- Externally-needed items are stored on ns.
+-- Pandemic glow engine: procedural ants, button glow, autocast shine, FlipBook. do...end keeps
+-- internal locals out of the main chunk's 200-local budget; externally-needed items stored on ns.
 do
--- Pandemic curve: step function returns 1 when remaining% <= 30% (pandemic window), 0 otherwise
--- Secret values from duration objects are passed ONLY to Blizzard widget APIs (SetAlpha) never compared in Lua
-local pandemicCurve
-if C_CurveUtil and C_CurveUtil.CreateCurve then
-    pandemicCurve = C_CurveUtil.CreateCurve()
-    pandemicCurve:SetType(Enum.LuaCurveType.Step)
-    pandemicCurve:AddPoint(0, 1)
-    pandemicCurve:AddPoint(0.3, 0)
-end
-ns.pandemicCurve = pandemicCurve
-
--- Extension clamp: while a DoT is unextended, remaining% <= 30% IS the
--- pandemic window (total == base). Duration extensions (e.g. Starfall on
--- Moonfire/Sunfire) grow the total, inflating that window to 20s+, and every
--- per-spell base source (aura spellId, GetAuraBaseDuration,
--- GetRefreshExtendedDuration) is secret in combat, so the base cannot be
--- re-derived. Instead the glow requires a second condition: remaining time
--- <= a flat seconds cap. The two conditions AND together through frame
--- alpha inheritance (wrapper alpha x gate alpha) -- both stay engine-side.
--- The cap only bites when 30% of total exceeds it, i.e. bases above ~33s
--- or extended totals; normal dots keep their exact 30% window.
-local PANDEMIC_CAP_SECONDS = 10
-local pandemicCapCurve
-if C_CurveUtil and C_CurveUtil.CreateCurve then
-    pandemicCapCurve = C_CurveUtil.CreateCurve()
-    pandemicCapCurve:SetType(Enum.LuaCurveType.Step)
-    pandemicCapCurve:AddPoint(0, 1)
-    pandemicCapCurve:AddPoint(PANDEMIC_CAP_SECONDS, 0)
-end
-ns.pandemicCapCurve = pandemicCapCurve
-
 -------------------------------------------------------------------------------
---  Glow Engines provided by shared EllesmereUI_Glows.lua
---  Local aliases for the pandemic glow wrapper below.
+--  Glow engines from shared EllesmereUI_Glows.lua; aliases for the wrapper below.
 -------------------------------------------------------------------------------
 local _G_Glows = EllesmereUI.Glows
 local StartProceduralAnts = _G_Glows.StartProceduralAnts
@@ -1586,161 +1409,8 @@ ns.StopButtonGlow      = StopButtonGlow
 ns.StartAutoCastShine  = StartAutoCastShine
 ns.StopAutoCastShine   = StopAutoCastShine
 
--- Set of debuff slots with active pandemic glows; only these get alpha-ticked
-local activePandemicSlots = {}
-ns.activePandemicSlots = activePandemicSlots
-
-local function StopPandemicGlow(slot)
-    activePandemicSlots[slot] = nil
-    local pg = slot.pandemicGlow
-    if not pg or not pg.active then return end
-    if pg.animGroup then pg.animGroup:Stop() end
-    if pg.flipTex then pg.flipTex:Hide() end
-    StopProceduralAnts(pg.gate)
-    StopButtonGlow(pg.gate)
-    StopAutoCastShine(pg.gate)
-    pg.wrapper:Hide()
-    pg.active = false
-end
-
-local function StartPandemicGlow(slot, slotSize)
-    local pg = slot.pandemicGlow
-    local styleIdx = GetPandemicGlowStyle()
-    if styleIdx < 1 or styleIdx > #PANDEMIC_GLOW_STYLES then styleIdx = 1 end
-    local entry = PANDEMIC_GLOW_STYLES[styleIdx]
-    local sz = slotSize or 26
-
-    if not pg then
-        local wrapper = CreateFrame("Frame", nil, slot)
-        wrapper:SetAllPoints()
-        -- Sit ABOVE the cooldown frame (slot.cd at +2) so the duration swipe
-        -- can't render on top of the pandemic border and dim it. Matches the
-        -- dispel glow (slot+5). The countdown / stack text lives on the slot's
-        -- countCarrier at slot+6, so it always draws over the glow. (At the old
-        -- slot+1 the swipe drew over the glow, making it hard to see.)
-        wrapper:SetFrameLevel(slot:GetFrameLevel() + 5)
-        -- Inner gate frame hosts all glow visuals so the extension clamp can
-        -- ride a second alpha channel: effective alpha = wrapper x gate.
-        local gate = CreateFrame("Frame", nil, wrapper)
-        gate:SetAllPoints()
-        local flipTex = gate:CreateTexture(nil, "OVERLAY", nil, 7)
-        flipTex:SetPoint("CENTER")
-        local animGroup = flipTex:CreateAnimationGroup()
-        animGroup:SetLooping("REPEAT")
-        local flipAnim = animGroup:CreateAnimation("FlipBook")
-        wrapper:Show()
-        wrapper:SetAlpha(0)
-        pg = { wrapper = wrapper, gate = gate, flipTex = flipTex, animGroup = animGroup, flipAnim = flipAnim, active = false }
-        slot.pandemicGlow = pg
-    end
-
-    -- Only restart glow if style changed or not active
-    if pg.active and pg.styleIdx == styleIdx then
-        pg.wrapper:Show()
-        return
-    end
-    -- Stop previous style if switching
-    if pg.active and pg.styleIdx ~= styleIdx then
-        StopPandemicGlow(slot)
-    end
-
-    local cr, cg, cb = GetPandemicGlowColor()
-
-    if entry.procedural then
-        -- Pixel Glow: procedural ants mode
-        pg.flipTex:Hide()
-        pg.animGroup:Stop()
-        StopButtonGlow(pg.gate)
-        StopAutoCastShine(pg.gate)
-        local N = GetPandemicGlowLines()
-        local th = GetPandemicGlowThickness()
-        local speed = GetPandemicGlowSpeed()
-        local period = speed  -- speed IS the period in seconds per full orbit
-        local lineLen = math.floor((sz + sz) * (2 / N - 0.1))
-        lineLen = min(lineLen, sz)
-        if lineLen < 1 then lineLen = 1 end
-        local br, bg, bb = ns.GetPandemicGlowBackgroundColor()
-        StartProceduralAnts(pg.gate, N, th, period, lineLen, cr, cg, cb, sz, nil,
-            ns.GetPandemicGlowBackground() and br or nil, bg, bb)
-    elseif entry.buttonGlow then
-        -- Action Button Glow: animated ants texture
-        pg.flipTex:Hide()
-        pg.animGroup:Stop()
-        StopProceduralAnts(pg.gate)
-        StopAutoCastShine(pg.gate)
-        StartButtonGlow(pg.gate, sz, cr, cg, cb, entry.scale or 1.36)
-    elseif entry.autocast then
-        -- Auto-Cast Shine: orbiting sparkle dots
-        pg.flipTex:Hide()
-        pg.animGroup:Stop()
-        StopProceduralAnts(pg.gate)
-        StopButtonGlow(pg.gate)
-        StartAutoCastShine(pg.gate, sz, cr, cg, cb)
-    else
-        -- FlipBook mode: GCD, Modern WoW Glow, Classic WoW Glow
-        StopProceduralAnts(pg.gate)
-        StopButtonGlow(pg.gate)
-        StopAutoCastShine(pg.gate)
-        local texSz = sz * (entry.scale or 1)
-        pg.flipTex:SetSize(texSz, texSz)
-        if entry.atlas then
-            pg.flipTex:SetAtlas(entry.atlas)
-        elseif entry.texture then
-            pg.flipTex:SetTexture(entry.texture)
-        end
-        pg.flipAnim:SetFlipBookRows(entry.rows or 6)
-        pg.flipAnim:SetFlipBookColumns(entry.columns or 5)
-        pg.flipAnim:SetFlipBookFrames(entry.frames or 30)
-        pg.flipAnim:SetDuration(entry.duration or 1.0)
-        pg.flipAnim:SetFlipBookFrameWidth(entry.frameW or 0)
-        pg.flipAnim:SetFlipBookFrameHeight(entry.frameH or 0)
-
-        -- Always apply color tint (fixes default FFEB96 showing as blue)
-        pg.flipTex:SetDesaturated(true)
-        pg.flipTex:SetVertexColor(cr, cg, cb)
-
-        pg.flipTex:Show()
-        pg.animGroup:Play()
-    end
-
-    pg.wrapper:Show()
-    pg.active = true
-    pg.styleIdx = styleIdx
-end
-
--- Applies pandemic glow using the duration object's secret-safe methods.
--- Secret values from IsZero/EvaluateRemainingPercent go ONLY into Blizzard widget APIs (SetAlpha),
--- never into Lua comparisons. This is the standard secret-safe pattern.
--- Active pandemic slots register themselves for a lightweight alpha-only tick
--- instead of polling every plate globally.
--- The onset ticker frame lives on ns._pandemicTickFrame. It is created
--- AFTER this do/end block closes, so a block-local forward declaration
--- here can never see it -- that exact bug shipped the ticker dead: the
--- creation site assigned a global while ApplyPandemicGlow's captured
--- block-local stayed nil forever, so the ticker was never shown and
--- glow onset silently rode the (since-fixed) full-rebuild storm instead.
-local function ApplyPandemicGlow(slot)
-    local durObj = slot._durationObj
-    if not durObj or not pandemicCurve then
-        StopPandemicGlow(slot)
-        return
-    end
-    StartPandemicGlow(slot, GetDebuffIconSize())
-    -- Secret boolean/number EvaluateColorValueFromBoolean SetAlpha (all Blizzard APIs, no Lua comparisons)
-    local pg = slot.pandemicGlow
-    pg.wrapper:SetAlpha(C_CurveUtil.EvaluateColorValueFromBoolean(durObj:IsZero(), 0, durObj:EvaluateRemainingPercent(pandemicCurve)))
-    if pandemicCapCurve and pg.gate then
-        pg.gate:SetAlpha(durObj:EvaluateRemainingDuration(pandemicCapCurve))
-    end
-    -- Register for alpha-only tick updates
-    activePandemicSlots[slot] = true
-    if ns._pandemicTickFrame then ns._pandemicTickFrame:Show() end
-end
-ns.StopPandemicGlow = StopPandemicGlow
-ns.ApplyPandemicGlow = ApplyPandemicGlow
-
 -------------------------------------------------------------------------------
---  Dispellable buff glow — highlights enemy buffs the player can purge/soothe
+--  Dispellable buff glow: highlights enemy buffs the player can purge/soothe
 -------------------------------------------------------------------------------
 local function StopDispelGlow(slot)
     local dg = slot.dispelGlow
@@ -1813,7 +1483,7 @@ local function StartDispelGlow(slot, slotSize, typeColor)
         StopButtonGlow(dg.wrapper)
         StartAutoCastShine(dg.wrapper, sz, cr, cg, cb)
     else
-        -- FlipBook-based glow (GCD, Modern, Classic) — matches pandemic glow pattern
+        -- FlipBook-based glow (GCD, Modern, Classic); matches the pandemic pattern
         StopProceduralAnts(dg.wrapper)
         StopButtonGlow(dg.wrapper)
         StopAutoCastShine(dg.wrapper)
@@ -1844,10 +1514,8 @@ local function StartDispelGlow(slot, slotSize, typeColor)
     dg.wrapper:Show()
     dg.active = true
     dg.styleIdx = styleIdx
-    -- Use the curve color's alpha to control visibility.
-    -- Magic/Enrage → alpha 1 (visible), everything else → alpha 0 (hidden).
-    -- The alpha is a secret number but SetAlpha (C function) accepts secrets.
-    -- typeColor is nil in preview mode → fall back to alpha 1.
+    -- Curve color alpha controls visibility (Magic/Enrage=1, else 0); it's a secret number, but
+    -- SetAlpha (a C function) accepts secrets. typeColor is nil in preview mode -> fallback alpha 1.
     if typeColor then
         local _, _, _, a = typeColor:GetRGBA()
         dg.wrapper:SetAlpha(a)
@@ -1862,22 +1530,18 @@ end -- do (glow engine)
 
 -- Forward declaration (defined later in the class power section)
 local GetClassPowerTopPush
--- Position a set of aura frames into a slot ("top", "left", or "right")
--- frames: array of frame objects, count: how many to show, plate: the nameplate
--- sizeW/sizeH: icon dimensions, gap: pixel gap between icon edges
+-- Position aura frames into a slot (top/left/right/topleft/topright/bottom).
+-- count: how many to show; sizeW/sizeH: icon dimensions; gap: gap between icons.
 local function PositionAuraSlot(frames, count, slot, plate, sizeW, sizeH, gap, xOff, yOff)
     xOff = xOff or 0
     yOff = yOff or 0
     local spacing = gap + sizeW  -- horizontal center-to-center distance
-    -- Vertical center-to-center distance. Cropped icons are shorter, so
-    -- vertically stacked slots (topleft/topright "up") pack tighter. sizeH
-    -- falls back to sizeW for square (uncropped) icons.
+    -- Vertical center-to-center; cropped icons are shorter so stacked slots (topleft/topright
+    -- "up") pack tighter. sizeH falls back to sizeW when square (uncropped).
     local spacingV = gap + (sizeH or sizeW)
-    -- Profile reads, anchor resolution, and growth lookups are invariant
-    -- across the icon loop: resolve once per slot branch, loop only the
-    -- ClearAllPoints + PP.Point calls. GetClassPowerTopPush keeps its
-    -- exact original call conditions (it reads target identity; the
-    -- left/right/bottom and top-with-text-element paths never call it).
+    -- Profile reads, anchor resolution and growth lookups are invariant across the icon loop:
+    -- resolve once per slot branch, loop only ClearAllPoints + PP.Point. GetClassPowerTopPush
+    -- reads target identity, so the left/right/bottom and top-with-text-element paths must never call it.
     if slot == "top" then
         local debuffY = GetDebuffYOffset()
         -- Determine anchor: resolve to whichever FontString is in the top slot
@@ -1921,10 +1585,8 @@ local function PositionAuraSlot(frames, count, slot, plate, sizeW, sizeH, gap, x
         local debuffY = GetDebuffYOffset()
         local cpPush = GetClassPowerTopPush(plate)
         local growth = (p and p.topleftSlotGrowth) or defaults.topleftSlotGrowth
-        -- Icon 1 is always flush with the top-left corner of the health bar.
-        -- Growth direction only affects where icons 2+ go from there. (PP borders
-        -- are inset, so the bar's corner IS the nameplate's outer edge -- anchor
-        -- at offset 0 for true flush; xOff lets the user nudge.)
+        -- Icon 1 is always flush with the health bar's top-left corner; growth only moves icons
+        -- 2+. PP borders are inset, so the bar corner IS the nameplate's outer edge.
         local baseX = xOff
         local baseY = debuffY + cpPush + yOff
         for i = 1, count do
@@ -1946,9 +1608,8 @@ local function PositionAuraSlot(frames, count, slot, plate, sizeW, sizeH, gap, x
         local debuffY = GetDebuffYOffset()
         local cpPush = GetClassPowerTopPush(plate)
         local growth = (p and p.toprightSlotGrowth) or defaults.toprightSlotGrowth
-        -- Icon 1 is always flush with the top-right corner of the health bar.
-        -- Growth direction only affects where icons 2+ go from there. (Offset 0 =
-        -- flush; PP borders are inset so the bar corner is the outer edge.)
+        -- Icon 1 is always flush with the health bar's top-right corner; growth only moves
+        -- icons 2+ (PP borders are inset, so offset 0 is true flush).
         local baseX = xOff
         local baseY = debuffY + cpPush + yOff
         for i = 1, count do
@@ -1974,8 +1635,7 @@ local function PositionAuraSlot(frames, count, slot, plate, sizeW, sizeH, gap, x
                 (i - (count + 1) / 2) * spacing + xOff, -2 + yOff)
         end
     else
-        -- Unknown slot: preserve original behavior (points cleared,
-        -- nothing re-anchored)
+        -- Unknown slot: clear points, re-anchor nothing.
         for i = 1, count do
             frames[i]:ClearAllPoints()
         end
@@ -1983,8 +1643,7 @@ local function PositionAuraSlot(frames, count, slot, plate, sizeW, sizeH, gap, x
 end
 ns.PositionAuraSlot = PositionAuraSlot
 
--- Get XY offset for an aura slot key (now slot-based)
--- slotKey is the DB key like "debuffSlot", "raidMarker", "classification"
+-- XY offset for an aura slot key ("debuffSlot", "raidMarker", "classification").
 local auraSlotToDBKey = {
     debuffSlot     = "debuffSlot",
     buffSlot       = "buffSlot",
@@ -2028,26 +1687,34 @@ local function GetTextSlotColor(slotKey)
     return 1, 1, 1
 end
 
--- Clear a single aura slot (debuff/buff/cc). File-scope to avoid
--- closure allocation inside UpdateAuras.
-local function ClearAuraSlot(slot)
-    slot:Hide()
-    RawSetTex(slot.icon, nil)
-    if slot.pandemicGlow and slot.pandemicGlow.active then ns.StopPandemicGlow(slot) end
-    if slot.dispelGlow and slot.dispelGlow.active then ns.StopDispelGlow(slot) end
-    slot._durationObj = nil
-    slot._auraId = nil
-    local cd = slot.cd
-    if cd then
-        if cd.SetDrawSwipe then cd:SetDrawSwipe(false) end
-        if cd.Clear then cd:Clear()
-        elseif CooldownFrame_Clear then CooldownFrame_Clear(cd)
-        else cd:SetCooldown(0, 0) end
-        cd:Hide()
+-- Per-slot host frame for a Core Text Position, honoring the slot's Strata
+-- option. MEDIUM (the default) keeps today's shared text tier: the top slot
+-- owns topTextFrame outright (its strata is applied directly), the other
+-- slots share healthTextFrame. A non-default strata on a non-top slot gets
+-- a lazily-created host so the four slots layer independently; hosts carry
+-- only font strings (no child frames), so SetFrameStrata propagation is not
+-- a concern -- except the name raid marker frame, whose caller re-asserts
+-- its own strata after parenting.
+ns.SlotTextHost = function(self, slotKey, strata)
+    if slotKey == "textSlotTop" then
+        local f = self.topTextFrame
+        f:SetFrameStrata(strata)
+        return f
     end
+    if strata == "MEDIUM" then return self.healthTextFrame end
+    local hosts = self._slotTextHosts
+    if not hosts then hosts = {}; self._slotTextHosts = hosts end
+    local f = hosts[slotKey]
+    if not f then
+        f = CreateFrame("Frame", nil, self)
+        f:SetAllPoints(self.health)
+        f:SetFrameLevel(900)
+        hosts[slotKey] = f
+    end
+    f:SetFrameStrata(strata)
+    return f
 end
 
-ns.CAST_LOCKOUT_SLOT_ID = "__EUI_CAST_LOCKOUT__"
 ns.DEFAULT_CAST_LOCKOUT_DURATION = 4
 ns.CAST_LOCKOUT_ICON = "Interface\\Icons\\Ability_Kick"
 
@@ -2066,32 +1733,11 @@ function ns.GetActiveCastLockout(plate)
     return lockout
 end
 
-function ns.ArmCastLockoutCooldown(cd, lockout)
-    if cd then
-        if cd.SetDrawSwipe then cd:SetDrawSwipe(true) end
-        if cd.SetAlpha then cd:SetAlpha(1) end
-        cd:SetCooldown(lockout.start, lockout.duration)
-        cd:Show()
-    end
-end
-
-function ns.ArmCastLockoutSlot(slot, lockout)
-    RawSetTex(slot.icon, lockout.icon)
-    slot.icon:Show()
-    ns.ArmCastLockoutCooldown(slot.cd, lockout)
-    slot:Show()
-    slot._durationObj = nil
-    slot._auraId = ns.CAST_LOCKOUT_SLOT_ID
-end
-
--- Position target arrows OUTSIDE the outermost side auras (if arrows are shown).
--- Called after all aura positioning is complete.
+-- Position target arrows OUTSIDE the outermost side auras; call after all aura positioning is complete.
 local PositionArrowsOutsideAuras
 do
-    -- Hoisted out of PositionArrowsOutsideAuras: the old addSide closure
-    -- (capturing gap/sideOff/extents) was allocated on every call on the
-    -- target plate. Extents accumulate through params/returns instead --
-    -- allocation-free, no shared mutable state.
+    -- Hoisted out of PositionArrowsOutsideAuras so no closure is allocated per call on the
+    -- target plate: extents accumulate through params/returns (allocation-free, no shared state).
     local function AddSideExtent(slot, frames, maxIdx, sz, slotKey, gap, sideOff, leftExtent, rightExtent)
         local shown = 0
         for i = 1, maxIdx do
@@ -2118,11 +1764,9 @@ PositionArrowsOutsideAuras = function(plate)
     local sideOff = GetSideAuraXOffset()
     -- Track the furthest pixel extent on each side (accounts for per-slot X offsets)
     local leftExtent, rightExtent = 0, 0
-    -- Cast spell icon: reserve on its side so the arrow + the (pushed) side-slot
-    -- core icons all clear it. Normal-size icons reserve at all times (the small
-    -- gap holds steady across cast start/stop); the full-size icon only renders
-    -- during a cast, so passing the plate gates its (large) reserve on the cast
-    -- bar being shown. Clean profile numbers, never secrets.
+    -- Cast spell icon: reserve on its side so the arrow + pushed side-slot core icons clear it.
+    -- Normal-size icons always reserve (steady across cast start/stop); passing plate gates the
+    -- full-size icon's large reserve on the cast bar being shown. Clean numbers, no secrets.
     local iconRes, iconSide = ns.GetCastIconReserve(plate)
     local leftPush = (iconRes > 0 and iconSide == "left") and iconRes or 0
     local rightPush = (iconRes > 0 and iconSide == "right") and iconRes or 0
@@ -2155,17 +1799,13 @@ PositionArrowsOutsideAuras = function(plate)
         local cxOff = select(1, GetAuraSlotOffsets("classification"))
         rightExtent = math.max(rightExtent, sideOff + rightPush + clSz + cxOff)
     end
-    -- 12.1 restricted-tree rendering (field-confirmed on PTR): inside the
-    -- aspect-restricted nameplate subtree, SINGLE-POINT + SetSize regions
-    -- render displaced from their anchor, while rects fully defined by
-    -- anchors (fill, bg, hash line) render exactly. So both arrows pin
-    -- TOP+BOTTOM to the health bar's CORNERS (hash-line pattern): the bar
-    -- edges resolve engine-side, the offsets stay small numbers scaled
-    -- exactly like the legacy single-point form (live-visual parity), and
-    -- nothing here reads geometry ("Can't measure restricted regions").
-    -- Same rendered result as before: inner edge (extent + 8) from the bar
-    -- edge, vertically centered, 16 * scale tall. The symmetric +/-dy pair
-    -- keeps centering exact regardless of pixel-mult rounding.
+    -- Restricted-tree rendering: inside the aspect-restricted nameplate subtree, SINGLE-POINT +
+    -- SetSize regions render displaced from their anchor, while rects fully defined by anchors
+    -- (fill, bg, hash line) render exactly. So both arrows pin TOP+BOTTOM to the health bar's
+    -- CORNERS (hash-line pattern): bar edges resolve engine-side, offsets stay small numbers,
+    -- nothing here reads geometry ("Can't measure restricted regions"). Result: inner edge
+    -- (extent + 8) from the bar edge, vertically centered, 16*scale tall; symmetric +/-dy pair
+    -- keeps centering exact under pixel-mult rounding.
     local st = ns.ResolveTargetArrowStyle(p)
     local sc = (p and p.targetArrowScale) or 1.0
     local aw = math.floor(((st and st.w) or 16) * sc + 0.5)
@@ -2173,9 +1813,8 @@ PositionArrowsOutsideAuras = function(plate)
     local dy = (ah - GetHealthBarHeight()) / 2
     local lox = -(leftExtent + 8 + aw / 2)
     local rox = (rightExtent + 8 + aw / 2)
-    -- Stashed for the 12.1 container reanchor (EUI_Nameplates_AuraContainers
-    -- ReanchorArrows), which re-points arrows to engine-sized aura container
-    -- edges and needs the same dimensions without re-deriving the style.
+    -- Stashed for EUI_Nameplates_AuraContainers ReanchorArrows, which re-points arrows to
+    -- engine-sized aura container edges and needs these dimensions without re-deriving the style.
     plate._arrowW, plate._arrowH = aw, ah
     plate.leftArrow:ClearAllPoints()
     plate.rightArrow:ClearAllPoints()
@@ -2190,10 +1829,8 @@ end -- do (AddSideExtent scope)
 ns.PositionArrowsOutsideAuras = PositionArrowsOutsideAuras
 
 -------------------------------------------------------------------------------
---  Lazy-creation helpers for target-only / focus-only UI objects.
---  These are only needed on 1 plate at a time, so creating them on every
---  pooled plate wastes memory. Each Ensure* is idempotent (no-ops if
---  already created on the plate).
+--  Lazy-creation helpers for target-only/focus-only UI objects: needed on 1 plate at a time,
+--  so building them on every pooled plate wastes memory. Each Ensure* is idempotent.
 -------------------------------------------------------------------------------
 local GLOW_TEX = "Interface\\AddOns\\EllesmereUINameplates\\Media\\background.png"
 local GLOW_MARGIN = 0.48
@@ -2207,9 +1844,7 @@ local function EnsureGlow(plate)
     plate.glowFrame:SetFrameLevel(1)
     plate.glowFrame:SetPoint("TOPLEFT", plate.health, "TOPLEFT", -GLOW_EXTEND, GLOW_EXTEND)
     plate.glowFrame:SetPoint("BOTTOMRIGHT", plate.health, "BOTTOMRIGHT", GLOW_EXTEND, -GLOW_EXTEND)
-    -- Glow tint + opacity come from the target "Glow Color" setting (default =
-    -- signature blue at full opacity). Textures are collected so ApplyTarget can
-    -- recolor them live.
+    -- Glow tint/opacity come from the target "Glow Color" setting; textures are collected so ApplyTarget can recolor them live.
     plate.glowTextures = {}
     local gc = ns.GetTargetGlowColor()
     local ga = ns.GetTargetGlowAlpha()
@@ -2235,70 +1870,45 @@ local function EnsureGlow(plate)
     plate.glowFrame:Hide()
 end
 
--- Execute Pulse Glow (Extras, default off): red glow around the health bar
--- that pulses while the unit is inside the PLAYER'S execute window -- the
--- health fraction below which their spec's execute ability becomes usable,
--- resolved per spec and adjusted by talents (see the table below). A spec
--- with no execute at all disables the feature outright: no frame, no
--- textures, no animation, and nothing evaluated per health update.
--- Secret-value design: the below-threshold gate is a C_CurveUtil color curve
--- evaluated C-side by UnitHealthPercent, and the resulting color feeds
--- straight into SetVertexColor (accepts secret components) -- Lua never
--- branches on health. The pulse is a looping C-side Alpha animation on the
--- glow frame (no Lua ticks), so the effect renders identically inside and
--- outside restricted (secret) combat contexts. The frame alpha (pulse) and
--- the texture vertex alpha (gate) are separate channels that multiply, so
--- they never fight.
--- Cache state lives in a do-block: no main-chunk local slots (near-cap file).
+-- Execute Pulse Glow (Extras, default off): red glow around the health bar pulsing while the
+-- unit is inside the PLAYER'S execute window (health fraction below which their spec's execute
+-- becomes usable; per-spec, talent-adjusted, table below). A no-execute spec disables the
+-- feature outright: no frame/texture/animation/per-update work. Secret-value design: the
+-- below-threshold gate is a C_CurveUtil color curve evaluated C-side by UnitHealthPercent,
+-- feeding SetVertexColor (accepts secret components) directly, so Lua never branches on health.
+-- The pulse is a looping C-side Alpha animation (no Lua ticks), so it renders identically inside
+-- and outside restricted (secret) combat. Frame alpha (pulse) and texture vertex alpha (gate)
+-- are separate channels that multiply, so they never fight. Cache lives in a do-block (no
+-- main-chunk local slots, near-cap file).
 do
-    -- Execute windows by SPEC ID, alphabetical by class. Shape:
-    --   requires   GATE spell ids -- without one of them the spec has NO
-    --              execute at all (resolves nil, exactly like an absent spec)
-    --   base       health fraction once the gate (if any) is satisfied
-    --   talents    spell ids that RAISE the window; ANY one is enough
-    --   talentPct  the raised fraction
-    -- A spec ABSENT from this table has no execute: the whole effect stays
-    -- inert for it. Keyed by id, never by localized name.
+    -- Execute windows by SPEC ID: requires = gate spell ids (none = no execute at all);
+    -- base = health fraction once gated; talents = ids that RAISE the window (any one enough);
+    -- talentPct = the raised fraction. A spec absent from this table has no execute; inert.
+    -- Keyed by id, never by localized name.
     local EXEC = {
-        -- Death Knight -- Unholy only; Blood and Frost have none.
-        [252] = { base = 0.35 },
-        -- Hunter -- Marksmanship always; Beast Mastery only once it takes
-        -- its gate talent; Survival has no execute at all.
+        [252] = { base = 0.35 },  -- Death Knight: Unholy only
+        -- Hunter: Marksmanship always; Beast Mastery needs its gate talent; Survival has none.
         [253] = { requires = { 466930 }, base = 0.20 },
         [254] = { base = 0.20 },
-        -- Mage -- Fire only; Arcane and Frost have none.
-        [63]  = { base = 0.30 },
-        -- Monk -- DISABLED for now; restore these three lines (and MONK in
-        -- EXEC_CLASSES below) to bring it back. Gate talent only: without it
-        -- no spec has an execute.
-        -- [268] = { requires = { 322113 }, base = 0.15 },
-        -- [269] = { requires = { 322113 }, base = 0.15 },
-        -- [270] = { requires = { 322113 }, base = 0.15 },
-        -- Priest -- all three specs.
+        [63]  = { base = 0.30 },  -- Mage: Fire only
+        -- Monk/Rogue: DISABLED (entries removed, both absent from EXEC_CLASSES below). To
+        -- restore: Monk gate 322113/base 0.15 all specs; Rogue (Assassination) gate 381798/base 0.35.
+        -- Priest: all three specs.
         [256] = { base = 0.20, talents = { 392507 }, talentPct = 0.35 },
         [257] = { base = 0.20, talents = { 392507 }, talentPct = 0.35 },
         [258] = { base = 0.20, talents = { 392507 }, talentPct = 0.35 },
-        -- Rogue -- DISABLED for now; restore this line (and ROGUE in
-        -- EXEC_CLASSES below) to bring it back. Assassination only, and only
-        -- with its gate talent; Outlaw and Subtlety have none.
-        -- [259] = { requires = { 381798 }, base = 0.35 },
-        -- Warlock -- Affliction and Destruction, each only with its gate
-        -- talent (Drain Soul / Shadowburn); Demonology has none.
+        -- Warlock: Affliction (Drain Soul gate) and Destruction (Shadowburn gate); Demonology none.
         [265] = { requires = { 388667 }, base = 0.20 },
         [267] = { requires = { 17877 }, base = 0.20 },
-        -- Warrior -- all three specs; either talent raises the window.
+        -- Warrior: all three specs; either talent raises the window.
         [71]  = { base = 0.20, talents = { 281001, 206315 }, talentPct = 0.35 },
         [72]  = { base = 0.20, talents = { 281001, 206315 }, talentPct = 0.35 },
         [73]  = { base = 0.20, talents = { 281001, 206315 }, talentPct = 0.35 },
         -- No entries for Demon Hunter, Druid, Evoker, Paladin or Shaman.
     }
-    -- Classes holding at least one execute spec. Everyone else never even
-    -- registers the watcher: the threshold stays nil for the entire session
-    -- and every entry point early-outs on a single upvalue read.
-    -- Must stay in step with EXEC above: a class listed here with no specs
-    -- in the table just resolves nil forever (harmless, but it registers a
-    -- watcher for nothing). MONK and ROGUE are commented out alongside their
-    -- spec entries -- restore both together.
+    -- Classes with at least one execute spec; everyone else never registers the watcher (threshold
+    -- stays nil all session, every entry point early-outs on one upvalue read). Must stay in step
+    -- with EXEC -- a class listed here with no specs there registers a watcher for nothing.
     local EXEC_CLASSES = {
         DEATHKNIGHT = true, HUNTER = true, MAGE = true,
         PRIEST = true, WARLOCK = true, WARRIOR = true,
@@ -2348,12 +1958,10 @@ do
         if not (C_CurveUtil and C_CurveUtil.CreateColorCurve and UnitHealthPercent) then return nil end
         local curve = C_CurveUtil.CreateColorCurve()
         local EPSILON = 0.0001
-        -- At or below the execute threshold -> red; above -> BLACK. The glow
-        -- textures use ADD blend, so black contributes nothing and the glow
-        -- disappears. Alpha stays 1 at every point: only RGB varies, the
-        -- exact curve shape the proven threshold curves elsewhere in the
-        -- suite use (curve alpha interpolation is deliberately never relied
-        -- on). Rebuilt only when the threshold itself changes.
+        -- At or below the execute threshold -> red; above -> BLACK, which contributes
+        -- nothing under the glow textures' ADD blend, so the glow disappears. Alpha
+        -- stays 1 at every point and only RGB varies: curve alpha interpolation is
+        -- deliberately never relied on. Rebuilt only when the threshold itself changes.
         curve:AddPoint(0.0, CreateColor(1, 0, 0, 1))
         curve:AddPoint(t, CreateColor(1, 0, 0, 1))
         curve:AddPoint(t + EPSILON, CreateColor(0, 0, 0, 1))
@@ -2362,9 +1970,8 @@ do
         return curve
     end
 
-    -- Spec + talent watcher, built ONLY for a class that can have an execute.
-    -- Talents cannot change in combat, so resolving on these events costs
-    -- nothing at runtime (mirrors the Whirlwind/Sweeping Strikes trackers).
+    -- Spec + talent watcher, built ONLY for a class that can have an execute. Talents cannot
+    -- change in combat, so these events cost nothing at runtime.
     do
         local _, cls = UnitClass("player")
         if EXEC_CLASSES[cls] then
@@ -2379,9 +1986,8 @@ do
                 if new == threshold then return end
                 threshold = new
                 lowCurve, curveAt = nil, nil
-                -- Re-apply per plate: the gate creates or tears down the
-                -- whole effect, so a build that gains or loses its execute
-                -- flips the glow on or off without a settings change.
+                -- Re-apply per plate: the gate creates/tears down the whole effect, so
+                -- gaining/losing an execute flips the glow with no settings change.
                 if ns.plates and ns.ApplyLowHpGlow then
                     for _, plate in pairs(ns.plates) do
                         ns.ApplyLowHpGlow(plate)
@@ -2404,16 +2010,14 @@ function ns.EnsureLowHpGlow(plate)
     plate.lowHpGlowTextures = texs
     local function MkTex()
         local t = f:CreateTexture(nil, "BACKGROUND")
-        -- Dedicated art (not the shared target-glow background.png) so its
-        -- brightness can be tuned in the file without touching the target glow.
+        -- Dedicated art (not the shared target-glow texture) so brightness can be tuned without touching the target glow.
         t:SetTexture("Interface\\AddOns\\EllesmereUINameplates\\Media\\execute-glow.png")
         t:SetVertexColor(0, 0, 0, 1)  -- black = invisible under ADD blend until the first health eval
         t:SetBlendMode("ADD")
         texs[#texs + 1] = t
         return t
     end
-    -- Same 9-slice layout as the target glow (EnsureGlow above) so the two
-    -- effects share one visual language and geometry.
+    -- Same 9-slice layout as the target glow (EnsureGlow) so the two effects share one visual language.
     local tl = MkTex(); tl:SetSize(GLOW_CORNER, GLOW_CORNER); tl:SetPoint("TOPLEFT"); tl:SetTexCoord(0, GLOW_MARGIN, 0, GLOW_MARGIN)
     local tr = MkTex(); tr:SetSize(GLOW_CORNER, GLOW_CORNER); tr:SetPoint("TOPRIGHT"); tr:SetTexCoord(1 - GLOW_MARGIN, 1, 0, GLOW_MARGIN)
     local bl = MkTex(); bl:SetSize(GLOW_CORNER, GLOW_CORNER); bl:SetPoint("BOTTOMLEFT"); bl:SetTexCoord(0, GLOW_MARGIN, 1 - GLOW_MARGIN, 1)
@@ -2435,11 +2039,8 @@ function ns.EnsureLowHpGlow(plate)
 end
 
 function ns.ApplyLowHpGlow(plate)
-    -- Two gates, both hard: the setting must be on AND the player's spec and
-    -- talents must actually have an execute window. Failing either, nothing
-    -- is ever created for this plate -- so the health-update evaluation
-    -- short-circuits on a nil texture list and the feature costs nothing at
-    -- all for a spec that cannot use it.
+    -- Two hard gates: setting on AND spec/talents have an execute window. Failing either,
+    -- nothing is created; the health-update eval short-circuits on a nil texture list.
     if not (p and p.lowHpGlow == true) or not ns.GetExecuteThreshold() then
         if plate.lowHpGlowFrame then
             plate.lowHpGlowPulse:Stop()
@@ -2452,10 +2053,40 @@ function ns.ApplyLowHpGlow(plate)
     if not plate.lowHpGlowPulse:IsPlaying() then plate.lowHpGlowPulse:Play() end
 end
 
--- Highlight target style: a fixed translucent white wash across the target's
--- health bar. Lazily created (only the target ever shows it) and kept SEPARATE
--- from plate.highlight (the mouseover highlight) so the two never fight over
--- show/hide state when a unit is both targeted and moused over.
+-- Near-aggro glow (Non-Tank Threat cog): the execute glow's exact 9-slice
+-- visual -- same art, extend, corner geometry, ADD blend -- at STATIC
+-- full-alpha red: no pulse animation and no health curve. Visibility alone is
+-- the signal, driven from UpdateHealthColor's own Near Aggro color decision
+-- (clean threat booleans, so it behaves identically in and out of restriction).
+function ns.EnsureNearAggroGlow(plate)
+    if plate.naGlowFrame then return end
+    local f = CreateFrame("Frame", nil, plate)
+    f:SetFrameStrata("BACKGROUND")
+    f:SetFrameLevel(1)
+    f:SetPoint("TOPLEFT", plate.health, "TOPLEFT", -GLOW_EXTEND, GLOW_EXTEND)
+    f:SetPoint("BOTTOMRIGHT", plate.health, "BOTTOMRIGHT", GLOW_EXTEND, -GLOW_EXTEND)
+    f:Hide()
+    plate.naGlowFrame = f
+    local function MkTex()
+        local t = f:CreateTexture(nil, "BACKGROUND")
+        t:SetTexture("Interface\\AddOns\\EllesmereUINameplates\\Media\\execute-glow.png")
+        t:SetVertexColor(1, 0, 0, 1)  -- static execute red, full alpha
+        t:SetBlendMode("ADD")
+        return t
+    end
+    local tl = MkTex(); tl:SetSize(GLOW_CORNER, GLOW_CORNER); tl:SetPoint("TOPLEFT"); tl:SetTexCoord(0, GLOW_MARGIN, 0, GLOW_MARGIN)
+    local tr = MkTex(); tr:SetSize(GLOW_CORNER, GLOW_CORNER); tr:SetPoint("TOPRIGHT"); tr:SetTexCoord(1 - GLOW_MARGIN, 1, 0, GLOW_MARGIN)
+    local bl = MkTex(); bl:SetSize(GLOW_CORNER, GLOW_CORNER); bl:SetPoint("BOTTOMLEFT"); bl:SetTexCoord(0, GLOW_MARGIN, 1 - GLOW_MARGIN, 1)
+    local br = MkTex(); br:SetSize(GLOW_CORNER, GLOW_CORNER); br:SetPoint("BOTTOMRIGHT"); br:SetTexCoord(1 - GLOW_MARGIN, 1, 1 - GLOW_MARGIN, 1)
+    local top = MkTex(); top:SetHeight(GLOW_CORNER); top:SetPoint("TOPLEFT", tl, "TOPRIGHT"); top:SetPoint("TOPRIGHT", tr, "TOPLEFT"); top:SetTexCoord(GLOW_MARGIN, 1 - GLOW_MARGIN, 0, GLOW_MARGIN)
+    local bot = MkTex(); bot:SetHeight(GLOW_CORNER); bot:SetPoint("BOTTOMLEFT", bl, "BOTTOMRIGHT"); bot:SetPoint("BOTTOMRIGHT", br, "BOTTOMLEFT"); bot:SetTexCoord(GLOW_MARGIN, 1 - GLOW_MARGIN, 1 - GLOW_MARGIN, 1)
+    local lft = MkTex(); lft:SetWidth(GLOW_CORNER); lft:SetPoint("TOPLEFT", tl, "BOTTOMLEFT"); lft:SetPoint("BOTTOMLEFT", bl, "TOPLEFT"); lft:SetTexCoord(0, GLOW_MARGIN, GLOW_MARGIN, 1 - GLOW_MARGIN)
+    local rgt = MkTex(); rgt:SetWidth(GLOW_CORNER); rgt:SetPoint("TOPRIGHT", tr, "BOTTOMRIGHT"); rgt:SetPoint("BOTTOMRIGHT", br, "TOPRIGHT"); rgt:SetTexCoord(1 - GLOW_MARGIN, 1, GLOW_MARGIN, 1 - GLOW_MARGIN)
+    local ctr = MkTex(); ctr:SetPoint("TOPLEFT", lft, "TOPRIGHT"); ctr:SetPoint("BOTTOMRIGHT", rgt, "BOTTOMLEFT"); ctr:SetTexCoord(GLOW_MARGIN, 1 - GLOW_MARGIN, GLOW_MARGIN, 1 - GLOW_MARGIN)
+end
+
+-- Highlight target style: translucent wash across the target's health bar. Lazy (only the
+-- target ever shows it), kept SEPARATE from plate.highlight (mouseover) so the two never fight.
 local function EnsureTargetHighlight(plate)
     if plate.targetHighlight then return end
     local t = plate.health:CreateTexture(nil, "OVERLAY", nil, 5)
@@ -2466,10 +2097,9 @@ local function EnsureTargetHighlight(plate)
     plate.targetHighlight = t
 end
 
--- Target arrow styles: key -> { l=left texture, r=right texture, w=drawn width at
--- height 16 (scale 1), label }. All source art is 66px tall; width preserves the
--- original 36px art = 11px drawn, i.e. w = round(nativeWidth * 11/36): 36->11,
--- 72->22, 90->28. Height is always 16. Shared by enemy/friendly plates + options.
+-- Target arrow styles: key -> { l=left texture, r=right texture, w=drawn width at height 16
+-- (scale 1), label }. All source art is 66px tall; w = round(nativeWidth * 11/36): 36->11,
+-- 72->22, 90->28. Height always 16. Shared by enemy/friendly plates + options.
 ns.TARGET_ARROW_DIR = "Interface\\AddOns\\EllesmereUINameplates\\Media\\Arrows\\"
 ns.TARGET_ARROW_STYLES = {
     simple    = { l = "arrow_left",      r = "arrow_right",      w = 11, label = "Simple Arrows" },
@@ -2494,15 +2124,13 @@ ns.TARGET_ARROW_ORDER = {
     "halo", "curved", "barbed", "holyspear", "bracket", "diamond", "crystal", "classic",
 }
 
--- Resolve a profile to its arrow style table. targetArrowStyle is the current key;
--- legacy profiles fall back to the old targetArrowDouble boolean (then Simple).
+-- Resolve a profile to its arrow style table. targetArrowStyle is the current key; legacy profiles fall back to targetArrowDouble (then Simple).
 function ns.ResolveTargetArrowStyle(prof)
     local key = prof and (prof.targetArrowStyle or (prof.targetArrowDouble and "double")) or nil
     return ns.TARGET_ARROW_STYLES[key] or ns.TARGET_ARROW_STYLES.simple
 end
 
--- Target arrow tint: the player's class color when targetArrowClassColor is on,
--- otherwise the custom targetArrowColor (default white).
+-- Target arrow tint: the player's class color when targetArrowClassColor is on, else the custom targetArrowColor (default white).
 function ns.GetTargetArrowColor(prof)
     if prof and prof.targetArrowClassColor then
         local cc = RAID_CLASS_COLORS and RAID_CLASS_COLORS[PLAYER_CLASS]
@@ -2519,25 +2147,18 @@ local function EnsureArrows(plate)
     local st = ns.ResolveTargetArrowStyle(p)
     local sc = (p and p.targetArrowScale) or 1.0
     local aw, ah = math.floor(st.w * sc + 0.5), math.floor(16 * sc + 0.5)
-    -- Regions OF the health bar (12.1: the plate subtree is aspect-restricted
-    -- and unmeasurable). NO creation anchors: single-point + size rects render
-    -- DISPLACED inside the restricted tree, so the only sanctioned anchor form
-    -- is the fully-anchored TOP+BOTTOM scheme applied by
-    -- PositionArrowsOutsideAuras -- which runs on every target apply, always
-    -- after Show(). An unanchored hidden texture has no rect and draws
-    -- nothing, so the creation state is safe. Rendering outside the bar rect
-    -- is fine (health runs SetClipsChildren(false)).
+    -- Regions OF the health bar (the plate subtree is aspect-restricted and unmeasurable). NO
+    -- creation anchors: single-point + size rects render DISPLACED inside the restricted tree,
+    -- so the only sanctioned form is the fully-anchored TOP+BOTTOM scheme from
+    -- PositionArrowsOutsideAuras (runs on every target apply, after Show()). An unanchored
+    -- hidden texture has no rect and draws nothing, so the creation state is safe. Rendering
+    -- outside the bar rect is fine (health SetClipsChildren(false)).
     local arrowParent = plate.health
-    if EllesmereUI.IS_121 then
-        -- 68914: aura containers carry UntrustedLayoutScriptExecution once
-        -- they hold a group, and only aspect-bearing objects may anchor to
-        -- them. Aspects cannot be gained later (SetParent/SetPoint
-        -- inheritance is deliberately blocked), so the arrows must be BORN
-        -- inside a template holder: regions inherit the holder's aspect at
-        -- creation, letting the containers file anchor them to the side
-        -- aura containers while the legacy writers keep anchoring them to
-        -- readable frames. Stale builds without the template keep the
-        -- plain parent (their containers carry no aspect either).
+        -- Aura containers carry UntrustedLayoutScriptExecution once they hold a group, and only
+        -- aspect-bearing objects may anchor to them. Aspects cannot be gained later
+        -- (SetParent/SetPoint inheritance is blocked), so arrows must be BORN inside a template
+        -- holder to inherit its aspect; the containers file then anchors them to the side aura
+        -- containers. Clients without the template keep the plain parent (no aspect needed).
         local ok, holder = pcall(CreateFrame, "Frame", nil, plate.health,
             "DisableUntrustedLayoutScriptsTemplate")
         if ok and holder then
@@ -2546,7 +2167,6 @@ local function EnsureArrows(plate)
             plate.arrowHost = holder
             arrowParent = holder
         end
-    end
     plate.leftArrow = arrowParent:CreateTexture(nil, "OVERLAY")
     plate.leftArrow:SetTexture(ns.TARGET_ARROW_DIR .. st.l .. ".png")
     plate.rightArrow = arrowParent:CreateTexture(nil, "OVERLAY")
@@ -2557,10 +2177,8 @@ local function EnsureArrows(plate)
     plate.rightArrow:Hide()
 end
 
--- Target/Focus overlay textures: the special stripe overlays live in the
--- nameplates Media folder (resolved by name); everything else is a regular bar
--- texture resolved through the shared health-bar texture lookup (EUI textures +
--- SharedMedia), so the overlay dropdowns can offer the full bar texture set.
+-- Target/Focus overlay textures: stripe overlays live in the nameplates Media folder (resolved
+-- by name); everything else resolves through the shared health-bar lookup (EUI + SharedMedia).
 ns.OVERLAY_STRIPE_KEYS = {
     ["striped-v2"] = true, ["striped-wide-v2"] = true, ["stripes-medium"] = true,
     ["stripes-small-close"] = true, ["stripes-small-spread"] = true, ["striped-tiny"] = true,
@@ -2576,19 +2194,13 @@ function ns.ResolveOverlayTexPath(key)
     return nil
 end
 
--- Both overlays span the full bar width (anchored LEFT+RIGHT to the health bar)
--- so the pattern always covers the whole bar and follows Health Bar Width
--- changes automatically. Fill and bg share the identical geometry, so a stripe's
--- diagonal stays continuous across the fill/background split; the clip frames
--- still window the filled vs empty portions. (Previously stripe overlays used a
--- fixed 200px width, which left bars wider than 200 uncovered on the right.)
--- Stripes additionally CROP via texcoord to the bar's share of the pattern's
--- native 200px span, so the diagonal density stays pixel-identical to the old
--- fixed-200px look on every bar up to 200 wide. Wider bars stretch the full
--- pattern (that region was simply blank before the full-width fix, so there is
--- no legacy look to preserve there). Width comes from settings
--- (GetHealthBarWidth), never from measuring the plate subtree (12.1 restricted
--- regions forbid reads there).
+-- Both overlays span the full bar width (anchored LEFT+RIGHT to the health bar) so the pattern
+-- covers the whole bar and follows Health Bar Width changes. Fill and bg share identical
+-- geometry so a stripe's diagonal stays continuous across the fill/background split; clip
+-- frames window the filled vs empty portions. Stripes additionally CROP via texcoord to the
+-- bar's share of the pattern's native 200px span (constant density up to 200 wide, wider bars
+-- stretch the full pattern). Width comes from settings, never from measuring the plate subtree
+-- (restricted regions forbid reads there).
 local STRIPE_NATIVE_W = 200
 local function ApplyOverlayGeometry(fillT, bgT, health, isStripe)
     fillT:ClearAllPoints(); bgT:ClearAllPoints()
@@ -2607,9 +2219,8 @@ local function ApplyOverlayGeometry(fillT, bgT, health, isStripe)
     bgT:SetTexCoord(0, u, 0, 1)
 end
 
--- Alpha for the empty (background) portion of an overlay. The per-state "Full
--- alpha on empty part of bar" toggle shows it at the same opacity as the filled
--- portion; otherwise it stays dimmed to 30% so the fill reads as "more filled".
+-- Alpha for the empty (background) portion of an overlay. The "Full alpha on empty part of
+-- bar" toggle matches the filled portion's opacity; else dimmed to 30% so fill reads as "more filled".
 local function OverlayBgAlpha(fullFlag, fillAlpha)
     if fullFlag then return fillAlpha end
     return fillAlpha * 0.3
@@ -2623,19 +2234,13 @@ local function EnsureFocusOverlay(plate)
     local fillTex = plate.health:GetStatusBarTexture()
     plate.focusClipFill = CreateFrame("Frame", nil, plate.health)
     plate.focusClipFill:SetClipsChildren(true)
-    -- Vertical bounds come from the health bar itself (full nameplate height)
-    -- so the overlay can never pixel-snap 1px short on the top or bottom edge
-    -- as the plate floats at sub-pixel screen positions. Only the RIGHT edge
-    -- tracks the fill so the stripes window the filled portion.
+    -- Vertical bounds come from the health bar itself so the overlay never pixel-snaps 1px short; only the RIGHT edge tracks the fill.
     plate.focusClipFill:SetPoint("TOPLEFT", plate.health, "TOPLEFT", 0, 0)
     plate.focusClipFill:SetPoint("BOTTOMLEFT", plate.health, "BOTTOMLEFT", 0, 0)
     plate.focusClipFill:SetPoint("RIGHT", fillTex, "RIGHT", 0, 0)
     plate.focusClipFill:SetFrameLevel(plate.health:GetFrameLevel() + 1)
     plate.focusOverlayFill = plate.focusClipFill:CreateTexture(nil, "ARTWORK", nil, 2)
-    -- Texture: full bar height and full bar width (anchored LEFT+RIGHT to the
-    -- health bar) so the diagonal pattern stays continuous across the
-    -- fill/background split (both overlays share the same geometry) and snaps
-    -- with the clip's vertical edges.
+    -- Full bar height/width (anchored LEFT+RIGHT to health bar) so the diagonal pattern stays continuous across the split and snaps with the clip's edges.
     plate.focusOverlayFill:SetPoint("TOPLEFT", plate.health, "TOPLEFT", 0, 0)
     plate.focusOverlayFill:SetPoint("BOTTOMLEFT", plate.health, "BOTTOMLEFT", 0, 0)
     plate.focusOverlayFill:SetPoint("RIGHT", plate.health, "RIGHT", 0, 0)
@@ -2656,8 +2261,7 @@ local function EnsureFocusOverlay(plate)
     plate.focusOverlayBg:SetTexture(STRIPE_TEX)
     plate.focusOverlayBg:SetAlpha(OverlayBgAlpha(p and p.focusOverlayFullBgAlpha, overlayAlpha))
     plate.focusOverlayBg:SetVertexColor(overlayColor.r, overlayColor.g, overlayColor.b)
-    -- Creation-time texcoord for the STRIPE_TEX default (the state-gated apply
-    -- re-runs this with the actual texture kind).
+    -- Creation-time texcoord for the STRIPE_TEX default; the state-gated apply re-runs it with the actual texture kind.
     ApplyOverlayGeometry(plate.focusOverlayFill, plate.focusOverlayBg, plate.health, true)
     plate.focusClipBg:Hide()
 end
@@ -2756,8 +2360,7 @@ ns.EnsureHoverOverlay = function(plate)
     plate.hoverOverlayBg:SetTexture(STRIPE_TEX)
     plate.hoverOverlayBg:SetAlpha(OverlayBgAlpha(p and p.hoverOverlayFullBgAlpha, overlayAlpha))
     plate.hoverOverlayBg:SetVertexColor(overlayColor.r, overlayColor.g, overlayColor.b)
-    -- Creation-time texcoord for the STRIPE_TEX default (the state-gated apply
-    -- re-runs this with the actual texture kind).
+    -- Creation-time texcoord for the STRIPE_TEX default; the state-gated apply re-runs it with the actual texture kind.
     ApplyOverlayGeometry(plate.hoverOverlayFill, plate.hoverOverlayBg, plate.health, true)
     plate.hoverClipBg:Hide()
 end
@@ -2770,19 +2373,13 @@ ns.EnsureTargetOverlay = function(plate)
     local fillTex = plate.health:GetStatusBarTexture()
     plate.targetClipFill = CreateFrame("Frame", nil, plate.health)
     plate.targetClipFill:SetClipsChildren(true)
-    -- Vertical bounds come from the health bar itself (full nameplate height)
-    -- so the overlay can never pixel-snap 1px short on the top or bottom edge
-    -- as the plate floats at sub-pixel screen positions. Only the RIGHT edge
-    -- tracks the fill so the stripes window the filled portion.
+    -- Vertical bounds come from the health bar itself so the overlay never pixel-snaps 1px short; only the RIGHT edge tracks the fill.
     plate.targetClipFill:SetPoint("TOPLEFT", plate.health, "TOPLEFT", 0, 0)
     plate.targetClipFill:SetPoint("BOTTOMLEFT", plate.health, "BOTTOMLEFT", 0, 0)
     plate.targetClipFill:SetPoint("RIGHT", fillTex, "RIGHT", 0, 0)
     plate.targetClipFill:SetFrameLevel(plate.health:GetFrameLevel() + 1)
     plate.targetOverlayFill = plate.targetClipFill:CreateTexture(nil, "ARTWORK", nil, 2)
-    -- Texture: full bar height and full bar width (anchored LEFT+RIGHT to the
-    -- health bar) so the diagonal pattern stays continuous across the
-    -- fill/background split (both overlays share the same geometry) and snaps
-    -- with the clip's vertical edges.
+    -- Full bar height/width (anchored LEFT+RIGHT to health bar) so the diagonal pattern stays continuous across the split and snaps with the clip's edges.
     plate.targetOverlayFill:SetPoint("TOPLEFT", plate.health, "TOPLEFT", 0, 0)
     plate.targetOverlayFill:SetPoint("BOTTOMLEFT", plate.health, "BOTTOMLEFT", 0, 0)
     plate.targetOverlayFill:SetPoint("RIGHT", plate.health, "RIGHT", 0, 0)
@@ -2803,8 +2400,7 @@ ns.EnsureTargetOverlay = function(plate)
     plate.targetOverlayBg:SetTexture(STRIPE_TEX)
     plate.targetOverlayBg:SetAlpha(OverlayBgAlpha(p and p.targetOverlayFullBgAlpha, overlayAlpha))
     plate.targetOverlayBg:SetVertexColor(overlayColor.r, overlayColor.g, overlayColor.b)
-    -- Creation-time texcoord for the STRIPE_TEX default (the state-gated apply
-    -- re-runs this with the actual texture kind).
+    -- Creation-time texcoord for the STRIPE_TEX default; the state-gated apply re-runs it with the actual texture kind.
     ApplyOverlayGeometry(plate.targetOverlayFill, plate.targetOverlayBg, plate.health, true)
     plate.targetClipBg:Hide()
 end
@@ -2829,9 +2425,8 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     plate.hashLine:SetPoint("TOP", plate.health, "TOP", 0, 0)
     plate.hashLine:SetPoint("BOTTOM", plate.health, "BOTTOM", 0, 0)
     plate.hashLine:Hide()
-    -- Mask texture: constrains absorb rendering to exact health bar bounds
-    -- at the GPU level. Prevents subpixel bleed where absorb textures
-    -- extend 1px outside the health bar at certain nameplate positions.
+    -- Mask texture: constrains absorb rendering to exact health bar bounds at the GPU level,
+    -- preventing the 1px subpixel bleed absorb textures show at certain nameplate positions.
     local absorbMask = plate.health:CreateMaskTexture()
     absorbMask:SetAllPoints(plate.health)
     absorbMask:SetTexture("Interface\\Buttons\\WHITE8X8")
@@ -2921,18 +2516,14 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
             PP.SetBorderColor(plate.health, cr, cg, cb, 1)
         end
     end
-    -- Target glow, target arrows, and focus overlay are lazy-created on
-    -- demand (EnsureGlow / EnsureArrows / EnsureFocusOverlay) since only
-    -- 1 plate at a time ever shows them. This saves ~14 objects per plate.
-    -- Text overlay frame: renders above focus stripe overlay (level +1)
+    -- Target glow, arrows and focus overlay are lazy (EnsureGlow / EnsureArrows /
+    -- EnsureFocusOverlay): only 1 plate shows them, saving ~14 objects per plate.
     plate.healthTextFrame = CreateFrame("Frame", nil, plate)
     plate.healthTextFrame:SetAllPoints(plate.health)
-    -- TEXT TIER (top of the hierarchy). All three layered groups -- text (900),
-    -- aura icons (800) and indicators (raid marker / classification, ~13-18) --
-    -- use an explicit MEDIUM strata so they are pulled out of the plate's
-    -- flattened render layer together and ordered purely by frame level. Without
-    -- the explicit strata this frame would stay in the flattened pass and render
-    -- BELOW the (strata-promoted) aura icons. Text > Auras > Indicators.
+    -- TEXT TIER (top). All three layered groups -- text (900), aura icons (800), indicators
+    -- (raid marker/classification, ~13-18) -- use explicit MEDIUM strata so they are pulled out
+    -- of the plate's flattened render layer together, ordered purely by frame level. Without
+    -- it this frame stays flattened and renders BELOW the aura icons. Text > Auras > Ind.
     plate.healthTextFrame:SetFrameStrata("MEDIUM")
     plate.healthTextFrame:SetFrameLevel(900)
     plate.hpText = plate.healthTextFrame:CreateFontString(nil, "OVERLAY")
@@ -2948,9 +2539,8 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     SetFSFont(plate.levelText, 10, GetNPOutline())
     plate.levelText:SetPoint("CENTER", plate.health, "CENTER", 0, 0)
     plate.levelText:Hide()
-    -- Mouseover highlight: parented to the health bar (not the higher-level
-    -- text frame) so it renders BEHIND the border, which lives on a child
-    -- frame at health level + 1.
+    -- Mouseover highlight: parented to the health bar (not the higher-level text
+    -- frame) so it renders BEHIND the border (a child at health level + 1).
     plate.highlight = plate.health:CreateTexture(nil, "OVERLAY", nil, 6)
     plate.highlight:SetAllPoints(plate.health)
     local _hc = (p and p.hoverColor) or defaults.hoverColor
@@ -2983,12 +2573,10 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     plate.raidFrame = CreateFrame("Frame", nil, plate)
     local rmSize = GetRaidMarkerSize()
     PP.Size(plate.raidFrame, rmSize, rmSize)
-    -- INDICATOR TIER (bottom of the three layered groups). Explicit MEDIUM strata
-    -- like the aura icons and text, so frame level alone decides order within the
-    -- pulled-out group: the marker (health+8 = 18) sits BELOW the aura icons (800)
-    -- and the text (900) but above the flattened health bar. Sharing MEDIUM across
-    -- all three tiers is what keeps the order predictable -- a no-strata frame
-    -- would drop into the plate's flattened render layer instead.
+    -- INDICATOR TIER (bottom of the three groups). Explicit MEDIUM strata like the aura icons
+    -- and text, so frame level alone orders the pulled-out group: the marker (health+8=18)
+    -- sits BELOW auras (800) and text (900) but above the flattened health bar. Sharing MEDIUM
+    -- across all three tiers keeps order predictable -- a no-strata frame drops into flattening.
     plate.raidFrame:SetFrameStrata("MEDIUM")
     plate.raidFrame:SetFrameLevel(plate.health:GetFrameLevel() + 8)
     plate.raidFrame:Hide()
@@ -2999,19 +2587,16 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     local _reIconSz = GetRareEliteIconSize()
     PP.Size(plate.classFrame, _reIconSz, _reIconSz)
     PP.Point(plate.classFrame, "LEFT", plate.health, "LEFT", 2, 0)
-    -- INDICATOR TIER (see raidFrame). MEDIUM strata + low level (health+3 = 13)
-    -- so the classification/elite/rare/quest indicator sits below the aura icons
-    -- (800) and text (900) but above the flattened health bar.
+    -- INDICATOR TIER (see raidFrame). MEDIUM strata + low level (health+3=13) so the
+    -- classification/elite/rare/quest indicator sits below auras/text but above the flattened bar.
     plate.classFrame:SetFrameStrata("MEDIUM")
     plate.classFrame:SetFrameLevel(plate.health:GetFrameLevel() + 3)
     plate.classFrame:Hide()
     plate.class = plate.classFrame:CreateTexture(nil, "ARTWORK")
     plate.class:SetAllPoints()
     plate.cast = CreateFrame("StatusBar", nil, plate)
-    -- Cast bar spans the health bar width. By default the icon hangs outside to
-    -- the left; with "Make Icon Part of the Bar" the bar shrinks so the icon
-    -- sits inside the width. LayoutCastBar handles both (must run after
-    -- plate.health exists, which it does here).
+    -- Cast bar spans the health bar width; by default the icon hangs outside left, and with
+    -- "Make Icon Part of the Bar" the bar shrinks to fit it. Must run after plate.health exists.
     ns.LayoutCastBar(plate, ns.GetHealthBarWidth(), CAST_H)
     plate.cast:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
     plate.cast:SetMinMaxValues(0, 1)
@@ -3021,10 +2606,8 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     local _cbg = (p and p.castBgColor) or defaults.castBgColor
     local _cba = (p and p.castBgAlpha) or defaults.castBgAlpha
     plate.castBG:SetColorTexture(_cbg.r, _cbg.g, _cbg.b, _cba)
-    -- Cast bar border: pixel-perfect PP.CreateBorder, lazy-created (off by
-    -- default at size 0, so it costs nothing unless the user enables it).
-    -- Mirrors the nameplate health border. The border is a child of plate.cast
-    -- so it shows/hides with the cast bar automatically.
+    -- Cast bar border: pixel-perfect PP.CreateBorder, lazy-created (size 0 default, costs
+    -- nothing unless enabled). Mirrors the health border; a child of plate.cast.
     function plate:ApplyCastBorder()
         if not PP or not PP.CreateBorder then return end
         local sz = (p and p.castBorderSize) or defaults.castBorderSize or 0
@@ -3045,30 +2628,18 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
         local cc = (p and p.castBorderColor) or defaults.castBorderColor
         PP.SetBorderColor(plate.cast, cc.r, cc.g, cc.b, 1)
     end
-    -- "Wrap Border Around Castbar" (opt-in, off by default). While the cast bar is
-    -- shown and the feature is enabled, the health bar + cast bar are wrapped in one
-    -- continuous border made of TWO pieces, one per bar: the REAL health border
-    -- (top + sides of the health bar, untouched, so its colour is already correct)
-    -- and a region frame for the lower half (sides + bottom, full footprint width,
-    -- health bottom -> cast bottom). The touching edges are hidden so they read as a
-    -- single outline; the region copies the health border's live colour.
-    --
-    -- The two pieces MUST live in their own bar's subtree. Each PP border is an
-    -- OVERLAY-draw-layer texture that beats its OWN bar's ARTWORK fill within the
-    -- plate's flattened render layer (reliable). A single frame spanning BOTH bars
-    -- does NOT work: its health half would render over the health fill from
-    -- plate.cast's subtree -- the unreliable cross-flatten case that put the border
-    -- behind the bars (the "disappears" bug). The region (child of plate.cast) never
-    -- overlaps the health fill, so it stays reliable, and it rides the "Casts In
-    -- Front of Nameplates" lift natively.
-    --
-    -- The region (not the cast bar's own border) is what lets the lower half span the
-    -- full footprint and bridge a Cast Bar Y gap / enclose an in-width icon: PP snaps
-    -- a border's edges to the frame it belongs to (SnapBorderTextures), so the cast
-    -- bar's own border can only ever hug the narrower / gapped cast bar.
-    --
-    -- Custom (textured) border = no-op: a textured backdrop is one piece, can't merge
-    -- cleanly. shouldWrap requires the simple PP border. O(1) no-op when off.
+    -- "Wrap Border Around Castbar" (opt-in). While cast bar shown + feature on, health + cast
+    -- get ONE continuous border from two pieces: the REAL health border (top+sides, untouched
+    -- colour) and a region frame for the lower half (sides+bottom, full footprint width, health
+    -- bottom -> cast bottom). Touching edges hidden so they read as one outline; region copies
+    -- the health border's colour. Each piece MUST live in its own bar's subtree: a PP border is
+    -- an OVERLAY texture that reliably beats its OWN bar's ARTWORK fill in the flattened render
+    -- layer -- one frame spanning BOTH bars does NOT work (health half would render over the
+    -- cast fill, the unreliable cross-flatten case). The region rides "Casts In Front of
+    -- Nameplates" natively and lets the lower half bridge a Cast Bar Y gap / enclose an
+    -- in-width icon: PP snaps a border's edges to its own frame (SnapBorderTextures), so the
+    -- cast bar's own border could only hug the narrower/gapped cast bar. Custom (textured)
+    -- border = no-op (one piece, cannot merge). shouldWrap requires the simple PP border.
     function plate:UpdateBorderWrap()
         if not PP or not PP.GetBorders then return end
         local shouldWrap = ns.GetWrapBorderCastbar()
@@ -3081,18 +2652,11 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
                 local col = hb._bdColor
                 local r, g, b, a = 0, 0, 0, 1
                 if col then r, g, b, a = col[1], col[2], col[3], col[4] or 1 end
-                -- The REAL health border (child of plate.health) keeps drawing the top
-                -- + sides of the health bar. The lower half is a separate region frame
-                -- (child of plate.cast) spanning the FULL footprint width from the
-                -- health bar's BOTTOM to the cast bar's BOTTOM -- bridging any Cast Bar
-                -- Y-offset gap and enclosing an in-width cast icon. We hide the seam
-                -- (health bottom + region top edges) so they read as one outline, and
-                -- copy the health border's live colour onto the region (target
-                -- highlight carries over). The two pieces MUST stay in their own bar's
-                -- subtree: each renders over its own bar's fill, where OVERLAY-draw-
-                -- layer beats ARTWORK reliably. A single frame spanning BOTH bars fails
-                -- -- its health half would render over the health fill from plate.cast's
-                -- subtree, the unreliable cross-flatten case (the "disappears" bug).
+                -- Region frame (child of plate.cast) spans the FULL footprint width from the
+                -- health bar's BOTTOM to the cast bar's BOTTOM, bridging any Cast Bar Y-offset
+                -- gap and enclosing an in-width cast icon; health border keeps top+sides. The
+                -- seam (health bottom + region top) is hidden to read as one outline, and the
+                -- health border's live colour is copied onto the region (target highlight carries over).
                 local region = plate.castWrapRegion
                 if not region then
                     region = CreateFrame("Frame", nil, plate.cast)
@@ -3103,25 +2667,19 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
                 region:SetPoint("TOPRIGHT", plate.health, "BOTTOMRIGHT", 0, 0)
                 region:SetPoint("BOTTOM", plate.cast, "BOTTOM", 0, 0)
                 region:Show()
-                -- Lift the region above the cast spell icon. The icon frame is itself
-                -- raised to health-level+1 (so a full-size icon clears the health bar),
-                -- which would otherwise draw an in-width "part of the bar" icon ON TOP
-                -- of the wrap border. Putting the region (hence its OVERLAY border)
-                -- above the icon makes the unified border draw over the icon's edge.
-                -- Re-set every pass: a strata propagation from the cast-lift would
-                -- collapse it otherwise.
+                -- Lift the region above the cast spell icon (raised to health-level+1 so a
+                -- full-size icon clears the health bar), else an in-width icon draws ON TOP of
+                -- the wrap border. Re-set every pass -- a strata propagation from the cast-lift would collapse it.
                 if plate.castIconFrame then
                     region:SetFrameLevel(plate.castIconFrame:GetFrameLevel() + 2)
                 end
                 if not PP.GetBorders(region) then
                     PP.CreateBorder(region, r, g, b, a, sz, "OVERLAY", 7, true)  -- scaleGuard: NP frame
                 end
-                -- Set the seam flags on the containers BEFORE (re)snapping so
-                -- SnapBorderTextures hides the two touching edges AND runs the side
-                -- strips all the way to the seam (no edge line, no corner notch).
-                -- Flags live on the container, so they survive every later re-snap
-                -- (the create-border 2-tick OnUpdate, scale changes, RefreshBorder) --
-                -- a one-shot :Hide() would be re-shown by the next snap.
+                -- Seam flags go on the containers BEFORE (re)snapping so SnapBorderTextures
+                -- hides the two touching edges AND runs the side strips to the seam (no edge
+                -- line, no corner notch). Flags survive every later re-snap (create-border
+                -- 2-tick OnUpdate, scale changes, RefreshBorder); a one-shot :Hide() would not.
                 local rb = PP.GetBorders(region)
                 if rb then rb._hideTop = true end
                 hb._hideBottom = true
@@ -3129,15 +2687,12 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
                 PP.SetBorderColor(region, r, g, b, a)
                 PP.ShowBorder(region)
                 PP.SetBorderSize(plate.health, sz)
-                -- Leave the cast bar's OWN border ACTIVE under the wrap (user wants it
-                -- visible) -- the region border sits at a higher frame level so it
-                -- draws over it. Only the icon-separator line is hidden so an in-width
-                -- "part of the bar" icon stays seamless with the bar.
+                -- Leave the cast bar's OWN border ACTIVE under the wrap (region border sits
+                -- higher and draws over it); only the icon-separator line is hidden so an
+                -- in-width icon stays seamless.
                 if plate.castLeftBorder then plate.castLeftBorder:Hide() end
-                -- Optional (off by default): tint the full-size icon's border with the
-                -- live target border colour so it matches the wrapped bar on your
-                -- current target. The else-branch keeps the icon border black in every
-                -- other case, so turning the toggle off resets it on the next pass.
+                -- Optional: tint the full-size icon's border with the live target border colour
+                -- to match the wrapped bar; else-branch keeps it black so toggling off resets it.
                 if plate.castIconFrame and PP.GetBorders(plate.castIconFrame) then
                     if p and p.castIconTargetBorder
                         and GetShowCastIcon() and ns.GetCastIconFullSize()
@@ -3153,9 +2708,8 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
             plate._wrapActive = true
         elseif plate._wrapActive then
             plate._wrapActive = false
-            -- Clear the seam flag and re-snap the health border so its bottom edge +
-            -- side insets come back (the re-snap re-applies the live colour, so it
-            -- stays correct). Drop the region and hand the cast border back.
+            -- Clear the seam flag and re-snap the health border so its bottom edge/side insets
+            -- come back (re-applies the live colour). Drop the region, hand the cast border back.
             local hb = PP.GetBorders(plate.health)
             if hb then
                 hb._hideBottom = nil
@@ -3181,22 +2735,17 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     plate.castLeftBorder:SetWidth(1)
     plate.castLeftBorder:SetPoint("TOPLEFT", plate.cast, "TOPLEFT", 0, 0)
     plate.castLeftBorder:SetPoint("BOTTOMLEFT", plate.cast, "BOTTOMLEFT", 0, 0)
-    -- Icon frame hangs outside the cast bar's left edge.
-    -- Parented to cast (auto-hides with cast) and anchored to cast (same frame
-    -- = single-pass layout resolve, no cross-frame jitter).
+    -- Icon frame hangs outside the cast bar's left edge. Parented AND anchored to cast
+    -- (auto-hides with it; same frame = single-pass resolve, no jitter).
     plate.castIconFrame = CreateFrame("Frame", nil, plate.cast)
-    -- Lift above the health bar (level 10) once, so a full-size icon (which
-    -- spans up into the health band) is never occluded by the health bar.
-    -- Harmless for the normal case (the icon sits below the health bar there).
+    -- Lift above the health bar (level 10) once so a full-size icon is never occluded.
     plate.castIconFrame:SetFrameLevel(plate.health:GetFrameLevel() + 1)
     ns.LayoutCastIcon(plate, CAST_H)
     AddBorder(plate.castIconFrame)
     plate.castIcon = plate.castIconFrame:CreateTexture(nil, "ARTWORK")
-    -- Fill the frame (inset 0) so the 1px OVERLAY border draws ON TOP of the icon's
-    -- rim -- the visible icon edge IS the border's inner edge, so no bare frame can
-    -- ever show through as a gap. DisablePixelSnap matches the icon to the (now
-    -- unsnapped) border strips so they translate together under plate motion instead
-    -- of drifting apart by a pixel at fractional screen positions.
+    -- Fill the frame (inset 0) so the 1px OVERLAY border draws ON TOP of the icon's rim: the
+    -- visible edge IS the border's inner edge, no bare frame gap. DisablePixelSnap matches the
+    -- icon to the unsnapped border strips so they translate together under plate motion.
     plate.castIcon:SetPoint("TOPLEFT", plate.castIconFrame, "TOPLEFT", 0, 0)
     plate.castIcon:SetPoint("BOTTOMRIGHT", plate.castIconFrame, "BOTTOMRIGHT", 0, 0)
     if PP and PP.DisablePixelSnap then PP.DisablePixelSnap(plate.castIcon) end
@@ -3222,25 +2771,20 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     plate.castBarOverlay:SetAllPoints(plate.cast:GetStatusBarTexture())
     plate.castBarOverlay:SetTexture("Interface\\Buttons\\WHITE8x8")
     plate.castBarOverlay:SetAlpha(0)
-    -- Kick tick: clip frame so the tick doesn't render outside the cast bar
-    -- when kick CD exceeds remaining cast time. Only the kick elements live
-    -- inside this clip frame; everything else (icon, text, shield, spark)
-    -- stays on the unclipped cast bar so nothing gets cut off.
+    -- Kick tick: clip frame so the tick never renders outside the cast bar when kick CD exceeds
+    -- remaining cast time. ONLY kick elements go here; icon/text/shield/spark stay unclipped.
     plate.kickClip = CreateFrame("Frame", nil, plate.cast)
     plate.kickClip:SetAllPoints(plate.cast)
     plate.kickClip:SetClipsChildren(true)
     plate.kickPositioner = CreateFrame("StatusBar", nil, plate.kickClip)
     plate.kickPositioner:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
     plate.kickPositioner:GetStatusBarTexture():SetAlpha(0)
-    -- Pixel-snap OFF on the fill texture. The tick sits at positioner_width +
-    -- marker_width; if either fill snaps its edge to the pixel grid
-    -- independently, round(a) + round(b) flips by 1px as one width crosses a
-    -- pixel boundary while the other does not, even though
-    -- (elapsed + CD remaining) / total is invariant -- that is the jitter.
-    -- Belt-and-suspenders only: the load-bearing unsnap is after each
-    -- SetFillStyle in UpdateKickTick (SetFillStyle re-mints the inner fill to
-    -- snap-ON and the global SetStatusBarTexture hook will not re-fire on a bar
-    -- it has already cached).
+    -- Pixel-snap OFF on the fill texture. The tick sits at positioner_width + marker_width; if
+    -- either fill snaps independently, round(a)+round(b) flips by 1px when one width crosses a
+    -- pixel boundary and the other does not, even though the ratio is invariant -- that's the
+    -- jitter. Belt-and-suspenders: the load-bearing unsnap is after each SetFillStyle in
+    -- UpdateKickTick (SetFillStyle re-mints the fill to snap-ON; the global SetStatusBarTexture
+    -- hook won't re-fire on an already-cached bar).
     if plate.kickPositioner:GetStatusBarTexture().SetSnapToPixelGrid then
         plate.kickPositioner:GetStatusBarTexture():SetSnapToPixelGrid(false)
         plate.kickPositioner:GetStatusBarTexture():SetTexelSnappingBias(0)
@@ -3265,26 +2809,21 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     plate.kickTick:SetPoint("TOP", plate.kickMarker, "TOP", 0, 0)
     plate.kickTick:SetPoint("BOTTOM", plate.kickMarker, "BOTTOM", 0, 0)
     plate.kickTick:SetPoint("LEFT", plate.kickMarker:GetStatusBarTexture(), "RIGHT")
-    -- Interrupt-ready mid-cast fill: colors the cast-bar segment from the
-    -- "kick ready here" point to the cast end (the window during which the
-    -- player's interrupt will be available) when the kick is on cooldown now
-    -- but comes off cooldown before the cast finishes. It rides the SAME
-    -- kickMarker geometry as the tick: the "ready in time" two-secret-duration
-    -- test is resolved purely by where the marker texture edge lands. When the
-    -- kick will NOT be ready in time the fill left/right anchors cross and it
-    -- collapses to zero width, so it self-hides with no Lua branch on a secret.
-    -- It lives on plate.cast at ARTWORK sublevel 1 so it sits above the bar
-    -- fill but below the OVERLAY cast text and below the uninterruptible grey
-    -- overlay (sublevel 2). Anchors are (re)applied per cast in UpdateKickTick.
+    -- Interrupt-ready mid-cast fill: colors the cast-bar segment from "kick ready here" to cast
+    -- end (window where the interrupt is available) when kick is on CD now but comes off before
+    -- the cast finishes. Rides the SAME kickMarker geometry as the tick, so the "ready in time"
+    -- two-secret-duration test resolves purely by where the marker texture edge lands: if the
+    -- kick will NOT be ready the left/right anchors cross, the fill collapses to zero width and
+    -- self-hides with no Lua branch on a secret. On plate.cast at ARTWORK sublevel 1: above the
+    -- bar fill, below the OVERLAY cast text and uninterruptible grey overlay (sublevel 2).
+    -- Anchors (re)applied per cast in UpdateKickTick.
     plate.kickReadyFill = plate.cast:CreateTexture(nil, "ARTWORK", nil, 1)
     plate.kickReadyFill:SetColorTexture(1, 1, 1, 1)
     plate.kickReadyFill:SetAlpha(0)
     plate.kickReadyFill:Hide()
-    -- Cast bar text: three independent fixed zones
-    -- [castName LEFT 50%] [castTarget CENTER-RIGHT 25%] [castTimer RIGHT 15%]
-    -- Hosted on an explicit MEDIUM frame so the cast text is pulled out of the
-    -- plate's flattened render layer and renders ABOVE the cast bar border (the
-    -- border sits in the flattened pass and would otherwise cover the text).
+    -- Cast bar text: three independent fixed zones [castName LEFT 50%] [castTarget
+    -- CENTER-RIGHT 25%] [castTimer RIGHT 15%]. Explicit MEDIUM frame so text leaves the
+    -- plate's flattened render layer and draws ABOVE the cast bar border.
     plate.castTextFrame = CreateFrame("Frame", nil, plate.cast)
     plate.castTextFrame:SetAllPoints(plate.cast)
     plate.castTextFrame:SetFrameStrata("MEDIUM")
@@ -3308,22 +2847,18 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     plate.castTimer:SetWordWrap(false)
     plate.castTimer:SetMaxLines(1)
     plate.castTimer:SetTextColor(1, 1, 1, 1)
-    -- Cast timer on a 10 Hz ANIM TICKER (engine sleeps between fires), not
-    -- a per-frame OnUpdate: the text renders %.1f precision, so the
-    -- displayed tenth digit cannot change faster than every 0.1s -- yet the
-    -- old accumulator paid a per-render-frame ENTRY per casting plate at
-    -- uncapped FPS just to gate the 10 Hz job (measured 60.8ms/min in a
-    -- caster-heavy pull; the dispatch-floor disease). Armed by
-    -- NotifyCastStarted; the body self-stops when the cast ends.
-    -- Uses UnitCastingDuration/UnitChannelDuration duration objects and their
-    -- :GetRemainingDuration() method to avoid taint from UnitCastingInfo's
-    -- secret endTime/startTime values, which cannot be used in arithmetic.
+    -- Cast timer on a 10Hz ANIM TICKER (engine sleeps between fires), never a per-frame
+    -- OnUpdate: text is %.1f, so the displayed tenth cannot change faster than 0.1s, and a
+    -- per-render-frame entry per casting plate at uncapped FPS is pure dispatch-floor cost for
+    -- a 10Hz job (old accumulator measured 60.8ms/min in a caster-heavy pull). Armed by
+    -- NotifyCastStarted; body self-stops at cast end. Uses
+    -- UnitCastingDuration/UnitChannelDuration objects + :GetRemainingDuration(), since
+    -- UnitCastingInfo's endTime/startTime are secret and unusable in arithmetic.
     plate.cast._timerTick = function(force)
         local self = plate.cast
         local owner = self._timerPlate
-        -- force = the synchronous arm-time paint from NotifyCastStarted,
-        -- which fires BEFORE the caller sets isCasting (Notify IS the
-        -- rising-edge detector, so isCasting is still false there).
+        -- force = the synchronous arm-time paint from NotifyCastStarted, which fires BEFORE
+        -- the caller sets isCasting (Notify IS the rising-edge detector).
         if not owner or not owner.unit or (not owner.isCasting and not force) then return end
         if not owner._showCastTimer then return true end
         if UnitCastingDuration then
@@ -3351,19 +2886,17 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     end
     plate.cast._timerTicker = EllesmereUI.Tick.NewAnimTicker(plate.cast, plate.cast._timerTick, 0.1)
     plate.cast._timerPlate = plate
-    -- Full-size cast icon: its side-slot reserve is only valid while the cast bar
-    -- is shown, so re-anchor the reserving side elements on every cast show/hide.
-    -- One chokepoint catches all show/hide paths (start, stop, channel stop,
-    -- interrupt flash + its timer). RefreshCastIconSideReserve early-outs unless
-    -- the full-size icon is enabled, so these scripts are ~free in the common case.
+    -- Full-size cast icon: side-slot reserve is valid only while the cast bar is shown, so
+    -- re-anchor reserving side elements on every cast show/hide. One chokepoint catches every
+    -- path (start/stop/channel stop/interrupt flash+timer); RefreshCastIconSideReserve
+    -- early-outs unless full-size is on.
     local function OnCastVisibilityChanged(self)
         local owner = self._timerPlate
         if owner and owner.RefreshCastIconSideReserve then
             owner:RefreshCastIconSideReserve()
         end
-        -- Wrap-border driver. Gated so that when the feature is off (and the
-        -- plate is not currently wrapped) nothing beyond this cheap check runs:
-        -- a field read, then -- only if needed -- a trivial setting lookup.
+        -- Wrap-border driver, gated so when the feature is off (plate not wrapped) nothing
+        -- runs beyond a field read + setting lookup.
         if owner and owner.UpdateBorderWrap and (owner._wrapActive or ns.GetWrapBorderCastbar()) then
             owner:UpdateBorderWrap()
         end
@@ -3383,9 +2916,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
         PP.Point(d.icon, "TOPLEFT", d, "TOPLEFT", 1, -1)
         PP.Point(d.icon, "BOTTOMRIGHT", d, "BOTTOMRIGHT", -1, 1)
         d.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        -- Snap-disable ONCE at creation: the aura arm/clear hot paths use
-        -- PP.RawSetTexture (pre-hook original), which never re-triggers
-        -- the pixel-snap hook on this pooled texture.
+        -- Snap-disable ONCE at creation: aura arm/clear hot paths use PP.RawSetTexture (pre-hook original), which never re-triggers the pixel-snap hook.
         PP.DisablePixelSnap(d.icon)
         d.cd = CreateFrame("Cooldown", nil, d, "CooldownFrameTemplate")
         PP.Point(d.cd, "TOPLEFT", d, "TOPLEFT", 1, -1)
@@ -3396,11 +2927,9 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
         if d.cd.SetDrawBling then d.cd:SetDrawBling(false) end
         if d.cd.SetReverse then d.cd:SetReverse(true) end
         if d.cd.SetHideCountdownNumbers then d.cd:SetHideCountdownNumbers(false) end
-        -- Stack count and countdown text live on a carrier ABOVE the cooldown so
-        -- the zero-duration alpha mask on d.cd (which kills the permanent-aura
-        -- swipe strobe) never hides them. The carrier sits at slot+6, above the
-        -- pandemic/dispel glow wrappers (slot+5), so glow styles never draw over
-        -- the duration or stack text.
+        -- Stack count + countdown text on a carrier ABOVE the cooldown so the zero-duration
+        -- alpha mask on d.cd (kills the permanent-aura swipe strobe) never hides them. Carrier
+        -- at slot+6, above the pandemic/dispel glow wrappers (slot+5).
         d.countCarrier = CreateFrame("Frame", nil, d)
         d.countCarrier:SetAllPoints(d)
         d.countCarrier:SetFrameLevel(d:GetFrameLevel() + 6)
@@ -3446,10 +2975,8 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
         if b.cd.SetDrawBling then b.cd:SetDrawBling(false) end
         if b.cd.SetReverse then b.cd:SetReverse(true) end
         if b.cd.SetHideCountdownNumbers then b.cd:SetHideCountdownNumbers(false) end
-        -- Stack count and countdown text on a carrier ABOVE the cooldown (see
-        -- debuff slot) so the zero-duration alpha mask on b.cd never hides them.
-        -- Carrier at slot+6, above the dispel glow wrapper (slot+5), so glow
-        -- styles never draw over the duration or stack text.
+        -- Stack count + countdown text on a carrier ABOVE the cooldown (see debuff slot) so
+        -- b.cd's zero-duration alpha mask never hides them. Carrier at slot+6, above dispel glow.
         b.countCarrier = CreateFrame("Frame", nil, b)
         b.countCarrier:SetAllPoints(b)
         b.countCarrier:SetFrameLevel(b:GetFrameLevel() + 6)
@@ -3511,24 +3038,18 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     end)
 end)
 
--- Pre-warm the plate frame pool so AoE pulls don't pay the 2 ms+
--- per-frame creation cost (CreateFrame + child textures + cooldowns)
--- on every plate Acquire when many plates appear in the same engine
--- frame. Without prewarm, a 5-mob pack can stack 10+ ms of synchronous
--- frame setup into a single render frame -> visible stutter.
---
--- Spread the work over 2 seconds (1 plate / 100 ms) starting shortly
--- after PLAYER_LOGIN so login itself stays smooth. Each Acquire
--- runs the pool's creation function; Release returns the now-built
--- frame to the inactive list, ready for instant reuse.
+-- Pre-warm the plate frame pool so AoE pulls don't pay the 2ms+ per-plate creation cost
+-- (CreateFrame + child textures + cooldowns) on every Acquire when many plates appear in one
+-- engine frame; a 5-mob pack can otherwise stack 10+ms of synchronous setup -> visible stutter.
+-- Spread over 2 seconds (1 plate/100ms) after PLAYER_LOGIN so login stays smooth. Each Acquire
+-- runs the pool's creation function; Release returns the frame for instant reuse.
 do
     local prewarmFrame = CreateFrame("Frame")
     prewarmFrame:RegisterEvent("PLAYER_LOGIN")
     prewarmFrame:SetScript("OnEvent", function(self)
         self:UnregisterAllEvents()
         C_Timer.After(2, function()
-            -- Hold acquires until end so each one actually creates a new
-            -- pool frame instead of recycling the same one.
+            -- Hold acquires until end so each one actually creates a new pool frame.
             local held = {}
             local made = 0
             local target = 20
@@ -3547,8 +3068,7 @@ do
 end
 
 local function InitDB()
-    -- Legacy stub: NewDB + DeepMergeDefaults handles defaults now.
-    -- Kept as a no-op so any stray call sites don't error.
+    -- No-op stub (NewDB + DeepMergeDefaults handles defaults); kept so stray call sites don't error.
 end
 function ns.GetActiveKickSpell()
     return EllesmereUI and EllesmereUI.GetActiveKickSpell and EllesmereUI.GetActiveKickSpell()
@@ -3564,19 +3084,17 @@ local function GetActiveKickSpell()
     return ns.GetActiveKickSpell()
 end
 local ComputeCastBarTint = ns.ComputeCastBarTint
--- Re-evaluate the cast-bar wrap on every enemy plate. Each plate self-decides
--- whether to wrap or unwrap, so this both applies and tears down. Called from
--- the option toggle (unconditionally, to catch toggle-off) and -- gated behind
--- the setting -- from the border refreshers, so border size/colour edits made
--- while a wrapped plate is mid-cast keep the unified border in sync.
+-- Re-evaluate the cast-bar wrap on every enemy plate; each plate self-decides to wrap or
+-- unwrap, so this both applies and tears down. Called unconditionally from the option toggle
+-- (catches toggle-off) and, gated on the setting, from the border refreshers, so size/colour
+-- edits during a wrapped mid-cast plate keep the unified border in sync.
 function ns.ApplyBorderWrapToAll()
     for _, plate in pairs(ns.plates) do
         if plate.UpdateBorderWrap then plate:UpdateBorderWrap() end
     end
 end
 function ns.RefreshBorder()
-    -- Bump appearance gen so pooled/off-screen plates pick up the
-    -- change on their next SetUnit (cache-hit re-spawns check this).
+    -- Bump appearance gen so pooled/off-screen plates pick up the change on their next SetUnit.
     ns._npAppearanceGen = (ns._npAppearanceGen or 0) + 1
     for _, plate in pairs(ns.plates) do
         if plate.ApplyBorder then plate:ApplyBorder() end
@@ -3611,9 +3129,7 @@ function ns.RefreshCastBorder()
     for _, plate in pairs(ns.plates) do
         if plate.ApplyCastBorder then plate:ApplyCastBorder() end
     end
-    -- ApplyCastBorder re-shows/re-sizes the cast border from its own settings; a
-    -- wrapped, mid-cast plate must re-merge so the cast portion tracks the health
-    -- border again (mirrors RefreshBorder / RefreshBorderColor).
+    -- ApplyCastBorder re-shows/re-sizes the cast border, so a wrapped mid-cast plate must re-merge.
     if ns.GetWrapBorderCastbar() then ns.ApplyBorderWrapToAll() end
 end
 function ns.RefreshCastBorderColor()
@@ -3649,13 +3165,11 @@ function ns.RefreshStackingMotion()
     if not C_CVar or not C_CVar.SetCVarBitfield then return end
     if not (Enum and Enum.NamePlateStackType) then return end
     local db = p or defaults
-    -- Enemy stacking is always EUI-owned; apply it every time (login + runtime).
-    -- This must NOT be gated on friendly players, or enemy plates stop stacking
-    -- for anyone who hands friendly nameplates to Blizzard.
+    -- Enemy stacking is always EUI-owned; apply every time. Must NOT be gated on friendly
+    -- players, or enemy plates stop stacking for anyone who hands friendly plates to Blizzard.
     C_CVar.SetCVarBitfield("nameplateStackingTypes", Enum.NamePlateStackType.Enemy, db.stackingEnabled ~= false)
-    -- Friendly stacking is only ours to write while we manage friendly players.
-    -- When friendly players are Blizzard-managed we leave the friendly bit
-    -- untouched (login or runtime) so the user's Blizzard setting survives.
+    -- Friendly stacking is only ours to write while we manage friendly players; when
+    -- Blizzard-managed, leave the friendly bit untouched so the user's setting survives.
     if (db.showFriendlyPlayers ~= false) then
         C_CVar.SetCVarBitfield("nameplateStackingTypes", Enum.NamePlateStackType.Friendly, db.stackingFriendly == true)
     end
@@ -3671,9 +3185,8 @@ function ns.RefreshHitboxSize()
     local baseH = GetHealthBarHeight()
     local newH  = baseH * sy
     C_NamePlate.SetNamePlateSize(baseW * sx, newH)
-    -- The frame grows from its CENTER, so a taller size enlarges the clickable
-    -- hitbox evenly above and below the unit. -10000 insets let the hit rect
-    -- fill the full (centered) frame.
+    -- The frame grows from its CENTER, so a taller size enlarges the hitbox evenly above and
+    -- below the unit. -10000 insets let the hit rect fill the full (centered) frame.
     if C_NamePlateManager and C_NamePlateManager.SetNamePlateHitTestInsets
        and Enum and Enum.NamePlateType then
         C_NamePlateManager.SetNamePlateHitTestInsets(Enum.NamePlateType.Enemy, -10000, -10000, -10000, -10000)
@@ -3688,13 +3201,9 @@ function ns.RefreshHitboxSize()
     end
 end
 
--- Hitbox visualizer: a translucent overlay matching each enemy nameplate's
--- clickable bounds (the frame sized by SetNamePlateSize above), so the Hitbox
--- Size sliders can be dialled in visually. Toggled by the eyeball next to the
--- sliders. Runtime-only (resets on reload); the overlay is created lazily the
--- first time a plate actually needs it, so this costs nothing when off.
--- Defined on ns (not a file-scope local) to stay under the Lua 5.1 200-local
--- cap on this file's main chunk.
+-- Hitbox visualizer: translucent overlay matching each enemy nameplate's clickable bounds (the
+-- frame sized by SetNamePlateSize), so the Hitbox Size sliders can be dialled in visually.
+-- Runtime-only (resets on reload), created lazily so it costs nothing when off. On ns (cap).
 function ns._ApplyHitboxOverlay(plate)
     local np = plate and plate.nameplate
     if not np then return end
@@ -3717,8 +3226,7 @@ function ns._ApplyHitboxOverlay(plate)
             right:SetPoint("TOPRIGHT"); right:SetPoint("BOTTOMRIGHT"); right:SetWidth(1)
             plate.hitboxOverlay = ov
         end
-        -- Re-parent + re-anchor each apply, since pooled plates get reused on a
-        -- fresh Blizzard nameplate (mirrors the _stackBounds handling).
+        -- Re-parent + re-anchor each apply: pooled plates get reused on a fresh nameplate.
         ov:SetParent(np)
         ov:SetFrameLevel(np:GetFrameLevel() + 10)
         ov:ClearAllPoints()
@@ -3729,8 +3237,8 @@ function ns._ApplyHitboxOverlay(plate)
     end
 end
 
--- Toggle the hitbox visualizer across every active enemy plate. Driven by the
--- eyeball button beside the Hitbox Size sliders in options.
+-- Toggle the hitbox visualizer across every active enemy plate; driven by the eyeball button
+-- beside the Hitbox Size sliders in options.
 function ns.SetHitboxOverlayShown(show)
     ns._hitboxOverlayShown = show and true or false
     for _, plate in pairs(ns.plates) do
@@ -3738,17 +3246,14 @@ function ns.SetHitboxOverlayShown(show)
     end
 end
 
---- Full visual refresh for all plates called when an entire preset is applied.
---- Re-runs SetUnit on each active plate, which re-reads all DB values and applies
---- them.  Only runs on deliberate preset switch (not per-frame or per-event).
+--- Full visual refresh for all plates when an entire preset is applied: re-runs SetUnit on each
+--- active plate (re-reads all DB values). Deliberate switch only, never per-frame or per-event.
 function ns.RefreshAllSettings()
-    -- Re-read profile reference: RepointAllDBs may have swapped the
-    -- profile table (spec-linked profiles). All color lookups via _C()
-    -- read from this local.
+    -- Re-read the profile reference: RepointAllDBs may have swapped the profile table
+    -- (spec-linked profiles). All color lookups via _C() read this local.
     p = ENP.db.profile
-    -- Bump the appearance generation so SetUnit re-runs ApplyAppearance
-    -- on each plate. Without this bump, cache-hit re-spawns would skip
-    -- the static appearance work and the new settings wouldn't apply.
+    -- Bump the appearance generation so SetUnit re-runs ApplyAppearance per plate; without it,
+    -- cache-hit re-spawns skip the static appearance work and new settings never apply.
     ns._npAppearanceGen = (ns._npAppearanceGen or 0) + 1
     for _, plate in pairs(ns.plates) do
         if plate.unit and plate.nameplate then
@@ -3757,25 +3262,21 @@ function ns.RefreshAllSettings()
     end
     if ns.NT_RefreshSetting then ns.NT_RefreshSetting() end
     if ns.ApplyClassPowerSetting then ns.ApplyClassPowerSetting() end
-    -- 12.1 aura containers: fingerprint-guarded, near-free when no aura
-    -- settings changed.
+    -- Aura containers: fingerprint-guarded, near-free when no aura setting changed.
     if ns.NPC_ReloadAll then ns.NPC_ReloadAll() end
 end
 
 -------------------------------------------------------------------------------
---  Non-Target Opacity: while the player has a target, every skinned plate
---  that is not the target, the focus, or the player fades to the configured
---  opacity (profile key nonTargetAlpha, 0-100). 100 = feature OFF: every
---  hook below reduces to a single numeric compare, and no plate is ever
---  touched. The alpha rides the plate ROOT (our own frame, parented to the
+--  Non-Target Opacity: while the player has a target, every skinned plate that is not the
+--  target, focus or player fades to nonTargetAlpha (0-100). 100 = OFF: every hook below
+--  reduces to one numeric compare. Alpha rides the plate ROOT (our own frame, parented to the
 --  Blizzard nameplate), so Blizzard's own occlusion fade still multiplies in.
 -------------------------------------------------------------------------------
 ns._ntAlpha = 1   -- cached 0..1 from the profile; 1 = inert
 ns._ntKeepFocus = true   -- cached "Keep Focus Full Opacity" (default on)
 
--- Applies the correct root alpha to ONE plate. Value-guarded via
--- _ntCurAlpha so redundant SetAlpha calls are skipped and pooled frames
--- reset cheaply (nil = never faded).
+-- Applies the correct root alpha to ONE plate. Value-guarded via _ntCurAlpha so redundant
+-- SetAlpha calls are skipped and pooled frames reset cheaply (nil = never faded).
 function ns.NT_Apply(plate)
     local unit = plate.unit
     if not unit then return end
@@ -3799,10 +3300,8 @@ function ns.NT_ApplyAll()
     end
 end
 
--- Re-derives the cached opacity from the profile and reapplies every plate
--- (also un-fades everything when the slider returns to 100). Called from
--- the options slider, OnInitialize, and RefreshAllSettings -- the latter
--- covers profile swaps and Spec Overrides applies.
+-- Re-derives the cached opacity from the profile and reapplies every plate (un-fades at
+-- slider=100). Called from the options slider, OnInitialize, and RefreshAllSettings.
 function ns.NT_RefreshSetting()
     local v = tonumber(p and p.nonTargetAlpha) or 100
     if v < 0 then v = 0 elseif v > 100 then v = 100 end
@@ -3890,19 +3389,15 @@ end
 
 local kickWatcher = CreateFrame("Frame")
 local activeCastCount = 0
--- PERF: set of plates currently casting so kick/color updates iterate only
--- the 1-3 casting plates instead of all 20+ plates in the scene.
--- Stored on ns to avoid 200-local pressure.
+-- PERF: set of plates currently casting, so kick/color updates iterate only the
+-- 1-3 casting plates instead of all 20+ in the scene. On ns (200-local pressure).
 ns._castingPlates = {}
 kickWatcher:SetScript("OnEvent", function(self, event)
     if event == "SPELL_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_USABLE" then
-        -- Diet: no per-event cast-info re-reads or geometry. Cast identity
-        -- (protection/channel flags) is cached by UpdateKickTick at cast
-        -- setup and by the INTERRUPTIBLE event handlers on mid-cast flips;
-        -- cooldown events only need the marker value + alpha refresh.
-        -- Hidden tick = re-setup from cache (kick learned mid-cast, CD
-        -- info late, toggle flipped on) -- its own early-outs keep that
-        -- cheap.
+        -- No per-event cast-info re-reads or geometry: cast identity (protection/channel
+        -- flags) is cached by UpdateKickTick at setup and by INTERRUPTIBLE handlers on
+        -- mid-cast flips, so cooldown events only refresh marker value + alpha. A hidden tick
+        -- means re-setup from cache (kick learned mid-cast, late CD info, toggle on).
         for plate in pairs(ns._castingPlates) do
             if plate.isCasting and plate.unit and type(plate._kickProtected) ~= "nil" then
                 plate:ApplyCastColor(plate._kickProtected)
@@ -3919,11 +3414,8 @@ local _castColorTicker
 local function NotifyCastStarted(plate)
     if plate then
         ns._castingPlates[plate] = true
-        -- Arm the 10 Hz cast-timer ticker (engine-slept between fires; the
-        -- body self-stops when the cast ends), and paint ONCE synchronously
-        -- -- the old accumulator armed at-threshold so the text appeared on
-        -- the cast's first frame; the ticker's first fire alone would leave
-        -- it blank for 0.1s.
+        -- Arm the 10Hz cast-timer ticker (engine-slept between fires; self-stops at cast end)
+        -- and paint ONCE synchronously, or the ticker's first fire alone leaves text blank 0.1s.
         if plate.cast and plate.cast._timerTicker then
             if plate.cast._timerTick then plate.cast._timerTick(true) end
             plate.cast._timerTicker.Start()
@@ -3936,9 +3428,8 @@ local function NotifyCastStarted(plate)
         if GetActiveKickSpell() and not _castColorTicker then
             _castColorTicker = C_Timer.NewTicker(0.2, function()
                 for pl in pairs(ns._castingPlates) do
-                    -- type() is the safe existence check: _kickProtected
-                    -- holds a possibly-SECRET boolean and equality
-                    -- comparison against nil would evaluate it
+                    -- type() is the safe existence check: _kickProtected holds a possibly-SECRET
+                    -- boolean, and == nil would evaluate it
                     if pl.isCasting and pl.unit and type(pl._kickProtected) ~= "nil" then
                         pl:ApplyCastColor(pl._kickProtected)
                     end
@@ -3962,9 +3453,8 @@ local function NotifyCastEnded(plate)
     end
 end
 
--- PERF: cached plate references for target/focus so we can update only
--- the old + new plate on target/focus change instead of iterating all.
--- Stored on ns to avoid 200-local pressure (4 locals saved).
+-- PERF: cached target/focus plate refs, so a target/focus change updates only
+-- the old + new plate instead of iterating all. On ns (200-local pressure).
 ns._cachedTargetPlate = nil
 ns._cachedFocusPlate  = nil
 
@@ -3988,25 +3478,19 @@ local function SetupAuraCVars()
         local nameOnly = (db.friendlyNameOnly ~= false)
         local showPlayers = (db.showFriendlyPlayers ~= false)
         local showNPCs = (db.showFriendlyNPCs == true)
-        -- Friendly player CVars are only written when EUI is managing
-        -- friendly player nameplates. When the user disables the "Show EUI
-        -- Friendly Player Nameplates" toggle we relinquish control fully
-        -- and leave these CVars alone so Blizzard's own Nameplate settings
-        -- own them. Friendly NPC and enemy pet CVars are always managed.
+        -- Friendly player CVars are written ONLY while EUI manages friendly player nameplates;
+        -- with "Show EUI Friendly Player Nameplates" off we relinquish them entirely to
+        -- Blizzard's own settings. Friendly NPC and enemy pet CVars are always managed.
         if showPlayers then
             SetCVar("nameplateShowOnlyNameForFriendlyPlayerUnits", nameOnly and 1 or 0)
             SetCVar("UnitNameFriendlyPlayerName", 1)
-            -- Visibility is NOT re-asserted here. nameplateShowFriends /
-            -- nameplateShowFriendlyPlayers persist across sessions, so forcing
-            -- them on every login re-showed friendly nameplates for everyone
-            -- who had deliberately hidden them in Blizzard's own settings. The
-            -- one-time seed below covers a first install; after that only an
-            -- explicit toggle turns them back on.
+            -- Visibility is NOT re-asserted: nameplateShowFriends/nameplateShowFriendlyPlayers
+            -- persist across sessions, so forcing them each login would re-show plates the user
+            -- deliberately hid. The one-time seed below covers a first install only.
             if EllesmereUIDB and not EllesmereUIDB.friendlyPlateVisSeeded then
                 EllesmereUIDB.friendlyPlateVisSeeded = true
-                -- Fresh install only. An existing install is stamped WITHOUT
-                -- forcing, so a user who already hid friendly plates is not
-                -- overridden once by the update that ships this.
+                -- Fresh install only: an existing install is stamped WITHOUT forcing, so a
+                -- user who already hid friendly plates keeps that.
                 if EllesmereUI._firstInstallPending and ns.ForceFriendlyPlayerCVarsOn then
                     ns.ForceFriendlyPlayerCVarsOn()
                 end
@@ -4023,23 +3507,18 @@ local function SetupAuraCVars()
         SetCVar("nameplateShowAll", 1)
         SetCVar("nameplateMinScale", 1)
         SetCVar("nameplateOverlapH", 1)
-        -- nameplateOverlapV is intentionally left alone: it is the user's own
-        -- vertical-spacing cvar (Blizzard default 1.10, same value we used to
-        -- force here, so no existing plate spacing changes). Players who tune it
-        -- themselves are no longer overwritten every login. Our "Stacked
-        -- Nameplate Spacing" slider layers extra spacing on top via the
-        -- stacking-bounds frame.
+        -- nameplateOverlapV is deliberately left alone: it's the user's own vertical-spacing
+        -- cvar (Blizzard default 1.10). Our "Stacked Nameplate Spacing" slider layers extra
+        -- spacing on top via the stacking-bounds frame.
         SetCVar("nameplateMaxAlpha", 1)
         SetCVar("nameplateMaxAlphaDistance", 40)
         SetCVar("nameplateMinAlpha", 0.6)
         SetCVar("nameplateMinAlphaDistance", -100000)
         SetCVar("nameplateMaxDistance", 60)
         SetCVar("nameplateMaxScale", 1)
-        -- Neutralize Blizzard's selected-target scaling. The EUI plate is a child
-        -- of the base nameplate, so Blizzard scaling the selected plate shows
-        -- through our own SetScale (same reason min/max are pinned to 1). Pinning
-        -- this to 1 makes the "Scale Target Nameplate" slider the sole authority,
-        -- so at 100% the target plate does not change size at all.
+        -- Neutralize Blizzard's selected-target scaling: the EUI plate is a child of the base
+        -- nameplate, so Blizzard's scaling shows through our own SetScale (min/max pinned to 1
+        -- for the same reason). Pinned to 1, "Scale Target Nameplate" is the sole authority.
         SetCVar("nameplateSelectedScale", 1)
         SetCVar("nameplateTargetBehindMaxDistance", 30)
         SetCVar("clampTargetNameplateToScreen", 1)
@@ -4073,8 +3552,7 @@ local function SetupAuraCVars()
         end
     end
     ApplyNamePlateClickArea()
-    -- Prevent Blizzard from resetting nameplate sizes on display changes,
-    -- which causes bouncing/jitter.
+    -- Prevent Blizzard resetting nameplate sizes on display changes (jitter).
     if NamePlateDriverFrame then
         NamePlateDriverFrame:UnregisterEvent("DISPLAY_SIZE_CHANGED")
         NamePlateDriverFrame:UnregisterEvent("CVAR_UPDATE")
@@ -4096,9 +3574,8 @@ local function SetupAuraCVars()
                 end
             end)
         end
-        -- Hook OnNamePlateAdded to suppress Blizzard UnitFrame as early as
-        -- possible before our NAME_PLATE_UNIT_ADDED fires.  This prevents
-        -- the initial layout pass from affecting nameplate bounds.
+        -- Suppress the Blizzard UnitFrame before our NAME_PLATE_UNIT_ADDED fires
+        -- so its initial layout pass never affects nameplate bounds.
         hooksecurefunc(NamePlateDriverFrame, "OnNamePlateAdded", function(_, addedUnit)
             if addedUnit == "preview" then return end
             local np = C_NamePlate.GetNamePlateForUnit(addedUnit)
@@ -4110,10 +3587,9 @@ local function SetupAuraCVars()
     ns.ApplyNamePlateClickArea = ApplyNamePlateClickArea
 end
 -------------------------------------------------------------------------------
---  Class Power Display (combo points, holy power, chi, etc.)
---  Zero cost when disabled: no events registered, no frames created.
---  When enabled, a single watcher frame handles UNIT_POWER_UPDATE for "player"
---  and shows pips only on the current target's nameplate.
+--  Class Power Display (combo points, holy power, chi, etc.). Zero cost when disabled: no
+--  events registered, no frames created. When on, a single watcher handles player
+--  UNIT_POWER_UPDATE and shows pips only on the current target's nameplate.
 -------------------------------------------------------------------------------
 local classPowerWatcher
 local classPowerType     -- Enum.PowerType value for the player's class resource, or nil
@@ -4121,10 +3597,9 @@ local classPowerMax = 0  -- max pips for the resource
 local classPowerFormReq  -- required GetShapeshiftFormID() value, or nil if no form check needed
 local CP_PIP_W, CP_PIP_H, CP_PIP_GAP = 8, 3, 2  -- pip geometry
 
--- Optional pip shapes. Rectangle (default) and square are plain boxes (no mask);
--- the rest are carved from a square fill by a portrait-set mask, with a matching
--- border texture. Reuses the same shape art the Cooldown Manager uses.
--- Packed onto ns (not file locals) to stay under Lua's 200 main-chunk local limit.
+-- Optional pip shapes. Rectangle (default) and square are plain boxes (no mask); the rest are
+-- carved from a square fill by a portrait-set mask with a matching border texture (same shape
+-- art as the Cooldown Manager). On ns (cap).
 ns.CP_SHAPE = {
     WHITE = "Interface\\Buttons\\WHITE8X8",
     MASKS = {
@@ -4143,9 +3618,7 @@ ns.CP_SHAPE = {
     SQUARE = { square = true, circle = true, diamond = true, hexagon = true, shield = true },
 }
 
--- Resource-icon shapes: real Blizzard atlas art instead of a tinted shape.
--- Each draws a class's resource art (rune, holy power, soul shard, combo
--- points, chi, arcane charges, essence). All on ns (no main-chunk locals).
+-- Resource-icon shapes: real Blizzard atlas art instead of a tinted shape. On ns.
 ns.CP_ICON_SHAPE = { rune = true, holypower = true, shard = true,
                      combo = true, chi = true, arcane = true, essence = true }
 -- Single-atlas resources have no distinct empty art, so dim their empty pips.
@@ -4176,9 +3649,8 @@ function ns.GetPipIconAtlas(kind, filled, index)
     return nil
 end
 
--- Resolve class/power color from EUI global system.
--- For bar-type power keys (_BAR suffix), returns power color.
--- For class resources, returns resource color > class color.
+-- Class/power color from the EUI global system. Bar-type keys (_BAR suffix)
+-- return the power color; class resources return resource color > class color.
 local CP_DEFAULT_COLOR = { 1.00, 0.84, 0.30 }
 local function GetClassPipColor(classFile, powerKey)
     if EllesmereUI then
@@ -4196,8 +3668,7 @@ local function GetClassPipColor(classFile, powerKey)
     return CP_DEFAULT_COLOR
 end
 
--- Map class { powerType, maxPips (fallback) }
--- Entries can be a simple table { type, max } or a spec-keyed table { [specID] = { type, max } }
+-- Map class { powerType, maxPips (fallback) }; entries can be simple { type, max } or spec-keyed { [specID] = { type, max } }.
 local CLASS_POWER_MAP = {
     ROGUE       = { Enum.PowerType.ComboPoints, 5 },
     DRUID       = { [103] = { Enum.PowerType.ComboPoints, 5 },    -- Feral (always)
@@ -4221,15 +3692,12 @@ local CLASS_POWER_MAP = {
                     [252] = { Enum.PowerType.Runes, 6 } },
 }
 
--- Apply the configured shape + optional border to one pip (and its bg).
--- rectangle/square: plain box, no mask; border (if on) is a single solid box
--- behind the pip. Other shapes: carve fill+bg with a mask and frame with the
--- matching border texture. Idempotent; safe to call every refresh. bSize is in
--- pip-local (already pixel-snapped) units.
+-- Apply the configured shape + optional border to one pip (and its bg). rectangle/square: plain
+-- box, no mask, border = one solid box behind the pip. Other shapes: carve fill+bg with a mask,
+-- frame with the matching border texture. Idempotent. bSize is pip-local (pixel-snapped) units.
 function ns.ApplyPipShape(plate, pip, shape, borderOn, bc, bSize)
     local bg = pip._bg
-    -- Icon shapes draw real atlas art (set in the render): drop mask, borders,
-    -- and the dark bg so the art stands alone.
+    -- Icon shapes draw real atlas art (set in the render): drop mask, borders, and the dark bg.
     if ns.CP_ICON_SHAPE[shape] then
         if pip._shapeMask then
             pcall(pip.RemoveMaskTexture, pip, pip._shapeMask)
@@ -4269,9 +3737,8 @@ function ns.ApplyPipShape(plate, pip, shape, borderOn, bc, bSize)
         b:Show()
         if pip._borderBox then pip._borderBox:Hide() end
     elseif borderOn then
-        -- Boxy shapes (rectangle/square): one solid box behind the pip, poking
-        -- out bSize on every side as a uniform outline. A single texture rounds
-        -- as one piece (no per-edge shimmer), staying crisp like the fill.
+        -- Boxy shapes (rectangle/square): one solid box behind the pip, poking out bSize on
+        -- every side as a uniform outline. A single texture rounds as one piece, staying crisp.
         if pip._border then pip._border:Hide() end
         if not pip._borderBox then
             pip._borderBox = plate:CreateTexture(nil, "OVERLAY", nil, 1)
@@ -4588,11 +4055,9 @@ local function UpdateClassPowerOnPlate(plate)
         return
     end
 
-    -- Lock pip width / height / gap to exact physical pixel multiples in the
-    -- PLATE'S local coords (pips are parented to the plate, so its effective
-    -- scale is what determines screen pixels). PP.Scale snaps to UIParent's
-    -- pixel grid, which is wrong here because nameplates have their own
-    -- scale stack (nameplate scale * cast/target scale).
+    -- Lock pip width/height/gap to exact physical pixel multiples in the PLATE'S local coords
+    -- (pips are parented to the plate, so its effective scale decides screen pixels). PP.Scale
+    -- snaps to UIParent's grid, wrong here: nameplates have their own scale stack.
     local cpShape     = ns.GetClassPowerShape()
     local cpBorderOn  = ns.GetClassPowerBorder()
     local cpBorderCol = ns.GetClassPowerBorderColor()
@@ -4633,8 +4098,7 @@ local function UpdateClassPowerOnPlate(plate)
         if i <= maxP then
             pip:ClearAllPoints()
             pip:SetSize(scaledW, scaledH)
-            -- (i-1) * stride is an exact integer multiple of physical pixels,
-            -- so every pip lands on the same pixel grid as its neighbors.
+            -- (i-1)*stride is an exact integer multiple of physical pixels, so every pip lands on the same grid.
             local pipLeftX = (i - 1) * stride - halfGroup + cpXOff
             pip:SetPoint(leftAnchor, anchorFrame, anchorRelPoint,
                 pipLeftX, yDir * cpYOff)
@@ -4652,11 +4116,10 @@ local function UpdateClassPowerOnPlate(plate)
                 bg:Show()
             end
 
-            -- Shape mask + optional border (size/anchor are final by now). Skip the
-            -- call entirely on the untouched default -- plain rectangle, no border, and
-            -- this pip never wore shape decor -- so users who never enable a shape pay
-            -- zero added cost here. A pip that ever had a mask/border keeps those fields,
-            -- so it still routes through ApplyPipShape to clean up when reverted.
+            -- Shape mask + optional border (size/anchor final by now). Skipped entirely on the
+            -- untouched default (plain rectangle, no border, no prior shape decor) so users who
+            -- never enable a shape pay nothing; a pip that ever had a mask/border keeps those
+            -- fields so it still routes through ApplyPipShape to clean up when reverted.
             if cpShape ~= "rectangle" or cpBorderOn
                or pip._shapeMask or pip._border or pip._borderBox then
                 ns.ApplyPipShape(plate, pip, cpShape, cpBorderOn, cpBorderCol, borderPx)
@@ -4683,8 +4146,7 @@ local function UpdateClassPowerOnPlate(plate)
             else
                 if pip._secretBar then pip._secretBar:Hide() end
                 if iconKind == "holypower" then
-                    -- Desaturated socket as the (alpha-controlled) background, lit
-                    -- rune on top when filled. Point 5 reuses point 4 mirrored.
+                    -- Desaturated socket as the background, lit rune on top when filled. Point 5 reuses point 4 mirrored.
                     local n = (i - 1) % 5 + 1
                     local flip = (n == 5)
                     local idx = flip and 4 or n
@@ -4732,7 +4194,6 @@ local function UpdateClassPowerOnPlate(plate)
     end
 end
 
--- Hide pips on a plate
 local function HideClassPowerOnPlate(plate)
     if not plate or not plate._cpPips then return end
     for i = 1, #plate._cpPips do
@@ -4953,17 +4414,23 @@ local function DarkenColor(r, g, b, factor)
     factor = factor or 0.60
     return r * factor, g * factor, b * factor
 end
--- Out-of-combat darkening, gated by the "Darken Enemies Out of Combat" option.
--- When on (default), enemies confirmed in combat (a clean boolean) keep full
--- colour while out-of-combat / secret states darken; when off, never darkened.
+-- Out-of-combat darkening, gated by "Darken Enemies Out of Combat". On (default): enemies
+-- confirmed in combat (clean boolean) keep full colour, out-of-combat/secret states darken --
+-- or, with "Change Color Instead", take the flat Out of Combat Color rather than dimming.
 local function MaybeDarken(r, g, b, inCombat)
     local on = (p and p.darkenEnemiesOOC)
     if on == nil then on = defaults.darkenEnemiesOOC end
     if not on then return r, g, b end
     if type(inCombat) == "boolean" and inCombat then return r, g, b end
+    local recolor = (p and p.darkenOOCRecolor)
+    if recolor == nil then recolor = defaults.darkenOOCRecolor end
+    if recolor then
+        local c = (p and p.darkenOOCColor) or defaults.darkenOOCColor
+        return c.r, c.g, c.b
+    end
     return DarkenColor(r, g, b)
 end
--- Cached threat-context state — updated at zone transitions and spec changes
+-- Cached threat-context state; updated at zone transitions and spec changes
 local _inThreatContent = false
 local _isTankRole      = false
 
@@ -4971,9 +4438,8 @@ local function RefreshThreatCache()
     -- Zone: party/raid instances and delves (difficultyID 204) are threat-relevant
     local _, instanceType, difficultyID = GetInstanceInfo()
     difficultyID = tonumber(difficultyID) or 0
-    -- Dungeon-only flag for the "Mini Enemies" trash color (5-man dungeons are
-    -- instanceType "party"; excludes raids/delves/open world). Cached here so the
-    -- per-plate color path costs one field read, not a GetInstanceInfo call.
+    -- Dungeon-only flag for the "Mini Enemies" trash color (instanceType "party"; excludes
+    -- raids/delves/open world). Cached so the per-plate color path costs one field read.
     ns._inDungeon = (instanceType == "party")
     if difficultyID == 0
     or (C_Garrison and C_Garrison.IsOnGarrisonMap and C_Garrison.IsOnGarrisonMap()) then
@@ -4997,33 +4463,26 @@ local function InRealInstancedContent()
 end
 
 -------------------------------------------------------------------------------
---  Quest Mob Detection
---  Uses C_TooltipInfo to scan unit tooltips for quest objective lines.
---  Cached per unit; invalidated on QUEST_LOG_UPDATE and NAME_PLATE_UNIT_REMOVED.
+--  Quest Mob Detection: C_TooltipInfo scans unit tooltips for quest objective lines. Cached
+--  per unit; invalidated on QUEST_LOG_UPDATE and NAME_PLATE_UNIT_REMOVED.
 -------------------------------------------------------------------------------
 local questMobCache = {}
--- Parallel cache of verified-clean "objectives remaining" strings, keyed by
--- unit. Populated only when replaceQuestIconWithObjective is ON; shares the
--- exact invalidation lifecycle as questMobCache. Stored on ns (not a new
--- file-scope local) because this file is near the Lua 5.1 local cap.
+-- Parallel cache of verified-clean "objectives remaining" strings, keyed by unit. Populated
+-- only when replaceQuestIconWithObjective is ON; same invalidation lifecycle. On ns (cap).
 ns._questObjText = ns._questObjText or {}
--- Detect whether a unit is one of the local player's active quest objectives
--- with work remaining, from its unit tooltip. Blizzard tags the tooltip's quest
--- lines with structured data: a QuestObjective line carries a `completed` flag
--- plus numFulfilled/numRequired counts, and a QuestTitle line carries the quest
--- id -- so completion is read straight from those fields, with no progress
--- string to parse. Ownership is resolved through the player's own quest log
--- (only their quests answer C_QuestLog.IsOnQuest), so a group member's objective
--- is ignored without inspecting player-name lines. Every structured value is
--- treated as possibly secret (12.1) and issecretvalue-checked before use.
--- Cached per unit; the cache clears on QUEST_LOG_UPDATE and plate removal.
+-- Is this unit one of the local player's active quest objectives with work remaining? Read
+-- from the tooltip's structured data: a QuestObjective line carries `completed` plus
+-- numFulfilled/numRequired, a QuestTitle line the quest id, so completion needs no
+-- progress-string parsing. Ownership goes through the player's own quest log (only their
+-- quests answer C_QuestLog.IsOnQuest), so a group member's objective is ignored. Every
+-- structured value is possibly secret and issecretvalue-checked before use. Cached per unit;
+-- cleared on QUEST_LOG_UPDATE and plate removal.
 local function IsQuestMob(unit)
     if not (C_TooltipInfo and Enum and Enum.TooltipDataLineType) then return false end
     local cached = questMobCache[unit]
     if cached ~= nil then return cached end
 
-    -- Open-world only, unless the indicator's "Show In Instances" opt-in lifts
-    -- the gate.
+    -- Open-world only, unless the indicator's "Show In Instances" opt-in lifts it.
     if InRealInstancedContent() then
         local show = p and p.classificationShowInInstances
         if show == nil then show = defaults.classificationShowInInstances end
@@ -5056,9 +4515,9 @@ local function IsQuestMob(unit)
             end
         elseif kind == LT.QuestObjective then
             local done = line.completed
-            -- An incomplete objective the player is actually on: their quest log
-            -- scopes out a group member's objectives. Fail open when the id is
-            -- unreadable so a real quest mob is never silently skipped.
+            -- An incomplete objective the player is actually on: their quest log scopes out a
+            -- group member's objectives. Fail open when the id is unreadable so a real quest
+            -- mob is never silently skipped.
             if not (issecretvalue and issecretvalue(done)) and done == false
                and (not questID or not onQuest or onQuest(questID)) then
                 isQuest = true
@@ -5066,7 +4525,18 @@ local function IsQuestMob(unit)
                     local have, need = line.numFulfilled, line.numRequired
                     if have and need
                        and not (issecretvalue and (issecretvalue(have) or issecretvalue(need))) then
-                        objText = have .. "/" .. need
+                        -- Percent-style objectives (area progress bars)
+                        -- degenerate to 0/1 in the structured fields; the
+                        -- real progress lives only in the line text. Show
+                        -- the extracted percent when readable, else the
+                        -- count (real 0/1 kill objectives keep their count).
+                        local lt = line.leftText
+                        local pct
+                        if lt and not (issecretvalue and issecretvalue(lt))
+                           and type(lt) == "string" then
+                            pct = lt:match("(%d+)%s*%%")
+                        end
+                        objText = pct and (pct .. "%") or (have .. "/" .. need)
                     end
                 end
                 break
@@ -5087,9 +4557,8 @@ function ns.GetQuestObjectiveText(unit)
     return ns._questObjText[unit]
 end
 
--- Live refresh for the options toggle. Wiping BOTH caches is required because
--- IsQuestMob short-circuits on questMobCache[unit] ~= nil; a unit cached while
--- the setting was OFF would never get its objective text extracted otherwise.
+-- Live refresh for the options toggle. Wiping BOTH caches is required: IsQuestMob short-circuits
+-- on questMobCache[unit] ~= nil, so a unit cached while OFF never gets objective text extracted.
 function ns.RefreshQuestObjective()
     wipe(questMobCache)
     wipe(ns._questObjText)
@@ -5123,10 +4592,8 @@ end)
 local function _C(key)
     return (p and p[key]) or defaults[key]
 end
--- Neutral health-bar color: the enemy-in-combat tint while the unit is in combat,
--- otherwise the neutral color. Shared by every precedence step that resolves to
--- "neutral" so they stay in lockstep: high-priority step 5, the neutral+mini
--- carve-out (step 7b), and the deferred dungeon step 10d.
+-- Neutral health-bar color: enemyInCombat tint while in combat, else neutral color. Shared by
+-- every precedence step resolving to "neutral" (step 5, neutral+mini carve-out 7b, dungeon 10d).
 local function ResolveNeutralColor(unit)
     if UnitAffectingCombat(unit) then
         local c = _C("enemyInCombat")
@@ -5136,6 +4603,11 @@ local function ResolveNeutralColor(unit)
     return c.r, c.g, c.b
 end
 local function GetReactionColor(unit)
+    -- Per-call marker read SYNCHRONOUSLY by UpdateHealthColor right after this
+    -- returns: true only when this resolution landed on the non-tank Near
+    -- Aggro color, so the near-aggro glow rides the exact same decision.
+    -- On ns (module file is at the 200-local cap).
+    ns._reactionNearAggro = false
     local db = p or defaults
     -- 1. Tapped always highest
     if UnitIsTapDenied(unit) then
@@ -5148,8 +4620,7 @@ local function GetReactionColor(unit)
         return qc.r, qc.g, qc.b
     end
     -- Threat colors that can NEVER be overwritten:
-    -- Non-tank: has aggro, near aggro
-    -- Tank: losing aggro, no aggro
+    -- Non-tank: has aggro, near aggro Tank: losing aggro, no aggro
     local isThreatUnit = false   -- set true when threat data exists
     local threatStatus = 0
     if InRealInstancedContent() then
@@ -5165,6 +4636,7 @@ local function GetReactionColor(unit)
                     local c = _C("dpsHasAggro")
                     return c.r, c.g, c.b
                 elseif status >= 2 then
+                    ns._reactionNearAggro = true
                     local c = _C("dpsNearAggro")
                     return c.r, c.g, c.b
                 end
@@ -5178,10 +4650,8 @@ local function GetReactionColor(unit)
                     -- Only show no-aggro warning if a non-tank has it.
                     -- If another tank holds aggro, this is normal offtank positioning.
                     local unitTarget = unit .. "target"
-                    -- Role reads on identity-restricted units return SECRET
-                    -- values (68914): never truthiness-chain or compare one.
-                    -- Unreadable role reads as non-tank, matching the
-                    -- unknown-target behavior.
+                    -- Role reads on identity-restricted units return SECRET values: never
+                    -- truthiness-chain or compare one. Unreadable role reads as non-tank.
                     local targetRole = "NONE"
                     if UnitExists(unitTarget) then
                         local r = UnitGroupRolesAssigned(unitTarget)
@@ -5230,10 +4700,9 @@ local function GetReactionColor(unit)
             return focusC.r, focusC.g, focusC.b
         end
     end
-    -- 5. Neutral (colored as an enemy while in combat with them). OUTSIDE dungeons
-    -- this keeps its high priority. IN dungeons it is deferred to just above the
-    -- enemy fallback (step 10d) so mob-type / threat colors win on neutral dungeon
-    -- units and the neutral color becomes the near-last resort.
+    -- 5. Neutral (colored as an enemy while in combat with them). OUTSIDE dungeons keeps its
+    -- high priority; IN dungeons deferred to just above the enemy fallback (step 10d) so
+    -- mob-type/threat colors win on neutral dungeon units and neutral becomes near-last resort.
     local reaction = UnitReaction(unit, "player")
     local isNeutral = (reaction and reaction == 4)
         or (UnitCanAttack("player", unit) and not UnitIsEnemy(unit, "player"))
@@ -5243,27 +4712,23 @@ local function GetReactionColor(unit)
     -- 6. Enemy player class colors
     if UnitIsPlayer(unit) and UnitCanAttack("player", unit) then
         local _, class = UnitClass(unit)
-        -- Secret class token (identity-restricted, 68914) cannot key a
-        -- color table -- fall through to the reaction color.
+        -- A secret class token (identity-restricted) cannot key a color table -- fall
+        -- through to the reaction color.
         if issecretvalue(class) then class = nil end
         local c = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
         if c then
             return c.r, c.g, c.b
         end
     end
-    -- Classify the unit's mob-type tier once, up front, so the tank has-aggro
-    -- override steps below can reason about boss vs mini-boss vs caster
-    -- independently. These are booleans only -- the actual mob-type colors are
-    -- still returned at their own priority steps (7, 8, 10b) further down.
+    -- Classify the mob-type tier once up front so the tank has-aggro overrides can reason about
+    -- boss vs mini-boss vs caster independently. Booleans only: mob-type colors still return at
+    -- their own priority steps (7, 8, 10b).
     local inCombat = UnitAffectingCombat(unit)
     local classification = UnitClassification(unit)
-    -- Full Coloring M+ Only (inline cog on Enemy Types): outside 5-man
-    -- dungeons, collapse the mob-type special colors (Mini Enemies, Spell
-    -- Casters, Mini-Bosses, Bosses) into the single flat owBasicColor at the
-    -- enemy fallback (step 11). Neutral is unaffected: outside dungeons it
-    -- already returned at step 5. Off by default -- when off (or in a 5-man
-    -- dungeon) every step below behaves exactly as before. Same dungeon gate
-    -- as Mini Coloring M+ Only (ns._inDungeon).
+    -- Full Coloring M+ Only (inline cog on Enemy Types): outside 5-man dungeons, collapse the
+    -- mob-type colors (Mini Enemies, Spell Casters, Mini-Bosses, Bosses) into flat owBasicColor
+    -- at the enemy fallback (step 11). Neutral unaffected (already returned at step 5 outside
+    -- dungeons). Same dungeon gate as Mini Coloring M+ Only (ns._inDungeon).
     local owBasic = false
     if not ns._inDungeon then
         owBasic = defaults.owBasicColoring
@@ -5289,9 +4754,9 @@ local function GetReactionColor(unit)
         -- player, gets a tier; ordinary same/lower-level elites are left alone.
         local aboveOne = plvlClean and lvlClean and level >= playerLevel + 1
         if isSkull or aboveOne then
-            -- Boss when it reads as boss-ranked: a skull, a world boss, or two+
-            -- effective levels up. UnitIsLieutenant is the client's own mini-boss
-            -- marker, so a non-skull lieutenant is pinned to mini-boss.
+            -- Boss when it reads as boss-ranked: a skull, a world boss, or two+ effective
+            -- levels up. UnitIsLieutenant is the client's mini-boss marker, so a non-skull
+            -- lieutenant is pinned to mini-boss.
             local aboveTwo = plvlClean and lvlClean and level >= playerLevel + 2
             local lieutenant = (not isSkull) and UnitIsLieutenant and UnitIsLieutenant(unit)
             if not lieutenant and (isSkull or aboveTwo or classification == "worldboss") then
@@ -5301,29 +4766,23 @@ local function GetReactionColor(unit)
             end
         end
     end
-    -- Caster = the unit actually has a mana pool, rather than a class match.
-    -- The second arg is typed PowerType (an enum NUMBER), not the global MANA,
-    -- which is the localized display string "Mana" and would never match.
-    -- hasPower carries no secrecy flag, so it is safe to branch on directly.
+    -- Caster = the unit actually has a mana pool, rather than a class match. Second arg is
+    -- typed PowerType (enum NUMBER), not the global MANA (localized "Mana" string, never
+    -- matches). hasPower carries no secrecy flag, so it is safe to branch on directly.
     local _isCaster = not owBasic and UnitHasPowerType(unit, Enum.PowerType.Mana)
-    -- DPS/healer No Aggro override state (mirrors the tank has-aggro overrides at
-    -- 6b). Each override independently promotes the No Aggro color above a single
-    -- mob-type step (mini-boss step 7, caster step 8). Only active for a non-tank
-    -- without aggro in a group -- the exact condition the low-priority No Aggro
-    -- step (10) uses. Off by default, so default behavior is unchanged.
+    -- DPS/healer No Aggro override state (mirrors tank has-aggro overrides at 6b). Each
+    -- override independently promotes the No Aggro color above one mob-type step (mini-boss 7,
+    -- caster 8). Active only for a non-tank without aggro in a group (matches step 10).
     local dpsNoAggroActive = isThreatUnit and (not _isTankRole) and threatStatus < 2 and IsInGroup()
     if dpsNoAggroActive then
         local en = defaults.dpsNoAggroEnabled
         if db.dpsNoAggroEnabled ~= nil then en = db.dpsNoAggroEnabled end
         dpsNoAggroActive = en
     end
-    -- 6b. Tank has aggro -- "Override Mini-Boss and Caster colors" option.
-    -- Promotes the has-aggro color above the mini-boss/caster steps (but still
-    -- below target/focus/enemy-class). Boss units are excluded here -- they are
-    -- governed by the separate "Override Boss colors" option (step 9/10b). Sits
-    -- between the absolute-priority Classic Tank Aggro path (handled above) and
-    -- the default low-priority path (step 9). Off by default, so the default
-    -- behavior is unchanged.
+    -- 6b. Tank has aggro -- "Override Mini-Boss and Caster colors" option. Promotes the
+    -- has-aggro color above the mini-boss/caster steps, still below target/focus/enemy-class.
+    -- Boss units excluded (governed by "Override Boss colors", step 9/10b). Sits between the
+    -- absolute-priority Classic Tank Aggro path above and low-priority step 9.
     if isThreatUnit and _isTankRole and threatStatus >= 3 and not _isBossUnit then
         local hae = defaults.tankHasAggroEnabled
         if db.tankHasAggroEnabled ~= nil then hae = db.tankHasAggroEnabled end
@@ -5334,9 +4793,8 @@ local function GetReactionColor(unit)
             return c.r, c.g, c.b
         end
     end
-    -- 7. Mini-boss. Boss is intentionally LOWER priority than the low-priority
-    -- threat colors below, so it is deferred to step 10b (see _isBossUnit);
-    -- mini-boss stays here, above threat.
+    -- 7. Mini-boss. Boss is intentionally LOWER priority than the low-priority threat colors
+    -- below, so it is deferred to step 10b (see _isBossUnit); mini-boss stays here, above threat.
     if _isMiniBoss then
         -- DPS/healer No Aggro "Override Mini-Boss colors": promotes the No Aggro
         -- color above the mini-boss color when enabled.
@@ -5351,31 +4809,25 @@ local function GetReactionColor(unit)
         local c = _C("miniboss")
         return MaybeDarken(c.r, c.g, c.b, inCombat)
     end
-    -- 7b. Mini Enemies promoted ABOVE Caster -- but ONLY for DPS/healers and for
-    -- tanks that do NOT use the special Tank Has Aggro color. Tanks WITH that
-    -- option enabled skip this and keep Mini Enemies at its original low priority
-    -- (step 10c), so their has-aggro / caster / mob-type colors still win on trash.
+    -- 7b. Mini Enemies promoted ABOVE Caster -- but ONLY for DPS/healers and tanks that do NOT
+    -- use the special Tank Has Aggro color. Tanks WITH that option enabled skip this and keep
+    -- Mini Enemies at its original low priority (step 10c), so has-aggro/caster/mob-type colors
+    -- still win on trash.
     if miniColorScope
        and (classification == "normal" or classification == "minus" or classification == "trivial") then
         local thae = defaults.tankHasAggroEnabled
         if db.tankHasAggroEnabled ~= nil then thae = db.tankHasAggroEnabled end
-        -- Neutral + mini-enemy: neutral coloring wins over the trash color --
-        -- EXCEPT for a tank holding aggro with the Tank Has Aggro color enabled.
-        -- That viewer falls through here (same as hostile trash does via the
-        -- role gate below) so step 9 paints the has-aggro color; without this
-        -- exception the in-combat neutral return blocked threat coloring and
-        -- neutral mobs stayed enemy-red for tanks. All other viewers: neutral
-        -- beats the trash color, the DPS carve-out, and Caster (7b sits above
-        -- step 8). Non-trash neutral units are not caught here and still defer
-        -- to step 10d.
+        -- Neutral + mini-enemy: neutral coloring wins over the trash color, EXCEPT for a tank
+        -- holding aggro with Tank Has Aggro enabled -- that viewer falls through so step 9
+        -- paints the has-aggro color; otherwise in-combat neutral blocks threat coloring and
+        -- neutral mobs stay enemy-red for tanks. Other viewers: neutral beats trash/DPS
+        -- carve-out/Caster (7b sits above step 8). Non-trash neutral units defer to 10d.
         local tankAggroPending = isThreatUnit and _isTankRole and threatStatus >= 3 and thae
         if isNeutral and not tankAggroPending then return ResolveNeutralColor(unit) end
         if not (_isTankRole and thae) then
-            -- DPS "No Aggro" still wins over the promoted Mini Enemies color, so a
-            -- DPS/healer without aggro sees the no-aggro warning on trash instead
-            -- of the trash color. Scoped to this trash branch, so Caster still
-            -- outranks DPS No Aggro on non-trash casters (step 10). Mirrors the
-            -- step 10 condition exactly.
+            -- DPS "No Aggro" still wins over the promoted Mini Enemies color, so a DPS/healer
+            -- without aggro sees the warning on trash. Scoped to this trash branch so Caster
+            -- still outranks DPS No Aggro on non-trash casters (step 10, same condition).
             if isThreatUnit and not _isTankRole and threatStatus < 2 and IsInGroup() then
                 local dpsNA = defaults.dpsNoAggroEnabled
                 if db.dpsNoAggroEnabled ~= nil then dpsNA = db.dpsNoAggroEnabled end
@@ -5390,9 +4842,8 @@ local function GetReactionColor(unit)
     end
     -- 8. Caster
     if _isCaster then
-        -- DPS/healer No Aggro "Override Caster colors": promotes the No Aggro
-        -- color above the caster color when enabled. Kept separate from the
-        -- mini-boss override so Casters can stay their own color for contrast.
+        -- DPS/healer No Aggro "Override Caster colors": promotes No Aggro above the caster
+        -- color when enabled. Kept separate from the mini-boss override for contrast.
         if dpsNoAggroActive then
             local ovr = defaults.dpsNoAggroOverrideCaster
             if db.dpsNoAggroOverrideCaster ~= nil then ovr = db.dpsNoAggroOverrideCaster end
@@ -5404,10 +4855,9 @@ local function GetReactionColor(unit)
         local c = _C("caster")
         return MaybeDarken(c.r, c.g, c.b, inCombat)
     end
-    -- 9. Tank has aggro (if enabled) below focus/caster/miniboss. Normally sits
-    -- above the boss color (step 10b); when "Override Boss colors" is disabled the
-    -- has-aggro color is held below the boss color instead (the 10b boss return
-    -- wins for boss units, so the has-aggro color lands just below bosses).
+    -- 9. Tank has aggro (if enabled) below focus/caster/miniboss. Normally sits above the boss
+    -- color (step 10b); with "Override Boss colors" disabled it's held below boss instead (the
+    -- 10b return wins for boss units, so has-aggro lands just below bosses).
     if isThreatUnit and _isTankRole and threatStatus >= 3 then
         local enabled = defaults.tankHasAggroEnabled
         if db.tankHasAggroEnabled ~= nil then enabled = db.tankHasAggroEnabled end
@@ -5429,45 +4879,36 @@ local function GetReactionColor(unit)
             return c.r, c.g, c.b
         end
     end
-    -- 10b. Boss (intentionally below the low-priority threat colors above, so a
-    -- tank-has-aggro / dps-no-aggro color takes precedence over the boss color --
-    -- unless the tank "Override Boss colors" option is disabled, in which case the
-    -- has-aggro step above defers to this boss color for boss units).
+    -- 10b. Boss (intentionally below the low-priority threat colors above, so tank-has-aggro/
+    -- dps-no-aggro takes precedence over boss -- unless "Override Boss colors" is disabled, in
+    -- which case the has-aggro step above defers to this boss color for boss units).
     if _isBossUnit then
         local c = _C("boss")
         return MaybeDarken(c.r, c.g, c.b, inCombat)
     end
-    -- 10c. Mini Enemies: non-elite trash (normal/minus), DUNGEONS ONLY. Gives
-    -- 5-man trash its own color; outside dungeons these fall through to the enemy
-    -- color below. Elites are handled at step 7, so same-level elites still use
-    -- the enemy color. Sits below the threat colors so aggro state still wins.
-    -- NOTE: DPS/healers and non-special-aggro tanks already returned at step 7b
-    -- (Mini Enemies promoted above Caster); this low-priority path now only
-    -- applies to tanks with the special "Has Aggro" color enabled.
+    -- 10c. Mini Enemies: non-elite trash (normal/minus), DUNGEONS ONLY -- outside dungeons
+    -- these fall through to the enemy color below. Elites handled at step 7, so same-level
+    -- elites still use the enemy color. Below the threat colors, so aggro still wins.
+    -- DPS/healers and non-special-aggro tanks already returned at 7b; this path only serves
+    -- tanks with "Has Aggro" on.
     if miniColorScope
        and (classification == "normal" or classification == "minus" or classification == "trivial") then
-        -- Views the user's "Enemies" color (enemyInCombat) until they explicitly
-        -- set a Mini Enemies color, so trash starts identical to before.
+        -- Views "Enemies" (enemyInCombat) until the user sets a Mini Enemies color explicitly.
         local c = (p and p.miniEnemy) or _C("enemyInCombat")
         return MaybeDarken(c.r, c.g, c.b, inCombat)
     end
-    -- 10d. Neutral, deferred (dungeons only -- step 5 skipped it there). The
-    -- mob-type and threat colors above have had their turn; a neutral unit that
-    -- matched none of them uses the neutral color here, just above the generic
-    -- enemy fallback. (Outside dungeons, neutral already returned at step 5, so
-    -- isNeutral can only be true here when in a dungeon.)
+    -- 10d. Neutral, deferred (dungeons only -- step 5 skipped it there): a neutral unit
+    -- matching no mob-type/threat color lands here, just above the generic enemy fallback.
     if isNeutral then
         return ResolveNeutralColor(unit)
     end
-    -- 11. Fallback: enemy in combat / out of combat. With Full Coloring M+
-    -- Only active, every mob-type special above was suppressed, so all
-    -- hostile mobs land here and share the flat "All Enemies" color.
+    -- 11. Fallback: enemy in/out of combat. With Full Coloring M+ Only active, every mob-type
+    -- special above was suppressed, so all hostile mobs share the flat "All Enemies" color.
     local eic = _C(owBasic and "owBasicColor" or "enemyInCombat")
     return MaybeDarken(eic.r, eic.g, eic.b, inCombat)
 end
 local hookedUFs = {}
 local hookedHighlights = {}
-local hookedAurasFrames = {}
 local npOffscreenParent = CreateFrame("Frame")
 npOffscreenParent:Hide()
 local storedParents = {}
@@ -5495,70 +4936,28 @@ local function RestoreFromOffscreen(element)
         storedParents[element] = nil
     end
 end
--- Blizzard's plate aura item frames are created mouse-enabled with tooltip
--- handlers (Blizzard_NamePlateAuras.xml), so an alpha-0 aura row kept on the
--- plate still shows tooltips and takes the clicks aimed through it at the
--- plate or the world. Sweep the kept-alive row's subtree mouse-dead; pool
--- frames persist, so one write per frame sticks, and the recursion re-runs
--- per refresh only to catch newly pooled items.
-local mouseDeadAuraItems = setmetatable({}, { __mode = "k" })
-local function KillAuraRowMouse(frame)
-    if not frame or frame:IsForbidden() then return end
-    if not mouseDeadAuraItems[frame] then
-        mouseDeadAuraItems[frame] = true
-        frame:EnableMouse(false)
-    end
-    -- One GetChildren call per frame: the old select(i, frame:GetChildren())
-    -- re-unpacked the whole child list per index -- O(n^2) per sweep, and
-    -- this sweeps on every plate add plus every Blizzard aura-row refresh.
-    -- Table-capture form, NOT a varargs helper: this file sits AT the Lua
-    -- 5.1 200-local cap and a second file-scope local does not fit.
-    local kids = { frame:GetChildren() }
-    for i = 1, #kids do KillAuraRowMouse(kids[i]) end
-end
 local function HideBlizzardFrame(nameplate, unit)
     if not nameplate then return end
     local uf = nameplate.UnitFrame
     if not uf then return end
-    -- Suppress unconditionally -- if we're called, an EUI plate is taking
-    -- over this nameplate. Never gate on UnitCanAttack: that API can return
-    -- false on the first frame (unit not fully registered yet), which skips
-    -- the entire block and leaves Blizzard's UnitFrame visible behind ours
-    -- as a giant black box.
+    -- Suppress unconditionally: if we are called, an EUI plate is taking over this nameplate.
+    -- NEVER gate on UnitCanAttack -- it can return false on the first frame (unit not fully
+    -- registered), skipping the whole block and leaving Blizzard's UnitFrame visible as a
+    -- giant black box.
     uf:SetAlpha(0)
-    -- One Blizzard child stays live rather than riding the frame offscreen:
-    -- the AurasFrame, which our RefreshAuras hook below reads. Re-home it on
-    -- the nameplate and alpha it out so Blizzard keeps updating it while its
-    -- rows stay invisible. (The WidgetContainer is likewise kept, further down.)
-    -- 12.1: our containers own plate auras and these lists are taint-locked
-    -- and unused (see the RefreshAuras gate below), so nothing needs the frame
-    -- live -- and its item frames are mouse-enabled Blizzard templates with
-    -- tooltip handlers, which made the alpha-0 keep-alive an invisible
-    -- tooltip/click trap parked above every plate (/fstack-convicted:
-    -- BuffListFrame). Park it offscreen with the other children instead.
+    -- The AurasFrame rides offscreen with the other children (WidgetContainer is the one child
+    -- kept live, below): our containers own plate auras and these lists are taint-locked and
+    -- unused. Alpha-0 keep-alive is NOT enough -- its item frames are mouse-enabled Blizzard
+    -- templates with tooltip handlers, an invisible tooltip/click trap parked above every plate.
     if uf.AurasFrame then
-        if ns.NPC_OwnsAuras then
-            MoveToOffscreen(uf.AurasFrame, unit)
-        else
-            if not storedParents[uf.AurasFrame] then
-                storedParents[uf.AurasFrame] = uf.AurasFrame:GetParent()
-            end
-            uf.AurasFrame:SetParent(nameplate)
-            uf.AurasFrame:SetAlpha(0)
-            KillAuraRowMouse(uf.AurasFrame)
-        end
+        MoveToOffscreen(uf.AurasFrame, unit)
     end
-    -- Park the UnitFrame's child frames on the hidden holder, discovered
-    -- generically -- whatever Blizzard parents under the UnitFrame is swept, so
-    -- there is no per-widget list to maintain as Blizzard adds fields. The
-    -- UnitFrame ITSELF stays on the nameplate exactly as Blizzard placed it
-    -- (alpha 0 from above): parking the whole frame under a hidden holder
-    -- flipped every plate's content to IsVisible()==false and broke click
-    -- target selection between overlapping plates in packs (8.5.5 regression,
-    -- Semage report) -- the plate's hit-test context must keep its live,
-    -- on-plate UnitFrame like it always had. Exclusions: the two kept-live
-    -- frames above/below, and protected or forbidden children are never
-    -- touched (alpha 0 hides them anyway).
+    -- Park the UnitFrame's child frames on the hidden holder, discovered generically:
+    -- whatever Blizzard parents under the UnitFrame is swept, no per-widget list to maintain.
+    -- The UnitFrame ITSELF must stay on the nameplate where Blizzard placed it (alpha 0 above)
+    -- -- parking the whole frame under a hidden holder flips every plate's content to
+    -- IsVisible()==false and breaks click target selection between overlapping plates in packs.
+    -- Exclusions: the two kept-live frames, plus protected/forbidden children (alpha 0 hides them).
     for i = 1, uf:GetNumChildren() do
         local child = select(i, uf:GetChildren())
         if child and child ~= uf.WidgetContainer and child ~= uf.AurasFrame
@@ -5567,14 +4966,13 @@ local function HideBlizzardFrame(nameplate, unit)
             child:SetParent(npOffscreenParent)
         end
     end
-    -- All visual children are reparented offscreen so layout
-    -- recalculations won't shift bounds.
-    -- Only silence the castBar events (we render our own cast bar).
+    -- All visual children are reparented offscreen so layout recalculations cannot shift
+    -- bounds. Only silence castBar events (we render our own).
     if uf.castBar then
         uf.castBar:UnregisterAllEvents()
     end
-    -- Keep WidgetContainer functional but reparent it to the nameplate
-    -- itself so its layout doesn't affect the UnitFrame's bounds.
+    -- Keep WidgetContainer functional but reparent to the nameplate itself so its layout
+    -- doesn't affect the UnitFrame's bounds.
     if uf.WidgetContainer then
         uf.WidgetContainer:SetParent(nameplate)
     end
@@ -5583,78 +4981,14 @@ local function HideBlizzardFrame(nameplate, unit)
         local locked = false
         hooksecurefunc(uf, "SetAlpha", function(self)
             if locked then return end
-            -- Only force alpha 0 while an EUI plate owns this nameplate.
-            -- When the nameplate is recycled for a friendly unit, the EUI
-            -- plate is released and ns.plates[unit] is nil, so the hook
-            -- becomes a no-op and Blizzard can show the friendly frame.
+            -- Force alpha 0 only while an EUI plate owns this nameplate. On recycle to a
+            -- friendly unit the plate is released and ns.plates[unit] is nil, so the hook no-ops.
             local ufUnit = self.unit or (self.GetUnit and self:GetUnit())
             if not ufUnit or not ns.plates[ufUnit] then return end
             locked = true
             self:SetAlpha(0)
             locked = false
         end)
-    end
-    -- Hook RefreshAuras on Blizzard's AurasFrame so we refresh AFTER
-    -- debuffList/buffList have been updated. This eliminates the race
-    -- where our UNIT_AURA handler fires before Blizzard processes the
-    -- event, leaving debuffList stale.
-    -- DISPATCH-ORDER REALITY: the uf registers for UNIT_AURA below
-    -- BEFORE the plate does, and WoW dispatches in registration order,
-    -- so this hook usually fires BEFORE our handler has stashed the
-    -- event payload. The hook therefore has three paths: stashed
-    -- payload -> process with relevance gating; no stash + first paint
-    -- -> immediate rebuild; no stash otherwise -> owe ONE deferred
-    -- authoritative rebuild (never rebuild ungated per event -- that
-    -- was the rebuild storm that negated every fast path).
-    if uf.AurasFrame and not ns.NPC_OwnsAuras and not hookedAurasFrames[uf.AurasFrame] then
-        hookedAurasFrames[uf.AurasFrame] = true
-        hooksecurefunc(uf.AurasFrame, "RefreshAuras", function(af)
-            if af:IsForbidden() then return end
-            -- Newly pooled item frames arrive mouse-enabled; keep the
-            -- kept-alive row mouse-dead as it grows.
-            KillAuraRowMouse(af)
-            local parent = af:GetParent()
-            if not parent then return end
-            local ufUnit = parent.unit or (parent.GetUnit and parent:GetUnit())
-            if not ufUnit then return end
-            local plate = ns.plates[ufUnit]
-            if plate and plate.unit then
-                local pending = plate._pendingAuraUpdate
-                if pending then
-                    -- Our UNIT_AURA handler stashed this event's payload:
-                    -- debuffList is now current, process with full
-                    -- relevance gating.
-                    plate._pendingAuraUpdate = nil
-                    plate._auraFallbackPending = nil
-                    plate:UpdateAuras(pending)
-                elseif not plate._shownAuras then
-                    -- First paint for this plate: rebuild immediately
-                    plate:UpdateAuras(nil)
-                else
-                    -- No stash yet: either this RefreshAuras is about to be
-                    -- paired with our UNIT_AURA handler, or it is a non-event
-                    -- re-filter. Wait one frame so UNIT_AURA can supply a
-                    -- gated payload; if it never arrives, drain does one full
-                    -- rebuild.
-                    plate._auraAwaitingUnitAura = true
-                    plate:QueueAuraFallback()
-                end
-            end
-        end)
-    end
-    -- PERF: mark plate as having the RefreshAuras hook so UNIT_AURA can
-    -- stash its payload for the hook (or the next-frame dispatcher)
-    -- instead of rebuilding directly -- avoids double processing and
-    -- keeps debuffList reads on the post-refresh side.
-    local plate2 = ns.plates[unit]
-    if plate2 and uf.AurasFrame and hookedAurasFrames[uf.AurasFrame] then
-        plate2._hasRefreshAurasHook = true
-    end
-    -- Keep Blizzard's UnitFrame processing UNIT_AURA so its
-    -- debuffList/buffList stay current for our importance filter.
-    -- (12.1 containers: those lists are taint-locked and unused -- skip.)
-    if unit and uf.AurasFrame and not ns.NPC_OwnsAuras then
-        uf:RegisterUnitEvent("UNIT_AURA", unit)
     end
     if uf.selectionHighlight and not hookedHighlights[uf.selectionHighlight] then
         hookedHighlights[uf.selectionHighlight] = true
@@ -5684,16 +5018,14 @@ local function HideBlizzardFrame(nameplate, unit)
         end)
     end
 end
--- Restore Blizzard UnitFrame elements when a nameplate is removed, so the
--- recycled nameplate frame is in a clean state for the next unit.
+-- Restore Blizzard UnitFrame elements when a nameplate is removed, so the recycled frame is
+-- clean for the next unit.
 local function RestoreBlizzardFrame(nameplate)
     if not nameplate then return end
     local uf = nameplate.UnitFrame
     if not uf then return end
-    -- Return this UnitFrame's parked children from the hidden holder (the
-    -- holder is shared by every plate, so filter by recorded owner), then
-    -- re-home the kept-live frames, returning the recycled nameplate to a
-    -- clean state for its next unit.
+    -- Return this UnitFrame's parked children from the hidden holder (shared by every plate,
+    -- filter by recorded owner), then re-home the kept-live frames.
     for i = npOffscreenParent:GetNumChildren(), 1, -1 do
         local child = select(i, npOffscreenParent:GetChildren())
         if child and storedParents[child] == uf then
@@ -5701,8 +5033,7 @@ local function RestoreBlizzardFrame(nameplate)
             storedParents[child] = nil
         end
     end
-    -- Safety for a mid-session state where the whole UnitFrame was parked
-    -- (transitional builds); normally a no-op.
+    -- Safety if the whole UnitFrame was ever parked; normally a no-op.
     if storedParents[uf] then
         uf:SetParent(storedParents[uf])
         storedParents[uf] = nil
@@ -5725,10 +5056,8 @@ local fallbackCastCount = 0
 local _fallbackPlates = {}
 castFallbackFrame._textAccum = 0.1
 castFallbackFrame:SetScript("OnUpdate", function(self, elapsed)
-    -- Bar fill tracks every frame (smoothness); the target TEXT only
-    -- refreshes at 10 Hz -- names do not change faster than that and
-    -- SetText per frame is wasted, especially with secret strings.
-    -- (accumulator lives on the frame: this file is at the 200-local cap)
+    -- Bar fill tracks every frame (smoothness); target TEXT refreshes at 10Hz -- names never
+    -- change faster and per-frame SetText is wasted, especially on secret strings.
     local textAccum = self._textAccum + elapsed
     local doText = textAccum >= 0.1
     self._textAccum = doText and 0 or textAccum
@@ -5763,44 +5092,12 @@ castFallbackFrame:SetScript("OnUpdate", function(self, elapsed)
 end)
 castFallbackFrame:Hide()
 
--- Pandemic glow alpha-only tick: only iterates slots with active pandemic
--- glows. Lives on ns (NOT a local): the registrar (ApplyPandemicGlow) is
--- inside the glow-engine do/end block and cannot see file locals declared
--- out here -- a block-local forward declaration shipped this ticker dead.
-ns._pandemicTickFrame = CreateFrame("Frame")
-local pandemicTickAccum = 0
-ns._pandemicTickFrame:SetScript("OnUpdate", function(self, elapsed)
-    pandemicTickAccum = pandemicTickAccum + elapsed
-    if pandemicTickAccum < 0.2 then return end
-    pandemicTickAccum = 0
-    if not GetPandemicGlow() then self:Hide(); return end
-    local anyActive = false
-    for slot in pairs(ns.activePandemicSlots) do
-        anyActive = true
-        local durObj = slot._durationObj
-        if durObj and slot.pandemicGlow and slot.pandemicGlow.active then
-            local pg = slot.pandemicGlow
-            pg.wrapper:SetAlpha(C_CurveUtil.EvaluateColorValueFromBoolean(durObj:IsZero(), 0, durObj:EvaluateRemainingPercent(ns.pandemicCurve)))
-            if ns.pandemicCapCurve and pg.gate then
-                pg.gate:SetAlpha(durObj:EvaluateRemainingDuration(ns.pandemicCapCurve))
-            end
-        else
-            ns.StopPandemicGlow(slot)
-        end
-    end
-    if not anyActive then self:Hide() end
-end)
-ns._pandemicTickFrame:Hide()  -- start hidden; shown when pandemic glows activate
-
--- Shared cast-bar text anchoring. The cast bar text line holds three elements --
--- spell name, spell target, cast timer -- each assigned to a side ("left" |
--- "right" | "center"). The cast timer reserves a fixed slot of width on its side;
--- a non-center element sharing the timer's side is shifted inward by that width to
--- make room (mirrors how the target has always been pushed left by the timer).
--- Center elements anchor to the bar center and are never pushed.
---
+-- Shared cast-bar text anchoring. The text line holds three elements (spell name, spell
+-- target, cast timer), each assigned to a side. The timer reserves a fixed width on its side;
+-- a non-center element sharing that side shifts inward by that width. Center elements anchor
+-- to the bar center and are never pushed.
 --   side    : "left" | "right" | "center"
---   pushed  : true when the timer occupies this same side and this element must move inward
+--   pushed  : true when the timer shares this side and this element must move in
 --   reserve : timer reserved width (only consumed when pushed)
 --   isTimer : the timer uses slightly tighter base insets than text
 -- Returns: point (anchor), xOff (base, before the user X offset), justify
@@ -5818,16 +5115,12 @@ function ns.GetCastTextAnchor(side, pushed, reserve, isTimer)
     end
 end
 
--- WoW does not visually re-lay-out a FontString when only its SetJustifyH changes;
--- a fresh build does, which is why a /reload looked right but an in-place side
--- change did not. Clearing then re-setting the text forces the new alignment to
--- take effect, and it MUST be a real change -- re-setting the identical string is
--- deduped and skips the re-layout. (Same trick as the raid frame name text.)
--- GetText may return a secret (enemy name, cast name/target). SetText accepts
--- secrets and never inspects the value, but truthiness/equality on a secret errors,
--- so the existence check uses type() rather than `t or ""`. This makes the helper
--- safe to call on the enemy-name FontString (whose text is a secret for hostile
--- units), not just the cast strings.
+-- WoW does not visually re-lay-out a FontString when only SetJustifyH changes (only a fresh
+-- build does), so clear then re-set the text to force realignment -- and it MUST be a real
+-- change, since re-setting an identical string is deduped and skips the re-layout. GetText may
+-- return a secret (enemy name, cast name/target): SetText accepts secrets without inspecting
+-- them, but truthiness/equality on a secret errors, so the existence check uses type() rather
+-- than `t or ""`.
 function ns.ReflowFontString(fs)
     local t = fs:GetText()
     fs:SetText("")
@@ -5844,8 +5137,8 @@ function NameplateFrame:UpdateCastText(spellName)
     local spellTarget, spellTargetClass
     if UnitShouldDisplaySpellTargetName and UnitShouldDisplaySpellTargetName(self.unit) then
         local rawTarget = UnitSpellTargetName and UnitSpellTargetName(self.unit)
-        -- Names may be SECRET: type() is safe, and SetText/SetFormattedText
-        -- accept secret strings without exposing them to Lua.
+        -- Names may be SECRET: type() is safe, and SetText/SetFormattedText accept secret
+        -- strings without exposing them to Lua.
         if type(rawTarget) ~= "nil" then
             spellTarget = rawTarget
             spellTargetClass = UnitSpellTargetClass and UnitSpellTargetClass(self.unit)
@@ -5866,9 +5159,8 @@ function NameplateFrame:UpdateCastText(spellName)
     end
 
     local nameColor = db.castNameColor or defaults.castNameColor
-    -- Combined mode paints the target color onto the cast NAME string (the
-    -- target rides in it as a format arg); separate mode paints its own
-    -- FontString.
+    -- Combined mode paints the target color onto the cast NAME string (the target rides
+    -- in it as a format arg); separate mode paints its own FontString.
     local targetText
     if combine and hasTarget then
         targetText = self.castName
@@ -5917,15 +5209,13 @@ function NameplateFrame:UpdateCastText(spellName)
         and (db.castTargetSide or defaults.castTargetSide) ~= "none")
 end
 
--- Appearance generation: bumped by RefreshAllSettings so plates re-apply
--- static appearance on next SetUnit. Plates stamp _appearanceGen after
--- applying so cache-hit re-spawns skip the work entirely.
+-- Appearance generation: bumped by RefreshAllSettings so plates re-apply static appearance on
+-- next SetUnit. Plates stamp _appearanceGen after applying so cache-hit re-spawns skip the work.
 ns._npAppearanceGen = ns._npAppearanceGen or 1
 
--- Static appearance: anchors, sizes, fonts, colors, and aura layout that
--- only depend on settings (not on the bound unit). Runs once per plate
--- after creation, then again only when RefreshAllSettings bumps the
--- generation counter. Cuts ~0.7 ms off every plate spawn.
+-- Static appearance: anchors, sizes, fonts, colors and aura layout depending only on settings,
+-- not the bound unit. Runs once per plate after creation, then only when RefreshAllSettings
+-- bumps the generation. Saves ~0.7ms per spawn.
 function NameplateFrame:ApplyAppearance()
     self:SetSize(1, 1)
     local castH = GetCastBarHeight()
@@ -5934,9 +5224,8 @@ function NameplateFrame:ApplyAppearance()
     self.health:SetSize(GetHealthBarWidth(), GetHealthBarHeight())
     self.absorb:SetSize(GetHealthBarWidth(), GetHealthBarHeight())
     ns.ApplyLowHpGlow(self)
-    -- Width may have changed: clear the overlay state gates so the next
-    -- overlay apply re-runs geometry (the stripe texcoord crop is derived
-    -- from the settings width, and the gates never watch width).
+    -- Width may have changed: clear the overlay gates so the next apply re-runs geometry (the
+    -- stripe texcoord crop derives from the settings width, which the gates never watch).
     self._ovTgtTex, self._ovFocTex, self._ovHoverTex = nil, nil, nil
     ns.LayoutCastBar(self, ns.GetHealthBarWidth(), castH)
     ns.LayoutCastIcon(self, castH)
@@ -6012,11 +5301,10 @@ function NameplateFrame:ApplyAppearance()
         end
         -- Timer side is only "left"/"right"; visibility stays governed by showTimer.
         local tpt, txb, tjh = ns.GetCastTextAnchor(timerSide, false, timerW, true)
-        -- timerW stays the layout reserve (it pushes name/target inward above), but
-        -- the timer FontString itself auto-sizes (width 0) so a long value never
-        -- truncates. The string is pinned by its outer edge (RIGHT for right side,
-        -- LEFT for left side), so overflow grows inward past the reserved slot while
-        -- the pinned edge -- and thus every element positioned off it -- stays fixed.
+        -- timerW stays the layout reserve (pushes name/target inward above), but the timer
+        -- FontString auto-sizes (width 0) so a long value never truncates. Pinned by its outer
+        -- edge (RIGHT on the right side, LEFT on the left), so overflow grows inward past the
+        -- reserved slot while the pinned edge holds.
         self.castTimer:SetWidth(0)
         self.castTimer:SetJustifyH(tjh)
         self.castTimer:ClearAllPoints()
@@ -6026,9 +5314,8 @@ function NameplateFrame:ApplyAppearance()
     self.castName:SetShown(nameSide ~= "none")
     self.castTarget:SetShown(not combineNameTarget and targetSide ~= "none")
     self.castTimer:SetShown(showTimer)
-    -- Force the new justify to take effect on text that is already rendered (e.g.
-    -- changing the side while a plate is mid-cast). A fresh cast re-flows on its own
-    -- because UpdateCast sets the text after this, but a live setting change does not.
+    -- Force the new justify onto already-rendered text (side changed mid-cast): a fresh cast
+    -- re-flows itself via UpdateCast, a live setting change does not.
     ns.ReflowFontString(self.castName)
     ns.ReflowFontString(self.castTarget)
     ns.ReflowFontString(self.castTimer)
@@ -6174,20 +5461,18 @@ function NameplateFrame:ApplyAppearance()
     if self.ApplyCastBorderColor then self:ApplyCastBorderColor() end
     self:ApplyHealthTextAppearance()
     if ns.RefreshCastOverlay then ns.RefreshCastOverlay(self) end
-    -- Re-sync the cast-bar wrap LAST -- after the normal borders and the
-    -- cast-overlay lift have been re-applied this pass. For a wrapped plate this
-    -- re-hides the borders ApplyBorder/ApplyCastBorder just re-showed (no double
-    -- border) and matches the host to the current lift state. Gated so it is a
-    -- pure no-op unless the feature is enabled or this plate is already wrapped.
+    -- Re-sync the cast-bar wrap LAST, after normal borders and cast-overlay lift are
+    -- re-applied: for a wrapped plate this re-hides the borders ApplyBorder/ApplyCastBorder
+    -- just re-showed (no double border). Pure no-op unless enabled or wrapped.
     if self.UpdateBorderWrap and (self._wrapActive or ns.GetWrapBorderCastbar()) then
         self:UpdateBorderWrap()
     end
     ns.ApplySlotStrata(self)
 end
 
--- PERF: Set up health text font, position, color, and cache slot assignments.
--- Called from ApplyAppearance (settings change / fresh plate), NOT on every
--- health tick.  UpdateHealthValues only updates text content via the cache.
+-- PERF: health text font/position/color + cached slot assignments. Called from ApplyAppearance
+-- (settings change/fresh plate), NEVER per health tick; UpdateHealthValues only rewrites text
+-- content via the cache.
 function NameplateFrame:ApplyHealthTextAppearance()
     self.hpText:Hide()
     self.hpNumber:Hide()
@@ -6209,9 +5494,10 @@ function NameplateFrame:ApplyHealthTextAppearance()
         local txOff, tyOff = GetTextSlotOffsets(slot.key)
         local slotFontSz = GetTextSlotSize(slot.key)
         local sr, sg, sb = GetTextSlotColor(slot.key)
+        local slotStrata = (p and p[slot.key .. "Strata"]) or "MEDIUM"
         if element == "healthPercent" or element == "healthPercentNoSign" then
             local fs = self.hpText
-            fs:SetParent(self.healthTextFrame)
+            fs:SetParent(ns.SlotTextHost(self, slot.key, slotStrata))
             SetFSFont(fs, slotFontSz, GetNPOutline())
             fs:ClearAllPoints()
             if slot.anchor == "CENTER" then
@@ -6229,7 +5515,7 @@ function NameplateFrame:ApplyHealthTextAppearance()
             ca[ci].slotKey = slot.key
         elseif element == "healthNumber" then
             local fs = self.hpNumber
-            fs:SetParent(self.healthTextFrame)
+            fs:SetParent(ns.SlotTextHost(self, slot.key, slotStrata))
             SetFSFont(fs, slotFontSz, GetNPOutline())
             fs:ClearAllPoints()
             if slot.anchor == "CENTER" then
@@ -6247,7 +5533,7 @@ function NameplateFrame:ApplyHealthTextAppearance()
             ca[ci].slotKey = slot.key
         elseif IsComboHealthText(element) then
             local fs = self.hpText
-            fs:SetParent(self.healthTextFrame)
+            fs:SetParent(ns.SlotTextHost(self, slot.key, slotStrata))
             SetFSFont(fs, slotFontSz, GetNPOutline())
             fs:ClearAllPoints()
             if slot.anchor == "CENTER" then
@@ -6264,12 +5550,11 @@ function NameplateFrame:ApplyHealthTextAppearance()
             ca[ci].fs = fs
             ca[ci].slotKey = slot.key
         elseif element == "level" then
-            -- Standalone level: own FontString, NOT registered in the health
-            -- slot cache (its content is static per unit -- written here and
-            -- by UpdateName on acquire, never on health ticks). Width/wrap
-            -- applied inline since the cache loop below skips it.
+            -- Standalone level: own FontString, NOT in the health slot cache (content is
+            -- static per unit -- written here and by UpdateName on acquire, never on health
+            -- ticks). Width/wrap applied inline since the cache loop below skips it.
             local fs = self.levelText
-            fs:SetParent(self.healthTextFrame)
+            fs:SetParent(ns.SlotTextHost(self, slot.key, slotStrata))
             SetFSFont(fs, slotFontSz, GetNPOutline())
             fs:ClearAllPoints()
             if slot.anchor == "CENTER" then
@@ -6305,7 +5590,7 @@ function NameplateFrame:ApplyHealthTextAppearance()
             fs = self.hpText
         end
         SetFSFont(fs, topFontSz, GetNPOutline())
-        fs:SetParent(self.topTextFrame)
+        fs:SetParent(ns.SlotTextHost(self, "textSlotTop", (p and p.textSlotTopStrata) or "MEDIUM"))
         fs:ClearAllPoints()
         PP.Point(fs, "BOTTOM", self.health, "TOP", txOff, 4 + nameYOff + cpPush + tyOff)
         fs:SetJustifyH("CENTER")
@@ -6326,7 +5611,7 @@ function NameplateFrame:ApplyHealthTextAppearance()
         local tr, tg, tb = GetTextSlotColor("textSlotTop")
         local fs = self.levelText
         SetFSFont(fs, topFontSz, GetNPOutline())
-        fs:SetParent(self.topTextFrame)
+        fs:SetParent(ns.SlotTextHost(self, "textSlotTop", (p and p.textSlotTopStrata) or "MEDIUM"))
         fs:ClearAllPoints()
         PP.Point(fs, "BOTTOM", self.health, "TOP", txOff, 4 + nameYOff + cpPush + tyOff)
         fs:SetJustifyH("CENTER")
@@ -6340,9 +5625,8 @@ function NameplateFrame:ApplyHealthTextAppearance()
         fs:Show()
     end
     ca._count = ci
-    -- Per-slot health % decimal preference. Resolved here (appearance pass,
-    -- rare) and cached on each entry + an _anyDecimal flag so the per-tick
-    -- render in UpdateHealthValues stays lean.
+    -- Per-slot health % decimal preference, resolved in this rare appearance pass and cached
+    -- per entry + an _anyDecimal flag, so the per-tick render in UpdateHealthValues stays lean.
     local barW = GetHealthBarWidth()
     local anyDec = false
     for i = 1, ci do
@@ -6356,14 +5640,12 @@ function NameplateFrame:ApplyHealthTextAppearance()
         else
             e.pctDecimal = false
         end
-        -- Per-slot Width % (of the health bar; default 100 = full bar width = no
-        -- visible clip for normal-length health text) + Wrap. SetWidth/SetWordWrap
-        -- re-flow the FontString on their own (only SetJustifyH needs an explicit
-        -- ReflowFontString), and UpdateHealthValues re-sets the text right after
-        -- this on the same SetUnit pass, so no reflow is needed here.
-        -- Default 100% = unconstrained (SetWidth 0 = auto-size); a width box on a
-        -- single-point-anchored FontString ignores SetJustifyH and would re-centre
-        -- a right/left value. Only impose a box when the user narrows it (< 100%).
+        -- Per-slot Width % of the health bar + Wrap. SetWidth/SetWordWrap re-flow the
+        -- FontString themselves (only SetJustifyH needs ReflowFontString), and
+        -- UpdateHealthValues re-sets text on the same SetUnit pass, so no reflow here. Default
+        -- 100 = unconstrained (SetWidth 0 = auto-size): a width box on a single-point-anchored
+        -- FontString ignores SetJustifyH and would re-centre a right/left value, so only box
+        -- it when narrowed.
         local wpct = (p and e.slotKey and p[e.slotKey .. "WidthPct"]) or 100
         e.fs:SetWidth(wpct < 100 and (barW * wpct / 100) or 0)
         local wrap = false
@@ -6382,13 +5664,11 @@ function NameplateFrame:SetUnit(unit, nameplate)
     self:SetPoint("CENTER", nameplate, "CENTER", 0, GetHitboxYShift())
     self:SetFrameLevel(nameplate:GetFrameLevel() + 1)
     self:Show()
-    -- Recycled/fresh plate: forget any prior eased scale so the first
-    -- ApplyScale snaps to the right size instead of growing in from a stale one.
+    -- Recycled/fresh plate: forget any prior eased scale so the first ApplyScale snaps instead of growing in from a stale one.
     self._curScale = nil
     ns._scaleAnim[self] = nil
     if ns._hitboxOverlayShown or self.hitboxOverlay then ns._ApplyHitboxOverlay(self) end
-    -- Apply static appearance only when stale (settings changed or fresh
-    -- pool plate). Cache-hit re-spawns skip this entirely.
+    -- Apply static appearance only when stale (settings changed or fresh pool plate).
     if self._appearanceGen ~= ns._npAppearanceGen then
         self:ApplyAppearance()
         self._appearanceGen = ns._npAppearanceGen
@@ -6397,28 +5677,19 @@ function NameplateFrame:SetUnit(unit, nameplate)
     self:RegisterUnitEvent("UNIT_HEALTH", unit)
     self:RegisterUnitEvent("UNIT_ABSORB_AMOUNT_CHANGED", unit)
     self:RegisterUnitEvent("UNIT_NAME_UPDATE", unit)
-    -- 12.1 containers own the aura rows and the legacy UNIT_AURA handler
-    -- chain ends in an inert UpdateAuras -- skip the registration entirely
-    -- (dead event delivery per plate per aura change otherwise).
-    if not ns.NPC_OwnsAuras then
-        self:RegisterUnitEvent("UNIT_AURA", unit)
-    end
     self:RegisterUnitEvent("UNIT_THREAT_LIST_UPDATE", unit)
-    -- 12.1: attach a pooled aura-container bundle for this unit.
+    -- Attach a pooled aura-container bundle for this unit.
     if ns.NPC_AttachPlate then ns.NPC_AttachPlate(self, unit) end
     -- Non-Target Opacity (zero cost while off: one numeric compare).
     if ns._ntAlpha < 1 then ns.NT_Apply(self) end
-    -- Execute glow is per-spawn state, not appearance: ApplyAppearance is
-    -- generation-cached (skipped on recycled pool plates) and the threshold
-    -- watcher only reaches plates active at flip time, so a plate hidden
-    -- during a no-execute window and then pooled would come back glowless.
-    -- Re-assert here; costs two compares when the setting is off.
+    -- Execute glow is per-spawn state, not appearance: ApplyAppearance is generation-cached
+    -- (skipped on recycled plates) and the threshold watcher only reaches plates active at flip
+    -- time, so a plate pooled during a no-execute window would return glowless. Re-assert.
     ns.ApplyLowHpGlow(self)
     -- Critical: health bar must display immediately
     self:UpdateHealth()
-    -- PERF: defer non-critical work 1 frame. Stacking bounds, name, cast bar,
-    -- classification, raid icon, target glow, mouseover -- all imperceptible
-    -- if they appear 1 frame late. Cuts ~40% off the plate-add spike.
+    -- PERF: defer non-critical work 1 frame. Stacking bounds, name, cast bar, classification,
+    -- raid icon, target glow, mouseover -- all imperceptible 1 frame late. Cuts ~40% off spike.
     self._castDirtyFull = true
     if not self._deferredSetupCB then
         self._deferredSetupCB = function()
@@ -6428,10 +5699,9 @@ function NameplateFrame:SetUnit(unit, nameplate)
             if np and np.SetStackingBoundsFrame then
                 if not self._stackBounds then
                     self._stackBounds = CreateFrame("Frame", nil, np)
-                    -- Load-bearing: SetStackingBoundsFrame reads this frame's
-                    -- rendered bounds (union of its regions), NOT its SetSize.
-                    -- Without a full-size region the bounds rect is empty and
-                    -- plates stop stacking. Alpha 0 so it never shows.
+                    -- Load-bearing: SetStackingBoundsFrame reads this frame's rendered bounds
+                    -- (union of its regions), NOT its SetSize. Without a full-size region the
+                    -- bounds rect is empty and plates stop stacking. Alpha 0 so it never shows.
                     local tex = self._stackBounds:CreateTexture(nil, "BACKGROUND")
                     tex:SetColorTexture(1, 0, 0, 0)
                     tex:SetAllPoints(self._stackBounds)
@@ -6496,7 +5766,6 @@ function NameplateFrame:SetUnit(unit, nameplate)
             self:ApplyTarget()
             self:ApplyMouseover()
             self:UpdateCast()
-            self:UpdateAuras()
         end
     end
     C_Timer.After(0, self._deferredSetupCB)
@@ -6543,7 +5812,6 @@ function NameplateFrame:ClearUnit()
         end
         RawSetTex(dSlot.icon, nil)
         dSlot:Hide()
-        ns.StopPandemicGlow(dSlot)
         dSlot._durationObj = nil
         dSlot._auraId = nil
     end
@@ -6561,21 +5829,11 @@ function NameplateFrame:ClearUnit()
         end
         bSlot._auraId = nil
     end
-    -- 12.1: release this plate's aura-container bundle back to the pool.
+    -- Release this plate's aura-container bundle back to the pool.
     if ns.NPC_DetachPlate then ns.NPC_DetachPlate(self) end
     self.unit = nil
     self.nameplate = nil
-    self._shownAuras = nil
-    self._pendingAuraUpdate = nil
-    self._pendingMeta = nil
-    self._pendingCoalesced = nil
-    self._auraFallbackPending = nil
-    self._auraOwedFull = nil
-    self._auraAwaitingUnitAura = nil
-    self._lastFullRebuildT = nil
     self._absorbHidden = nil
-    self._auraGroupMask = nil
-    self._buffsBuiltAttackable = nil
     self._lastHCr, self._lastHCg, self._lastHCb = nil, nil, nil
     -- Health-text value memo (UpdateHealthValues): a recycled plate must
     -- always write its first values, never skip against the old unit's.
@@ -6588,7 +5846,6 @@ function NameplateFrame:ClearUnit()
     self._castTex = nil
     self._castLockout = nil
     self._nameRaidMarkerShown = nil
-    if ns._npDequeueAuraWork then ns._npDequeueAuraWork(self) end
     self.cast:Hide()
     self.castShieldFrame:Hide()
     self.castShieldFrame:SetAlpha(1)
@@ -6646,11 +5903,9 @@ function NameplateFrame:UpdateHealthValues()
     if self.nameplate then
         local actualUnit = self.nameplate.namePlateUnitToken
         if actualUnit and actualUnit ~= unit then
-            -- Token swap: this plate frame now represents a DIFFERENT
-            -- mob. Any in-flight cast display belongs to the old unit;
-            -- tear it down and re-evaluate for the new one. (The cooldown
-            -- watcher no longer re-reads cast info per event, so this is
-            -- the swap's only cast-state self-heal.)
+            -- Token swap: this plate now represents a DIFFERENT mob. Any in-flight cast display
+            -- belongs to the old unit: tear it down and re-evaluate. The cooldown watcher does
+            -- not re-read cast info per event, so this is the swap's only cast-state self-heal.
             if self.isCasting then
                 if self._castFallback then
                     self._castFallback = nil
@@ -6672,7 +5927,6 @@ function NameplateFrame:UpdateHealthValues()
             -- (zero cost when the Cast Lockout feature is off / no lockout).
             if self._castLockout then
                 self._castLockout = nil
-                self:UpdateAuras()
                 if ns.NPC_UpdateLockout then ns.NPC_UpdateLockout(self) end
             end
             self:UpdateName()
@@ -6690,9 +5944,8 @@ function NameplateFrame:UpdateHealthValues()
         curHealth = self.hpCalculator:GetCurrentHealth()
         maxHealth = self.hpCalculator:GetMaximumHealth()
         absorbAmt = self.hpCalculator:GetDamageAbsorbs()
-        -- maxWithAbsorbs is fetched LAZILY in the secret-absorb branch below
-        -- (its only consumer): the dominant no-absorb fast path paid the two
-        -- mode swaps + getter on every health tick for nothing.
+        -- maxWithAbsorbs is fetched LAZILY in the secret-absorb branch below (its only
+        -- consumer): the dominant no-absorb path must not pay two mode swaps + a getter.
     else
         curHealth = UnitHealth(unit)
         maxHealth = UnitHealthMax(unit)
@@ -6702,8 +5955,7 @@ function NameplateFrame:UpdateHealthValues()
 
     local absorbIsSecret = issecretvalue and issecretvalue(absorbAmt)
 
-    -- PERF: skip ALL absorb work when absorbs are 0 and were already 0.
-    -- Most M+ mobs have no absorbs, so this skips ~10 widget calls per tick.
+    -- PERF: skip ALL absorb work when absorbs are 0 and were already 0 (most M+ mobs have none).
     local absorbZero = not absorbIsSecret and (not absorbAmt or absorbAmt <= 0)
     if absorbZero and self._absorbHidden then
         -- Fast path: absorbs were and still are zero
@@ -6786,15 +6038,12 @@ function NameplateFrame:UpdateHealthValues()
         end
     end
 
-    -- Hash line positioning (target only).
-    -- PERF: use cached _isTarget flag set by ApplyTarget instead of
-    -- calling UnitIsUnit on every health tick for every plate.
+    -- Hash line positioning (target only). PERF: uses cached _isTarget, not UnitIsUnit per tick.
     local hlEnabled = (p and p.hashLineEnabled)
     local hlPct = (p and p.hashLinePercent) or defaults.hashLinePercent
     if hlEnabled and hlPct and hlPct > 0 and self._isTarget then
-        -- Input-gated: the anchor/color pushes only depend on bar width and
-        -- settings, none of which change per health tick (bar width is our
-        -- frame -- never secret). Re-pushed only when an input moves.
+        -- Input-gated: anchor/color pushes only depend on bar width and settings (bar width is
+        -- our frame -- never secret), re-pushed only when an input moves.
         local barW = self.health:GetWidth()
         local hlc = (p and p.hashLineColor) or defaults.hashLineColor
         if self._hlW ~= barW or self._hlPct ~= hlPct
@@ -6812,22 +6061,17 @@ function NameplateFrame:UpdateHealthValues()
         self.hashLine:Hide()
     end
 
-    -- PERF: Text content only -- appearance (font, position, color) is set in
-    -- ApplyHealthTextAppearance, called from ApplyAppearance.  This path runs
-    -- on every UNIT_HEALTH tick so it must be as lean as possible.
+    -- PERF: text content only -- font/position/color live in ApplyHealthTextAppearance. Runs
+    -- on every UNIT_HEALTH tick: stay lean.
     local ca = self._cachedHealthSlots
     if ca and ca._count > 0 then
-        -- Value memo: health ticks on big pools land on the same DISPLAYED
-        -- values constantly, and the string.format + SetText churn was the
-        -- hottest allocation source on plates. Keys are quantized to display
-        -- granularity -- the raw percent is a FLOAT that moves every tick,
-        -- so keying on it raw never repeated and the memo never hit
-        -- (allocation-verified in combat capture #4). Raw health gates the
-        -- skip ONLY when a slot actually renders it (number/combo slots): a
-        -- percent-only layout keeps its hits through per-tick raw churn,
-        -- while a raw-number layout rewrites per change by definition.
-        -- Secret values cannot be compared or floored: any secret input
-        -- fails open to writing (today's behavior) and clears its key.
+        -- Value memo: health ticks land on the same DISPLAYED values constantly, and
+        -- string.format + SetText churn is the hottest allocation source on plates. Keys MUST
+        -- be quantized to display granularity -- the raw percent is a FLOAT that moves every
+        -- tick, so a raw key never repeats and the memo never hits. Raw health gates the skip
+        -- ONLY when a slot renders it (number/combo): a percent-only layout then keeps its hits
+        -- through raw churn. Secret values cannot be compared or floored: any secret input
+        -- fails open to writing and clears its key.
         local isSec = issecretvalue
         local dead = UnitIsDeadOrGhost(unit)
         local anyDec = ca._anyDecimal
@@ -6903,11 +6147,9 @@ function NameplateFrame:UpdateHealthValues()
         end -- skipText
     end
 
-    -- Execute Pulse Glow gate: evaluate the player's execute-window curve
-    -- C-side and feed the resulting color straight into the glow textures
-    -- (alpha 1 below the threshold, 0 above -- never branched on in Lua).
-    -- The pulse animation on the parent frame multiplies on top. Specs with
-    -- no execute never build the textures, so this is one nil test for them.
+    -- Execute Pulse Glow gate: evaluate the execute-window curve C-side and feed the color
+    -- straight into the glow textures (alpha 1 below threshold, 0 above -- never branched on in
+    -- Lua). Parent frame's pulse multiplies on top. No-execute specs never build textures.
     local lg = self.lowHpGlowTextures
     if lg and self.lowHpGlowFrame:IsShown() then
         local curve = ns.GetLowHpGlowCurve()
@@ -6927,31 +6169,42 @@ end
 function NameplateFrame:UpdateHealthColor()
     local unit = self.unit
     if not unit then return end
-    -- Skip-if-unchanged: GetReactionColor returns plain profile-sourced
-    -- numbers (every return path verified non-secret). Threat events fire
-    -- constantly with an unchanged result -- compare against the last
-    -- applied values and skip the setter when identical. Cache is nil'd
-    -- in ClearUnit; settings edits self-correct via the value compare.
+    -- Skip-if-unchanged: GetReactionColor returns plain profile-sourced numbers (every return
+    -- path verified non-secret). Threat events fire constantly with an unchanged result, so
+    -- compare against the last applied values and skip the setter. Cache nil'd in ClearUnit.
     local hr, hg, hb = GetReactionColor(unit)
     if hr ~= self._lastHCr or hg ~= self._lastHCg or hb ~= self._lastHCb then
         self._lastHCr, self._lastHCg, self._lastHCb = hr, hg, hb
         self.health:SetStatusBarColor(hr, hg, hb)
     end
-    -- Focus overlay: show stripe textures on focus target's health bar
-    -- Fill clip frame at full alpha, bg clip frame at half alpha.
-    -- Apply is value-keyed: redone only when any component of the
-    -- would-be state differs from what this plate last applied.
-    -- No Tint mode keeps the whole overlay pipeline and only changes the
-    -- tint source: the bar's current health color (hr/hg/hb above) instead
-    -- of the custom overlay color, so the pattern reads in the bar's own
-    -- color. (The overlay textures are pattern-on-transparent art; using
-    -- them as the bar's own fill texture renders the transparent ground as
-    -- holes and darkens the whole bar -- never do that.)
+    -- Near-aggro glow (Non-Tank Threat cog): ns._reactionNearAggro was written
+    -- by the GetReactionColor call ABOVE (same decision that picked the color).
+    -- Own state cache, so constant same-result threat events are one compare;
+    -- feature off = one boolean read on top of that.
+    local naGlow = false
+    if ns._reactionNearAggro then
+        local dbg = p or defaults
+        naGlow = dbg.threatNearAggroGlow == true
+    end
+    if naGlow ~= (self._naGlowOn or false) then
+        self._naGlowOn = naGlow
+        if naGlow then
+            ns.EnsureNearAggroGlow(self)
+            self.naGlowFrame:Show()
+        elseif self.naGlowFrame then
+            self.naGlowFrame:Hide()
+        end
+    end
+    -- Focus overlay: stripe textures on the focus target's health bar (fill clip at full alpha,
+    -- bg clip at half). Value-keyed: reapplied only when a component differs from the last
+    -- applied state. No Tint keeps the whole pipeline and only swaps the tint source to the
+    -- bar's current health color (hr/hg/hb above). NEVER use these overlay textures as the
+    -- bar's own fill texture: they are pattern-on-transparent art, so transparent ground
+    -- renders as holes and darkens the whole bar.
     local db2 = p or defaults
     local focusTex = db2.focusOverlayTexture or defaults.focusOverlayTexture
     if focusTex ~= "none" and UnitIsUnit(unit, "focus") then
-        -- Texture path memoized by texture NAME (no per-call concat;
-        -- live dropdown changes rebuild it via the name compare)
+        -- Texture path memoized by texture NAME (no per-call concat); live dropdown changes rebuild it.
         if ns._focusOverlayTexName ~= focusTex then
             ns._focusOverlayTexName = focusTex
             ns._focusOverlayTexPath = ns.ResolveOverlayTexPath(focusTex)
@@ -6989,10 +6242,8 @@ function NameplateFrame:UpdateHealthColor()
         self.focusClipFill:Hide()
         self.focusClipBg:Hide()
     end
-    -- Focus letter: zero-cost when off. Gate the call so a disabled plate pays
-    -- only two field reads here (no function call, no UnitIsUnit, no allocation).
-    -- The _focusLetterShown term lets a letter that is currently up hide itself on
-    -- the refresh that turns the feature off, after which this gate stays cold.
+    -- Focus letter: zero cost when off -- a disabled plate pays two field reads (no call, no
+    -- UnitIsUnit, no allocation). _focusLetterShown lets a live letter hide itself when turned off.
     if db2.focusLetterEnabled or self._focusLetterShown then
         ns.ApplyFocusLetter(self, unit, db2)
     end
@@ -7052,15 +6303,13 @@ function NameplateFrame:UpdateName()
             unit = actualUnit
         end
     end
-    -- Standalone level renders on its own FontString and can share the plate
-    -- with a name-family slot; refresh its content here (this runs on plate
-    -- acquire/unit swap, so pooled reuse never shows a stale level).
+    -- Standalone level renders on its own FontString and can share the plate with a
+    -- name-family slot. Refreshed here (plate acquire/unit swap) so pooled reuse never stales.
     if self.levelText and self.levelText:IsShown() then
         self.levelText:SetText(ns.GetUnitLevelText(unit))
     end
-    -- The slotted name-family variant decides what renders: name or a
-    -- level+name combo. nil slot keeps the plain-name write (the FontString
-    -- is hidden by RefreshNamePosition in that case anyway).
+    -- The slotted name-family variant decides what renders: name or a level+name
+    -- combo. A nil slot keeps the plain-name write (RefreshNamePosition hides it).
     local el = ns.FindNameSlot()
     el = el and GetTextSlot(el) or "enemyName"
     local name = UnitName(unit)
@@ -7075,8 +6324,8 @@ function NameplateFrame:UpdateClassification()
     local _, iType = GetInstanceInfo()
     local inInstance = (iType == "party" or iType == "raid" or iType == "pvp" or iType == "arena")
     if inInstance then
-        -- "Show In Instances" (slot cog on the Rare/Quest Indicator) lifts
-        -- the open-world-only gate.
+        -- "Show In Instances" (Rare/Quest Indicator slot cog) lifts the
+        -- open-world-only gate.
         local show = p and p.classificationShowInInstances
         if show == nil then show = defaults.classificationShowInInstances end
         if show then inInstance = false end
@@ -7086,10 +6335,8 @@ function NameplateFrame:UpdateClassification()
         self:UpdateNameWidth()
         return
     end
-    -- Quest mob indicator takes priority over elite/rare.
-    -- When "Replace Quest Icon with Objective" is enabled and a clean remaining
-    -- count was cached for this unit, draw that number in place of the crosshair
-    -- icon; otherwise fall back to the existing icon untouched.
+    -- Quest mob indicator takes priority over elite/rare. With "Replace Quest Icon with
+    -- Objective" on and a clean remaining count cached, draw that number instead of the icon.
     if ns.IsQuestMob and ns.IsQuestMob(self.unit) then
         local objText = (p and p.replaceQuestIconWithObjective == true)
             and ns.GetQuestObjectiveText and ns.GetQuestObjectiveText(self.unit) or nil
@@ -7209,13 +6456,11 @@ function NameplateFrame:ApplyNameVisibility()
     self.name:SetShown(shown)
     if self.nameRaidFrame then self.nameRaidFrame:SetShown(shown and self._nameRaidMarkerShown == true) end
 end
--- The full-size cast icon (a child of the cast bar) only occupies its side-slot
--- space while a cast is up, so its reserve is gated on the cast bar being shown
--- (see GetCastIconReserve). Whenever the cast bar shows or hides, re-anchor the
--- side elements that reserve that space -- the target arrow, classification
--- icon, and raid marker -- so they track the icon instead of sitting shoved out
--- by a phantom gap. Zero cost unless the full-size icon is actually enabled;
--- each re-anchor helper no-ops on plates that don't show that element.
+-- The full-size cast icon (a cast-bar child) occupies its side-slot space only while a cast is
+-- up, so its reserve is gated on the cast bar being shown (see GetCastIconReserve). On every
+-- cast show/hide, re-anchor the side elements that reserve it (target arrow, classification
+-- icon, raid marker) so they track the icon instead of sitting shoved out by a phantom gap.
+-- Zero cost unless the full-size icon is enabled.
 function NameplateFrame:RefreshCastIconSideReserve()
     if not (GetShowCastIcon() and ns.GetCastIconFullSize()) then return end
     self:UpdateClassification()
@@ -7245,33 +6490,34 @@ function NameplateFrame:RefreshNamePosition(localOnly)
         end
     end
     local nameMarkerReserve = nameMarkerShown and (nameMarkerSize + 3) or 0
+    local nameStrata = (p and nameSlot and p[nameSlot .. "Strata"]) or "MEDIUM"
     self:UpdateNameWidth()
     self.name:ClearAllPoints()
     if nameSlot == "textSlotLeft" then
         local txOff, tyOff = GetTextSlotOffsets("textSlotLeft")
         SetFSFont(self.name, GetTextSlotSize("textSlotLeft"), GetNPOutline())
-        self.name:SetParent(self.healthTextFrame)
+        self.name:SetParent(ns.SlotTextHost(self, nameSlot, nameStrata))
         PP.Point(self.name, "LEFT", self.health, "LEFT", 4 + txOff + nameMarkerReserve, tyOff)
         self.name:SetJustifyH("LEFT")
         self.name:Show()
     elseif nameSlot == "textSlotCenter" then
         local txOff, tyOff = GetTextSlotOffsets("textSlotCenter")
         SetFSFont(self.name, GetTextSlotSize("textSlotCenter"), GetNPOutline())
-        self.name:SetParent(self.healthTextFrame)
+        self.name:SetParent(ns.SlotTextHost(self, nameSlot, nameStrata))
         self.name:SetPoint("CENTER", self.health, "CENTER", txOff + (nameMarkerReserve * 0.5), tyOff)
         self.name:SetJustifyH("CENTER")
         self.name:Show()
     elseif nameSlot == "textSlotRight" then
         local txOff, tyOff = GetTextSlotOffsets("textSlotRight")
         SetFSFont(self.name, GetTextSlotSize("textSlotRight"), GetNPOutline())
-        self.name:SetParent(self.healthTextFrame)
+        self.name:SetParent(ns.SlotTextHost(self, nameSlot, nameStrata))
         PP.Point(self.name, "RIGHT", self.health, "RIGHT", -2 + txOff, tyOff)
         self.name:SetJustifyH("RIGHT")
         self.name:Show()
     elseif nameSlot == "textSlotTop" then
         local txOff, tyOff = GetTextSlotOffsets("textSlotTop")
         SetFSFont(self.name, GetTextSlotSize("textSlotTop"), GetNPOutline())
-        self.name:SetParent(self.topTextFrame)
+        self.name:SetParent(ns.SlotTextHost(self, "textSlotTop", nameStrata))
         local cpPush = GetClassPowerTopPush(self)
         PP.Point(self.name, "BOTTOM", self.health, "TOP", txOff + (nameMarkerReserve * 0.5), 4 + nameYOff + cpPush + tyOff)
         self.name:SetJustifyH("CENTER")
@@ -7280,9 +6526,8 @@ function NameplateFrame:RefreshNamePosition(localOnly)
         -- Name not assigned to any slot
         self.name:Hide()
     end
-    -- Apply name wrap state here (not just at creation) so the cog toggle takes
-    -- effect on the next settings refresh. Off = single line + ellipsis; on = up
-    -- to two lines. Reflow so already-rendered text re-lays out under the new mode.
+    -- Apply name wrap here (not only at creation) so the cog toggle takes effect on the next
+    -- settings refresh. Off = single line + ellipsis, on = up to two lines; reflow re-lays out.
     local nameWrap = defaults.enemyNameWrap
     if p and p.enemyNameWrap ~= nil then nameWrap = p.enemyNameWrap end
     self.name:SetWordWrap(nameWrap)
@@ -7293,8 +6538,11 @@ function NameplateFrame:RefreshNamePosition(localOnly)
     local nameRaid = self.nameRaidFrame
     if nameRaid and self._nameRaidMarkerShown and self.name:IsShown() then
         PP.Size(nameRaid, nameMarkerSize, nameMarkerSize)
-        nameRaid:SetParent((nameSlot == "textSlotTop") and self.topTextFrame or self.healthTextFrame)
-        nameRaid:SetFrameStrata("MEDIUM")
+        -- Follows the name's host so the marker rides the slot's strata; the
+        -- host's own SetFrameStrata (SlotTextHost) resets child frames, so
+        -- re-assert AFTER parenting.
+        nameRaid:SetParent(ns.SlotTextHost(self, nameSlot, nameStrata))
+        nameRaid:SetFrameStrata(nameStrata)
         nameRaid:SetFrameLevel(901)
         nameRaid:ClearAllPoints()
         nameRaid:SetPoint("RIGHT", self.name, "LEFT", -3, 0)
@@ -7303,7 +6551,6 @@ function NameplateFrame:RefreshNamePosition(localOnly)
         nameRaid:Hide()
     end
     if localOnly then return end
-    self:UpdateAuras()
     self:UpdateClassification()
 end
 function NameplateFrame:UpdateRaidIcon()
@@ -7371,13 +6618,9 @@ function NameplateFrame:ApplyTarget()
     elseif self.glow then
         self.glow:Hide()
     end
-    -- Border Size: resize the health border while targeted (Border Size
-    -- target effect). tbsz stays nil unless the effect is on AND a size was
-    -- snapshotted, so everyone else runs the original paths untouched. Runs
-    -- BEFORE the Border Color block so a rebuilt custom border gets its
-    -- target tint re-applied right after. Restore is one-shot via
-    -- self._targetBorderSized (ApplyBorder re-derives the normal size), so
-    -- untargeted plates never pay a re-apply.
+    -- Border Size: resize the health border while targeted. tbsz stays nil unless the effect is
+    -- on AND a size was snapshotted. Runs BEFORE Border Color so a rebuilt custom border gets
+    -- its target tint right after. Restore is one-shot via self._targetBorderSized.
     local tbsz
     if isTarget and ns.GetTargetGlowBorderSize() then tbsz = ns.GetTargetBorderSizeValue() end
     if tbsz then
@@ -7396,9 +6639,8 @@ function NameplateFrame:ApplyTarget()
         if PP then
             local bc = ns.GetTargetBorderColor()
             if ns.IsCustomBorderEnabled() then
-                -- Custom border replaces the simple one; recolor it with the
-                -- target color. Lazy-create it first if a plate is targeted
-                -- before its first ApplyBorder ran.
+                -- Custom border replaces the simple one; recolor with the target color,
+                -- lazy-creating it if this plate is targeted before its first ApplyBorder ran.
                 if not self._customBorder then ns.ApplyCustomBorderStyle(self) end
                 if self._customBorder and EllesmereUI.SetBorderStyleColor then
                     EllesmereUI.SetBorderStyleColor(self._customBorder, bc.r, bc.g, bc.b, 1)
@@ -7410,10 +6652,8 @@ function NameplateFrame:ApplyTarget()
     else
         self:ApplyBorderColor()
     end
-    -- If this plate is currently wrapping its border around the cast bar, the
-    -- colour we just set landed on the (hidden) health border -- re-sync the
-    -- visible unified border to the new target state. Guarded so it is a pure
-    -- no-op (one field read) unless a wrap is actually live.
+    -- If this plate is wrapping its border around the cast bar, the colour just set landed on
+    -- the HIDDEN health border: re-sync the visible unified border. One field read unless live.
     if self._wrapActive then self:UpdateBorderWrap() end
     -- Highlight: translucent wash across the health bar (color + opacity are
     -- configurable; re-applied on show so live edits and pooled textures update)
@@ -7469,705 +6709,6 @@ function NameplateFrame:ApplyMouseover()
     else
         ns.HideHoverEffect(self)
     end
-end
--- Per-category rebuild support: id -> group-membership bitmask
--- (1 = debuff, 2 = buff, 4 = cc). A player stun lives in BOTH the
--- debuff and cc results, and partial rebuilds reorder _shownAuras
--- writes, so the single-slot map can never carry group ownership --
--- the mask is the authoritative record of which groups display an id.
--- Clears one group's bit from every entry; ids reaching zero leave
--- _shownAuras too.
-function ns._npClearGroupIds(plate, bit)
-    local mask = plate._auraGroupMask
-    if not mask then return end
-    local shown = plate._shownAuras
-    for id, m in pairs(mask) do
-        local has
-        if bit == 1 then
-            has = m % 2 >= 1
-        elseif bit == 2 then
-            has = m % 4 >= 2
-        else
-            has = m >= 4
-        end
-        if has then
-            local nm = m - bit
-            if nm <= 0 then
-                mask[id] = nil
-                if shown then shown[id] = nil end
-            else
-                mask[id] = nm
-            end
-        end
-    end
-end
-
--- P3 same-membership early-out support. Phase-1 selection results live
--- in these shared scratch tables (ids + aura object refs, parallel),
--- reused per group within one UpdateAuras call and wiped after so no
--- aura tables stay pinned across frames.
-ns._npScratchIDs = ns._npScratchIDs or {}
-ns._npScratchAuras = ns._npScratchAuras or {}
-
--- Positional identity: the would-be-shown id list exactly matches the
--- group's displayed slots (slot._auraId stamped at arm time; plain
--- numeric instance ids, never secret).
-function ns._npGroupMatches(frames, prevCount, ids)
-    if #ids ~= prevCount then return false end
-    for i = 1, prevCount do
-        if frames[i]._auraId ~= ids[i] then return false end
-    end
-    return true
-end
-
--- Recycle guard: an honest remove/add of a DISPLAYED id must change
--- membership, so a positional match in that situation can only mean
--- aura-instance-id recycling -- never skip then.
-function ns._npGroupTouched(updateInfo, frames, count)
-    local removed = updateInfo.removedAuraInstanceIDs
-    local added = updateInfo.addedAuras
-    if not removed and not added then return false end
-    for i = 1, count do
-        local sid = frames[i]._auraId
-        if sid then
-            if removed then
-                for j = 1, #removed do
-                    if removed[j] == sid then return true end
-                end
-            end
-            if added then
-                for j = 1, #added do
-                    if added[j].auraInstanceID == sid then return true end
-                end
-            end
-        end
-    end
-    return false
-end
-
-function NameplateFrame:UpdateAuras(updateInfo)
-    -- 12.1: aura rows render via engine containers (see the containers
-    -- file); this whole legacy path is inert.
-    if ns.NPC_OwnsAuras then return end
-    if not self.unit or not self.nameplate then return end
-    local unit = self.unit
-
-    local needsFullRefresh = not updateInfo or updateInfo.isFullUpdate or not self._shownAuras
-    -- A coalesced stash (a second UNIT_AURA payload overwrote an
-    -- unconsumed one while deferred) must rebuild everything AND bypass
-    -- the in-place fast path: the surviving payload does not describe
-    -- the lost event's changes.
-    if self._pendingCoalesced then
-        self._pendingCoalesced = nil
-        needsFullRefresh = true
-    end
-
-    if not needsFullRefresh then
-        -- FAST PATH: if the only changes are duration/stack updates on
-        -- already-displayed auras (no adds, no removes), just refresh
-        -- cooldown + stacks on the existing slots. Skips the full clear +
-        -- rebuild + reposition that costs ~0.3ms per call.
-        -- Only count added auras as relevant if any are from the player
-        -- (or if showAllDebuffs is on, or if it's a buff/CC the filter would
-        -- pick up). In a 20-man raid, other players' debuffs fire addedAuras
-        -- constantly but none of them will be displayed on our plate.
-        -- Reuse the handler's stashed classification when this updateInfo
-        -- is the exact stashed event table (reference identity); classify
-        -- fresh otherwise. allKnown is never stashed -- it depends on
-        -- _shownAuras, which may have been rebuilt since the stash.
-        local hasAdds, hasRemoves, hasUpdates
-        local meta = self._pendingMeta
-        if meta and meta.updateInfo == updateInfo then
-            hasAdds, hasRemoves, hasUpdates = meta.hasAdds, meta.hasRemoves, meta.hasUpdates
-            meta.updateInfo = nil
-        else
-            hasAdds, hasRemoves, hasUpdates = ns._npClassifyAuraUpdate(updateInfo)
-        end
-
-        if hasUpdates and not hasAdds and not hasRemoves then
-            local allKnown = true
-            for _, id in ipairs(updateInfo.updatedAuraInstanceIDs) do
-                if not self._shownAuras[id] then
-                    allKnown = false; break
-                end
-            end
-            if allKnown then
-                -- Duration/stack refresh only: update existing slots in place
-                for _, id in ipairs(updateInfo.updatedAuraInstanceIDs) do
-                    local slot = self._shownAuras[id]
-                    if slot then
-                        if slot.cd and C_UnitAuras_GetAuraDuration then
-                            local durObj = C_UnitAuras_GetAuraDuration(unit, id)
-                            if durObj and slot.cd.SetCooldownFromDurationObject then
-                                NP_ArmAuraCooldown(slot.cd, durObj)
-                            end
-                            slot._durationObj = durObj
-                        end
-                        if slot.count and C_UnitAuras_GetAuraAppDisplayCount then
-                            slot.count:SetText(C_UnitAuras_GetAuraAppDisplayCount(unit, id, 2, 1000) or "")
-                        end
-                    end
-                end
-                return
-            end
-        end
-
-        -- Standard relevance check for adds/removes/updates
-        local hasRelevantChange = hasAdds
-        if not hasRelevantChange and hasRemoves then
-            for _, id in ipairs(updateInfo.removedAuraInstanceIDs) do
-                if self._shownAuras[id] then
-                    hasRelevantChange = true
-                    break
-                end
-            end
-        end
-        if not hasRelevantChange and hasUpdates then
-            -- Updates on non-displayed auras (allKnown was false above)
-            for _, id in ipairs(updateInfo.updatedAuraInstanceIDs) do
-                if self._shownAuras[id] then
-                    hasRelevantChange = true
-                    break
-                end
-            end
-        end
-        if not hasRelevantChange then
-            return
-        end
-    end
-
-    -- Same-frame coalescing: at most one full rebuild per plate per frame.
-    -- GetTime() is constant within a frame; a second rebuild request in
-    -- the same frame becomes an owed authoritative rebuild next frame.
-    -- The explicit owed flag (not a skippable pending) carries the
-    -- obligation, so relevant changes can never be dropped.
-    if self._lastFullRebuildT == GetTime() then
-        self._auraOwedFull = true
-        self:QueueAuraFallback()
-        return
-    end
-    self._lastFullRebuildT = GetTime()
-
-    -- Per-category dispatch: full rebuilds touch all three groups;
-    -- incremental payloads rebuild only the groups they can affect.
-    local rebuildD, rebuildB, rebuildC = true, true, true
-    if not needsFullRefresh then
-        rebuildD, rebuildB, rebuildC = false, false, false
-        local mask = self._auraGroupMask
-        if updateInfo.addedAuras then
-            -- Union over the WHOLE payload (no early break): map each add
-            -- to every group it could possibly enter. Superset by filter
-            -- algebra: helpful auras never pass HARMFUL filters; non-player
-            -- harmful never passes HARMFUL|PLAYER; player harmful can
-            -- appear in BOTH debuff and cc results.
-            for _, aura in ipairs(updateInfo.addedAuras) do
-                if aura.isFromPlayerOrPlayerPet then rebuildD = true; rebuildC = true end
-                if aura.isHelpful then rebuildB = true end
-                if aura.dispelName and aura.isHarmful then
-                    rebuildC = true
-                    -- "Debuffs + CC": foreign CC can enter the debuff row too
-                    if p and p.debuffIncludeCC then rebuildD = true end
-                end
-            end
-        end
-        if mask then
-            if updateInfo.removedAuraInstanceIDs then
-                for _, id in ipairs(updateInfo.removedAuraInstanceIDs) do
-                    local m = mask[id]
-                    if m then
-                        if m % 2 >= 1 then rebuildD = true end
-                        if m % 4 >= 2 then rebuildB = true end
-                        if m >= 4 then rebuildC = true end
-                    end
-                end
-            end
-            if updateInfo.updatedAuraInstanceIDs then
-                for _, id in ipairs(updateInfo.updatedAuraInstanceIDs) do
-                    local m = mask[id]
-                    if m then
-                        if m % 2 >= 1 then rebuildD = true end
-                        if m % 4 >= 2 then rebuildB = true end
-                        if m >= 4 then rebuildC = true end
-                    end
-                end
-            end
-        end
-        -- Attackability latch: UnitCanAttack gates the whole buff group,
-        -- and charm/faction flips arrive ONLY as aura events in instanced
-        -- content (UNIT_FACTION is unregistered there). A flip must force
-        -- the buff group even when no displayed buff id was touched.
-        local attackable = not not UnitCanAttack("player", unit)
-        if attackable ~= self._buffsBuiltAttackable then rebuildB = true end
-        -- Safety net: the relevance gate said this payload matters; if
-        -- group derivation found nothing (e.g. mask lost), do everything.
-        if not (rebuildD or rebuildB or rebuildC) then
-            rebuildD, rebuildB, rebuildC = true, true, true
-        end
-    end
-
-    if not self._auraGroupMask then self._auraGroupMask = {} end
-    if needsFullRefresh then
-        -- Full path: wholesale wipe is cheaper than (and equivalent to)
-        -- per-group id clearing when every group rebuilds anyway.
-        if not self._shownAuras then
-            self._shownAuras = {}
-        else
-            wipe(self._shownAuras)
-        end
-        wipe(self._auraGroupMask)
-    end
-
-    -- Get slot assignments; skip processing for any slot set to "none".
-    -- Slot clearing happens per group inside each rebuild section.
-    local debuffSlotVal, buffSlotVal, ccSlotVal = GetAuraSlots()
-
-    if rebuildD then
-    -- PHASE 1 (P3): select the would-be-shown ids into the shared scratch
-    -- with exact gate parity to the arm path; all widget work (clear,
-    -- textures, positions, glows) is deferred to PHASE 2 below so an
-    -- unchanged displayed set can skip it entirely.
-    local skipIDs, skipAuras = ns._npScratchIDs, ns._npScratchAuras
-    wipe(skipIDs); wipe(skipAuras)
-    local dIdx = 1
-
-    -----------------------------------------------------------------------
-    --  Debuffs: build importantSet via cached callback (zero closure alloc),
-    --  then iterate importantSet with GetAuraDataByAuraInstanceID (zero
-    --  GetUnitAuras table alloc). showAll mode falls back to GetUnitAuras.
-    -----------------------------------------------------------------------
-    if debuffSlotVal ~= "none" then
-    local maxDbfSlots = #self.debuffs
-    local showAll = p and p.showAllDebuffs
-    -- "Debuffs + CC" core position: the debuff row leads with up to 2
-    -- crowd-control debuffs (any caster, same filter as the CC row), then
-    -- the normal debuff logic below fills the remaining slots. The
-    -- selection loops dedupe against the lead-in -- a player-cast CC
-    -- passes both filters. Zero cost when the option is off.
-    local ccLead = 0
-    if p and p.debuffIncludeCC and C_UnitAuras and C_UnitAuras.GetUnitAuras then
-        local ccAuras = C_UnitAuras.GetUnitAuras(unit, "HARMFUL|CROWD_CONTROL")
-        if ccAuras then
-            for _, aura in ipairs(ccAuras) do
-                if ccLead >= 2 or dIdx > maxDbfSlots then break end
-                if aura and aura.auraInstanceID and aura.icon then
-                    skipIDs[dIdx] = aura.auraInstanceID
-                    skipAuras[dIdx] = aura
-                    dIdx = dIdx + 1
-                    ccLead = ccLead + 1
-                end
-            end
-        end
-    end
-    if showAll then
-        -- showAll mode: must scan all player debuffs
-        if C_UnitAuras and C_UnitAuras.GetUnitAuras then
-            local allDebuffs = C_UnitAuras.GetUnitAuras(unit, "HARMFUL|PLAYER")
-            if allDebuffs then
-                for _, aura in ipairs(allDebuffs) do
-                    if dIdx > maxDbfSlots then break end
-                    local id = aura and aura.auraInstanceID
-                    if id and aura.icon then
-                        local dup = false
-                        for ci = 1, ccLead do
-                            if skipIDs[ci] == id then dup = true; break end
-                        end
-                        if not dup then
-                            skipIDs[dIdx] = id
-                            skipAuras[dIdx] = aura
-                            dIdx = dIdx + 1
-                        end
-                    end
-                end
-            end
-        end
-    else
-        -- Normal mode: build importantSet from Blizzard's debuffList (cached
-        -- callback), then intersect with HARMFUL|PLAYER (C-side filter handles
-        -- secret isFromPlayerOrPlayerPet correctly). One GetUnitAuras call but
-        -- only process the intersection.
-        local uf = self.nameplate.UnitFrame
-        if uf and uf.AurasFrame and uf.AurasFrame.debuffList and uf.AurasFrame.debuffList.Iterate then
-            if not self._importantSet then self._importantSet = {} end
-            local importantSet = self._importantSet
-            wipe(importantSet)
-            if not self._iterateCB then
-                self._iterateCB = function(auraInstanceID)
-                    self._importantSet[auraInstanceID] = true
-                end
-            end
-            uf.AurasFrame.debuffList:Iterate(self._iterateCB)
-            -- HARMFUL|PLAYER: C-side filter ensures only player debuffs.
-            -- Intersect with importantSet to show only important player debuffs.
-            if C_UnitAuras and C_UnitAuras.GetUnitAuras then
-                local allPlayerDebuffs = C_UnitAuras.GetUnitAuras(unit, "HARMFUL|PLAYER")
-                if allPlayerDebuffs then
-                    for _, aura in ipairs(allPlayerDebuffs) do
-                        if dIdx > maxDbfSlots then break end
-                        local id = aura and aura.auraInstanceID
-                        if id and aura.icon and importantSet[id] then
-                            local dup = false
-                            for ci = 1, ccLead do
-                                if skipIDs[ci] == id then dup = true; break end
-                            end
-                            if not dup then
-                                skipIDs[dIdx] = id
-                                skipAuras[dIdx] = aura
-                                dIdx = dIdx + 1
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-    end -- debuffSlotVal ~= "none" (phase 1)
-    -- PHASE 2 (P3): same-membership early-out (delta events only) or
-    -- rebuild consuming the phase-1 scratch -- never a second fetch.
-    if not needsFullRefresh
-        and ns._npGroupMatches(self.debuffs, self._prevDebuffCount or 0, skipIDs)
-        and not ns._npGroupTouched(updateInfo, self.debuffs, self._prevDebuffCount or 0) then
-        -- Displayed set unchanged: skip clear/texture/position/glow
-        -- restarts. Re-arm durations + stacks on every shown slot
-        -- (idempotent secret-safe sinks, none PP-hooked; keeps
-        -- slot._durationObj fresh for the pandemic tick and heals any
-        -- stale pending). Updated ids also refresh their texture for
-        -- parity with a full repaint.
-        local updated = updateInfo.updatedAuraInstanceIDs
-        local dCrop, dCzW, dCzH
-        if updated then
-            dCrop = ns.GetAuraCrop("debuffs")
-            dCzW = GetDebuffIconSize()
-            dCzH = ns.GetAuraCropHeight(dCrop, dCzW)
-        end
-        for i = 1, #skipIDs do
-            local slot = self.debuffs[i]
-            local id = skipIDs[i]
-            if slot.cd and C_UnitAuras_GetAuraDuration then
-                local durObj = C_UnitAuras_GetAuraDuration(unit, id)
-                if durObj and slot.cd.SetCooldownFromDurationObject then
-                    NP_ArmAuraCooldown(slot.cd, durObj)
-                end
-                slot._durationObj = durObj
-            end
-            if slot.count and C_UnitAuras_GetAuraAppDisplayCount then
-                slot.count:SetText(C_UnitAuras_GetAuraAppDisplayCount(unit, id, 2, 1000) or "")
-            end
-            if updated then
-                for j = 1, #updated do
-                    if updated[j] == id then
-                        RawSetTex(slot.icon, skipAuras[i].icon)
-                        -- SetTexture resets texcoord; re-apply the crop so a
-                        -- hot-path texture swap never reverts a cropped icon.
-                        ns.SetAuraIconCrop(slot.icon, dCrop, dCzW, dCzH)
-                        break
-                    end
-                end
-            end
-        end
-    else
-        ns._npClearGroupIds(self, 1)
-        local prevD = self._prevDebuffCount or #self.debuffs
-        for i = 1, prevD do ClearAuraSlot(self.debuffs[i]) end
-        local groupMask = self._auraGroupMask
-        local debuffCount = dIdx - 1
-        for i = 1, debuffCount do
-            local aura = skipAuras[i]
-            local id = skipIDs[i]
-            local slot = self.debuffs[i]
-            RawSetTex(slot.icon, aura.icon)
-            -- Texcoord (square or cropped) is applied in the size loop below.
-            if C_UnitAuras_GetAuraAppDisplayCount then
-                slot.count:SetText(C_UnitAuras_GetAuraAppDisplayCount(unit, id, 2, 1000) or "")
-            end
-            local cd = slot.cd
-            if cd and C_UnitAuras_GetAuraDuration then
-                local durObj = C_UnitAuras_GetAuraDuration(unit, id)
-                if durObj and cd.SetCooldownFromDurationObject then
-                    if cd.SetDrawSwipe then cd:SetDrawSwipe(true) end
-                    NP_ArmAuraCooldown(cd, durObj)
-                    cd:Show()
-                end
-                slot._durationObj = durObj
-            end
-            slot:Show()
-            slot._auraId = id
-            self._shownAuras[id] = slot
-            local m = groupMask[id] or 0
-            if m % 2 < 1 then groupMask[id] = m + 1 end
-        end
-        self._prevDebuffCount = debuffCount
-        if debuffCount > 0 then
-            local spacing = GetAuraSpacing("debuffs")
-            local cropped = ns.GetAuraCrop("debuffs")
-            local debuffSz = GetDebuffIconSize()
-            local debuffH = ns.GetAuraCropHeight(cropped, debuffSz)
-            for i = 1, debuffCount do
-                ns.ApplyAuraSlotCrop(self.debuffs[i], cropped, debuffSz)
-            end
-            PositionAuraSlot(self.debuffs, debuffCount, debuffSlotVal, self, debuffSz, debuffH, spacing, GetAuraSlotOffsets("debuffSlot"))
-        end
-        -- Pandemic glow registration for shown debuffs (zero work when off)
-        if GetPandemicGlow() then
-            for i = 1, debuffCount do
-                ns.ApplyPandemicGlow(self.debuffs[i])
-            end
-        end
-    end
-    end -- rebuildD
-
-    -----------------------------------------------------------------------
-    --  Buffs: build importantBuffSet via cached callback, iterate with
-    --  GetAuraDataByAuraInstanceID (same pattern as debuffs).
-    -----------------------------------------------------------------------
-    if rebuildB then
-    -- PHASE 1 (P3): selection only, exact gate parity (slot "none",
-    -- attackability, importantBuffSet, icon truthiness, cap 4).
-    local skipIDs, skipAuras = ns._npScratchIDs, ns._npScratchAuras
-    wipe(skipIDs); wipe(skipAuras)
-    local bIdx = 1
-    -- Latch the attackability the buff group was built under: the
-    -- incremental dispatch forces a buff rebuild when it changes.
-    local buffsAttackable = UnitCanAttack("player", unit)
-    self._buffsBuiltAttackable = not not buffsAttackable
-    if buffSlotVal ~= "none" then
-    if buffsAttackable then
-        local uf = self.nameplate.UnitFrame
-        if uf and uf.AurasFrame and uf.AurasFrame.buffList and uf.AurasFrame.buffList.Iterate then
-            if not self._importantBuffSet then self._importantBuffSet = {} end
-            local importantBuffSet = self._importantBuffSet
-            wipe(importantBuffSet)
-            if not self._buffIterateCB then
-                self._buffIterateCB = function(auraInstanceID)
-                    self._importantBuffSet[auraInstanceID] = true
-                end
-            end
-            uf.AurasFrame.buffList:Iterate(self._buffIterateCB)
-            local _getAura = C_UnitAuras.GetAuraDataByAuraInstanceID
-            for id in pairs(importantBuffSet) do
-                if bIdx > 4 then break end
-                local aura = _getAura(unit, id)
-                if aura and aura.icon then
-                    skipIDs[bIdx] = id
-                    skipAuras[bIdx] = aura
-                    bIdx = bIdx + 1
-                end
-            end
-        end
-    end
-    end -- buffSlotVal ~= "none" (phase 1)
-    -- PHASE 2 (P3): skip on identical membership, else rebuild from scratch
-    if not needsFullRefresh
-        and ns._npGroupMatches(self.buffs, self._prevBuffCount or 0, skipIDs)
-        and not ns._npGroupTouched(updateInfo, self.buffs, self._prevBuffCount or 0) then
-        -- Same membership: re-arm durations + stacks only (buff slots do
-        -- not store _durationObj -- parity with the arm path). Dispel
-        -- glow state persists with the unchanged aura.
-        local updated = updateInfo.updatedAuraInstanceIDs
-        local bCrop, bCzW, bCzH
-        if updated then
-            bCrop = ns.GetAuraCrop("buffs")
-            bCzW = GetBuffIconSize()
-            bCzH = ns.GetAuraCropHeight(bCrop, bCzW)
-        end
-        for i = 1, #skipIDs do
-            local slot = self.buffs[i]
-            local id = skipIDs[i]
-            if slot.cd and C_UnitAuras_GetAuraDuration then
-                local durObj = C_UnitAuras_GetAuraDuration(unit, id)
-                if durObj and slot.cd.SetCooldownFromDurationObject then
-                    NP_ArmAuraCooldown(slot.cd, durObj)
-                end
-            end
-            if slot.count and C_UnitAuras_GetAuraAppDisplayCount then
-                slot.count:SetText(C_UnitAuras_GetAuraAppDisplayCount(unit, id, 2, 1000) or "")
-            end
-            if updated then
-                for j = 1, #updated do
-                    if updated[j] == id then
-                        RawSetTex(slot.icon, skipAuras[i].icon)
-                        -- SetTexture resets texcoord; re-apply the crop so a
-                        -- hot-path texture swap never reverts a cropped icon.
-                        ns.SetAuraIconCrop(slot.icon, bCrop, bCzW, bCzH)
-                        break
-                    end
-                end
-            end
-        end
-    else
-        ns._npClearGroupIds(self, 2)
-        local prevB = self._prevBuffCount or 4
-        for i = 1, prevB do ClearAuraSlot(self.buffs[i]) end
-        local groupMask = self._auraGroupMask
-        local dispelGlowOn = ns.GetDispelGlow()
-        local buffGlowSz = GetBuffIconSize()
-        local buffCount = bIdx - 1
-        for i = 1, buffCount do
-            local aura = skipAuras[i]
-            local id = skipIDs[i]
-            local slot = self.buffs[i]
-            RawSetTex(slot.icon, aura.icon)
-            -- Texcoord (square or cropped) is applied in the size loop below.
-            if C_UnitAuras_GetAuraAppDisplayCount then
-                slot.count:SetText(C_UnitAuras_GetAuraAppDisplayCount(unit, id, 2, 1000) or "")
-            end
-            local cd = slot.cd
-            if cd and C_UnitAuras_GetAuraDuration then
-                local durObj = C_UnitAuras_GetAuraDuration(unit, id)
-                if durObj and cd.SetCooldownFromDurationObject then
-                    if cd.SetDrawSwipe then cd:SetDrawSwipe(true) end
-                    NP_ArmAuraCooldown(cd, durObj)
-                    cd:Show()
-                end
-            end
-            slot:Show()
-            slot._auraId = id
-            self._shownAuras[id] = slot
-            local m = groupMask[id] or 0
-            if m % 4 < 2 then groupMask[id] = m + 2 end
-            if dispelGlowOn then
-                local canDispel, typeColor = ns.CanDispelAura(unit, aura)
-                if canDispel then
-                    ns.StartDispelGlow(slot, buffGlowSz, typeColor)
-                end
-            end
-        end
-        self._prevBuffCount = buffCount
-        -- Reposition buffs based on actual shown count
-        if buffSlotVal ~= "none" and buffCount > 0 then
-            local spacing = GetAuraSpacing("buffs")
-            local cropped = ns.GetAuraCrop("buffs")
-            local buffSz = GetBuffIconSize()
-            local buffH = ns.GetAuraCropHeight(cropped, buffSz)
-            for i = 1, buffCount do
-                ns.ApplyAuraSlotCrop(self.buffs[i], cropped, buffSz)
-            end
-            PositionAuraSlot(self.buffs, buffCount, buffSlotVal, self, buffSz, buffH, spacing, GetAuraSlotOffsets("buffSlot"))
-        end
-    end
-    end -- rebuildB
-
-    -----------------------------------------------------------------------
-    --  CC: still needs GetUnitAuras (no Blizzard list to iterate), but
-    --  CC auras are rare (0-2 per unit). Minimal allocation cost.
-    -----------------------------------------------------------------------
-    if rebuildC then
-    -- PHASE 1 (P3): selection only (slot "none" gate, id+icon truthiness,
-    -- cap 2).
-    local skipIDs, skipAuras = ns._npScratchIDs, ns._npScratchAuras
-    wipe(skipIDs); wipe(skipAuras)
-    local ccSel = 0
-    if ccSlotVal ~= "none" then
-        -- Short-circuit on the plain field so there's no call when no lockout is
-        -- pending (i.e. always, when the feature is off).
-        local lockout = self._castLockout and ns.GetActiveCastLockout(self)
-        if lockout then
-            ccSel = 1
-            skipIDs[1] = ns.CAST_LOCKOUT_SLOT_ID
-            skipAuras[1] = lockout
-        end
-        if C_UnitAuras and C_UnitAuras.GetUnitAuras then
-            local ccAuras = C_UnitAuras.GetUnitAuras(unit, "HARMFUL|CROWD_CONTROL")
-            if ccAuras then
-                for _, aura in ipairs(ccAuras) do
-                    if ccSel >= 2 then break end
-                    if aura and aura.auraInstanceID and aura.icon then
-                        ccSel = ccSel + 1
-                        skipIDs[ccSel] = aura.auraInstanceID
-                        skipAuras[ccSel] = aura
-                    end
-                end
-            end
-        end
-    end -- ccSlotVal ~= "none" (phase 1)
-    -- PHASE 2 (P3): skip on identical membership, else rebuild from scratch
-    if not needsFullRefresh
-        and ns._npGroupMatches(self.cc, self._prevCCCount or 0, skipIDs)
-        and not ns._npGroupTouched(updateInfo, self.cc, self._prevCCCount or 0) then
-        -- Same membership: re-arm cooldowns only (CC slots have no count
-        -- text and do not store _durationObj -- parity with the arm path)
-        local updated = updateInfo.updatedAuraInstanceIDs
-        local cCrop, cCzW, cCzH
-        if updated then
-            cCrop = ns.GetAuraCrop("ccs")
-            cCzW = GetCCIconSize()
-            cCzH = ns.GetAuraCropHeight(cCrop, cCzW)
-        end
-        for i = 1, #skipIDs do
-            local slot = self.cc[i]
-            local id = skipIDs[i]
-            if id == ns.CAST_LOCKOUT_SLOT_ID then
-                ns.ArmCastLockoutCooldown(slot.cd, skipAuras[i])
-            elseif slot.cd and C_UnitAuras_GetAuraDuration then
-                local durObj = C_UnitAuras_GetAuraDuration(unit, id)
-                if durObj and slot.cd.SetCooldownFromDurationObject then
-                    NP_ArmAuraCooldown(slot.cd, durObj)
-                end
-            end
-            if updated and id ~= ns.CAST_LOCKOUT_SLOT_ID then
-                for j = 1, #updated do
-                    if updated[j] == id then
-                        RawSetTex(slot.icon, skipAuras[i].icon)
-                        -- SetTexture resets texcoord; re-apply the crop so a
-                        -- hot-path texture swap never reverts a cropped icon.
-                        ns.SetAuraIconCrop(slot.icon, cCrop, cCzW, cCzH)
-                        break
-                    end
-                end
-            end
-        end
-    else
-        ns._npClearGroupIds(self, 4)
-        local prevCC = self._prevCCCount or 2
-        for i = 1, prevCC do ClearAuraSlot(self.cc[i]) end
-        local groupMask = self._auraGroupMask
-        local ccShown = ccSel
-        for i = 1, ccShown do
-            local aura = skipAuras[i]
-            local id = skipIDs[i]
-            local slot = self.cc[i]
-            if id == ns.CAST_LOCKOUT_SLOT_ID then
-                ns.ArmCastLockoutSlot(slot, aura)
-            else
-                RawSetTex(slot.icon, aura.icon)
-                -- Texcoord (square or cropped) is applied in the size loop below.
-                slot.icon:Show()
-                local cd = slot.cd
-                if cd and C_UnitAuras_GetAuraDuration then
-                    local durObj = C_UnitAuras_GetAuraDuration(unit, id)
-                    if durObj and cd.SetCooldownFromDurationObject then
-                        if cd.SetDrawSwipe then cd:SetDrawSwipe(true) end
-                        NP_ArmAuraCooldown(cd, durObj)
-                        cd:Show()
-                    end
-                end
-                slot:Show()
-                slot._auraId = id
-                self._shownAuras[id] = slot
-                local m = groupMask[id] or 0
-                if m < 4 then groupMask[id] = m + 4 end
-            end
-        end
-        self._prevCCCount = ccShown
-        -- Reposition CC based on actual shown count
-        if ccSlotVal ~= "none" and ccShown > 0 then
-            local spacing = GetAuraSpacing("ccs")
-            local cropped = ns.GetAuraCrop("ccs")
-            local ccSz = GetCCIconSize()
-            local ccH = ns.GetAuraCropHeight(cropped, ccSz)
-            for i = 1, ccShown do
-                ns.ApplyAuraSlotCrop(self.cc[i], cropped, ccSz)
-            end
-            PositionAuraSlot(self.cc, ccShown, ccSlotVal, self, ccSz, ccH, spacing, GetAuraSlotOffsets("ccSlot"))
-        end
-    end
-    end -- rebuildC
-
-    -- Release phase-1 scratch so no aura tables stay pinned across frames
-    wipe(ns._npScratchIDs)
-    wipe(ns._npScratchAuras)
-
-    -- Reposition target arrows outside the outermost side auras
-    PositionArrowsOutsideAuras(self)
 end
 function NameplateFrame:UpdateImportantCastGlow(spellID)
     local cfg = p or defaults
@@ -8300,26 +6841,23 @@ function NameplateFrame:UpdateCast()
         end
     end
 
-    -- FAST PATH: on DELAYED/UPDATE events (not START), the icon, name,
-    -- target, and glow haven't changed. Only the duration needs updating.
-    -- _castDirtyFull is set by UNIT_SPELLCAST_START/CHANNEL_START/EMPOWER_START.
+    -- FAST PATH: on DELAYED/UPDATE events (not START), the icon, name, target, and glow
+    -- haven't changed; only duration needs updating. _castDirtyFull is set by
+    -- UNIT_SPELLCAST_START/CHANNEL_START/EMPOWER_START.
     local isFullSetup = self._castDirtyFull or not self.isCasting
     self._castDirtyFull = nil
 
     if isFullSetup then
         self.cast:Show()
         self:ApplyNameVisibility()
-        -- Icon and name must describe the SAME cast. Both are taken from this
-        -- UnitCastingInfo/UnitChannelInfo snapshot: the icon comes straight from
-        -- the live texture (which may be a secret value -- SetTexture accepts
-        -- secrets natively), so it is never rejected and never replaced by a
-        -- cached or leftover icon from a previous cast or a recycled unit.
+        -- Icon and name MUST describe the SAME cast: both come from this UnitCastingInfo/
+        -- UnitChannelInfo snapshot. The icon uses the live texture (possibly SECRET --
+        -- SetTexture accepts secrets natively), never a cached/leftover icon.
         if type(texture) ~= "nil" then
             self.castIcon:SetTexture(texture)
         elseif type(castSpellID) ~= "nil" then
-            -- Texture genuinely absent (rare): fall back to THIS cast's spell
-            -- icon. pcall guards an invalid/0/unknown spellID; iconID is fed
-            -- straight to SetTexture and never branched on.
+            -- Texture genuinely absent (rare): fall back to THIS cast's spell icon. pcall
+            -- guards an invalid/0/unknown spellID; iconID feeds SetTexture, never branched on.
             local okInfo, info = pcall(C_Spell.GetSpellInfo, castSpellID)
             if okInfo and type(info) == "table" then
                 self.castIcon:SetTexture(info.iconID)
@@ -8336,11 +6874,9 @@ function NameplateFrame:UpdateCast()
             kickProtected = false
         end
         self._kickProtected = kickProtected
-        -- Cache whether this cast is "important" (the game's flag) for the cast
-        -- bar colour. May be SECRET, so it is stored raw and only ever fed to a
-        -- boolean-curve evaluator (never branched on). pcall mirrors the glow
-        -- path (the spellID can be 0/invalid). Persists across interruptible
-        -- flips and the kick-cooldown ticker, which both reuse it via ApplyCastColor.
+        -- Cache the game's "important" flag for the cast bar colour. May be SECRET, so it is
+        -- stored raw and only fed to a boolean-curve evaluator, never branched on. pcall
+        -- guards a 0/invalid spellID. Persists across interruptible flips/kick ticker reuse.
         self._castImportant = false
         if C_Spell and C_Spell.IsSpellImportant then
             local impOK, imp = pcall(C_Spell.IsSpellImportant, castSpellID or 0)
@@ -8356,11 +6892,8 @@ function NameplateFrame:UpdateCast()
     if UnitCastingDuration and self.cast.SetTimerDuration then
         if isChannel then
             local castDuration
-            -- Try empowered channel duration first (Evoker empower spells
-            -- like Fire Breath, Eternity Surge, Dream Breath, Spiritbloom).
-            -- Normal UnitChannelDuration can return nil during the empower
-            -- phase, which would leave the bar unticked even though
-            -- UnitChannelInfo did return a spell name.
+            -- Empowered channel duration first (Evoker empower spells): normal UnitChannelDuration
+            -- can return nil during the empower phase, leaving the bar unticked despite a name.
             if UnitEmpoweredChannelDuration then
                 castDuration = UnitEmpoweredChannelDuration(self.unit, true)
                 if castDuration then isEmpowered = true end
@@ -8407,17 +6940,16 @@ function NameplateFrame:UpdateCast()
             UpdateClassPowerOnPlate(self)
         end
     elseif self._kickGeoDirty then
-        -- Cast timing changed mid-cast (delay/channel/empower update):
-        -- re-derive the kick geometry from the cached cast identity
+        -- Cast timing changed mid-cast (delay/channel/empower update): re-derive kick
+        -- geometry from the cached cast identity
         self._kickGeoDirty = nil
         self:UpdateKickTick(self._kickProtected, self._kickIsChannel, self._kickIsEmpowered)
     end
 end
--- Smooth scale transitions. A single shared OnUpdate eases every plate whose
--- displayed scale (_curScale) differs from its destination (_destScale). The
--- driver hides itself the instant no plate is animating, so it costs nothing at
--- idle; and because target/cast scale both default to 100, dest stays at 1 and
--- ApplyScale snaps (never enrolls) until the user actually sets a scale.
+-- Smooth scale transitions: one shared OnUpdate eases every plate whose displayed scale
+-- (_curScale) differs from its destination (_destScale). Driver hides itself the instant no
+-- plate is animating, so idle costs nothing; at target/cast scale 100 dest stays 1 and
+-- ApplyScale snaps without enrolling.
 ns._scaleAnim = {}  -- [plate] = true while its scale is easing
 do
     local SPEED = 11     -- exponential approach rate (higher = snappier)
@@ -8438,8 +6970,7 @@ do
             end
             plate._curScale = nv
             plate:SetScale(nv)
-            -- The held "Interrupted" flash keeps the bar visible after
-            -- isCasting clears; it must ride the shrink-back too.
+            -- The held "Interrupted" flash keeps the bar visible after isCasting clears; it must ride the shrink-back too.
             if (plate.isCasting or plate._interrupted) and ns.RefreshCastOverlay then ns.RefreshCastOverlay(plate) end
         end
         if not next(anim) then driver:Hide() end
@@ -8467,23 +6998,18 @@ function NameplateFrame:ApplyScale()
         ns._scaleAnim[self] = true
         ns._ScaleDriverShow()
     end
-    -- Lifted cast bar renders outside this plate's scale chain; keep its
-    -- container pinned to the plate's effective scale.
+    -- Lifted cast bar renders outside this plate's scale chain; keep its container pinned to the plate's effective scale.
     if ns.RefreshCastOverlay then ns.RefreshCastOverlay(self) end
 end
 function NameplateFrame:ApplyCastColor(uninterruptible)
     local cfg = p or defaults
     local kickReadyTint = cfg.interruptReady or defaults.interruptReady
     local normalCastTint = cfg.castBar or defaults.castBar
-    -- Important Cast Color (opt-in): when enabled, a cast the game flags as
-    -- important shows the Important colour in place of the Interruptible colour.
-    -- The importance flag may be a SECRET boolean, so blend per channel via
-    -- EvaluateColorValueFromBoolean (ifTrue = Important, ifFalse = Interruptible)
-    -- instead of branching on it. Interrupt-on-CD still wins: ComputeCastBarTint
-    -- layers the kick-ready tint on top of whatever base tint we hand it, so an
-    -- interrupt on cooldown overrides the Important colour exactly as it overrides
-    -- the Interruptible colour. Uninterruptible casts keep their look because the
-    -- uninterruptible overlay draws over this fill regardless.
+    -- Important Cast Color (opt-in): a cast the game flags important shows the Important
+    -- colour instead of Interruptible. The flag may be SECRET, so blend per channel via
+    -- EvaluateColorValueFromBoolean (ifTrue=Important, ifFalse=Interruptible), never branch on
+    -- it. Interrupt-on-CD still wins: ComputeCastBarTint layers the kick-ready tint over any
+    -- base tint. Uninterruptible casts keep their look (overlay on top).
     local importantOn = cfg.importantCastColorEnabled
     if importantOn == nil then importantOn = defaults.importantCastColorEnabled end
     if importantOn and C_CurveUtil and C_CurveUtil.EvaluateColorValueFromBoolean then
@@ -8491,8 +7017,7 @@ function NameplateFrame:ApplyCastColor(uninterruptible)
         local isImp = self._castImportant
         if type(isImp) == "nil" then isImp = false end
         local ev = C_CurveUtil.EvaluateColorValueFromBoolean
-        -- Scratch table (same pattern as _dispelScratch): this runs per cast
-        -- event per plate, and a fresh color table per call was pure GC churn.
+        -- Scratch table (same pattern as _dispelScratch): runs per cast event per plate, a fresh color table per call was pure GC churn.
         local sc = ns._castImpScratch
         if not sc then sc = {}; ns._castImpScratch = sc end
         sc.r = ev(isImp, imp.r, normalCastTint.r)
@@ -8502,9 +7027,8 @@ function NameplateFrame:ApplyCastColor(uninterruptible)
     end
     local cr, cg, cb = ComputeCastBarTint(kickReadyTint, normalCastTint)
     self.cast:GetStatusBarTexture():SetVertexColor(cr, cg, cb)
-    -- Shield icon is opt-out: when disabled, it never shows, even on
-    -- uninterruptible casts. The setting is a clean boolean, so it gates the
-    -- (possibly SECRET) uninterruptible flag without ever evaluating it.
+    -- Shield icon is opt-out: when disabled it never shows, even on uninterruptible casts. The
+    -- setting is a clean boolean, so it gates the (possibly SECRET) flag without evaluating it.
     local showShield = true
     if cfg.castBarShieldEnabled ~= nil then showShield = cfg.castBarShieldEnabled end
     if self.castBarOverlay.SetAlphaFromBoolean then
@@ -8530,10 +7054,9 @@ function NameplateFrame:HideKickTick()
     end
 end
 function NameplateFrame:UpdateKickTick(kickProtected, isChannel, isEmpowered)
-    -- Two independent CLEAN toggles drive this geometry: the visible tick
-    -- (kickTickEnabled) and the interrupt-ready mid-cast fill
-    -- (interruptMidCastEnabled). Either one needs the positioner/marker
-    -- StatusBars built below; each visible element is gated on its own toggle.
+    -- Two independent CLEAN toggles drive this geometry: the visible tick (kickTickEnabled)
+    -- and the interrupt-ready mid-cast fill (interruptMidCastEnabled). Either needs the
+    -- positioner/marker StatusBars below; each visible element is gated on its own toggle.
     local tickOn = GetKickTickEnabled()
     local midOn = defaults.interruptMidCastEnabled
     if p and p.interruptMidCastEnabled ~= nil then midOn = p.interruptMidCastEnabled end
@@ -8541,10 +7064,9 @@ function NameplateFrame:UpdateKickTick(kickProtected, isChannel, isEmpowered)
         self:HideKickTick()
         return
     end
-    -- kickProtected is a secret boolean on Midnight cannot branch on it.
-    -- Store it so we can apply visibility via SetAlphaFromBoolean after setup.
-    -- isChannel/isEmpowered are cached too: the cooldown watcher no longer
-    -- re-reads cast info per event and re-setups from these on demand.
+    -- kickProtected is a SECRET boolean: never branch on it. Store it and apply visibility via
+    -- SetAlphaFromBoolean after setup. isChannel/isEmpowered cached too (cooldown watcher
+    -- re-setups from these).
     self._kickProtected = kickProtected
     self._kickIsChannel = isChannel
     self._kickIsEmpowered = isEmpowered
@@ -8582,12 +7104,11 @@ function NameplateFrame:UpdateKickTick(kickProtected, isChannel, isEmpowered)
         self.kickPositioner:SetMinMaxValues(0, totalDur)
         self.kickMarker:SetMinMaxValues(0, totalDur)
         self.kickMarker:SetSize(barW, castH)
-        -- Initial PAIRED snapshot: the tick's cast-bar position is
-        -- positioner(elapsed) + marker(kick CD remaining), which equals
-        -- the fixed "kick ready here" point only when both values are
-        -- sampled at the same instant. RefreshKickTick re-pins the pair
-        -- on every cooldown event. NEVER update one without the other:
-        -- a marker-only refresh makes the tick drift left with the cast.
+        -- Initial PAIRED snapshot: the tick's position is positioner(elapsed) +
+        -- marker(kick CD remaining), which equals the fixed "kick ready here" point only when
+        -- both are sampled at the same instant. RefreshKickTick re-pins the pair on every
+        -- cooldown event. NEVER update one without the other -- a marker-only refresh drifts
+        -- the tick left.
         self.kickPositioner:SetValue(castDuration:GetElapsedDuration())
         self.kickMarker:SetValue(interruptCD:GetRemainingDuration())
         -- Apply color
@@ -8598,11 +7119,10 @@ function NameplateFrame:UpdateKickTick(kickProtected, isChannel, isEmpowered)
         if isChannel and not isEmpowered then
             self.kickPositioner:SetFillStyle(Enum.StatusBarFillStyle.Reverse)
             self.kickMarker:SetFillStyle(Enum.StatusBarFillStyle.Reverse)
-            -- LOAD-BEARING: SetFillStyle puts the inner fill back in the default
-            -- snap-ON state and the global SetStatusBarTexture unsnap hook will
-            -- NOT re-fire (it caches per StatusBar frame). Re-disable snap on the
-            -- current fill texture so positioner(elapsed) + marker(CD remaining)
-            -- stays an exact float and the tick does not dance on each re-pin.
+            -- LOAD-BEARING: SetFillStyle resets the inner fill to snap-ON and the global
+            -- SetStatusBarTexture unsnap hook will NOT re-fire (caches per StatusBar frame).
+            -- Re-disable snap so positioner(elapsed) + marker(CD remaining) stays an exact
+            -- float and the tick holds still.
             local pt = self.kickPositioner:GetStatusBarTexture()
             if pt and pt.SetSnapToPixelGrid then pt:SetSnapToPixelGrid(false); pt:SetTexelSnappingBias(0) end
             local mt = self.kickMarker:GetStatusBarTexture()
@@ -8625,9 +7145,8 @@ function NameplateFrame:UpdateKickTick(kickProtected, isChannel, isEmpowered)
         else
             self.kickPositioner:SetFillStyle(Enum.StatusBarFillStyle.Standard)
             self.kickMarker:SetFillStyle(Enum.StatusBarFillStyle.Standard)
-            -- LOAD-BEARING: re-disable snap on the re-minted fill textures (see
-            -- the reverse branch) so the summed elapsed+remaining edge is exact
-            -- and the tick is stationary across every re-pin.
+            -- LOAD-BEARING: re-disable snap on the re-minted fill textures (see the reverse
+            -- branch) so the summed elapsed+remaining edge is exact and the tick stays still.
             local pt = self.kickPositioner:GetStatusBarTexture()
             if pt and pt.SetSnapToPixelGrid then pt:SetSnapToPixelGrid(false); pt:SetTexelSnappingBias(0) end
             local mt = self.kickMarker:GetStatusBarTexture()
@@ -8638,10 +7157,9 @@ function NameplateFrame:UpdateKickTick(kickProtected, isChannel, isEmpowered)
             self.kickTick:SetPoint("TOP", self.kickMarker, "TOP", 0, 0)
             self.kickTick:SetPoint("BOTTOM", self.kickMarker, "BOTTOM", 0, 0)
             self.kickTick:SetPoint("LEFT", self.kickMarker:GetStatusBarTexture(), "RIGHT")
-            -- Standard fill (cast / empowered channel): the kick-ready point is
-            -- the marker texture RIGHT edge; the "kick available" window runs
-            -- from it to the cast end (bar right). Not-in-time pushes the marker
-            -- edge past the right edge, crossing the anchors to zero width.
+            -- Standard fill (cast/empowered channel): the kick-ready point is the marker
+            -- texture RIGHT edge; the "kick available" window runs from it to cast end (bar
+            -- right). Not-in-time pushes the marker edge past the right edge, zeroing width.
             self.kickReadyFill:ClearAllPoints()
             self.kickReadyFill:SetPoint("TOP", self.cast, "TOP", 0, 0)
             self.kickReadyFill:SetPoint("BOTTOM", self.cast, "BOTTOM", 0, 0)
@@ -8650,11 +7168,9 @@ function NameplateFrame:UpdateKickTick(kickProtected, isChannel, isEmpowered)
         end
         self.kickPositioner:Show()
         self.kickMarker:Show()
-        -- Mid-cast fill: CLEAN DB color tint + CLEAN per-toggle visibility.
-        -- Its alpha (the SECRET on-CD x interruptible gate) is applied with the
-        -- tick alpha below. Geometry above runs whenever the tick OR the fill is
-        -- enabled; SetShown gates each element to its own toggle so one feature
-        -- never forces the other to appear.
+        -- Mid-cast fill: CLEAN DB color tint + CLEAN per-toggle visibility. Its alpha (the
+        -- SECRET on-CD x interruptible gate) is applied with the tick alpha below. Geometry
+        -- above runs when the tick OR the fill is enabled; SetShown gates each independently.
         local mc = (p and p.interruptMidCastColor) or defaults.interruptMidCastColor
         self.kickReadyFill:SetVertexColor(mc.r, mc.g, mc.b, 1)
         self.kickTick:SetShown(tickOn)
@@ -8671,13 +7187,11 @@ function NameplateFrame:UpdateKickTick(kickProtected, isChannel, isEmpowered)
             self.kickTick:SetAlpha(0)
             self.kickReadyFill:SetAlpha(0)
         end
-        -- Ticker: tick ALPHA only at 10fps (kick-ready x interruptibility
-        -- secret combine). Bar values are re-pinned as a PAIR by
-        -- RefreshKickTick on SPELL_UPDATE_COOLDOWN/USABLE events, not here.
+        -- Ticker: tick ALPHA only at 10fps (kick-ready x interruptibility secret combine). Bar
+        -- values are re-pinned as a PAIR by RefreshKickTick on cooldown events, not here.
         if self._kickTicker then self._kickTicker:Cancel() end
-        -- Self-identifying ticker: a superseded ticker cancels ITSELF
-        -- instead of calling HideKickTick (which would cancel its
-        -- successor). The watcher no longer recreates this per event.
+        -- Self-identifying ticker: a superseded ticker cancels ITSELF rather than
+        -- calling HideKickTick, which would cancel its successor.
         local myTicker
         myTicker = C_Timer.NewTicker(0.1, function()
             if self._kickTicker ~= myTicker then
@@ -8688,16 +7202,14 @@ function NameplateFrame:UpdateKickTick(kickProtected, isChannel, isEmpowered)
                 self:HideKickTick()
                 return
             end
-            -- activeKickSpell can go nil mid-cast if a spec/talent change
-            -- fires SPELLS_CHANGED and the new spec doesn't have a kick
-            -- learned. Bail rather than pass nil to C_Spell.
+            -- activeKickSpell can go nil mid-cast if a spec/talent change fires SPELLS_CHANGED
+            -- and the new spec has no kick learned. Bail rather than pass nil to C_Spell.
             if not GetActiveKickSpell() then
                 self:HideKickTick()
                 return
             end
             -- Compute tick visibility: show only when kick is on CD AND cast is interruptible.
-            -- Both are secret booleans chain EvaluateColorValueFromBoolean calls
-            -- to combine conditions into a single secret alpha.
+            -- Both are secret booleans, chain EvaluateColorValueFromBoolean calls to combine.
             local icd = C_Spell.GetSpellCooldownDuration(GetActiveKickSpell())
             if icd and icd.IsZero and C_CurveUtil and C_CurveUtil.EvaluateColorValueFromBoolean then
                 local interruptible = C_CurveUtil.EvaluateColorValueFromBoolean(self._kickProtected, 0, 1)
@@ -8713,15 +7225,11 @@ function NameplateFrame:UpdateKickTick(kickProtected, isChannel, isEmpowered)
         self:HideKickTick()
     end
 end
--- Light per-cooldown-event refresh: bar values + tick alpha only. The
--- geometry (sizes, anchors, fill styles, colors) is cast-identity work
--- done once by UpdateKickTick.
--- CRITICAL: the tick's cast-bar position is positioner(elapsed) +
--- marker(remaining); that sum is only the true "kick ready here" point
--- when BOTH snapshots are taken at the same instant. Re-pinning the
--- marker alone makes the tick drift left by the cast time elapsed since
--- setup (reference implementations either snapshot both once or, like
--- the pre-diet watcher here, always re-pin both together).
+-- Light per-cooldown-event refresh: bar values + tick alpha only; geometry (sizes, anchors,
+-- fill styles, colors) is cast-identity work done once by UpdateKickTick. CRITICAL: the tick
+-- position is positioner(elapsed) + marker(remaining), the true "kick ready here" point only
+-- when BOTH snapshots are taken at the same instant -- re-pinning the marker alone drifts the
+-- tick left. Always re-pin both together.
 function NameplateFrame:RefreshKickTick()
     if not GetActiveKickSpell() or not (C_Spell and C_Spell.GetSpellCooldownDuration) then
         self:HideKickTick()
@@ -8729,11 +7237,9 @@ function NameplateFrame:RefreshKickTick()
     end
     local icd = C_Spell.GetSpellCooldownDuration(GetActiveKickSpell())
     if not icd then
-        -- Transient read miss during an ongoing cast: skip this refresh and
-        -- keep the current tick/fill rather than hiding. Hiding here (and
-        -- re-showing on the next SPELL_UPDATE_COOLDOWN) is what made the tick
-        -- and the kick-ready bar blink during the player's rotation. Genuine
-        -- cast-end is handled by the cast-stop/interrupt paths, not here.
+        -- Transient read miss during an ongoing cast: skip this refresh and keep the current
+        -- tick/fill. Hiding here would make the tick and kick-ready bar blink through the
+        -- rotation. Genuine cast-end is handled by cast-stop/interrupt paths.
         return
     end
     if UnitCastingDuration and self.unit then
@@ -8802,15 +7308,11 @@ function NameplateFrame:ShowInterrupted(interrupterGUID)
         interrupterClass = class
         interrupterName = name
         if type(interrupterName) == "nil" then
-            -- Fallback for a NON-player interrupter GUID (a pet or an NPC):
-            -- GetPlayerInfoByGUID only resolves players, so it returns nothing
-            -- above and the name is pulled from the GUID's live unit token
-            -- instead. Non-players have no class, so interrupterClass stays nil
-            -- and the class-color path below is simply skipped for them.
-            -- A SECRET GUID resolves to a SECRET token and a SECRET name; both
-            -- pass straight through to SetFormattedText as a display arg, so
-            -- the name still shows in instanced content. type() is the only
-            -- presence check either value may take.
+            -- Fallback for a NON-player interrupter GUID (pet or NPC): GetPlayerInfoByGUID
+            -- only resolves players, so pull the name from the GUID's live unit token instead.
+            -- Non-players have no class, so interrupterClass stays nil and the class-color path
+            -- is skipped. A SECRET GUID resolves to a SECRET token/name; both pass straight to
+            -- SetFormattedText as display args, so the name still shows. type() is the only legal check.
             local token = UnitTokenFromGUID(interrupterGUID)
             if type(token) ~= "nil" then
                 interrupterName = UnitName(token)
@@ -8886,22 +7388,17 @@ function NameplateFrame:ShowCastLockout()
         expires = now + ns.DEFAULT_CAST_LOCKOUT_DURATION,
     }
     self._castLockout = lockout
-    self:UpdateAuras()
     if ns.NPC_UpdateLockout then ns.NPC_UpdateLockout(self) end
     C_Timer.After(ns.DEFAULT_CAST_LOCKOUT_DURATION, function()
         if self._castLockout ~= lockout or GetTime() < lockout.expires then return end
         self._castLockout = nil
-        self:UpdateAuras()
         if ns.NPC_UpdateLockout then ns.NPC_UpdateLockout(self) end
     end)
 end
 function NameplateFrame:UNIT_HEALTH()
-    -- If the mob dies while the "Interrupted" flash is held up, Blizzard's
-    -- nameplate death animation scales the still-shown cast bar and it looks
-    -- squished/warped. Tear the flash down the instant death is detected.
-    -- Gated on _interrupted first, so UnitIsDeadOrGhost is only ever called
-    -- during the brief flash window -- ~free on normal health ticks. (Same
-    -- safe death check already used by the health-text path.)
+    -- If the mob dies while the "Interrupted" flash is held up, Blizzard's death animation
+    -- scales the still-shown cast bar and it looks warped, so tear the flash down on death.
+    -- Gated on _interrupted first, so UnitIsDeadOrGhost only runs during the flash window.
     if self._interrupted and self.unit and UnitIsDeadOrGhost(self.unit) then
         self._interrupted = nil
         if self._interruptTimer then
@@ -8915,150 +7412,6 @@ function NameplateFrame:UNIT_HEALTH()
 end
 function NameplateFrame:UNIT_ABSORB_AMOUNT_CHANGED()
     self:UpdateHealthValues()
-end
-function NameplateFrame:UNIT_AURA(_, updateInfo)
-    -- PERF: If we have the RefreshAuras hook installed (enemy plates), defer
-    -- full rebuilds to the hook which fires AFTER Blizzard updates debuffList.
-    -- The incremental fast path (updates to existing auras) runs here since
-    -- it doesn't depend on debuffList.
-    if self._hasRefreshAurasHook and updateInfo and not updateInfo.isFullUpdate and self._shownAuras then
-        -- Try incremental fast path only (no full rebuilds from UNIT_AURA)
-        local hasAdds, hasRemoves, hasUpdates = ns._npClassifyAuraUpdate(updateInfo)
-        if hasUpdates and not hasAdds and not hasRemoves then
-            local allKnown = true
-            for _, id in ipairs(updateInfo.updatedAuraInstanceIDs) do
-                if not self._shownAuras[id] then allKnown = false; break end
-            end
-            if allKnown then
-                -- Duration/stack refresh only
-                local unit = self.unit
-                for _, id in ipairs(updateInfo.updatedAuraInstanceIDs) do
-                    local slot = self._shownAuras[id]
-                    if slot then
-                        if slot.cd and C_UnitAuras_GetAuraDuration then
-                            local durObj = C_UnitAuras_GetAuraDuration(unit, id)
-                            if durObj and slot.cd.SetCooldownFromDurationObject then
-                                NP_ArmAuraCooldown(slot.cd, durObj)
-                            end
-                            slot._durationObj = durObj
-                        end
-                        if slot.count and C_UnitAuras_GetAuraAppDisplayCount then
-                            slot.count:SetText(C_UnitAuras_GetAuraAppDisplayCount(unit, id, 2, 1000) or "")
-                        end
-                    end
-                end
-                return
-            end
-        end
-        -- Adds/removes: defer to RefreshAuras hook where debuffList is
-        -- guaranteed current. Reading debuffList here races with Blizzard's
-        -- processing and causes auras to not display on other plates.
-        if self._pendingAuraUpdate and self._pendingAuraUpdate ~= updateInfo then
-            -- Overwriting an unconsumed stash: the eventual rebuild must
-            -- cover BOTH events' changes (per-group dispatch would
-            -- otherwise lose the first event's groups entirely).
-            self._pendingCoalesced = true
-        end
-        self._pendingAuraUpdate = updateInfo
-        -- Identity-paired classification stash: UpdateAuras reuses these
-        -- flags ONLY when its updateInfo is this exact event table
-        -- (reference equality), so a stale meta can never misclassify a
-        -- different payload. The meta table is per-plate and reused.
-        local meta = self._pendingMeta
-        if not meta then meta = {}; self._pendingMeta = meta end
-        meta.updateInfo = updateInfo
-        meta.hasAdds, meta.hasRemoves, meta.hasUpdates = hasAdds, hasRemoves, hasUpdates
-        self._auraAwaitingUnitAura = nil
-        -- Fallback: if RefreshAuras doesn't fire (e.g. Blizzard's UnitFrame
-        -- suppressed), process next frame.
-        self:QueueAuraFallback()
-        return
-    end
-    self:UpdateAuras(updateInfo)
-end
--- Shared aura-update classification: the three updateInfo-pure flags.
--- allKnown is deliberately NOT computed here -- it depends on _shownAuras,
--- which can be rebuilt between a stash and its consumption, so consumers
--- must recompute it against the CURRENT _shownAuras.
-function ns._npClassifyAuraUpdate(updateInfo)
-    local hasAdds = false
-    if updateInfo.addedAuras then
-        for _, aura in ipairs(updateInfo.addedAuras) do
-            if aura.isFromPlayerOrPlayerPet or aura.isHelpful or (aura.dispelName and aura.isHarmful) then
-                hasAdds = true; break
-            end
-        end
-    end
-    local hasRemoves = updateInfo.removedAuraInstanceIDs and #updateInfo.removedAuraInstanceIDs > 0
-    local hasUpdates = updateInfo.updatedAuraInstanceIDs and #updateInfo.updatedAuraInstanceIDs > 0
-    return hasAdds, hasRemoves, hasUpdates
-end
-
--- Shared next-frame aura processing queue. Used by the UNIT_AURA stash
--- path, same-frame owed full rebuilds, and RefreshAuras re-filters. A
--- RefreshAuras event first waits for the paired UNIT_AURA payload; only
--- if no payload arrives does the drain do an authoritative full rebuild.
--- Zero-allocation dispatcher: one parentless frame + swap queues replace
--- a C_Timer.After timer object per deferred aura event. Parentless so
--- draining continues while UIParent is hidden (cinematics, alt-Z),
--- matching C_Timer semantics; hidden whenever idle.
-do
-    local queueA, queueB = {}, {}
-    local active = queueA
-    local dispatcher = CreateFrame("Frame")
-    dispatcher:Hide()
-
-    local function DrainPlate(plate)
-        plate._auraFallbackPending = nil
-        if plate._auraOwedFull or plate._auraAwaitingUnitAura then
-            plate._auraOwedFull = nil
-            plate._auraAwaitingUnitAura = nil
-            plate._pendingAuraUpdate = nil
-            if plate._pendingMeta then plate._pendingMeta.updateInfo = nil end
-            if plate.unit then plate:UpdateAuras(nil) end
-            return
-        end
-        local pending = plate._pendingAuraUpdate
-        if pending then
-            plate._pendingAuraUpdate = nil
-            if plate.unit then
-                plate:UpdateAuras(pending)
-            elseif plate._pendingMeta then
-                plate._pendingMeta.updateInfo = nil
-            end
-        end
-    end
-
-    dispatcher:SetScript("OnUpdate", function(self)
-        -- Swap first: enqueues from inside a drain (e.g. the same-frame
-        -- coalescing guard re-owing a rebuild) land in the other table
-        -- and run next frame -- no pairs-mutation, no lost enqueues.
-        local drained = active
-        active = (drained == queueA) and queueB or queueA
-        for plate in pairs(drained) do
-            drained[plate] = nil
-            DrainPlate(plate)
-        end
-        wipe(drained)
-        if not next(active) then self:Hide() end
-    end)
-
-    function ns._npEnqueueAuraWork(plate)
-        active[plate] = true
-        dispatcher:Show()
-    end
-
-    -- Plate recycle hygiene: a released plate must not be drained
-    function ns._npDequeueAuraWork(plate)
-        queueA[plate] = nil
-        queueB[plate] = nil
-    end
-end
-
-function NameplateFrame:QueueAuraFallback()
-    if self._auraFallbackPending then return end
-    self._auraFallbackPending = true
-    ns._npEnqueueAuraWork(self)
 end
 function NameplateFrame:UNIT_NAME_UPDATE()
     self:UpdateName()
@@ -9088,9 +7441,8 @@ function NameplateFrame:UNIT_SPELLCAST_STOP()
     self:UpdateCast()
 end
 function NameplateFrame:UNIT_SPELLCAST_CHANNEL_STOP()
-    -- Directly hide instead of UpdateCast: in restricted execution,
-    -- UnitCastingInfo can return secret values (not nil) for a stale
-    -- channel, making UpdateCast think a cast is still active.
+    -- Directly hide instead of UpdateCast: in restricted execution, UnitCastingInfo can
+    -- return secret values (not nil) for a stale channel, making UpdateCast think it's active.
     if self.isCasting then
         if self._castFallback then
             self._castFallback = nil
@@ -9124,10 +7476,9 @@ function NameplateFrame:UNIT_SPELLCAST_INTERRUPTED(_, _, _, interrupterGUID)
     end
     self:ShowInterrupted(interrupterGUID)
 end
--- Mid-cast interruptibility flips: re-read protection once, store it,
--- refresh color + kick tick + overlay. The cooldown watcher no longer
--- re-reads cast info per event, so these events are the only mid-cast
--- source of protection changes.
+-- Mid-cast interruptibility flips: re-read protection once, store it, refresh
+-- color + kick tick + overlay. The cooldown watcher never re-reads cast info per
+-- event, so these events are the only mid-cast source of protection changes.
 function NameplateFrame:KickProtectionChanged()
     if not self.unit then return end
     local kickProtected
@@ -9166,22 +7517,17 @@ function NameplateFrame:UNIT_SPELLCAST_EMPOWER_STOP()
 end
 
 -------------------------------------------------------------------------------
---  Centralized cast event dispatcher: registers all 13 SPELLCAST events ONCE
---  globally instead of 13 RegisterUnitEvent calls per plate. On each event,
---  looks up ns.plates[unit] (O(1) hash) and dispatches to the plate's handler.
---  Cast-identity caching: the full UpdateCast path caches _kickProtected /
---  _kickIsChannel / _kickIsEmpowered on the plate, so the SPELL_UPDATE_
---  COOLDOWN/USABLE watcher never re-reads cast info per event (it re-pins
---  the kick-tick value pair from the cache via RefreshKickTick). Cache
---  maintenance is event-driven:
---    * INTERRUPTIBLE/NOT_INTERRUPTIBLE -> KickProtectionChanged re-reads
---      protection once, stores it, refreshes color + tick + overlay
---    * DELAYED/CHANNEL_UPDATE/EMPOWER_UPDATE -> _kickGeoDirty makes the
---      next UpdateCast re-derive kick geometry from the cached identity
---    * START/CHANNEL_START/EMPOWER_START -> _castDirtyFull = full setup,
---      which refreshes every cached field
---    * ClearUnit and mid-cast plate token swaps (UpdateHealthValues)
---      tear down and invalidate all cast caches
+--  Centralized cast event dispatcher: registers all 13 SPELLCAST events ONCE globally instead
+--  of 13 RegisterUnitEvent calls per plate, then looks up ns.plates[unit] (O(1) hash) and
+--  dispatches to the plate's handler.
+--  Cast-identity caching: the full UpdateCast path caches _kickProtected/_kickIsChannel/
+--  _kickIsEmpowered on the plate, so the SPELL_UPDATE_COOLDOWN/USABLE watcher never re-reads
+--  cast info per event (it re-pins the kick-tick value pair via RefreshKickTick). Cache
+--  maintenance: INTERRUPTIBLE/NOT_INTERRUPTIBLE -> KickProtectionChanged re-reads and stores
+--  protection, refreshes color+tick+overlay; DELAYED/CHANNEL_UPDATE/EMPOWER_UPDATE ->
+--  _kickGeoDirty (next UpdateCast re-derives geometry from cached identity);
+--  START/CHANNEL_START/EMPOWER_START -> _castDirtyFull = full setup; ClearUnit and mid-cast
+--  token swaps (UpdateHealthValues) tear down and invalidate all cast caches.
 -------------------------------------------------------------------------------
 do
     local castDispatcher = CreateFrame("Frame")
@@ -9223,8 +7569,8 @@ local pendingUnits = {}
 ns.pendingUnits = pendingUnits
 -- Mouseover-highlight state lives on ns (unified enemy+friendly monitor below).
 
--- Per-unit event watchers for pending friendly units.
--- Using per-unit frames avoids the global UNIT_FLAGS firehose.
+-- Per-unit event watchers for pending friendly units: per-unit frames avoid the
+-- global UNIT_FLAGS firehose.
 local pendingWatchers = {}
 -- Forward declarations so the two watcher creators can reference each other
 local CreatePendingWatcher, CreateEnemyWatcher
@@ -9297,9 +7643,8 @@ CreateEnemyWatcher = function(unit)
     return watcher
 end
 
--- Single shared UNIT_FACTION handler avoids N watchers each registering
--- the global event.  Dispatches to the correct watcher's OnEvent handler.
--- Only active in the open world (duels can't happen in instanced content).
+-- Single shared UNIT_FACTION handler avoids N watchers each registering the global event;
+-- dispatches to the correct watcher's OnEvent handler. Only active in the open world.
 local factionFrame = CreateFrame("Frame")
 local factionFrameActive = false
 
@@ -9361,11 +7706,10 @@ factionFrame:SetScript("OnEvent", function(_, event, unit)
         w:GetScript("OnEvent")(w, "UNIT_FACTION", unit)
     end
 end)
--- Unified mouseover monitor (enemy + friendly). UPDATE_MOUSEOVER_UNIT fires when
--- a mouseover STARTS but never when it clears, so a single shared 0.1s ticker
--- (alive only while a mouseover exists) watches for the mouse leaving. A held
--- mouse button transiently drops the mouseover unit, so in that case we wait for
--- GLOBAL_MOUSE_UP (handled on `manager`) and re-check.
+-- Unified mouseover monitor (enemy + friendly). UPDATE_MOUSEOVER_UNIT fires when a mouseover
+-- STARTS but never when it clears, so a single shared 0.1s ticker (alive only while a mouseover
+-- exists) watches for the mouse leaving. A held mouse button transiently drops the mouseover
+-- unit, so in that case we wait for GLOBAL_MOUSE_UP (handled on `manager`) and re-check.
 function ns._EnsureMouseoverTicker()
     if ns._mouseoverTicker then return end
     ns._mouseoverTicker = C_Timer.NewTicker(0.1, function()
@@ -9408,16 +7752,12 @@ function ns._UpdateMouseover()
     end
     ns._EnsureMouseoverTicker()
 end
--- Baseline lift for friendly plates, applied to BOTH distance settings:
--- Name Distance (name-only) and the Distance slider in the friendly plate
--- cog (full plate). Name-only needs it because the friendly module collapses
--- Blizzard's two-point name anchor onto the UnitFrame's centre (so long
--- names stop truncating and the guild line has room), landing the name this
--- far below where Blizzard's own anchor put it; the full plate carries the
--- same lift so the two modes sit at the same height and switching between
--- them does not jump. Both settings keep their stored values and their
--- meaning of "relative to where the plate normally sits".
--- On ns, not a new file local: this file is at the Lua 5.1 200-local cap.
+-- Baseline lift for friendly plates, applied to BOTH distance settings: Name Distance
+-- (name-only) and the friendly plate cog's Distance slider (full plate). Name-only needs it
+-- because the friendly module collapses Blizzard's two-point name anchor onto the UnitFrame
+-- centre (so long names stop truncating and the guild line has room), landing the name this
+-- far below Blizzard's own anchor; the full plate carries the same lift so switching modes
+-- does not jump. On ns (local cap).
 ns.FRIENDLY_Y_BASE = 26
 
 -- Refresh Y-offset on all visible friendly name-only plates
@@ -9453,9 +7793,9 @@ manager:SetScript("OnEvent", function(self, event, unit)
             if ns.TryColorFriendlyNPCName then ns.TryColorFriendlyNPCName(unit, nameplate) end
             -- Hide NPC health bars in name-only mode (show name only)
             if ns.TrySuppressNPCHealthBar then ns.TrySuppressNPCHealthBar(unit, nameplate) end
-            -- Ensure the Blizzard UF is visible for name-only friendly plates.
-            -- Nameplate frames are recycled a UF previously used for an enemy
-            -- may still have alpha 0 or children parented offscreen.
+            -- Ensure the Blizzard UF is visible for name-only friendly plates. Nameplate
+            -- frames are recycled; a UF previously used for an enemy may still have alpha 0
+            -- or children parented offscreen.
             local db = p or defaults
             if db.friendlyNameOnly ~= false then
                 local uf = nameplate.UnitFrame
@@ -9500,9 +7840,8 @@ manager:SetScript("OnEvent", function(self, event, unit)
         end
         ns.plates[unit] = plate
         plate:SetUnit(unit, nameplate)
-        -- If this plate is the current target, update the cached ref so
-        -- class power pips track it immediately (no PLAYER_TARGET_CHANGED
-        -- fires when a nameplate is recycled for the same target unit).
+        -- If this plate is the current target, update the cached ref so class power pips
+        -- track it immediately: no PLAYER_TARGET_CHANGED fires on recycle for the same target.
         if UnitIsUnit(unit, "target") then
             ns._cachedTargetPlate = plate
         end
@@ -9573,9 +7912,8 @@ manager:SetScript("OnEvent", function(self, event, unit)
             ns._cachedTargetPlate:ApplyTarget()
             ns._cachedTargetPlate:UpdateHealthColor()
         end
-        -- Non-Target Opacity: gaining/losing a target flips every plate's
-        -- fade state, so this is the one full-iteration site. Zero cost
-        -- while off (single compare); value-guarded SetAlpha when on.
+        -- Non-Target Opacity: gaining/losing a target flips every plate's fade state, so this
+        -- is the one full-iteration site. Zero cost while off (single compare).
         if ns._ntAlpha < 1 then ns.NT_ApplyAll() end
     elseif event == "PLAYER_FOCUS_CHANGED" then
         -- PERF: only update old + new focus plates instead of iterating all
@@ -9624,11 +7962,9 @@ manager:SetScript("OnEvent", function(self, event, unit)
         for _, plate in pairs(ns.plates) do
             plate:UpdateRaidIcon()
             if p and p.nameRaidMarkerEnabled == true then plate:RefreshNamePosition(true) end
-            -- A marker appearing or clearing in a side slot changes the side
-            -- extents the target arrows sit outside of; re-run arrow
-            -- positioning (no-op on plates not showing arrows). On 12.1 the
-            -- container reanchor then re-points container-bearing sides,
-            -- same order as the target-swap path.
+            -- A marker appearing/clearing in a side slot changes the side extents the target
+            -- arrows sit outside of, so re-run arrow positioning (no-op without arrows), then
+            -- reanchor the container-bearing sides -- same order as the target-swap path.
             ns.PositionArrowsOutsideAuras(plate)
             if ns.NPC_ReanchorArrows then ns.NPC_ReanchorArrows(plate) end
         end
@@ -9645,11 +7981,9 @@ end)
 
 -------------------------------------------------------------------------------
 --  SPEC PRESET LOGIN HANDLER
---  Applies the correct spec-assigned preset on login and on spec change,
---  even before the options UI is ever opened.  Once the UI opens and
---  RegisterSpecAutoSwitch is called, the framework handler takes over for
---  PLAYER_SPECIALIZATION_CHANGED; this early handler ensures the first
---  login is covered.
+--  Applies the spec-assigned preset on login and spec change, even before the
+--  options UI is ever opened. Once the UI opens and RegisterSpecAutoSwitch runs,
+--  the framework handler takes over PLAYER_SPECIALIZATION_CHANGED.
 -------------------------------------------------------------------------------
 do
     local function ApplySpecPresetFromDB()
@@ -9739,9 +8073,8 @@ do
         p[K_SNAP] = nil
     end
 
-    -- Store preset keys so the login handler can use them (set once, never changes).
-    -- Split into two tables and concatenated to stay under Lua 5.1's
-    -- per-function constant limit.
+    -- Preset keys for the login handler (set once, never changes). Split into two
+    -- tables and concatenated to stay under Lua 5.1's per-function constant limit.
     ns._displayPresetKeys = {
         "showBorder", "borderSize", "borderColor", "castBorderSize", "castBorderColor", "targetGlowStyle", "showTargetArrows",
         "showClassPower", "classPowerPos", "classPowerYOffset", "classPowerXOffset", "classPowerScale",
@@ -9758,9 +8091,8 @@ do
     specLoginFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
     specLoginFrame:SetScript("OnEvent", function(_, event, unit)
         if unit ~= "player" then return end
-        -- Re-read profile reference: spec swap may have changed the
-        -- active profile. Without this, all color lookups via _C()
-        -- read stale data from the old spec's profile.
+        -- Re-read the profile reference: a spec swap may have changed the active
+        -- profile, and _C() color lookups would read the old spec's stale data.
         p = ENP.db.profile
         RefreshThreatCache()
         -- If the framework handler is registered, let it handle this
@@ -9782,9 +8114,8 @@ function npAddon:OnInitialize()
     ENP.db = EllesmereUI.Lite.NewDB("EllesmereUINameplatesDB", { profile = defaults })
     p = ENP.db.profile
     ns.db = ENP.db
-    -- Non-Target Opacity: derive the cached value at login (no plates exist
-    -- yet, so the apply loop is a no-op; SetUnit fades new plates as they
-    -- spawn).
+    -- Non-Target Opacity: derive the cached value at login (no plates exist yet,
+    -- so the apply loop no-ops; SetUnit fades new plates as they spawn).
     if ns.NT_RefreshSetting then ns.NT_RefreshSetting() end
     -- Append SharedMedia textures to runtime tables so SM texture keys resolve at runtime
     if EllesmereUI.AppendSharedMediaTextures then
@@ -9797,8 +8128,7 @@ function npAddon:OnInitialize()
     end
 end
 function npAddon:OnEnable()
-    -- Re-read profile: PreSeedSpecProfile may have re-pointed db.profile
-    -- to a different table between OnInitialize and OnEnable.
+    -- Re-read profile: PreSeedSpecProfile may have re-pointed db.profile between OnInitialize and OnEnable.
     p = ENP.db.profile
     RawSetTex = (PP and PP.RawSetTexture) or function(t, v) t:SetTexture(v) end
     SetupAuraCVars()
@@ -9809,22 +8139,16 @@ function npAddon:OnEnable()
 end
 
 -------------------------------------------------------------------------------
---  Distance to Target Text (EXTRAS): shows a range BUCKET on the current
---  target's nameplate -- "15+" means the target is beyond the 15yd rung and
---  inside the next longer one. Exact enemy distance is not exposed by the
---  API; the lower bound comes from the shared range engine's spell ladder
---  (EllesmereUI_Range.lua), activated only while this feature is enabled.
---  Anchoring: 5px left of whatever text occupies
---  the Right Text core slot, else just outside the health bar's right edge.
---  Zero cost while disabled (nothing is created until first enabled); while
---  enabled a single OnUpdate driver ticks 5x/s and hides when toggled off.
---  Range results are skipped when secret (combat contexts) -- fail-open to
---  no text, never an error.
+--  Distance to Target Text (EXTRAS): a range BUCKET on the target's nameplate -- "15+" =
+--  beyond the 15yd rung, inside the next longer one. The API exposes no exact enemy distance;
+--  the lower bound comes from the shared range engine's spell ladder (EllesmereUI_Range.lua),
+--  active only while this is enabled. Anchoring: 5px left of whatever text occupies the Right
+--  Text core slot, else just outside the health bar's right edge. Zero cost while disabled
+--  (nothing created until first enabled); enabled, one OnUpdate driver ticks 5x/s. Secret range
+--  results are skipped -- fail-open to no text, never an error.
 -------------------------------------------------------------------------------
 do
-    -- Single-table state: this file sits at Lua 5.1's 200-local chunk cap,
-    -- so the whole feature uses ONE chunk local (RT) with everything else
-    -- as table fields.
+    -- Single-table state: this file sits at Lua 5.1's 200-local cap, so the whole feature uses ONE chunk local (RT), everything else as table fields.
     local RT = { acc = 0 }
 
     function RT.Anchor(plate)
@@ -9884,20 +8208,17 @@ do
             end
             RT.carrier:SetParent(plate)
             RT.carrier:SetPoint("CENTER", plate, "CENTER", 0, 0)
-            -- Well above the health bar / text frames: when the Right Text
-            -- slot is occupied the text sits ON the bar, and a low frame
-            -- level draws it underneath the bar fill.
+            -- Well above the health bar/text frames: with the Right Text slot occupied the
+            -- text sits ON the bar, and a low frame level would draw it underneath the fill.
             RT.carrier:SetFrameLevel(plate:GetFrameLevel() + 30)
             RT.plate = plate
             RT.Appearance()
             RT.Anchor(plate)
             RT.carrier:Show()
         end
-        -- "0+" (inside the shortest rung, i.e. basically melee) shows
-        -- nothing -- the indicator only matters when there is distance.
-        -- Queried as "target" rather than plate.unit: this is the target's
-        -- plate by definition, and the token lets the shared engine serve
-        -- the QoL distance text from the same cached walk.
+        -- "0+" (basically melee) shows nothing: the indicator only matters at distance. Queried
+        -- as "target" rather than plate.unit -- this is the target's plate by definition, and
+        -- the token lets the shared engine serve the QoL text from one cached walk.
         local lower = EllesmereUI.Range_LowerBound("target")
         if lower and lower > 0 then
             RT.fs:SetText(lower .. "+")

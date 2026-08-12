@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUIQoL_BattleRes.lua
 --  Runtime for the BattleRes icon. Polls GetSpellCharges(20484) and shows
@@ -53,13 +54,12 @@ local defaults = {
             outlineMode    = "__global",  -- __global | none (shadow) | outline | thick
             pos            = nil,  -- { centerX, centerY } stored after first move
         },
-        -- Bloodlust Tracker: additive sibling of battleRes. Stores ONLY its own
-        -- keys here (enable, visibility, position). Appearance keys are left out
-        -- on purpose so the runtime/options proxy-read through to the current
-        -- battleRes values until the user overrides a setting on the tracker
-        -- (the same "starts identical, can diverge" model used for raid/party
-        -- frames). This keeps existing battleRes settings completely untouched
-        -- for current users.
+        -- Bloodlust Tracker: additive sibling of battleRes. Stores ONLY its own keys
+        -- here (enable, visibility, position). Appearance keys are left out on purpose
+        -- so the runtime/options proxy-read through to the current battleRes values
+        -- until the user overrides a setting on the tracker (the same "starts
+        -- identical, can diverge" model used for raid/party frames). This keeps
+        -- existing battleRes settings completely untouched for current users.
         bloodlust = {
             enabled    = true,
             visibility = "NEVER",  -- MPLUS_AND_RAID | MPLUS | RAID | NEVER
@@ -383,11 +383,10 @@ local function ShouldShow()
     local v = p.visibility or "MPLUS_AND_RAID"
     if v == "NEVER" then return false end
 
-    -- Hard gate: must be in a party or raid instance. Prevents any
-    -- stuck state from showing the icon in town/open world.
-    -- Unlock mode relies on the overlay mover for positioning feedback,
-    -- so we never force-show the real icon here -- it would persist past
-    -- an "exit without saving" since DoClose doesn't re-run visibility.
+    -- Hard gate: must be in a party or raid instance. Prevents any stuck state from
+    -- showing the icon in town/open world. Unlock mode relies on the overlay mover for
+    -- positioning feedback, so we never force-show the real icon here -- it would
+    -- persist past an "exit without saving" since DoClose doesn't re-run visibility.
     local _, instanceType = GetInstanceInfo()
     if instanceType ~= "party" and instanceType ~= "raid" then return false end
 

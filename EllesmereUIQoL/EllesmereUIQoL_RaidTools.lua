@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUIQoL_RaidTools.lua -- Raid control panels (QoL: Raid Tools page)
 --
@@ -235,12 +236,11 @@ local Apply                    -- forward: the event handler closes over it
 
 -- ONE representation of each secure decision, run from both paths.
 --
--- The keybind clicks the button, which is the only thing that works during
--- combat. Out of combat the same snippet is run through SecureHandlerExecute
--- instead of being re-implemented in Lua. EllesmereUIRaidFrames.lua does
--- exactly this, for exactly this reason: the driver manager only fires the
--- attribute handlers on value CHANGES, so a reapply with unchanged states
--- would otherwise never run.
+-- The keybind clicks the button, which is the only thing that works during combat. Out
+-- of combat the same snippet is run through SecureHandlerExecute instead of being
+-- re-implemented in Lua. EllesmereUIRaidFrames.lua does exactly this, for exactly this
+-- reason: the driver manager only fires the attribute handlers on value CHANGES, so a
+-- reapply with unchanged states would otherwise never run.
 local RUN_APPLY = [[ self:RunAttribute("apply") ]]
 
 -- The keybind's job depends on Default to Collapsed When Shown:
@@ -348,12 +348,11 @@ local COLLAPSE_SNIPPET = [[
     end
 ]]
 
--- Every fontstring is registered on the OUR-frame that owns it (`_fonts`),
--- and ApplyFonts walks the small fixed owner list -- no module-level registry
--- to keep in sync with frame lifetime. MakeFont (like every options-panel
--- helper) hardcodes the options-panel font; on-screen text has to resolve
--- through GetFontPath instead, or these panels would be the only ones in the
--- suite ignoring the Global Font setting.
+-- Every fontstring is registered on the OUR-frame that owns it (`_fonts`), and
+-- ApplyFonts walks the small fixed owner list -- no module-level registry to keep in
+-- sync with frame lifetime. MakeFont (like every options-panel helper) hardcodes the
+-- options-panel font; on-screen text has to resolve through GetFontPath instead, or
+-- these panels would be the only ones in the suite ignoring the Global Font setting.
 local FONT_KEY = "extras"      -- QoL's key in EllesmereUI._addonKeyToFolder
 local fontOwners = {}          -- filled at build: shells + holders
 local function TrackFont(owner, fs, size)
@@ -385,12 +384,11 @@ local convertButton
 -- rest of the suite already uses for markers, in nameplates and raid frames.
 local MARKER_SHEET = "Interface\\TargetingFrame\\UI-RaidTargetingIcons"
 
--- The sheet's SYMBOL order (1 Star, 2 Circle, 3 Diamond, 4 Triangle, 5 Moon,
--- 6 Square, 7 Cross, 8 Skull) is NOT the WORLD marker ID order (1 Blue,
--- 2 Green, 3 Purple, 4 Red, 5 Yellow, 6 Orange, 7 Silver, 8 White). Each
--- flare carries its symbol, so the button shows the symbol and this maps it
--- to the flare that actually wears it -- without it, clicking Star (symbol 1)
--- dropped the BLUE flare (world ID 1).
+-- The sheet's SYMBOL order (1 Star, 2 Circle, 3 Diamond, 4 Triangle, 5 Moon, 6 Square,
+-- 7 Cross, 8 Skull) is NOT the WORLD marker ID order (1 Blue, 2 Green, 3 Purple, 4 Red,
+-- 5 Yellow, 6 Orange, 7 Silver, 8 White). Each flare carries its symbol, so the button
+-- shows the symbol and this maps it to the flare that actually wears it -- without it,
+-- clicking Star (symbol 1) dropped the BLUE flare (world ID 1).
 local SYMBOL_TO_WORLD = { 5, 6, 3, 2, 7, 1, 4, 8 }
 
 -- One slice of the shared EllesmereUIQoLDB profile, the same arrangement
@@ -415,10 +413,9 @@ local DB_DEFAULTS = {
         -- One scale for the whole feature: whichever windows the Show as
         -- choice puts on screen (and the collapsed icon) all wear it.
         scale         = 1,
-        -- Three slots is a LAYOUT choice (they fill one row beside Stop), not
-        -- a security constraint -- the pull buttons are plain, only the marker
-        -- buttons are secure. Growing the count later means growing the panel,
-        -- nothing more.
+        -- Three slots is a LAYOUT choice (they fill one row beside Stop), not a
+        -- security constraint -- the pull buttons are plain, only the marker buttons
+        -- are secure. Growing the count later means growing the panel, nothing more.
         pullTimes     = { PULL_DEFAULTS[1], PULL_DEFAULTS[2], PULL_DEFAULTS[3] },
         -- Per-section: pos[key] = { point, relPoint, x, y }
         pos           = {},
@@ -426,11 +423,10 @@ local DB_DEFAULTS = {
   },
 }
 
--- Our slice of the shared QoL profile, re-derived on every read -- the same
--- accessor BattleRes and MovementAlert use. Deliberately NOT cached: a profile
--- switch replaces the whole profile table, and a cached pointer would leave
--- the event handler, the slash command and the unlock callbacks writing into
--- an orphaned table.
+-- Our slice of the shared QoL profile, re-derived on every read -- the same accessor
+-- BattleRes and MovementAlert use. Deliberately NOT cached: a profile switch replaces
+-- the whole profile table, and a cached pointer would leave the event handler, the
+-- slash command and the unlock callbacks writing into an orphaned table.
 --
 -- A PURE READ, with no `or {}` seeding. Spec Overrides captures a page by
 -- swapping the profile tables for read-tracking proxies: reading a table value
@@ -571,10 +567,9 @@ end
 
 -- Ready check, role check, countdown and markers all require lead or assist.
 --
--- Solo counts as permitted. You are the only member, so nothing is being taken
--- from anyone, and the game already no-ops whatever does not apply outside a
--- group -- gating it ourselves would only make the panels dead on a target
--- dummy for no reason.
+-- Solo counts as permitted. You are the only member, so nothing is being taken from
+-- anyone, and the game already no-ops whatever does not apply outside a group -- gating
+-- it ourselves would only make the panels dead on a target dummy for no reason.
 local function HasAssist()
     if not IsInGroup() then return true end
     return UnitIsGroupLeader("player") or UnitIsGroupAssistant("player")
@@ -764,11 +759,10 @@ local function MakeShell(key)
             self:Hide()
         end
     ]])
-    -- A driver transition is a context change: it reclaims control from any
-    -- manual override and re-seeds the collapsed/expanded form. The icon has
-    -- no state template of its own (click templates do not dispatch _onstate),
-    -- so each shell fans the verdict out to it -- both shells stamping the
-    -- same values is idempotent.
+    -- A driver transition is a context change: it reclaims control from any manual
+    -- override and re-seeds the collapsed/expanded form. The icon has no state template
+    -- of its own (click templates do not dispatch _onstate), so each shell fans the
+    -- verdict out to it -- both shells stamping the same values is idempotent.
     f:SetAttribute("_onstate-euirt_vis", [[
         local vis = (newstate == "show")
         self:SetAttribute("visible", vis)
@@ -907,8 +901,7 @@ local function BuildCollapsedIcon()
     iconBtn:RegisterForClicks("AnyDown")
     iconBtn:Hide()
     -- Rides the Group shell's saved position with no bookkeeping of its own:
-    -- anchoring to a hidden frame is fine, the anchor resolves through its
-    -- points.
+    -- anchoring to a hidden frame is fine, the anchor resolves through its points.
     iconBtn:SetPoint("TOPLEFT", nil, "TOPLEFT", 0, 0)  -- re-pointed at build
 
     -- The button IS the art: full-bleed image at full opacity, no chrome and
@@ -1055,10 +1048,9 @@ local function ApplyLayout()
         winMarkers:SetHeight(CONTENT_TOP + MARKERS_CONTENT_H + PAD)
     end
 
-    -- The collapsed icon rides the shell the mode actually shows: Markers-only
-    -- anchors (and scales, see Apply) to the Markers shell, everything else to
-    -- Group & Pull. Which CORNER it rides is the Menu Grow Direction setting
-    -- (see ICON_CORNER above).
+    -- The collapsed icon rides the shell the mode actually shows: Markers-only anchors
+    -- (and scales, see Apply) to the Markers shell, everything else to Group & Pull.
+    -- Which CORNER it rides is the Menu Grow Direction setting (see ICON_CORNER above).
     local corner = ICON_CORNER[p and p.growDir] or "TOPLEFT"
     iconBtn:ClearAllPoints()
     iconBtn:SetPoint(corner,
@@ -1073,12 +1065,11 @@ end
 
 -- Positions round-trip through unlock mode's CENTER/CENTER convention.
 --
--- That pairing is not decoration: for an odd-height frame the stored centre
--- ends in .5, and ApplyCenterPosition subtracts the live half-height so the
--- edges land back on whole pixels. Applying the stored value with a plain
--- SetPoint skips that and leaves the frame a pixel off -- visible only after
--- the snap tool, because a normal drag is converted on the way in and a
--- snapped one is not.
+-- That pairing is not decoration: for an odd-height frame the stored centre ends in .5,
+-- and ApplyCenterPosition subtracts the live half-height so the edges land back on
+-- whole pixels. Applying the stored value with a plain SetPoint skips that and leaves
+-- the frame a pixel off -- visible only after the snap tool, because a normal drag is
+-- converted on the way in and a snapped one is not.
 local function DefaultPos(key)
     -- Unpositioned installs park the whole feature in the TOP-LEFT corner of
     -- the screen (a small margin off the edges); two-window mode stacks
@@ -1101,10 +1092,9 @@ local function ApplySectionPosition(key)
     local pos = ((P() and P().pos) or {})[key] or DefaultPos(key)
     if EllesmereUI.ApplyCenterPosition
        and pos.point == "CENTER" and pos.relPoint == "CENTER" then
-        -- Skips anchor-linked elements itself, and defers its own combat case
-        -- for protected frames. FALSE means it could not resolve a live frame
-        -- for this key -- fall through to the plain path, exactly as unlock
-        -- mode's own caller does.
+        -- Skips anchor-linked elements itself, and defers its own combat case for
+        -- protected frames. FALSE means it could not resolve a live frame for this key
+        -- -- fall through to the plain path, exactly as unlock mode's own caller does.
         if EllesmereUI.ApplyCenterPosition(UNLOCK_KEY .. key, pos) then return end
     end
 
@@ -1117,19 +1107,17 @@ local function ApplySectionPosition(key)
 end
 
 local function ApplyPositions()
-    -- While an unlock session is open UNLOCK MODE owns these frames: it moves
-    -- them live and only writes the result on Save & Exit. A settings pass
-    -- landing mid-session (the options panel hiding/showing flips the preview,
-    -- and a combat-deferred Apply completes on PLAYER_REGEN_ENABLED) would drag
-    -- the window back to the last SAVED spot -- and because Save & Exit derives
-    -- the value it stores from the frame's LIVE bounds, the drag is then
-    -- written back as the old position and lost for good. Same guard Action
-    -- Bars, Aura Reminders and the Cooldown Manager already carry.
+    -- While an unlock session is open UNLOCK MODE owns these frames: it moves them live
+    -- and only writes the result on Save & Exit. A settings pass landing mid-session
+    -- (the options panel hiding/showing flips the preview, and a combat-deferred Apply
+    -- completes on PLAYER_REGEN_ENABLED) would drag the window back to the last SAVED
+    -- spot -- and because Save & Exit derives the value it stores from the frame's LIVE
+    -- bounds, the drag is then written back as the old position and lost for good. Same
+    -- guard Action Bars, Aura Reminders and the Cooldown Manager already carry.
     if EllesmereUI._unlockActive then return end
 
-    -- Each shell is positioned only when the Show as choice can put it on
-    -- screen; One Window and Only Group & Pull ride pos.Group, Only Markers
-    -- rides pos.Markers.
+    -- Each shell is positioned only when the Show as choice can put it on screen; One
+    -- Window and Only Group & Pull ride pos.Group, Only Markers rides pos.Markers.
     local showAs = ShowAs()
     if showAs ~= "markers" then ApplySectionPosition("Group") end
     if showAs == "two" or showAs == "markers" then ApplySectionPosition("Markers") end
@@ -1272,10 +1260,9 @@ local function EnsureEvents()
     if not ev then
         ev = CreateFrame("Frame")
         ev:SetScript("OnEvent", function(_, event)
-            -- Pending work FIRST, before the mode gate: a switch TO "never"
-            -- deferred by combat must complete even though the profile
-            -- already reads never -- swallowing it here is how panels get
-            -- stranded on screen.
+            -- Pending work FIRST, before the mode gate: a switch TO "never" deferred by
+            -- combat must complete even though the profile already reads never --
+            -- swallowing it here is how panels get stranded on screen.
             if event == "PLAYER_REGEN_ENABLED" and applyPending then
                 Apply()
                 return
@@ -1369,12 +1356,11 @@ local function RegisterUnlock()
     end
 end
 
--- Options-page entry point, and the completion target for combat-deferred
--- work. Every path below writes secure attributes, drivers, bindings or
--- geometry on protected frames -- ALL blocked in lockdown, the switch to
--- "never" included (SetAttribute is as protected as Hide). So in combat the
--- whole request is parked behind applyPending, with the REGEN listener
--- guaranteed alive to finish it.
+-- Options-page entry point, and the completion target for combat-deferred work. Every
+-- path below writes secure attributes, drivers, bindings or geometry on protected
+-- frames -- ALL blocked in lockdown, the switch to "never" included (SetAttribute is as
+-- protected as Hide). So in combat the whole request is parked behind applyPending,
+-- with the REGEN listener guaranteed alive to finish it.
 function Apply()
     if InCombatLockdown() then
         applyPending = true

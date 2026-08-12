@@ -1,8 +1,11 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 local ADDON_NAME = ...
 
 local ECL = EllesmereUI.Lite.NewAddon("EllesmereUICursor")
 
-local TEX_CUSTOM = "Interface\\AddOns\\EllesmereUIQoL\\Media\\ellesmere_cursor.tga"
+-- Shared with the Quickdraw hub: the full Ellesmere logo in the parent's
+-- media folder.
+local TEX_CUSTOM = "Interface\\AddOns\\EllesmereUI\\media\\logo-full-thin-2.png"
 
 local RING_TEXTURES = {
     thin   = "Interface\\AddOns\\EllesmereUIQoL\\Media\\ring_thin.tga",
@@ -262,12 +265,11 @@ end
 local _unlockHidGCD, _unlockHidCast
 -- Cursor glue + state watch, riding the suite's shared cursor service
 -- (EllesmereUI.Mouse) instead of a per-frame OnUpdate on the cursor frame:
--- the glue is a Tier A motionOnly subscriber (per render frame while the
--- cursor MOVES, parked while it rests -- a resting cursor ring needs no
--- repositioning, and mouselook freezes GetCursorPosition so steering parks
--- it too, which Only-Show-When-Hidden wants anyway); the unlock-mode
--- circle sync is pure state and rides the 0.15s Tier B watch. Both are
--- subscribed ONLY while the frame is visible (UpdateVisibility owns the
+-- the glue is a Tier A motionOnly subscriber (per render frame while the cursor MOVES,
+-- parked while it rests -- a resting cursor ring needs no repositioning, and mouselook
+-- freezes GetCursorPosition so steering parks it too, which Only-Show-When-Hidden wants
+-- anyway); the unlock-mode circle sync is pure state and rides the 0.15s Tier B watch.
+-- Both are subscribed ONLY while the frame is visible (UpdateVisibility owns the
 -- edges), preserving the old hidden-frame-stops-OnUpdate behavior.
 local function CursorGlueBody(rawX, rawY)
     local s = UIParent:GetEffectiveScale()
@@ -295,10 +297,9 @@ local function SetCursorGlue(on)
     local M = EllesmereUI and EllesmereUI.Mouse
     if not M then return end
     if on then
-        -- Snap immediately: the motionOnly subscriber stays parked until
-        -- the cursor moves, so without this the frame would sit wherever
-        -- it last was (OnEnable's CENTER default on login) until the
-        -- first pixel of motion.
+        -- Snap immediately: the motionOnly subscriber stays parked until the cursor
+        -- moves, so without this the frame would sit wherever it last was (OnEnable's
+        -- CENTER default on login) until the first pixel of motion.
         CursorGlueBody(M.Get())
         M.SubscribeFrame("qolCursor", CursorGlueBody, true)
         M.SubscribeTick("qolCursorWatch", 0.15, CursorWatchBody)

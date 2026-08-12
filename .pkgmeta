@@ -2,19 +2,20 @@ package-as: EllesmereUI
 
 move-folders:
   EllesmereUI/EllesmereUIActionBars: EllesmereUIActionBars
-  EllesmereUI/EllesmereUIActionPalette: EllesmereUIActionPalette
+  EllesmereUI/EllesmereUIQuickdraw: EllesmereUIQuickdraw
   EllesmereUI/EllesmereUIAuraBuffReminders: EllesmereUIAuraBuffReminders
   EllesmereUI/EllesmereUIBags: EllesmereUIBags
-  EllesmereUI/EllesmereUIBasics: EllesmereUIBasics
   EllesmereUI/EllesmereUIBlizzardSkin: EllesmereUIBlizzardSkin
   EllesmereUI/EllesmereUIChat: EllesmereUIChat
   EllesmereUI/EllesmereUICooldownManager: EllesmereUICooldownManager
   EllesmereUI/EllesmereUIDamageMeters: EllesmereUIDamageMeters
   EllesmereUI/EllesmereUIDataBars: EllesmereUIDataBars
   EllesmereUI/EllesmereUIFriends: EllesmereUIFriends
+  EllesmereUI/EllesmereUILocales: EllesmereUILocales
   EllesmereUI/EllesmereUIMinimap: EllesmereUIMinimap
   EllesmereUI/EllesmereUIMythicTimer: EllesmereUIMythicTimer
   EllesmereUI/EllesmereUINameplates: EllesmereUINameplates
+  EllesmereUI/EllesmereUIOptions: EllesmereUIOptions
   EllesmereUI/EllesmereUIQoL: EllesmereUIQoL
   EllesmereUI/EllesmereUIQuestTracker: EllesmereUIQuestTracker
   EllesmereUI/EllesmereUIRaidFrames: EllesmereUIRaidFrames
@@ -22,9 +23,6 @@ move-folders:
   EllesmereUI/EllesmereUIUnitFrames: EllesmereUIUnitFrames
 
 externals:
-  EllesmereUIUnitFrames/Libs/oUF:
-    url: https://github.com/oUF-wow/oUF
-    tag: latest
   Libs/LibStub:
     url: https://repos.wowace.com/wow/libstub/trunk
     tag: 1.0
@@ -37,6 +35,8 @@ externals:
     tag: latest
   Libs/LibKeystone:
     url: https://github.com/BigWigsMods/LibKeystone.git/LibKeystone
+  Libs/LibSpecialization:
+    url: https://github.com/BigWigsMods/LibSpecialization.git/LibSpecialization
 
 enable-nolib-creation: no
 
@@ -47,6 +47,6 @@ ignore:
   - .kiro
   - .tools
   - CONTRIBUTING_TRANSLATIONS.md
-  - Locales/_keys.txt
+  - EllesmereUILocales/_keys.txt
   - README.md
   - CHANGELOG.md

@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUICdmBarGlows.lua
 --  Bar Glows: Overlays glow effects on action bar / CDM bar buttons when

@@ -1,0 +1,44 @@
+## Interface: 120000, 120001, 120005, 120007, 120100
+## Title: |cff0cd29fEllesmereUI|r Options
+## Category: |cff0cd29fEllesmere|rUI
+## Group: EllesmereUI
+## Notes: EllesmereUI settings panel. Loads on demand when you open EllesmereUI options.
+## Author: Ellesmere
+## Version: 8.8.4
+## Dependencies: EllesmereUI
+## LoadOnDemand: 1
+## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
+
+# Widget factory first: everything below builds pages with it. File order
+# mirrors the original suite load order (parent files, then children A-Z).
+EllesmereUI_Widgets.lua
+EUI__General_Options.lua
+EUI_PartyMode_Options.lua
+
+EUI_ActionBars_Options.lua
+EUI_AuraBuffReminders_Options.lua
+EUI_Bags_Options.lua
+EUI_BlizzardSkin_Options.lua
+EUI_Chat_Options.lua
+EUI_CooldownManager_Options.lua
+EUI_DamageMeters_Options.lua
+EllesmereUIDataBars_Options.lua
+EUI_Friends_Options.lua
+EUI_Minimap_Options.lua
+EUI_MythicTimer_Options.lua
+EUI_Nameplates_Options.lua
+EUI_QoL_Options.lua
+EUI_QoL_Cursor_Options.lua
+EUI_QoL_BattleRes_Options.lua
+EUI_QoL_AutoLogging_Options.lua
+EUI_QoL_Shifter_Options.lua
+EUI_QoL_MovementAlert_Options.lua
+EUI_QoL_RaidTools_Options.lua
+EUI_UpgradeCalc_Options.lua
+EUI_QuestTracker_Options.lua
+EUI_Quickdraw_Options.lua
+EUI_RaidFrames_ManagerPages.lua
+EUI_RaidFrames_Options.lua
+EUI_ResourceBars_Options.lua
+EUI_UnitFrames_Options.lua
+EUI_PlayerAuraBars_ManagerPages.lua

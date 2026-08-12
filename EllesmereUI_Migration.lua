@@ -1,18 +1,16 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 --------------------------------------------------------------------------------
---  EllesmereUI_Migration.lua
---  Loaded via TOC after EllesmereUI_Lite.lua, before EllesmereUI_Profiles.lua.
---  Runs at ADDON_LOADED time for "EllesmereUI" (before child addons init).
---
---  All legacy migrations have been removed. The beta-exit wipe (reset
---  version 5) guarantees every user starts from a clean slate.
+--  EllesmereUI_Migration.lua -- loaded after EllesmereUI_Lite.lua, before
+--  EllesmereUI_Profiles.lua; runs at ADDON_LOADED for "EllesmereUI" (before
+--  child addons init). Legacy migrations removed: the beta-exit wipe (reset
+--  version 5) guarantees a clean slate for every user.
 --------------------------------------------------------------------------------
 
 local floor = math.floor
 
---- Round all width/height values in a table to whole pixels.
---- Call from each child addon's OnInitialize after its DB is loaded.
---- keys: list of field names to round (e.g. {"width", "height"})
---- tables: list of profile sub-tables to scan
+--- Round all width/height values in a table to whole pixels. Call from each child
+--- addon's OnInitialize after its DB loads. keys: field names to round (e.g.
+--- {"width", "height"}); tables: profile sub-tables to scan.
 function EllesmereUI.RoundSizeFields(keys, tables)
     for _, tbl in ipairs(tables) do
         if type(tbl) == "table" then
@@ -29,54 +27,21 @@ end
 --------------------------------------------------------------------------------
 --  ONE-TIME MIGRATION RUNNER
 --
---  Single, global system for any addon to register a one-time data migration
---  that needs to run reliably across upgrades, multiple characters, multiple
---  profiles, and multiple specs.
+--  RegisterMigration({id, scope, description, body}) runs a one-time migration
+--  reliably across upgrades/characters/profiles/specs. scope picks ctx + flag
+--  host: "global" -> ctx.db=EllesmereUIDB (flag on EllesmereUIDB); "profile" ->
+--  ctx.profile/profileName (flag on profileData); "specProfile" ->
+--  ctx.specProfile/specKey (flag on specProfData) -- all under ._migrations[id].
+--  Runner walks ALL profiles/spec profiles each pass. Bodies run in pcall; flag
+--  stamps only on success so a failed body retries next session. Only the
+--  "early" phase exists (parent ADDON_LOADED, before child addons init).
 --
---  USAGE:
---    EllesmereUI.RegisterMigration({
---        id          = "cdm_pandemic_glow_color_table",
---        scope       = "profile",  -- "global" | "profile" | "specProfile"
---        description = "Migrate flat pandemicR/G/B keys to pandemicGlowColor table",
---        body        = function(ctx)
---            -- ctx fields depend on scope:
---            --   global       -> ctx.db (= EllesmereUIDB)
---            --   profile      -> ctx.profile, ctx.profileName
---            --   specProfile  -> ctx.specProfile, ctx.specKey
---            local cdm = ctx.profile.addons and ctx.profile.addons.EllesmereUICooldownManager
---            local bars = cdm and cdm.cdmBars and cdm.cdmBars.bars
---            if not bars then return end
---            for _, b in ipairs(bars) do
---                if b.pandemicR and not b.pandemicGlowColor then
---                    b.pandemicGlowColor = { r = b.pandemicR, g = b.pandemicG, b = b.pandemicB }
---                end
---            end
---        end,
---    })
---
---  GUARANTEES:
---    - Migration body wraps in pcall: a buggy body cannot break the runner.
---    - Flag is stamped only on success: a failed body retries next session.
---    - "global" scope flag lives at EllesmereUIDB._migrations[id]
---    - "profile" scope flag lives at profileData._migrations[id], runner walks
---      ALL profiles so multi-character is handled in one pass.
---    - "specProfile" scope flag lives at specProfData._migrations[id], runner
---      walks ALL spec profiles so multi-spec is handled in one pass.
---    - Phase: currently only "early" (parent ADDON_LOADED, before child
---      addons init). Add more phases lazily if a real need appears.
---
---  AUTHORING RULES:
---    1. IDs are forever. Never change an existing migration's id; register a
---       new migration with a new id if logic needs to change.
---    2. Bodies must be idempotent. Even with the flag, the body should be
---       safe to re-run on already-migrated data (predicate-gated).
---    3. Don't iterate profiles inside a body if scope = "profile" -- the
---       runner does that for you. Same for "specProfile".
---    4. Don't call live game APIs (UnitClass, GetSpecialization,
---       C_CooldownViewer, etc.) -- only "early" phase exists, none of these
---       are reliable yet.
---    5. Walk raw stored data via ctx.profile / ctx.specProfile, not via
---       child.db.profile -- child addons haven't initialized yet.
+--  RULES: (1) IDs are forever, never change one -- register a new id instead.
+--  (2) Bodies must be idempotent (predicate-gated) even with the flag. (3)
+--  Don't iterate profiles/specs inside a body, the runner does that. (4) No
+--  live game APIs (UnitClass, GetSpecialization, C_CooldownViewer) -- unreliable
+--  at "early" phase. (5) Walk raw ctx.profile/ctx.specProfile, never
+--  child.db.profile: child addons haven't initialized.
 --------------------------------------------------------------------------------
 
 local _migrations = {}              -- ordered registration list (1..N)
@@ -147,12 +112,9 @@ local function RunMigration(spec)
         end
 
     elseif spec.scope == "specProfile" then
-        -- Per-profile spell store: spellAssignments.profiles[name].specProfiles.
-        -- The cdm_per_profile_spell_store_v1 migration (registered first) seeds
-        -- these buckets from the legacy flat store before any specProfile
-        -- migration runs, so iterating the nested structure covers every
-        -- profile's per-spec data in one pass. Flag still lives on each
-        -- specProfData._migrations table (carried forward verbatim by seeding).
+        -- Per-profile store: spellAssignments.profiles[name].specProfiles, seeded
+        -- from the legacy flat store by cdm_per_profile_spell_store_v1 (registered
+        -- first). Flags ride on each specProfData._migrations, carried by seeding.
         local sa = EllesmereUIDB.spellAssignments
         local profiles = sa and sa.profiles
         if profiles then
@@ -174,21 +136,16 @@ local function RunMigration(spec)
     end
 end
 
--- Public: run all registered migrations. Called once from the parent
--- ADDON_LOADED handler (the legacy beta-wipe that used to precede it is gone).
+-- Public: run all migrations. Called once from the parent ADDON_LOADED handler.
 function EllesmereUI.RunRegisteredMigrations()
     if not EllesmereUIDB then
-        -- Truly fresh install: SavedVariables do not exist yet, so there is
-        -- nothing to migrate. Do NOT just skip: leaving the catalog unstamped
-        -- means the ENTIRE chain runs its first pass at the NEXT load, over
-        -- whatever exists by then -- e.g. a profile imported during this
-        -- first session -- treating current-format data as legacy (the CDM
-        -- consolidate/detach pair rebuilt an imported spell store, the
-        -- pixel-rounding pass floored imported positions/sizes, the colors
-        -- seed replaced imported palettes). A fresh install is current-format
-        -- by definition: create the store and stamp every global migration
-        -- as already done. Profile-scoped stamps live inside each profile
-        -- (and ride exports), so they need no genesis pass.
+        -- Fresh install: no SavedVariables yet. Must stamp globals now, not skip --
+        -- an unstamped catalog would run the whole chain at next load against
+        -- whatever exists by then (e.g. an imported profile), treating current-format
+        -- data as legacy (concretely: CDM consolidate/detach would rebuild an
+        -- imported spell store, pixel-rounding would floor imported positions/sizes,
+        -- the colors seed would replace imported palettes). Profile-scoped stamps
+        -- live inside each profile (and ride exports), so they need no genesis pass.
         EllesmereUIDB = {}
         local flags = GetFlagTable(EllesmereUIDB)
         for _, spec in ipairs(_migrations) do
@@ -207,15 +164,10 @@ end
 --  Registered migrations
 --------------------------------------------------------------------------------
 
--- Hovercast macro bindings ignored their own Friendly/Enemy toggles: the
--- friend/harm filter was only ever applied when building a spell binding, so a
--- macro fired on whatever was under the cursor regardless of what the two
--- toggles said. Now that the filter is honored, a stored binding left at the
--- creation defaults (hoverFriendly = true, hoverEnemy = false) would suddenly
--- stop working on enemies -- a silent regression on data the user never touched,
--- e.g. every mouseover focus macro. Seed both flags so existing bindings keep
--- the unfiltered behavior they have actually had, and let the toggles take
--- effect from here on.
+-- Hovercast macro bindings ignored their Friendly/Enemy toggles (filter applied
+-- only to spell bindings). Now honored: creation defaults (hoverFriendly=true,
+-- hoverEnemy=false) would silently break enemy macros, so seed both flags true
+-- on existing bindings to stay unfiltered; toggles apply going forward.
 EllesmereUI.RegisterMigration({
     id          = "clickcast_macro_hover_reaction_v1",
     scope       = "profile",
@@ -242,14 +194,9 @@ EllesmereUI.RegisterMigration({
 
 --------------------------------------------------------------------------------
 --  Position snap helpers
---  File-scope helpers used by the position_snap_v3 migration below AND
---  exposed on EllesmereUI for profile import (import path calls
---  EllesmereUI.SnapProfilePositions(profData) to snap imported positions).
---
---  These are FUNCTION definitions only -- the bodies run on demand, not at
---  file load. Reads of EllesmereUIDB.ppUIScale and GetPhysicalScreenSize()
---  inside MakeSnappers() happen whenever the function is called, by which
---  time SavedVariables are loaded and the screen size API is available.
+--  Used by position_snap_v3 and exposed as EllesmereUI.SnapProfilePositions for
+--  profile import. MakeSnappers reads EllesmereUIDB.ppUIScale and
+--  GetPhysicalScreenSize() at CALL time (once SavedVariables + screen API are up).
 --------------------------------------------------------------------------------
 
 local function MakeSnappers()
@@ -261,9 +208,8 @@ local function MakeSnappers()
 
     local function snap(v)
         if type(v) ~= "number" or v == 0 then return v end
-        -- Epsilon-guarded round (matches PP.SnapForES): position values sitting
-        -- a hair off a half-pixel boundary must snap the same way here as at
-        -- runtime, or the one-time migration shifts frames 1px.
+        -- Epsilon-guarded round (matches PP.SnapForES): values a hair off a
+        -- half-pixel boundary must snap as at runtime, or frames shift 1px.
         local result = floor(v / onePixel + 0.5 + 0.001) * onePixel
         -- Clean floating point dust
         local rounded = floor(result + 0.5)
@@ -291,9 +237,8 @@ local function MakeSnappers()
     return snapPos, snapPosMap, snapAnchors, snap
 end
 
--- Snap all positions in a single profile data table.
--- Called by the position_snap_v3 migration (for each profile) and by
--- profile import (for a single imported profile).
+-- Snap all positions in a single profile data table. Called per profile by the
+-- position_snap_v3 migration, and once by profile import.
 local function SnapProfilePositions(profData)
     if type(profData) ~= "table" then return end
     local snapPos, snapPosMap, snapAnchors = MakeSnappers()
@@ -327,13 +272,6 @@ local function SnapProfilePositions(profData)
         snapPos(abr.unlockPos)
     end
 
-    local basics = addons.EllesmereUIBasics
-    if type(basics) == "table" then
-        if basics.questTracker then snapPos(basics.questTracker.pos) end
-        if basics.minimap then snapPos(basics.minimap.position) end
-        if basics.friends then snapPos(basics.friends.position) end
-    end
-
     local cursor = addons.EllesmereUICursor
     if type(cursor) == "table" then
         if cursor.gcd then snapPos(cursor.gcd.pos) end
@@ -344,12 +282,9 @@ end
 -- Expose for profile import
 EllesmereUI.SnapProfilePositions = SnapProfilePositions
 
--- Collect every per-profile spec-profile data table into a flat array. After
--- the cdm_per_profile_spell_store_v1 seeding migration, CDM spell data lives at
--- spellAssignments.profiles[name].specProfiles (per profile), not the legacy
--- flat spellAssignments.specProfiles. Global-scope migration bodies that used to
--- walk the flat store call this so they transform the LIVE per-profile data.
--- Seeding is registered first, so the buckets exist by the time any body runs.
+-- Flattens every per-profile spec-profile table into one array. After seeding
+-- (cdm_per_profile_spell_store_v1), CDM data lives at profiles[name].specProfiles,
+-- not the flat legacy store -- global-scope bodies call this for LIVE data.
 local function CollectSpecProfiles(sa)
     local out = {}
     if type(sa) ~= "table" then return out end
@@ -370,37 +305,25 @@ local function CollectSpecProfiles(sa)
 end
 
 --------------------------------------------------------------------------------
---  Registered migrations
---  Each migration below is a one-time data transformation gated by the runner's
---  per-scope flag. Bodies must be idempotent. Legacy flag checks bridge the
---  transition from old inline migrations; they can be removed after a few
---  release cycles once all existing users have been through the new system.
+--  Registered migrations -- one-time transforms gated by the runner's per-scope
+--  flag; bodies must be idempotent. Legacy flag checks bridge old inline
+--  migrations and can be dropped once all users have passed through.
 --------------------------------------------------------------------------------
 
--- IMPORTANT: this migration is registered FIRST so it runs before any
--- specProfile-scoped migration. It converts the legacy account-wide CDM spell
--- store (spellAssignments.specProfiles, shared by all profiles on a given spec)
--- into a per-profile store (spellAssignments.profiles[name].specProfiles) by
--- DeepCopying the legacy data into EVERY existing profile. This is what makes a
--- profile copy own an independent CDM: before this, deleting a bar in a copied
--- profile mutated the one shared bucket and wiped the origin. The DeepCopy
--- carries each spec's _migrations flags forward verbatim, so already-run
--- specProfile migrations do not re-run against the seeded copies. The legacy
--- flat table is left in place as a dormant backup for one release; nothing
--- reads it after seeding. NOTE: this is the spellAssignments.specProfiles store,
--- NOT the unrelated EllesmereUIDB.specProfiles spec-to-profile auto-switch map.
--- Spec Overrides fresh start (2026-07-11): the unlock override backend was
--- rewritten from per-aspect diffs to whole-layout LAYERS, and the value/group
--- stores accumulated tester-era data shaped for the old model. User-directed
--- full wipe: groups, value entries, and unlock overrides all reset.
+-- Registered FIRST (precedes all specProfile migrations). Forks the legacy account-wide
+-- CDM store (spellAssignments.specProfiles, shared per spec) into per-profile stores
+-- (profiles[name].specProfiles), DeepCopied into every profile so copies own
+-- independent CDM data (else deleting a bar in one mutates the shared bucket and wipes
+-- the origin). DeepCopy keeps _migrations flags, so specProfile migrations already run
+-- don't re-run. Legacy flat table stays as a dormant, unread backup -- distinct from
+-- EllesmereUIDB.specProfiles (the spec-to-profile auto-switch map).
 --
--- The RB Advanced migration's output lives in these same tables, so a
--- profile that already ran it must be RE-ARMED before the wipe: the source
--- data is restored from rb.advancedSpecsBackup and the run flag cleared, so
--- Resource Bars' init re-creates its spec override cards into the clean
--- store on this same login. Re-running MergeThresholds on the already-merged
--- Simple list converges (first-run inserts serve only that spec, so the
--- strip pass removes them before identical copies are re-inserted).
+-- Below: Spec Overrides fresh start wipes groups/value entries/unlock overrides
+-- (backend moved to whole-layout LAYERS). RB Advanced output lives there, so an
+-- already-migrated profile is RE-ARMED first (restored from
+-- rb.advancedSpecsBackup, flag cleared) so RB init rebuilds cards into the clean
+-- store same login. Re-running MergeThresholds converges: first-run inserts are
+-- spec-only and get stripped before identical re-insertion.
 do
     local function RearmRBAdvancedMigration(prof)
         local rb = prof and prof.addons and prof.addons.EllesmereUIResourceBars
@@ -434,18 +357,11 @@ do
         end,
     })
 
-    -- Recovery for profiles that ran an early fresh-start build WITHOUT the
-    -- re-arm above: their RB-migrated cards were wiped, but the source data
-    -- still sits untouched in rb.advancedSpecsBackup. Re-arm those profiles
-    -- once so Resource Bars' init re-creates the cards. No-ops everywhere
-    -- else: on a first login where both migrations are pending, the fixed
-    -- fresh start has already cleared the RB flag before this runs (and the
-    -- reverse order would converge to the same state anyway).
-    --
-    -- Guard: a profile whose FIRST login with the RB migration happened on a
-    -- fresh-start build got its cards created AFTER the wipe (early runner
-    -- precedes RB init), so they still exist -- re-arming there would append
-    -- duplicates. Only re-arm when the store holds no RB-module entries.
+    -- Recovery for profiles wiped WITHOUT the re-arm above: cards are gone but the
+    -- source sits in rb.advancedSpecsBackup, so re-arm once and RB's init
+    -- re-creates them. Guard: only re-arm when the store holds no RB-module
+    -- entries, since cards created AFTER the wipe (early runner precedes RB
+    -- init) would otherwise get duplicates.
     EllesmereUI.RegisterMigration({
         id          = "rb_adv_remigrate_after_wipe_v1",
         scope       = "profile",
@@ -465,12 +381,9 @@ do
     })
 end
 
--- CDM bar captures recorded before the numeric-segment path walkers existed
--- banked NIL sentinels for every value (the reads missed the numeric bars[i]
--- keys entirely); applying them through the FIXED walkers would null out
--- live CDM bar settings on the next spec swap. The broken window was a
--- tester build measured in hours -- drop every CDM-bars capture from both
--- override stores; users re-capture with working walkers.
+-- Captures made before numeric-segment path walkers existed banked NIL sentinels
+-- (reads missed numeric bars[i] keys); applying via the FIXED walkers would null
+-- live CDM settings on the next spec swap. Drop every CDM-bars capture from both stores.
 EllesmereUI.RegisterMigration({
     id          = "cdm_bars_capture_reset_v1",
     scope       = "profile",
@@ -499,17 +412,12 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
--- The Skyriding HUD's sub-DB registers its own folder
--- (EllesmereUIDragonRiding), dodging the BlizzardSkin capture blacklist, so
--- a width-match engine write to its width key could be auto-captured into an
--- unrelated override entry (field case: riding a CDM Icon Scale capture).
--- Applying such an entry touches a folder with no targeted refresher, and
--- the unmapped-folder fallback escalates every apply into a full
--- RefreshAllAddons -- under spec-changed event traffic that meant minutes of
--- continuous full-suite refresh after combat. The folder is now
--- capture-and-apply blacklisted; strip already-banked keys from both stores.
--- Only the foreign keys are removed -- the entry's own settings survive; an
--- entry left with an empty default map is dropped whole.
+-- The Skyriding HUD sub-DB registers its own folder (EllesmereUIDragonRiding),
+-- dodging the BlizzardSkin capture blacklist, so a width-match write could be
+-- auto-captured into an unrelated entry; applying it hits a folder with no
+-- targeted refresher, so the unmapped-folder fallback escalates every apply
+-- into a full RefreshAllAddons (minutes of refresh under spec-change traffic).
+-- Folder is now blacklisted; strip its keys from both stores (empty default map = drop whole).
 EllesmereUI.RegisterMigration({
     id          = "specov_strip_dragonriding_fkeys_v1",
     scope       = "profile",
@@ -568,19 +476,18 @@ EllesmereUI.RegisterMigration({
                 if type(pd) == "table" then seed(name) end
             end
         end
-        -- Ensure the active/Default profile has a bucket even if it is not yet
-        -- present in db.profiles (very early / minimal-state installs).
+        -- Ensure the active/Default profile has a bucket even when db.profiles
+        -- lacks it (very early / minimal-state installs).
         seed(db.activeProfile or "Default")
         sa._perProfileSeeded = true
     end,
 })
 
--- Consolidate the auto-seeded per-profile CDM buckets (created by the migration
--- above) into spell LAYOUTS: collapse identical duplicates into one, KEEP any
--- genuinely-different setups as their own layouts, and back up the originals.
--- The per-profile seeding copied one CDM setup into every profile, so users
--- otherwise see a redundant layout per profile. Only touches auto-seeded buckets
--- (no `meta`); user-created/imported layouts (which have `meta`) are left alone.
+-- Consolidates auto-seeded per-profile CDM buckets into spell LAYOUTS: collapses
+-- identical duplicates into one, keeps distinct setups as their own layouts,
+-- backs up originals (seeding copied one CDM setup into every profile, else
+-- users would see a redundant layout each). Only auto-seeded buckets (no
+-- `meta`) are touched; user-created/imported layouts are left alone.
 EllesmereUI.RegisterMigration({
     id          = "cdm_consolidate_profile_layouts_v1",
     scope       = "global",
@@ -591,9 +498,8 @@ EllesmereUI.RegisterMigration({
         if not sa or type(sa.profiles) ~= "table" then return end
         local DeepCopy = EllesmereUI._DeepCopy or (EllesmereUI.Lite and EllesmereUI.Lite.DeepCopy)
 
-        -- Deep value-equality, IGNORING "_"-prefixed bookkeeping keys (e.g.
-        -- _migrations) so two seeded copies that only differ in migration flags
-        -- still count as identical.
+        -- Deep value-equality IGNORING "_"-prefixed bookkeeping keys (e.g.
+        -- _migrations), so copies differing only in flags count as identical.
         local function ContentEqual(a, b)
             if type(a) ~= type(b) then return false end
             if type(a) ~= "table" then return a == b end
@@ -610,8 +516,7 @@ EllesmereUI.RegisterMigration({
             return true
         end
 
-        -- Auto-seeded buckets have no `meta`; user-created layouts do. Only the
-        -- seeded ones are candidates for consolidation.
+        -- Auto-seeded buckets have no `meta`; only they are consolidation candidates.
         local seeded = {}
         for name, bucket in pairs(sa.profiles) do
             if type(bucket) == "table" and not bucket.meta then
@@ -625,8 +530,8 @@ EllesmereUI.RegisterMigration({
             sa._preConsolidateBackup = DeepCopy(sa.profiles)
         end
 
-        -- Process the active profile first so its name is the kept representative
-        -- for the live setup; rest alphabetically for determinism.
+        -- Active profile first so its name is the kept representative for the live
+        -- setup; the rest alphabetically for determinism.
         local activeName = db.activeProfile or "Default"
         table.sort(seeded)
         local ordered = {}
@@ -656,10 +561,9 @@ EllesmereUI.RegisterMigration({
             end
         end
 
-        -- The active layout is remembered PER EUI PROFILE: point each profile at
-        -- the surviving layout holding its own (pre-consolidation) CDM, so
-        -- switching profiles loads that profile's setup. Don't clobber a pointer
-        -- the user already set.
+        -- Active layout is remembered PER EUI PROFILE: point each profile at the
+        -- surviving layout holding its own pre-consolidation CDM, so a profile
+        -- switch loads that setup. Never clobber a user-set pointer.
         sa.activeLayoutByProfile = sa.activeLayoutByProfile or {}
         if db.profiles then
             for pname in pairs(db.profiles) do
@@ -679,13 +583,11 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
--- Detach CDM spell layouts from profiles. Converts the implicit per-profile
--- active-layout map (activeLayoutByProfile) into OPT-IN bindings (profileBindings)
--- plus a single account-wide active layout. Behavior-identical on update: every
--- profile is bound to exactly the layout it used, so swapping profiles still
--- auto-activates that layout. The user detaches by removing bindings.
--- Runs AFTER cdm_consolidate_profile_layouts_v1 (registration order), so it
--- inherits the deduped layouts + per-profile pointers.
+-- Detaches CDM spell layouts from profiles: the implicit per-profile active-layout
+-- map (activeLayoutByProfile) becomes OPT-IN bindings (profileBindings) plus one
+-- account-wide active layout. Behavior-identical (profiles stay bound to the
+-- layout they used; user detaches by removing bindings). Runs AFTER
+-- cdm_consolidate_profile_layouts_v1, inheriting deduped layouts+pointers.
 EllesmereUI.RegisterMigration({
     id          = "cdm_detach_spell_layouts_v1",
     scope       = "global",
@@ -707,9 +609,9 @@ EllesmereUI.RegisterMigration({
                 end
             end
         end
-        -- Account-wide active = the current profile's layout, so the live CDM is
-        -- byte-for-byte unchanged on this character. Fall back to the old global
-        -- pointer, then any valid layout.
+        -- Account-wide active = current profile's layout, so the live CDM is
+        -- byte-for-byte unchanged here. Fall back to the old global pointer,
+        -- then any valid layout.
         local cur = db.activeProfile or "Default"
         local active = sa.profileBindings[cur]
         if type(active) ~= "string" or not (sa.profiles and sa.profiles[active]) then
@@ -727,26 +629,6 @@ EllesmereUI.RegisterMigration({
         if byProfile then
             sa._preDetachBackup = byProfile
             sa.activeLayoutByProfile = nil
-        end
-    end,
-})
-
-EllesmereUI.RegisterMigration({
-    id          = "quest_tracker_sec_color_default",
-    scope       = "profile",
-    description = "Clear questTracker.secColor if it matches the legacy hardcoded green default, so accent color fallback can take over.",
-    body = function(ctx)
-        -- Legacy bridge: skip if the old inline migration already ran.
-        -- Old flag location: EllesmereUIDB._questTrackerSecColorMigrated
-        if EllesmereUIDB and EllesmereUIDB._questTrackerSecColorMigrated then return end
-
-        local addons = ctx.profile.addons
-        local basics = addons and addons.EllesmereUIBasics
-        if not basics or not basics.questTracker then return end
-        local sc = basics.questTracker.secColor
-        if type(sc) == "table"
-           and sc.r == 0.047 and sc.g == 0.824 and sc.b == 0.624 then
-            basics.questTracker.secColor = nil
         end
     end,
 })
@@ -796,45 +678,20 @@ EllesmereUI.RegisterMigration({
 })
 
 EllesmereUI.RegisterMigration({
-    id          = "friends_data_wipe_v1",
-    scope       = "profile",
-    description = "Wipe legacy friends list data across all profiles (sessions 15-17 module rebuild).",
-    body = function(ctx)
-        -- Legacy bridge: skip if the old inline migration already ran.
-        -- Old flag location: EllesmereUIDB._friendsWipeDone
-        -- DESTRUCTIVE: this resets basics.friends to { enabled = wasEnabled }.
-        -- The bridge is critical -- without it, re-running would wipe any
-        -- configuration the user has made since the original migration.
-        if EllesmereUIDB and EllesmereUIDB._friendsWipeDone then return end
-
-        local addons = ctx.profile.addons
-        local basics = addons and addons.EllesmereUIBasics
-        if not basics or not basics.friends then return end
-
-        local wasEnabled = basics.friends.enabled
-        basics.friends = { enabled = wasEnabled }
-    end,
-})
-
-EllesmereUI.RegisterMigration({
     id          = "friend_notes_wipe_v1",
     scope       = "global",
     description = "Wipe legacy bnetAccountID-keyed friendAssignments and friendNotes (sessions 15-17 rebuild).",
     body = function(ctx)
-        -- Legacy bridge: skip if the old inline migration already ran.
-        -- Old flag location: EllesmereUIDB.global._friendNotesMigrated
-        -- DESTRUCTIVE: wipes EllesmereUIDB.global.friendAssignments and
-        -- .friendNotes. Without the bridge, re-running would destroy any
-        -- data the user has accumulated since the original migration.
+        -- DESTRUCTIVE (wipes global.friendAssignments + .friendNotes): the
+        -- _friendNotesMigrated bridge is critical, a re-run destroys data since.
         if EllesmereUIDB and EllesmereUIDB.global
            and EllesmereUIDB.global._friendNotesMigrated then return end
 
         local g = ctx.db.global
         if not g then return end
 
-        -- Set the one-time popup flag only if the user actually had
-        -- group assignments pre-wipe (so users who never used the feature
-        -- don't see a popup about it being "reset").
+        -- One-time popup flag only if the user actually had group assignments
+        -- pre-wipe, so users who never used the feature see no "reset" popup.
         local hadAssignments = false
         if g.friendAssignments then
             for _ in pairs(g.friendAssignments) do
@@ -851,10 +708,9 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
--- Pixel-perfect snapping split into global (unlock anchors, spec profiles) and
--- per-profile (positions + sizes). The per-profile half runs on every profile
--- including future imports (flag is per-profile so the runner catches new ones).
--- The global half keeps the original flag so existing users don't re-run it.
+-- Pixel-perfect snapping splits global (unlock anchors, spec profiles) from
+-- per-profile (positions+sizes). Per-profile half runs on every profile incl.
+-- future imports; global half keeps its original flag so existing users skip it.
 EllesmereUI.RegisterMigration({
     id          = "pixel_perfect_comprehensive_v11",
     scope       = "global",
@@ -870,7 +726,6 @@ EllesmereUI.RegisterMigration({
             end
         end
 
-        -- Global: unlock anchors
         snapAnchors(ctx.db.unlockAnchors)
 
         -- Spec profiles (per-profile store): TBB positions + bar sizes
@@ -917,7 +772,6 @@ EllesmereUI.RegisterMigration({
         local addons = ctx.profile.addons
         if type(addons) ~= "table" then return end
 
-        -- Action Bars: positions + icon sizes
         local eab = addons.EllesmereUIActionBars
         if eab then
             snapPosMap(eab.barPositions)
@@ -930,7 +784,6 @@ EllesmereUI.RegisterMigration({
             end
         end
 
-        -- Resource Bars: positions + bar sizes + pip sizes
         local erb = addons.EllesmereUIResourceBars
         if erb then
             local erbSizeKeys = { "width", "height", "pipWidth", "pipHeight" }
@@ -940,7 +793,6 @@ EllesmereUI.RegisterMigration({
             snapSection(erb.castBar or erb.castbar, erbSizeKeys)
         end
 
-        -- Unit Frames: positions + frame/cast bar sizes
         local uf = addons.EllesmereUIUnitFrames
         if uf then
             snapPosMap(uf.unlockPositions or uf.positions)
@@ -954,7 +806,6 @@ EllesmereUI.RegisterMigration({
             end
         end
 
-        -- CDM: bar positions + icon sizes
         local cdm = addons.EllesmereUICooldownManager
         if cdm then
             snapPosMap(cdm.cdmBarPositions)
@@ -965,59 +816,23 @@ EllesmereUI.RegisterMigration({
             end
         end
 
-        -- Damage Meters
         local dm = addons.EllesmereUIDamageMeters
         if dm then
             snapPos(dm.unlockPos)
             roundFields(dm, { "dmWidth", "dmHeight" })
         end
 
-        -- Chat
         local chat = addons.EllesmereUIChat
         if chat then
             snapPos(chat.unlockPos)
             roundFields(chat, { "chatWidth", "chatHeight" })
         end
 
-        -- ABR
         local abr = addons.EllesmereUIAuraBuffReminders
         if abr and abr.display then
             snapPos(abr.display.unlockPos)
             roundFields(abr.display, { "iconSize", "iconSpacing" })
         end
-
-        -- Basics (minimap, quest tracker)
-        local basics = addons.EllesmereUIBasics
-        if basics then
-            if basics.questTracker then snapPos(basics.questTracker.pos) end
-            if basics.minimap then snapPos(basics.minimap.position) end
-            if basics.friends then snapPos(basics.friends.position) end
-        end
-    end,
-})
-
-EllesmereUI.RegisterMigration({
-    id          = "basics_minimap_hide_buttons_split",
-    scope       = "profile",
-    description = "Split legacy minimap.hideButtons boolean into per-button keys (hideZoomButtons, hideTrackingButton, hideGameTime).",
-    body = function(ctx)
-        -- Self-gating: only fires when the legacy hideButtons key still
-        -- exists. After running once, mp.hideButtons is nil and the body
-        -- is a no-op for that profile.
-        local basics = ctx.profile.addons and ctx.profile.addons.EllesmereUIBasics
-        local mp = basics and basics.minimap
-        if not mp or mp.hideButtons == nil then return end
-
-        if mp.hideButtons == true then
-            mp.hideZoomButtons    = true
-            mp.hideTrackingButton = true
-            mp.hideGameTime       = true
-        else
-            mp.hideZoomButtons    = false
-            mp.hideTrackingButton = false
-            mp.hideGameTime       = false
-        end
-        mp.hideButtons = nil
     end,
 })
 
@@ -1028,16 +843,14 @@ EllesmereUI.RegisterMigration({
     body = function(ctx)
         local rf = ctx.profile.addons and ctx.profile.addons.EllesmereUIRaidFrames
         if type(rf) ~= "table" then return end
-        -- Self-gating on the new key being absent keeps this idempotent and never
-        -- clobbers a value the user has since chosen.
+        -- Self-gating on the new key: idempotent, never clobbers a user choice.
         if rf.tsMode == nil then
             if rf.tsEnabled == false then rf.tsMode = "never"
             elseif rf.tsEnabled == true then rf.tsMode = "whenHealing" end
             -- tsEnabled == nil: leave unset so DeepMergeDefaults applies the default.
         end
-        -- Raid is intentionally NOT migrated: it hard-defaults to "never" for all
-        -- users (existing tsRaidEnabled is ignored), so tsRaidMode is left unset
-        -- here and DeepMergeDefaults applies the "never" default.
+        -- Raid intentionally NOT migrated: tsRaidEnabled ignored, tsRaidMode left
+        -- unset so DeepMergeDefaults applies the "never" default.
     end,
 })
 
@@ -1046,11 +859,9 @@ EllesmereUI.RegisterMigration({
     scope       = "profile",
     description = "Split nameplate mini-boss/boss colors: seed the new 'boss' color from the user's existing 'miniboss' color so bosses keep their current color until changed.",
     body = function(ctx)
-        -- Self-gating on boss == nil keeps this idempotent and never clobbers a
-        -- value the user has since chosen. Only copies when the user actually
-        -- customized miniboss; an unset miniboss leaves boss unset too, so
-        -- DeepMergeDefaults applies the (shared) default to both. The import
-        -- path forward-copies the same way in ApplyProfileData.
+        -- Self-gating on boss == nil: idempotent, never clobbers a user choice.
+        -- Copies only a customized miniboss; unset leaves both to default via
+        -- DeepMergeDefaults. Import forward-copies in ApplyProfileData.
         local np = ctx.profile.addons and ctx.profile.addons.EllesmereUINameplates
         if type(np) ~= "table" then return end
         if np.boss == nil and type(np.miniboss) == "table" then
@@ -1064,15 +875,10 @@ EllesmereUI.RegisterMigration({
     scope       = "profile",
     description = "Zero out Unit Frames per-unit powerBorderSize. The detached power bar border size only became functional this build; older non-zero values were set while the control did nothing, so clear them so each UI stays visually identical. Users can re-enable a border afterward.",
     body = function(ctx)
-        -- Self-gating: once a unit's powerBorderSize is 0 (or absent) it is
-        -- skipped, so the body is naturally idempotent on top of the runner's
-        -- per-profile flag. Runs once per profile ever; any border the user
-        -- sets AFTER the flag is stamped is never touched.
-        --
-        -- Scoped STRICTLY to EllesmereUIUnitFrames. The RaidFrames addon has its
-        -- own, unrelated powerBorderSize (its power border already worked) which
-        -- lives at ctx.profile.addons.EllesmereUIRaidFrames and must NOT be
-        -- zeroed here.
+        -- Self-gating: powerBorderSize of 0 (or absent) is skipped, so this runs
+        -- once per profile and never touches a border set after the flag stamps.
+        -- Scoped STRICTLY to EllesmereUIUnitFrames -- RaidFrames' own unrelated
+        -- powerBorderSize (border already worked) must NOT be zeroed here.
         local uf = ctx.profile.addons and ctx.profile.addons.EllesmereUIUnitFrames
         if type(uf) ~= "table" then return end
         local UNIT_KEYS = { "player", "target", "focus", "targettarget", "focustarget", "pet", "boss" }
@@ -1086,41 +892,12 @@ EllesmereUI.RegisterMigration({
 })
 
 EllesmereUI.RegisterMigration({
-    id          = "basics_minimap_round_to_circle",
-    scope       = "profile",
-    description = "Rename minimap.shape value 'round' to 'circle'.",
-    body = function(ctx)
-        local basics = ctx.profile.addons and ctx.profile.addons.EllesmereUIBasics
-        local mp = basics and basics.minimap
-        if not mp then return end
-        if mp.shape == "round" then
-            mp.shape = "circle"
-        end
-    end,
-})
-
-EllesmereUI.RegisterMigration({
-    id          = "basics_minimap_strip_scale",
-    scope       = "profile",
-    description = "Strip the deprecated minimap.scale field. Direct sizing via the snapshot replaces it.",
-    body = function(ctx)
-        local basics = ctx.profile.addons and ctx.profile.addons.EllesmereUIBasics
-        local mp = basics and basics.minimap
-        if not mp then return end
-        mp.scale = nil
-    end,
-})
-
-EllesmereUI.RegisterMigration({
     id          = "cdm_pandemic_glow_color_table",
     scope       = "profile",
     description = "Migrate CDM bar flat pandemicR/G/B keys into a pandemicGlowColor table, plus default pandemicGlowStyle.",
     body = function(ctx)
-        -- No legacy flag to bridge: original inline migration was self-gated
-        -- by the `pandemicR and not pandemicGlowColor` predicate. Body is
-        -- naturally idempotent (only fires when the legacy flat keys exist
-        -- AND the new table is missing) so the runner's per-profile flag
-        -- stops further runs after the first successful pass.
+        -- No legacy flag to bridge. Idempotent by predicate: fires only when the
+        -- legacy flat keys exist AND pandemicGlowColor is missing.
         local cdm = ctx.profile.addons and ctx.profile.addons.EllesmereUICooldownManager
         local cdmBars = cdm and cdm.cdmBars
         local bars = cdmBars and cdmBars.bars
@@ -1146,16 +923,10 @@ EllesmereUI.RegisterMigration({
     scope       = "profile",
     description = "Repair CDM bars that lost their `key` field via Lite DB delta-strip. Assigns missing core keys (cooldowns, utility, buffs) in order.",
     body = function(ctx)
-        -- Self-gating via `if not bd.key` -- once every bar has a key,
-        -- the loop is a no-op. The runner's per-profile flag stops
-        -- further runs after the first successful pass.
-        --
-        -- Originally paired with a Tier 2 defensive guard in
-        -- BuildAllCDMBars; that inline guard was deleted after verifying
-        -- the round-trip (StripDefaults -> save -> load -> DeepMergeDefaults)
-        -- correctly restores identity fields in every code path
-        -- including profile switch and import. The runner pass is the
-        -- one-time recovery for any user with pre-existing broken data.
+        -- Self-gating via `if not bd.key` -- no-op once every bar has a key. The
+        -- round-trip (StripDefaults -> save -> load -> DeepMergeDefaults) restores
+        -- identity fields in every normal path (profile switch, import); this pass
+        -- is purely one-time recovery for already-broken data.
         local cdm = ctx.profile.addons and ctx.profile.addons.EllesmereUICooldownManager
         local cdmBars = cdm and cdm.cdmBars
         local bars = cdmBars and cdmBars.bars
@@ -1191,18 +962,13 @@ EllesmereUI.RegisterMigration({
     scope       = "profile",
     description = "Remove obsolete CDM bars with barType=='misc' and clear anchorTo references that pointed at them.",
     body = function(ctx)
-        -- Self-gating via the barType check -- once misc bars are gone,
-        -- the predicate is false and the body is a no-op. Previously ran
-        -- every BuildAllCDMBars call against the active profile only;
-        -- the runner promotes this to once-per-profile-ever and walks
-        -- all profiles automatically.
+        -- Self-gating via the barType check: a no-op once misc bars are gone.
         local cdm = ctx.profile.addons and ctx.profile.addons.EllesmereUICooldownManager
         local cdmBars = cdm and cdm.cdmBars
         local bars = cdmBars and cdmBars.bars
         if type(bars) ~= "table" then return end
 
-        -- Pass 1: find and remove misc bars (reverse iteration so removal
-        -- doesn't shift indices we still need to visit).
+        -- Pass 1: remove misc bars (reverse iteration keeps indices valid).
         local miscKeys = {}
         for i = #bars, 1, -1 do
             if bars[i].barType == "misc" then
@@ -1211,8 +977,7 @@ EllesmereUI.RegisterMigration({
             end
         end
 
-        -- Pass 2: clear anchorTo on any remaining bar that referenced
-        -- a removed misc bar.
+        -- Pass 2: clear anchorTo on bars that referenced a removed misc bar.
         if next(miscKeys) then
             for _, bd in ipairs(bars) do
                 if bd.anchorTo and miscKeys[bd.anchorTo] then
@@ -1228,14 +993,9 @@ EllesmereUI.RegisterMigration({
     scope       = "profile",
     description = "Rename CDM bar activeStateAnim value 'none' (No Animation) to 'hideActive' (Hide Active State).",
     body = function(ctx)
-        -- Self-gating via the value check -- once no bar holds the legacy
-        -- 'none' value, the body is a no-op. MUST register before
-        -- cdm_active_state_per_bar_to_per_icon, which depends on bars
-        -- carrying the post-rename 'hideActive' value.
-        --
-        -- Previously ran every BuildAllCDMBars call against the active
-        -- profile only; the runner promotes this to once-per-profile-ever
-        -- and walks all profiles automatically.
+        -- Self-gating: no-op once no bar holds 'none'. MUST register before
+        -- cdm_active_state_per_bar_to_per_icon, which depends on the post-rename
+        -- 'hideActive' value.
         local cdm = ctx.profile.addons and ctx.profile.addons.EllesmereUICooldownManager
         local cdmBars = cdm and cdm.cdmBars
         local bars = cdmBars and cdmBars.bars
@@ -1254,10 +1014,7 @@ EllesmereUI.RegisterMigration({
     scope       = "profile",
     description = "Rewrite CDM bar barVisibility 'mouseover' to 'always' (mouseover mode was removed).",
     body = function(ctx)
-        -- Self-gating: once no bar carries 'mouseover', the body is a no-op.
-        -- Previously ran every CDMFinishSetup against the active profile;
-        -- the runner promotes this to once-per-profile-ever and walks
-        -- all profiles automatically.
+        -- Self-gating: a no-op once no bar carries 'mouseover'.
         local cdm = ctx.profile.addons and ctx.profile.addons.EllesmereUICooldownManager
         local cdmBars = cdm and cdm.cdmBars
         local bars = cdmBars and cdmBars.bars
@@ -1276,15 +1033,8 @@ EllesmereUI.RegisterMigration({
     scope       = "specProfile",
     description = "Strip stale _linkedFrame/_linkedCdID/_linkedGen fields from Tracked Buff Bar configs (legacy bloat from removed frame-tree serialization).",
     body = function(ctx)
-        -- Naturally idempotent: setting nil to nil is a no-op. The runner's
-        -- per-spec-profile flag stops further runs after the first pass.
-        --
-        -- Previously ran every CDM OnInitialize against every spec profile.
-        -- The runner promotes this to once-per-spec-profile-ever.
-        --
-        -- The bug-producing code (frame tree serialization into TBB
-        -- configs) was removed -- this migration is pure legacy cleanup,
-        -- nothing in the live codebase writes these fields anymore.
+        -- Idempotent: nil to nil. Pure legacy cleanup -- frame-tree serialization
+        -- into TBB configs is gone, so no live code writes these fields.
         local tbb = ctx.specProfile.trackedBuffBars
         local tbbBars = tbb and tbb.bars
         if type(tbbBars) ~= "table" then return end
@@ -1302,19 +1052,9 @@ EllesmereUI.RegisterMigration({
     scope       = "specProfile",
     description = "Move per-bar removedSpells (legacy filter mechanic) into the ghost CD bar's assignedSpells. The ghost bar replaced the per-bar removedSpells filter.",
     body = function(ctx)
-        -- Naturally idempotent: removedSpells is wiped after migration,
-        -- so a second run finds nothing. The runner's per-spec-profile
-        -- flag also stops further runs after the first pass.
-        --
-        -- Previously ran in EnsureGhostBars which was called from
-        -- BuildAllCDMBars on every CDM rebuild (login, spec change,
-        -- profile swap, options change, layout reset, etc.). The runner
-        -- promotes this to a single per-spec-profile pass.
-        --
-        -- Skips work entirely if no bar has any removedSpells, so cold
-        -- specs without legacy data don't get an empty ghost bar entry
-        -- pre-created on their behalf -- the runtime getter creates the
-        -- ghost bar entry when something actually needs to write to it.
+        -- Idempotent: removedSpells wiped after run. Skips entirely when no bar has
+        -- removedSpells, so cold specs get no empty ghost bar entry -- the runtime
+        -- getter creates it on first real write.
         local barSpells = ctx.specProfile.barSpells
         if type(barSpells) ~= "table" then return end
 
@@ -1333,7 +1073,6 @@ EllesmereUI.RegisterMigration({
         end
         if not hasWork then return end
 
-        -- Ensure ghost CD bar entry exists in the spell store.
         local ghostBS = barSpells[GHOST_CD]
         if not ghostBS then
             ghostBS = {}
@@ -1341,8 +1080,7 @@ EllesmereUI.RegisterMigration({
         end
         if not ghostBS.assignedSpells then ghostBS.assignedSpells = {} end
 
-        -- Build dedupe set from any spells already on the ghost bar.
-        local existing = {}
+        local existing = {}   -- dedupe against spells already on the ghost bar
         for _, sid in ipairs(ghostBS.assignedSpells) do existing[sid] = true end
 
         -- Second pass: migrate and wipe.
@@ -1362,12 +1100,10 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
--- Inline copy of every racial spell ID across every race. Mirrors
--- RACE_RACIALS in EllesmereUICooldownManager.lua. Used by the ghost CD
--- bar cleanup migration so we can identify racials without depending
--- on the CDM child addon (which loads after the migration runner fires)
--- or the per-character _myRacialsSet (which only contains the current
--- character's racials). If a new race ships, update both copies.
+-- Inline copy of every race's racial spell IDs (mirrors RACE_RACIALS in the CDM
+-- addon). Ghost CD bar cleanup needs this without depending on the CDM child
+-- addon (loads after this runner) or per-character _myRacialsSet. New race =
+-- update both.
 local CDM_ALL_RACIAL_SPELL_IDS = {
     [7744]    = true, [20549]   = true,
     [20572]   = true, [33697]   = true, [33702]   = true,
@@ -1389,21 +1125,10 @@ EllesmereUI.RegisterMigration({
     scope       = "specProfile",
     description = "Strip junk entries from the ghost CD bar: negative IDs (presets/trinkets), racials, customs (best-effort), and duplicates of spells already on a real bar.",
     body = function(ctx)
-        -- Naturally idempotent: after the first run, the junk entries
-        -- are gone, and the runner's per-spec-profile flag stops
-        -- further runs anyway.
-        --
-        -- Previously ran in EnsureGhostBars on every CDM rebuild and
-        -- gated by a manual prof._ghostBarCleaned3 flag. The runner
-        -- promotes this to a single per-spec-profile pass with its
-        -- own flag, so the manual one is gone.
-        --
-        -- Customs detection is best-effort: the bs.customSpellIDs
-        -- stamping was added in v6.1, so customs added before that
-        -- won't be detected. Customs that were tracked via the legacy
-        -- bs.customSpells field are also undetectable now (C5 wiped
-        -- those). Stale customs that slip through stay on the ghost
-        -- bar (which is hidden, so the impact is purely cosmetic).
+        -- Idempotent: junk entries gone after first run. Customs detection is
+        -- best-effort -- customs predating bs.customSpellIDs stamping, or tracked
+        -- via the now-wiped legacy bs.customSpells, are undetectable and stay on
+        -- the hidden ghost bar (cosmetic-only impact).
         local barSpells = ctx.specProfile.barSpells
         if type(barSpells) ~= "table" then return end
 
@@ -1413,7 +1138,7 @@ EllesmereUI.RegisterMigration({
         local ghostBS = barSpells[GHOST_CD]
         if not (ghostBS and ghostBS.assignedSpells) then return end
 
-        -- Build sets of spells currently on real bars + currently stamped as custom.
+        -- Spells currently on real bars + currently stamped as custom.
         local realBarSpells = {}
         local customSet = {}
         for bk, bs in pairs(barSpells) do
@@ -1468,21 +1193,10 @@ EllesmereUI.RegisterMigration({
     scope       = "specProfile",
     description = "Strip legacy trackedSpells/customSpells keys from CDM bar data. The current shape is bs.assignedSpells; legacy keys are no longer written by any code path.",
     body = function(ctx)
-        -- Naturally idempotent: setting nil to nil is a no-op. The runner's
-        -- per-spec-profile flag stops further runs after the first pass.
-        --
-        -- Previously ran on every GetBarSpellData/GetBarSpellDataForSpec
-        -- call as a lazy in-getter migration. That hot read path executed
-        -- the nil-check on every spell read, route lookup, picker query,
-        -- BuildAllCDMBars iteration, etc. The runner promotes this to a
-        -- single per-spec-profile pass.
-        --
-        -- Cold profiles with legacy data lose those entries rather than
-        -- being auto-ported into the new shape -- the schema has drifted
-        -- enough that auto-porting would likely produce broken entries.
-        -- The bar simply comes up with assignedSpells == nil, which the
-        -- new-spec auto-population path correctly interprets as "never
-        -- seen" and fills with defaults.
+        -- Idempotent (nil to nil). Cold profiles with legacy data LOSE those entries
+        -- rather than being auto-ported -- schema has drifted too far for porting to
+        -- produce valid entries. Bar comes up with assignedSpells == nil, which
+        -- new-spec auto-population fills with defaults.
         local barSpells = ctx.specProfile.barSpells
         if type(barSpells) ~= "table" then return end
 
@@ -1500,23 +1214,11 @@ EllesmereUI.RegisterMigration({
     scope       = "global",
     description = "Remove all extra (custom) buff bars across every parent profile, nil stale assignedSpells on the main buffs bar across every spec profile, and prune orphaned spell data for the deleted bars. Replaces the old _buffBarMigrationV2Done and _buffsBarCleanupV2 inline migrations.",
     body = function(ctx)
-        -- Naturally idempotent: after the first run, no extra buff bars
-        -- exist to remove and main-buffs assignedSpells is already nil.
-        -- The runner's global flag also stops further runs.
-        --
-        -- The main "buffs" bar is Blizzard-owned and auto-populated from
-        -- the CDM viewer -- it should never have manual assignedSpells.
-        -- Extra/custom buff bars (custom_5_1234 etc.) were removed from
-        -- the system entirely; their bar list entries and spell data
-        -- both need to go.
-        --
-        -- This consolidates two previous inline migrations:
-        --   _buffBarMigrationV2Done (v5.6.5) -- the full cleanup
-        --   _buffsBarCleanupV2      (v6.0.4) -- defensive re-run of the
-        --                                       main-buffs nil step
-        -- Both have been live since late March / early April 2026 so
-        -- most users have already had them run; for those users the
-        -- new migration is a pure no-op.
+        -- Idempotent: no-op once extra buff bars are gone and main-buffs
+        -- assignedSpells is nil. Main "buffs" bar is Blizzard-owned/auto-populated
+        -- from the CDM viewer, so it must never carry manual assignedSpells;
+        -- extra/custom buff bars (custom_5_1234 etc.) are removed entirely --
+        -- list entries AND spell data both go.
         local removedBuffBarKeys = {}
 
         -- 1. Walk every parent profile, drop extra buff bars from the
@@ -1540,9 +1242,8 @@ EllesmereUI.RegisterMigration({
             end
         end
 
-        -- 2. Walk every spec profile (all profiles' per-spec buckets), nil
-        -- stale main-buffs assignedSpells and prune orphaned spell data for
-        -- deleted extra bars.
+        -- 2. Walk every spec profile: nil stale main-buffs assignedSpells and
+        -- prune orphaned spell data for the deleted extra bars.
         for _, specProf in ipairs(CollectSpecProfiles(ctx.db.spellAssignments)) do
             local barSpells = specProf.barSpells
             if type(barSpells) == "table" then
@@ -1555,8 +1256,7 @@ EllesmereUI.RegisterMigration({
             end
         end
 
-        -- 3. Wipe the old manual flag bytes -- the runner's own flag
-        -- replaces them and the old ones are dead bloat in SV.
+        -- 3. Wipe the old manual flag bytes: the runner's flag replaces them.
         ctx.db._buffBarMigrationV2Done = nil
         ctx.db._buffsBarCleanupV2      = nil
     end,
@@ -1567,30 +1267,17 @@ EllesmereUI.RegisterMigration({
     scope       = "global",
     description = "Wipe legacy bar glows / TBB / tbbPositions storage locations. The data was moved to per-spec storage in v5.5.7. No live code writes to these locations anymore -- they are dead bytes that the previous inline migration was still trying to copy out.",
     body = function(ctx)
-        -- Naturally idempotent: nil = nil. The runner's global flag
-        -- also stops further runs.
-        --
-        -- Previously the inline CDMFinishSetup migration COPIED these
-        -- locations into the active spec profile, then left the
-        -- legacy data in place. After ~2 weeks of v5.5.7+ shipping,
-        -- any still-unmigrated data in these locations belongs to
-        -- cold profiles/specs the user hasn't logged into. Active
-        -- users have already had their data ported to per-spec
-        -- storage and don't need this migration to do anything.
-        --
-        -- Discriminator is location, not content: anything at the
-        -- top-level spellAssignments.barGlows or under the parent
-        -- profile's CDM addon block is by definition legacy because
-        -- no current code writes there. Live code writes to
-        -- spellAssignments.specProfiles[specKey].X exclusively.
+        -- Idempotent (nil=nil). Anything remaining belongs to cold profiles/specs;
+        -- active users already ported to per-spec storage. Discriminator is
+        -- LOCATION not content: top-level spellAssignments.barGlows and the parent
+        -- profile's CDM block are legacy by definition -- live code writes only to
+        -- spellAssignments.specProfiles[specKey].X.
 
-        -- 1. Wipe global barGlows on the spellAssignments root.
         local sa = ctx.db.spellAssignments
         if sa then
             sa.barGlows = nil
         end
 
-        -- 2. Wipe per-parent-profile CDM trackedBuffBars / tbbPositions.
         if ctx.db.profiles then
             for _, profData in pairs(ctx.db.profiles) do
                 local cdm = profData.addons and profData.addons.EllesmereUICooldownManager
@@ -1608,15 +1295,8 @@ EllesmereUI.RegisterMigration({
     scope       = "specProfile",
     description = "Strip old position-based CDM bar glow assignment keys (101_*, 102_*) from barGlows.assignments. These were tied to bar index + button index and broke when CDM icons reordered during reanchor. The new format keys are cdm_<cooldownID>.",
     body = function(ctx)
-        -- Naturally idempotent: after the first run no 10[12]_ keys
-        -- remain. The runner's per-spec-profile flag also stops further
-        -- runs. Action bar keys (1_* through 8_*) and the new cdm_<id>
-        -- format keys are left alone.
-        --
-        -- Previously ran in MigrateCDMAssignments, called from
-        -- ns.InitBarGlows, called once from CDMFinishSetup on every
-        -- login/reload. The runner promotes this to a single
-        -- per-spec-profile pass.
+        -- Idempotent: after the first run no 10[12]_ keys remain. Action bar keys
+        -- (1_* through 8_*) and the new cdm_<id> format keys are left alone.
         local bg = ctx.specProfile.barGlows
         local assignments = bg and bg.assignments
         if type(assignments) ~= "table" then return end
@@ -1634,24 +1314,11 @@ EllesmereUI.RegisterMigration({
     scope       = "specProfile",
     description = "Remove preset versions of discontinued spells (Bloodlust + variants, Time Spiral, warlock pets) from CDM bars and TBB bars. These presets were removed from the picker because they can't be tracked via cooldown detection.",
     body = function(ctx)
-        -- Naturally idempotent: after the first run the IDs and TBB bars
-        -- are gone, and re-running finds nothing. The runner's per-spec-
-        -- profile flag also stops further runs.
-        --
-        -- Previously ran in CDMFinishSetup on every login/reload, walking
-        -- every spec profile every time. The runner promotes this to a
-        -- single per-spec-profile pass.
-        --
-        -- The customSpellDurations guard is the safety mechanism: a real
-        -- class spell with the same ID (e.g. a Shaman's Heroism (32182))
-        -- has no customSpellDurations stamp because it was added via the
-        -- regular picker, not the preset adder. Only spells added as a
-        -- preset variant get the duration stamp, so the guard prevents
-        -- collateral damage to real class spells.
-        --
-        -- The presetVariants wipe is a separate stale-field cleanup --
-        -- nothing in the live codebase reads or writes presetVariants
-        -- anymore, but old data may still have it on bars.
+        -- Idempotent: IDs/TBB bars gone after first run. customSpellDurations is the
+        -- safety guard: a real class spell sharing an ID (e.g. Shaman Heroism 32182)
+        -- never carries this stamp since it came from the regular picker, not the
+        -- preset adder, so real spells are never collateral. presetVariants wipe is
+        -- separate stale-field cleanup; nothing reads it.
         local removedPresets = { [2825] = true, [32182] = true, [80353] = true,
             [264667] = true, [390386] = true, [381301] = true, [444062] = true, [444257] = true, -- Bloodlust variants
             [104316] = true, [265187] = true, [264119] = true, [111898] = true, -- Warlock pets
@@ -1660,7 +1327,6 @@ EllesmereUI.RegisterMigration({
             call_dreadstalkers = true, demonic_tyrant = true,
             summon_vilefiend = true, grimoire_felguard = true }
 
-        -- Clean preset versions of these spells from ALL bars + wipe stale presetVariants.
         local barSpells = ctx.specProfile.barSpells
         if type(barSpells) == "table" then
             for _, bs in pairs(barSpells) do
@@ -1697,16 +1363,14 @@ EllesmereUI.RegisterMigration({
     scope       = "specProfile",
     description = "Remove item-ID (negative -itemID) entries from CDM buff bars. Buff bars track auras only (positive spell IDs); items can no longer be placed on them. CD/utility bars (which legitimately hold trinkets/potions) are left untouched.",
     body = function(ctx)
-        -- Idempotent: only NEGATIVE ids are removed, so a re-run finds none. The
-        -- per-spec-profile flag also stops further runs.
+        -- Idempotent: only NEGATIVE ids are removed, so a re-run finds none.
         local sp = ctx.specProfile
         local barSpells = sp and sp.barSpells
         if type(barSpells) ~= "table" then return end
 
-        -- Resolve which bar keys are BUFF bars from this profile's bar config
-        -- (barType). The default buff bar is always "buffs" even if the config is
-        -- absent, so seed it unconditionally. Only buff bars are stripped --
-        -- cooldown/utility bars keep their legitimate trinket/potion markers.
+        -- Resolves BUFF bar keys from this profile's bar config (barType); "buffs"
+        -- is always seeded even if config is absent. Only buff bars are stripped --
+        -- cooldown/utility bars keep legitimate trinket/potion markers.
         local buffKeys = { buffs = true }
         local prof = EllesmereUIDB.profiles and EllesmereUIDB.profiles[ctx.profileName]
         local cdm = prof and prof.addons and prof.addons.EllesmereUICooldownManager
@@ -1744,19 +1408,11 @@ EllesmereUI.RegisterMigration({
     scope       = "global",
     description = "Clear unlock anchors that target CDM buff/custom_buff bars or the AuraBuff Reminders frame. Dynamic bars (resize with auras) cause cascading position shifts when used as anchor targets.",
     body = function(ctx)
-        -- Self-gating implicitly: once anchors targeting buff bars are
-        -- cleared, the predicate `buffKeys[info.target]` is false on
-        -- the next pass and the body is a no-op.
-        --
-        -- Previously ran every CDMFinishSetup and read only the active
-        -- profile's bar list to build the buff key set. The runner
-        -- promotes this to once-per-install and the body now unions
-        -- across ALL profiles so buff bars defined in inactive profiles
-        -- are also recognized.
+        -- Self-gating: predicate false once targeting anchors are cleared. Buff key
+        -- set unions ALL profiles, so inactive-profile buff bars count too.
         local anchors = ctx.db.unlockAnchors
         if not anchors then return end
 
-        -- Collect every buff/custom_buff bar key across every profile.
         local buffKeys = {}
         if ctx.db.profiles then
             for _, profData in pairs(ctx.db.profiles) do
@@ -1787,33 +1443,20 @@ EllesmereUI.RegisterMigration({
     scope       = "profile",
     description = "Promote per-bar activeStateAnim='hideActive' to per-icon activeSwipeMode='none' across every spec profile, then reset the bar-level value to 'blizzard'.",
     body = function(ctx)
-        -- Mixed scope: outer walk is per-profile (cdmBars.bars), inner
-        -- walk is per-spec-profile (barSpells/spellSettings). Body does
-        -- its own spec-profile iteration; the runner's per-profile flag
-        -- gates the outer pass.
-        --
-        -- Self-gating via the bar value reset: after migrating, the body
-        -- writes bd.activeStateAnim = "blizzard", so the next pass sees
-        -- nothing to migrate.
-        --
-        -- Depends on cdm_active_state_anim_none_to_hideactive having run
-        -- first (which renames legacy 'none' values into 'hideActive'
-        -- so this body has something to migrate).
-        --
-        -- Previously ran every BuildAllCDMBars call against the active
-        -- profile's bar list only. The runner promotes this to
-        -- once-per-profile-ever and the new "walk all profiles" behavior
-        -- catches custom bars that exist in inactive profiles too.
+        -- Mixed scope: outer walk is per-profile (cdmBars.bars, gated by the
+        -- runner's per-profile flag); inner per-spec-profile walk
+        -- (barSpells/spellSettings) is done by the body itself, self-gating via
+        -- bd.activeStateAnim="blizzard" after migrating. REQUIRES
+        -- cdm_active_state_anim_none_to_hideactive first (renames legacy 'none' to
+        -- 'hideActive', which this body matches).
         local cdm = ctx.profile.addons and ctx.profile.addons.EllesmereUICooldownManager
         local cdmBars = cdm and cdm.cdmBars
         local bars = cdmBars and cdmBars.bars
         if type(bars) ~= "table" then return end
 
-        -- The spell store is per-profile (spellAssignments.profiles[name].
-        -- specProfiles). We collect every profile's per-spec buckets directly
-        -- (not via ns.GetSpecProfiles) since CDM hasn't initialized by the time
-        -- this runs (early phase, before child OnInitialize). Seeding has
-        -- already run, so the buckets exist.
+        -- Spell store is per-profile (spellAssignments.profiles[name].specProfiles).
+        -- Collect buckets directly, not via ns.GetSpecProfiles: CDM hasn't
+        -- initialized at early phase, but seeding already ran so buckets exist.
         local specProfs = CollectSpecProfiles(EllesmereUIDB and EllesmereUIDB.spellAssignments)
 
         for _, bd in ipairs(bars) do
@@ -1827,8 +1470,7 @@ EllesmereUI.RegisterMigration({
                             if sid and sid > 0 then
                                 if not bs.spellSettings[sid] then bs.spellSettings[sid] = {} end
                                 local ss = bs.spellSettings[sid]
-                                -- Only migrate if the user hasn't already
-                                -- explicitly set a per-icon active state.
+                                -- Skip icons with an explicit per-icon active state already set.
                                 if not ss.activeSwipeMode and not ss.activeSwipeR then
                                     ss.activeSwipeMode = "none"
                                 end
@@ -1836,8 +1478,7 @@ EllesmereUI.RegisterMigration({
                         end
                     end
                 end
-                -- Clear old per-bar setting so the body's predicate
-                -- becomes false on any future re-run.
+                -- Clear the per-bar setting so re-runs find nothing.
                 bd.activeStateAnim = "blizzard"
             end
         end
@@ -1849,10 +1490,8 @@ EllesmereUI.RegisterMigration({
     scope       = "specProfile",
     description = "Clear buffs.assignedSpells so the unified model re-seeds from live icons (buff/CD unification).",
     body = function(ctx)
-        -- The buff bar previously never wrote to assignedSpells. With the
-        -- unified model, EnsureAssignedSpells lazily seeds from live icons.
-        -- Any stale data from the first options-panel open (before the route
-        -- map fix for TBB diversions) must be cleared so it re-seeds cleanly.
+        -- Under the unified model EnsureAssignedSpells lazily seeds the buff bar
+        -- from live icons, so stale stored data must be cleared to re-seed clean.
         local bs = ctx.specProfile.barSpells
         if not bs then return end
         local buffData = bs["buffs"]
@@ -1863,124 +1502,10 @@ EllesmereUI.RegisterMigration({
 })
 
 --------------------------------------------------------------------------------
---  v6.6 addon split: copy per-module saved data out of EllesmereUIBasics
---  into the new per-addon folders. Lite stores everything under
---  EllesmereUIDB.profiles[p].addons[folder], so this is a straight copy
---  from addons.EllesmereUIBasics.<key> to addons.EllesmereUI<Name>.<key>.
---------------------------------------------------------------------------------
-EllesmereUI.RegisterMigration({
-    id          = "v66_basics_split_data",
-    scope       = "profile",
-    description = "Move Basics per-module data into new per-addon folders (Minimap/Friends/Chat/QuestTracker/QoL cursor).",
-    body = function(ctx)
-        local addons = ctx.profile.addons
-        if type(addons) ~= "table" then return end
-        local basics = addons.EllesmereUIBasics
-        if type(basics) ~= "table" then return end
-
-        local function ensureFolder(name)
-            if type(addons[name]) ~= "table" then addons[name] = {} end
-            return addons[name]
-        end
-
-        -- minimap -> EllesmereUIMinimap.minimap
-        if type(basics.minimap) == "table" then
-            local dst = ensureFolder("EllesmereUIMinimap")
-            if dst.minimap == nil then
-                dst.minimap = basics.minimap
-            end
-        end
-
-        -- friends -> EllesmereUIFriends.friends
-        if type(basics.friends) == "table" then
-            local dst = ensureFolder("EllesmereUIFriends")
-            if dst.friends == nil then
-                dst.friends = basics.friends
-            end
-        end
-
-        -- chat -> EllesmereUIChat.chat (kept for future rebuild even though UI is coming-soon)
-        if type(basics.chat) == "table" then
-            local dst = ensureFolder("EllesmereUIChat")
-            if dst.chat == nil then
-                dst.chat = basics.chat
-            end
-        end
-
-        -- questTracker -> EllesmereUIQuestTracker.questTracker
-        if type(basics.questTracker) == "table" then
-            local dst = ensureFolder("EllesmereUIQuestTracker")
-            if dst.questTracker == nil then
-                dst.questTracker = basics.questTracker
-            end
-        end
-
-        -- cursor -> EllesmereUIQoL.cursor
-        if type(basics.cursor) == "table" then
-            local dst = ensureFolder("EllesmereUIQoL")
-            if dst.cursor == nil then
-                dst.cursor = basics.cursor
-            end
-        end
-    end,
-})
-
---------------------------------------------------------------------------------
---  v6.6 addon split: if the user had EllesmereUIBasics disabled for this
---  character, disable the new Minimap/Friends/QuestTracker addons to match
---  (since those now host what Basics used to host). Prompt a reload so the
---  change takes effect.
---------------------------------------------------------------------------------
-EllesmereUI.RegisterMigration({
-    id          = "v66_basics_split_disabled_state",
-    scope       = "global",
-    description = "Carry EllesmereUIBasics disabled state onto Minimap/Friends/QuestTracker addons.",
-    body = function(ctx)
-        if not C_AddOns or not C_AddOns.GetAddOnEnableState then return end
-        local char = UnitName("player")
-        if not char then return end
-
-        -- GetAddOnEnableState: 0 = disabled, 1 = enabled-for-char, 2 = enabled-for-all
-        local basicsState = C_AddOns.GetAddOnEnableState("EllesmereUIBasics", char)
-        if basicsState == nil or basicsState ~= 0 then return end
-
-        -- Basics is disabled for this character. Mirror that onto the new addons.
-        local targets = { "EllesmereUIMinimap", "EllesmereUIFriends", "EllesmereUIQuestTracker" }
-        local disabled = {}
-        for _, name in ipairs(targets) do
-            local state = C_AddOns.GetAddOnEnableState(name)
-            if state ~= 0 then
-                if C_AddOns.DisableAddOn then
-                    C_AddOns.DisableAddOn(name)
-                    disabled[#disabled + 1] = name
-                end
-            end
-        end
-
-        if #disabled > 0 then
-            -- Defer the popup: UI systems aren't ready at this phase.
-            C_Timer.After(3, function()
-                if EllesmereUI and EllesmereUI.ShowConfirmPopup then
-                    EllesmereUI:ShowConfirmPopup({
-                        title       = "EllesmereUI Addon Split",
-                        message     = "EllesmereUI Basics has been split into separate addons. Since you had Basics disabled, Minimap, Friends, and Quest Tracker have been disabled to match. A reload is required to apply this change.",
-                        confirmText = "Reload Now",
-                        cancelText  = "Later",
-                        onConfirm   = function() ReloadUI() end,
-                    })
-                end
-            end)
-        end
-    end,
-})
-
---------------------------------------------------------------------------------
---  v67 Bar Texture -> global setting
---
---  The Bar Texture dropdown now writes to db.profile.healthBarTexture instead
---  of per-unit keys. Find the first non-"none" texture among player/target/
---  focus (in that order) and promote it to the global key, then strip the
---  per-unit overrides so nothing silently shadows the global.
+--  Bar Texture -> global setting
+--  Bar Texture dropdown writes db.profile.healthBarTexture instead of per-unit
+--  keys. Promote first non-"none" texture among player/target/focus (in order)
+--  to the global key, then strip per-unit overrides so none shadows it.
 --------------------------------------------------------------------------------
 EllesmereUI.RegisterMigration({
     id          = "v67_bar_texture_global",
@@ -1990,8 +1515,7 @@ EllesmereUI.RegisterMigration({
         local uf = ctx.profile.addons and ctx.profile.addons.EllesmereUIUnitFrames
         if type(uf) ~= "table" then return end
 
-        -- Pick the first non-"none" override in the canonical order.
-        local winner
+        local winner   -- first non-"none" override, in canonical order
         for _, unit in ipairs({ "player", "target", "focus" }) do
             local s = uf[unit]
             local v = type(s) == "table" and s.healthBarTexture
@@ -2013,15 +1537,11 @@ EllesmereUI.RegisterMigration({
 })
 
 --------------------------------------------------------------------------------
---  v6.7.1 Quest Tracker: reset stale enabled=false inherited from Basics.
---
---  The v66_basics_split_data migration copied the entire old
---  EllesmereUIBasics.questTracker table into the new QT addon's profile.
---  The old "enabled" flag meant "disable the custom overlay" (Blizzard's
---  tracker still showed). The new QT uses "enabled" in EvalVisibility to
---  mean "completely hide the tracker." Users who had the old custom tracker
---  disabled inherited enabled=false, which hid the tracker with no way to
---  re-enable it (the option isn't exposed in the new QT settings).
+--  Quest Tracker: reset stale enabled=false inherited from Basics.
+--  v66_basics_split_data copied the whole questTracker table across; old
+--  "enabled" meant "disable the custom overlay" (Blizzard's tracker still
+--  showed), but new QT's EvalVisibility reads it as "completely hide the
+--  tracker" -- an inherited false hid it with no way back (not exposed).
 --------------------------------------------------------------------------------
 EllesmereUI.RegisterMigration({
     id          = "qt_minimap_ensure_enabled_v2",
@@ -2140,7 +1660,6 @@ EllesmereUI.RegisterMigration({
     body = function(ctx)
         local np = ctx.profile.addons and ctx.profile.addons.EllesmereUINameplates
         if not np then return end
-        -- Migrate from old keys to new keys
         local oldStyle = np.borderStyle
         if oldStyle == "none" then
             np.showBorder = false
@@ -2148,7 +1667,6 @@ EllesmereUI.RegisterMigration({
             np.showBorder = true
         end
         np.borderSize = 1
-        -- Clean up old keys
         np.borderStyle = nil
         np.simpleBorderSize = nil
     end,
@@ -2180,9 +1698,8 @@ EllesmereUI.RegisterMigration({
     scope       = "profile",
     description = "Normalise any remaining boolean showPlayerAbsorb to a style string. uf_absorb_style_dropdown_v1 walked a fixed unit list and stamps per profile, so a profile that arrived AFTER it ran -- an import or a preset, both of which inherit the recipient's migration flags -- kept the legacy boolean.",
     body = function(ctx)
-        -- Walk every table in the UF blob rather than a unit list: the earlier
-        -- pass missed whichever units were not named in it, and the crash this
-        -- fixes does not care which unit carried the bad value.
+        -- Walk every table in the UF blob, not a fixed unit list: the earlier pass
+        -- missed unnamed units, and any unit's bad value causes the crash.
         local uf = ctx.profile.addons and ctx.profile.addons.EllesmereUIUnitFrames
         if type(uf) ~= "table" then return end
         for _, unitCfg in pairs(uf) do
@@ -2198,9 +1715,8 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
--- Remove ghost buff bar: buff visibility is now managed by Blizzard CDM
--- settings. Clean up the bar entry from all profiles and spell data from
--- all spec profiles. One-time migration.
+-- Remove the ghost buff bar (buff visibility is managed by Blizzard CDM settings): drop
+-- the bar entry from all profiles and the spell data from all spec profiles.
 EllesmereUI.RegisterMigration({
     id          = "cdm_remove_ghost_buff_bar_v1",
     scope       = "profile",
@@ -2242,9 +1758,8 @@ EllesmereUI.RegisterMigration({
     body        = function(ctx)
         local rf = ctx.profile.addons and ctx.profile.addons.EllesmereUIRaidFrames
         if type(rf) ~= "table" then return end
-        -- Existing users who had the old single toggle ON get BOTH bars set to
-        -- "right" so their look is unchanged; false/absent -> "overlay" (default).
-        -- Idempotent: only writes the new keys when they are still unset.
+        -- Existing users with the old toggle ON get both bars set to "right" (look
+        -- unchanged); false/absent -> "overlay" default. Idempotent: unset keys only.
         local function split(oldKey, absKey, healKey)
             local old = rf[oldKey]
             if old == nil then return end
@@ -2267,7 +1782,6 @@ EllesmereUI.RegisterMigration({
         local positions = uf.positions or uf.unlockPositions
         local anchors = EllesmereUIDB and EllesmereUIDB.unlockAnchors
 
-        -- Resolve player castbar auto-width
         local playerS = uf.player
         if playerS then
             local pw = playerS.playerCastbarWidth or 0
@@ -2280,7 +1794,6 @@ EllesmereUI.RegisterMigration({
             end
         end
 
-        -- Resolve target/focus castbar auto-width
         for _, unitKey in ipairs({ "target", "focus" }) do
             local s = uf[unitKey]
             if s then
@@ -2291,7 +1804,7 @@ EllesmereUI.RegisterMigration({
             end
         end
 
-        -- Set default unlock anchors for cast bars that have no position and no anchor
+        -- Default unlock anchors only for cast bars with no position and no anchor.
         if anchors then
             local CASTBAR_DEFAULTS = {
                 { key = "playerCastbar", target = "player" },
@@ -2416,13 +1929,11 @@ EllesmereUI.RegisterMigration({
             for k, v in pairs(t) do c[k] = DCopy(v) end
             return c
         end
-        -- Copy the user's old shared overrides into BOTH new tables so each
-        -- mini renders identically to before. Overwrite unconditionally:
-        -- totPet only exists on un-migrated pre-split data, so any
-        -- targettarget/focustarget already present here are default-merge
-        -- artifacts (e.g. from an import's DeepMergeDefaults), never
-        -- user-authored. Deleting totPet afterward makes this a no-op on
-        -- re-run regardless of the per-profile migration flag.
+        -- Copies old shared overrides into BOTH new tables so each mini renders
+        -- identically. Overwrites unconditionally: totPet only exists pre-split, so
+        -- any targettarget/focustarget present are default-merge artifacts (e.g.
+        -- an import's DeepMergeDefaults), never user-authored. Deleting totPet
+        -- after makes re-runs a no-op regardless of the flag.
         uf.targettarget = DCopy(tp)
         uf.focustarget  = DCopy(tp)
         uf.totPet = nil
@@ -2437,15 +1948,12 @@ EllesmereUI.RegisterMigration({
         local uf = ctx.profile.addons and ctx.profile.addons.EllesmereUIUnitFrames
         local b = type(uf) == "table" and uf.boss
         if type(b) ~= "table" then return end
-        -- Simple Debuff Display defaults ON ("left"), and while it is on the
-        -- renderer reads the simple* text keys -- which DeepMergeDefaults
-        -- fills with false/14 on a profile predating them. A customized
-        -- regular debuff/buff text size stays stored but is never read, so
-        -- the user sees hidden text (or 14) instead of their size. Seed the
-        -- simple keys from the regular ones BEFORE the merge masks them.
-        -- The regular defaults (10 / false) act as the "was it customized"
-        -- sentinels; StripDefaults nils default-equal values at logout, so a
-        -- stored value is always a genuine customization.
+        -- Simple Debuff Display defaults ON ("left"); renderer reads simple* text
+        -- keys, which DeepMergeDefaults fills false/14 on profiles predating them,
+        -- so a customized regular size stays stored but unread. Seed simple keys
+        -- from regular ones before the merge masks them -- regular defaults
+        -- (10/false) are the "was it customized" sentinels, since StripDefaults
+        -- nils default-equal values.
         if b.simpleDebuffCooldownTextSize == nil
             and type(b.debuffCooldownTextSize) == "number" and b.debuffCooldownTextSize ~= 10 then
             b.simpleDebuffCooldownTextSize = b.debuffCooldownTextSize
@@ -2468,9 +1976,8 @@ EllesmereUI.RegisterMigration({
     scope       = "global",
     description = "Preserve disabled default for existing users when flipping themedCharacterSheet to default-on.",
     body = function(ctx)
-        -- Existing users who never touched the toggle have nil (old default =
-        -- disabled). Stamp false so the new nil-means-enabled logic doesn't
-        -- flip them on. Users who already set true/false keep their value.
+        -- nil = never touched (old default = disabled): stamp false so the new
+        -- nil-means-enabled logic can't flip them on. Explicit values are kept.
         if ctx.db.themedCharacterSheet == nil then
             ctx.db.themedCharacterSheet = false
         end
@@ -2478,16 +1985,10 @@ EllesmereUI.RegisterMigration({
 })
 
 -------------------------------------------------------------------------------
---  Growth direction independent of anchoring (v7.7.1)
---
---  Previously, anchoring an element cleared its growDirection and the grow
---  button was disabled while anchored. Now growth is independent: the user
---  can set any orientation-appropriate direction while anchored. This
---  migration stamps an explicit growDirection on every anchored CDM/AB bar
---  so the new code (which no longer clears growth on anchor) preserves the
---  exact same visual layout existing users had.
---
---  Mapping: anchor side -> growth direction (orientation-aware)
+--  Growth direction independent of anchoring
+--  Anchoring no longer clears growDirection; stamp an explicit value on every
+--  anchored CDM/AB bar so existing layouts stay visually identical. Anchor side
+--  -> growth direction mapping is orientation-aware:
 --    Horizontal: LEFT->LEFT, RIGHT->RIGHT, TOP->CENTER, BOTTOM->CENTER
 --    Vertical:   TOP->UP, BOTTOM->DOWN, LEFT->CENTER, RIGHT->CENTER
 -------------------------------------------------------------------------------
@@ -2502,10 +2003,8 @@ EllesmereUI.RegisterMigration({
         local HORIZ_MAP = { LEFT = "LEFT", RIGHT = "RIGHT", TOP = "CENTER", BOTTOM = "CENTER" }
         local VERT_MAP  = { TOP = "UP", BOTTOM = "DOWN", LEFT = "CENTER", RIGHT = "CENTER" }
 
-        -- CDM bars: always set CENTER. CDM bars previously always had nil
-        -- growDirection when anchored (the old code cleared it). nil = CENTER
-        -- for CDM. Setting CENTER explicitly preserves the exact same behavior
-        -- and avoids triggering edge preservation for bars with no growEdge data.
+        -- CDM bars: always CENTER (nil meant CENTER for CDM), so the explicit stamp
+        -- preserves behavior and avoids edge preservation on bars with no growEdge.
         local cdm = ctx.profile.addons and ctx.profile.addons.EllesmereUICooldownManager
         local cdmBars = cdm and cdm.cdmBars and cdm.cdmBars.bars
         if cdmBars then
@@ -2517,8 +2016,7 @@ EllesmereUI.RegisterMigration({
                 end
             end
         end
-        -- Note: growEdge promotion to direct edge positions is handled by
-        -- the cdm_clear_stale_growedge_v1 migration (runs after this one).
+        -- growEdge promotion is handled by cdm_clear_stale_growedge_v1, run after.
 
         -- Action bars
         local ab = ctx.profile.addons and ctx.profile.addons.EllesmereUIActionBars
@@ -2547,12 +2045,10 @@ EllesmereUI.RegisterMigration({
 })
 
 -------------------------------------------------------------------------------
--- Convert CDM bar positions from CENTER+growEdge format to direct edge format.
--- Positions are now stored using the growth-edge anchor directly (LEFT for
--- RIGHT-grow, etc.) so SetSize naturally preserves the fixed edge without any
--- post-resize re-anchoring. If growEdge exists, promote its values to the
--- primary position fields. If not, leave as-is (CENTER-grow bars or bars that
--- were never positioned in unlock mode with a non-CENTER direction).
+-- Converts CDM bar positions from CENTER+growEdge to direct edge format:
+-- positions store the growth-edge anchor directly (LEFT for RIGHT-grow etc.) so
+-- SetSize preserves the fixed edge with no re-anchoring; growEdge is promoted
+-- into the primary fields, everything else stays as-is.
 -------------------------------------------------------------------------------
 EllesmereUI.RegisterMigration({
     id          = "cdm_clear_stale_growedge_v1",
@@ -2565,26 +2061,21 @@ EllesmereUI.RegisterMigration({
         for _, pos in pairs(cdmPositions) do
             local ge = pos.growEdge
             if ge and ge.anchor and ge.x and ge.y then
-                -- Promote growEdge to primary position
                 pos.point = ge.anchor
                 pos.x = ge.x
                 pos.y = ge.y
                 pos.growEdge = nil
             elseif ge then
-                -- Incomplete growEdge, just remove it
-                pos.growEdge = nil
+                pos.growEdge = nil   -- incomplete: drop it
             end
         end
     end,
 })
 
 -------------------------------------------------------------------------------
--- Replace the CDM "Anchor First Row" boolean with the rowGrowDirection enum.
---
--- anchorFirstRow pinned the leading perpendicular edge (TOP on horizontal
--- bars, LEFT on vertical bars), i.e. extra rows grew downward/rightward.
--- The equivalent enum values are "DOWN" (horizontal) / "RIGHT" (vertical);
--- unset stays unset (centered growth, the default for both models).
+-- Replaces the CDM "Anchor First Row" boolean with the rowGrowDirection enum.
+-- anchorFirstRow pinned the leading perpendicular edge (TOP horizontal, LEFT
+-- vertical), equivalent to "DOWN"/"RIGHT"; unset stays unset (centered growth default).
 -------------------------------------------------------------------------------
 EllesmereUI.RegisterMigration({
     id          = "cdm_row_grow_direction_v1",
@@ -2606,9 +2097,8 @@ EllesmereUI.RegisterMigration({
 })
 
 -------------------------------------------------------------------------------
--- Migrate per-profile secondary threshold settings into the new thresholdSpecs
--- array. If the user had thresholdEnabled, create an "All Specs" entry with
--- their existing threshold and tick values. If disabled, leave empty.
+-- Migrates per-profile secondary threshold settings into thresholdSpecs:
+-- thresholdEnabled becomes an "All Specs" entry carrying existing values; disabled leaves array empty.
 -------------------------------------------------------------------------------
 EllesmereUI.RegisterMigration({
     id          = "resource_bars_threshold_specs_v1",
@@ -2618,8 +2108,7 @@ EllesmereUI.RegisterMigration({
         local erb = ctx.profile.addons and ctx.profile.addons.EllesmereUIResourceBars
         local sec = erb and erb.secondary
         if not sec then return end
-        -- Already migrated
-        if sec.thresholdSpecs then return end
+        if sec.thresholdSpecs then return end   -- already migrated
         if sec.thresholdEnabled then
             sec.thresholdSpecs = {
                 {
@@ -2726,11 +2215,9 @@ EllesmereUI.RegisterMigration({
     description = "Preserve autoOpenContainers for existing users after default changed from on to off.",
     body = function(ctx)
         local db = ctx.db
-        -- Existing users ONLY. On a fresh install (or right after a factory
-        -- reset) the DB has no profiles yet at early-migration time, and the
-        -- key is nil because the user is NEW -- not because they predate the
-        -- default flip. Without this gate the migration fired on first
-        -- install and enabled Auto Open Containers against the OFF default.
+        -- Existing users ONLY: on fresh install/factory reset no profiles exist yet
+        -- at early-migration time, so nil here means NEW not "predates the flip" --
+        -- without this gate a first install would get Auto Open Containers turned ON.
         if not (db.profiles and next(db.profiles)) then return end
         if db.autoOpenContainers == nil then
             db.autoOpenContainers = true
@@ -2790,19 +2277,17 @@ EllesmereUI.RegisterMigration({
             end
         end
 
-        -- (The Bags sync enable that used to live here moved into the
-        -- mirror-group reset migration below, which seeds the default
-        -- Bags group after wiping the old-format sync links.)
+        -- The Bags sync enable lives in the mirror-group reset migration below,
+        -- which seeds the Bags group after wiping the old-format sync links.
     end,
 })
 
--- The Bags "Default Open to OneBag" boolean became a three-way "Default Bag
--- Type" dropdown (all / onebag / multibag). Seed the new key from the legacy
--- boolean so existing users keep their OneBag default, then drop the old key.
--- Runs AFTER bags_to_profile_v1 (registered above) so the legacy key already
--- lives in the per-profile bags table. Imported profiles skip this migration
--- (they inherit migration flags), so the import path forward-copies the legacy
--- key in ApplyProfileData (EllesmereUI_Profiles.lua) before DeepMergeDefaults.
+-- The Bags "Default Open to OneBag" boolean became a three-way "Default Bag Type"
+-- dropdown (all / onebag / multibag): seed the new key from the legacy boolean,
+-- then drop it. Runs AFTER bags_to_profile_v1 so the legacy key already lives in
+-- the per-profile bags table. Imported profiles inherit migration flags and skip
+-- this, so ApplyProfileData (EllesmereUI_Profiles.lua) forward-copies the legacy
+-- key before DeepMergeDefaults.
 EllesmereUI.RegisterMigration({
     id          = "bags_default_bag_type_v1",
     scope       = "profile",
@@ -2816,15 +2301,11 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
--- Guardian Druid Ironfur bar ships ON by default (DEFAULTS.secondary.guardianIronfurBar
--- = true) so brand-new installs get it out of the box. Existing users, however,
--- are used to Guardian having no class resource bar, so we pin every profile that
--- already exists to OFF. This runs at parent ADDON_LOADED, BEFORE any child NewDB
--- has populated EllesmereUIDB.profiles -- so the only profiles present here were
--- loaded from SavedVariables (i.e. existing users). Fresh installs have no profiles
--- yet, so nothing is pinned and they inherit the ON default. Global scope means it
--- runs exactly once: profiles created later (including by existing users) also
--- inherit the new ON default.
+-- Guardian Druid Ironfur bar ships ON (DEFAULTS.secondary.guardianIronfurBar=true)
+-- for new installs; existing users expect no class resource bar, so pin every
+-- already-existing profile OFF. Runs at parent ADDON_LOADED BEFORE any child NewDB
+-- populates EllesmereUIDB.profiles, so only SavedVariables profiles (existing
+-- users) are present; fresh installs have none and inherit ON (global scope runs once).
 EllesmereUI.RegisterMigration({
     id          = "resourcebars_guardian_ironfur_existing_off_v1",
     scope       = "global",
@@ -2833,8 +2314,8 @@ EllesmereUI.RegisterMigration({
         local db = ctx.db
         if not db or not db.profiles then return end
         for _, profData in pairs(db.profiles) do
-            -- Only touch profiles that already hold real child-addon data, so a
-            -- stray empty/stub profile can't be mistaken for an existing user's.
+            -- Only profiles with real child-addon data: an empty/stub profile
+            -- isn't an existing user's.
             if type(profData) == "table" and type(profData.addons) == "table"
                and next(profData.addons) then
                 local rb = profData.addons.EllesmereUIResourceBars
@@ -2851,14 +2332,9 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
--- Prot Warrior Ignore Pain bar ships ON by default (DEFAULTS.secondary.
--- protIgnorePainBar = true) so brand-new installs get it out of the box.
--- Existing users are used to Prot having no class resource bar, so pin every
--- profile that already exists to OFF. Same mechanism as the Guardian Ironfur
--- migration above: runs at parent ADDON_LOADED before any child NewDB populates
--- EllesmereUIDB.profiles, so only existing users' profiles are present; fresh
--- installs have none and inherit the ON default. Global scope = runs once;
--- future profiles inherit ON too.
+-- Prot Warrior Ignore Pain bar ships ON (DEFAULTS.secondary.protIgnorePainBar=true)
+-- for new installs; existing users expect no class resource bar, so pin every
+-- already-existing profile OFF. Same mechanism as the Guardian Ironfur migration above.
 EllesmereUI.RegisterMigration({
     id          = "resourcebars_protwar_ignorepain_existing_off_v1",
     scope       = "global",
@@ -2867,8 +2343,8 @@ EllesmereUI.RegisterMigration({
         local db = ctx.db
         if not db or not db.profiles then return end
         for _, profData in pairs(db.profiles) do
-            -- Only touch profiles that already hold real child-addon data, so a
-            -- stray empty/stub profile can't be mistaken for an existing user's.
+            -- Only profiles with real child-addon data: an empty/stub profile
+            -- isn't an existing user's.
             if type(profData) == "table" and type(profData.addons) == "table"
                and next(profData.addons) then
                 local rb = profData.addons.EllesmereUIResourceBars
@@ -2885,16 +2361,10 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
--- Unit Frame cast bars now count the spell icon as part of the bar's width by
--- default (DEFAULTS.player.playerCastbarIconInWidth / *.castbarIconInWidth =
--- true), so fresh installs get the icon inside the bar footprint out of the box.
--- Existing users are used to the icon sitting to the LEFT of the bar (outside
--- its width), so pin every already-existing profile to OFF. Same mechanism as
--- the Guardian Ironfur migration: runs at parent ADDON_LOADED before any child
--- NewDB populates EllesmereUIDB.profiles, so only existing users' profiles are
--- present; fresh installs have none and inherit the ON default. Global scope =
--- runs once; future profiles inherit ON too. Nameplates have their own cast bar
--- settings and are intentionally NOT touched.
+-- Unit Frame cast bars count the spell icon as part of the bar's width by default
+-- (*.castbarIconInWidth = true). Existing users expect the icon OUTSIDE the width
+-- (to the LEFT), so pin every already-existing profile OFF, same mechanism as the
+-- Guardian Ironfur migration. Nameplates have their own setting, NOT touched.
 EllesmereUI.RegisterMigration({
     id          = "uf_castbar_icon_in_width_existing_off_v1",
     scope       = "global",
@@ -2903,8 +2373,8 @@ EllesmereUI.RegisterMigration({
         local db = ctx.db
         if not db or not db.profiles then return end
         for _, profData in pairs(db.profiles) do
-            -- Only touch profiles that already hold real child-addon data, so a
-            -- stray empty/stub profile can't be mistaken for an existing user's.
+            -- Only profiles with real child-addon data: an empty/stub profile
+            -- isn't an existing user's.
             if type(profData) == "table" and type(profData.addons) == "table"
                and next(profData.addons) then
                 local uf = profData.addons.EllesmereUIUnitFrames
@@ -2927,23 +2397,16 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
--- Profile sync rebuilt as two-way mirror groups: a module's sync set is now a
--- membership group (the configuring profile is written into it) and only
--- group members push their data at logout/switch. Old sets stored receivers
--- only, with no record of who the sender was, so they cannot be translated
--- reliably -- and under the old code ANY active profile pushed into them,
--- which could silently overwrite profiles with data from an unrelated one.
--- Reset every sync link; profile data itself is untouched. Users re-enable
--- sync from the sidebar sync icons, which write the new group format.
--- EXCEPTION: Bags keeps syncing by default -- but ONLY for the profiles
--- that were in the old Bags set. Those members were already receiving bags
--- pushes on every logout, so mirroring exactly them adds zero new overwrite
--- exposure. Profiles OUTSIDE the old set may hold deliberately divergent
--- bags data and must stay out: imports were always stripped from sync sets
--- (preset imports included), and users could manually unsync Bags in the
--- old popup. Never seed those.
--- Registered LAST on purpose: it must run after the older Bags data-move
--- migration so accounts jumping many versions end up in the new shape.
+-- Profile sync is now two-way mirror groups: a module's sync set is a membership group
+-- (configuring profile is written into it) and only members push at logout/switch. Old
+-- sets stored receivers only with no record of the sender, so they can't translate
+-- reliably and any active profile pushed into them, silently overwriting an unrelated
+-- profile. Reset every sync link (profile data untouched); users re-enable via the
+-- sidebar sync icons, which write the new format. EXCEPTION: Bags keeps syncing, but
+-- ONLY for profiles in the old Bags set -- they already received bags pushes every
+-- logout, so mirroring exactly them adds zero new overwrite exposure, while profiles
+-- outside it may hold deliberately divergent data. Registered LAST so it runs after the
+-- older Bags data-move migration, landing multi-version jumps in the new shape.
 EllesmereUI.RegisterMigration({
     id          = "sync_reset_for_mirror_groups_v2",
     scope       = "global",
@@ -2951,8 +2414,8 @@ EllesmereUI.RegisterMigration({
     body = function(ctx)
         local db = ctx.db
         if not db then return end
-        -- Capture the old Bags membership before wiping. Legacy boolean
-        -- format (pre per-profile sets) meant "all profiles".
+        -- Capture old Bags membership before wiping; the legacy boolean format
+        -- (pre per-profile sets) meant "all profiles".
         local oldBags = db.syncedModules and db.syncedModules.EllesmereUIBags
         local carried, count = {}, 0
         if db.profiles then
@@ -2977,13 +2440,10 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
--- Custom colours are gaining an opt-in "Save Colors Per Profile" mode. Seed every
--- existing profile's customColors from the current account-wide table so that, the
--- moment the mode is enabled, every profile starts with identical colours (no
--- jarring change). The global EllesmereUIDB.customColors is left intact and stays
--- the source of truth while the mode is off. One-time, account-wide overwrite --
--- prior per-profile customColors snapshots were inert (never restored) so there is
--- nothing meaningful to preserve.
+-- Seeds every profile's customColors from the account-wide table so the opt-in
+-- "Save Colors Per Profile" mode starts identical everywhere. Global
+-- EllesmereUIDB.customColors stays the source of truth while the mode is off.
+-- One-time overwrite: prior per-profile snapshots were inert, nothing is lost.
 EllesmereUI.RegisterMigration({
     id          = "global_colors_per_profile_seed_v1",
     scope       = "global",
@@ -3001,14 +2461,12 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
--- Secondary Stats + FPS counter moved off the account-wide EllesmereUIDB root
--- into the per-profile QoL blob (folder EllesmereUIQoL) so they travel with
--- profiles, export/import, and module sync (see EllesmereUI.QoLExtrasGet/Set in
--- EllesmereUIQoL.lua). Seed EVERY existing profile from the old account-wide
--- values -- DeepCopy so each profile owns independent color/position tables --
--- so nobody loses their current setup on any profile. The root keys are left in
--- place as the read-time fallback for profiles created later (and as a dormant
--- backup). Per-key nil guard keeps it safe to re-run.
+-- Secondary Stats + FPS counter moved from the account-wide EllesmereUIDB root
+-- into the per-profile QoL blob (EllesmereUIQoL) so they travel with profiles,
+-- export/import and module sync (see EllesmereUI.QoLExtrasGet/Set in
+-- EllesmereUIQoL.lua). Seeds EVERY existing profile from the old
+-- values, DeepCopy so each owns independent color/position tables. Root keys
+-- stay as the read-time fallback + dormant backup; per-key nil guard = re-run safe.
 EllesmereUI.RegisterMigration({
     id          = "qol_secondary_stats_fps_per_profile_v1",
     scope       = "global",
@@ -3045,14 +2503,12 @@ EllesmereUI.RegisterMigration({
 })
 
 -- "Disable Slug Outline" (neverShowSlug) and "Outline Icon Text" (outlineIconText)
--- moved off the account-wide EllesmereUIDB root into the per-profile fonts DB so
--- they travel with profile export/import and module sync. Seed the live working
--- fonts table (active profile) AND every EXISTING profile fonts snapshot from the
--- old account-wide values so nobody's look changes on any profile. Profiles with
--- no fonts snapshot are left untouched -- creating a partial one would reset their
--- global font / outline mode on the next switch; their getter fallback covers the
--- read side. The root keys stay in place as the read-time fallback (getters in
--- EllesmereUI.lua) and a dormant backup. Per-key nil guard keeps it safe to re-run.
+-- moved from account-wide root into the per-profile fonts DB for export/import +
+-- module sync. Seeds the live working fonts table (active profile) AND every
+-- EXISTING profile fonts snapshot; profiles with NO snapshot are left untouched
+-- (a partial one would reset global font/outline mode next switch; getter
+-- fallback covers reads). Root keys stay as that fallback (getters in
+-- EllesmereUI.lua) + dormant backup; nil guard = re-run safe.
 EllesmereUI.RegisterMigration({
     id          = "fonts_slug_iconoutline_per_profile_v1",
     scope       = "global",
@@ -3074,8 +2530,7 @@ EllesmereUI.RegisterMigration({
                 fonts.outlineIconText = t
             end
         end
-        -- Live working copy = what a full export of the active profile snapshots
-        -- via DeepCopy(GetFontsDB()).
+        -- Live working copy = what a full export snapshots via DeepCopy(GetFontsDB()).
         seed(db.fonts)
         -- Existing stored snapshots = so exporting a non-active profile carries it.
         if type(db.profiles) == "table" then
@@ -3093,11 +2548,11 @@ EllesmereUI.RegisterMigration({
     body        = function(ctx)
         local db = ctx.db
         if not db then return end
-        -- customTooltips is now tooltip-only, but at migration time it still holds
-        -- the OLD combined-master value, so seed the split-out keys from it once.
+        -- customTooltips is now tooltip-only, but at migration time still holds the
+        -- OLD combined-master value, so seed the split-out keys from it once.
         local master = (db.customTooltips ~= false)
-        -- The old game-menu / group-finder defaults ANDed in the queue-popup state
-        -- (a nil queue popup counted as on), matching the live default formula.
+        -- Old game-menu/group-finder defaults ANDed in queue-popup state (nil
+        -- queue popup counted as on), matching the live default formula.
         local queueNotFalse = (db.reskinQueuePopup ~= false)
         if db.reskinPopupsMenus == nil then db.reskinPopupsMenus = master end
         if db.reskinQueuePopup  == nil then db.reskinQueuePopup  = master end
@@ -3112,13 +2567,10 @@ EllesmereUI.RegisterMigration({
     scope       = "profile",
     description = "Rename the saved 'kringel-diamonds' bar texture value to its replacement 'blinkii-diamonds' across Unit Frames, Raid Frames, Nameplates, Resource Bars, and Damage Meters.",
     body = function(ctx)
-        -- The kringel-diamonds texture was replaced by blinkii-diamonds (same slot,
-        -- new art). The dropdown value is the texture KEY string, stored under
-        -- different fields per module (healthBarTexture, general.barTexture,
-        -- castBar.texture, per-unit overrides, dm.barTexture). "kringel-diamonds"
-        -- only ever appears as a texture-selection value, so a recursive value swap
-        -- over each module's saved data catches every storage location and is
-        -- idempotent (nothing left to match on a second pass).
+        -- Dropdown value is the texture KEY string, stored under different fields
+        -- per module (healthBarTexture, general.barTexture, castBar.texture, etc).
+        -- "kringel-diamonds" appears only as a texture value, so a recursive swap
+        -- catches every location.
         local addons = ctx.profile.addons
         if type(addons) ~= "table" then return end
 
@@ -3159,13 +2611,11 @@ EllesmereUI.RegisterMigration({
     scope       = "profile",
     description = "Convert the minimap 'Show Coordinates Below Map' toggle into coordsMode/coordsPosition dropdown values, preserving each user's current coordinate behavior.",
     body = function(ctx)
-        -- Only profiles that have used the Minimap module are migrated; fresh
-        -- installs take the new defaults (always / topLeft). The addons key
-        -- survives the logout default-strip even when every minimap setting is
-        -- default (empty table), so an all-default existing user still lands
-        -- on hover -- their old effective behavior. Runs AFTER
-        -- v66_basics_split_data (registration order), so pre-split Basics
-        -- minimap data has already been moved to this path.
+        -- Only profiles that have used the Minimap module migrate; fresh installs
+        -- take the new defaults (always/topLeft). The addons key survives the
+        -- logout default-strip even when every setting is default, so an
+        -- all-default existing user still lands on hover (old behavior). Runs
+        -- AFTER v66_basics_split_data, so pre-split data already lives here.
         local emm = ctx.profile.addons and ctx.profile.addons.EllesmereUIMinimap
         if type(emm) ~= "table" then return end
         local mm = emm.minimap
@@ -3193,12 +2643,9 @@ EllesmereUI.RegisterMigration({
     scope       = "profile",
     description = "Convert the minimap Clock Inside / Zone Inside toggles into clockMode/locationMode dropdown values (none/inside/edge). Elements hidden via the removed Show Blizzard Elements Zone/Clock checkboxes become 'none'. Replaces the never-shipped _v1 (deleted).",
     body = function(ctx)
-        -- Same gate as minimap_coords_mode_position_v1: only profiles that have
-        -- used the Minimap module migrate; fresh installs take the new defaults
-        -- (inside / inside). Stored data is default-stripped, so absent keys
-        -- mean the old defaults: showClock defaulted ON (only false is ever
-        -- stored), hideZoneText defaulted OFF (only true is ever stored),
-        -- clockInside defaulted ON, zoneInside defaulted OFF.
+        -- Same gate as minimap_coords_mode_position_v1; fresh installs take the new
+        -- defaults (inside/inside). Data is default-stripped, so absent keys mean
+        -- old defaults: showClock ON, hideZoneText OFF, clockInside ON, zoneInside OFF.
         local emm = ctx.profile.addons and ctx.profile.addons.EllesmereUIMinimap
         if type(emm) ~= "table" then return end
         local mm = emm.minimap
@@ -3206,8 +2653,8 @@ EllesmereUI.RegisterMigration({
             mm = {}
             emm.minimap = mm
         end
-        -- Hidden via the removed Show Blizzard Elements checkboxes wins, even
-        -- over a mode already stamped by the unshipped v1 pass (dev/testers).
+        -- Hidden via the removed Show Blizzard Elements checkboxes wins over any
+        -- already-stamped mode.
         if mm.showClock == false then
             mm.clockMode = "none"
         elseif mm.clockMode == nil then
@@ -3226,9 +2673,8 @@ EllesmereUI.RegisterMigration({
     scope       = "profile",
     description = "Convert the minimap Show Omnium Folio toggle into the omniumFolioMode dropdown (never/hover/always), preserving each user's current visibility.",
     body = function(ctx)
-        -- Same gate as the other minimap mode migrations: only profiles that
-        -- have used the module migrate; fresh installs take the new default
-        -- (always). Stored data is default-stripped, so only an explicit
+        -- Same gate as the other minimap mode migrations; fresh installs take the
+        -- new default (always). Data is default-stripped, so only an explicit
         -- showOmniumFolio == false is ever present (default was ON).
         local emm = ctx.profile.addons and ctx.profile.addons.EllesmereUIMinimap
         if type(emm) ~= "table" then return end
@@ -3246,34 +2692,27 @@ EllesmereUI.RegisterMigration({
 -------------------------------------------------------------------------------
 --  CDM per-spell settings: tiered-store shape transform
 --
---  OLD shape: barSpells[barKey].spellSettings[sid] = { ... } (bar-scoped; a
---  spell moved to another bar lost its settings and left an orphan behind) plus
---  barSpells[barKey]._syncIconSettings (Sync All Bar Buttons: stamped one
---  spell's whole block onto every other spell on the bar).
+--  OLD: barSpells[barKey].spellSettings[sid], bar-scoped -- a spell moved to
+--  another bar lost its settings and left an orphan; plus
+--  barSpells[barKey]._syncIconSettings (Sync All Bar Buttons stamped one spell's
+--  block onto every other spell on the bar).
 --
---  NEW shape:
---    specProf.spellSettingsCD[sid] / specProf.spellSettingsBuff[sid]
---        per-spell entries, family-scoped, travel with the spell across bars
---    barSpells[barKey].barSettings
---        "Apply to Bar" tier (per spec); seeded from synced bars
---    bd.barSpellSettings (profile-level bar definition; NOT written here)
---        "Apply to Bar (All Specs)" tier, starts empty
+--  NEW: specProf.spellSettingsCD[sid]/.spellSettingsBuff[sid] are per-spell,
+--  family-scoped, travel with the spell across bars; barSpells[barKey].barSettings
+--  is the per-spec "Apply to Bar" tier (seeded from synced bars); bd.barSpellSettings
+--  (profile-level, NOT written here) is "Apply to Bar (All Specs)" and starts empty.
 --
---  Faithfulness rules (nothing changes visually):
---    * Entries move only when the spell is CURRENTLY assigned to the bar the
---      entry lives on (authoritative), or is not visibly assigned anywhere
---      (hidden/removed spells keep their styling for when they return).
---    * Stale orphans for spells now owned by a DIFFERENT bar are dropped --
---      that spell renders default today; adopting the orphan would change it.
---    * Synced bars promote their uniform stamped block to barSettings and drop
---      the per-spell copies that match it. A divergent copy is kept as a
---      per-spell override, with explicit `false` fillers for any seed key it
---      lacks (false is render-equivalent to nil for every settings key) so the
---      new bar tier cannot bleed through a key the spell never had.
+--  Faithfulness (nothing changes visually): entries move only when the spell is
+--  CURRENTLY assigned to the bar the entry lives on, or not visibly assigned
+--  anywhere (hidden spells keep styling for their return); orphans for spells now
+--  owned by a DIFFERENT bar are dropped (that spell renders default today, so
+--  adopting the orphan would change it); synced bars promote their uniform block
+--  to barSettings and drop matching per-spell copies, while a divergent copy is
+--  kept as an override with explicit `false` fillers for any seed key it lacks
+--  (false is render-equivalent to nil) so the bar tier can't bleed through.
 --
---  Shared with the profile-import path so old-format strings imported after
---  this update are transformed immediately (the registered migration also
---  covers them on the next reload -- both are idempotent).
+--  Shared with profile import so old-format strings transform immediately; the
+--  registered migration also covers them next reload (both idempotent).
 -------------------------------------------------------------------------------
 local function CdmFlatSettingsEqual(a, b)
     if type(a) ~= "table" or type(b) ~= "table" then return false end
@@ -3282,11 +2721,11 @@ local function CdmFlatSettingsEqual(a, b)
     return true
 end
 
--- Classify a barSpells bucket key into its settings-family store key.
--- Mirrors the runtime rule (ns.SettingsFamilyKey): only barType "buffs" (and
--- the default "buffs" bar) are buff-family; custom_buff and the ghost bar are
--- not. Stale buckets for deleted bars fall back to a key heuristic -- their
--- entries are orphan candidates at most, so a miss is inert.
+-- Classifies a barSpells bucket key into its settings-family store key.
+-- Mirrors the runtime rule (ns.SettingsFamilyKey): only barType "buffs" (and the
+-- default "buffs" bar) are buff-family; custom_buff and the ghost bar are not.
+-- Stale buckets for deleted bars fall back to a key heuristic -- a miss is inert
+-- (entries are orphan candidates at most).
 local function CdmBarFamilyKey(barKey, barsCfg)
     if barKey == "buffs" then return "spellSettingsBuff" end
     if barKey == "__ghost_cd" then return "spellSettingsCD" end
@@ -3409,20 +2848,16 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
--- Relocate HOSTED-buff per-spell settings from the CD family store into the
--- BUFF family store, for every bar that hosts the buff. Hosted buffs (a buff
--- placed on a CD/utility bar) originally resolved per-spell settings through
--- the host bar's family key (CD); they now resolve the BUFF store, frame-keyed,
--- so the same spellID's cooldown icon can hold independent settings. Without
--- the move, pre-existing hosted-buff settings would silently stop applying.
--- Idempotent: moves only while a CD-store entry exists for a flagged id, and
--- never overwrites keys already present in the BUFF-store entry. (A cooldown
--- twin's own settings under the same id move too -- unsplittable in the old
--- shared-entry shape, and that state was already rendering wrong.)
--- assignedSpells conversion (plain id -> hosted marker) is NOT done here: it
--- needs the live viewer/catalog data to tell the buff and cooldown forms
--- apart, so the options panel normalizes it lazily (EnsureAssignedSpells);
--- rendering handles both shapes in the meantime.
+-- Relocates HOSTED-buff per-spell settings from the CD family store to the BUFF family
+-- store. Hosted buffs (a buff on a CD/utility bar) used to resolve settings through the
+-- host bar's family key (CD); they now resolve the frame-keyed BUFF store, so the same
+-- spellID's cooldown icon holds independent settings -- without the move, hosted-buff
+-- settings silently stop applying. Idempotent: moves only while a CD-store entry exists
+-- for a flagged id, never overwriting keys already in the BUFF entry (a cooldown twin
+-- under the same id moves too: unsplittable in the old shared-entry shape).
+-- assignedSpells conversion (plain id -> hosted marker) is NOT done here: it needs live
+-- viewer/catalog data to tell buff and cooldown forms apart, so the options panel
+-- normalizes it lazily (EnsureAssignedSpells).
 function EllesmereUI.MigrateCdmHostedBuffSettings(specProf)
     if type(specProf) ~= "table" or type(specProf.barSpells) ~= "table" then return end
     local stCD = specProf.spellSettingsCD
@@ -3462,22 +2897,20 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
--- Convert the per-bar "Custom Active State Decimals" (bd.faDecimals*) into the
--- per-spell Threshold Text settings that replaced it. The old bar toggle drove a
--- 1-decimal countdown (+ optional color change) on custom/preset icons' hardcoded
--- timers; the new model stores Threshold Seconds / Threshold Decimals / Threshold
--- Color per spell. For every bar that had the toggle on, each custom spell/item
--- member gets stamped so it renders exactly as before:
+-- Converts the per-bar "Custom Active State Decimals" (bd.faDecimals*) into the
+-- per-spell Threshold Text settings that replaced it: old toggle drove a
+-- 1-decimal countdown (+ optional color) on custom/preset icons' hardcoded
+-- timers; new model stores Threshold Seconds/Decimals/Color per spell. Every
+-- custom spell/item on an opted-in bar is stamped to render as before:
 --  * cd/utility bars: item presets and custom/racial spells stamp the
---    profile-level customActiveStates entry (their menu + Fake-Active engine read
---    that store). Trinket SLOT presets resolve their settings key by the EQUIPPED
---    item at runtime; stamped here only when the inventory API already answers
---    (best effort -- re-arming per trinket is one click).
+--    profile-level customActiveStates entry (menu + Fake-Active engine read it).
+--    Trinket SLOT presets key off the EQUIPPED item at runtime, stamped only
+--    when the inventory API already answers (best effort).
 --  * buff-family bars: custom buffs (cast-timer entries / tagged custom ids)
---    stamp the spec BUFF family store. Blizzard-tracked buffs were never covered
---    by the old toggle, so they are not stamped.
--- The old bd.faDecimals* keys are consumed (removed) in the same pass. Shared
--- with profile import so old-format strings transform immediately.
+--    stamp the spec BUFF family store; Blizzard-tracked buffs are not stamped
+--    (never covered by the old toggle).
+-- Old bd.faDecimals* keys are consumed in the same pass. Shared with profile
+-- import so old-format strings transform immediately.
 function EllesmereUI.MigrateCdmThresholdText(cdm, specProfiles)
     local barsCfg = cdm and cdm.cdmBars and cdm.cdmBars.bars
     if type(barsCfg) ~= "table" then return end
@@ -3553,9 +2986,9 @@ function EllesmereUI.MigrateCdmThresholdText(cdm, specProfiles)
                                         or (type(cdm.customActiveStates) == "table"
                                             and type(cdm.customActiveStates[sid]) == "table"
                                             and (tonumber(cdm.customActiveStates[sid].duration) or 0) > 0) then
-                                        -- Tagged custom spell ids, plus racials or
-                                        -- other injected spells that already carry a
-                                        -- user-defined active state.
+                                        -- Tagged custom ids, plus racials/injected
+                                        -- spells already carrying a user-defined
+                                        -- active state.
                                         StampCas(sid)
                                     end
                                 end
@@ -3594,18 +3027,15 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
--- The default buffs bar's displayed order (sd.buffDisplayOrder) is auto-resynced
--- to Blizzard's current viewer order by ReconcileBuffDisplayOrder unless
--- sd._buffDisplayOrderUserModified is set. The flag arrived together with the
--- live-path reconcile and is only ever written by the options drag-reorder --
--- but before the flag existed, buffDisplayOrder itself was created exclusively
--- by a manual drag, so every pre-existing stable-key array IS a user's
--- hand-arranged order. Stamp the flag so the first live reconcile after
--- updating preserves that order instead of re-sorting it to Blizzard order.
--- Numeric-format legacy arrays are skipped: the reconcile (and the old options
--- build before it) discards that format outright, so there is no order a stamp
--- could preserve. Shared with profile import so orders exported from older
--- builds keep their protection.
+-- ReconcileBuffDisplayOrder auto-resyncs the default buffs bar's displayed order
+-- (sd.buffDisplayOrder) to Blizzard's current viewer order unless
+-- sd._buffDisplayOrderUserModified is set (only options drag-reorder writes that
+-- flag). Before the flag existed, buffDisplayOrder was created solely by a
+-- manual drag, so every pre-existing stable-key array IS hand-arranged: stamp
+-- the flag so the first live reconcile preserves it instead of Blizzard-sorting.
+-- Numeric-format legacy arrays are skipped -- reconcile discards that format
+-- outright, so there's no order to preserve. Shared with profile import so
+-- orders exported from older builds stay protected.
 function EllesmereUI.MigrateCdmBuffOrderUserFlag(specProf)
     local bs = type(specProf) == "table" and type(specProf.barSpells) == "table"
         and specProf.barSpells.buffs
@@ -3624,14 +3054,11 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
--- The Mythic+ Timer's Enemy Forces bar historically shared one bar texture with
--- the main timer bar (both read barTexture / barBgTexture). The Forces bar now
--- has its own enemyBarTexture / enemyBarBgTexture so the two can be styled
--- independently. Seed the new keys from the old shared ones on every existing
--- profile so an existing user's Forces bar looks exactly as before; fresh
--- installs have no profiles here yet and inherit the new "none" default for
--- both. Global scope runs once, and it only seeds when the new key is unset, so
--- a later reset of the Forces texture is respected (not re-seeded each login).
+-- M+ Timer Enemy Forces bar shared barTexture/barBgTexture with the main timer
+-- bar; it now has its own enemyBarTexture/enemyBarBgTexture. Seeds the new keys
+-- from the old shared ones on every existing profile so Forces looks unchanged;
+-- fresh installs inherit the "none" default. Runs once, only seeds when the new
+-- key is unset, so a later reset is respected.
 EllesmereUI.RegisterMigration({
     id          = "mythictimer_split_forces_bar_texture_v1",
     scope       = "global",
@@ -3660,19 +3087,15 @@ EllesmereUI.RegisterMigration({
     scope       = "profile",
     description = "Zero stale powerBorderSize on attached power bars so the new attached divider does not appear uninvited for users who set a border size while detached and later reattached.",
     body = function(ctx)
-        -- Before attached dividers existed, the Border Size slider was
-        -- disabled while the bar was attached, so a stored size > 0 with an
-        -- attached position is always a leftover from a detached phase --
-        -- never a divider the user asked for. Clearing it back to the
-        -- default (0 = off) keeps frames looking identical across the
-        -- update; opting into the divider is one slider drag.
-        -- Positions other than above/below are untouched: detached keeps
-        -- its full border, and "none" renders nothing either way.
+        -- Border Size slider was disabled while attached, so a stored size > 0 with
+        -- an attached position is always a leftover from a detached phase, never a
+        -- divider the user asked for; clear to default (0=off). Positions other
+        -- than above/below are untouched (detached keeps its full border; "none"
+        -- renders nothing either way).
         local uf = ctx.profile.addons and ctx.profile.addons.EllesmereUIUnitFrames
         if type(uf) ~= "table" then return end
-        -- Units whose powerPosition DEFAULT is attached ("below"); for them a
-        -- missing powerPosition key still means attached. The mini frames
-        -- default to "none", so a missing key there renders no border.
+        -- Units whose powerPosition DEFAULT is attached ("below"): a missing key
+        -- still means attached. Mini frames default to "none" (missing = no border).
         local attachedDefault = { player = true, target = true, focus = true, boss = true }
         for unitKey, s in pairs(uf) do
             if type(s) == "table"
@@ -3687,17 +3110,12 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
--- Shared body: convert collided-buff cooldownID claims (bs.assignedBuffCdIDs,
--- a side-table with no order) into cd-claim markers stored inside
--- assignedSpells. Naturally idempotent: assignedBuffCdIDs is cleared after
--- migrating, so a second run finds nothing per bar. Also called at
--- profile-import time (EllesmereUI_Profiles.lua) so old export strings
--- carrying the side-table keep their claims.
---
--- Mirrors ns.CD_CLAIM_MARKER_BASE / ns.CdClaimMarker in
--- EllesmereUICooldownManager.lua (-(3000000000 + cooldownID)). Inlined
--- rather than called: the CDM child addon loads AFTER the login migration
--- runs, so its ns table isn't available yet.
+-- Shared body: converts collided-buff cooldownID claims (bs.assignedBuffCdIDs, an
+-- unordered side-table) into cd-claim markers inside assignedSpells. Idempotent:
+-- assignedBuffCdIDs cleared after migrating. Also called at profile-import time
+-- so old export strings keep their claims. Mirrors ns.CD_CLAIM_MARKER_BASE /
+-- ns.CdClaimMarker in the CDM addon (-(3000000000 + cooldownID)); inlined rather
+-- than called because CDM loads AFTER the login migration runs.
 function EllesmereUI.MigrateCdmBuffCdClaims(specProf)
     local CD_CLAIM_MARKER_BASE = 3000000000
     local barSpells = type(specProf) == "table" and specProf.barSpells
@@ -3706,8 +3124,7 @@ function EllesmereUI.MigrateCdmBuffCdClaims(specProf)
         if type(bs) == "table" and type(bs.assignedBuffCdIDs) == "table"
            and next(bs.assignedBuffCdIDs) then
             if not bs.assignedSpells then bs.assignedSpells = {} end
-            -- Dedup against any marker already present (e.g. a prior
-            -- partial run interrupted by an error).
+            -- Dedup against any marker already present (e.g. an interrupted run).
             local present = {}
             for _, id in ipairs(bs.assignedSpells) do
                 if type(id) == "number" and id <= -CD_CLAIM_MARKER_BASE then
@@ -3752,24 +3169,17 @@ migrationFrame:SetScript("OnEvent", function(self, event, addonName)
     self:UnregisterEvent("ADDON_LOADED")
 
     ---------------------------------------------------------------------------
-    --  Boot sequence (runs at parent ADDON_LOADED, before child addons init)
-    --  The legacy beta-wipe (PerformResetWipe/StampResetVersion) has been
-    --  removed entirely -- it was the nuclear _resetVersion purge whose
-    --  fresh-vs-old heuristic was fragile (and looped on standalone renames).
-    --  Only the registered-migration runner remains.
-    --
-    --  RunRegisteredMigrations: runs every migration registered via
-    --  EllesmereUI.RegisterMigration. The runner walks each migration and
-    --  iterates the appropriate scope (global/profile/specProfile),
-    --  pcall-wrapping each body and stamping per-scope flags on success.
+    --  Boot sequence (runs at parent ADDON_LOADED, before child addons init).
+    --  RunRegisteredMigrations walks every registered migration, iterating the
+    --  right scope (global/profile/specProfile), pcall-wrapping each body and
+    --  stamping per-scope flags on success.
     ---------------------------------------------------------------------------
     EllesmereUI.RunRegisteredMigrations()
 
-    -- DM: fontSize was split into leftFontSize + rightFontSize.
-    -- DeepMergeDefaults fills new keys with default 11 before the runtime
-    -- fallback chain (c.leftFontSize or c.fontSize or 11) can reach the old
-    -- value, so existing users who changed fontSize lose their setting.
-    -- Copy the old value forward before defaults merge overwrites it.
+    -- DM fontSize split into leftFontSize + rightFontSize. DeepMergeDefaults fills
+    -- the new keys with 11 before the runtime fallback (c.leftFontSize or
+    -- c.fontSize or 11) can reach the old value, losing a changed fontSize: copy
+    -- it forward before the defaults merge overwrites it.
     if EllesmereUIDB and EllesmereUIDB.profiles then
         for _, profData in pairs(EllesmereUIDB.profiles) do
             local dm = profData.addons
@@ -3810,32 +3220,28 @@ end)
 --------------------------------------------------------------------------------
 --  RESOURCE BARS: Simple/Advanced -> Spec Overrides migration
 --
---  Retires the Resource Bars Advanced per-spec mode (advancedSpecs copy-on-
---  unsync sections) and the per-spec bar enables (health/primary/secondary
---  .disabledSpecs) by converting them into Spec Overrides groups + entries:
---    * one card per advanced spec (named after the spec, class icon), holding
---      one entry per section whose copy DIFFERS from the Simple config --
---      only differing leaf keys become overrides.
---    * one card per per-spec enable ("Class Resource" / "Power Bar" /
---      "Health Bar") for specs disabled via the Simple disabledSpecs picker.
---  Threshold data (thresholdSpecs / tickValues / thresholdFormMode) is NEVER
---  diffed into overrides. When an advanced copy carries threshold edits that
---  differ from Simple, those spec-scoped entries are retargeted to the spec
---  and merged into the Simple threshold list (the threshold system is
---  natively per-spec via entry.specIDs), preserving resolution behavior.
---  The raw advanced data survives in rb.advancedSpecsBackup for later cleanup.
+--  Retires the RB Advanced per-spec mode (advancedSpecs copy-on-unsync sections)
+--  and per-spec bar enables (health/primary/secondary .disabledSpecs), turning
+--  them into Spec Overrides groups + entries: one card per advanced spec (spec
+--  name, class icon) holding one entry per section whose copy DIFFERS from
+--  Simple (only differing leaf keys become overrides), plus one card per
+--  per-spec enable ("Class Resource"/"Power Bar"/"Health Bar") for specs
+--  disabled via the Simple disabledSpecs picker. Threshold data (thresholdSpecs/
+--  tickValues/thresholdFormMode) is NEVER diffed into overrides: differing
+--  threshold entries are retargeted to the spec and merged into the Simple list
+--  instead (natively per-spec via entry.specIDs), preserving resolution
+--  behavior. Raw advanced data survives in rb.advancedSpecsBackup for cleanup.
 --
---  CRITICAL BASIS: stored profile tables are SPARSE (Lite defaults are merged
---  at NewDB time, not persisted) while unsync copies are FAT snapshots of the
---  merged runtime table. All comparisons therefore run over DEFAULTS-MERGED
---  effective values, and entries store effective scalars -- raw-table diffs
---  mis-classify real edits as drift and strip runtime-injected defaults.
---  This requires the RB DEFAULTS table, so the migration runs from Resource
---  Bars' OnInitialize (which exports EllesmereUI._RBSectionDefaults and then
---  walks every stored profile) AND directly on imported profile data (old
---  export strings), self-guarded by a flag on the RB profile table so all
---  paths are idempotent. With no defaults available (RB addon disabled) the
---  migration is a no-op WITHOUT stamping the flag, so it runs when RB loads.
+--  CRITICAL BASIS: stored profile tables are SPARSE (Lite defaults merge at
+--  NewDB time, not persisted) while unsync copies are FAT snapshots of the
+--  merged runtime table, so ALL comparisons run over DEFAULTS-MERGED effective
+--  values -- raw-table diffs would mis-classify real edits as drift and strip
+--  runtime-injected defaults. That needs the RB DEFAULTS table, so this runs
+--  from Resource Bars' OnInitialize (exports EllesmereUI._RBSectionDefaults,
+--  then walks every stored profile) AND directly on imported profile data, both
+--  self-guarded by a flag on the RB profile table (idempotent). With no
+--  defaults available (RB disabled) it's a no-op WITHOUT stamping the flag, so
+--  it runs when RB loads.
 --------------------------------------------------------------------------------
 do
     local PS, FS = "\30", "\31"
@@ -3926,14 +3332,12 @@ do
         return defs
     end
 
-    -- Union of differing leaf paths between a Simple section and an advanced
-    -- copy, compared over DEFAULTS-MERGED effective values on BOTH sides
-    -- (stored Simple is sparse; copies are fat merged snapshots -- raw
-    -- comparison mis-reads defaults as user edits and vice versa). Skips
-    -- threshold/disabledSpecs/enabled keys, numeric keys, and table shape
-    -- mismatches. Emitted leaves may involve nil ONLY when neither side nor
-    -- the defaults define the key's counterpart -- those keys are inline-
-    -- fallback keys the renderers already tolerate as absent.
+    -- Union of differing leaf paths between a Simple section and an advanced copy,
+    -- compared over DEFAULTS-MERGED effective values on both sides (stored Simple
+    -- is sparse, copies are fat merged snapshots; raw comparison would mis-read
+    -- defaults as edits). Skips threshold/disabledSpecs/enabled/numeric keys and
+    -- table-shape mismatches; an emitted leaf involves nil only when neither side
+    -- nor defaults define it (renderers already tolerate that as absent).
     local function DiffSection(simple, copy, defs, prefix, out)
         simple = type(simple) == "table" and simple or {}
         copy = type(copy) == "table" and copy or {}
@@ -3962,11 +3366,10 @@ do
         end
     end
 
-    -- Q1-A threshold merge: make the spec resolve in the SIMPLE list exactly
-    -- as it did in the advanced copy. The copy's entries matching the spec
-    -- (explicit or All-Specs) are retargeted to specIDs={spec} and inserted
-    -- at the FRONT of the Simple list in resolver tier order (spec+talent,
-    -- spec plain, all+talent, all plain); the spec is stripped from
+    -- Threshold merge: makes the spec resolve in the SIMPLE list exactly as it did
+    -- in the advanced copy. Copy entries matching the spec (explicit or All-Specs)
+    -- are retargeted to specIDs={spec} and front-inserted in resolver tier order
+    -- (spec+talent, spec plain, all+talent, all plain); the spec is stripped from
     -- pre-existing Simple entries so nothing else can match it.
     local function MergeThresholds(simpleSec, copySec, specID, backup)
         local cList = copySec.thresholdSpecs
@@ -4001,8 +3404,8 @@ do
         end
         simpleSec.thresholdSpecs = simpleSec.thresholdSpecs or {}
         local target = simpleSec.thresholdSpecs
-        -- Strip this spec from pre-existing Simple entries (drop entries that
-        -- only served this spec).
+        -- Strip this spec from pre-existing Simple entries (dropping any that
+        -- served only it).
         for i = #target, 1, -1 do
             local entry = target[i]
             if type(entry) == "table" and type(entry.specIDs) == "table" then
@@ -4033,9 +3436,8 @@ do
         local rb = prof.addons and prof.addons.EllesmereUIResourceBars
         if type(rb) ~= "table" then return end
         if rb._rbAdvMigrated then return end
-        -- Defaults are mandatory for effective-value comparison; without them
-        -- (RB addon not loaded) do nothing and leave the flag unset so the
-        -- migration runs when RB initializes.
+        -- Defaults are mandatory for effective-value comparison: without them (RB
+        -- not loaded) do nothing and leave the flag unset so it runs when RB inits.
         local DEFS = EllesmereUI._RBSectionDefaults
         if type(DEFS) ~= "table" then return end
         rb._rbAdvMigrated = true
@@ -4230,30 +3632,23 @@ do
     end
 end
 
--- NOTE: deliberately NOT registered with the early migration runner -- the
--- comparison needs Resource Bars' DEFAULTS table, which only exists once the
--- RB addon loads. RB's OnInitialize exports EllesmereUI._RBSectionDefaults
--- and then invokes MigrateRBAdvancedProfile for every stored profile; the
--- profile import paths call it directly for imported data.
+-- Deliberately NOT registered with the early migration runner: comparison needs
+-- RB's DEFAULTS table, which exists only once the RB addon loads. RB's
+-- OnInitialize exports EllesmereUI._RBSectionDefaults then invokes
+-- MigrateRBAdvancedProfile per stored profile; import paths call it direct.
 
--- Per-character data leaked through shared profiles: DataBars kept its
--- cross-character gold ledger at profile scope (addons.EllesmereUIDataBars
--- .characters) and the QoL upgrade calculator kept per-character scan state
--- there too (addons.EllesmereUIQoL.chars), so exported profiles carried the
--- sharer's character names, realms and gold. Both stores are account-wide now
--- (EllesmereUIDB.dataBarsGold / EllesmereUIDB.qolUpgradeCalcChars) and the
--- module init paths drop the keys from the ACTIVE profile; this sweep drops
--- them from every stored profile so no stale copy lingers on disk or rides a
--- later export. The string paths strip the keys as well, so this is cleanup,
--- not the safety line.
---
--- Deliberately DROP rather than merge into the account stores: any profile
--- may be an imported one and nothing durably records that, so a merge could
--- copy a stranger's characters into permanent account-wide storage. Nothing
--- of value is lost -- each character re-records itself on login / next scan.
---
--- The folder literals contain "EllesmereUI", which the standalone packager
--- renames to the build token, so they match each build's stored profile keys.
+-- Per-character data leaked through shared profiles: the DataBars cross-character gold
+-- ledger (addons.EllesmereUIDataBars.characters) and the QoL upgrade calculator's
+-- per-character scan state (addons.EllesmereUIQoL.chars) sat at profile scope, so
+-- exported profiles carried the sharer's character names, realms and gold. Both stores
+-- are account-wide now (EllesmereUIDB.dataBarsGold / .qolUpgradeCalcChars); module init
+-- drops the keys from the ACTIVE profile, this sweep drops them from every stored
+-- profile (cleanup, not the safety line -- string export paths strip them too).
+-- Deliberately DROP rather than merge into the account stores: any profile may be an
+-- import with no durable record of that, so merging could copy a stranger's characters
+-- into permanent account-wide storage; nothing is lost since each character re-records
+-- on login/next scan. Folder literals contain "EllesmereUI", which the standalone
+-- packager renames to the build token, matching each build's stored profile keys.
 EllesmereUI.RegisterMigration({
     id          = "per_character_data_account_wide_v1",
     scope       = "global",
@@ -4275,33 +3670,23 @@ EllesmereUI.RegisterMigration({
 })
 
 -- The options panel is pinned to physical pixels (baseScale =
--- GetScreenWidth()/physW) so it holds a constant physical size and does NOT
--- follow the UI Scale slider. That reads fine at 1080p, but above it the same
--- pixel count covers far less of the screen: the panel arrives small and the
--- UI Scale slider appears to do nothing to it. New installs seed panelScale
--- from the display height in EllesmereUI_Startup.lua; this brings existing
--- displays onto the same value.
---
--- 1440p is the reference: a panel of H units covers H*panelScale/physH of the
--- screen, so physH/1440 reproduces 1440p's screen fraction anywhere. 4K seeds
--- 1.5 and reads exactly like a 2K monitor.
---
--- The two halves are deliberately asymmetric, because "the user picked this"
--- means different things above and below the reference:
---
---   ABOVE 1440p -- ONE-TIME RESET, overwriting whatever is stored. On these
---   displays the old default (1.0) rendered the panel at a fraction of the
---   reference size, so a raised value there is a WORKAROUND for that bug, not
---   a preference, and leaving it would strand the user on a stale compensation
---   now that the default is correct (and oversized, since popups no longer
---   scale quadratically with it). Migrations stamp done and never run again,
---   so this fires exactly once; anything chosen afterwards is kept forever.
---
---   AT OR BELOW 1440p -- nothing was ever broken, the seed is 1.0 anyway, and a
---   stored value can only be a genuine preference. Left alone, except for
---   residue from a v1 seed (physH/1080) that went out in pre-release branch
---   builds and never in a release: a value matching v1's output ON a save
---   carrying v1's stamp is that seed's leftover rather than a choice.
+-- GetScreenWidth()/physW), holding a constant physical size that does NOT follow
+-- the UI Scale slider. Fine at 1080p, but above it the same pixel count covers
+-- far less screen: the panel arrives small and the slider appears to do nothing.
+-- New installs seed panelScale from display height in EllesmereUI_Startup.lua;
+-- this brings existing displays onto the same value. 1440p is the reference: a
+-- panel of H units covers H*panelScale/physH of the screen, so physH/1440
+-- reproduces 1440p's screen fraction anywhere (4K seeds 1.5, reads like a 2K
+-- monitor). The two halves are deliberately asymmetric:
+--   ABOVE 1440p -- ONE-TIME RESET overwriting whatever is stored. The old default
+--   (1.0) rendered the panel undersized there, so a raised stored value is a
+--   WORKAROUND for that bug, not a preference, and would now be an oversized
+--   stale compensation (popups no longer scale quadratically with it).
+--   Migrations stamp done and never re-run, so this fires exactly once; anything
+--   chosen afterward is kept forever.
+--   AT OR BELOW 1440p -- nothing was broken, seed is 1.0 anyway, so a stored
+--   value can only be a genuine preference. Left alone, except v1-seed residue
+--   (physH/1080): a value matching v1's output ON a save carrying v1's stamp.
 EllesmereUI.RegisterMigration({
     id          = "panel_scale_highdpi_reset_v3",
     scope       = "global",
@@ -4311,13 +3696,11 @@ EllesmereUI.RegisterMigration({
         if not db then return end
         local _, physH = GetPhysicalScreenSize()
         if type(physH) ~= "number" or physH <= 0 then return end
-        -- Snap BEFORE the reset test, not after. The dropdown only offers fixed
-        -- steps, so an off-menu seed (1600p lands on 1.111) leaves the control
-        -- reading "Normal (100%)" while the panel renders larger, and the user
-        -- is snapped the moment they open it. Testing the SNAPPED value also
-        -- keeps the reset honest: a display close enough to the reference that
-        -- it rounds back to 1.00 has nothing to correct, so it must not fire
-        -- the overwrite branch and clobber a genuine preference.
+        -- Snap BEFORE the reset test: the dropdown offers only fixed steps, so an
+        -- off-menu seed (1600p lands on 1.111) would leave the control reading
+        -- "Normal (100%)" while the panel renders larger. Testing the SNAPPED
+        -- value keeps the reset honest: a display rounding back to 1.00 has
+        -- nothing to correct and must not fire the overwrite branch.
         local seeded = math.max(1, math.min(physH / 1440, 2))
         if EllesmereUI.SnapPanelScale then seeded = EllesmereUI.SnapPanelScale(seeded) end
 
@@ -4349,7 +3732,7 @@ EllesmereUI.RegisterMigration({
 EllesmereUI.RegisterMigration({
     id          = "uf_player_cast_target_none_v1",
     scope       = "profile",
-    description = "Pin the player castbar's spell target to None (it never displayed before the fix).",
+    description = "Pin the player castbar spell target to None (it never displayed before the fix).",
     body = function(ctx)
         local uf = ctx.profile.addons and ctx.profile.addons.EllesmereUIUnitFrames
         local p = uf and uf.player

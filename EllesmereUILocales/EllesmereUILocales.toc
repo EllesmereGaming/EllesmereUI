@@ -1,0 +1,26 @@
+## Interface: 120000, 120001, 120005, 120007, 120100
+## Title: |cff0cd29fEllesmereUI|r Locales
+## Category: |cff0cd29fEllesmere|rUI
+## Group: EllesmereUI
+## Notes: EllesmereUI community translations. Loads on demand for non-English locales.
+## Author: Ellesmere
+## Version: 8.8.4
+## Dependencies: EllesmereUI
+## LoadOnDemand: 1
+## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
+
+# Community translation files (one per locale; only the active one builds
+# entries). Loaded by EllesmereUI_Locale.lua at the parent's ADDON_LOADED
+# whenever the effective locale is non-English -- English clients never pay
+# the parse. To add a language: create <code>.lua here and add one line
+# below. See CONTRIBUTING_TRANSLATIONS.md in the parent addon.
+deDE.lua
+esES.lua
+esMX.lua
+frFR.lua
+itIT.lua
+koKR.lua
+ptBR.lua
+ruRU.lua
+zhCN.lua
+zhTW.lua

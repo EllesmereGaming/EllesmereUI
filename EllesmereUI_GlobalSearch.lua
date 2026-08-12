@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUI_GlobalSearch.lua
 --  Unified fuzzy search across every registered EllesmereUI sub-addon's
@@ -23,10 +24,9 @@ function EllesmereUI._RegisterSearchEntry(label, labelLoc, tooltip, moduleFolder
     -- construction it wants excluded from the search entirely (e.g. the QoL
     -- Macro Factory, whose rows must never be indexed or deep-linked).
     if EllesmereUI._searchIndexSuppress then return end
-    -- Composite labels (DualRow/TripleRow with an empty slot) can come in as
-    -- whitespace only (e.g. a single joining space with nothing on either
-    -- side) -- trim before the emptiness check so those don't register as
-    -- inert, unmatchable junk entries.
+    -- Composite labels (DualRow/TripleRow with an empty slot) can come in as whitespace
+    -- only (e.g. a single joining space with nothing on either side) -- trim before the
+    -- emptiness check so those don't register as inert, unmatchable junk entries.
     if label then label = label:match("^%s*(.-)%s*$") end
     if not label or label == "" or not moduleFolder or not page then return end
     local key = moduleFolder .. "\1" .. page .. "\1" .. label
@@ -39,12 +39,11 @@ function EllesmereUI._RegisterSearchEntry(label, labelLoc, tooltip, moduleFolder
         module = moduleFolder,
         section = sectionName,
         page = page,
-        -- Present only for entries built while a page's own internal
-        -- selector (CDM bar / action bar / unit dropdown) was set to a
-        -- specific value -- lets JumpToResult restore that exact selection
-        -- before navigating, so a setting that only exists under one
-        -- selector value (e.g. HoverCast-only options) is actually there to
-        -- find and highlight instead of silently not matching.
+        -- Present only for entries built while a page's own internal selector (CDM bar
+        -- / action bar / unit dropdown) was set to a specific value -- lets
+        -- JumpToResult restore that exact selection before navigating, so a setting
+        -- that only exists under one selector value (e.g. HoverCast-only options) is
+        -- actually there to find and highlight instead of silently not matching.
         selectorSetter = selectorSetter,
         selectorKey = selectorKey,
         -- True for SectionHeader registrations: results render these as
@@ -81,12 +80,11 @@ local function FuzzyScore(haystack, needle)
     end
     if ni <= nLen then return nil end -- not every needle char found in order
 
-    -- Reject overly sparse matches. Without this, a long enough haystack
-    -- makes almost any needle findable as SOME subsequence somewhere in it
-    -- (e.g. "combat" scattering across "Consumables Talent" in a coarse
-    -- module+page label) -- that's noise, not a real fuzzy match. Flat +8
-    -- slack keeps short abbreviations ("aoc" over "Auto Open Containers")
-    -- alive while capping how far a longer word may scatter.
+    -- Reject overly sparse matches. Without this, a long enough haystack makes almost
+    -- any needle findable as SOME subsequence somewhere in it (e.g. "combat" scattering
+    -- across "Consumables Talent" in a coarse module+page label) -- that's noise, not a
+    -- real fuzzy match. Flat +8 slack keeps short abbreviations ("aoc" over "Auto Open
+    -- Containers") alive while capping how far a longer word may scatter.
     local span = lastMatch - firstMatch + 1
     if span > nLen + 8 then return nil end
 
@@ -134,9 +132,8 @@ local function BuildCoarseCandidates()
                 local pageLabel = EllesmereUI.L(page)
                 _coarseCandidates[#_coarseCandidates + 1] = {
                     kind = "page",
-                    -- Combined haystack so a query spanning both module and
-                    -- page words (e.g. "damage spell") still matches, not
-                    -- just one half of it.
+                    -- Combined haystack so a query spanning both module and page words
+                    -- (e.g. "damage spell") still matches, not just one half of it.
                     label = moduleLabel .. " " .. pageLabel,
                     displayLabel = pageLabel,
                     moduleLabel = moduleLabel,
@@ -148,13 +145,12 @@ local function BuildCoarseCandidates()
     end
 end
 
--- Module-name filter: "raid frames border style" should search "border
--- style" WITHIN Raid Frames, not fuzzy-match the whole phrase everywhere.
--- Lazily built alias list (module titles + sidebar display names, both
--- localized), longest alias first so "raid frames" can never lose to a
--- shorter overlapping alias. Only a FULL alias at the START of the query
--- (followed by more words) activates the filter -- single overlapping words
--- ("raid" also appears in other modules' option labels) never do.
+-- Module-name filter: "raid frames border style" should search "border style" WITHIN
+-- Raid Frames, not fuzzy-match the whole phrase everywhere. Lazily built alias list
+-- (module titles + sidebar display names, both localized), longest alias first so "raid
+-- frames" can never lose to a shorter overlapping alias. Only a FULL alias at the START
+-- of the query (followed by more words) activates the filter -- single overlapping
+-- words ("raid" also appears in other modules' option labels) never do.
 local _moduleAliases
 
 local function BuildModuleAliases()
@@ -185,7 +181,7 @@ local function BuildModuleAliases()
     local EXTRA_ALIASES = {
         EllesmereUIMythicTimer     = { "m+ timer", "m+" },
         EllesmereUICooldownManager = { "cdm" },
-        EllesmereUIActionPalette   = { "radial", "wheel", "ring menu", "palette", "grid", "arc", "fan", "action wheel" },
+        EllesmereUIQuickdraw       = { "radial", "wheel", "ring menu", "palette", "grid", "arc", "fan", "action wheel", "action palette", "action menu" },
     }
     for folder, list in pairs(EXTRA_ALIASES) do
         if EllesmereUI._modules and EllesmereUI._modules[folder] then
@@ -202,11 +198,10 @@ local function SearchIndex(query, maxResults)
     if not _coarseCandidates then BuildCoarseCandidates() end
     if not _moduleAliases then BuildModuleAliases() end
 
-    -- Detect a module name ANYWHERE in the query (whole words only, longest
-    -- alias first) and split it off as an ADDITIVE boost: "raid frames
-    -- border style" and "border style raid frames" both surface "border
-    -- style" within Raid Frames on top of the plain full-query results
-    -- (merged below -- never replacing them).
+    -- Detect a module name ANYWHERE in the query (whole words only, longest alias
+    -- first) and split it off as an ADDITIVE boost: "raid frames border style" and
+    -- "border style raid frames" both surface "border style" within Raid Frames on top
+    -- of the plain full-query results (merged below -- never replacing them).
     local filterSet, subNeedle
     for _, m in ipairs(_moduleAliases) do
         local a = m.alias
@@ -316,15 +311,14 @@ end
 local _prebuildDone = false
 local _hiddenParent
 
--- The main panel's content-header chrome is ONE real, shared frame -- not
--- scoped to whatever parent/wrapper a buildPage happens to be given -- and
--- several sub-addons call these directly from buildPage. For real navigation
--- that's fine (there's only ever one visible page), but during a hidden
--- pre-build it would overwrite whatever header the user is actually looking
--- at. These methods are also nil outright until the panel's first Show()
--- (they're defined inside CreateMainFrame), which a plain guard clause
--- inside them can't help with -- so stub them out here for the duration of
--- each pre-build call instead, then restore whatever was there before
+-- The main panel's content-header chrome is ONE real, shared frame -- not scoped to
+-- whatever parent/wrapper a buildPage happens to be given -- and several sub-addons
+-- call these directly from buildPage. For real navigation that's fine (there's only
+-- ever one visible page), but during a hidden pre-build it would overwrite whatever
+-- header the user is actually looking at. These methods are also nil outright until
+-- the panel's first Show() (they're defined inside CreateMainFrame), which a plain
+-- guard clause inside them can't help with -- so stub them out here for the
+-- duration of each pre-build call instead, then restore whatever was there before
 -- (nil or the real function).
 local _CONTENT_HEADER_METHODS = {
     "SetContentHeader", "UpdateContentHeaderHeight", "SetContentHeaderHeightSilent",
@@ -529,12 +523,11 @@ local function PrebuildOnce(config, folder, page, selectorSetter, selectorKey)
     -- widgets can never leak their refresh closures into whatever page the
     -- user is actually looking at (or into that page's cache snapshot).
     local refreshSnap = EllesmereUI._SnapshotAndClearWidgetRefreshList and EllesmereUI._SnapshotAndClearWidgetRefreshList()
-    -- buildPage functions call some live game APIs (currency lists, class
-    -- info) directly during construction, not only inside getValue closures.
-    -- pcall so one module's edge case can never block indexing the rest; any
-    -- such page simply falls back to being indexed by live navigation instead.
-    -- Surfaced in dev mode so a genuinely broken builder is not silently
-    -- swallowed forever by the indexing pass.
+    -- buildPage functions call some live game APIs (currency lists, class info)
+    -- directly during construction, not only inside getValue closures. pcall so one
+    -- module's edge case can never block indexing the rest; any such page simply falls
+    -- back to being indexed by live navigation instead. Surfaced in dev mode so a
+    -- genuinely broken builder is not silently swallowed forever by the indexing pass.
     -- FRAMELESS: the widget factory is swapped to the absorber for exactly
     -- this synchronous call (builders fetch `local W = EllesmereUI.Widgets`
     -- inside their bodies -- verified no file-scope captures 2026-08-03),
@@ -550,15 +543,14 @@ local function PrebuildOnce(config, folder, page, selectorSetter, selectorKey)
     end
     if refreshSnap then EllesmereUI._RestoreWidgetRefreshList(refreshSnap) end
 
-    -- Some buildPage implementations register cleanup (event listeners, etc.)
-    -- via parent:HookScript("OnHide", ...), expecting it to fire once the
-    -- user navigates away. Hide the wrapper on the chance that helps -- but
-    -- don't rely on it: a frame that's never been effectively visible (its
-    -- ancestor, _hiddenParent, was hidden before wrapper was ever shown) may
-    -- not fire OnHide just because wrapper:Hide() is called on it. Any
-    -- buildPage that registers session-long listeners (event frames, etc.)
-    -- must guard their creation with EllesmereUI._prebuilding itself rather
-    -- than depend on this to clean them up.
+    -- Some buildPage implementations register cleanup (event listeners, etc.) via
+    -- parent:HookScript("OnHide", ...), expecting it to fire once the user navigates
+    -- away. Hide the wrapper on the chance that helps -- but don't rely on it: a frame
+    -- that's never been effectively visible (its ancestor, _hiddenParent, was hidden
+    -- before wrapper was ever shown) may not fire OnHide just because wrapper:Hide() is
+    -- called on it. Any buildPage that registers session-long listeners (event frames,
+    -- etc.) must guard their creation with EllesmereUI._prebuilding itself rather than
+    -- depend on this to clean them up.
     wrapper:Hide()
 
     EllesmereUI._buildingModule = nil
@@ -574,12 +566,11 @@ end
 local function PrebuildJob(job)
     local config = job.config
     if not config.buildPage then return end
-    -- Re-check (not just at job-list-build time): the staggered pass runs
-    -- over several seconds, so the player may have visited and cached this
-    -- exact page live in the meantime -- rebuilding it hidden would be a
-    -- redundant, wasted build. The selector restore still runs: the live
-    -- visit happened at whatever selection the player made themselves, but
-    -- an EARLIER variant job may have left the module's selector moved.
+    -- Re-check (not just at job-list-build time): the staggered pass runs over several
+    -- seconds, so the player may have visited and cached this exact page live in the
+    -- meantime -- rebuilding it hidden would be a redundant, wasted build. The selector
+    -- restore still runs: the live visit happened at whatever selection the player made
+    -- themselves, but an EARLIER variant job may have left the module's selector moved.
     local cacheKey = job.folder .. "::" .. job.page
     if not (EllesmereUI._pageCache and EllesmereUI._pageCache[cacheKey]) then
         local savedMethods = {}
@@ -592,23 +583,20 @@ local function PrebuildJob(job)
             EllesmereUI[name] = savedMethods[name]
         end
     end
-    -- Set on the LAST variant job of a page: restore whatever the player
-    -- actually had selected so a later live visit isn't left showing the
-    -- last-built variant.
+    -- Set on the LAST variant job of a page: restore whatever the player actually had
+    -- selected so a later live visit isn't left showing the last-built variant.
     if job.restoreSetter and job.restoreKey then
         job.restoreSetter(job.restoreKey)
     end
 end
 
--- Deliberately NOT run at login: even frameless, running every page builder
--- costs real CPU, so only users who actually use the search ever pay it.
--- Since 2026-08-03 the pass builds NO frames (absorber layer above): its
--- entire footprint is the index strings plus transient garbage, versus the
--- old hidden-build's 10-25MB of permanent page frames. The first non-empty
--- query in the search box triggers this pass (see RunSearch in
--- EnsureSearchUI); coarse module/page results need no build and show
--- immediately, and onComplete re-runs the query so late-indexed rows appear
--- without retyping.
+-- Deliberately NOT run at login: even frameless, running every page builder costs real
+-- CPU, so only users who actually use the search ever pay it. Since 2026-08-03 the pass
+-- builds NO frames (absorber layer above): its entire footprint is the index strings
+-- plus transient garbage, versus the old hidden-build's 10-25MB of permanent page
+-- frames. The first non-empty query in the search box triggers this pass (see RunSearch
+-- in EnsureSearchUI); coarse module/page results need no build and show immediately,
+-- and onComplete re-runs the query so late-indexed rows appear without retyping.
 local function RunPrebuildPass(onComplete)
     if _prebuildDone then return end
     _prebuildDone = true
@@ -624,10 +612,9 @@ local function RunPrebuildPass(onComplete)
                 -- cache-restore could pick up instead of the live ones.
                 local cacheKey = folder .. "::" .. page
                 if not (EllesmereUI._pageCache and EllesmereUI._pageCache[cacheKey]) then
-                    -- Selector-driven pages (CDM bar / unit dropdowns) expand
-                    -- to one job PER variant so each tick stays one build; the
-                    -- last variant job carries the restore of the player's
-                    -- own selection.
+                    -- Selector-driven pages (CDM bar / unit dropdowns) expand to one
+                    -- job PER variant so each tick stays one build; the last variant
+                    -- job carries the restore of the player's own selection.
                     local variants = config.getPrebuildVariants and config.getPrebuildVariants(page)
                     if variants and variants.keys and #variants.keys > 0 then
                         for k, key in ipairs(variants.keys) do
@@ -739,19 +726,18 @@ local function TitleCaseSection(s)
 end
 
 local function JumpToResult(entry, sidebarSearchBox)
-    -- Coarse (whole-page) results have no single option to highlight -- just
-    -- land on the page. Fine-grained option/section results scroll to and
-    -- glow the specific matching row via EllesmereUI:NavigateToElementSettings
-    -- (the same deep-link machinery the What's New page uses) instead of
-    -- ApplyInlineSearch: that function is a *filter* -- it hides every
-    -- section that doesn't match -- so reusing it here to "highlight" a
-    -- single row could collapse the whole page down to just that one row's
-    -- section, or even to nothing at all if the matched row isn't part of
-    -- the page's current state (e.g. a CDM bar-type-specific option while a
-    -- different bar is selected). NavigateToElementSettings only scrolls +
-    -- glows; it never hides anything, so a row it can't currently find (same
-    -- bar-type case) just means no scroll/glow happens -- the page is left
-    -- exactly as the player already had it, not blanked out.
+    -- Coarse (whole-page) results have no single option to highlight -- just land on
+    -- the page. Fine-grained option/section results scroll to and glow the specific
+    -- matching row via EllesmereUI:NavigateToElementSettings (the same deep-link
+    -- machinery the What's New page uses) instead of ApplyInlineSearch: that function
+    -- is a *filter* -- it hides every section that doesn't match -- so reusing it
+    -- here to "highlight" a single row could collapse the whole page down to just
+    -- that one row's section, or even to nothing at all if the matched row isn't part
+    -- of the page's current state (e.g. a CDM bar-type-specific option while a
+    -- different bar is selected). NavigateToElementSettings only scrolls + glows; it
+    -- never hides anything, so a row it can't currently find (same bar-type case)
+    -- just means no scroll/glow happens -- the page is left exactly as the player
+    -- already had it, not blanked out.
     if entry.kind == "page" or not entry.section then
         EllesmereUI:SelectModule(entry.module)
         EllesmereUI:SelectPage(entry.page)
@@ -839,14 +825,12 @@ local function EnsureSearchUI()
     local RunSearch
     RunSearch = function()
         local query = sidebarSearchBox:GetText()
-        -- First real use of the box is the feature's opt-in: kick the
-        -- one-time staggered index pass now, off the login path entirely.
-        -- Coarse module/page results show immediately; when the pass
-        -- finishes, re-run the query so newly indexed rows appear without
-        -- retyping.
-        -- While a search is active, every "Show Less Common" section renders
-        -- force-expanded with no link line; clearing the box collapses them
-        -- back to their session state (transitions rebuild -- see
+        -- First real use of the box is the feature's opt-in: kick the one-time
+        -- staggered index pass now, off the login path entirely. Coarse module/page
+        -- results show immediately; when the pass finishes, re-run the query so newly
+        -- indexed rows appear without retyping. While a search is active, every "Show
+        -- Less Common" section renders force-expanded with no link line; clearing the
+        -- box collapses them back to their session state (transitions rebuild -- see
         -- SetLessCommonSearchActive in EllesmereUI_Widgets.lua).
         if EllesmereUI.SetLessCommonSearchActive then
             EllesmereUI.SetLessCommonSearchActive(query ~= "")

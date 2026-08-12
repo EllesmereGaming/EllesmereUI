@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUI Shared Ticker
 --
@@ -55,11 +56,10 @@
 local Tick = {}
 EllesmereUI.Tick = Tick
 
--- Build a driver instance around the given frame. The frame's creating
--- context is what the engine bills, so callers wanting per-addon attribution
--- MUST create the frame in their own main chunk and pass it in. The nil
--- fallback creates a parent-stamped frame here: everything still works, but
--- the work is billed to the parent.
+-- Build a driver instance around the given frame. The frame's creating context is what
+-- the engine bills, so callers wanting per-addon attribution MUST create the frame in
+-- their own main chunk and pass it in. The nil fallback creates a parent-stamped frame
+-- here: everything still works, but the work is billed to the parent.
 local function NewDriver(frame)
     if not frame then frame = CreateFrame("Frame") end
     local reg   = {}   -- dense array of keys
@@ -70,11 +70,10 @@ local function NewDriver(frame)
 
     frame:Hide()
     frame:SetScript("OnUpdate", function(self, elapsed)
-        -- Walk the dense array by index. A subscriber may remove itself (or
-        -- another subscriber) from inside its own tick, which swap-removes
-        -- and shrinks count, so re-read count every step and re-test the
-        -- current slot when it was swapped rather than advancing past the
-        -- entry that moved into it.
+        -- Walk the dense array by index. A subscriber may remove itself (or another
+        -- subscriber) from inside its own tick, which swap-removes and shrinks count,
+        -- so re-read count every step and re-test the current slot when it was swapped
+        -- rather than advancing past the entry that moved into it.
         local i = 1
         while i <= count do
             local key = reg[i]
