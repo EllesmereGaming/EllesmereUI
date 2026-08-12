@@ -4166,8 +4166,13 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             end
 
             local durRow = SettingsRow(
+                -- NOT gated on Hide Icons, unlike Opacity and Border above. Those
+                -- describe the icon art and are meaningless without it; the swipe is a
+                -- separate layer that keeps drawing over a hidden icon, so hiding the
+                -- icon is exactly when a user needs to reach this. Locking it there left
+                -- the text-only setup -- hidden icon, duration text, no swipe -- with no
+                -- way to turn the swipe off at all.
                 { type="toggle", text="Duration Swipe",
-                  disabled=IconHidden, disabledTooltip="Hide Icons",
                   getValue=function() return ind.showDuration ~= false end,
                   setValue=function(v) ind.showDuration = v; ReloadAndUpdate() end },
                 { type="toggle", text="Duration Text",
