@@ -662,7 +662,15 @@ function AK.MakeInitializer(styleKey, extra)
         ApplyStyleToRegions(button, style)
 
         button:SetIcon(d.icon)
-        button:SetDurationCooldown(d.cooldown)
+        -- Registering the cooldown hands OWNERSHIP to the engine, which then draws and
+        -- re-shows the swipe on its own schedule. ApplyStyleToRegions' SetShown(false)
+        -- above runs before this line and does not survive it, so a hidden swipe has to
+        -- be hidden by never handing the widget over -- inside the creation window,
+        -- because touching an engine-owned region afterwards is forbidden-object access
+        -- (the same lesson EllesmereUICdmFakeActive.lua records at its own binding).
+        -- Duration TEXT is unaffected: it comes from SetDurationTextSafe below, not from
+        -- the swipe, which is what makes the text-only setup possible at all.
+        button:SetDurationCooldown(style.hideSwipe ~= true and d.cooldown or nil)
         button:SetApplicationCount(d.stack, {})
 
         local durationOpts = AK.BuildDurationTextOpts(
