@@ -1608,7 +1608,12 @@ local function ShiftBuffsForEnchants(container, parent, cfg, grid)
     local dx, dy = 0, 0
     if dir == "RIGHT" then dx = 1 elseif dir == "LEFT" then dx = -1
     elseif dir == "UP" then dy = 1 elseif dir == "DOWN" then dy = -1 end
-    local cell = EllesmereUI.PP.Scale(cfg.iconSize or 32) + (cfg.padding or 5)
+    -- Both terms snapped, matching the engine's own cell stride exactly:
+    -- ApplyGroupConfig feeds it PP.Scale(padding) as elementSpacing and
+    -- BuildStyle PP.Scale(iconSize) as the element width. Leaving the gap raw
+    -- here drifts the reservation by PP.Scale(pad) - pad per cell at a
+    -- non-pixel-perfect UIParent scale.
+    local cell = EllesmereUI.PP.Scale(cfg.iconSize or 32) + EllesmereUI.PP.Scale(cfg.padding or 5)
     container:ClearAllPoints()
     container:SetPoint(corner, parent, corner, dx * n * cell, dy * n * cell)
 end
@@ -1630,7 +1635,12 @@ function ns.PAB_ReShiftEnchants()
     local dx, dy = 0, 0
     if dir == "RIGHT" then dx = 1 elseif dir == "LEFT" then dx = -1
     elseif dir == "UP" then dy = 1 elseif dir == "DOWN" then dy = -1 end
-    local cell = EllesmereUI.PP.Scale(cfg.iconSize or 32) + (cfg.padding or 5)
+    -- Both terms snapped, matching the engine's own cell stride exactly:
+    -- ApplyGroupConfig feeds it PP.Scale(padding) as elementSpacing and
+    -- BuildStyle PP.Scale(iconSize) as the element width. Leaving the gap raw
+    -- here drifts the reservation by PP.Scale(pad) - pad per cell at a
+    -- non-pixel-perfect UIParent scale.
+    local cell = EllesmereUI.PP.Scale(cfg.iconSize or 32) + EllesmereUI.PP.Scale(cfg.padding or 5)
     buffsContainer:ClearAllPoints()
     buffsContainer:SetPoint(corner, buffsParent, corner, dx * n * cell, dy * n * cell)
 end
@@ -1717,7 +1727,10 @@ local function CreateBars()
     if buffCfg.showWeaponEnchants == true then
         ns._weaponEnchPAB = { parent = buffsParent, corner = buffCorner,
             dir = buffCfg.growDirection or "LEFT",
-            pad = buffPad, styleKey = STYLE_BUFFS, canCancel = true }
+            -- Snapped like the shift's own cell stride above: the buttons add
+            -- this to an already-snapped style.width, so a raw gap would place
+            -- them off the engine's grid at a non-native UI scale.
+            pad = EllesmereUI.PP.Scale(buffPad), styleKey = STYLE_BUFFS, canCancel = true }
     else
         ns._weaponEnchPAB = nil
     end
@@ -1926,7 +1939,8 @@ local function ApplyLiveConfig(isBuff)
             local liveCorner = BuildContainerSpec(parent, cfg, grid)
             ns._weaponEnchPAB = { parent = parent, corner = liveCorner,
                 dir = cfg.growDirection or "LEFT",
-                pad = pad, styleKey = STYLE_BUFFS, canCancel = true }
+                -- Snapped, as in CreateBars' publish above.
+                pad = EllesmereUI.PP.Scale(pad), styleKey = STYLE_BUFFS, canCancel = true }
         else
             ns._weaponEnchPAB = nil
         end

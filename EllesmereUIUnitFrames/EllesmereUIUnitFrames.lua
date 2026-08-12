@@ -8818,7 +8818,7 @@ local CLASS_POWER_TYPES = {
     SHAMAN      = { [263] = { "MAELSTROM_WEAPON", 10 } },
     HUNTER      = { [255] = { "TIP_OF_THE_SPEAR", 3 } },
     WARRIOR     = { [72]  = { "WHIRLWIND_STACKS", 4 },
-                    [71]  = { "SWEEPING_STRIKES", 12 } },
+                    [71]  = { "SWEEPING_STRIKES", 18 } },  -- 12.1 cap: 12 + 6 Broad Strokes
 }
 
 -- Returns true if the player's current spec has a class resource in CLASS_POWER_TYPES

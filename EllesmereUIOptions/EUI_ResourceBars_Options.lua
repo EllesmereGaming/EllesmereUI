@@ -168,7 +168,7 @@ initFrame:SetScript("OnEvent", function(self)
     local _previewBarFillPct = 65 -- randomized each page visit (30-80)
 
     -- Discrete pip count for the current spec: the real resource max (Fury
-    -- Whirlwind 4, Arms Sweeping Strikes 12/18, DK runes 6, Maelstrom Weapon
+    -- Whirlwind 4, Arms Sweeping Strikes 18, DK runes 6, Maelstrom Weapon
     -- 5/10, ...) so the preview matches the live bar; 5 when none exists.
     local function PreviewPipCount()
         local gsr = _G._ERB_GetSecondaryResource
@@ -392,7 +392,7 @@ initFrame:SetScript("OnEvent", function(self)
                     filledCount = _pvThreshCount
                 else
                     filledCount = _previewPipCount
-                    -- _previewPipCount is randomized against a generic 5-pip preview; rescale for other counts (e.g. 12/18 Sweeping Strikes)
+                    -- _previewPipCount is randomized against a generic 5-pip preview; rescale for other counts (e.g. 18 Sweeping Strikes)
                     if numPips ~= 5 then
                         filledCount = math.max(1, math.min(numPips,
                             math.floor(_previewPipCount / 5 * numPips + 0.5)))

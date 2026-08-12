@@ -3686,7 +3686,7 @@ local CLASS_POWER_MAP = {
     PRIEST      = { [258] = { "INSANITY_BAR", 100 } },     -- Shadow only
     HUNTER      = { [255] = { "TIP_OF_THE_SPEAR", 3 } },   -- Survival only
     WARRIOR     = { [72]  = { "WHIRLWIND_STACKS", 4 },     -- Fury
-                    [71]  = { "SWEEPING_STRIKES", 12 } },   -- Arms
+                    [71]  = { "SWEEPING_STRIKES", 18 } },   -- Arms (12.1 cap: 12 + 6 Broad Strokes)
     DEATHKNIGHT = { [250] = { Enum.PowerType.Runes, 6 },
                     [251] = { Enum.PowerType.Runes, 6 },
                     [252] = { Enum.PowerType.Runes, 6 } },
