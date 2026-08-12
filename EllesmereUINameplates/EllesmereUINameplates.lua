@@ -4608,12 +4608,38 @@ local function ResolveNeutralColor(unit)
     local c = _C("neutral")
     return c.r, c.g, c.b
 end
+-- Blizzard's own plate for this unit, colored by untainted code. Under HideBlizzardFrame the
+-- UnitFrame keeps its unit and its events (only castBar is silenced), so its health bar still
+-- carries whatever CompactUnitFrame_UpdateHealthColor last resolved -- including the class
+-- color we are not allowed to look up ourselves. Returns a PLAIN "have it" boolean plus three
+-- numbers that may be secret: never branch on the numbers, only ever hand them to a setter.
+-- On ns (module file is at the 200-local cap).
+function ns.GetBlizzardBarColor(frame)
+    local np = frame.nameplate
+    local uf = np and np.UnitFrame
+    -- Blizzard's plates are pooled too. Until ITS CompactUnitFrame_SetUnit has run for our
+    -- unit, that bar still wears the previous occupant's colour, and latching onto it would
+    -- paint a confidently WRONG class colour. No match, no mirror: the plain fallback applies
+    -- and the next pass retries.
+    if not uf or uf.unit ~= frame.unit then return false end
+    local hb = uf.healthBar or (uf.HealthBarsContainer and uf.HealthBarsContainer.healthBar)
+    if not hb or not hb.GetStatusBarColor then return false end
+    -- Same filter HideBlizzardFrame applies to this frame's children: reading a forbidden
+    -- widget throws, which would abort the rest of UpdateHealthColor on every health event.
+    if hb.IsForbidden and hb:IsForbidden() then return false end
+    local r, g, b = hb:GetStatusBarColor()
+    if type(r) ~= "number" or type(g) ~= "number" or type(b) ~= "number" then return false end
+    return true, r, g, b
+end
 local function GetReactionColor(unit)
     -- Per-call marker read SYNCHRONOUSLY by UpdateHealthColor right after this
     -- returns: true only when this resolution landed on the non-tank Near
     -- Aggro color, so the near-aggro glow rides the exact same decision.
     -- On ns (module file is at the 200-local cap).
     ns._reactionNearAggro = false
+    -- Same idiom, for the enemy player class color at step 6: set when the class token
+    -- came back redacted, so UpdateHealthColor knows to mirror Blizzard's bar instead.
+    ns._reactionMirrorClass = false
     local db = p or defaults
     -- 1. Tapped always highest
     if UnitIsTapDenied(unit) then
@@ -4718,9 +4744,19 @@ local function GetReactionColor(unit)
     -- 6. Enemy player class colors
     if UnitIsPlayer(unit) and UnitCanAttack("player", unit) then
         local _, class = UnitClass(unit)
-        -- A secret class token (identity-restricted) cannot key a color table -- fall
-        -- through to the reaction color.
-        if issecretvalue(class) then class = nil end
+        -- A secret class token (identity-restricted, i.e. instanced PvP) cannot key a
+        -- color table. Blizzard resolves the same lookup UNTAINTED on its own plate and
+        -- its bar keeps updating under our suppression, so flag the plate here and let
+        -- UpdateHealthColor copy that color across without ever inspecting it. We still
+        -- fall through to the reaction color so every plain-number consumer downstream
+        -- (the skip-if-unchanged compare, the No Tint overlay tints) keeps plain numbers.
+        -- Gated on the CVar because that is what decides whether Blizzard's bar is a class
+        -- color at all: with it off the bar carries a selection/threat color, and copying
+        -- that would overwrite the user's Enemy Types color with red.
+        if issecretvalue(class) then
+            ns._reactionMirrorClass = GetCVarBool("nameplateShowClassColor") == true
+            class = nil
+        end
         local c = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
         if c then
             return c.r, c.g, c.b
@@ -5772,6 +5808,11 @@ function NameplateFrame:SetUnit(unit, nameplate)
             self:ApplyTarget()
             self:ApplyMouseover()
             self:UpdateCast()
+            -- Mirrored class colour only: on a fresh plate Blizzard's own SetUnit may not have
+            -- run yet, in which case the same-unit guard refused to mirror and the plate is
+            -- wearing the plain fallback. Retry once a frame later so it does not sit there
+            -- until the unit's next health event.
+            if self._mirrorPending then self:UpdateHealthColor() end
         end
     end
     C_Timer.After(0, self._deferredSetupCB)
@@ -5842,6 +5883,7 @@ function NameplateFrame:ClearUnit()
     self.nameplate = nil
     self._absorbHidden = nil
     self._lastHCr, self._lastHCg, self._lastHCb = nil, nil, nil
+    self._mirrorPending = nil
     -- Health-text value memo (UpdateHealthValues): a recycled plate must
     -- always write its first values, never skip against the old unit's.
     self._hpTxtPct, self._hpTxtCur = nil, nil
@@ -6180,7 +6222,26 @@ function NameplateFrame:UpdateHealthColor()
     -- path verified non-secret). Threat events fire constantly with an unchanged result, so
     -- compare against the last applied values and skip the setter. Cache nil'd in ClearUnit.
     local hr, hg, hb = GetReactionColor(unit)
-    if hr ~= self._lastHCr or hg ~= self._lastHCg or hb ~= self._lastHCb then
+    -- Enemy player whose class token was redacted (instanced PvP): paint the bar from
+    -- Blizzard's plate instead. A secret cannot go through the skip-if-unchanged compare, so
+    -- this re-reads and re-applies every pass rather than latching -- a latch would freeze the
+    -- bar on a stale colour when Blizzard's changes (a disconnect greys it, the CVar is
+    -- toggled mid-match). Two C calls against the dozen GetReactionColor already spent, on
+    -- the few plates that take this path. hr/hg/hb stay the plain fallback for the tints below.
+    local mirrored, mr, mg, mb = false
+    if ns._reactionMirrorClass then
+        mirrored, mr, mg, mb = ns.GetBlizzardBarColor(self)
+        -- Wanted to mirror but Blizzard's plate was not on this unit yet: the deferred
+        -- setup pass retries. Only ever set on the plates that take this path.
+        self._mirrorPending = not mirrored or nil
+    else
+        self._mirrorPending = nil
+    end
+    if mirrored then
+        -- Cache invalidated, never written with a secret: the next plain colour must reapply.
+        self._lastHCr, self._lastHCg, self._lastHCb = nil, nil, nil
+        self.health:SetStatusBarColor(mr, mg, mb)
+    elseif hr ~= self._lastHCr or hg ~= self._lastHCg or hb ~= self._lastHCb then
         self._lastHCr, self._lastHCg, self._lastHCb = hr, hg, hb
         self.health:SetStatusBarColor(hr, hg, hb)
     end
@@ -6219,21 +6280,35 @@ function NameplateFrame:UpdateHealthColor()
         local texPath = ns._focusOverlayTexPath
         local overlayAlpha = db2.focusOverlayAlpha or defaults.focusOverlayAlpha
         local ocr, ocg, ocb
+        -- No Tint means "wear the bar's colour", so on a mirrored plate it has to take the
+        -- mirrored values, not the plain fallback -- tinting from hr/hg/hb there would show
+        -- the exact mismatch No Tint exists to avoid. Secrets cannot be value-keyed, so
+        -- forced re-applies every pass and the cache is left unset (the `or` below
+        -- short-circuits before any compare touches them).
+        local forced = false
         if NoTintFlag(db2, "focusOverlayNoTint") then
-            ocr, ocg, ocb = hr, hg, hb
+            if mirrored then
+                ocr, ocg, ocb, forced = mr, mg, mb, true
+            else
+                ocr, ocg, ocb = hr, hg, hb
+            end
         else
             local oc = db2.focusOverlayColor or defaults.focusOverlayColor
             ocr, ocg, ocb = oc.r, oc.g, oc.b
         end
         local bgAlpha = OverlayBgAlpha(db2.focusOverlayFullBgAlpha, overlayAlpha)
-        if not self._ovFocShown or self._ovFocTex ~= texPath
+        if forced or not self._ovFocShown or self._ovFocTex ~= texPath
             or self._ovFocAlpha ~= overlayAlpha or self._ovFocBgAlpha ~= bgAlpha
             or self._ovFocR ~= ocr or self._ovFocG ~= ocg or self._ovFocB ~= ocb then
             EnsureFocusOverlay(self)
             self._ovFocShown = true
             self._ovFocTex, self._ovFocAlpha = texPath, overlayAlpha
             self._ovFocBgAlpha = bgAlpha
-            self._ovFocR, self._ovFocG, self._ovFocB = ocr, ocg, ocb
+            if forced then
+                self._ovFocR, self._ovFocG, self._ovFocB = nil, nil, nil
+            else
+                self._ovFocR, self._ovFocG, self._ovFocB = ocr, ocg, ocb
+            end
             ApplyOverlayGeometry(self.focusOverlayFill, self.focusOverlayBg, self.health, ns.OVERLAY_STRIPE_KEYS[focusTex] == true)
             self.focusOverlayFill:SetTexture(texPath)
             self.focusOverlayFill:SetAlpha(overlayAlpha)
@@ -6265,21 +6340,31 @@ function NameplateFrame:UpdateHealthColor()
         local texPath = ns._targetOverlayTexPath
         local overlayAlpha = db2.targetOverlayAlpha or defaults.targetOverlayAlpha
         local ocr, ocg, ocb
+        -- Mirrored plate: same reasoning as the focus overlay above.
+        local forced = false
         if NoTintFlag(db2, "targetOverlayNoTint") then
-            ocr, ocg, ocb = hr, hg, hb
+            if mirrored then
+                ocr, ocg, ocb, forced = mr, mg, mb, true
+            else
+                ocr, ocg, ocb = hr, hg, hb
+            end
         else
             local oc = db2.targetOverlayColor or defaults.targetOverlayColor
             ocr, ocg, ocb = oc.r, oc.g, oc.b
         end
         local bgAlpha = OverlayBgAlpha(db2.targetOverlayFullBgAlpha, overlayAlpha)
-        if not self._ovTgtShown or self._ovTgtTex ~= texPath
+        if forced or not self._ovTgtShown or self._ovTgtTex ~= texPath
             or self._ovTgtAlpha ~= overlayAlpha or self._ovTgtBgAlpha ~= bgAlpha
             or self._ovTgtR ~= ocr or self._ovTgtG ~= ocg or self._ovTgtB ~= ocb then
             ns.EnsureTargetOverlay(self)
             self._ovTgtShown = true
             self._ovTgtTex, self._ovTgtAlpha = texPath, overlayAlpha
             self._ovTgtBgAlpha = bgAlpha
-            self._ovTgtR, self._ovTgtG, self._ovTgtB = ocr, ocg, ocb
+            if forced then
+                self._ovTgtR, self._ovTgtG, self._ovTgtB = nil, nil, nil
+            else
+                self._ovTgtR, self._ovTgtG, self._ovTgtB = ocr, ocg, ocb
+            end
             ApplyOverlayGeometry(self.targetOverlayFill, self.targetOverlayBg, self.health, ns.OVERLAY_STRIPE_KEYS[targetTex] == true)
             self.targetOverlayFill:SetTexture(texPath)
             self.targetOverlayFill:SetAlpha(overlayAlpha)
