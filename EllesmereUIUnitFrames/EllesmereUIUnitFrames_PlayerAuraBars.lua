@@ -4349,17 +4349,24 @@ function ns.PAB_SetEnabled(v)
     end
 end
 
--- Engine re-parse recovery. An engine aura container re-parses its groups on a
--- hide/re-show, and a re-parse that lands while the teardown's filter state is
--- still degraded renders the FULL buff set on a FILTERED bar -- with no aura
--- event following, the wrong content sticks until a reload. First seen on an
--- addon-cancelled cinematic (CINEMATIC_STOP), then reported for the login world
--- fade, entering a vehicle, and an unlock-mode round trip: every one of those is
--- the same edge, since the parent chain up to UIParent belongs to whoever hides
--- it, not to us. The one lever Lua holds over engine-owned content is config:
--- re-run the group config for every live container (candidate filters are the
--- live-changeable channel, so re-setting them forces a fresh parse), one tick
--- after the edge so the teardown has finished. Coalesced; all rare edges.
+-- Identity-gate recovery: why a FILTERED bar can render every buff.
+--
+-- Blizzard_AuraContainer/Blizzard_AuraContainerUtil.lua (12.1) gates the
+-- spell-ID candidate filters behind CanApplyIdentityCandidateFilters, and
+-- DoesAuraPassCandidateFilters SKIPS includeSpellIDs/excludeSpellIDs entirely
+-- when that gate says no -- the aura then passes on the filter string alone.
+-- For a helpful group the gate is `isHelpful and not UnitCanAssist("player",
+-- unit)`, so any moment the player is not assistable to itself (unit flags not
+-- streamed yet at login, control handed to a vehicle) parses the whole helpful
+-- set into a bar that asked for four spells. Membership is cached per aura
+-- instance, so with no aura event following the wrong content sticks until a
+-- reload. Same engine gate the Raid Frames containers guard against with
+-- ApplyAssistGate, one unit over.
+--
+-- The lever is config: SetAuraGroupCandidateFilters runs UpdateAllAuras, which
+-- marks FullAuraRebuild and re-evaluates every aura's membership, so re-running
+-- the group config for every live container re-parses with the gate settled.
+-- One tick after the edge, coalesced; all rare edges.
 local resyncPending = false
 local function ResyncContainers()
     if resyncPending then return end
@@ -4389,9 +4396,12 @@ local function ResyncContainers()
     end)
 end
 
--- Every container gets its own visibility watch, so a hide/re-show recovers no
--- matter who caused it (a fullscreen panel taking UIParent down, the login world
--- fade, unlock mode). Hooked, never SetScript: these are engine frames and the
+-- Every container gets its own visibility watch, whoever hides it (a fullscreen
+-- panel taking UIParent down, the login world fade, unlock mode). The container
+-- already re-parses itself on show (AuraContainerPrivateMixin:OnShow_Intrinsic
+-- calls UpdateAllAuras) -- that is the point: that parse runs INSIDE the show,
+-- while the identity gate above can still be reading the old state, so ours has
+-- to land a tick later. Hooked, never SetScript: these are engine frames and the
 -- engine owns their handlers. Weak-keyed registry rather than a field on the
 -- frame -- an AuraContainer is aspect-restricted while tainted, so nothing of
 -- ours is stored on it (the grow-direction registry above does the same). The
@@ -4416,18 +4426,22 @@ initFrame:SetScript("OnEvent", function(self, event)
     ResyncContainers()
 end)
 
--- Re-parse edges the visibility hook cannot see. Vehicles are their own: the
--- engine re-parses on the unit's aura source swapping without anything of ours
--- hiding. PLAYER_ENTERING_WORLD covers the loading-screen edges (the login one
--- lands before the containers exist and is dropped by the guard -- the bars' own
--- creation resync is what covers login). Armed only for sessions where the
--- feature runs at all, and again from PAB_SetEnabled so a live enable is not
--- left waiting for a reload; idempotent, RegisterEvent on an already-registered
--- event is a no-op.
+-- Identity-gate edges no visibility change announces. Control transfer is the
+-- direct one -- UnitCanAssist("player", "player") is what the gate reads, and
+-- PLAYER_CONTROL_LOST/GAINED bracket every handover (vehicles, taxis, mind
+-- control); the vehicle pair stays for seat changes that swap the aura source
+-- without a control edge. PLAYER_ENTERING_WORLD covers loading screens (the
+-- login one lands before the containers exist and is dropped by the guard --
+-- the bars' own creation resync is what covers login). Armed only for sessions
+-- where the feature runs at all, and again from PAB_SetEnabled so a live enable
+-- is not left waiting for a reload; idempotent, RegisterEvent on an
+-- already-registered event is a no-op.
 function ns.PAB_ArmResyncEvents()
     if not ns.PAB_Enabled() then return end
     initFrame:RegisterEvent("CINEMATIC_STOP")
     initFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+    initFrame:RegisterEvent("PLAYER_CONTROL_LOST")
+    initFrame:RegisterEvent("PLAYER_CONTROL_GAINED")
     initFrame:RegisterUnitEvent("UNIT_ENTERED_VEHICLE", "player")
     initFrame:RegisterUnitEvent("UNIT_EXITED_VEHICLE", "player")
 end
