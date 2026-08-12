@@ -1474,6 +1474,7 @@ local SyncCancelCVar -- forward-declared; defined after RestyleBars, called from
 -- re-register on a name change without doing it on every slider drag.
 local lastUnlockBuffLabel
 local ReloadAllCustomBars -- forward-declared; defined after CreateBars (custom bars section), called from it
+local WatchContainerVisibility -- forward-declared; defined in the Lifecycle section (engine re-parse recovery), called from every container-creation callback
 local PAB_MaybeRefreshPreview -- forward-declared; assigned in the options-page preview section, called from every live-apply function so an open bar-detail preview box tracks slider drags without those functions knowing it exists
 
 local restrictedApplies = {}
@@ -1884,6 +1885,7 @@ local function CreateBars()
     buffsSlotSig = table.concat(buffSpells, ",")
     AK.RequestContainer(buffsParent, "player", buffSpec, function(container)
         buffsContainer = container
+        WatchContainerVisibility(container)
         ApplyContainerAnchorAndGrowth(container, buffsParent, buffCfg, buffGrid)
         ShiftBuffsForEnchants(container, buffsParent, buffCfg, buffGrid)
         if ns.WeaponEnchants_Layout then ns.WeaponEnchants_Layout() end
@@ -1907,6 +1909,7 @@ local function CreateBars()
     end)
     AK.RequestContainer(debuffsParent, "player", debuffSpec, function(container)
         debuffsContainer = container
+        WatchContainerVisibility(container)
         ApplyContainerAnchorAndGrowth(container, debuffsParent, debuffCfg, debuffGrid)
         declared.debuffs = {}
         ApplyGroupConfig(container, debuffChain, declared.debuffs, STYLE_DEBUFFS, debuffGrid.effectiveMax, debuffPad, debuffGrid.rowGap, debuffCfg)
@@ -3008,6 +3011,7 @@ local function ReloadCustomBuffBarImpl(barId)
     local pad = bar.padding or 5
     AK.RequestContainer(parent, "player", spec, function(container)
         customBuffContainers[barId] = container
+        WatchContainerVisibility(container)
         ApplyContainerAnchorAndGrowth(container, parent, bar, grid)
         customBuffSig[barId] = sig
         customBuffDeclared[barId] = {}
@@ -3093,6 +3097,7 @@ local function ReloadCustomDebuffBarImpl(barId)
     if not customDebuffContainers[barId] then
         AK.RequestContainer(parent, "player", spec, function(container)
             customDebuffContainers[barId] = container
+            WatchContainerVisibility(container)
             ApplyContainerAnchorAndGrowth(container, parent, bar, grid)
             customDebuffDeclared[barId] = {}
             ApplyGroupConfig(container, chain, customDebuffDeclared[barId], styleKey, grid.effectiveMax, pad, grid.rowGap, bar)
@@ -4340,21 +4345,24 @@ function ns.PAB_SetEnabled(v)
     if v then CreateBars() end
 end
 
--- Cinematic recovery. An addon-cancelled cinematic (CINEMATIC_STOP) puts the
--- engine aura containers through a hide/re-show whose re-parse can land while
--- the teardown's filter state is still degraded -- filtered bars then render
--- the FULL buff set, and with no aura event following, the wrong content
--- sticks. The one lever Lua holds over engine-owned content is config: re-run
--- the group config for every live container (candidate filters are the
+-- Engine re-parse recovery. An engine aura container re-parses its groups on a
+-- hide/re-show, and a re-parse that lands while the teardown's filter state is
+-- still degraded renders the FULL buff set on a FILTERED bar -- with no aura
+-- event following, the wrong content sticks until a reload. First seen on an
+-- addon-cancelled cinematic (CINEMATIC_STOP), then reported for the login world
+-- fade, entering a vehicle, and an unlock-mode round trip: every one of those is
+-- the same edge, since the parent chain up to UIParent belongs to whoever hides
+-- it, not to us. The one lever Lua holds over engine-owned content is config:
+-- re-run the group config for every live container (candidate filters are the
 -- live-changeable channel, so re-setting them forces a fresh parse), one tick
--- after the event so the teardown has finished. Coalesced; rare event.
-local cineFixPending = false
-local function ReapplyAllAfterCinematic()
-    if cineFixPending then return end
+-- after the edge so the teardown has finished. Coalesced; all rare edges.
+local resyncPending = false
+local function ResyncContainers()
+    if resyncPending then return end
     if not (buffsContainer or debuffsContainer) then return end
-    cineFixPending = true
+    resyncPending = true
     C_Timer.After(0, function()
-        cineFixPending = false
+        resyncPending = false
         ApplyLiveConfig(true)
         ApplyLiveConfig(false)
         local cb = ns.PAB_CustomBuffBars()
@@ -4368,6 +4376,21 @@ local function ReapplyAllAfterCinematic()
     end)
 end
 
+-- Every container gets its own visibility watch, so a hide/re-show recovers no
+-- matter who caused it (a fullscreen panel taking UIParent down, the login world
+-- fade, unlock mode). Hooked, never SetScript: these are engine frames and the
+-- engine owns their handlers. Weak-keyed registry rather than a field on the
+-- frame -- an AuraContainer is aspect-restricted while tainted, so nothing of
+-- ours is stored on it (the grow-direction registry above does the same). The
+-- creation-time OnShow fires before the hook is installed, hence the resync here.
+local shownHooked = setmetatable({}, { __mode = "k" })
+function WatchContainerVisibility(container)
+    if not container or shownHooked[container] then return end
+    shownHooked[container] = true
+    container:HookScript("OnShow", ResyncContainers)
+    ResyncContainers()
+end
+
 local initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:SetScript("OnEvent", function(self, event)
@@ -4376,11 +4399,20 @@ initFrame:SetScript("OnEvent", function(self, event)
         TryCreateBars()
         -- Registered only for sessions where the feature runs at all; the
         -- handler's container guard covers the module-disabled stand-down.
+        -- Vehicles are their own edge: the engine re-parses on the unit's
+        -- aura source swapping without anything of ours hiding, so the
+        -- visibility hook alone does not cover them. PLAYER_ENTERING_WORLD
+        -- covers the loading-screen edges (the login one lands before the
+        -- containers exist and is dropped by the guard; the bars' own
+        -- creation resync is what covers login).
         if ns.PAB_Enabled() then
             self:RegisterEvent("CINEMATIC_STOP")
+            self:RegisterEvent("PLAYER_ENTERING_WORLD")
+            self:RegisterUnitEvent("UNIT_ENTERED_VEHICLE", "player")
+            self:RegisterUnitEvent("UNIT_EXITED_VEHICLE", "player")
         end
         return
     end
-    ReapplyAllAfterCinematic()
+    ResyncContainers()
 end)
 
