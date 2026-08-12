@@ -228,5 +228,16 @@ function ns.EMB121_Sync(bar, pp, pc)
     S.proxy:Show()
     -- One container-level set lifts the whole engine subtree above the
     -- (empty) legacy fill.
-    S.container:SetFrameLevel(bar:GetFrameLevel() + 1)
+    local lvl = bar:GetFrameLevel() + 1
+    S.container:SetFrameLevel(lvl)
+    -- ...which also lifts it above the bar's border strips (bar+2), so the
+    -- fill -- a slot-button child two levels down, edge to edge over the whole
+    -- rect -- paints over them: Border Size/Color silently did nothing while
+    -- the power type was Ebon Might. Push the border back on top, clearing the
+    -- engine fill with a level of margin (the subtree is denied to us
+    -- afterward, so its exact levels can't be read back). The countdown text
+    -- sits at fill+5, still above the border, as on the legacy path.
+    if bar.RaiseBorderAbove then
+        bar:RaiseBorderAbove(lvl + 3, pp and pp.borderBehind)
+    end
 end

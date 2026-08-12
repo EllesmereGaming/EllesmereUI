@@ -738,6 +738,21 @@ local function BuildStyle(isBuff, cfg)
         -- passes straight to the world. Hover is deliberately untouched:
         -- click and motion are separate mouse channels, so tooltips keep
         -- following Show Tooltips below either way.
+        -- UP phase, matching Blizzard's own AuraButtonMixin ("LeftButtonUp",
+        -- "RightButtonUp"). Known limitation, field-reported 2026-08-12: for some
+        -- players the right-button PRESS falls through to WorldFrame, which starts
+        -- camera mouselook and captures the mouse, so the matching ButtonUp ends the
+        -- mouselook instead of reaching the button and the buff survives. Blizzard's
+        -- legacy icons consume that press; the engine's intrinsic AuraButton denies
+        -- tainted (addon) code the input aspects that would do the same
+        -- (Blizzard_AuraButton.xml: ForbiddenAspect AlwaysPropagateInput /
+        -- ScriptedInput), and no API re-grants a denied aspect. "RightButtonDown"
+        -- works around it but was rejected deliberately: a right-click-drag starting
+        -- on an icon would then cancel that buff on press. Do not "fix" this by
+        -- registering BOTH phases either -- Blizzard's CanCancelAuraOnClick matches
+        -- any registered token, so OnClick fires twice and the engine may have
+        -- re-assigned this button's aura instance in between, cancelling a DIFFERENT
+        -- aura on the up edge.
         cancelButtons = (isBuff and cfg.rightClickCancel ~= false) and "RightButtonUp" or nil,
 
         hideDurationText = cfg.durationShow == false,
@@ -1428,6 +1443,7 @@ local declared = { buffs = {}, debuffs = {} } -- buffs: only the "Show All Buffs
 local lastSize = { buffs = nil, debuffs = nil } -- {w=,h=} last-applied grid size, for CENTER-anchor compensation (see ApplyLiveConfig)
 local buffsSlotSig -- signature of the default Buffs bar's last-applied resolved spell list (ns.PAB_ResolveSpells), mirrors customBuffSig[barId] for the per-bar slots model
 local RegisterPABUnlock -- forward-declared; defined after CreateBars, called from it
+local SyncCancelCVar -- forward-declared; defined after RestyleBars, called from CreateBars/RestyleBars/ReloadCustomBuffBarImpl
 -- Last label the Buffs mover was registered under, so ApplyLiveConfig can
 -- re-register on a name change without doing it on every slider drag.
 local lastUnlockBuffLabel
@@ -1796,6 +1812,7 @@ local function CreateBars()
     end)
     RegisterPABUnlock()
     ReloadAllCustomBars()
+    SyncCancelCVar()
 end
 
 -- Unlock-mode registration, patterned on EllesmereUIDamageMeters.lua's
@@ -1882,8 +1899,60 @@ local function RestyleBars()
     AK.styles[STYLE_DEBUFFS] = BuildStyle(false, DefaultDebuffsCfg(s))
     AK.RestyleSoon(STYLE_BUFFS)
     AK.RestyleSoon(STYLE_DEBUFFS)
+    SyncCancelCVar()
 end
 ns.PAB_Restyle = RestyleBars
+
+-- CursorFreelookStartDelta is the fraction of the screen the cursor must move before a
+-- held mouse button counts as camera freelook instead of a click; Blizzard's own
+-- shipped default is 0.001 (verified against the client's cvar list, not assumed). At
+-- 0 -- the most aggressive setting, zero movement required -- ANY right-click on an
+-- aura icon is claimed for freelook before the release reaches our button, silently
+-- eating the "Right-Click to Cancel" click (field-reported 2026-08-12, twice
+-- independently). Players land on 0 via third-party "camera feel" addons/macros (a
+-- dedicated community addon, CursorDeltaFix, does exactly this:
+-- SetCVar("CursorFreelookStartDelta", 0)) or a manual /console tweak, not from
+-- anything EllesmereUI does.
+--
+-- Repair only, never a nudge above Blizzard's default: we only ever touch this CVar
+-- when it is caught sitting at the pathological 0, restoring it to Blizzard's own
+-- 0.001 -- never raised past that, and never touched at all if it's anywhere else
+-- (including a deliberately-tuned non-zero, non-default value). Conditional on some
+-- right-click-cancelable buff surface actually being live, so a player who never uses
+-- the feature never has this CVar touched by EllesmereUI at all.
+local CANCEL_CVAR = "CursorFreelookStartDelta"
+local CANCEL_CVAR_BROKEN = 0
+local CANCEL_CVAR_DEFAULT = "0.001"
+
+--- True while some right-click-cancelable player buff display is live: the default
+--- Buffs bar (rightClickCancel defaults ON), any enabled custom buff bar with its own
+--- toggle ON, or the classic Unit Frames player-buffs display (EUI_UnitFrames_
+--- AuraContainers.lua's cancelButtons is unconditional whenever unit=="player" and
+--- isBuff, gated only on the element being shown at all).
+local function AnyRightClickCancelActive(s)
+    if DefaultBuffsCfg(s).rightClickCancel ~= false then return true end
+    local customBuffBars = s.customBuffBars
+    if customBuffBars then
+        for i = 1, #customBuffBars do
+            local bar = customBuffBars[i]
+            if bar.enabled ~= false and bar.rightClickCancel ~= false then return true end
+        end
+    end
+    local db = ns.db
+    local playerCfg = db and db.profile and db.profile.player
+    if playerCfg and playerCfg.showBuffs ~= false then return true end
+    return false
+end
+
+function SyncCancelCVar()
+    local s = PAB()
+    if not s or s.enabled ~= true then return end
+    if not AnyRightClickCancelActive(s) then return end
+    if InCombatLockdown() then return end
+    if tonumber(GetCVar(CANCEL_CVAR)) == CANCEL_CVAR_BROKEN then
+        SetCVar(CANCEL_CVAR, CANCEL_CVAR_DEFAULT)
+    end
+end
 
 -- Public hook for the Options UI: live counterpart to RestyleBars for everything
 -- spec-level (class toggles, grid: iconsPerRow/maxRows/padding/maxBuffs-or-Debuffs,
@@ -2769,6 +2838,7 @@ local function ReloadCustomBuffBarImpl(barId)
     -- RestyleSoon re-runs ApplyStyleToRegions against every already-live button
     -- under that key.
     AK.RestyleSoon(styleKey)
+    SyncCancelCVar()
 
     local parent = customBuffParents[barId]
     if not parent then

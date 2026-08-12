@@ -453,9 +453,41 @@ local function ApplyStyleToRegions(button, style)
     -- noTooltips). Running here also covers every Restyle, so a settings change cannot
     -- re-open either one. Same deferral as the neighbours above when the button is
     -- locked down while auras are secret.
-    if not style.cancelButtons and button.SetMouseClickEnabled then
-        if not pcall(button.SetMouseClickEnabled, button, false)
-            and d.styleKey and AK.AurasRestricted() then
+    -- The click channel is symmetric, unlike the click-off-only pass this used to be.
+    -- A style that GAINS cancelButtons later only reaches its already-created buttons
+    -- through Restyle (PAB's per-bar "Right-Click to Cancel" toggled off and back on, a
+    -- profile switch into a profile that has it on), and nothing undid the earlier
+    -- SetMouseClickEnabled(false) -- the bar stayed click-through until the next
+    -- /reload, with the right-click landing on the container below the icon. Field
+    -- report 2026-08-12: player buffs that cannot be right-click cancelled, /fstack
+    -- showing no button above the AuraContainer. SetCancelAuraButtons is re-asserted in
+    -- the same breath: it ran at button creation only, so the re-enabled toggle also
+    -- needed its click token registered again (Blizzard's own
+    -- AuraButtonSharedMixin:SetCancelAuraButtons -> RegisterForClicks). Change-guarded
+    -- by stamps, both deferred to the restriction lift like the neighbours above.
+    if style.cancelButtons then
+        if d.akClickOff and button.SetMouseClickEnabled then
+            if pcall(button.SetMouseClickEnabled, button, true) then
+                d.akClickOff = nil
+            elseif d.styleKey and AK.AurasRestricted() then
+                deferredRestyles[d.styleKey] = true
+            end
+        end
+        if d.akCancel ~= style.cancelButtons and button.SetCancelAuraButtons then
+            if pcall(button.SetCancelAuraButtons, button, style.cancelButtons) then
+                d.akCancel = style.cancelButtons
+            elseif d.styleKey and AK.AurasRestricted() then
+                deferredRestyles[d.styleKey] = true
+            end
+        end
+    elseif button.SetMouseClickEnabled then
+        -- Re-asserted every pass (not stamp-guarded): configuring tooltip behaviour on
+        -- an engine button turns its mouse back on, which silently re-opened the
+        -- nameplate click-eater. The stamp only records that WE own the off state, for
+        -- the re-arm above.
+        if pcall(button.SetMouseClickEnabled, button, false) then
+            d.akClickOff = true
+        elseif d.styleKey and AK.AurasRestricted() then
             deferredRestyles[d.styleKey] = true
         end
     end
@@ -641,8 +673,12 @@ function AK.MakeInitializer(styleKey, extra)
         -- restyles; duration opts otherwise land only here at creation).
         d.durationFmtS = style.durationShowSeconds and true or false
 
-        if style.cancelButtons then
+        -- Creation-time guarantee, stamp-guarded: ApplyStyleToRegions above already
+        -- wires the click token on this pass, so this only fires if that call was
+        -- denied (secret-value lockdown), leaving the deferred restyle to repair it.
+        if style.cancelButtons and d.akCancel ~= style.cancelButtons then
             button:SetCancelAuraButtons(style.cancelButtons)
+            d.akCancel = style.cancelButtons
         end
 
         GetStyleSet(styleKey)[button] = true

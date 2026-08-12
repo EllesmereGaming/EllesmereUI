@@ -1790,6 +1790,24 @@ local function CreateStatusBar(parent, name, w, h, borderSize, borderR, borderG,
         self._border:ApplyStyle(sz, r, g, b, a, textureKey, texOffset, texOffsetY, shiftX, shiftY, addonKey, sizeKey)
     end
 
+    -- Lift the border above an overlay that draws inside the bar's rect. The
+    -- default level (+1 over the bar, strips +1 over that) only clears the
+    -- legacy fill; the 12.1 Ebon Might engine slot renders its own StatusBar
+    -- deeper in the tree, so it paints over the strips and Border Size/Color
+    -- look like they do nothing. "Show Behind" is honored -- that border is
+    -- meant to sit under the fill. Idempotent: safe to re-assert every update.
+    function bar:RaiseBorderAbove(coverLevel, behind)
+        local bf = self._border and self._border._frame
+        if not bf then return end
+        local lvl = behind and math.max(0, self:GetFrameLevel() - 1) or (coverLevel + 1)
+        bf:SetFrameLevel(lvl)
+        -- Re-assert on the PP strip container too: it was levelled off the
+        -- border frame at creation, and the textured-border backdrop tracks
+        -- the border frame's level directly.
+        local edges = PP and PP.GetBorders and PP.GetBorders(bf)
+        if edges then edges:SetFrameLevel(lvl + 1) end
+    end
+
     -- Text overlay (above all bar borders)
     local textFrame = CreateFrame("Frame", nil, bar)
     textFrame:SetAllPoints(bar)

@@ -7834,10 +7834,11 @@ initFrame:SetScript("OnEvent", function(self)
             if EllesmereUI._applyHideBlizzardPartyFrame then
                 EllesmereUI._applyHideBlizzardPartyFrame()
             end
-            if EllesmereUI._applyFPSCounter then
-                EllesmereUI._applyFPSCounter()
-            end
-            if EllesmereUI._applySecondaryStats then
+            -- One call for both: the FPS readout may be drawn by the Secondary
+            -- Stats block, so the two owners have to re-evaluate together.
+            if EllesmereUI._applyFPSDisplay then
+                EllesmereUI._applyFPSDisplay()
+            elseif EllesmereUI._applySecondaryStats then
                 EllesmereUI._applySecondaryStats()
             end
             if EllesmereUI._applyCrosshair then

@@ -406,6 +406,15 @@ local function MigrateNames(p)
         -- carries none, so the copy is simply dropped.
         for _, slot in pairs(palette.slots or {}) do
             if slot.kind == "palette" then slot.name = nil end
+            -- Toys dragged in from the Collections/Toy Box frame before
+            -- SlotFromCursor reclassified them landed here as kind="item",
+            -- which runs SlotUsability through C_Item.IsUsableItem -- always
+            -- "unusable" for a toy -- instead of the toy path, which leaves
+            -- them untinted. Same fix, applied to what was already saved.
+            if slot.kind == "item" and type(slot.id) == "number"
+               and PlayerHasToy(slot.id) then
+                slot.kind = "toy"
+            end
         end
     end
 end
@@ -1747,6 +1756,11 @@ local function SlotFromCursor()
     elseif cursorType == "item" then
         local itemID = tonumber(a)
         if not itemID then return nil end
+        -- The Toy Box frame hands back cursorType "item", not "toy", so
+        -- reclassify here to match what the search picker already stores.
+        if PlayerHasToy(itemID) then
+            return { kind = "toy", id = itemID }
+        end
         return { kind = "item", id = itemID }
 
     elseif cursorType == "macro" then

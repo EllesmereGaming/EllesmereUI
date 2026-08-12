@@ -1657,12 +1657,22 @@ end
 do
     local statsFrame, statsText
     local format = string.format
+    local floor = math.floor
 
     -- Single-string layout: one FontString, "Label:  value" per row. The
     -- two-column split (separate right-justified values FontString) was
     -- reverted -- per-column sizing/anchor interplay caused more issues
     -- than the aligned numbers were worth.
     local ROW_GAP = 3    -- extra pixels between rows (SetSpacing)
+
+    -- Dim span for the attached FPS rows, which build their own bodies. Every
+    -- span opens and closes rather than nesting, since |r restores one level
+    -- only.
+    local DIM = "|cff9d9d9d"
+
+    -- Gap between a label and its figure, and either side of the latency
+    -- divider so the whole block keeps one rhythm.
+    local LABEL_GAP = " "
 
     -- Per-stat label colors, used when no custom color is picked in options.
     -- One hue per secondary so the rows scan at a glance; tertiaries share a
@@ -1675,26 +1685,33 @@ do
     }
     -- Tertiaries keep the original default: the player's class color.
 
-    -- Secret-safe percent text: stat getters can return secret numbers in
-    -- restricted content, and string.format errors on a secret value. A secret
-    -- cannot be RENDERED either (the engine text sink draws secret numbers as
-    -- 0.0), so "?" is the floor while restricted -- recovery below is what
-    -- keeps it from sticking.
-    local statUnreadable = false
-    local function PctText(v)
-        if v == nil or issecretvalue(v) then
-            statUnreadable = true
-            return "?"
-        end
-        return format("%.2f%%", v)
+    -- SECRET STATS. In restricted content the stat getters return secret
+    -- numbers. A secret refuses INSPECTION -- compare one, do arithmetic on
+    -- one, or format one in Lua, and that errors -- but it renders perfectly
+    -- through an engine sink. SetFormattedText is such a sink (see the CDM
+    -- timer and the inspect sheet's M+ score), so every figure below is passed
+    -- to it as an ARGUMENT against a template built only from clean data.
+    -- That is what keeps the block live in combat instead of reading "?".
+    --
+    -- The one thing a secret still costs is measurement: GetStringWidth errors
+    -- on a FontString that was fed one, so the block keeps its last known size
+    -- until the values are readable again (see UpdateSecondaryStats).
+    --
+    -- Labels are interpolated INTO that template, so a "%" in a translation
+    -- would become a stray format spec. Escape it.
+    local function Esc(s)
+        return (tostring(s):gsub("%%", "%%%%"))
     end
 
-    -- Load-in settle heal: the login/zone-in restriction window can outlast the
-    -- first paint AND every stat event (stats then read "?" until gear swaps).
-    -- Combat-scoped secrecy has a real edge (PLAYER_REGEN_ENABLED, registered
-    -- below); the login settle has NO event, so a paint that saw a secret arms
-    -- ONE bounded retry chain -- never a loop against persistent secrecy: the
-    -- budget stops it, and a clean paint resets it.
+    -- Set when a figure is genuinely absent (nil) -- NOT when it is merely
+    -- secret, which now renders fine.
+    local statUnreadable = false
+
+    -- Load-in settle heal: the login/zone-in window can outlast the first paint
+    -- AND every stat event, leaving a nil figure reading "?" until gear swaps.
+    -- There is no event for that settle, so a paint that saw one arms ONE
+    -- bounded retry chain -- never a loop: the budget stops it, and a clean
+    -- paint resets it.
     local _healPending = false
     local UpdateSecondaryStats
 
@@ -1709,6 +1726,52 @@ do
             UpdateSecondaryStats()
         end)
     end
+
+    -- Latency sources for the attached rows. Local MS defaults to ON when the
+    -- setting has never been written, matching the standalone counter.
+    local function LatencySources()
+        local _localMS = EllesmereUI.QoLExtrasGet("fpsShowLocalMS")
+        local showLocal = (_localMS == nil) and true or _localMS
+        return EllesmereUI.QoLExtrasGet("fpsShowWorldMS"), showLocal
+    end
+
+    -- Position authority. A center names a corner only once you know the size,
+    -- so a CENTER/CENTER anchor walks a text-sized block sideways by half of
+    -- every width change -- a digit on the latency, a row appearing -- and puts
+    -- it somewhere new on each reload. This block stores an EDGE anchor
+    -- instead, the convention the growth-direction bars already use, after
+    -- which nothing about its size can move it.
+    --
+    -- Whole pixels: a center lands on a half pixel at odd sizes, and text drawn
+    -- from a fractional origin is free to round either way.
+    local function CornerFromCenter(cx, cy, w, h)
+        return floor(UIParent:GetWidth() / 2 + cx - w / 2 + 0.5),
+               floor(UIParent:GetHeight() / 2 + cy + h / 2 + 0.5)
+    end
+    EllesmereUI._secondaryStatsCorner = CornerFromCenter
+
+    local function ApplyStatsPosition()
+        -- Unlock mode owns positioning while a session is open.
+        if not statsFrame or EllesmereUI._unlockActive then return end
+        local pos = EllesmereUI.QoLExtrasGet("secondaryStatsPos")
+        if not (pos and pos.point) then return end
+        -- Saved as a center by an earlier build. Resolve it once, at a size we
+        -- know is real, and keep the corner from then on -- otherwise it would
+        -- go on resolving to a different corner for the life of the profile.
+        if pos.point == "CENTER" and statsFrame._measured then
+            local copy = {}
+            for k, v in pairs(pos) do copy[k] = v end
+            copy.point, copy.relPoint = "TOPLEFT", "BOTTOMLEFT"
+            copy.x, copy.y = CornerFromCenter(pos.x or 0, pos.y or 0,
+                statsFrame:GetWidth(), statsFrame:GetHeight())
+            EllesmereUI.QoLExtrasSet("secondaryStatsPos", copy)
+            pos = copy
+        end
+        statsFrame:ClearAllPoints()
+        statsFrame:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
+    end
+    -- For the unlock element, registered in the FPS block below.
+    EllesmereUI._secondaryStatsPin = ApplyStatsPosition
 
     function UpdateSecondaryStats()
         if not statsFrame or not statsFrame:IsShown() then return end
@@ -1748,28 +1811,59 @@ do
         local crit = GetCritChance("player")
         local haste = UnitSpellHaste("player")
         local mastery = GetMasteryEffect()
+        -- Versatility is the only row built by ADDING two getters, and addition
+        -- is what a secret refuses -- so under restriction the real total is
+        -- not computable here. Blizzard's pane still shows it (its code reads
+        -- true values; an addon gets secrets), which is why the two disagreed.
+        -- Falling back to the rating alone silently drops the non-rating bonus,
+        -- so remember the last clean total and show that instead; "?" is the
+        -- floor when there has never been a clean read.
         local versRating = GetCombatRatingBonus(CR_VERSATILITY_DAMAGE_DONE) or 0
         local versBase = GetVersatilityBonus(CR_VERSATILITY_DAMAGE_DONE) or 0
-        -- Arithmetic on a secret errors; show the rating alone in that case
         local vers
         if issecretvalue(versRating) or issecretvalue(versBase) then
-            vers = versRating
+            vers = statsFrame._versLastClean   -- nil until one exists -> "?"
         else
             vers = versRating + versBase
+            statsFrame._versLastClean = vers
         end
 
-        local rows = {}
-        -- Values are white unless Colored Percentages is on, which colors
+        -- One template line per row, plus the figures to fill it. Nothing here
+        -- reads a figure -- see the SECRET STATS note above.
+        local rows, vals = {}, {}
+        local anySecret = false
+        -- Values are white unless Colored Values is on, which colors
         -- each value with its row so the stat reads as one piece.
         local coloredPct = EllesmereUI.QoLExtrasGet("coloredPercentages")
         local function Row(hex, label, value)
-            rows[#rows + 1] = format("|cff%s%s:|r  |cff%s%s|r",
-                hex, label, coloredPct and hex or "ffffff", value)
+            -- A "%.2f%%" placeholder when there is a figure to draw, so the
+            -- number itself travels as an argument; a literal "?" when there
+            -- is genuinely nothing. issecretvalue FIRST -- a nil test is fine
+            -- on a secret, but nothing below it would be.
+            local body = "%.2f%%"
+            if value == nil then
+                statUnreadable = true
+                body = "?"
+            else
+                if issecretvalue(value) then anySecret = true end
+                vals[#vals + 1] = value
+            end
+            rows[#rows + 1] = format("|cff%s%s:|r%s|cff%s%s|r",
+                hex, Esc(label), LABEL_GAP, coloredPct and hex or "ffffff", body)
         end
-        Row(customHex or STAT_HEX.crit,    EllesmereUI.L("Crit"),    PctText(crit))
-        Row(customHex or STAT_HEX.haste,   EllesmereUI.L("Haste"),   PctText(haste))
-        Row(customHex or STAT_HEX.mastery, EllesmereUI.L("Mastery"), PctText(mastery))
-        Row(customHex or STAT_HEX.vers,    EllesmereUI.L("Vers"),    PctText(vers))
+        -- Sibling for rows whose body is already colored (the FPS pair below):
+        -- Row would wrap it in a second span, and |r restores one level only.
+        -- Those bodies apply Colored Values themselves, per figure, and are
+        -- built from figures that are never secret -- so they carry no
+        -- placeholder and must be escaped like any other template text.
+        local function RawRow(hex, label, body)
+            rows[#rows + 1] = format("|cff%s%s:|r%s%s",
+                hex, Esc(label), LABEL_GAP, Esc(body))
+        end
+        Row(customHex or STAT_HEX.crit,    EllesmereUI.L("Crit"),    crit)
+        Row(customHex or STAT_HEX.haste,   EllesmereUI.L("Haste"),   haste)
+        Row(customHex or STAT_HEX.mastery, EllesmereUI.L("Mastery"), mastery)
+        Row(customHex or STAT_HEX.vers,    EllesmereUI.L("Vers"),    vers)
 
         if EllesmereUI.QoLExtrasGet("showTertiaryStats") then
             local tc = EllesmereUI.QoLExtrasGet("tertiaryStatsColor")
@@ -1782,20 +1876,107 @@ do
             local leech = GetLifesteal()
             local avoidance = GetAvoidance()
             local speed = GetSpeed()
-            Row(tertHex, EllesmereUI.L("Leech"),     PctText(leech))
-            Row(tertHex, EllesmereUI.L("Avoidance"), PctText(avoidance))
-            Row(tertHex, EllesmereUI.L("Speed"),     PctText(speed))
+            Row(tertHex, EllesmereUI.L("Leech"),     leech)
+            Row(tertHex, EllesmereUI.L("Avoidance"), avoidance)
+            Row(tertHex, EllesmereUI.L("Speed"),     speed)
         end
 
-        statsText:SetText(table.concat(rows, "\n"))
-        statsFrame:SetSize(statsText:GetStringWidth() + 2,
-            statsText:GetStringHeight() + 2)
+        -- FPS and latency, drawn here rather than by the standalone counter
+        -- while Attach to Secondary Stats is on. Label color comes from the FPS
+        -- swatch, falling back to class color like the other groups.
+        if EllesmereUI.QoLExtrasGet("fpsAttachToStats")
+           and EllesmereUI.QoLExtrasGet("showFPS") then
+            -- Same resolver the standalone counter uses, so the two owners
+            -- cannot disagree about the color.
+            local fr, fg, fb = EllesmereUI._fpsColorRGB()
+            local fpsHex = format("%02x%02x%02x", fr * 255, fg * 255, fb * 255)
+            -- The figures follow Colored Values with the rest of the block.
+            -- The "(world)"/"(local)" suffixes and the divider stay dim either
+            -- way -- they are annotations, not values.
+            local VAL = "|cff" .. (coloredPct and fpsHex or "ffffff")
 
-        if statUnreadable then
+            RawRow(fpsHex, EllesmereUI.L("FPS"),
+                VAL .. floor(GetFramerate() + 0.5) .. "|r")
+
+            local showWorld, showLocal = LatencySources()
+            if showWorld or showLocal then
+                local hideLabel = EllesmereUI.QoLExtrasGet("fpsHideLabel")
+                local _, _, latHome, latWorld = GetNetStats()
+                local parts = {}
+                if showWorld then
+                    parts[#parts + 1] = VAL .. latWorld .. " ms|r"
+                        .. (hideLabel and "" or (DIM .. " (world)|r"))
+                end
+                if showLocal then
+                    parts[#parts + 1] = VAL .. latHome .. " ms|r"
+                        .. (hideLabel and "" or (DIM .. " (local)|r"))
+                end
+                -- The divider takes LABEL_GAP on both sides. "||" renders one
+                -- literal pipe.
+                RawRow(fpsHex, EllesmereUI.L("Latency"),
+                    table.concat(parts, LABEL_GAP .. DIM .. "||" .. "|r" .. LABEL_GAP))
+            end
+        end
+
+        -- The engine fills the template. This is the whole point: a secret
+        -- figure is never read in Lua, so it draws its true number.
+        statsText:SetFormattedText(table.concat(rows, "\n"), unpack(vals))
+
+        -- Measuring is the one thing a secret costs us: GetStringWidth errors
+        -- on a FontString that was fed one. Keep the last known size until the
+        -- figures are readable again -- only the unlock drag box and the corner
+        -- migration below read it, and both can wait for the end of combat
+        -- (PLAYER_REGEN_ENABLED is registered, so that repaint comes).
+        local staleSize = false
+        if not anySecret then
+            -- Clean figures do NOT buy a clean measurement: the metrics belong
+            -- to the last LAID OUT string, so the first paint AFTER a secret
+            -- one still hands back a secret width -- which is what errored
+            -- here. Test what the arithmetic is about to touch, not what was
+            -- fed in.
+            local w, h = statsText:GetStringWidth(), statsText:GetStringHeight()
+            if issecretvalue(w) or issecretvalue(h) then
+                -- Nothing left to wait on but the next layout, and there is no
+                -- event for that -- so borrow the bounded retry chain below.
+                staleSize = true
+            else
+                statsFrame:SetSize(w + 2, h + 2)
+                -- The block has now been measured at a real size, which is what
+                -- a stored center needs before it can be resolved to a corner.
+                -- Only worth a call while one is still stored; the migration
+                -- runs once.
+                statsFrame._measured = true
+                local savedPos = EllesmereUI.QoLExtrasGet("secondaryStatsPos")
+                if savedPos and savedPos.point == "CENTER" then ApplyStatsPosition() end
+            end
+        end
+
+        -- A missing figure and a not-yet-relaid-out measurement both heal on
+        -- their own clock rather than an event, so they share the one chain.
+        -- anySecret deliberately does NOT arm it: that clears on
+        -- PLAYER_REGEN_ENABLED, and spending the budget on a whole fight would
+        -- leave none for the settle that actually needs it.
+        if statUnreadable or staleSize then
             ArmSecretHeal()
         else
             statsFrame._secretHeals = nil
         end
+    end
+
+    -- The stat rows redraw on events; FPS and latency need their own clock.
+    -- Rebuilt on every apply so the interval takes effect and never doubles up.
+    local function RefreshFPSTicker()
+        if not statsFrame then return end
+        if statsFrame._fpsTicker then
+            statsFrame._fpsTicker:Cancel()
+            statsFrame._fpsTicker = nil
+        end
+        if not (EllesmereUI.QoLExtrasGet("fpsAttachToStats")
+                and EllesmereUI.QoLExtrasGet("showFPS")) then
+            return
+        end
+        statsFrame._fpsTicker = C_Timer.NewTicker(
+            EllesmereUI.QoLExtrasGet("fpsUpdateInterval") or 3, UpdateSecondaryStats)
     end
 
     local function ApplySecondaryStats()
@@ -1804,6 +1985,10 @@ do
             if statsFrame then
                 statsFrame:Hide()
                 statsFrame:UnregisterAllEvents()
+                if statsFrame._fpsTicker then
+                    statsFrame._fpsTicker:Cancel()
+                    statsFrame._fpsTicker = nil
+                end
             end
             return
         end
@@ -1822,17 +2007,9 @@ do
             statsText:SetFont(font, 12, EllesmereUI.GetFontOutlineFlag("extras"))
             statsText:SetSpacing(ROW_GAP)
         end
+        ApplyStatsPosition()
         local pos = EllesmereUI.QoLExtrasGet("secondaryStatsPos")
-        local scale = 1.0
-        if pos then
-            if pos.point then
-                statsFrame:ClearAllPoints()
-                statsFrame:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
-            end
-            if pos.scale then
-                scale = pos.scale
-            end
-        end
+        local scale = (pos and pos.scale) or 1.0
         if statsText then
             local font = EllesmereUI.ResolveFontName(EllesmereUI.GetFontsDB().global)
             local fontSize = math.floor(12 * scale + 0.5)
@@ -1852,9 +2029,10 @@ do
             "COMBAT_RATING_UPDATE", "PLAYER_EQUIPMENT_CHANGED",
             "MASTERY_UPDATE", "SPELL_POWER_CHANGED", "PLAYER_DAMAGE_DONE_MODS",
             "PLAYER_SPECIALIZATION_CHANGED", "PLAYER_ENTERING_WORLD",
-            -- Combat-scoped stat secrecy has this as its lift edge: a load-in
-            -- straight into a fight paints "?" and no stat event follows, so
-            -- the end of combat is what repaints with readable values.
+            -- Combat-scoped stat secrecy lifts here. The figures themselves
+            -- stay live through a fight (they render as arguments), but the
+            -- block cannot be MEASURED while any of them is secret -- so this
+            -- is the edge that catches its footprint back up.
             "PLAYER_REGEN_ENABLED",
         }) do
             statsFrame:RegisterEvent(ev)
@@ -1862,18 +2040,34 @@ do
         local _statsPending = false
         -- No runtime unit filter: unit events are engine-filtered to player above;
         -- a `unit ~= "player"` check would wrongly swallow PLAYER_EQUIPMENT_CHANGED, whose first arg is a slot id.
+        --
+        -- Leading edge, then a trailing pass. COMBAT_RATING_UPDATE fires many
+        -- times a second in combat, so the window has to stay -- but spending it
+        -- BEFORE the first redraw is what put the block half a second behind the
+        -- character sheet. Redraw at once instead, and again once the burst has
+        -- settled, for the same two updates per window.
         statsFrame:SetScript("OnEvent", function()
             if _statsPending then return end
             _statsPending = true
+            UpdateSecondaryStats()
             C_Timer.After(0.5, function()
                 _statsPending = false
                 UpdateSecondaryStats()
             end)
         end)
         statsFrame:Show()
+        RefreshFPSTicker()
         UpdateSecondaryStats()
     end
     EllesmereUI._applySecondaryStats = ApplySecondaryStats
+
+    -- The frame is sized from the text on every update, but only while it is
+    -- shown. Catch it up when unlock mode opens so the mover box matches.
+    if EllesmereUI.RegisterUnlockModeListener then
+        EllesmereUI:RegisterUnlockModeListener("EUI_SecondaryStats", function(opening)
+            if opening then UpdateSecondaryStats() end
+        end)
+    end
 
     EllesmereUI._getSecondaryStatsFrame = function()
         if not statsFrame then
@@ -1896,6 +2090,26 @@ end
 do
     local fpsFrame
     local floor = math.floor
+
+    -- Resolved readout color, shared by this frame and the attached rows so
+    -- the two owners can never disagree. No mode saved means "custom", which
+    -- with no stored color is white -- the look before the mode existed, so
+    -- an existing profile is unchanged.
+    local function FPSColorRGB()
+        if EllesmereUI.QoLExtrasGet("fpsColorMode") == "class" then
+            -- issecretvalue FIRST: UnitClass returns a secret in restricted
+            -- content and truthiness on one throws.
+            local _, cls = UnitClass("player")
+            if issecretvalue(cls) then cls = nil end
+            local cc = cls and EllesmereUI.GetClassColor(cls)
+            if cc then return cc.r, cc.g, cc.b, 1 end
+            return 1, 1, 1, 1   -- class color not resolved yet; retry next update
+        end
+        local c = EllesmereUI.QoLExtrasGet("fpsColor")
+        if c then return c.r or 1, c.g or 1, c.b or 1, c.a or 1 end
+        return 1, 1, 1, 1
+    end
+    EllesmereUI._fpsColorRGB = FPSColorRGB
 
     local function CreateFPSCounter()
         if fpsFrame then return end
@@ -1946,9 +2160,7 @@ do
         fpsFrame._lblLocal = fsLocalLbl
 
         local function UpdateFPS(self)
-            local c = EllesmereUI.QoLExtrasGet("fpsColor")
-            local cr, cg, cb, ca = 1, 1, 1, 1
-            if c then cr, cg, cb, ca = c.r or 1, c.g or 1, c.b or 1, c.a or 1 end
+            local cr, cg, cb, ca = EllesmereUI._fpsColorRGB()
             fsFps:SetTextColor(cr, cg, cb, ca)
             fsWorldVal:SetTextColor(cr, cg, cb, ca)
             fsWorldLbl:SetTextColor(cr, cg, cb, ca * 0.6)
@@ -2037,8 +2249,17 @@ do
         fpsFrame:Hide()
     end
 
+    -- Attached = drawn as extra rows in the Secondary Stats block rather than by
+    -- this frame. Requires that block to be on, so turning it off pops the
+    -- counter back to standalone instead of making it disappear.
+    local function IsAttached()
+        return (EllesmereUI.QoLExtrasGet("fpsAttachToStats")
+            and EllesmereUI.QoLExtrasGet("showSecondaryStats")) and true or false
+    end
+    EllesmereUI._fpsAttachedToStats = IsAttached
+
     EllesmereUI._applyFPSCounter = function()
-        local shouldShow = EllesmereUI.QoLExtrasGet("showFPS")
+        local shouldShow = EllesmereUI.QoLExtrasGet("showFPS") and not IsAttached()
         if shouldShow then
             CreateFPSCounter()
             fpsFrame._interval = EllesmereUI.QoLExtrasGet("fpsUpdateInterval") or 3
@@ -2064,6 +2285,13 @@ do
         end
     end
 
+    -- A settings change can move the readout between its two owners, so every
+    -- FPS option writes through here rather than calling one side directly.
+    EllesmereUI._applyFPSDisplay = function()
+        if EllesmereUI._applyFPSCounter then EllesmereUI._applyFPSCounter() end
+        if EllesmereUI._applySecondaryStats then EllesmereUI._applySecondaryStats() end
+    end
+
     C_Timer.After(2, function()
         local MK = EllesmereUI.MakeUnlockElement
         EllesmereUI:RegisterUnlockElements({
@@ -2072,6 +2300,9 @@ do
                 label = "FPS Counter",
                 group = "General",
                 order = 700,
+                -- Dragged by the Secondary Stats element while attached. Read
+                -- live, so detaching restores the mover without re-registering.
+                isHidden = IsAttached,
                 getFrame = function()
                     if not fpsFrame then CreateFPSCounter() end
                     return fpsFrame
@@ -2125,17 +2356,29 @@ do
                     return 160, 60
                 end,
                 noResize = true,
+                -- Self-positioning: makes NotifyElementResized call applyPos
+                -- below rather than re-applying a stored center over the top.
+                noInitHook = true,
                 savePos = function(key, point, relPoint, x, y)
                     if not point then return end
                     -- Scale lives in this same table; carry it over so a drag doesn't wipe it.
                     local prev = EllesmereUI.QoLExtrasGet("secondaryStatsPos")
-                    EllesmereUI.QoLExtrasSet("secondaryStatsPos", { point = point, relPoint = relPoint, x = x, y = y, scale = prev and prev.scale })
-                    if not EllesmereUI._unlockActive then
-                        local f = EllesmereUI._getSecondaryStatsFrame and EllesmereUI._getSecondaryStatsFrame()
-                        if f then
-                            f:ClearAllPoints()
-                            f:SetPoint(point, UIParent, relPoint or point, x or 0, y or 0)
-                        end
+                    local newPos = { point = point, relPoint = relPoint, x = x, y = y, scale = prev and prev.scale }
+                    -- Rebase the center unlock mode hands back onto the corner
+                    -- it currently resolves to, and store THAT -- a center would
+                    -- name a different corner the moment a figure gains a digit.
+                    -- Resolved against the handed-over center, not the frame's
+                    -- own point, which on Save & Exit may not have moved yet.
+                    local f = EllesmereUI._getSecondaryStatsFrame and EllesmereUI._getSecondaryStatsFrame()
+                    if f and point == "CENTER" and (relPoint or "CENTER") == "CENTER"
+                       and EllesmereUI._secondaryStatsCorner then
+                        newPos.point, newPos.relPoint = "TOPLEFT", "BOTTOMLEFT"
+                        newPos.x, newPos.y = EllesmereUI._secondaryStatsCorner(
+                            x or 0, y or 0, f:GetWidth(), f:GetHeight())
+                    end
+                    EllesmereUI.QoLExtrasSet("secondaryStatsPos", newPos)
+                    if not EllesmereUI._unlockActive and EllesmereUI._secondaryStatsPin then
+                        EllesmereUI._secondaryStatsPin()
                     end
                 end,
                 loadPos = function()
@@ -2144,14 +2387,10 @@ do
                 clearPos = function()
                     EllesmereUI.QoLExtrasSet("secondaryStatsPos", nil)
                 end,
+                -- NotifyElementResized calls this after every resize. Re-applying
+                -- an edge anchor at a new size is a no-op, which is the point.
                 applyPos = function()
-                    local f = EllesmereUI._getSecondaryStatsFrame and EllesmereUI._getSecondaryStatsFrame()
-                    if not f then return end
-                    local pos = EllesmereUI.QoLExtrasGet("secondaryStatsPos")
-                    if pos and pos.point then
-                        f:ClearAllPoints()
-                        f:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
-                    end
+                    if EllesmereUI._secondaryStatsPin then EllesmereUI._secondaryStatsPin() end
                 end,
             }),
         })
@@ -2161,12 +2400,13 @@ do
     fpsBind:Hide()
     fpsBind:SetScript("OnClick", function()
         EllesmereUI.QoLExtrasSet("showFPS", not EllesmereUI.QoLExtrasGet("showFPS"))
-        if EllesmereUI._applyFPSCounter then EllesmereUI._applyFPSCounter() end
+        -- The keybind has to toggle whichever owner is drawing the readout.
+        EllesmereUI._applyFPSDisplay()
     end)
 
     C_Timer.After(1, function()
         if EllesmereUI.QoLExtrasGet("showFPS") then
-            EllesmereUI._applyFPSCounter()
+            EllesmereUI._applyFPSDisplay()
         end
         local function ApplyFPSBind()
             if EllesmereUIDB and EllesmereUIDB.fpsToggleKey then

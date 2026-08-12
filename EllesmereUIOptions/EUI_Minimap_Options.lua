@@ -476,8 +476,38 @@ initFrame:SetScript("OnEvent", function(self)
                 RefreshMinimap()
                 EllesmereUI:RefreshPage()
               end },
-            { type="label", text="" }
+            { type="slider", text="Reset Zoom", min=0, max=15, step=1,
+              tooltip="Automatically zoom back out to maximum distance after this many seconds of no manual zoom change. 0 disables the reset.",
+              getValue=function() local m = MinimapDB(); return m and m.zoomResetSeconds or 0 end,
+              setValue=function(v)
+                local m = MinimapDB(); if not m then return end
+                m.zoomResetSeconds = v
+                RefreshMinimap()
+              end }
         );  y = y - h
+
+        -- "(seconds)" suffix next to the Reset Zoom slider (mirrors Damage
+        -- Meters' Refresh Rate suffix)
+        do
+            local rgn = fmRow._rightRegion
+            local suffix = rgn:CreateFontString(nil, "OVERLAY")
+            suffix:SetFont(EllesmereUI.EXPRESSWAY, 11, "")
+            suffix:SetTextColor(1, 1, 1, 0.35)
+            local rzLabel
+            for i = 1, rgn:GetNumRegions() do
+                local reg = select(i, rgn:GetRegions())
+                if reg and reg.GetText and EllesmereUI.EnKey(reg:GetText()) == "Reset Zoom" then
+                    rzLabel = reg
+                    break
+                end
+            end
+            if rzLabel then
+                suffix:SetPoint("LEFT", rzLabel, "RIGHT", 5, 0)
+            else
+                suffix:SetPoint("LEFT", rgn, "LEFT", 150, 0)
+            end
+            suffix:SetText(EllesmereUI.L("(seconds)"))
+        end
 
         -- "Reset" label next to the Free Move toggle (only visible when enabled)
         if not EllesmereUI._prebuilding then

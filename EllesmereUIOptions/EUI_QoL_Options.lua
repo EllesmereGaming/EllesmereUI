@@ -950,7 +950,7 @@ initFrame:SetScript("OnEvent", function(self)
               end,
               setValue=function(v)
                 EllesmereUI.QoLExtrasSet("showFPS", v)
-                if EllesmereUI._applyFPSCounter then EllesmereUI._applyFPSCounter() end
+                if EllesmereUI._applyFPSDisplay then EllesmereUI._applyFPSDisplay() end
                 EllesmereUI:RefreshPage()
               end },
             { type="label", text="FPS Toggle Keybind" }
@@ -963,6 +963,21 @@ initFrame:SetScript("OnEvent", function(self)
                 return not EllesmereUI.QoLExtrasGet("showFPS")
             end
 
+            -- Inline class + custom colour swatches, the same convention as the
+            -- Secondary Stats row: the active mode renders at full alpha, the
+            -- other dimmed, each with a naming tooltip.
+            local function fpsMode()
+                -- No mode saved: custom -- the look before the mode existed,
+                -- which is white until a colour is actually picked.
+                return EllesmereUI.QoLExtrasGet("fpsColorMode") or "custom"
+            end
+            local fpsUpdateState   -- forward: swatches reference it from OnClick
+            local function fpsSetMode(v)
+                EllesmereUI.QoLExtrasSet("fpsColorMode", v)
+                if EllesmereUI._applyFPSDisplay then EllesmereUI._applyFPSDisplay() end
+                if fpsUpdateState then fpsUpdateState() end
+            end
+
             local fpsSwGet = function()
                 local c = EllesmereUI.QoLExtrasGet("fpsColor")
                 if c then return c.r, c.g, c.b, c.a end
@@ -970,48 +985,104 @@ initFrame:SetScript("OnEvent", function(self)
             end
             local fpsSwSet = function(r, g, b, a)
                 EllesmereUI.QoLExtrasSet("fpsColor", { r = r, g = g, b = b, a = a })
-                if EllesmereUI._applyFPSCounter then EllesmereUI._applyFPSCounter() end
+                EllesmereUI.QoLExtrasSet("fpsColorMode", "custom")
+                if EllesmereUI._applyFPSDisplay then EllesmereUI._applyFPSDisplay() end
+                if fpsUpdateState then fpsUpdateState() end
             end
+            -- Custom swatch (nearest the control): a click switches to custom
+            -- mode first; a second click opens the picker.
             local fpsSwatch, fpsUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, fpsSwGet, fpsSwSet, true, 20)
+            do
+                local openPicker = fpsSwatch:GetScript("OnClick")
+                fpsSwatch:SetScript("OnClick", function(self)
+                    if fpsMode() ~= "custom" then fpsSetMode("custom") return end
+                    if openPicker then openPicker(self) end
+                end)
+            end
             PP.Point(fpsSwatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
             leftRgn._lastInline = fpsSwatch
 
-            -- Disabled overlay for swatch when FPS is off
-            local fpsSwBlock = CreateFrame("Frame", nil, fpsSwatch)
-            fpsSwBlock:SetAllPoints()
-            fpsSwBlock:SetFrameLevel(fpsSwatch:GetFrameLevel() + 10)
-            fpsSwBlock:EnableMouse(true)
-            fpsSwBlock:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(fpsSwatch, EllesmereUI.DisabledTooltip("Show FPS Counter"))
-            end)
-            fpsSwBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            -- Class-colour swatch: live player class colour.
+            local fpsClassSw, fpsUpdClass = EllesmereUI.BuildColorSwatch(
+                leftRgn, leftRgn:GetFrameLevel() + 5,
+                function()
+                    local cc = EllesmereUI.GetClassColor and EllesmereUI.GetClassColor(select(2, UnitClass("player")))
+                    if cc then return cc.r, cc.g, cc.b end
+                    return 1, 1, 1
+                end,
+                function() end, nil, 20)
+            fpsClassSw:SetScript("OnClick", function() fpsSetMode("class") end)
+            PP.Point(fpsClassSw, "RIGHT", leftRgn._lastInline, "LEFT", -8, 0)
+            leftRgn._lastInline = fpsClassSw
 
-            EllesmereUI.RegisterWidgetRefresh(function()
+            local fpsTips = { { fpsClassSw, "Class Color" }, { fpsSwatch, "Custom Color" } }
+            for _, e in ipairs(fpsTips) do
+                e[1]:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(e[1], e[2]) end)
+                e[1]:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            end
+
+            -- Blocking overlays while Show FPS Counter is off (shown from the
+            -- single refresh below, like the swatch alphas).
+            local fpsBlocks = {}
+            for _, e in ipairs(fpsTips) do
+                local sw = e[1]
+                local block = CreateFrame("Frame", nil, sw)
+                block:SetAllPoints()
+                block:SetFrameLevel(sw:GetFrameLevel() + 10)
+                block:EnableMouse(true)
+                block:SetScript("OnEnter", function()
+                    EllesmereUI.ShowWidgetTooltip(sw, EllesmereUI.DisabledTooltip("Show FPS Counter"))
+                end)
+                block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                fpsBlocks[#fpsBlocks + 1] = block
+            end
+
+            -- While the counter is off both swatches dim flat; while on, the
+            -- active mode is bright and the other dimmed. One refresh owns
+            -- both, plus the swatch fills (class color changes, custom picks).
+            fpsUpdateState = function()
+                if fpsUpdateSwatch then fpsUpdateSwatch() end
+                if fpsUpdClass then fpsUpdClass() end
                 local off = fpsOff()
-                if off then
-                    fpsSwatch:SetAlpha(0.3)
-                    fpsSwBlock:Show()
-                else
-                    fpsSwatch:SetAlpha(1)
-                    fpsSwBlock:Hide()
-                end
-                fpsUpdateSwatch()
-            end)
-            local fpsInitOff = fpsOff()
-            fpsSwatch:SetAlpha(fpsInitOff and 0.3 or 1)
-            if fpsInitOff then fpsSwBlock:Show() else fpsSwBlock:Hide() end
+                for _, block in ipairs(fpsBlocks) do block:SetShown(off) end
+                local m = not off and fpsMode() or nil
+                fpsClassSw:SetAlpha(m == "class" and 1 or 0.3)
+                fpsSwatch:SetAlpha(m == "custom" and 1 or 0.3)
+            end
+            EllesmereUI.RegisterWidgetRefresh(fpsUpdateState)
+            fpsUpdateState()
 
             local _, fpsCogShow = EllesmereUI.BuildCogPopup({
                 title = "FPS Counter Settings",
                 rows = {
+                    { type="toggle", label="Attach to Secondary Stats",
+                      disabled=function()
+                        return not EllesmereUI.QoLExtrasGet("showSecondaryStats")
+                      end,
+                      disabledTooltip="Secondary Stat Display",
+                      get=function()
+                        return EllesmereUI.QoLExtrasGet("fpsAttachToStats") or false
+                      end,
+                      set=function(v)
+                        EllesmereUI.QoLExtrasSet("fpsAttachToStats", v)
+                        if EllesmereUI._applyFPSDisplay then EllesmereUI._applyFPSDisplay() end
+                      end },
+                    -- Attached rows take the Secondary Stats font size, so this
+                    -- has nothing to drive while the readout lives over there.
                     { type="slider", label="Text Size",
                       min=8, max=30, step=1,
+                      disabled=function()
+                        return EllesmereUI._fpsAttachedToStats
+                            and EllesmereUI._fpsAttachedToStats() or false
+                      end,
+                      disabledTooltip="Attach to Secondary Stats",
+                      requireState="disabled",
                       get=function()
                         return EllesmereUI.QoLExtrasGet("fpsTextSize") or 12
                       end,
                       set=function(v)
                         EllesmereUI.QoLExtrasSet("fpsTextSize", v)
-                        if EllesmereUI._applyFPSCounter then EllesmereUI._applyFPSCounter() end
+                        if EllesmereUI._applyFPSDisplay then EllesmereUI._applyFPSDisplay() end
                       end },
                     { type="toggle", label="Show Local MS",
                       get=function()
@@ -1021,7 +1092,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end,
                       set=function(v)
                         EllesmereUI.QoLExtrasSet("fpsShowLocalMS", v)
-                        if EllesmereUI._applyFPSCounter then EllesmereUI._applyFPSCounter() end
+                        if EllesmereUI._applyFPSDisplay then EllesmereUI._applyFPSDisplay() end
                       end },
                     { type="toggle", label="Show World MS",
                       get=function()
@@ -1029,7 +1100,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end,
                       set=function(v)
                         EllesmereUI.QoLExtrasSet("fpsShowWorldMS", v)
-                        if EllesmereUI._applyFPSCounter then EllesmereUI._applyFPSCounter() end
+                        if EllesmereUI._applyFPSDisplay then EllesmereUI._applyFPSDisplay() end
                       end },
                     { type="toggle", label="Hide Local/World Label",
                       get=function()
@@ -1037,7 +1108,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end,
                       set=function(v)
                         EllesmereUI.QoLExtrasSet("fpsHideLabel", v)
-                        if EllesmereUI._applyFPSCounter then EllesmereUI._applyFPSCounter() end
+                        if EllesmereUI._applyFPSDisplay then EllesmereUI._applyFPSDisplay() end
                       end },
                     { type="slider", label="Update Interval", min=1, max=5, step=1,
                       get=function()
@@ -1045,7 +1116,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end,
                       set=function(v)
                         EllesmereUI.QoLExtrasSet("fpsUpdateInterval", v)
-                        if EllesmereUI._applyFPSCounter then EllesmereUI._applyFPSCounter() end
+                        if EllesmereUI._applyFPSDisplay then EllesmereUI._applyFPSDisplay() end
                       end },
                 },
             })
@@ -1471,7 +1542,13 @@ initFrame:SetScript("OnEvent", function(self)
               end,
               setValue=function(v)
                 EllesmereUI.QoLExtrasSet("showSecondaryStats", v)
-                if EllesmereUI._applySecondaryStats then EllesmereUI._applySecondaryStats() end
+                -- Turning the block off has to release an attached FPS readout
+                -- back to its own frame, so route through the shared apply.
+                if EllesmereUI._applyFPSDisplay then
+                    EllesmereUI._applyFPSDisplay()
+                elseif EllesmereUI._applySecondaryStats then
+                    EllesmereUI._applySecondaryStats()
+                end
                 EllesmereUI:RefreshPage()
               end },
             { type="toggle", text="Guild Chat Privacy Cover",
@@ -1612,7 +1689,9 @@ initFrame:SetScript("OnEvent", function(self)
             local _, ssCogShow = EllesmereUI.BuildCogPopup({
                 title = "Secondary Stats Settings",
                 rows = {
-                    { type = "toggle", label = "Colored Percentages",
+                    -- Key stays `coloredPercentages`: it is the shipped setting
+                    -- name, and renaming it would drop everyone's saved choice.
+                    { type = "toggle", label = "Colored Values",
                       get = function()
                           return EllesmereUI.QoLExtrasGet("coloredPercentages") or false
                       end,

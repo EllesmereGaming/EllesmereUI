@@ -112,6 +112,8 @@ local defaults = {
             scrollZoom    = true,
             openMicroMenuOnMiddleClick = true,
             savedZoom     = 0,
+            -- Auto Zoom Reset: seconds of inactivity after a manual zoom change before snapping back to zoom level 0 (max distance). 0 = disabled (default).
+            zoomResetSeconds = 0,
             -- false = Zoom +/- Icons checked in Show Blizzard Elements (buttons hover-show). The old true default was inert on Midnight (targeted pre-Midnight global button names), so flipping it changed nobody's visual state.
             hideZoomButtons      = false,
             hideTrackingButton   = true,
@@ -1116,6 +1118,25 @@ local function SaveZoomLevel()
     local p = EBS.db and EBS.db.profile.minimap
     if not p then return end
     p.savedZoom = Minimap:GetZoom()
+end
+
+-- Auto Zoom Reset: (re)arms a one-shot timer on every manual zoom change (scroll wheel, zoom buttons) that snaps the map back to zoom level 0 (max distance) after zoomResetSeconds of inactivity. 0 = disabled.
+local zoomResetTimer
+local function RestartZoomResetTimer()
+    if zoomResetTimer then
+        zoomResetTimer:Cancel()
+        zoomResetTimer = nil
+    end
+    local p = EBS.db and EBS.db.profile.minimap
+    local secs = p and p.zoomResetSeconds or 0
+    if not secs or secs <= 0 then return end
+    zoomResetTimer = C_Timer.NewTimer(secs, function()
+        zoomResetTimer = nil
+        if Minimap:GetZoom() ~= 0 then
+            Minimap:SetZoom(0)
+            SaveZoomLevel()
+        end
+    end)
 end
 
 -- Global names of third-party buttons that REPLACE the expansion landing page button:
@@ -4061,6 +4082,7 @@ local function ApplyMinimap()
             end
             minimap:SetZoom(zoom)
             SaveZoomLevel()
+            RestartZoomResetTimer()
         end)
         -- Map-region hover reveal, entry-path-proof: the Minimap's motion focus follows
         -- its CIRCULAR hit region, so entering the square skin through a corner (or
@@ -4346,11 +4368,11 @@ local function ApplyMinimap()
     end
 
     if zoomIn and not GetFFD(zoomIn).zoomSaveHooked then
-        zoomIn:HookScript("OnClick", function() SaveZoomLevel() end)
+        zoomIn:HookScript("OnClick", function() SaveZoomLevel(); RestartZoomResetTimer() end)
         GetFFD(zoomIn).zoomSaveHooked = true
     end
     if zoomOut and not GetFFD(zoomOut).zoomSaveHooked then
-        zoomOut:HookScript("OnClick", function() SaveZoomLevel() end)
+        zoomOut:HookScript("OnClick", function() SaveZoomLevel(); RestartZoomResetTimer() end)
         GetFFD(zoomOut).zoomSaveHooked = true
     end
 
@@ -4879,6 +4901,11 @@ local function ApplyMinimap()
             minimap:SetZoom(saved)
         end
     end
+
+    -- Re-arm (or disarm) the Auto Zoom Reset timer on every apply, so
+    -- enabling it or changing the seconds slider in the options takes
+    -- effect immediately.
+    RestartZoomResetTimer()
 
     -- Position: only set on first activation; after that, unlock mode owns positioning.
     if not GetFFD(minimap).active then
