@@ -2150,6 +2150,7 @@ local function ApplyLiveConfig(isBuff)
             local _, spec = BuildContainerSpec(parent, cfg, grid)
             AK.RequestContainer(parent, "player", spec, function(newContainer)
                 buffsContainer = newContainer
+                WatchContainerVisibility(newContainer)
                 ApplyContainerAnchorAndGrowth(newContainer, parent, cfg, grid)
                 ShiftBuffsForEnchants(newContainer, parent, cfg, grid)
                 if ns.WeaponEnchants_Layout then ns.WeaponEnchants_Layout() end
@@ -4342,7 +4343,10 @@ function ns.PAB_SetEnabled(v)
     local s = PAB()
     if not s then return end
     s.enabled = v and true or nil
-    if v then CreateBars() end
+    if v then
+        CreateBars()
+        ns.PAB_ArmResyncEvents()
+    end
 end
 
 -- Engine re-parse recovery. An engine aura container re-parses its groups on a
@@ -4365,13 +4369,22 @@ local function ResyncContainers()
         resyncPending = false
         ApplyLiveConfig(true)
         ApplyLiveConfig(false)
+        -- Live containers only. A bar whose container request is still queued
+        -- (AK.RequestContainer self-defers in combat) has nothing to re-parse,
+        -- and reloading it would queue a SECOND request against the same parent
+        -- -- both build on PLAYER_REGEN_ENABLED and the loser stays shown with
+        -- its groups declared. It comes up with fresh config anyway.
         local cb = ns.PAB_CustomBuffBars()
         if cb then
-            for _, bar in ipairs(cb) do ns.PAB_ReloadCustomBuffBar(bar.id) end
+            for _, bar in ipairs(cb) do
+                if customBuffContainers[bar.id] then ns.PAB_ReloadCustomBuffBar(bar.id) end
+            end
         end
         local db2 = ns.PAB_CustomDebuffBars()
         if db2 then
-            for _, bar in ipairs(db2) do ns.PAB_ReloadCustomDebuffBar(bar.id) end
+            for _, bar in ipairs(db2) do
+                if customDebuffContainers[bar.id] then ns.PAB_ReloadCustomDebuffBar(bar.id) end
+            end
         end
     end)
 end
@@ -4397,22 +4410,25 @@ initFrame:SetScript("OnEvent", function(self, event)
     if event == "PLAYER_LOGIN" then
         self:UnregisterEvent("PLAYER_LOGIN")
         TryCreateBars()
-        -- Registered only for sessions where the feature runs at all; the
-        -- handler's container guard covers the module-disabled stand-down.
-        -- Vehicles are their own edge: the engine re-parses on the unit's
-        -- aura source swapping without anything of ours hiding, so the
-        -- visibility hook alone does not cover them. PLAYER_ENTERING_WORLD
-        -- covers the loading-screen edges (the login one lands before the
-        -- containers exist and is dropped by the guard; the bars' own
-        -- creation resync is what covers login).
-        if ns.PAB_Enabled() then
-            self:RegisterEvent("CINEMATIC_STOP")
-            self:RegisterEvent("PLAYER_ENTERING_WORLD")
-            self:RegisterUnitEvent("UNIT_ENTERED_VEHICLE", "player")
-            self:RegisterUnitEvent("UNIT_EXITED_VEHICLE", "player")
-        end
+        ns.PAB_ArmResyncEvents()
         return
     end
     ResyncContainers()
 end)
+
+-- Re-parse edges the visibility hook cannot see. Vehicles are their own: the
+-- engine re-parses on the unit's aura source swapping without anything of ours
+-- hiding. PLAYER_ENTERING_WORLD covers the loading-screen edges (the login one
+-- lands before the containers exist and is dropped by the guard -- the bars' own
+-- creation resync is what covers login). Armed only for sessions where the
+-- feature runs at all, and again from PAB_SetEnabled so a live enable is not
+-- left waiting for a reload; idempotent, RegisterEvent on an already-registered
+-- event is a no-op.
+function ns.PAB_ArmResyncEvents()
+    if not ns.PAB_Enabled() then return end
+    initFrame:RegisterEvent("CINEMATIC_STOP")
+    initFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+    initFrame:RegisterUnitEvent("UNIT_ENTERED_VEHICLE", "player")
+    initFrame:RegisterUnitEvent("UNIT_EXITED_VEHICLE", "player")
+end
 
