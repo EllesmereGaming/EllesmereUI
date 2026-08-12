@@ -1,10 +1,13 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUIBlizzardSkin.lua
 --  Umbrella addon for themed Blizzard UI frames. Hosts the Character Sheet
---  rework (EllesmereUIBlizzardSkin_CharacterSheet.lua) and the tooltip, context
---  menu, and static popup reskinning below.
+--  rework (EllesmereUIBlizzardSkin_CharacterSheet.lua) plus the tooltip,
+--  context menu and static popup reskinning below.
 -------------------------------------------------------------------------------
 local ADDON_NAME = ...
+if not (EllesmereUI and EllesmereUI._ModuleNS) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+EllesmereUI._ModuleNS[ADDON_NAME] = select(2, ...)  -- LOD options files read this module ns via the registry
 
 -- External weak-keyed lookup table for frame state (prevents tainting Blizzard frames)
 local FFD = setmetatable({}, { __mode = "k" })
@@ -15,12 +18,10 @@ local function GetFFD(frame)
 end
 
 -------------------------------------------------------------------------------
---  Per-window skin style ("eui" | "modern" | "off"). The per-window enable
---  keys stay the on/off source of truth, so existing settings carry over
---  unchanged: enable key false = "off". EllesmereUIDB.blizzWindowSkinStyles
---  only records WHICH skin set an enabled window uses (nil = "eui").
---  "modern" is reserved for the upcoming skin set and currently renders
---  identically to "eui" -- skin files branch on this helper when it ships.
+--  Per-window skin style ("eui"|"modern"|"off"). Enable keys are the on/off
+--  source of truth (key false = "off"); blizzWindowSkinStyles only records
+--  WHICH style an enabled window uses (nil = "eui"). "modern" currently
+--  renders identically to "eui" (reserved for a future skin set).
 -------------------------------------------------------------------------------
 local WINDOW_ENABLE_KEYS = {
     charsheet       = "themedCharacterSheet",
@@ -40,6 +41,9 @@ local WINDOW_ENABLE_KEYS = {
     itemupgrade     = "reskinItemUpgrade",
     loot            = "reskinLoot",
     loottoast       = "reskinLootToast",
+    lootroll        = "reskinLootRoll",
+    loothistory     = "reskinLootHistory",
+    groupinvite     = "reskinGroupInvite",
     micromenu       = "reskinMicroMenu",
     housing         = "reskinHousing",
     professions     = "reskinProfessions",
@@ -59,22 +63,75 @@ local WINDOW_ENABLE_KEYS = {
     delves          = "reskinDelves",
     socialui        = "reskinSocialUI",
 }
---- Master PER-PROFILE kill switch for ALL Blizzard window skinning: the
---- window engine + every pack, plus the pre-engine CharacterSheet/Inspect,
---- SocketPanel and LFG/GroupFinder skins. Stored on the PROFILE ROOT
---- (EllesmereUIDB.profiles[name].disableWindowSkins) and resolved live, so
---- it follows profile switches and rides profile exports; nil/false =
---- enabled. Per-window enable keys and style picks are PRESERVED while
---- killed, so re-enabling restores the exact configuration. Skins install
---- at load: crossings require a reload (callers show the popup). The
---- Tooltips-page popup skins (Queue Popup, Pause Menu) and Dragon Riding
---- are deliberately NOT windows and stay untouched.
+--- Master PER-PROFILE kill switch for ALL Blizzard window skinning: window engine
+--- + every pack, plus CharacterSheet/Inspect, SocketPanel, LFG skins. Lives at
+--- profiles[name].disableWindowSkins, resolved live (follows profile switches,
+--- rides exports); nil/false = enabled. Per-window enable keys and style picks are
+--- PRESERVED while killed. Skins install at load, so crossings need a reload
+--- (callers show the popup). Queue Popup, Pause Menu, and Dragon Riding are not windows and stay untouched.
 function EllesmereUI.BlizzWindowSkinsKilled()
     local prof = EllesmereUI.GetActiveProfileData and EllesmereUI.GetActiveProfileData()
     return (prof and prof.disableWindowSkins) and true or false
 end
 
+-------------------------------------------------------------------------------
+--  One-time style seed for loot-roll/loot-history/group-invite: each adopts
+--  whichever style (EUI/Modern/off) the user already runs MOST windows with,
+--  instead of defaulting ON in EUI. Counts RAW stored state (not GetBlizzWindowStyle)
+--  so the kill switch cannot skew the vote; touched keys are left alone; ties fall to
+--  EUI. Marker-gated to once per account, at ADDON_LOADED (parent SVs are in by then, before PLAYER_LOGIN apply).
+-------------------------------------------------------------------------------
+do
+    local NEW_KEYS = { "lootroll", "loothistory", "groupinvite" }
+    local seedFrame = CreateFrame("Frame")
+    seedFrame:RegisterEvent("ADDON_LOADED")
+    seedFrame:SetScript("OnEvent", function(self, _, name)
+        if name ~= ADDON_NAME then return end
+        self:UnregisterEvent("ADDON_LOADED")
+        if not EllesmereUIDB then EllesmereUIDB = {} end
+        if EllesmereUIDB.lootSkinStyleSeeded then return end
+        EllesmereUIDB.lootSkinStyleSeeded = true
+        local styles = EllesmereUIDB.blizzWindowSkinStyles
+        local isNew = {}
+        for _, k in ipairs(NEW_KEYS) do isNew[k] = true end
+        local off, modern, eui = 0, 0, 0
+        for winKey, ek in pairs(WINDOW_ENABLE_KEYS) do
+            if not isNew[winKey] then
+                if EllesmereUIDB[ek] == false then
+                    off = off + 1
+                elseif styles and styles[winKey] == "modern" then
+                    modern = modern + 1
+                else
+                    eui = eui + 1
+                end
+            end
+        end
+        for _, winKey in ipairs(NEW_KEYS) do
+            local ek = WINDOW_ENABLE_KEYS[winKey]
+            local touched = EllesmereUIDB[ek] ~= nil
+                or (styles and styles[winKey] ~= nil)
+            if not touched then
+                if off > eui and off > modern then
+                    EllesmereUIDB[ek] = false
+                elseif modern > eui and modern >= off then
+                    if not styles then
+                        styles = {}
+                        EllesmereUIDB.blizzWindowSkinStyles = styles
+                    end
+                    styles[winKey] = "modern"
+                end
+                -- EUI majority (or tie): nil already means EUI-on.
+            end
+        end
+    end)
+end
+
 function EllesmereUI.GetBlizzWindowStyle(winKey)
+    -- Third-party virtual keys ("tp:<AddonName>", RegisterSkin API) resolve by majority
+    -- vote and bypass the kill switch: third-party skinning is its own opt-in, so window-skin settings only pick WHICH theme, never whether it runs.
+    if type(winKey) == "string" and winKey:sub(1, 3) == "tp:" then
+        return EllesmereUI.GetThirdPartySkinStyle()
+    end
     if EllesmereUI.BlizzWindowSkinsKilled() then return "off" end
     local ek = WINDOW_ENABLE_KEYS[winKey]
     if ek and EllesmereUIDB and EllesmereUIDB[ek] == false then return "off" end
@@ -83,11 +140,23 @@ function EllesmereUI.GetBlizzWindowStyle(winKey)
     return "eui"
 end
 
--- Turn off every window reskin at once (used by the one-time feature-intro
--- popup's "Disable" button). Writes an explicit false to each window's enable
--- key so GetBlizzWindowStyle reports "off"; blizzWindowSkinStyles is left
--- intact, so a later re-enable restores each window's chosen style. Reskins
--- install at load, so the caller must reload for this to fully apply.
+--- Style for third-party addon skins: majority vote across the user's own window
+--- styles. Modern majority -> "modern"; else (EUI majority, tie, or nothing skinned,
+--- incl. under the kill switch where every window reports "off") -> "eui". Never
+--- returns "off": whether third-party skinning runs is decided by its own toggles in
+--- the SkinAPI dispatcher (reload-bound there), so live refreshes only ever swap between the two themes.
+function EllesmereUI.GetThirdPartySkinStyle()
+    local eui, modern = 0, 0
+    for winKey in pairs(WINDOW_ENABLE_KEYS) do
+        local s = EllesmereUI.GetBlizzWindowStyle(winKey)
+        if s == "modern" then modern = modern + 1
+        elseif s == "eui" then eui = eui + 1 end
+    end
+    return (modern > eui) and "modern" or "eui"
+end
+
+-- Turn off every window reskin at once (feature-intro popup's "Disable"). Writes explicit
+-- false to each enable key (GetBlizzWindowStyle -> "off"); blizzWindowSkinStyles is left intact so re-enable restores styles. Reskins install at load, so the caller must reload.
 function EllesmereUI.DisableAllBlizzWindowSkins()
     if not EllesmereUIDB then EllesmereUIDB = {} end
     for _, ek in pairs(WINDOW_ENABLE_KEYS) do
@@ -97,9 +166,8 @@ end
 
 -------------------------------------------------------------------------------
 --  Tooltip / Context Menu / Static Popup Skinning
---  Restyles Blizzard's GameTooltip and related frames with EUI's dark style.
---  Visual-only changes (alpha, backdrop color, font). No Hide/Show/SetParent
---  on Blizzard frames. All hooks are post-hooks via hooksecurefunc.
+--  Restyles GameTooltip et al in EUI dark style; visual-only (alpha, backdrop color,
+--  font). NEVER Hide/Show/SetParent Blizzard frames; hooks are hooksecurefunc post-hooks only.
 -------------------------------------------------------------------------------
 ;(function()
     local _ttSkinned = {}
@@ -113,12 +181,8 @@ end
     local function _enabled()
         return not EllesmereUIDB or EllesmereUIDB.customTooltips ~= false
     end
-    -- Popups + context menus reskin (the generic right-click menus and Blizzard
-    -- StaticPopups). Split out of the old customTooltips master, which now governs
-    -- ONLY the game tooltip. reskinPopupsMenus is seeded from customTooltips once
-    -- at login (see PLAYER_LOGIN) so existing users keep their state, then the two
-    -- are independent. NOTE: the specific BLIZZARD WINDOW RESKINS (queue popup,
-    -- game menu, group finder, great vault) are independent of BOTH masters.
+    -- Popups + context menus reskin. customTooltips governs ONLY the game tooltip; reskinPopupsMenus
+    -- is seeded from it once at login then independent. BLIZZARD WINDOW RESKINS (queue popup, game menu, group finder, great vault) are independent of BOTH masters.
     local function _pmEnabled()
         return not EllesmereUIDB or EllesmereUIDB.reskinPopupsMenus ~= false
     end
@@ -150,10 +214,8 @@ end
             if not _PP then _PP = EllesmereUI.PP end
             if _PP and _PP.HideBorder then _PP.HideBorder(owner) end
         end
-        -- Recomputed on every apply so the Show Behind toggle works live.
-        -- +4, not +5: the resurrect-accept glow overlay sits at +5 on the
-        -- same popup buttons; at the same level the later-created sibling
-        -- wins the tie, and the border must never bury the glow.
+        -- Recomputed every apply so Show Behind works live. +4 not +5: the resurrect-accept
+        -- glow overlay sits at +5 on the same buttons and a tie goes to the later-created sibling, so the border must never bury it.
         data.configBorder:SetFrameLevel(db[prefix .. "BorderBehind"]
             and math.max(0, owner:GetFrameLevel() - 1) or (owner:GetFrameLevel() + 4))
         EllesmereUI.ApplyBorderStyle(data.configBorder, size, color.r, color.g, color.b, alpha,
@@ -163,12 +225,8 @@ end
     end
     EllesmereUI._applyBlizzardConfiguredBorder = _applyConfiguredBorder
 
-    -- Element & Text Color mode. "native" = the pre-8.5.2 shipped look:
-    -- each surface keeps its original coloring (most are not recolored at
-    -- all; the Game Menu header keeps its branded green). UNSET resolves to
-    -- native unless the user had opted into the old Accent Colored Elements
-    -- toggle -- their accent choice carries forward without a migration
-    -- write; a default install sees zero appearance change.
+    -- Element & Text Color mode. "native" = surfaces keep original coloring (Game Menu header
+    -- stays branded green). UNSET resolves to native unless the user had the legacy Accent Colored Elements toggle on, so old choices carry forward with no migration write and a fresh install sees no change.
     local function _elementColorMode()
         local db = EllesmereUIDB or {}
         local mode = db.popupMenuButtonTextColorMode
@@ -190,10 +248,7 @@ end
             local c = class and RAID_CLASS_COLORS[class]
             if c then return c.r, c.g, c.b end
         end
-        -- accent AND native both land here: the only surface that calls
-        -- this unconditionally under native is the Game Menu header, whose
-        -- pre-8.5.2 look was branded green. Every other surface gates on
-        -- the mode first and never reaches this in native.
+        -- accent AND native both land here; only the Game Menu header calls this unconditionally under native (branded green) -- others gate first.
         local c = EllesmereUI.ELLESMERE_GREEN or { r=.27, g=.86, b=.49 }
         return c.r, c.g, c.b
     end
@@ -201,10 +256,7 @@ end
 
     local function _ttSkin(tt, _, isEmbedded)
         if not tt or tt:IsForbidden() or not _enabled() then return end
-        -- Embedded tooltips (e.g. EmbeddedItemTooltip, the reward-item block
-        -- inside a world-quest tooltip) render INSIDE a parent tooltip.
-        -- Adding our bg + border to them makes the embedded block look like
-        -- a standalone framed tooltip sitting inside the parent.
+        -- Embedded tooltips (EmbeddedItemTooltip, reward block inside a world-quest tooltip) render INSIDE a parent; skip bg/border to avoid a nested-tooltip look.
         if isEmbedded or tt.IsEmbedded then return end
         if _isSecret and _isSecret(tt:GetWidth()) then return end
         if not _PP then _PP = EllesmereUI and EllesmereUI.PP end
@@ -213,14 +265,10 @@ end
             GetFFD(tt).bg = tt:CreateTexture(nil, "BACKGROUND", nil, -8)
             GetFFD(tt).bg:SetAllPoints()
         end
-        -- Unified, user-customizable background (shared with the EUI custom
-        -- tooltips via EllesmereUI.GetTooltipBg). Re-applied each skin call so a
-        -- settings change shows on the next tooltip.
+        -- Unified user-customizable background (shared with EUI custom tooltips via GetTooltipBg); re-applied each call so a settings change shows immediately.
         GetFFD(tt).bg:SetColorTexture(EllesmereUI.GetTooltipBg())
         GetFFD(tt).bg:Show()
-        -- Border size + colour are user-customizable (Blizz UI Enhanced >
-        -- Blizzard Tooltip > Border). Re-applied each call like the bg so a
-        -- change shows on the next tooltip; size 0 hides the border.
+        -- Border size/color (Blizz UI Enhanced > Blizzard Tooltip > Border), same reapply-every-call pattern; size 0 hides the border.
         local _, _, _, _, legacySize = EllesmereUI.GetTooltipBorder()
         _applyConfiguredBorder(tt, "tooltip", legacySize)
     end
@@ -248,16 +296,12 @@ end
     local function _ttOnShow(self)
         _ttSkin(self)
         _ttFonts(self)
-        -- Re-show so the frame recalculates size with the new fonts. Gated
-        -- on the skin toggle: with it off the fonts above were never
-        -- applied, and the hook (uninstallable) must stay zero-cost.
-        -- pcall'd: on 12.1 a tooltip rendering secret-capable content
-        -- (widget spell tooltips via SetSpellByID) enforces access
-        -- restrictions, and a tainted re-Show is denied as forbidden-object
-        -- access (field-hit via Blizzard_PTRFeedback's tooltip hook, which
-        -- Shows the tooltip from secure code with our OnShow hook behind
-        -- it). The recalc is optional polish -- skip it there; the font
-        -- writes above are region-level and stay legal.
+        -- Re-show to recalc size with the new fonts. Gated on the skin toggle (hook is
+        -- uninstallable, must stay zero-cost when off). pcall'd: a tooltip rendering
+        -- secret-capable content (e.g. SetSpellByID) denies a tainted re-Show as
+        -- forbidden-object access (field-hit via Blizzard_PTRFeedback's tooltip hook,
+        -- which Shows the tooltip from secure code with our OnShow hook behind it);
+        -- the recalc is optional polish, the font writes above are region-level and legal regardless.
         if _enabled() and not _ttRelaying[self] then
             _ttRelaying[self] = true
             pcall(self.Show, self)
@@ -272,29 +316,21 @@ end
     end
 
     local function _accentEnabled()
-        -- False in native mode so every gated surface keeps its pre-8.5.2
-        -- else-branch look (unrecolored or plain white).
+        -- False in native mode so gated surfaces keep their else-branch look (unrecolored/plain white).
         return _elementColorMode() ~= "native"
     end
 
-    -- Unified inspect system: one NotifyInspect per GUID, one INSPECT_READY
-    -- handler that feeds both tooltip ilvl cache and inspect sheet reskin.
+    -- Unified inspect system: one NotifyInspect per GUID, one INSPECT_READY handler that feeds both tooltip ilvl cache and inspect sheet reskin.
     local _ilvlCache = {}       -- guid -> { ilvl = number, time = GetTime() }
     local _ilvlCacheTTL = 120
-    -- Mount-name cache. Short TTL: mount state changes often, but this only
-    -- needs to survive a single hover's refresh ticks so an unmounted player
-    -- is scanned once, not once per tick. name = false means "scanned, none".
+    -- Mount-name cache: short TTL, just enough to survive one hover's refresh ticks so an unmounted player is scanned once, not per tick. name=false means "scanned, none".
     local _mountCache = {}      -- guid -> { name = string|false, collected = bool|nil, time = GetTime() }
     local _mountCacheTTL = 3
     local _inspectPendingGUID = nil
     local _userInspectUntil = 0
-    -- GUID the visible GameTooltip was last populated for (set by the Unit
-    -- post-call, cleared on hide). Lets the async inspect handler confirm the
-    -- tooltip still shows the inspected person before touching it.
+    -- GUID the visible GameTooltip was last populated for (set by the Unit post-call, cleared on hide); lets the async inspect handler confirm identity before touching it.
     local _tipShownGUID = nil
-    -- True when any left line already shows label, so an appended score/ilvl
-    -- line never duplicates an equivalent line another Unit post-call produced.
-    -- label is matched as a plain (non-pattern) substring, so "+" is literal.
+    -- True when any left line already shows label, so an appended score/ilvl line never duplicates one another Unit post-call produced. Matches label as a plain (non-pattern) substring, so "+" is literal.
     local function _tipHasLine(tt, label)
         local nm = tt.GetName and tt:GetName()
         if not nm then return false end
@@ -309,15 +345,24 @@ end
         return false
     end
 
-    -- Returns the mount name shown on a unit and whether the LOCAL player has
-    -- that mount collected (true/false, or nil when unknown -- e.g. the name
-    -- could only be read from the aura, not MountJournal). Collection state is
-    -- the 11th return of GetMountInfoByID, which is per-character.
+    -- Returns the mount name shown on a unit and whether the LOCAL player has it collected
+    -- (true/false, nil if unknown -- e.g. name came from the aura, not MountJournal). Collection state is the 11th return of GetMountInfoByID, per-character.
     local function _getMountedAuraName(unit)
         if not unit or (_isSecret and _isSecret(unit)) then return nil end
         if not UnitExists(unit) or not UnitIsPlayer(unit) then return nil end
         if not (C_UnitAuras and C_UnitAuras.GetAuraDataByIndex) then return nil end
         if not (C_MountJournal and C_MountJournal.GetMountFromSpell) then return nil end
+        -- GetAuraDataByIndex hard-errors for tainted callers while auras are
+        -- restricted instead of returning nil, so an issecretvalue() check
+        -- comes too late -- skip outright (cosmetic addition, not worth the
+        -- risk). Gate on the LIVE restriction probe: combat lockdown alone
+        -- misses between-pull windows in protected instances AND forced
+        -- restriction states, which is exactly where this scan detonated.
+        local AK = EllesmereUI.AuraKit
+        if InCombatLockdown()
+            or (AK and AK.AurasRestricted and AK.AurasRestricted()) then
+            return nil
+        end
 
         for i = 1, 255 do
             local aura = C_UnitAuras.GetAuraDataByIndex(unit, i, "HELPFUL")
@@ -355,9 +400,7 @@ end
         self:UnregisterEvent("INSPECT_READY")
         _inspectPendingGUID = nil
         if not guid or (_isSecret and _isSecret(guid)) then return end
-        -- Read the inspected GUID's item level through a token derived from THAT
-        -- GUID, so the value is captured even when the cursor has already left
-        -- the unit, and is always cached under the GUID we actually inspected.
+        -- Read item level through a token derived from THAT GUID, so it is captured even after the cursor left the unit and cached under the right GUID.
         if C_PaperDollInfo and C_PaperDollInfo.GetInspectItemLevel and _G.UnitTokenFromGUID then
             local u = _G.UnitTokenFromGUID(guid)
             if u and not (_isSecret and _isSecret(u)) and UnitExists(u) then
@@ -367,8 +410,7 @@ end
                 end
             end
         end
-        -- Append to the live tooltip only while it still shows this same GUID,
-        -- and only if our line is not already present.
+        -- Append only while the tooltip still shows this GUID and the line is not already present.
         local cached = _ilvlCache[guid]
         local ttd = GetFFD(_GameTooltip)
         if cached and _GameTooltip:IsShown() and _tipShownGUID == guid
@@ -382,18 +424,13 @@ end
             ttd.ilvlShown = true
         end
     end)
-    -- Guard InspectGuildFrame_Update against nil guildName (our NotifyInspect
-    -- can trigger LOD load before guild data is available from server).
-
-    -- Expose for inspect sheet to use
+    -- Shared with the inspect sheet.
     EllesmereUI._inspectCache = _ilvlCache
 
-    -- Re-derive a CLEAN literal group unit token for a GUID by matching it
-    -- against tokens we build ourselves (player / raidN / partyN). On secure
-    -- raid-frame unit tooltips, GameTooltip:GetUnit() and UnitTokenFromGUID can
-    -- hand back a secret/unusable token even though the member's GUID is clean,
-    -- which starves the token-based APIs (M+ summary, inspect item level). A
-    -- literal token string we construct here is never secret, so those work.
+    -- Re-derive a CLEAN literal group unit token for a GUID by matching it against
+    -- tokens we build ourselves (player/raidN/partyN). On secure raid-frame unit
+    -- tooltips, GetUnit()/UnitTokenFromGUID can return a secret/unusable token even
+    -- though the GUID is clean, starving token-based APIs (M+ summary, inspect item level); a literal token built here is never secret.
     local function _CleanTokenForGUID(guid)
         if not guid or (_isSecret and _isSecret(guid)) then return nil end
         if UnitGUID("player") == guid then return "player" end
@@ -413,17 +450,12 @@ end
         return nil
     end
 
-    -- Resolve who this unit tooltip was populated for. GameTooltip:SetUnit(u)
-    -- drives the Unit data pass and stamps u's GUID into data.guid before this
-    -- post-call runs, so data.guid is the one authoritative identity and is
-    -- already correct on the very first hover. The cursor-focus "mouseover"
-    -- token is NOT trusted for identity: the secure focus system updates it on
-    -- its own schedule, so during fast frame movement and on the first hover it
-    -- can still point at the previously hovered frame's unit (the wrong person).
-    -- Returns (guid, token). token, when present, always maps to guid and is
-    -- only used by token-based APIs (class fallback, M+ summary, inspect).
-    -- Either may be nil, in which case callers skip our extras and leave a
-    -- stock (plus any foreign) tooltip rather than attributing the wrong unit.
+    -- Resolve who this unit tooltip was populated for. SetUnit(u) stamps u's GUID into
+    -- data.guid before this post-call runs, so data.guid is the authoritative identity,
+    -- correct on the very first hover. The cursor-focus "mouseover" token is NOT trusted
+    -- for identity: the secure focus system updates it on its own schedule and can still
+    -- point at the previous frame's unit on fast movement/first hover. Returns (guid,
+    -- token); token always maps to guid, used only by token-based APIs (class fallback, M+ summary, inspect). Either may be nil; callers then skip our extras.
     local function _resolveTipIdentity(tt, data)
         local guid = data and data.guid
         if guid and _isSecret and _isSecret(guid) then guid = nil end
@@ -436,8 +468,7 @@ end
                 if g == guid then token = u end
             end
         end
-        -- Clean literal group token: covers our raid/party frames, where
-        -- GetUnit()/UnitTokenFromGUID return secret tokens but the GUID is clean.
+        -- Covers our raid/party frames, where GetUnit()/UnitTokenFromGUID return secret tokens but the GUID is clean.
         if guid and not token then
             token = _CleanTokenForGUID(guid)
         end
@@ -445,10 +476,8 @@ end
             local tu = _G.UnitTokenFromGUID(guid)
             if tu and not (_isSecret and _isSecret(tu)) and UnitExists(tu) then token = tu end
         end
-        -- Last resort: accept "mouseover" ONLY when it provably maps to the same
-        -- authoritative guid. Recovers a usable token (for M+/ilvl/title) in
-        -- restricted contexts where UnitTokenFromGUID hands back a secret token,
-        -- without ever risking the cursor-lag wrong-person attribution.
+        -- Last resort: accept "mouseover" ONLY when it provably maps to the same authoritative
+        -- guid -- recovers a usable token (M+/ilvl/title) where UnitTokenFromGUID returns secret, with no cursor-lag misattribution risk.
         if guid and not token and UnitExists("mouseover") then
             local mg = UnitGUID("mouseover")
             if mg and not (_isSecret and _isSecret(mg)) and mg == guid then
@@ -458,12 +487,10 @@ end
         return guid, token
     end
 
-    -- "Targeting" line: who the hovered unit is currently targeting. Opt-in
-    -- (default off). Needs a live unit token for the relational target token,
-    -- so hovers that only resolve a GUID (our raid/party frames in Midnight)
-    -- skip it. Identity-secret targets are skipped entirely. Refresh passes
-    -- re-run the postprocessor while the tip is up, so an existing line is
-    -- updated IN PLACE (never appended twice) and the value stays current.
+    -- "Targeting" line: who the hovered unit targets. Opt-in (default off). Needs a
+    -- live unit token to build the relational target token, so hovers resolving only
+    -- a GUID (our raid/party frames) skip it; identity-secret targets are skipped
+    -- entirely. Refresh passes re-run the postprocessor while the tip is up, so an existing line is updated IN PLACE (never appended twice).
     local function _ttTargetLine(tt, unit)
         local db = EllesmereUIDB
         if not (unit and db and db.tooltipShowTarget) then return end
@@ -522,20 +549,14 @@ end
     local function _ttUnitColor(tt, data)
         if tt ~= _GameTooltip or tt:IsForbidden() then return end
         local nLinesBefore = tt.NumLines and tt:NumLines() or 0
-        -- Identity comes from the tooltip's own SetUnit data pass (data.guid),
-        -- never the cursor-focus token, so it is correct on the first hover and
-        -- never lags to the previously hovered frame.
+        -- Identity comes from the tooltip's own SetUnit data pass (data.guid), never the cursor-focus token, so it never lags to the previous frame.
         local guid, unit = _resolveTipIdentity(tt, data)
-        -- Record who this render is for (so a late INSPECT_READY can confirm the
-        -- tooltip still shows this person) and start this render's ilvl marker
-        -- clean, before any early return.
+        -- Record who this render is for (so a late INSPECT_READY can confirm the tooltip still shows this person) and reset the ilvl marker, before any early return.
         _tipShownGUID = guid
         local ttd = GetFFD(tt)
         ttd.ilvlShown = false
         if not guid then return end
-        -- Class and plain name straight from the authoritative GUID, with a
-        -- live-token fallback. Non-players get no additions, matching a stock
-        -- hover (GetPlayerInfoByGUID returns no class for non-player GUIDs).
+        -- Class and plain name from the authoritative GUID, with a live-token fallback. Non-players get no additions (GetPlayerInfoByGUID returns no class for non-player GUIDs, matching stock hover).
         local classFile, pname, prealm
         if GetPlayerInfoByGUID then
             local _, eClass, _, _, _, n, r = GetPlayerInfoByGUID(guid)
@@ -545,8 +566,7 @@ end
         end
         if not classFile and unit then
             if not UnitIsPlayer(unit) then
-                -- Non-player hover: no class additions apply, but the Targeting
-                -- line still does (checking a boss's target is the core case).
+                -- No class additions on non-players, but Targeting still applies (checking a boss's target is the core case).
                 _ttTargetLine(tt, unit)
                 _ttFonts(tt, nLinesBefore)
                 return
@@ -561,20 +581,13 @@ end
         if not _nameL1 then _nameL1 = _G.GameTooltipTextLeft1 end
         if not _nameL1 then return end
         local db = EllesmereUIDB
-        -- Title hiding is the default (tooltipPlayerTitles is opt-in). Only
-        -- rewrite line 1 when a title is genuinely present, so the common
-        -- no-title case never clobbers name formatting Blizzard or another
-        -- addon produced on line 1.
+        -- Title hiding is default (tooltipPlayerTitles is opt-in). Rewrite line 1 ONLY when a title is genuinely present, so the no-title case never clobbers foreign line-1 formatting.
         if not (db and db.tooltipPlayerTitles) and pname
             and not (_isSecret and _isSecret(pname)) then
             local display = (prealm and prealm ~= "") and (pname .. "-" .. prealm) or pname
             local cur = _nameL1:GetText()
-            -- Line 1 carries a title (or other decoration) when it differs from
-            -- the plain name. With a clean unit token, confirm precisely via
-            -- UnitPVPName so an equivalent plain-name form is never rewritten.
-            -- Without a token -- e.g. our raid/party frames, whose unit token is
-            -- secret in Midnight so only the GUID resolves -- fall back to the
-            -- name-difference check so titles are still stripped there.
+            -- Line 1 carries a title (or other decoration) when it differs from the plain name.
+            -- With a clean token, confirm via UnitPVPName so an equivalent plain-name form is never rewritten; without one (our raid/party frames, secret token, GUID-only) fall back to the name-difference check.
             if cur and not (_isSecret and _isSecret(cur)) and cur ~= display then
                 local strip
                 if unit and UnitPVPName then
@@ -586,7 +599,7 @@ end
                 if strip then _nameL1:SetText(display) end
             end
         end
-        -- Recolor only (never replaces text): name line and the health bar.
+        -- Recolor only (never replaces text): name line + health bar.
         local cc = _RAID_CC and _RAID_CC[classFile]
         if cc then
             _nameL1:SetTextColor(cc.r, cc.g, cc.b)
@@ -594,11 +607,8 @@ end
                 GameTooltipStatusBar:SetStatusBarColor(cc.r, cc.g, cc.b)
             end
         end
-        -- Add guild rank next to guild name : Name-Realm [Rank]. The guild
-        -- line is re-found on every call -- its index varies per unit (titles
-        -- shift it), so a cached line would decorate the wrong row on other
-        -- tooltips. Deduped like the M+ line below: refresh cycles re-run
-        -- this postprocessor on text that may already carry the rank.
+        -- Guild rank next to guild name: Name-Realm [Rank]. Re-found every call (index varies
+        -- per unit; titles shift it, so a cached index would decorate the wrong row). Deduped like the M+ line against refresh re-runs.
         if unit and db and db.tooltipShowGuildRank then
             local guildName, guildRankName = GetGuildInfo(unit)
             if guildName and guildRankName
@@ -617,7 +627,7 @@ end
                 end
             end
         end
-        -- M+ Score (append-only, deduped against any equivalent foreign line).
+        -- M+ Score (append-only, deduped against an equivalent foreign line).
         if unit and db and db.tooltipMythicScore ~= false
             and C_PlayerInfo and C_PlayerInfo.GetPlayerMythicPlusRatingSummary then
             local info = C_PlayerInfo.GetPlayerMythicPlusRatingSummary(unit)
@@ -631,9 +641,7 @@ end
                 tt:AddDoubleLine("M+ Score:", score, 1, 1, 1, r, g, b)
             end
         end
-        -- Mount name from the live helpful aura that MountJournal recognizes.
-        -- Opt-in (default off). Per-GUID cached so refresh ticks on an
-        -- unmounted player never re-walk the whole aura list.
+        -- Mount name from the live helpful aura MountJournal recognizes. Opt-in (default off); per-GUID cached so refresh ticks on an unmounted player never re-walk the aura list.
         if unit and guid and db and db.tooltipShowMount and not _tipHasLine(tt, "Mount:") then
             local mountName, mountCollected
             local cached = _mountCache[guid]
@@ -647,8 +655,7 @@ end
                 _mountCache[guid] = { name = mountName, collected = mountCollected, time = GetTime() }
             end
             if mountName then
-                -- Append a green check / red X for whether YOU own this mount
-                -- (nil = unknown, so no marker) Credit for Fix: TipTac
+                -- Green check / red X for whether YOU own this mount (nil = unknown, no marker).
                 local valText = mountName
                 if mountCollected == true then
                     valText = mountName .. " |TInterface\\RaidFrame\\ReadyCheck-Ready:0|t"
@@ -660,8 +667,7 @@ end
         end
         -- Who the hovered player currently targets (opt-in, default off).
         _ttTargetLine(tt, unit)
-        -- Item Level. Cache is keyed strictly by the authoritative GUID so a
-        -- read or write can never land under a different person than is shown.
+        -- Item Level. Cache keyed strictly by the authoritative GUID so reads/writes can never land under a different person.
         if db and db.tooltipItemLevel ~= false then
             local ilvl
             if unit and UnitIsUnit(unit, "player") then
@@ -694,12 +700,11 @@ end
                 ttd.ilvlShown = true
             end
         end
-        -- Re-apply our font to lines added after the OnShow pass.
+        -- Re-apply our font to lines added after OnShow.
         _ttFonts(tt, nLinesBefore)
     end
 
-    -- Visual reskin: the dark bg/border (via _ttHook -> _ttSkin), EUI fonts, and
-    -- the restyled tooltip status bar. Gated on "Reskin Tooltip" (customTooltips).
+    -- Visual reskin: dark bg/border (via _ttHook -> _ttSkin), EUI fonts, and restyled status bar. Gated on "Reskin Tooltip" (customTooltips).
     local function _ttInitVisual()
         for _, tt in ipairs({
             _GameTooltip, ShoppingTooltip1, ShoppingTooltip2,
@@ -713,10 +718,8 @@ end
             _ttHook(tt)
         end
         if SharedTooltip_SetBackdropStyle then
-            -- Deferred: SharedTooltip_SetBackdropStyle can fire from
-            -- secure Blizzard code (casting bar, combat UI). Running
-            -- _ttSkin synchronously inside the hook taints the call stack
-            -- (BackdropTemplate OnLoad propagates to CastingBarFrame).
+            -- Deferred: SharedTooltip_SetBackdropStyle can fire from secure Blizzard code
+            -- (casting bar, combat UI); a synchronous _ttSkin in the hook would taint the call stack (BackdropTemplate OnLoad propagates to CastingBarFrame).
             hooksecurefunc("SharedTooltip_SetBackdropStyle", function(tt)
                 C_Timer.After(0, function() _ttSkin(tt) end)
             end)
@@ -734,19 +737,14 @@ end
 
     -- Tooltip DATA additions: class-colored names, player-title control, M+ score,
     -- item level (via _ttUnitColor) and accent spell/macro titles. Each has its own
-    -- toggle (tooltipPlayerTitles / tooltipMythicScore / tooltipItemLevel /
-    -- accentReskinElements), but the whole set is gated by the "Reskin Tooltip"
-    -- master (customTooltips) -- the PLAYER_LOGIN handler only calls this when
-    -- _enabled() -- so disabling the reskin grays out AND stops every tooltip
-    -- option together. Idempotent so the live re-apply path can never double-register.
+    -- toggle (tooltipPlayerTitles/tooltipMythicScore/tooltipItemLevel/accentReskinElements),
+    -- gated by the customTooltips master (PLAYER_LOGIN calls this only when _enabled()),
+    -- so disabling the reskin stops every tooltip option too. Idempotent: safe for the live re-apply path to call again.
     local _ttDataInited = false
     local function _ttInitData()
         if _ttDataInited then return end
         _ttDataInited = true
-        -- Clear the recorded identity when the tooltip hides so a late inspect
-        -- result can never append to a tooltip that has since closed or switched
-        -- to non-unit content. HookScript (never SetScript) keeps the secure
-        -- OnHide handler intact.
+        -- Clear the recorded identity on hide so a late inspect result can never append to a closed/switched tooltip. HookScript (never SetScript) keeps the secure OnHide handler intact.
         _GameTooltip:HookScript("OnHide", function() _tipShownGUID = nil end)
         -- Accent-color the title line for spells/macros (not items or units)
         local function _ttAccentTitle(tt)
@@ -769,8 +767,12 @@ end
     -- Back-compat full init (data + visual), used by the live re-apply path.
     local function _ttInit() _ttInitData(); _ttInitVisual() end
 
-    -- Context menu skinning
-    local _menuSkinned = {}
+    -- Context menu skinning. Deliberately NOT memoised per frame: menu frames are
+    -- pooled, so Blizzard hands the same frame back for the next menu and rebuilds
+    -- its textures from the new description, silently undoing our background --
+    -- an "already skinned" flag would skip reuse and leave Blizzard's background
+    -- under our border. _menuSkinFrame is idempotent (skips owned regions,
+    -- re-anchors relative to the frame, nothing accumulates), so running every pass self-heals reuse.
 
     local function _menuSkinFrame(frame)
         if not frame or frame:IsForbidden() or not _pmEnabled() then return end
@@ -785,41 +787,74 @@ end
                 region:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -1, 1)
             end
         end
-        _menuSkinned[frame] = true
         _applyConfiguredBorder(frame, "popupMenu", 1)
     end
 
     local function _menuOnOpen(manager, _, menuDescription)
         if not _pmEnabled() then return end
-        -- Defer out of the secure context. The post-hook runs inside
-        -- Blizzard's protected menu pipeline; touching Blizzard objects
-        -- here propagates taint to action bar buttons.
+        -- Defer out of the secure context: this post-hook runs inside Blizzard's
+        -- protected menu pipeline, so touching Blizzard objects here taints action bar buttons.
         --
-        -- NO menuDescription:AddMenuAcquiredCallback(). Deferring the
-        -- REGISTRATION does not make the callback safe: it plants an insecure
-        -- Lua function inside Blizzard's menu description, and Blizzard then
-        -- CALLS it from inside its own menu pipeline, so the pipeline that
-        -- builds the menu (and owns the entry click handlers) runs tainted.
-        -- Field report 2026-07-28: right-clicking a unit and choosing Whisper
-        -- opened the chat edit box with a SECRET target name, and because that
-        -- ChatFrameUtil.OpenChat write (editBox.text / setText) happened under
-        -- that taint, Blizzard's own ChatFrameEditBoxMixin:OnUpdate was then
-        -- refused SetText(self.text) -- repeating every frame, since the
-        -- failed call skips the setText = 0 that would end it.
+        -- NEVER use menuDescription:AddMenuAcquiredCallback(): deferring the REGISTRATION
+        -- doesn't help -- it plants an insecure Lua function that Blizzard itself CALLS
+        -- from its pipeline, tainting the pipeline that builds the menu AND owns entry
+        -- click handlers. Observed failure: right-click Whisper opened the chat edit box
+        -- with a SECRET target name; the tainted ChatFrameUtil.OpenChat write made
+        -- Blizzard's own ChatFrameEditBoxMixin:OnUpdate refuse SetText every frame (the terminating setText=0 never ran).
         --
-        -- Self-owned staggered passes instead: the menu frame is fetched from
-        -- the manager and skinned by us, with nothing handed to Blizzard.
-        -- Several passes cover submenus and pooled frames acquired a little
-        -- after the open, which is what the callback was there for.
+        -- Self-owned staggered passes instead: fetch the menu frame from the manager and
+        -- skin it ourselves, handing Blizzard nothing. Extra passes cover submenus and pooled frames acquired shortly after open.
         local function skinOpenMenu()
             local menu = manager.GetOpenMenu and manager:GetOpenMenu()
-            if menu and not _menuSkinned[menu] then
+            if menu then
                 _menuSkinFrame(menu)
             end
         end
         C_Timer.After(0, skinOpenMenu)
         C_Timer.After(0.05, skinOpenMenu)
         C_Timer.After(0.15, skinOpenMenu)
+    end
+
+    -- Submenu coverage via the style mixin. The manager hooks above only ever
+    -- see the ROOT menu: GetOpenMenu returns the root even during a flyout, a
+    -- submenu frame is a parentless SIBLING of the root, and hovering a submenu
+    -- parent fires neither OpenMenu nor OpenContextMenu. Blizzard instead styles
+    -- every menu level through one code path (Menu.lua, MenuManagerMixin:AcquireMenu ->
+    -- SecureGenerate: Mixin(proxy, menuDescription:GetMenuMixin()); proxy:Generate()).
+    -- GetMenuMixin() resolves to the GLOBAL MenuStyle1Mixin (MenuStyle2Mixin for
+    -- WowStyle2), and the Mixin() copy happens at every open, so a hooksecurefunc
+    -- on the mixin's Generate is copied onto each menu frame and hands us that
+    -- exact frame as self -- root and every flyout, no frame ID needed.
+    --
+    -- NOT the AddMenuAcquiredCallback mistake: that callback is an insecure closure
+    -- invoked BARE (Menu.lua 2354, no securecallfunction) in the same execution that
+    -- builds entry click handlers. Here containment is double: hooksecurefunc's contract keeps
+    -- hook taint from propagating into the calling execution (so the Mixin() copy
+    -- stays secure), and Blizzard wraps this call site in securecallfunction because
+    -- addon-supplied menu mixins are an anticipated input (see MenuUtil.lua's
+    -- GetDefaultContextMenuMixin override). NEVER ASSIGN into the mixin table
+    -- (plants a tainted function) -- hooksecurefunc only.
+    --
+    -- The hook only collects and schedules; skinning runs from our own timer after
+    -- the secure execution finishes. While a menu is open the compositor replaces
+    -- the frame's metatable and disallows CreateTexture/CreateFontString/CreateLine,
+    -- so only the EXISTING background region may be recoloured -- already how _menuSkinFrame operates.
+    local _stylePending, _styleArmed = {}, false
+    local function _styleFlush()
+        _styleArmed = false
+        for i = #_stylePending, 1, -1 do
+            local f = _stylePending[i]
+            _stylePending[i] = nil
+            -- _menuSkinFrame re-checks IsForbidden and the enable toggle.
+            _menuSkinFrame(f)
+        end
+    end
+    local function _onStyleGenerate(menuFrame)
+        _stylePending[#_stylePending + 1] = menuFrame
+        if not _styleArmed then
+            _styleArmed = true
+            C_Timer.After(0, _styleFlush)
+        end
     end
 
     local function _menuInit()
@@ -832,13 +867,17 @@ end
         hooksecurefunc(mgr, "OpenContextMenu", function(self, ownerRegion, menuDescription)
             _menuOnOpen(self, ownerRegion, menuDescription)
         end)
+        if _G.MenuStyle1Mixin and type(_G.MenuStyle1Mixin.Generate) == "function" then
+            hooksecurefunc(_G.MenuStyle1Mixin, "Generate", _onStyleGenerate)
+        end
+        if _G.MenuStyle2Mixin and type(_G.MenuStyle2Mixin.Generate) == "function" then
+            hooksecurefunc(_G.MenuStyle2Mixin, "Generate", _onStyleGenerate)
+        end
     end
 
-    -- Static popup skinning
     local function _popupSkin(popup)
         if not popup or popup:IsForbidden() then return end
         if not _pmEnabled() then return end
-        -- Strip textures on the popup frame itself
         for i = 1, _select("#", popup:GetRegions()) do
             local r = _select(i, popup:GetRegions())
             if r and r:IsObjectType("Texture") and not GetFFD(r).owned then
@@ -846,10 +885,8 @@ end
                 if r.SetAtlas then r:SetAtlas("") end
             end
         end
-        -- Hide the BG border frame (StaticPopupN.BG)
         if popup.BG then popup.BG:SetAlpha(0) end
         if popup.NineSlice then popup.NineSlice:SetAlpha(0) end
-        -- Our dark background + border (once)
         if not GetFFD(popup).bg then
             local RS = EllesmereUI.RESKIN
             GetFFD(popup).bg = popup:CreateTexture(nil, "BACKGROUND", nil, -8)
@@ -863,7 +900,6 @@ end
         end
         GetFFD(popup).bg:Show()
         _applyConfiguredBorder(popup, "popupMenu", 1)
-        -- Skin buttons (1-4 plus the optional extra action button)
         local popupBtns = {}
         for i = 1, 4 do
             popupBtns[#popupBtns + 1] = popup["button" .. i]
@@ -886,21 +922,19 @@ end
                 btnBg:SetAllPoints()
                 GetFFD(btnBg).owned = true
                 GetFFD(btn).bg = btnBg
-                -- House hover: 10% white wash (HIGHLIGHT layer only renders
-                -- while the button is enabled and hovered).
+                -- 10% white wash; the HIGHLIGHT layer only renders while the button is enabled and hovered.
                 local hov = btn:CreateTexture(nil, "HIGHLIGHT")
                 hov:SetColorTexture(1, 1, 1, 0.1)
                 hov:SetAllPoints()
                 GetFFD(hov).owned = true
 
-                -- Mirror Blizzard's enabled/disabled state so buttons visibly
-                -- dim when locked out (e.g. Release in boss combat).
+                -- Mirror Blizzard's enabled/disabled state so buttons visibly dim when locked out (e.g. Release in boss combat).
                 local function _euiRefreshEnabled(self)
                     local fs = self:GetFontString()
                     local enabled = (self.IsEnabled and self:IsEnabled()) and true or false
                     if fs then
                         if enabled then
-                            -- Native mode: pre-8.5.2 enabled color was white.
+                            -- Native mode enabled color is white.
                             if _elementColorMode() == "native" then
                                 fs:SetTextColor(1, 1, 1, 1)
                             else
@@ -927,8 +961,7 @@ end
             end
         end
 
-        -- Hook UpdateRecapButton once per popup so our per-button enabled
-        -- visual stays in sync with Blizzard's enable/disable state swaps.
+        -- Hook UpdateRecapButton once per popup to keep our per-button enabled visual in sync with Blizzard's enable/disable swaps.
         if popup.UpdateRecapButton and not GetFFD(popup).recapHooked then
             GetFFD(popup).recapHooked = true
             hooksecurefunc(popup, "UpdateRecapButton", function(self)
@@ -946,7 +979,6 @@ end
             local fn = b and GetFFD(b).refreshEnabled
             if fn then fn(b) end
         end
-        -- Skin edit box if present
         local eb = popup.editBox or (popup.GetName and _G[popup:GetName() .. "EditBox"])
         if eb and not GetFFD(eb).skinned then
             GetFFD(eb).skinned = true
@@ -967,8 +999,7 @@ end
             ebBg:SetAllPoints()
             ebBg:SetColorTexture(0.05, 0.05, 0.05, 0.9)
             GetFFD(ebBg).owned = true
-            -- Border matching the popup buttons (accent or white). Native
-            -- mode keeps the pre-8.5.2 white border.
+            -- Border matching the popup buttons: accent, or white in native.
             local borderR, borderG, borderB = 1, 1, 1
             if _elementColorMode() ~= "native" then
                 borderR, borderG, borderB = _getElementColor()
@@ -991,11 +1022,9 @@ end
 
     ---------------------------------------------------------------------------
     --  Resurrect Accept Glow (resurrectAcceptGlow, default OFF)
-    --  Pulsating border around button1 of the RESURRECT StaticPopups so a
-    --  pending resurrect is hard to miss. Independent of reskinPopupsMenus.
-    --  Zero cost until first enable: no hooks or frames exist before then.
-    --  The overlay is our own frame (state in FFD); the pulse is a C-side
-    --  Alpha AnimationGroup, so there is no per-frame Lua while it runs.
+    --  Pulsating border around button1 of the RESURRECT StaticPopups. Independent
+    --  of reskinPopupsMenus. Zero cost until first enable: no hooks or frames exist
+    --  before then. The overlay is our own frame (state in FFD); the pulse is a C-side Alpha AnimationGroup, so no per-frame Lua.
     ---------------------------------------------------------------------------
     local RES_WHICH = {
         RESURRECT             = true,
@@ -1013,8 +1042,7 @@ end
             or (popup.GetName and popup:GetName() and _G[popup:GetName() .. "Button1"])
     end
 
-    -- Addon-owned overlay anchored 3px outside the button, built once per
-    -- button on first glow; state lives in FFD, never on the Blizzard frame.
+    -- Addon-owned overlay 3px outside the button, built once per button on first glow; state lives in FFD, never on the Blizzard frame.
     local function _resGlowGet(btn)
         local d = GetFFD(btn)
         if not d.resGlow then
@@ -1041,8 +1069,7 @@ end
     local function _resGlowStart(btn)
         local ov, ag = _resGlowGet(btn)
         if not ov then return end
-        -- Color resolved at every start so re-shows follow the current
-        -- Accent Colored Elements setting (same source as the popup skin).
+        -- Color resolved every start so re-shows follow the current element color setting (same source as the popup skin).
         local EG = EllesmereUI.ELLESMERE_GREEN
         if _PP and _PP.SetBorderColor then
             if _accentEnabled() and EG then
@@ -1056,8 +1083,7 @@ end
         if ag and not ag:IsPlaying() then ag:Play() end
     end
 
-    -- Raw FFD read (not GetFFD): stopping must never allocate state for a
-    -- button that never glowed.
+    -- Raw FFD read (not GetFFD): stopping must never allocate state for a button that never glowed.
     local function _resGlowStop(btn)
         local d = btn and FFD[btn]
         local ov = d and d.resGlow
@@ -1084,9 +1110,7 @@ end
         end
     end
 
-    -- Install OnShow/OnHide hooks once. Hooks cannot be uninstalled, so they
-    -- self-gate: OnShow early-returns when the toggle is off, OnHide is a raw
-    -- weak-table lookup. Never called before the first enable.
+    -- Install OnShow/OnHide hooks once. Hooks cannot be uninstalled, so they self-gate (OnShow early-returns when off, OnHide is a raw weak-table lookup); never called before the first enable.
     local function _resGlowInit()
         if _resGlowHooked then return end
         _resGlowHooked = true
@@ -1104,8 +1128,7 @@ end
         end
     end
 
-    -- Options-panel entry point: installs hooks on first enable and syncs
-    -- currently visible popups on any flip, so no reload is ever needed.
+    -- Options-panel entry point: installs hooks on first enable and syncs visible popups on any flip, so no reload is needed.
     EllesmereUI._EnsureResurrectGlow = function()
         if _resGlowEnabled() then _resGlowInit() end
         if _resGlowHooked then _resGlowRefreshAll() end
@@ -1116,27 +1139,21 @@ end
         f:RegisterEvent("PLAYER_LOGIN")
         f:SetScript("OnEvent", function(self)
             self:UnregisterAllEvents()
-            -- "Reskin Tooltip" (customTooltips) is the master for ALL of EUI's
-            -- tooltip handling: the visual reskin AND the data additions (class
-            -- colors, player titles, M+ score, item level). When off, EUI leaves
-            -- tooltips alone, matching the grayed-out tooltip options. The generic
-            -- context menu / static popup reskins are independent (reskinPopupsMenus)
-            -- and the per-window reskins use their own keys -- all seeded from the
-            -- old master once by the blizzskin_reskin_master_split_v1 migration at
-            -- parent ADDON_LOADED.
+            -- customTooltips is the master for ALL EUI tooltip handling (visual reskin
+            -- AND data additions); off leaves tooltips alone, matching the grayed-out
+            -- options. Context menu/static popup reskins (reskinPopupsMenus) and
+            -- per-window reskins use their own keys, seeded from the old master once by the
+            -- blizzskin_reskin_master_split_v1 migration at parent ADDON_LOADED.
             if _enabled() then
                 _ttInitData()
                 _ttInitVisual()
             end
-            -- Engine aura tooltip mirrors the skin (12.1; no-op on retail).
             if EllesmereUI.SyncAuraTooltipSkin then EllesmereUI.SyncAuraTooltipSkin() end
             if _pmEnabled() then
                 _menuInit()
                 _popupInit()
             end
-            -- Resurrect Accept Glow: independent of both reskin masters.
-            -- Default OFF; disabled users pay only this boolean check
-            -- (no hooks, no frames).
+            -- Independent of both reskin masters. Default OFF; disabled users pay only this boolean check (no hooks, no frames).
             if _resGlowEnabled() then
                 _resGlowInit()
             end
@@ -1144,15 +1161,12 @@ end
     end
     EllesmereUI._initTooltipSkins = function() _ttInit(); _menuInit(); _popupInit() end
 
-    -- 12.1 ONLY: mirror the tooltip skin onto the ENGINE aura tooltip
-    -- (AuraButtonTooltip -- the forbidden GameTooltip clone every aura
-    -- container button uses; addon hooks can never touch it). 68914 exposes
-    -- global styling entry points for it: resolved DEFENSIVELY (public-env
-    -- reachability is a field-verify item) and pcall'd throughout. Applied
-    -- at login and from the tooltip-skin setters; skin off restores the
-    -- engine default style.
+    -- Mirror the tooltip skin onto the ENGINE aura tooltip (AuraButtonTooltip,
+    -- the forbidden GameTooltip clone every aura container button uses -- addon
+    -- hooks can never touch it directly). Build 68914 exposes global styling entry
+    -- points for it: resolved DEFENSIVELY (public-env reachability is a field-verify
+    -- item) and pcall'd throughout. Applied at login and from tooltip-skin setters; skin off restores the engine default style.
     function EllesmereUI.SyncAuraTooltipSkin()
-        if not EllesmereUI.IS_121 then return end
         local inb = _G.AuraContainerInbound
         if not inb then return end
         if _enabled() then
@@ -1186,8 +1200,7 @@ end
         local TIMER_DURATION = 40
         local timerBar, timerText, timerEndTime
 
-        -- Independent toggle, default on (not tied to any master reskin setting,
-        -- including the window-skins style: this is a popup, not a window).
+        -- Independent toggle, default on: this is a popup, not a window, so no master reskin setting (including window-skins style) governs it.
         local function IsQueueReskinOn()
             return not EllesmereUIDB or EllesmereUIDB.reskinQueuePopup ~= false
         end
@@ -1196,8 +1209,7 @@ end
             local popup = LFGDungeonReadyPopup
             if not popup then return end
 
-            -- Strip Blizzard border/decoration textures on popup and dialog.
-            -- Preserve dialog.background (the dungeon art image).
+            -- Strip Blizzard border/decoration on popup and dialog, preserving dialog.background (the dungeon art image).
             local dialog = LFGDungeonReadyDialog
             local keepTextures = {}
             if dialog and dialog.background then keepTextures[dialog.background] = true end
@@ -1217,7 +1229,6 @@ end
                 end
             end
 
-            -- Reskin the close button (X)
             local closeBtn = _G.LFGDungeonReadyDialogCloseButton
             if closeBtn then
                 for i = 1, _select("#", closeBtn:GetRegions()) do
@@ -1238,10 +1249,7 @@ end
                 GetFFD(closeBtn).icon:Show()
             end
 
-            -- Our dark background + border (create once).
-            -- Anchored to the dialog (not the popup wrapper) so the skin
-            -- follows the dialog when a mover addon (DeModal, BlizzMove)
-            -- lets the user drag LFGDungeonReadyDialog independently.
+            -- Our dark background + border (create once), anchored to the dialog (not the popup wrapper) so the skin follows if a mover addon drags LFGDungeonReadyDialog independently.
             if not GetFFD(popup).bg then
                 local RS = EllesmereUI.RESKIN
                 if not _PP then _PP = EllesmereUI and EllesmereUI.PP end
@@ -1257,31 +1265,24 @@ end
             end
             _applyConfiguredBorder(GetFFD(popup).bgFrame, "popupMenu", 1)
 
-            -- Skin buttons (Enter Dungeon / Leave Queue).
-            -- Re-strip textures every show (Blizzard re-applies art on each popup).
-            -- Only create bg/border once.
+            -- Enter Dungeon / Leave Queue. Textures are re-stripped every show (Blizzard re-applies art per popup); bg/border created once.
             if dialog then
                 for _, btnName in ipairs({ "enterButton", "leaveButton" }) do
                     local btn = dialog[btnName]
                     if btn then
-                        -- Force all Blizzard texture regions invisible (every show).
-                        -- Named Left/Middle/Right textures are swapped by C++ on
-                        -- mouse down so SetTexture alone doesn't stick.
+                        -- Named Left/Middle/Right textures are swapped by C++ on mouse down, so SetTexture alone does not stick.
                         for j = 1, select("#", btn:GetRegions()) do
                             local r = select(j, btn:GetRegions())
                             if r and r:IsObjectType("Texture") and not GetFFD(r).owned and r ~= btn:GetFontString() then
                                 r:SetAlpha(0)
                             end
                         end
-                        -- Named template textures
                         if btn.Left then btn.Left:SetAlpha(0) end
                         if btn.Middle then btn.Middle:SetAlpha(0) end
                         if btn.Right then btn.Right:SetAlpha(0) end
-                        -- Create our bg/border + hook texture suppression once
                         if not GetFFD(btn).skinned then
                             GetFFD(btn).skinned = true
-                            -- Hook SetAlpha on named textures so C++ press
-                            -- state changes can't make them visible again
+                            -- Hook SetAlpha on the named textures so C++ press state changes cannot make them visible again.
                             for _, texKey in ipairs({ "Left", "Middle", "Right" }) do
                                 local tex = btn[texKey]
                                 if tex and tex.SetAlpha then
@@ -1297,20 +1298,19 @@ end
                             btnBg:SetAllPoints()
                             GetFFD(btnBg).owned = true
                             GetFFD(btn).bg = btnBg
-                            -- House hover: 10% white wash (owned, so the
-                            -- every-show re-strip above leaves it alone).
+                            -- 10% white wash; marked owned so the every-show re-strip above leaves it alone.
                             local hov = btn:CreateTexture(nil, "HIGHLIGHT")
                             hov:SetColorTexture(1, 1, 1, 0.1)
                             hov:SetAllPoints()
                             GetFFD(hov).owned = true
                         end
-                        -- Accent-color the button text (every show)
+                        -- Colors re-applied every show.
                         local c = EllesmereUIDB and EllesmereUIDB.popupMenuButtonBackgroundColor or { r=.1,g=.1,b=.1,a=.8 }
                         if GetFFD(btn).bg then GetFFD(btn).bg:SetColorTexture(c.r,c.g,c.b,c.a == nil and .8 or c.a) end
                         _applyConfiguredBorder(btn, "popupMenuButton", 1)
                         local fs = btn:GetFontString()
                         if fs then
-                            -- Native mode: pre-8.5.2 look was plain white.
+                            -- Native mode text is plain white.
                             if _elementColorMode() == "native" then
                                 fs:SetTextColor(1, 1, 1, 1)
                             else
@@ -1338,7 +1338,7 @@ end
                 timerBg:SetAllPoints()
                 timerBg:SetColorTexture(0, 0, 0, 0.7)
 
-                -- Blizzard-style casting bar border (hidden when EUI style)
+                -- Blizzard-style casting bar border (hidden in EUI style).
                 timerBorder = timerBar:CreateTexture(nil, "OVERLAY")
                 timerBorder:SetTexture(130874)
                 timerBorder:SetSize(256, 64)
@@ -1357,12 +1357,10 @@ end
                 end
             end
 
-            -- Anchor to the dialog (not the popup wrapper) so the timer
-            -- follows the dialog when a mover addon drags it independently.
+            -- Anchor to the dialog, not the popup wrapper, so the timer follows it when a mover addon drags the dialog independently.
             local dialog = LFGDungeonReadyDialog
             local anchorFrame = dialog or popup
 
-            -- Switch style based on whether the popup reskin is active
             timerBar:ClearAllPoints()
             if useEuiStyle then
                 timerBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
@@ -1375,7 +1373,6 @@ end
                 timerBg:SetColorTexture(0, 0, 0, 0.5)
                 timerBorder:Hide()
                 timerBg:Show()
-                -- Apply EUI font
                 local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras"))
                     or "Fonts\\FRIZQT__.TTF"
                 if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(timerText, true) end
@@ -1383,7 +1380,7 @@ end
                 timerText:SetTextColor(1, 0.831, 0, 1) -- #ffd400
                 GetFFD(timerBar).style = true
             else
-                -- Blizzard style (matches BigWigs look)
+                -- Blizzard style: stock bar texture + casting-bar border art.
                 timerBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
                 timerBar:SetPoint("TOP", anchorFrame, "BOTTOM", 0, -5)
                 timerBar:SetSize(190, 9)
@@ -1394,7 +1391,7 @@ end
                 GetFFD(timerBar).style = false
             end
 
-            -- Hide other addons' timer bars (BigWigs etc.)
+            -- Hide any other addon's timer bar parented to the popup.
             for _, child in ipairs({ popup:GetChildren() }) do
                 if child ~= timerBar and child.GetObjectType
                    and child:GetObjectType() == "StatusBar" then
@@ -1419,11 +1416,11 @@ end
             end)
         end
 
-        -- Skin the "queue missed" / role check status popup
+        -- The "queue missed" / role check status popup.
         local function SkinQueueStatus()
             local status = _G.LFGDungeonReadyStatus
             if not status or not IsQueueReskinOn() then return end
-            -- Strip textures (every show)
+            -- Textures re-stripped every show.
             for i = 1, _select("#", status:GetRegions()) do
                 local r = _select(i, status:GetRegions())
                 if r and r:IsObjectType("Texture") and not GetFFD(r).owned then
@@ -1434,7 +1431,6 @@ end
             if status.BG then status.BG:SetAlpha(0) end
             if status.NineSlice then status.NineSlice:SetAlpha(0) end
             if status.Border then status.Border:SetAlpha(0) end
-            -- Our bg + border (once)
             if not GetFFD(status).bg then
                 local RS = EllesmereUI.RESKIN
                 GetFFD(status).bg = status:CreateTexture(nil, "BACKGROUND", nil, -8)
@@ -1448,8 +1444,7 @@ end
             end
         end
 
-        -- Hook LFGDungeonReadyStatus OnShow so the skin applies the moment
-        -- the acceptance panel appears (before any specific event fires).
+        -- Hook OnShow so the skin applies the moment the acceptance panel appears, before any specific event fires.
         local _statusHooked = false
         local function HookStatusOnShow()
             if _statusHooked then return end
@@ -1484,7 +1479,6 @@ end)()
 
 -------------------------------------------------------------------------------
 --  Quick Keybind Frame: dark reskin matching the queue popup style.
---  Strips Blizzard decoration and applies dark bg + border + button reskin.
 -------------------------------------------------------------------------------
 do
     local _qkbSkinned = false
@@ -1497,7 +1491,6 @@ do
         local RS = EllesmereUI.RESKIN
         local _PP = EllesmereUI and EllesmereUI.PP
 
-        -- Strip all Blizzard background/border textures
         if qkb.NineSlice then qkb.NineSlice:SetAlpha(0) end
         if qkb.BG then qkb.BG:SetAlpha(0) end
         if qkb.Border then qkb.Border:SetAlpha(0) end
@@ -1509,7 +1502,6 @@ do
             end
         end
 
-        -- Our dark background + border
         local bgFrame = CreateFrame("Frame", nil, qkb)
         bgFrame:SetAllPoints(qkb)
         bgFrame:SetFrameLevel(math.max(1, qkb:GetFrameLevel() - 1))
@@ -1521,14 +1513,14 @@ do
             _PP.CreateBorder(bgFrame, 1, 1, 1, RS.BRD_ALPHA, 1, "OVERLAY", 7)
         end
 
-        -- Title header: it's a Frame with sub-textures; strip art, raise level
+        -- The header is a Frame with sub-textures: strip art, raise level.
         if qkb.Header then
             qkb.Header:SetFrameLevel(qkb:GetFrameLevel() + 2)
             if qkb.Header.LeftBG then qkb.Header.LeftBG:SetAlpha(0) end
             if qkb.Header.CenterBG then qkb.Header.CenterBG:SetAlpha(0) end
             if qkb.Header.RightBG then qkb.Header.RightBG:SetAlpha(0) end
         end
-        -- Instruction/output text: raise above our bg
+        -- Raise the instruction/output text above our bg.
         if qkb.InstructionText then
             qkb.InstructionText:SetDrawLayer("OVERLAY", 6)
         end
@@ -1539,16 +1531,14 @@ do
             qkb.CancelDescriptionText:SetDrawLayer("OVERLAY", 6)
         end
 
-        -- Reskin buttons (Okay, Cancel, Defaults, UseCharacterBindings)
         local btnNames = { "OkayButton", "CancelButton", "DefaultsButton" }
-        -- Native mode: keep the pre-8.5.2 look (text not recolored).
+        -- Native mode leaves button text un-recolored.
         local er,eg,eb=EllesmereUI._getPopupMenuButtonTextColor(); local EG={r=er,g=eg,b=eb}
         local useAccent = (EllesmereUI._getPopupMenuElementMode() ~= "native") and EG
         for _, name in ipairs(btnNames) do
             local btn = qkb[name]
             if btn and not GetFFD(btn).skinned then
                 GetFFD(btn).skinned = true
-                -- Strip button textures
                 for j = 1, select("#", btn:GetRegions()) do
                     local r = select(j, btn:GetRegions())
                     if r and r:IsObjectType("Texture") and not GetFFD(r).owned and r ~= btn:GetFontString() then
@@ -1558,7 +1548,7 @@ do
                 if btn.Left then btn.Left:SetAlpha(0) end
                 if btn.Middle then btn.Middle:SetAlpha(0) end
                 if btn.Right then btn.Right:SetAlpha(0) end
-                -- Hook texture suppression
+                -- C++ swaps these on press, so re-suppress via a SetAlpha hook.
                 for _, texKey in ipairs({ "Left", "Middle", "Right" }) do
                     local tex = btn[texKey]
                     if tex and tex.SetAlpha then
@@ -1567,7 +1557,6 @@ do
                         end)
                     end
                 end
-                -- Dark bg + border
                 local btnBg = btn:CreateTexture(nil, "BACKGROUND", nil, -6)
                 btnBg:SetAllPoints()
                 btnBg:SetColorTexture(0.1, 0.1, 0.1, 0.8)
@@ -1579,7 +1568,7 @@ do
                         _PP.CreateBorder(btn, 1, 1, 1, RS.BRD_ALPHA, 1, "OVERLAY", 7)
                     end
                 end
-                -- Accent-color the button text (Blizzard hover turns it white)
+                -- Accent the text; Blizzard's hover turns it white.
                 local fs = btn:GetFontString()
                 if fs and useAccent then
                     fs:SetTextColor(EG.r, EG.g, EG.b, 1)
@@ -1587,9 +1576,8 @@ do
             end
         end
 
-        -- Checkbox styling (UseCharacterBindingsButton is a CheckButton)
+        -- UseCharacterBindingsButton is a CheckButton: left functional, only its label is raised for legibility.
         if qkb.UseCharacterBindingsButton and qkb.UseCharacterBindingsButton.SetCheckedTexture then
-            -- Leave checkbox functional but ensure text is legible
             local cbText = qkb.UseCharacterBindingsButton.Text or qkb.UseCharacterBindingsButton.text
             if cbText then
                 cbText:SetDrawLayer("OVERLAY", 6)
@@ -1597,9 +1585,7 @@ do
         end
     end
 
-    -- Hook QuickKeybindFrame show to apply skin. The addon is LoadOnDemand
-    -- so the frame may not exist at login. Try after login, and also listen
-    -- for ADDON_LOADED as a fallback for late loading.
+    -- Blizzard_QuickKeybind is LoadOnDemand, so the frame may not exist at login: try after login, with ADDON_LOADED as the late-load fallback.
     local _qkbHooked = false
     local function TryHookQKB()
         if _qkbHooked then return end
@@ -1640,13 +1626,12 @@ do
         local RS = EllesmereUI.RESKIN
         local _PP = EllesmereUI and EllesmereUI.PP
 
-        -- Strip Blizzard border/decoration only (preserve role icon + content)
+        -- Border/decoration only; role icon and content are preserved.
         if dialog.Bg then dialog.Bg:SetAlpha(0) end
         if dialog.BG then dialog.BG:SetAlpha(0) end
         if dialog.NineSlice then dialog.NineSlice:SetAlpha(0) end
         if dialog.Border then dialog.Border:SetAlpha(0) end
 
-        -- Dark bg + border
         local bg = dialog:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
         bg:SetColorTexture(RS.BG_R, RS.BG_G, RS.BG_B, RS.QT_ALPHA)
@@ -1655,15 +1640,14 @@ do
             _PP.CreateBorder(dialog, 1, 1, 1, RS.BRD_ALPHA, 1, "OVERLAY", 7)
         end
 
-        -- Skin buttons
         local function _accentOn()
-            -- False in native mode: pre-8.5.2 look (text/border not accented).
+            -- Native mode leaves text/border un-accented.
             return EllesmereUI._getPopupMenuElementMode() ~= "native"
         end
         for _, btnName in ipairs({ "AcceptButton", "DeclineButton", "AcknowledgeButton" }) do
             local btn = dialog[btnName]
             if btn then
-                -- Strip all texture regions (every show, Blizzard re-applies)
+                -- Re-stripped every show; Blizzard re-applies the art.
                 for j = 1, select("#", btn:GetRegions()) do
                     local r = select(j, btn:GetRegions())
                     if r and r:IsObjectType("Texture") and not GetFFD(r).owned and r ~= btn:GetFontString() then
@@ -1697,7 +1681,7 @@ do
                         end
                     end
                 end
-                -- Accent text (every show)
+                -- Text accent re-applied every show.
                 local er,eg,eb=EllesmereUI._getPopupMenuButtonTextColor(); local EG={r=er,g=eg,b=eb}
                 local useAccent = _accentOn() and EG
                 local fs = btn:GetFontString()
@@ -1732,13 +1716,12 @@ do
         local RS = EllesmereUI.RESKIN
         local _PP = EllesmereUI and EllesmereUI.PP
 
-        -- Strip border/decoration only (preserve content)
+        -- Border/decoration only; content is preserved.
         if dialog.Bg then dialog.Bg:SetAlpha(0) end
         if dialog.BG then dialog.BG:SetAlpha(0) end
         if dialog.NineSlice then dialog.NineSlice:SetAlpha(0) end
         if dialog.Border then dialog.Border:SetAlpha(0) end
 
-        -- Dark bg + border
         local bg = dialog:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
         bg:SetColorTexture(RS.BG_R, RS.BG_G, RS.BG_B, RS.QT_ALPHA)
@@ -1747,10 +1730,8 @@ do
             _PP.CreateBorder(dialog, 1, 1, 1, RS.BRD_ALPHA, 1, "OVERLAY", 7)
         end
 
-        -- Skin the description edit box
         local desc = _G.LFGListApplicationDialogDescription
         if desc then
-            -- Strip all texture regions (edge textures, bg, etc.)
             for i = 1, select("#", desc:GetRegions()) do
                 local r = select(i, desc:GetRegions())
                 if r and r:IsObjectType("Texture") and not GetFFD(r).owned then
@@ -1768,7 +1749,7 @@ do
         end
 
         local function _accentOn()
-            -- False in native mode: pre-8.5.2 look (text/border not accented).
+            -- Native mode leaves text/border un-accented.
             return EllesmereUI._getPopupMenuElementMode() ~= "native"
         end
         for _, btnName in ipairs({ "SignUpButton", "CancelButton" }) do
@@ -1834,20 +1815,18 @@ do
     f:SetScript("OnEvent", function(self)
         self:UnregisterAllEvents()
         if not GameMenuFrame then return end
-        -- Independent toggle, default on (not tied to any master reskin setting,
-        -- including the window-skins style: this is a popup menu, not a window).
+        -- Independent toggle, default on: this is a popup menu, not a window, so no master reskin setting (window-skins style included) governs it.
         if EllesmereUIDB and EllesmereUIDB.reskinGameMenu == false then return end
 
         local RS = EllesmereUI.RESKIN
 
-        -- Strip decorative textures
         for i = 1, select("#", GameMenuFrame:GetRegions()) do
             local r = select(i, GameMenuFrame:GetRegions())
             if r and r:IsObjectType("Texture") then r:SetAlpha(0) end
         end
         if GameMenuFrame.NineSlice then GameMenuFrame.NineSlice:SetAlpha(0) end
         if GameMenuFrame.Border then GameMenuFrame.Border:SetAlpha(0) end
-        -- Strip header textures, accent-color the title, nudge down
+        -- Header: strip art, accent the title, nudge down.
         local header = GameMenuFrame.Header
         if header then
             for i = 1, select("#", header:GetRegions()) do
@@ -1865,17 +1844,13 @@ do
             header:ClearAllPoints()
             header:SetPoint("TOP", GameMenuFrame, "TOP", 0, -10)
         end
-        -- Dark bg + border
         local gmBg = GameMenuFrame:CreateTexture(nil, "BACKGROUND")
         gmBg:SetAllPoints()
         gmBg:SetColorTexture(RS.BG_R, RS.BG_G, RS.BG_B, RS.QT_ALPHA)
         local function ApplyButtonStyle(btn)
             local d = GetFFD(btn)
-            -- Blizzard's pooled buttons are skinned in this addon's private
-            -- FFD table, while EUI's two custom Game Menu buttons are created
-            -- by the parent addon and keep their skin data in its FFD table.
-            -- Resolve that second store as a fallback so live option changes
-            -- also reach the EllesmereUI button.
+            -- Blizzard's pooled buttons keep skin data in this addon's FFD; EUI's two custom
+            -- Game Menu buttons are created by the parent addon and keep theirs in ITS FFD. Fall back to that store so live option changes also reach the EllesmereUI button.
             if not d.gameMenuInset and EllesmereUI._GetFFD then
                 d = EllesmereUI._GetFFD(btn)
             end
@@ -1884,8 +1859,7 @@ do
             d.gameMenuButtonBg:SetColorTexture(c.r, c.g, c.b, c.a == nil and .8 or c.a)
             EllesmereUI._applyBlizzardConfiguredBorder(d.gameMenuInset, "popupMenuButton", 1)
             local fs = btn:GetFontString()
-            -- Native mode: pooled Game Menu buttons were never text-recolored
-            -- pre-8.5.2 (Blizzard's own gold on our dark inset) -- keep that.
+            -- Native mode keeps Blizzard's own gold on our dark inset.
             if fs and EllesmereUI._getPopupMenuElementMode() ~= "native" then
                 local r, g, b = EllesmereUI._getPopupMenuButtonTextColor()
                 fs:SetTextColor(r, g, b, 1)
@@ -1896,17 +1870,13 @@ do
             if GameMenuFrame.buttonPool then
                 for btn in GameMenuFrame.buttonPool:EnumerateActive() do ApplyButtonStyle(btn) end
             end
-            -- The EUI/Unlock custom buttons are created by the PARENT addon,
-            -- which stores them in ITS namespace FFD (EllesmereUI._GetFFD),
-            -- not this file's local FFD table -- reading the local table
-            -- here made these two refreshes permanently dead code.
+            -- The EUI/Unlock custom buttons are created by the PARENT addon and stored in ITS namespace FFD (EllesmereUI._GetFFD), not this file's local FFD; wrong table = dead code.
             local pd = EllesmereUI._GetFFD and EllesmereUI._GetFFD(GameMenuFrame)
             if pd and pd.euiBtn then ApplyButtonStyle(pd.euiBtn) end
             if pd and pd.unlockBtn then ApplyButtonStyle(pd.unlockBtn) end
         end
         ApplyMenuStyle()
         GameMenuFrame:HookScript("OnShow", ApplyMenuStyle)
-        -- Skin pooled buttons via InitButtons hook
         hooksecurefunc(GameMenuFrame, "InitButtons", function(menu)
             if not menu.buttonPool then return end
             for menuBtn in menu.buttonPool:EnumerateActive() do
@@ -1929,8 +1899,7 @@ do
                             end)
                         end
                     end
-                    -- Inset container: bg + border sit 2px inside the
-                    -- button edges for a tighter, cleaner look.
+                    -- Inset container: bg + border sit 2px inside the button edges for a tighter look.
                     local inset = CreateFrame("Frame", nil, menuBtn)
                     inset:SetPoint("TOPLEFT", 2, -2)
                     inset:SetPoint("BOTTOMRIGHT", -2, 2)
@@ -1974,17 +1943,47 @@ end
 
 -------------------------------------------------------------------------------
 --  Anchor Tooltip to Cursor
---  Re-owns the default GameTooltip to a 1x1 frame that tracks the mouse, so the
---  tooltip follows the cursor with a user-chosen position + X/Y offset.
---  GameTooltip_SetDefaultAnchor is the post-hook every default-anchored tooltip
---  (units, world objects, action buttons) runs through, so re-pointing it there
---  covers them all. The hook is installed on first enable and re-checks the flag,
---  so it's a no-op (Blizzard's default anchor stands) when toggled back off, and
---  the cursor-tracking frame only ticks while a tooltip is actually shown.
+--  Re-owns the default GameTooltip to a 1x1 frame tracking the mouse, so the
+--  tooltip follows the cursor at a user-chosen position + X/Y offset, via
+--  GameTooltip_SetDefaultAnchor (the post-hook every default-anchored tooltip --
+--  units, world objects, action buttons -- runs through). Installed on first
+--  enable; a no-op (Blizzard's anchor stands) when toggled off, and the tracking frame only ticks while a tooltip is shown.
 -------------------------------------------------------------------------------
+
+-- Is a tooltip owner handed to us by a Blizzard hook safe to anchor to? It can
+-- be a FORBIDDEN frame: Blizzard's nameplate aura buttons are forbidden and call
+-- GameTooltip_SetDefaultAnchor on hover, so passing one straight to SetOwner from
+-- our tainted hook raises "Attempt to access forbidden object from code tainted
+-- by an AddOn". Testing the tooltip alone is NOT enough -- it is the OWNER that
+-- is off limits, not GameTooltip itself. Nothing can be anchored to a forbidden
+-- frame, so both anchor modes must leave Blizzard's anchoring alone there;
+-- IsForbidden is the only method safe to call on such a frame, so it is asked
+-- first and nothing else is touched. File scope on purpose: the cursor and fixed anchor modes (separate do-blocks) both need it.
+local function TooltipOwnerUsable(parent)
+    if not parent then return false end
+    local fn = parent.IsForbidden
+    if type(fn) == "function" and fn(parent) then return false end
+    return true
+end
+
+-- Stand-in tooltips: taint-sensitive callers that cannot touch the global
+-- GameTooltip build their own GameTooltipTemplate frame and flag it
+-- LIKE_GLOBAL_GAMETOOLTIP -- the ecosystem convention asking to be treated
+-- as _G.GameTooltip. They still route through GameTooltip_SetDefaultAnchor,
+-- so honour the flag for the ANCHOR decision only. The armed-state
+-- bookkeeping stays strict-identity: it gates SetPoint enforcement hooked
+-- onto GameTooltip's OWN setters, so arming it for a stand-in would enforce
+-- against another frame's state. A stand-in needs no ongoing enforcement:
+-- GameTooltip_SetDefaultAnchor is a pure one-shot (SetOwner + corner
+-- SetPoint, no registration), so nothing Blizzard-side ever re-anchors a
+-- stand-in -- every re-build re-enters these hooks.
+local function TooltipIsGlobalLike(tooltip)
+    if tooltip == GameTooltip then return true end
+    return type(tooltip) == "table" and tooltip.LIKE_GLOBAL_GAMETOOLTIP == true
+end
+
 do
-    -- Selected position = where the tooltip sits relative to the cursor, so the
-    -- tooltip corner that touches the cursor is the opposite one.
+    -- Selected position = where the tooltip sits relative to the cursor, so the tooltip corner touching the cursor is the opposite one.
     local POINT_FOR_POS = {
         bottomright = "TOPLEFT",
         bottomleft  = "TOPRIGHT",
@@ -2020,10 +2019,8 @@ do
         return cursorFrame
     end
 
-    -- Show + position the tracking frame at the pointer right now. The OnUpdate
-    -- alone only repositions it on the NEXT frame, so a tooltip anchored to it
-    -- and shown synchronously this frame (as the custom CDM frames do) would have
-    -- no valid rect yet -- and nothing renders.
+    -- Show + position the tracking frame at the pointer NOW: the OnUpdate alone only
+    -- repositions it next frame, so a tooltip anchored to it and shown synchronously this frame (as the custom CDM frames do) would have no valid rect yet and render nothing.
     local function PositionCursorFrameNow(cf)
         cf:Show()
         local scale = UIParent:GetEffectiveScale()
@@ -2035,17 +2032,13 @@ do
     end
 
     local function ApplyCursorAnchor(tooltip, parent)
-        if tooltip ~= GameTooltip then return end
-        -- Gated by the "Reskin Tooltip" master (matches the grayed-out option), so
-        -- disabling the reskin restores the default tooltip position.
+        if not TooltipIsGlobalLike(tooltip) then return end
+        -- Gated by the customTooltips master (matches the grayed-out option), so disabling the reskin restores the default tooltip position.
         if EllesmereUIDB and EllesmereUIDB.customTooltips == false then return end
         if not (EllesmereUIDB and EllesmereUIDB.tooltipAnchorCursor) then return end
-        if not parent or tooltip:IsForbidden() then return end
-        -- "Show Tooltips" suppression parks the tip in a hidden host (see the
-        -- Show Tooltips block below): it stays alive and invisible so the
-        -- peek modifier can reveal it. Anchor it normally -- it must already
-        -- be riding the cursor when revealed. (The old Hide()-based
-        -- suppression needed an early-return here to avoid undoing its Hide.)
+        -- Owner checked as well as the tooltip: a forbidden owner cannot be passed to SetOwner below. See TooltipOwnerUsable.
+        if not TooltipOwnerUsable(parent) or tooltip:IsForbidden() then return end
+        -- "Show Tooltips" suppression parks the tip in a hidden host (below): it stays alive and invisible so the peek modifier can reveal it, so anchor it normally -- it must already ride the cursor when revealed.
         local cf = EnsureCursorFrame()
         PositionCursorFrameNow(cf)
         local point = POINT_FOR_POS[EllesmereUIDB.tooltipCursorPosition or "top"] or "BOTTOM"
@@ -2056,15 +2049,12 @@ do
             EllesmereUIDB.tooltipCursorOffsetY or 0)
     end
 
-    -- Re-assert the cursor anchor on GameTooltip WITHOUT re-owning it (SetOwner
-    -- would wipe the content). A custom frame whose tooltip content-setter
-    -- (e.g. SetItemByID) clears/hides the tip mid-build can fire GameTooltip's
-    -- OnHide -- which hides the tracking frame -- leaving the tip anchored to a
-    -- hidden/unpositioned frame so it never appears. Calling this AFTER the
-    -- content is set (and before Show) re-shows + repositions the tracking frame
-    -- and re-points the tooltip so it reliably renders at the cursor. No-op when
-    -- the cursor anchor (or the reskin master) is off, so callers can call it
-    -- unconditionally.
+    -- Re-assert the cursor anchor WITHOUT re-owning the tooltip (SetOwner would
+    -- wipe content). A content-setter that clears/hides the tip mid-build (e.g.
+    -- SetItemByID) fires OnHide, hiding the tracking frame and leaving the tip
+    -- anchored to a hidden/unpositioned frame so it never appears. Call this
+    -- AFTER content is set and before Show: re-shows + repositions the tracker
+    -- and re-points the tooltip. No-op (safe unconditionally) when the cursor anchor or reskin master is off.
     EllesmereUI._repointTooltipAtCursor = function(tooltip)
         if tooltip ~= GameTooltip then return end
         if EllesmereUIDB and EllesmereUIDB.customTooltips == false then return end
@@ -2088,10 +2078,8 @@ do
             if cursorFrame then cursorFrame:Hide() end
         end)
         hooksecurefunc("GameTooltip_SetDefaultAnchor", ApplyCursorAnchor)
-        -- World-unit tooltips fade out (~1-2s) instead of hiding on mouse-off,
-        -- unlike unitframe/item/buff/CDM tips which Hide() instantly. While the
-        -- tip rides the cursor that lingering fade trails the pointer, so collapse
-        -- it to an instant hide -- only while the cursor anchor is actually on.
+        -- World-unit tooltips fade out (~1-2s) on mouse-off instead of hiding instantly like
+        -- unitframe/item/buff/CDM tips; while riding the cursor that lingering fade trails the pointer, so collapse it to an instant hide -- only while the cursor anchor is on.
         if GameTooltip.FadeOut then
             hooksecurefunc(GameTooltip, "FadeOut", function(self)
                 if self ~= GameTooltip then return end
@@ -2120,24 +2108,18 @@ end
 
 -------------------------------------------------------------------------------
 --  Fixed Tooltip Position (EUI-owned, movable in Unlock Mode)
---  EUI permanently owns the default GameTooltip's screen position: every
---  default-anchored tooltip is re-pointed onto OUR own anchor frame, which the
---  user drags freely via a real Unlock Mode mover. The position is PER PROFILE
---  (profiles[name].tooltipFixedPos); a profile with no saved position gets a
---  ONE-TIME seed captured from wherever Blizzard's own Edit Mode container
---  currently sits, so the takeover is visually a no-op until the user drags
---  the box. We only ever READ GameTooltipDefaultContainer -- never write it --
---  so the user's Blizzard/Edit Mode tooltip position stays exactly as they
---  left it, and stands again if "Reskin Tooltip" is turned off. Same
---  GameTooltip_SetDefaultAnchor post-hook family as the cursor anchor and
---  growth direction: the tooltip is unprotected and its content is never
---  touched, so there is no taint surface. Anchor to Cursor takes precedence.
---  This block is placed BEFORE the growth-direction block so its hook
---  registers first and growth enforcement composes on top of our corner.
+--  EUI permanently owns the default GameTooltip's screen position: every default-anchored
+--  tooltip is re-pointed onto OUR anchor frame, dragged via a real Unlock Mode mover.
+--  Position is PER PROFILE (profiles[name].tooltipFixedPos); a profile with none gets a
+--  ONE-TIME seed captured from wherever Blizzard's Edit Mode container currently sits, so
+--  the takeover is visually a no-op until the user drags the box. GameTooltipDefaultContainer
+--  is only ever READ, never written, so the user's Edit Mode position survives intact and
+--  stands again if the reskin master is off. Same GameTooltip_SetDefaultAnchor post-hook
+--  family as the cursor anchor and growth direction (tooltip unprotected, content never
+--  touched, no taint surface); Anchor to Cursor takes precedence. Placed BEFORE the growth-direction block so its hook registers first and growth enforcement composes on top of our corner.
 -------------------------------------------------------------------------------
 do
-    -- Representative size for the mover box (real tooltips vary; the tooltip
-    -- pins corner-to-corner to the box so it renders inside this footprint).
+    -- Representative mover-box size; real tooltips vary, but they pin corner-to-corner to the box so they render inside this footprint.
     local FIXED_W, FIXED_H = 280, 165
     local anchorFrame
 
@@ -2145,9 +2127,7 @@ do
         return EllesmereUI.GetActiveProfileData and EllesmereUI.GetActiveProfileData()
     end
 
-    -- Fixed mode is the permanent baseline: no toggle. Only the tooltip reskin
-    -- master (off = fully vanilla tooltips, Blizzard position stands) and
-    -- Anchor to Cursor (tooltip rides the mouse) sideline it.
+    -- Fixed mode is the permanent baseline: no toggle. Only the reskin master (off = vanilla tooltips) and Anchor to Cursor sideline it.
     local function WantFixed()
         if EllesmereUIDB and EllesmereUIDB.customTooltips == false then return false end
         if EllesmereUIDB and EllesmereUIDB.tooltipAnchorCursor then return false end
@@ -2164,17 +2144,15 @@ do
         return anchorFrame
     end
 
-    -- One-time per-profile seed: capture where Blizzard's Edit Mode container
-    -- puts the tooltip RIGHT NOW and store that as the profile's position, so
-    -- taking over changes nothing visually until the user drags the mover.
-    -- READ only -- the container is never modified. Retries harmlessly until
-    -- the container has a real rect (Edit Mode layouts land after login) and
-    -- the profiles table exists. A stored position -- seeded or user-dragged --
-    -- is never overwritten, so this runs at most once per profile ever.
+    -- One-time per-profile seed: store where Blizzard's Edit Mode container puts
+    -- the tooltip RIGHT NOW, so the takeover changes nothing visually until the
+    -- user drags the mover. READ only, container never modified. Retries
+    -- harmlessly until the container has a real rect (Edit Mode layouts land
+    -- after login); a stored position (seeded or dragged) is never overwritten, so this runs at most once per profile.
     local function EnsureSeeded()
         local prof = ActiveProfile()
         if not prof or prof.tooltipFixedPos then return end
-        -- Adopt a position saved by the short-lived account-global build.
+        -- Adopt a position left under the old account-global key.
         if EllesmereUIDB and EllesmereUIDB.tooltipFixedPos then
             prof.tooltipFixedPos = EllesmereUIDB.tooltipFixedPos
             EllesmereUIDB.tooltipFixedPos = nil
@@ -2188,10 +2166,10 @@ do
         local us = UIParent:GetEffectiveScale() or 1
         if us <= 0 then return end
         local r = (c:GetEffectiveScale() or us) / us
-        -- Blizzard pins the tooltip's corner to the container corner nearest
-        -- the closest screen corner. Find that corner point, then park our box
-        -- so ITS matching corner sits exactly there. (An idle container may be
-        -- collapsed to a sliver; its corners all coincide then, still correct.)
+        -- Blizzard pins the tooltip's corner to the container corner nearest the
+        -- closest screen corner. Find that point, then park our box so ITS
+        -- matching corner sits exactly there; an idle container may be
+        -- collapsed to a sliver (corners coincide), still correct.
         local uw, uh = UIParent:GetWidth(), UIParent:GetHeight()
         local ccx = (l + w / 2) * r - uw / 2
         local ccy = (b + ch / 2) * r - uh / 2
@@ -2203,10 +2181,8 @@ do
         }
     end
 
-    -- Park the anchor frame at the ACTIVE profile's position (center offsets
-    -- from UIParent center, matching how the mover stores CENTER coords).
-    -- Reading the profile live on every call is what makes profile switches
-    -- work with zero extra wiring: the next tooltip show self-heals.
+    -- Park the anchor frame at the ACTIVE profile's position (center offsets from UIParent
+    -- center, matching how the mover stores CENTER coords). Reading the profile live every call makes profile switches self-heal on the next tooltip show, with zero extra wiring.
     local function PositionFromSaved()
         local af = EnsureFixedFrame()
         EnsureSeeded()
@@ -2220,10 +2196,8 @@ do
         end
     end
 
-    -- Corner of the box the tooltip pins to: the one nearest the closest
-    -- screen corner, so growth always runs INTO the screen (and into the box).
-    -- Growth Direction, when set, forces the vertical component -- the same
-    -- rule its own enforcement block applies on top, so the two never fight.
+    -- Corner of the box the tooltip pins to: the one nearest the closest screen corner, so
+    -- growth always runs INTO the screen (and the box). Growth Direction, when set, forces the vertical component -- the same rule its own enforcement block applies, so the two never fight.
     local function CornerFor(af)
         local cx, cy = -350, -150
         local l, b = af:GetLeft(), af:GetBottom()
@@ -2241,13 +2215,11 @@ do
         return vert .. ((cx < 0) and "LEFT" or "RIGHT")
     end
 
-    -- Blizzard's container logic can re-anchor a default-anchored tooltip a
-    -- few frames after show WITHOUT clearing points first (see the Growth
-    -- Direction block below), which would pin a second corner and stretch the
-    -- tooltip between our box and Blizzard's container. Enforcement rides the
-    -- same armed/disarmed SetPoint pattern: never reads hook args (hooked
-    -- secure setters can receive secret values), re-derives everything, and
-    -- only rewrites on deviation so it converges instead of looping.
+    -- Blizzard's container logic can re-anchor a default-anchored tooltip a few
+    -- frames after show WITHOUT clearing points first (see Growth Direction
+    -- below), pinning a second corner and stretching the tooltip between our
+    -- box and Blizzard's container. Enforcement rides the same armed/disarmed
+    -- SetPoint pattern: NEVER reads hook args (hooked secure setters can receive secret values), re-derives everything, rewrites only on deviation.
     local _fixedEnforcing = false
     local _fixedArmed = false
 
@@ -2266,13 +2238,18 @@ do
     end
 
     local function ApplyFixedAnchor(tooltip, parent)
-        if tooltip ~= GameTooltip then return end
+        if not TooltipIsGlobalLike(tooltip) then return end
         if not WantFixed() then return end
-        if not parent or tooltip:IsForbidden() then return end
-        -- While an Unlock Mode session is open, the session owns the anchor
-        -- frame (live drags + uncommitted pending edits); re-parking from the
-        -- saved position would snap the frame back mid-session. Pin the
-        -- tooltip to the frame wherever the session currently has it.
+        if tooltip:IsForbidden() then return end
+        -- A forbidden owner (nameplate aura button) cannot be anchored to:
+        -- leave Blizzard's anchoring alone AND disarm SetPoint enforcement.
+        -- Arming happens in the SetDefaultAnchor hook before this runs; leaving
+        -- it armed would let EnforceFixed yank the tooltip into our box with no matching SetOwner. See TooltipOwnerUsable.
+        if not TooltipOwnerUsable(parent) then
+            _fixedArmed = false
+            return
+        end
+        -- An open Unlock Mode session owns the anchor frame (live drags + uncommitted edits): re-parking from saved would snap it back mid-session, so pin to wherever the session has it.
         if EllesmereUI._unlockActive then
             EnsureSeeded()
         else
@@ -2283,13 +2260,13 @@ do
     end
 
     hooksecurefunc("GameTooltip_SetDefaultAnchor", function(tooltip, parent)
-        if tooltip ~= GameTooltip then return end
-        _fixedArmed = true
+        if not TooltipIsGlobalLike(tooltip) then return end
+        -- Only the global tooltip can be armed: the SetPoint enforcement below
+        -- is hooked onto GameTooltip's own setters. See TooltipIsGlobalLike.
+        if tooltip == GameTooltip then _fixedArmed = true end
         ApplyFixedAnchor(tooltip, parent)
     end)
-    -- Every explicit tooltip build starts with SetOwner (it runs BEFORE the
-    -- SetDefaultAnchor post-hook re-arms the flag), so explicitly-anchored
-    -- uses (bags, other addons) never get their anchors rewritten.
+    -- Every explicit tooltip build starts with SetOwner, which runs BEFORE the SetDefaultAnchor post-hook re-arms the flag, so explicitly-anchored uses (bags, other addons) never get their anchors rewritten.
     hooksecurefunc(GameTooltip, "SetOwner", function()
         _fixedArmed = false
     end)
@@ -2304,10 +2281,8 @@ do
         PositionFromSaved()
     end
 
-    -- Unlock Mode element: a real draggable mover for the tooltip position.
-    -- Writes ONLY our per-profile key and never touches Blizzard's tooltip
-    -- container. Hidden (no mover) while Anchor to Cursor is on or the tooltip
-    -- reskin master is off -- both leave the fixed anchor inactive.
+    -- Unlock Mode element: a real draggable mover for the tooltip position. Writes ONLY
+    -- our per-profile key, never Blizzard's tooltip container. Hidden while Anchor to Cursor is on or the reskin master is off (both leave the fixed anchor inactive).
     local function RegisterUnlock()
         if not (EllesmereUI and EllesmereUI.RegisterUnlockElements and EllesmereUI.MakeUnlockElement) then return end
         local MK = EllesmereUI.MakeUnlockElement
@@ -2326,11 +2301,8 @@ do
                     return not WantFixed()
                 end,
                 getFrame = function()
-                    -- MUST stay side-effect-free: unlock mode calls getFrame
-                    -- from its drag machinery (OnUpdate/OnDragStop), so parking
-                    -- the frame from the saved position here would snap a live
-                    -- drag back to its old spot the moment the user lets go.
-                    -- Boot, applyPos, and loadPos handle parking + seeding.
+                    -- MUST stay side-effect-free: unlock mode calls getFrame from its drag
+                    -- machinery (OnUpdate/OnDragStop), so parking from saved here would snap a live drag back on release. Boot/applyPos/loadPos do parking + seeding.
                     return EnsureFixedFrame()
                 end,
                 getSize  = function() return FIXED_W, FIXED_H end,
@@ -2357,9 +2329,7 @@ do
                     return nil
                 end,
                 clearPos = function()
-                    -- Clearing the profile key means the next apply re-seeds
-                    -- from Blizzard's CURRENT Edit Mode spot: "reset position"
-                    -- = back to wherever Blizzard would put it today.
+                    -- Clearing the profile key makes the next apply re-seed from Blizzard's CURRENT Edit Mode spot, so "reset position" = wherever Blizzard would put it today.
                     local prof = ActiveProfile()
                     if prof then prof.tooltipFixedPos = nil end
                     PositionFromSaved()
@@ -2380,9 +2350,7 @@ do
             PositionFromSaved()
             RegisterUnlock()
         else
-            -- Edit Mode layouts land after login, so the one-time seed may
-            -- have found no container rect yet. Retry once in-world, then
-            -- stop listening (later seeds happen lazily at tooltip show).
+            -- Edit Mode layouts land after login, so the one-time seed may have found no container rect yet. Retry once in-world, then stop listening (later seeds happen lazily at tooltip show).
             self:UnregisterAllEvents()
             PositionFromSaved()
         end
@@ -2392,15 +2360,12 @@ end
 -------------------------------------------------------------------------------
 --  Growth Direction (default screen-anchored tooltip)
 --  Blizzard picks the default tooltip's anchored corner dynamically from the
---  tooltip container's screen position, and the pinned corner decides which
---  way added lines grow (TOP pinned = expands down, BOTTOM pinned = expands
---  up). tooltipGrowthDirection "up"/"down" forces the vertical component of
---  whatever corner Blizzard chose, keeping its horizontal side; "default"
---  (or unset) leaves Blizzard's dynamic pick alone. Re-point only, in the
---  same GameTooltip_SetDefaultAnchor post-hook family as the cursor anchor:
---  the tooltip is unprotected and content is never touched, so there is no
---  taint surface. Cursor-anchored mode re-points the tooltip itself and
---  takes precedence.
+--  container's screen position, and the pinned corner decides which way added lines
+--  grow (TOP pinned = expands down, BOTTOM pinned = expands up). tooltipGrowthDirection
+--  "up"/"down" forces the vertical component of whatever corner Blizzard chose,
+--  keeping its horizontal side; "default" (or unset) leaves Blizzard's dynamic pick
+--  alone. Re-point only, same GameTooltip_SetDefaultAnchor post-hook family as the
+--  cursor anchor (no taint surface: tooltip unprotected, content never touched). Cursor-anchored mode re-points the tooltip itself and takes precedence.
 -------------------------------------------------------------------------------
 do
     local function WantForcedDir()
@@ -2411,16 +2376,14 @@ do
         return dir
     end
 
-    -- Blizzard's container logic RE-ANCHORS the tooltip a few frames after
-    -- show (and on size changes) WITHOUT clearing points first. SetPoint
-    -- only replaces a same-keyword point, so its re-assert ADDED a second
-    -- corner next to the forced one -- top and bottom both pinned, tooltip
-    -- stretched to fill the gap. Enforcement therefore rides a SetPoint
-    -- hook: any anchor write that isn't ours while a default-anchored
-    -- tooltip is up gets collapsed back to the single forced corner. The
-    -- hook never reads its args (hooked setters can receive secret values);
-    -- it re-derives everything from GetPoint. _growthEnforcing guards the
-    -- re-entry from our own SetPoint inside the hook.
+    -- Blizzard's container logic RE-ANCHORS the tooltip a few frames after show (and
+    -- on size changes) WITHOUT clearing points first. SetPoint only replaces a
+    -- same-keyword point, so its re-assert ADDED a second corner next to the forced
+    -- one -- top and bottom both pinned, tooltip stretched to fill the gap.
+    -- Enforcement rides a SetPoint hook instead: any anchor write that isn't ours
+    -- while a default-anchored tooltip is up gets collapsed back to the single
+    -- forced corner. The hook never reads its args (hooked setters can receive
+    -- secret values), re-deriving everything from GetPoint; _growthEnforcing guards re-entry from our own SetPoint inside the hook.
     local _growthEnforcing = false
     local _growthDefaultAnchored = false
 
@@ -2442,13 +2405,13 @@ do
     end
 
     hooksecurefunc("GameTooltip_SetDefaultAnchor", function(tooltip)
-        if tooltip ~= GameTooltip then return end
-        _growthDefaultAnchored = true
+        if not TooltipIsGlobalLike(tooltip) then return end
+        -- Only the global tooltip can be armed: the SetPoint enforcement below
+        -- is hooked onto GameTooltip's own setters. See TooltipIsGlobalLike.
+        if tooltip == GameTooltip then _growthDefaultAnchored = true end
         Enforce(tooltip)
     end)
-    -- Every tooltip build starts with SetOwner (it runs BEFORE the
-    -- SetDefaultAnchor post-hook re-arms the flag), so explicitly-anchored
-    -- uses (bags, other addons) never get their anchors rewritten.
+    -- Every tooltip build starts with SetOwner (runs BEFORE the SetDefaultAnchor post-hook re-arms the flag), so explicitly-anchored uses (bags, other addons) never get their anchors rewritten.
     hooksecurefunc(GameTooltip, "SetOwner", function()
         _growthDefaultAnchored = false
     end)
@@ -2463,20 +2426,18 @@ end
 --  (EllesmereUIDB.tooltipShowMode, default "always") suppresses the game tooltip
 --  by combat state, applied to EVERY default-anchored tooltip via the same
 --  GameTooltip_SetDefaultAnchor post-hook the cursor anchor uses (units, world
---  objects, action buttons). Deliberately no per-type logic -- kept light:
+--  objects, action buttons). Deliberately no per-type logic:
 --    always          -> never suppressed (default; the hook early-outs)
 --    outOfCombat     -> hidden while in combat lockdown
 --    outOfBossCombat -> hidden while a boss encounter is in progress
 --    never           -> hidden always
---  IsEncounterInProgress() is queried inline (only for the outOfBossCombat case)
---  so there is no ENCOUNTER event bookkeeping. Installed once at load; a no-op
---  for the default mode, costing one table read per tooltip when unused.
---  An optional "peek" modifier (tooltipShowModifier) lifts suppression while the
---  chosen key is held, so a suppressed tip can be read on hover (e.g. mid-combat).
---  Suppression keeps the tooltip SHOWN but parked in a hidden host frame (never
---  Hide, never alpha) so peek is a pure reparent flip -- rebuilding a hidden
---  tooltip from insecure code errors on secret cooldown data in combat, and
---  alpha is engine-owned (FadeOut snaps it back and leaks the tip).
+--  IsEncounterInProgress() is queried inline (outOfBossCombat only), so no ENCOUNTER
+--  event bookkeeping. Installed once at load; a no-op for the default mode, costing
+--  one table read per tooltip when unused. An optional "peek" modifier
+--  (tooltipShowModifier) lifts suppression while held, so a suppressed tip can be
+--  read on hover mid-combat. Suppression keeps the tooltip SHOWN but parked in a
+--  hidden host frame (never Hide, never alpha) so peek is a pure reparent flip:
+--  rebuilding a hidden tooltip from insecure code errors on secret cooldown data in combat, and alpha is engine-owned (FadeOut snaps it back and leaks the tip).
 -------------------------------------------------------------------------------
 do
     local function ShowModifierHeld()
@@ -2487,23 +2448,17 @@ do
         return IsShiftKeyDown()
     end
 
-    -- Exposed so modules with their own tooltip suppression (e.g. the raid/party
-    -- frames, whose OnEnter hides tips per its own combat mode) can let the same
-    -- peek modifier reveal their tips through their normal hover path.
+    -- Exposed so modules with their own tooltip suppression (e.g. raid/party frames, whose OnEnter hides tips per its own combat mode) can let the same peek modifier reveal their tips.
     function EllesmereUI._tooltipPeekHeld()
         return ShowModifierHeld()
     end
 
-    -- Shared decision: should GameTooltip be suppressed right now given the
-    -- user's "Show Tooltips" mode + combat state? Exposed on EllesmereUI so the
-    -- cursor-anchor hook can honor it too (otherwise the cursor re-anchor would
-    -- re-show a tooltip this hook just hid).
+    -- Shared decision: should GameTooltip be suppressed right now given the user's "Show
+    -- Tooltips" mode + combat state? Exposed on EllesmereUI so the cursor-anchor hook can honor it too (else cursor re-anchor would re-show a tooltip this hook just hid).
     function EllesmereUI._tooltipSuppressedByMode(tooltip)
         if tooltip ~= GameTooltip then return false end
         if tooltip.IsForbidden and tooltip:IsForbidden() then return false end
-        -- Gated by the "Reskin Tooltip" master (matches the grayed-out "Show
-        -- Tooltips" option), so disabling the reskin never leaves tooltips stuck
-        -- suppressed at, e.g., "Never".
+        -- Gated by the "Reskin Tooltip" master (matches the grayed-out "Show Tooltips" option), so disabling the reskin never leaves tooltips stuck suppressed at, e.g., "Never".
         if EllesmereUIDB and EllesmereUIDB.customTooltips == false then return false end
         local mode = (EllesmereUIDB and EllesmereUIDB.tooltipShowMode) or "always"
         if mode == "always" then return false end
@@ -2518,24 +2473,20 @@ do
         return false
     end
 
-    -- Suppression parks the tooltip in a hidden host frame -- NOT Hide() and
-    -- NOT alpha. Hide()-based suppression forced the peek path to REBUILD the
-    -- tooltip from our insecure execution: in combat, action tooltips read
-    -- secret cooldown data and that rebuild hard-errors ("secret values are
-    -- only allowed during untainted execution"), which the FireHoveredOnEnter
-    -- pcall silently swallowed -- peek looked dead in combat on action bars.
-    -- Alpha-based suppression fought the engine: FadeOut (hover-off on world
-    -- units) snaps alpha back to full and animates it down, leaking the tip.
-    -- Parking wins both ways: the tooltip stays SHOWN (the secure hover path
-    -- keeps building and refreshing it), visibility inherits from the hidden
-    -- host regardless of what the engine does to alpha, and peek is a pure
-    -- reparent flip. NOTE: OnHide never fires while parked (the frame is not
-    -- visible), so restore CANNOT rely on it -- the SetOwner hook below is
-    -- the restore point: every tooltip build starts with SetOwner, so an
-    -- explicitly-anchored use (bags, other addons) that never passes
-    -- SetDefaultAnchor can't inherit a parked tooltip; default-anchored
-    -- builds re-park right after, in the SetDefaultAnchor post-hook (its
-    -- internal SetOwner runs before that hook fires).
+    -- Suppression parks the tooltip in a hidden host frame -- NOT Hide(), NOT alpha.
+    -- Hide()-based suppression forced peek to REBUILD the tooltip from our insecure
+    -- execution: in combat, action tooltips read secret cooldown data and the rebuild
+    -- hard-errors ("secret values are only allowed during untainted execution"),
+    -- silently swallowed by FireHoveredOnEnter's pcall -- peek looked dead in combat
+    -- on action bars. Alpha-based suppression fought the engine: FadeOut (hover-off
+    -- on world units) snaps alpha back to full and animates it down, leaking the tip.
+    -- Parking wins both ways: the tooltip stays SHOWN (secure hover path keeps
+    -- building/refreshing it), visibility inherits from the hidden host regardless of
+    -- engine alpha, and peek is a pure reparent flip. OnHide never fires while parked
+    -- (frame not visible), so restore relies on the SetOwner hook below instead: every
+    -- tooltip build starts with SetOwner, so an explicitly-anchored use (bags, other
+    -- addons) that never passes SetDefaultAnchor can't inherit a parked tooltip;
+    -- default-anchored builds re-park right after in the SetDefaultAnchor post-hook (its internal SetOwner runs first).
     local _suppressHost = CreateFrame("Frame", nil, UIParent)
     _suppressHost:Hide()
     local _parked = false
@@ -2576,29 +2527,25 @@ do
         UnparkTooltip(tt)
     end)
     GameTooltip:HookScript("OnHide", function(tt)
-        -- Only fires for unparked hides (a parked tooltip is never visible);
-        -- kept so a normal hide clears the default-anchored flag promptly.
+        -- Only fires for unparked hides (a parked tooltip is never visible); clears the default-anchored flag promptly.
         _defaultAnchored = false
     end)
 
     -- Live peek: pressing the modifier while already hovering reveals the tip
-    -- for the current frame; releasing it hides it again. Moving onto other
-    -- frames while the key stays held reveals each in turn through the normal
-    -- hover path -- suppression is lifted while held (globally via
-    -- _tooltipSuppressedByMode, and per-module via _tooltipPeekHeld, which the
-    -- raid/party frames honor in their own OnEnter).
+    -- for the current frame; releasing hides it again. Moving onto other frames
+    -- while held reveals each in turn through the normal hover path -- suppression is lifted while held (globally via
+    -- _tooltipSuppressedByMode, and per-module via _tooltipPeekHeld, honored by raid/party frames in their own OnEnter).
     local function KeyMatchesModifier(key, mod)
         return (mod == "shift"   and (key == "LSHIFT" or key == "RSHIFT"))
             or (mod == "control" and (key == "LCTRL"  or key == "RCTRL"))
             or (mod == "alt"     and (key == "LALT"   or key == "RALT"))
     end
     -- Reveal the tooltip for whatever the cursor is over. First re-run the
-    -- hovered frame's OnEnter (buttons, icons, unit frames build their own
-    -- tip) -- the topmost mouse-focus frame is often an overlay without one,
-    -- so scan every frame under the cursor and walk up parents. Nameplates'
-    -- clickable frame has an OnEnter that builds nothing (its tip comes from
-    -- the engine's mouseover unit on a real hover), so fall back to driving
-    -- the unit tooltip directly when one is up.
+    -- hovered frame's OnEnter (buttons, icons, unit frames build their own tip)
+    -- -- the topmost mouse-focus frame is often an overlay without one, so scan
+    -- every frame under the cursor and walk up parents. Nameplates' clickable
+    -- frame has an OnEnter that builds nothing (its tip comes from the engine's
+    -- mouseover unit on a real hover), so fall back to driving the unit tooltip directly when one is up.
     local function FireHoveredOnEnter()
         local foci = (GetMouseFoci and GetMouseFoci()) or (GetMouseFocus and { GetMouseFocus() })
         local anchorFrame = foci and foci[1]
@@ -2636,14 +2583,10 @@ do
         if mod == "none" or not KeyMatchesModifier(key, mod) then return end
         if down == 1 then
             if _parked and GameTooltip:IsShown() then
-                -- The parked tip is alive and current under the cursor
-                -- (built by the secure hover path): just reveal it. Never
-                -- rebuild it from here -- see the parking note above.
+                -- The parked tip is alive and current under the cursor (built by the secure hover path): just reveal it, never rebuild from here (see the parking note above).
                 UnparkTooltip(GameTooltip)
             else
-                -- No live tip: module-built tips (raid frames, CDM) skip
-                -- building while suppressed, so re-drive the hovered frame's
-                -- OnEnter -- with the modifier now held they build normally.
+                -- No live tip: module-built tips (raid frames, CDM) skip building while suppressed, so re-drive the hovered frame's OnEnter -- with the modifier now held they build normally.
                 FireHoveredOnEnter()
             end
         elseif GameTooltip:IsShown() and EllesmereUI._tooltipSuppressedByMode(GameTooltip) then
@@ -2657,15 +2600,13 @@ do
 end
 
 -------------------------------------------------------------------------------
---  Hide Unit Health Strip. GameTooltipStatusBar is Blizzard's health bar at the
---  bottom of unit tooltips. We suppress it with a single SetAlpha(0) -- fully
---  taint-safe: only the one top-level bar is touched, it is never Shown/Hidden
---  or given custom keys, and observation is via hooksecurefunc (never SetScript).
---  The hook fires only when Blizzard shows the bar (unit tooltips), covering
---  every anchor path (default, cursor, unit-frame), and early-outs when the
---  feature is off -- so it costs one table read when disabled and one SetAlpha
---  when enabled. Default ENABLED (nil / true = hidden). Independent of the
---  reskin: works on default Blizzard tooltips too.
+--  Hide Unit Health Strip. GameTooltipStatusBar is Blizzard's health bar at
+--  the bottom of unit tooltips; suppressed with a single SetAlpha(0) -- fully
+--  taint-safe (only the top-level bar touched, never Shown/Hidden or given
+--  custom keys, observed via hooksecurefunc never SetScript). The hook fires
+--  only when Blizzard shows the bar, covering every anchor path (default,
+--  cursor, unit-frame), and early-outs when off (one table read when
+--  disabled, one SetAlpha when enabled). Default ENABLED (nil/true = hidden); independent of the reskin, works on default Blizzard tooltips too.
 -------------------------------------------------------------------------------
 do
     local function _healthStripHidden()
@@ -2680,8 +2621,7 @@ do
     end
 
     if GameTooltipStatusBar then
-        -- Re-assert alpha 0 each time Blizzard shows the bar so it can never
-        -- flash back into view. SetAlpha does not call Show, so no recursion.
+        -- Re-assert alpha 0 each time Blizzard shows the bar so it can never flash back into view (SetAlpha doesn't call Show, so no recursion).
         hooksecurefunc(GameTooltipStatusBar, "Show", function(bar)
             if _healthStripHidden() then bar:SetAlpha(0) end
         end)

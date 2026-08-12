@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUI_Presets.lua
 --
@@ -219,7 +220,7 @@ do
 
             -- Popup frame
             local popup = CreateFrame("Frame", "EUISpecAssignPopup", dimmer)
-            popup:SetScale(ppScale)
+            popup:SetScale(EllesmereUI.PopupBump(1))
             popup:SetFrameStrata("FULLSCREEN_DIALOG")
             popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
 
@@ -555,12 +556,12 @@ do
 
         -- Update title / subtitle
         if opts.title then
-            specPopup._title:SetText(opts.title)
+            specPopup._title:SetText(EllesmereUI.L(opts.title))
         else
             specPopup._title:SetText(EllesmereUI.L("Assign Preset to Specs"))
         end
         if opts.subtitle then
-            specPopup._subtitle:SetText(opts.subtitle)
+            specPopup._subtitle:SetText(EllesmereUI.L(opts.subtitle))
         else
             local presetName
             if presetKey == "custom" then presetName = EllesmereUI.L("Custom")
@@ -596,7 +597,7 @@ do
 
         -- Update Done button text
         if specPopup._closeLbl then
-            specPopup._closeLbl:SetText(opts.buttonText or EllesmereUI.L("Done"))
+            specPopup._closeLbl:SetText(EllesmereUI.L(opts.buttonText or "Done"))
         end
 
         -- Populate columns

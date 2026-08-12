@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUIFriends_RealmGroups.lua
 --  Realm -> mini-region lookup tables for friend region detection.
@@ -641,8 +642,7 @@ local REALMS_ASIA = {
 
 local REGION_ICON_PATH = "Interface\\AddOns\\EllesmereUIFriends\\Media\\regions\\"
 
--- Lookup a realm name -> mini region
--- realmName should have spaces removed
+-- Lookup a realm name -> mini region realmName should have spaces removed
 local function GetRealmMiniRegion(realmName)
     if not realmName or realmName == "" then return nil end
     local clean = realmName:gsub("%s+", "")

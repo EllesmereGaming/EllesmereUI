@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 --------------------------------------------------------------------------------
 --  EllesmereUI_Kick.lua
 --  Shared interrupt spell lookup and cast-bar tint helpers for nameplates
@@ -22,24 +23,39 @@ local kickSpellsByClass = {
 
 local activeKickSpell
 
+-- A summoned demon's interrupt beats anything the player bank still reports.
+--
+-- The two banks were previously treated as one pool and the loop kept the LAST match,
+-- so resolution depended on this table's ORDER rather than on what the player can
+-- actually cast. A Demonology Warlock with a Felguard out has Axe Toss as their only
+-- interrupt, but a later Warlock entry also answered as known, overwrote it, and left
+-- the cast bar reading the cooldown of a spell that never fires. Kicking changed
+-- nothing on screen: the bar stayed tinted "interrupt ready" and the kick-prediction
+-- tick, which reads the same spell, was wrong for the same reason. Other specs were
+-- unaffected because only one of their entries ever answers.
+--
+-- Last-match is preserved WITHIN each bank so no other class's resolution
+-- changes; only the pet-over-player precedence is new.
 local function RefreshKickAbility()
     local playerClass = UnitClassBase("player")
     local classKicks = kickSpellsByClass[playerClass]
     activeKickSpell = nil
     if not classKicks then return end
+    local petHit, playerHit
     for i = 1, #classKicks do
         local spellId = classKicks[i]
         if C_SpellBook and C_SpellBook.IsSpellKnownOrInSpellBook then
-            local known = C_SpellBook.IsSpellKnownOrInSpellBook(spellId)
-            local petKnown = Enum and Enum.SpellBookSpellBank
-                and C_SpellBook.IsSpellKnownOrInSpellBook(spellId, Enum.SpellBookSpellBank.Pet)
-            if known or petKnown then
-                activeKickSpell = spellId
+            if Enum and Enum.SpellBookSpellBank
+                and C_SpellBook.IsSpellKnownOrInSpellBook(spellId, Enum.SpellBookSpellBank.Pet) then
+                petHit = spellId
+            elseif C_SpellBook.IsSpellKnownOrInSpellBook(spellId) then
+                playerHit = spellId
             end
         elseif IsSpellKnown and IsSpellKnown(spellId) then
-            activeKickSpell = spellId
+            playerHit = spellId
         end
     end
+    activeKickSpell = petHit or playerHit
 end
 
 local function ComputeCastBarTint(readyTint, baseTint)
@@ -90,8 +106,7 @@ local menuProxies = setmetatable({}, { __mode = "k" })
 -- <name>" (macro transport). 12.1 broke the "click" secure action outright
 -- (a typo: SecureTemplates.lua:564 calls HasAnyForbiddenAspects on the
 -- mouse-button STRING instead of the delegate); /click hits
--- SecureActionButton_OnClick directly and is unaffected. On 12.0 the click
--- transport works and proxies stay anonymous.
+-- SecureActionButton_OnClick directly and is unaffected.
 local proxyCounter = 0
 
 -- Create (once) and return the hidden SecureActionButton proxy for a unit button.
@@ -102,10 +117,8 @@ function EllesmereUI.GetSecureMenuProxy(frame)
     local proxy = menuProxies[frame]
     if not proxy then
         local proxyName
-        if EllesmereUI.IS_121 then
-            proxyCounter = proxyCounter + 1
-            proxyName = "EUISecureMenuProxy" .. proxyCounter
-        end
+        proxyCounter = proxyCounter + 1
+        proxyName = "EUISecureMenuProxy" .. proxyCounter
         proxy = CreateFrame("Button", proxyName, frame, "SecureActionButtonTemplate")
         proxy:SetSize(1, 1)
         proxy:SetAlpha(0)
@@ -137,10 +150,8 @@ function EllesmereUI.GetSecureTargetProxy(frame)
     local proxy = targetProxies[frame]
     if not proxy then
         local proxyName
-        if EllesmereUI.IS_121 then
-            proxyCounter = proxyCounter + 1
-            proxyName = "EUISecureTargetProxy" .. proxyCounter
-        end
+        proxyCounter = proxyCounter + 1
+        proxyName = "EUISecureTargetProxy" .. proxyCounter
         proxy = CreateFrame("Button", proxyName, frame, "SecureActionButtonTemplate")
         proxy:SetSize(1, 1)
         proxy:SetAlpha(0)
@@ -164,22 +175,26 @@ function EllesmereUI.AttachSecureUnitMenu(frame)
     if not frame then return end
     local proxy = EllesmereUI.GetSecureMenuProxy(frame)
     frame:SetAttribute("type2", nil)
-    if EllesmereUI.IS_121 then
-        -- Macro transport ("/click <proxy>") instead of the "click" action:
-        -- the 12.1 click action crashes on a Blizzard typo (see above).
-        frame:SetAttribute("*type2", "macro")
-        frame:SetAttribute("*macrotext2", "/click " .. proxy:GetName())
-        frame:SetAttribute("*clickbutton2", nil)
-    else
-        frame:SetAttribute("*type2", "click")
-        frame:SetAttribute("*clickbutton2", proxy)
-    end
+    -- Macro transport ("/click <proxy>") instead of the "click" action:
+    -- the 12.1 click action crashes on a Blizzard typo (see above).
+    frame:SetAttribute("*type2", "macro")
+    frame:SetAttribute("*macrotext2", "/click " .. proxy:GetName())
+    frame:SetAttribute("*clickbutton2", nil)
     return proxy
 end
 
 local kickFrame = CreateFrame("Frame")
 kickFrame:RegisterEvent("PLAYER_LOGIN")
 kickFrame:RegisterEvent("SPELLS_CHANGED")
+-- Swapping demons swaps the interrupt (Felguard's Axe Toss vs Felhunter's Spell
+-- Lock), and the resolution above now reads the pet bank, so it has to re-run
+-- when the pet changes. SPELLS_CHANGED covers most swaps but is not guaranteed
+-- for every summon, and a stale pick here is invisible until the user kicks.
+if kickFrame.RegisterUnitEvent then
+    kickFrame:RegisterUnitEvent("UNIT_PET", "player")
+else
+    kickFrame:RegisterEvent("UNIT_PET")
+end
 kickFrame:SetScript("OnEvent", function()
     RefreshKickAbility()
 end)

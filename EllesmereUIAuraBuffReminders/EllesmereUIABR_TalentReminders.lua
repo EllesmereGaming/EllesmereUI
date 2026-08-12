@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUIABR_TalentReminders.lua
 --  Standalone talent reminder system. Zero dependency on ABR aura/buff logic.
@@ -58,21 +59,22 @@ end
 -------------------------------------------------------------------------------
 --  Zone data
 -------------------------------------------------------------------------------
+-- CURRENT SEASON ONLY (12.1): the season raid + the Mythic+ pool. Rotated-
+-- out zones are removed from this picker list, but stored reminders for
+-- them are kept (hidden in options) and still name-match at runtime --
+-- re-adding a zone here revives its reminders in the options list too.
+-- instanceID = GetInstanceInfo() 8th return, locale-proof.
 local TALENT_REMINDER_ZONES = {
-    { name="The Voidspire",           type="raid" },
-    { name="The Dreamrift",           type="raid" },
-    { name="March on Quel'Danas",     type="raid" },
-    { name="Sporefall",               type="raid" },
+    { name="The Venomous Abyss",      type="raid", instanceID=3004 },
 
-    { name="Magister's Terrace",      type="dungeon", mapID=2515 },
-    { name="Maisara Caverns",         type="dungeon", mapID=2501 },
-    { name="Nexus-Point Xenas",       type="dungeon", mapID=2556 },
-    { name="Windrunner Spire",        type="dungeon", mapID=2492 },
-    { name="Algeth'ar Academy",       type="dungeon", mapID=2097 },
-    { name="Seat of the Triumvirate", type="dungeon", mapID=8910 },
-    { name="Skyreach",                type="dungeon", mapID=601  },
-    { name="Pit of Saron",            type="dungeon", mapID=184  },
-    { name="The Rookery",             type="dungeon", mapID=2315 },
+    { name="Murder Row",              type="dungeon", instanceID=2813 },
+    { name="Den of Nalorakk",         type="dungeon", instanceID=2825 },
+    { name="The Blinding Vale",       type="dungeon", instanceID=2859 },
+    { name="Voidscar Arena",          type="dungeon", instanceID=2923 },
+    { name="Altar of Fangs",          type="dungeon", instanceID=2993 },
+    { name="Ruby Life Pools",         type="dungeon", instanceID=2521 },
+    { name="Temple of Sethraliss",    type="dungeon", instanceID=1877 },
+    { name="Kings' Rest",             type="dungeon", instanceID=1762 },
 
     { name="Nagrand Arena",           type="pvp" },
     { name="Blade's Edge Arena",      type="pvp" },
@@ -103,8 +105,10 @@ local TALENT_REMINDER_ZONES = {
 }
 
 local ZONE_BY_MAPID = {}
+local ZONE_BY_INSTANCEID = {}
 for _, z in ipairs(TALENT_REMINDER_ZONES) do
     if z.mapID then ZONE_BY_MAPID[z.mapID] = z end
+    if z.instanceID then ZONE_BY_INSTANCEID[z.instanceID] = z end
 end
 
 -- Expose for options page
@@ -220,7 +224,7 @@ local function Collect()
     local reminders = GetReminders()
     if not reminders or #reminders == 0 then return end
 
-    local currentInstance = GetInstanceInfo()
+    local currentInstance, _, _, _, _, _, _, currentInstanceID = GetInstanceInfo()
     local currentMapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
     local _, playerClass = UnitClass("player")
     local playerSpecID = GetSpecializationInfo(GetSpecialization() or 1)
@@ -277,7 +281,14 @@ local function Collect()
             end
 
             local zoneMatch = false
-            if currentMapID then
+            -- Locale-proof primary: current instanceID -> zone -> stored name.
+            if currentInstanceID and reminder._nameSet then
+                local idZone = ZONE_BY_INSTANCEID[currentInstanceID]
+                if idZone then
+                    zoneMatch = reminder._nameSet[idZone.name] or false
+                end
+            end
+            if not zoneMatch and currentMapID then
                 local mapZone = ZONE_BY_MAPID[currentMapID]
                 if mapZone and reminder._nameSet then
                     zoneMatch = reminder._nameSet[mapZone.name] or false

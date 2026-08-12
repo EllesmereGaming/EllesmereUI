@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 --------------------------------------------------------------------------------
 --  Character Sheet Socket Panel
 --
@@ -190,12 +191,11 @@ end
 
 local function SafeCloseSession()
     if CloseSocketFn then CloseSocketFn() end
-    -- Fallback for a missing/renamed close API (the probed name is a silent
-    -- no-op then, which left the session window lingering open and empty
-    -- after a strip replace): hide the panel; the window's own OnHide handler
-    -- ends the session. The window itself stays fully visible/interactive
-    -- while it exists -- an invisible live session would block gem clicks
-    -- with no way for the user to close it.
+    -- Fallback for a missing/renamed close API (the probed name is a silent no-op then,
+    -- which left the session window lingering open and empty after a strip replace):
+    -- hide the panel; the window's own OnHide handler ends the session. The window
+    -- itself stays fully visible/interactive while it exists -- an invisible live
+    -- session would block gem clicks with no way for the user to close it.
     local f = _G.ItemSocketingFrame
     if f and f:IsShown() and not InCombatLockdown() and HideUIPanel then
         HideUIPanel(f)
@@ -218,12 +218,11 @@ local function DoSocket(targetSlot, socketIndex, gemItemID)
     if CHasItem and CHasItem() then return end            -- don't hijack a held item
     if ItemSocketingFrame and ItemSocketingFrame:IsShown() then
         if ourSession then
-            -- Leftover window from our own previous action (the accept event
-            -- never closed it): end it now so socketing is not silently dead
-            -- until the user closes it by hand. Never reopen in the same
-            -- click -- the old session's SOCKET_INFO_CLOSE would wipe the new
-            -- pending mid-flight. The flyout stays open; the next gem click
-            -- goes through cleanly.
+            -- Leftover window from our own previous action (the accept event never
+            -- closed it): end it now so socketing is not silently dead until the user
+            -- closes it by hand. Never reopen in the same click -- the old session's
+            -- SOCKET_INFO_CLOSE would wipe the new pending mid-flight. The flyout stays
+            -- open; the next gem click goes through cleanly.
             SafeCloseSession()
         end
         return   -- manual session: never hijack

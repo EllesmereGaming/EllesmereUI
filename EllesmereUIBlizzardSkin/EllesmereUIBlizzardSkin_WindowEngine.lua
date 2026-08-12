@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUIBlizzardSkin_WindowEngine.lua
 --  Shared engine for the Blizzard Window Skins system: style-aware window
@@ -272,11 +273,10 @@ function WSkin.Shell(winKey, frame, opts)
         hooksecurefunc(frame, "SetHeight", UpdateBgTexCoords)
         UpdateBgTexCoords()
 
-        -- Black top bar behind the window title. Sits above both style
-        -- backdrops (-8/-7/-6) and below all content and the border overlay.
-        -- opts.noTopBar skips it for shells with no title row of their own
-        -- (loot toasts and other small popups), where a 25px bar would just be
-        -- a dark stripe across the top.
+        -- Black top bar behind the window title. Sits above both style backdrops
+        -- (-8/-7/-6) and below all content and the border overlay. opts.noTopBar skips
+        -- it for shells with no title row of their own (loot toasts and other small
+        -- popups), where a 25px bar would just be a dark stripe across the top.
         if not (opts and opts.noTopBar) then
             local topBar = frame:CreateTexture(nil, "BACKGROUND", nil, -5)
             topBar:SetColorTexture(0, 0, 0, 0.5)
@@ -449,10 +449,9 @@ function WSkin.WhiteButtonLabel(btn)
     end
 end
 
--- Like WhiteButtonLabel, but the label mirrors the native enabled/disabled
--- states: white when clickable, gray when not (a plain white label leaves a
--- disabled button reading as active, since our color write overrides the
--- disabled-font gray).
+-- Like WhiteButtonLabel, but the label mirrors the native enabled/disabled states:
+-- white when clickable, gray when not (a plain white label leaves a disabled button
+-- reading as active, since our color write overrides the disabled-font gray).
 function WSkin.StateButtonLabel(btn)
     if not btn or (btn.IsForbidden and btn:IsForbidden()) then return end
     local lab = btn.Text or (btn.GetFontString and btn:GetFontString())
@@ -769,6 +768,11 @@ end
 -- Square an icon texture (crop the baked bevel) and optionally border it.
 function WSkin.SquareIcon(icon, parent)
     if not icon or not icon.SetTexCoord then return end
+    -- A texture with a MaskTexture rejects SetTexCoord outright (hard Lua
+    -- error, e.g. the special first-catch loot toast masks its icon). Leave
+    -- masked icons fully native -- no crop, and no square border drawn
+    -- around what the mask renders as a shape.
+    if icon.GetNumMaskTextures and icon:GetNumMaskTextures() > 0 then return end
     icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     if parent then WSkin.BorderRegion(parent, icon) end
 end
@@ -795,9 +799,8 @@ local TAB_BG      = { 0.068, 0.056, 0.052 }
 local TAB_BG_DARK = { 0.03, 0.03, 0.03 }
 
 local function TabIsSelected(tab)
-    -- FFD override first: windows with nonstandard tab systems (auction
-    -- house displayMode) sync selection into FFD themselves -- never onto
-    -- the Blizzard tab.
+    -- FFD override first: windows with nonstandard tab systems (auction house
+    -- displayMode) sync selection into FFD themselves -- never onto the Blizzard tab.
     local od = FFD[tab]
     if od and od.selOverride ~= nil then return od.selOverride end
     -- The tab system's selectedTabID is authoritative. Pool-rebuilt tab rows
@@ -862,6 +865,21 @@ function WSkin.Tab(tab, opts)
         return
     end
     d.skinned = true   -- keeps the generic ButtonsIn sweep off skinned tabs
+    -- TabSystem windows swap tabs with no PanelTemplates call, and keybind /
+    -- programmatic swaps never click a tab either -- every one of those paths funnels
+    -- through the system's SetTabVisuallySelected (it is also the writer of the
+    -- selectedTabID field TabIsSelected reads). Hook it once per tab system so the
+    -- underline tracks selection from every path (field report: swapping PlayerSpells
+    -- tabs via keybind while the frame was open left the underline on the old tab).
+    local sys = tab:GetParent()
+    if sys and not sys:IsForbidden()
+        and type(sys.SetTabVisuallySelected) == "function" then
+        local sd = GetFFD(sys)
+        if not sd.visSelHooked then
+            sd.visSelHooked = true
+            hooksecurefunc(sys, "SetTabVisuallySelected", UpdateAllTabs)
+        end
+    end
     for j = 1, select("#", tab:GetRegions()) do
         local r = select(j, tab:GetRegions())
         if r and r:IsObjectType("Texture") then
@@ -896,11 +914,10 @@ function WSkin.Tab(tab, opts)
     label:SetText(labelText)
     d.label = label
     d.blizLabel = blizLabel
-    -- Mirror the live Blizzard text onto our label. Read it back off the
-    -- (hidden) original after each write so dynamic updates land -- some labels
-    -- carry a trailing count like "Public Orders (4)" set via SetFormattedText
-    -- or a direct FontString:SetText, neither of which routes through the
-    -- button's SetText.
+    -- Mirror the live Blizzard text onto our label. Read it back off the (hidden)
+    -- original after each write so dynamic updates land -- some labels carry a trailing
+    -- count like "Public Orders (4)" set via SetFormattedText or a direct
+    -- FontString:SetText, neither of which routes through the button's SetText.
     local function SyncLabel()
         if d.label and d.blizLabel and d.blizLabel.GetText then
             d.label:SetText(d.blizLabel:GetText() or "")
@@ -938,16 +955,15 @@ function WSkin.Tab(tab, opts)
     UpdateTabVisual(tab)
 end
 
--- Force a row of skinned tabs to a uniform one-physical-pixel seam. Each
--- Blizzard tab template bakes in its own transparent art padding + anchor
--- offsets, so once the art is replaced by an edge-to-edge flat block the raw
--- frame gaps (2-5px on some templates) show through as inconsistent spacing.
--- Re-chain each tab to the previous tab's right edge + 1px, matching the tight
--- seam a TabSystem produces. The first tab keeps Blizzard's seat; because the
--- chain is relative, it reflows automatically when Blizzard resizes a tab.
--- `tabs` is an ordered (left-to-right) array; nil/missing/hidden entries are
--- skipped so a conditionally-hidden tab (group finder, encounter journal)
--- never leaves a gap in the chain.
+-- Force a row of skinned tabs to a uniform one-physical-pixel seam. Each Blizzard tab
+-- template bakes in its own transparent art padding + anchor offsets, so once the art
+-- is replaced by an edge-to-edge flat block the raw frame gaps (2-5px on some
+-- templates) show through as inconsistent spacing. Re-chain each tab to the previous
+-- tab's right edge + 1px, matching the tight seam a TabSystem produces. The first tab
+-- keeps Blizzard's seat; because the chain is relative, it reflows automatically when
+-- Blizzard resizes a tab. `tabs` is an ordered (left-to-right) array;
+-- nil/missing/hidden entries are skipped so a conditionally-hidden tab (group finder,
+-- encounter journal) never leaves a gap in the chain.
 function WSkin.NormalizeTabRow(tabs)
     if not tabs then return end
     -- One physical pixel in the TAB's own coordinate space. Blizzard windows
@@ -1122,20 +1138,18 @@ function WSkin.IsArtExempt(frame)
     return d and d.artExempt or false
 end
 
--- Frame provenance: is this frame Blizzard's, or was it parented into the
--- window by another addon? Every recursive DISCOVERY sweep (art fades, button
--- flattening, control/scrollbar/paging finds) skips foreign frames and their
--- whole subtree, so third-party panels riding a Blizzard window keep their own
--- look. Explicit primitive calls (WSkin.Button(frame), Panel, ...) stay
--- ungated: naming a frame is opting in.
+-- Frame provenance: is this frame Blizzard's, or was it parented into the window by
+-- another addon? Every recursive DISCOVERY sweep (art fades, button flattening,
+-- control/scrollbar/paging finds) skips foreign frames and their whole subtree, so
+-- third-party panels riding a Blizzard window keep their own look. Explicit primitive
+-- calls (WSkin.Button(frame), Panel, ...) stay ungated: naming a frame is opting in.
 --
--- The signal: Blizzard's secure code leaves SECURE references behind -- a
--- named frame's global, or the parentKey slot on its parent -- while frames
--- created by any addon leave tainted ones. issecurevariable reads taint
--- without spreading it, so the whole check is side-effect free. Frames with
--- no name and no reference on their parent (pooled list rows) stay treated as
--- Blizzard's; only confirmed-foreign verdicts cache (a frame could gain its
--- addon-written reference key after we first see it).
+-- The signal: Blizzard's secure code leaves SECURE references behind -- a named frame's
+-- global, or the parentKey slot on its parent -- while frames created by any addon
+-- leave tainted ones. issecurevariable reads taint without spreading it, so the whole
+-- check is side-effect free. Frames with no name and no reference on their parent
+-- (pooled list rows) stay treated as Blizzard's; only confirmed-foreign verdicts cache
+-- (a frame could gain its addon-written reference key after we first see it).
 local _foreign = setmetatable({}, { __mode = "k" })
 
 function WSkin.IsForeignFrame(frame, parent)

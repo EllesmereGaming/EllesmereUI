@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUIQoL_RaidTools.lua -- Raid control panels (QoL: Raid Tools page)
 --
@@ -14,6 +15,12 @@
 --    "group"  -- auto-shows in any group ([group] state driver).
 --    "always" -- always shown (no driver; the visible attribute just stays
 --                true).
+--
+--  On top of the mode sits ONE unconditional gate: in a raid without leader or
+--  assist the whole feature is off the screen, because the server refuses
+--  every button on it there. It is raid-only (a party has no assistants) and
+--  Lua-side, since no macro conditional can express it -- see AssistSuppressed
+--  and RefreshAssistGate.
 --
 --  The Toggle Raid Tools keybind works in every active mode, and what it
 --  toggles follows Default to Collapsed When Shown: with it ON the key rocks
@@ -218,6 +225,7 @@ end
 local db
 local applyPending             -- true when combat blocked an Apply()
 local previewOn = false        -- Raid Tools settings page is in front (see ApplyVisibility)
+local lastSuppressed           -- assist gate verdict currently ON SCREEN (see AssistSuppressed)
 local toggleButton             -- keybind target; also the out-of-combat path
 local sections = {}            -- key -> shell frame
 local shellTitle = {}          -- key -> title fontstring
@@ -228,12 +236,11 @@ local Apply                    -- forward: the event handler closes over it
 
 -- ONE representation of each secure decision, run from both paths.
 --
--- The keybind clicks the button, which is the only thing that works during
--- combat. Out of combat the same snippet is run through SecureHandlerExecute
--- instead of being re-implemented in Lua. EllesmereUIRaidFrames.lua does
--- exactly this, for exactly this reason: the driver manager only fires the
--- attribute handlers on value CHANGES, so a reapply with unchanged states
--- would otherwise never run.
+-- The keybind clicks the button, which is the only thing that works during combat. Out
+-- of combat the same snippet is run through SecureHandlerExecute instead of being
+-- re-implemented in Lua. EllesmereUIRaidFrames.lua does exactly this, for exactly this
+-- reason: the driver manager only fires the attribute handlers on value CHANGES, so a
+-- reapply with unchanged states would otherwise never run.
 local RUN_APPLY = [[ self:RunAttribute("apply") ]]
 
 -- The keybind's job depends on Default to Collapsed When Shown:
@@ -341,12 +348,11 @@ local COLLAPSE_SNIPPET = [[
     end
 ]]
 
--- Every fontstring is registered on the OUR-frame that owns it (`_fonts`),
--- and ApplyFonts walks the small fixed owner list -- no module-level registry
--- to keep in sync with frame lifetime. MakeFont (like every options-panel
--- helper) hardcodes the options-panel font; on-screen text has to resolve
--- through GetFontPath instead, or these panels would be the only ones in the
--- suite ignoring the Global Font setting.
+-- Every fontstring is registered on the OUR-frame that owns it (`_fonts`), and
+-- ApplyFonts walks the small fixed owner list -- no module-level registry to keep in
+-- sync with frame lifetime. MakeFont (like every options-panel helper) hardcodes the
+-- options-panel font; on-screen text has to resolve through GetFontPath instead, or
+-- these panels would be the only ones in the suite ignoring the Global Font setting.
 local FONT_KEY = "extras"      -- QoL's key in EllesmereUI._addonKeyToFolder
 local fontOwners = {}          -- filled at build: shells + holders
 local function TrackFont(owner, fs, size)
@@ -378,12 +384,11 @@ local convertButton
 -- rest of the suite already uses for markers, in nameplates and raid frames.
 local MARKER_SHEET = "Interface\\TargetingFrame\\UI-RaidTargetingIcons"
 
--- The sheet's SYMBOL order (1 Star, 2 Circle, 3 Diamond, 4 Triangle, 5 Moon,
--- 6 Square, 7 Cross, 8 Skull) is NOT the WORLD marker ID order (1 Blue,
--- 2 Green, 3 Purple, 4 Red, 5 Yellow, 6 Orange, 7 Silver, 8 White). Each
--- flare carries its symbol, so the button shows the symbol and this maps it
--- to the flare that actually wears it -- without it, clicking Star (symbol 1)
--- dropped the BLUE flare (world ID 1).
+-- The sheet's SYMBOL order (1 Star, 2 Circle, 3 Diamond, 4 Triangle, 5 Moon, 6 Square,
+-- 7 Cross, 8 Skull) is NOT the WORLD marker ID order (1 Blue, 2 Green, 3 Purple, 4 Red,
+-- 5 Yellow, 6 Orange, 7 Silver, 8 White). Each flare carries its symbol, so the button
+-- shows the symbol and this maps it to the flare that actually wears it -- without it,
+-- clicking Star (symbol 1) dropped the BLUE flare (world ID 1).
 local SYMBOL_TO_WORLD = { 5, 6, 3, 2, 7, 1, 4, 8 }
 
 -- One slice of the shared EllesmereUIQoLDB profile, the same arrangement
@@ -408,10 +413,9 @@ local DB_DEFAULTS = {
         -- One scale for the whole feature: whichever windows the Show as
         -- choice puts on screen (and the collapsed icon) all wear it.
         scale         = 1,
-        -- Three slots is a LAYOUT choice (they fill one row beside Stop), not
-        -- a security constraint -- the pull buttons are plain, only the marker
-        -- buttons are secure. Growing the count later means growing the panel,
-        -- nothing more.
+        -- Three slots is a LAYOUT choice (they fill one row beside Stop), not a
+        -- security constraint -- the pull buttons are plain, only the marker buttons
+        -- are secure. Growing the count later means growing the panel, nothing more.
         pullTimes     = { PULL_DEFAULTS[1], PULL_DEFAULTS[2], PULL_DEFAULTS[3] },
         -- Per-section: pos[key] = { point, relPoint, x, y }
         pos           = {},
@@ -419,11 +423,10 @@ local DB_DEFAULTS = {
   },
 }
 
--- Our slice of the shared QoL profile, re-derived on every read -- the same
--- accessor BattleRes and MovementAlert use. Deliberately NOT cached: a profile
--- switch replaces the whole profile table, and a cached pointer would leave
--- the event handler, the slash command and the unlock callbacks writing into
--- an orphaned table.
+-- Our slice of the shared QoL profile, re-derived on every read -- the same accessor
+-- BattleRes and MovementAlert use. Deliberately NOT cached: a profile switch replaces
+-- the whole profile table, and a cached pointer would leave the event handler, the
+-- slash command and the unlock callbacks writing into an orphaned table.
 --
 -- A PURE READ, with no `or {}` seeding. Spec Overrides captures a page by
 -- swapping the profile tables for read-tracking proxies: reading a table value
@@ -564,10 +567,9 @@ end
 
 -- Ready check, role check, countdown and markers all require lead or assist.
 --
--- Solo counts as permitted. You are the only member, so nothing is being taken
--- from anyone, and the game already no-ops whatever does not apply outside a
--- group -- gating it ourselves would only make the panels dead on a target
--- dummy for no reason.
+-- Solo counts as permitted. You are the only member, so nothing is being taken from
+-- anyone, and the game already no-ops whatever does not apply outside a group -- gating
+-- it ourselves would only make the panels dead on a target dummy for no reason.
 local function HasAssist()
     if not IsInGroup() then return true end
     return UnitIsGroupLeader("player") or UnitIsGroupAssistant("player")
@@ -576,6 +578,24 @@ end
 local function IsLeader()
     if not IsInGroup() then return true end
     return UnitIsGroupLeader("player")
+end
+
+-- In a RAID, every control on the panel needs leader or assist: ready check,
+-- role check, the countdown, convert, disband and the marker buttons are all
+-- refused by the server without it. So the feature steps off the screen there
+-- instead of sitting around fully dimmed.
+--
+-- Raid only, deliberately. A party has no assistants -- UnitIsGroupAssistant
+-- is false for everyone in one -- so the same test would hide the panel from
+-- every non-leader in a 5-man, where marking is open to all of them.
+--
+-- There is no macro conditional for leader/assist, so NO state driver can
+-- express this: the gate is Lua's, it lands on the enabled attribute, and a
+-- promotion mid-combat is picked up on PLAYER_REGEN_ENABLED like every other
+-- Lua-side change (see the combat model in the header).
+local function AssistSuppressed()
+    if previewOn then return false end   -- configuring the thing beats hiding it
+    return IsInRaid() and not HasAssist()
 end
 
 -- Durations are the only pull-timer setting that can change at runtime: the
@@ -739,11 +759,10 @@ local function MakeShell(key)
             self:Hide()
         end
     ]])
-    -- A driver transition is a context change: it reclaims control from any
-    -- manual override and re-seeds the collapsed/expanded form. The icon has
-    -- no state template of its own (click templates do not dispatch _onstate),
-    -- so each shell fans the verdict out to it -- both shells stamping the
-    -- same values is idempotent.
+    -- A driver transition is a context change: it reclaims control from any manual
+    -- override and re-seeds the collapsed/expanded form. The icon has no state template
+    -- of its own (click templates do not dispatch _onstate), so each shell fans the
+    -- verdict out to it -- both shells stamping the same values is idempotent.
     f:SetAttribute("_onstate-euirt_vis", [[
         local vis = (newstate == "show")
         self:SetAttribute("visible", vis)
@@ -882,8 +901,7 @@ local function BuildCollapsedIcon()
     iconBtn:RegisterForClicks("AnyDown")
     iconBtn:Hide()
     -- Rides the Group shell's saved position with no bookkeeping of its own:
-    -- anchoring to a hidden frame is fine, the anchor resolves through its
-    -- points.
+    -- anchoring to a hidden frame is fine, the anchor resolves through its points.
     iconBtn:SetPoint("TOPLEFT", nil, "TOPLEFT", 0, 0)  -- re-pointed at build
 
     -- The button IS the art: full-bleed image at full opacity, no chrome and
@@ -974,6 +992,18 @@ end
 --  Layout / position / mode
 -------------------------------------------------------------------------------
 
+-- Menu Grow Direction -> which corner of the primary shell the collapsed
+-- icon occupies. The icon is the piece the user parks, so the corner it
+-- rides decides which way the windows appear to grow from it on expand:
+-- icon at TOPLEFT = windows extend down-right (the original behaviour),
+-- icon at BOTTOMLEFT = up-right, and so on.
+local ICON_CORNER = {
+    downright = "TOPLEFT",
+    upright   = "BOTTOMLEFT",
+    downleft  = "TOPRIGHT",
+    upleft    = "BOTTOMRIGHT",
+}
+
 -- Show-as arrangement. OOC only (Apply gates); the holders are plain frames,
 -- so the re-parent is an ordinary SetParent.
 local function ApplyLayout()
@@ -1018,12 +1048,13 @@ local function ApplyLayout()
         winMarkers:SetHeight(CONTENT_TOP + MARKERS_CONTENT_H + PAD)
     end
 
-    -- The collapsed icon rides the shell the mode actually shows: Markers-only
-    -- anchors (and scales, see Apply) to the Markers shell, everything else to
-    -- Group & Pull.
+    -- The collapsed icon rides the shell the mode actually shows: Markers-only anchors
+    -- (and scales, see Apply) to the Markers shell, everything else to Group & Pull.
+    -- Which CORNER it rides is the Menu Grow Direction setting (see ICON_CORNER above).
+    local corner = ICON_CORNER[p and p.growDir] or "TOPLEFT"
     iconBtn:ClearAllPoints()
-    iconBtn:SetPoint("TOPLEFT",
-        (showAs == "markers") and winMarkers or winGroup, "TOPLEFT", 0, 0)
+    iconBtn:SetPoint(corner,
+        (showAs == "markers") and winMarkers or winGroup, corner, 0, 0)
 
     -- Heights just moved: re-crop the backdrop art so it covers instead of
     -- stretches (the skins hook SetHeight for this; our heights only ever
@@ -1034,12 +1065,11 @@ end
 
 -- Positions round-trip through unlock mode's CENTER/CENTER convention.
 --
--- That pairing is not decoration: for an odd-height frame the stored centre
--- ends in .5, and ApplyCenterPosition subtracts the live half-height so the
--- edges land back on whole pixels. Applying the stored value with a plain
--- SetPoint skips that and leaves the frame a pixel off -- visible only after
--- the snap tool, because a normal drag is converted on the way in and a
--- snapped one is not.
+-- That pairing is not decoration: for an odd-height frame the stored centre ends in .5,
+-- and ApplyCenterPosition subtracts the live half-height so the edges land back on
+-- whole pixels. Applying the stored value with a plain SetPoint skips that and leaves
+-- the frame a pixel off -- visible only after the snap tool, because a normal drag is
+-- converted on the way in and a snapped one is not.
 local function DefaultPos(key)
     -- Unpositioned installs park the whole feature in the TOP-LEFT corner of
     -- the screen (a small margin off the edges); two-window mode stacks
@@ -1062,10 +1092,9 @@ local function ApplySectionPosition(key)
     local pos = ((P() and P().pos) or {})[key] or DefaultPos(key)
     if EllesmereUI.ApplyCenterPosition
        and pos.point == "CENTER" and pos.relPoint == "CENTER" then
-        -- Skips anchor-linked elements itself, and defers its own combat case
-        -- for protected frames. FALSE means it could not resolve a live frame
-        -- for this key -- fall through to the plain path, exactly as unlock
-        -- mode's own caller does.
+        -- Skips anchor-linked elements itself, and defers its own combat case for
+        -- protected frames. FALSE means it could not resolve a live frame for this key
+        -- -- fall through to the plain path, exactly as unlock mode's own caller does.
         if EllesmereUI.ApplyCenterPosition(UNLOCK_KEY .. key, pos) then return end
     end
 
@@ -1078,9 +1107,17 @@ local function ApplySectionPosition(key)
 end
 
 local function ApplyPositions()
-    -- Each shell is positioned only when the Show as choice can put it on
-    -- screen; One Window and Only Group & Pull ride pos.Group, Only Markers
-    -- rides pos.Markers.
+    -- While an unlock session is open UNLOCK MODE owns these frames: it moves them live
+    -- and only writes the result on Save & Exit. A settings pass landing mid-session
+    -- (the options panel hiding/showing flips the preview, and a combat-deferred Apply
+    -- completes on PLAYER_REGEN_ENABLED) would drag the window back to the last SAVED
+    -- spot -- and because Save & Exit derives the value it stores from the frame's LIVE
+    -- bounds, the drag is then written back as the old position and lost for good. Same
+    -- guard Action Bars, Aura Reminders and the Cooldown Manager already carry.
+    if EllesmereUI._unlockActive then return end
+
+    -- Each shell is positioned only when the Show as choice can put it on screen; One
+    -- Window and Only Group & Pull ride pos.Group, Only Markers rides pos.Markers.
     local showAs = ShowAs()
     if showAs ~= "markers" then ApplySectionPosition("Group") end
     if showAs == "two" or showAs == "markers" then ApplySectionPosition("Markers") end
@@ -1113,10 +1150,14 @@ local function ApplyVisibility()
     -- Which SHELLS may show, straight from Show as: the Group shell is the
     -- window everywhere except Markers-only; the Markers shell exists only in
     -- Two Windows and Markers-only.
+    --
+    -- The assist gate rides on top of that and takes ALL of them, icon
+    -- included -- a raid without assist is a raid where nothing here works.
     local showAs = ShowAs()
+    local suppressed = AssistSuppressed()
     local shellOn = {
-        Group   = showAs ~= "markers",
-        Markers = showAs == "two" or showAs == "markers",
+        Group   = showAs ~= "markers" and not suppressed,
+        Markers = (showAs == "two" or showAs == "markers") and not suppressed,
     }
     -- One seed for every show (see header): Default to Collapsed When Shown.
     -- With the toggle off the seed is "expanded" and the icon never shows.
@@ -1152,12 +1193,17 @@ local function ApplyVisibility()
     end
 
     -- The icon represents the whole feature; every Show as choice shows
-    -- something, so it is simply on while the mode is active.
-    iconBtn:SetAttribute("enabled", true)
+    -- something, so it is on while the mode is active and the assist gate is
+    -- open. With it shut the keybind and the slash command go quiet too --
+    -- both run the secure snippets, and those refuse a disabled frame.
+    iconBtn:SetAttribute("enabled", not suppressed)
     iconBtn:SetAttribute("visible", visNow)
     iconBtn:SetAttribute("override", "")
     iconBtn:SetAttribute("startexpanded", startExpanded)
     iconBtn:SetAttribute("expanded", expandedNow)
+
+    -- What is now ON SCREEN, for the roster handler to compare against.
+    lastSuppressed = suppressed
 
     -- Run the snippets rather than re-deciding in Lua: attributes are set
     -- first so "apply" sees them.
@@ -1171,14 +1217,17 @@ end
 
 -- Toggle Raid Tools key: profile-stored, applied as an override binding on
 -- the secure toggle button -- the exact arrangement Action Bars uses for
--- Toggle Action Bar Visibility. Pressing the bound key is a hardware click,
+-- Toggle Action Bar. Pressing the bound key is a hardware click,
 -- so the toggle itself works IN combat; only (re)binding defers.
 local function ApplyToggleKeybind()
     if not toggleButton then return end
     ClearOverrideBindings(toggleButton)
     local p = P()
     local k = p and p.toggleKey
-    if k and k ~= "" and Mode() ~= "never" then
+    -- The gate takes the binding with it rather than leaving a key that eats
+    -- its own keypress: the snippet would refuse a disabled frame, and an
+    -- override binding swallows whatever the key does otherwise.
+    if k and k ~= "" and Mode() ~= "never" and not AssistSuppressed() then
         SetOverrideBindingClick(toggleButton, false, k, "EllesmereUIRaidToolsToggle")
     end
 end
@@ -1190,6 +1239,19 @@ end
 --  no bindings, no unlock rows. Apply() is the single entry point.
 -------------------------------------------------------------------------------
 
+-- The assist gate is Lua's, so a promotion, a demotion or a raid you join
+-- without assist has to bring Apply back around -- no state driver will do it
+-- for us. Compared against what ApplyVisibility last put on screen, because
+-- GROUP_ROSTER_UPDATE bursts and Apply is not free.
+--
+-- In combat Apply parks itself behind applyPending, which leaves lastSuppressed
+-- untouched: the next roster event re-enters here and parks again, and
+-- PLAYER_REGEN_ENABLED finishes the job. That is the module's standard
+-- deferral, not an omission.
+local function RefreshAssistGate()
+    if AssistSuppressed() ~= lastSuppressed then Apply() end
+end
+
 -- Events live only while the feature is active (or while a combat-deferred
 -- Apply is pending, since PLAYER_REGEN_ENABLED is what completes it). The
 -- frame itself is created on first need and reused.
@@ -1198,16 +1260,16 @@ local function EnsureEvents()
     if not ev then
         ev = CreateFrame("Frame")
         ev:SetScript("OnEvent", function(_, event)
-            -- Pending work FIRST, before the mode gate: a switch TO "never"
-            -- deferred by combat must complete even though the profile
-            -- already reads never -- swallowing it here is how panels get
-            -- stranded on screen.
+            -- Pending work FIRST, before the mode gate: a switch TO "never" deferred by
+            -- combat must complete even though the profile already reads never --
+            -- swallowing it here is how panels get stranded on screen.
             if event == "PLAYER_REGEN_ENABLED" and applyPending then
                 Apply()
                 return
             end
             if Mode() == "never" then return end
             RefreshPermissions()
+            RefreshAssistGate()
         end)
     end
     ev:RegisterEvent("GROUP_ROSTER_UPDATE")
@@ -1240,6 +1302,9 @@ local function RegisterUnlock()
             noResize = true,
             getFrame = function()
                 if Mode() == "never" then return nil end
+                -- Nothing to move while the assist gate has the whole feature
+                -- off the screen -- same opt-out as the modes below.
+                if AssistSuppressed() then return nil end
                 -- Offer exactly the shells the Show as choice puts on screen:
                 -- One Window / Only Group & Pull = the Group element alone,
                 -- Two Windows = both, Only Markers = the Markers element alone.
@@ -1250,9 +1315,13 @@ local function RegisterUnlock()
                 return sections[key]
             end,
             getSize  = function()
+                -- Unlock mode sizes the mover overlay in UIParent units, so
+                -- the Window Scale has to be folded in here -- GetWidth is the
+                -- frame's own (unscaled) size.
+                local s = WindowScale()
                 local f = sections[key]
-                if f then return f:GetWidth(), f:GetHeight() end
-                return PANEL_W, 60
+                if f then return f:GetWidth() * s, f:GetHeight() * s end
+                return PANEL_W * s, 60 * s
             end,
             savePos = function(_, point, relPoint, x, y)
                 if not point then return end
@@ -1287,12 +1356,11 @@ local function RegisterUnlock()
     end
 end
 
--- Options-page entry point, and the completion target for combat-deferred
--- work. Every path below writes secure attributes, drivers, bindings or
--- geometry on protected frames -- ALL blocked in lockdown, the switch to
--- "never" included (SetAttribute is as protected as Hide). So in combat the
--- whole request is parked behind applyPending, with the REGEN listener
--- guaranteed alive to finish it.
+-- Options-page entry point, and the completion target for combat-deferred work. Every
+-- path below writes secure attributes, drivers, bindings or geometry on protected
+-- frames -- ALL blocked in lockdown, the switch to "never" included (SetAttribute is as
+-- protected as Hide). So in combat the whole request is parked behind applyPending,
+-- with the REGEN listener guaranteed alive to finish it.
 function Apply()
     if InCombatLockdown() then
         applyPending = true
@@ -1376,6 +1444,12 @@ SlashCmdList["EUIRAIDTOOLS"] = function()
     end
     if InCombatLockdown() then
         EllesmereUI.Print("|cff0cd29fEllesmereUI:|r " .. EllesmereUI.L("Raid Tools cannot be toggled by slash command in combat -- use the keybind."))
+        return
+    end
+    -- The snippet would refuse anyway (enabled is false while the gate is
+    -- shut); saying so beats a slash command that looks broken.
+    if AssistSuppressed() then
+        EllesmereUI.Print("|cff0cd29fEllesmereUI:|r " .. EllesmereUI.L("Raid Tools is hidden in a raid without leader or assist -- none of its buttons work there."))
         return
     end
     BuildAll()

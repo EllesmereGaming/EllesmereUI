@@ -1,100 +1,40 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUIChat.lua
 --
---  Visual reskin + utility features:
+--  Chat module root: panels, sidebar, fade/visibility, edit box skin, tabs.
+--  Message DISPLAY is owned by our own engine (EllesmereUIChat_Engine.lua):
+--  Blizzard's chat frames keep running as the secure formatting/data plane
+--  (their visual children are parked in a hidden container), and every
+--  formatted line is bridged into a ScrollingMessageFrame we own. Features:
 --    - Dark unified background (chat + input as one panel)
 --    - Tab restyling (custom fonts, colors, spacing, and borders)
 --    - Blizzard chrome removal
---    - Top-edge fade gradient
---    - Timestamps
---    - Thin EUI scrollbar
---    - Copy Chat button (session history)
---    - Search bar to filter messages
+--    - Timestamps (showTimestamps CVar, rides Blizzard's secure formatter)
+--    - Thin EUI scrollbar on our message frames
+--    - Copy Chat button + session history (own message store)
 -------------------------------------------------------------------------------
 local addonName, ns = ...
+if not (EllesmereUI and EllesmereUI._ModuleNS) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+EllesmereUI._ModuleNS[addonName] = ns  -- LOD options files read this module ns via the registry
 local EUI = _G.EllesmereUI
 if not EUI then return end
 
 ns.ECHAT = ns.ECHAT or {}
 local ECHAT = ns.ECHAT
 
--- BISECT LADDER (whisper-creation taint). The gate-7 configuration below
--- (every flag true) is the last field-CLEAN state. Gates are cleared ONE
--- per tester cycle -- multiple taint sources are possible, so a returning
--- error attributes to the single flag flipped that cycle. The clip-homed
--- tab hosts (GetTabHostClip) are the root-cause fix for gate 7A and are
--- ACTIVE; this build's only new variable vs the clean state.
-local BISECT_TAB_GEOMETRY_OFF = false   -- 1: CLEARED (this cycle)
-local BISECT_TAB_PADDING_OFF = false    -- 3: CLEARED (this cycle)
-local BISECT_TAB_BORDERS_OFF = false    -- 4: EXONERATED 2026-07-25 (field-
-                                        --    dirty with the engine off, so
-                                        --    the border engine is not the
-                                        --    injector; see ladder below)
--- 2026-07-25 ladder (whisper secret-taint, FCFManager_GetChatTarget /
--- GetDecoratedSenderName secret errors, always via the temp-window
--- open+refire stack): CONVICTED = init-time ECHAT.ApplyBorders() --
--- TIMING, not content. Run synchronously inside PLAYER_LOGIN it plants the
--- panel-border anchors while Blizzard's login dock pass still resolves
--- layout; that pass reads the insecure anchors, runs tainted, and its
--- persistent dock state poisons every later temp-whisper open. Fix = defer
--- to PEW + C_Timer (the deferred passes' field-proven cadence). Exonerated
--- en route: gate-4 border engine, gdm anchor ties, sfc pin, BNToast block,
--- FCFDock_SelectWindow hook, frame HookScripts, temp Skin*, eb anchors,
--- whisper URL filter.
-local BISECT_EXT_BG_OFF = false         -- 5: CLEARED (this cycle)
-local BISECT_DEFERRED_PASSES_OFF = false -- 6: CLEARED (this cycle)
-local BISECT_EB_ANCHORS_OFF = false     -- 7: CLEARED (this cycle)
-local BISECT_TEX_SHIFT_OFF = false      -- 8: CLEARED (this cycle) -- textures
-                                        --    re-anchored to their OWN parent
-                                        --    add no dependency edge; anchor +
-                                        --    unsnap both have clean alibis
--- FINAL HOST DESIGN (gate 9 confirmed CLEAN in field): an insecure frame
--- ANCHORED to a Blizzard chat tab is the taint injector -- parenting,
--- existence, and strata were all exonerated; the anchor dependency alone
--- poisons the secure dock pass into UpdateHeader's secret whisper math.
--- Hosts therefore carry ZERO tab anchors: clip-parented and positioned
--- NUMERICALLY (PositionTabHosts) from coordinates resolved in our own
--- deferred passes. Geometry READS of tabs from our execution are safe;
--- anchor TIES are not.
+-- The chat panel hangs off UIParent, placed numerically from the chat frame's rect
+-- (PositionChatPanel) so nothing of ours sits in Blizzard's anchor chain. The
+-- interaction follower (do-block after SyncChatFrameState) drives repositioning, armed
+-- only while chat is interacted with -- NO recurring work at idle.
 
--- WHISPER-CREATION TAINT: ROOT CAUSE (field-bisected 2026-07-22 over a
--- 7-gate ladder against the clean 8.5.2 baseline). Creating child FRAMES
--- on Blizzard chat tabs (841's panelBorder/separatorHost/underlineHost)
--- taints the temp-whisper creation chain: FCF_OpenTemporaryWindow ->
--- FCF_DockUpdate walks the tabs with our frames in their child lists, and
--- the chain then runs UpdateHeader's SECRET whisper-name width math
--- tainted ("arithmetic on a secret value blocked... EllesmereUIChat",
--- ChatFrameEditBox.lua:677) and the whisper fails to route. The pre-841
--- module avoided exactly this ("zero writes to Blizzard frames" -- its
--- underline lived on a UIParent clip frame). FIX: all per-tab host frames
--- are parented to the shared UIParent clip container below and only
--- ANCHORED to their tab. NEVER CreateFrame with a Blizzard chat tab (or
--- chat frame) as parent. Textures created directly on tabs (bg/hover)
--- are fine -- they existed in 8.5.2, field-clean.
-local _tabHostClip
-local function GetTabHostClip()
-    if _tabHostClip then return _tabHostClip end
-    local clip = CreateFrame("Frame", nil, UIParent)
-    clip:SetFrameStrata("DIALOG")
-    clip:EnableMouse(false)
-    clip:SetClipsChildren(true)
-    local gdm = _G.GeneralDockManager
-    if gdm then
-        -- Slack past the dock bounds so the 1px separators/underline and
-        -- the dynamic-tab visual shift are not clipped at the edges.
-        clip:SetPoint("TOPLEFT", gdm, "TOPLEFT", -4, 8)
-        clip:SetPoint("BOTTOMRIGHT", gdm, "BOTTOMRIGHT", 4, -8)
-    else
-        clip:SetAllPoints(UIParent)
-    end
-    ns._tabHostClip = clip
-    _tabHostClip = clip
-    return clip
-end
+-- The tab strip is fully owned now (EllesmereUIChat_Tabs.lua): our buttons on
+-- our own container, drawn from the same settings. The old in-place reskin of
+-- Blizzard's tabs (host clip, per-tab host trios, seat normalizes) is gone.
 
--- Chat uses the same tuned Blizzard-border offsets as the other rectangular
--- EUI panels. Without a chat registration the shared engine resolves the
--- addon-specific lookup to zero, which clips this texture into the panel.
+-- Chat uses the same tuned Blizzard-border offsets as other rectangular EUI
+-- panels. Without this registration the shared engine's lookup resolves to
+-- zero, clipping the border texture into the panel.
 if EUI.RegisterBorderDefaults then
     EUI.RegisterBorderDefaults("chat", {
         ["blizz"] = {
@@ -112,13 +52,15 @@ end
 
 local min, max, floor, ceil, abs = min, max, floor, ceil, math.abs
 
--- Per-frame data table. All custom state is stored here instead of writing
--- properties onto Blizzard's chat frame tables (which taints them and causes
--- HistoryKeeper errors in protected instances).
+-- Per-frame state lives here, never as properties on Blizzard's chat frame
+-- tables (that taints them -> HistoryKeeper errors in protected instances).
 local _cfd = {}
 local function CFD(cf)
     local d = _cfd[cf]
-    if not d then d = {}; _cfd[cf] = d end
+    if not d then
+        d = {}
+        _cfd[cf] = d
+    end
     return d
 end
 EllesmereUI._chatCFD = CFD
@@ -166,12 +108,13 @@ local CHAT_DEFAULTS = {
             alignTabsToPanel = false,
             tabHeight = 24,
             tabInnerPaddingX = 12,
+            tabOffsetX = 0,
+            scrollButtonOnChat = false,
             tabBackgroundColor = { r=0.03, g=0.045, b=0.05, a=0.44 },
             tabBackgroundColorActive = { r=0.03, g=0.045, b=0.05, a=0.65 },
             activeUnderline = true,
             activeUnderlineColorMode = "accent",
             activeUnderlineColor = { r=0.05, g=0.82, b=0.61, a=1 },
-            forceOnScreen = false,
             showFriends = true,
             showGuild = false,
             showDurability = false,
@@ -193,6 +136,8 @@ local CHAT_DEFAULTS = {
             idleFadeEnabled = true,
             inputOnTop = false,
             lockChatSize = false,
+            abbreviateChannels = true,  -- same key as live: saved settings carry over
+            classColorNames = true,
             hideSidebarBg = false,
             sidebarIconScale = 1.0,
             sidebarIconSpacing = 10,
@@ -260,14 +205,13 @@ local function GetOutlineFlag()
     return ""
 end
 
-local _hiddenParent = CreateFrame("Frame")
-_hiddenParent:Hide()
-
 -- Unified fade system: all alpha changes go through a target + lerp.
 local _visChatVisible = true
+-- Strength 100 is a true full hide: alpha 0 plus mouse passthrough
+-- (SetChatMousePassthrough).
 local function GetIdleFadeAlpha()
     local cfg = ECHAT.DB()
-    local strength = min(cfg.idleFadeStrength or 40, 99)
+    local strength = min(cfg.idleFadeStrength or 40, 100)
     return 1 - (strength / 100)
 end
 local _idleFadeActive = false
@@ -279,26 +223,17 @@ local _chatAlphaCurrent = 1
 local _chatFadeFrame = CreateFrame("Frame")
 _chatFadeFrame:Hide()
 local _visAlpha = 1
-local _euiDockStyled
--- Tab alpha is NOT managed here. The per-tab fade layer (own driver frame,
--- fadeBaseAlpha capture, tab:SetAlpha writes) shipped 2026-07-20 and was
--- removed same day: Blizzard's own tab alpha machinery (FCFTab_UpdateAlpha,
--- mouseover alphas) rewrites tab alpha constantly and always won, so the
--- feature visibly did nothing. Tabs fade with the chat panel the original
--- way instead -- the dock-level GeneralDockManager:SetAlpha in _ApplyAlpha,
--- which the tabs inherit as children. Do not reintroduce continuous per-tab
--- SetAlpha enforcement (and NEVER hook tab SetAlpha -- the pre-2026 attempt
--- was a constant hot-path perf hit). Also NEVER write the six
--- CHAT_FRAME_TAB_*_ALPHA globals to suppress Blizzard's per-tab fade
--- (PR #1000's DisableBlizzardTabFade, removed after a field bisect convicted
--- it 2026-07-28): an addon-written global is a tainted variable, Blizzard
--- reads those constants inside its dock-update and temp-window chains, and
--- the tainted execution then hits secret whisper values. There is no timing
--- or deferral fix -- the variable stays tainted whenever it is written.
+-- Tab fade rides the strip: our tab buttons are children of our own strip
+-- container, which _ApplyAlpha fades directly. The old constraints on
+-- Blizzard's tabs still stand for anyone tempted to touch the HIDDEN strip:
+-- NEVER write the six CHAT_FRAME_TAB_*_ALPHA globals (an addon-written global
+-- taints, Blizzard reads those constants inside its dock-update/temp-window
+-- chains, and the tainted execution hits secret whisper values -- no
+-- timing/deferral fix exists) and never fight FCFTab_UpdateAlpha.
 
--- Height of the tab strip (GeneralDockManager dockH, set in StyleDockManager).
--- Used by the "Extend Background Behind Tabs" feature to size the strip behind
--- the tabs and to shift the sidebar icon chain up by the same amount.
+-- Tab strip height (the owned strip in EllesmereUIChat_Tabs.lua). Used by
+-- "Extend Background Behind Tabs" to size the strip behind the tabs and shift
+-- the sidebar icon chain up by the same amount.
 local TAB_STRIP_H = 24
 local function GetTabHeight()
     local cfg = ECHAT.DB()
@@ -322,8 +257,8 @@ local function GetTabAreaHeight()
     return GetTabHeight() + GetTabPadding()
 end
 
--- Batch cursor check: reads cursor position once, tests a frame using
--- pre-fetched raw cursor coords. Avoids repeated GetCursorPosition calls.
+-- Batch cursor check: read cursor position once per frame, test against the
+-- cached raw coords instead of calling GetCursorPosition repeatedly.
 local _rawCX, _rawCY = 0, 0
 local function RefreshCursorPos()
     _rawCX, _rawCY = GetCursorPosition()
@@ -352,10 +287,8 @@ local function GetInnerBorderColor(cfg)
     return c.r or 1, c.g or 1, c.b or 1, c.a == nil and 0.06 or c.a
 end
 
--- Set true once GeneralDockManager has been positioned and styled as our tab bar
-_euiDockStyled = false
--- Chat frame text size is controlled by Blizzard's per-frame setting
--- (right-click tab -> Font Size). We only control font family + outline.
+-- Chat frame text size is Blizzard's per-frame setting (right-click tab ->
+-- Font Size); we only control font family + outline.
 local function GetFrameFontSize(id)
     if FCF_GetChatWindowInfo then
         local _, fontSize = FCF_GetChatWindowInfo(id)
@@ -377,67 +310,16 @@ end
 local function GetEditBoxFontSize(id)
     return ECHAT.DB().editBoxFontSize or GetFrameFontSize(id)
 end
--- GetTabFontSize removed: tab font size hardcoded to 11
+-- Tab font size is hardcoded to 11 (no getter).
 
--- Chat background texture catalogue: the same set as the Unit Frames bar
--- texture dropdown (same shared media files), with SharedMedia statusbar
--- textures appended through the shared EllesmereUI helper.
-local CHAT_TEX_BASE = "Interface\\AddOns\\EllesmereUI\\media\\textures\\"
-ns.chatBgTextures = {
-    ["none"]          = nil,
-    ["melli"]         = CHAT_TEX_BASE .. "melli.tga",
-    ["beautiful"]     = CHAT_TEX_BASE .. "beautiful.tga",
-    ["plating"]       = CHAT_TEX_BASE .. "plating.tga",
-    ["atrocity"]      = CHAT_TEX_BASE .. "atrocity.tga",
-    ["divide"]        = CHAT_TEX_BASE .. "divide.tga",
-    ["glass"]         = CHAT_TEX_BASE .. "glass.tga",
-    ["fade-right"]    = CHAT_TEX_BASE .. "fade-right.tga",
-    ["thin-line-top"]    = CHAT_TEX_BASE .. "thin-line-top.tga",
-    ["thin-line-bottom"] = CHAT_TEX_BASE .. "thin-line-bottom.tga",
-    ["fade"]          = CHAT_TEX_BASE .. "fade.tga",
-    ["gradient-lr"]   = CHAT_TEX_BASE .. "gradient-lr.tga",
-    ["gradient-rl"]   = CHAT_TEX_BASE .. "gradient-rl.tga",
-    ["gradient-bt"]   = CHAT_TEX_BASE .. "gradient-bt.tga",
-    ["gradient-tb"]   = CHAT_TEX_BASE .. "gradient-tb.tga",
-    ["matte"]         = CHAT_TEX_BASE .. "matte.tga",
-    ["sheer"]         = CHAT_TEX_BASE .. "sheer.tga",
-    ["blinkii-diamonds"] = CHAT_TEX_BASE .. "blinkii-diamonds.tga",
-    ["kringel-window"]   = CHAT_TEX_BASE .. "kringel-window.tga",
-}
-ns.chatBgTextureOrder = {
-    "none", "melli", "atrocity",
-    "fade", "fade-right",
-    "thin-line-top", "thin-line-bottom",
-    "beautiful", "plating",
-    "divide", "glass",
-    "gradient-lr", "gradient-rl", "gradient-bt", "gradient-tb",
-    "matte", "sheer",
-    "blinkii-diamonds", "kringel-window",
-}
-ns.chatBgTextureNames = {
-    ["none"]        = "None",
-    ["melli"]       = "Melli (ElvUI)",
-    ["beautiful"]   = "Beautiful",
-    ["plating"]     = "Plating",
-    ["atrocity"]    = "Atrocity",
-    ["divide"]      = "Divide",
-    ["glass"]       = "Glass",
-    ["fade-right"]  = "Fade Right",
-    ["thin-line-top"]    = "Thin Line Top",
-    ["thin-line-bottom"] = "Thin Line Bottom",
-    ["fade"]        = "Fade",
-    ["gradient-lr"] = "Gradient Right",
-    ["gradient-rl"] = "Gradient Left",
-    ["gradient-bt"] = "Gradient Up",
-    ["gradient-tb"] = "Gradient Down",
-    ["matte"]       = "Matte",
-    ["sheer"]       = "Sheer",
-    ["blinkii-diamonds"] = "Blinkii Diamonds",
-    ["kringel-window"]   = "Kringel Window",
-}
+-- Chat background texture catalogue: same set as the Unit Frames bar texture
+-- dropdown (same shared media files), with SharedMedia statusbar textures
+-- appended through the shared EllesmereUI helper.
+ns.chatBgTextures, ns.chatBgTextureNames, ns.chatBgTextureOrder =
+    EllesmereUI.BuildBarTextureTables(true)
 
--- Refresh the catalogue from SharedMedia (idempotent; registers the
--- late-registration callback on first call, same as the other modules).
+-- Refresh from SharedMedia (idempotent; registers the late-registration
+-- callback on first call, same as the other modules).
 function ECHAT.RefreshBgTextureCatalogue()
     if EllesmereUI.AppendSharedMediaTextures then
         EllesmereUI.AppendSharedMediaTextures(
@@ -453,7 +335,7 @@ function ECHAT.ApplyBackground()
     BG_B = p.bgB or 0.05
     BG_A = p.bgAlpha or 0.65
 
-    -- Resolve the background texture ("none" = legacy solid color)
+    -- "none" = solid color instead of a texture
     local texKey = p.bgTexture or "none"
     local texPath
     if texKey ~= "none" then
@@ -468,22 +350,20 @@ function ECHAT.ApplyBackground()
     for i = 1, 20 do
         local cf = _G["ChatFrame" .. i]
         if cf and CFD(cf).bg then
-            -- Update main bg texture
             local bgTex = CFD(cf).bg:GetRegions()
             if bgTex then
                 if texPath and bgTex.SetTexture then
                     bgTex:SetTexture(texPath)
                     bgTex:SetVertexColor(BG_R, BG_G, BG_B, BG_A)
                 elseif bgTex.SetColorTexture then
-                    -- Clear any texture-mode tint before returning to solid,
-                    -- or the color would double-tint through the vertex color.
+                    -- Clear the texture-mode tint before returning to solid, or
+                    -- the color double-tints through the vertex color.
                     if bgTex.SetVertexColor then bgTex:SetVertexColor(1, 1, 1, 1) end
                     bgTex:SetColorTexture(BG_R, BG_G, BG_B, BG_A)
                 end
             end
         end
     end
-    -- Update sidebar bg
     local cf1 = _G.ChatFrame1
     if cf1 and CFD(cf1).sidebar then
         local sbBg = CFD(cf1).sidebar:GetRegions()
@@ -496,9 +376,9 @@ function ECHAT.ApplyBackground()
     if ECHAT.ApplyTabAppearance then ECHAT.ApplyTabAppearance() end
 end
 
--- Mouseover sidebars only participate in panel geometry while they are
--- actually visible. This state is separate from alpha so the panel border can
--- expand on hover and contract once the fade-out has completed.
+-- Mouseover sidebars only participate in panel geometry while visible; kept
+-- separate from alpha so the border expands on hover and contracts only once
+-- the fade-out has completed.
 local _sidebarMouseoverLayoutVisible = false
 local function SidebarParticipatesInLayout(cfg)
     local mode = cfg.sidebarVisibility or "always"
@@ -506,26 +386,16 @@ local function SidebarParticipatesInLayout(cfg)
         or (mode == "mouseover" and _sidebarMouseoverLayoutVisible)
 end
 
--- Extend the chat background up behind the tab strip (and the sidebar by the
--- same amount) so the tabs sit on one continuous panel instead of floating over
--- empty space. Opt-in via cfg.extendBgBehindTabs (default off, reload on toggle).
---
--- This only ever creates OUR OWN frames -- it never touches a Blizzard tab or
--- the GeneralDockManager -- so it stays completely taint free. The strip height
--- matches the dock height so it lines up pixel-for-pixel with the tab bar.
---
--- The chat strip is ONE frame parented to UIParent (not to a chat frame) and
--- pinned to ChatFrame1's bg top. UIParent parenting keeps it visible when you
--- switch docked tabs (a per-frame child would vanish with its hidden frame), and
--- a BACKGROUND strata keeps it BEHIND the tabs. Because it does not inherit a
--- chat frame's alpha, _ApplyAlpha fades it directly.
+-- Extend the chat background up behind the tab strip (and the sidebar by the same
+-- amount) so the tabs sit on one continuous panel. Opt-in via cfg.extendBgBehindTabs
+-- (default off, reload on toggle). Creates OUR OWN frames only -- never touches a
+-- Blizzard tab or GeneralDockManager -- so it is taint free; strip height matches the
+-- dock height for pixel alignment. The strip is ONE frame parented to UIParent (not a
+-- chat frame), pinned to ChatFrame1's bg top: UIParent parenting keeps it visible when
+-- switching docked tabs (a per-frame child would vanish with its hidden frame), and
+-- BACKGROUND strata keeps it behind the tabs. It does not inherit a chat frame's alpha,
+-- so _ApplyAlpha fades it directly.
 function ECHAT.ApplyExtendedBackground()
-    if BISECT_EXT_BG_OFF then
-        if ns._chatBgExt then ns._chatBgExt:Hide() end
-        if ns._chatPanelBorder then ns._chatPanelBorder:Hide() end
-        if ns._tabPanelBottomSeparatorTex then ns._tabPanelBottomSeparatorTex:Hide() end
-        return
-    end
     local cfg = ECHAT.DB()
     local extend = cfg.extendBgBehindTabs == true
     local cf1 = _G.ChatFrame1
@@ -548,10 +418,8 @@ function ECHAT.ApplyExtendedBackground()
     if ext then
         ext:SetHeight(GetTabAreaHeight())
         if ns._chatBgExtTex then ns._chatBgExtTex:SetColorTexture(BG_R, BG_G, BG_B, BG_A) end
-        -- Sit at the very bottom of the UI so the tabs (and their own dark
-        -- backgrounds) always render in front of this strip. BACKGROUND is still
-        -- above the 3D world, and the strip never overlaps the chat text or the
-        -- sidebar, so dropping this low has no other visual side effects.
+        -- BACKGROUND strata (still above the 3D world) puts tabs in front;
+        -- the strip never overlaps chat text or the sidebar.
         ext:SetFrameStrata("BACKGROUND")
         -- Level 1 leaves level 0 free for the panel border's "Show Behind"
         -- mode, whose outward half stays visible around the strip.
@@ -560,10 +428,10 @@ function ECHAT.ApplyExtendedBackground()
         ext:SetShown(extend)
     end
 
-    -- Sidebar (ChatFrame1 only): a matching strip above the sidebar, plus a 1px
-    -- divider continuation so the sidebar/chat hairline runs the full height. The
-    -- sidebar is always visible and fades on its own, so this can stay a child of
-    -- it (rendered behind the icons via the sidebar's own frame level).
+    -- Sidebar (ChatFrame1 only): matching strip plus a 1px divider so the
+    -- sidebar/chat hairline runs full height. Can be the sidebar's own child
+    -- (rendered behind icons via its own frame level) since the sidebar is
+    -- always visible and fades on its own.
     local sb = d1.sidebar
     if sb then
         local showSb = extend and not cfg.hideSidebarBg
@@ -619,8 +487,8 @@ function ECHAT.ApplyExtendedBackground()
         local includeSidebar = sb
             and not cfg.hideSidebarBg
             and SidebarParticipatesInLayout(cfg)
-            -- A separate sidebar is its own island: excluded from the
-            -- panel border, wrapped by its own border below.
+            -- A separate sidebar is its own island: excluded here, wrapped
+            -- by its own border below.
             and cfg.sidebarSeparate ~= true
         local topExtension = extend and GetTabAreaHeight() or 0
         if includeSidebar and not cfg.sidebarRight then
@@ -633,17 +501,17 @@ function ECHAT.ApplyExtendedBackground()
             border:SetPoint("TOPLEFT", bg1, "TOPLEFT", 0, topExtension)
             border:SetPoint("BOTTOMRIGHT", bg1, "BOTTOMRIGHT", 0, 0)
         end
-        -- Chat tabs and the edit box can live on a higher strata than the chat
-        -- frame itself, so a frame-level bump on the chat strata is not enough.
-        -- "Show Behind" instead drops the border to the very back so the chat
-        -- fill covers its inward half and only the outward half frames the
-        -- panel.
+        -- Chat tabs/edit box can live on a higher strata than the chat frame,
+        -- so a frame-level bump alone is not enough. "Show Behind" drops the
+        -- border to the very back instead, so the chat fill covers its inward
+        -- half and only the outward half frames the panel.
         local showBehind = cfg.panelBorderBehind == true
-        border:SetFrameStrata(showBehind and "BACKGROUND" or "DIALOG")
-        -- Solid borders use a child at host + 1, while textured borders render
-        -- directly at host level. In behind mode both stay at 0, under the
-        -- extended strip (level 1) and the chat bg.
-        local borderLevel = showBehind and 0 or max(100, cf1:GetFrameLevel() + 20)
+        border:SetFrameStrata(showBehind and "BACKGROUND" or "MEDIUM")
+        -- Solid borders use a child at host+1; textured borders render at host
+        -- level. Behind mode keeps both at 0, under the extended strip (level 1)
+        -- and chat bg. Capped below 100: per-tab border hosts sit at level 100
+        -- and must draw over the chat border.
+        local borderLevel = showBehind and 0 or max(96, min(98, cf1:GetFrameLevel() + 20))
         border:SetFrameLevel(borderLevel)
 
         if EllesmereUI.ApplyBorderStyle then
@@ -670,9 +538,8 @@ function ECHAT.ApplyExtendedBackground()
             if solidBorder then solidBorder:SetFrameLevel(borderLevel + (showBehind and 0 or 1)) end
             border:Show()
 
-            -- Separate Sidebar: its own border, same style as the panel.
-            -- Same construction class as the panel border (our UIParent
-            -- frame anchored to our sidebar frame).
+            -- Separate Sidebar: its own border, same style and construction class as
+            -- the panel border (our UIParent frame anchored to our sidebar frame).
             local wantSbBorder = cfg.sidebarSeparate == true and sb
                 and not cfg.hideSidebarBg
                 and (cfg.sidebarVisibility or "always") ~= "never"
@@ -689,7 +556,7 @@ function ECHAT.ApplyExtendedBackground()
                     sbBorder:ClearAllPoints()
                     sbBorder:SetPoint("TOPLEFT", sb, "TOPLEFT", 0, sbTop)
                     sbBorder:SetPoint("BOTTOMRIGHT", sb, "BOTTOMRIGHT", 0, 0)
-                    sbBorder:SetFrameStrata(showBehind and "BACKGROUND" or "DIALOG")
+                    sbBorder:SetFrameStrata(showBehind and "BACKGROUND" or "MEDIUM")
                     sbBorder:SetFrameLevel(borderLevel)
                     EllesmereUI.ApplyBorderStyle(sbBorder, sizes[thicknessKey] or 1,
                         color.r, color.g, color.b, alpha, cfg.panelBorderTexture or "solid",
@@ -714,9 +581,11 @@ function ECHAT.ApplyExtendedBackground()
     if ECHAT.ApplyTabAppearance then ECHAT.ApplyTabAppearance() end
 end
 
--- Re-apply font to all skinned chat frames, tabs, and edit boxes.
--- Chat frame text size is Blizzard's per-frame setting; we only set
--- font family + outline. Tab size is our own setting.
+-- Re-apply font to all chat text surfaces. Chat text size is Blizzard's
+-- per-frame setting (right-click tab -> Font Size; we only set family +
+-- outline). The Blizzard frames keep receiving the font too: the hosted
+-- combat log renders through ChatFrame2, and their buffers should wrap
+-- identically to ours for backfill copies.
 function ECHAT.ApplyFonts()
     local font = GetFont()
     local editFont = GetEditBoxFont()
@@ -725,7 +594,15 @@ function ECHAT.ApplyFonts()
         local cf = _G["ChatFrame" .. i]
         if cf and cf.SetFont then
             local size = GetFrameFontSize(i)
-            cf:SetFont(font, size, outline)
+            -- Same per-window font FAMILY as our display view (CJK members):
+            -- the invisible Blizzard frame owns hyperlink hit-zones, so its
+            -- glyph metrics must match ours on lines carrying CJK text.
+            local fam = ECHAT.EngineFontFamily and ECHAT.EngineFontFamily(i, font, size, outline)
+            if fam then
+                cf:SetFontObject(fam)
+            else
+                cf:SetFont(font, size, outline)
+            end
         end
         local eb = _G["ChatFrame" .. i .. "EditBox"]
         if eb then
@@ -736,6 +613,71 @@ function ECHAT.ApplyFonts()
                 if eb.headerSuffix then eb.headerSuffix:SetFont(editFont, size, outline) end
             end
         end
+    end
+    -- Our message frames (family/outline ours, size per window from Blizzard).
+    if ECHAT.EngineApplyFonts then ECHAT.EngineApplyFonts() end
+end
+
+-- One size for every chat window (the options slider). Persistence rides
+-- Blizzard's own per-window storage -- SetChatWindowSize is a plain C write,
+-- so there is no DB key, no migration, their tab menu keeps working for
+-- later per-window tweaks, and their login pass re-applies it. NEVER route
+-- this through FCF_SetChatWindowFontSize: the old in-place skin's size
+-- control rippled through Blizzard's tab-resize/dock machinery measuring
+-- secret label widths under our taint (the v7.15-era removal). Under the
+-- engine, size only touches storage, SetFont, and OUR frames.
+function ECHAT.ApplyChatFontSize(size)
+    if type(size) ~= "number" or size <= 0 then return end
+    for i = 1, 10 do
+        if _G["ChatFrame" .. i] then SetChatWindowSize(i, size) end
+    end
+    -- Temp whisper frames carry no numbered storage; their live font is the
+    -- state FCF_GetChatWindowInfo reads back, so set it directly.
+    local frames = _G.CHAT_FRAMES
+    if type(frames) == "table" then
+        for i = 11, #frames do
+            local cf = _G[frames[i]]
+            if cf and cf.isTemporary and cf.inUse and cf.SetFont then
+                local font, _, flags = cf:GetFont()
+                if font then cf:SetFont(font, size, flags or "") end
+            end
+        end
+    end
+    ECHAT.ApplyFonts()
+end
+
+-- Profile-wide font size: cfg.chatFontSize (NO static default -- absence
+-- means "not yet captured") is the source of truth; Blizzard's per-window
+-- storage stays the delivery vehicle via ApplyChatFontSize, so the taint
+-- posture is unchanged. Genesis: seeded from the FIRST character's live
+-- size at the first settled sight (pixel-invisible on that character);
+-- every later login re-asserts the profile value, flattening per-character
+-- and per-window sizes to it.
+function ECHAT.SyncChatFontSize()
+    local cfg = ECHAT.DB()
+    if not cfg then return end
+    if cfg.chatFontSize == nil then
+        local cf = _G.ChatFrame1
+        if cf and cf.GetFont then
+            local _, fh = cf:GetFont()
+            if type(fh) == "number" and fh > 0 then
+                cfg.chatFontSize = math.floor(fh + 0.5)
+            end
+        end
+        return -- live sizes already match what was just captured
+    end
+    ECHAT.ApplyChatFontSize(cfg.chatFontSize)
+end
+
+-- Class-colored names in message BODIES only: the engine's display
+-- transform colors group/raid member names found in the text of Say/Yell/
+-- Party/Raid lines, on our display copy. SENDER prefixes are deliberately
+-- untouched -- their class coloring is Blizzard default behavior and this
+-- module never writes the per-type storage (SetChatColorNameByClass) in
+-- either direction.
+function ECHAT.ApplyClassColorNames(on)
+    if ECHAT.EngineSetClassColorNames then
+        ECHAT.EngineSetClassColorNames(on == true)
     end
 end
 
@@ -775,15 +717,13 @@ function ECHAT.ApplySidebarVisibility()
         ns._sidebarSeparateBorder:SetAlpha(_sidebarFadeAlpha)
     end
 
-    -- Re-anchor the extended panel border when the sidebar enters or leaves
-    -- the visible layout.
+    -- Re-anchor the extended panel border as the sidebar enters/leaves layout.
     if ECHAT.ApplyTabPadding then
         ECHAT.ApplyTabPadding()
     elseif ECHAT.ApplyExtendedBackground then
         ECHAT.ApplyExtendedBackground()
     end
 
-    -- Create fade frame once, reuse
     if not _sidebarFadeFrame then
         _sidebarFadeFrame = CreateFrame("Frame")
         _sidebarFadeFrame:Hide()
@@ -848,9 +788,9 @@ function ECHAT.ApplyBorders()
     if ECHAT.ApplyTabSeparators then ECHAT.ApplyTabSeparators() end
 end
 
--- Sidebar hints use the fully skinned GameTooltip when Blizzard UI Enhanced
--- and its tooltip reskin are active. Keep the lightweight EUI widget tooltip
--- as a fallback so the Chat module has no hard dependency on the skin module.
+-- Sidebar hints use the fully skinned GameTooltip when the BlizzardSkin
+-- module's tooltip reskin is active; otherwise the lightweight EUI widget
+-- tooltip, so Chat has no hard dependency on that module.
 local function ShowSidebarIconTooltip(owner, label)
     local isLoaded = C_AddOns and C_AddOns.IsAddOnLoaded
         and C_AddOns.IsAddOnLoaded("EllesmereUIBlizzardSkin")
@@ -876,6 +816,410 @@ local function HideSidebarIconTooltip(owner)
     end
 end
 
+-- Numeric placement of the chat panel background. NEVER anchor the panel to the chat
+-- frame/edit box: that puts an insecure frame inside ChatFrame1's rect chain, so any
+-- layout write of ours (SetPoint, SetShown, even Hide) dirties it, and Blizzard's next
+-- temp-window dock resolves geometry THROUGH our anchors, runs tainted, and its
+-- FCF_SetLocked write poisons ChatFrame.isLocked. Reading the rect is safe, anchoring
+-- is not -- position numerically against UIParent instead.
+--
+-- The whole pass, reads included, is DEFERRED ONE FRAME: a fresh temp window skins
+-- mid-open, and if our first SetPoint lands while the dock is still dirty, that
+-- insecure write gets resolved inside Blizzard's own deferred dock pass and taints
+-- its isLocked/dock-selected writes. Deferring one tick moves us outside that pass.
+-- Do NOT "optimise" by testing the rect synchronously and deferring only writes:
+-- GetLeft/Top/ Right/Bottom, GetEffectiveScale, and IsShown all force the layout
+-- engine to RESOLVE the frame, which taints exactly like writing does. Dedupe caps
+-- this to one queued placement per chat frame per frame; the closure is built once
+-- and reused, so repeats cost only the timer.
+function ECHAT.PositionChatPanel(cf)
+    local d = CFD(cf)
+    if d._posQueued then return end
+    d._posQueued = true
+    local fn = d._posDefer
+    if not fn then
+        fn = function()
+            d._posQueued = nil
+            ECHAT._PositionChatPanelNow(cf)
+        end
+        d._posDefer = fn
+    end
+    C_Timer.After(0, fn)
+end
+
+function ECHAT._PositionChatPanelNow(cf)
+    local d = CFD(cf)
+    local bg = d and d.bg
+    if not bg then return end
+    -- ChatFrame1's panel keeps tracking even while the frame is dock-hidden
+    -- (a selected temp window hides it): the sidebar, the extended tab band,
+    -- and the strip visuals all anchor to THIS panel, and skipping it while
+    -- hidden strands them when chat is moved. Hidden frames keep live rects.
+    if not cf:IsShown() and cf ~= _G.ChatFrame1 then return end
+    local l, t, r, cb = cf:GetLeft(), cf:GetTop(), cf:GetRight(), cf:GetBottom()
+    if not (l and t and r and cb) then
+        -- Undock rescue: dragging a tab off the dock can end with Blizzard's
+        -- StopMovingOrSizing clearing the frame's anchors and never baking the
+        -- drop position back on (12.1). The point-less frame then crashes
+        -- FCF_SavePositionAndDimensions every frame (GetLeft nil) and renders
+        -- nowhere. A shown, undocked chat frame with zero points is only ever
+        -- that broken state: re-anchor it at the cursor (the drop spot) so the
+        -- next drag-stop iteration saves cleanly and the window stays where
+        -- the user dropped it. Costs nothing when healthy -- this branch is
+        -- the existing nil-rect early-out.
+        if cf ~= _G.ChatFrame1 and not cf.isDocked and cf:IsShown()
+            and cf:GetNumPoints() == 0 then
+            local cx, cy = GetCursorPosition()
+            local es = cf:GetEffectiveScale()
+            local issec = _G.issecretvalue
+            if cx and cy and es and es > 0
+                and not (issec and (issec(cx) or issec(cy))) then
+                pcall(function()
+                    cf:SetPoint("CENTER", UIParent, "BOTTOMLEFT", cx / es, cy / es)
+                end)
+            else
+                pcall(function()
+                    cf:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+                end)
+            end
+        end
+        return
+    end
+    -- Secret-gated like every other per-tick rect read (grip doctrine): a
+    -- mid-drag or restricted-content rect must never reach the arithmetic
+    -- below at follower cadence. A frame riding StartMoving's hardware
+    -- capture reads secret for its whole drag (12.1), so instead of freezing
+    -- the panel until the drop, follow by cursor delta from the last healthy
+    -- corners -- no secret value is ever read, and the panel+text ride the
+    -- drag like the Blizzard-owned art does.
+    local issecret = _G.issecretvalue
+    if issecret and (issecret(l) or issecret(t) or issecret(r) or issecret(cb)) then
+        if _G.MOVING_CHATFRAME == cf and d._bgL then
+            local mx, my = GetCursorPosition()
+            if mx and my and not (issecret(mx) or issecret(my)) then
+                local ui2 = UIParent:GetEffectiveScale()
+                if ui2 and ui2 > 0 then
+                    mx, my = mx / ui2, my / ui2
+                    local base = d._dragCursorBase
+                    if not base then
+                        base = { x = mx, y = my,
+                                 l = d._bgL, t = d._bgT, r = d._bgR, b = d._bgB }
+                        d._dragCursorBase = base
+                    end
+                    local dx, dy = mx - base.x, my - base.y
+                    d._bgL, d._bgT = base.l + dx, base.t + dy
+                    d._bgR, d._bgB = base.r + dx, base.b + dy
+                    bg:ClearAllPoints()
+                    bg:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", d._bgL, d._bgT)
+                    bg:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMLEFT", d._bgR, d._bgB)
+                end
+            end
+        end
+        return
+    end
+    d._dragCursorBase = nil
+    -- Rest-rect cache (frame-local space) for the tab-drag ownership lane:
+    -- the broken StartMoving capture scrambles the rect before any post-hook
+    -- can read it, so drag-start grab offsets come from here instead.
+    d._cfL, d._cfT = l, t
+    d._cfWasDocked = cf.isDocked and true or nil
+    -- Rects come back in each frame's own space; convert to UIParent's.
+    local ui = UIParent:GetEffectiveScale()
+    if not ui or ui == 0 then return end
+    local cs = cf:GetEffectiveScale() / ui
+    -- Insets from ApplyInputPosition (input above/below, its height); falls
+    -- back to creation-time geometry before that has ever run.
+    local ins = d._bgIns
+    local il, ir, it, ib
+    if ins then
+        il, ir, it, ib = ins.l, ins.r, ins.t, ins.b
+    else
+        il, ir, it, ib = -10, 5, 3, -6
+    end
+    local left, top = (l * cs) + il, (t * cs) + it
+    local right, bottom = (r * cs) + ir, (cb * cs) + ib
+    if right - left < 1 or top - bottom < 1 then return end
+    local pl, pt, pr, pb = d._bgL, d._bgT, d._bgR, d._bgB
+    -- Write only when it moved: this runs every frame and a redundant SetPoint
+    -- is still a layout write.
+    if pl and math.abs(pl - left) < 0.05 and math.abs(pt - top) < 0.05
+       and math.abs(pr - right) < 0.05 and math.abs(pb - bottom) < 0.05 then
+        return
+    end
+    d._bgL, d._bgT, d._bgR, d._bgB = left, top, right, bottom
+    bg:ClearAllPoints()
+    bg:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+    bg:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMLEFT", right, bottom)
+end
+
+-- Direct (no-timer) placement of every panel plus the dock manager. Callable
+-- ONLY from OUR OWN execution (interaction follower's OnUpdate, deferred
+-- event passes -- both timer-equivalent contexts). Skin-pass call sites keep
+-- using the queued PositionChatPanel above.
+function ECHAT.PositionChatPanelsNow()
+    for i = 1, 20 do
+        local cf = _G["ChatFrame" .. i]
+        -- Gate on the panel existing, NOT on _skinned: this function sits
+        -- above that local, so referencing it here reads a nil GLOBAL.
+        if cf and CFD(cf).bg then ECHAT._PositionChatPanelNow(cf) end
+    end
+    -- The owned tab strip is anchored to the panel and follows for free.
+end
+
+-- The main window ships with clamp-rect insets that extend its clamp box
+-- ~25-60px past every edge (phantom room reserved for the stock tab strip
+-- and edit box). Our panel draws its own tabs and input INSIDE the window,
+-- so the reservation only blocks corner placement: the screen clamp pins
+-- the frame that far from every edge, which also silently eats unlock-mode
+-- drags and arrow nudges toward a corner (the anchor moves, the resolved
+-- rect stays pinned). Zero the insets so the clamp lands exactly at the
+-- screen edges; clamped-to-screen itself stays on as the cannot-lose-the-
+-- window safety net. Compare-gated (write-free when settled) because dock
+-- passes can rewrite the insets; asserted from the state sync and the
+-- position chokepoint.
+local function EnsureChatClampInsets()
+    local cf1 = _G.ChatFrame1
+    if not (cf1 and cf1.GetClampRectInsets) then return end
+    local l, r, t, b = cf1:GetClampRectInsets()
+    if l ~= 0 or r ~= 0 or t ~= 0 or b ~= 0 then
+        cf1:SetClampRectInsets(0, 0, 0, 0)
+    end
+end
+
+-- State sync for what the panels lost by no longer being chat frame children,
+-- plus two Blizzard buttons hidden by alpha: Blizzard fades ButtonFrame /
+-- ScrollToBottomButton back in on hover (UIFrameFadeIn drives only their
+-- alpha) and re-levels chat frames on dock passes. Runs from the interaction
+-- follower and the deferred event passes. The stack-hidden gate keeps the
+-- shown-follow from re-showing panels the full-hide put away.
+function ECHAT.SyncChatFrameState()
+    if ECHAT.SuppressChatEditModeSelection then ECHAT.SuppressChatEditModeSelection() end
+    EnsureChatClampInsets()
+    -- Size drift self-heal: Edit Mode's late layout passes can re-rect the
+    -- main window through paths the ApplySystemAnchor guard never sees,
+    -- leaving the frame on its stale explicit size while the panel still
+    -- shows ours. Verify the saved size holds and re-assert on drift.
+    -- Compare-gated (two reads when settled); suspended during the grip
+    -- drag and unlock sessions, whose live geometry rules.
+    local cfgSz = ECHAT.DB()
+    local pos = cfgSz and cfgSz.chatPosition
+    local sz = pos and cfgSz.chatSize
+    if sz and sz.w and sz.h and not ns._chatSizingActive
+        and not (_G.EllesmereUI and _G.EllesmereUI._unlockActive) then
+        local cf1s = _G.ChatFrame1
+        -- Armed only after the settled-sight apply (the anchor guard is
+        -- installed there): position ownership must never begin early, or
+        -- this heal re-rects chat mid-login while Blizzard's dock passes are
+        -- still resolving (ghost tab strip built against half-resolved
+        -- geometry = invisible tabs until the next pass).
+        local d1 = cf1s and CFD(cf1s)
+        if d1 and d1.anchorGuarded then
+            local w = cf1s:GetWidth()
+            local h = cf1s:GetHeight()
+            local isec = _G.issecretvalue
+            local drift = false
+            if w and h and not (isec and (isec(w) or isec(h)))
+                and (math.abs(w - sz.w) > 1.5 or math.abs(h - sz.h) > 1.5) then
+                drift = true
+            end
+            -- Position drift too (canonical BOTTOMLEFT saves): Edit Mode's
+            -- late writes move the rect as well as resizing it.
+            if not drift and pos.point == "BOTTOMLEFT" and pos.x and pos.y then
+                local l, b = cf1s:GetLeft(), cf1s:GetBottom()
+                if l and b and not (isec and (isec(l) or isec(b)))
+                    and (math.abs(l - pos.x) > 1.5 or math.abs(b - pos.y) > 1.5) then
+                    drift = true
+                end
+            end
+            if drift and ECHAT.ApplyChatPosition then ECHAT.ApplyChatPosition() end
+        end
+    end
+    for i = 1, 20 do
+        local cf = _G["ChatFrame" .. i]
+        if cf then
+            local shown = cf:IsShown()
+            if shown then
+                local bf = _G["ChatFrame" .. i .. "ButtonFrame"]
+                if bf and bf:GetAlpha() ~= 0 then bf:SetAlpha(0) end
+                local sb = cf.ScrollToBottomButton
+                if sb and sb:GetAlpha() ~= 0 then sb:SetAlpha(0) end
+            end
+            local bg = CFD(cf).bg
+            if bg and not ns._chatStackHidden then
+                if bg:IsShown() ~= shown then bg:SetShown(shown) end
+                if shown then
+                    local lvl = max(0, cf:GetFrameLevel() - 1)
+                    if bg:GetFrameLevel() ~= lvl then bg:SetFrameLevel(lvl) end
+                    local st = cf:GetFrameStrata()
+                    if bg:GetFrameStrata() ~= st then bg:SetFrameStrata(st) end
+                end
+            end
+        end
+    end
+end
+
+-------------------------------------------------------------------------------
+--  Interaction follower: the ONLY recurring driver in this module, HIDDEN
+--  whenever chat is not being interacted with. A chat frame's rect / the
+--  dock's state can only change via an event the deferred passes already
+--  catch (login, dock config, scale, Edit Mode commits, whisper windows) or a
+--  mouse/Edit Mode interaction on a widget we hook (tab/resize/sidebar hover,
+--  Edit Mode show/hide). The follower arms on those edges, follows per-frame
+--  while armed, then disarms to hidden -- zero recurring work or allocations
+--  while idle. Accepted gap: a frame moved by another addon or a /run with no
+--  event and no nearby mouse only heals on the next event/interaction.
+-------------------------------------------------------------------------------
+do
+    local follower = CreateFrame("Frame")
+    follower:Hide()
+    local hoverCount = 0
+    local lingerUntil = 0
+    local editMode = false
+    local unlockHold = false
+    local accum = 0
+    local lastSelected
+    local lastShown = {}
+    local lastFontH = {}
+    local lastDockCount
+
+    follower:SetScript("OnUpdate", function(_, elapsed)
+        -- Geometry every frame while armed: drags need per-frame follow.
+        ECHAT.PositionChatPanelsNow()
+        -- Dock membership, every frame (one table-length read): closing a
+        -- NON-selected docked window flips nothing else we watch -- its
+        -- frame was already hidden by the dock and selection stays put.
+        if GENERAL_CHAT_DOCK and GENERAL_CHAT_DOCK.DOCKED_CHAT_FRAMES then
+            local n = #GENERAL_CHAT_DOCK.DOCKED_CHAT_FRAMES
+            if n ~= lastDockCount then
+                lastDockCount = n
+                -- Ghosts correct SYNCHRONOUSLY: this tick is our own
+                -- execution, after the click that changed the dock but
+                -- before this frame renders. A queued pass would paint one
+                -- frame of a ghost stretched on the dying tab.
+                if ECHAT.TabsRefreshNow then ECHAT.TabsRefreshNow() end
+                if ECHAT.QueueTabPass then ECHAT.QueueTabPass() end
+            end
+        end
+        -- State compares are cheaper at a coarse cadence.
+        accum = accum + elapsed
+        if accum < 0.1 then return end
+        accum = 0
+        -- Edit Mode self-heal: OnHide is the normal disarm; this covers a missed
+        -- one (reload inside Edit Mode etc.).
+        if editMode and EditModeManagerFrame and not EditModeManagerFrame:IsShown() then
+            editMode = false
+        end
+        -- Selected dock window changed (tab click, tab menu action).
+        if GENERAL_CHAT_DOCK and FCFDock_GetSelectedWindow then
+            local sel = FCFDock_GetSelectedWindow(GENERAL_CHAT_DOCK)
+            if sel ~= lastSelected then
+                lastSelected = sel
+                if ECHAT.QueueTabPass then ECHAT.QueueTabPass() end
+            end
+        end
+        -- Per-window font size can change from Blizzard's tab menu (secure
+        -- flow we never touch); our view follows by re-reading the provider.
+        -- First sight only seeds the cache.
+        for i = 1, 20 do
+            local cf = _G["ChatFrame" .. i]
+            if cf and cf.GetFont then
+                local _, fh = cf:GetFont()
+                if fh and fh ~= lastFontH[i] then
+                    if lastFontH[i] and ECHAT.EngineApplyFontTo then
+                        ECHAT.EngineApplyFontTo(cf)
+                    end
+                    lastFontH[i] = fh
+                end
+            end
+        end
+        -- A frame appeared or closed (tab menu close, window created).
+        local shownChanged = false
+        for i = 1, 20 do
+            local cf = _G["ChatFrame" .. i]
+            local shown = cf and cf:IsShown() or false
+            if shown ~= lastShown[i] then
+                lastShown[i] = shown
+                shownChanged = true
+            end
+        end
+        if shownChanged and ECHAT.QueueFullPass then ECHAT.QueueFullPass() end
+        ECHAT.SyncChatFrameState()
+        -- Disarm: nothing hovered, Edit Mode closed, linger expired, no open
+        -- context menu. The linger covers quick menu clicks; the menu check
+        -- covers long browses -- tab menu actions (close, rename, new window)
+        -- land while the mouse has been in the menu far past the linger, and
+        -- the shown/selection watches above must see their results.
+        local menuOpen = Menu and Menu.GetManager and Menu.GetManager():IsAnyMenuOpen()
+        if hoverCount == 0 and not editMode and not unlockHold and not menuOpen and GetTime() >= lingerUntil then
+            ECHAT.PositionChatPanelsNow()
+            follower:Hide()
+        end
+    end)
+
+    -- Hover refcount from widget OnEnter/OnLeave hooks (tabs, resize buttons,
+    -- sidebar). OnLeave fires when a hovered frame hides, so the count cannot
+    -- leak across dock rebuilds.
+    function ECHAT.FollowArm()
+        hoverCount = hoverCount + 1
+        follower:Show()
+    end
+    function ECHAT.FollowRelease()
+        hoverCount = max(0, hoverCount - 1)
+        if hoverCount == 0 then lingerUntil = GetTime() + 4 end
+    end
+    -- Edit Mode session: chat can be dragged/resized with the mouse far from
+    -- any of our hover widgets (the Selection overlay occludes them).
+    function ECHAT.FollowArmEditMode(on)
+        editMode = on and true or false
+        if editMode then follower:Show() end
+    end
+    -- Unlock-mode session hold: the Chat mover drags ChatFrame1 with the
+    -- cursor over OUR mover proxy, not over any arming widget -- without
+    -- this hold the panel and text freeze mid-drag until the next pass.
+    -- Separate from the Edit Mode flag: its self-heal would clear a shared
+    -- flag whenever the Edit Mode manager is closed (always, in unlock).
+    function ECHAT.FollowArmUnlock(on)
+        unlockHold = on and true or false
+        if unlockHold then follower:Show() end
+    end
+end
+
+-- Visibility ONLY: the SetShown half of ApplySidebarIcons, without its
+-- ClearAllPoints/SetPoint chain. Re-anchoring here is taint-risky (also skipped at init
+-- and in _ECHAT_RefreshAll): tab passes fire right after a whisper opens a temp window,
+-- and re-anchoring then would land while Blizzard's dock pass is still resolving -- the
+-- collision that poisons ChatFrame.isLocked. Fade only needs shown/hidden; re-anchoring
+-- stays on paths that actually change the chain (icon order, spacing, free-move).
+function ECHAT.ApplySidebarIconVisibility()
+    local cfg = ECHAT.DB()
+    local cf1 = _G.ChatFrame1
+    local sbd = cf1 and CFD(cf1)
+    if not (cfg and sbd and sbd.sidebar) then return end
+    local sbMode = cfg.sidebarVisibility or "always"
+    local sbHidden = sbMode == "never"
+        or (sbMode == "mouseover" and _sidebarFadeTarget == 0 and _sidebarFadeAlpha == 0)
+        or ns._chatPassthrough == true
+    local PAIRS = {
+        { "showFriends", "friendsBtn", "friendsCount" },
+        { "showGuild", "guildBtn", "guildCount" },
+        { "showDurability", "durabilityBtn", "durabilityPct" },
+        { "showCopy", "copyBtn" },
+        { "showPortals", "portalBtn" },
+        { "showVoice", "voiceBtn" },
+        { "showSettings", "settingsBtn" },
+    }
+    for i = 1, #PAIRS do
+        local key, btnKey, tailKey = PAIRS[i][1], PAIRS[i][2], PAIRS[i][3]
+        local btn = sbd[btnKey]
+        if btn then
+            local shown = cfg[key] ~= false and not sbHidden
+            if btn:IsShown() ~= shown then btn:SetShown(shown) end
+            local tail = tailKey and sbd[tailKey]
+            if tail and tail:IsShown() ~= shown then tail:SetShown(shown) end
+        end
+    end
+end
+
 -- Show/hide individual sidebar icons and re-anchor visible ones to close gaps
 function ECHAT.ApplySidebarIcons()
     local cfg = ECHAT.DB()
@@ -885,15 +1229,14 @@ function ECHAT.ApplySidebarIcons()
 
     local ICON_GAP = cfg.sidebarIconSpacing or 10
     -- Shift the chain up by the tab-strip height when the background is extended
-    -- (and free-move is off). Matches the offset applied at icon creation time.
+    -- and free-move is off. Matches the offset applied at icon creation.
     local iconTopShift = (cfg.extendBgBehindTabs and not cfg.freeMoveIcons) and GetTabAreaHeight() or 0
     local sbd = CFD(cf1)
 
-    -- Re-anchor the chain icons in the creation-time order snapshot. Order
-    -- edits from the options dropdown intentionally do NOT apply live -- the
-    -- sidebar is rebuilt in the saved order on the next reload. Icons whose
-    -- button was never created (enabled after login, pending reload) are
-    -- skipped so the chain hangs off the last icon that actually exists.
+    -- Re-anchor the chain in the creation-time order snapshot. Options-dropdown
+    -- order edits intentionally do NOT apply live -- rebuilt on next reload.
+    -- Icons never created (enabled after login) are skipped so the chain hangs
+    -- off the last icon that actually exists.
     local CHAIN_REFS = {
         showFriends    = { btn = "friendsBtn",    tail = "friendsCount" },
         showGuild      = { btn = "guildBtn",      tail = "guildCount" },
@@ -905,12 +1248,22 @@ function ECHAT.ApplySidebarIcons()
     }
     local chainOrder = sbd._iconChainOrder or ECHAT.ResolveSidebarIconOrder()
 
+    -- An alpha-0 sidebar still leaves child Buttons hoverable/clickable (motion is a
+    -- separate channel from EnableMouse), so invisible icons must be HIDDEN: always in
+    -- "never" mode, and in "mouseover" while fully faded out (shown children would eat
+    -- the hover meant to reveal the sidebar). Both fade edges re-run this via
+    -- ApplyTabPadding, so shown state tracks the fade with no extra wiring.
+    local sbMode = cfg.sidebarVisibility or "always"
+    local sbHidden = sbMode == "never"
+        or (sbMode == "mouseover" and _sidebarFadeTarget == 0 and _sidebarFadeAlpha == 0)
+        or ns._chatPassthrough == true
+
     local anchor = nil
     for _, key in ipairs(chainOrder) do
         local refs = CHAIN_REFS[key]
         local btn = refs and sbd[refs.btn]
         if btn then
-            local shown = cfg[key] ~= false
+            local shown = cfg[key] ~= false and not sbHidden
             btn:SetShown(shown)
             local tail = refs.tail and sbd[refs.tail]
             if tail then tail:SetShown(shown) end
@@ -926,18 +1279,24 @@ function ECHAT.ApplySidebarIcons()
         end
     end
 
-    -- Scroll is independent
-    if sbd.scrollBtn then sbd.scrollBtn:SetShown(cfg.showScroll ~= false) end
+    -- Scroll is independent; when anchored to the chat panel it is exempt
+    -- from the hidden-sidebar cutoff.
+    if sbd.scrollBtn then
+        sbd.scrollBtn:SetShown(cfg.showScroll ~= false
+            and (not sbHidden
+                or (cfg.scrollButtonOnChat == true and ns._chatPassthrough ~= true)))
+    end
+    if ECHAT.ApplyScrollButtonPosition then ECHAT.ApplyScrollButtonPosition() end
 
     -- Re-apply free move offsets after chain layout
     if ECHAT.ApplyIconFreeMove then ECHAT.ApplyIconFreeMove() end
 end
 
--- Map of sidebar-icon visibility key -> its CFD button reference. The button is
--- only created at login for icons that were enabled at that time, so enabling a
--- previously-disabled icon has no frame to show until the sidebar is rebuilt on
--- reload. The options panel uses this to fire a reload prompt only when adding a
--- brand-new icon (scrollBtn is always created, so it never needs one).
+-- Map of sidebar-icon visibility key -> its CFD button reference. Buttons are
+-- only created at login for icons enabled at that time, so enabling a
+-- previously-disabled icon needs a reload before it has a frame. The options
+-- panel uses this to fire a reload prompt only when adding a new icon
+-- (scrollBtn is always created, so it never needs one).
 local SIDEBAR_ICON_REFS = {
     showFriends    = "friendsBtn",
     showGuild      = "guildBtn",
@@ -949,12 +1308,11 @@ local SIDEBAR_ICON_REFS = {
     showScroll     = "scrollBtn",
 }
 
--- Canonical chain-icon keys and their fallback order values. Explicit numbers
--- in cfg.sidebarIconOrder win; keys without one fall back here. Friends and
--- Durability sit below zero so profiles saved before full reordering existed
--- (their maps only ever held the four middle keys) keep today's layout:
--- Friends, Durability, then the middle group. Scroll is not part of the
--- chain -- it stays pinned at the sidebar bottom.
+-- Canonical chain-icon keys and fallback order values. Explicit numbers in
+-- cfg.sidebarIconOrder win; unlisted keys fall back here. Friends/Durability
+-- sit below zero so profiles whose saved map only holds the four middle keys
+-- still order Friends, Durability, then the middle group. Scroll is not part
+-- of the chain -- it stays pinned at the sidebar bottom.
 local SIDEBAR_CHAIN_KEYS = {
     "showFriends", "showGuild", "showDurability", "showCopy", "showPortals", "showVoice", "showSettings",
 }
@@ -963,10 +1321,9 @@ local SIDEBAR_FALLBACK_ORDER = {
     showCopy = 1, showPortals = 2, showVoice = 3, showSettings = 4,
 }
 
--- Returns the chain-icon keys sorted into the user's saved order. Used by the
--- sidebar creation pass (reload-time source of truth), by ApplySidebarIcons as
--- a fallback when no creation snapshot exists, and by the options dropdown to
--- list its rows.
+-- Chain-icon keys sorted into the user's saved order. Used by the sidebar
+-- creation pass (reload-time source of truth), by ApplySidebarIcons when no
+-- creation snapshot exists, and by the options dropdown to list its rows.
 function ECHAT.ResolveSidebarIconOrder()
     local cfg = ECHAT.DB()
     local map = (cfg and cfg.sidebarIconOrder) or {}
@@ -997,17 +1354,22 @@ function ECHAT.SidebarIconExists(key)
     return CFD(cf1)[ref] ~= nil
 end
 
--- Chat frame position: owned by EUI unlock mode when a saved position exists.
--- SetPoint hook enforces saved position, blocking Blizzard's Edit Mode.
-local _cfIgnoreSetPoint = false
-local _cfResizing = false
-
+-- Chat frame position: owned by EUI unlock mode when a saved position exists
+-- (genesis-captured otherwise); enforcement is the ApplySystemAnchor guard.
 local function ApplyChatPosition()
+    -- A grip resize is an engine-driven op on ChatFrame1; the op re-anchors
+    -- the frame, Edit Mode's machinery reacts with ApplySystemAnchor, and
+    -- the guard below would then re-apply the SAVED anchors every tick --
+    -- a revert war that freezes the resize. Held off until release.
+    if ns._chatSizingActive then return end
     local cfg = ECHAT.DB()
     if not cfg or not cfg.chatPosition then return end
     local pos = cfg.chatPosition
     local cf1 = _G.ChatFrame1
     if not cf1 then return end
+    -- Corner positions only resolve with the clamp insets zeroed; assert
+    -- before anchoring so the enforcement itself can never land clamped.
+    EnsureChatClampInsets()
     local px, py = pos.x, pos.y
     local PPa = EllesmereUI and EllesmereUI.PP
     if PPa and px and py then
@@ -1023,33 +1385,338 @@ local function ApplyChatPosition()
         end
     end
     if not pos.point or not (px and py) then return end
-    _cfIgnoreSetPoint = true
     cf1:ClearAllPoints()
     cf1:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, px or 0, py or 0)
-    _cfIgnoreSetPoint = false
+    -- Saved size rides as a SECOND corner anchor: a two-point rect is
+    -- anchor-determined, so no code path ever calls SetSize on ChatFrame1
+    -- (a synchronous SetSize dispatch would run the dock relayout tainted),
+    -- the engine layout pass dispatches its OnSizeChanged SECURE, and any
+    -- Blizzard SetSize is overridden by the anchors.
+    local size = cfg.chatSize
+    if size and size.w and size.h then
+        local composed = false
+        if pos.point == "BOTTOMLEFT" and (pos.relPoint or "BOTTOMLEFT") == "BOTTOMLEFT" then
+            cf1:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT",
+                (px or 0) + size.w, (py or 0) + size.h)
+            composed = true
+        elseif pos.point == "TOPLEFT" and (pos.relPoint or "TOPLEFT") == "TOPLEFT" then
+            -- Unlock-mode drag saves land in TOPLEFT form: compose the size
+            -- anchor directly. A single-anchor apply would leave the rect on
+            -- the frame's explicit (Edit Mode, stale) size until the deferred
+            -- normalize below lands -- a window where a late Edit Mode pass
+            -- baked the old size in.
+            cf1:SetPoint("BOTTOMRIGHT", UIParent, "TOPLEFT",
+                (px or 0) + size.w, (py or 0) - size.h)
+            composed = true
+        end
+        if not composed or pos.point ~= "BOTTOMLEFT" then
+            -- Canonicalize foreign forms to BOTTOMLEFT once the rect
+            -- resolves, so every later apply composes on the fast path.
+            C_Timer.After(0, function()
+                local cfg2 = ECHAT.DB()
+                if not cfg2 or not cfg2.chatPosition or ns._chatSizingActive then return end
+                local l, b = cf1:GetLeft(), cf1:GetBottom()
+                local issecret = _G.issecretvalue
+                if not (l and b) or (issecret and (issecret(l) or issecret(b))) then return end
+                cfg2.chatPosition = { point = "BOTTOMLEFT", relPoint = "BOTTOMLEFT", x = l, y = b }
+                ApplyChatPosition()
+            end)
+        end
+    end
+    -- The visible stack follows numerically; sync it now rather than at the
+    -- next event so drags and guard re-applies land in one motion.
+    if ECHAT.PositionChatPanelsNow then ECHAT.PositionChatPanelsNow() end
+    -- The sync above reads the rect the SetPoints just changed, and same-tick
+    -- reads can lag the engine layout pass (the grip-save rule) -- the panel,
+    -- the tab band anchored to it, and the strip's clip then disagree for a
+    -- tick (ghost tabs clipped to slivers). One coalesced deferred re-sync
+    -- lands panels-then-strip on the resolved rect for EVERY apply path.
+    if not ns._chatPosResync then
+        ns._chatPosResync = true
+        C_Timer.After(0, function()
+            ns._chatPosResync = nil
+            if ECHAT.PositionChatPanelsNow then ECHAT.PositionChatPanelsNow() end
+            if ECHAT.TabsRefreshNow then ECHAT.TabsRefreshNow() end
+        end)
+    end
+end
+ECHAT.ApplyChatPosition = ApplyChatPosition
+
+-- Edit Mode's layout apply (login server-data arrival, layout switches) can
+-- re-rect the main window through paths the ApplySystemAnchor guard never
+-- sees, taking the last word over the settled-sight apply -- the frame sits
+-- at Edit Mode's rect while the panel stack holds ours until an interaction
+-- re-arms enforcement. Its own event is the precise edge: re-assert there,
+-- deferred out of Edit Mode's execution, gated on ownership having begun
+-- (anchor guard installed) so it can never fire early.
+do
+    local emWatch = CreateFrame("Frame")
+    emWatch:RegisterEvent("EDIT_MODE_LAYOUTS_UPDATED")
+    emWatch:SetScript("OnEvent", function()
+        local cfg = ECHAT.DB()
+        if not (cfg and cfg.chatPosition) then return end
+        local cf1 = _G.ChatFrame1
+        local d1 = cf1 and CFD(cf1)
+        if not (d1 and d1.anchorGuarded) then return end
+        C_Timer.After(0, function()
+            if ns._chatSizingActive then return end
+            if _G.EllesmereUI and _G.EllesmereUI._unlockActive then return end
+            local c2 = ECHAT.DB()
+            if c2 and c2.chatPosition then ApplyChatPosition() end
+        end)
+    end)
 end
 
--- Force Chat on Screen: when the saved preference is on, keep ChatFrame1 clamped to
--- the screen; otherwise allow it to be dragged off-screen (the default). Applied at
--- load and whenever the Chat options toggle changes. Persists via the chat DB.
-function ECHAT.ApplyForceOnScreen()
+-- Genesis capture: on the first settled sight with no saved position,
+-- ChatFrame1's current (Edit-Mode-placed) rect becomes OUR saved position.
+-- Pixel-identical takeover -- users see no change on update; from then on
+-- chat position is an EUI unlock element.
+local function CaptureChatPositionGenesis()
+    local cfg = ECHAT.DB()
+    if not cfg then return end
+    -- One-time ownership migration: positions saved before the Edit Mode
+    -- era are stale (users repositioned via Edit Mode since; re-applying
+    -- an ancient spot would visibly move their chat on update). Discard
+    -- once so genesis captures the CURRENT placement.
+    if cfg._chatPosOwnership ~= 1 then
+        cfg._chatPosOwnership = 1
+        cfg.chatPosition = nil
+    end
+    if cfg.chatPosition then return end
     local cf1 = _G.ChatFrame1
     if not cf1 then return end
-    local cfg = ECHAT.DB()
-    local force = cfg and cfg.forceOnScreen == true or false
-    cf1:SetClampedToScreen(force)
+    local left, bottom = cf1:GetLeft(), cf1:GetBottom()
+    if not (left and bottom) then return end
+    cfg.chatPosition = { point = "BOTTOMLEFT", relPoint = "BOTTOMLEFT", x = left, y = bottom }
 end
 
--- Chat frame size: Blizzard is sole authority for chat sizing.
--- We no longer apply saved width/height.
+-- Edit Mode override, the suite's action-bar anchor-guard pattern: post-hook
+-- the system anchor apply, re-apply OURS deferred so no addon code runs
+-- inside Edit Mode's secure chain. One hook covers the login layout apply,
+-- layout switches, and Edit Mode exit. ChatFrame1 is NEVER reparented and
+-- its SetPoint is NEVER hooked -- both are recorded failure classes (Edit
+-- Mode's UpdateSystemAnchorInfo assumes a UIParent child; a reparented
+-- chat came back with no anchors at all).
+local function InstallChatAnchorGuard()
+    local cf1 = _G.ChatFrame1
+    if not cf1 or not cf1.ApplySystemAnchor then return end
+    local d = CFD(cf1)
+    if d.anchorGuarded then return end
+    d.anchorGuarded = true
+    hooksecurefunc(cf1, "ApplySystemAnchor", function()
+        local cfg = ECHAT.DB()
+        if cfg and cfg.chatPosition then
+            C_Timer.After(0, ApplyChatPosition)
+        end
+    end)
+end
+
+-- Kill Edit Mode's selection overlay for chat: the unit-frame treatment
+-- adapted. Their Blizzard frames die by hidden reparent; cf1 must stay
+-- live, and Edit Mode still drives its Selection child -- so the Selection
+-- goes alpha-0 and mouse-dead IN PLACE (never reparented: a region its
+-- owner still writes must stay in its tree). Chat can be neither
+-- highlighted nor dragged in Edit Mode; asserted from the state sync since
+-- Edit Mode rewrites the overlay across its sessions.
+function ECHAT.SuppressChatEditModeSelection()
+    local cf1 = _G.ChatFrame1
+    local sel = cf1 and cf1.Selection
+    if not sel then return end
+    if sel:GetAlpha() ~= 0 then sel:SetAlpha(0) end
+    if sel.SetMouseClickEnabled then
+        if sel:IsMouseClickEnabled() then sel:SetMouseClickEnabled(false) end
+        if sel:IsMouseMotionEnabled() then sel:SetMouseMotionEnabled(false) end
+    end
+end
+ns._CaptureChatPositionGenesis = CaptureChatPositionGenesis
+ns._InstallChatAnchorGuard = InstallChatAnchorGuard
+
+-- Main chat size is applied as a second corner anchor inside
+-- ApplyChatPosition (cfg.chatSize; anchor-determined rect, never SetSize).
+-- Undocked windows stay Blizzard-sized. This stub remains for callers.
 local function ApplyChatSize()
-    -- no-op: Blizzard handles all chat frame sizing
 end
 ECHAT.ApplyChatSize = ApplyChatSize
 
+-- Main chat resize grip: our button, ANCHOR-driven sizing. Blizzard never
+-- shows ChatFrame1's own resize button (Edit Mode owned main chat sizing,
+-- and our position takeover suppressed Edit Mode), so this grip is the sole
+-- resize surface. HARD CONSTRAINTS, both field-proven:
+--   - Never SetSize ChatFrame1 in any form: its OnSizeChanged is wired to
+--     FCFDock_OnPrimarySizeChanged, which writes dock.isDirty/leftTab AND
+--     installs the dock OnUpdate script; a synchronous insecure dispatch
+--     taints the dock slots the secure whisper temp-window chain reads
+--     (the recorded UpdateHeader secret-rect detonation class).
+--   - StartSizing is engine-VETOED on the Edit-Mode-managed main window
+--     (probed: rect identical before/after with the op "running"); the
+--     docked branch in Blizzard's ResizeButton XML is legacy-dead.
+-- The lane that satisfies both: pin TOPLEFT and drive the BOTTOMRIGHT
+-- corner anchor from the cursor. A two-point rect is anchor-determined;
+-- the engine layout pass recomputes it and dispatches OnSizeChanged as a
+-- fresh SECURE execution (Blizzard's own dock relayout defers its work one
+-- frame for exactly this timing). Persistence: cfg.chatSize, applied as
+-- the second corner anchor by ApplyChatPosition -- Blizzard's saved-
+-- dimensions restore explicitly skips the main window.
+local function BuildMainChatResizeGrip(cf)
+    local d = CFD(cf)
+    if d.resizeGrip or not d.bg then return end
+    local grip = CreateFrame("Button", nil, d.bg)
+    d.resizeGrip = grip
+    grip:SetSize(18, 18)
+    -- Anchored to the chat frame like the undocked buttons, so the icon
+    -- hugs the true resize corner regardless of panel insets.
+    grip:SetPoint("BOTTOMRIGHT", cf, "BOTTOMRIGHT", -2, 2)
+    grip:SetFrameStrata("HIGH")
+    local tex = grip:CreateTexture(nil, "ARTWORK")
+    tex:SetAllPoints()
+    tex:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\resize_element.png")
+    tex:SetDesaturated(true)
+    tex:SetVertexColor(1, 1, 1)
+    grip:SetAlpha(0.2)
+
+    -- Damage-meters drag mechanics, anchor-driven: per tick the TOPLEFT stays
+    -- pinned and the BOTTOMRIGHT corner anchor follows the cursor (shift =
+    -- axis lock, min sizes, screen-edge caps). The rect is anchor-determined,
+    -- so the engine layout pass recomputes it and ChatFrame1's OnSizeChanged
+    -- (the dock relayout) dispatches SECURE. StartSizing is NOT usable here
+    -- (engine-vetoed on the Edit-Mode-managed main window; field-probed) and
+    -- SetSize is BANNED (synchronous tainted dispatch). No InProtectedInstance
+    -- gate: /euidev makes it return true and would dead-stop the grip; all
+    -- rect reads below are secret-gated instead.
+    local MIN_W, MIN_H = 220, 100
+    local sizing = false
+    local startX, startY, startW, startH, anchorLeft, anchorTop
+    local curW, curH, axis, shiftWas
+    local ticker = CreateFrame("Frame")
+    ticker:Hide()
+    ticker:SetScript("OnUpdate", function()
+        if not sizing then return end
+        local cx, cy = GetCursorPosition()
+        local es = cf:GetEffectiveScale()
+        local dx = cx / es - startX
+        local dy = startY - cy / es
+        local shiftDown = IsShiftKeyDown()
+        local newW, newH
+        if shiftDown then
+            if not shiftWas then
+                axis = (math.abs(dx) >= math.abs(dy)) and "w" or "h"
+            end
+            if axis == "w" then
+                newW, newH = math.max(MIN_W, startW + dx), startH
+            else
+                newW, newH = startW, math.max(MIN_H, startH + dy)
+            end
+        else
+            axis = nil
+            newW = math.max(MIN_W, startW + dx)
+            newH = math.max(MIN_H, startH + dy)
+        end
+        -- Cap so the frame can't extend past screen edges from the pinned corner.
+        local screenR = UIParent:GetRight() or 0
+        local screenB = UIParent:GetBottom() or 0
+        if screenR - anchorLeft > MIN_W then newW = math.min(newW, screenR - anchorLeft) end
+        if anchorTop - screenB > MIN_H then newH = math.min(newH, anchorTop - screenB) end
+        curW, curH = newW, newH
+        -- Full re-anchor per tick: a mid-drag Edit Mode anchor write would
+        -- otherwise leave a third point and overconstrain the rect.
+        cf:ClearAllPoints()
+        cf:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", anchorLeft, anchorTop)
+        cf:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMLEFT", anchorLeft + newW, anchorTop - newH)
+        shiftWas = shiftDown
+        -- The visible stack is positioned numerically; sync per tick so the
+        -- panels ride the drag with zero lag.
+        if ECHAT.PositionChatPanelsNow then ECHAT.PositionChatPanelsNow() end
+    end)
+
+    grip:SetScript("OnMouseDown", function(_, button)
+        if button ~= "LeftButton" then return end
+        local issecret = _G.issecretvalue
+        local left, top = cf:GetLeft(), cf:GetTop()
+        local w, h = cf:GetWidth(), cf:GetHeight()
+        if not (left and top and w and h) then return end
+        if issecret and (issecret(left) or issecret(top)
+            or issecret(w) or issecret(h)) then return end
+        -- Hold the position enforcement for the whole drag: our per-tick
+        -- corner anchors rule until release.
+        ns._chatSizingActive = true
+        cf:ClearAllPoints()
+        cf:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+        cf:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMLEFT", left + w, top - h)
+        anchorLeft, anchorTop = left, top
+        local cx, cy = GetCursorPosition()
+        local es = cf:GetEffectiveScale()
+        startX, startY = cx / es, cy / es
+        startW, startH = w, h
+        curW, curH = w, h
+        shiftWas = false
+        sizing = true
+        ticker:Show()
+        -- Held for the whole drag: the cursor can slide off the grip mid-
+        -- drag, and its OnLeave alone would disarm the geometry follower
+        -- while the frame is still resizing.
+        if ECHAT.FollowArm then ECHAT.FollowArm() end
+    end)
+    grip:SetScript("OnMouseUp", function(_, button)
+        if button ~= "LeftButton" or not sizing then return end
+        sizing = false
+        ticker:Hide()
+        ns._chatSizingActive = nil
+        if ECHAT.FollowRelease then ECHAT.FollowRelease() end
+        -- Save from the drag's own numbers (never frame reads: the rect
+        -- resolves in the engine layout pass and can lag the final tick).
+        -- Persistence is OUR DB key -- Blizzard's saved-dimensions restore
+        -- explicitly skips the main window ("controlled via edit mode").
+        local cfg = ECHAT.DB()
+        if cfg and curW and curH then
+            local w = math.floor(curW + 0.5)
+            local h = math.floor(curH + 0.5)
+            cfg.chatSize = { w = w, h = h }
+            cfg.chatPosition = { point = "BOTTOMLEFT", relPoint = "BOTTOMLEFT",
+                x = anchorLeft, y = anchorTop - h }
+        end
+        if ECHAT.ApplyChatPosition then ECHAT.ApplyChatPosition() end
+        if ECHAT.TabsRefreshNow then ECHAT.TabsRefreshNow() end
+    end)
+    -- Lock toggled or panel hidden mid-drag: end the drag and release the
+    -- position hold, or the guard would stay suspended forever.
+    grip:SetScript("OnHide", function()
+        if sizing then
+            sizing = false
+            ticker:Hide()
+            ns._chatSizingActive = nil
+            if ECHAT.FollowRelease then ECHAT.FollowRelease() end
+        end
+    end)
+    -- Undocked-button hover parity; a resize drag starts and stays on this
+    -- grip, so the geometry follower arms while the mouse is here and the
+    -- panels ride the drag live.
+    grip:SetScript("OnEnter", function(self)
+        self:SetAlpha(0.7)
+        if ECHAT.FollowArm then ECHAT.FollowArm() end
+    end)
+    grip:SetScript("OnLeave", function(self)
+        self:SetAlpha(0.2)
+        if ECHAT.FollowRelease then ECHAT.FollowRelease() end
+    end)
+end
+ns._BuildMainChatResizeGrip = BuildMainChatResizeGrip
+
+-- Lock Main Chat Size: hides OUR grip (main chat's sole resize surface).
+-- Blizzard's ChatFrame1ResizeButton stays permanently dead -- alpha + mouse
+-- only, never isLocked/FCF_SetLocked (the dock-list/isLocked poison class).
 function ECHAT.ApplyLockChatSize()
     local cfg = ECHAT.DB()
-    -- No-op: custom resize grip removed, Blizzard handles sizing.
+    local locked = cfg and cfg.lockChatSize == true
+    local btn = _G.ChatFrame1ResizeButton
+    if btn then
+        btn:SetAlpha(0)
+        btn:EnableMouse(false)
+    end
+    local cf1 = _G.ChatFrame1
+    local grip = cf1 and CFD(cf1).resizeGrip
+    if grip then
+        grip:SetShown(not locked)
+    end
 end
 
 -- Flip sidebar to left or right side of chat bg
@@ -1060,9 +1727,8 @@ function ECHAT.ApplySidebarPosition()
     if not sb or not CFD(cf1).bg then return end
     local PP = EllesmereUI and EllesmereUI.PP
     local onePx = (PP and PP.mult) or 1
-    -- Separate Sidebar: detach from the panel by the configured gap; the
-    -- sidebar keeps its own bg and (via ApplyExtendedBackground) gets its
-    -- own panel-style border.
+    -- Separate Sidebar: detach from the panel by the configured gap; it keeps
+    -- its own bg and gets its own panel-style border (ApplyExtendedBackground).
     local gap = (cfg.sidebarSeparate == true) and (cfg.sidebarSeparateSpacing or 8) or 0
     sb:ClearAllPoints()
     if cfg.sidebarRight then
@@ -1072,8 +1738,8 @@ function ECHAT.ApplySidebarPosition()
         sb:SetPoint("TOPRIGHT", CFD(cf1).bg, "TOPLEFT", -gap, 0)
         sb:SetPoint("BOTTOMRIGHT", CFD(cf1).bg, "BOTTOMLEFT", -gap, 0)
     end
-    -- Move the divider to the correct edge; hidden entirely in separate
-    -- mode (it is the joint line between sidebar and panel).
+    -- Divider to the correct edge; hidden in separate mode (it is the joint
+    -- line between sidebar and panel).
     if CFD(cf1).sidebarDiv then
         CFD(cf1).sidebarDiv:ClearAllPoints()
         if cfg.sidebarRight then
@@ -1202,10 +1868,9 @@ function ECHAT.ApplySidebarIconScale()
     local BASE_ICON = 22
     local BASE_FONT = 9
 
-    -- _freeMoveH mirrors each icon's height from these known size constants so
-    -- the free-move natural-position walk (TopYFromSidebarTop) never has to call
-    -- GetHeight() -- a geometry resolve that can taint the Edit-Mode ChatFrame1.
-    -- These are our own frames, so writing the field is safe.
+    -- _freeMoveH mirrors each icon's height from these constants so
+    -- TopYFromSidebarTop never calls GetHeight() -- a geometry resolve that
+    -- can taint the Edit-Mode ChatFrame1. Our own frames, so writing is safe.
     for _, key in ipairs({ "durabilityBtn", "copyBtn", "portalBtn", "voiceBtn", "settingsBtn", "scrollBtn" }) do
         local btn = CFD(cf1)[key]
         if btn then
@@ -1254,19 +1919,14 @@ local function SaveIconOffset(key, x, y)
     cfg.iconPositions[key] = { x = x, y = y }
 end
 
--- Y offset of `frame`'s TOP edge below the SIDEBAR's TOP edge, computed from
--- GetPoint (stored anchor data, no geometry resolve) plus each frame's STORED
--- height (_freeMoveH, written from known size constants in ApplySidebarIconScale).
---
--- CRITICAL: this deliberately never calls GetHeight()/GetWidth()/GetCenter() or
--- any geometry-RESOLVING getter. Those resolve a frame's rect by walking its
--- anchor chain, which for our icons runs icon -> sidebar -> chat bg -> ChatFrame1.
--- ChatFrame1 is Edit-Mode-secured; forcing its layout to resolve from our
--- insecure code TAINTS it, and the next BN whisper then errors in HistoryKeeper /
--- FCFManager. GetHeight here used to taint ChatFrame1 whenever its geometry was
--- still unresolved at the moment of the walk (login timing / saved chat layout) --
--- which is why it only hit some users. Reading the pre-stored _freeMoveH removes
--- the resolve entirely while keeping the math identical.
+-- Y offset of `frame`'s TOP edge below the SIDEBAR's TOP edge, from GetPoint (stored
+-- anchor data, no resolve) plus each frame's STORED height (_freeMoveH, from
+-- ApplySidebarIconScale's size constants). CRITICAL: NEVER call
+-- GetHeight/GetWidth/GetCenter or any other geometry- RESOLVING getter here -- they
+-- walk the anchor chain icon -> sidebar -> chat bg -> ChatFrame1, and ChatFrame1 is
+-- Edit-Mode-secured, so resolving its layout from insecure code TAINTS it (intermittent
+-- HistoryKeeper/FCFManager whisper errors, only when geometry was still unresolved at
+-- walk time, e.g. login timing). The pre-stored _freeMoveH avoids the resolve entirely.
 local function TopYFromSidebarTop(frame, sb, depth)
     if frame == sb or (depth or 0) > 12 then return 0 end
     local point, relTo, relPoint, _, dy = frame:GetPoint(1)
@@ -1285,9 +1945,8 @@ local function TopYFromSidebarTop(frame, sb, depth)
     return edgeY + (frame._freeMoveH or 0) / 2
 end
 
--- Capture each icon's natural position as an offset from a sidebar EDGE (TOP for
--- the top-stacked icons, BOTTOM for the scroll button), computed taint-safely.
--- Stored once; re-applying never reads live geometry, so offsets never compound.
+-- Capture each icon's natural sidebar-EDGE offset (TOP/BOTTOM) once, so
+-- re-applies never read live geometry and offsets never compound.
 local function CaptureNatural(btn, sb)
     if btn._freeMoveNat then return end
     local point = btn:GetPoint(1)
@@ -1333,7 +1992,7 @@ local function EnableIconFreeMove(btn)
 
     -- Drag re-anchors to the icon's own sidebar edge at natural + (offset+delta).
     -- GetEffectiveScale walks the PARENT chain (button->sidebar->UIParent), not
-    -- the anchor chain to ChatFrame1, so it is taint-safe. GetParent() == sidebar.
+    -- the anchor chain to ChatFrame1, so it is taint-safe; GetParent() == sidebar.
     local function FreeMoveOnUpdate(self)
         if not IsMouseButtonDown("LeftButton") then
             self:SetScript("OnUpdate", nil)
@@ -1375,16 +2034,12 @@ function ECHAT.ApplyIconFreeMove()
     local sb = cf1 and CFD(cf1).sidebar
     if not sb then return end
 
-    -- Free move is opt-in. When it is OFF (the common case) we do NOTHING here:
-    -- no anchor-chain capture, no drag-hook install, no offsets. This guard is
-    -- the actual fix for the on-some-profiles taint -- CaptureNatural walks the
-    -- icon anchor chain, and running that walk while the feature is disabled was
-    -- pure cost that, for users whose chat geometry was still unresolved at
-    -- login, resolved up to and tainted the Edit-Mode ChatFrame1. The setting
-    -- previously gated only the offset APPLY; the capture ran unconditionally.
-    -- Enabling the toggle re-runs ApplySidebarIcons -> ApplyIconFreeMove, so the
-    -- hooks install the moment the feature is turned on. Icons left untouched
-    -- here simply keep their natural chain layout, which is exactly what we want.
+    -- Free move is opt-in: OFF does NOTHING here -- no anchor-chain capture, no
+    -- drag-hook install, no offsets. This gate is required: CaptureNatural walks the
+    -- icon anchor chain, and for users whose chat geometry is still unresolved at
+    -- login, that walk resolves up through and TAINTS the Edit-Mode ChatFrame1. Turning
+    -- the toggle on re-runs ApplySidebarIcons -> ApplyIconFreeMove, installing hooks
+    -- immediately; untouched icons keep their natural chain layout.
     if not cfg.freeMoveIcons then return end
 
     local btns = {
@@ -1398,16 +2053,16 @@ function ECHAT.ApplyIconFreeMove()
         { ref = "scrollBtn",     key = "scroll" },
     }
 
-    -- PHASE 1 -- capture every icon's natural anchor (GetPoint anchor data +
-    -- stored heights, never a geometry-resolving getter; see TopYFromSidebarTop)
-    -- and install the drag hooks. This MUST complete for ALL icons before any
-    -- icon is re-anchored in Phase 2. The capture walks each icon's anchor chain,
-    -- so if Phase 2 ran interleaved, a later icon's walk would read an earlier
-    -- icon's already-applied offset and bake it into its "natural" position --
-    -- making icons drift on every reload. Two phases keep the chain pristine
-    -- throughout capture.
+    -- PHASE 1 -- capture every icon's natural anchor (GetPoint data + stored heights,
+    -- never a geometry-resolving getter; see TopYFromSidebarTop) and install drag
+    -- hooks. MUST complete for ALL icons before Phase 2's re-anchoring: interleaving
+    -- would let a later icon's chain-walk read an earlier icon's already-applied offset
+    -- and bake it into its "natural" position -- drift on every reload.
     for _, info in ipairs(btns) do
         local btn = CFD(cf1)[info.ref]
+        -- The chat-anchored scroll button is outside the sidebar chain; free
+        -- move must not capture or re-anchor it.
+        if info.ref == "scrollBtn" and cfg.scrollButtonOnChat then btn = nil end
         if btn then
             btn._freeMoveKey = info.key
             CaptureNatural(btn, sb)
@@ -1416,9 +2071,10 @@ function ECHAT.ApplyIconFreeMove()
     end
 
     -- PHASE 2 -- re-anchor each icon to its sidebar edge at natural + saved
-    -- offset, so the icons move independently of one another.
+    -- offset, so icons move independently.
     for _, info in ipairs(btns) do
         local btn = CFD(cf1)[info.ref]
+        if info.ref == "scrollBtn" and cfg.scrollButtonOnChat then btn = nil end
         if btn then ApplyIconOffset(btn, sb) end
     end
 end
@@ -1568,8 +2224,8 @@ local function CreatePortalFlyout()
         _portalBtns[i] = btn
     end
 
-    -- Hearthstone column: 3 icons stacked vertically as a 5th column
-    -- on the right side, separated by a thin vertical divider.
+    -- Hearthstone column: 3 icons stacked vertically as a 5th column on the
+    -- right side, separated by a thin vertical divider.
     local _hearthBtns = {}
     for i = 1, HS_COUNT do
         local btn = CreateFrame("Button", "EUIChatHearth" .. i, flyout, "SecureActionButtonTemplate")
@@ -1631,7 +2287,6 @@ local function CreatePortalFlyout()
                 end
                 if _portalFlyout then _portalFlyout:Hide() end
             else
-                -- Show cast highlight immediately on click
                 self._castHL:Show()
             end
         end)
@@ -1640,8 +2295,7 @@ local function CreatePortalFlyout()
     end
 
 
-    -- Cooldown-only refresh: updates swipes without re-resolving toys.
-    -- Called on SPELL_UPDATE_COOLDOWN events.
+    -- Swipe-only refresh (SPELL_UPDATE_COOLDOWN); never re-resolves toys.
     local function RefreshHearthCooldowns()
         for _, btn in ipairs(_hearthBtns) do
             local aType, id = btn._hsType, btn._hsID
@@ -1665,8 +2319,8 @@ local function CreatePortalFlyout()
         end
     end
 
-    -- Full resolve: picks random toy, sets icon/macro/attributes.
-    -- Called once on Show only (not on cooldown events).
+    -- Full resolve (random toy, icon/macro/attributes). Show only, never on
+    -- cooldown events; attribute writes are combat-illegal, hence the gate.
     local function ResolveHearthButtons()
         if InCombatLockdown() then return end
         local EUI = EllesmereUI
@@ -1709,7 +2363,7 @@ local function CreatePortalFlyout()
         RefreshHearthCooldowns()
     end
 
-    -- Cooldown + casting highlight refresh while visible
+    -- Events live only while shown: cooldown + cast highlight refresh.
     flyout:SetScript("OnShow", function(self)
         self:RegisterEvent("SPELL_UPDATE_COOLDOWN")
         self:RegisterEvent("UNIT_SPELLCAST_START")
@@ -1740,7 +2394,7 @@ local function CreatePortalFlyout()
                     btn._castHL:SetShown(casting and casting == btn.spellID)
                 end
             end
-            -- Clear hearthstone cast highlights on cast end
+            -- Cast end clears hearthstone highlights
             if not casting then
                 for _, btn in ipairs(_hearthBtns) do
                     if btn._castHL then btn._castHL:Hide() end
@@ -1762,7 +2416,8 @@ function ECHAT.TogglePortalFlyout(anchorBtn)
     if flyout:IsShown() then
         flyout:Hide()
     else
-        -- Compute absolute screen position (protected frame can't anchor to non-secure region)
+        -- Absolute screen position: a protected frame cannot anchor to a
+        -- non-secure region.
         local bs = anchorBtn:GetEffectiveScale()
         local fs = flyout:GetEffectiveScale()
         local bTop = anchorBtn:GetTop() * bs
@@ -1793,16 +2448,25 @@ function ECHAT.ApplyInputPosition()
             local eb = _G[name .. "EditBox"]
             local bg = CFD(cf).bg
             local div = CFD(cf).inputDiv
-            local fsc = cf.FontStringContainer
-            local bar = cf.ScrollBar
 
-            if eb and (i <= 10 or not BISECT_EB_ANCHORS_OFF) then
+            if eb then
                 eb:ClearAllPoints()
                 if onTop then
-                    -- Grow the shared panel upward instead of placing the
-                    -- input inside the chat frame and reducing its text area.
-                    eb:SetPoint("BOTTOMLEFT", cf, "TOPLEFT", -10, 3)
-                    eb:SetPoint("BOTTOMRIGHT", cf, "TOPRIGHT", 5, 3)
+                    -- Below the tab band, INSIDE the panel: the input
+                    -- overlays the top strip of the text area (the space
+                    -- above the frame is the tab band's home, and tab
+                    -- geometry is Blizzard's -- never moved for us). Our
+                    -- message frame hands the strip back via _smfTopExtra;
+                    -- line alignment with Blizzard's invisible text is
+                    -- unaffected because chat renders bottom-up from a
+                    -- shared bottom edge, and the input covers the
+                    -- hit-zones of the lines it hides.
+                    eb:SetPoint("TOPLEFT", cf, "TOPLEFT", -10, 0)
+                    eb:SetPoint("TOPRIGHT", cf, "TOPRIGHT", 5, 0)
+                    local bgLvl = CFD(cf).bg:GetFrameLevel() or 1
+                    if eb:GetFrameLevel() < bgLvl + 5 then
+                        eb:SetFrameLevel(bgLvl + 5)
+                    end
                 else
                     eb:SetPoint("TOPLEFT", cf, "BOTTOMLEFT", -10, -8)
                     eb:SetPoint("TOPRIGHT", cf, "BOTTOMRIGHT", 5, -8)
@@ -1813,8 +2477,8 @@ function ECHAT.ApplyInputPosition()
             if div then
                 div:ClearAllPoints()
                 if onTop then
-                    div:SetPoint("TOPLEFT", cf, "TOPLEFT", -10, 3)
-                    div:SetPoint("TOPRIGHT", cf, "TOPRIGHT", 10, 3)
+                    div:SetPoint("TOPLEFT", cf, "TOPLEFT", -10, -inputHeight)
+                    div:SetPoint("TOPRIGHT", cf, "TOPRIGHT", 10, -inputHeight)
                 else
                     div:SetPoint("BOTTOMLEFT", cf, "BOTTOMLEFT", -10, -8)
                     div:SetPoint("BOTTOMRIGHT", cf, "BOTTOMRIGHT", 10, -8)
@@ -1822,35 +2486,29 @@ function ECHAT.ApplyInputPosition()
             end
 
             if bg then
-                bg:ClearAllPoints()
-                -- Keep the horizontal panel geometry independent from the
-                -- input position/height. Only the vertical edge may expand.
-                bg:SetPoint("LEFT", cf, "LEFT", -10, 0)
-                bg:SetPoint("RIGHT", cf, "RIGHT", 10, 0)
-                if onTop then
-                    bg:SetPoint("TOP", cf, "TOP", 0, 3 + inputHeight)
-                    bg:SetPoint("BOTTOM", cf, "BOTTOM", 0, -6)
-                else
-                    bg:SetPoint("TOP", cf, "TOP", 0, 3)
-                    bg:SetPoint("BOTTOM", cf, "BOTTOM", 0, eb and -(12 + inputHeight) or -6)
-                end
+                -- The panel is placed NUMERICALLY, never anchored to cf (see
+                -- PositionChatPanel): record the insets this input layout wants
+                -- and let the positioner apply them against the chat frame's
+                -- rect. Anchoring here would put our frame back into
+                -- Blizzard's rect chain -- the whole bug. Only the vertical
+                -- edge may expand; horizontal geometry stays independent.
+                local d = CFD(cf)
+                d._bgIns = {
+                    l = -10,
+                    r = 10,
+                    t = 3,
+                    b = onTop and -6 or (eb and -(12 + inputHeight) or -6),
+                }
+                -- Input-on-top: the panel keeps its normal rect; only OUR
+                -- message frame's text area shrinks under the overlaid input.
+                d._smfTopExtra = (onTop and eb) and (inputHeight + 4) or nil
+                if ECHAT.PositionChatPanel then ECHAT.PositionChatPanel(cf) end
             end
 
-            if fsc then
-                fsc:ClearAllPoints()
-                -- The chat text keeps the full ChatFrame height regardless of
-                -- input placement or input height.
-                fsc:SetPoint("TOPLEFT", cf, "TOPLEFT", 0, -6)
-                fsc:SetPoint("BOTTOMRIGHT", cf, "BOTTOMRIGHT", 0, 0)
-            end
-
-            if bar and (i <= 10 or not BISECT_EB_ANCHORS_OFF) then
-                bar:ClearAllPoints()
-                bar:SetPoint("TOPRIGHT", cf, "TOPRIGHT", 5, -2)
-                bar:SetPoint("BOTTOMRIGHT", cf, "BOTTOMRIGHT", 5, 2)
-            end
         end
     end
+    -- Our message frames derive their text area from the recorded insets.
+    if ECHAT.EngineLayoutWindows then ECHAT.EngineLayoutWindows() end
 end
 
 function ECHAT.ApplySidebarWidth()
@@ -1861,8 +2519,7 @@ function ECHAT.ApplySidebarWidth()
     if ECHAT.ApplySidebarPosition then ECHAT.ApplySidebarPosition() end
 end
 
--- Internal: immediately apply alpha to all chat elements
--- Cache frames for _ApplyAlpha to avoid repeated _G lookups
+-- Frame cache for _ApplyAlpha, so the fade loop does no repeated _G lookups.
 local _alphaFrames
 local function _BuildAlphaCache()
     _alphaFrames = {}
@@ -1878,31 +2535,292 @@ local function _BuildAlphaCache()
             }
         end
     end
-    -- Cache sidebar + its frame + mode for the fade loop
     local cf1 = _G.ChatFrame1
     _alphaFrames._sidebar = cf1 and CFD(cf1).sidebar
     local cfg = ECHAT.DB()
     _alphaFrames._sidebarMode = cfg and cfg.sidebarVisibility or "always"
+    -- A chat-anchored scroll button does not inherit the sidebar alpha.
+    if cfg and cfg.scrollButtonOnChat and cf1 then
+        _alphaFrames._chatScrollBtn = CFD(cf1).scrollBtn
+    end
 end
 
 
+-- Full-hide mouse passthrough. At effective alpha 0 every mouse surface over the panel
+-- is released so clicks and camera drags reach the world. Two regimes: idle fade at
+-- strength 100 keeps frames shown (a fade must render) and disables both mouse channels
+-- on chat frames 1-10 plus their edit boxes, scroll bars, static tabs,
+-- FontStringContainers and line-pool children (temp windows/dynamic tabs untouched),
+-- plus our grips/sidebar/overlay -- hover- wake comes from the geometric poll below.
+-- Visibility-hidden (never/combat rules) also Hide()s the stack via SetChatStackShown,
+-- the only state the engine cannot route input to. Original states are captured in the
+-- CFD side table and restored exactly the moment any fade-in begins (new message,
+-- Enter, visibility change).
+local _chatPassthrough = false
+
+-- Capture-then-disable / exact-restore for BOTH mouse channels: clicks (EnableMouse)
+-- and motion (EnableMouseMotion -- blocks camera right-drag). States live in the CFD
+-- side table under `key` and `key .. "M"`, so we only ever re-enable what we ourselves
+-- disabled. Channels are read/written SEPARATELY: EnableMouse/IsMouseEnabled are
+-- COMBINED-channel APIs, chat widgets run split states (click-only line frames,
+-- motion-only containers), and a combined restore flips the wrong channel -- e.g.
+-- re-arming clicks on a natively motion-only frame after one passthrough cycle.
+local function GetMouseChannels(f)
+    local click
+    if f.IsMouseClickEnabled then click = f:IsMouseClickEnabled()
+    else click = f:IsMouseEnabled() end
+    local motion = f.IsMouseMotionEnabled and f:IsMouseMotionEnabled()
+    return click and true or false, motion and true or false
+end
+local function SetMouseChannels(f, click, motion)
+    if f.SetMouseClickEnabled then f:SetMouseClickEnabled(click)
+    elseif not click then f:EnableMouse(false)
+    else f:EnableMouse(true) end
+    if f.SetMouseMotionEnabled then f:SetMouseMotionEnabled(motion)
+    elseif f.EnableMouseMotion then f:EnableMouseMotion(motion) end
+end
+
+local function PMOff(d, key, f)
+    if not f then return end
+    -- Capture on first sight only, but ASSERT the disable every sweep:
+    -- Blizzard's message pipeline re-enables click on chat widgets while we
+    -- are engaged, and a skipped re-disable leaves an invisible click zombie.
+    if d[key] == nil then
+        local click, motion = GetMouseChannels(f)
+        d[key] = click
+        d[key .. "M"] = motion
+    end
+    SetMouseChannels(f, false, false)
+end
+local function PMOn(d, key, f)
+    if f and d[key] ~= nil then
+        SetMouseChannels(f, d[key], d[key .. "M"])
+    end
+    d[key] = nil
+    d[key .. "M"] = nil
+end
+
+-- The SMF's per-line hit-test frames are children of FontStringContainer
+-- (Blizzard's line pool) and each carries its own mouse state, so toggling
+-- the container alone does not release them. ONE bounded generation -- direct
+-- children only, NEVER recursive -- with per-child state captured on first
+-- sight in a weak side store and restored exactly from it.
+local function PMOffChildren(d, key, parent)
+    if not parent then return end
+    local store = d[key]
+    if not store then store = setmetatable({}, { __mode = "k" }); d[key] = store end
+    local kids = { parent:GetChildren() }
+    for i = 1, #kids do
+        local c = kids[i]
+        -- Capture first sight only; assert the disable every sweep -- the SMF
+        -- re-enables click on its line frames as messages render, and these
+        -- shape the dead zone.
+        if not store[c] then
+            local click, motion = GetMouseChannels(c)
+            store[c] = { click, motion }
+        end
+        SetMouseChannels(c, false, false)
+    end
+end
+local function PMOnChildren(d, key, parent)
+    local store = d[key]
+    if not store or not parent then return end
+    local kids = { parent:GetChildren() }
+    for i = 1, #kids do
+        local c = kids[i]
+        local st = store[c]
+        if st then
+            SetMouseChannels(c, st[1], st[2])
+            store[c] = nil
+        end
+    end
+end
+
+-- Frame-level portion of the full-hide passthrough. OUR message frames are
+-- simply hidden for the duration (a hidden frame cannot receive input); the
+-- live Blizzard mouse surfaces over the panel -- the edit boxes, the skinned
+-- permanent tabs, the dock overflow button, the invisible hyperlink
+-- hit-zones in each FontStringContainer, and the chat frame itself -- get
+-- the capture-exact PMOff/PMOn treatment.
+local function PassthroughFrames(on)
+    for i = 1, 10 do
+        local cf = _G["ChatFrame" .. i]
+        local d = cf and CFD(cf)
+        if d and d.bg then
+            local eb = _G["ChatFrame" .. i .. "EditBox"]
+            if on then
+                PMOff(d, "pmCf", cf)
+                -- FontStringContainer is a separate mouse surface (hyperlink
+                -- hit-testing) not covered by the chat frame's own state; its
+                -- line-pool children each carry their own too.
+                PMOff(d, "pmFsc", cf.FontStringContainer)
+                PMOffChildren(d, "pmFscKids", cf.FontStringContainer)
+                PMOff(d, "pmEb", eb)
+                PMOff(d, "pmGrip", d.resizeGrip)
+            else
+                PMOn(d, "pmCf", cf)
+                PMOn(d, "pmFsc", cf.FontStringContainer)
+                PMOnChildren(d, "pmFscKids", cf.FontStringContainer)
+                PMOn(d, "pmEb", eb)
+                PMOn(d, "pmGrip", d.resizeGrip)
+            end
+        end
+    end
+    -- Blizzard's tabs and dock overflow are hidden wholesale now (owned tab
+    -- strip); hidden frames cannot receive input, so no mouse work for them.
+    -- Our own surfaces hide outright while passthrough is engaged.
+    if ECHAT.EngineSetPassthrough then ECHAT.EngineSetPassthrough(on) end
+    if ECHAT.TabsSetPassthrough then ECHAT.TabsSetPassthrough(on) end
+end
+
+-- Hover-wake while fully hidden: a passthrough panel cannot receive mouse
+-- events, so mouseover reveal at fade strength 100 needs a geometric poll --
+-- IsMouseOver() is a pure rect test needing no mouse state. Runs ONLY while
+-- idle-fade passthrough is engaged (never for the "never" hard hide, never
+-- while visible): one rect test 5x/sec, cancelled the moment chat reveals.
+local _ptWakeTicker
+local function StopPTWake()
+    if _ptWakeTicker then _ptWakeTicker:Cancel(); _ptWakeTicker = nil end
+end
+local function StartPTWake()
+    StopPTWake()
+    _ptWakeTicker = C_Timer.NewTicker(0.2, function()
+        if not _chatPassthrough or not _idleFadeActive or not _visChatVisible then
+            StopPTWake()
+            return
+        end
+        local ov = ns._chatHoverOverlay
+        if ov and ov:IsMouseOver() then
+            StopPTWake()
+            if ECHAT.ResetIdleTimer then ECHAT.ResetIdleTimer() end
+        end
+    end)
+end
+
+-- Hard-hidden visibility states (visibility "never", combat-only modes while
+-- out of combat) hide the chat stack OUTRIGHT. Blizzard's chat frames are
+-- never touched here: their shown state belongs to FCF (OnShow/OnHide write
+-- SetChatWindowShown into config storage), and their visuals are parked in
+-- the engine's hidden container regardless. What hides is OUR stack: the
+-- panels (our message frames and scrollbars are their children), the dock
+-- manager (single remember; nothing of Blizzard's re-shows it), and the
+-- module chrome. Shown-state is captured per frame and restored exactly on
+-- reveal. Idle fade still uses alpha (a fade must render); this applies only
+-- when visibility says hidden.
+local _chromeWasShown = setmetatable({}, { __mode = "k" })
+local _chromeList = {}
+
+local function SetChatStackShown(shown)
+    -- Gate for SyncChatFrameState: the panels' shown-follow must not undo
+    -- this hide (the Blizzard frames stay shown, so the follow would).
+    ns._chatStackHidden = not shown
+    for i = 1, 20 do
+        local cf = _G["ChatFrame" .. i]
+        local d = cf and CFD(cf)
+        if d and d.bg then
+            if not shown then
+                if d.bg:IsShown() then d.pmWasShown = true; d.bg:Hide() end
+            elseif d.pmWasShown then
+                d.pmWasShown = nil
+                d.bg:Show()
+            end
+        end
+    end
+    local gdm = _G.GeneralDockManager
+    if gdm then
+        if not shown then
+            if gdm:IsShown() then ns._gdmWasShown = true; gdm:Hide() end
+        elseif ns._gdmWasShown then
+            ns._gdmWasShown = nil
+            gdm:Show()
+        end
+    end
+    -- Our own chrome hides outright too; the per-frame remember preserves each
+    -- applier's shown/hidden decision for the reveal.
+    local cf1 = _G.ChatFrame1
+    _chromeList[1] = ns._chatPanelBorder
+    _chromeList[2] = ns._sidebarSeparateBorder
+    _chromeList[3] = ns._chatBgExt
+    _chromeList[4] = ns._chatTabStrip
+    _chromeList[5] = ns._chatHoverOverlay
+    _chromeList[6] = cf1 and CFD(cf1).sidebar or nil
+    for i = 1, 6 do
+        local f = _chromeList[i]
+        if f then
+            if not shown then
+                if f:IsShown() then _chromeWasShown[f] = true; f:Hide() end
+            elseif _chromeWasShown[f] then
+                _chromeWasShown[f] = nil
+                f:Show()
+            end
+        end
+        _chromeList[i] = nil
+    end
+end
+
+local function SetChatMousePassthrough(on)
+    if _chatPassthrough == on then return end
+    _chatPassthrough = on
+    ns._chatPassthrough = on
+    PassthroughFrames(on)
+    if on then
+        if not _visChatVisible then SetChatStackShown(false) end
+        local cf1 = _G.ChatFrame1
+        local sb = cf1 and CFD(cf1).sidebar
+        if sb then
+            sb:EnableMouse(false)
+            if sb.EnableMouseMotion then sb:EnableMouseMotion(false) end
+        end
+        if ECHAT.ApplySidebarIcons then ECHAT.ApplySidebarIcons() end
+        -- _visChatVisible excludes the visibility-hidden regimes, where
+        -- hover-wake must not exist.
+        if _idleFadeActive and _visChatVisible
+            and ECHAT.DB().idleFadeEnabled ~= false then
+            StartPTWake()
+        end
+    else
+        StopPTWake()
+        SetChatStackShown(true)
+        -- Our sidebar always runs with motion on (hover fade/reveal); the
+        -- mode-specific click state is re-derived by ApplySidebarVisibility.
+        local cf1 = _G.ChatFrame1
+        local sb = cf1 and CFD(cf1).sidebar
+        if sb and sb.EnableMouseMotion then sb:EnableMouseMotion(true) end
+        if ECHAT.ApplySidebarVisibility then ECHAT.ApplySidebarVisibility() end
+    end
+    if ECHAT.ApplyIdleFadeHoverMotion then ECHAT.ApplyIdleFadeHoverMotion() end
+end
+
+-- Late joiners while engaged: a frame skinned or integrated during a
+-- full-hide (temp whisper window opening mid-hide) must join the passthrough
+-- set. One deferred catch-up covers it; nothing re-arms already-treated
+-- widgets, so no recurring sweeps exist.
+local _ptSweepQueued = false
+local function RequestPassthroughSweep()
+    if not _chatPassthrough or _ptSweepQueued then return end
+    _ptSweepQueued = true
+    C_Timer.After(0, function()
+        _ptSweepQueued = false
+        if not _chatPassthrough then return end
+        PassthroughFrames(true)
+        if not _visChatVisible then SetChatStackShown(false) end
+    end)
+end
+
 local function _ApplyAlpha(alpha)
     _chatAlphaCurrent = alpha
+    SetChatMousePassthrough(alpha <= 0)
     if not _alphaFrames then _BuildAlphaCache() end
-    -- Dock manager: once, outside the loop. The tabs are its children and
-    -- inherit this alpha -- the original (and only working) way the tab strip
-    -- fades with the panel; see the tab-alpha note at the fade locals.
-    if _euiDockStyled and _G.GeneralDockManager then
-        _G.GeneralDockManager:SetAlpha(alpha)
-    end
-    -- Tab host clip container (UIParent-parented): carries the dock fade
-    -- for the border/separator/underline hosts.
-    if ns._tabHostClip then ns._tabHostClip:SetAlpha(alpha) end
+    -- Our tab strip (UIParent-parented) fades directly; its buttons inherit.
+    if ns._chatTabStrip then ns._chatTabStrip:SetAlpha(alpha) end
     for i = 1, #_alphaFrames do
         local af = _alphaFrames[i]
         local cf = af.cf
         if cf:IsShown() or af.bg:IsShown() then
             cf:SetAlpha(alpha)
+            -- The panel is a UIParent child (taint fix) and does not inherit
+            -- the chat frame's alpha -- fade it directly.
+            af.bg:SetAlpha(alpha)
             local eb = af.eb
             if eb then
                 local focused = eb:HasFocus()
@@ -1914,17 +2832,14 @@ local function _ApplyAlpha(alpha)
             if af.resizeGrip then af.resizeGrip:SetAlpha(alpha * 0.2) end
         end
     end
-    -- Behind-tabs background extension (UIParent-parented, so it does not inherit
-    -- the chat frame alpha -- fade it directly alongside the chat).
+    -- Behind-tabs extension is UIParent-parented: fade it directly.
     if ns._chatBgExt then ns._chatBgExt:SetAlpha(alpha) end
     if ns._chatPanelBorder then ns._chatPanelBorder:SetAlpha(alpha) end
     if ns._sidebarSeparateBorder then
         ns._sidebarSeparateBorder:SetAlpha(min(alpha, _sidebarFadeAlpha))
     end
-    -- Tab-strip bottom separator is UIParent-parented like the extension.
-    -- Panel bottom separator is now a texture on bg -- inherits the chat
-    -- frame's alpha automatically, no explicit write needed.
-    -- Sidebar (mode cached at build time)
+    -- The panel bottom separator is a texture on bg and inherits the chat frame's alpha
+    -- automatically -- no explicit write needed. Sidebar (mode cached at build time)
     local sb = _alphaFrames._sidebar
     if sb then
         local sbMode = _alphaFrames._sidebarMode
@@ -1934,9 +2849,45 @@ local function _ApplyAlpha(alpha)
             sb:SetAlpha(alpha)
         end
     end
+    -- Chat-anchored scroll button (UIParent-parented, fades with the panel)
+    if _alphaFrames._chatScrollBtn then
+        _alphaFrames._chatScrollBtn:SetAlpha(alpha)
+    end
 end
 
--- Animate alpha toward target over FADE_DURATION
+-- Scroll-to-bottom button seat: sidebar bottom (default) or the chat panel's
+-- bottom-right corner. The button is ours, so reparenting is safe.
+function ECHAT.ApplyScrollButtonPosition()
+    local cf1 = _G.ChatFrame1
+    local d = cf1 and CFD(cf1)
+    local btn = d and d.scrollBtn
+    if not btn then return end
+    local cfg = ECHAT.DB()
+    -- Seat memo: this runs on every icon-layout pass (including sidebar hover
+    -- edges); an unchanged seat needs no re-anchor and no alpha invalidation.
+    local seat = cfg.scrollButtonOnChat and "chat" or "sidebar"
+    if d.scrollSeat == seat then return end
+    d.scrollSeat = seat
+    local sb = d.sidebar
+    btn:ClearAllPoints()
+    if cfg.scrollButtonOnChat and d.bg then
+        btn:SetParent(UIParent)
+        btn:SetFrameStrata(cf1:GetFrameStrata())
+        btn:SetFrameLevel(cf1:GetFrameLevel() + 5)
+        -- Anchor to the message frame, not bg: the unified bg panel includes the
+        -- edit box, so bg's corner sits in the input row.
+        btn:SetPoint("BOTTOMRIGHT", cf1, "BOTTOMRIGHT", 8, -6)
+    elseif sb then
+        btn:SetParent(sb)
+        btn:SetFrameStrata(sb:GetFrameStrata())
+        btn:SetFrameLevel(sb:GetFrameLevel() + 1)
+        btn:SetPoint("BOTTOM", sb, "BOTTOM", 0, 10)
+    end
+    -- Parent changed: the alpha cache decides whether to fade it directly.
+    _alphaFrames = nil
+end
+
+-- Animate alpha toward target
 local function _SetAlphaTarget(target)
     _chatAlphaTarget = target
     _chatFadeFrame:Show()
@@ -1947,6 +2898,9 @@ _chatFadeFrame:SetScript("OnUpdate", function(self, dt)
     if _chatAlphaCurrent == _chatAlphaTarget then
         self:Hide()
         _fadeApplyAccum = 0
+        -- The throttle below can swallow the last step of a fade; push the
+        -- final value so completion states (especially 0) always land.
+        _ApplyAlpha(_chatAlphaCurrent)
         return
     end
     local fadingIn = _chatAlphaTarget > _chatAlphaCurrent
@@ -1958,9 +2912,8 @@ _chatFadeFrame:SetScript("OnUpdate", function(self, dt)
     else
         _chatAlphaCurrent = max(_chatAlphaTarget, _chatAlphaCurrent - speed)
     end
-    -- Throttle widget updates to ~30Hz. The alpha step accumulates every
-    -- frame but we only push it to widgets every 33ms. Fade is still
-    -- smooth; saves 75% of SetAlpha calls at 120fps.
+    -- The alpha step accumulates every frame but is only pushed to widgets on a
+    -- throttle. Still smooth; saves ~75% of SetAlpha calls at 120fps.
     _fadeApplyAccum = _fadeApplyAccum + dt
     if _fadeApplyAccum < 0.016 then return end
     _fadeApplyAccum = 0
@@ -1970,20 +2923,20 @@ _chatFadeFrame:SetScript("OnUpdate", function(self, dt)
     end
 end)
 
--- Set alpha for the visibility/mouseover system (animated)
--- This is the top-level authority; idle fade cannot exceed this.
+-- Animated alpha for the visibility/mouseover system. Top-level authority:
+-- idle fade cannot exceed this.
 function ECHAT.SetChatAlpha(alpha)
     _visAlpha = alpha
     _visChatVisible = (alpha >= 1)
     _SetAlphaTarget(alpha)
 end
 
--- Set alpha for idle fade (animated), clamped to visibility alpha
+-- Animated idle-fade alpha, clamped to the visibility alpha
 function ECHAT.SetIdleFadeAlpha(alpha)
     _SetAlphaTarget(min(alpha, _visAlpha))
 end
 
--- Refresh visibility based on DB settings (combat, mouseover, always, etc.)
+-- Re-derive visibility from DB settings (combat, mouseover, always, ...)
 function ECHAT.RefreshVisibility()
     local cfg = ECHAT.DB()
 
@@ -2022,20 +2975,35 @@ local function StripUIEscapes(text)
     return text
 end
 
--- Read all messages directly from the active chat frame on demand.
--- No hooks needed: ScrollingMessageFrame:GetMessageInfo(i) returns
--- the rendered text for each line.
+-- Read all messages from the active window on demand. The primary source is
+-- OUR message frame for the selected window; the hosted combat log (still
+-- Blizzard-rendered) and any window the engine has not integrated fall back
+-- to the Blizzard buffer read. Secret lines are skipped either way.
 local function ReadActiveChatText()
     local selected = GENERAL_CHAT_DOCK and FCFDock_GetSelectedWindow
         and FCFDock_GetSelectedWindow(GENERAL_CHAT_DOCK)
     local cf = selected or ChatFrame1
-    if not cf or not cf.GetNumMessages then return "" end
-    local n = cf:GetNumMessages()
-    if n == 0 then return "(No chat history)" end
+    if not cf then return "" end
+    local raw = {}
+    local usedEngine = false
+    if ECHAT.EngineGetMessageLines and ns._chatWins and ns._chatWins[cf]
+        and not (ns._clHosted and cf == _G.ChatFrame2) then
+        ECHAT.EngineGetMessageLines(cf, raw)
+        usedEngine = true
+    end
+    if not usedEngine then
+        if not cf.GetNumMessages then return "" end
+        local n = cf:GetNumMessages()
+        for i = 1, n do
+            local ok, text = pcall(cf.GetMessageInfo, cf, i)
+            if ok then raw[#raw + 1] = text end
+        end
+    end
+    if #raw == 0 then return "(No chat history)" end
     local lines = {}
-    for i = 1, n do
-        local ok, text = pcall(cf.GetMessageInfo, cf, i)
-        if ok and text and not (issecretvalue and issecretvalue(text)) then
+    for i = 1, #raw do
+        local text = raw[i]
+        if text and not (issecretvalue and issecretvalue(text)) then
             local sok, stripped = pcall(StripUIEscapes, text)
             if sok and stripped then
                 lines[#lines + 1] = stripped
@@ -2054,13 +3022,9 @@ end
 local copyDimmer
 
 local function ShowCopyPopup(text)
-    if not EUI.EnsureLoaded then return end
-    EUI:EnsureLoaded()
-
     if not copyDimmer then
         local POPUP_W, POPUP_H = 520, 340
 
-        -- Dimmer
         local dimmer = CreateFrame("Frame", nil, UIParent)
         dimmer:SetFrameStrata("FULLSCREEN_DIALOG")
         dimmer:SetAllPoints(UIParent)
@@ -2071,7 +3035,6 @@ local function ShowCopyPopup(text)
         local dimTex = EUI.SolidTex(dimmer, "BACKGROUND", 0, 0, 0, 0.25)
         dimTex:SetAllPoints()
 
-        -- Popup frame
         local popup = CreateFrame("Frame", nil, dimmer)
         popup:SetSize(POPUP_W, POPUP_H)
         popup:SetPoint("CENTER", UIParent, "CENTER", 0, 60)
@@ -2083,7 +3046,7 @@ local function ShowCopyPopup(text)
         bg:SetAllPoints()
         EUI.MakeBorder(popup, 1, 1, 1, 0.15, EUI.PanelPP)
 
-        -- ScrollingEditBox (Blizzard template: scrolling + selection built-in)
+        -- Blizzard template: scrolling + selection built in
         local textBox = CreateFrame("Frame", nil, popup, "ScrollingEditBoxTemplate")
         textBox:SetPoint("TOPLEFT", popup, "TOPLEFT", 20, -20)
         textBox:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", -20, 60)
@@ -2154,7 +3117,6 @@ local function ShowCopyPopup(text)
             local scale = self:GetEffectiveScale()
             local trackTop = self:GetTop()
             if not trackTop then return end
-            -- Check if click is on the thumb
             local thumbTop = thumb:GetTop()
             local thumbBot = thumb:GetBottom()
             if thumbTop and thumbBot then
@@ -2165,14 +3127,14 @@ local function ShowCopyPopup(text)
                     return
                 end
             end
-            -- Click on track: jump to position
+            -- Not on the thumb: jump to the clicked position
             _sbDragOffsetY = (thumb:GetHeight() or 20) / 2
             _sbDragging = true
             SetScrollFromY(cursorY)
         end)
         track:SetScript("OnMouseUp", function() _sbDragging = false end)
 
-        -- Poll only while popup is open
+        -- Polls only while the popup is open (hidden frame otherwise)
         local pollFrame = CreateFrame("Frame")
         pollFrame:Hide()
         local _lastPct, _lastExt = -1, -1
@@ -2193,7 +3155,6 @@ local function ShowCopyPopup(text)
         popup._textBox = textBox
         popup._editBox = editBox
 
-        -- Close button
         local closeBtn = CreateFrame("Button", nil, popup)
         closeBtn:SetSize(90, 24)
         closeBtn:SetPoint("BOTTOM", popup, "BOTTOM", 0, 14)
@@ -2201,12 +3162,11 @@ local function ShowCopyPopup(text)
         EUI.MakeStyledButton(closeBtn, "Close", 10,
             EUI.RB_COLOURS, function() dimmer:Hide() end)
 
-        -- Click dimmer to close
         dimmer:SetScript("OnMouseDown", function()
             if not popup:IsMouseOver() then dimmer:Hide() end
         end)
 
-        -- Escape to close (combat-safe: use pcall for SetPropagateKeyboardInput)
+        -- SetPropagateKeyboardInput is protected in combat: always pcall it.
         popup:EnableKeyboard(true)
         popup:SetScript("OnKeyDown", function(self, key)
             if key == "ESCAPE" then
@@ -2222,7 +3182,6 @@ local function ShowCopyPopup(text)
         copyDimmer._popup = popup
     end
 
-    -- Populate
     local popup = copyDimmer._popup
     popup._textBox:SetText(text)
     popup._editBox._readOnlyText = text
@@ -2245,14 +3204,14 @@ local URL_PATTERNS = {
     "^(www%.[-%w_%%]+%.%a%a+)",
 }
 
--- Cheap literal pre-check: skip all regex if message has no URL-like
--- substring. 99% of chat messages hit this fast path and return false.
+-- Literal pre-check so the regex pass is skipped entirely for messages with no
+-- URL-like substring (the overwhelming majority).
 local function ContainsURL(text)
     if not text then return false end
     return text:find("://", 1, true) or text:find("www.", 1, true)
 end
 
--- Pre-compute substitution string once (color hex is constant)
+-- Substitution string built once (the color hex is constant)
 local _urlSubstitution
 local function _GetUrlSubstitution()
     if not _urlSubstitution then
@@ -2383,7 +3342,7 @@ local function OnHyperlinkLeave(self)
     end
 end
 
--- URL click handler: open copy popup when user clicks a wrapped URL link.
+-- Open the copy popup when a wrapped URL link is clicked.
 hooksecurefunc("SetItemRef", function(link)
     if not link then return end
     local url = link:match("^" .. addonName .. "url:(.+)$")
@@ -2397,745 +3356,33 @@ end)
 -------------------------------------------------------------------------------
 local _skinned = {}
 
--- Chat events that count as real PLAYER chat activity (used ONLY to reset the
--- idle-fade timer). MONSTER_SAY / MONSTER_YELL are deliberately EXCLUDED: in a
--- party their sender (chanSender) is a SECRET value, and registering this
--- insecure frame for those events taints Blizzard's HistoryKeeper when it
--- string-converts the secret sender -> "tainted by EllesmereUIChat" spam on every
--- monster line. Ambient NPC chat is not user activity, so excluding it is also
--- correct for the feature. All sender names below are plain visible player names.
+-- Chat events counted as real PLAYER activity (used ONLY to reset the
+-- idle-fade timer). NEVER add MONSTER_SAY/MONSTER_YELL: in a party their
+-- chanSender is SECRET, and registering this insecure frame for them taints
+-- HistoryKeeper when it string-converts the sender -> taint spam per monster
+-- line. All senders below are plain visible player names.
 local CHAT_MSG_EVENTS = {
     CHAT_MSG_SAY = true, CHAT_MSG_YELL = true,
     CHAT_MSG_PARTY = true, CHAT_MSG_PARTY_LEADER = true,
     CHAT_MSG_RAID = true, CHAT_MSG_RAID_LEADER = true, CHAT_MSG_RAID_WARNING = true,
     CHAT_MSG_INSTANCE_CHAT = true, CHAT_MSG_INSTANCE_CHAT_LEADER = true,
     CHAT_MSG_GUILD = true, CHAT_MSG_OFFICER = true,
-    CHAT_MSG_WHISPER = true, CHAT_MSG_WHISPER_INFORM = true,
-    CHAT_MSG_BN_WHISPER = true, CHAT_MSG_BN_WHISPER_INFORM = true,
     CHAT_MSG_CHANNEL = true,
+    -- WHISPER/BN_WHISPER stay off this frame: the whisper-sound event frame
+    -- (init section 7) receives them, keeping secret-sender events on ONE
+    -- frame. Outgoing _INFORM variants need no registration -- the edit-box
+    -- OnEditFocusGained/OnTextChanged hooks already reset the fade.
 }
 
 -------------------------------------------------------------------------------
---  Tab reskin: in-place reskin of Blizzard tabs.
---  We work WITH Blizzard's tab system instead of replacing it.
---  Blizzard tabs are stripped of textures and restyled with our visuals.
---  ALL styling re-assert is DEFERRED (QueueTabPass + the deferred
---  FCFDock_SelectWindow/FCF_Close hooks). No synchronous hooks on
---  FCFTab_UpdateColors, FCFDock_UpdateTabs, or tab methods -- their bodies
---  executed inside the secure temp-whisper creation chain and blocked
---  UpdateHeader's secret width math (2026-07-21 taintlog).
+--  Tabs are fully owned (EllesmereUIChat_Tabs.lua): our buttons over our own
+--  strip, styled from the same settings, with Blizzard's strip hidden. The
+--  ECHAT.ApplyTab* entry points the options page calls are defined there.
 -------------------------------------------------------------------------------
 
--- Texture name suffixes to strip from each tab
-local TAB_TEX_SUFFIXES = {
-    "Left", "Middle", "Right",
-    "SelectedLeft", "SelectedMiddle", "SelectedRight",
-    "ActiveLeft", "ActiveMiddle", "ActiveRight",
-    "HighlightLeft", "HighlightMiddle", "HighlightRight",
-}
-
--- Blizzard does not consistently mark user-created permanent chat windows as
--- isStaticDocked. Treat every docked, non-temporary window as layout-owned;
--- temporary whisper tabs stay under Blizzard's scroll/secret-value handling.
-local function IsPermanentDockedChatFrame(cf)
-    return cf and not cf.isTemporary and (cf.isStaticDocked or cf.isDocked)
-end
-
--- Update visual state of one skinned tab.
-local function UpdateTabStyle(tab)
-    if not tab or not CFD(tab).skinned then return end
-    local chatFrame = CFD(tab).chatFrame
-    if not chatFrame then return end
-    local selected = GENERAL_CHAT_DOCK and FCFDock_GetSelectedWindow
-        and FCFDock_GetSelectedWindow(GENERAL_CHAT_DOCK)
-    local isActive = chatFrame.isDocked == false and chatFrame:IsShown()
-        or (chatFrame == selected)
-
-    -- Dynamic (temp whisper) tabs sit at Blizzard's native seat: flush
-    -- against the static strip and 1px low. The tab FRAME must never be
-    -- moved (three field failures; see the note above ApplyTabLayout), so
-    -- correct it visually: shift OUR drawn layers one PHYSICAL pixel right
-    -- and up on dynamic tabs (PP.perfect / UIParent effective scale -- the
-    -- chat module never SetScales, so every tab shares UIParent's effective
-    -- scale, and reading it touches nothing chat-owned). State-guarded so
-    -- the re-anchor runs only when the shift value actually changes
-    -- (dock-state transitions, UI-scale/resolution changes).
-    local d = CFD(tab)
-    local onePhysPx = 1
-    if PP and PP.perfect then
-        onePhysPx = PP.perfect / UIParent:GetEffectiveScale()
-    end
-    -- Per-axis shift, tuned empirically against the rendered result (the
-    -- tab's fractional physical position makes the axes round differently):
-    -- 0 right / 2 up lands the visuals level and gapped at the tested scale.
-    local isDyn = chatFrame.isDocked and chatFrame.isTemporary
-    local visShiftX = isDyn and 0 or 0
-    local visShiftY = isDyn and (2 * onePhysPx) or 0
-    local visShift = visShiftX + visShiftY * 1000  -- change-detection key
-    if not BISECT_TEX_SHIFT_OFF and d.visShift ~= visShift then
-        d.visShift = visShift
-        -- Pixel-snap defeats a sub-unit offset: the tab sits at fractional
-        -- physical coords, so a snapped texture rounds the shift
-        -- asymmetrically. Disable snapping on the shifted layers so they
-        -- render the exact offset. Dynamic tabs only -- static tab layers
-        -- keep default snapping (crisp edges, and SetAllPoints alignment
-        -- never exposes the fraction there).
-        local unsnap = isDyn and PP and PP.DisablePixelSnap
-        local function ShiftRect(r)
-            if not r then return end
-            r:ClearAllPoints()
-            r:SetPoint("TOPLEFT", tab, "TOPLEFT", visShiftX, visShiftY)
-            r:SetPoint("BOTTOMRIGHT", tab, "BOTTOMRIGHT", visShiftX, visShiftY)
-            if unsnap and r.SetSnapToPixelGrid then PP.DisablePixelSnap(r) end
-        end
-        -- Tab-parented TEXTURES only (field-safe class). Host FRAMES get
-        -- their shift inside PositionTabHosts -- never anchor writes that
-        -- tie a frame to the tab.
-        ShiftRect(d.bg)
-        ShiftRect(d.hover)
-    end
-
-    -- Reparent whisper conversation icon to hidden container
-    if tab.conversationIcon and tab.conversationIcon:GetParent() ~= _hiddenParent then
-        tab.conversationIcon:SetParent(_hiddenParent)
-    end
-
-    -- Use cached tab.Text ref from SkinTab (avoids GetFontString() on
-    -- Blizzard tab). Safe here: UpdateTabStyle only runs from deferred
-    -- contexts (FCFDock_SelectWindow C_Timer, SkinPass), never inside
-    -- FCF_OpenTemporaryWindow's secure chain. If taint resurfaces, rip SetFont first.
-    local fs = CFD(tab).tabText
-    if fs then
-        fs:SetFont(GetTabFont(), ECHAT.DB().tabFontSize or 11, "")
-        fs:SetJustifyH("CENTER")
-        fs:ClearAllPoints()
-        fs:SetPoint("CENTER", tab, visShiftX, visShiftY)
-        local cfg = ECHAT.DB()
-        local tc
-        if isActive then
-            local mode = cfg.tabFontColorActiveMode or "custom"
-            if mode == "accent" then
-                local r, g, b = EllesmereUI.GetAccentColor()
-                tc = { r=r, g=g, b=b, a=1 }
-            elseif mode == "class" then
-                local _, class = UnitClass("player")
-                local c = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
-                tc = { r=c and c.r or 1, g=c and c.g or 1, b=c and c.b or 1, a=1 }
-            else
-                tc = cfg.tabFontColorActive or { r=1, g=1, b=1, a=1 }
-            end
-        else
-            local mode = cfg.tabFontColorMode or "custom"
-            if mode == "accent" then
-                local r, g, b = EllesmereUI.GetAccentColor()
-                tc = { r=r, g=g, b=b, a=.65 }
-            elseif mode == "class" then
-                local _, class = UnitClass("player")
-                local c = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
-                tc = { r=c and c.r or 1, g=c and c.g or 1, b=c and c.b or 1, a=.65 }
-            else
-                tc = cfg.tabFontColor or { r=1, g=1, b=1, a=.65 }
-            end
-        end
-        -- PERMANENT (user decision 2026-07-22): temp whisper tabs keep
-        -- Blizzard's own text color -- zero writes to the secret-name
-        -- fontstring, and the whisper color doubles as a visual marker for
-        -- conversation tabs. Same gate the pre-841 module shipped.
-        if not chatFrame.isTemporary then
-            fs:SetTextColor(tc.r or 1, tc.g or 1, tc.b or 1, tc.a == nil and 1 or tc.a)
-        end
-    end
-
-    local cfg = ECHAT.DB()
-    if CFD(tab).bg then
-        local c
-        if isActive then
-            local stored = cfg.tabBackgroundColorActive or {r=.03,g=.045,b=.05,a=.65}
-            local alpha = stored.a == nil and .65 or stored.a
-            local mode = cfg.tabBackgroundColorActiveMode or "custom"
-            if mode == "accent" then
-                local r, g, b = EllesmereUI.GetAccentColor()
-                c = { r=r, g=g, b=b, a=alpha }
-            elseif mode == "class" then
-                local _, class = UnitClass("player")
-                local cc = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
-                c = { r=cc and cc.r or 1, g=cc and cc.g or 1,
-                    b=cc and cc.b or 1, a=alpha }
-            else
-                c = stored
-            end
-        else
-            c = cfg.tabBackgroundColor or {r=.03,g=.045,b=.05,a=.44}
-        end
-        local bgRegion = CFD(tab).bg
-        -- Optional tab background texture; border synchronization does not
-        -- affect this visual. "none" keeps the flat background color.
-        local texKey = cfg.tabBackgroundTexture or "none"
-        local texPath
-        if texKey ~= "none" then
-            if ECHAT.RefreshBgTextureCatalogue then ECHAT.RefreshBgTextureCatalogue() end
-            if EllesmereUI.ResolveTexturePath then
-                texPath = EllesmereUI.ResolveTexturePath(ns.chatBgTextures, texKey, nil)
-            else
-                texPath = ns.chatBgTextures and ns.chatBgTextures[texKey]
-            end
-        end
-        if texPath then
-            bgRegion:SetTexture(texPath)
-            bgRegion:SetVertexColor(c.r or .03, c.g or .045, c.b or .05, c.a == nil and 1 or c.a)
-        else
-            -- Clear texture-mode tint before returning to solid color.
-            bgRegion:SetVertexColor(1, 1, 1, 1)
-            bgRegion:SetColorTexture(c.r or .03, c.g or .045, c.b or .05, c.a == nil and 1 or c.a)
-        end
-    end
-
-    local underline = CFD(tab).activeUnderline
-    if underline then
-        local mode = cfg.activeUnderlineColorMode or "accent"
-        local r, g, b, a
-        if mode == "accent" then
-            r, g, b = EllesmereUI.GetAccentColor(); a = 1
-        elseif mode == "class" then
-            local _, class = UnitClass("player")
-            local c = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
-            r, g, b, a = c and c.r or 1, c and c.g or 1, c and c.b or 1, 1
-        else
-            local c = cfg.activeUnderlineColor or {r=.05,g=.82,b=.61,a=1}
-            r, g, b, a = c.r, c.g, c.b, c.a == nil and 1 or c.a
-        end
-        underline:SetColorTexture(r, g, b, a)
-        underline:SetShown(cfg.activeUnderline ~= false and isActive)
-    end
-
-end
-
-function ECHAT.ApplyTabAppearance()
-    for i = 1, 20 do
-        local tab = _G["ChatFrame" .. i .. "Tab"]
-        if tab and CFD(tab).skinned then UpdateTabStyle(tab) end
-    end
-end
-
--- Numeric host placement with ZERO getter calls into the chat/dock chain.
--- Two field-proven taint injectors rule this design: (1) anchoring an
--- insecure frame to a Blizzard tab, and (2) geometry resolves (GetLeft
--- etc.) on tab/dock regions from insecure code -- both poison the secure
--- dock pass into UpdateHeader's secret whisper math. Positions therefore
--- accumulate purely from OUR OWN layout numbers: the widths ApplyTabLayout
--- stamps (CFD hostW), the configured spacing, and the clip's fixed slack
--- constants (clip TOPLEFT = gdm TOPLEFT -4,+8; first static tab sits at
--- gdm BOTTOMLEFT, i.e. clip-local x=4, y=8). Permanent docked tabs only
--- (Blizzard defaults plus user-created tabs); dynamic whisper tabs get no
--- host visuals (their bg/hover textures
--- remain); until the tab-geometry gate clears, no hostW exists and hosts
--- simply stay hidden.
-function ECHAT.PositionTabHosts()
-    local clip = ns._tabHostClip
-    if not clip then return end
-    local cfg = ECHAT.DB()
-    local configured = cfg.tabSpacing == nil and 1 or cfg.tabSpacing
-    local spacing = (cfg.extendBgBehindTabs and 1 or configured) * ((PP and PP.mult) or 1)
-    local height = GetTabHeight()
-    local positioned = {}
-    local x = 4
-    if GENERAL_CHAT_DOCK and GENERAL_CHAT_DOCK.DOCKED_CHAT_FRAMES then
-        for _, cf in ipairs(GENERAL_CHAT_DOCK.DOCKED_CHAT_FRAMES) do
-            local n = cf and cf:GetName()
-            local tab = n and _G[n .. "Tab"]
-            local d = tab and CFD(tab)
-            if d and d.skinned and IsPermanentDockedChatFrame(cf) and d.hostW then
-                local function Place(host)
-                    if not host then return end
-                    host:ClearAllPoints()
-                    host:SetPoint("BOTTOMLEFT", clip, "BOTTOMLEFT", x, 8)
-                    host:SetSize(d.hostW, height)
-                    host:Show()
-                    positioned[host] = true
-                end
-                Place(d.panelBorder)
-                Place(d.tabSeparatorHost)
-                Place(d.activeUnderlineHost)
-                x = x + d.hostW + spacing
-            end
-        end
-    end
-    -- Anything not placed this pass (dynamic whisper tabs, hidden or
-    -- unmeasured tabs) stays hidden.
-    for i = 1, 20 do
-        local tab = _G["ChatFrame" .. i .. "Tab"]
-        local d = tab and CFD(tab)
-        if d and d.skinned then
-            for _, host in ipairs({ d.panelBorder, d.tabSeparatorHost, d.activeUnderlineHost }) do
-                if host and not positioned[host] and host:GetParent() ~= UIParent then
-                    host:Hide()
-                end
-            end
-        end
-    end
-end
-
--- Without the extended tab-strip background, each visible tab is its own
--- visual island. Give those tabs the same configurable border as the chat
--- panel; the unified layout uses only the single outer panel border instead.
-function ECHAT.ApplyTabBorders()
-    if BISECT_TAB_BORDERS_OFF then return end
-    local cfg = ECHAT.DB()
-    local sync = cfg.syncTabBorder ~= false
-    local prefix = sync and "panelBorder" or "tabBorder"
-    local function B(suffix, fallback)
-        local value = cfg[prefix .. suffix]
-        if value == nil then return fallback end
-        return value
-    end
-    local show = cfg.extendBgBehindTabs ~= true
-    local sizes = { none=0, thin=1, normal=2, heavy=3, strong=4 }
-    local thicknessKey = B("Thickness", "none")
-    local size = sizes[thicknessKey] or 1
-    local mode = B("ColorMode", "custom")
-    local r, g, b
-    if mode == "accent" then
-        r, g, b = EllesmereUI.GetAccentColor()
-    elseif mode == "class" then
-        local _, class = UnitClass("player")
-        local c = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
-        r, g, b = c and c.r or 1, c and c.g or 1, c and c.b or 1
-    else
-        local c = B("Color", { r=1, g=1, b=1 })
-        r, g, b = c.r, c.g, c.b
-    end
-    local alpha = B("Opacity", nil)
-    if alpha == nil then alpha = mode == "custom" and 0.18 or 0.5 end
-    local selected = GENERAL_CHAT_DOCK and FCFDock_GetSelectedWindow
-        and FCFDock_GetSelectedWindow(GENERAL_CHAT_DOCK)
-
-    for i = 1, 20 do
-        local tab = _G["ChatFrame" .. i .. "Tab"]
-        local host = tab and CFD(tab).panelBorder
-        if host then
-            local chatFrame = CFD(tab).chatFrame
-            local undocked = chatFrame and chatFrame.isDocked == false
-            if chatFrame and FCF_IsDocked then
-                local ok, docked = pcall(FCF_IsDocked, chatFrame)
-                if ok then undocked = not docked end
-            end
-            -- Active tab may carry its own border color.
-            local br, bgr, bb, ba = r, g, b, alpha
-            if cfg.activeTabBorder ~= false then
-                local isActive = (chatFrame and chatFrame == selected)
-                    or (chatFrame and undocked and chatFrame:IsShown())
-                local ac = isActive and cfg.tabBorderColorActive
-                if ac then
-                    br, bgr, bb = ac.r or r, ac.g or g, ac.b or b
-                    ba = ac.a == nil and alpha or ac.a
-                end
-            end
-            -- Docked hosts live on the shared clip container (never on the
-            -- tab -- taint root cause); undocked ones on UIParent, unclipped.
-            -- Anchors are owned by PositionTabHosts (numeric, no tab ties).
-            local wantedParent = undocked and UIParent or GetTabHostClip()
-            if host:GetParent() ~= wantedParent then
-                host:SetParent(wantedParent)
-            end
-            host:SetFrameStrata("DIALOG")
-            -- Constant level: hosts render on our clip at DIALOG strata,
-            -- so a tab-derived level is meaningless -- and tab:GetFrameLevel
-            -- was an un-exonerated tab getter in this (dirty-tested) pass.
-            local level = 100
-            host:SetFrameLevel(level)
-            -- No alpha writes here at all: hosts default to 1, docked hosts
-            -- inherit the dock fade from the clip container's alpha
-            -- (_ApplyAlpha), and visibility is handled by SetShown below.
-            -- Tab alpha is entirely Blizzard's -- never read or written.
-            EllesmereUI.ApplyBorderStyle(host, show and size or 0,
-                br, bgr, bb, ba, B("Texture", "solid"),
-                B("OffsetX", nil), B("OffsetY", nil),
-                B("ShiftX", nil), B("ShiftY", nil), "chat", thicknessKey)
-            local solidBorder = PP and PP.GetBorders and PP.GetBorders(host)
-            if solidBorder then solidBorder:SetFrameLevel(level + 1) end
-            host:SetShown(show and size > 0 and tab:IsShown())
-        end
-    end
-end
-
-function ECHAT.ApplyTabSeparators()
-    if BISECT_TAB_BORDERS_OFF then return end
-    local cfg = ECHAT.DB()
-    local showPanelSeparator = cfg.extendBgBehindTabs == true and not cfg.hideBorders
-    local showTabDividers = cfg.extendBgBehindTabs == true and not cfg.hideBorders
-    local r, g, b, a = GetInnerBorderColor(cfg)
-    local dockedTabs = {}
-    if GENERAL_CHAT_DOCK and GENERAL_CHAT_DOCK.DOCKED_CHAT_FRAMES then
-        local visibleTabs = {}
-        for _, cf in ipairs(GENERAL_CHAT_DOCK.DOCKED_CHAT_FRAMES) do
-            local name = cf and cf:GetName()
-            local tab = name and _G[name .. "Tab"]
-            if tab and tab:IsShown() then
-                visibleTabs[#visibleTabs + 1] = tab
-            end
-        end
-        -- Mark every visible tab, INCLUDING the last one: its divider sits in
-        -- the slot past its right edge and gives the final tab the same clean
-        -- outer edge as the ones between tabs.
-        for i = 1, #visibleTabs do
-            dockedTabs[visibleTabs[i]] = true
-        end
-    end
-
-    -- One continuous separator below the chat panel. The sidebar is a separate
-    -- visual column and must never be crossed by the tab separator.
-    -- FIELD-CONVICTED (2026-07-22): the old implementation was a UIParent
-    -- frame ANCHORED to bg -- an insecure frame in ChatFrame1's rect
-    -- dependency web (bg is cf1-parented), which taints the temp-whisper
-    -- creation chain exactly like tab-anchored hosts did. Safe form: a
-    -- TEXTURE on our bg frame (textures on our own frames are the
-    -- 8.5.2-proven class); it inherits the chat fade for free.
-    -- FIELD-CONVICTED HOME (2026-07-22, three texture variants dirty): the
-    -- separator may NOT live anywhere in ChatFrame1's rect web -- not as
-    -- an anchored frame, not as a texture on bg, in-bounds or out,
-    -- snapped or not. Tab bg/hover textures on the tabs themselves stay
-    -- clean, so the exact hazard boundary inside the cf1 web is unmapped;
-    -- the clip container (gdm-chained, fully exonerated with textures +
-    -- per-pass writes) is the proven-safe home. Position is numeric:
-    -- clip bottom slack is 8, gdm sits GetTabPadding() above bg's top, so
-    -- bg's top edge lies at y = 8 - padding in clip space; x slack 4.
-    -- Separator: EXACT copy of the proven-clean per-tab separator pattern
-    -- (a host FRAME child of the clip, anchored once at creation, with a
-    -- SetAllPoints texture; per pass only color + shown). A direct
-    -- clip-region texture -- the only shape without a clean twin -- tested
-    -- dirty in every variant; do not put regions directly on the clip.
-    local clip = GetTabHostClip()
-    if clip then
-        local y = 8 - (GetTabPadding() or 0)
-        if ns._tabPanelSepHost and ns._tabPanelSepY ~= y then
-            ns._tabPanelSepHost:Hide()
-            ns._tabPanelSepHost = nil
-            ns._tabPanelBottomSeparatorTex = nil
-        end
-        if not ns._tabPanelSepHost then
-            local host = CreateFrame("Frame", nil, clip)
-            host:SetFrameStrata("DIALOG")
-            host:SetFrameLevel(90)
-            host:EnableMouse(false)
-            host:SetHeight((PP and PP.mult) or 1)
-            host:SetPoint("BOTTOMLEFT", clip, "BOTTOMLEFT", 4, y)
-            host:SetPoint("BOTTOMRIGHT", clip, "BOTTOMRIGHT", -4, y)
-            local tex = host:CreateTexture(nil, "OVERLAY", nil, 7)
-            tex._euiOwned = true
-            tex:SetAllPoints()
-            ns._tabPanelSepHost = host
-            ns._tabPanelBottomSeparatorTex = tex
-            ns._tabPanelSepY = y
-        end
-        ns._tabPanelBottomSeparatorTex:SetColorTexture(r, g, b, a)
-        ns._tabPanelSepHost:SetShown(showPanelSeparator)
-    end
-
-    for i = 1, 20 do
-        local tab = _G["ChatFrame" .. i .. "Tab"]
-        local d = tab and CFD(tab)
-        if d and d.tabSeparatorHost then
-            d.tabSeparatorBottom:SetColorTexture(r, g, b, a)
-            -- Tab dividers follow the Inner Border Color like every other
-            -- internal divider (input, sidebar, tab-strip bottom). At the
-            -- default white @ 6% alpha they read as a plain gap.
-            d.tabSeparatorLeft:SetColorTexture(r, g, b, a)
-            d.tabSeparatorBottom:Hide()
-            d.tabSeparatorLeft:SetShown(showTabDividers and dockedTabs[tab] == true)
-            -- Clip-parented host no longer auto-hides with its tab; couple
-            -- visibility explicitly.
-            d.tabSeparatorHost:SetShown(showTabDividers and dockedTabs[tab] == true)
-        end
-    end
-end
-
--- One-time reskin of a Blizzard chat tab (strip textures, add our visuals)
-local function SkinTab(cf)
-    local name = cf:GetName()
-    if not name then return end
-    local tab = _G[name .. "Tab"]
-    if not tab or CFD(tab).skinned then return end
-    CFD(tab).skinned = true
-    CFD(tab).chatFrame = cf
-    -- Strip Blizzard tab textures, but preserve the glow frame
-    -- so FCF_StartAlertFlash can animate it for new message alerts.
-    for _, suffix in ipairs(TAB_TEX_SUFFIXES) do
-        local tex = _G[name .. "Tab" .. suffix] or tab[suffix]
-        if tex and tex.SetTexture then tex:SetTexture() end
-    end
-
-    -- Dark background
-    local bg = tab:CreateTexture(nil, "BACKGROUND")
-    bg._euiOwned = true
-    bg:SetAllPoints()
-    bg:SetColorTexture(BG_R, BG_G, BG_B, BG_A * 0.67)
-    CFD(tab).bg = bg
-
-    -- Hover highlight
-    local hover = tab:CreateTexture(nil, "HIGHLIGHT")
-    hover._euiOwned = true
-    hover:SetAllPoints()
-    hover:SetColorTexture(1, 1, 1, 0.05)
-    CFD(tab).hover = hover
-
-    -- Cache the tab's text FontString for UpdateTabStyle (avoids
-    -- repeated GetFontString() calls on the Blizzard tab).
-    -- Some tab implementations use _G[name.."TabText"] instead of tab.Text.
-    CFD(tab).tabText = tab.Text or _G[name .. "TabText"]
-    tab:SetPushedTextOffset(0, 0)
-    if not BISECT_TAB_GEOMETRY_OFF then
-        tab:SetHeight(GetTabHeight())
-    end
-
-    -- Host frames: parented to the shared UIParent clip container, only
-    -- ANCHORED to the tab (see GetTabHostClip -- parenting frames to the
-    -- tab itself was the whisper-creation taint root cause).
-    local hostParent = GetTabHostClip()
-    -- NO tab anchors on hosts, ever (see FINAL HOST DESIGN at the top).
-    -- PositionTabHosts places them numerically; they start hidden.
-    local panelBorder = CreateFrame("Frame", nil, hostParent)
-    panelBorder:EnableMouse(false)
-    panelBorder:Hide()
-    CFD(tab).panelBorder = panelBorder
-
-    local separatorHost = CreateFrame("Frame", nil, hostParent)
-    separatorHost:Hide()
-    separatorHost:SetFrameStrata("DIALOG")
-    separatorHost:SetFrameLevel(90)
-    separatorHost:EnableMouse(false)
-    local onePx = (PP and PP.mult) or 1
-    local separatorBottom = separatorHost:CreateTexture(nil, "OVERLAY", nil, 7)
-    separatorBottom:SetHeight(onePx)
-    separatorBottom:SetPoint("BOTTOMLEFT", separatorHost, "BOTTOMLEFT", 0, 0)
-    separatorBottom:SetPoint("BOTTOMRIGHT", separatorHost, "BOTTOMRIGHT", 0, 0)
-    local separatorLeft = separatorHost:CreateTexture(nil, "OVERLAY", nil, 7)
-    separatorLeft:SetWidth(onePx)
-    -- Draw the divider in the one-pixel slot reserved by ApplyTabSpacing.
-    -- Keeping it outside the tab avoids a divider plus an additional empty
-    -- pixel between tabs, while the host remains numerically positioned.
-    separatorLeft:SetPoint("TOPLEFT", separatorHost, "TOPRIGHT", 0, 0)
-    separatorLeft:SetPoint("BOTTOMLEFT", separatorHost, "BOTTOMRIGHT", 0, 0)
-    if PP and PP.DisablePixelSnap then
-        PP.DisablePixelSnap(separatorBottom)
-        PP.DisablePixelSnap(separatorLeft)
-    end
-    CFD(tab).tabSeparatorHost = separatorHost
-    CFD(tab).tabSeparatorBottom = separatorBottom
-    CFD(tab).tabSeparatorLeft = separatorLeft
-
-    local underlineHost = CreateFrame("Frame", nil, hostParent)
-    underlineHost:Hide()
-    underlineHost:SetFrameStrata("DIALOG")
-    underlineHost:SetFrameLevel(95)
-    underlineHost:EnableMouse(false)
-    local activeUnderline = underlineHost:CreateTexture(nil, "OVERLAY", nil, 7)
-    activeUnderline:SetHeight(onePx)
-    activeUnderline:SetPoint("BOTTOMLEFT", underlineHost, "BOTTOMLEFT", 0, 0)
-    activeUnderline:SetPoint("BOTTOMRIGHT", underlineHost, "BOTTOMRIGHT", 0, 0)
-    if PP and PP.DisablePixelSnap then PP.DisablePixelSnap(activeUnderline) end
-    activeUnderline:Hide()
-    CFD(tab).activeUnderlineHost = underlineHost
-    CFD(tab).activeUnderline = activeUnderline
-
-    -- Reparent the whisper conversation icon to hidden container
-    if tab.conversationIcon then
-        tab.conversationIcon:SetParent(_hiddenParent)
-    end
-
-    -- NO hooksecurefunc(tab, "SetPoint") -- removed 2026-07-21 with the
-    -- other synchronous tab hooks: its body executed inside the secure
-    -- temp-whisper creation chain (FCF_DockUpdate re-anchors the tabs
-    -- mid-creation), the same injection that blocked UpdateHeader's secret
-    -- width math. The y=-1 seat normalize now lives in ApplyTabLayout
-    -- (deferred passes only), which is safe again precisely because the
-    -- synchronous FCFDock_UpdateTabs hook is gone -- the deferred-once
-    -- rewrite was stable for months pre-841 under these same conditions.
-
-    UpdateTabStyle(tab)
-    ECHAT.ApplyTabBorders()
-    ECHAT.ApplyTabSeparators()
-    if ECHAT.ApplyTabSpacing then ECHAT.ApplyTabSpacing() end
-    if ECHAT.PositionTabHosts then ECHAT.PositionTabHosts() end
-end
-
-function ECHAT.ApplyTabSpacing()
-    if BISECT_TAB_GEOMETRY_OFF then return end
-    if not GENERAL_CHAT_DOCK or not GENERAL_CHAT_DOCK.DOCKED_CHAT_FRAMES then return end
-    local cfg = ECHAT.DB()
-    local configured = cfg.tabSpacing == nil and 1 or cfg.tabSpacing
-    -- Extended mode has no user-configurable spacing, but reserves one physical
-    -- pixel after each right-edge separator so the next tab starts beside the
-    -- line instead of rendering on top of it.
-    local spacing = (cfg.extendBgBehindTabs and 1 or configured) * ((PP and PP.mult) or 1)
-    -- Permanent docked tabs only (including user-created tabs). Dynamic temp
-    -- whisper tabs are parented to the dock's SCROLL CHILD and their anchors
-    -- and widths feed FCFDock_ScrollToSelectedTab/JumpToTab's math -- when we
-    -- re-chained them here, the jump never converged, the dock's OnUpdate
-    -- stayed armed, and Blizzard and our pass alternated layouts every frame
-    -- (field report: whisper tabs blinking and unclickable). Blizzard owns
-    -- them entirely; their chain keeps its native 1px gap.
-    local prev
-    for _, cf in ipairs(GENERAL_CHAT_DOCK.DOCKED_CHAT_FRAMES) do
-        local n = cf and cf:GetName()
-        local tab = n and _G[n .. "Tab"]
-        if tab and tab:IsShown() and IsPermanentDockedChatFrame(cf) then
-            if prev then
-                tab:ClearAllPoints()
-                tab:SetPoint("LEFT", prev, "RIGHT", spacing, 0)
-            end
-            prev = tab
-        end
-    end
-    if ECHAT.ApplyTabSeparators then ECHAT.ApplyTabSeparators() end
-    -- Border, divider, and underline hosts are positioned numerically rather
-    -- than anchored to Blizzard tabs. Recalculate them whenever spacing
-    -- changes so their edges continue to match the newly anchored tabs.
-    if ECHAT.PositionTabHosts then ECHAT.PositionTabHosts() end
-end
-
--- NO dynamic-tab anchor writes, in ANY timing regime. Field-proven three
--- times on 2026-07-20: synchronous re-chain (blink + unclickable), sync
--- Y-only rewrite (permanent scroll drift), and finally the pre-841 style
--- DEFERRED-once bridge -- which was stable for months pre-841 but now
--- fights the dock too (841's environment keeps the scroll/jump loop alive
--- in ways the old module never did). The whisper strip's 1px-left/1px-low
--- native seat is corrected VISUALLY instead: UpdateTabStyle shifts OUR
--- drawn elements (bg/hover/text/hosts) on dynamic tabs; the Blizzard tab
--- frame itself is never moved.
-function ECHAT.ApplyTabLayout()
-    if BISECT_TAB_GEOMETRY_OFF then
-        if ECHAT.ApplyTabBorders then ECHAT.ApplyTabBorders() end
-        if ECHAT.ApplyTabPadding then ECHAT.ApplyTabPadding() end
-        if ECHAT.PositionTabHosts then ECHAT.PositionTabHosts() end
-        return
-    end
-    local cfg = ECHAT.DB()
-    local height = GetTabHeight()
-    local paddingX = cfg.tabInnerPaddingX or 12
-    for i = 1, 20 do
-        local tab = _G["ChatFrame" .. i .. "Tab"]
-        if tab and CFD(tab).skinned then
-            tab:SetHeight(height)
-            local fs = CFD(tab).tabText
-            local cfOwner = CFD(tab).chatFrame
-            -- Text-derived widths apply to permanent docked tabs, including
-            -- user-created chat tabs. Dynamic
-            -- temp whisper tabs are scroll-managed: FCFDock_CalculateTabSize
-            -- caps their width and the scroll/jump math depends on it, so
-            -- Blizzard owns their sizing. Their labels are also SECRET target
-            -- names on Midnight (rendered width of secret text is a secret
-            -- number; arithmetic on it is a hard error -- field report:
-            -- ChatFrame11Tab), so the issecretvalue guard stays as the belt.
-            if fs and fs.GetStringWidth and IsPermanentDockedChatFrame(cfOwner) then
-                local w = fs:GetStringWidth()
-                if w and not (issecretvalue and issecretvalue(w)) then
-                    local tabW = max(40, ceil(w + paddingX * 2))
-                    tab:SetWidth(tabW)
-                    -- Width record for PositionTabHosts (numeric host
-                    -- placement without geometry resolves).
-                    CFD(tab).hostW = tabW
-                end
-            end
-            -- Dynamic temporary whisper tab seat normalize:
-            -- Blizzard anchors the first dynamic tab LEFT/LEFT y=-1 on the
-            -- scroll child; rewrite once to (+1physpx, 0). Idempotent (the
-            -- rewritten anchor has y=0, so repeat passes skip), DEFERRED
-            -- passes only -- this replaced the per-tab SetPoint hook, whose
-            -- body ran inside the secure temp-window creation chain and
-            -- tainted UpdateHeader's secret width math (2026-07-21).
-            if cfOwner and cfOwner.isDocked and cfOwner.isTemporary then
-                local pt, rel, relPt, x, y = tab:GetPoint(1)
-                -- A docked temp WHISPER tab whose target is secret (in
-                -- instances / M+) has SECRET geometry: comparing pt/relPt or
-                -- doing arithmetic on x/y under our taint errors, and this pass
-                -- runs on the whisper path. Skip such tabs entirely -- the seat
-                -- normalize is cosmetic. Same issecretvalue belt as the width
-                -- record above (2893).
-                if not (issecretvalue and (issecretvalue(pt) or issecretvalue(relPt)
-                        or issecretvalue(x) or issecretvalue(y)))
-                    and pt == "LEFT" and relPt == "LEFT" and y and y ~= 0 then
-                    local es = tab:GetEffectiveScale()
-                    local onePhys = PP and PP.SnapForES and PP.SnapForES(1, es) or 1
-                    tab:SetPoint(pt, rel, relPt, (x or 0) + onePhys, 0)
-                end
-            end
-        end
-    end
-    local gdm = _G.GeneralDockManager
-    local sf = _G.GeneralDockManagerScrollFrame
-    local sfc = _G.GeneralDockManagerScrollFrameChild
-    if gdm then gdm:SetHeight(height) end
-    if sf then sf:SetHeight(height) end
-    if sfc then sfc:SetHeight(height) end
-    if ECHAT.ApplyTabBorders then ECHAT.ApplyTabBorders() end
-    if ECHAT.ApplyTabPadding then ECHAT.ApplyTabPadding() end
-    if ECHAT.ApplyTabSpacing then ECHAT.ApplyTabSpacing() end
-    if ECHAT.PositionTabHosts then ECHAT.PositionTabHosts() end
-end
-
-function ECHAT.ApplyTabPadding()
-    if BISECT_TAB_PADDING_OFF then return end
-    local gdm = _G.GeneralDockManager
-    local cf1 = _G.ChatFrame1
-    local bg = cf1 and CFD(cf1).bg
-    if gdm and bg then
-        local padding = GetTabPadding()
-        local cfg = ECHAT.DB()
-        local sidebar = cf1 and CFD(cf1).sidebar
-        local sidebarActive = sidebar and SidebarParticipatesInLayout(cfg)
-        local alignFull = cfg.alignTabsToPanel and not cfg.extendBgBehindTabs and sidebarActive
-        gdm:ClearAllPoints()
-        if alignFull and not cfg.sidebarRight then
-            gdm:SetPoint("BOTTOMLEFT", sidebar, "TOPLEFT", 0, padding)
-            gdm:SetPoint("BOTTOMRIGHT", bg, "TOPRIGHT", 0, padding)
-        elseif alignFull and cfg.sidebarRight then
-            gdm:SetPoint("BOTTOMLEFT", bg, "TOPLEFT", 0, padding)
-            gdm:SetPoint("BOTTOMRIGHT", sidebar, "TOPRIGHT", 0, padding)
-        else
-            gdm:SetPoint("BOTTOMLEFT", bg, "TOPLEFT", 0, padding)
-            gdm:SetPoint("BOTTOMRIGHT", bg, "TOPRIGHT", 0, padding)
-        end
-    end
-    if ECHAT.ApplyExtendedBackground then ECHAT.ApplyExtendedBackground() end
-    if ECHAT.ApplySidebarIcons then ECHAT.ApplySidebarIcons() end
-end
-
--- Position and style GeneralDockManager as our tab bar (one-time)
-local function StyleDockManager()
-    local gdm = _G.GeneralDockManager
-    if not gdm or _euiDockStyled then return end
-    local cf1 = _G.ChatFrame1
-    if not cf1 or not CFD(cf1).bg then return end
-    _euiDockStyled = true
-
-    -- Position above our chat bg (matches old EUI_ChatTabBar position)
-    gdm:ClearAllPoints()
-    local tabPadding = GetTabPadding()
-    gdm:SetPoint("BOTTOMLEFT", CFD(cf1).bg, "TOPLEFT", 0, tabPadding)
-    gdm:SetPoint("BOTTOMRIGHT", CFD(cf1).bg, "TOPRIGHT", 0, tabPadding)
-    local dockH = GetTabHeight()
-    gdm:SetHeight(dockH)
-    if _G.GeneralDockManagerScrollFrame then
-        _G.GeneralDockManagerScrollFrame:SetHeight(dockH)
-    end
-    if _G.GeneralDockManagerScrollFrameChild then
-        _G.GeneralDockManagerScrollFrameChild:SetHeight(dockH)
-    end
-
-
-
-    -- Style the overflow button if it exists
-    local overflow = _G.GeneralDockManagerOverflowButton
-    if overflow then
-        overflow:SetAlpha(0.5)
-    end
-
-end
-
 -------------------------------------------------------------------------------
---  SkinEditBox: ALL edit box modifications in one place.
---  Chrome/position/font applied to ALL frames (including temp 11+).
---  Edit box hooks only on frames 1-10 (temp windows 11+ get visuals only).
+--  SkinEditBox: ALL edit box modifications in one place. Chrome/position/font
+--  apply to ALL frames (including temp 11+); HOOKS only on frames 1-10.
 -------------------------------------------------------------------------------
 local function SkinEditBox(cf)
     local name = cf:GetName()
@@ -3145,7 +3392,6 @@ local function SkinEditBox(cf)
     if not eb or not idx or CFD(eb).skinned then return end
     CFD(eb).skinned = true
 
-    -- Hide Blizzard chrome textures
     for _, texName in ipairs({
         name .. "EditBoxLeft", name .. "EditBoxMid", name .. "EditBoxRight",
         name .. "EditBoxFocusLeft", name .. "EditBoxFocusMid", name .. "EditBoxFocusRight",
@@ -3157,28 +3403,23 @@ local function SkinEditBox(cf)
     if eb.focusMid then eb.focusMid:SetAlpha(0) end
     if eb.focusRight then eb.focusRight:SetAlpha(0) end
 
-    -- Position flush below chat frame (8.5.2 did this for ALL frames
-    -- incl. temp 11+; gate 7 of the bisect ladder holds 11+ untouched
-    -- until its clearing cycle).
-    if idx <= 10 or not BISECT_EB_ANCHORS_OFF then
-        eb:ClearAllPoints()
-        eb:SetPoint("TOPLEFT", cf, "BOTTOMLEFT", -10, -8)
-        eb:SetPoint("TOPRIGHT", cf, "BOTTOMRIGHT", 5, -8)
-        eb:SetHeight(GetEditBoxHeight())
-    end
+    -- Flush below the chat frame, for ALL frames including temp 11+.
+    eb:ClearAllPoints()
+    eb:SetPoint("TOPLEFT", cf, "BOTTOMLEFT", -10, -8)
+    eb:SetPoint("TOPRIGHT", cf, "BOTTOMRIGHT", 5, -8)
+    eb:SetHeight(GetEditBoxHeight())
 
-    -- Font: use the SAME outline as the chat frames + ECHAT.ApplyFonts (which
-    -- reads GetOutlineFlag too), so the input box always matches the rest of
-    -- chat. Hardcoding "" here left it un-outlined (drop shadow showed through)
-    -- whenever the user picked an outline for chat.
+    -- Same outline as the chat frames and ECHAT.ApplyFonts (both read
+    -- GetOutlineFlag), so the input box always matches the rest of chat --
+    -- hardcoding "" here leaves it un-outlined with the drop shadow showing.
     local ebSize = GetEditBoxFontSize(cf:GetID())
     eb:SetFont(GetEditBoxFont(), ebSize, GetOutlineFlag())
     eb:SetTextInsets(8, 8, 0, 0)
 
-    -- Apply custom font to the header ("Say:", "Party:", etc.) and suffix.
-    -- Called once at skin time and again on focus-gained (covers chat type
-    -- switches). Never from inside UpdateHeader -- calling SetFont in that
-    -- secure chain taints the execution context and blocks SendChatMessage.
+    -- Custom font for the header ("Say:", "Party:", ...) and suffix. Called at
+    -- skin time and on focus-gained (covers chat-type switches). NEVER call
+    -- from inside UpdateHeader -- SetFont in that secure chain taints the
+    -- execution context and blocks SendChatMessage.
     local function ApplyEditBoxHeaderFont(editBox)
         local sz = GetEditBoxFontSize(editBox:GetParent():GetID())
         local ol = GetOutlineFlag()
@@ -3189,61 +3430,43 @@ local function SkinEditBox(cf)
             editBox.headerSuffix:SetFont(GetEditBoxFont(), sz, ol)
         end
     end
-    if idx <= 10 or not BISECT_EB_ANCHORS_OFF then
-        ApplyEditBoxHeaderFont(eb)
-    end
+    ApplyEditBoxHeaderFont(eb)
 
     -- Edit box HOOKS (not the plain setters above) taint a temp whisper
-    -- window's execution context. When that conversation's secure code later
-    -- touches its secret tellTarget (e.g. a BN_WHISPER presence ID) it poisons
-    -- the shared ChatHistory access tables, after which EVERY chat message
-    -- errors in HistoryKeeper for the rest of the session. Only the permanent
-    -- docked frames (1-10) are safe to hook; temp windows (11+) get visual
-    -- skinning only. (This matches the function header's stated intent and the
-    -- 1-10 header-font gate in ECHAT.ApplyFonts.)
+    -- window's execution context: when its secure code later touches its
+    -- secret tellTarget (e.g. a BN_WHISPER presence ID), it poisons the
+    -- shared ChatHistory access tables and EVERY chat message errors in
+    -- HistoryKeeper for the rest of the session. Only permanent docked frames
+    -- (1-10) may be hooked; temp windows (11+) get visuals only.
     if idx <= 10 then
-        eb:HookScript("OnEditFocusGained", function(self) ApplyEditBoxHeaderFont(self) end)
+        eb:HookScript("OnEditFocusGained", function(self)
+            ApplyEditBoxHeaderFont(self)
+        end)
 
-        -- Plain Up/Down input recall. The Midnight edit box performs no
-        -- native recall on plain arrows regardless of alt-arrow mode, so the
-        -- recall is Lua-side over an external history. Two rules keep it
-        -- taint-safe (the previous implementation broke both and blocked
-        -- /ping with ADDON_ACTION_FORBIDDEN):
-        --   1. SECURE commands (IsSecureCmd: /ping, /cast, ...) never enter
-        --      this history. SetText plants addon-tainted text -- harmless
-        --      for ordinary sends, fatal for a protected re-send.
-        --   2. Alt chords pass through untouched: Alt+Up/Down remains the
-        --      engine's own untainted recall (it still holds secure
-        --      commands), and our SetText must never overwrite it.
-        -- Alt-arrow mode off: paired with the OnKeyDown hook in every working
-        -- implementation -- without it the widget does not hand plain Up/Down
-        -- to the hook. Midnight performs no native recall either way.
+        -- Plain Up/Down input recall. The Midnight edit box performs no native recall
+        -- on plain arrows regardless of alt-arrow mode, so recall is Lua-side over an
+        -- external history. Two rules keep it taint-safe (breaking them blocks /ping
+        -- with ADDON_ACTION_FORBIDDEN): (1) SECURE commands (IsSecureCmd: /ping,
+        -- /cast, ...) NEVER enter this history -- SetText plants addon-tainted text,
+        -- fatal for a protected re-send; (2) Alt chords pass through untouched --
+        -- Alt+Up/Down stays the engine's own untainted recall, our SetText must never
+        -- overwrite it. Alt-arrow mode must be OFF or the widget never hands plain
+        -- Up/Down to the OnKeyDown hook.
         eb:SetAltArrowKeyMode(false)
         if not CFD(eb).history then
             CFD(eb).history = {}
             CFD(eb).histIdx = 0
-            -- Sent-line capture for the recall history above.
-            --
-            -- This used to be hooksecurefunc(eb, "AddHistoryLine", ...), which
-            -- reads as a function hook but is really a FIELD WRITE onto the
-            -- Blizzard edit box: hooksecurefunc(object, "method", fn) assigns
-            -- object.method = wrapper. That is exactly what this file's header
-            -- forbids ("All custom state is stored here instead of writing
-            -- properties onto Blizzard's chat frame tables (which taints them
-            -- ...)"), and the frame it wrote to is ChatFrame1EditBox -- the
-            -- frame in the field report where Blizzard's own
-            -- ChatFrameEditBoxMixin:OnUpdate is blocked from doing
-            -- SetText(self.text) on a secret whisper target. Secure code that
-            -- reads a tainted field runs tainted from that point on, and
-            -- Blizzard calls self:AddHistoryLine(text) from inside its send
-            -- path, so the tainted read lands in the middle of the chat
-            -- machinery rather than in our own execution.
-            --
-            -- Script hooks carry no such field write (they register C-side)
-            -- and this module's bisect ladder already cleared eb HookScripts.
-            -- OnEnterPressed alone is not enough: Blizzard's own handler runs
-            -- first and clears the box, so the text is shadowed on change and
-            -- committed on send.
+            -- Sent-line capture for the recall history above. NEVER use
+            -- hooksecurefunc(eb, "AddHistoryLine", ...): it reads as
+            -- a function hook but is a FIELD WRITE onto the Blizzard edit box
+            -- (hooksecurefunc(object, "method", fn) assigns object.method =
+            -- wrapper), which taints ChatFrame1EditBox. Blizzard calls
+            -- self:AddHistoryLine(text) from inside its send path, so that tainted
+            -- field read lands in the chat machinery and blocks
+            -- ChatFrameEditBoxMixin:OnUpdate's SetText on a secret whisper target.
+            -- Script hooks carry no field write and are verified clean. OnEnterPressed
+            -- alone is not enough: Blizzard's handler runs first and clears the box, so
+            -- text is shadowed on change and committed on send.
             eb:HookScript("OnTextChanged", function(self, userInput)
                 local t = self:GetText()
                 if issecretvalue and issecretvalue(t) then
@@ -3251,13 +3474,11 @@ local function SkinEditBox(cf)
                     return
                 end
                 -- A PROGRAMMATIC empty write must not consume the shadow:
-                -- Blizzard's own OnEnterPressed handler clears the box
-                -- (SetText("")) before our commit hook runs, so honoring that
-                -- clear here would erase the line the commit is about to read.
-                -- User-typed emptiness (select-all + delete) still records ""
-                -- so an empty send commits nothing; programmatic NON-empty
-                -- writes (arrow recall, reply prefill) still shadow normally
-                -- so recall-then-send commits the recalled line.
+                -- Blizzard's OnEnterPressed clears the box (SetText("")) before our
+                -- commit hook runs, so honoring it would erase the line the commit is
+                -- about to read. User-typed emptiness (select-all + delete) still
+                -- records "" so an empty send commits nothing; programmatic non-empty
+                -- writes (arrow recall, reply prefill) shadow normally.
                 if t == "" and not userInput then return end
                 CFD(self).pendingLine = t
             end)
@@ -3278,10 +3499,9 @@ local function SkinEditBox(cf)
             eb:HookScript("OnKeyDown", function(self, key)
                 if key ~= "UP" and key ~= "DOWN" then return end
                 if IsAltKeyDown() then return end
-                -- Narrow, field-proven restriction guards kept from the
-                -- long-shipped implementation. (C_ChatInfo.
-                -- InChatMessagingLockdown exists but its breadth on Midnight
-                -- is unverified -- do not swap it in blind.)
+                -- Narrow, field-proven restriction guards.
+                -- C_ChatInfo.InChatMessagingLockdown exists but its breadth on
+                -- Midnight is unverified -- do not swap it in blind.
                 local restricted = GetCVarBool("addonChatRestrictionsForced")
                     or (C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive
                         and C_ChallengeMode.IsChallengeModeActive())
@@ -3314,35 +3534,143 @@ local function SkinChatFrame(cf)
     if not cf or _skinned[cf] then return end
     _skinned[cf] = true
     _alphaFrames = nil
+    -- A frame skinned while the panel is fully hidden must join the passthrough
+    -- set; deferred so it runs after this skin completes.
+    RequestPassthroughSweep()
     local name = cf:GetName()
     if not name then return end
 
-    -- No HookScript("OnEvent") on chat frames -- even post-hooks taint
-    -- the C-level event dispatcher. Idle reset + pulse detection are
-    -- handled by standalone event frames (see sections 5/6 below).
+    -- Undock drop guard: 12.1's StopMovingOrSizing can end a tab-drag undock
+    -- with the frame's anchors stripped and never re-baked; the next line of
+    -- Blizzard's secure drag-stop then crashes on GetLeft (nil) and loops the
+    -- tab's OnUpdate until the script suspends. This post-hook fires between
+    -- the strip and that read: re-anchor the point-less frame at the cursor
+    -- (the drop spot) so the position save completes cleanly. Same shipped
+    -- object-hook shape as the ApplySystemAnchor guard; fires only when a
+    -- chat frame stops moving (user drag), self-gates to the broken state.
+    hooksecurefunc(cf, "StopMovingOrSizing", function(f)
+        if f.isDocked then return end
+        if f:GetNumPoints() == 0 then
+            -- TOPLEFT, matching Blizzard's own undock anchor convention (the
+            -- tab drag grabs near the frame's top-left, so a later re-attach
+            -- by anchor point lands without a jump; CENTER produced one).
+            local issec = _G.issecretvalue
+            local mx, my = GetCursorPosition()
+            local es = f:GetEffectiveScale()
+            local w, h = f:GetWidth() or 430, f:GetHeight() or 120
+            if mx and my and es and es > 0
+                and not (issec and (issec(mx) or issec(my) or issec(w) or issec(h))) then
+                f:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT",
+                    mx / es - w / 2, my / es + h / 2)
+            else
+                f:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+            end
+        end
+    end)
 
-    -- Unified dark background (covers chat + edit box as one panel)
+    -- Tab-drag ownership for undockable frames: 12.1's StartMoving capture is
+    -- broken for chat frames -- measured: zero-offset init (frame teleports
+    -- to the screen corner at drag start), center-snapped to the cursor with
+    -- the grab offset discarded, anchor rewritten to CENTER, and the final
+    -- bake stripping all points every drag. The grip lane instead: end the
+    -- capture the moment it engages and drive the drag with plain per-tick
+    -- corner anchors (grab offset preserved, rect readable throughout, so
+    -- the panel+text follow natively). Blizzard's drag-stop bookkeeping
+    -- (redock, tab position, position save) runs unchanged on our geometry;
+    -- its no-op StopMovingOrSizing at release strips nothing.
+    local dragTab = _G[name .. "Tab"]
+    if dragTab and cf ~= _G.ChatFrame1 then
+        dragTab:HookScript("OnDragStart", function()
+            if cf.isDocked then return end
+            pcall(function() cf:StopMovingOrSizing() end)
+            local dcf = CFD(cf)
+            -- Grab reference: the frame's last at-rest rect from the follower
+            -- cache -- the capture has already scrambled the live rect by the
+            -- time this post-hook runs. Fresh undocks (cache still says
+            -- docked) start from the live rect instead: the drop guard just
+            -- re-anchored them centered under the cursor, the stock undock
+            -- feel. Immediate SetPoint pins the choice before this frame
+            -- renders, so re-drags never flash at the guard's spot.
+            local l, t
+            if not dcf._cfWasDocked and dcf._cfL and dcf._cfT then
+                l, t = dcf._cfL, dcf._cfT
+            else
+                l, t = cf:GetLeft(), cf:GetTop()
+            end
+            local mx, my = GetCursorPosition()
+            local es = cf:GetEffectiveScale()
+            local issec = _G.issecretvalue
+            if not (l and t and mx and my and es and es > 0) then return end
+            if issec and (issec(l) or issec(t) or issec(mx) or issec(my)) then return end
+            pcall(function()
+                cf:ClearAllPoints()
+                cf:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", l, t)
+            end)
+            dcf._tabDragOffX = l - mx / es
+            dcf._tabDragOffY = t - my / es
+            local tk = dcf._tabDragTicker
+            if not tk then
+                tk = CreateFrame("Frame")
+                tk:Hide()
+                tk:SetScript("OnUpdate", function()
+                    if cf.isDocked or not IsMouseButtonDown("LeftButton") then
+                        tk:Hide()
+                        return
+                    end
+                    local cx, cy = GetCursorPosition()
+                    local es2 = cf:GetEffectiveScale()
+                    local isec2 = _G.issecretvalue
+                    if not (cx and cy and es2 and es2 > 0) then return end
+                    if isec2 and (isec2(cx) or isec2(cy)) then return end
+                    cf:ClearAllPoints()
+                    cf:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT",
+                        cx / es2 + dcf._tabDragOffX, cy / es2 + dcf._tabDragOffY)
+                end)
+                dcf._tabDragTicker = tk
+            end
+            tk:Show()
+        end)
+    end
+
+    -- NEVER HookScript("OnEvent") on chat frames -- even post-hooks taint the
+    -- C-level event dispatcher. Idle reset + pulse detection live on standalone
+    -- event frames (sections 5/6 below).
+
+    -- Unified dark background (covers chat + edit box as one panel). Parented to
+    -- UIParent, NEVER to the chat frame: an insecure frame parented to a Blizzard chat
+    -- tab/frame is exactly what this module's host design forbids, and the resulting
+    -- taint poisons ChatFrame.isLocked tens of seconds away from any callback of ours
+    -- -- it comes from structure, not from code we run.
+    --
+    -- Two things a real parent would have provided are replaced by the state watcher
+    -- instead: draw order (strata + level, re-asserted because Blizzard moves chat
+    -- frames between levels on dock passes) and visibility (a UIParent child does not
+    -- hide with the chat frame, and anchors still resolve against a hidden one).
+    -- Deliberately NOT an OnShow hook on the chat frame.
     if not CFD(cf).bg then
-        local bg = CreateFrame("Frame", nil, cf)
-        local eb = _G[name .. "EditBox"]
-        bg:SetPoint("TOPLEFT", cf, "TOPLEFT", -10, 3)
-        bg:SetPoint("BOTTOMRIGHT", eb or cf, "BOTTOMRIGHT", 5, eb and -4 or -6)
+        local bg = CreateFrame("Frame", nil, UIParent)
+        -- NO SetPoint to cf/eb: the panel is placed NUMERICALLY from the chat
+        -- frame's rect (PositionChatPanel), like the tab hosts, so nothing of
+        -- ours sits in Blizzard's rect chain.
+        bg:SetFrameStrata(cf:GetFrameStrata())
         bg:SetFrameLevel(max(0, cf:GetFrameLevel() - 1))
+        bg:SetShown(cf:IsShown())
 
         local bgTex = bg:CreateTexture(nil, "BACKGROUND")
         bgTex._euiOwned = true
         bgTex:SetAllPoints()
         bgTex:SetColorTexture(BG_R, BG_G, BG_B, BG_A)
 
-        if not cf:IsShown() then
-            bg:Hide()
-            cf:HookScript("OnShow", function() bg:Show() end)
-        end
+        -- NO cf:HookScript("OnShow") to mirror visibility: FCF_OpenTemporary- Window
+        -- shows the pooled frame partway through (via SetShown), so on any frame
+        -- skinned while hidden (pooled temp window between conversations, or restored
+        -- by reload with a whisper open) that closure would run INSIDE the open and
+        -- taint the rest of it. The state watcher carries shown-state instead.
         CFD(cf).bg = bg
     end
 
-    -- Sidebar: 40px panel to the left of the main chat frame for icons.
-    -- Parented to UIParent so it stays visible regardless of active tab.
+    -- Sidebar: icon panel beside the main chat frame. Parented to UIParent so it
+    -- stays visible regardless of the active tab.
     if name == "ChatFrame1" and not CFD(cf).sidebar then
         local sidebar = CreateFrame("Frame", nil, UIParent)
         sidebar:SetWidth(min(100, max(30, ECHAT.DB().sidebarWidth or 40)))
@@ -3355,11 +3683,14 @@ local function SkinChatFrame(cf)
         sbBg:SetAllPoints()
         sbBg:SetColorTexture(BG_R, BG_G, BG_B, BG_A)
 
-        -- Sidebar mouseover hover (for "mouseover" visibility mode)
         sidebar:EnableMouse(true)
         sidebar:SetScript("OnEnter", function()
             local cfg = ECHAT.DB()
             if cfg.sidebarVisibility == "mouseover" then
+                -- Fade target MUST be set before the layout pass: the icon
+                -- shown-state in ApplySidebarIcons reads it to decide whether
+                -- the faded-out cutoff still applies.
+                _sidebarFadeTarget = 1
                 if not _sidebarMouseoverLayoutVisible then
                     _sidebarMouseoverLayoutVisible = true
                     if ECHAT.ApplyTabPadding then
@@ -3368,7 +3699,6 @@ local function SkinChatFrame(cf)
                         ECHAT.ApplyExtendedBackground()
                     end
                 end
-                _sidebarFadeTarget = 1
                 if _sidebarFadeFrame then _sidebarFadeFrame:Show() end
             end
         end)
@@ -3386,7 +3716,6 @@ local function SkinChatFrame(cf)
             end
         end)
 
-        -- 1px vertical divider between sidebar and chat bg
         local onePx = (PP and PP.mult) or 1
         local sbDiv = sidebar:CreateTexture(nil, "OVERLAY", nil, 7)
         sbDiv._euiOwned = true
@@ -3422,21 +3751,19 @@ local function SkinChatFrame(cf)
             return btn
         end
 
-        -- Read visibility + ordering config at creation time
+        -- Visibility + ordering config is read once, at creation time.
         local icfg = ECHAT.DB()
         local showFriends    = icfg.showFriends ~= false
         local showGuild      = icfg.showGuild ~= false
         local showDurability = icfg.showDurability ~= false
 
-        -- When the background is extended behind the tabs, the sidebar panel
-        -- grows upward by the tab-strip height. Shift the (chain-anchored) icons
-        -- up the same amount so the top icon keeps its gap from the new top edge.
-        -- Skipped when free-move is on -- those icons are user-positioned, not
-        -- chained, so they stay exactly where the user dropped them.
+        -- Extended background grows the sidebar upward by the tab-strip height,
+        -- so chain-anchored icons shift up the same amount to keep the top gap.
+        -- Skipped under free-move: those icons are user-positioned, not chained.
         local iconTopShift = (icfg.extendBgBehindTabs and not icfg.freeMoveIcons) and GetTabAreaHeight() or 0
 
-        -- Chain icons are created below in the saved order (drag-to-reorder in
-        -- the options dropdown; a new order takes effect on the next reload).
+        -- Chain icons are created in the saved order (drag-to-reorder in the
+        -- options dropdown; a new order takes effect on the next reload).
         local anchor = nil
         local friendsBtn, friendsCount, durabilityBtn, durabilityPct, copyBtn, portalBtn, voiceBtn, settingsBtn
         local guildBtn, guildCount
@@ -3470,7 +3797,9 @@ local function SkinChatFrame(cf)
                 HideSidebarIconTooltip(self)
             end)
 
+            local fcPending
             local function UpdateFriendsCount()
+                fcPending = nil
                 local _, numOnline = BNGetNumFriends()
                 local wowOnline = C_FriendList.GetNumOnlineFriends()
                 friendsCount:SetText(numOnline + wowOnline)
@@ -3481,7 +3810,14 @@ local function SkinChatFrame(cf)
             fcEvents:RegisterEvent("BN_FRIEND_INFO_CHANGED")
             fcEvents:RegisterEvent("FRIENDLIST_UPDATE")
             fcEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
-            fcEvents:SetScript("OnEvent", UpdateFriendsCount)
+            -- BN_FRIEND_INFO_CHANGED storms on big friend lists (presence spam)
+            -- and each recount walks both friend APIs, so the storm coalesces
+            -- into one trailing recount per second.
+            fcEvents:SetScript("OnEvent", function()
+                if fcPending then return end
+                fcPending = true
+                C_Timer.After(1, UpdateFriendsCount)
+            end)
 
             CFD(cf).friendsCount = friendsCount
             anchor = friendsCount
@@ -3507,9 +3843,9 @@ local function SkinChatFrame(cf)
                 HideSidebarIconTooltip(self)
             end)
 
-            -- Online guildmate count (GetNumGuildMembers 2nd return), like
-            -- Friends. Roster request is throttled: GuildRoster() itself fires
-            -- GUILD_ROSTER_UPDATE, which re-enters this; unthrottled that loops.
+            -- Online guildmate count (GetNumGuildMembers 2nd return). The roster
+            -- request MUST stay throttled: GuildRoster() itself fires
+            -- GUILD_ROSTER_UPDATE, which re-enters this and loops.
             local lastRoster = 0
             local function UpdateGuildCount()
                 if not IsInGuild() then guildCount:SetText(0); return end
@@ -3574,9 +3910,8 @@ local function SkinChatFrame(cf)
             anchor = durabilityPct
         end
 
-        -- Create all chain icons in the saved order. Friends and Durability
-        -- have bespoke creators (count/percent text + events); the rest are
-        -- plain sidebar icons.
+        -- Friends/Guild/Durability have bespoke creators (count or percent text
+        -- plus events); the rest are plain sidebar icons.
         local SPECIAL_CREATORS = {
             showFriends    = { show = showFriends,    create = CreateFriendsIcon },
             showGuild      = { show = showGuild,      create = CreateGuildIcon },
@@ -3610,13 +3945,12 @@ local function SkinChatFrame(cf)
         voiceBtn    = middleBtns["showVoice"]
         settingsBtn = middleBtns["showSettings"]
 
-        -- Bottom: Scroll (anchored to bottom with gap)
+        -- Scroll is pinned to the sidebar bottom, outside the chain.
         local scrollBtn = MakeSidebarIcon(sidebar, MEDIA .. "chat_scroll2.png")
         scrollBtn:SetSize(22, 22)
         scrollBtn:ClearAllPoints()
         scrollBtn:SetPoint("BOTTOM", sidebar, "BOTTOM", 0, ICON_SPACING)
 
-        -- Sidebar icon tooltips
         local function HookIconTooltip(btn, label)
             btn:HookScript("OnEnter", function(self)
                 if not self._freeMoveJustDragged then ShowSidebarIconTooltip(self, label) end
@@ -3630,11 +3964,12 @@ local function SkinChatFrame(cf)
         if settingsBtn then HookIconTooltip(settingsBtn, "Settings") end
         HookIconTooltip(scrollBtn, "Scroll to Bottom")
 
-        -- Scroll to bottom
+        -- Scroll to bottom: acts on OUR message frame for the selected window.
         scrollBtn:SetScript("OnClick", function()
-            local cf1 = ChatFrame1
-            if cf1 and cf1.ScrollBar and cf1.ScrollBar.SetScrollPercentage then
-                cf1.ScrollBar:SetScrollPercentage(1)
+            local selected = GENERAL_CHAT_DOCK and FCFDock_GetSelectedWindow
+                and FCFDock_GetSelectedWindow(GENERAL_CHAT_DOCK)
+            if ECHAT.EngineScrollToBottom then
+                ECHAT.EngineScrollToBottom(selected or ChatFrame1)
             end
         end)
 
@@ -3647,7 +3982,6 @@ local function SkinChatFrame(cf)
         end)
         end
 
-        -- Friends button toggles FriendsFrame
         if friendsBtn then
         friendsBtn:SetScript("OnClick", function()
             if InCombatLockdown() then
@@ -3658,7 +3992,6 @@ local function SkinChatFrame(cf)
         end)
         end
 
-        -- Guild button click handler
         if guildBtn then
         guildBtn:SetScript("OnClick", function()
             if InCombatLockdown() then
@@ -3669,8 +4002,6 @@ local function SkinChatFrame(cf)
         end)
         end
 
-        -- Portals button click handler
-
         if portalBtn then
         portalBtn:SetScript("OnClick", function(self)
             if InCombatLockdown() then return end
@@ -3679,7 +4010,6 @@ local function SkinChatFrame(cf)
         HookIconTooltip(portalBtn, "M+ Portals")
         end
 
-        -- Voice button toggles ChannelFrame
         if voiceBtn then
         voiceBtn:SetScript("OnClick", function()
             if InCombatLockdown() then return end
@@ -3687,7 +4017,6 @@ local function SkinChatFrame(cf)
         end)
         end
 
-        -- Settings button toggles EUI options on Chat module
         if settingsBtn then
         settingsBtn:SetScript("OnClick", function()
             if InCombatLockdown() then return end
@@ -3696,13 +4025,14 @@ local function SkinChatFrame(cf)
                 mf:Hide()
             else
                 EUI:ShowModule("EllesmereUIChat")
-                -- Scroll sidebar to bottom so Chat (in the reskin group) is visible
+                -- Scroll the sidebar to the bottom so Chat is visible.
                 C_Timer.After(0, function()
                     local sf = EUI._addonScrollFrame
                     if sf then
                         local max = sf:GetVerticalScrollRange() or 0
                         sf:SetVerticalScroll(max)
-                        -- Poke scroll child to trigger OnScrollRangeChanged (updates thumb)
+                        -- Poke the scroll child so OnScrollRangeChanged fires
+                        -- and the thumb updates.
                         local sc = sf:GetScrollChild()
                         if sc then
                             local h = sc:GetHeight()
@@ -3724,27 +4054,17 @@ local function SkinChatFrame(cf)
         sbd.voiceBtn = voiceBtn
         sbd.settingsBtn = settingsBtn
         sbd.scrollBtn = scrollBtn
-        -- Order snapshot for ApplySidebarIcons: live visibility toggles keep
-        -- this session's layout; a changed saved order applies on reload.
+        -- Order snapshot for ApplySidebarIcons: live visibility toggles keep this
+        -- session's layout; a changed saved order applies on reload.
         sbd._iconChainOrder = chainOrder
 
         CFD(cf).sidebar = sidebar
     end
 
-    -- Top clip: prevent text bleeding into the tab area.
-    -- Left/right padding is not possible without a custom renderer --
-    -- Blizzard's font strings are positioned absolutely by the layout
-    -- engine and ignore FSC container bounds.
-    local fsc = cf.FontStringContainer
-    if fsc and not CFD(cf).topClipped then
-        CFD(cf).topClipped = true
-        fsc:ClearAllPoints()
-        fsc:SetPoint("TOPLEFT", cf, "TOPLEFT", 0, -6)
-        fsc:SetPoint("BOTTOMRIGHT", cf, "BOTTOMRIGHT", 0, 0)
-    end
-
-    -- Horizontal divider above input field
-    if not CFD(cf).inputDiv then
+    -- Horizontal divider above the input field. The bg guard is load-bearing: a
+    -- frame can reach here without a panel, and an unguarded index throws and
+    -- aborts the rest of SkinChatFrame.
+    if not CFD(cf).inputDiv and CFD(cf).bg then
         local onePx = (PP and PP.mult) or 1
         local div = CFD(cf).bg:CreateTexture(nil, "OVERLAY", nil, 7)
         div._euiOwned = true
@@ -3756,83 +4076,137 @@ local function SkinChatFrame(cf)
         CFD(cf).inputDiv = div
     end
 
-    -- Chat frame font/shadow/fade (one-time, at login)
+    -- Font/shadow/fade, one-time at login. The Blizzard frame still gets the
+    -- font: its invisible text layout must stay congruent with OUR visible
+    -- copy so its hyperlink hit-zones sit under the same characters, and the
+    -- hosted combat log renders through it.
     local cfId = cf:GetID()
-    cf:SetFont(GetFont(), GetFrameFontSize(cfId), GetOutlineFlag())
+    do
+        -- Family over raw file (CJK members) -- same object the engine view
+        -- uses, keeping both layouts congruent.
+        local fam = ECHAT.EngineFontFamily
+            and ECHAT.EngineFontFamily(cfId, GetFont(), GetFrameFontSize(cfId), GetOutlineFlag())
+        if fam then
+            cf:SetFontObject(fam)
+        else
+            cf:SetFont(GetFont(), GetFrameFontSize(cfId), GetOutlineFlag())
+        end
+    end
     if cf.SetShadowOffset then cf:SetShadowOffset(1, -1) end
     if cf.SetShadowColor then cf:SetShadowColor(0, 0, 0, 0.8) end
     cf:SetFading(false)
 
-    -- 3. Hyperlink handlers (per-frame, on our bg frame -- not on Blizzard's cf)
-    --    OnHyperlinkEnter/Leave for tooltip, OnHyperlinkClick for item toggle
+    -- 3. Hyperlink handlers: hover tooltip only. Blizzard's invisible text
+    --    layer still owns all hyperlink hit-testing (its clicks run SetItemRef
+    --    from ITS secure scripts; the global SetItemRef hook catches our URL
+    --    links), so these script hooks keep firing exactly as before.
     if not CFD(cf).hyperlinkHooked then
         CFD(cf).hyperlinkHooked = true
-        cf:HookScript("OnHyperlinkEnter", OnHyperlinkEnter)
-        cf:HookScript("OnHyperlinkLeave", OnHyperlinkLeave)
-        -- Item tooltip toggle + URL click handled by global SetItemRef hook
+        cf:HookScript("OnHyperlinkEnter", function(...)
+            OnHyperlinkEnter(...)
+        end)
+        cf:HookScript("OnHyperlinkLeave", function(...)
+            OnHyperlinkLeave(...)
+        end)
     end
 
     -- 4. Edit box
     SkinEditBox(cf)
 
+    -- 5. Tabs are the owned strip's business now (EllesmereUIChat_Tabs.lua);
+    --    nothing of Blizzard's tab is skinned or touched here.
 
-    -- 5. Tab (consolidated in SkinTab -- strips textures and creates our
-    --    background, border, separators, and layout hooks)
-    SkinTab(cf)
-
-    -- 6. Hide Blizzard button frame
+    -- 6. Hide Blizzard's button frame -- ALPHA, NEVER SetParent. FCF_DockFrame
+    -- calls FCF_SetButtonSide (ClearAllPoints+SetPoint on chatFrame.
+    -- buttonFrame against chatFrame.Background) then FCF_SetLocked, whose
+    -- `chatFrame.isLocked = ...` write is the field measured tainted. Parenting
+    -- the button frame to ours would put Blizzard manipulating an insecure-owned frame
+    -- mid-dock, tainting the rest of that dock -- that one field feeds both reported
+    -- error classes: FCF_Tab_SetupMenu (tab menu) and FCF_UpdateResizeButton
+    -- (temp-window open) both read it. Blizzard drives this frame's alpha on hover
+    -- (UIFrameFadeIn/Out), so the zero is re-asserted by the state watcher rather than
+    -- set once -- same idiom as the scroll buttons and minimize button below.
     local btnFrame = _G[name .. "ButtonFrame"]
     if btnFrame then
-        btnFrame:SetParent(_hiddenParent)
+        btnFrame:SetAlpha(0)
+        btnFrame:EnableMouse(false)
     end
 
-    -- Restyle Blizzard's resize button to align with our bg (all chat frames).
-    local resizeBtn = _G[name .. "ResizeButton"]
-    if resizeBtn and CFD(cf).bg then
-        resizeBtn:SetSize(18, 18)
-        resizeBtn:ClearAllPoints()
-        -- While gate 7 leaves the temp (11+) edit box Blizzard-anchored, its
-        -- native chain includes this button; anchoring to our bg (which
-        -- wraps the eb) would be an anchor cycle there.
-        local rbIdx = tonumber(name:match("ChatFrame(%d+)"))
-        local rbAnchor = (BISECT_EB_ANCHORS_OFF and rbIdx and rbIdx > 10) and cf or CFD(cf).bg
-        resizeBtn:SetPoint("BOTTOMRIGHT", rbAnchor, "BOTTOMRIGHT", -2, 2)
-        resizeBtn:SetFrameStrata("HIGH")
-        if resizeBtn.GetRegions then
-            for ri = 1, select("#", resizeBtn:GetRegions()) do
-                local region = select(ri, resizeBtn:GetRegions())
-                if region and region:IsObjectType("Texture") then
-                    region:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\resize_element.png")
-                    region:SetDesaturated(true)
-                    region:SetVertexColor(1, 1, 1)
-                    region:SetAllPoints()
+    -- Restyle Blizzard's resize button to align with our bg (undocked-capable
+    -- frames only; ChatFrame1 gets OUR grip below -- Blizzard never shows the
+    -- main window's own button, and ApplyLockChatSize keeps it dead).
+    local resizeBtn = cf ~= _G.ChatFrame1 and _G[name .. "ResizeButton"] or nil
+    if resizeBtn then
+        -- DEFERRED for the same reason panel placement is (PositionChatPanel):
+        -- this runs from the skin pass, which fires while a temp whisper
+        -- window is opening, and re-anchoring this button resolves geometry
+        -- against the chat frame inside Blizzard's dock pass, tainting it.
+        C_Timer.After(0, function()
+            resizeBtn:SetSize(18, 18)
+            resizeBtn:ClearAllPoints()
+            -- Anchored to the CHAT FRAME, NEVER our panel: Blizzard anchors the chat
+            -- frame's own ScrollBar to this button (FCF_UpdateScrollbarAnchors), so
+            -- pointing it at our panel pulls an addon frame into Blizzard's chat layout
+            -- chain (an anchor cycle) and Edit Mode can no longer commit a chat move --
+            -- the drag releases unanchored and UpdateSystemAnchorInfo writes nil,
+            -- leaving chat unmovable and unresizable.
+            resizeBtn:SetPoint("BOTTOMRIGHT", cf, "BOTTOMRIGHT", -2, 2)
+            resizeBtn:SetFrameStrata("HIGH")
+            if resizeBtn.GetRegions then
+                for ri = 1, select("#", resizeBtn:GetRegions()) do
+                    local region = select(ri, resizeBtn:GetRegions())
+                    if region and region:IsObjectType("Texture") then
+                        region:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\resize_element.png")
+                        region:SetDesaturated(true)
+                        region:SetVertexColor(1, 1, 1)
+                        region:SetAllPoints()
+                    end
                 end
             end
-        end
-        resizeBtn:SetAlpha(0.2)
-        resizeBtn:HookScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-        resizeBtn:HookScript("OnLeave", function(self) self:SetAlpha(0.2) end)
+            resizeBtn:SetAlpha(0.2)
+            -- Arms the interaction follower: a resize drag starts and stays on
+            -- this button, and the panel must follow it live.
+            resizeBtn:HookScript("OnEnter", function(self)
+                self:SetAlpha(0.7)
+                if ECHAT.FollowArm then ECHAT.FollowArm() end
+            end)
+            resizeBtn:HookScript("OnLeave", function(self)
+                self:SetAlpha(0.2)
+                if ECHAT.FollowRelease then ECHAT.FollowRelease() end
+            end)
+        end)
     end
 
-    -- Custom resize grip removed: Blizzard is sole authority for chat sizing.
-    -- Blizzard's resize button (restyled above) handles all resizing natively.
-
-    -- Hide scroll buttons + scroll-to-bottom
-    for _, suffix in ipairs({"BottomButton", "DownButton", "UpButton"}) do
-        local btn = _G[name .. suffix]
-        if btn then btn:SetAlpha(0); btn:EnableMouse(false) end
+    -- Main chat: our grip is the sole resize surface (engine-driven sizing;
+    -- see BuildMainChatResizeGrip for the hard constraints).
+    if cf == _G.ChatFrame1 and ns._BuildMainChatResizeGrip then
+        ns._BuildMainChatResizeGrip(cf)
     end
+
+    -- Same class as the button frame above: FCF_UpdateScrollbarAnchors anchors
+    -- Blizzard's own ScrollBar TO this button, and FCF_SetLocked reaches it via
+    -- FCF_UpdateResizeButton during the dock. Alpha, NOT SetParent.
     if cf.ScrollToBottomButton then
-        cf.ScrollToBottomButton:SetParent(_hiddenParent)
+        local sb = cf.ScrollToBottomButton
+        sb:SetAlpha(0)
+        sb:EnableMouse(false)
+        -- Blizzard ANIMATES this button's alpha (UIFrameFadeIn to .65 on
+        -- activity, SetAlpha(1) while its Flash texture is UIFrameFlashing),
+        -- so no alpha assert can ever win. Hidden wins: their fade-in
+        -- re-Shows it and this post-hook re-hides it in the same execution,
+        -- before anything renders (the Prat button-hide shape).
+        if not CFD(sb).hideHooked then
+            CFD(sb).hideHooked = true
+            sb:HookScript("OnShow", sb.Hide)
+        end
+        sb:Hide()
     end
 
-    -- Minimize button
     local minBtn = _G[name .. "MinimizeButton"]
     if minBtn then minBtn:SetAlpha(0); minBtn:EnableMouse(false) end
 
-    -- Strip ALL Blizzard textures from the chat frame by walking every
-    -- region. Only targets Texture objects and skips anything we created
-    -- (our textures have _eui prefix fields).
+    -- Strip ALL Blizzard textures from the chat frame. Texture objects only, and
+    -- skips anything we created (marked with _euiOwned).
     if cf.GetRegions then
         for i = 1, select("#", cf:GetRegions()) do
             local region = select(i, cf:GetRegions())
@@ -3843,7 +4217,6 @@ local function SkinChatFrame(cf)
             end
         end
     end
-    -- Also strip the Background child frame and its regions
     if cf.Background then
         cf.Background:SetAlpha(0)
         if cf.Background.GetRegions then
@@ -3856,17 +4229,15 @@ local function SkinChatFrame(cf)
         end
     end
 
-    -- Let clicks pass through to the game world
     cf:SetHyperlinksEnabled(true)
 
-    -- Combat Log: replace Blizzard's filter tab bar with our own dark bar
-    -- that matches the chat panel's width and style.
+    -- Combat Log: replace Blizzard's filter tab bar with a dark bar matching
+    -- the chat panel's width and style.
     if name == "ChatFrame2" then
         local qbf = _G.CombatLogQuickButtonFrame_Custom
         if qbf and not CFD(qbf).skinned then
             CFD(qbf).skinned = true
 
-            -- Strip all default textures
             if qbf.GetRegions then
                 for i = 1, select("#", qbf:GetRegions()) do
                     local region = select(i, qbf:GetRegions())
@@ -3876,20 +4247,19 @@ local function SkinChatFrame(cf)
                 end
             end
 
-            -- Anchor flush: bottom of filter bar meets top of bg (cf top + 3),
-            -- width matches bg (-10 left, +5 right)
+            -- Flush: filter bar bottom meets bg top (cf top + 3), width matches
+            -- the panel.
             qbf:ClearAllPoints()
             qbf:SetPoint("BOTTOMLEFT", cf, "TOPLEFT", -10, 3)
             qbf:SetPoint("BOTTOMRIGHT", cf, "TOPRIGHT", 10, 3)
             qbf:SetHeight(24)
 
-            -- Dark background matching our panel
             local qbfBg = qbf:CreateTexture(nil, "BACKGROUND")
             qbfBg:SetAllPoints()
             qbfBg:SetColorTexture(BG_R, BG_G, BG_B, 1)
 
 
-            -- Bottom divider (separates filter tabs from messages)
+            -- Bottom divider separating filter tabs from messages
             local onePx = (PP and PP.mult) or 1
             local qbfDiv = qbf:CreateTexture(nil, "OVERLAY", nil, 7)
             qbfDiv._euiOwned = true
@@ -3899,7 +4269,7 @@ local function SkinChatFrame(cf)
             qbfDiv:SetPoint("BOTTOMRIGHT", qbf, "BOTTOMRIGHT", 0, 0)
             if PP and PP.DisablePixelSnap then PP.DisablePixelSnap(qbfDiv) end
 
-            -- Restyle the filter buttons and accent-color the active one
+            -- Restyle filter buttons; accent-color the active one.
             local EG = EUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.61 }
             local clFilterBtns = {}
             local function UpdateCLFilterColors()
@@ -3920,7 +4290,6 @@ local function SkinChatFrame(cf)
                     local btn = select(i, qbf:GetChildren())
                     if btn and btn:IsObjectType("CheckButton") or (btn and btn:IsObjectType("Button")) then
                         clFilterBtns[#clFilterBtns + 1] = btn
-                        -- Strip button textures
                         if btn.GetRegions then
                             for j = 1, select("#", btn:GetRegions()) do
                                 local rgn = select(j, btn:GetRegions())
@@ -3929,12 +4298,10 @@ local function SkinChatFrame(cf)
                                 end
                             end
                         end
-                        -- Restyle the text
                         local fs = btn:GetFontString()
                         if fs then
                             fs:SetFont(GetFont(), 12, "")
                         end
-                        -- Update colors on click
                         btn:HookScript("OnClick", UpdateCLFilterColors)
                     end
                 end
@@ -3944,63 +4311,29 @@ local function SkinChatFrame(cf)
                 EUI.RegAccent({ type = "callback", fn = UpdateCLFilterColors })
             end
 
-            -- One-time alpha set. No reactive hook -- hooksecurefunc on
-            -- SetAlpha taints execution during whisper/tab processing.
+            -- One-time alpha set. NEVER hooksecurefunc SetAlpha here -- that
+            -- taints execution during whisper/tab processing.
             qbf:SetAlpha(1)
 
-            -- Don't extend bg upward -- the filter bar has its own bg (qbfBg).
-            -- Keeping both chat frame bgs the same size prevents visual
-            -- jumping when switching between General and Combat Log tabs.
+            -- The chat bg is NOT extended upward: the filter bar has its own bg,
+            -- and keeping both chat frame bgs the same size stops the visual
+            -- jump when switching between General and Combat Log tabs.
         end
     end
 
-    -- Skip scrollbar entirely for undocked temporary frames in M+ / raid / PvP combat
-    if cf.isTemporary and not cf.isDocked then
-        local _, instanceType = IsInInstance()
-        local inMPlus = instanceType == "party" and C_ChallengeMode
-            and C_ChallengeMode.IsChallengeModeActive
-            and C_ChallengeMode.IsChallengeModeActive()
-        local inRaidCombat = instanceType == "raid" and InCombatLockdown()
-        local inPvP = (instanceType == "pvp" or instanceType == "arena") and InCombatLockdown()
-        if inMPlus or inRaidCombat or inPvP then return end
-    end
-
-    -- Hide scrollbar arrow buttons by reparenting to hidden container.
-    -- The scrollbar itself stays untouched in the frame hierarchy to
-    -- avoid both trackExtent errors and HistoryKeeper taint.
-    if cf.ScrollBar and not CFD(cf).scrollBarSkinned then
-        local bar = cf.ScrollBar
-        if bar.Back then bar.Back:SetParent(_hiddenParent) end
-        if bar.Forward then bar.Forward:SetParent(_hiddenParent) end
-        CFD(cf).scrollBarSkinned = true
-    end
+    -- Blizzard's scrollbar (and its arrows) lives in the engine's hidden
+    -- container; our windows carry their own thin scrollbar instead.
 end
 
 -------------------------------------------------------------------------------
---  Tab color updater -- refreshes all skinned Blizzard tabs
+--  Tab refresh shim: the owned strip (EllesmereUIChat_Tabs.lua) redraws from
+--  a coalesced deferred pass; this also re-hides anything of Blizzard's tab
+--  plane that its own event passes re-showed.
 -------------------------------------------------------------------------------
 local function UpdateTabColors()
-    StyleDockManager()
-
-    for i = 1, 20 do
-        local tab = _G["ChatFrame" .. i .. "Tab"]
-        if tab and CFD(tab).skinned then
-            UpdateTabStyle(tab)
-        end
-    end
-
-    ECHAT.ApplyTabSpacing()
-    -- Only show resize grip when General (ChatFrame1) is the active tab
-    local selected = GENERAL_CHAT_DOCK and FCFDock_GetSelectedWindow
-        and FCFDock_GetSelectedWindow(GENERAL_CHAT_DOCK)
-    local cf1 = _G.ChatFrame1
-    if cf1 and CFD(cf1).resizeGrip then
-        local cfg = ECHAT.DB()
-        local locked = cfg and cfg.lockChatSize
-        CFD(cf1).resizeGrip:SetShown(not locked and selected == cf1)
-    end
+    if ECHAT.TabsSweepBlizzard then ECHAT.TabsSweepBlizzard() end
+    if ECHAT.TabsRefresh then ECHAT.TabsRefresh() end
 end
-
 
 -------------------------------------------------------------------------------
 --  Initialization (PLAYER_LOGIN)
@@ -4021,21 +4354,42 @@ initFrame:SetScript("OnEvent", function(self)
     BG_A = p.bgAlpha or BG_A
 
     ---------------------------------------------------------------------------
-    --  2. Skin all 20 chat frames (bg, tabs, scrollbar, edit box, etc.)
+    --  2. Skin all 20 chat frames (bg, tabs, edit box, etc.), then bring them
+    --     under the display engine: font providers first, then integration
+    --     (Blizzard text suppressed, AddMessage bridge installed, our windows
+    --     built and backfilled with everything already in Blizzard's buffers).
     ---------------------------------------------------------------------------
     for i = 1, 20 do
         local cf = _G["ChatFrame" .. i]
         if cf then SkinChatFrame(cf) end
     end
-    -- Re-run the background pass so a saved Background Texture applies at
-    -- login (the skin loop creates the bg textures with the solid color).
+    ECHAT.EngineFontProvider = GetFont
+    ECHAT.EngineFontSizeProvider = GetFrameFontSize
+    ECHAT.EngineOutlineProvider = GetOutlineFlag
+    -- Seed the display-transform switches BEFORE integration: the install
+    -- backfill renders through the same transforms as live lines.
+    if ECHAT.EngineSetChannelAbbrev then
+        ECHAT.EngineSetChannelAbbrev(p.abbreviateChannels == true)
+    end
+    if p.classColorNames == true then
+        ECHAT.ApplyClassColorNames(true)
+    end
+    if ECHAT.EngineIntegrateAll then ECHAT.EngineIntegrateAll() end
+    -- Owned tab strip: hides Blizzard's strip, builds ours from the same
+    -- window storage, and starts mirroring selection/flash from the engine.
+    if ECHAT.TabsInit then ECHAT.TabsInit() end
+    -- Re-run the background pass so a saved Background Texture applies at login
+    -- (the skin loop creates the bg textures with the solid color).
     ECHAT.ApplyBackground()
     ---------------------------------------------------------------------------
-    --  2b. Expanded font size options. Font is applied at skin time only.
-    --      The global hooksecurefunc("FCF_SetChatWindowFontSize") was removed
-    --      because it tainted FCFDock_UpdateTabs -> PanelTemplates_TabResize.
+    --  2b. NEVER replace the global CHAT_FONT_HEIGHTS to expand font sizes:
+    --      every read becomes tainted, and Blizzard's tab context menu
+    --      iterates it mid-build, so the whole menu -- every click handler
+    --      wired after that read -- runs tainted, and any item touching a
+    --      whisper window's secret-keyed tables errors
+    --      (FCF_RestoreChatsToFrame forbidden-table iteration). EUI font size
+    --      is applied at skin time instead.
     ---------------------------------------------------------------------------
-    CHAT_FONT_HEIGHTS = { 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20 }
 
 
     ---------------------------------------------------------------------------
@@ -4058,38 +4412,35 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     ---------------------------------------------------------------------------
-    --  3. Temporary window detection (whisper windows)
-    --     1s ticker checks for unskinned frames. Replaces the global
-    --     hooksecurefunc("FCF_OpenTemporaryWindow") which tainted edit box
-    --     header arithmetic during window creation.
+    --  3. Temporary window (whisper) detection.
     ---------------------------------------------------------------------------
-    -- Shared skin pass: skins unskinned frames, re-strips tabs,
-    -- re-applies font, hides Blizzard chrome. Called from whisper
-    -- events and protected state watcher -- no timers.
+    -- Shared skin pass: skins unskinned frames, re-strips tabs, re-applies font,
+    -- hides Blizzard chrome. Driven by whisper events and the state watcher --
+    -- never by a hooksecurefunc on FCF_OpenTemporaryWindow, which taints edit
+    -- box header arithmetic during window creation.
     local function SkinPass()
         local wantFont = GetFont()
         local wantOutline = GetOutlineFlag()
         for i = 1, 20 do
             local cf = _G["ChatFrame" .. i]
-            -- Skin new frames (calls SkinEditBox + SkinTab internally)
+            -- New frames (SkinChatFrame handles the panel + edit box)
             if cf and not _skinned[cf] then
                 SkinChatFrame(cf)
             end
-            -- Ensure tab is skinned (new temp windows, pool reuse)
-            if cf then
-                SkinTab(cf)
-                -- Re-enforce height (Blizzard resets it on temp window creation)
-                local tab = _G["ChatFrame" .. i .. "Tab"]
-                if tab and CFD(tab).skinned and not BISECT_TAB_GEOMETRY_OFF then
-                    tab:SetHeight(GetTabHeight())
-                end
-            end
-            -- Re-apply font if Blizzard reset it (e.g. font size change)
+            -- Re-apply font if Blizzard reset it (e.g. font size change).
+            -- Family form, not raw SetFont: a raw write here would detach
+            -- the CJK font family the skin pass attached.
             if cf and _skinned[cf] then
                 local curFont = cf:GetFont()
                 if curFont and curFont ~= wantFont then
                     local _, sz = cf:GetFont()
-                    cf:SetFont(wantFont, sz, wantOutline)
+                    local fam = ECHAT.EngineFontFamily
+                        and ECHAT.EngineFontFamily(cf:GetID(), wantFont, sz, wantOutline)
+                    if fam then
+                        cf:SetFontObject(fam)
+                    else
+                        cf:SetFont(wantFont, sz, wantOutline)
+                    end
                 end
             end
         end
@@ -4099,61 +4450,90 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     ---------------------------------------------------------------------------
-    --  4. Global tab hooks (hooksecurefunc on globals).
+    --  4. Chat-frame state watcher, in place of FCF_* hooksecurefunc hooks.
+    --  NEVER hooksecurefunc FCFDock_SelectWindow / FCF_Close /
+    --  FCF_OpenNewWindow -- deferring the body to C_Timer.After(0) does not
+    --  help, since the hook WRAPPER still executes inside the caller's own
+    --  execution and taints the rest of that caller. Measured chain: an
+    --  FCF_Close hook taints the caller -> a later FCF_DockFrame (or
+    --  FCF_CopyChatSettings) reaches FCF_SetLocked, whose `chatFrame.isLocked
+    --  = isLocked` write lands under that taint -> the FIELD stays tainted
+    --  through every later secure pass (so watching only GLOBALS reads
+    --  clean) -> FCF_Tab_SetupMenu reads tabChatFrame.isLocked building the
+    --  tab menu, so its closures (incl. "Close Whisper Window") die
+    --  iterating the forbidden privateMessageList -> the same field is read
+    --  by FCF_UpdateResizeButton during the temp-window OPEN, tainting its
+    --  secret whisper-name math too. One field, both error classes. These
+    --  hooks only did cosmetic re-assertion, so the same state is watched
+    --  instead -- from the interaction follower (armed only while chat is
+    --  hovered or Edit Mode is open) and the deferred event passes below:
+    --  outside Blizzard's dispatch, zero idle cost, up to one tick latency.
     ---------------------------------------------------------------------------
-    if FCFDock_SelectWindow then
-        hooksecurefunc("FCFDock_SelectWindow", function()
-            -- Blizzard rebuilds the tab anchor chain while selecting a window.
-            -- Re-apply spacing after that secure update has fully completed.
-            C_Timer.After(0, function()
-                UpdateTabColors()
-                ECHAT.ApplyTabLayout()
-            end)
-        end)
-    end
-    -- NO synchronous hooks on FCFTab_UpdateColors or FCFDock_UpdateTabs.
-    -- Both shipped briefly post-841 (recolor funnel + static-layout
-    -- re-assert) and both were removed 2026-07-21: FCF_OpenTemporaryWindow
-    -- -> FCF_SetTemporaryWindowType calls FCFTab_UpdateColors directly and
-    -- ends with FCF_DockUpdate (a synchronous FCFDock_UpdateTabs call), so
-    -- BOTH hook bodies executed inside the temp-whisper creation chain --
-    -- which then Deactivates the new editBox and runs UpdateHeader's width
-    -- math on the SECRET whisper-name geometry. Field taintlog (twice,
-    -- after the FCF_OpenTemporaryWindow hook itself was already removed):
-    -- "arithmetic on a secret value blocked because of taint from
-    -- EllesmereUIChat" at ChatFrameEditBox.lua:677, and the whisper fails
-    -- to route. The absence of any "while reading global" transfer line
-    -- for us (DBM's hook shows one) fingers hook-body EXECUTION mid-chain
-    -- as the injection, so no body shape is safe -- the funnel hooks are
-    -- gone entirely. Recolor + layout now run DEFERRED from our own
-    -- triggers below; the cost is a possible 1-frame Blizzard-styled
-    -- flash on dock passes, accepted over the taint.
+    -- Likewise NEVER hook FCFTab_UpdateColors or FCFDock_UpdateTabs synchronously:
+    -- FCF_OpenTemporaryWindow -> FCF_SetTemporaryWindowType calls FCFTab_UpdateColors
+    -- directly and ends with a synchronous FCFDock_UpdateTabs call, so both hook bodies
+    -- would execute inside the temp-whisper creation chain, deactivating the new
+    -- editBox and running UpdateHeader's width math on the SECRET whisper-name geometry
+    -- -- no body shape is safe here. Recolor + layout run DEFERRED from our own
+    -- triggers below; the cost is a possible 1-frame Blizzard-styled flash.
     local _tabPassQueued = false
     local function QueueTabPass()
-        if BISECT_DEFERRED_PASSES_OFF then return end
         if _tabPassQueued then return end
         _tabPassQueued = true
         C_Timer.After(0, function()
             _tabPassQueued = false
             UpdateTabColors()
             ECHAT.ApplyTabLayout()
+            -- Every restyle trigger is also a moment panel geometry can
+            -- shift or the dock selection can have changed; all calls
+            -- early-out on clean state, and this deferred body is our own
+            -- execution.
+            if ECHAT.SyncChatFrameState then ECHAT.SyncChatFrameState() end
+            if ECHAT.PositionChatPanelsNow then ECHAT.PositionChatPanelsNow() end
+            if ECHAT.EngineUpdateCombatLogHost then ECHAT.EngineUpdateCombatLogHost() end
         end)
     end
     ECHAT.QueueTabPass = QueueTabPass
-    if not BISECT_DEFERRED_PASSES_OFF then
-        -- The yellow-reset moments (login passes, zone transitions, dock
-        -- config loads) all coincide with these events on our own frame --
-        -- outside Blizzard's dispatch, deferred one tick.
-        local tabPassFrame = CreateFrame("Frame")
-        tabPassFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-        tabPassFrame:RegisterEvent("UPDATE_CHAT_WINDOWS")
-        tabPassFrame:RegisterEvent("UPDATE_FLOATING_CHAT_WINDOWS")
-        tabPassFrame:SetScript("OnEvent", QueueTabPass)
+    -- Full pass: skin new frames, then restyle + state sync. SkinPass ends with
+    -- UpdateTabColors/ApplyTabLayout/ApplyInputPosition, so this is the one-stop
+    -- deferred handler for anything that can create a chat frame.
+    local _fullPassQueued = false
+    local function QueueFullPass()
+        if _fullPassQueued then return end
+        _fullPassQueued = true
+        C_Timer.After(0, function()
+            _fullPassQueued = false
+            SkinPass()
+            -- New frames (temp whisper windows, user-created windows) join
+            -- the engine here: visual children parked, bridge installed, our
+            -- window built and backfilled. Idempotent for known frames.
+            if ECHAT.EngineIntegrateAll then ECHAT.EngineIntegrateAll() end
+            if ECHAT.SyncChatFrameState then ECHAT.SyncChatFrameState() end
+            if ECHAT.PositionChatPanelsNow then ECHAT.PositionChatPanelsNow() end
+            -- A re-skin resets the resize button's base alpha; re-assert the
+            -- lock state over it.
+            if ECHAT.ApplyLockChatSize then ECHAT.ApplyLockChatSize() end
+            -- A frame integrated while the panel is fully hidden must join
+            -- the passthrough set.
+            RequestPassthroughSweep()
+        end)
     end
-    -- Blizzard Edit Mode can rebuild the chat dock and tab geometry after a
-    -- panel resize. Re-assert the complete tab appearance only after that
-    -- update has left Blizzard's event/script stack; the short second pass
-    -- covers the final size commit performed while Edit Mode closes.
+    ECHAT.QueueFullPass = QueueFullPass
+    -- Every moment Blizzard resets our styling (login passes, zone transitions, dock
+    -- config loads) coincides with these events on our own frame -- outside Blizzard's
+    -- dispatch, deferred one tick. Also covers user-created permanent windows
+    -- (UPDATE_CHAT_WINDOWS) and repositions panels after scale changes.
+    local tabPassFrame = CreateFrame("Frame")
+    tabPassFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+    tabPassFrame:RegisterEvent("UPDATE_CHAT_WINDOWS")
+    tabPassFrame:RegisterEvent("UPDATE_FLOATING_CHAT_WINDOWS")
+    tabPassFrame:RegisterEvent("UI_SCALE_CHANGED")
+    tabPassFrame:RegisterEvent("DISPLAY_SIZE_CHANGED")
+    tabPassFrame:SetScript("OnEvent", QueueFullPass)
+    -- Edit Mode can rebuild the chat dock and tab geometry after a panel resize.
+    -- Re-assert tab appearance only once that update has left Blizzard's
+    -- event/script stack; the short second pass covers the final size commit
+    -- performed while Edit Mode closes.
     do
         local editModeStyleGeneration = 0
         local function QueueEditModeTabStyle()
@@ -4170,116 +4550,91 @@ initFrame:SetScript("OnEvent", function(self)
             C_Timer.After(0, QueueEditModeTabStyle)
         end)
         if EditModeManagerFrame then
+            -- Arm the follower for the whole Edit Mode session: chat can be
+            -- dragged/resized with the mouse nowhere near our hover widgets
+            -- (the Selection overlay occludes them).
+            EditModeManagerFrame:HookScript("OnShow", function()
+                if ECHAT.FollowArmEditMode then ECHAT.FollowArmEditMode(true) end
+            end)
             EditModeManagerFrame:HookScript("OnHide", function()
+                if ECHAT.FollowArmEditMode then ECHAT.FollowArmEditMode(false) end
                 C_Timer.After(0, QueueEditModeTabStyle)
             end)
         end
     end
-    -- Tab close: Blizzard resets all tab colors via FCFTab_UpdateColors
-    -- but FCFDock_SelectWindow only fires if the ACTIVE tab was closed.
-    -- Closing a non-active tab skips our color refresh. FCF_Close is a
-    -- top-level user action, safe to hook (not inside a secure chain).
-    if FCF_Close then
-        hooksecurefunc("FCF_Close", function()
-            C_Timer.After(0, function()
-                UpdateTabColors()
-                ECHAT.ApplyTabLayout()
-            end)
-        end)
-    end
-    -- Temp window creation: re-run SkinPass to catch new frames.
-    -- NEVER hooksecurefunc("FCF_OpenTemporaryWindow") -- field-proven taint
-    -- TWICE (pre-841 module history, and again in the 2026-07-21 tester
-    -- taintlog): the secure whisper router calls it mid-function and then
-    -- continues to DeactivateChat -> UpdateHeader, whose header width math
-    -- runs on the SECRET whisper name geometry; with our hook in the chain
-    -- the remainder of the caller executes tainted and the arithmetic is
-    -- blocked. Instead, listen for the same whisper events on our own frame
-    -- (standalone dispatch, outside Blizzard's) and defer the skin. This
-    -- covers every temp-window trigger: incoming whisper, and outgoing
-    -- /w-in-popout-mode (WHISPER_INFORM). A BACKGROUND open (window not
-    -- selected) anchors the tab during the open itself, before this
-    -- deferred pass installs the per-tab SetPoint hook -- SkinTab's
-    -- one-shot anchor catch-up handles that missed first write.
+    -- Tab close is covered by the state watcher above. NEVER hook FCF_Close:
+    -- "top-level user action" is the wrong test -- it is also reached from
+    -- FCF_PopInWindow (the tab menu's own Close button) and dock teardown, and even
+    -- a genuine top-level click's hook taints the REST of the caller, which is what
+    -- poisons ChatFrame*.isLocked. Temp window creation: NEVER
+    -- hooksecurefunc("FCF_OpenTemporaryWindow") either -- the secure whisper router
+    -- calls it mid-function and continues to DeactivateChat -> UpdateHeader, whose
+    -- width math runs on the SECRET whisper name geometry; our hook in the chain
+    -- taints the remainder of the caller and blocks that arithmetic. Instead the
+    -- same whisper events are registered on our own frame (standalone C-side
+    -- dispatch, outside Blizzard's execution, taint-free) and the skin is deferred.
+    -- That covers every temp-window trigger: incoming whisper and outgoing /w in
+    -- popout mode (WHISPER_INFORM).
     do
         local tempWinFrame = CreateFrame("Frame")
         tempWinFrame:RegisterEvent("CHAT_MSG_WHISPER")
         tempWinFrame:RegisterEvent("CHAT_MSG_WHISPER_INFORM")
         tempWinFrame:RegisterEvent("CHAT_MSG_BN_WHISPER")
         tempWinFrame:RegisterEvent("CHAT_MSG_BN_WHISPER_INFORM")
-        tempWinFrame:SetScript("OnEvent", function()
-            C_Timer.After(0, SkinPass)
-            -- Recolor + layout (incl. the dynamic-tab seat normalize) after
-            -- the skin lands; QueueTabPass coalesces with other triggers.
-            C_Timer.After(0, QueueTabPass)
-        end)
+        tempWinFrame:SetScript("OnEvent", QueueFullPass)
     end
-    -- User-created permanent chat windows use a separate creation path from
-    -- temporary whisper windows. Skin after Blizzard has assigned the frame,
-    -- tab, ID, and dock state.
-    if FCF_OpenNewWindow then
-        hooksecurefunc("FCF_OpenNewWindow", function()
-            C_Timer.After(0, SkinPass)
-            C_Timer.After(0.10, SkinPass)
-        end)
-    end
+    -- User-created permanent chat windows are covered by the full pass on
+    -- UPDATE_CHAT_WINDOWS -- NO hooksecurefunc on FCF_OpenNewWindow: it is
+    -- created from the same tab menu whose closures must stay untainted.
 
-    -- Pin scroll frame flush to dock manager after Blizzard's dock is
-    -- fully set up. Can't do this in StyleDockManager (too early, breaks
-    -- tab chain). PLAYER_ENTERING_WORLD fires after the dock is ready.
-    local function PinScrollFrame()
-        local gdm2 = _G.GeneralDockManager
-        local sf = _G.GeneralDockManagerScrollFrame
-        local sfc = _G.GeneralDockManagerScrollFrameChild
-        -- Don't override sf anchoring -- Blizzard's default stops at the
-        -- overflow button, which is what hides overflow tabs natively.
-        -- sf is a child of gdm, so it follows our dock repositioning.
-        -- Height is already set in StyleDockManager.
-        if sfc then
-            sfc:ClearAllPoints()
-            sfc:SetPoint("BOTTOMLEFT", sf, "BOTTOMLEFT", 0, 0)
-            local dockH2 = GetTabHeight()
-            sfc:SetHeight(dockH2)
-        end
-        UpdateTabColors()
-    end
+    -- One extra strip pass once the loading screen drops: Blizzard's final
+    -- login dock update can re-show pieces of its (hidden) tab plane.
     do
         local pinFrame = CreateFrame("Frame")
         pinFrame:RegisterEvent("LOADING_SCREEN_DISABLED")
         pinFrame:SetScript("OnEvent", function(self)
             self:UnregisterAllEvents()
-            PinScrollFrame()
-            -- Re-chain docked tab anchors: Blizzard positions tabs BEFORE
-            -- our SetPoint hooks are installed (dock setup < PLAYER_LOGIN).
-            -- Re-anchor each docked tab to its predecessor so the chain
-            -- is correct and our hooks fire on subsequent updates.
-            -- Fix only the first docked tab after the main two (General/Combat).
-            -- Its anchor to ScrollFrameChild is wrong because Blizzard set it
-            -- before our SetPoint hook was installed.
-            -- Re-chain all docked tabs with consistent 1px physical gap.
-            -- Blizzard positions tabs before our SetPoint hooks exist,
-            -- so tabs 3+ have wrong anchors on initial load.
+            UpdateTabColors()
             ECHAT.ApplyTabLayout()
-
-            -- Blizzard can run one final dock/color update after PLAYER_LOGIN
-            -- and after this event handler, which restores its tab widths and
-            -- text colors. Re-apply the complete tab pass on the next frame
-            -- (plus one short delayed pass for slower loading screens) so the
-            -- saved padding and font colors are already correct after login.
-            -- TEMP-TAINT-BISECT (item 3): post-login re-assert passes disabled
-            -- for the field taint pass. Restore by uncommenting.
-            -- QueueTabPass()
-            -- C_Timer.After(0.10, QueueTabPass)
+            -- Chat position ownership begins at the first settled sight:
+            -- capture Edit Mode's placement as ours if unsaved, arm the
+            -- anchor guard, kill the Edit Mode selection overlay, apply.
+            if ns._CaptureChatPositionGenesis then ns._CaptureChatPositionGenesis() end
+            if ns._InstallChatAnchorGuard then ns._InstallChatAnchorGuard() end
+            if ECHAT.SuppressChatEditModeSelection then ECHAT.SuppressChatEditModeSelection() end
+            if ECHAT.ApplyChatPosition then ECHAT.ApplyChatPosition() end
+            -- Font size follows the profile: capture on first sight,
+            -- re-assert on every later login.
+            if ECHAT.SyncChatFontSize then ECHAT.SyncChatFontSize() end
+            -- (ApplyChatPosition self-resyncs panels+strip one tick later,
+            -- and the EDIT_MODE_LAYOUTS_UPDATED watcher re-asserts if Edit
+            -- Mode's late layout apply lands after this.)
+            -- Post-login heal window: Edit Mode's last write can land through
+            -- paths none of the event answers see, leaving chat at EM's rect
+            -- (short by the tab area) until the first hover armed the
+            -- follower's drift heal. Run the state sync -- which carries that
+            -- heal -- on a short bounded cadence instead, then self-destruct.
+            local healTicks = 0
+            local healFrame = CreateFrame("Frame")
+            local healAccum = 0
+            healFrame:SetScript("OnUpdate", function(w, dt)
+                healAccum = healAccum + dt
+                if healAccum < 0.1 then return end
+                healAccum = 0
+                healTicks = healTicks + 1
+                if ECHAT.SyncChatFrameState then ECHAT.SyncChatFrameState() end
+                if healTicks >= 40 then w:SetScript("OnUpdate", nil) end
+            end)
         end)
     end
 
     ---------------------------------------------------------------------------
-    --  5. Tab color management
-    --     Deferred update batches multiple tab changes into one pass.
+    --  5. Tab color management. The deferred update batches multiple tab
+    --     changes into one pass.
     ---------------------------------------------------------------------------
-    -- Blizzard performs additional dock sizing after the initial chat setup.
-    -- Re-apply our text-derived widths across a few deferred passes so saved
-    -- Inner Padding X is correct immediately, without requiring a tab click.
+    -- Blizzard performs additional dock sizing after the initial chat setup, so
+    -- text-derived widths are re-applied across a few deferred passes and saved
+    -- Inner Padding X is correct without requiring a tab click.
     local function ApplyInitialTabLayout()
         UpdateTabColors()
         ECHAT.ApplyTabLayout()
@@ -4301,10 +4656,9 @@ initFrame:SetScript("OnEvent", function(self)
 
 
     ---------------------------------------------------------------------------
-    --  6. Idle fade system
-    --     Dims chat after N seconds of inactivity. Resets on: new message
-    --     on active tab, whisper window, edit box focus/typing, or cursor
-    --     entering the chat area (event-driven via OnEnter/OnLeave).
+    --  6. Idle fade: dims chat after N seconds of inactivity. Resets on a new
+    --     message on the active tab, a whisper window, edit box focus/typing,
+    --     or the cursor entering the chat area (event-driven, no polling).
     ---------------------------------------------------------------------------
     do
         local idleTimer = nil
@@ -4320,9 +4674,13 @@ initFrame:SetScript("OnEvent", function(self)
             if _idleFadeActive then return end
             _idleFadeActive = true
             ECHAT.SetIdleFadeAlpha(GetIdleFadeAlpha())
+            -- Faded: arm the hover-reveal motion overlay.
+
+            if ECHAT.ApplyIdleFadeHoverMotion then ECHAT.ApplyIdleFadeHoverMotion() end
         end
 
         local function CancelIdleFade()
+            local wasActive = _idleFadeActive
             _idleFadeActive = false
             if idleTimer then
                 idleTimer:Cancel()
@@ -4330,6 +4688,11 @@ initFrame:SetScript("OnEvent", function(self)
             end
             if _visChatVisible then
                 ECHAT.SetIdleFadeAlpha(1)
+            end
+            -- Visible again: the overlay goes inert so the panel area is
+            -- click- and camera-transparent like the default UI.
+            if wasActive and ECHAT.ApplyIdleFadeHoverMotion then
+                ECHAT.ApplyIdleFadeHoverMotion()
             end
         end
 
@@ -4346,6 +4709,10 @@ initFrame:SetScript("OnEvent", function(self)
         -- Idle reset throttle: max once per second.
         local _lastIdleReset = 0
         local function OnActiveMessage()
+            -- (No passthrough sweep needed on messages anymore: Blizzard's
+            -- line pool is parked in the engine's hidden container, and OUR
+            -- message frames are hidden outright while passthrough is
+            -- engaged -- a hidden frame arms nothing.)
             if not IsIdleApplicable() then return end
             local now = GetTime()
             if now - _lastIdleReset < 1 then return end
@@ -4364,68 +4731,36 @@ initFrame:SetScript("OnEvent", function(self)
         end
         idleEventFrame:SetScript("OnEvent", OnActiveMessage)
 
-        -- Permanent docked frames only (1-10). Hooking a temp whisper edit box
-        -- (11+) taints its execution context and poisons HistoryKeeper on
-        -- BN_WHISPER. Temp windows do not exist at login, but a /reload with a
-        -- conversation window open could expose them here, so gate it.
+        -- Permanent docked frames only (1-10): hooking a temp whisper edit
+        -- box (11+) taints its execution context and poisons HistoryKeeper on
+        -- BN_WHISPER. A /reload with a conversation window open could expose
+        -- one here, hence the gate.
         for i = 1, 10 do
             local eb = _G["ChatFrame" .. i .. "EditBox"]
             if eb then
-                eb:HookScript("OnEditFocusGained", OnActiveMessage)
-                eb:HookScript("OnTextChanged", OnActiveMessage)
+                eb:HookScript("OnEditFocusGained", function(...)
+                    OnActiveMessage(...)
+                end)
+                eb:HookScript("OnTextChanged", function(...)
+                    OnActiveMessage(...)
+                end)
             end
         end
 
         ---------------------------------------------------------------------------
-        --  7. Whisper sound alert
-        --     Plays a configurable sound on incoming whispers. Uses a standalone
-        --     event frame (not a message filter) for zero taint risk.
+        --  7. Whisper sound alert (also resets idle fade for incoming
+        --     whispers). Driven by a standalone EVENT FRAME, not a message
+        --     filter: Blizzard wraps every filter in
+        --     `if canaccessvalue(...) then callback(...) end`
+        --     (ChatFrameFilters.lua), so a message carrying ANY value the
+        --     addon cannot access -- the secret sender on every BN whisper --
+        --     skips the filter entirely, even one that reads no arguments.
+        --     Event registration on our own frame is outside Blizzard's
+        --     dispatch and carries no taint.
         ---------------------------------------------------------------------------
         do
-            local _SOUNDS_DIR = "Interface\\AddOns\\EllesmereUI\\media\\sounds\\"
-            local WHISPER_SOUND_PATHS = {
-                ["none"]      = nil,
-                ["airhorn"]   = _SOUNDS_DIR .. "AirHorn.ogg",
-                ["banana"]    = _SOUNDS_DIR .. "BananaPeelSlip.ogg",
-                ["bikehorn"]  = _SOUNDS_DIR .. "BikeHorn.ogg",
-                ["bite"]      = _SOUNDS_DIR .. "Bite.ogg",
-                ["boxing"]    = _SOUNDS_DIR .. "BoxingArenaSound.ogg",
-                ["catmeow"]   = _SOUNDS_DIR .. "CatMeow.ogg",
-                ["catmeow2"]  = _SOUNDS_DIR .. "CatMeow2.ogg",
-                ["gunshot"]   = _SOUNDS_DIR .. "FrontalsGunshot.wav",
-                ["glass"]     = _SOUNDS_DIR .. "Glass.mp3",
-                ["kaching"]   = _SOUNDS_DIR .. "Kaching.ogg",
-                ["phone"]     = _SOUNDS_DIR .. "Phone.ogg",
-                ["robotblip"] = _SOUNDS_DIR .. "RobotBlip.ogg",
-                ["sonar"]     = _SOUNDS_DIR .. "Sonar.ogg",
-                ["siren"]     = _SOUNDS_DIR .. "WarningSiren.ogg",
-                ["water"]     = _SOUNDS_DIR .. "WaterDrop.ogg",
-                ["wilhelm"]   = _SOUNDS_DIR .. "Wilhelm.ogg",
-            }
-            local WHISPER_SOUND_NAMES = {
-                ["none"]      = "None",
-                ["airhorn"]   = "Air Horn",
-                ["banana"]    = "Banana Peel Slip",
-                ["bikehorn"]  = "Bike Horn",
-                ["bite"]      = "Bite",
-                ["boxing"]    = "Boxing Arena",
-                ["catmeow"]   = "Cat Meow",
-                ["catmeow2"]  = "Cat Meow 2",
-                ["gunshot"]   = "Frontals Gunshot",
-                ["glass"]     = "Glass",
-                ["kaching"]   = "Kaching",
-                ["phone"]     = "Phone",
-                ["robotblip"] = "Robot Blip",
-                ["sonar"]     = "Sonar",
-                ["siren"]     = "Warning Siren",
-                ["water"]     = "Water Drop",
-                ["wilhelm"]   = "Wilhelm",
-            }
-            local WHISPER_SOUND_ORDER = {
-                "none", "airhorn", "banana", "bikehorn", "bite", "boxing", "catmeow",
-                "catmeow2", "gunshot", "glass", "kaching", "phone", "robotblip", "sonar",
-                "siren", "water", "wilhelm",
-            }
+            local WHISPER_SOUND_PATHS, WHISPER_SOUND_NAMES, WHISPER_SOUND_ORDER =
+                EllesmereUI.BuildAlertSoundTables()
             ECHAT.WHISPER_SOUND_PATHS = WHISPER_SOUND_PATHS
             ECHAT.WHISPER_SOUND_NAMES = WHISPER_SOUND_NAMES
             ECHAT.WHISPER_SOUND_ORDER = WHISPER_SOUND_ORDER
@@ -4444,6 +4779,7 @@ initFrame:SetScript("OnEvent", function(self)
             whisperFrame:RegisterEvent("CHAT_MSG_WHISPER")
             whisperFrame:RegisterEvent("CHAT_MSG_BN_WHISPER")
             whisperFrame:SetScript("OnEvent", function()
+                OnActiveMessage()
                 local cfg = ECHAT.DB()
                 local key = cfg and cfg.whisperSoundKey
                 if not key or key == "none" then return end
@@ -4455,10 +4791,10 @@ initFrame:SetScript("OnEvent", function(self)
             end)
         end
 
-        -- Event-driven hover detection: zero CPU when idle.
-        -- Uses EnableMouseMotion on our bg frames + HookScript on tabs.
-        -- EnableMouseMotion captures hover without blocking clicks, but
-        -- does block camera turning. We accept this trade-off for zero-poll.
+        -- Event-driven hover detection: zero CPU when idle. Uses
+        -- EnableMouseMotion on our bg frames + HookScript on tabs.
+        -- EnableMouseMotion captures hover without blocking clicks but does
+        -- block camera turning -- accepted trade-off for zero-poll.
         local _idleMouseOver = false
         local _hoverCount = 0
         local _editFocusCount = 0
@@ -4475,18 +4811,8 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
-        local function OnChatEnter(cf)
-            _hoverCount = _hoverCount + 1
-            UpdateHoverState()
-        end
-        local function OnChatLeave(cf)
-            _hoverCount = max(0, _hoverCount - 1)
-            UpdateHoverState()
-        end
-
-        -- Single invisible overlay covering tabs + bg + sidebar.
-        -- EnableMouseMotion detects hover without blocking clicks.
-        -- Placed at BACKGROUND strata so it never intercepts anything.
+        -- Single invisible overlay covering tabs + bg + sidebar, at BACKGROUND strata.
+        -- Its mouse motion is conditional -- see ApplyIdleFadeHoverMotion below.
         do
             local cf1 = _G.ChatFrame1
             local gdm = _G.GeneralDockManager
@@ -4494,18 +4820,50 @@ initFrame:SetScript("OnEvent", function(self)
             local sb = CFD(cf1).sidebar
             if bg1 and gdm then
                 local overlay = CreateFrame("Frame", nil, UIParent)
+                ns._chatHoverOverlay = overlay
                 overlay:SetPoint("TOPLEFT", gdm, "TOPLEFT", sb and -40 or 0, 0)
                 overlay:SetPoint("BOTTOMRIGHT", bg1, "BOTTOMRIGHT", 0, 0)
                 overlay:SetFrameStrata("BACKGROUND")
-                overlay:EnableMouseMotion(true)
+                overlay:EnableMouse(false)
+                -- Peek reveal: motion is live ONLY while idle-faded (see
+                -- ApplyIdleFadeHoverMotion), so an enter here can only mean
+                -- the user moused over the faded chat. No OnLeave needed --
+                -- the reveal itself turns motion back off.
                 overlay:SetScript("OnEnter", function()
-                    _hoverCount = _hoverCount + 1
-                    UpdateHoverState()
+                    if _idleFadeActive and ECHAT.ResetIdleTimer then
+                        ECHAT.ResetIdleTimer()
+                    end
                 end)
-                overlay:SetScript("OnLeave", function()
-                    _hoverCount = max(0, _hoverCount - 1)
-                    UpdateHoverState()
-                end)
+                -- Motion capture is needed ONLY while the chat is idle-faded (to catch
+                -- the reveal hover). While visible the overlay must be inert so clicks
+                -- AND camera drags over the panel reach the world exactly like the
+                -- default UI (EnableMouseMotion intercepts right-drag camera input even
+                -- though it passes clicks). Passthrough (full hide) keeps it inert too.
+                function ECHAT.ApplyIdleFadeHoverMotion()
+                    local cfg = ECHAT.DB()
+                    local on = cfg.idleFadeEnabled ~= false
+                        and (cfg.visibility or "always") ~= "never"
+                        and ns._chatPassthrough ~= true
+                        and _idleFadeActive
+                    -- Per-channel setters, and click pinned OFF every pass:
+                    -- EnableMouseMotion toggling alone leaves the click
+                    -- channel armed, which made this overlay an invisible
+                    -- click-catcher over the VISIBLE chat -- clicks and
+                    -- camera dead, undetectable by motion-based probes.
+                    if overlay.SetMouseClickEnabled then
+                        overlay:SetMouseClickEnabled(false)
+                    end
+                    if overlay.SetMouseMotionEnabled then
+                        overlay:SetMouseMotionEnabled(on)
+                    else
+                        overlay:EnableMouseMotion(on)
+                    end
+                    if not on then
+                        _hoverCount = 0
+                        _idleMouseOver = false
+                    end
+                end
+                ECHAT.ApplyIdleFadeHoverMotion()
             end
         end
 
@@ -4515,9 +4873,11 @@ initFrame:SetScript("OnEvent", function(self)
         if sidebar then
             sidebar:HookScript("OnEnter", function()
                 _hoverCount = _hoverCount + 1; UpdateHoverState()
+                if ECHAT.FollowArm then ECHAT.FollowArm() end
             end)
             sidebar:HookScript("OnLeave", function()
                 _hoverCount = max(0, _hoverCount - 1); UpdateHoverState()
+                if ECHAT.FollowRelease then ECHAT.FollowRelease() end
             end)
         end
 
@@ -4563,15 +4923,13 @@ initFrame:SetScript("OnEvent", function(self)
     --  8. Apply all visual settings from DB
     ---------------------------------------------------------------------------
     ECHAT.ApplySidebarVisibility()
-    -- ApplyBorders is DEFERRED out of the PLAYER_LOGIN execution (field-
-    -- bisected 2026-07-25, ladder B3-B15): running it synchronously here
-    -- chains into ApplyExtendedBackground, which plants the panel border's
-    -- anchors in ChatFrame1's rect web WHILE Blizzard's login dock pass is
-    -- still resolving layout -- that pass then reads our insecure anchors,
-    -- runs tainted, and its persistent dock state poisons every later
-    -- temp-whisper open (FCFManager_GetChatTarget /GetDecoratedSenderName
-    -- secret errors). The deferred tab passes (PEW + C_Timer) are the
-    -- field-proven-clean home for this work -- same cadence, one tick later.
+    -- ApplyBorders is DEFERRED out of the PLAYER_LOGIN execution: running it
+    -- synchronously here chains into ApplyExtendedBackground, which plants the panel
+    -- border's anchors in ChatFrame1's rect web WHILE Blizzard's login dock pass is
+    -- still resolving layout -- that pass then reads our insecure anchors, runs
+    -- tainted, and its persistent dock state poisons every later temp-whisper open
+    -- (FCFManager_GetChatTarget/ GetDecoratedSenderName secret errors). The deferred
+    -- tab passes (PEW + C_Timer) are the proven-clean home for this work instead.
     do
         local bordersDefer = CreateFrame("Frame")
         bordersDefer:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -4605,12 +4963,11 @@ initFrame:SetScript("OnEvent", function(self)
     ECHAT.ApplyIconFreeMove()
     ECHAT.ApplyLockChatSize()
 
-    -- Profile-swap refresh: re-apply all chat visuals from the (already-swapped)
-    -- DB. ECHAT.DB() reads the live profile dynamically, so re-running the Apply
-    -- functions pulls the new profile's settings. ApplySidebarIcons() is
-    -- deliberately NOT called here -- its full ClearAllPoints/SetPoint layout
-    -- chain is taint-risky and is skipped at init too (see line ~2954); icon
-    -- visibility is refreshed with the same minimal SetShown block init uses, and
+    -- Profile-swap refresh: re-apply all chat visuals from the (already- swapped) DB --
+    -- ECHAT.DB() reads the live profile dynamically, so re-running the Apply functions
+    -- pulls the new profile's settings. ApplySidebarIcons() is deliberately NOT called
+    -- here -- its full ClearAllPoints/SetPoint layout chain is taint-risky (skipped at
+    -- init too); icon visibility uses the same minimal SetShown block as init, and
     -- position/scale/free-move are covered by the Apply* calls below.
     _G._ECHAT_RefreshAll = function()
         ECHAT.ApplySidebarVisibility()
@@ -4639,197 +4996,21 @@ initFrame:SetScript("OnEvent", function(self)
         ECHAT.ApplyLockChatSize()
         ECHAT.ApplyBackground()
         ECHAT.ApplyFonts()
-        ECHAT.ApplyForceOnScreen()
         if ECHAT.RefreshVisibility then ECHAT.RefreshVisibility() end
     end
 
     ---------------------------------------------------------------------------
-    --  9-12. Chat positioning: Blizzard / Edit Mode owns position+size.
-    --        No reparenting, no hooks, no unlock registration.
+    --  9-12. Chat positioning: OURS via the unlock element.
     ---------------------------------------------------------------------------
-    -- Clamp state follows the saved "Force Chat on Screen" preference (default off:
-    -- chat may be dragged off-screen). Toggled from the Chat options panel.
-    ECHAT.ApplyForceOnScreen()
-
-    -- One-time overlay informing user that chat is now Edit Mode controlled
-    do
-        local cfg = ECHAT.DB()
-        if cfg and not cfg._editModeNoticeDismissed and cfg.chatPosition then
-            local cf1bg = CFD(ChatFrame1).bg
-            if cf1bg then
-                local overlay = CreateFrame("Frame", nil, cf1bg)
-                overlay:SetAllPoints(cf1bg)
-                overlay:SetFrameLevel(cf1bg:GetFrameLevel() + 50)
-                overlay:EnableMouse(true)
-
-                local bg = overlay:CreateTexture(nil, "BACKGROUND")
-                bg:SetAllPoints()
-                bg:SetColorTexture(0.04, 0.06, 0.07, 0.95)
-
-                local msg = overlay:CreateFontString(nil, "OVERLAY")
-                msg:SetFont(GetFont(), 12, "")
-                msg:SetTextColor(1, 1, 1, 0.85)
-                msg:SetPoint("CENTER", overlay, "CENTER", 0, 16)
-                msg:SetWidth(overlay:GetWidth() - 40)
-                msg:SetJustifyH("CENTER")
-                msg:SetText("Your chat position is now controlled by Blizzard Edit Mode.\nPlease adjust its position there.")
-
-                local btn = CreateFrame("Button", nil, overlay)
-                btn:SetSize(90, 24)
-                btn:SetPoint("TOP", msg, "BOTTOM", 0, -12)
-                btn:SetFrameLevel(overlay:GetFrameLevel() + 1)
-
-                local btnBg = btn:CreateTexture(nil, "BACKGROUND")
-                btnBg:SetAllPoints()
-                btnBg:SetColorTexture(0.12, 0.14, 0.18, 1)
-
-                local btnHL = btn:CreateTexture(nil, "HIGHLIGHT")
-                btnHL:SetAllPoints()
-                btnHL:SetColorTexture(1, 1, 1, 0.06)
-
-                local btnText = btn:CreateFontString(nil, "OVERLAY")
-                btnText:SetFont(GetFont(), 11, "")
-                btnText:SetTextColor(1, 1, 1, 0.8)
-                btnText:SetPoint("CENTER")
-                btnText:SetText("Okay")
-
-                if PP and PP.CreateBorder then
-                    PP.CreateBorder(btn, 1, 1, 1, 0.08, 1, "OVERLAY", 7)
-                end
-
-                btn:SetScript("OnClick", function()
-                    cfg._editModeNoticeDismissed = true
-                    overlay:Hide()
-                end)
-            end
-        end
-    end
-
-    --[[ REMOVED: sections 9-12 (position capture, reparent, enforcement, unlock)
-    ---------------------------------------------------------------------------
-    do
-        local captureFrame = CreateFrame("Frame")
-        captureFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-        captureFrame:SetScript("OnEvent", function()
-            local cfg = ECHAT.DB()
-            if not cfg then return end
-            if not cfg.chatPosition then
-                local pt, _, relPt, x, y = ChatFrame1:GetPoint(1)
-                if pt and x and y then
-                    cfg.chatPosition = { point = pt, relPoint = relPt or pt, x = x, y = y }
-                end
-            end
-            if not cfg.chatWidth then
-                cfg.chatWidth = ChatFrame1:GetWidth()
-            end
-            if not cfg.chatHeight then
-                cfg.chatHeight = ChatFrame1:GetHeight()
-            end
-            ApplyChatPosition()
-            ApplyChatSize()
-        end)
-    end
-    ---------------------------------------------------------------------------
-    --  10. Reparent ChatFrame1 to our own container
-    --      Breaks it out of Blizzard's Edit Mode hierarchy so we can call
-    --      SetSize without tainting. Hides Edit Mode overlay + resize button.
-    ---------------------------------------------------------------------------
-    local chatContainer = CreateFrame("Frame", nil, UIParent)
-    chatContainer:SetAllPoints(UIParent)
-    chatContainer:EnableMouse(false)
-    ChatFrame1:SetParent(chatContainer)
-    if ChatFrame1.Selection then ChatFrame1.Selection:SetParent(_hiddenParent) end
-    if ChatFrame1.EditModeResizeButton then ChatFrame1.EditModeResizeButton:SetParent(_hiddenParent) end
-
-    -- SetParent called once above. No reactive hook -- hooksecurefunc on
-    -- SetParent taints HistoryKeeper during whisper event processing.
-    ChatFrame1:SetClampedToScreen(false)
-
-    ---------------------------------------------------------------------------
-    --  11. Position enforcement hook
-    --      Blocks Blizzard/Edit Mode from overriding our saved position.
-    --      Allows unlock mode dragging and resize grip repositioning.
-    ---------------------------------------------------------------------------
-    pcall(ApplyChatPosition)
-    -- SetPoint called once above via ApplyChatPosition. No reactive hook.
-    -- hooksecurefunc on SetPoint taints HistoryKeeper during whisper
-    -- event processing. Position may drift if Blizzard overrides it, but
-    -- taint-free chat is more important.
-
-    ---------------------------------------------------------------------------
-    --  12. Unlock mode registration (position + resize via EUI unlock mode)
-    ---------------------------------------------------------------------------
-    if EUI.RegisterUnlockElements then
-        local MK = EUI.MakeUnlockElement
-        EUI:RegisterUnlockElements({
-            MK({
-                key   = "ECHAT_ChatFrame",
-                label = "Chat",
-                group = "Chat",
-                order = 600,
-                noAnchorTo = true,
-                noInitHook = true,
-                getFrame = function() return ChatFrame1 end,
-                getSize  = function()
-                    local cfg = ECHAT.DB()
-                    if cfg then
-                        return cfg.chatWidth or 400, cfg.chatHeight or 200
-                    end
-                    return 400, 200
-                end,
-                setWidth = function(_, newW)
-                    if InCombatLockdown() then return end
-                    local cf1 = _G.ChatFrame1
-                    if not cf1 then return end
-                    local PPc = EllesmereUI and EllesmereUI.PP
-                    local snapW = PPc and PPc.Snap(max(200, newW)) or math.floor(max(200, newW) + 0.5)
-                    cf1:SetWidth(snapW)
-                    if EllesmereUI._unlockActive then
-                        local cfg = ECHAT.DB()
-                        if cfg then cfg.chatWidth = snapW end
-                    end
-                end,
-                setHeight = function(_, newH)
-                    if InCombatLockdown() then return end
-                    local cf1 = _G.ChatFrame1
-                    if not cf1 then return end
-                    local PPc = EllesmereUI and EllesmereUI.PP
-                    local snapH = PPc and PPc.Snap(max(100, newH)) or math.floor(max(100, newH) + 0.5)
-                    cf1:SetHeight(snapH)
-                    if EllesmereUI._unlockActive then
-                        local cfg = ECHAT.DB()
-                        if cfg then cfg.chatHeight = snapH end
-                    end
-                end,
-                isHidden = function()
-                    local cfg = ECHAT.DB()
-                    return cfg.visibility == "never"
-                end,
-                savePos = function(_, point, relPoint, x, y)
-                    local cfg = ECHAT.DB()
-                    if not cfg then return end
-                    cfg.chatPosition = { point = point, relPoint = relPoint or point, x = x, y = y }
-                    if not EllesmereUI._unlockActive then
-                        ApplyChatPosition()
-                    end
-                end,
-                loadPos = function()
-                    local cfg = ECHAT.DB()
-                    if not cfg then return nil end
-                    return cfg.chatPosition
-                end,
-                clearPos = function()
-                    local cfg = ECHAT.DB()
-                    if not cfg then return end
-                    cfg.chatPosition = nil
-                end,
-                applyPos = function()
-                    ApplyChatPosition()
-                end,
-            }),
-        })
-    end
-    --]]
+    --[[ Chat position is OURS (unlock element + genesis capture + anchor
+    -- guard). HARD CONSTRAINTS from the failed first attempt, still binding:
+    -- ChatFrame1 is NEVER reparented (Edit Mode's UpdateSystemAnchorInfo
+    -- assumes a UIParent child; a reparented chat came back with NO anchors
+    -- -- unmovable, unresizable) and its SetPoint is NEVER hooked. Position
+    -- enforcement is ONLY the deferred ApplySystemAnchor post-hook; the Edit
+    -- Mode Selection overlay is suppressed IN PLACE (alpha + mouse), never
+    -- reparented -- Edit Mode still drives that region. Chat SIZE stays
+    -- Blizzard's (the resize grip). ]]
 
     ---------------------------------------------------------------------------
     --  12b. BNet Toast notification -- position via unlock mode
@@ -4854,23 +5035,18 @@ initFrame:SetScript("OnEvent", function(self)
                 toast:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, px, py)
             end
 
-            -- Enforce saved position when Blizzard tries to reposition.
-            -- Skip during unlock mode so the user can drag freely.
-            --
-            -- NOT hooksecurefunc(toast, "SetPoint", ...): that form assigns
+            -- Enforce saved position when Blizzard tries to reposition; skip
+            -- during unlock mode so the user can drag freely. NOT
+            -- hooksecurefunc(toast, "SetPoint", ...): that form assigns
             -- toast.SetPoint = wrapper, a FIELD WRITE onto BNToastFrame's
-            -- table (see the same correction on the edit box in SkinEditBox).
-            -- Blizzard reads that field whenever it anchors the toast, so the
-            -- tainted read lands inside the Battle.net toast chain -- the same
-            -- chain that opens a BN whisper and puts a SECRET target name into
-            -- ChatFrame1EditBox.text, which is where the field report's
-            -- ChatFrameEditBox:360 SetText block surfaces.
-            --
-            -- OnShow is a script hook (C-side, no field write) and fires on
-            -- every toast, which is the only moment the position matters. The
-            -- deferred call lets Blizzard finish its own anchoring first.
-            -- Same shape as the FCFDock_SelectWindow hook this module already
-            -- replaced for taint reasons.
+            -- table (same hazard as the edit box in SkinEditBox). Blizzard reads that
+            -- field whenever it anchors the toast, so the tainted read lands inside the
+            -- Battle.net toast chain -- the same chain that opens a BN whisper and puts
+            -- a SECRET target name into ChatFrame1EditBox.text. OnShow is a script hook
+            -- (C-side, no field write) and fires on every toast, the only moment the
+            -- position matters; the deferred call lets Blizzard finish its own
+            -- anchoring first. Same shape as the FCFDock_SelectWindow hook this module
+            -- already replaced for taint reasons.
             toast:HookScript("OnShow", function()
                 if EUI._unlockActive then return end
                 local cfg = ECHAT.DB()
@@ -4952,6 +5128,60 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     ---------------------------------------------------------------------------
+    --  12c. Main chat: a REAL unlock element. Drag saves cfg.chatPosition;
+    --       everything downstream (panels, our text, the ghost tab strip)
+    --       follows ChatFrame1 through the existing numeric machinery.
+    ---------------------------------------------------------------------------
+    if EUI.RegisterUnlockElements then
+        local MK = EUI.MakeUnlockElement
+        EUI:RegisterUnlockElements({
+            MK({
+                key   = "ECHAT_MainChat",
+                label = "Chat",
+                group = "Chat",
+                order = 600,
+                noResize = true,
+                getFrame = function() return _G.ChatFrame1 end,
+                getSize  = function()
+                    local cf1 = _G.ChatFrame1
+                    return cf1:GetWidth(), cf1:GetHeight()
+                end,
+                isHidden = function() return false end,
+                savePos = function(_, point, relPoint, x, y)
+                    local cfg = ECHAT.DB()
+                    if not cfg then return end
+                    cfg.chatPosition = { point = point, relPoint = relPoint or point, x = x, y = y }
+                    if not EUI._unlockActive then
+                        ECHAT.ApplyChatPosition()
+                    end
+                end,
+                loadPos = function()
+                    local cfg = ECHAT.DB()
+                    return cfg and cfg.chatPosition or nil
+                end,
+                clearPos = function()
+                    -- Back to wherever Blizzard's layout puts it; the next
+                    -- settled sight re-captures that as the new genesis.
+                    -- Saved size clears with it (back to Blizzard's size).
+                    local cfg = ECHAT.DB()
+                    if cfg then
+                        cfg.chatPosition = nil
+                        cfg.chatSize = nil
+                    end
+                end,
+                applyPos = function() ECHAT.ApplyChatPosition() end,
+            }),
+        })
+    end
+    -- The geometry follower runs for the whole unlock session so the panel
+    -- and text track the Chat mover per-frame instead of snapping after.
+    if EUI.RegisterUnlockModeListener then
+        EUI:RegisterUnlockModeListener("EllesmereUIChat", function(active)
+            if ECHAT.FollowArmUnlock then ECHAT.FollowArmUnlock(active) end
+        end)
+    end
+
+    ---------------------------------------------------------------------------
     --  13. Visibility system registration
     ---------------------------------------------------------------------------
     ECHAT.RefreshVisibility()
@@ -4969,4 +5199,5 @@ initFrame:SetScript("OnEvent", function(self)
         local f = _G[frameName]
         if f then f:SetAlpha(0); f:EnableMouse(false) end
     end
+
 end)

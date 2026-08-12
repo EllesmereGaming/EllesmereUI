@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EUI_MacroFactory.lua
 --  Builds the Macro Factory UI for the Quality of Life options page.
@@ -138,15 +139,14 @@ end
 DYNAMIC_HEALTH_RECOVERY]]
 
 
--- Resolve an option's display name from its first item ID so the macro menus
--- read in the client's language. Falls back to the hard-coded English label
--- (run through L() in case a translation exists) until item data is cached;
--- an uncached lookup kicks off an async load so a menu refresh can pick it up.
--- Resolve the in-game item name only for single-item options (unambiguous).
--- Multi-item options (e.g. base + Fleeting variants) keep their own descriptive
--- label -- picking one variant's name would be arbitrary -- run through L().
--- noRequest: when true, skip the async load request (used by the refresh path,
--- where the initial build already requested the uncached item).
+-- Resolve an option's display name from its first item ID so the macro menus read in
+-- the client's language. Falls back to the hard-coded English label (run through L() in
+-- case a translation exists) until item data is cached; an uncached lookup kicks off an
+-- async load so a menu refresh can pick it up. Resolve the in-game item name only for
+-- single-item options (unambiguous). Multi-item options (e.g. base + Fleeting variants)
+-- keep their own descriptive label -- picking one variant's name would be arbitrary --
+-- run through L(). noRequest: when true, skip the async load request (used by the
+-- refresh path, where the initial build already requested the uncached item).
 local function OptionDisplayName(opt, noRequest)
     local ids = opt.items
     if ids and #ids == 1 then

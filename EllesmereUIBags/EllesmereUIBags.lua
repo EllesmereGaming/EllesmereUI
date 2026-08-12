@@ -1,12 +1,14 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
---  EllesmereUIBags.lua
---  Enhanced Bags System for EllesmereUI (Midnight)
---  Sidebar category filter + flat item grid layout.
+--  EllesmereUIBags.lua -- Enhanced Bags System for EllesmereUI (Midnight): sidebar category filter + flat item grid layout.
 -------------------------------------------------------------------------------
+if not (EllesmereUI and EllesmereUI._ModuleNS) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+EllesmereUI._ModuleNS["EllesmereUIBags"] = select(2, ...)  -- LOD options files read this module ns via the registry
+
 EUI_Bags = CreateFrame("Frame", "EUI_MainBagFrame", UIParent)
 EUI_Bags:Hide()
--- Auto-size (grow-to-fit) state. Reset on close so the next open sizes itself
--- from its first/active tab; while open it only ever grows (never shrinks).
+-- Auto-size state: reset on close (next open sizes from its first/active tab);
+-- while open it only grows, never shrinks.
 EUI_Bags:HookScript("OnHide", function(self)
     self._asCols  = nil
     self._asMaxGridW = nil
@@ -21,18 +23,9 @@ EUI_BagsWindow:Hide()
 
 local SLOT_SIZE, SPACING = 34, 4
 
--- Red-tint usability test, shared with the bank module via EUI.
---
--- The tooltip MUST come from the real item, never from the item ID. Scaling
--- gear (expansion leveling drops) carries bonus IDs that lower its required
--- level to the character, but C_TooltipInfo.GetItemByID renders the unscaled
--- base item, whose "Requires Level" line reads red for the entire leveling
--- range. Classic-era items do not scale, which is why only modern-expansion
--- drops came out red. Prefer the actual bag slot, fall back to the link, and
--- only use the ID when neither is available.
---
--- Keyed by link (bonus IDs change the answer) and wiped on level up, since the
--- same item flips from unusable to usable as the character grows into it.
+-- Red-tint usability test (shared with the bank module via EUI). Tooltip must come from
+-- the real item, never GetItemByID: scaling gear's bonus IDs lower its required level, but
+-- GetItemByID shows the unscaled base item's level (reads red). Prefer bag slot > link > ID; cache by link, wipe on level-up.
 local _canUseCache = {}
 local function BagsItemUnusable(bagID, slot, itemLink, itemID)
     local item = itemLink or itemID
@@ -73,9 +66,8 @@ do
     f:RegisterEvent("PLAYER_LEVEL_CHANGED")
     f:SetScript("OnEvent", function() wipe(_canUseCache) end)
 end
--- Weak-keyed table for bank-deposit routing state. Writing custom keys onto
--- ContainerFrameItemButtonTemplate frames during PreClick taints the secure
--- execution chain and causes UseContainerItem() ADDON_ACTION_FORBIDDEN.
+-- Weak-keyed bank-deposit routing state: custom keys written onto a ContainerFrameItemButtonTemplate
+-- in PreClick taint the secure execution chain -> UseContainerItem() ADDON_ACTION_FORBIDDEN.
 local _bankRouted = setmetatable({}, { __mode = "k" })
 
 local EUI = EllesmereUI
@@ -83,11 +75,54 @@ local EUI = EllesmereUI
 local _emptyP = {}
 local function BP() return (EUI._bagsDB and EUI._bagsDB.profile) or _emptyP end
 
--- Resolve the default bag-type view ("all" | "onebag" | "multibag"). Reads the
--- new bagDefaultBagType key, falling back to the legacy bagDefaultOneBag boolean
--- so existing users keep their OneBag default. (Cross-version profile imports are
--- converted in ApplyProfileData before DeepMergeDefaults can mask the legacy
--- key.) Exposed on EUI so the bank file resolves it identically.
+-- Tracked currencies are PER CHARACTER: their input feed (Blizzard's currency
+-- tab via the TokenFrame.OnTokenWatchChanged sync below) is per-character, so
+-- a shared store can only bleed across characters. Stored at the EllesmereUIDB
+-- ROOT beside the module's other per-character data (characterGold,
+-- bagPinnedItems, bagItemAssignments), NEVER in the bag profile:
+-- ApplyProfileData wipes db.profile wholesale on import (would erase every
+-- character's currencies), and profile exports must not ship a character
+-- roster (the PRIVATE_ADDON_KEYS leak class).
+local _bagsCharKey  -- session-constant; UpdateCurrencyDisplays is a render path
+local function BagsCharKey()
+    if not _bagsCharKey then
+        local n, r = UnitName("player"), GetRealmName()
+        if not n or not r then return nil end  -- too early; do not cache a stub
+        _bagsCharKey = n .. " - " .. r
+    end
+    return _bagsCharKey
+end
+
+-- The per-character order table, seeded on this character's first use.
+-- Returns nil only when the DB or the player identity is not up yet (callers
+-- already handle that).
+local function CurrencyOrder()
+    if not EllesmereUIDB then return nil end
+    local key = BagsCharKey()
+    if not key then return nil end
+    local byChar = EllesmereUIDB.bagCurrencyByChar
+    if type(byChar) ~= "table" then byChar = {}; EllesmereUIDB.bagCurrencyByChar = byChar end
+    local t = byChar[key]
+    if type(t) ~= "table" then
+        t = {}
+        -- Seed once per character from the legacy shared profile table. The
+        -- legacy table is deliberately never deleted: a per-character
+        -- migration is never a one-shot (a character that has not logged in
+        -- yet still seeds from it later), and nothing writes it any more.
+        local legacy = BP().currencyOrder
+        if type(legacy) == "table" then
+            for cID, order in pairs(legacy) do
+                if type(order) == "number" then t[cID] = order end
+            end
+        end
+        byChar[key] = t
+    end
+    return t
+end
+EUI._BagsCurrencyOrder = CurrencyOrder
+
+-- Default bag-type view ("all"|"onebag"|"multibag"), falling back to legacy
+-- bagDefaultOneBag bool (imports converted in ApplyProfileData before DeepMergeDefaults masks it); exposed on EUI so bank file matches.
 local function GetDefaultBagType()
     local v = BP().bagDefaultBagType
     if v == "all" or v == "onebag" or v == "multibag" then return v end
@@ -103,8 +138,7 @@ local function ApplyBagScale()
 end
 
 local GetUpgradeTrack = EUI.GetUpgradeTrack
--- Locale-safe gear detection: GetItemInfo returns localized type strings
--- ("Armor"/"Weapon" only on enUS). Use GetItemInfoInstant's numeric classID.
+-- Locale-safe gear detection: GetItemInfo type strings are localized ("Armor" only on enUS), so use GetItemInfoInstant's numeric classID.
 local ITEM_CLASS_WEAPON = Enum.ItemClass.Weapon  -- 2
 local ITEM_CLASS_ARMOR  = Enum.ItemClass.Armor   -- 4
 local function IsGearItem(itemLink)
@@ -124,8 +158,7 @@ local function GetAccentRGB()
 end
 
 local function GetColumns()
-    -- Auto-size overrides the user's column count with a grown count chosen to
-    -- keep the window near its base aspect ratio while fitting the active tab.
+    -- Auto-size overrides the user's column count with one that keeps the base aspect ratio while fitting the active tab.
     if EUI_Bags and EUI_Bags._asCols and BP().bagAutoSize then
         return EUI_Bags._asCols
     end
@@ -135,8 +168,7 @@ local function GetCatTitleSize()
     return BP().bagCatTitleSize or 11
 end
 
--- Abbreviate a dungeon name to initials (skip connector words). The Cyrillic
--- entries cover localized clients where GetMapUIInfo returns translated names.
+-- Abbreviate a dungeon name to initials (skipping connector words); Cyrillic entries cover clients where GetMapUIInfo returns translated names.
 local _dungeonAbbrCache = {}
 local _skipWords = {
     ["of"] = true, ["the"] = true, ["a"] = true, ["an"] = true,
@@ -152,141 +184,17 @@ local function AbbrevDungeon(mapID)
     -- Split on whitespace AND hyphens so "Nexus-Point Xenas" abbreviates to NPX.
     for word in name:gmatch("[^%s%-]+") do
         if not _skipWords[word:lower()] then
-            -- Take the first whole UTF-8 character: multi-byte (Cyrillic) names
-            -- would be split by sub(1,1). Identical to sub(1,1):upper() for ASCII.
+            -- First whole UTF-8 char (sub(1,1) would split Cyrillic; same for ASCII)
             local wordUpper = word:upper()
             local firstChar = wordUpper:match("^[%z\1-\127\194-\244][\128-\191]*")
             abbr = abbr .. (firstChar or "")
         end
     end
-    -- Locale-specific abbreviation override (e.g. koKR keystone cuts): a locale
-    -- file may register EllesmereUI._dungeonAbbrevOverride as plain data, applied
-    -- here at the single render source rather than via a global text hook.
+    -- Locale files may register EllesmereUI._dungeonAbbrevOverride (plain data) for locale-specific cuts; applied here at the single render source, not via hook.
     local ov = EllesmereUI and EllesmereUI._dungeonAbbrevOverride
     if ov and ov[abbr] then abbr = ov[abbr] end
     _dungeonAbbrCache[mapID] = abbr
     return abbr
-end
-
--------------------------------------------------------------------------------
---  Profiler: zero cost when off, /bagprof to toggle.
---  C_AddOnProfiler for per-frame totals, debugprofilestop for breakdown.
--------------------------------------------------------------------------------
-local ProfBegin, ProfEnd
-do
-    local _profData, _profActive = {}, false
-    local dps = debugprofilestop
-    local _addonName = "EllesmereUIBags"
-    local _frameCount = 0
-    local _totalAddonMs = 0
-    local _peakAddonMs = 0
-    local _startTime = 0
-
-    -- Per-frame tracking using GetTime() to detect frame boundaries
-    local _curFrameLabels = {}
-    local _curFrameTotal = 0
-    local _curFrameTime = 0
-    local _peakFrameLabels = {}
-    local _peakFrameTotal = 0
-
-    ProfBegin = function(label)
-        if not _profActive then return 0 end
-        return dps()
-    end
-    ProfEnd = function(label, t0)
-        if not _profActive then return end
-        local elapsed = dps() - t0
-        -- Detect frame boundary: finalize previous frame on new GetTime()
-        local now = GetTime()
-        if now ~= _curFrameTime then
-            if _curFrameTotal > _peakFrameTotal then
-                _peakFrameTotal = _curFrameTotal
-                wipe(_peakFrameLabels)
-                for k, v in pairs(_curFrameLabels) do _peakFrameLabels[k] = v end
-            end
-            wipe(_curFrameLabels)
-            _curFrameTotal = 0
-            _curFrameTime = now
-        end
-        local d = _profData[label]
-        if not d then d = { n = 0, total = 0 }; _profData[label] = d end
-        d.n = d.n + 1
-        d.total = d.total + elapsed
-        _curFrameLabels[label] = (_curFrameLabels[label] or 0) + elapsed
-        _curFrameTotal = _curFrameTotal + elapsed
-    end
-
-    -- OnUpdate only for C_AddOnProfiler addon total (authoritative reference)
-    local _peakAddonFrameMs = 0  -- C_AddOnProfiler value for the peak instrumented frame
-    local profFrame = CreateFrame("Frame")
-    profFrame:Hide()
-    profFrame:SetScript("OnUpdate", function()
-        if not _profActive then profFrame:Hide(); return end
-        if not C_AddOnProfiler or not C_AddOnProfiler.GetAddOnMetric then return end
-        local addonMs = C_AddOnProfiler.GetAddOnMetric(
-            _addonName, Enum.AddOnProfilerMetric.LastTime) or 0
-        _frameCount = _frameCount + 1
-        _totalAddonMs = _totalAddonMs + addonMs
-        if addonMs > _peakAddonMs then _peakAddonMs = addonMs end
-    end)
-
-    local function ResetProf()
-        wipe(_profData); wipe(_curFrameLabels); wipe(_peakFrameLabels)
-        _frameCount = 0; _totalAddonMs = 0; _peakAddonMs = 0
-        _peakAddonFrameMs = 0; _peakFrameTotal = 0
-        _curFrameTotal = 0; _curFrameTime = 0; _startTime = 0
-    end
-
-    SLASH_BAGPROF1 = "/bagprof"
-    SlashCmdList["BAGPROF"] = function(msg)
-        if msg == "reset" then
-            ResetProf()
-            print("|cff00ccffBagProf:|r data cleared")
-            return
-        end
-        _profActive = not _profActive
-        if _profActive then
-            ResetProf()
-            _startTime = GetTime()
-            profFrame:Show()
-            print("|cff00ccffBagProf:|r ON -- type /bagprof again to stop")
-        else
-            profFrame:Hide()
-            -- Finalize last frame
-            if _curFrameTotal > _peakFrameTotal then
-                _peakFrameTotal = _curFrameTotal
-                wipe(_peakFrameLabels)
-                for k, v in pairs(_curFrameLabels) do _peakFrameLabels[k] = v end
-            end
-            local dur = GetTime() - _startTime
-            local avgAddon = _frameCount > 0
-                and (_totalAddonMs / _frameCount) or 0
-            print("|cff00ccffBagProf Report:|r  "
-                .. _frameCount .. " frames, " .. format("%.1f", dur) .. "s")
-            print(format(
-                "  |cff00ccffAddon Peak:|r  %.3f ms", _peakAddonMs))
-            -- Peak frame breakdown: scale proportionally to C_AddOnProfiler peak
-            local scale = (_peakFrameTotal > 0) and (_peakAddonMs / _peakFrameTotal) or 1
-            local sorted = {}
-            local scaledTotal = 0
-            for label, ms in pairs(_peakFrameLabels) do
-                local scaled = ms * scale
-                sorted[#sorted + 1] = { label = label, ms = scaled }
-                scaledTotal = scaledTotal + scaled
-            end
-            table.sort(sorted, function(a, b) return a.ms > b.ms end)
-            print(format("  %-30s %10s %8s", "Label", "ms", "%"))
-            for _, e in ipairs(sorted) do
-                local pct = _peakAddonMs > 0 and (e.ms / _peakAddonMs * 100) or 0
-                print(format("  %-30s %10.3f %7.1f%%", e.label, e.ms, pct))
-            end
-            local gap = _peakAddonMs - scaledTotal
-            if gap > 0.05 then
-                local pct = gap / _peakAddonMs * 100
-                print(format("  %-30s %10.3f %7.1f%%", "Unaccounted", gap, pct))
-            end
-        end
-    end
 end
 
 -------------------------------------------------------------------------------
@@ -310,8 +218,7 @@ function EUI_Bags:SetSelectedView(idx)
     selectedGroupName = nil
 end
 
--- Visual sort comparator: quality (desc) > name (asc) > itemID (asc) > bag (asc) > slot (asc)
--- Final bag+slot tiebreaker guarantees deterministic output (Lua 5.1 sort is unstable).
+-- Visual sort: quality desc > name > itemID > bag > slot; the bag+slot tiebreaker makes output deterministic (Lua 5.1 sort is unstable).
 local _trackRank = EUI._TRACK_RANK
 -- Gear category lookup: built lazily, maps catIdx -> true for gear categories
 local _gearCatSet
@@ -332,31 +239,19 @@ local function IsGearCategory(catIdx)
     return _gearCatSet[catIdx]
 end
 
--- Merge duplicate non-gear items by itemLink within an already-ordered list.
--- itemLink encodes stats/bonuses, so items with different stats stay separate.
--- Must run AFTER ApplySavedOrder so the first occurrence in visual order wins.
--- Returns a new list; originals are not modified (except _mergedCount on winners).
-local function MergeDuplicates(items)
-    -- Clear stale _mergedCount from prior merge passes in the same refresh
-    -- (the same data table can be merged in multiple sections: category + pinned/recent)
-    for _, data in ipairs(items) do data._mergedCount = nil end
-    local seen = {}
-    local out = {}
-    for _, data in ipairs(items) do
-        local key = data.itemLink
-        if key and not IsGearCategory(data.categoryIndex or 0) then
-            local prev = seen[key]
-            if prev then
-                prev._mergedCount = (prev._mergedCount or prev.info.stackCount) + (data.info.stackCount or 1)
-            else
-                seen[key] = data
-                out[#out + 1] = data
-            end
-        else
-            out[#out + 1] = data
-        end
-    end
-    return out
+-- Item panels (mail/trade/AH/bank/guildbank) take one bag slot at a time; a merged button
+-- only hands over the slot behind it (3 merged mails would mail 1), so duplicates stay unmerged while any panel is open. bagMergeDuplicates disables merging outright.
+local _openItemPanels = {}
+local _anyItemPanelOpen = false
+-- Unmerge state the CURRENT painted layout was built with; bags OnShow compares against it so a flip while hidden still repaints (closing a mailbox hides both).
+local _paintedPanelOpen = false
+-- Returns true when the aggregate state flipped, so the caller can refresh.
+local function SetItemPanelOpen(key, open)
+    _openItemPanels[key] = open or nil
+    local any = next(_openItemPanels) ~= nil
+    if any == _anyItemPanelOpen then return false end
+    _anyItemPanelOpen = any
+    return true
 end
 
 -- Pre-cache sort fields onto item data tables to avoid API calls in comparator
@@ -388,8 +283,7 @@ local function VisualSortCompare(a, b)
             if a._sortIlvl ~= b._sortIlvl then return a._sortIlvl > b._sortIlvl end
         end
     end
-    -- Category grouping (keeps items in the same category together)
-    -- Skip for gear categories so track/ilvl take priority in merged gear groups
+    -- Category grouping; skipped for gear so track/ilvl win in merged gear groups
     local aCat = a.categoryIndex or 9999
     local bCat = b.categoryIndex or 9999
     if aCat ~= bCat and not (a._sortGear and b._sortGear) then return aCat < bCat end
@@ -512,10 +406,55 @@ local function ReleaseAllSlotTables()
     _activeSlotN = 0
 end
 
--- Saved visual order per category/group. Keyed by category index (number) or
--- group name (string). Value is an ordered list of "bag:slot" strings.
--- Persisted in BP().bagVisualOrder.
--- Items in the saved list display in that order; items not in the list append to end.
+-- Merge duplicate non-gear items by itemLink within an already-ordered list.
+-- itemLink encodes stats/bonuses, so items with different stats stay separate.
+-- Must run AFTER ApplySavedOrder so the first occurrence in visual order wins.
+-- Returns a new list; the caller's tables are NEVER modified. A merged winner is
+-- replaced in the returned list by a pooled, display-only shallow copy carrying
+-- the aggregate in _mergedCount. Invariant: only those copies ever carry
+-- _mergedCount, which is also the "already a copy" test below. If anyone ever
+-- writes _mergedCount back onto a canonical slot table, both break.
+-- The result must not outlive the render pass that produced it: the copies come
+-- from the slot pool and are recycled by ReleaseAllSlotTables on the next refresh.
+local function MergeDuplicates(items)
+    -- Record what this paint was built with, so the bags OnShow can tell that
+    -- the state changed while they were hidden and repaint (see OnShow).
+    _paintedPanelOpen = _anyItemPanelOpen
+    if _anyItemPanelOpen or BP().bagMergeDuplicates == false then return items end
+    local seen = {}
+    local out = {}
+    for _, data in ipairs(items) do
+        local key = data.itemLink
+        if key and not IsGearCategory(data.categoryIndex or 0) then
+            local idx = seen[key]
+            if idx then
+                local prev = out[idx]
+                if not prev._mergedCount then
+                    -- First duplicate for this key: swap the winner out for a copy.
+                    -- The aggregate cannot live on the winner itself, because the
+                    -- OneBag/MultiBag bag grid paints those same slot tables with no
+                    -- merge pass of its own and would show one slot's count inflated
+                    -- by its twins. data.info stays shared by reference on purpose.
+                    local proxy = AcquireSlotTable()
+                    for k, v in pairs(prev) do proxy[k] = v end
+                    proxy._mergedCount = prev.info.stackCount or 1
+                    out[idx] = proxy
+                    prev = proxy
+                end
+                prev._mergedCount = prev._mergedCount + (data.info.stackCount or 1)
+            else
+                out[#out + 1] = data
+                seen[key] = #out
+            end
+        else
+            out[#out + 1] = data
+        end
+    end
+    return out
+end
+
+-- Saved visual order per category/group in BP().bagVisualOrder, keyed by category index
+-- (number) or group name (string): an ordered list of "bag:slot" strings; missing items append to the end.
 local function GetVisualOrder()
     if not BP().bagVisualOrder then BP().bagVisualOrder = {} end
     return BP().bagVisualOrder
@@ -585,12 +524,10 @@ local function TakeBagSnapshot(tempItems)
     end
 end
 
--- Detect manual item swaps. When applySwap is true, updates saved visual order.
--- Returns true if a swap was detected.
+-- Detect manual item swaps; with applySwap, also updates the saved visual order. Returns true if a swap was detected.
 local function DetectAndApplySwaps(tempItems, applySwap)
     if not next(_bagSnapshot) then return false end
 
-    -- Build current bag:slot -> itemID from scan
     local current = {}
     for _, d in ipairs(tempItems) do
         if d.info and d.info.itemID then
@@ -598,7 +535,6 @@ local function DetectAndApplySwaps(tempItems, applySwap)
         end
     end
 
-    -- Find slots where one item was replaced by a different item
     local swapChanges = {}
     for key, oldID in pairs(_bagSnapshot) do
         local curID = current[key]
@@ -631,13 +567,11 @@ local function DetectAndApplySwaps(tempItems, applySwap)
     return false
 end
 
--- Pending resort: category indices + group names that need re-sorting.
--- Populated by ResortAfterGroupChange, consumed by RefreshInventory.
+-- Category indices + group names needing re-sort: filled by ResortAfterGroupChange, consumed by RefreshInventory.
 local _pendingResortCats = {}
 local _pendingResortGroups = {}
 
--- Invalidate saved visual order for affected categories/groups.
--- The actual re-sort happens inside RefreshInventory using already-scanned items.
+-- Invalidate saved order; RefreshInventory does the re-sort on already-scanned items.
 local function ResortAfterGroupChange(catIndices, groupName)
     local order = GetVisualOrder()
     for _, ci in ipairs(catIndices) do
@@ -665,7 +599,7 @@ local _lastCatCounts = {}      -- category counts from last full refresh
 local _lastTotalCount = 0      -- total item count from last full refresh
 
 -------------------------------------------------------------------------------
---  HSV helper (used by upgrade indicator, kept from original)
+--  HSV helper (upgrade indicator)
 -------------------------------------------------------------------------------
 local function HSVToRGB(h, s, v)
     local i = math.floor(h * 6)
@@ -696,7 +630,6 @@ local function CreateHeader()
     header.bg:SetAllPoints()
     header.bg:SetColorTexture(0, 0, 0, 0.5)
 
-    -- Title
     header.title = header:CreateFontString(nil, "OVERLAY")
     SetBagFont(header.title, 13)
     header.title:SetPoint("LEFT", header, "LEFT", 8, 0)
@@ -709,7 +642,6 @@ local function CreateHeader()
     header.itemCount:SetPoint("LEFT", header.title, "RIGHT", 8, 0)
     header.itemCount:SetTextColor(0.6, 0.6, 0.6)
 
-    -- Search box
     local search = CreateFrame("EditBox", "EUI_BagSearchBox", header)
     search:SetSize(160, 22)
     search:SetPoint("RIGHT", -35, 0)
@@ -728,7 +660,6 @@ local function CreateHeader()
     placeholder:SetTextColor(0.4, 0.4, 0.4)
     EUI_Bags._searchBox = search
 
-    -- Sort Button (icon)
     local sort = CreateFrame("Button", nil, header)
     sort:SetSize(24, 24)
     sort:SetPoint("RIGHT", search, "LEFT", -13, 0)
@@ -778,9 +709,7 @@ local function CreateHeader()
         SetCVar("Sound_EnableSFX", "0")
 
         -----------------------------------------------------------------------
-        --  Phase 1: Consolidate partial stacks before sorting.
-        --  Merges smallest partial onto largest partial of the same itemID.
-        --  Blizzard's engine handles the actual stack combine.
+        --  Phase 1: consolidate partial stacks (smallest onto largest of the same itemID; the engine performs the combine).
         -----------------------------------------------------------------------
         local function ConsolidateStacks(onDone)
             local function DoOnePass()
@@ -804,21 +733,12 @@ local function CreateHeader()
                         end
                     end
                 end
-                -- Merge ONE pair per itemID this pass (smallest partial -> largest).
-                -- Distinct itemIDs live in distinct slots, so issuing every itemID's
-                -- merge in the same frame never conflicts; we then wait a single
-                -- BAG_UPDATE and repeat for anything still partial. Converges in a few
-                -- rounds (max partials-per-item) instead of one merge per round, which
-                -- was the dominant cause of the multi-second sort lockout. (Previously
-                -- this `break`-ed after the first merge -> one 0.15s+BAG_UPDATE round
-                -- per partial stack, i.e. dozens of serial rounds on a full bag.)
+                -- One smallest->largest pair per itemID per pass; distinct itemIDs occupy distinct slots
+                -- so all merges fire same-frame, then wait one BAG_UPDATE and repeat -- converges in max-partials-per-item rounds, not one per merge.
                 local merged = false
                 for _, partials in pairs(stacks) do
                     if #partials >= 2 then
-                        -- Fold the emptiest partial into the fullest one, found
-                        -- in a single scan (no full sort). Blizzard's engine
-                        -- performs the combine and leaves any overflow for a
-                        -- later pass to pick up.
+                        -- Emptiest partial merges into fullest via one scan (no sort); overflow waits for a later pass.
                         local target = partials[1]
                         for i = 2, #partials do
                             if partials[i].count > target.count then target = partials[i] end
@@ -868,11 +788,10 @@ local function CreateHeader()
         end
 
         -----------------------------------------------------------------------
-        --  Phase 2: Sort (existing logic)
+        --  Phase 2: Sort
         -----------------------------------------------------------------------
 
-        -- Scan bags, compute sorted order, and execute all moves in one pass.
-        -- Re-scans on every call so retries always work from fresh state.
+        -- Scan, compute sorted order and execute all moves in one pass; re-scans every call so retries work from fresh state.
         local function ComputeAndExecute(bagMin, bagMax)
             bagMin = bagMin or 0
             bagMax = bagMax or 4
@@ -940,18 +859,28 @@ local function CreateHeader()
                 whereIs[idx] = d.pos
             end
 
+            -- Sorted item i targets slot i; Sort to Bottom offsets so the block lands in the LAST
+            -- #items slots (free slots float up either way). The walk must move toward the free slots
+            -- (forward for top, backward for bottom), or a displaced item lands in an already-visited slot -- costing a retry per move, risking the 15-retry cap.
+            local offset, first, last, step = 0, 1, #items, 1
+            if BP().bagSortToBottom then
+                offset = total - #items
+                first, last, step = #items, 1, -1
+            end
+
             local moves = {}
-            for t = 1, #items do
-                local s = whereIs[t]
+            for i = first, last, step do
+                local t = i + offset
+                local s = whereIs[i]
                 if s ~= t then
                     local displaced = atPos[t]
                     if displaced and sID[s] and sID[t] and sID[s] == sID[t] then
                         -- Same itemID: skip to avoid merge, retry will resolve
                     else
                         moves[#moves + 1] = { sBag[s], sSlot[s], sBag[t], sSlot[t] }
-                        whereIs[t] = t
+                        whereIs[i] = t
                         if displaced then whereIs[displaced] = s end
-                        atPos[t] = t
+                        atPos[t] = i
                         atPos[s] = displaced
                         sID[s], sID[t] = sID[t], sID[s]
                         sKey[s], sKey[t] = sKey[t], sKey[s]
@@ -1007,9 +936,8 @@ local function CreateHeader()
                     FinishSort()
                 end
             end)
-        end  -- end RunSort
+        end
 
-        -- Consolidate partial stacks first, then sort
         ConsolidateStacks(RunSort)
     end
 
@@ -1029,7 +957,6 @@ local function CreateHeader()
         end
         EUI_CategoryManager:ClassifyAll(tempItems)
 
-        -- Bucket items by category
         local itemsByCat = {}
         for i = 1, #cats do itemsByCat[i] = {} end
         for _, data in ipairs(tempItems) do
@@ -1039,7 +966,6 @@ local function CreateHeader()
             end
         end
 
-        -- Sort each category/group and save the order
         local sortedGroups = {}
         for ci = 1, #cats do
             local cat = cats[ci]
@@ -1079,10 +1005,14 @@ local function CreateHeader()
         C_Timer.After(3, UnlockSort)
     end
 
-    -- MultiBag sort: defer to Blizzard's native bag sort. Insecure-callable, no
-    -- taint; the resulting BAG_UPDATE storm drives the module's normal refresh.
+    -- MultiBag sort defers to Blizzard's native sort (insecure-callable, no taint; BAG_UPDATE
+    -- storm drives our refresh). Sort to Bottom rides their fill direction (right-to-left = start
+    -- at backpack = our top), floating free slots to our top. Real Blizzard CVar (also drives their Clean Up); set only while the option is on, re-asserted each sort.
     local function DoBlizzardSort()
         LockSort()
+        if BP().bagSortToBottom and C_Container.SetSortBagsRightToLeft then
+            C_Container.SetSortBagsRightToLeft(false)
+        end
         C_Container.SortBags()
         C_Timer.After(3, UnlockSort)
     end
@@ -1247,7 +1177,6 @@ local function CreateHeader()
     dice:Hide()
     EUI_Bags._diceBtn = dice
 
-    -- Bags Button (icon)
     local bagsBtn = CreateFrame("Button", nil, header)
     bagsBtn:SetSize(24, 24)
     if sort:IsShown() then
@@ -1281,7 +1210,6 @@ local function CreateHeader()
     end)
     EUI_Bags._bagsBtn = bagsBtn
 
-    -- Clear button for search
     local clear = CreateFrame("Button", nil, search)
     clear:SetSize(22, 22)
     clear:SetPoint("RIGHT", search, "RIGHT", 0, 0)
@@ -1306,7 +1234,6 @@ local function CreateHeader()
         if EUI_Bags:IsVisible() then EUI_Bags:RefreshInventory() end
     end)
 
-    -- Close button
     local close = CreateFrame("Button", nil, header)
     close:SetSize(12, 12)
     close:SetPoint("RIGHT", -9, 0)
@@ -1337,7 +1264,7 @@ local function CreateHeader()
 end
 
 -------------------------------------------------------------------------------
---  Gold tracking + Footer (preserved from original)
+--  Gold tracking + Footer
 -------------------------------------------------------------------------------
 local lastCapturedGold = 0
 local goldCapturePending = false
@@ -1526,7 +1453,6 @@ local function EnsureGoldRows(count)
             end
         end
     end
-    -- Update fonts on all rows
     tt._title:SetFont(fontPath, 11, fontFlags)
     tt._hint:SetFont(fontPath, 10, fontFlags)
     for i = 1, count do
@@ -1567,7 +1493,6 @@ local function ShowGoldTooltip(anchor)
     EnsureGoldRows(rowCount)
     local tt = GetGoldTooltip()
 
-    -- Populate text and measure column widths
     local colWidths = { 0, 0 }
     for r, entry in ipairs(charList) do
         local nameFS = _goldTTRows[r][0]
@@ -1610,13 +1535,11 @@ local function ShowGoldTooltip(anchor)
     if tnw > colWidths[1] then colWidths[1] = tnw end
     if tgw > colWidths[2] then colWidths[2] = tgw end
 
-    -- Hide excess rows
     for i = totalRow + 1, #_goldTTRows do
         _goldTTRows[i][0]:Hide()
         _goldTTRows[i][1]:Hide()
     end
 
-    -- Position columns
     local titleTop = GOLD_PAD + (tt._title:GetStringHeight() or 14) + 6
     local col1X = GOLD_PAD
     local col2X = col1X + colWidths[1] + GOLD_COL_GAP
@@ -1632,7 +1555,6 @@ local function ShowGoldTooltip(anchor)
         _goldTTRows[r][1]:SetPoint("TOPRIGHT", tt, "TOPRIGHT", -GOLD_PAD, y)
     end
 
-    -- Hint at bottom
     local lastRowY = titleTop + (rowCount - 1) * GOLD_ROW_H + 4 + GOLD_ROW_H + 6
     tt._hint:ClearAllPoints()
     tt._hint:SetPoint("TOPLEFT", tt, "TOPLEFT", GOLD_PAD, -lastRowY)
@@ -1681,7 +1603,6 @@ local function CreateFooter()
     money:SetPoint("BOTTOMRIGHT", footer, "BOTTOMRIGHT", 0, 7)
     MoneyFrame_SetType(money, "PLAYER")
 
-    -- Style money frame text with our font
     for _, suffix in ipairs({"GoldButton", "SilverButton", "CopperButton"}) do
         local btn = _G["EUI_BagMoneyFrame" .. suffix]
         if btn then
@@ -1727,13 +1648,12 @@ local function UpdateCurrencyDisplays(footerWidth)
     if not pool or not EUI_Bags.Footer then return FOOTER_H end
     local footer = EUI_Bags.Footer
 
-    -- Hide all existing displays/hitboxes
     for _, d in ipairs(pool.displays) do d:Hide() end
     for _, h in ipairs(pool.hitboxes) do h:Hide() end
 
     -- Build tracked list from internal order table (decoupled from Blizzard)
     local tracked = {}
-    local orderDB = BP().currencyOrder
+    local orderDB = CurrencyOrder()
     if orderDB and C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo then
         for cID, order in pairs(orderDB) do
             if type(order) == "number" then
@@ -1743,7 +1663,6 @@ local function UpdateCurrencyDisplays(footerWidth)
         table.sort(tracked, function(a, b) return a.order < b.order end)
     end
 
-    -- Ensure enough display/hitbox objects exist
     for i = #pool.displays + 1, #tracked do
         local display = footer:CreateFontString(nil, "OVERLAY")
         SetBagFont(display, 11)
@@ -1765,7 +1684,6 @@ local function UpdateCurrencyDisplays(footerWidth)
         pool.hitboxes[i] = hb
     end
 
-    -- Build currency metrics
     local padding = 5
     local rowHeight = 14
     local rowGap = 8
@@ -1828,9 +1746,7 @@ local function UpdateCurrencyDisplays(footerWidth)
     return footerHeight
 end
 
--- Re-lay-out the currency footer and grow/shrink the bag frame by the height
--- delta. Reads the previous footer height BEFORE UpdateCurrencyDisplays stamps
--- the new one, so the delta is real.
+-- Re-lay-out the currency footer and grow/shrink the bag frame by the height delta; reads the previous height BEFORE UpdateCurrencyDisplays stamps the new one.
 local function SyncBagFrameToFooter()
     local prev = EUI_Bags._footerH or FOOTER_H
     local footerH = UpdateCurrencyDisplays() or FOOTER_H
@@ -1846,7 +1762,7 @@ local function SyncBagFrameToFooter()
 end
 
 -------------------------------------------------------------------------------
---  Reagent Bag UI (preserved)
+--  Reagent Bag UI
 -------------------------------------------------------------------------------
 local function CreateReagentBagUI()
     if EUI_BagsReagent.Header then return end
@@ -1915,8 +1831,7 @@ local function SetInsetBorderColor(btn, cr, cg, cb, ca)
     end
 end
 
--- Set border thickness in pixels (e.g. 1 physical px normally, 2 for quest
--- items). Must be re-applied per render because item buttons are pooled.
+-- Border thickness in px (1 normally, 2 for quest items); must be re-applied per render because item buttons are pooled.
 local function SetInsetBorderThickness(btn, px)
     if btn._brdT then
         btn._brdT:SetHeight(px)
@@ -1937,16 +1852,11 @@ _itemDragFrame:Hide()
 _itemDragFrame:SetScript("OnUpdate", function(self)
     if IsMouseButtonDown("LeftButton") then return end
     self:Hide()
-    -- Blizzard's OnReceiveDrag on action bars / equipment slots fires
-    -- BEFORE OnUpdate in the same frame. If they consumed the item,
-    -- GetCursorInfo returns nil and we exit immediately.
+    -- Blizzard's OnReceiveDrag (bars/equipment) fires BEFORE OnUpdate in the same
+    -- frame; if it consumed the item, GetCursorInfo returns nil.
     if GetCursorInfo() ~= "item" then return end
-    -- Convert the cursor into each target button's OWN coordinate space.
-    -- GetRect() returns values in the button's effective-scale units, so the raw
-    -- cursor must be divided by btn:GetEffectiveScale() (NOT UIParent's scale).
-    -- The two only match when the bag window scale is 1.0; at any other window
-    -- scale the button's effective scale differs and the old UIParent-based math
-    -- landed the hit-test on the wrong slot (items dropped into a random slot).
+    -- Cursor into each button's OWN coordinate space: GetRect() is in effective-scale
+    -- units, so divide by btn:GetEffectiveScale() (not UIParent's -- matches only at scale 1.0).
     local rawCx, rawCy = GetCursorPosition()
     for _, btn in pairs(itemSlots) do
         if btn:IsShown() and btn:GetParent():IsShown() then
@@ -1963,7 +1873,6 @@ _itemDragFrame:SetScript("OnUpdate", function(self)
             end
         end
     end
-    -- Check bank slots (if bank is open)
     local bankFrame = _G.EUI_BankFrame
     local bankSlots = bankFrame and bankFrame._bankSlots
     if bankSlots and bankFrame:IsVisible() then
@@ -1983,22 +1892,17 @@ _itemDragFrame:SetScript("OnUpdate", function(self)
             end
         end
     end
-    -- Not over any bag/bank slot: leave item on cursor. Blizzard already
-    -- handled action bars / equipment via OnReceiveDrag above. If dropped
-    -- over empty space, item stays on cursor (click to place or right-click
-    -- to cancel — standard WoW pickup behavior).
+    -- Not over a bag/bank slot: leave item on cursor (bars/equipment already handled by OnReceiveDrag).
 end)
 
 -------------------------------------------------------------------------------
---  Slot Factory (preserved with square icon fix)
+--  Slot Factory
 -------------------------------------------------------------------------------
 local function GetOrCreateSlot(idx)
     if itemSlots[idx] then return itemSlots[idx] end
-    -- Never CreateFrame a secure ContainerFrameItemButtonTemplate button during
-    -- combat lockdown: a button born in combat is tainted and its click gets
-    -- UseContainerItem() blocked (ADDON_ACTION_FORBIDDEN) in M+/Delves. The
-    -- pre-warmed pool covers normal counts; if we somehow run past it in combat
-    -- the caller skips this slot and PLAYER_REGEN_ENABLED replays a full refresh.
+    -- NEVER CreateFrame a secure ContainerFrameItemButtonTemplate in combat -- a button
+    -- born in combat is tainted (UseContainerItem() -> ADDON_ACTION_FORBIDDEN in M+/Delves).
+    -- Pre-warmed pool covers normal counts; past it, callers skip the slot until PLAYER_REGEN_ENABLED.
     if InCombatLockdown() then return nil end
 
     local slotParent = CreateFrame("Frame", nil, EUI_Bags)
@@ -2011,14 +1915,9 @@ local function GetOrCreateSlot(idx)
         _itemDragFrame:Show()
     end)
 
-    -- Right-click deposit routing: when a specific bank tab is selected,
-    -- queue the transfer instead of letting Blizzard route to the first
-    -- available slot across all tabs. The queue handles locked items and
-    -- slot allocation so rapid clicks don't collide.
-    -- State stored in external weak table (NOT on the frame) to avoid
-    -- tainting the ContainerFrameItemButtonTemplate secure execution chain.
-    -- Writing custom keys onto template buttons during PreClick taints the
-    -- frame table, causing UseContainerItem() to be blocked as ADDON_ACTION_FORBIDDEN.
+    -- Right-click deposit routing: with a bank tab selected, queue the transfer instead of
+    -- Blizzard's default first-free-slot routing (queue handles locked items/allocation so rapid
+    -- clicks don't collide). State lives in an EXTERNAL weak table, never on the frame: PreClick custom keys taint the secure chain -> ADDON_ACTION_FORBIDDEN.
     btn:HookScript("PreClick", function(self, button)
         if button ~= "RightButton" then return end
         local bank = _G.EUI_BankFrame
@@ -2079,13 +1978,12 @@ local function GetOrCreateSlot(idx)
         if EUI_Bags.RefreshInventory then EUI_Bags:RefreshInventory() end
     end)
 
-    -- Shift-click split hint: when the user shift-clicks an item while
-    -- viewing a category (not OneBag), show a brief tooltip that stacks
-    -- auto-merge in categories and splitting should be done in OneBag.
+    -- Shift-click hint in category views: stacks auto-merge there, split in OneBag.
     btn:HookScript("PostClick", function(self, button)
         if button ~= "LeftButton" and button ~= "RightButton" then return end
         if not IsShiftKeyDown() then return end
         if selectedCategoryIndex == -1 or selectedCategoryIndex == -2 then return end
+        if _anyItemPanelOpen or BP().bagMergeDuplicates == false then return end
         local bagID = self:GetParent():GetID()
         local slotID = self:GetID()
         if not bagID or not slotID or slotID == 0 then return end
@@ -2094,7 +1992,6 @@ local function GetOrCreateSlot(idx)
         if not EUI.ShowWidgetTooltip then return end
         EUI.ShowWidgetTooltip(self,
             "Items in categories auto-merge,\nsplit stacks in OneBag", { anchor = "TOP", scale = 1.25 })
-        -- Cancel any previous auto-hide timer
         if EUI_Bags._splitHintTimer then EUI_Bags._splitHintTimer:Cancel() end
         EUI_Bags._splitHintTimer = C_Timer.NewTimer(4, function()
             if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
@@ -2102,8 +1999,7 @@ local function GetOrCreateSlot(idx)
         end)
     end)
 
-    -- Hide template decorations via methods only (never write properties onto
-    -- Blizzard template sub-objects -- causes taint)
+    -- Methods only: writing properties onto Blizzard template sub-objects taints
     if btn.NewItemTexture then btn.NewItemTexture:Hide(); btn.NewItemTexture:SetAlpha(0) end
     if btn.BattlepayItemTexture then btn.BattlepayItemTexture:Hide(); btn.BattlepayItemTexture:SetAlpha(0) end
     if btn.flash then btn.flash:Hide(); btn.flash:SetAlpha(0) end
@@ -2139,7 +2035,6 @@ local function GetOrCreateSlot(idx)
         btn.IconMask:SetSize(0.001, 0.001)
     end
 
-    -- Style cooldown text
     if btn.Cooldown then
         local cdText = btn.Cooldown:GetRegions()
         if cdText and cdText.SetFont then
@@ -2219,8 +2114,7 @@ local function GetOrCreateReagentSlot(idx)
     btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     btn:RegisterForDrag("LeftButton")
 
-    -- Hide template decorations via methods only (never write properties onto
-    -- Blizzard template sub-objects -- causes taint)
+    -- Methods only: writing properties onto Blizzard template sub-objects taints
     if btn.NewItemTexture then btn.NewItemTexture:Hide(); btn.NewItemTexture:SetAlpha(0) end
     if btn.BattlepayItemTexture then btn.BattlepayItemTexture:Hide(); btn.BattlepayItemTexture:SetAlpha(0) end
     if btn.flash then btn.flash:Hide(); btn.flash:SetAlpha(0) end
@@ -2256,7 +2150,6 @@ local function GetOrCreateReagentSlot(idx)
         btn.IconMask:SetSize(0.001, 0.001)
     end
 
-    -- Style cooldown text
     if btn.Cooldown then
         local cdText = btn.Cooldown:GetRegions()
         if cdText and cdText.SetFont then
@@ -2330,8 +2223,7 @@ local function GetOrCreateBagSlot(idx)
 end
 
 -------------------------------------------------------------------------------
---  Fast font size update: re-applies text sizes to all existing slots
---  without a full RefreshInventory. Called by options sliders.
+--  Fast font size update (options sliders): no full RefreshInventory
 -------------------------------------------------------------------------------
 local function RefreshTextSizes()
     local fontPath = GetFont()
@@ -2353,8 +2245,7 @@ end
 EUI_Bags.RefreshTextSizes = RefreshTextSizes
 
 -------------------------------------------------------------------------------
---  Fast icon-zoom update: re-applies the item-icon crop to existing slots
---  without a full RefreshInventory. Called by the options zoom cog.
+--  Fast icon-zoom update (options zoom cog): no full RefreshInventory
 -------------------------------------------------------------------------------
 local function RefreshIconZoom()
     local z = BP().bagItemIconZoom or 0.08
@@ -2373,8 +2264,7 @@ EUI_Bags.RefreshIconZoom = RefreshIconZoom
 -------------------------------------------------------------------------------
 --  Bind type text (shared by bags and bank render paths)
 -------------------------------------------------------------------------------
--- WuE items report bindType == OnEquip from GetItemInfo (no dedicated enum),
--- so the WuE flag must be checked first.
+-- WuE items report bindType == OnEquip (no dedicated enum): check WuE first.
 function EUI_Bags.SetBindTypeText(fs, isWuE, bindType, quality)
     local c
     if isWuE then
@@ -2391,7 +2281,7 @@ function EUI_Bags.SetBindTypeText(fs, isWuE, bindType, quality)
 end
 
 -------------------------------------------------------------------------------
---  RenderButton (simplified, no placeholder handling)
+--  RenderButton
 -------------------------------------------------------------------------------
 local function RenderButton(btn, data, _, col, row, startX, currentY, _, interactiveEmpties)
     local parent = btn:GetParent()
@@ -2418,7 +2308,6 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
     end
 
     if not data.info then
-        -- Empty slot
         btn:SetItemButtonTexture(nil)
         btn:SetItemButtonCount(0)
         SetItemButtonDesaturated(btn, false)
@@ -2433,8 +2322,7 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
             btn._emptyBg:SetAlpha(0.35)
             SetInsetBorderColor(btn, 0, 0, 0, 0.3)
         end
-        -- Reset to 1px and drop any quest marker: buttons are reused, so a
-        -- slot vacated by a quest item must lose the 2px gold border + atlas.
+        -- Reset to 1px and drop the marker, or a pooled slot vacated by a quest item keeps the 2px gold border + atlas.
         SetInsetBorderThickness(btn, (EUI and EUI.PP and EUI.PP.mult) or 1)
         if btn._questMarker then btn._questMarker:Hide() end
         if btn.Cooldown then btn.Cooldown:Clear() end
@@ -2484,7 +2372,6 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
                         r, g, b = GetItemQualityColor(data._giQuality or 1)
                     end
                     btn.ItemLevelText:SetTextColor(r, g, b, 1)
-                    -- Rank text at bottom-right
                     local countFS = btn.Count
                     if countFS and BP().bagShowTrackRank and rankText ~= "" then
                         countFS:SetText(rankText:match("^(%d+)/") or rankText)
@@ -2514,8 +2401,7 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
             end
         end
 
-        -- Bind Type : BoE / WuE bottom-left (gear only). Quest starters are
-        -- skipped -- the quest marker occupies the same corner.
+        -- BoE/WuE bottom-left (gear only); skipped for quest starters, which use that corner for the quest marker.
         if btn.BindTypeText then
             if data._isGear and not data.info.isBound and not data._isQuestStarter
                and BP().bagDisplayBindType then
@@ -2525,14 +2411,11 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
             end
         end
 
-        -- Profession quality overlay: let Blizzard decide via SetItemButtonQuality
-        -- (handles all item types, not just ones we think are "profession")
+        -- Profession quality overlay: let SetItemButtonQuality decide so every item type is covered, not just guessed "profession" ones.
         if data.itemLink then
             btn:SetItemButtonQuality(quality, data.itemLink, false, false)
         end
-        -- Control overlay via alpha (immune to parent visibility inheritance).
-        -- SetItemButtonQuality may have called Show() internally, but we use
-        -- alpha 0/1 as the sole visibility control.
+        -- Visibility via alpha 0/1 only (immune to parent inheritance), even though SetItemButtonQuality may have called Show() internally.
         if btn.ProfessionQualityOverlay then
             if btn.ProfessionQualityOverlay:IsShown() then
                 btn.ProfessionQualityOverlay:SetAlpha(1)
@@ -2543,9 +2426,7 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
                 btn.ProfessionQualityOverlay:SetAlpha(0)
             end
         end
-        -- Cosmetic/warbound overlays: SetItemButtonQuality re-shows these,
-        -- so we must handle them AFTER that call. Reparent to textOverlay
-        -- so they render above the inset quality borders.
+        -- Cosmetic/warbound overlays: SetItemButtonQuality re-shows these, so handle AFTER it; reparent to textOverlay to render above inset borders.
         if btn.IconOverlay then
             if btn.IconOverlay:IsShown() then
                 btn.IconOverlay:SetAlpha(1)
@@ -2572,9 +2453,8 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
         if btn.IconBorder then btn.IconBorder:Hide() end
         if btn.NormalTexture then btn.NormalTexture:SetAlpha(0) end
 
-        -- Border: quest items get a gold 2px border that overrides the normal
-        -- 1px quality border. Thickness is reset every render because buttons
-        -- are pooled (a slot reused from a quest item must drop back to 1px).
+        -- Quest items get a gold 2px border overriding the 1px quality border;
+        -- thickness is re-set every render because buttons are pooled.
         local _bpx = (EUI and EUI.PP and EUI.PP.mult) or 1
         if data._isQuest then
             SetInsetBorderThickness(btn, _bpx * 2)
@@ -2588,9 +2468,8 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
                 SetInsetBorderColor(btn, 0.25, 0.25, 0.25, filtered and 0.2 or 1)
             end
         end
-        -- Quest marker atlas (created lazily, reused). Only shown for items that
-        -- start a quest you haven't accepted yet (Blizzard's "!" condition);
-        -- active-quest objective items keep the gold border but no marker.
+        -- Quest marker atlas (lazy, reused). Only for items that START a quest you
+        -- have not accepted; active-quest objective items get the border, no marker.
         if data._isQuestStarter then
             if not btn._questMarker then
                 local qm = (btn._textOverlay or btn):CreateTexture(nil, "OVERLAY", nil, 6)
@@ -2604,8 +2483,7 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
             btn._questMarker:Hide()
         end
 
-        -- Warbank dim overlay: when a warband bank tab is selected,
-        -- dim non-warbound items so the user can see what's eligible.
+        -- Warbank dim overlay: dim non-warbound items while a warband tab is open.
         if not btn._warbankDim then
             local dimFrame = CreateFrame("Frame", nil, btn)
             dimFrame:SetAllPoints()
@@ -2626,7 +2504,6 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
             btn._warbankDim:Hide()
         end
 
-        -- Cooldown
         if btn.Cooldown then
             if data._cdStart then
                 btn.Cooldown:SetDrawEdge(true)
@@ -2706,8 +2583,7 @@ local function GetOrCreatePinOverlay()
     return ov
 end
 
--- Assign "+" overlay: click or drag an item to assign it to a category.
--- Pooled so multiple sections can show one simultaneously.
+-- Assign "+" overlay: click/drag an item to assign to a category; pooled so multiple sections can show one simultaneously.
 local _assignOverlays = {}
 local _assignOverlayIdx = 0
 
@@ -2777,14 +2653,12 @@ ExitPinSelectMode = function()
         end
         ov._fadeOut:Play()
     end
-    -- Restore scroll frame strata
     local sf = EUI_Bags._scrollFrame
     if sf then sf:SetFrameStrata("HIGH") end
 end
 
 -------------------------------------------------------------------------------
---  Assign Selection Mode (mirrors Pin Selection Mode)
---  Dims the screen and lets the user click an item to assign it to a category.
+--  Assign Selection Mode: dim the screen, click an item to assign it to a category (mirrors Pin Selection Mode).
 -------------------------------------------------------------------------------
 local _assignSelectCatKey = nil
 
@@ -2812,7 +2686,6 @@ EnterAssignSelectMode = function(catKey)
     EUI_Bags._assignSelectMode = true
     _assignSelectCatKey = catKey
 
-    -- Dark overlay
     if not EUI_Bags._assignOverlay then
         local ov = CreateFrame("Frame", nil, UIParent)
         ov:SetFrameStrata("FULLSCREEN_DIALOG")
@@ -2849,11 +2722,8 @@ EnterAssignSelectMode = function(catKey)
     local sf = EUI_Bags._scrollFrame
     if sf then sf:SetFrameStrata("FULLSCREEN_DIALOG") end
 
-    -- Hit-test: find item button under cursor
     local function FindBtnUnderCursor()
-        -- Divide the cursor by each button's OWN effective scale; GetRect() is in
-        -- the button's scale units, so UIParent's scale only matches at 100% window
-        -- scale (see the drop-on-release handler for the full explanation).
+        -- Cursor / each button's OWN effective scale: GetRect() is in button units
         local rawCx, rawCy = GetCursorPosition()
         for _, btn in pairs(itemSlots) do
             if btn:IsShown() and btn:GetParent():IsShown() then
@@ -2990,11 +2860,8 @@ EnterPinSelectMode = function()
     local sf = EUI_Bags._scrollFrame
     if sf then sf:SetFrameStrata("FULLSCREEN_DIALOG") end
 
-    -- Hit-test: find the item button under the cursor
     local function FindBtnUnderCursor()
-        -- Divide the cursor by each button's OWN effective scale; GetRect() is in
-        -- the button's scale units, so UIParent's scale only matches at 100% window
-        -- scale (see the drop-on-release handler for the full explanation).
+        -- Cursor / each button's OWN effective scale: GetRect() is in button units
         local rawCx, rawCy = GetCursorPosition()
         for _, btn in pairs(itemSlots) do
             if btn:IsShown() and btn:GetParent():IsShown() then
@@ -3009,9 +2876,7 @@ EnterPinSelectMode = function()
         return nil
     end
 
-    -- Click catcher: invisible frame above the raised item icons
-    -- Intercepts clicks so items don't get used/equipped, finds which icon
-    -- was clicked, and pins it.
+    -- Click catcher above the raised icons: swallows clicks (items aren't used/equipped), then pins whichever icon was clicked.
     if not EUI_Bags._pinCatcher then
         local cf = CreateFrame("Frame", nil, UIParent)
         cf:SetFrameStrata("FULLSCREEN_DIALOG")
@@ -3051,10 +2916,8 @@ EnterPinSelectMode = function()
             ClearPinHover()
             if btn and btn.icon and btn.icon:IsShown() then
                 if btn._brdT then
-                    -- Save current border color + size
                     pinSavedR, pinSavedG, pinSavedB, pinSavedA = btn._brdT:GetVertexColor()
                     pinSavedBrdSize = btn._brdT:GetHeight()
-                    -- Apply accent border at 2px
                     local ar, ag, ab = GetAccentRGB()
                     SetInsetBorderColor(btn, ar, ag, ab, 1)
                     local PP = EUI and EUI.PP
@@ -3064,7 +2927,6 @@ EnterPinSelectMode = function()
                     btn._brdL:SetWidth(px2)
                     btn._brdR:SetWidth(px2)
                 end
-                -- Show white overlay
                 pinHoverOv:ClearAllPoints()
                 pinHoverOv:SetAllPoints(btn)
                 pinHoverOv:Show()
@@ -3207,8 +3069,7 @@ local function EnsureGroupHighlight()
     return hl
 end
 
--- Compute insert position from cursor Y relative to visible sidebar buttons.
--- Maps cursor to the visual button list (which skips hidden/empty categories).
+-- Compute insert position from cursor Y relative to visible sidebar buttons (skips hidden/empty categories).
 local function ComputeDropTarget()
     local sidebar = EUI_Bags._sidebar
     if not sidebar then return nil end
@@ -3227,7 +3088,6 @@ local function ComputeDropTarget()
     local visIdx = 0
     local lastVisibleCatIdx = 1
     for i = 1, #cats do
-        -- Check if this category has a visible button
         local isVisible = false
         for _, btn in ipairs(_sidebarBtns) do
             if btn:IsShown() and btn._catIdx == i then
@@ -3249,10 +3109,8 @@ end
 -- Compute drop zone: which button the cursor is over and which zone (above/group/below).
 -- Returns: targetCatIdx, mode ("above", "below", "group"), targetBtn
 local function ComputeDropZone()
-    -- Sidebar buttons carry the sidebar's effective scale, so the cursor must be
-    -- divided by that (NOT UIParent's) to match btn:GetTop()/GetBottom(). At any
-    -- bag window scale other than 100% the old UIParent math mapped the cursor to
-    -- the wrong category row. Mirrors ComputeDropTarget above.
+    -- Sidebar buttons carry the sidebar's effective scale, so divide the cursor by that
+    -- (not UIParent's) to match btn:GetTop()/GetBottom() -- UIParent math picks the wrong row at scale != 100%. Mirrors ComputeDropTarget above.
     local sidebar = EUI_Bags._sidebar
     local scale = (sidebar and sidebar:GetEffectiveScale()) or UIParent:GetEffectiveScale()
     local _, cy = GetCursorPosition()
@@ -3346,7 +3204,6 @@ _dragUpdateFrame:Hide()
 _dragUpdateFrame:SetScript("OnUpdate", function()
     if not _dragFromCatIdx then _dragUpdateFrame:Hide(); return end
 
-    -- Ghost follows cursor
     local ghost = _dragGhost
     if ghost and ghost:IsShown() then
         local cx, cy = GetCursorPosition()
@@ -3356,7 +3213,6 @@ _dragUpdateFrame:SetScript("OnUpdate", function()
         ghost:SetPoint("CENTER", UIParent, "BOTTOMLEFT", cx / (sc * gs), cy / (sc * gs))
     end
 
-    -- Compute drop zone
     local target, mode, targetBtn = ComputeDropZone()
 
     if target ~= _dragLastTarget or mode ~= _dragLastMode or targetBtn ~= _dragLastBtn then
@@ -3371,8 +3227,7 @@ _dragUpdateFrame:SetScript("OnUpdate", function()
 
         local cats = EUI_CategoryManager:GetCategories()
 
-        -- Block drops onto or above special entries (Pinned Items, Recent Items).
-        -- Nothing should be draggable above the divider.
+        -- Block drops onto/above special entries (Pinned Items, Recent Items) -- nothing drags above the divider.
         local targetCatCheck = cats[target]
         if targetCatCheck and (targetCatCheck.isPinned or targetCatCheck.isRecent) then
             line:Hide(); hl:Hide()
@@ -3395,7 +3250,6 @@ _dragUpdateFrame:SetScript("OnUpdate", function()
         end
 
         if mode == "group" and targetBtn then
-            -- Show group highlight
             if line then line:Hide() end
             hl:ClearAllPoints()
             hl:SetPoint("TOPLEFT", targetBtn, "TOPLEFT", 2, 0)
@@ -3404,7 +3258,6 @@ _dragUpdateFrame:SetScript("OnUpdate", function()
             _dragDropMode = "group"
             _dragDropTarget = target
         else
-            -- Show insert line
             if hl then hl:Hide() end
             _dragDropMode = "insert"
 
@@ -3413,7 +3266,6 @@ _dragUpdateFrame:SetScript("OnUpdate", function()
             local resolvedTarget = target
             if mode == "below" then
                 if targetBtn and targetBtn._isGroupHeader then
-                    -- "below header" and "above first member" are the same visual gap
                     resolvedTarget = target
                 else
                     resolvedTarget = target + 1
@@ -3486,7 +3338,6 @@ StartSidebarDrag = function(btnSelf, catIdx, catName, catIcon, catIsAtlas)
     _dragDropMode = nil
     _dragDropTarget = nil
 
-    -- Ghost: scaled 0.5x, 70% opacity
     local ghost = EnsureDragGhost()
     ghost:SetSize(GetSidebarWidth(), SIDEBAR_BTN_H)
     if catIsAtlas then
@@ -3551,8 +3402,7 @@ local function StopSidebarDrag()
                         EUI_CategoryManager:ReorderCategory(curFromIdx, dest)
                     end
                 end
-                -- Now add to group (category is already in position)
-                -- Re-find index after move
+                -- Add to group (already in position); re-find index after the move
                 for i, cat in ipairs(cats) do
                     if cat == fromCat then
                         EUI_CategoryManager:AddToGroup(i, targetGroup)
@@ -3593,8 +3443,7 @@ local function StopSidebarDrag()
         local dropGroupChanges = (_dragInsertGroup or false) ~= (fromGroupName or false)
         if target ~= _dragFromCatIdx or dropGroupChanges then
             if isHeader and fromGroup then
-                -- Group header drag: move ALL members as a block
-                -- Use raw dropTarget (not the -1 adjusted target) for block moves
+                -- Group header drag: move ALL members as a block, using raw dropTarget (not the -1 adjusted target).
                 local rawTarget = dropTarget
                 local members = EUI_CategoryManager:GetGroupMembers(fromGroup)
                 local minIdx = members[1]
@@ -3704,20 +3553,17 @@ local function StopSidebarDrag()
     local oldGroup = fromGroup
     local newGroup = newFromCat and newFromCat.groupName
     if oldGroup ~= newGroup then
-        -- Group membership changed: resort affected groups + the moved category
         local resortCats = {}
         -- Find the moved category's current index
         for i, cat in ipairs(cats) do
             if cat == fromCat then resortCats[#resortCats + 1] = i; break end
         end
-        -- Resort old group members
         if oldGroup then
             local oldMembers = EUI_CategoryManager:GetGroupMembers(oldGroup)
             if oldMembers then
                 for _, mi in ipairs(oldMembers) do resortCats[#resortCats + 1] = mi end
             end
         end
-        -- Resort new group members
         if newGroup then
             local newMembers = EUI_CategoryManager:GetGroupMembers(newGroup)
             if newMembers then
@@ -3725,7 +3571,6 @@ local function StopSidebarDrag()
             end
         end
         ResortAfterGroupChange(resortCats, newGroup or oldGroup)
-        -- If both old and new groups exist, resort both
         if oldGroup and newGroup and oldGroup ~= newGroup then
             ResortAfterGroupChange({}, oldGroup)
         end
@@ -3880,7 +3725,6 @@ local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember
         local hiddenSet = BP().bagHiddenInAllItems
 
         if isGroupHeader and myGroup then
-            -- Group header: Rename + Disband
             rootDescription:CreateButton("Rename", function()
                 if not EUI.ShowInputPopup then return end
                 EUI:ShowInputPopup({
@@ -3911,7 +3755,6 @@ local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember
                 EUI_Bags:RefreshInventory()
             end)
         elseif isGroupMember and myGroup then
-            -- Group member: Rename + Ungroup
             rootDescription:CreateButton("Rename", function()
                 if not EUI.ShowInputPopup then return end
                 EUI:ShowInputPopup({
@@ -3952,7 +3795,6 @@ local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember
             end)
 
             if not cat.noGroup then
-                -- "Create Group With" submenu
                 local groupSub = rootDescription:CreateButton("Create Group With")
                 local hasOptions = false
                 for ci, other in ipairs(cats) do
@@ -3965,7 +3807,6 @@ local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember
                     end
                 end
 
-                -- "Add to existing group..." if groups exist
                 local groupNames = EUI_CategoryManager:GetGroupNames()
                 if #groupNames > 0 then
                     local addSub = rootDescription:CreateButton("Add to Group")
@@ -4006,8 +3847,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
 
     -- Build display list: { catIdx, name, icon, count, isGroupHeader, groupName, indent }
     local displayList = {}
-    -- Three fixed views (All Items / OneBag / MultiBag), the configured default
-    -- type first, then the rest in canonical order.
+    -- Three fixed views; the configured default type first, then canonical order.
     local _fixedViews = {
         all      = { catIdx = 0,  name = EllesmereUI.L("All Items"), icon = 133633, count = totalCount },
         onebag   = { catIdx = -1, name = EllesmereUI.L("OneBag"),    icon = 133634, count = totalCount },
@@ -4019,7 +3859,6 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
         if _k ~= _dbt then displayList[#displayList + 1] = _fixedViews[_k] end
     end
 
-    -- Categories with group support
     local renderedGroups = {}
     for ci, cat in ipairs(cats) do
         if cat.groupName then
@@ -4096,7 +3935,6 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
         displayList = filtered
     end
 
-    -- Ensure enough buttons exist
     for i = 1, #displayList do
         if not _sidebarBtns[i] then
             local btn = CreateFrame("Button", nil, EUI_Bags._sidebarChild or sidebar)
@@ -4198,7 +4036,6 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
         end
     end
 
-    -- Hide excess
     for i = #displayList + 1, #_sidebarBtns do _sidebarBtns[i]:Hide() end
 
     -- Separator line between All Items/OneBag and categories
@@ -4353,14 +4190,12 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                     local PP = EUI and EUI.PP
                     if PP and PP.CreateBorder then PP.CreateBorder(popup, 0.2, 0.2, 0.2, 1) end
 
-                    -- Title
                     local title = popup:CreateFontString(nil, "OVERLAY")
                     SetBagFont(title, 13)
                     title:SetPoint("TOPLEFT", popup, "TOPLEFT", 10, -10)
                     title:SetTextColor(1, 1, 1, 0.9)
                     title:SetText(EllesmereUI.L("New Custom Category"))
 
-                    -- Name editbox
                     local eb = CreateFrame("EditBox", nil, popup)
                     eb:SetSize(220, 22)
                     eb:SetPoint("TOPLEFT", popup, "TOPLEFT", 10, -30)
@@ -4377,7 +4212,6 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                     eb:SetScript("OnEnterPressed", function(s) s:ClearFocus() end)
                     popup._nameEB = eb
 
-                    -- Icon label
                     local iconLbl = popup:CreateFontString(nil, "OVERLAY")
                     SetBagFont(iconLbl, 11)
                     iconLbl:SetPoint("TOPLEFT", eb, "BOTTOMLEFT", 0, -8)
@@ -4465,7 +4299,6 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                     customLbl:SetTextColor(0.7, 0.7, 0.7, 1)
                     customLbl:SetText(EllesmereUI.L("Custom Icon ID:"))
 
-                    -- Preview icon to the left of the editbox
                     local preview = CreateFrame("Frame", nil, popup)
                     preview:SetSize(22, 22)
                     preview:SetPoint("TOPLEFT", customLbl, "BOTTOMLEFT", 0, -4)
@@ -4518,7 +4351,6 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                     end)
                     popup._customEB = customEB
 
-                    -- Create button
                     local createBtn = CreateFrame("Button", nil, popup)
                     createBtn:SetSize(220, 26)
                     createBtn:SetPoint("BOTTOMLEFT", popup, "BOTTOMLEFT", 10, 10)
@@ -4592,7 +4424,6 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                         local icon = popup._selectedIcon or 134400
                         local idx = EUI_CategoryManager:AddCustomCategory(name)
                         if idx then
-                            -- Store the chosen icon on the category
                             local cats = EUI_CategoryManager:GetCategories()
                             if cats[idx] then
                                 cats[idx].icon = icon
@@ -4604,7 +4435,6 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                         EUI_Bags:RefreshInventory()
                     end)
 
-                    -- Close on Escape
                     popup:SetScript("OnKeyDown", function(s, key)
                         if key == "ESCAPE" then s:Hide(); s:SetPropagateKeyboardInput(false)
                         else s:SetPropagateKeyboardInput(true) end
@@ -4613,7 +4443,6 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
 
                     EUI_Bags._newCatPopup = popup
                 end
-                -- Reset state
                 popup._nameEB:SetText("")
                 popup._customEB:SetText("")
                 popup._selectedIcon = popup._iconIDs[1]
@@ -4638,7 +4467,6 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
         sidebar._addCatBtn:Hide()
     end
 
-    -- Set scroll child height to content height
     if sidebarChild then
         sidebarChild:SetHeight(math.abs(y) + 4)
     end
@@ -4675,7 +4503,7 @@ local function GetOrCreateCatHeader(idx)
     return f
 end
 
--- Indented subheaders under a category (expansion names) — All Items nesting
+-- Indented subheaders under a category (expansion names) for All Items nesting
 local _expSubHeaders = {}
 
 local function GetOrCreateExpSubHeader(idx)
@@ -4731,7 +4559,6 @@ local function CreateBagScrollFrame()
     trackBg:SetPoint("RIGHT", track, "RIGHT", 0, 0)
     trackBg:SetColorTexture(1, 1, 1, 0.06)
 
-    -- Thumb
     local thumb = track:CreateTexture(nil, "ARTWORK")
     thumb:SetWidth(SCROLLBAR_W)
     thumb:SetColorTexture(1, 1, 1, 0.25)
@@ -4771,7 +4598,6 @@ local function CreateBagScrollFrame()
         trackBg:Show()
     end
 
-    -- Mouse wheel
     sf:SetScript("OnMouseWheel", function(_, delta)
         local _, _, _, scrollRange = GetScrollMetrics()
         if not scrollRange then return end
@@ -4828,7 +4654,6 @@ local function CreateBagScrollFrame()
         local thumbTop = pct * maxTravel
         local thumbBot = thumbTop + thumbH
         if cursorLocalY >= thumbTop and cursorLocalY <= thumbBot then
-            -- Start drag from thumb
             _isDragging = true
             _dragStartY = cy / scale
             _dragStartPct = pct
@@ -4838,7 +4663,6 @@ local function CreateBagScrollFrame()
             local clickPct = math.max(0, math.min(1, (cursorLocalY - thumbH / 2) / maxTravel))
             sf:SetVerticalScroll(clickPct * scrollRange)
             UpdateThumb()
-            -- Start drag from new position
             _isDragging = true
             _dragStartY = cy / scale
             _dragStartPct = clickPct
@@ -4850,7 +4674,6 @@ local function CreateBagScrollFrame()
         _isDragging = false
     end)
 
-    -- Hover effect on thumb
     track:SetScript("OnEnter", function() thumb:SetColorTexture(1, 1, 1, 0.4) end)
     track:SetScript("OnLeave", function()
         if not _isDragging then thumb:SetColorTexture(1, 1, 1, 0.25) end
@@ -4864,25 +4687,19 @@ local function CreateBagScrollFrame()
 end
 
 -------------------------------------------------------------------------------
---  RefreshInventory -- new pipeline
+--  RefreshInventory
 -------------------------------------------------------------------------------
 function EUI_Bags:RefreshInventory()
     if not EUI_Bags:IsVisible() then return end
 
-    -- Taint note: we may be refreshing during combat (bags opened mid-fight in
-    -- M+/Delves). Viewing/repositioning already-created buttons is safe; the ONE
-    -- thing that poisons a secure ContainerFrameItemButtonTemplate button -- and
-    -- gets its click blocked as UseContainerItem() ADDON_ACTION_FORBIDDEN -- is
-    -- CREATING it during combat lockdown. So GetOrCreateSlot refuses to create
-    -- new buttons in combat (it returns nil; render sites skip those slots), and
-    -- the pre-warmed pool means that almost never happens. If anything WAS
-    -- skipped while locked, PLAYER_REGEN_ENABLED replays a full refresh.
+    -- Refreshing during combat (bags opened mid-fight in M+/Delves) is safe: moving already-created
+    -- buttons taints nothing; only CREATING a secure ContainerFrameItemButtonTemplate in lockdown
+    -- poisons it (UseContainerItem() -> ADDON_ACTION_FORBIDDEN). GetOrCreateSlot returns nil in combat (pre-warmed pool makes this rare); PLAYER_REGEN_ENABLED replays a full refresh for anything skipped.
     if InCombatLockdown() then EUI_Bags._refreshPendingCombat = true end
 
     C_NewItems.ClearAll()
 
     -- 1. Gather items from all bags (0-4 + reagent bag 5)
-    local _t0Scan = ProfBegin("BagScan")
     ReleaseAllSlotTables()
     local tempItems = {}
     local emptySlots = {}
@@ -4911,8 +4728,7 @@ function EUI_Bags:RefreshInventory()
                             d._giTrackColor = trackColor
                         end
                     end
-                    -- Warbound check (for warbank dim overlay) + WuE bind check
-                    -- (gear only, and only when the bind-type text is enabled)
+                    -- Warbound check (warbank dim overlay) + WuE bind check (gear only, when bind-type text is enabled).
                     local loc = ItemLocation:CreateFromBagAndSlot(bag, slot)
                     if loc and C_Item.DoesItemExist(loc) then
                         if C_Bank and C_Bank.IsItemAllowedInBankType then
@@ -4939,11 +4755,8 @@ function EUI_Bags:RefreshInventory()
                     if cdEnable and cdEnable ~= 0 and cdStart > 0 and cdDur > 0 then
                         d._cdStart = cdStart; d._cdDuration = cdDur
                     end
-                    -- Quest flags. _isQuest (any quest item, incl. active-quest
-                    -- objectives and quest-starter items) drives the gold border.
-                    -- _isQuestStarter is the narrower "starts a quest you haven't
-                    -- accepted yet" case (questID set, not yet active) -- this is
-                    -- Blizzard's "!" condition and drives the corner quest marker.
+                    -- _isQuest (any quest item, incl. active objectives + starters) drives the gold
+                    -- border; _isQuestStarter (questID set but inactive) is Blizzard's "!" and drives the corner marker.
                     local qInfo = C_Container.GetContainerItemQuestInfo(bag, slot)
                     if qInfo and (qInfo.isQuestItem or qInfo.questID) then
                         d._isQuest = true
@@ -4960,7 +4773,6 @@ function EUI_Bags:RefreshInventory()
             end
         end
     end
-    ProfEnd("BagScan", _t0Scan)
 
     -- 1b. Detect manual item swaps and update saved visual order
     local isAllItems = selectedCategoryIndex == 0 and not selectedGroupName
@@ -4978,9 +4790,7 @@ function EUI_Bags:RefreshInventory()
     end
 
     -- 2. Classify all items and get counts
-    local _t0Classify = ProfBegin("ClassifyAll")
     local categoryCounts, totalCount = EUI_CategoryManager:ClassifyAll(tempItems)
-    ProfEnd("ClassifyAll", _t0Classify)
 
     -- 2a. Snapshot slot->category mapping for partial refresh
     wipe(_slotCategories)
@@ -5022,16 +4832,13 @@ function EUI_Bags:RefreshInventory()
     end
 
     -- 3. Update sidebar
-    local _t0Sidebar = ProfBegin("BuildSidebarButtons")
     BuildSidebarButtons(categoryCounts, totalCount)
-    ProfEnd("BuildSidebarButtons", _t0Sidebar)
 
     -- Cache counts for partial refresh
     _lastCatCounts = categoryCounts
     _lastTotalCount = totalCount
 
     -- 4. Filter items by selected category/group + search
-    local _t0Filter = ProfBegin("FilterAndSort")
     local isRecentView = recentCatIdx and selectedCategoryIndex == recentCatIdx
     local isPinnedView = pinnedCatIdx and selectedCategoryIndex == pinnedCatIdx
     local filterSet = nil  -- nil = show all
@@ -5057,8 +4864,7 @@ function EUI_Bags:RefreshInventory()
         if show then displayItems[#displayItems + 1] = data end
     end
 
-    -- 4b. Pending resort: sort + save order for categories invalidated by group changes.
-    -- This reuses the already-scanned tempItems instead of re-scanning all bags.
+    -- 4b. Pending resort: sort + save order for categories invalidated by group changes (reuses already-scanned tempItems, no bag re-scan).
     if next(_pendingResortCats) or next(_pendingResortGroups) then
         local cats = EUI_CategoryManager:GetCategories()
         local itemsByCat = {}
@@ -5091,10 +4897,8 @@ function EUI_Bags:RefreshInventory()
         wipe(_pendingResortGroups)
     end
 
-    ProfEnd("FilterAndSort", _t0Filter)
 
     -- 5. Render grid into scroll child
-    local _t0GridSetup = ProfBegin("GridSetup")
     for _, btn in pairs(itemSlots) do
         if btn.ProfessionQualityOverlay then btn.ProfessionQualityOverlay:SetAlpha(0) end
         if btn.IconOverlay then btn.IconOverlay:SetAlpha(0); btn.IconOverlay:Hide() end
@@ -5120,20 +4924,15 @@ function EUI_Bags:RefreshInventory()
     ResetAssignOverlays()
     if EUI_Bags._oneBagWarning then EUI_Bags._oneBagWarning:Hide() end
 
-    -- Auto-size: choose a column count that keeps the window near its base
-    -- shape (columns grow ~sqrt of the tab's slot count) while fitting the
-    -- active tab. Grows only -- never shrinks while open (running max in
-    -- _asCols), reset on close. The frame HEIGHT is sized to the actual
-    -- rendered content below, which guarantees no vertical scroll up to the
-    -- screen cap. Decided BEFORE GetColumns() so the grid renders at this count.
+    -- Auto-size: pick a column count keeping the window near its base shape (columns grow
+    -- ~sqrt of slot count) while fitting the active tab. Grows only, never shrinks while open
+    -- (running max in _asCols, reset on close); HEIGHT follows rendered content up to the screen cap. Decided BEFORE GetColumns() so the grid renders at this count.
     if BP().bagAutoSize then
         local baseCols = BP().bagColumns or 12
         local BASE_ROWS = 15  -- rows visible at the base (FIXED_H) height
         local HDR = 0.74      -- section-header height in slot-row units (~28/38)
-        -- Slot count (n) + section-header count (S) for the active tab. Headers
-        -- add HEIGHT but not WIDTH, so they MUST be folded into the column
-        -- estimate -- otherwise a header-heavy tab (e.g. All Items with many
-        -- categories) grows far taller than wide.
+        -- Slot count (n) + section-header count (S) for the active tab. Headers add HEIGHT
+        -- but not WIDTH, so they MUST fold into the estimate or a header-heavy tab (All Items with many categories) grows taller than wide.
         local n, S
         if selectedCategoryIndex > 0 and not selectedGroupName then
             n = (categoryCounts and categoryCounts[selectedCategoryIndex]) or #tempItems
@@ -5161,9 +4960,8 @@ function EUI_Bags:RefreshInventory()
         local ideal = baseCols
         -- Only grow when the tab won't fit at the base column count.
         if math.ceil(n / baseCols) + math.ceil(HDR * S) > BASE_ROWS then
-            -- Pick cols so (item rows + header rows) scales with cols at the
-            -- base rows:cols slope, i.e. width and height grow together.
-            -- Solving A*cols^2 - HDR*S*cols - n = 0, A = BASE_ROWS/baseCols:
+            -- Cols such that item+header rows keep the base rows:cols slope (grow together):
+            -- solve A*cols^2 - HDR*S*cols - n = 0, where A = BASE_ROWS/baseCols.
             local A = BASE_ROWS / baseCols
             local hs = HDR * S
             ideal = math.ceil((hs + math.sqrt(hs * hs + 4 * A * n)) / (2 * A))
@@ -5234,13 +5032,10 @@ function EUI_Bags:RefreshInventory()
         end
     end
 
-    ProfEnd("GridSetup", _t0GridSetup)
 
     if selectedCategoryIndex == -1 or selectedCategoryIndex == -2 then
-        -- "OneBag"/"MultiBag" view: Pinned Items (display-only) + bag section(s)
-        -- + Reagent Bag. OneBag merges bags 0-4 into one "Main Bags" section;
-        -- MultiBag renders one section per bag. Everything else is shared.
-        -- Reuse already-collected tempItems + emptySlots instead of re-querying bags
+        -- OneBag/MultiBag: Pinned Items (display-only) + bag section(s) + Reagent Bag. OneBag
+        -- merges bags 0-4 into one "Main Bags" section, MultiBag renders one per bag; reuses tempItems + emptySlots instead of re-querying bags.
         local headerIdx = 0
         local isMulti = (selectedCategoryIndex == -2)
 
@@ -5329,7 +5124,6 @@ function EUI_Bags:RefreshInventory()
                     RenderButton(btn, data, slotIdx, col, row, startX, curY, columns)
                 end
             end
-            -- Pin "+" button
             local pinItemCount = #pinItems
             do
                 local pinIdx = pinItemCount + 1
@@ -5435,9 +5229,8 @@ function EUI_Bags:RefreshInventory()
             curY = curY - (recRows * (SLOT_SIZE + SPACING)) - 6
         end
 
-        -- RenderBagGrid: one section header + item grid for a list of slots,
-        -- advancing the shared curY/slotIdx/headerIdx upvalues. Used by both the
-        -- merged OneBag "Main Bags" section and MultiBag's per-bag sections.
+        -- One section header + item grid for a slot list, advancing the shared
+        -- curY/slotIdx/headerIdx upvalues (used by OneBag's "Main Bags" and MultiBag's per-bag sections).
         local function RenderBagGrid(label, slotList)
             if #slotList == 0 then return end
             headerIdx = headerIdx + 1
@@ -5450,7 +5243,6 @@ function EUI_Bags:RefreshInventory()
             hdr:Show()
             curY = curY - 22
             for i, data in ipairs(slotList) do
-                local _t0RB = ProfBegin("RenderButton")
                 slotIdx = slotIdx + 1
                 local btn = GetOrCreateSlot(slotIdx)
                 if btn then  -- nil during combat (avoids minting tainted secure buttons)
@@ -5459,7 +5251,6 @@ function EUI_Bags:RefreshInventory()
                     local row = math.floor((i - 1) / columns)
                     RenderButton(btn, data, slotIdx, col, row, startX, curY, columns, true)
                 end
-                ProfEnd("RenderButton", _t0RB)
             end
             local rows = math.ceil(#slotList / columns)
             curY = curY - (rows * (SLOT_SIZE + SPACING)) - 6
@@ -5528,7 +5319,6 @@ function EUI_Bags:RefreshInventory()
             curY = curY - 22
 
             for i, data in ipairs(reagentSlotList) do
-                local _t0RB = ProfBegin("RenderButton")
                 slotIdx = slotIdx + 1
                 local btn = GetOrCreateSlot(slotIdx)
                 if btn then  -- nil during combat (avoids minting tainted secure buttons)
@@ -5537,7 +5327,6 @@ function EUI_Bags:RefreshInventory()
                     local row = math.floor((i - 1) / columns)
                     RenderButton(btn, data, slotIdx, col, row, startX, curY, columns, true)
                 end
-                ProfEnd("RenderButton", _t0RB)
             end
             local reagRows = math.ceil(#reagentSlotList / columns)
             curY = curY - (reagRows * (SLOT_SIZE + SPACING))
@@ -5572,7 +5361,6 @@ function EUI_Bags:RefreshInventory()
         local function RenderItemBlock(blockItems)
             local n = #blockItems
             for j, data in ipairs(blockItems) do
-                local _t0RB = ProfBegin("RenderButton")
                 slotIdx = slotIdx + 1
                 local btn = GetOrCreateSlot(slotIdx)
                 if btn then  -- nil during combat (avoids minting tainted secure buttons)
@@ -5581,7 +5369,6 @@ function EUI_Bags:RefreshInventory()
                     local row = math.floor((j - 1) / columns)
                     RenderButton(btn, data, slotIdx, col, row, startX, curY, columns)
                 end
-                ProfEnd("RenderButton", _t0RB)
             end
             local remainder = n % columns
             local padCount
@@ -5592,9 +5379,7 @@ function EUI_Bags:RefreshInventory()
             else
                 padCount = columns - remainder
             end
-            -- Filler pads are purely cosmetic row-fillers (the only real slot is
-            -- the separate "+" button); they must NOT be clamped to the number of
-            -- actual empty bag slots, or they vanish entirely when bags are full.
+            -- Filler pads are cosmetic row-fillers (the "+" button is the only real slot); NEVER clamp to #emptySlots or they vanish when bags are full.
             if padCount > 0 then
                 RenderEmptyPad(n, padCount)
             end
@@ -5693,13 +5478,11 @@ function EUI_Bags:RefreshInventory()
                                 local cats = EUI_CategoryManager:GetCategories()
                                 local aCat = cats[assignCatIdx]
                                 if aCat then
-                                    -- RenderItemBlock already advanced curY past the items;
-                                    -- back up one row block and place at the next slot after items
+                                    -- RenderItemBlock already advanced curY; back up to place at the next slot after the items.
                                     local n = #buck.items
                                     local remainder = n % columns
                                     if remainder == 0 then
-                                        -- Items filled the last row exactly; button goes on a new row
-                                        -- curY is already at the right spot
+                                        -- Last row filled exactly: curY already sits on the new row the button needs.
                                     else
                                         -- Back up to the row the items are on
                                         curY = curY + (SLOT_SIZE + SPACING)
@@ -5729,7 +5512,6 @@ function EUI_Bags:RefreshInventory()
             end
 
             for j, data in ipairs(sectionItems) do
-                local _t0RB = ProfBegin("RenderButton")
                 slotIdx = slotIdx + 1
                 local btn = GetOrCreateSlot(slotIdx)
                 if btn then
@@ -5738,7 +5520,6 @@ function EUI_Bags:RefreshInventory()
                     local row = math.floor((j - 1) / columns)
                     RenderButton(btn, data, slotIdx, col, row, startX, curY, columns)
                 end
-                ProfEnd("RenderButton", _t0RB)
             end
 
             -- Pin "+" button: a regular empty slot with a "+" overlay on top
@@ -5768,11 +5549,7 @@ function EUI_Bags:RefreshInventory()
                 if aCat then
                     local aIdx = itemCount + 1
                     slotIdx = slotIdx + 1
-                    -- GetOrCreateSlot returns nil when the pre-warmed pool is
-                    -- exhausted during combat lockdown (a slot born in combat is
-                    -- tainted). Skip the assign "+" button in that case, exactly
-                    -- like the pin "+" button above; PLAYER_REGEN_ENABLED replays
-                    -- a full refresh once combat ends so it appears then.
+                    -- GetOrCreateSlot returns nil in combat lockdown (a slot born in combat is tainted); skip, PLAYER_REGEN_ENABLED replays the refresh.
                     local aSlot = GetOrCreateSlot(slotIdx)
                     if aSlot then
                         aSlot:GetParent():SetParent(child)
@@ -5799,10 +5576,7 @@ function EUI_Bags:RefreshInventory()
             else
                 padCount = columns - remainder
             end
-            -- ALL section filler pads are purely cosmetic row-fillers (the only
-            -- real interactive slot is the separate "+" assign/pin button). They
-            -- must NOT be clamped to the count of actual empty bag slots, or they
-            -- vanish when bags are full (#emptySlots == 0).
+            -- Filler pads are cosmetic (the "+" assign/pin button is the only real slot); NEVER clamp to #emptySlots or they vanish when bags are full.
             if padCount > 0 then
                 RenderEmptyPad(itemCount, padCount)
             end
@@ -5873,7 +5647,6 @@ function EUI_Bags:RefreshInventory()
             local members = EUI_CategoryManager:GetGroupMembers(selectedGroupName)
             local headerIdx = 0
 
-            -- Bucket displayItems by member category
             local itemsByMember = {}
             for _, mi in ipairs(members) do itemsByMember[mi] = {} end
             for _, data in ipairs(displayItems) do
@@ -5906,7 +5679,6 @@ function EUI_Bags:RefreshInventory()
                 curY = curY - 22
 
                 for j, data in ipairs(memberItems) do
-                    local _t0RB = ProfBegin("RenderButton")
                     slotIdx = slotIdx + 1
                     local btn = GetOrCreateSlot(slotIdx)
                     if btn then
@@ -5915,7 +5687,6 @@ function EUI_Bags:RefreshInventory()
                         local row = math.floor((j - 1) / columns)
                         RenderButton(btn, data, slotIdx, col, row, startX, curY, columns)
                     end
-                    ProfEnd("RenderButton", _t0RB)
                 end
 
                 -- Assign "+" per member sub-section in group view
@@ -6086,7 +5857,6 @@ function EUI_Bags:RefreshInventory()
 
             local itemCount = #displayItems
             for i, data in ipairs(displayItems) do
-                local _t0RB = ProfBegin("RenderButton")
                 slotIdx = slotIdx + 1
                 local btn = GetOrCreateSlot(slotIdx)
                 if btn then
@@ -6095,7 +5865,6 @@ function EUI_Bags:RefreshInventory()
                     local row = math.floor((i - 1) / columns)
                     RenderButton(btn, data, slotIdx, col, row, startX, curY, columns)
                 end
-                ProfEnd("RenderButton", _t0RB)
             end
 
             local remainder = itemCount % columns
@@ -6124,7 +5893,6 @@ function EUI_Bags:RefreshInventory()
         if btn then btn:GetParent():Hide() end
     end
 
-    -- Set scroll child height to content height
     local contentH = math.abs(curY) + 10
     if child then child:SetHeight(contentH) end
 
@@ -6143,10 +5911,8 @@ function EUI_Bags:RefreshInventory()
         EUI_Bags._scrollTrack:SetPoint("BOTTOMRIGHT", EUI_Bags.Footer, "TOPRIGHT", -1, 0)
     end
 
-    -- 6. Size frame. Default: fixed height, dynamic width. Auto-size: height
-    -- grows to fit the content (no vertical scroll), width follows the chosen
-    -- column count; both track a running max while open so the window never
-    -- shrinks mid-session, floored at the base height and capped at the screen.
+    -- 6. Size frame. Default: fixed height, dynamic width. Auto-size: height grows to fit content
+    -- (no vertical scroll), width follows column count; both track a running max while open (never shrink mid-session), floored at FIXED_H and capped at the screen.
     local FIXED_H = 650
     local gridContentW = gridW + gridPadX * 2 + scrollbarPad + 2
     local totalW = sidebarW + gridContentW
@@ -6159,8 +5925,7 @@ function EUI_Bags:RefreshInventory()
     if BP().bagAutoSize then
         local sc = EUI_Bags:GetScale(); if not sc or sc <= 0 then sc = 1 end
         local maxH = (UIParent:GetHeight() / sc) * 0.95
-        -- Cap at the screen first, then floor at the base height so the window
-        -- is never smaller than its normal size (even on very short screens).
+        -- Cap at the screen first, then floor at FIXED_H so the window is never smaller than normal (even on short screens).
         local neededH = math.max(FIXED_H, math.min(contentH + HEADER_H + currencyFooterH + 2, maxH))
         EUI_Bags._asMaxH = math.max(EUI_Bags._asMaxH or 0, neededH)
         EUI_Bags:SetWidth(totalW)
@@ -6170,7 +5935,6 @@ function EUI_Bags:RefreshInventory()
         EUI_Bags:SetHeight(FIXED_H + currencyFooterH - FOOTER_H)
     end
 
-    -- Update header item count
     if EUI_Bags.Header and EUI_Bags.Header.itemCount then
         if selectedCategoryIndex == 0 or selectedCategoryIndex == -1 or selectedCategoryIndex == -2 then
             local totalSlots = totalCount + #emptySlots
@@ -6180,8 +5944,7 @@ function EUI_Bags:RefreshInventory()
         end
     end
 
-    -- Show dice button only in OneBag mode (unless hidden by setting).
-    -- Parented to scroll child and anchored to the first category header.
+    -- Dice button: OneBag only (unless hidden by setting), parented to the scroll child and anchored to the first category header.
     if EUI_Bags._diceBtn then
         local showDice = selectedCategoryIndex == -1
             and not (BP().bagHideRandomize)
@@ -6201,13 +5964,11 @@ function EUI_Bags:RefreshInventory()
 end
 
 -------------------------------------------------------------------------------
---  Reagent Bag Refresh (preserved)
+--  Reagent Bag Refresh
 -------------------------------------------------------------------------------
 function EUI_BagsReagent:RefreshInventory()
     if not EUI_BagsReagent:IsVisible() then return end
-    -- Same secure-button rule as EUI_Bags:RefreshInventory: viewing in combat is
-    -- fine; only creating a new reagent button in combat is unsafe, which
-    -- GetOrCreateReagentSlot refuses. Mark pending so combat-end tops up.
+    -- Same secure-button rule as EUI_Bags:RefreshInventory: viewing in combat is fine, creating is not (GetOrCreateReagentSlot refuses); mark pending so combat-end tops up.
     if InCombatLockdown() then EUI_Bags._refreshPendingCombat = true end
     local tempItems = {}
     local numSlots = C_Container.GetContainerNumSlots(5)
@@ -6451,6 +6212,11 @@ local function StartAddon()
 
     EUI_Bags:HookScript("OnShow", function()
         CaptureTrackedGold()
+        -- Repaint if the unmerge state changed while hidden: the flag-flip refresh is gated on
+        -- IsVisible, and closing a mailbox hides bags in the same breath so that repaint is thrown away (costs one boolean compare when already matching).
+        if _paintedPanelOpen ~= _anyItemPanelOpen then
+            EUI_Bags:RefreshInventory()
+        end
     end)
 
     EUI_Bags:HookScript("OnHide", function()
@@ -6460,9 +6226,8 @@ local function StartAddon()
         end
     end)
 
-    -- Click empty space with an external item on cursor: auto-place in
-    -- first available bag slot (same as looting). Only fires for items
-    -- not already in the player's bags (bank withdrawals, mail, etc.).
+    -- Click empty space with an external item on the cursor: auto-place in the first free
+    -- bag slot (same as looting), only for items not already in the player's bags (bank withdrawals, mail, etc.).
     EUI_Bags:HookScript("OnMouseUp", function(_, button)
         if button ~= "LeftButton" then return end
         local cursorType, cursorItemID, cursorLink = GetCursorInfo()
@@ -6507,7 +6272,6 @@ local function StartAddon()
     if EUI and EUI.PanelPP then EUI.PanelPP.CreateBorder(EUI_BagsWindow, 0.1, 0.1, 0.1, 1, 1, "OVERLAY", 7) end
     EllesmereUI.RegisterEscapeClose(EUI_BagsWindow)
 
-    -- Reagent bag
     EUI_BagsReagent:SetSize(320, 300)
     EUI_BagsReagent:SetPoint("BOTTOMRIGHT", EUI_Bags, "BOTTOMLEFT", -10, 0)
     EUI_BagsReagent:SetFrameStrata("HIGH")
@@ -6526,7 +6290,6 @@ local function StartAddon()
     end)
     EllesmereUI.RegisterEscapeClose(EUI_BagsReagent)
 
-    -- Hook Blizzard bag toggles
     local OriginalToggleAllBags = ToggleAllBags
     local function ToggleEUI()
         if EUI_Bags:IsVisible() then
@@ -6562,8 +6325,7 @@ local function StartAddon()
 
     local _lastToggleTime = 0
     local function SmartToggleBags()
-        -- Debounce: Blizzard keybinds can fire both ToggleAllBags and
-        -- C_Container.ToggleAllBags in the same frame, causing a double-toggle.
+        -- Debounce: Blizzard keybinds can fire both ToggleAllBags and C_Container.ToggleAllBags in the same frame, causing a double-toggle.
         if GetTime() == _lastToggleTime then return end
         _lastToggleTime = GetTime()
         local enhancedEnabled = BP().enhancedBags ~= false
@@ -6571,14 +6333,12 @@ local function StartAddon()
         else if OriginalToggleAllBags then OriginalToggleAllBags() end end
     end
 
-    -- Override ToggleAllBags
     ToggleAllBags = SmartToggleBags
     -- Hook ToggleBackpack/ToggleBag via hooksecurefunc (avoids tainting the global)
     hooksecurefunc("ToggleBackpack", SmartToggleBags)
     hooksecurefunc("ToggleBag", function() SmartToggleBags() end)
 
-    -- Hide Blizzard bag frames by reparenting to a hidden container.
-    -- Never write .Show/.Hide onto Blizzard frames (causes taint).
+    -- Hide Blizzard bag frames by reparenting to a hidden container (never write .Show/.Hide onto Blizzard frames -- causes taint).
     local _blizzBagHidden = CreateFrame("Frame")
     _blizzBagHidden:Hide()
 
@@ -6641,7 +6401,7 @@ local function StartAddon()
 
     C_Timer.After(1, function() SnapshotKnownIDs() end)
 
-    -- Debounced full refresh (replaces FastRefresh -- one code path, no stale state)
+    -- Debounced full refresh: one code path, no stale state.
     local refreshPending = false
     EUI_Bags.refreshEnabled = true
     local function ScheduleRefresh()
@@ -6664,11 +6424,45 @@ local function StartAddon()
     -- Replays a refresh that was deferred during combat (secure-button taint guard).
     EUI_Bags:RegisterEvent("PLAYER_REGEN_ENABLED")
 
-    -- Pre-warm the secure item-button pool while out of combat. Creating a
-    -- ContainerFrameItemButtonTemplate button during combat lockdown taints it,
-    -- which gets UseContainerItem() blocked in M+/Delves. Building all the
-    -- buttons we could need up front means RefreshInventory never has to create
-    -- one in combat -- it only positions/shows already-clean buttons.
+    -- Panels that move items one bag slot at a time (see SetItemPanelOpen).
+    local ITEM_PANEL_EVENTS = {
+        -- No MAIL_SHOW: the Inbox never takes items OUT of bags, so unmerging there churns for
+        -- nothing -- only Send Mail matters (hooked below). MAIL_CLOSED is a belt against a stuck flag if the frame vanishes without its OnHide running.
+        MAIL_CLOSED           = { "sendmail",  false },
+        TRADE_SHOW            = { "trade",     true  },
+        TRADE_CLOSED          = { "trade",     false },
+        AUCTION_HOUSE_SHOW    = { "auction",   true  },
+        AUCTION_HOUSE_CLOSED  = { "auction",   false },
+        BANKFRAME_OPENED      = { "bank",      true  },
+        BANKFRAME_CLOSED      = { "bank",      false },
+        GUILDBANKFRAME_OPENED = { "guildbank", true  },
+        GUILDBANKFRAME_CLOSED = { "guildbank", false },
+    }
+    -- pcall belt: RegisterEvent on an unknown event name is a HARD error, and this loop runs
+    -- BEFORE the OnEvent wiring below, so one bad name kills StartAddon; a panel lost to a patch rename must degrade to "that panel doesn't unmerge", never a dead bags addon.
+    for evt in pairs(ITEM_PANEL_EVENTS) do
+        local ok = pcall(EUI_Bags.RegisterEvent, EUI_Bags, evt)
+        if not ok then ITEM_PANEL_EVENTS[evt] = nil end
+    end
+
+    -- Send Mail is driven off the frame, not MAIL_SHOW, so switching tabs inside an open
+    -- mailbox flips the state too. Blizzard_MailFrame loads with no LoadOnDemand, so the frame exists by now; the guard is belt.
+    local function HookSendMail(frame)
+        if not frame or not frame.HookScript then return end
+        local function flip(open)
+            if SetItemPanelOpen("sendmail", open) and EUI_Bags:IsVisible() then
+                EUI_Bags:RefreshInventory()
+            end
+        end
+        frame:HookScript("OnShow", function() flip(true) end)
+        frame:HookScript("OnHide", function() flip(false) end)
+        -- Already on the Send Mail tab when hooked (/reload with mailbox open): OnShow already fired, so seed from live state.
+        if frame:IsShown() then flip(true) end
+    end
+    HookSendMail(_G.SendMailFrame)
+
+    -- Pre-warm the secure item-button pool out of combat: a ContainerFrameItemButtonTemplate created
+    -- in lockdown is tainted (UseContainerItem() blocked in M+/Delves), so build every button we could need up front and let RefreshInventory only position/show clean ones.
     do
         local total = 0
         for bag = 0, 5 do
@@ -6686,14 +6480,16 @@ local function StartAddon()
         end
     end
 
-    -- Seed currencyOrder from Blizzard's tracked currencies on first load
+    -- Seed this character's tracked currencies from Blizzard's on first load
     if EllesmereUIDB and C_CurrencyInfo and C_CurrencyInfo.GetBackpackCurrencyInfo then
-        if not BP().currencyOrder then BP().currencyOrder = {} end
-        local co = BP().currencyOrder
-        -- Only seed if our table is empty (first install or fresh profile)
+        -- Only seed when this character's table is empty: first install, a
+        -- fresh profile, or a character whose legacy seed was empty too.
+        local co = CurrencyOrder()
         local hasAny = false
-        for _ in pairs(co) do hasAny = true; break end
-        if not hasAny then
+        if co then
+            for _ in pairs(co) do hasAny = true; break end
+        end
+        if co and not hasAny then
             local order = 0
             for i = 1, 20 do
                 local info = C_CurrencyInfo.GetBackpackCurrencyInfo(i)
@@ -6719,16 +6515,14 @@ local function StartAddon()
     end
     _lastBlizzSet = ReadBlizzSet()
 
-    -- Sync our currency list when user checks/unchecks in Blizzard's currency tab.
-    -- Newly checked currencies get added. Newly unchecked currencies get removed.
-    -- Currencies added through our dropdown (never in Blizzard's set) are untouched.
+    -- Sync our currency list with Blizzard's currency tab: newly checked added, newly
+    -- unchecked removed. Currencies added through our dropdown (never in Blizzard's set) are untouched.
     if EventRegistry and EventRegistry.RegisterCallback then
         EventRegistry:RegisterCallback("TokenFrame.OnTokenWatchChanged", function()
             if not EllesmereUIDB then return end
-            if not BP().currencyOrder then BP().currencyOrder = {} end
-            local co = BP().currencyOrder
+            local co = CurrencyOrder()
+            if not co then return end
             local blizzSet = ReadBlizzSet()
-            -- Add newly checked currencies
             for cID in pairs(blizzSet) do
                 if not co[cID] then
                     local maxOrder = 0
@@ -6757,14 +6551,21 @@ local function StartAddon()
 
     EUI_Bags:SetScript("OnEvent", function(self, event)
         if event == "PLAYER_REGEN_ENABLED" then
-            -- Combat ended: replay any refresh deferred during combat, and top
-            -- up the pre-warmed pool in case bag count grew while locked.
+            -- Combat ended: replay any refresh deferred during combat, and top up the pre-warmed pool in case bag count grew while locked.
             if EUI_Bags._refreshPendingCombat then
                 EUI_Bags._refreshPendingCombat = nil
                 if EUI_Bags:IsVisible() then EUI_Bags:RefreshInventory() end
                 if EUI_BagsReagent:IsVisible() and EUI_BagsReagent.RefreshInventory then
                     EUI_BagsReagent:RefreshInventory()
                 end
+            end
+            return
+        end
+        local panel = ITEM_PANEL_EVENTS[event]
+        if panel then
+            -- Tracked even while bags are hidden: the panel that opens them (OpenAllBags) can fire in either order with this event.
+            if SetItemPanelOpen(panel[1], panel[2]) and EUI_Bags:IsVisible() then
+                EUI_Bags:RefreshInventory()
             end
             return
         end

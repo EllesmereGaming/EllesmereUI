@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUIBlizzardSkin_GroupFinder.lua
 --  Dark, minimal reskin of Blizzard's Group Finder window (PVEFrame): Dungeon
@@ -665,12 +666,11 @@ local function SkinCategoryButton(btn, opts)
     local hl = btn.GetHighlightTexture and btn:GetHighlightTexture()
     if hl then hl:SetAlpha(0) end
 
-    -- Card look matches the Guild & Communities sidebar entries: the same
-    -- dialog-sheet card atlas at half strength, pulled in 2px top and bottom
-    -- so stacked tabs never sit flush. No border -- the card art carries its
-    -- own soft edge.
-    -- The stock template clips child regions to the button rect, which
-    -- swallows any card overhang -- unclip so the art can reach the edges.
+    -- Card look matches the Guild & Communities sidebar entries: the same dialog-sheet
+    -- card atlas at half strength, pulled in 2px top and bottom so stacked tabs never
+    -- sit flush. No border -- the card art carries its own soft edge. The stock
+    -- template clips child regions to the button rect, which swallows any card overhang
+    -- -- unclip so the art can reach the edges.
     if btn.SetClipsChildren then btn:SetClipsChildren(false) end
     local card = btn:CreateTexture(nil, "BACKGROUND")
     card:SetAtlas("Ui-Dialog-New-Background")
@@ -874,9 +874,8 @@ local function UpdateLFGCategorySelection()
     end
 end
 
--- Refresh button -> strip art, draw the house white UI-RefreshButton glyph
--- (desaturated + white vertex, 0.9 -> 1 on hover). Matches the Auction House
--- refresh button.
+-- Refresh button -> strip art, draw the house white UI-RefreshButton glyph (desaturated
+-- + white vertex, 0.9 -> 1 on hover). Matches the Auction House refresh button.
 local function SkinRefreshGlyph(rb)
     if not rb or rb:IsForbidden() then return end
     local d = GetFFD(rb)
@@ -1029,8 +1028,7 @@ local function FadeRaidFinderArt()
             end)
         end
     end
-    -- Questpaper scenic art behind the rewards list: re-textured by the same
-    -- updaters.
+    -- Questpaper scenic art behind the rewards list: re-textured by the same updaters.
     local qb = _G.RaidFinderQueueFrameBackground
     if qb and qb.SetAlpha then qb:SetAlpha(0) end
 end
@@ -1316,18 +1314,17 @@ local function InstallRememberRolesHooks()
     end
 end
 
--- CHARACTER / PVEFRAME OVERLAP ------------------------------------------------
--- Stock Blizzard has no docking relationship between CharacterFrame and
--- PVEFrame (Dungeons & Raids); both anchor near the same default screen
--- position, so opening one while the other is open overlaps them. Any addon
--- that docks its own panel to PVEFrame's edge (e.g. RaiderIO's Mythic+ panel)
--- is unaware of CharacterFrame, so it gets partially covered by CharacterFrame
--- in turn. PVEFrame is PROTECTED (it parents the LFGList applicant viewer,
--- which throws on tainted secret-value comparisons -- see
--- EllesmereUIQoL_Shifter.lua's SecureSetPoint), so it is never repositioned
--- here; CharacterFrame is not protected, so it docks beside PVEFrame instead.
--- Reading PVEFrame's position does not taint it -- only writing to it would.
--- Independent of reskinLFGMenu: a positioning fix, not part of the skin.
+-- CHARACTER / PVEFRAME OVERLAP ------------------------------------------------ Stock
+-- Blizzard has no docking relationship between CharacterFrame and PVEFrame (Dungeons &
+-- Raids); both anchor near the same default screen position, so opening one while the
+-- other is open overlaps them. Any addon that docks its own panel to PVEFrame's edge
+-- (e.g. RaiderIO's Mythic+ panel) is unaware of CharacterFrame, so it gets partially
+-- covered by CharacterFrame in turn. PVEFrame is PROTECTED (it parents the LFGList
+-- applicant viewer, which throws on tainted secret-value comparisons -- see
+-- EllesmereUIQoL_Shifter.lua's SecureSetPoint), so it is never repositioned here;
+-- CharacterFrame is not protected, so it docks beside PVEFrame instead. Reading
+-- PVEFrame's position does not taint it -- only writing to it would. Independent of
+-- reskinLFGMenu: a positioning fix, not part of the skin.
 local PVE_DOCK_MARGIN = 4
 
 local function CharacterFrameIsUserPinned()
@@ -1335,13 +1332,12 @@ local function CharacterFrameIsUserPinned()
         and EllesmereUIDB.shifterPositions["CharacterFrame"] ~= nil
 end
 
--- Third-party panels known to dock themselves beside PVEFrame with no
--- awareness of CharacterFrame (RaiderIO's Mythic+/profile panel, confirmed
--- via /fstack). Checked by name -- cheap and reliable -- instead of scanning
--- every frame in the UI: that approach kept missing the actual frame, once
--- matched CharacterFrame's own child and produced a circular anchor, and was
--- slow enough on its own to cause a visible hitch. Add another name here if
--- a different addon is reported doing the same thing.
+-- Third-party panels known to dock themselves beside PVEFrame with no awareness of
+-- CharacterFrame (RaiderIO's Mythic+/profile panel, confirmed via /fstack). Checked by
+-- name -- cheap and reliable -- instead of scanning every frame in the UI: that
+-- approach kept missing the actual frame, once matched CharacterFrame's own child and
+-- produced a circular anchor, and was slow enough on its own to cause a visible hitch.
+-- Add another name here if a different addon is reported doing the same thing.
 local KNOWN_PVE_COMPANIONS = { "RaiderIO_ProfileTooltip" }
 
 local function FindOutermostFrame(pve, side)
@@ -1411,34 +1407,32 @@ local function DockCharacterFrame()
         expectedEdgeAbs = rightEdgeAbs + PVE_DOCK_MARGIN * cs
     end
 
-    -- PVEFrame's own internal layout re-anchors it (and RaiderIO's tooltip)
-    -- repeatedly while it settles, and Shifter re-applies CharacterFrame's
-    -- own saved/temp position on every scale step -- both re-trigger this
-    -- constantly. Skip the write only when CharacterFrame's ACTUAL current
-    -- edge already matches where we'd put it -- not by reading GetPoint()
-    -- back (SetClampedToScreen can silently rewrite the stored anchor once
-    -- it adjusts a frame to fit on screen) and not by caching our own last
-    -- decision (Shifter's scale step can reposition CharacterFrame away from
-    -- our dock via ITS OWN saved-position math without leftFrame/rightFrame/
-    -- dockLeft ever changing, which a decision-only cache can't detect).
+    -- PVEFrame's own internal layout re-anchors it (and RaiderIO's tooltip) repeatedly
+    -- while it settles, and Shifter re-applies CharacterFrame's own saved/temp position
+    -- on every scale step -- both re-trigger this constantly. Skip the write only when
+    -- CharacterFrame's ACTUAL current edge already matches where we'd put it -- not by
+    -- reading GetPoint() back (SetClampedToScreen can silently rewrite the stored
+    -- anchor once it adjusts a frame to fit on screen) and not by caching our own last
+    -- decision (Shifter's scale step can reposition CharacterFrame away from our dock
+    -- via ITS OWN saved-position math without leftFrame/rightFrame/ dockLeft ever
+    -- changing, which a decision-only cache can't detect).
     local curEdgeAbs = (dockLeft and (cf:GetRight() or 0) or (cf:GetLeft() or 0)) * cs
     if math.abs(curEdgeAbs - expectedEdgeAbs) < 1 then
         return
     end
 
     _dockingCharacterFrame = true
-    -- Shifter installs its own hooksecurefunc(CharacterFrame, "SetPoint", ...)
-    -- (on every frame it manages, independent of the docking-companions
-    -- system) that re-applies a saved/temp Shifter position on every
-    -- SetPoint call. Once a scale action has saved ANY position for
-    -- CharacterFrame, that hook fires synchronously right after ours and
-    -- snaps it straight back -- undoing this dock entirely. _shIgnoreSP is
-    -- the exact flag Shifter sets around its OWN writes for the same reason;
-    -- set it here too so our write isn't immediately reverted. This hook can
-    -- itself fire NESTED inside a SetPoint call Shifter's own ApplyPosition
-    -- made (with the flag already true) -- restore the PRIOR value rather
-    -- than hardcoding false, or we'd clear it while still nested inside that
-    -- call, letting Shifter's own SetPoint hook see it false and recurse.
+    -- Shifter installs its own hooksecurefunc(CharacterFrame, "SetPoint", ...) (on
+    -- every frame it manages, independent of the docking-companions system) that
+    -- re-applies a saved/temp Shifter position on every SetPoint call. Once a scale
+    -- action has saved ANY position for CharacterFrame, that hook fires synchronously
+    -- right after ours and snaps it straight back -- undoing this dock entirely.
+    -- _shIgnoreSP is the exact flag Shifter sets around its OWN writes for the same
+    -- reason; set it here too so our write isn't immediately reverted. This hook can
+    -- itself fire NESTED inside a SetPoint call Shifter's own ApplyPosition made (with
+    -- the flag already true) -- restore the PRIOR value rather than hardcoding false,
+    -- or we'd clear it while still nested inside that call, letting Shifter's own
+    -- SetPoint hook see it false and recurse.
     local shifterFFD = EllesmereUI._GetFFD and EllesmereUI._GetFFD(cf)
     local prevIgnoreSP = shifterFFD and shifterFFD._shIgnoreSP
     if shifterFFD then shifterFFD._shIgnoreSP = true end
@@ -1474,28 +1468,25 @@ local function InstallPVEDockHooks()
 
     CaptureDefaultCharacterPoint()
 
-    -- Direct everywhere: DockCharacterFrame already no-ops safely if either
-    -- frame isn't shown yet, so there's no unsettled-state risk to defer
-    -- for, and FindOutermostFrame is cheap now (named lookups, not a frame
-    -- scan). Deferring a SetPoint-triggered re-dock to next frame (e.g. if
-    -- Blizzard's layout system repositions CharacterFrame again after it's
-    -- already rendering) is exactly what shows one frame at the wrong
-    -- position before snapping into place.
-    -- Blizzard's OWN UIParentPanelManager treats CharacterFrame and PVEFrame
-    -- as part of the same "managed panel" group, and repositions CharacterFrame
-    -- itself (via its own SetPoint calls) whenever PVEFrame opens -- the exact
-    -- native behavior this whole feature works around. Left alone, every one
-    -- of those calls also re-triggers Shifter's saved-position restore (if
-    -- CharacterFrame has one) AND our own dock, and each of THOSE writes reads
-    -- to Blizzard's manager as "a managed panel moved," so it reasserts itself
-    -- again -- three systems endlessly re-triggering each other. Opting out
-    -- permanently (rather than only while PVEFrame is open) closes this for
-    -- good: CharacterFrame's position is already fully covered by our own
-    -- dock logic, Shifter's saved/temp positions, and the native-default
-    -- capture/restore below, so there's no case left where Blizzard's
-    -- automatic management is actually needed. ignoreFramePositionManager is
-    -- the sanctioned opt-out -- already used the same way for the loot
-    -- windows in EllesmereUIQoL_Shifter.lua.
+    -- Direct everywhere: DockCharacterFrame already no-ops safely if either frame isn't
+    -- shown yet, so there's no unsettled-state risk to defer for, and
+    -- FindOutermostFrame is cheap now (named lookups, not a frame scan). Deferring a
+    -- SetPoint-triggered re-dock to next frame (e.g. if Blizzard's layout system
+    -- repositions CharacterFrame again after it's already rendering) is exactly what
+    -- shows one frame at the wrong position before snapping into place. Blizzard's OWN
+    -- UIParentPanelManager treats CharacterFrame and PVEFrame as part of the same
+    -- "managed panel" group, and repositions CharacterFrame itself (via its own
+    -- SetPoint calls) whenever PVEFrame opens -- the exact native behavior this whole
+    -- feature works around. Left alone, every one of those calls also re-triggers
+    -- Shifter's saved-position restore (if CharacterFrame has one) AND our own dock,
+    -- and each of THOSE writes reads to Blizzard's manager as "a managed panel moved,"
+    -- so it reasserts itself again -- three systems endlessly re-triggering each other.
+    -- Opting out permanently (rather than only while PVEFrame is open) closes this for
+    -- good: CharacterFrame's position is already fully covered by our own dock logic,
+    -- Shifter's saved/temp positions, and the native-default capture/restore below, so
+    -- there's no case left where Blizzard's automatic management is actually needed.
+    -- ignoreFramePositionManager is the sanctioned opt-out -- already used the same way
+    -- for the loot windows in EllesmereUIQoL_Shifter.lua.
     _G.CharacterFrame.ignoreFramePositionManager = true
 
     _G.CharacterFrame:HookScript("OnShow", DockCharacterFrame)

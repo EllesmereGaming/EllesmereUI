@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUI_Startup.lua
 --  Runs as early as possible (first file after the Lite framework).
@@ -87,13 +88,12 @@ do
                 -- window: the engine decodes with the scale that encoded.
                 -- The PLAYER_LOGIN apply below stays as an idempotent belt.
                 --
-                -- FIELD RESULT (2026-07-28): this did NOT stop the drift.
-                -- Blizzard applies the user's CVar scale during login AFTER
-                -- addon ADDON_LOADED (this file's own PLAYER_ENTERING_WORLD
-                -- comment says so), so the chat restore still ran at the CVar
-                -- scale. Kept anyway: it is idempotent, costs nothing, and
-                -- closes the same window for anything restored before
-                -- Blizzard's CVar apply. The chat fix is below.
+                -- FIELD RESULT (2026-07-28): this did NOT stop the drift. Blizzard
+                -- applies the user's CVar scale during login AFTER addon ADDON_LOADED
+                -- (this file's own PLAYER_ENTERING_WORLD comment says so), so the chat
+                -- restore still ran at the CVar scale. Kept anyway: it is idempotent,
+                -- costs nothing, and closes the same window for anything restored
+                -- before Blizzard's CVar apply. The chat fix is below.
                 ApplyScaleSafe(EllesmereUIDB.ppUIScale)
             end
 
@@ -140,6 +140,37 @@ do
                 local clamped = max(0.4, min(blizzScale, 1.15))
                 EllesmereUIDB.ppUIScale = clamped
                 EllesmereUIDB.ppUIScaleAuto = false
+
+                -- Seed the options-panel scale from the display height. The
+                -- panel is deliberately pinned to physical pixels (baseScale =
+                -- GetScreenWidth()/physW) so it holds a constant physical size
+                -- and does NOT follow the UI Scale slider. At 1080p that reads
+                -- fine, but on a 4K screen the same pixel count covers half as
+                -- much of the display: the panel arrives unreadably small and
+                -- the UI Scale slider appears to do nothing to it.
+                --
+                -- 1440p is the reference look: a panel of H units covers
+                -- H*panelScale/physH of the screen, so physH/1440 reproduces 1440p's
+                -- screen fraction on any display, and 4K seeds 1.5 to read exactly like
+                -- a 2K monitor. Floored at 1 so 1080p (which runs a slightly larger
+                -- fraction, uncomplained-about) keeps its current size rather than
+                -- shrinking, then snapped onto the dropdown's real steps (see
+                -- EllesmereUI.SnapPanelScale) -- an off-menu value leaves the control
+                -- reading 100% while the panel renders larger.
+                --
+                -- This sits INSIDE the ppUIScale == nil guard on purpose: it is
+                -- the first-install path only. Existing saves never reach here
+                -- (returning users return at scaleKnown above) and are seeded by
+                -- the panel_scale_highdpi_reset_v3 migration instead.
+                if EllesmereUIDB.panelScale == nil then
+                    local _, physH = GetPhysicalScreenSize()
+                    if type(physH) == "number" and physH > 0 then
+                        local seeded = max(1, min(physH / 1440, 2))
+                        EllesmereUIDB.panelScale =
+                            (EllesmereUI and EllesmereUI.SnapPanelScale
+                                and EllesmereUI.SnapPanelScale(seeded)) or seeded
+                    end
+                end
             end
 
             local scale = EllesmereUIDB.ppUIScale
@@ -184,16 +215,41 @@ end
 -- Reads EllesmereUIDB.fonts directly rather than going through GetFontsDB():
 -- that helper lazy-creates the table, and this can run at the ADDON_LOADED of
 -- Blizzard_CombatText, before our SavedVariables have been restored.
+
+-- Probe a font path before it reaches an engine global, so a cached path whose
+-- providing addon was uninstalled is detected instead of leaving the engine
+-- pointed at a missing file for the whole session (which kills floating text
+-- entirely).
+--
+-- Only the RAISE counts. SetFont is RequiresValidFontAsset, so a path the
+-- client cannot find raises ("Invalid font asset (<path>): file not found").
+-- The success boolean it returns when it does NOT raise is a different signal
+-- and is not evidence of loadability: field capture (8.7.8) has it returning
+-- false for a font file the very same call proved present, in a session where
+-- a stock Blizzard path raised. Reading that false as "missing" vetoed a font
+-- that was there. So: raised = the client could not find the file, anything
+-- else = it could, and we say nothing about the rest.
+local probeFS
+local function ProbeFont(path)
+    if type(path) ~= "string" or path == "" then return false end
+    probeFS = probeFS or UIParent:CreateFontString()
+    return (pcall(probeFS.SetFont, probeFS, path, 12, ""))
+end
+
 local function ApplyUnitNameFont()
     local fonts = EllesmereUIDB and EllesmereUIDB.fonts
     local name = fonts and fonts.unitNameFont
     if not name or name == "" then return end
     local path = fonts.unitNameFontPath
-    if (type(path) ~= "string" or path == "")
-       and EllesmereUI and EllesmereUI.ResolveFontName then
-        path = EllesmereUI.ResolveFontName(name)
+    if not ProbeFont(path) and EllesmereUI and EllesmereUI.ResolveFontName then
+        -- Advisory probe (see ApplyCombatTextFont): a live resolve of the saved
+        -- name is better evidence than a probe that false-negatives on macOS
+        -- and Linux, so prefer it over dropping the setting back to Blizzard's
+        -- default.
+        local resolved = EllesmereUI.ResolveFontName(name)
+        if resolved and resolved ~= "" then path = resolved end
     end
-    if type(path) == "string" and path ~= "" then
+    if path and path ~= "" then
         _G.UNIT_NAME_FONT = path
     end
 end
@@ -267,28 +323,89 @@ do
     end)
 end
 
--- Apply the saved combat text font immediately at file scope.
--- DAMAGE_TEXT_FONT must be set before the engine caches it at login.
--- CombatTextFont may not exist yet here, so we also hook ADDON_LOADED
--- to catch it as soon as it becomes available.
+-- Apply the saved combat text font immediately at file scope. DAMAGE_TEXT_FONT must be
+-- set before the engine caches it at login. CombatTextFont may not exist yet here, so
+-- we also hook ADDON_LOADED to catch it as soon as it becomes available.
 do
+    -- smf: keys resolve via LSM when the providing pack has loaded, else via
+    -- the path cached at selection time (external packs load after us, so at
+    -- our ADDON_LOADED -- the window where the engine caches the global --
+    -- the name is never registered yet). noDefault on Fetch: without it an
+    -- unregistered name silently resolves to the DEFAULT font, not nil.
+    -- Candidates are ranked by the advisory probe, then confirmed against the
+    -- real font object when it exists; only a path that was applied, or that
+    -- there was no way to test, is kept in the cache.
+
+    -- Blizzard's own value, captured before we ever write it, so a path the
+    -- real font object later rejects can be backed out instead of leaving
+    -- floating text dead for the whole session.
+    local defaultDamageFont = _G.DAMAGE_TEXT_FONT
+
+    -- CombatTextFont is the object we are actually configuring, so applying to
+    -- it here also does the real work when it exists.
+    --   true  = the client found the file
+    --   false = it did not (SetFont raised: RequiresValidFontAsset)
+    --   nil   = nothing to test with yet (Blizzard_CombatText not loaded)
+    -- Only the raise is read, for the same reason as ProbeFont above: moving
+    -- the veto off the synthetic probe and onto the real object did not help,
+    -- because the unreliable part was never the object, it was the success
+    -- boolean. Both witnesses run the same call and return the same false for
+    -- a font that is present. This runs at file scope, where an unhandled
+    -- error would abort the rest of the file, hence the pcall.
+    local function TryRealFont(path)
+        local f = _G.CombatTextFont
+        if not f then return nil end
+        return (pcall(f.SetFont, f, path, 120, ""))
+    end
+
     local function ApplyCombatTextFont()
-        local saved = EllesmereUIDB and EllesmereUIDB.fctFont
+        local db = EllesmereUIDB
+        local saved = db and db.fctFont
         if not saved or type(saved) ~= "string" or saved == "" then return end
-        -- Resolve "smf:" prefixed SharedMedia font keys to actual paths
         local fontPath = saved
         local smName = saved:match("^smf:(.+)")
         if smName then
             local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
-            local fetched = LSM and LSM:Fetch("font", smName)
-            -- If the SM addon is missing or hasn't loaded yet, skip entirely
-            -- so Blizzard's default combat text font stays intact.
-            if not fetched then return end
-            fontPath = fetched
+            local fetched = LSM and LSM:Fetch("font", smName, true)
+            -- The cache only counts if it was written for the currently
+            -- saved key (fctFontPathFor pairs them).
+            local cached = (db.fctFontPathFor == saved) and db.fctFontPath or nil
+            -- The probe is ADVISORY, never a veto. Reported on macOS and Linux
+            -- (8.7.8): it rejects paths that load correctly when applied, and
+            -- because a rejection both skipped the apply AND nil'd the cache
+            -- below, one false negative reverted the font permanently -- the
+            -- retry chain had nothing left to retry with.
+            --
+            -- LSM resolving the name RIGHT NOW proves the providing pack is
+            -- installed, which is better evidence than the probe, so a fetched
+            -- path is used even if the probe dislikes it. The cache is only
+            -- consulted when nothing resolves, which is the uninstalled-pack
+            -- case the probe was added for, and there the probe still guards
+            -- against pointing the engine at a missing file.
+            fontPath = (ProbeFont(fetched) and fetched)
+                or (ProbeFont(cached) and cached)
+                or fetched
+            if not fontPath then return end
+        end
+
+        -- Validate against the real object when it exists. A rejection here is
+        -- a raise, i.e. the client could not find the file at all, so back the
+        -- global out to Blizzard's value: an engine global left pointing at a
+        -- missing path kills floating text for the session, which is worse
+        -- than falling back to the default.
+        if TryRealFont(fontPath) == false then
+            _G.DAMAGE_TEXT_FONT = defaultDamageFont
+            return
         end
         _G.DAMAGE_TEXT_FONT = fontPath
-        if _G.CombatTextFont then
-            _G.CombatTextFont:SetFont(fontPath, 120, "")
+
+        -- Cache only a path that was applied (or that we had no way to test).
+        -- Never nil the cache: an early pass runs before external font packs
+        -- load, and the later ADDON_LOADED / PLAYER_LOGIN /
+        -- PLAYER_ENTERING_WORLD passes need it to still be there to succeed.
+        if smName then
+            db.fctFontPath = fontPath
+            db.fctFontPathFor = saved
         end
     end
 
@@ -316,7 +433,14 @@ do
             self:UnregisterEvent("PLAYER_LOGIN")
         elseif event == "PLAYER_ENTERING_WORLD" then
             self:UnregisterEvent("PLAYER_ENTERING_WORLD")
-        elseif event == "ADDON_LOADED" then
+        elseif addonName == "Blizzard_CombatText"
+            or not (EllesmereUIDB and EllesmereUIDB.fctFont)
+            or (C_AddOns and C_AddOns.IsAddOnLoaded and C_AddOns.IsAddOnLoaded("Blizzard_CombatText")) then
+            -- The watch exists to restyle the load-on-demand CombatTextFont
+            -- object at its actual load (our own addon always fires first, so
+            -- retiring on the first match missed it). Retire it once that has
+            -- happened, or when it never can: feature unused (a mid-session
+            -- pick needs a relog anyway) or the addon already loaded.
             self:UnregisterEvent("ADDON_LOADED")
         end
     end)
@@ -374,11 +498,20 @@ do
     end)
 end
 
--- (The DataBars auto-disable block was removed 2026-07-13: after the
--- multi-bar rewrite the module does literally nothing until the user
--- creates a bar, so it ships enabled with zero cost. If a prior build
--- auto-disabled it, re-enabling once sticks -- the latch keys
--- dataBarsAutoDisabled/dataBarsUserChosen are simply no longer read.)
+-- (The DataBars auto-disable block was removed 2026-07-13: after the multi-bar rewrite
+-- the module does literally nothing until the user creates a bar, so it ships enabled
+-- with zero cost. If a prior build auto-disabled it, re-enabling once sticks -- the
+-- latch keys dataBarsAutoDisabled/dataBarsUserChosen are simply no longer read.)
+
+-- Retire stale EllesmereUIBasics copies: the v6.6 split shim was removed from the
+-- package, but updaters that don't prune deleted folders leave the old copy
+-- installed (inert -- its one file is comments only). Disable it so it drops off
+-- the AddOn List; DisableAddOn is deferred by design, so it takes effect next
+-- session. Zero cost once the folder is gone (DoesAddOnExist is false).
+if C_AddOns and C_AddOns.DoesAddOnExist and C_AddOns.DoesAddOnExist("EllesmereUIBasics")
+   and C_AddOns.GetAddOnEnableState and C_AddOns.GetAddOnEnableState("EllesmereUIBasics") > 0 then
+    C_AddOns.DisableAddOn("EllesmereUIBasics")
+end
 
 -- /rl reload shortcut -- only
 if not SlashCmdList["RL"] then

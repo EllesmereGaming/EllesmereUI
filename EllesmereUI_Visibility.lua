@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUI_Visibility.lua
 --  Shared visibility dispatcher. Each module (Minimap, Friends, QuestTracker,
@@ -73,16 +74,41 @@ end
 -- Mouseover poll registry: each entry is { frame=, visible=, isActive=fn }.
 -- isActive returns true when that frame currently wants mouseover behavior.
 local mouseoverTargets = {}
+-- Mouseover predicates are pure functions of module settings plus the same state edges
+-- the dispatcher already watches, so each target's answer is cached and re-derived only
+-- when this generation moves: synchronously on every dispatcher event (the combat edge
+-- must land before the next scan tick -- a stale "active" through a combat flip would
+-- let the scan touch the protected Minimap during lockdown), on every
+-- RequestVisibilityUpdate (every module apply pokes it), and on every shared
+-- visibility-selection write. Each target's isActive closure runs at most once per
+-- generation instead of once per 0.15s tick.
+local _moGen = 1
+local MouseoverScan  -- defined with the scan below; bound here for the subscribe
 
 function EUI.RegisterMouseoverTarget(frame, isActive)
     if not frame or type(isActive) ~= "function" then return end
     mouseoverTargets[#mouseoverTargets + 1] = { frame = frame, visible = false, isActive = isActive }
+    -- First target arms the shared 0.15s scan on the Mouse service (same-key
+    -- subscribe is idempotent). No targets registered = the scan never runs.
+    EllesmereUI.Mouse.SubscribeTick("visMouseover", 0.15, MouseoverScan)
+end
+
+-- Closable panels (Friends) unregister while hidden so the scan never spends
+-- their isActive closure on a panel that cannot be revealed anyway. Callers
+-- unregister only while their frame is hidden/dormant; no alpha restore runs.
+function EUI.UnregisterMouseoverTarget(frame)
+    for i = #mouseoverTargets, 1, -1 do
+        if mouseoverTargets[i].frame == frame then
+            table.remove(mouseoverTargets, i)
+        end
+    end
 end
 
 -------------------------------------------------------------------------------
 --  Dispatcher
 -------------------------------------------------------------------------------
 local function RequestVisibilityUpdate()
+    _moGen = _moGen + 1
     for i = 1, #updaters do
         local ok = pcall(updaters[i])
         if not ok then
@@ -113,10 +139,9 @@ visFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
 visFrame:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
 -- Dragonriding edges: mount-capability changes fire PLAYER_CAN_GLIDE_CHANGED
 -- (repo-proven event); takeoff/landing while staying mounted fires
--- PLAYER_IS_GLIDING_CHANGED, which is probed because nothing registered it
--- before this feature. When the probe fails on a client, the dragonriding
--- checklist items lock (EUI._hasGlidingEvent) instead of evaluating with
--- stale edges.
+-- PLAYER_IS_GLIDING_CHANGED, which is probed because nothing registered it before this
+-- feature. When the probe fails on a client, the dragonriding checklist items lock
+-- (EUI._hasGlidingEvent) instead of evaluating with stale edges.
 visFrame:RegisterEvent("PLAYER_CAN_GLIDE_CHANGED")
 do
     local ok
@@ -146,36 +171,45 @@ visFrame:SetScript("OnEvent", function(_, event)
         -- in case a regen toggle was missed while loading.
         _inCombat = InCombatLockdown() and true or false
     end
+    -- Synchronous: the cache must flip before any same-frame scan tick.
+    _moGen = _moGen + 1
     C_Timer.After(0, DeferredRequest)
 end)
 
 -------------------------------------------------------------------------------
 --  Mouseover poll
 -------------------------------------------------------------------------------
-local mouseoverPoll = CreateFrame("Frame")
--- Cursor-in-bounds check (works on hidden frames using saved position/size)
-local function IsCursorOver(frame)
+-- Cursor-in-bounds check (works on hidden frames using saved position/size).
+-- Coordinates come from the shared Mouse service sample.
+local function IsCursorOver(frame, rawX, rawY)
     if not frame.GetRect then return false end
     local l, b, w, h = frame:GetRect()
     if not l then return false end
     local es = frame:GetEffectiveScale()
-    local cx, cy = GetCursorPosition()
-    cx, cy = cx / es, cy / es
+    local cx, cy = rawX / es, rawY / es
     return cx >= l and cx <= l + w and cy >= b and cy <= b + h
 end
 
-local moElapsed = 0
-mouseoverPoll:SetScript("OnUpdate", function(_, dt)
-    moElapsed = moElapsed + dt
-    if moElapsed < 0.15 then return end
-    moElapsed = 0
+-- The mouseover-visibility scan, dispatched by the shared Mouse service at the same
+-- 0.15s cadence the old poll used -- but with no per-frame OnUpdate underneath (the
+-- service's anim ticker sleeps in C between fires), one shared cursor sample instead of
+-- one per target, and zero cost until the first target registers.
+MouseoverScan = function(rawX, rawY)
     for i = 1, #mouseoverTargets do
         local t = mouseoverTargets[i]
         local frame = t.frame
         if frame then
-            if t.isActive() then
+            local active
+            if t._genSeen == _moGen then
+                active = t._genActive
+            else
+                active = t.isActive() and true or false
+                t._genSeen = _moGen
+                t._genActive = active
+            end
+            if active then
                 t._wasActive = true
-                local over = IsCursorOver(frame)
+                local over = IsCursorOver(frame, rawX, rawY)
                 if over and not t.visible then
                     t.visible = true
                     frame:SetAlpha(1); frame:EnableMouse(true); frame:Show()
@@ -191,7 +225,7 @@ mouseoverPoll:SetScript("OnUpdate", function(_, dt)
             end
         end
     end
-end)
+end
 
 -------------------------------------------------------------------------------
 --  Compat globals (kept for the many call sites already using them)
@@ -282,14 +316,13 @@ local function VisRepresentative(modes)
     return nil
 end
 
--- Returns the store's visibilityModes table when it is authoritative, else
--- nil (legacy scalar authoritative). A non-empty set is authoritative only
--- while the legacy scalar still equals its canonical representative: the
--- shared setter always writes the pair together, so a mismatch proves an
--- out-of-band scalar write (e.g. a Visibility change made on an older addon
--- version) that must win. Stale sets are ignored, never wiped -- a transient
--- partial state (profile sync applying keys one by one) heals itself once
--- both keys arrive.
+-- Returns the store's visibilityModes table when it is authoritative, else nil
+-- (legacy scalar authoritative). A non-empty set is authoritative only while the
+-- legacy scalar still equals its canonical representative: the shared setter always
+-- writes the pair together, so a mismatch proves an out-of-band scalar write (e.g. a
+-- Visibility change made on an older addon version) that must win. Stale sets are
+-- ignored, never wiped -- a transient partial state (profile sync applying keys one
+-- by one) heals itself once both keys arrive.
 local function ActiveModes(store, legacyKey)
     local vm = store.visibilityModes
     if type(vm) ~= "table" then return nil end
@@ -338,12 +371,11 @@ function EUI.GetVisibilitySelection(store, legacyKey)
     return sel, false
 end
 
--- The single write path. Normalizes the selection, writes the legacy scalar
--- (via applyScalarFn when the module's scalar write has side effects, e.g.
--- Action Bars' VisibilityCompat.ApplyMode), and assigns or clears
--- visibilityModes. A fresh table is assigned on every multi write (never
--- mutated in place): profile sync, Myslot backups, and spec-override
--- snapshots may hold references to the previous table.
+-- The single write path. Normalizes the selection, writes the legacy scalar (via
+-- applyScalarFn when the module's scalar write has side effects, e.g. Action Bars'
+-- VisibilityCompat.ApplyMode), and assigns or clears visibilityModes. A fresh table is
+-- assigned on every multi write (never mutated in place): profile sync, Myslot backups,
+-- and spec-override snapshots may hold references to the previous table.
 function EUI.SetVisibilitySelection(store, legacyKey, selection, applyScalarFn)
     if not store then return end
     local conditions = {}
@@ -358,16 +390,14 @@ function EUI.SetVisibilitySelection(store, legacyKey, selection, applyScalarFn)
     local hasMouseover = selection.mouseover and true or false
     local scalar
     if count == 0 then
-        -- Pure special (or empty -> Always). Conditions win over never/always
-        -- when both appear; the checklist enforces that on click, this is
-        -- defense in depth.
+        -- Pure special (or empty -> Always). Conditions win over never/always when both
+        -- appear; the checklist enforces that on click, this is defense in depth.
         if selection.never then scalar = "never"
         elseif hasMouseover then scalar = "mouseover"
         else scalar = "always" end
     elseif hasMouseover then
-        -- Hover-gated conditions: the set carries mouseover alongside the
-        -- conditions and the scalar reads "mouseover" so every legacy
-        -- mouseover mechanism engages.
+        -- Hover-gated conditions: the set carries mouseover alongside the conditions
+        -- and the scalar reads "mouseover" so every legacy mouseover mechanism engages.
         conditions.mouseover = true
         scalar = "mouseover"
     else
@@ -381,14 +411,16 @@ function EUI.SetVisibilitySelection(store, legacyKey, selection, applyScalarFn)
     -- A set is stored for >=2 conditions, or for any condition + mouseover
     -- (which cannot collapse to a single scalar).
     store.visibilityModes = (count >= 2 or (count >= 1 and hasMouseover)) and conditions or nil
+    -- Direct belt for the shared Visibility widget: a mouseover-mode edit
+    -- must re-arm the scan without waiting for a dispatcher event.
+    _moGen = _moGen + 1
 end
 
 -- Pure axis evaluation. state = { inCombat, inRaid, inParty } with inParty
 -- meaning party-exclusive-of-raid (the disjoint pair, as CDM computes it).
--- caps.partyIncludesRaid, when a caller opts in, would widen the in_party
--- item to also match raids; no current caller sets it -- In Party and In
--- Raid Group are disjoint everywhere, so unchecking In Raid Group actually
--- excludes raid.
+-- caps.partyIncludesRaid, when a caller opts in, would widen the in_party item to also
+-- match raids; no current caller sets it -- In Party and In Raid Group are disjoint
+-- everywhere, so unchecking In Raid Group actually excludes raid.
 function EUI.EvalVisibilityModes(selection, state, caps)
     local incRaid = caps and caps.partyIncludesRaid
 
@@ -497,12 +529,11 @@ end
 --  Unit Frames condition drivers.
 -------------------------------------------------------------------------------
 
--- Returns the AND-term string shared by every bracket group (with trailing
--- comma, or "") plus the leading unconditional hide gate used for a lone
--- negated dragon axis ("" when unused; the same technique the callers'
--- hide-prefix gates already use -- no negated-flying tokens needed).
--- Non-axis keys (mouseover) are ignored. OR within an axis, AND across
--- axes; a saturated or empty axis contributes nothing.
+-- Returns the AND-term string shared by every bracket group (with trailing comma, or
+-- "") plus the leading unconditional hide gate used for a lone negated dragon axis (""
+-- when unused; the same technique the callers' hide-prefix gates already use -- no
+-- negated-flying tokens needed). Non-axis keys (mouseover) are ignored. OR within an
+-- axis, AND across axes; a saturated or empty axis contributes nothing.
 function EUI.BuildVisModeConjuncts(vm)
     local conj, negGate = "", ""
     local d1, d2 = vm.show_dragonriding, vm.show_not_dragonriding
@@ -520,12 +551,11 @@ function EUI.BuildVisModeConjuncts(vm)
     return conj, negGate
 end
 
--- Compiles the driver tail appended after `prefix` (caller-supplied leading
--- hide gates: unit existence, pet battle, vehicle, option clauses...).
--- Group-axis disjuncts distribute into separate bracket groups, each
--- carrying the shared AND terms. in_raid and in_party are disjoint --
--- checking In Party alone does not also show in a raid group; In Raid
--- Group must be checked separately for that.
+-- Compiles the driver tail appended after `prefix` (caller-supplied leading hide gates:
+-- unit existence, pet battle, vehicle, option clauses...). Group-axis disjuncts
+-- distribute into separate bracket groups, each carrying the shared AND terms. in_raid
+-- and in_party are disjoint -- checking In Party alone does not also show in a raid
+-- group; In Raid Group must be checked separately for that.
 function EUI.BuildVisibilityDriverString(prefix, vm)
     local conj, negGate = EUI.BuildVisModeConjuncts(vm)
     prefix = prefix .. negGate

@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUI_GlobalSearch.lua
 --  Unified fuzzy search across every registered EllesmereUI sub-addon's
@@ -23,10 +24,9 @@ function EllesmereUI._RegisterSearchEntry(label, labelLoc, tooltip, moduleFolder
     -- construction it wants excluded from the search entirely (e.g. the QoL
     -- Macro Factory, whose rows must never be indexed or deep-linked).
     if EllesmereUI._searchIndexSuppress then return end
-    -- Composite labels (DualRow/TripleRow with an empty slot) can come in as
-    -- whitespace only (e.g. a single joining space with nothing on either
-    -- side) -- trim before the emptiness check so those don't register as
-    -- inert, unmatchable junk entries.
+    -- Composite labels (DualRow/TripleRow with an empty slot) can come in as whitespace
+    -- only (e.g. a single joining space with nothing on either side) -- trim before the
+    -- emptiness check so those don't register as inert, unmatchable junk entries.
     if label then label = label:match("^%s*(.-)%s*$") end
     if not label or label == "" or not moduleFolder or not page then return end
     local key = moduleFolder .. "\1" .. page .. "\1" .. label
@@ -39,12 +39,11 @@ function EllesmereUI._RegisterSearchEntry(label, labelLoc, tooltip, moduleFolder
         module = moduleFolder,
         section = sectionName,
         page = page,
-        -- Present only for entries built while a page's own internal
-        -- selector (CDM bar / action bar / unit dropdown) was set to a
-        -- specific value -- lets JumpToResult restore that exact selection
-        -- before navigating, so a setting that only exists under one
-        -- selector value (e.g. HoverCast-only options) is actually there to
-        -- find and highlight instead of silently not matching.
+        -- Present only for entries built while a page's own internal selector (CDM bar
+        -- / action bar / unit dropdown) was set to a specific value -- lets
+        -- JumpToResult restore that exact selection before navigating, so a setting
+        -- that only exists under one selector value (e.g. HoverCast-only options) is
+        -- actually there to find and highlight instead of silently not matching.
         selectorSetter = selectorSetter,
         selectorKey = selectorKey,
         -- True for SectionHeader registrations: results render these as
@@ -81,12 +80,11 @@ local function FuzzyScore(haystack, needle)
     end
     if ni <= nLen then return nil end -- not every needle char found in order
 
-    -- Reject overly sparse matches. Without this, a long enough haystack
-    -- makes almost any needle findable as SOME subsequence somewhere in it
-    -- (e.g. "combat" scattering across "Consumables Talent" in a coarse
-    -- module+page label) -- that's noise, not a real fuzzy match. Flat +8
-    -- slack keeps short abbreviations ("aoc" over "Auto Open Containers")
-    -- alive while capping how far a longer word may scatter.
+    -- Reject overly sparse matches. Without this, a long enough haystack makes almost
+    -- any needle findable as SOME subsequence somewhere in it (e.g. "combat" scattering
+    -- across "Consumables Talent" in a coarse module+page label) -- that's noise, not a
+    -- real fuzzy match. Flat +8 slack keeps short abbreviations ("aoc" over "Auto Open
+    -- Containers") alive while capping how far a longer word may scatter.
     local span = lastMatch - firstMatch + 1
     if span > nLen + 8 then return nil end
 
@@ -134,9 +132,8 @@ local function BuildCoarseCandidates()
                 local pageLabel = EllesmereUI.L(page)
                 _coarseCandidates[#_coarseCandidates + 1] = {
                     kind = "page",
-                    -- Combined haystack so a query spanning both module and
-                    -- page words (e.g. "damage spell") still matches, not
-                    -- just one half of it.
+                    -- Combined haystack so a query spanning both module and page words
+                    -- (e.g. "damage spell") still matches, not just one half of it.
                     label = moduleLabel .. " " .. pageLabel,
                     displayLabel = pageLabel,
                     moduleLabel = moduleLabel,
@@ -148,13 +145,12 @@ local function BuildCoarseCandidates()
     end
 end
 
--- Module-name filter: "raid frames border style" should search "border
--- style" WITHIN Raid Frames, not fuzzy-match the whole phrase everywhere.
--- Lazily built alias list (module titles + sidebar display names, both
--- localized), longest alias first so "raid frames" can never lose to a
--- shorter overlapping alias. Only a FULL alias at the START of the query
--- (followed by more words) activates the filter -- single overlapping words
--- ("raid" also appears in other modules' option labels) never do.
+-- Module-name filter: "raid frames border style" should search "border style" WITHIN
+-- Raid Frames, not fuzzy-match the whole phrase everywhere. Lazily built alias list
+-- (module titles + sidebar display names, both localized), longest alias first so "raid
+-- frames" can never lose to a shorter overlapping alias. Only a FULL alias at the START
+-- of the query (followed by more words) activates the filter -- single overlapping
+-- words ("raid" also appears in other modules' option labels) never do.
 local _moduleAliases
 
 local function BuildModuleAliases()
@@ -185,6 +181,7 @@ local function BuildModuleAliases()
     local EXTRA_ALIASES = {
         EllesmereUIMythicTimer     = { "m+ timer", "m+" },
         EllesmereUICooldownManager = { "cdm" },
+        EllesmereUIQuickdraw       = { "radial", "wheel", "ring menu", "palette", "grid", "arc", "fan", "action wheel", "action palette", "action menu" },
     }
     for folder, list in pairs(EXTRA_ALIASES) do
         if EllesmereUI._modules and EllesmereUI._modules[folder] then
@@ -201,11 +198,10 @@ local function SearchIndex(query, maxResults)
     if not _coarseCandidates then BuildCoarseCandidates() end
     if not _moduleAliases then BuildModuleAliases() end
 
-    -- Detect a module name ANYWHERE in the query (whole words only, longest
-    -- alias first) and split it off as an ADDITIVE boost: "raid frames
-    -- border style" and "border style raid frames" both surface "border
-    -- style" within Raid Frames on top of the plain full-query results
-    -- (merged below -- never replacing them).
+    -- Detect a module name ANYWHERE in the query (whole words only, longest alias
+    -- first) and split it off as an ADDITIVE boost: "raid frames border style" and
+    -- "border style raid frames" both surface "border style" within Raid Frames on top
+    -- of the plain full-query results (merged below -- never replacing them).
     local filterSet, subNeedle
     for _, m in ipairs(_moduleAliases) do
         local a = m.alias
@@ -315,15 +311,14 @@ end
 local _prebuildDone = false
 local _hiddenParent
 
--- The main panel's content-header chrome is ONE real, shared frame -- not
--- scoped to whatever parent/wrapper a buildPage happens to be given -- and
--- several sub-addons call these directly from buildPage. For real navigation
--- that's fine (there's only ever one visible page), but during a hidden
--- pre-build it would overwrite whatever header the user is actually looking
--- at. These methods are also nil outright until the panel's first Show()
--- (they're defined inside CreateMainFrame), which a plain guard clause
--- inside them can't help with -- so stub them out here for the duration of
--- each pre-build call instead, then restore whatever was there before
+-- The main panel's content-header chrome is ONE real, shared frame -- not scoped to
+-- whatever parent/wrapper a buildPage happens to be given -- and several sub-addons
+-- call these directly from buildPage. For real navigation that's fine (there's only
+-- ever one visible page), but during a hidden pre-build it would overwrite whatever
+-- header the user is actually looking at. These methods are also nil outright until
+-- the panel's first Show() (they're defined inside CreateMainFrame), which a plain
+-- guard clause inside them can't help with -- so stub them out here for the
+-- duration of each pre-build call instead, then restore whatever was there before
 -- (nil or the real function).
 local _CONTENT_HEADER_METHODS = {
     "SetContentHeader", "UpdateContentHeaderHeight", "SetContentHeaderHeightSilent",
@@ -335,6 +330,175 @@ local _CONTENT_HEADER_METHODS = {
 -- selectorKey first via selectorSetter, so options gated behind a
 -- non-default selector value get indexed too -- otherwise they'd only ever
 -- be searchable after the player manually visits that selector value once.
+-------------------------------------------------------------------------------
+--  FRAMELESS INDEX PASS (2026-08-03, user directive: the index pass must
+--  never build frames -- the old hidden prebuild created ~48 real pages =
+--  10-25MB of permanent frames, and WoW frames are never freed).
+--
+--  The pass still RUNS every page builder (attribution, data-driven rows,
+--  selector variants and localization all keep working), but the builders
+--  run against a stub widget factory: EllesmereUI.Widgets is swapped to
+--  AbsorberW for exactly the synchronous buildPage call. Every stub reads
+--  the SAME declarative fields the real factory's TagOptionRow /
+--  IndexSlotForSearch lines read (verified 1:1 against EllesmereUI_Widgets
+--  2026-08-03) and registers the same index entries -- then returns an
+--  "absorber" instead of a frame.
+--
+--  The absorber survives anything a builder does to a widget: any string
+--  key yields another absorber, any call no-ops, arithmetic on it yields
+--  plain numbers (y-offset math), NUMERIC keys yield nil so ipairs/# see an
+--  empty array (an auto-vivifying [1] would never terminate). Builders'
+--  own direct CreateFrame chrome still lands on the real (reused, hidden)
+--  wrapper -- a handful of small frames on the few custom-chrome pages,
+--  not the widget mass. A builder the absorber cannot survive is caught by
+--  the existing pcall and that page falls back to live-navigation indexing,
+--  loudly in dev mode.
+--
+--  MAINTENANCE CONTRACT: a NEW WidgetFactory method that registers search
+--  entries needs a matching stub here, or its rows are invisible to search
+--  until the page is built live. Mirror the real factory's registration
+--  lines exactly (which args/fields, which slots).
+-------------------------------------------------------------------------------
+local _absSection = nil
+local _absWrapper = nil
+local _absorberMeta
+_absorberMeta = {
+    __index = function(_, k)
+        -- Numeric keys read as ABSENT so ipairs()/#/array probes terminate.
+        if type(k) == "number" then return nil end
+        return setmetatable({}, _absorberMeta)
+    end,
+    __call = function() return setmetatable({}, _absorberMeta) end,
+    __add = function() return 100 end,
+    __sub = function() return 100 end,
+    __mul = function() return 100 end,
+    __div = function() return 1 end,
+    __mod = function() return 0 end,
+    __pow = function() return 1 end,
+    __unm = function() return -100 end,
+    __concat = function() return "" end,
+    __len = function() return 0 end,
+    __lt = function() return false end,
+    __le = function() return false end,
+    __tostring = function() return "EUIAbsorber" end,
+}
+local function NewAbsorber()
+    return setmetatable({}, _absorberMeta)
+end
+
+-- Mirrors IndexSlotForSearch in EllesmereUI_Widgets.lua exactly: empty
+-- labels skip, localized form rides along only when it differs, section is
+-- the absorber pass's own tracker (the real path reads it off the parent
+-- frame; the absorber parent is shared, so the pass tracks it here), and
+-- the selector context comes from the same global the live path uses.
+local function AbsorberRegister(labelText, tooltipText, isSection)
+    if not EllesmereUI._RegisterSearchEntry then return end
+    if type(labelText) ~= "string" or labelText == "" then return end
+    local loc = EllesmereUI.L(labelText)
+    local sel = EllesmereUI._buildingSelector
+    EllesmereUI._RegisterSearchEntry(labelText, loc ~= labelText and loc or nil,
+        type(tooltipText) == "string" and tooltipText or nil,
+        EllesmereUI._buildingModule, EllesmereUI._buildingPage,
+        isSection and labelText or _absSection,
+        sel and sel.setter, sel and sel.key, isSection or nil)
+end
+
+local AbsorberW = {}
+function AbsorberW:SectionHeader(parent, text, yOffset)
+    _absSection = text
+    AbsorberRegister(text, nil, true)
+    return NewAbsorber(), 40
+end
+function AbsorberW:Toggle(parent, text, yOffset, getValue, setValue, tooltip)
+    AbsorberRegister(text, tooltip)
+    return NewAbsorber(), 40
+end
+function AbsorberW:Slider(parent, text, yOffset, minVal, maxVal, step, getValue, setValue, tooltip, pixel)
+    AbsorberRegister(text, tooltip)
+    return NewAbsorber(), 40
+end
+function AbsorberW:Dropdown(parent, text, yOffset, values, getValue, setValue, order, tooltip)
+    AbsorberRegister(text, tooltip)
+    return NewAbsorber(), 40
+end
+function AbsorberW:Checkbox(parent, text, yOffset, getValue, setValue, tooltip)
+    AbsorberRegister(text, tooltip)
+    return NewAbsorber(), 40
+end
+function AbsorberW:ColorPicker(parent, text, yOffset, getValue, setValue, hasAlpha)
+    AbsorberRegister(text, nil)
+    return NewAbsorber(), 40
+end
+function AbsorberW:Button(parent, text, yOffset, onClick)
+    AbsorberRegister(text, nil)
+    return NewAbsorber(), 40
+end
+function AbsorberW:WideButton(parent, text, yOffset, onClick, btnWidth)
+    AbsorberRegister(text, nil)
+    return NewAbsorber(), 40
+end
+function AbsorberW:DualRow(parent, yOffset, leftCfg, rightCfg)
+    AbsorberRegister(leftCfg and leftCfg.text, leftCfg and leftCfg.tooltip)
+    AbsorberRegister(rightCfg and rightCfg.text, rightCfg and rightCfg.tooltip)
+    return NewAbsorber(), 40
+end
+function AbsorberW:TripleRow(parent, yOffset, leftCfg, midCfg, rightCfg, splits)
+    AbsorberRegister(leftCfg and leftCfg.text, leftCfg and leftCfg.tooltip)
+    AbsorberRegister(midCfg and midCfg.text, midCfg and midCfg.tooltip)
+    AbsorberRegister(rightCfg and rightCfg.text, rightCfg and rightCfg.tooltip)
+    return NewAbsorber(), 40
+end
+function AbsorberW:MultiSwatchRow(parent, yOffset, cfg)
+    AbsorberRegister(cfg and cfg.text, nil)
+    return NewAbsorber(), 40
+end
+function AbsorberW:DropdownWithOffsets(parent, yOffset, dropdownCfg, xSliderCfg, ySliderCfg)
+    AbsorberRegister(dropdownCfg and dropdownCfg.text, dropdownCfg and dropdownCfg.tooltip)
+    AbsorberRegister(xSliderCfg and xSliderCfg.text, xSliderCfg and xSliderCfg.tooltip)
+    AbsorberRegister(ySliderCfg and ySliderCfg.text, ySliderCfg and ySliderCfg.tooltip)
+    return NewAbsorber(), 40
+end
+function AbsorberW:WideDualButton(parent, text1, text2, yOffset, onClick1, onClick2, btnWidth)
+    AbsorberRegister(text1, nil)
+    AbsorberRegister(text2, nil)
+    return NewAbsorber(), 40
+end
+function AbsorberW:WideTripleButton(parent, text1, text2, text3, yOffset, onClick1, onClick2, onClick3, btnWidth, disabledOpts)
+    AbsorberRegister(text1, nil)
+    AbsorberRegister(text2, nil)
+    AbsorberRegister(text3, nil)
+    return NewAbsorber(), 40
+end
+function AbsorberW:WideDropdown(parent, title, yOffset, values, getValue, setValue, order, btnWidth, disabledValuesFn)
+    AbsorberRegister(title, nil)
+    return NewAbsorber(), 40
+end
+function AbsorberW:TripleDropdown(parent, configs, yOffset)
+    AbsorberRegister(configs and configs[1] and configs[1][1], nil)
+    AbsorberRegister(configs and configs[2] and configs[2][1], nil)
+    AbsorberRegister(configs and configs[3] and configs[3][1], nil)
+    return NewAbsorber(), 40
+end
+function AbsorberW:TripleSlider(parent, configs, yOffset)
+    -- Parity with the real factory: it tags an EMPTY row label and indexes
+    -- no slots, so the absorber registers nothing either.
+    return NewAbsorber(), 40
+end
+function AbsorberW:Spacer(parent, yOffset, height)
+    return NewAbsorber(), height or 20
+end
+-- Any factory method NOT stubbed above (added later, or missed): absorb it
+-- rather than erroring the whole page -- the page still indexes everything
+-- its known widgets register; dev mode announces the gap so the stub gets
+-- added per the maintenance contract.
+setmetatable(AbsorberW, { __index = function(_, k)
+    if EllesmereUI.IsDevModeActive and EllesmereUI.IsDevModeActive() then
+        print("|cffff6060EUI GlobalSearch:|r no absorber stub for W:" .. tostring(k)
+            .. " -- its rows are invisible to search until built live. Add a stub.")
+    end
+    return function() return NewAbsorber(), 40 end
+end })
+
 local function PrebuildOnce(config, folder, page, selectorSetter, selectorKey)
     if not _hiddenParent then
         _hiddenParent = CreateFrame("Frame", nil, UIParent)
@@ -342,8 +506,15 @@ local function PrebuildOnce(config, folder, page, selectorSetter, selectorKey)
     end
     if selectorSetter and selectorKey then selectorSetter(selectorKey) end
 
-    local wrapper = CreateFrame("Frame", nil, _hiddenParent)
-    wrapper:SetSize(1030, 4000)
+    -- ONE reused wrapper for every job: with the widget factory absorbed,
+    -- the only things ever created on it are the rare custom-chrome frames
+    -- a few builders make directly -- not the per-page widget mass.
+    local wrapper = _absWrapper
+    if not wrapper then
+        wrapper = CreateFrame("Frame", nil, _hiddenParent)
+        wrapper:SetSize(1030, 4000)
+        _absWrapper = wrapper
+    end
     EllesmereUI._buildingModule = folder
     EllesmereUI._buildingPage = page
     EllesmereUI._prebuilding = true
@@ -352,28 +523,34 @@ local function PrebuildOnce(config, folder, page, selectorSetter, selectorKey)
     -- widgets can never leak their refresh closures into whatever page the
     -- user is actually looking at (or into that page's cache snapshot).
     local refreshSnap = EllesmereUI._SnapshotAndClearWidgetRefreshList and EllesmereUI._SnapshotAndClearWidgetRefreshList()
-    -- buildPage functions call some live game APIs (currency lists, class
-    -- info) directly during construction, not only inside getValue closures.
-    -- pcall so one module's edge case can never block indexing the rest; any
-    -- such page simply falls back to being indexed by live navigation instead.
-    -- Surfaced in dev mode so a genuinely broken builder is not silently
-    -- swallowed forever by the indexing pass.
+    -- buildPage functions call some live game APIs (currency lists, class info)
+    -- directly during construction, not only inside getValue closures. pcall so one
+    -- module's edge case can never block indexing the rest; any such page simply falls
+    -- back to being indexed by live navigation instead. Surfaced in dev mode so a
+    -- genuinely broken builder is not silently swallowed forever by the indexing pass.
+    -- FRAMELESS: the widget factory is swapped to the absorber for exactly
+    -- this synchronous call (builders fetch `local W = EllesmereUI.Widgets`
+    -- inside their bodies -- verified no file-scope captures 2026-08-03),
+    -- and restored on EVERY exit before anything else can read it.
+    _absSection = nil
+    local realWidgets = EllesmereUI.Widgets
+    EllesmereUI.Widgets = AbsorberW
     local ok, err = pcall(config.buildPage, page, wrapper, -6)
+    EllesmereUI.Widgets = realWidgets
     if not ok and EllesmereUI.IsDevModeActive and EllesmereUI.IsDevModeActive() then
         print("|cffff6060EUI GlobalSearch:|r prebuild failed for "
             .. tostring(folder) .. "::" .. tostring(page) .. ": " .. tostring(err))
     end
     if refreshSnap then EllesmereUI._RestoreWidgetRefreshList(refreshSnap) end
 
-    -- Some buildPage implementations register cleanup (event listeners, etc.)
-    -- via parent:HookScript("OnHide", ...), expecting it to fire once the
-    -- user navigates away. Hide the wrapper on the chance that helps -- but
-    -- don't rely on it: a frame that's never been effectively visible (its
-    -- ancestor, _hiddenParent, was hidden before wrapper was ever shown) may
-    -- not fire OnHide just because wrapper:Hide() is called on it. Any
-    -- buildPage that registers session-long listeners (event frames, etc.)
-    -- must guard their creation with EllesmereUI._prebuilding itself rather
-    -- than depend on this to clean them up.
+    -- Some buildPage implementations register cleanup (event listeners, etc.) via
+    -- parent:HookScript("OnHide", ...), expecting it to fire once the user navigates
+    -- away. Hide the wrapper on the chance that helps -- but don't rely on it: a frame
+    -- that's never been effectively visible (its ancestor, _hiddenParent, was hidden
+    -- before wrapper was ever shown) may not fire OnHide just because wrapper:Hide() is
+    -- called on it. Any buildPage that registers session-long listeners (event frames,
+    -- etc.) must guard their creation with EllesmereUI._prebuilding itself rather than
+    -- depend on this to clean them up.
     wrapper:Hide()
 
     EllesmereUI._buildingModule = nil
@@ -389,12 +566,11 @@ end
 local function PrebuildJob(job)
     local config = job.config
     if not config.buildPage then return end
-    -- Re-check (not just at job-list-build time): the staggered pass runs
-    -- over several seconds, so the player may have visited and cached this
-    -- exact page live in the meantime -- rebuilding it hidden would be a
-    -- redundant, wasted build. The selector restore still runs: the live
-    -- visit happened at whatever selection the player made themselves, but
-    -- an EARLIER variant job may have left the module's selector moved.
+    -- Re-check (not just at job-list-build time): the staggered pass runs over several
+    -- seconds, so the player may have visited and cached this exact page live in the
+    -- meantime -- rebuilding it hidden would be a redundant, wasted build. The selector
+    -- restore still runs: the live visit happened at whatever selection the player made
+    -- themselves, but an EARLIER variant job may have left the module's selector moved.
     local cacheKey = job.folder .. "::" .. job.page
     if not (EllesmereUI._pageCache and EllesmereUI._pageCache[cacheKey]) then
         local savedMethods = {}
@@ -407,20 +583,20 @@ local function PrebuildJob(job)
             EllesmereUI[name] = savedMethods[name]
         end
     end
-    -- Set on the LAST variant job of a page: restore whatever the player
-    -- actually had selected so a later live visit isn't left showing the
-    -- last-built variant.
+    -- Set on the LAST variant job of a page: restore whatever the player actually had
+    -- selected so a later live visit isn't left showing the last-built variant.
     if job.restoreSetter and job.restoreKey then
         job.restoreSetter(job.restoreKey)
     end
 end
 
--- Deliberately NOT run at login: building every options page costs real CPU
--- and permanent frame memory (WoW frames are never freed), so only users who
--- actually use the search should ever pay it. The first non-empty query in
--- the search box triggers this pass (see RunSearch in EnsureSearchUI); coarse
--- module/page results need no build and show immediately, and onComplete
--- re-runs the query so late-indexed rows appear without retyping.
+-- Deliberately NOT run at login: even frameless, running every page builder costs real
+-- CPU, so only users who actually use the search ever pay it. Since 2026-08-03 the pass
+-- builds NO frames (absorber layer above): its entire footprint is the index strings
+-- plus transient garbage, versus the old hidden-build's 10-25MB of permanent page
+-- frames. The first non-empty query in the search box triggers this pass (see RunSearch
+-- in EnsureSearchUI); coarse module/page results need no build and show immediately,
+-- and onComplete re-runs the query so late-indexed rows appear without retyping.
 local function RunPrebuildPass(onComplete)
     if _prebuildDone then return end
     _prebuildDone = true
@@ -436,10 +612,9 @@ local function RunPrebuildPass(onComplete)
                 -- cache-restore could pick up instead of the live ones.
                 local cacheKey = folder .. "::" .. page
                 if not (EllesmereUI._pageCache and EllesmereUI._pageCache[cacheKey]) then
-                    -- Selector-driven pages (CDM bar / unit dropdowns) expand
-                    -- to one job PER variant so each tick stays one build; the
-                    -- last variant job carries the restore of the player's
-                    -- own selection.
+                    -- Selector-driven pages (CDM bar / unit dropdowns) expand to one
+                    -- job PER variant so each tick stays one build; the last variant
+                    -- job carries the restore of the player's own selection.
                     local variants = config.getPrebuildVariants and config.getPrebuildVariants(page)
                     if variants and variants.keys and #variants.keys > 0 then
                         for k, key in ipairs(variants.keys) do
@@ -551,19 +726,18 @@ local function TitleCaseSection(s)
 end
 
 local function JumpToResult(entry, sidebarSearchBox)
-    -- Coarse (whole-page) results have no single option to highlight -- just
-    -- land on the page. Fine-grained option/section results scroll to and
-    -- glow the specific matching row via EllesmereUI:NavigateToElementSettings
-    -- (the same deep-link machinery the What's New page uses) instead of
-    -- ApplyInlineSearch: that function is a *filter* -- it hides every
-    -- section that doesn't match -- so reusing it here to "highlight" a
-    -- single row could collapse the whole page down to just that one row's
-    -- section, or even to nothing at all if the matched row isn't part of
-    -- the page's current state (e.g. a CDM bar-type-specific option while a
-    -- different bar is selected). NavigateToElementSettings only scrolls +
-    -- glows; it never hides anything, so a row it can't currently find (same
-    -- bar-type case) just means no scroll/glow happens -- the page is left
-    -- exactly as the player already had it, not blanked out.
+    -- Coarse (whole-page) results have no single option to highlight -- just land on
+    -- the page. Fine-grained option/section results scroll to and glow the specific
+    -- matching row via EllesmereUI:NavigateToElementSettings (the same deep-link
+    -- machinery the What's New page uses) instead of ApplyInlineSearch: that function
+    -- is a *filter* -- it hides every section that doesn't match -- so reusing it
+    -- here to "highlight" a single row could collapse the whole page down to just
+    -- that one row's section, or even to nothing at all if the matched row isn't part
+    -- of the page's current state (e.g. a CDM bar-type-specific option while a
+    -- different bar is selected). NavigateToElementSettings only scrolls + glows; it
+    -- never hides anything, so a row it can't currently find (same bar-type case)
+    -- just means no scroll/glow happens -- the page is left exactly as the player
+    -- already had it, not blanked out.
     if entry.kind == "page" or not entry.section then
         EllesmereUI:SelectModule(entry.module)
         EllesmereUI:SelectPage(entry.page)
@@ -651,14 +825,12 @@ local function EnsureSearchUI()
     local RunSearch
     RunSearch = function()
         local query = sidebarSearchBox:GetText()
-        -- First real use of the box is the feature's opt-in: kick the
-        -- one-time staggered index pass now, off the login path entirely.
-        -- Coarse module/page results show immediately; when the pass
-        -- finishes, re-run the query so newly indexed rows appear without
-        -- retyping.
-        -- While a search is active, every "Show Less Common" section renders
-        -- force-expanded with no link line; clearing the box collapses them
-        -- back to their session state (transitions rebuild -- see
+        -- First real use of the box is the feature's opt-in: kick the one-time
+        -- staggered index pass now, off the login path entirely. Coarse module/page
+        -- results show immediately; when the pass finishes, re-run the query so newly
+        -- indexed rows appear without retyping. While a search is active, every "Show
+        -- Less Common" section renders force-expanded with no link line; clearing the
+        -- box collapses them back to their session state (transitions rebuild -- see
         -- SetLessCommonSearchActive in EllesmereUI_Widgets.lua).
         if EllesmereUI.SetLessCommonSearchActive then
             EllesmereUI.SetLessCommonSearchActive(query ~= "")

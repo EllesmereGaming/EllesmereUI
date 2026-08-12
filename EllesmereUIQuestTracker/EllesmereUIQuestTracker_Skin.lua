@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 -- EllesmereUIQuestTracker_Skin.lua
 --
@@ -54,13 +55,12 @@ local SUB_TRACKERS = {
     "InitiativeTasksObjectiveTracker",
 }
 
--- ScenarioObjectiveTracker and UIWidgetObjectiveTracker render their content
--- through Blizzard's shared UI-widget pool -- the same pool GameTooltip and
--- AreaPOI tooltips draw from. ANY method call on their child blocks taints
--- that pool, and the taint surfaces later as "attempt to compare a secret
--- number value" in LayoutFrame.lua when a tooltip lays out a widget set
--- (e.g. hovering an AreaPOI on the world map). We only ever skin their
--- headers; block-level loops must skip them entirely.
+-- ScenarioObjectiveTracker and UIWidgetObjectiveTracker render their content through
+-- Blizzard's shared UI-widget pool -- the same pool GameTooltip and AreaPOI tooltips
+-- draw from. ANY method call on their child blocks taints that pool, and the taint
+-- surfaces later as "attempt to compare a secret number value" in LayoutFrame.lua when
+-- a tooltip lays out a widget set (e.g. hovering an AreaPOI on the world map). We only
+-- ever skin their headers; block-level loops must skip them entirely.
 local function SharesWidgetPool(tracker)
     return tracker == _G.ScenarioObjectiveTracker
         or tracker == _G.UIWidgetObjectiveTracker
@@ -120,10 +120,9 @@ local function GetHeaderRGB()
     return c.headerR or 1.0, c.headerG or 1.0, c.headerB or 1.0
 end
 
--- Section-divider line color, user-adjustable via the "Line Color" swatch
--- in Colors options: Class Color / Custom Color / Accent Color. Defaults
--- to Accent Color (lineUseAccent is treated as true unless explicitly set
--- to false).
+-- Section-divider line color, user-adjustable via the "Line Color" swatch in Colors
+-- options: Class Color / Custom Color / Accent Color. Defaults to Accent Color
+-- (lineUseAccent is treated as true unless explicitly set to false).
 local function GetLineRGB()
     local c = EQT.DB()
     if c.lineShowClassColor then return GetClassColorRGB() end
@@ -215,25 +214,23 @@ end
 -- regen retry. A forced Update() runs Blizzard's entire quest machinery in
 -- our (tainted) execution context, and the Lua tables that machinery
 -- materializes are served to secure code for the rest of the session:
--- QuestEventListener callback tables, cached quest/task/mapInfo tables, and
--- structural writes on the world map's data-provider objects. Secure map
--- code reading any of them turns tainted mid-flight, which surfaces as
--- "blocked in combat ... SetPassThroughButtons()" on every map pin refresh
--- and secret-number compare errors in tooltip layout. Field taint logs from
--- two testers (2026-07-18) confirmed this end to end; deferral does NOT
--- launder taint (taint is execution-context, not call ancestry).
+-- QuestEventListener callback tables, cached quest/task/mapInfo tables, and structural
+-- writes on the world map's data-provider objects. Secure map code reading any of them
+-- turns tainted mid-flight, which surfaces as "blocked in combat ...
+-- SetPassThroughButtons()" on every map pin refresh and secret-number compare errors in
+-- tooltip layout. Field taint logs from two testers (2026-07-18) confirmed this end to
+-- end; deferral does NOT launder taint (taint is execution-context, not call ancestry).
 --
 -- Consequence we accept instead: after a font-size change or a focus
 -- change, Blizzard's cached block heights can be briefly stale (overlapping
 -- text) until its next natural relayout (any quest event). Cosmetic and
 -- self-healing; never reintroduce a forced Update() to fix it.
 
--- Physical-pixel-perfect 1px accent divider under each section header.
--- Parented to ObjectiveTrackerFrame (NOT the header) so collapse/expand
--- animations on the header don't drag our divider with them. Keyed by
--- header so we only create one per section (Quests, Professions, etc).
--- Follows the canonical border pattern: DisablePixelSnap + SetHeight via
--- PP.perfect / effectiveScale.
+-- Physical-pixel-perfect 1px accent divider under each section header. Parented to
+-- ObjectiveTrackerFrame (NOT the header) so collapse/expand animations on the header
+-- don't drag our divider with them. Keyed by header so we only create one per section
+-- (Quests, Professions, etc). Follows the canonical border pattern: DisablePixelSnap +
+-- SetHeight via PP.perfect / effectiveScale.
 local _headerDividers = setmetatable({}, { __mode = "k" })
 local function EnsureAccentDivider(header)
     if not header or not header.CreateTexture then return nil end
@@ -316,11 +313,10 @@ end
 local function StripTextures(frame, keep)
     if not frame or not frame.GetRegions then return end
     keep = keep or {}
-    -- IMPORTANT: hide via SetTexture("") only. SetTexture(nil) and
-    -- SetAlpha(0) both taint Blizzard-owned textures. Tainted widget-pool
-    -- textures cause arithmetic errors when the pool reuses them for
-    -- tooltip/POI widgets later (Blizzard_UIWidgetTemplateTextWithState
-    -- textHeight crashes).
+    -- IMPORTANT: hide via SetTexture("") only. SetTexture(nil) and SetAlpha(0) both
+    -- taint Blizzard-owned textures. Tainted widget-pool textures cause arithmetic
+    -- errors when the pool reuses them for tooltip/POI widgets later
+    -- (Blizzard_UIWidgetTemplateTextWithState textHeight crashes).
     for _, region in ipairs({ frame:GetRegions() }) do
         if region and region:GetObjectType() == "Texture" and not keep[region]
            and region.SetTexture then
@@ -336,11 +332,10 @@ end
 -- than guessed from source:
 --   expanded (shows "-", click collapses)  -> UI-QuestTrackerButton-Secondary-Collapse
 --   collapsed (shows "+", click expands)   -> UI-QuestTrackerButton-Secondary-Expand
--- Both confirmed as the atlas QuestObjectiveTracker's MinimizeButton (a
--- known-good, already-flat section header) uses in that state. The
--- "-Pressed" pushed-state suffix is directly confirmed for the expanded
--- atlas and assumed (not separately dumped) for the collapsed one,
--- following that same observed Blizzard naming convention.
+-- Both confirmed as the atlas QuestObjectiveTracker's MinimizeButton (a known-good,
+-- already-flat section header) uses in that state. The "-Pressed" pushed-state suffix
+-- is directly confirmed for the expanded atlas and assumed (not separately dumped) for
+-- the collapsed one, following that same observed Blizzard naming convention.
 -------------------------------------------------------------------------------
 local MASTER_MINBTN_ATLAS = {
     [false] = { normal = "UI-QuestTrackerButton-Secondary-Collapse", pushed = "UI-QuestTrackerButton-Secondary-Collapse-Pressed" },
@@ -438,17 +433,16 @@ local function SkinHeader(header, knownCollapsed)
     -- 1px divider beneath the header (Line Color: Class / Custom / Accent).
     EnsureAccentDivider(header)
 
-    -- Click-anywhere-on-header overlay: clicking the title text (not just
-    -- the +/- button) toggles the section, by forwarding to the
-    -- MinimizeButton via a plain button's Click() out of combat.
-    -- History (2026-07-20, PR #879): this WAS a SecureActionButtonTemplate
-    -- click-redirect under the belief that a programmatic Click() taints the
-    -- collapse cascade. That evidence was confounded: the constant taint
-    -- injector was TightenTopAnchor's insecure SetPoint inside its SetPoint
-    -- hook (since removed, see the topModulePadding comment below), and the
-    -- secure redirect threw combat errors of its own. The plain-Click() form
-    -- shipped here is the field-tested-clean one -- do not "fix" it back to
-    -- a secure redirect without fresh taint-log evidence.
+    -- Click-anywhere-on-header overlay: clicking the title text (not just the +/-
+    -- button) toggles the section, by forwarding to the MinimizeButton via a plain
+    -- button's Click() out of combat. History (2026-07-20, PR #879): this WAS a
+    -- SecureActionButtonTemplate click-redirect under the belief that a programmatic
+    -- Click() taints the collapse cascade. That evidence was confounded: the constant
+    -- taint injector was TightenTopAnchor's insecure SetPoint inside its SetPoint hook
+    -- (since removed, see the topModulePadding comment below), and the secure redirect
+    -- threw combat errors of its own. The plain-Click() form shipped here is the
+    -- field-tested-clean one -- do not "fix" it back to a secure redirect without
+    -- fresh taint-log evidence.
     if not _headerClickOverlays[header] and header.MinimizeButton then
         local minBtn = header.MinimizeButton
         local overlay = CreateFrame("Button", nil, header)
@@ -554,10 +548,9 @@ local function ClassifyQuest(questID)
     return QUEST_ICON_ATLAS[key], key
 end
 
--- Refresh the classify cache outside any skin / tracker-Update chain.
--- Only driven by quest-log events so secure-API reads never happen inside
--- the debounced tracker Update or block hover paths that surround
--- MoneyFrame / reward rendering.
+-- Refresh the classify cache outside any skin / tracker-Update chain. Only driven by
+-- quest-log events so secure-API reads never happen inside the debounced tracker Update
+-- or block hover paths that surround MoneyFrame / reward rendering.
 local function _refreshClassifyCache()
     if not (C_QuestLog and C_QuestLog.GetNumQuestLogEntries) then return end
     local seen = {}
@@ -680,9 +673,8 @@ local function GetBlockTitleFS(block)
     return nil
 end
 
--- Super-tracked quest ID cache. Updated only on SUPER_TRACKING_CHANGED so
--- hover handlers don't hit C_SuperTrack.GetSuperTrackedQuestID on every
--- mouse enter/leave.
+-- Super-tracked quest ID cache. Updated only on SUPER_TRACKING_CHANGED so hover
+-- handlers don't hit C_SuperTrack.GetSuperTrackedQuestID on every mouse enter/leave.
 local _superTrackedID = nil
 local function GetSuperTrackedIDCached() return _superTrackedID end
 do
@@ -893,11 +885,10 @@ local function SkinBlock(block)
 
     HookBlockLineMethods(block)
 
-    -- Raise ItemButton / GroupFinderButton frame levels above the block on
-    -- EVERY skin pass. Blizzard pools the block + Init/Reset paths can
-    -- lower the level back to the block's, after which clicks fall through
-    -- to the block instead of the icon button. Re-applying every pass is
-    -- cheap and guarantees correct hit-testing.
+    -- Raise ItemButton / GroupFinderButton frame levels above the block on EVERY skin
+    -- pass. Blizzard pools the block + Init/Reset paths can lower the level back to the
+    -- block's, after which clicks fall through to the block instead of the icon button.
+    -- Re-applying every pass is cheap and guarantees correct hit-testing.
     local bl = block.GetFrameLevel and block:GetFrameLevel() or 0
     if block.ItemButton and block.ItemButton.SetFrameLevel then
         block.ItemButton:SetFrameLevel(bl + 5)
@@ -967,11 +958,10 @@ local function SkinExistingBlocks(tracker)
     -- The header/divider above is safe; the block loop below is not.
     if SharesWidgetPool(tracker) then return end
 
-    -- Collect blocks into an ordered list sorted top-to-bottom by Y. We use
-    -- this to apply sequential per-section numbering (1, 2, 3...) that
-    -- matches the visual order.
-    -- Blizzard's usedBlocks is keyed by template string, and each entry is
-    -- a sub-table keyed by blockID -> block. Iterate two levels.
+    -- Collect blocks into an ordered list sorted top-to-bottom by Y. We use this to
+    -- apply sequential per-section numbering (1, 2, 3...) that matches the visual
+    -- order. Blizzard's usedBlocks is keyed by template string, and each entry is a
+    -- sub-table keyed by blockID -> block. Iterate two levels.
     local ordered = {}
     if tracker.usedBlocks then
         for _, byTemplate in pairs(tracker.usedBlocks) do
@@ -1005,13 +995,12 @@ local function SkinExistingBlocks(tracker)
 end
 
 -------------------------------------------------------------------------------
--- The custom topModulePadding write-and-fight system (TightenTopAnchor and
--- its successor) has been removed. We no longer touch
--- ObjectiveTrackerFrame.topModulePadding at all -- Blizzard's own default
--- governs the gap between the header and the first module, in and out of
--- combat, with zero taint surface. The master header is now skinned and
--- shown in place instead of being squeezed out, so there is nothing left to
--- compensate for.
+-- The custom topModulePadding write-and-fight system (TightenTopAnchor and its
+-- successor) has been removed. We no longer touch
+-- ObjectiveTrackerFrame.topModulePadding at all -- Blizzard's own default governs the
+-- gap between the header and the first module, in and out of combat, with zero taint
+-- surface. The master header is now skinned and shown in place instead of being
+-- squeezed out, so there is nothing left to compensate for.
 -------------------------------------------------------------------------------
 
 -------------------------------------------------------------------------------
@@ -1020,11 +1009,10 @@ end
 -- "hideAllObjectivesHeader" option so the user can opt into showing it.
 -- Defaults to hidden (nil in DB reads as hidden) -- see ShouldHideMasterHeader.
 --
--- ObjectiveTrackerFrameMixin:Update() unconditionally calls self.Header:Show()
--- on every layout pass whenever the tracker has any module to display
--- (verified against Gethe/wow-ui-source, Blizzard_ObjectiveTracker.lua), so
--- hiding it requires a persistent HookScript("OnShow", ...) fight rather than
--- a one-time Hide().
+-- ObjectiveTrackerFrameMixin:Update() unconditionally calls self.Header:Show() on every
+-- layout pass whenever the tracker has any module to display (verified against
+-- Gethe/wow-ui-source, Blizzard_ObjectiveTracker.lua), so hiding it requires a
+-- persistent HookScript("OnShow", ...) fight rather than a one-time Hide().
 -------------------------------------------------------------------------------
 -- Default is "hidden" (true) when the DB key is unset. `~= false` treats
 -- nil the same as true, while still honoring an explicit user choice of
@@ -1203,12 +1191,11 @@ function EQT.InitSkin()
         local masterHeader = otf.HeaderMenu or otf.Header
         if masterHeader then
             SkinHeader(masterHeader)
-            -- Blizzard's own MinimizeButton OnClick calls SetCollapsed(),
-            -- which reassigns the button's textures for the new
-            -- collapsed/expanded state -- overwriting the look we just
-            -- synced from Quests. hooksecurefunc fires after that (possibly
-            -- protected) call completes, back in normal addon execution, so
-            -- re-running SkinHeader here carries no taint (same pattern
+            -- Blizzard's own MinimizeButton OnClick calls SetCollapsed(), which
+            -- reassigns the button's textures for the new collapsed/expanded state --
+            -- overwriting the look we just synced from Quests. hooksecurefunc fires
+            -- after that (possibly protected) call completes, back in normal addon
+            -- execution, so re-running SkinHeader here carries no taint (same pattern
             -- HookTracker already uses for every per-section header below).
             if masterHeader.SetCollapsed and not _masterHeaderCollapseHooked then
                 _masterHeaderCollapseHooked = true
@@ -1220,17 +1207,16 @@ function EQT.InitSkin()
         end
         ApplyMasterHeaderVisibility()
 
-        -- ApplyMasterHeaderVisibility() above ran before ObjectiveTrackerFrame
-        -- has any content -- otf:IsShown() is still false at InitSkin() time
+        -- ApplyMasterHeaderVisibility() above ran before ObjectiveTrackerFrame has any
+        -- content -- otf:IsShown() is still false at InitSkin() time
         -- (Blizzard_ObjectiveTracker has just loaded, no quest data yet), so
-        -- EnsureAccentDivider's active-check for the master header evaluates
-        -- false and the divider stays hidden. otf itself never actually goes
-        -- through a Hide->Show transition once populated (it's structurally
-        -- shown throughout, just empty), so an OnShow hook can't catch this.
-        -- Re-run once after PLAYER_ENTERING_WORLD, deferred so the tracker
-        -- has had a chance to populate with real quest data first. Mirrors
-        -- the existing PLAYER_ENTERING_WORLD + C_Timer.After debounce pattern
-        -- used elsewhere in this file (see _refreshClassifyCache above).
+        -- EnsureAccentDivider's active-check for the master header evaluates false and
+        -- the divider stays hidden. otf itself never actually goes through a Hide->Show
+        -- transition once populated (it's structurally shown throughout, just empty),
+        -- so an OnShow hook can't catch this. Re-run once after PLAYER_ENTERING_WORLD,
+        -- deferred so the tracker has had a chance to populate with real quest data
+        -- first. Mirrors the existing PLAYER_ENTERING_WORLD + C_Timer.After debounce
+        -- pattern used elsewhere in this file (see _refreshClassifyCache above).
         do
             local reentry = CreateFrame("Frame")
             reentry:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -1303,11 +1289,10 @@ function EQT.InitSkin()
         local otfMaster = _G.ObjectiveTrackerFrame
         local masterHeader = otfMaster and (otfMaster.HeaderMenu or otfMaster.Header)
         if masterHeader then SkinHeader(masterHeader) end
-        -- Font/color size changes resize existing FontStrings in place, so
-        -- Blizzard's cached block heights can be stale until its next
-        -- natural relayout (any quest event). We deliberately do NOT force
-        -- an ObjectiveTrackerFrame:Update() -- see the FORBIDDEN comment
-        -- near the top of this file for the taint post-mortem.
+        -- Font/color size changes resize existing FontStrings in place, so Blizzard's
+        -- cached block heights can be stale until its next natural relayout (any quest
+        -- event). We deliberately do NOT force an ObjectiveTrackerFrame:Update() -- see
+        -- the FORBIDDEN comment near the top of this file for the taint post-mortem.
     end
 
     -- Live-update headers, blocks and progress bar fills when the user
