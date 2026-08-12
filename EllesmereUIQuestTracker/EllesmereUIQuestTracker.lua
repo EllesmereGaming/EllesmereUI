@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 -- EllesmereUIQuestTracker.lua
 --
@@ -9,6 +10,8 @@
 -- Blizzard_ObjectiveTracker has loaded.
 -------------------------------------------------------------------------------
 local addonName, ns = ...
+if not (EllesmereUI and EllesmereUI._ModuleNS) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+EllesmereUI._ModuleNS[addonName] = ns  -- LOD options files read this module ns via the registry
 
 local EQT = {}
 ns.EQT = EQT
@@ -157,6 +160,11 @@ _G._EQT_RefreshAll = function()
     if EQT.RestyleAll then EQT.RestyleAll() end
     if EQT.ApplyBackground then EQT.ApplyBackground() end
     if EQT.ApplyForceOnScreen then EQT.ApplyForceOnScreen() end
+    -- The hotkey is a per-profile setting backed by an override binding, so a
+    -- profile or spec swap has to re-point it. Without this the outgoing
+    -- profile's key stays overridden -- taken from whatever the player really
+    -- has bound there -- and the incoming profile's key is never laid down.
+    if EQT.ApplyQuestItemHotkey then EQT.ApplyQuestItemHotkey() end
 end
 
 -------------------------------------------------------------------------------

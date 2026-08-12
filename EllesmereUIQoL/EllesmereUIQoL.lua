@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EUI_QoL.lua
 --  Runtime logic for all Quality-of-Life features toggled in the QoL Features
@@ -5,19 +6,17 @@
 -------------------------------------------------------------------------------
 
 -------------------------------------------------------------------------------
---  Per-profile storage for QoL "extras" (Secondary Stats + FPS counter).
---  These were account-wide on the EllesmereUIDB root; they now live in the QoL
---  profile DB (folder EllesmereUIQoL) so they travel with profiles, export/
---  import, and module sync. The migration in EllesmereUI_Migration.lua seeds
---  every existing profile from the old account-wide values, so nobody loses
---  their setup. Reads fall back to the frozen account-wide root for any profile
---  that has no per-profile value yet (newly created profiles, sync gaps);
---  writes always go per-profile. Mirrors the crosshair read/fallback pattern.
---
---  This shares EllesmereUIQoLDB with the Cursor / BattleRes / Bloodlust modules
---  -- each NewDB call merges its own defaults into the SAME profile table, and
---  the profile system repoints every handle on a profile swap.
+--  Per-profile storage for QoL "extras" (Secondary Stats + FPS counter): reads
+--  fall back to the account-wide EllesmereUIDB root when a profile has no
+--  value yet (new profile/sync gap); writes always go per-profile. Mirrors the
+--  crosshair read/fallback pattern; EllesmereUI_Migration.lua seeds every
+--  existing profile from the old account-wide values. EUIQoLDB is
+--  shared with Cursor/BattleRes/Bloodlust: each NewDB merges its own defaults
+--  into the SAME profile table, repointed by the profile system on swap.
 -------------------------------------------------------------------------------
+if not (EllesmereUI and EllesmereUI._ModuleNS) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+EllesmereUI._ModuleNS["EllesmereUIQoL"] = select(2, ...)  -- LOD options files read this module ns via the registry
+
 local _qolExtrasDB
 local function QoLExtrasProfile()
     if not _qolExtrasDB and EllesmereUI and EllesmereUI.Lite and EllesmereUI.Lite.NewDB then
@@ -48,15 +47,14 @@ qolFrame:SetScript("OnEvent", function(self)
     do
         local busy = false
 
-        -- Dismiss the pending "new item" glow on all mounts that need it,
-        -- temporarily narrowing the journal filter so we only iterate collected ones.
+        -- Clears pending mount fanfare: narrows the journal filter to
+        -- collected-only for the sweep, then restores the snapshot.
         local function AckMountAlerts()
             if not C_MountJournal then return false end
             local pending = C_MountJournal.GetNumMountsNeedingFanfare
                 and C_MountJournal.GetNumMountsNeedingFanfare()
             if not pending or pending <= 0 then return false end
 
-            -- Snapshot active filters, force "collected only", sweep, then restore
             local snapshot = {}
             for i = LE_MOUNT_JOURNAL_FILTER_COLLECTED, LE_MOUNT_JOURNAL_FILTER_UNUSABLE do
                 snapshot[i] = C_MountJournal.GetCollectedFilterSetting(i) and true or false
@@ -90,7 +88,6 @@ qolFrame:SetScript("OnEvent", function(self)
         local function AckToyAlerts()
             if not C_ToyBoxInfo or not C_ToyBoxInfo.ClearFanfare then return false end
             local any = false
-            -- Fast path via ToyBox.fanfareToys lookup table
             if ToyBox and ToyBox.fanfareToys then
                 for id, needs in pairs(ToyBox.fanfareToys) do
                     if needs and id and C_ToyBoxInfo.NeedsFanfare and C_ToyBoxInfo.NeedsFanfare(id) then
@@ -100,7 +97,6 @@ qolFrame:SetScript("OnEvent", function(self)
                 end
                 if any then return true end
             end
-            -- Fallback: full scan
             if C_ToyBox and C_ToyBox.GetNumToys and C_ToyBox.GetToyFromIndex then
                 for i = 1, C_ToyBox.GetNumToys() do
                     local id = C_ToyBox.GetToyFromIndex(i)
@@ -148,8 +144,7 @@ qolFrame:SetScript("OnEvent", function(self)
         f:SetScript("OnEvent", function(self, event)
             if event == "PLAYER_LOGIN" then
                 self:UnregisterEvent("PLAYER_LOGIN")
-                -- Defer 3s so ToyBox.fanfareToys is available (avoids
-                -- the 1000+ toy fallback scan that spikes the login frame)
+                -- Defer 3s so ToyBox.fanfareToys exists (avoids a 1000+ toy full scan at login)
                 C_Timer.After(3, DismissCollectionAlerts)
                 return
             end
@@ -162,110 +157,78 @@ qolFrame:SetScript("OnEvent", function(self)
     ---------------------------------------------------------------------------
     do
         local _openableCache = {}  -- itemID -> true/false
-        local _failedItems = {}   -- itemID -> true (items that failed to open, skip forever)
+        local _failedItems = {}   -- itemID -> true (failed to open, skip forever)
         local _cacheBuilt = false
-        -- Self-tracked in-flight opens, keyed by bag/slot. Set synchronously in
-        -- the same tick as UseContainerItem (Lua is single-threaded, so no other
-        -- open pass can slip between the use and this write) and cleared at the
-        -- 0.5s recheck. This -- not Blizzard's isLocked flag, which isn't set
-        -- until a server round-trip completes -- is what stops two overlapping
-        -- passes from double-using the same slot and stranding it greyed.
+        -- In-flight opens keyed by bag/slot, set synchronously in the same tick as
+        -- UseContainerItem (Lua is single-threaded, so no other pass can slip in) and
+        -- cleared at the 0.5s recheck (Blizzard's isLocked isn't set until the round-trip completes) -- stops a double-use stranding a slot.
         local _openInProgress = {}
-        -- Many payout containers (e.g. Artisan's Consortium Payouts) open a loot
-        -- window and linger in the bag until looted. Opening another container --
-        -- or re-opening the lingering one -- while that window is up strands it.
-        -- Gate all opens on this and resume on LOOT_CLOSED.
+        -- Payout containers open a loot window and linger until looted; any open while up strands them. Gate on this; resume on LOOT_CLOSED.
         local _lootOpen = false
-        -- Attribution for loot windows our own opens spawn. _pendingOpen is
-        -- stamped just before UseContainerItem and cleared at that open's
-        -- 0.5s recheck; LOOT_OPENED captures it into _lootSource. When the
-        -- window closes, the source slot is re-read: a linger-until-looted
-        -- container still sitting there with an un-decremented count means
-        -- its loot could not be taken (bags full / unique item cap), and
-        -- re-opening it would just re-spawn the same un-lootable window in
-        -- an endless loop the user cannot escape. It is skipped for the
-        -- rest of the session instead (a reload retries it, so freed bag
-        -- space recovers naturally).
+        -- Attribution for loot windows our opens spawn: _pendingOpen is stamped
+        -- before UseContainerItem, cleared at the 0.5s recheck; LOOT_OPENED captures
+        -- it into _lootSource. On close, still sitting with an un-decremented count
+        -- means it couldn't be looted (bags full/unique cap), so it's skipped for the session (reload retries once space frees).
         local _pendingOpen, _lootSource
-        -- Global single-flight: only one open cycle runs at a time. This -- not
-        -- the per-slot _openInProgress guard -- is what stops two overlapping
-        -- passes from double-using a slow container. A payout container's server
-        -- lock latency outlasts the per-slot guard's 0.5s window, so a second
-        -- concurrent chain would read the slot as unlocked and use it again,
-        -- stranding it greyed. Only one chain ever exists now.
+        -- Global single-flight: only one open cycle at a time. Per-slot _openInProgress
+        -- isn't enough -- a payout container's lock latency outlasts its 0.5s window, so a second chain could reuse and strand it.
         local _openBusy = false
         local _scanScheduled = false
-        -- Cycle generation: bumped when a new cycle starts AND on disable.
-        -- Every deferred closure (step timers, the 0.5s open recheck, finish)
-        -- captures its own generation and self-aborts when stale. IsEnabled()
-        -- alone is not enough: a disable->re-enable inside the 0.5s recheck
-        -- window would otherwise resurrect the abandoned chain alongside a
-        -- freshly-started one -- two concurrent chains, the exact double-use
-        -- bug the single-flight design exists to prevent.
+        -- Cycle generation: bumped on cycle start AND disable. Every deferred closure
+        -- captures its own generation and self-aborts when stale -- IsEnabled() alone
+        -- isn't enough since a disable->re-enable inside the recheck window would resurrect the old chain alongside the new one.
         local _cycleGen = 0
-        -- A scan request arrived while a cycle was busy; finish() honors it
-        -- even when its own cycle made no progress.
+        -- A scan request arrived while busy; finish() honors it even with no progress.
         local _missedScan = false
-        -- Pacing: mail's "Open All" (and similar loot dumps) land many
-        -- openable items in bags within the same second -- exactly when a
-        -- container action can collide with another action still resolving
-        -- (ours, or Blizzard's own item-delivery) and strand a slot locked
-        -- until relog. The client optimistically locks a slot on any action
-        -- and only clears it once the server round-trip confirms; overlapping
-        -- actions before that confirmation lands is the documented way to
-        -- strand one (reporter: one item always sticks after "Open All Mail",
-        -- count before it varies, 4+).
-        -- _lastBagChurn: GetTime() of the most recent raw BAG_UPDATE (see the
-        -- dedicated listener below) -- a real-time "something touched the
-        -- bags very recently" signal. Deliberately separate from
-        -- BAG_UPDATE_DELAYED, which Blizzard already coalesces into one event
-        -- per settle and is too coarse for this. If churn was seen just
-        -- before we'd fire the next open, wait a bit longer so our action
-        -- doesn't land mid another one's resolution.
+        -- Pacing: mail's "Open All" lands many items within one second, exactly
+        -- when our action can collide with another still resolving and strand a
+        -- slot locked until relog -- the client optimistically locks on any action,
+        -- clearing only once the server confirms. _lastBagChurn = GetTime() of the
+        -- most recent raw BAG_UPDATE (real-time signal; coalesced BAG_UPDATE_DELAYED is too coarse).
         local _lastBagChurn = 0
         local CHURN_SETTLE_WINDOW = 0.35  -- "recent" churn cutoff, seconds
         local CHURN_SETTLE_DELAY = 0.4    -- extra wait when churn was recent
         local function AODbg(...)
             if EllesmereUI._AODEBUG then print("|cff33ff99[AutoOpen]|r", ...) end
         end
-        -- Forward-declared: scanFrame's OnUpdate (created below) calls ScanAndOpen
-        -- once the cache is built, so both must be upvalues in scope before that
-        -- closure is defined. Assigned (not re-declared) further down.
+        -- Forward-declared: scanFrame's OnUpdate calls ScanAndOpen once cache is built, so both must be in-scope upvalues (assigned further down).
         local ScanAndOpen, RequestScan
         local function SlotKey(bag, slot) return bag * 1000 + slot end
         local function IsEnabled()
             return EllesmereUIDB and EllesmereUIDB.autoOpenContainers == true
         end
-        -- A merchant being open turns UseContainerItem into a SELL (Blizzard
-        -- routes "use item" to the vendor), so auto-open must pause while any
-        -- merchant frame is shown -- otherwise freshly-bought containers get
-        -- opened at the vendor, or a non-openable item throws "the merchant
-        -- doesn't want that item". Re-checked before every open; the pass
-        -- re-runs on MERCHANT_CLOSED.
+        -- This payout can award this capped currency; hold only the known pair.
+        local ARTISAN_PAYOUT_ITEM_ID = 246585
+        local SHARD_OF_DUNDUN_CURRENCY_ID = 3376
+        local function ShouldHoldCappedArtisanPayout(itemID)
+            if itemID ~= ARTISAN_PAYOUT_ITEM_ID
+                or not (EllesmereUIDB
+                    and EllesmereUIDB.autoOpenContainersHoldCappedArtisanPayouts == true) then
+                return false
+            end
+            return C_CurrencyInfo and C_CurrencyInfo.PlayerHasMaxQuantity
+                and C_CurrencyInfo.PlayerHasMaxQuantity(SHARD_OF_DUNDUN_CURRENCY_ID) or false
+        end
+        -- An open merchant turns UseContainerItem into a SELL, so auto-open pauses
+        -- while any merchant frame is shown, or bought containers get vendored /
+        -- non-openables throw an error. Re-checked per open; re-runs on MERCHANT_CLOSED.
         local function MerchantOpen()
             return (MerchantFrame and MerchantFrame:IsShown()) and true or false
         end
-        -- Same reasoning as MerchantOpen: opening containers while the mailbox
-        -- is up is at best pointless (loot windows / bag churn stacking on top
-        -- of mail's own item delivery) and at worst compounds the exact
-        -- strand-a-slot race the pacing logic above exists to avoid. Pause
-        -- while the mailbox is shown and resume cleanly once it closes.
+        -- Same reasoning as MerchantOpen: opening while the mailbox is up compounds
+        -- the strand-a-slot race with mail's own item delivery. Pause while shown; resume once it closes.
         local function MailOpen()
             return (MailFrame and MailFrame:IsShown()) and true or false
         end
-        -- "Exclude Warbound Containers": true only when the option is on AND
-        -- the slot is confirmed warband-bank-eligible. Guarded like the bags
-        -- module (C_Bank / ItemLocation / DoesItemExist can all be absent or
-        -- invalid; a raw call would error mid-open). On any uncertainty it
-        -- returns false so the container opens normally rather than being
-        -- silently skipped.
+        local function BankOpen()
+            return (BankFrame and BankFrame:IsShown()) and true or false
+        end
+        -- "Exclude Warbound Containers": true only when on AND the slot is confirmed
+        -- warband-bank-eligible. Guarded like the bags module (C_Bank/ItemLocation/
+        -- DoesItemExist can be absent or invalid); any uncertainty returns false so the container opens normally.
         local function IsWarboundExcluded(bag, slot)
-            -- Default ON: the options UI shows this checked when unset
-            -- (autoOpenContainersExcludeWarbound ~= false), so the runtime must
-            -- treat nil the same way. Only an explicit false disables it -- the
-            -- old `not value` test made a never-toggled setting (nil) skip the
-            -- exclusion, so warbound containers auto-opened despite the toggle
-            -- appearing enabled.
+            -- Default ON (unset behaves as enabled, matching the options UI's
+            -- checked-by-default display); only explicit false disables it -- `not value` would wrongly let nil skip the exclusion.
             if not EllesmereUIDB or EllesmereUIDB.autoOpenContainersExcludeWarbound == false then return false end
             if not (C_Bank and C_Bank.IsItemAllowedInBankType and ItemLocation
                 and C_Item and C_Item.DoesItemExist) then return false end
@@ -291,8 +254,8 @@ qolFrame:SetScript("OnEvent", function(self)
             return false
         end
 
-        -- Incremental scanner: checks SLOTS_PER_FRAME bag slots per tick.
-        -- Once all bags are scanned, hides itself (zero CPU when idle).
+        -- Incremental scanner: SLOTS_PER_FRAME slots per tick; hides itself once
+        -- all bags are scanned (zero CPU when idle).
         local _scanBag = BACKPACK_CONTAINER
         local _scanSlot = 1
 
@@ -307,8 +270,7 @@ qolFrame:SetScript("OnEvent", function(self)
                     _scanBag = _scanBag + 1
                     _scanSlot = 1
                     if _scanBag > NUM_BAG_SLOTS then
-                        -- Full scan complete: the openable cache is warm. Hand off
-                        -- to the single open cycle, which re-scans the bags itself.
+                        -- Cache warm: hand off to the open cycle, which re-scans itself.
                         _cacheBuilt = true
                         self:Hide()
                         if ScanAndOpen then ScanAndOpen(false) end
@@ -317,8 +279,7 @@ qolFrame:SetScript("OnEvent", function(self)
                 else
                     local info = C_Container.GetContainerItemInfo(_scanBag, _scanSlot)
                     if info and info.itemID then
-                        -- Warm the openable cache during the incremental scan so the
-                        -- open cycle doesn't tooltip-scan on its hot path.
+                        -- Warm here so the open cycle never tooltip-scans on its hot path.
                         IsOpenableByID(info.itemID, _scanBag, _scanSlot)
                     end
                     _scanSlot = _scanSlot + 1
@@ -330,40 +291,33 @@ qolFrame:SetScript("OnEvent", function(self)
         -- After cache is built, BAG_UPDATE_DELAYED only checks changed slots
         local containerFrame = CreateFrame("Frame")
 
-        -- Live apply: registers the bag listener and (until the cache exists)
-        -- runs the incremental scan; disable unregisters and stops any
-        -- in-progress scan. Called at login and from the options toggle, so
-        -- enabling mid-session works without a reload.
+        -- Live apply: registers bag listeners and (until cache exists) runs the
+        -- incremental scan; disable stops it. Called at login and from the toggle.
         EllesmereUI._applyAutoOpenContainers = function()
             if IsEnabled() then
                 containerFrame:RegisterEvent("BAG_UPDATE_DELAYED")
-                -- Raw, per-slot event -- fires far more often than the
-                -- coalesced BAG_UPDATE_DELAYED above. Used ONLY to timestamp
-                -- _lastBagChurn (see its declaration); the handler does no
-                -- scan work for it, so this adds no scanning overhead.
+                -- Raw per-slot event, far more frequent than the coalesced DELAYED one; used ONLY to timestamp _lastBagChurn, no scan work here.
                 containerFrame:RegisterEvent("BAG_UPDATE")
-                -- Re-run once the vendor closes: BAG_UPDATE_DELAYED from a
-                -- purchase fires while the merchant is open (when opens are
-                -- suppressed), so without this the just-bought containers would
-                -- never open after leaving the vendor.
+                -- Re-run on vendor close: a purchase's BAG_UPDATE_DELAYED fires
+                -- while opens are suppressed, so bought containers would never open.
                 containerFrame:RegisterEvent("MERCHANT_CLOSED")
-                -- Resume once the mailbox closes. The pause needs no event of
-                -- its own: MailOpen() reads the frame directly at every entry
-                -- point, so only the close edge is registered. MAIL_CLOSED is
-                -- kept for older clients, but as of patch 10.0.0 it no longer
-                -- fires at all -- Blizzard folded it into the generic
-                -- interaction-manager events, so the HIDE event is the one
-                -- that actually drives the resume on retail.
+                -- MailOpen() is read at every entry point so the pause needs no event;
+                -- MAIL_CLOSED no longer fires on retail (kept for older clients) -- interaction-manager HIDE drives resume.
                 containerFrame:RegisterEvent("MAIL_CLOSED")
+                containerFrame:RegisterEvent("BANKFRAME_CLOSED")
                 if C_PlayerInteractionManager then
                     containerFrame:RegisterEvent("PLAYER_INTERACTION_MANAGER_FRAME_HIDE")
                 end
-                -- Track loot windows so payout containers (which open one and
-                -- linger in the bag) aren't opened over / re-opened while looting.
+                -- Loot window tracking (see _lootOpen).
                 containerFrame:RegisterEvent("LOOT_OPENED")
                 containerFrame:RegisterEvent("LOOT_CLOSED")
-                -- Resume opens deferred while the player was casting. Without
-                -- these the deferral would stall until the next bag update.
+                if EllesmereUIDB.autoOpenContainersHoldCappedArtisanPayouts == true
+                    and C_CurrencyInfo and C_CurrencyInfo.PlayerHasMaxQuantity then
+                    containerFrame:RegisterEvent("CURRENCY_DISPLAY_UPDATE")
+                else
+                    containerFrame:UnregisterEvent("CURRENCY_DISPLAY_UPDATE")
+                end
+                -- Resume opens deferred while casting, else the deferral stalls until the next bag update.
                 containerFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
                 containerFrame:RegisterUnitEvent("UNIT_SPELLCAST_STOP", "player")
                 containerFrame:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_STOP", "player")
@@ -371,27 +325,29 @@ qolFrame:SetScript("OnEvent", function(self)
                     _scanBag = BACKPACK_CONTAINER
                     _scanSlot = 1
                     scanFrame:Show()
+                elseif RequestScan then
+                    RequestScan()
                 end
             else
                 containerFrame:UnregisterEvent("BAG_UPDATE_DELAYED")
                 containerFrame:UnregisterEvent("BAG_UPDATE")
                 containerFrame:UnregisterEvent("MERCHANT_CLOSED")
                 containerFrame:UnregisterEvent("MAIL_CLOSED")
+                containerFrame:UnregisterEvent("BANKFRAME_CLOSED")
                 if C_PlayerInteractionManager then
                     containerFrame:UnregisterEvent("PLAYER_INTERACTION_MANAGER_FRAME_HIDE")
                 end
                 containerFrame:UnregisterEvent("LOOT_OPENED")
                 containerFrame:UnregisterEvent("LOOT_CLOSED")
+                containerFrame:UnregisterEvent("CURRENCY_DISPLAY_UPDATE")
                 containerFrame:UnregisterEvent("UNIT_SPELLCAST_SUCCEEDED")
                 containerFrame:UnregisterEvent("UNIT_SPELLCAST_STOP")
                 containerFrame:UnregisterEvent("UNIT_SPELLCAST_CHANNEL_STOP")
                 _lootOpen = false
                 _pendingOpen = nil
                 _lootSource = nil
-                -- Clear single-flight state so a mid-cycle disable can't strand
-                -- _openBusy true and block a later re-enable. The generation
-                -- bump kills every in-flight timer of the old cycle outright,
-                -- so a quick re-enable cannot resurrect an abandoned chain.
+                -- Clears single-flight state so a mid-cycle disable can't strand
+                -- _openBusy; the generation bump kills in-flight timers so a quick re-enable can't resurrect the old chain.
                 _openBusy = false
                 _scanScheduled = false
                 _missedScan = false
@@ -404,45 +360,34 @@ qolFrame:SetScript("OnEvent", function(self)
         C_Timer.After(2, function()
             if IsEnabled() then EllesmereUI._applyAutoOpenContainers() end
         end)
-        -- skipMerchantGate: the MERCHANT_CLOSED re-run fires before Blizzard's
-        -- MerchantFrame finishes hiding, so its entry check would still read
-        -- "merchant open" and bail. That run skips only THIS gate -- actual
-        -- safety comes from the 0.15s pre-open delay plus the per-step
-        -- MerchantOpen() re-check (by which time the frame has hidden, or a
-        -- genuinely re-opened merchant correctly aborts).
+        -- skipMerchantGate: MERCHANT_CLOSED's re-run fires before MerchantFrame
+        -- finishes hiding, so its entry check would misread "merchant open" and bail;
+        -- that run skips only THIS gate -- safety comes from the 0.15s pre-open delay plus the per-step MerchantOpen() re-check.
         --
-        -- Single-flight open cycle: builds the candidate list, then opens one
-        -- container at a time. When the pass is exhausted it re-scans once IF
-        -- anything progressed -- that subsumes nested containers (a bag yielding
-        -- more bags) and lingering payout containers without ever running a
-        -- second concurrent chain. _openBusy guards the whole cycle.
-        -- Using a container item CANCELS whatever the player is casting -- the
-        -- engine treats it as an interrupting action, and it does so silently.
-        -- An auto-open that fires mid-cast therefore eats mounts, ports, and
-        -- every other hardcast, with no error and nothing on screen tying it to
-        -- this addon. A cast is transient, so defer rather than blacklist: the
-        -- cycle resumes from the spellcast events registered above.
+        -- Single-flight open cycle: build the candidate list, open one container at a
+        -- time, re-scan once IF anything progressed when exhausted (subsumes nested
+        -- containers and lingering payout containers, no second concurrent chain).
+        -- _openBusy guards the whole cycle. UseContainerItem silently CANCELS the
+        -- player's cast (engine treats it as interrupting), eating mounts/ports/hardcasts
+        -- with no error -- a cast is transient, so defer rather than blacklist: the spellcast events above resume the cycle.
         local function PlayerIsCasting()
             return (UnitCastingInfo and UnitCastingInfo("player") ~= nil)
                 or (UnitChannelInfo and UnitChannelInfo("player") ~= nil)
         end
 
-        -- skipMailGate: MAIL_CLOSED / the interaction-manager hide are handled
-        -- with their own 0.5s settle delay (see the dispatcher below), by which
-        -- point MailOpen() is reliably false -- this flag is passed there purely
-        -- as belt-and-suspenders, not load-bearing the way skipMerchantGate is.
-        ScanAndOpen = function(skipMerchantGate, skipMailGate)
+        -- skipMailGate: MAIL_CLOSED/interaction-manager hide already settle 0.5s
+        -- below, so MailOpen() is reliably false by then -- belt and suspenders, not load-bearing like skipMerchantGate.
+        ScanAndOpen = function(skipMerchantGate, skipMailGate, skipBankGate)
             if not _cacheBuilt then return end
             if not IsEnabled() then return end
             if InCombatLockdown() then return end
             if not skipMerchantGate and MerchantOpen() then return end
             if not skipMailGate and MailOpen() then return end
+            if not skipBankGate and BankOpen() then return end
             if PlayerIsCasting() then _missedScan = true; return end
-            -- A loot window is up (payout container lingering): LOOT_CLOSED
-            -- restarts a clean cycle once it has left the bag.
+            -- Loot window up: LOOT_CLOSED restarts once the payout container leaves the bag.
             if _lootOpen then return end
-            -- A cycle is already running; its finish() re-scan will pick up
-            -- anything this trigger would have started.
+            -- A running cycle's finish() re-scan picks up this trigger.
             if _openBusy then return end
 
             local toOpen = {}
@@ -468,18 +413,16 @@ qolFrame:SetScript("OnEvent", function(self)
             local madeProgress = false
             AODbg(("cycle start: %d candidate(s)"):format(#toOpen))
 
-            -- The single place _openBusy is cleared. Every step() exit routes
-            -- through here so the flag can never leak (a leak would freeze
-            -- auto-open until reload). A stale generation must NOT clear the
-            -- flag -- it belongs to the newer cycle by then.
+            -- Only place _openBusy is cleared; every step() exit routes here so it
+            -- can't leak (freezes auto-open until reload). A stale generation must NOT clear it -- belongs to the new cycle.
             local function finish()
                 if myGen ~= _cycleGen then return end
                 _openBusy = false
                 if (madeProgress or _missedScan) and IsEnabled()
                     and not InCombatLockdown()
-                    and not MerchantOpen() and not MailOpen() and not _lootOpen then
+                    and not MerchantOpen() and not MailOpen() and not BankOpen() and not _lootOpen then
                     _missedScan = false
-                    C_Timer.After(0.3, function() ScanAndOpen(false, false) end)
+                    C_Timer.After(0.3, function() ScanAndOpen(false, false, false) end)
                 end
             end
 
@@ -487,21 +430,18 @@ qolFrame:SetScript("OnEvent", function(self)
             local function step(idx)
                 if myGen ~= _cycleGen then return end
                 if idx > #toOpen then return finish() end
-                if not IsEnabled() or InCombatLockdown() or MerchantOpen() or MailOpen() then return finish() end
-                -- Re-checked per step, not just at cycle entry: a cycle paces
-                -- itself across several seconds of timers, so a cast can start
-                -- long after the entry gate passed.
+                if not IsEnabled() or InCombatLockdown() or MerchantOpen() or MailOpen() or BankOpen() then return finish() end
+                -- Re-checked per step: the cycle paces itself across seconds of timers, so a cast can start long after the entry gate passed.
                 if PlayerIsCasting() then _missedScan = true; return finish() end
                 -- Loot window opened mid-cycle: stop; LOOT_CLOSED restarts cleanly.
                 if _lootOpen then return finish() end
                 local item = toOpen[idx]
                 local key = SlotKey(item.bag, item.slot)
                 local info = C_Container.GetContainerItemInfo(item.bag, item.slot)
-                -- Never act on a slot mid-action: our own _openInProgress flag
-                -- (set synchronously below) or Blizzard's isLocked. Re-using a
-                -- container that's still resolving a previous open strands it.
+                -- Never act on a slot mid-action (_openInProgress, or Blizzard's isLocked): reusing a still-resolving container strands it.
                 if info and info.itemID and not info.isLocked and not _openInProgress[key] then
-                    if IsWarboundExcluded(item.bag, item.slot) then
+                    if IsWarboundExcluded(item.bag, item.slot)
+                        or ShouldHoldCappedArtisanPayout(info.itemID) then
                         return step(idx + 1)
                     end
                     if _openableCache[info.itemID] and not _failedItems[info.itemID] then
@@ -514,15 +454,10 @@ qolFrame:SetScript("OnEvent", function(self)
                             item.bag, item.slot, prevID))
                         C_Container.UseContainerItem(item.bag, item.slot)
                         C_Timer.After(0.5, function()
-                            -- Always release the slot flag (global bookkeeping),
-                            -- but a stale-generation chain goes no further: its
-                            -- progress/failure verdicts would race the cycle
-                            -- that replaced it.
+                            -- Always release the slot flag; a stale-generation chain
+                            -- stops here since its verdict would race the cycle that replaced it.
                             _openInProgress[key] = nil
-                            -- The open resolved without spawning a loot window
-                            -- (LOOT_OPENED would have claimed it by now): drop
-                            -- the attribution so an unrelated later loot window
-                            -- (a mob, a chest) can't inherit it.
+                            -- No loot window claimed this open by now: drop the attribution so an unrelated later window can't inherit it.
                             if _pendingOpen and _pendingOpen.bag == item.bag
                                 and _pendingOpen.slot == item.slot then
                                 _pendingOpen = nil
@@ -535,17 +470,12 @@ qolFrame:SetScript("OnEvent", function(self)
                                 madeProgress = true
                             elseif after and after.itemID == prevID and not after.isLocked
                                 and not _lootOpen then
-                                -- Unchanged, unlocked, no loot window => genuine
-                                -- failure. A still-locked slot is in-flight (slow
-                                -- container), not failed, so it isn't cached -- a
-                                -- later cycle retries it.
+                                -- Unchanged, unlocked, no loot window => genuine failure.
+                                -- A still-locked slot is just slow, so it's left uncached for a later retry.
                                 _failedItems[prevID] = true
                                 AODbg("genuine fail, item=" .. prevID)
                             end
-                            -- A real open just resolved (progressed or genuine
-                            -- fail): pace before advancing. The non-actionable
-                            -- skips above (warbound, not-openable) move on
-                            -- immediately without pacing.
+                            -- A real open resolved: pace before advancing. Non-actionable skips above advance unpaced.
                             PaceNext(idx + 1)
                         end)
                         return
@@ -554,13 +484,8 @@ qolFrame:SetScript("OnEvent", function(self)
                 C_Timer.After(0.1, function() step(idx + 1) end)
             end
 
-            -- Paces the step AFTER a real open resolves: if something else
-            -- touched the bags just now (Blizzard's own item delivery is
-            -- exactly this), wait for it to settle before adding our own action
-            -- into the mix. The mailbox case that used to also need a burst
-            -- cooldown backstop is now handled directly by pausing while the
-            -- mailbox is open and settling after it closes, so this is the only
-            -- pacing needed here.
+            -- Paces the step AFTER a real open resolves: if something else just touched
+            -- the bags (e.g. Blizzard's item delivery), let it settle first. Mailbox is covered separately (pause while open, settle after close).
             PaceNext = function(idx)
                 if myGen ~= _cycleGen then return end
                 local extra, why = 0, nil
@@ -578,11 +503,9 @@ qolFrame:SetScript("OnEvent", function(self)
             C_Timer.After(0.15, function() step(1) end)
         end
 
-        -- Coalesce a burst of BAG_UPDATE_DELAYED (a single open fires several)
-        -- into one next-frame scan; skips entirely while a cycle is in flight.
+        -- Coalesce a burst of BAG_UPDATE_DELAYED (a single open fires several) into one next-frame scan; skips while a cycle is in flight.
         RequestScan = function()
-            -- Dropped because a cycle is mid-flight: remember it so finish()
-            -- reruns the scan even when its own cycle made no progress.
+            -- Dropped mid-cycle: remembered so finish() re-scans even with no progress.
             if _openBusy then _missedScan = true; return end
             if _scanScheduled then return end
             _scanScheduled = true
@@ -599,24 +522,18 @@ qolFrame:SetScript("OnEvent", function(self)
             end
             if event == "LOOT_OPENED" then
                 _lootOpen = true
-                -- Claim the window for the container we just used (if any) so
-                -- the LOOT_CLOSED verdict knows which slot to re-examine.
+                -- Claim the window for the container just used, so LOOT_CLOSED knows which slot to re-examine.
                 _lootSource = _pendingOpen
                 _pendingOpen = nil
                 return
             end
             if event == "LOOT_CLOSED" then
                 _lootOpen = false
-                -- Resume opens that were deferred while the window was up. Delay
-                -- so the looted container has left the bag before we re-scan.
+                -- Delay lets the looted container leave the bag before the re-scan.
                 C_Timer.After(0.5, function()
-                    -- Verdict on the container whose open spawned that window:
-                    -- still in its slot with an un-decremented count means the
-                    -- loot could not be taken (bags full / unique item cap).
-                    -- Skip it for the session BEFORE the re-scan below, or the
-                    -- re-scan re-opens it and the window loops forever. A
-                    -- locked slot is still resolving server-side and gets no
-                    -- verdict -- the next window re-attributes it.
+                    -- Verdict on the container that spawned this window: still there with
+                    -- an un-decremented count means it couldn't be looted (bags full/unique
+                    -- cap) -- skip it BEFORE re-scan or it loops forever; a locked slot (in-flight) gets no verdict.
                     local src = _lootSource
                     _lootSource = nil
                     if src then
@@ -634,36 +551,45 @@ qolFrame:SetScript("OnEvent", function(self)
                 RequestScan()
                 return
             end
+            if event == "CURRENCY_DISPLAY_UPDATE" then
+                if not ShouldHoldCappedArtisanPayout(ARTISAN_PAYOUT_ITEM_ID) then
+                    RequestScan()
+                end
+                return
+            end
             if event == "UNIT_SPELLCAST_SUCCEEDED" or event == "UNIT_SPELLCAST_STOP"
                 or event == "UNIT_SPELLCAST_CHANNEL_STOP" then
-                -- Resume only when the casting gate actually deferred something.
-                -- These fire for every instant cast as well, and walking the
-                -- bags on each would be constant overhead during combat.
+                -- Resume only when the casting gate actually deferred work -- these fire on every instant cast too, and walking bags each time would be constant overhead.
                 if _missedScan and not _openBusy then
                     _missedScan = false
                     C_Timer.After(0.1, function() ScanAndOpen(false, false) end)
                 end
                 return
             end
+            if event == "BANKFRAME_CLOSED" then
+                -- Legacy path like MAIL_CLOSED below; the interaction-manager
+                -- HIDE below is the live driver on retail.
+                C_Timer.After(0.5, function() ScanAndOpen(false, false, true) end)
+                return
+            end
             if event == "MAIL_CLOSED" then
-                -- Legacy path: no longer fires on retail (see the registration
-                -- comment), kept for older clients where it still does.
-                C_Timer.After(0.5, function() ScanAndOpen(false, true) end)
+                -- Legacy, doesn't fire on retail (kept for older clients).
+                C_Timer.After(0.5, function() ScanAndOpen(false, true, false) end)
                 return
             end
             if event == "PLAYER_INTERACTION_MANAGER_FRAME_HIDE" then
                 if interactionType == Enum.PlayerInteractionType.MailInfo then
-                    -- The event that actually fires on retail. Mail's own item
-                    -- delivery can still be landing and unlocking slots for a
-                    -- moment after the frame closes -- the exact race that
-                    -- strands a slot -- so settle first, same as LOOT_CLOSED.
-                    C_Timer.After(0.5, function() ScanAndOpen(false, true) end)
+                    -- The event that actually fires on retail; mail's own delivery can still unlock slots just after close, so settle first like LOOT_CLOSED.
+                    C_Timer.After(0.5, function() ScanAndOpen(false, true, false) end)
+                elseif interactionType == Enum.PlayerInteractionType.Banker
+                    or interactionType == Enum.PlayerInteractionType.AccountBanker then
+                    -- AccountBanker: the warband bank signals its own type, and
+                    -- BankOpen() gates both (same BankFrame).
+                    C_Timer.After(0.5, function() ScanAndOpen(false, false, true) end)
                 end
                 return
             end
-            -- MERCHANT_CLOSED: the interaction is over but the frame may not
-            -- have hidden yet -- skip the entry gate (see ScanAndOpen note)
-            -- instead of settling on a timer.
+            -- MERCHANT_CLOSED: interaction's over but the frame may not have hidden yet, so skip the entry gate instead of a timer.
             ScanAndOpen(event == "MERCHANT_CLOSED")
         end)
     end
@@ -683,8 +609,7 @@ qolFrame:SetScript("OnEvent", function(self)
 
         local function ApplyScreenshotStatus()
             -- ActionStatus is lazy-created by Blizzard on the first screenshot
-            -- event, so it may not exist yet. The ssFrame below catches the
-            -- events and hides it immediately after Blizzard shows it.
+            -- event; ssFrame below hides it right after Blizzard shows it.
         end
 
         EllesmereUI._applyScreenshotStatus = ApplyScreenshotStatus
@@ -707,14 +632,13 @@ qolFrame:SetScript("OnEvent", function(self)
         local trainBtn = nil
         local hooked = false
 
-        -- How many primary profession slots are still free?
         local function FreeProfessionSlots()
             if not GetProfessions then return 2 end
             local a, b = GetProfessions()
             return 2 - (a and 1 or 0) - (b and 1 or 0)
         end
 
-        -- Can skill at index i be purchased given current funds/slots?
+        -- Purchasable given current funds/slots? Returns ok, cost, takesProfSlot.
         local function SkillIsAffordable(i, wallet, freeSlots)
             if not GetTrainerServiceInfo or not GetTrainerServiceCost then return false, 0, false end
             local _, kind = GetTrainerServiceInfo(i)
@@ -726,7 +650,6 @@ qolFrame:SetScript("OnEvent", function(self)
             return true, cost, takesProfSlot
         end
 
-        -- Return total count and total gold cost of everything trainable right now
         local function TrainableSummary()
             if not GetNumTrainerServices then return 0, 0 end
             local n, gold = 0, 0
@@ -763,9 +686,8 @@ qolFrame:SetScript("OnEvent", function(self)
             trainBtn:SetScript("OnClick", function()
                 local wallet = GetMoney and GetMoney() or 0
                 local slots  = FreeProfessionSlots()
-                -- Descending: if a purchase removes its entry and reindexes
-                -- the list, only higher (already visited) indices shift, so
-                -- no still-trainable skill is skipped.
+                -- Descending: a purchase reindexes the list, so only already-
+                -- visited (higher) indices shift and no skill is skipped.
                 for i = GetNumTrainerServices(), 1, -1 do
                     local ok, cost, takesProfSlot = SkillIsAffordable(i, wallet, slots)
                     if ok then
@@ -840,10 +762,9 @@ qolFrame:SetScript("OnEvent", function(self)
     ---------------------------------------------------------------------------
     --  Auto Sell Junk + Auto Repair
     ---------------------------------------------------------------------------
-    -- Auto-repair cost string. Coin icons (opt-in via the Auto Repair cog) use
-    -- the game's own localized coin textures; the default short text builds
-    -- "12o 34a" from localized suffixes (EllesmereUI.L translates g/s -> o/a in
-    -- frFR; copper "c" falls through untranslated).
+    -- Coin icons (opt-in via the Auto Repair cog) use the game's localized coin
+    -- textures; default short text builds "12o 34a" from localized suffixes
+    -- (L translates g/s -> o/a in frFR; copper "c" is untranslated).
     local function RepairCostString(cost)
         if EllesmereUIDB and EllesmereUIDB.repairCoinIcons then
             return C_CurrencyInfo.GetCoinTextureString(cost)
@@ -859,22 +780,16 @@ qolFrame:SetScript("OnEvent", function(self)
         return out
     end
 
-    -- Junk sweep. C_MerchantFrame.SellAllJunkItems() is fire-and-forget: the
-    -- server drops sell requests past its rate limit, and slots whose item data
-    -- has not been cached yet at MERCHANT_SHOW are skipped entirely, so a single
-    -- call routinely strands grays in the bags. Re-count after each pass and
-    -- fire again while the number is still falling.
-    -- MERCHANT_SHOW/MERCHANT_CLOSED, not MerchantFrame:IsShown(): the vendor
-    -- interaction is what allows selling, and at MERCHANT_SHOW the frame may not
-    -- have been shown yet depending on handler order.
+    -- Junk sweep. SellAllJunkItems() is fire-and-forget: the server drops sell
+    -- requests past its rate limit, and uncached item data at MERCHANT_SHOW is
+    -- skipped, so one call routinely strands grays -- re-count after each pass and
+    -- fire again while still falling. Gated on MERCHANT_SHOW/CLOSED, not
+    -- MerchantFrame:IsShown(): the interaction (not the frame) allows selling, and the frame may not be shown yet at MERCHANT_SHOW.
     local merchantOpen = false
     local SellJunk, StopJunkSweep
     do
-        -- Self-rescheduling timer rather than a ticker, so a stalled pass can
-        -- back the delay off. A fixed retry rate is the wrong tool against the
-        -- very rate limiter this works around: if the limiter is what ate a
-        -- pass, retrying at the same cadence is what it keeps eating, and the
-        -- sweep would give up on items that were perfectly sellable.
+        -- Self-rescheduling timer, not a ticker: a fixed retry cadence against the
+        -- same limiter that ate the pass just gets eaten again, so the delay backs off instead.
         local BASE_DELAY  = 0.4
         local MAX_DELAY   = 1.6
         local MAX_PASSES  = 12
@@ -907,9 +822,7 @@ qolFrame:SetScript("OnEvent", function(self)
             pending = C_Timer.NewTimer(delay, Pass)
         end
 
-        -- Verify-and-report, no selling. Used by the pass-cap exit: the sell that
-        -- pass fired is still in flight, so the count it saw cannot say whether
-        -- anything was actually stranded. Re-count once the server has answered.
+        -- Verify-and-report, no selling: the pass-cap exit's sell is still in flight, so only a re-count after the server answers says what stranded.
         local function Report()
             pending = nil
             if not merchantOpen then return end
@@ -931,17 +844,12 @@ qolFrame:SetScript("OnEvent", function(self)
 
             passes = passes + 1
             if junk > lastCount then
-                -- Count ROSE: slots whose data had not cached yet resolved into
-                -- newly visible junk. That is the case this sweep exists for, so
-                -- it is discovery, not a stall -- treating it as one would bail
-                -- out precisely when there is more work to do.
+                -- Count ROSE: uncached slots resolved into newly visible junk --
+                -- discovery, not a stall (the case this sweep exists for).
                 stalls, delay = 0, BASE_DELAY
             elseif junk == lastCount then
-                -- Nothing shifted. Could be genuinely unsellable (still-refundable
-                -- purchases open a confirm popup instead of selling), or the rate
-                -- limiter dropping the request. Those are indistinguishable from
-                -- here, so back off and give the limiter room before concluding
-                -- the remainder cannot be sold.
+                -- Nothing shifted: either unsellable (refundable purchases open a
+                -- confirm popup) or the limiter dropped the request -- indistinguishable, so back off before giving up.
                 stalls = stalls + 1
                 delay = math.min(delay * 2, MAX_DELAY)
                 if stalls >= MAX_STALLS then
@@ -957,14 +865,10 @@ qolFrame:SetScript("OnEvent", function(self)
             end
 
             lastCount = junk
-            -- Only worth a server round trip when there is something to sell;
-            -- a junk-free pass here is just waiting on item data to cache.
+            -- Only round-trip when there's something to sell; junk-free is just waiting on item data to cache.
             if junk > 0 then C_MerchantFrame.SellAllJunkItems() end
             if passes >= MAX_PASSES then
-                -- Pass cap hit while the count was still moving, so the sweep is
-                -- giving up mid-progress. Bailing silently here is the exact
-                -- failure this sweep exists to fix (grays left in the bags with
-                -- nothing said), so hand off to one verification pass instead.
+                -- Cap hit while still moving; bailing silently is the exact failure this sweep fixes, so hand off one verification pass.
                 pending = C_Timer.NewTimer(delay, Report)
                 return
             end
@@ -976,35 +880,22 @@ qolFrame:SetScript("OnEvent", function(self)
             StopJunkSweep()
             passes, lastCount, stalls, warned = 0, math.huge, 0, false
             delay = BASE_DELAY
-            -- Pass reschedules itself only when there is more to do, so the
-            -- common case (walking up to a vendor with no grays) costs exactly
-            -- one bag scan and never arms a timer at all.
+            -- Pass reschedules itself only when there's more to do, so a no-gray visit costs one bag scan and arms no timer.
             Pass()
         end
     end
 
-    -- Auto-repair result watcher. Three things here are not inferable from the
-    -- code:
-    --   * RepairAllItems(true) never fails for want of guild funds -- the server
-    --     pays whatever the guild allowance still covers and silently charges
-    --     the player the rest, so "nothing left to repair" says nothing about
-    --     who paid.
-    --   * The guild's usable funds are readable (GuildRepairFunds below), but
-    --     GetGuildBankMoney() reads 0 until the player opens a guild bank this
-    --     session, so the figure cannot be trusted on its own -- it serves as a
-    --     ceiling on the deduced share, never as the source of it.
-    --   * Hence the guild share is deduced from the player's ledger, and only
-    --     outgoing amounts are summed, so a credit arriving in its own
-    --     PLAYER_MONEY cannot cancel the repair debit and invent a guild share.
-    --     A credit sharing one event with the debit still nets off, which is why
-    --     the caller holds the junk sweep back until the debit has landed: a
-    --     sale that was never sent has nothing to net against.
+    -- Auto-repair result watcher. RepairAllItems(true) never fails for lack of guild
+    -- funds -- the server pays what the allowance covers and silently charges the
+    -- player the rest, so success alone doesn't say who paid. GetGuildBankMoney()
+    -- (GuildRepairFunds) reads 0 until a guild bank opens this session, so it's a
+    -- ceiling only. Share is deduced from the player's ledger (outgoing sums only),
+    -- immune to an incoming credit except one sharing the SAME PLAYER_MONEY event (nets off) -- hence the caller holds the junk sweep until the debit lands.
     local repairWatcher, repairWatchLast, repairWatchOut
     local repairWatchGen = 0
     local repairWatchSweep  -- junk sweep on hold; see ReleaseJunkSweep
 
-    -- Mirrors the arithmetic behind Blizzard's own guild-repair tooltip: today's
-    -- remaining allowance, bounded by the balance; -1 means an unlimited rank.
+    -- Mirrors Blizzard's guild-repair tooltip: today's remaining allowance, bounded by balance; -1 means an unlimited rank.
     local function GuildRepairFunds()
         local allowance = GetGuildBankWithdrawMoney()
         local balance = GetGuildBankMoney()
@@ -1012,8 +903,7 @@ qolFrame:SetScript("OnEvent", function(self)
         return allowance
     end
 
-    -- Total, then the guild's share -- spelled out only on a split bill, since a
-    -- wholly guild-funded one is unambiguous from the suffix alone.
+    -- Total, then guild's share; spelled out only on a split bill since a wholly guild-funded one is unambiguous from the suffix alone.
     local function ReportRepairOutcome(guildPart, ownPart)
         local line = EllesmereUI.Lf("Repaired all items for %s", RepairCostString(guildPart + ownPart))
         if guildPart > 0 then
@@ -1027,19 +917,16 @@ qolFrame:SetScript("OnEvent", function(self)
         EllesmereUI.Print("|cff0CD29DEllesmereUI:|r |cffff6060" .. EllesmereUI.L("Not enough gold to repair.") .. "|r")
     end
 
-    -- Lets the held-back junk sweep go. Idempotent: whichever of the debit or the
-    -- settle timer gets here first is the one that starts it.
+    -- Releases the held-back junk sweep. Idempotent: debit or settle timer, whichever arrives first, starts it.
     local function ReleaseJunkSweep()
         local sweep = repairWatchSweep
         repairWatchSweep = nil
         if sweep then sweep() end
     end
 
-    -- Settling a remainder can outlive the watch, so it gets its own waiter
-    -- rather than a verdict at the half-second mark: the junk sweep the watch
-    -- held back is often exactly what pays for the rest, and at settle time its
-    -- first sale has barely landed. Ends on the first of -- enough gold, the
-    -- merchant closing, or the deadline -- and only then is the player broke.
+    -- A remainder can outlive the watch, so it gets its own waiter instead of a
+    -- verdict at the half-second mark: the held-back junk sweep often pays the rest,
+    -- its first sale barely landed by then. Ends on enough gold, merchant close, or deadline (only then is broke declared).
     local TOPUP_WINDOW = 8  -- outlasts a full junk sweep (12 passes backing off to 1.6s)
     local repairTopUp, repairTopUpGen = nil, 0
 
@@ -1062,14 +949,12 @@ qolFrame:SetScript("OnEvent", function(self)
         local function Finish(afford)
             settled = true
             CancelRepairTopUp()
-            -- Giving up is not the same as being broke: the merchant walking away
-            -- with the gold still in the player's pocket is nobody's fault.
+            -- Giving up isn't the same as being broke: gold still in pocket is nobody's fault.
             if not afford then
                 if GetMoney() < remainCost then ReportRepairBroke() end
                 return
             end
-            -- Re-read rather than trust the figure this waiter was armed with:
-            -- seconds have passed, and the player may have repaired by hand.
+            -- Re-read: seconds have passed, player may have repaired by hand, so the armed figure can't be trusted.
             local nowCost, stillNeed = GetRepairAllCost()
             if not (stillNeed and nowCost > 0) then return end
             RepairAllItems(false)
@@ -1079,7 +964,7 @@ qolFrame:SetScript("OnEvent", function(self)
         local function Poll(_, event)
             if settled or gen ~= repairTopUpGen then return end
             -- MERCHANT_CLOSED rather than merchantOpen: two frames listening for
-            -- the same event have no defined order, so the flag may not be down yet.
+            -- the same event have no defined order, so the flag may not be down yet
             if event == "MERCHANT_CLOSED" or not CanMerchantRepair() then return Finish(false) end
             if GetMoney() >= remainCost then return Finish(true) end
         end
@@ -1100,29 +985,25 @@ qolFrame:SetScript("OnEvent", function(self)
         local spent = repairWatchLast - now
         if spent > 0 then
             repairWatchOut = repairWatchOut + spent
-            -- The debit has landed and is booked, so nothing arriving later can
-            -- net against it. Holding the sweep past this point buys nothing and
-            -- costs the whole sale on a vendor visit that ends within the window.
+            -- The debit is booked, so nothing later can net against it; holding
+            -- the sweep longer only risks losing the sale on a visit that ends within the window.
             ReleaseJunkSweep()
         end
         repairWatchLast = now
     end
 
-    -- One timer settles everything. Resolving early on a big enough deduction
-    -- would misread an unrelated purchase in the same window as the player
-    -- having paid the whole bill, and MERCHANT_CLOSED would settle before a
-    -- deduction still in flight had landed.
-    -- sweep is the junk sweep this watch is holding back; it is released on the
-    -- repair debit, or here at the latest. A watch superseded by a new merchant
-    -- never gets that far, which is correct: that merchant holds its own.
+    -- One timer settles everything: resolving early on a big-enough deduction would
+    -- misread an unrelated purchase as paying the whole bill, and MERCHANT_CLOSED
+    -- could fire before an in-flight deduction lands. sweep is the junk sweep this
+    -- watch holds back, released on the debit or here at the latest; a watch
+    -- superseded by a new merchant never gets this far, which is correct (that merchant holds its own).
     local function StartRepairWatch(cost, moneyBefore, guildFunds, sweep)
         if not repairWatcher then
             repairWatcher = CreateFrame("Frame", "EUI_RepairWatcher", UIParent)
             repairWatcher:SetScript("OnEvent", OnRepairWatchEvent)
         end
 
-        -- The bump is the whole cancellation mechanism: a timeout still pending
-        -- from a previous merchant sees a stale gen and dies.
+        -- The bump IS the cancellation: a timeout still pending from a previous merchant sees a stale gen and dies.
         repairWatchGen = repairWatchGen + 1
         repairWatchLast = moneyBefore
         repairWatchOut = 0
@@ -1142,10 +1023,9 @@ qolFrame:SetScript("OnEvent", function(self)
             if own > paid then own = paid end
             local guildPart = paid - own
 
-            -- Backstop for a credit that did share an event with the debit: the
-            -- pre-repair funds cap the deduced share back. Weak on its own -- an
-            -- empty or unread bank is 0 and skips the cap, which is exactly the
-            -- guild-is-broke case -- so it only ever tightens, never decides.
+            -- Backstop for a credit sharing an event with the debit: pre-repair
+            -- funds cap the deduced share. Weak alone (unread/empty bank reads 0 --
+            -- exactly the guild-is-broke case), so it only ever tightens, never decides.
             if guildFunds > 0 and guildPart > guildFunds then
                 guildPart = guildFunds
                 own = paid - guildPart
@@ -1153,8 +1033,7 @@ qolFrame:SetScript("OnEvent", function(self)
 
             if paid > 0 then ReportRepairOutcome(guildPart, own) end
 
-            -- Release before handing the remainder over: the funds can run dry
-            -- mid-bill, and the sweep's income is what the top-up waits for.
+            -- Release before handing the remainder over: funds can run dry mid-bill and the sweep's income is what the top-up waits for.
             ReleaseJunkSweep()
             if remainCost > 0 then StartRepairTopUp(remainCost) end
         end)
@@ -1173,20 +1052,15 @@ qolFrame:SetScript("OnEvent", function(self)
 
         local sweep = (EllesmereUIDB.autoSellJunk ~= false) and SellJunk or nil
 
-        -- Auto repair goes first, and on the guild path the junk sweep is handed
-        -- to the watcher instead of started here: the sweep sells from
-        -- MERCHANT_SHOW onwards, and sale income landing in the same
-        -- PLAYER_MONEY as the repair debit nets against it, leaving the watcher
-        -- to credit the whole bill to the guild bank. The hold lasts only until
-        -- that debit lands (half a second at the outside), which is all it takes
-        -- to buy an unambiguous ledger.
+        -- Auto repair goes first; on the guild path the junk sweep is handed to
+        -- the watcher instead of started here, since sale income sharing a
+        -- PLAYER_MONEY event with the debit would net against it and credit the
+        -- whole bill to the guild bank. Held back only until the debit lands.
         if EllesmereUIDB.autoRepair ~= false and CanMerchantRepair() then
             local cost, canRepair = GetRepairAllCost()
             if canRepair and cost > 0 then
-                -- No affordability test on purpose: Blizzard's own guild repair
-                -- button just calls RepairAllItems(true) and lets the server
-                -- split the bill. Gating on "the guild covers it all" threw that
-                -- split away and billed the player the lot.
+                -- No affordability test on purpose: Blizzard's own button just calls
+                -- RepairAllItems(true) and lets the server split the bill -- gating on "guild covers it all" would bill the player the lot.
                 local useGuild = (EllesmereUIDB.autoRepairGuild ~= false)
                     and IsInGuild()
                     and CanGuildBankRepair()
@@ -1194,12 +1068,10 @@ qolFrame:SetScript("OnEvent", function(self)
                 if not useGuild and GetMoney() < cost then
                     ReportRepairBroke()  -- nothing was spent, so nothing to watch
                 elseif useGuild then
-                    -- Both readings must predate the repair, and neither is of
-                    -- any use unless the guild bank is in play.
+                    -- Both readings must predate the repair; only matter when the guild bank is in play.
                     local moneyBefore, guildFunds = GetMoney(), GuildRepairFunds()
                     RepairAllItems(true)
-                    -- Reports once the real payer is known; the sweep rides along
-                    -- and is let go the moment the ledger is safe.
+                    -- Reports once the real payer is known; the sweep rides along, let go the moment the ledger is safe.
                     StartRepairWatch(cost, moneyBefore, guildFunds, sweep)
                     return
                 else
@@ -1213,9 +1085,8 @@ qolFrame:SetScript("OnEvent", function(self)
     end)
 
     ---------------------------------------------------------------------------
-    --  Quick Loot
-    --  Frame is created lazily on first enable; LOOT_READY registers and
-    --  unregisters with the toggle so it applies live and costs zero when off.
+    --  Quick Loot -- frame created lazily on first enable; LOOT_READY
+    --  registers/unregisters with the toggle so it applies live and costs zero when off.
     ---------------------------------------------------------------------------
     do
         local lootFrame
@@ -1268,10 +1139,9 @@ qolFrame:SetScript("OnEvent", function(self)
         local cinHooked = false
         local autoSkipArmed = false
 
-        -- Canceling an in-game scene is hardware-gated: CancelScene() from an
-        -- event handler is blocked, but the same call while processing a key
-        -- press is allowed. Auto skip arms a one-shot cancel that the key
-        -- hooks consume on the first key press during the cutscene.
+        -- CancelScene() is hardware-gated: blocked from an event handler but
+        -- allowed while processing a key press, so auto skip arms a one-shot
+        -- cancel the key hooks consume on the cutscene's first keypress.
         local function ConsumeArmedSkip()
             if not autoSkipArmed then return end
             if not (EllesmereUIDB and EllesmereUIDB.skipCinematicsAuto) then return end
@@ -1404,11 +1274,9 @@ qolFrame:SetScript("OnEvent", function(self)
         local installed = false   -- hooks are installed ONCE, on first enable
         local roleFrame           -- classic role-check listener (created on install)
 
-        -- Hooks/listeners are installed only when Quick Signup is turned on, so
-        -- nothing touches the LFG execution path unless the feature is in use.
-        -- hooksecurefunc/HookScript can't be undone, so the bodies keep their
-        -- setting guard for the toggle-off-after-enable case; the role-check
-        -- event is registered/unregistered live for true zero cost when off.
+        -- Hooks install only on enable, so nothing touches LFG unless in use.
+        -- hooksecurefunc/HookScript can't be undone, so bodies keep a setting
+        -- guard for toggle-off; the role-check event alone registers/unregisters live for true zero cost when off.
         local function InstallQuickSignupHooks()
             if installed then return end
             installed = true
@@ -1436,8 +1304,7 @@ qolFrame:SetScript("OnEvent", function(self)
                 end
             end)
 
-            -- Auto-accept role check for Quick Signup. Holding Shift skips the
-            -- auto-accept so the dialog stays open (e.g. to type a signup note).
+            -- Auto-accept role check; Holding Shift skips it so the dialog stays open (e.g. to type a signup note).
             if LFGListApplicationDialog then
                 LFGListApplicationDialog:HookScript("OnShow", function(self)
                     if not (EllesmereUIDB and EllesmereUIDB.quickSignup) then return end
@@ -1447,7 +1314,7 @@ qolFrame:SetScript("OnEvent", function(self)
                 end)
             end
 
-            -- Classic Dungeon Finder role check for Quick Signup
+            -- Classic Dungeon Finder role check
             roleFrame = CreateFrame("Frame")
             roleFrame:SetScript("OnEvent", function()
                 if not (EllesmereUIDB and EllesmereUIDB.quickSignup) then return end
@@ -1469,8 +1336,7 @@ qolFrame:SetScript("OnEvent", function(self)
             end)
         end
 
-        -- Called at load and from the options toggle. Installs the hooks on
-        -- first enable; toggles the role-check event registration to match.
+        -- Called at load and from the options toggle: installs hooks on first enable and matches role-check event registration.
         EllesmereUI._applyQuickSignup = function()
             local on = EllesmereUIDB and EllesmereUIDB.quickSignup
             if on then InstallQuickSignupHooks() end
@@ -1496,13 +1362,10 @@ qolFrame:SetScript("OnEvent", function(self)
         local function PatchedShow(self, resultID)
             if resultID then
                 self.resultID = resultID
-                -- In Midnight the apply-phase search result is SECRET: activityID
-                -- can be a secret value and activityIDs is a secret table whose
-                -- indexing throws. Guard every read so we degrade to a nil
-                -- activityID rather than erroring out the whole sign-up dialog.
+                -- Apply-phase search result is SECRET: activityID can be secret and
+                -- activityIDs a secret table whose indexing throws. Guard every read; degrade to nil rather than erroring the dialog.
                 pcall(function()
-                    -- Degrade to nil up-front so a mid-read throw cannot leave a
-                    -- stale activityID from a previous dialog open.
+                    -- Cleared up-front so a mid-read throw can't leave a stale activityID from a previous dialog open.
                     self.activityID = nil
                     local info = C_LFGList.GetSearchResultInfo(resultID)
                     if type(info) ~= "table" then return end
@@ -1538,15 +1401,13 @@ qolFrame:SetScript("OnEvent", function(self)
     end
 
     ---------------------------------------------------------------------------
-    --  Hide Blizzard Party / Raid Manager frame
-    --  Implementation moved to the parent (EllesmereUI_BlizzardParty.lua) so the
-    --  Raid Frames module shares the exact same logic + saved setting. The QoL
-    --  options toggle still drives it via EllesmereUI._applyHideBlizzardPartyFrame.
+    --  Hide Blizzard Party / Raid Manager frame -- implemented in the parent
+    --  (EllesmereUI_BlizzardParty.lua) so Raid Frames shares the same logic +
+    --  saved setting; QoL toggle drives it via EllesmereUI._applyHideBlizzardPartyFrame.
     ---------------------------------------------------------------------------
 
     ---------------------------------------------------------------------------
-    --  Hide Talking Head Frame
-    --  The big NPC dialogue rectangle that pops up during quests/dungeons.
+    --  Hide Talking Head Frame (the NPC dialogue rectangle during quests/dungeons)
     ---------------------------------------------------------------------------
     do
         local function HookTalkingHead()
@@ -1575,17 +1436,13 @@ qolFrame:SetScript("OnEvent", function(self)
     end
 
     ---------------------------------------------------------------------------
-    --  Instance Reset Announce
-    --  After a successful /reset, posts a message to instance chat so the
-    --  whole group knows the instance is ready to re-enter.
+    --  Instance Reset Announce -- after a successful /reset, posts to instance
+    --  chat so the group knows it's ready to re-enter.
     ---------------------------------------------------------------------------
     do
-        -- Capture the player name once at login; used in the chat message.
         local playerName = UnitName("player") or "Unknown"
 
-        -- We detect a successful reset by watching CHAT_MSG_SYSTEM for the
-        -- Blizzard confirmation string.  The exact string varies by locale so
-        -- we match the most common substrings used across all WoW clients.
+        -- Success detected from Blizzard's CHAT_MSG_SYSTEM confirmation; the string varies by locale, so match common substrings across clients.
         local RESET_PATTERNS = {
             "has been reset",           -- enUS / enGB
             "wurde zur",                -- deDE (zurückgesetzt)
@@ -1631,9 +1488,7 @@ qolFrame:SetScript("OnEvent", function(self)
         resetAnnounceFrame:SetScript("OnEvent", function(self, event, msg)
             if not (EllesmereUIDB and EllesmereUIDB.instanceResetAnnounce) then return end
 
-            -- Only announce if we are inside an instance group.
-            -- IsInGroup(LE_PARTY_CATEGORY_INSTANCE) covers both party and raid
-            -- inside an instance; fall back to IsInGroup() for older API.
+            -- Instance group only: LE_PARTY_CATEGORY_INSTANCE covers party/raid; IsInGroup() is the older-API fallback.
             local inInstanceGroup = (IsInGroup and LE_PARTY_CATEGORY_INSTANCE and
                                      IsInGroup(LE_PARTY_CATEGORY_INSTANCE))
                                  or (IsInGroup and IsInGroup())
@@ -1664,8 +1519,7 @@ qolFrame:SetScript("OnEvent", function(self)
             end
         end)
 
-        -- CHAT_MSG_SYSTEM fires for all system chat, so it is registered only
-        -- while the option is on (options toggle re-applies live).
+        -- CHAT_MSG_SYSTEM fires for all system chat, so registered only while on (toggle re-applies live).
         EllesmereUI._applyInstanceResetAnnounce = function()
             if EllesmereUIDB and EllesmereUIDB.instanceResetAnnounce then
                 resetAnnounceFrame:RegisterEvent("CHAT_MSG_SYSTEM")
@@ -1677,9 +1531,8 @@ qolFrame:SetScript("OnEvent", function(self)
     end
 
     ---------------------------------------------------------------------------
-    --  24-Hour Clock Fix (Blizzard bug: CVar resets to 12h on every login)
-    --  We save the user's preference when they toggle the checkbox, then
-    --  restore it on login if Blizzard's bug reset it.
+    --  24-Hour Clock Fix -- Blizzard's timeMgrUseMilitaryTime CVar resets to 12h
+    --  on every login; save the user's choice on toggle, restore it on login.
     ---------------------------------------------------------------------------
     do
         local saved = EllesmereUIDB and EllesmereUIDB.clockFormat24h
@@ -1697,7 +1550,7 @@ qolFrame:SetScript("OnEvent", function(self)
                 end
             end)
         end
-        -- Track: hook the checkbox so we remember whenever the user changes it
+        -- Track: hook the checkbox to remember user changes
         local function HookClockCheckbox()
             local cb = TimeManagerMilitaryTimeCheck
             if not cb then return end
@@ -1805,34 +1658,92 @@ do
     local statsFrame, statsText
     local format = string.format
 
+    -- Single-string layout: one FontString, "Label:  value" per row. The
+    -- two-column split (separate right-justified values FontString) was
+    -- reverted -- per-column sizing/anchor interplay caused more issues
+    -- than the aligned numbers were worth.
+    local ROW_GAP = 3    -- extra pixels between rows (SetSpacing)
+
+    -- Per-stat label colors, used when no custom color is picked in options.
+    -- One hue per secondary so the rows scan at a glance; tertiaries share a
+    -- single distinct hue so the block reads as its own group.
+    local STAT_HEX = {
+        crit    = "ffd100",   -- gold
+        haste   = "2ecc71",   -- green
+        mastery = "55aaff",   -- blue
+        vers    = "c77dff",   -- violet
+    }
+    -- Tertiaries keep the original default: the player's class color.
+
     -- Secret-safe percent text: stat getters can return secret numbers in
-    -- restricted content, and string.format errors on a secret value.
+    -- restricted content, and string.format errors on a secret value. A secret
+    -- cannot be RENDERED either (the engine text sink draws secret numbers as
+    -- 0.0), so "?" is the floor while restricted -- recovery below is what
+    -- keeps it from sticking.
+    local statUnreadable = false
     local function PctText(v)
-        if v == nil or issecretvalue(v) then return "?" end
+        if v == nil or issecretvalue(v) then
+            statUnreadable = true
+            return "?"
+        end
         return format("%.2f%%", v)
     end
 
-    local function UpdateSecondaryStats()
+    -- Load-in settle heal: the login/zone-in restriction window can outlast the
+    -- first paint AND every stat event (stats then read "?" until gear swaps).
+    -- Combat-scoped secrecy has a real edge (PLAYER_REGEN_ENABLED, registered
+    -- below); the login settle has NO event, so a paint that saw a secret arms
+    -- ONE bounded retry chain -- never a loop against persistent secrecy: the
+    -- budget stops it, and a clean paint resets it.
+    local _healPending = false
+    local UpdateSecondaryStats
+
+    local function ArmSecretHeal()
+        if _healPending then return end
+        local tries = statsFrame._secretHeals or 0
+        if tries >= 5 then return end
+        statsFrame._secretHeals = tries + 1
+        _healPending = true
+        C_Timer.After(2, function()
+            _healPending = false
+            UpdateSecondaryStats()
+        end)
+    end
+
+    function UpdateSecondaryStats()
         if not statsFrame or not statsFrame:IsShown() then return end
+        statUnreadable = false
         if not statsFrame._classHex then
+            -- Cache ONLY a resolved class color: caching the white fallback
+            -- here left class-colored labels white for the whole session
+            -- when the first paint beat the color system (login timing) --
+            -- invisible against bright scenes. Unresolved = retry next
+            -- update, white per-use below. issecretvalue FIRST: UnitClass
+            -- returns a secret in restricted content and truthiness on it
+            -- throws (a /reload inside an instance killed every update).
             local _, cls = UnitClass("player")
+            if issecretvalue(cls) then cls = nil end
             local cc = cls and EllesmereUI.GetClassColor(cls)
             if cc then
-                statsFrame._classR, statsFrame._classG, statsFrame._classB = cc.r, cc.g, cc.b
-                statsFrame._classHex = format("%02x%02x%02x", cc.r * 255, cc.g * 255, cc.b * 255)
-            else
-                statsFrame._classR, statsFrame._classG, statsFrame._classB = 1, 1, 1
-                statsFrame._classHex = "ffffff"
+                statsFrame._classHex = format("%02x%02x%02x",
+                    cc.r * 255, cc.g * 255, cc.b * 255)
             end
         end
+        -- Label color mode: "palette" (multicolored, one hue per stat),
+        -- "class" (default), or "custom". No mode saved: a stored custom
+        -- color means the user was using it, so custom wins; otherwise class
+        -- color, the pre-mode default look.
         local c = EllesmereUI.QoLExtrasGet("secondaryStatsColor")
-        local cr, cg, cb
-        if c then
-            cr, cg, cb = c.r, c.g, c.b
-        else
-            cr, cg, cb = statsFrame._classR, statsFrame._classG, statsFrame._classB
+        local mode = EllesmereUI.QoLExtrasGet("secondaryStatsColorMode")
+            or (c and "custom" or "class")
+        local customHex
+        if mode == "custom" and c then
+            customHex = format("%02x%02x%02x", c.r * 255, c.g * 255, c.b * 255)
+        elseif mode == "class" then
+            -- Per-use white fallback while the class color is still
+            -- resolving; never cached, so the real color takes over.
+            customHex = statsFrame._classHex or "ffffff"
         end
-        local labelHex = c and format("%02x%02x%02x", cr * 255, cg * 255, cb * 255) or statsFrame._classHex
 
         local crit = GetCritChance("player")
         local haste = UnitSpellHaste("player")
@@ -1847,33 +1758,44 @@ do
             vers = versRating + versBase
         end
 
-        local txt =
-            format("|cff%s%s:|r  |cffffffff%s|r", labelHex, EllesmereUI.L("Crit"), PctText(crit)) .. "\n" ..
-            format("|cff%s%s:|r  |cffffffff%s|r", labelHex, EllesmereUI.L("Haste"), PctText(haste)) .. "\n" ..
-            format("|cff%s%s:|r  |cffffffff%s|r", labelHex, EllesmereUI.L("Mastery"), PctText(mastery)) .. "\n" ..
-            format("|cff%s%s:|r  |cffffffff%s|r", labelHex, EllesmereUI.L("Vers"), PctText(vers))
+        local rows = {}
+        -- Values are white unless Colored Percentages is on, which colors
+        -- each value with its row so the stat reads as one piece.
+        local coloredPct = EllesmereUI.QoLExtrasGet("coloredPercentages")
+        local function Row(hex, label, value)
+            rows[#rows + 1] = format("|cff%s%s:|r  |cff%s%s|r",
+                hex, label, coloredPct and hex or "ffffff", value)
+        end
+        Row(customHex or STAT_HEX.crit,    EllesmereUI.L("Crit"),    PctText(crit))
+        Row(customHex or STAT_HEX.haste,   EllesmereUI.L("Haste"),   PctText(haste))
+        Row(customHex or STAT_HEX.mastery, EllesmereUI.L("Mastery"), PctText(mastery))
+        Row(customHex or STAT_HEX.vers,    EllesmereUI.L("Vers"),    PctText(vers))
 
         if EllesmereUI.QoLExtrasGet("showTertiaryStats") then
             local tc = EllesmereUI.QoLExtrasGet("tertiaryStatsColor")
-            local tr, tg, tb
-            if tc then
-                tr, tg, tb = tc.r, tc.g, tc.b
-            else
-                tr, tg, tb = statsFrame._classR, statsFrame._classG, statsFrame._classB
-            end
-            local tertHex = tc and format("%02x%02x%02x", tr * 255, tg * 255, tb * 255) or statsFrame._classHex
+            local tmode = EllesmereUI.QoLExtrasGet("tertiaryStatsColorMode")
+                or (tc and "custom" or "class")
+            local tertHex = (tmode == "custom" and tc)
+                and format("%02x%02x%02x", tc.r * 255, tc.g * 255, tc.b * 255)
+                or statsFrame._classHex or "ffffff"
 
             local leech = GetLifesteal()
             local avoidance = GetAvoidance()
             local speed = GetSpeed()
-            txt = txt .. "\n" ..
-                format("|cff%s%s:|r  |cffffffff%s|r", tertHex, EllesmereUI.L("Leech"), PctText(leech)) .. "\n" ..
-                format("|cff%s%s:|r  |cffffffff%s|r", tertHex, EllesmereUI.L("Avoidance"), PctText(avoidance)) .. "\n" ..
-                format("|cff%s%s:|r  |cffffffff%s|r", tertHex, EllesmereUI.L("Speed"), PctText(speed))
+            Row(tertHex, EllesmereUI.L("Leech"),     PctText(leech))
+            Row(tertHex, EllesmereUI.L("Avoidance"), PctText(avoidance))
+            Row(tertHex, EllesmereUI.L("Speed"),     PctText(speed))
         end
 
-        statsText:SetText(txt)
-        statsFrame:SetSize(statsText:GetStringWidth() + 2, statsText:GetStringHeight() + 2)
+        statsText:SetText(table.concat(rows, "\n"))
+        statsFrame:SetSize(statsText:GetStringWidth() + 2,
+            statsText:GetStringHeight() + 2)
+
+        if statUnreadable then
+            ArmSecretHeal()
+        else
+            statsFrame._secretHeals = nil
+        end
     end
 
     local function ApplySecondaryStats()
@@ -1898,6 +1820,7 @@ do
             local font = EllesmereUI.ResolveFontName(EllesmereUI.GetFontsDB().global)
             if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(statsText, EllesmereUI.GetFontUseShadow("extras")) end
             statsText:SetFont(font, 12, EllesmereUI.GetFontOutlineFlag("extras"))
+            statsText:SetSpacing(ROW_GAP)
         end
         local pos = EllesmereUI.QoLExtrasGet("secondaryStatsPos")
         local scale = 1.0
@@ -1915,9 +1838,10 @@ do
             local fontSize = math.floor(12 * scale + 0.5)
             if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(statsText, EllesmereUI.GetFontUseShadow("extras")) end
             statsText:SetFont(font, fontSize, EllesmereUI.GetFontOutlineFlag("extras"))
+            -- Row gap scales with the font so the block keeps its rhythm.
+            statsText:SetSpacing(math.floor(ROW_GAP * scale + 0.5))
         end
-        -- Unit-scoped events filter at the engine (player only); in a raid a
-        -- plain RegisterEvent would deliver every member's stat changes.
+        -- Unit-scoped events filter at the engine (player only); a plain RegisterEvent would deliver every raid member's stat changes.
         for _, ev in ipairs({
             "UNIT_STATS", "UNIT_ATTACK_POWER", "UNIT_RANGED_ATTACK_POWER",
             "UNIT_SPELL_HASTE",
@@ -1928,13 +1852,16 @@ do
             "COMBAT_RATING_UPDATE", "PLAYER_EQUIPMENT_CHANGED",
             "MASTERY_UPDATE", "SPELL_POWER_CHANGED", "PLAYER_DAMAGE_DONE_MODS",
             "PLAYER_SPECIALIZATION_CHANGED", "PLAYER_ENTERING_WORLD",
+            -- Combat-scoped stat secrecy has this as its lift edge: a load-in
+            -- straight into a fight paints "?" and no stat event follows, so
+            -- the end of combat is what repaints with readable values.
+            "PLAYER_REGEN_ENABLED",
         }) do
             statsFrame:RegisterEvent(ev)
         end
         local _statsPending = false
-        -- No runtime unit filter needed: the unit events are engine-filtered
-        -- to the player above (the old `unit ~= "player"` check also wrongly
-        -- swallowed PLAYER_EQUIPMENT_CHANGED, whose first arg is a slot id).
+        -- No runtime unit filter: unit events are engine-filtered to player above;
+        -- a `unit ~= "player"` check would wrongly swallow PLAYER_EQUIPMENT_CHANGED, whose first arg is a slot id.
         statsFrame:SetScript("OnEvent", function()
             if _statsPending then return end
             _statsPending = true
@@ -2277,7 +2204,7 @@ do
         local fs = durWarnOverlay:CreateFontString(nil, "OVERLAY")
         fs:SetFont(EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF", 18, EllesmereUI.GetFontOutlineFlag("extras"))
         fs:SetPoint("CENTER")
-        fs:SetText("Low Durability")
+        fs:SetText(EllesmereUI.L("Low Durability"))
         durWarnOverlay._text = fs
 
         local function ApplySettings()
@@ -2319,7 +2246,7 @@ do
 
         durWarnOverlay._show = function(pct)
             ApplySettings()
-            durWarnOverlay._text:SetText("Low Durability (" .. math.floor(pct) .. "%)")
+            durWarnOverlay._text:SetText(EllesmereUI.Lf("Low Durability (%d%%)", math.floor(pct)))
             durWarnOverlay:Show()
             ag:Play()
         end
@@ -2340,7 +2267,7 @@ do
     EllesmereUI._durWarnPreview = function()
         CreateDurabilityWarning()
         durWarnOverlay._show(25)
-        durWarnOverlay._text:SetText("Low Durability (Preview)")
+        durWarnOverlay._text:SetText(EllesmereUI.L("Low Durability (Preview)"))
     end
 
     EllesmereUI._durWarnHidePreview = function()
@@ -2382,9 +2309,7 @@ do
         CheckDurabilityAndShow()
     end)
 
-    -- Events registered only while the warning is enabled; the options toggle
-    -- re-syncs live so re-enabling mid-session works without a reload. On
-    -- enable, one immediate check surfaces an already-low item.
+    -- Events registered only while enabled; toggle re-syncs live, and one immediate check on enable surfaces an already-low item.
     EllesmereUI._syncDurWarnEvents = function()
         if EllesmereUIDB and EllesmereUIDB.repairWarning == false then
             repairWarnFrame:UnregisterAllEvents()
@@ -2453,17 +2378,14 @@ do
         local enemy = db and db.disableRightClickTarget
         local allyCombat = db and db.disableRightClickTargetAllyCombat
         if enemy or allyCombat then
-            -- Build the mouseover condition from the two independent toggles.
-            -- Enemies fire everywhere. Allies only fire while the player is in
-            -- combat (the [combat] conditional), so right clicking friendly NPCs
-            -- such as vendors and quest givers still works out of combat.
+            -- Mouseover condition from the two independent toggles: enemies fire
+            -- everywhere, allies only while in combat ([combat]), so right-clicking vendors/questgivers still works out of combat.
             local macro = ""
             if enemy then macro = macro .. "[@mouseover,harm,nodead]1;" end
             if allyCombat then macro = macro .. "[@mouseover,help,nodead,combat]1;" end
             macro = macro .. "0"
             SecureStateDriverManager:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
-            -- [combat] needs regen events so the state re-evaluates on combat
-            -- enter/exit even when the mouseover unit has not changed.
+            -- [combat] needs regen events so state re-evaluates on combat enter/exit even when the mouseover unit hasn't changed.
             if allyCombat then
                 SecureStateDriverManager:RegisterEvent("PLAYER_REGEN_DISABLED")
                 SecureStateDriverManager:RegisterEvent("PLAYER_REGEN_ENABLED")
@@ -2498,10 +2420,9 @@ end
 do
     local crosshairFrame
 
-    -- Crosshair settings: the account-wide EllesmereUIDB root is the inherited
-    -- global default (preserved, never cleared); the QoL per-profile DB holds
-    -- per-profile settings. Existing users keep their current crosshair until a
-    -- profile overrides it.
+    -- The account-wide EllesmereUIDB root is the inherited global default
+    -- (preserved, never cleared); QoL per-profile DB holds overrides. Existing
+    -- users keep their current crosshair until a profile overrides it.
     -- CrosshairDB() is nil until the Cursor module creates it.
     local function CrosshairDB()
         return _G._ECL_AceDB and _G._ECL_AceDB.profile
@@ -2567,8 +2488,7 @@ do
             end
         elseif classFile == "PALADIN" then
             if specID == 65 then -- Holy
-                -- Holy is a 40yd healer by default; opt into melee (5yd) via the
-                -- "Show Melee Range for Hpal" crosshair toggle.
+                -- Holy is a 40yd healer by default; opt into melee (5yd) via "Show Melee Range for Hpal".
                 if CrosshairGet("crosshairHpalMelee") then
                     _crosshairCutoffRange = 5
                 else
@@ -2594,9 +2514,7 @@ do
         else -- WARRIOR, ROGUE, DEATHKNIGHT
             _crosshairCutoffRange = 5
         end
-        -- Probe spells for the cutoff live in the shared range engine
-        -- (EllesmereUI_Range.lua); it rebuilds them itself on spec/talent
-        -- changes and whenever the cutoff value here moves.
+        -- Cutoff probe spells live in the shared range engine (EllesmereUI_Range.lua); rebuilt on spec/talent changes and whenever this cutoff moves.
     end
     RefreshCrosshairCutoffRange()
     -- Exposed so the crosshair options toggle can re-resolve the cutoff live.
@@ -2617,20 +2535,16 @@ do
         end
         local cutoff = EllesmereUI._getCrosshairCutoffRange()
 
-        -- PRIMARY: probe the player's own top-range harmful spells (shared
-        -- range engine) -- exact, and talented range extensions are reflected
-        -- automatically. A nil answer (no probe could target right now)
-        -- cascades to the item ladder below. Melee cutoffs (5, including
-        -- druid melee forms via the effective getter) skip straight to the
-        -- ladder -- unchanged behavior.
+        -- PRIMARY: probe the player's top-range harmful spells (shared range
+        -- engine) -- exact, talented range extensions come free. A nil answer
+        -- (no probe could target right now) cascades to the item ladder below.
+        -- Melee cutoffs (5, incl. druid forms) skip straight to the ladder.
         if cutoff > 5 then
             local beyond = EllesmereUI.Range_BeyondCutoff("target", cutoff)
             if beyond ~= nil then return beyond end
         end
 
-        -- FALLBACK: shared item ladder, stopped at the cutoff -- the beyond/
-        -- within verdict never needs rungs past it. nil = nothing answered,
-        -- treated as out of range (unchanged).
+        -- FALLBACK: shared item ladder, stopped at cutoff (rungs past it can't change the verdict). nil = nothing answered, out of range.
         local minY, maxY = EllesmereUI.Range_ItemBracket("target", cutoff)
         if minY == nil then return true end
         return (maxY == nil) or (maxY > cutoff)
@@ -2660,8 +2574,7 @@ do
         crosshairFrame._hBar = MakeArm("OVERLAY")
         crosshairFrame._vBar = MakeArm("OVERLAY")
 
-        -- Throttled recolor when the target is out of melee range. No-ops unless
-        -- the feature is enabled and the class has a mapped melee spell.
+        -- Throttled recolor when the target is out of melee range. No-ops unless enabled and the class has a mapped melee spell.
         local meleeAccum = 0
         crosshairFrame:SetScript("OnUpdate", function(self, elapsed)
             meleeAccum = meleeAccum + elapsed
@@ -2678,8 +2591,7 @@ do
                 end
                 return
             end
-            -- Cheap and idempotent: keeps the shared engine's activation in
-            -- step with this live toggle read on every path that checks range.
+            -- Cheap and idempotent: keeps the shared engine's activation in step with this live toggle read.
             EllesmereUI.Range_SetActive("crosshair", true)
             local outOfRange = TargetOutOfRange()
             if outOfRange ~= self._meleeActive then
@@ -2691,28 +2603,25 @@ do
         end)
     end
 
-    -- Hardcoded presets (the original look): thickness + total arm length. The
-    -- options dropdown stamps these onto the H/V Width/Length values, and they
-    -- are the fallback here when those values are unset. Cog sliders fine-tune.
+    -- Presets: thickness + total arm length. Options dropdown stamps these onto
+    -- H/V Width/Length and they're the fallback when unset; cog sliders fine-tune.
     EllesmereUI.CROSSHAIR_PRESETS = {
         Thin   = { width = 1, length = 40 },
         Normal = { width = 2, length = 40 },
         Thick  = { width = 3, length = 40 },
     }
 
-    -- Re-evaluates visibility on combat / zone transitions and refreshes the
-    -- cached melee spell on spec changes. Events are registered only while the
-    -- crosshair is enabled: with the size set to "None" nothing fires here.
-    -- On the off->on transition the cutoff range is re-read directly to catch
-    -- spec changes that happened while unregistered.
+    -- Re-evaluates visibility on combat/zone transitions, refreshes cutoff on
+    -- spec changes. Registered only while enabled (size "None" fires nothing);
+    -- off->on re-reads the cutoff directly to catch changes made while unregistered.
     local visWatch = CreateFrame("Frame")
     local visWatchRegistered = false
     visWatch:SetScript("OnEvent", function(_, event)
         if event == "PLAYER_SPECIALIZATION_CHANGED" or event == "PLAYER_ENTERING_WORLD" or event == "TRAIT_CONFIG_UPDATED" then
             RefreshCrosshairCutoffRange()
         end
-        -- _applyCrosshair self-guards: nil DB -> returns, "None" -> hides,
-        -- and runs the one-time migration once the profile DB is ready.
+        -- _applyCrosshair self-guards: nil DB returns, "None" hides, and it runs
+        -- the one-time migration once the profile DB is ready.
         if EllesmereUI._applyCrosshair then EllesmereUI._applyCrosshair() end
     end)
     local function SyncVisWatch(want)
@@ -2737,8 +2646,7 @@ do
         local size = G("crosshairSize") or "None"
         if size == "None" then
             SyncVisWatch(false)
-            -- OnUpdate stops with the frame hidden, so it cannot release the
-            -- shared range engine itself -- release it here.
+            -- OnUpdate stops with the frame hidden and can't release the shared range engine itself, so release it here.
             EllesmereUI.Range_SetActive("crosshair", false)
             if crosshairFrame then crosshairFrame:Hide() end
             return
@@ -2782,8 +2690,7 @@ do
         vBar:SetPoint("CENTER", crosshairFrame, "CENTER", 0, 0)
         vBar:SetColorTexture(cr, cg, cb, ca)
 
-        -- Base colour for the out-of-melee-range recolor, reset the melee state
-        -- so the OnUpdate re-applies the range colour next tick if still needed.
+        -- Base colour for out-of-range recolor; melee state resets so OnUpdate re-applies the range colour next tick if still needed.
         crosshairFrame._normalColor = { r = cr, g = cg, b = cb, a = ca }
         crosshairFrame._meleeActive = false
 
@@ -2899,7 +2806,6 @@ do
                     playerFS:Hide()
                 end
 
-                -- Cursor position
                 local cText = "0, 0"
                 local child = WorldMapFrame.ScrollContainer.Child
                 if child and child:IsMouseOver() then
@@ -2962,18 +2868,16 @@ do
 end
 
 -------------------------------------------------------------------------------
---  Hide Error Messages
---  Swallows the red UIErrorsFrame spam (e.g. "Not enough rage", "Ability is
---  not ready yet") while keeping a short whitelist of genuinely useful errors
---  visible. The OnEvent override is only installed while the option is on, so
---  it costs nothing for anyone who leaves it off.
+--  Hide Error Messages -- swallows red UIErrorsFrame spam ("Not enough rage",
+--  etc.) while keeping a whitelist of useful errors visible. OnEvent override
+--  installed only while the option is on; zero cost off.
 -------------------------------------------------------------------------------
 do
     local origOnEvent
     local installed = false
 
-    -- Errors worth keeping even while the rest are hidden. Built lazily so we
-    -- only touch the ERR_* globals when someone actually enables the feature.
+    -- Kept while the rest are hidden. Built lazily so ERR_* globals are only
+    -- touched once the feature is enabled.
     local keep
     local function BuildKeepList()
         if keep then return end
@@ -3045,9 +2949,8 @@ do
         return EllesmereUIDB and EllesmereUIDB.hideTutorials
     end
 
-    -- "i" circles are MainHelpPlateButtons, matched by a method copied from the
-    -- Blizzard mixin. Blizzard_HelpPlate is load-on-demand; resolve lazily and
-    -- only cache once it exists.
+    -- "i" circles are MainHelpPlateButtons, fingerprinted by a mixin method;
+    -- Blizzard_HelpPlate is load-on-demand, so resolve lazily and cache.
     local fingerprint
     local function GetFingerprint()
         if not fingerprint and MainHelpPlateButtonMixin then
@@ -3063,8 +2966,8 @@ do
         hiddenByUs[btn] = true
     end
 
-    -- Hoisted out of the pcall so we reuse one function instead of allocating a
-    -- closure on every call (this runs on each panel open + each HelpTip show).
+    -- Hoisted out of the pcall: one reused function, not a closure per call
+    -- (runs on each panel open and each HelpTip show).
     local function DoHideOpenTips()
         for tip in HelpTip.framePool:EnumerateActive() do
             if tip:IsShown() then
@@ -3087,13 +2990,10 @@ do
             HideButtonsUnder((select(i, ...)))
         end
     end
-    -- Some Blizzard frame trees refuse GetChildren from insecure code with a
-    -- usage error (house editor list rows do). This walk runs inside a
-    -- ShowUIPanel hooksecurefunc, so an uncaught error propagates into the
-    -- panel's caller and aborts the rest of its flow (e.g. the house
-    -- editor's OnActiveModeChanged). pcall per node: a refusing frame only
-    -- skips its own subtree; siblings still get scanned. ScanFrame is
-    -- hoisted so the pcall allocates nothing per node.
+    -- Some Blizzard frame trees refuse GetChildren from insecure code with a usage
+    -- error (house editor list rows do). This walk runs inside a ShowUIPanel hooksecurefunc, so an uncaught
+    -- error would abort the panel's caller. pcall per node: a refusing frame
+    -- skips only its subtree, siblings still get scanned; ScanFrame is hoisted so pcall allocates nothing per node.
     local function ScanFrame(root)
         ScanChildren(root:GetChildren())
     end
@@ -3105,8 +3005,7 @@ do
         if root.GetChildren then pcall(ScanFrame, root) end
     end
 
-    -- One-time full walk (no allocation, never on a timer) to catch panels that
-    -- are already open the moment the feature is switched on.
+    -- One-time full walk (no allocation, no timer) to catch panels already open when the feature is switched on.
     local function SweepAll()
         local fp = GetFingerprint()
         if not fp then return end
@@ -3125,8 +3024,7 @@ do
         end
     end
 
-    -- Core hooks (HelpTip + ShowUIPanel) install once, only via ApplyHideTutorials
-    -- when the feature is enabled. Each body also gates on Enabled().
+    -- Core hooks (HelpTip + ShowUIPanel) install once, only via ApplyHideTutorials; each body also gates on Enabled().
     local coreHooked = false
     local function InstallCoreHooks()
         if coreHooked then return end
@@ -3199,12 +3097,9 @@ do
 end
 
 -------------------------------------------------------------------------------
---  Group Death Announcer
---  Shows a large center-screen "<name> DIED!" alert when a party or raid
---  member dies. Midnight removed the combat log, so deaths are detected by
---  polling group units for an alive -> dead transition (feign death and the
---  player's own death are excluded). Fully gated: no ticker runs while the
---  option is off or while solo.
+--  Group Death Announcer -- shows a center-screen "<name> DIED!" alert on a
+--  party/raid death. Midnight has no combat log, so deaths are detected by polling
+--  group units for an alive->dead transition (feign/own death excluded). No ticker runs while off or solo.
 -------------------------------------------------------------------------------
 do
     local POLL_INTERVAL = 0.35
@@ -3216,8 +3111,7 @@ do
 
     local DEFAULT_TEXT_SIZE = 34
 
-    -- Applies the configured font size and saved position (or the default
-    -- center-top placement) to the overlay.
+    -- Configured font size + saved position (default center-top).
     local function ApplyOverlaySettings()
         if not alertOverlay then return end
         local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras"))
@@ -3229,8 +3123,7 @@ do
         end
         local size = (EllesmereUIDB and EllesmereUIDB.groupDeathTextSize) or DEFAULT_TEXT_SIZE
         alertOverlay._text:SetFont(fontPath, size, outline)
-        -- Keep the frame (and therefore the unlock-mode mover) compact and sized
-        -- to roughly the alert text rather than a fixed wide box.
+        -- Keep the frame (and unlock-mode mover) sized to the alert text, not a fixed wide box.
         alertOverlay:SetSize(size * 7, size + 14)
 
         alertOverlay:ClearAllPoints()
@@ -3291,61 +3184,14 @@ do
         alertOverlay._ag:Play()
     end
 
-    -- Configurable death alert sound (default "none"). The cog dropdown lists the
-    -- bundled EllesmereUI sounds plus any SharedMedia sounds, mirroring Chat's
-    -- "Whisper Sound". Played on the "Master" channel so it stays audible even
-    -- when the SFX slider is low. Tables are exposed on EllesmereUI so the options
-    -- file can build the same dropdown.
-    local _SOUNDS_DIR = "Interface\\AddOns\\EllesmereUI\\media\\sounds\\"
-    local GROUP_DEATH_SOUND_PATHS = {
-        ["none"]      = nil,
-        ["airhorn"]   = _SOUNDS_DIR .. "AirHorn.ogg",
-        ["banana"]    = _SOUNDS_DIR .. "BananaPeelSlip.ogg",
-        ["bikehorn"]  = _SOUNDS_DIR .. "BikeHorn.ogg",
-        ["bite"]      = _SOUNDS_DIR .. "Bite.ogg",
-        ["boxing"]    = _SOUNDS_DIR .. "BoxingArenaSound.ogg",
-        ["catmeow"]   = _SOUNDS_DIR .. "CatMeow.ogg",
-        ["catmeow2"]  = _SOUNDS_DIR .. "CatMeow2.ogg",
-        ["gunshot"]   = _SOUNDS_DIR .. "FrontalsGunshot.wav",
-        ["glass"]     = _SOUNDS_DIR .. "Glass.mp3",
-        ["kaching"]   = _SOUNDS_DIR .. "Kaching.ogg",
-        ["phone"]     = _SOUNDS_DIR .. "Phone.ogg",
-        ["robotblip"] = _SOUNDS_DIR .. "RobotBlip.ogg",
-        ["sonar"]     = _SOUNDS_DIR .. "Sonar.ogg",
-        ["siren"]     = _SOUNDS_DIR .. "WarningSiren.ogg",
-        ["water"]     = _SOUNDS_DIR .. "WaterDrop.ogg",
-        ["wilhelm"]   = _SOUNDS_DIR .. "Wilhelm.ogg",
-    }
-    local GROUP_DEATH_SOUND_NAMES = {
-        ["none"]      = "None",
-        ["airhorn"]   = "Air Horn",
-        ["banana"]    = "Banana Peel Slip",
-        ["bikehorn"]  = "Bike Horn",
-        ["bite"]      = "Bite",
-        ["boxing"]    = "Boxing Arena",
-        ["catmeow"]   = "Cat Meow",
-        ["catmeow2"]  = "Cat Meow 2",
-        ["gunshot"]   = "Frontals Gunshot",
-        ["glass"]     = "Glass",
-        ["kaching"]   = "Kaching",
-        ["phone"]     = "Phone",
-        ["robotblip"] = "Robot Blip",
-        ["sonar"]     = "Sonar",
-        ["siren"]     = "Warning Siren",
-        ["water"]     = "Water Drop",
-        ["wilhelm"]   = "Wilhelm",
-    }
-    local GROUP_DEATH_SOUND_ORDER = {
-        "none", "airhorn", "banana", "bikehorn", "bite", "boxing", "catmeow",
-        "catmeow2", "gunshot", "glass", "kaching", "phone", "robotblip", "sonar",
-        "siren", "water", "wilhelm",
-    }
-    -- SharedMedia sounds are appended at PLAYER_LOGIN (see the boot frame at the
-    -- end of this block), NOT here: this do-block runs at addon load, before
-    -- other addons have registered their LibSharedMedia sounds, so an append now
-    -- would miss them. (Chat's whisper-sound append runs from its PLAYER_LOGIN
-    -- init for the same reason.) The tables are exposed now by reference, so the
-    -- login append fills the same tables the options dropdown reads.
+    -- Configurable death alert sound (default "none"): cog dropdown lists
+    -- bundled + SharedMedia sounds. Played on "Master" to stay audible with a
+    -- low SFX slider; tables exposed on EllesmereUI for the options dropdown.
+    local GROUP_DEATH_SOUND_PATHS, GROUP_DEATH_SOUND_NAMES, GROUP_DEATH_SOUND_ORDER =
+        EllesmereUI.BuildAlertSoundTables()
+    -- SharedMedia sounds append at PLAYER_LOGIN (boot frame below), not here:
+    -- this do-block runs at addon load, before other addons register their
+    -- LibSharedMedia sounds. Tables exposed now by reference, so the append fills the same ones options reads.
     EllesmereUI._groupDeathSoundPaths = GROUP_DEATH_SOUND_PATHS
     EllesmereUI._groupDeathSoundNames = GROUP_DEATH_SOUND_NAMES
     EllesmereUI._groupDeathSoundOrder = GROUP_DEATH_SOUND_ORDER
@@ -3371,12 +3217,9 @@ do
         end
     end
 
-    -- Minimum gap between death sounds. On a group wipe many members die within
-    -- the same poll (and across consecutive polls), which would otherwise fire
-    -- the sound once per corpse and turn into a spammy overlapping mess. The
-    -- cooldown collapses a burst of deaths into a single sound. It is only
-    -- applied in larger groups (raids, > 5 players); in a party of 5 or fewer
-    -- deaths are sparse enough that no throttling is needed.
+    -- Minimum gap between death sounds. On a wipe many die within/across polls,
+    -- firing once per corpse; the cooldown collapses the burst into one sound.
+    -- Applied only in groups larger than 5 (parties are sparse enough).
     local SOUND_COOLDOWN = 3.0
     local COOLDOWN_MIN_GROUP = 5
     local lastSoundTime = 0
@@ -3401,8 +3244,7 @@ do
             if not UnitIsConnected(u) then return end
             local dead = (UnitIsDeadOrGhost(u) and not UnitIsFeignDeath(u)) and true or false
             -- prev == false means we previously saw this unit alive; a nil prev
-            -- (first sighting / just (re)joined) primes the state silently so we
-            -- never announce someone who was already dead when we started.
+            -- (first sighting/rejoin) primes state silently so an already-dead member at start is never announced.
             if deadState[guid] == false and dead then
                 local _, classToken = UnitClass(u)
                 newlyDeadName = UnitName(u)
@@ -3414,9 +3256,7 @@ do
         for guid in pairs(deadState) do
             if not seen[guid] then deadState[guid] = nil end
         end
-        -- Show a single alert per poll (the overlay is one frame, so multiple
-        -- ShowAlert calls would just clobber each other anyway) and play at most
-        -- one sound, throttled by the cooldown, no matter how many died.
+        -- One alert per poll (extra ShowAlert calls would just clobber each other) and at most one throttled sound.
         if newlyDeadCount then
             ShowAlert(newlyDeadName, newlyDeadClass)
             TryPlayDeathSound()
@@ -3458,16 +3298,14 @@ do
     end
     EllesmereUI._applyAnnounceGroupDeaths = ApplyAnnounceGroupDeaths
 
-    -- Fires a sample alert (with sound) so the look/sound can be checked without
-    -- a real death. Uses your own name/class purely as preview text.
+    -- Fires a sample alert (with sound) so the look/sound can be checked without a real death; uses your own name/class as preview text.
     EllesmereUI._announceGroupDeathsPreview = function()
         local _, classToken = UnitClass("player")
         ShowAlert(UnitName("player"), classToken)
         PlayDeathSound()
     end
 
-    -- Visual-only preview (used by the Text Size slider so dragging it doesn't
-    -- repeatedly fire the sound).
+    -- Visual-only preview (used by the Text Size slider so dragging it doesn't repeatedly fire the sound).
     EllesmereUI._groupDeathShowVisual = function()
         local _, classToken = UnitClass("player")
         ShowAlert(UnitName("player"), classToken)
@@ -3475,8 +3313,7 @@ do
 
     EllesmereUI._groupDeathPlaySound = PlayDeathSound
 
-    -- Re-apply font size / position (called from the Text Size slider and from
-    -- unlock mode when the saved position changes).
+    -- Re-apply font size/position (called from the Text Size slider and from unlock mode on saved-position change).
     EllesmereUI._applyGroupDeathAlert = function()
         CreateAlertOverlay()
         ApplyOverlaySettings()
@@ -3537,11 +3374,9 @@ do
     boot:RegisterEvent("PLAYER_LOGIN")
     boot:SetScript("OnEvent", function(self)
         self:UnregisterAllEvents()
-        -- Append SharedMedia sounds now, at login, once other addons have
-        -- registered theirs -- this is the same timing Chat's whisper-sound
-        -- dropdown uses. Idempotent: AppendSharedMediaSounds skips keys that
-        -- are already present, and the tables are the very ones the options
-        -- dropdown (and PlayDeathSound) read, so both pick up the SM sounds.
+        -- Append now, at login, once other addons have registered theirs (same
+        -- timing as Chat's whisper-sound dropdown). Idempotent: skips keys
+        -- already present; the tables are the same ones options and PlayDeathSound read.
         if EllesmereUI.AppendSharedMediaSounds then
             EllesmereUI.AppendSharedMediaSounds(
                 GROUP_DEATH_SOUND_PATHS, GROUP_DEATH_SOUND_NAMES, GROUP_DEATH_SOUND_ORDER)
@@ -3553,13 +3388,9 @@ do
 end
 
 -------------------------------------------------------------------------------
---  Combat Alert
---  Shows a large center-screen text alert when you enter and/or leave combat
---  (PLAYER_REGEN_DISABLED / PLAYER_REGEN_ENABLED). Each transition has its own
---  display text and color (a custom color or the player's class color); a single
---  Text Size and a shared unlock-mode position apply to both. The "Show On" mode
---  selects enter-only, leave-only or both. Zero cost when idle: no combat events
---  are registered unless the master toggle is on.
+--  Combat Alert -- center-screen text on PLAYER_REGEN_DISABLED/ENABLED. Each
+--  transition has its own text/color (custom or class color); one Text Size and
+--  shared unlock-mode position apply to both. "Show On" selects enter/leave/both. No events registered unless enabled.
 -------------------------------------------------------------------------------
 do
     local alertFrame
@@ -3575,8 +3406,7 @@ do
         leaveColor = { r = 1.00, g = 1.00, b = 1.00 },
     }
 
-    -- Resolve the effective color for a transition: the player's class color
-    -- when the class-color toggle is on, otherwise the stored custom color.
+    -- Effective color for a transition: player's class color when the class-color toggle is on, else the stored custom color.
     local function ResolveColor(which)
         local db = EllesmereUIDB
         local useClass = db and db[which == "leave" and "combatAlertLeaveUseClassColor" or "combatAlertEnterUseClassColor"]
@@ -3598,8 +3428,7 @@ do
         return (db and db.combatAlertEnterText) or DEFAULTS.enterText
     end
 
-    -- Applies the configured font size and saved position (or the default
-    -- dead-center placement) to the overlay.
+    -- Applies configured font size and saved position (or default dead-center placement) to the overlay.
     local function ApplyOverlaySettings()
         if not alertFrame then return end
         local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras"))
@@ -3611,7 +3440,7 @@ do
         end
         local size = (EllesmereUIDB and EllesmereUIDB.combatAlertTextSize) or DEFAULT_TEXT_SIZE
         alertFrame._text:SetFont(fontPath, size, outline)
-        -- Keep the frame (and the unlock-mode mover) sized to roughly the text.
+        -- Keep the frame (and unlock-mode mover) sized to roughly the text.
         alertFrame:SetSize(size * 7, size + 14)
 
         alertFrame:ClearAllPoints()
@@ -3694,8 +3523,7 @@ do
     end
     EllesmereUI._applyCombatAlert = ApplyCombatAlert
 
-    -- Fires a sample alert for the given transition ("enter"/"leave") so the
-    -- look can be checked from the options cog without a real combat change.
+    -- Fires a sample alert for the given transition so the look can be checked from the options cog without a real combat change.
     EllesmereUI._combatAlertPreview = function(which)
         if EllesmereUI._unlockActive then return end
         CreateAlertFrame()
@@ -3708,8 +3536,7 @@ do
         alertFrame._ag:Play()
     end
 
-    -- Re-apply font size / position (called from the Text Size slider and from
-    -- unlock mode when the saved position changes).
+    -- Re-apply font size/position (called from the Text Size slider and from unlock mode on saved-position change).
     EllesmereUI._applyCombatAlertFrame = function()
         CreateAlertFrame()
         ApplyOverlaySettings()
@@ -3777,13 +3604,10 @@ do
 end
 
 -------------------------------------------------------------------------------
---  Target Distance Text
---  Floating distance text for the current target, movable in Unlock Mode.
---  Default format is the familiar item-ladder bracket ("30-35"); optional
---  "30+" (spell-ladder lower bound) and "30" (minimum yards) formats.
---  Range answers come from the shared engine (EllesmereUI_Range.lua), which
---  this block activates only while the feature is enabled.
---  Color is preconfigured by yard bracket. Off by default; zero cost while off.
+--  Target Distance Text -- floating distance text for the target, movable in
+--  Unlock Mode. Default format is the item-ladder bracket ("30-35"); optional
+--  "30+" (spell-ladder lower bound) or "30" (minimum yards). Answers come from
+--  the shared engine (EllesmereUI_Range.lua), activated only while enabled. Color by yard bracket. Off by default.
 -------------------------------------------------------------------------------
 do
     local distFrame
@@ -3829,8 +3653,7 @@ do
             if not minY or minY <= 0 then return nil end
             return tostring(minY)
         end
-        -- range (default): "30-35", or "80+" beyond the last rung.
-        -- Inside the closest check, show "1-X" (familiar melee band) not "0-X".
+        -- range (default): "30-35", or "80+" beyond the last rung; inside the closest check shows "1-X" (familiar melee band) not "0-X".
         if maxY then
             local lo = (minY and minY > 0) and minY or 1
             return lo .. "-" .. maxY
@@ -4069,14 +3892,11 @@ do
 end
 
 -------------------------------------------------------------------------------
---  Hide Item Transforms
---  Cancels cosmetic transform auras (profession gear, holiday costumes, toys,
---  consumables) as soon as they land on the player. CancelUnitBuff is blocked
---  during combat, so transforms gained mid-fight are swept on the next
---  PLAYER_REGEN_ENABLED. The fishing outfit aura persists while the fishing
---  channel runs, so it is cleared when the channel stops instead.
---  Zero cost when idle: no events are registered unless the master toggle is
---  on AND at least one transform is still included.
+--  Hide Item Transforms -- cancels cosmetic transform auras (profession gear,
+--  holiday costumes, toys, consumables) as soon as they land. CancelUnitBuff is
+--  blocked in combat, so mid-fight transforms sweep on the next PLAYER_REGEN_ENABLED.
+--  The fishing outfit aura persists for the channel's duration, so it's cleared
+--  on channel-stop instead. No events registered unless on AND something's included.
 -------------------------------------------------------------------------------
 do
     local CATEGORY_ORDER = { "professions", "holiday", "toys", "items" }
@@ -4132,8 +3952,7 @@ do
     -- Runtime lookup: [spellID] = true for every included transform.
     local cTable = {}
 
-    -- Per-key default: included unless the entry sets defaultOff. The picker
-    -- stores only values that differ from the default, so nil = default.
+    -- Per-key default: included unless defaultOff; picker stores only values that differ from default, so nil = default.
     local ITEM_DEFAULT = {}
     for _, item in ipairs(TRANSFORMS) do
         ITEM_DEFAULT[item.key] = not item.defaultOff
@@ -4158,17 +3977,15 @@ do
 
     local auraFrame = CreateFrame("Frame")
 
-    -- 12.1: index scans hard-error while aura restrictions are active
-    -- (M+/raids, even out of combat). Transforms are cosmetic; skipping the
-    -- sweep there is fine -- it re-runs on the next event outside.
+    -- Index scans hard-error while aura restrictions are active (M+/raids, even
+    -- out of combat); cosmetic transforms just skip there, re-running on the next event outside.
     local function AurasRestricted()
         local AK = EllesmereUI and EllesmereUI.AuraKit
         if AK and AK.AurasRestricted then return AK.AurasRestricted() end
         return false
     end
 
-    -- Sweep current buffs, canceling any included transform. Descending so a
-    -- cancel (which shifts later buff indices down) cannot skip a match.
+    -- Sweep current buffs, canceling any included transform. Descending so a cancel (shifts later indices down) can't skip a match.
     local function CancelMatching(force)
         if not (C_UnitAuras and C_UnitAuras.GetBuffDataByIndex) then return end
         if not force and UnitAffectingCombat("player") then return end
@@ -4190,9 +4007,8 @@ do
             CancelMatching(true)
             return
         end
-        -- UNIT_AURA (player only, via RegisterUnitEvent). 12.1: the payload
-        -- (and its fields) can be secret in restricted content -- boolean
-        -- use of a secret errors, and the sweep would error anyway; bail.
+        -- UNIT_AURA (player only, via RegisterUnitEvent). The payload (and its fields) can be secret in
+        -- restricted content -- boolean use of a secret errors, so bail rather than error the sweep.
         if not updateInfo then return end
         if issecretvalue and issecretvalue(updateInfo) then return end
         local isFull = updateInfo.isFullUpdate
@@ -4210,9 +4026,8 @@ do
         end
     end)
 
-    -- Fishing outfit: aura 394009 sticks while the fishing channel (131476)
-    -- runs, so it is cleared when the channel stops. Only registered while the
-    -- feature is on and the Fishing entry is included.
+    -- Fishing outfit: aura 394009 sticks while the fishing channel (131476) runs,
+    -- so it's cleared on channel-stop. Registered only while on and Fishing is included.
     local fishFrame = CreateFrame("Frame")
     fishFrame:SetScript("OnEvent", function(_, _, _, _, spellID)
         if issecretvalue and issecretvalue(spellID) then return end
@@ -4231,9 +4046,8 @@ do
         end
     end)
 
-    -- (Re)decide which events are hooked. Nothing is registered unless the
-    -- feature is on AND something is actually included, so a disabled feature
-    -- costs zero per-frame work -- the handlers are simply never installed.
+    -- (Re)decide which events are hooked. Nothing registers unless on AND
+    -- something's included, so a disabled feature costs zero: handlers are never installed.
     local function ApplyHideTransforms()
         RebuildList()
         local on = EllesmereUIDB and EllesmereUIDB.hideTransforms
@@ -4284,26 +4098,18 @@ do
 end
 
 -------------------------------------------------------------------------------
---  Equipment Flyout item levels
---  Blizzard's character-sheet gear flyout (hover a gear slot -> the popup of
---  same-slot items from your bags/equipped) only shows item icons. When this is
---  enabled we overlay each flyout button with the item level of the item it
---  represents, coloured by item quality, so you can compare upgrades at a
---  glance without reading every tooltip.
---
---  We hook EquipmentFlyout_DisplayButton (called once per button whenever the
---  flyout is populated) and read live from EllesmereUIDB, so toggling the
---  option takes effect on the next flyout without a reload.
---  Toggle: EllesmereUIDB.flyoutItemLevels (Quality of Life -> UI).
+--  Equipment Flyout item levels -- Blizzard's gear flyout (hover a character-
+--  sheet slot -> popup of same-slot bag/equipped items) only shows icons; when
+--  enabled, overlays each button with the item's level, coloured by quality. Hooks
+--  EquipmentFlyout_DisplayButton (fires per button on populate) and reads EllesmereUIDB
+--  live, so the toggle applies to the next flyout with no reload. Toggle: EllesmereUIDB.flyoutItemLevels (Quality of Life -> UI).
 -------------------------------------------------------------------------------
 do
     local function FlyoutEnabled()
         return EllesmereUIDB and EllesmereUIDB.flyoutItemLevels
     end
 
-    -- Compute item level + quality + link from a decoded bag/slot pair. Prefers
-    -- the ItemLocation API (exact per-item level, no caching) and falls back to
-    -- the item link when the location can't be built.
+    -- Item level + quality + link from a decoded bag/slot pair. Prefers the ItemLocation API (exact, no caching); falls back to the item link.
     local function LevelFromSlot(isBags, bag, slot)
         if isBags then
             if ItemLocation then
@@ -4326,11 +4132,9 @@ do
         end
     end
 
-    -- Return item level + quality + link for a flyout button. Handles all three
-    -- flyout shapes across game versions:
-    --   * modern flyouts that store an ItemLocation object on the button,
-    --   * current retail packed location decoded via EquipmentManager_GetLocationData,
-    --   * older clients decoded via EquipmentManager_UnpackLocation.
+    -- Item level + quality + link for a flyout button. Handles all three flyout
+    -- shapes: modern buttons storing an ItemLocation object; retail packed location
+    -- via EquipmentManager_GetLocationData; older clients via EquipmentManager_UnpackLocation.
     local function ButtonItemInfo(button)
         if button.GetItemLocation then
             local ok, loc = pcall(button.GetItemLocation, button)
@@ -4358,10 +4162,8 @@ do
     end
 
     -- Item-level FontStrings live in an external weak-keyed table, NOT on the
-    -- button. The flyout buttons are Blizzard-owned (and the flyout is the
-    -- secure item-equipping path), so writing a custom key onto them would
-    -- taint their execution context. Creating the FontString region on the
-    -- button is fine; only the state reference must stay off the frame table.
+    -- button: flyout buttons are Blizzard-owned (secure item-equipping path), so a
+    -- custom key would taint execution. Creating the FontString as a child is fine; only the reference stays off the frame table.
     local _flyoutFS = setmetatable({}, { __mode = "k" })  -- [button] = fontstring
 
     -- Lazily attach (and return) the item-level FontString for a flyout button.

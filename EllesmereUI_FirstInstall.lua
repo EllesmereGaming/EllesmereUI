@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUI_FirstInstall.lua
 --
@@ -59,6 +60,7 @@ local GROUPS = {
             { label = "Quality of Life",     addon = "EllesmereUIQoL" },
             { label = "AuraBuff Reminders",  addon = "EllesmereUIAuraBuffReminders" },
             { label = "DataBars",            addon = "EllesmereUIDataBars" },
+            { label = "Quickdraw",           addon = "EllesmereUIQuickdraw" },
             -- Cursor Circle is a feature inside the QoL addon (cursor.enabled).
             -- The checkbox here is a front-end shortcut that writes directly to
             -- the QoL profile so users get a sensible default on first install.
@@ -228,14 +230,14 @@ local function ShowFirstInstallPopup()
     eyebrow:SetFont(FONT, 13, "")
     eyebrow:SetTextColor(ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 0.9)
     PP.Point(eyebrow, "TOP", popup, "TOP", 0, -104)
-    eyebrow:SetText("FIRST TIME SETUP")
+    eyebrow:SetText(EllesmereUI.L("FIRST TIME SETUP"))
 
     -- Title
     local title = popup:CreateFontString(nil, "OVERLAY")
     title:SetFont(FONT, 25, "")
     title:SetTextColor(1, 1, 1, 1)
     PP.Point(title, "TOP", eyebrow, "BOTTOM", 0, -6)
-    title:SetText("Welcome to EllesmereUI")
+    title:SetText(EllesmereUI.L("Welcome to EllesmereUI"))
 
     -- Subtitle
     local sub = popup:CreateFontString(nil, "OVERLAY")
@@ -245,7 +247,7 @@ local function ShowFirstInstallPopup()
     sub:SetWidth(POPUP_W - 60)
     sub:SetJustifyH("CENTER")
     sub:SetWordWrap(true)
-    sub:SetText("Choose which addons you want enabled. You can change any of these later in the EllesmereUI settings panel.")
+    sub:SetText(EllesmereUI.L("Choose which addons you want enabled. You can change any of these later in the EllesmereUI settings panel."))
 
     -- Check All / Uncheck All links
     local LINK_Y = -196
@@ -255,7 +257,7 @@ local function ShowFirstInstallPopup()
     checkAllBtn:SetFrameLevel(popup:GetFrameLevel() + 2)
     local checkAllLbl = checkAllBtn:CreateFontString(nil, "OVERLAY")
     checkAllLbl:SetFont(FONT, 14, "")
-    checkAllLbl:SetText("Check All")
+    checkAllLbl:SetText(EllesmereUI.L("Check All"))
     checkAllLbl:SetTextColor(1, 1, 1, 0.45)
     checkAllLbl:SetPoint("CENTER")
     checkAllBtn:SetSize(checkAllLbl:GetStringWidth() + 4, 20)
@@ -274,7 +276,7 @@ local function ShowFirstInstallPopup()
     uncheckAllBtn:SetFrameLevel(popup:GetFrameLevel() + 2)
     local uncheckAllLbl = uncheckAllBtn:CreateFontString(nil, "OVERLAY")
     uncheckAllLbl:SetFont(FONT, 14, "")
-    uncheckAllLbl:SetText("Uncheck All")
+    uncheckAllLbl:SetText(EllesmereUI.L("Uncheck All"))
     uncheckAllLbl:SetTextColor(1, 1, 1, 0.45)
     uncheckAllLbl:SetPoint("CENTER")
     uncheckAllBtn:SetSize(uncheckAllLbl:GetStringWidth() + 4, 20)
@@ -301,7 +303,7 @@ local function ShowFirstInstallPopup()
         hdr:SetFont(FONT, 18, "")
         hdr:SetTextColor(ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 0.9)
         PP.Point(hdr, "TOPLEFT", col, "TOPLEFT", 4, -4)
-        hdr:SetText(group.header)
+        hdr:SetText(EllesmereUI.L(group.header))
 
         local yOff = HEADER_H + HEADER_PAD
 
@@ -330,7 +332,7 @@ local function ShowFirstInstallPopup()
             lbl:SetFont(FONT, 17, "")
             PP.Point(lbl, "LEFT", box, "RIGHT", 8, 0)
             lbl:SetTextColor(1, 1, 1, 0.65)
-            lbl:SetText(entry.label)
+            lbl:SetText(EllesmereUI.L(entry.label))
 
             -- Initial state resolution:
             --   entry.comingSoon -> disabled, greyed, "Coming soon" tooltip
@@ -434,7 +436,7 @@ local function ShowFirstInstallPopup()
     local function RefreshButtonLabel()
         -- Picking addons always ends in a reload so the enable/disable choices
         -- take effect, so the button always reads "Reload UI".
-        doneLbl:SetText("Reload UI")
+        doneLbl:SetText(EllesmereUI.L("Reload UI"))
     end
     RefreshButtonLabel()
 
@@ -542,15 +544,14 @@ EllesmereUI.ShowFirstInstallPopup = ShowFirstInstallPopup
 -------------------------------------------------------------------------------
 --  Trigger on first install only
 -------------------------------------------------------------------------------
--- First-install detection captured at parent ADDON_LOADED. At that moment
--- EllesmereUIDB still reflects the PREVIOUS session's data: child addons
--- have not yet initialized their DBs this session, so any profile.addons
--- entries can only have come from a prior version. This cleanly separates
--- upgrades from fresh installs without needing version stamps.
--- Standalone: never arm the suite first-install picker (see note at top of file).
--- This makes the non-firing explicit rather than relying on the incidental
--- addon-name mismatch (the renamed "EllesmereUI" ADDON_LOADED gate would point at
--- the core token, never the real child/folder token, so it never matched anyway).
+-- First-install detection captured at parent ADDON_LOADED. At that moment EllesmereUIDB
+-- still reflects the PREVIOUS session's data: child addons have not yet initialized
+-- their DBs this session, so any profile.addons entries can only have come from a prior
+-- version. This cleanly separates upgrades from fresh installs without needing version
+-- stamps. Standalone: never arm the suite first-install picker (see note at top of
+-- file). This makes the non-firing explicit rather than relying on the incidental
+-- addon-name mismatch (the renamed "EllesmereUI" ADDON_LOADED gate would point at the
+-- core token, never the real child/folder token, so it never matched anyway).
 if IS_STANDALONE then return end
 
 local _showPopupOnLogin = false

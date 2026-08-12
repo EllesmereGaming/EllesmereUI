@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUI_VideoGuides.lua
 --
@@ -37,6 +38,11 @@ local MakeBorder = EllesmereUI.MakeBorder
 
 -- The override system's gold (used by guide art, exposed via ctx).
 local GOLD = { r = 1, g = 0.82, b = 0.30 }
+
+-- The 12.1 launch walkthrough video. ONE paste point: the launch announcement
+-- popup (guide "midnight_121" below) and the What's New video banner
+-- (EllesmereUIOptions/EUI__General_Options.lua, MakeVideoBannerCard) both read this.
+EllesmereUI.MIDNIGHT_VIDEO_URL = "https://youtu.be/JadIGEr4Ixc"
 
 local POPUP_W, POPUP_H = 470, 368
 local ART_H = 88
@@ -121,6 +127,11 @@ local function Dismiss()
     if not ui then return end
     ui.eb:ClearFocus()
     ui.dimmer:Hide()
+    -- Per-guide dismiss hook (def.onDismiss): announcement guides use it to
+    -- release the login popup chain (conflict check handoff). Runs on every
+    -- close path: Okay, Escape, Enter, and outside click all land here.
+    local cb = ui._onDismiss
+    if cb then ui._onDismiss = nil; cb() end
 end
 
 local function BuildShell()
@@ -177,6 +188,7 @@ local function BuildShell()
     PP.Point(well, "TOPLEFT", popup, "TOPLEFT", 0, 0)
     PP.Point(well, "TOPRIGHT", popup, "TOPRIGHT", 0, 0)
     well:SetHeight(ART_H)
+    ui.well = well
     local rule = popup:CreateTexture(nil, "BACKGROUND", nil, 2)
     PP.Point(rule, "TOPLEFT", popup, "TOPLEFT", 0, -ART_H)
     PP.Point(rule, "TOPRIGHT", popup, "TOPRIGHT", 0, -ART_H)
@@ -209,6 +221,24 @@ local function BuildShell()
     PP.Point(blurb, "TOP", title, "BOTTOM", 0, -12)
     ui.blurb = blurb
 
+    -- Optional bullet rows between the blurb and the URL well (def.bullets =
+    -- up to two arrays of short labels; announcement guides list their hero
+    -- topics here). Hidden and skipped by anchoring for plain guides.
+    local bulletRow1 = popup:CreateFontString(nil, "OVERLAY")
+    bulletRow1:SetFont(FONT, 13, "")
+    bulletRow1:SetTextColor(1, 1, 1, 0.72)
+    bulletRow1:SetJustifyH("CENTER")
+    PP.Point(bulletRow1, "TOP", blurb, "BOTTOM", 0, -14)
+    bulletRow1:Hide()
+    ui.bulletRow1 = bulletRow1
+    local bulletRow2 = popup:CreateFontString(nil, "OVERLAY")
+    bulletRow2:SetFont(FONT, 13, "")
+    bulletRow2:SetTextColor(1, 1, 1, 0.72)
+    bulletRow2:SetJustifyH("CENTER")
+    PP.Point(bulletRow2, "TOP", bulletRow1, "BOTTOM", 0, -8)
+    bulletRow2:Hide()
+    ui.bulletRow2 = bulletRow2
+
     -- URL well + read-only EditBox (always-selected; Ctrl+C is the point)
     local urlWell = CreateFrame("Frame", nil, popup)
     urlWell:SetFrameLevel(popup:GetFrameLevel() + 2)
@@ -220,6 +250,7 @@ local function BuildShell()
     -- Neutral border (never accent-tinted): the link-blue text carries the
     -- "this is the link" read on its own.
     MakeBorder(urlWell, 1, 1, 1, 0.22, PP)
+    ui.urlWell = urlWell
 
     -- Hint under the well (also doubles as the Ctrl+C confirmation line)
     local hint = popup:CreateFontString(nil, "OVERLAY")
@@ -271,6 +302,7 @@ local function BuildShell()
     PP.Point(okLbl, "CENTER", okBtn, "CENTER", 0, 0)
     okLbl:SetText("Okay")
     ui.okLbl = okLbl
+    ui.okBtn = okBtn
     okBtn:SetScript("OnEnter", function()
         okLbl:SetTextColor(cur.r, cur.g, cur.b, 1)
         ui.okBrd:SetColor(cur.r, cur.g, cur.b, 1)
@@ -304,7 +336,78 @@ local function SetGuide(id, def)
     local accent = def.accent or EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.83, b = 0.62 }
     cur.r, cur.g, cur.b = accent.r, accent.g, accent.b
 
-    PP.Size(ui.popup, POPUP_W, def.height or POPUP_H)
+    -- Per-guide geometry, RESET to the defaults every call (the shell is
+    -- shared, so a big announcement guide must not leak its size into the
+    -- next plain guide). Width-dependent pieces re-measure here too.
+    local w = def.width or POPUP_W
+    local artH = def.artHeight or ART_H
+    -- Per-guide vertical rhythm (def.gaps): every inter-element gap resets to
+    -- the compact build-time default when unspecified, so plain guides keep
+    -- their exact original layout and big announcements can breathe.
+    local gaps = def.gaps or {}
+    local gEyebrow  = gaps.eyebrow or 16
+    local gTitle    = gaps.title or 6
+    local gBlurb    = gaps.blurb or 12
+    local gBullets  = gaps.bullets or 14
+    local gBRows    = gaps.bulletRows or 8
+    local gUrl      = gaps.url
+    local gHint     = gaps.hint or 8
+    PP.Size(ui.popup, w, def.height or POPUP_H)
+    ui.well:SetHeight(artH)
+    ui.rule:ClearAllPoints()
+    PP.Point(ui.rule, "TOPLEFT", ui.popup, "TOPLEFT", 0, -artH)
+    PP.Point(ui.rule, "TOPRIGHT", ui.popup, "TOPRIGHT", 0, -artH)
+    ui.eyebrow:ClearAllPoints()
+    PP.Point(ui.eyebrow, "TOP", ui.popup, "TOP", 0, -(artH + gEyebrow))
+    ui.title:ClearAllPoints()
+    PP.Point(ui.title, "TOP", ui.eyebrow, "BOTTOM", 0, -gTitle)
+    ui.blurb:ClearAllPoints()
+    PP.Point(ui.blurb, "TOP", ui.title, "BOTTOM", 0, -gBlurb)
+    ui.bulletRow1:ClearAllPoints()
+    PP.Point(ui.bulletRow1, "TOP", ui.blurb, "BOTTOM", 0, -gBullets)
+    ui.bulletRow2:ClearAllPoints()
+    PP.Point(ui.bulletRow2, "TOP", ui.bulletRow1, "BOTTOM", 0, -gBRows)
+    ui.hint:ClearAllPoints()
+    PP.Point(ui.hint, "TOP", ui.urlWell, "BOTTOM", 0, -gHint)
+    ui.okBtn:ClearAllPoints()
+    PP.Point(ui.okBtn, "BOTTOM", ui.popup, "BOTTOM", 0, gaps.button or 42)
+    ui.footnote:ClearAllPoints()
+    PP.Point(ui.footnote, "BOTTOM", ui.popup, "BOTTOM", 0, gaps.footnote or 16)
+    ui.blurb:SetWidth(w - 80)
+    ui.footnote:SetWidth(w - 80)
+    PP.Size(ui.urlWell, def.urlWidth or 350, 34)
+    ui.okLbl:SetText(def.okText or "Okay")
+    ui._onDismiss = def.onDismiss
+
+    -- Bullet rows: accent-dotted short labels, up to two centered lines; the
+    -- URL well re-anchors below them when present, back onto the blurb when not.
+    ui.urlWell:ClearAllPoints()
+    if def.bullets and def.bullets[1] then
+        local hex = string.format("%02x%02x%02x",
+            math.floor(accent.r * 255 + 0.5), math.floor(accent.g * 255 + 0.5), math.floor(accent.b * 255 + 0.5))
+        local function Line(items)
+            local parts = {}
+            for i = 1, #items do
+                parts[i] = "|cff" .. hex .. "\226\128\162|r " .. items[i]
+            end
+            return table.concat(parts, "    ")
+        end
+        ui.bulletRow1:SetText(Line(def.bullets[1]))
+        ui.bulletRow1:Show()
+        if def.bullets[2] then
+            ui.bulletRow2:SetText(Line(def.bullets[2]))
+            ui.bulletRow2:Show()
+            PP.Point(ui.urlWell, "TOP", ui.bulletRow2, "BOTTOM", 0, -(gUrl or 16))
+        else
+            ui.bulletRow2:Hide()
+            PP.Point(ui.urlWell, "TOP", ui.bulletRow1, "BOTTOM", 0, -(gUrl or 16))
+        end
+    else
+        ui.bulletRow1:Hide()
+        ui.bulletRow2:Hide()
+        PP.Point(ui.urlWell, "TOP", ui.blurb, "BOTTOM", 0, -(gUrl or 18))
+    end
+
     ui.eyebrow:SetText(def.eyebrow or "VIDEO GUIDE")
     ui.eyebrow:SetTextColor(accent.r, accent.g, accent.b, 0.9)
     ui.tri:SetColorTexture(accent.r, accent.g, accent.b, 0.9)
@@ -331,12 +434,12 @@ local function SetGuide(id, def)
             -- 2-unit inset keeps child-frame art off the popup's 1px border.
             PP.Point(band, "TOPLEFT", ui.popup, "TOPLEFT", 2, -2)
             PP.Point(band, "TOPRIGHT", ui.popup, "TOPRIGHT", -2, -2)
-            band:SetHeight(ART_H - 2)
+            band:SetHeight(artH - 2)
             artFrames[id] = band
             local ctx = {
                 band = band,
-                W = POPUP_W - 4,
-                H = ART_H - 2,
+                W = w - 4,
+                H = artH - 2,
                 PP = PP,
                 MakeBorder = MakeBorder,
                 FONT = FONT,
@@ -433,10 +536,9 @@ local function AttachTip(region, tipId, opts)
     tip:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     tip:SetScript("OnClick", function(self, mouseButton)
         if mouseButton == "RightButton" then
-            -- Shift + right click: hide ALL video guide icons. Identical to
-            -- turning off Enable Tutorial Tips in Global Settings (same key,
-            -- same true-vs-nil convention), so that toggle reads OFF and can
-            -- turn them back on.
+            -- Shift + right click: hide ALL video guide icons. Identical to turning off
+            -- Enable Tutorial Tips in Global Settings (same key, same true-vs-nil
+            -- convention), so that toggle reads OFF and can turn them back on.
             if not IsShiftKeyDown() then return end
             if not EllesmereUIDB then EllesmereUIDB = {} end
             EllesmereUIDB.tutorialTipsDisabled = true
@@ -496,6 +598,161 @@ SlashCmdList["EUIVIDEOS"] = function()
     end
     RefreshTips()
     print("|cff00ff98EllesmereUI:|r Video guides and tutorial tips reset. Badges are back; one-time popups will fire again.")
+end
+
+-------------------------------------------------------------------------------
+--  Guide #0: the 12.1 launch announcement ("midnight_121")
+--
+--  The biggest popup the engine renders (wider shell, taller art band): a
+--  one-time login announcement for EXISTING users pointing at the 12.1
+--  walkthrough video, with the URL pre-selected so Ctrl+C is the only
+--  keystroke needed. Fired by the loader at the bottom of this file; the
+--  What's New page carries a matching full-width video banner.
+-------------------------------------------------------------------------------
+do
+    local function ReleaseLaunchChain()
+        EllesmereUI._launchVideoIntroPending = nil
+        if EllesmereUIDB and EllesmereUIDB.firstInstallPopupShown and EllesmereUI._RunConflictCheck then
+            C_Timer.After(0.3, EllesmereUI._RunConflictCheck)
+        end
+    end
+
+    EllesmereUI.VideoGuides.Register("midnight_121", {
+        eyebrow  = "IMPORTANT EUI VIDEO GUIDE",
+        title    = "Everything New in 12.1",
+        blurb    = "Patch 12.1 changes a lot, and EllesmereUI changed with it. This video walks you through the most important changes so you can jump straight back in. Copy the link below and watch it in your browser.",
+        url      = EllesmereUI.MIDNIGHT_VIDEO_URL,
+        footnote = "Watch anytime: the link also lives at the top of Patch Notes.",
+        bullets  = {
+            { "Quickdraw", "Chat Rewrite", "Buff Reminders" },
+            { "Damage Meters", "Aura Filtering", "Player Aura Bars" },
+        },
+        -- Spacious rhythm for the launch announcement: the compact defaults
+        -- are tuned for the small 470px guides and read cramped at this size.
+        gaps = {
+            eyebrow = 26, title = 10, blurb = 16,
+            bullets = 24, bulletRows = 12, url = 24, hint = 10,
+            button = 50, footnote = 20,
+        },
+        width    = 560,
+        height   = 508,
+        artHeight = 112,
+        urlWidth = 420,
+        okText   = "Got It",
+        onDismiss = ReleaseLaunchChain,
+        art = function(popup, ctx)
+            local PPx, band = ctx.PP, ctx.band
+            local EG = ctx.accent
+
+            -- Centerpiece: the video-player mock -- accent-bordered frame with
+            -- a progress bar mid-watch -- "playing" the full wordmark: accent
+            -- "12.1" plus white "EUI Video Guide".
+            local player = CreateFrame("Frame", nil, band)
+            player:SetFrameLevel(band:GetFrameLevel() + 2)
+            PPx.Size(player, 240, 78)
+            PPx.Point(player, "CENTER", band, "CENTER", 0, 0)
+            local pbg = player:CreateTexture(nil, "BACKGROUND")
+            pbg:SetAllPoints()
+            pbg:SetColorTexture(0.045, 0.055, 0.07, 1)
+            ctx.MakeBorder(player, EG.r, EG.g, EG.b, 0.8, PPx)
+
+            local hex = string.format("%02x%02x%02x",
+                math.floor(EG.r * 255 + 0.5), math.floor(EG.g * 255 + 0.5), math.floor(EG.b * 255 + 0.5))
+            local wordmark = player:CreateFontString(nil, "OVERLAY")
+            wordmark:SetFont(ctx.FONT, 26, "")
+            wordmark:SetTextColor(1, 1, 1, 0.95)
+            PPx.Point(wordmark, "TOP", player, "TOP", 0, -14)
+            wordmark:SetText("|cff" .. hex .. "12.1|r EUI Guide")
+
+            -- Progress bar: track, accent fill mid-watch, white playhead spark.
+            local track = CreateFrame("Frame", nil, player)
+            track:SetFrameLevel(player:GetFrameLevel() + 1)
+            PPx.Size(track, 216, 7)
+            PPx.Point(track, "BOTTOM", player, "BOTTOM", 0, 12)
+            local tbg = track:CreateTexture(nil, "BACKGROUND")
+            tbg:SetAllPoints()
+            tbg:SetColorTexture(1, 1, 1, 0.10)
+            local fill = track:CreateTexture(nil, "ARTWORK")
+            fill:SetColorTexture(EG.r, EG.g, EG.b, 0.85)
+            PPx.Size(fill, 93, 7)
+            PPx.Point(fill, "LEFT", track, "LEFT", 0, 0)
+            local spark = track:CreateTexture(nil, "OVERLAY")
+            spark:SetColorTexture(1, 1, 1, 0.95)
+            PPx.Size(spark, 2, 13)
+            PPx.Point(spark, "CENTER", fill, "RIGHT", 0, 0)
+
+            -- Mirrored flanking streams: three play glyphs swelling toward
+            -- the wordmark on each side (the "press play" pull).
+            local defs = { { 16, 0.10 }, { 22, 0.16 }, { 28, 0.24 } }  -- outermost -> innermost
+            for _, side in ipairs({ "LEFT", "RIGHT" }) do
+                local off = 44
+                for i = 1, 3 do
+                    local sz, a = defs[i][1], defs[i][2]
+                    local t = ctx.MakeTriangle(band, math.floor(sz * 0.8), sz, EG.r, EG.g, EG.b, a)
+                    if side == "LEFT" then
+                        PPx.Point(t, "LEFT", band, "LEFT", off, 0)
+                    else
+                        PPx.Point(t, "RIGHT", band, "RIGHT", -off, 0)
+                    end
+                    off = off + math.floor(sz * 0.8) + 10
+                end
+            end
+        end,
+    })
+
+    ---------------------------------------------------------------------------
+    --  Trigger: existing users only, once, at login. The new-vs-existing
+    --  guarantee mirrors the retired announcement popups: at the parent
+    --  ADDON_LOADED, EllesmereUIDB still reflects ONLY the previous session's
+    --  data (children have not initialized their per-profile DBs yet), so a
+    --  profile already carrying `addons` data = existing/upgrade user. Fresh
+    --  installs are stamped seen at login and never see it. The pending flag
+    --  holds the auto addon-conflict check (EllesmereUI.lua) until dismiss.
+    ---------------------------------------------------------------------------
+    local _decision
+
+    local function ComputeDecision()
+        if not EllesmereUIDB then return "new" end
+        if HasSeen("midnight_121") then return "done" end
+        local profiles = EllesmereUIDB.profiles
+        if type(profiles) == "table" then
+            for _, prof in pairs(profiles) do
+                if type(prof) == "table" and type(prof.addons) == "table" and next(prof.addons) then
+                    return "show"
+                end
+            end
+        end
+        return "new"
+    end
+
+    local loader = CreateFrame("Frame")
+    loader:RegisterEvent("ADDON_LOADED")
+    loader:RegisterEvent("PLAYER_LOGIN")
+    loader:SetScript("OnEvent", function(self, event, addonName)
+        if event == "ADDON_LOADED" then
+            if addonName ~= "EllesmereUI" then return end
+            self:UnregisterEvent("ADDON_LOADED")
+            _decision = ComputeDecision()
+            if _decision == "show" then
+                EllesmereUI._launchVideoIntroPending = true
+            end
+        elseif event == "PLAYER_LOGIN" then
+            self:UnregisterEvent("PLAYER_LOGIN")
+            if _decision == "new" then
+                -- Stamp fresh installs so the announcement never fires later.
+                MarkSeen("midnight_121")
+                return
+            end
+            if _decision ~= "show" then return end
+            C_Timer.After(0.8, function()
+                -- FireOnce stamps before showing (crash-safe); false = seen
+                -- since the decision was made, so just release the chain.
+                if not EllesmereUI.VideoGuides.FireOnce("midnight_121") then
+                    ReleaseLaunchChain()
+                end
+            end)
+        end
+    end)
 end
 
 -------------------------------------------------------------------------------
@@ -690,9 +947,8 @@ do
             local bar1 = MakeBar(chips[2], -7, 57)
             MakeBar(bar1, -5, 30)
 
-            -- Play badge beside the cluster, centered on the cluster's
-            -- vertical middle (chips sit at +14; chips + two bars span
-            -- symmetrically around 0).
+            -- Play badge beside the cluster, centered on the cluster's vertical middle
+            -- (chips sit at +14; chips + two bars span symmetrically around 0).
             local badge = ctx.MakePlayBadge(band, BADGE)
             PPx.Point(badge, "LEFT", chips[3], "RIGHT", BADGE_GAP, -14)
         end,

@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 local addon, ns = ...
 
 if not ns then return end
@@ -115,10 +116,9 @@ end
 -- Friendly NPC color: #00ff00
 local NPC_COLOR_R, NPC_COLOR_G, NPC_COLOR_B = 0, 1, 0
 
--- Bar & name color for full-plate friendly NPCs. User-customizable via the
--- inline swatch on "Show Friendly NPC Nameplates"; defaults to the green
--- NPC_COLOR. Only used in full-plate mode -- name-only NPCs use the overlay's
--- reaction color instead.
+-- Bar & name color for full-plate friendly NPCs. User-customizable via the inline
+-- swatch on "Show Friendly NPC Nameplates"; defaults to the green NPC_COLOR. Only used
+-- in full-plate mode -- name-only NPCs use the overlay's reaction color instead.
 local function GetFriendlyNPCColor()
     local fp = FP()
     local c = fp and fp.friendlyNPCColor
@@ -243,8 +243,7 @@ local function RestoreFriendlyFontOverride()
     end
 end
 
--- Name-only fonts are applied globally via the SystemFont_NamePlate override
--- above.
+-- Name-only fonts are applied globally via the SystemFont_NamePlate override above.
 --
 -- Friendly name-only names must NEVER truncate. Blizzard anchors that name
 -- FontString on BOTH its left and right edges, and a two-point anchor FIXES
@@ -252,20 +251,18 @@ end
 -- string measured 274). So the fix collapses it to a single CENTER anchor
 -- and drops any width box, letting it auto-size to the text.
 --
--- Perf shape: no polling. The state IS the live point count, so the delta
--- probe (GetNumPoints, cheap and allowed inside the restricted 12.1 plate
--- tree) runs first and every already-collapsed FontString early-outs -- the
--- steady state costs one C call. Hooks are permanent but installed once per
--- pooled FontString (bounded, ~plate count) and their handlers are
--- file-scope, so no closure is allocated per plate. Blizzard re-anchoring is
--- self-correcting: its first SetPoint leaves one point (skipped), the second
--- trips the probe and we collapse again.
--- SECRET-VALUE RULE for this block: inside the nameplate tree GetWidth (and
--- GetPoint) return SECRET numbers, and ANY comparison on one throws. So the
--- only geometry read here is GetNumPoints -- a plain count that stays
--- readable -- and nothing else is measured, compared, or carried over. The
--- writes (ClearAllPoints / SetPoint / SetWidth) are display sinks and are
--- always safe.
+-- Perf shape: no polling. The state IS the live point count, so the delta probe
+-- (GetNumPoints, cheap and allowed inside the restricted 12.1 plate tree) runs first
+-- and every already-collapsed FontString early-outs -- the steady state costs one C
+-- call. Hooks are permanent but installed once per pooled FontString (bounded, ~plate
+-- count) and their handlers are file-scope, so no closure is allocated per plate.
+-- Blizzard re-anchoring is self-correcting: its first SetPoint leaves one point
+-- (skipped), the second trips the probe and we collapse again. SECRET-VALUE RULE for
+-- this block: inside the nameplate tree GetWidth (and GetPoint) return SECRET
+-- numbers, and ANY comparison on one throws. So the only geometry read here is
+-- GetNumPoints -- a plain count that stays readable -- and nothing else is measured,
+-- compared, or carried over. The writes (ClearAllPoints / SetPoint / SetWidth) are
+-- display sinks and are always safe.
 local hookedNameFonts = {}  -- nameFS -> true (permanent hooks, applied once)
 local _nameFixGuard = false
 local ReanchorAllPlayerNames   -- forward decl (defined with the sweep helpers)
@@ -275,10 +272,9 @@ local function FixNameSizing(nameFS)
     _nameFixGuard = true
     local okp, pts = pcall(nameFS.GetNumPoints, nameFS)
     if okp and (pts or 0) >= 2 then
-        -- Collapse the pair onto the parent's centre. No offset is read from
-        -- the old points, so a plate whose name sat off-centre vertically is
-        -- re-centred. Only runs while actually two-point, so this is a
-        -- one-shot.
+        -- Collapse the pair onto the parent's centre. No offset is read from the old
+        -- points, so a plate whose name sat off-centre vertically is re-centred. Only
+        -- runs while actually two-point, so this is a one-shot.
         local parent = nameFS:GetParent()
         if parent then
             nameFS:ClearAllPoints()
@@ -286,10 +282,9 @@ local function FixNameSizing(nameFS)
         end
     end
     -- 0 on BOTH axes = auto-size to the text. Height matters as much as
-    -- width here: Blizzard sizes this FontString for a single line, and a
-    -- fixed height leaves the guild's second line nowhere to draw -- the
-    -- composed string is present and correct on the widget but only its
-    -- first line renders.
+    -- width here: Blizzard sizes this FontString for a single line, and a fixed height
+    -- leaves the guild's second line nowhere to draw -- the composed string is present
+    -- and correct on the widget but only its first line renders.
     nameFS:SetWidth(0)
     nameFS:SetHeight(0)
     _nameFixGuard = false
@@ -684,13 +679,12 @@ local function AttachNameOnlyText(nameFS, unit)
     UpdateNameOnlyText(nameFS)
 end
 
--- Sweep all visible friendly player plates and recompose their name text per
--- the current settings (mode off included -- the composition resolves back to
--- the plain name, undoing anything we previously wrote). Iterates
--- ns.pendingUnits -- the main file's live unit -> nameplate registry for
--- friendly plates, maintained by its NAME_PLATE_UNIT_ADDED/REMOVED handlers
--- (the name-only Y-offset feature sweeps it the same way).
--- C_NamePlate.GetNamePlates does not return friendly player plates, so it
+-- Sweep all visible friendly player plates and recompose their name text per the
+-- current settings (mode off included -- the composition resolves back to the plain
+-- name, undoing anything we previously wrote). Iterates ns.pendingUnits -- the main
+-- file's live unit -> nameplate registry for friendly plates, maintained by its
+-- NAME_PLATE_UNIT_ADDED/REMOVED handlers (the name-only Y-offset feature sweeps it the
+-- same way). C_NamePlate.GetNamePlates does not return friendly player plates, so it
 -- cannot drive this sweep.
 local function SweepPlayerSubText()
     if not IsNameOnlyMode() then return end
@@ -746,10 +740,9 @@ local function SuppressBlizzardUF(unit, nameplate)
 
     uf:SetAlpha(0)
 
-    -- Reparent the entire UnitFrame to the hidden frame.
-    -- This makes everything invisible. We do NOT unregister events
-    -- because we need Blizzard's UF to stay functional for when
-    -- we restore it (e.g. toggling back to name-only mode).
+    -- Reparent the entire UnitFrame to the hidden frame. This makes everything
+    -- invisible. We do NOT unregister events because we need Blizzard's UF to stay
+    -- functional for when we restore it (e.g. toggling back to name-only mode).
     uf:SetParent(hiddenFrame)
 
     modifiedUFs[unit] = { uf = uf, nameplate = nameplate }
@@ -813,6 +806,22 @@ local function RestoreNPCNameplate(nameplate, unit)
     if unit then
         RestoreBlizzardUF(unit)
     end
+end
+
+-- Name-only friendly NPCs never touch friendlyPlates[] -- they're suppressed
+-- purely via SuppressNPCNameplate/npcOverlays, keyed by nameplate rather than
+-- unit. RemoveFriendlyPlate/RemoveFriendlyPlateNoRestore only clean up the
+-- full-plate pool, so when such an NPC is promoted to an enemy plate (e.g.
+-- becomes attackable) the orphaned name overlay is left rendering on top of
+-- the new enemy bar. Called from the friendly->enemy promotion watcher
+-- BEFORE the enemy plate spawns; leaves the Blizzard UF alpha'd/reparented
+-- as-is (mirrors RemoveFriendlyPlateNoRestore) since HideBlizzardFrame takes
+-- over suppression independently in the enemy plate's SetUnit.
+function ns.RemoveFriendlyNPCOverlayForUnit(unit, nameplate)
+    nameplate = nameplate or (unit and C_NamePlate.GetNamePlateForUnit(unit))
+    if not nameplate or not nameOnlyNPCSuppressed[nameplate] then return end
+    nameOnlyNPCSuppressed[nameplate] = nil
+    HideNPCOverlay(nameplate)
 end
 
 -------------------------------------------------------------------------------
@@ -898,12 +907,11 @@ local friendlyFrameCache = CreateFramePool("Frame", UIParent, nil, nil, false, f
     plate.healthBG:SetAllPoints()
     plate.healthBG:SetColorTexture(0.12, 0.12, 0.12, 1.0)
 
-    -- Border: pixel-perfect PP.CreateBorder mirroring the enemy nameplate
-    -- border exactly. Reads the same enemy border settings (showBorder,
-    -- borderSize, borderColor) so friendly plates always match whatever
-    -- border the user has configured for enemy plates. Lives on a child
-    -- container at health level + 1 so it renders above the mouseover
-    -- highlight (OVERLAY sublevel 6) and the health fill.
+    -- Border: pixel-perfect PP.CreateBorder mirroring the enemy nameplate border
+    -- exactly. Reads the same enemy border settings (showBorder, borderSize,
+    -- borderColor) so friendly plates always match whatever border the user has
+    -- configured for enemy plates. Lives on a child container at health level + 1 so it
+    -- renders above the mouseover highlight (OVERLAY sublevel 6) and the health fill.
     local PP = EllesmereUI and EllesmereUI.PP
     if PP and PP.CreateBorder then
         local cr, cg, cb = ns.GetBorderColor()
@@ -1021,10 +1029,9 @@ local friendlyFrameCache = CreateFramePool("Frame", UIParent, nil, nil, false, f
     -- changes live-update without touching the plate.
     plate.subText1 = plate:CreateFontString(nil, "OVERLAY")
     plate.subText1:SetFontObject(subtitleFont)
-    -- Anchored in UpdateSubText against the HEALTH BAR with the same computed
-    -- number that positions the name -- never against the name's own rect,
-    -- which re-derives from text metrics every render and jitters on a
-    -- moving plate.
+    -- Anchored in UpdateSubText against the HEALTH BAR with the same computed number
+    -- that positions the name -- never against the name's own rect, which re-derives
+    -- from text metrics every render and jitters on a moving plate.
     plate.subText1:SetTextColor(SUB_TEXT_R, SUB_TEXT_G, SUB_TEXT_B)
     plate.subText1:SetWordWrap(false)
     plate.subText1:SetMaxLines(1)
@@ -1537,8 +1544,33 @@ clickThroughRetry:SetScript("OnEvent", function() ApplyFriendlyClickThrough() en
 --  the two toggles that mean "I want friendly plates" (Show EUI Friendly
 --  Player Nameplates / Make Friendly Nameplates Name Only). Every other path
 --  reads the CVars and leaves them alone.
+--
+--  The CVar was renamed along the way: current clients register
+--  nameplateShowFriendlyPlayers, older ones nameplateShowFriends, and reading
+--  a name the client does not register just gives nil. Writes go to both (the
+--  dead one is a harmless no-op), but the READ has to come from whichever is
+--  live -- a nil read used to be recorded as "the user had them hidden" and
+--  then handed back as 0 on the way out of a follower dungeon, which is what
+--  left friendly nameplates switched off after a delve.
 -------------------------------------------------------------------------------
 local FRIENDLY_VIS_CVARS = { "nameplateShowFriendlyPlayers", "nameplateShowFriends" }
+local _liveVisCVar   -- resolved lazily; nil until a name reads back
+
+--- The visibility CVar this client actually registers, or nil if neither
+--- answers yet. Resolved on first successful read and cached, so it never runs
+--- before the CVar system is up and costs nothing afterwards.
+local function LiveFriendlyVisCVar()
+    if _liveVisCVar then return _liveVisCVar end
+    if not GetCVar then return nil end
+    for i = 1, #FRIENDLY_VIS_CVARS do
+        local ok, v = pcall(GetCVar, FRIENDLY_VIS_CVARS[i])
+        if ok and v ~= nil then
+            _liveVisCVar = FRIENDLY_VIS_CVARS[i]
+            return _liveVisCVar
+        end
+    end
+    return nil
+end
 
 --- Force friendly player plates visible. Also drops any pending follower
 --- dungeon capture: an explicit "show them" must not be undone later by a
@@ -1556,10 +1588,15 @@ end
 --- is what re-showed plates for people who had hidden them. Persisted rather
 --- than runtime-only because the player can log out inside the dungeon, and a
 --- lost capture would strand their preference off.
+--- Returns true once there is a capture on file to hand back later.
 local function CaptureFriendlyVis()
-    if not EllesmereUIDB or EllesmereUIDB.friendlyPlateVisSaved ~= nil then return end
-    local cur = GetCVar and GetCVar("nameplateShowFriends")
+    if not EllesmereUIDB then return false end
+    if EllesmereUIDB.friendlyPlateVisSaved ~= nil then return true end
+    local cvar = LiveFriendlyVisCVar()
+    if not cvar then return false end   -- can't read it: don't guess, don't hide
+    local cur = GetCVar(cvar)
     EllesmereUIDB.friendlyPlateVisSaved = (cur == "1" or cur == 1) and 1 or 0
+    return true
 end
 
 local function RestoreFriendlyVis()
@@ -1572,6 +1609,16 @@ local function RestoreFriendlyVis()
     end
 end
 
+-- SetCVar on nameplate CVars is skipped in combat to avoid taint, so a zone
+-- transition that lands mid-combat drops the whole visibility pass. Without a
+-- retry that silently strands a follower-dungeon capture unclaimed and leaves
+-- friendly plates hidden until the next transition, so re-run once combat ends.
+local visCVarRetry = CreateFrame("Frame")
+visCVarRetry:SetScript("OnEvent", function(self)
+    self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+    ns.UpdateFriendlyNameplateSystem()
+end)
+
 -------------------------------------------------------------------------------
 --  System enable / disable  (called from toggle setValue and on login)
 -------------------------------------------------------------------------------
@@ -1583,23 +1630,26 @@ function ns.UpdateFriendlyNameplateSystem()
     -- switches, slug toggles). Value-memoized, near-free when unchanged.
     ApplySubtitleFont()
 
-    -- In follower dungeons, force-hide friendly nameplates via CVars.
-    -- In instances (dungeons/raids/scenarios/arenas/PvP), force-hide
-    -- friendly NPC nameplates because GetNamePlateForUnit returns nil
-    -- for protected frames and our suppression can't run.
-    -- SetCVar for nameplate CVars is protected in combat; skip to avoid taint.
-    -- Friendly player CVars are only touched when the user has EUI managing
-    -- friendly player nameplates. When disabled we leave those CVars alone
-    -- so Blizzard's own Nameplate settings own them. Friendly NPC CVars are
-    -- always managed because they have their own EUI toggle.
+    -- In follower dungeons, force-hide friendly nameplates via CVars. In instances
+    -- (dungeons/raids/scenarios/arenas/PvP), force-hide friendly NPC nameplates
+    -- because GetNamePlateForUnit returns nil for protected frames and our
+    -- suppression can't run. SetCVar for nameplate CVars is protected in combat; skip
+    -- to avoid taint and re-run the pass on PLAYER_REGEN_ENABLED so nothing is lost.
+    -- Friendly player CVars are only touched when the user has EUI managing friendly
+    -- player nameplates. When disabled we leave those CVars alone so Blizzard's own
+    -- Nameplate settings own them. Friendly NPC CVars are always managed because they
+    -- have their own EUI toggle.
     if not InCombatLockdown() and SetCVar then
+        visCVarRetry:UnregisterEvent("PLAYER_REGEN_ENABLED")
         local fp = FP()
         local euiManagesPlayers = fp and (fp.showFriendlyPlayers ~= false)
         local _, iType = GetInstanceInfo()
         local inInstance = (iType == "party" or iType == "raid" or iType == "scenario" or iType == "arena" or iType == "pvp")
         if IsInFollowerDungeon() then
-            if euiManagesPlayers then
-                CaptureFriendlyVis()
+            -- Only hide them once the pre-change value is safely on file.
+            -- Hiding without a capture has no matching restore, so the plates
+            -- would never come back.
+            if euiManagesPlayers and CaptureFriendlyVis() then
                 pcall(SetCVar, "nameplateShowFriendlyPlayers", 0)
                 pcall(SetCVar, "nameplateShowFriends", 0)
             end
@@ -1608,7 +1658,11 @@ function ns.UpdateFriendlyNameplateSystem()
         elseif inInstance then
             -- NPC plates only: force off in instances since our frame
             -- suppression doesn't work on protected nameplate frames.
-            -- Player CVars are unaffected.
+            -- Player visibility is not forced here, but a capture taken in a
+            -- follower dungeon still has to be handed back: zoning straight
+            -- from a delve into a dungeon never touches the open-world branch
+            -- below, and the plates would stay hidden for the whole run.
+            if euiManagesPlayers then RestoreFriendlyVis() end
             pcall(SetCVar, "nameplateShowFriendlyNPCs", 0)
             pcall(SetCVar, "nameplateShowFriendlyNpcs", 0)
         else
@@ -1626,6 +1680,9 @@ function ns.UpdateFriendlyNameplateSystem()
                 pcall(SetCVar, "nameplateShowFriendlyNpcs", showNPCs and 1 or 0)
             end
         end
+    elseif SetCVar then
+        -- Skipped for combat: run the visibility pass again once it drops.
+        visCVarRetry:RegisterEvent("PLAYER_REGEN_ENABLED")
     end
 
     if shouldEnable and not friendlyEnabled then
@@ -1690,11 +1747,10 @@ function ns.UpdateFriendlyNameplateSystem()
             local cc = (_fp and _fp.classColorFriendly ~= false) and 1 or 0
             pcall(SetCVar, "nameplateUseClassColorForFriendlyPlayerUnitNames", cc)
         end
-        -- Sweep name-only plates. NPCs: suppress health bars and color names
-        -- green, gated per-unit so Blizzard's "NPC Names" filter is respected --
-        -- widgets-only NPCs are left to Blizzard instead of getting our overlay.
-        -- Players ride SweepPlayerSubText (protected-plate list) for the
-        -- Below Name sub text.
+        -- Sweep name-only plates. NPCs: suppress health bars and color names green,
+        -- gated per-unit so Blizzard's "NPC Names" filter is respected -- widgets-only
+        -- NPCs are left to Blizzard instead of getting our overlay. Players ride
+        -- SweepPlayerSubText (protected-plate list) for the Below Name sub text.
         local function SweepNameOnlyPlates()
             local allPlates = C_NamePlate.GetNamePlates()
             if allPlates then

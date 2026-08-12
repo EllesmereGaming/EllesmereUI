@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUIDamageMeters_SpellHistory.lua
 --  Standalone spell history tracker.  Two independent display modes:
@@ -56,9 +57,13 @@ local SH_DEFAULTS = {
     bgR = 0, bgG = 0, bgB = 0, bgAlpha = 0.25,
     iconHideInDungeon    = false,
     iconHideInRaid       = false,
+    iconHideInDelve      = false,
+    iconHideInPvP        = false,
     iconHideOutOfInstance = false,
     barHideInDungeon     = false,
     barHideInRaid        = false,
+    barHideInDelve       = false,
+    barHideInPvP         = false,
     barHideOutOfInstance = false,
 }
 
@@ -442,12 +447,14 @@ end
 -------------------------------------------------------------------------------
 --  Instance visibility check
 -------------------------------------------------------------------------------
-local function ShouldHide(hideInDungeon, hideInRaid, hideOutOfInstance)
+local function ShouldHide(hideInDungeon, hideInRaid, hideInDelve, hideInPvP, hideOutOfInstance)
     -- Always visible while options panel is open
     if ns._optionsOpen then return false end
     local _, iType = IsInInstance()
     if hideInDungeon and iType == "party" then return true end
     if hideInRaid and iType == "raid" then return true end
+    if hideInDelve and C_PartyInfo and C_PartyInfo.IsDelveInProgress and C_PartyInfo.IsDelveInProgress() then return true end
+    if hideInPvP and (iType == "pvp" or iType == "arena") then return true end
     if hideOutOfInstance and (iType == "none" or iType == nil) then return true end
     return false
 end
@@ -491,10 +498,9 @@ local function StopFadeClock()
     if _fadeDriver then _fadeDriver:Hide() end
 end
 
--- Arms exactly one of: the fast driver (an icon is mid-fade) or a one-shot
--- timer for the next fade start. Out-of-combat only; entries are newest
--- first, so effective ages grow with the index and the scan can stop at
--- the first fully-faded entry.
+-- Arms exactly one of: the fast driver (an icon is mid-fade) or a one-shot timer for
+-- the next fade start. Out-of-combat only; entries are newest first, so effective ages
+-- grow with the index and the scan can stop at the first fully-faded entry.
 local function ScheduleFade(fadeTime, maxIcons)
     StopFadeClock()
     local n = min(#_history, maxIcons)
@@ -690,7 +696,7 @@ end
 
 BuildIconStrip = function()
     local sh = DB()
-    if not sh.iconEnabled or ShouldHide(sh.iconHideInDungeon, sh.iconHideInRaid, sh.iconHideOutOfInstance) then
+    if not sh.iconEnabled or ShouldHide(sh.iconHideInDungeon, sh.iconHideInRaid, sh.iconHideInDelve, sh.iconHideInPvP, sh.iconHideOutOfInstance) then
         if _iconStrip then _iconStrip:Hide() end
         StopFadeClock()
         return
@@ -967,7 +973,7 @@ local MIN_W, MIN_H = 150, 80
 local function BuildBarWindow()
     local sh = DB()
     local dmCfg = ns.EDM.DB()
-    if not sh.barEnabled or ShouldHide(sh.barHideInDungeon, sh.barHideInRaid, sh.barHideOutOfInstance) then
+    if not sh.barEnabled or ShouldHide(sh.barHideInDungeon, sh.barHideInRaid, sh.barHideInDelve, sh.barHideInPvP, sh.barHideOutOfInstance) then
         if _barWin then _barWin:Hide() end
         return
     end

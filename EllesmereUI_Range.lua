@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUI_Range.lua
 --  Shared range-check engine for the suite's three range consumers:
@@ -164,12 +165,11 @@ local function ItemEntryInRange(entry, unit)
     return res
 end
 
--- In combat (and in protected instances, where protected-function
--- restrictions persist between pulls) C_Item.IsItemInRange is a PROTECTED
--- call against units the player cannot attack -- calling it there is an
--- ADDON_ACTION_BLOCKED, not a secret result, so it must be gated up front.
--- Hostile checks stay legal. Fails toward skipping the walk: a restricted
--- query degrades to nil (no display) instead of a blocked action.
+-- In combat (and in protected instances, where protected-function restrictions persist
+-- between pulls) C_Item.IsItemInRange is a PROTECTED call against units the player
+-- cannot attack -- calling it there is an ADDON_ACTION_BLOCKED, not a secret result, so
+-- it must be gated up front. Hostile checks stay legal. Fails toward skipping the walk:
+-- a restricted query degrades to nil (no display) instead of a blocked action.
 local function ItemChecksAllowed(unit)
     if not (InCombatLockdown()
         or (EllesmereUI.InProtectedInstance and EllesmereUI.InProtectedInstance())) then
@@ -292,30 +292,6 @@ function EllesmereUI.Range_BeyondCutoff(unit, cutoff)
     return nil
 end
 
--- One-shot diagnostic support (/euirangedbg): every rung and each candidate
--- spell's live answer, through the caller's printer.
-function EllesmereUI.Range_DebugDump(unit, out)
-    EnsureLadder()
-    out("ladder rungs=" .. #RG.ladder .. " activeConsumers=" .. RG.activeCount)
-    local FindOvr = C_SpellBook and C_SpellBook.FindSpellOverrideByID
-    for i = 1, #RG.ladder do
-        local rung = RG.ladder[i]
-        for j = 1, #rung.spells do
-            local sid = rung.spells[j]
-            local res = "no-unit"
-            if unit then
-                local live = (FindOvr and FindOvr(sid)) or sid
-                local raw = C_Spell.IsSpellInRange and C_Spell.IsSpellInRange(live, unit)
-                if issecretvalue and issecretvalue(raw) then
-                    res = "SECRET"
-                else
-                    res = tostring(raw)
-                end
-            end
-            out(("rung %d: %syd spell=%s -> %s"):format(i, tostring(rung.range), tostring(sid), res))
-        end
-    end
-end
 
 -------------------------------------------------------------------------------
 --  Activation

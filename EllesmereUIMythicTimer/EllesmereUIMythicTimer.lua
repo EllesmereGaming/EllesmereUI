@@ -1,7 +1,10 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUIMythicTimer.lua  —  M+ Timer overlay for EllesmereUI
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
+if not (EllesmereUI and EllesmereUI._ModuleNS) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns via the registry
 local EMT = EllesmereUI.Lite.NewAddon(ADDON_NAME)
 
 -- Upvalues
@@ -21,54 +24,7 @@ local COMPARE_DUNGEON = "DUNGEON"
 local COMPARE_LEVEL = "LEVEL"
 local COMPARE_LEVEL_AFFIX = "LEVEL_AFFIX"
 
-local TEXTURE_BASE = "Interface\\AddOns\\EllesmereUI\\media\\textures\\"
-local barTextures = {
-    ["none"]          = nil,
-    ["melli"]         = TEXTURE_BASE .. "melli.tga",
-    ["beautiful"]     = TEXTURE_BASE .. "beautiful.tga",
-    ["plating"]       = TEXTURE_BASE .. "plating.tga",
-    ["atrocity"]      = TEXTURE_BASE .. "atrocity.tga",
-    ["divide"]        = TEXTURE_BASE .. "divide.tga",
-    ["glass"]         = TEXTURE_BASE .. "glass.tga",
-    ["fade-right"]    = TEXTURE_BASE .. "fade-right.tga",
-    ["thin-line-top"] = TEXTURE_BASE .. "thin-line-top.tga",
-    ["thin-line-bottom"] = TEXTURE_BASE .. "thin-line-bottom.tga",
-    ["fade"]          = TEXTURE_BASE .. "fade.tga",
-    ["gradient-lr"]   = TEXTURE_BASE .. "gradient-lr.tga",
-    ["gradient-rl"]   = TEXTURE_BASE .. "gradient-rl.tga",
-    ["gradient-bt"]   = TEXTURE_BASE .. "gradient-bt.tga",
-    ["gradient-tb"]   = TEXTURE_BASE .. "gradient-tb.tga",
-    ["matte"]         = TEXTURE_BASE .. "matte.tga",
-    ["sheer"]         = TEXTURE_BASE .. "sheer.tga",
-}
-local barTextureOrder = {
-    "none", "melli", "atrocity",
-    "fade", "fade-right",
-    "thin-line-top", "thin-line-bottom",
-    "beautiful", "plating",
-    "divide", "glass",
-    "gradient-lr", "gradient-rl", "gradient-bt", "gradient-tb",
-    "matte", "sheer",
-}
-local barTextureNames = {
-    ["none"]          = "None",
-    ["melli"]         = "Melli (ElvUI)",
-    ["beautiful"]     = "Beautiful",
-    ["plating"]       = "Plating",
-    ["atrocity"]      = "Atrocity",
-    ["divide"]        = "Divide",
-    ["glass"]         = "Glass",
-    ["fade-right"]    = "Fade Right",
-    ["thin-line-top"] = "Thin Line Top",
-    ["thin-line-bottom"] = "Thin Line Bottom",
-    ["fade"]          = "Fade",
-    ["gradient-lr"]   = "Gradient Right",
-    ["gradient-rl"]   = "Gradient Left",
-    ["gradient-bt"]   = "Gradient Up",
-    ["gradient-tb"]   = "Gradient Down",
-    ["matte"]         = "Matte",
-    ["sheer"]         = "Sheer",
-}
+local barTextures, barTextureNames, barTextureOrder = EllesmereUI.BuildBarTextureTables()
 ns.barTextures = barTextures
 ns.barTextureOrder = barTextureOrder
 ns.barTextureNames = barTextureNames
@@ -93,14 +49,7 @@ local function ApplyBarTexture(tex, texKey, r, g, b, a)
     end
 end
 
-local function CopyTable(src)
-    if type(src) ~= "table" then return src end
-    local out = {}
-    for key, value in pairs(src) do
-        out[key] = type(value) == "table" and CopyTable(value) or value
-    end
-    return out
-end
+local CopyTable = EllesmereUI.Lite.DeepCopy
 
 
 local function CalculateBonusTimers(maxTime, affixes)
@@ -536,7 +485,7 @@ local function FormatEnemyForcesText(enemyObj, formatId, compact)
     local rawTotal = enemyObj.rawTotalQuantity or enemyObj.totalQuantity or 100
     local percent = enemyObj.percent or enemyObj.quantity or 0
     local remaining = max(0, rawTotal - rawCurrent)
-    local suffix = compact and "" or " Enemy Forces"
+    local suffix = compact and "" or EllesmereUI.L(" Enemy Forces")
 
     if formatId == "COUNT" then
         return format("%d/%d%s", RoundToInt(rawCurrent), RoundToInt(rawTotal), suffix)
@@ -765,13 +714,12 @@ local function TrackerShouldBeHidden()
     return false
 end
 
--- ObjectiveTrackerFrame is EditMode-managed: its Hide() routes through the
--- system template to HideBase(), which is protected, so calling it from our
--- execution during combat is blocked (ADDON_ACTION_BLOCKED). In combat,
--- suppress with alpha only (top-level frame, never children, never mouse
--- state) and finish the real Hide once combat drops. The regen listener is
--- one-shot: it unregisters on fire and is re-registered by each new
--- in-combat request.
+-- ObjectiveTrackerFrame is EditMode-managed: its Hide() routes through the system
+-- template to HideBase(), which is protected, so calling it from our execution during
+-- combat is blocked (ADDON_ACTION_BLOCKED). In combat, suppress with alpha only
+-- (top-level frame, never children, never mouse state) and finish the real Hide once
+-- combat drops. The regen listener is one-shot: it unregisters on fire and is
+-- re-registered by each new in-combat request.
 local _trackerRegenFrame
 local function HideTracker(otf)
     if InCombatLockdown() then
@@ -951,6 +899,23 @@ local PREVIEW_RUN = {
     },
 }
 
+-- The preview is a hardcoded dummy run, so its dungeon and affix names would stay
+-- English on every client. Both carry an ID and the live-run path already resolves
+-- names from those same IDs, so do the same here. When an ID is not in the current
+-- season the API returns nil, so the hardcoded English falls back through L() instead.
+local function LocalizePreview()
+    local run = PREVIEW_RUN
+    if C_ChallengeMode and C_ChallengeMode.GetMapUIInfo then
+        run.mapName = C_ChallengeMode.GetMapUIInfo(run.mapID) or EllesmereUI.L(run.mapName)
+    end
+    if run._previewAffixIDs and C_ChallengeMode and C_ChallengeMode.GetAffixInfo then
+        for i, id in ipairs(run._previewAffixIDs) do
+            local name = C_ChallengeMode.GetAffixInfo(id)
+            run._previewAffixNames[i] = name or EllesmereUI.L(run._previewAffixNames[i])
+        end
+    end
+end
+
 _G._EMT_Apply = function()
     -- Render before CENTER re-apply so height is known (placeholder is 200px).
     if _G._EMT_StandaloneRefresh then _G._EMT_StandaloneRefresh() end
@@ -1063,13 +1028,12 @@ ns.ApplyBorder = function()
     local texKey = p.borderTexture or "solid"
     local r, g, b, a = p.borderR or 0, p.borderG or 0, p.borderB or 0, p.borderA or 1
 
-    -- Main timer bar.
-    -- In SEGMENTS mode "_barBg" is only an invisible (Alpha 0) but still
-    -- :IsShown() texture that spans the ENTIRE bar width (including the gaps
-    -- between segments). Bordering it here would draw a border line in the gaps
-    -- too (left/right is hidden by the adjacent segment border, top/bottom is
-    -- not), so in SEGMENTS mode the main border is disabled here; the individual
-    -- segment borders below draw the complete outline.
+    -- Main timer bar. In SEGMENTS mode "_barBg" is only an invisible (Alpha 0) but
+    -- still :IsShown() texture that spans the ENTIRE bar width (including the gaps
+    -- between segments). Bordering it here would draw a border line in the gaps too
+    -- (left/right is hidden by the adjacent segment border, top/bottom is not), so in
+    -- SEGMENTS mode the main border is disabled here; the individual segment borders
+    -- below draw the complete outline.
     local isSegmented = (p.timerBarStyle == "SEGMENTS")
     if isSegmented then
         ApplyBorderTo(f, f._barBg, "_emtBarBorderFrame", p, 0, texKey, r, g, b, a)
@@ -1480,6 +1444,7 @@ local function RenderStandalone()
     if not run.active and not run.completed then
         if p.showPreview or unlockLayoutActive then
             run = PREVIEW_RUN
+            LocalizePreview()
             isPreview = true
         else
             if standaloneFrame then standaloneFrame:Hide() end
@@ -1626,8 +1591,9 @@ local function RenderStandalone()
         ApplyShadow(f._deathFS)
         local dR, dG, dB = GetColor(p.deathTextColor, 0.93, 0.33, 0.33)
         f._deathFS:SetTextColor(dR, dG, dB)
-        f._deathFS:SetText(format("%d Death%s  -%s",
-            run.deaths, run.deaths ~= 1 and "s" or "", FormatTime(run.deathTimeLost)))
+        f._deathFS:SetText(run.deaths == 1
+            and EllesmereUI.Lf("%1$d Death  -%2$s", run.deaths, FormatTime(run.deathTimeLost))
+            or EllesmereUI.Lf("%1$d Deaths  -%2$s", run.deaths, FormatTime(run.deathTimeLost)))
         f._deathFS:ClearAllPoints()
         f._deathFS:SetPoint("TOPLEFT", f, "TOPLEFT", dPad, y - 5)
         f._deathFS:SetPoint("TOPRIGHT", f, "TOPRIGHT", -dPad, y - 5)
@@ -1676,9 +1642,8 @@ local function RenderStandalone()
     local timerText
     local timerDetailText
     if run.completed then
-        -- Completed run: freeze the clock at the final elapsed seconds
-        -- but preserve the user's chosen display mode so "/33:00" doesn't
-        -- vanish on completion.
+        -- Completed run: freeze the clock at the final elapsed seconds but preserve the
+        -- user's chosen display mode so "/33:00" doesn't vanish on completion.
         local mode = p.timerDisplayMode or "REMAINING_TOTAL"
         local elaStr = FormatTime(run.elapsed or completedElapsed or 0)
         local maxStr = FormatTime(maxTime)
@@ -1968,7 +1933,7 @@ local function RenderStandalone()
         elseif hideLabel then
             label = ""
         else
-            label = "Enemy Forces"
+            label = EllesmereUI.L("Enemy Forces")
         end
 
         local enemyTextSize = p.enemyForcesTextSize or p.objectivesSize or 12
@@ -2116,11 +2081,10 @@ local function RenderStandalone()
             -- and the live clock (e.g. "33:00") gets ellipsized. Once per key change.
             local templ = (timerText or ""):gsub("%d", WidestDigitChar(f._timerFS))
             f._timerFS:SetText(templ)
-            -- Keep the SetTextDiff cache in sync with what we just wrote
-            -- directly. Otherwise the cache still reflects the previous
-            -- timerText, so the restore call below short-circuits and
-            -- the "99:99" template stays visible (bug seen during the
-            -- 10-second pre-start window where elapsed stays at 0).
+            -- Keep the SetTextDiff cache in sync with what we just wrote directly.
+            -- Otherwise the cache still reflects the previous timerText, so the restore
+            -- call below short-circuits and the "99:99" template stays visible (bug
+            -- seen during the 10-second pre-start window where elapsed stays at 0).
             f._timerFS._lastText = templ
             -- Clear any previously pinned width BEFORE measuring. With wrap off,
             -- GetStringWidth() returns a value CLAMPED to the current width whenever
@@ -2475,6 +2439,8 @@ local function RenderStandalone()
                 ApplyShadow(timeFS)
 
                 local displayName = StripDefeated(obj.name) or ("Objective " .. i)
+                -- Preview only: a real run gets its objective names from the game.
+                if isPreview then displayName = EllesmereUI.L(displayName) end
                 if obj.totalQuantity and obj.totalQuantity > 1 then
                     displayName = format("%d/%d %s", obj.quantity or 0, obj.totalQuantity, displayName)
                 end
@@ -2590,7 +2556,7 @@ local function RenderStandalone()
     if isPreview and p.showPreview then
         SetFS(f._previewFS, 8)
         f._previewFS:SetTextColor(0.5, 0.5, 0.5, 0.6)
-        f._previewFS:SetText("PREVIEW")
+        f._previewFS:SetText(EllesmereUI.L("PREVIEW"))
         f._previewFS:ClearAllPoints()
         f._previewFS:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -PAD, 4)
         f._previewFS:Show()
@@ -2618,11 +2584,10 @@ _G._EMT_RebuildStandalone = function()
     RenderStandalone()
 end
 
--- One-time migration of legacy TOPLEFT-stored position into stable centerX/Y
--- offsets relative to UIParent center. Must run BEFORE SetScale so the
--- derived center reflects the unscaled frame; otherwise repeated calls
--- after SetScale would compute a different center each time and the frame
--- would drift.
+-- One-time migration of legacy TOPLEFT-stored position into stable centerX/Y offsets
+-- relative to UIParent center. Must run BEFORE SetScale so the derived center reflects
+-- the unscaled frame; otherwise repeated calls after SetScale would compute a different
+-- center each time and the frame would drift.
 local function _ensureCenterPos()
     local pos = db and db.profile and db.profile.standalonePos
     if not pos then return end
@@ -2761,9 +2726,8 @@ runtimeFrame:SetScript("OnEvent", function(_, event)
     end
     HandleRuntimeEvent(event)
 
-    -- Toggle high-frequency event subscriptions based on whether we're
-    -- actually in a key. Outside M+ we don't want to wake on every quest
-    -- update or subzone change.
+    -- Toggle high-frequency event subscriptions based on whether we're actually in a
+    -- key. Outside M+ we don't want to wake on every quest update or subzone change.
     if currentRun.active then
         _registerRunEvents()
     else
@@ -2910,11 +2874,10 @@ function EMT:OnEnable()
                     -- mode fixes it" field report (/emtdbg capture: our apply
                     -- wrote 696.3 at scale 1.26 = 877 on screen, then the
                     -- centralized pass stomped it with 552.6 = 696 on
-                    -- screen). At scale 1.0 both forms are identical, which
-                    -- is why only scaled timers ever drifted. The /scale
-                    -- division belongs ONLY at the module's own SetPoint
-                    -- (ApplyStandalonePosition / _centerPosFromSaved), never
-                    -- in the interchange format.
+                    -- screen). At scale 1.0 both forms are identical, which is why only
+                    -- scaled timers ever drifted. The /scale division belongs ONLY at
+                    -- the module's own SetPoint (ApplyStandalonePosition /
+                    -- _centerPosFromSaved), never in the interchange format.
                     local pos = db.profile.standalonePos
                     if not (pos and pos.centerX and pos.centerY) then return nil end
                     return {

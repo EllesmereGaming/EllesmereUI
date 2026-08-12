@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EUI_RF_TargetedSpells.lua
 --  Targeted Spells: when an enemy nameplate starts a cast that has a
@@ -113,14 +114,13 @@ local function RebuildRoster()
     lastRosterSync = GetTime()
 end
 
--- Readable identity classifier. Candidates are gathered by class token (O(1)
--- via rosterByClass), then narrowed by each additional readable attribute
--- (role, race, sex). A narrowing pass applies only when at least one candidate
--- matches the target's value exactly -- and then it ALSO drops candidates whose
--- value is unknown, so a late-cached attribute can never widen the net. If more
--- than one candidate survives every pass the cast is AMBIGUOUS and we show
--- nothing: a false icon teaches hesitation, a missing icon is just the no-addon
--- baseline.
+-- Readable identity classifier. Candidates are gathered by class token (O(1) via
+-- rosterByClass), then narrowed by each additional readable attribute (role, race,
+-- sex). A narrowing pass applies only when at least one candidate matches the target's
+-- value exactly -- and then it ALSO drops candidates whose value is unknown, so a
+-- late-cached attribute can never widen the net. If more than one candidate survives
+-- every pass the cast is AMBIGUOUS and we show nothing: a false icon teaches
+-- hesitation, a missing icon is just the no-addon baseline.
 local matchBuf = {}
 
 local function Narrow(targetVal, rosterMap)
@@ -570,10 +570,9 @@ local function ShouldBeActive()
     return ModeActive(mode)
 end
 
--- A cast can already be in flight when we start watching a plate (it spawned
--- off-camera so no token existed, or the feature just activated). Adopt it
--- through the full gate/resolve flow. (Assign before type-check: zero returns
--- when not casting.)
+-- A cast can already be in flight when we start watching a plate (it spawned off-camera
+-- so no token existed, or the feature just activated). Adopt it through the full
+-- gate/resolve flow. (Assign before type-check: zero returns when not casting.)
 local function AdoptIfCasting(unit)
     local castName = UnitCastingInfo(unit)
     if type(castName) == "nil" then castName = UnitChannelInfo(unit) end

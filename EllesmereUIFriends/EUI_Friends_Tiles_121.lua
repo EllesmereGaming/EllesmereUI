@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EUI_Friends_Tiles_121.lua
 --  EllesmereUI tile styling for the 12.1 Social UI friends list.
@@ -21,8 +22,6 @@
 -------------------------------------------------------------------------------
 local ADDON_NAME = ...
 
-if not (EllesmereUI and EllesmereUI.IS_121) then return end
-
 local EG = EllesmereUI.ELLESMERE_GREEN
 
 -- External weak-keyed state. Never write custom keys onto a Blizzard frame.
@@ -39,11 +38,10 @@ end
 -- ROW HEIGHT IS BLIZZARD'S. DO NOT TRY TO CHANGE IT.
 --
 -- Their height is 70 (85 with larger text), from
--- FriendsListSocialCardMixin.GetActiveBaseHeight, captured by REFERENCE into
--- the view's extent registration at its OnLoad -- before this addon exists, so
--- replacing the mixin function afterwards cannot reach it. The only lever is
--- overwriting that stored registration, i.e. writing into view's own
--- TemplateRegistrations table.
+-- FriendsListSocialCardMixin.GetActiveBaseHeight, captured by REFERENCE into the view's
+-- extent registration at its OnLoad -- before this addon exists, so replacing the mixin
+-- function afterwards cannot reach it. The only lever is overwriting that stored
+-- registration, i.e. writing into view's own TemplateRegistrations table.
 --
 -- That write was TESTED and it TAINTS BNet whispers: the extent calculator is
 -- read during layout, layout builds the rows, and a row built from an execution
@@ -78,8 +76,7 @@ local TILE_PAINT = true
 -- square that spans the row height, so the text starts at rowHeight + a gutter.
 -- Resolved per paint from the row's live height.
 local TILE_TEXT_GAP  = 4
--- Three lines, each its own size: Battle.net name / character name + level /
--- location.
+-- Three lines, each its own size: Battle.net name / character name + level / location.
 local TILE_NAME_SIZE = 15
 local TILE_CHAR_SIZE = 12
 local TILE_INFO_SIZE = 12
@@ -114,21 +111,7 @@ local CLASS_ICON_SPRITE_TEX = {}
 for _, style in ipairs({ "modern", "dark", "light", "clean" }) do
     CLASS_ICON_SPRITE_TEX[style] = CLASS_ICON_SPRITE_BASE .. style .. ".tga"
 end
-local CLASS_SPRITE_COORDS = {
-    WARRIOR     = { 0,     0.125, 0,     0.125 },
-    MAGE        = { 0.125, 0.25,  0,     0.125 },
-    ROGUE       = { 0.25,  0.375, 0,     0.125 },
-    DRUID       = { 0.375, 0.5,   0,     0.125 },
-    EVOKER      = { 0.5,   0.625, 0,     0.125 },
-    HUNTER      = { 0,     0.125, 0.125, 0.25  },
-    SHAMAN      = { 0.125, 0.25,  0.125, 0.25  },
-    PRIEST      = { 0.25,  0.375, 0.125, 0.25  },
-    WARLOCK     = { 0.375, 0.5,   0.125, 0.25  },
-    PALADIN     = { 0,     0.125, 0.25,  0.375 },
-    DEATHKNIGHT = { 0.125, 0.25,  0.25,  0.375 },
-    MONK        = { 0.25,  0.375, 0.25,  0.375 },
-    DEMONHUNTER = { 0.375, 0.5,   0.25,  0.375 },
-}
+local CLASS_SPRITE_COORDS = EllesmereUI.CLASS_ICON_SPRITE_COORDS
 
 local MINI_DISPLAY = {
     namerica = "North America", samerica = "South America",
@@ -336,16 +319,7 @@ end
 -------------------------------------------------------------------------------
 --  Per-paint passes
 -------------------------------------------------------------------------------
-local _classColorCodes = {}
-local function ClassColorCode(classFile)
-    local code = _classColorCodes[classFile]
-    if code then return code end
-    local cc = RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
-    if not cc then return nil end
-    code = format("|cff%02x%02x%02x", cc.r * 255, cc.g * 255, cc.b * 255)
-    _classColorCodes[classFile] = code
-    return code
-end
+local ClassColorCode = _G._EFR_ClassColorCode
 
 -- Line 1: the Battle.net account name on its own.
 local function BuildName(accountInfo)

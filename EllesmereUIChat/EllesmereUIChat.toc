@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: Modern chat enhancements with useful utilities.
 ## Author: Ellesmere
-## Version: 8.7.4
+## Version: 8.8.3
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIChatDB
 ## SavedVariablesPerCharacter: EllesmereUIChatScrollDB
@@ -13,8 +13,16 @@
 # Main Luas
 EllesmereUIChat.lua
 
-# Options
-EUI_Chat_Options.lua
+# Display engine: our message frames fed by the AddMessage bridge; Blizzard's
+# chat frames stay as the secure formatting/data plane with visuals parked.
+EllesmereUIChat_Engine.lua
 
-# Session scrollback via CHAT_MSG (open world, PushBack restore)
+# Owned tab strip: our buttons over Blizzard's window storage (hidden dock
+# stays the routing backend; all management via the C config API).
+EllesmereUIChat_Tabs.lua
+
+# Options
+
+# Session scrollback: bridge-tail capture (formatted lines), replay into our
+# message frames (open world only)
 EllesmereUIChat_SessionHistory.lua

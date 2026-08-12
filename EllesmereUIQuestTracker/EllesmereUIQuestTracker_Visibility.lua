@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 -- EllesmereUIQuestTracker_Visibility.lua
 --
@@ -26,26 +27,29 @@ local _bgFrame
 
 local function GetTracker() return _G.ObjectiveTrackerFrame end
 
--- BG and top accent divider anchor directly to the tracker's own top edge.
--- The custom top-module-padding system (and the EQT.TOP_ANCHOR_OFFSET it
--- used to publish) was removed from Skin.lua -- Blizzard's own default
--- topModulePadding now governs the header-to-content gap, so the BG/divider
--- no longer need a matching Y-offset.
+-- BG and top accent divider anchor directly to the tracker's own top edge. The custom
+-- top-module-padding system (and the EQT.TOP_ANCHOR_OFFSET it used to publish) was
+-- removed from Skin.lua -- Blizzard's own default topModulePadding now governs the
+-- header-to-content gap, so the BG/divider no longer need a matching Y-offset.
 local function TopGapOffset()
     return 0
 end
 
--- When "Hide All Objectives" is on, otf.Header/HeaderMenu is Hidden but
--- Blizzard's topModulePadding still reserves its layout slot above the
--- first module (the same "dead gap" this suite has run into before) --
--- otf:GetTop() doesn't move to reclaim it. Anchor the BG's top edge to the
--- header's own bottom edge in that case instead, so the BG shrinks to skip
--- the empty gap. A Hidden frame's rect (GetBottom/GetTop) still reflects
--- its anchored layout position, since Blizzard doesn't reflow on Hide().
--- When the header is shown, keep anchoring to the tracker's own top edge
--- so the BG covers the header as before.
--- Returns: anchorFrame, relPoint ("TOP" or "BOTTOM" -- caller appends
--- LEFT/RIGHT).
+local function GetBGLeftOffset()
+    -- Blizzard quest icons extend 13px left of the tracker. Preserve the
+    -- existing 6px breathing room without widening icon-disabled layouts.
+    return EQT.Cfg("showQuestIcons") and -19 or -6
+end
+
+-- When "Hide All Objectives" is on, otf.Header/HeaderMenu is Hidden but Blizzard's
+-- topModulePadding still reserves its layout slot above the first module (the same
+-- "dead gap" this suite has run into before) -- otf:GetTop() doesn't move to reclaim
+-- it. Anchor the BG's top edge to the header's own bottom edge in that case instead,
+-- so the BG shrinks to skip the empty gap. A Hidden frame's rect (GetBottom/GetTop)
+-- still reflects its anchored layout position, since Blizzard doesn't reflow on
+-- Hide(). When the header is shown, keep anchoring to the tracker's own top edge so
+-- the BG covers the header as before. Returns: anchorFrame, relPoint ("TOP" or
+-- "BOTTOM" -- caller appends LEFT/RIGHT).
 local function GetBGTopAnchor()
     local otf = GetTracker()
     if not otf then return nil, "TOP" end
@@ -103,13 +107,12 @@ local function ShouldAutoHide()
 end
 
 -- Single source of truth for "is the tracker visually on screen right now".
--- otf:IsShown() alone is not enough: HardHide() (below) falls back to
--- SetAlpha(0) in combat because Show()/Hide() are protected on this
--- EditMode frame, so IsShown() stays true while the frame is invisible.
--- Every place that decides whether to show/hide our BG chrome must read
--- this instead of re-deriving its own partial view of "visible" -- that
--- drift (some checks knew about alpha/ShouldAutoHide, some didn't) is what
--- caused the BG to flicker back in during combat.
+-- otf:IsShown() alone is not enough: HardHide() (below) falls back to SetAlpha(0) in
+-- combat because Show()/Hide() are protected on this EditMode frame, so IsShown() stays
+-- true while the frame is invisible. Every place that decides whether to show/hide our
+-- BG chrome must read this instead of re-deriving its own partial view of "visible" --
+-- that drift (some checks knew about alpha/ShouldAutoHide, some didn't) is what caused
+-- the BG to flicker back in during combat.
 local function TrackerIsVisible(otf)
     if not otf then return false end
     if not otf:IsShown() then return false end
@@ -159,15 +162,14 @@ function EQT.ApplySuppression(on)
     if EQT.UpdateVisibility then EQT.UpdateVisibility() end
 end
 
--- ObjectiveTrackerFrame is EditMode-managed: Hide()/Show() route through
--- the system template's protected HideBase/ShowBase, so calling either from
--- addon execution during combat is blocked (ADDON_ACTION_BLOCKED) -- and
--- the raid/encounter auto-hide fires exactly at combat start (vehicle boss
--- pulls hit this). In combat fall back to alpha suppression: top-level
--- frame only, never children, never mouse state. The shared visibility
--- dispatcher re-runs UpdateVisibility on PLAYER_REGEN_ENABLED, where the
--- real Hide() lands -- same recovery shape as the M+ timer's HideTracker,
--- minus the private regen listener it needs (we are dispatcher-driven).
+-- ObjectiveTrackerFrame is EditMode-managed: Hide()/Show() route through the system
+-- template's protected HideBase/ShowBase, so calling either from addon execution during
+-- combat is blocked (ADDON_ACTION_BLOCKED) -- and the raid/encounter auto-hide fires
+-- exactly at combat start (vehicle boss pulls hit this). In combat fall back to alpha
+-- suppression: top-level frame only, never children, never mouse state. The shared
+-- visibility dispatcher re-runs UpdateVisibility on PLAYER_REGEN_ENABLED, where the
+-- real Hide() lands -- same recovery shape as the M+ timer's HideTracker, minus the
+-- private regen listener it needs (we are dispatcher-driven).
 local function HardHide(otf)
     if InCombatLockdown() then
         otf:SetAlpha(0)
@@ -189,11 +191,10 @@ local function InstallShowHook()
         if _eqtSuppressed then return end
         if ShouldAutoHide() then HardHide(self) end
     end)
-    -- BG follows the tracker's actual IsShown() state, regardless of who
-    -- hid it (us, M+ timer, Blizzard). OnHide fires after the Hide lands,
-    -- OnShow fires after Show lands but the M+ timer's Show-hook re-hides
-    -- it synchronously, so by the time OnShow fires the frame may already
-    -- be hidden again -- we re-check IsShown().
+    -- BG follows the tracker's actual IsShown() state, regardless of who hid it (us, M+
+    -- timer, Blizzard). OnHide fires after the Hide lands, OnShow fires after Show
+    -- lands but the M+ timer's Show-hook re-hides it synchronously, so by the time
+    -- OnShow fires the frame may already be hidden again -- we re-check IsShown().
     otf:HookScript("OnHide", function() if _bgFrame then _bgFrame:Hide() end end)
     otf:HookScript("OnShow", function()
         if _eqtSuppressed then return end
@@ -276,9 +277,10 @@ local function EnsureBG()
     -- above) so it doesn't bleed above the content or leave a gap below it.
     -- Bottom edge extends past the last block (re-anchored dynamically below).
     local topOfs = TopGapOffset()
+    local leftOfs = GetBGLeftOffset()
     local anchorFrame, anchorPoint = GetBGTopAnchor()
     anchorFrame = anchorFrame or otf
-    _bgFrame:SetPoint("TOPLEFT", anchorFrame, anchorPoint .. "LEFT", -6, topOfs)
+    _bgFrame:SetPoint("TOPLEFT", anchorFrame, anchorPoint .. "LEFT", leftOfs, topOfs)
     -- Bottom is re-anchored dynamically in ResizeBGToContent(); this is
     -- only the fallback extent when no content has loaded yet (30px tall).
     _bgFrame:SetPoint("BOTTOMRIGHT", anchorFrame, anchorPoint .. "RIGHT", 11, topOfs - 30)
@@ -291,7 +293,7 @@ local function EnsureBG()
     -- directly to it so the line matches tracker width regardless of BG
     -- padding. Same snap pattern as PP.CreateBorder.
     local divider = _bgFrame:CreateTexture(nil, "OVERLAY")
-    divider:SetPoint("TOPLEFT",  anchorFrame, anchorPoint .. "LEFT",  -6, topOfs)
+    divider:SetPoint("TOPLEFT",  anchorFrame, anchorPoint .. "LEFT",  leftOfs, topOfs)
     divider:SetPoint("TOPRIGHT", anchorFrame, anchorPoint .. "RIGHT",  11, topOfs)
     _bgFrame._divider = divider
     return _bgFrame
@@ -366,10 +368,9 @@ local function GetLowestContentFrame()
                 end
             end
         end
-        -- Only consider the Header as content if the tracker actually has
-        -- something to display. Empty trackers leave their Header shown at
-        -- stale positions and would otherwise stretch the BG past real
-        -- content when a section clears.
+        -- Only consider the Header as content if the tracker actually has something to
+        -- display. Empty trackers leave their Header shown at stale positions and would
+        -- otherwise stretch the BG past real content when a section clears.
         if tracker.hasContents then
             consider(tracker.Header)
         end
@@ -378,12 +379,11 @@ local function GetLowestContentFrame()
     return lowestFrame
 end
 
--- Event-driven resize with a debounce. Every QueueResize call coalesces
--- into a single deferred ResizeBGToContent pass; bursts of layout events
--- that used to trigger up to 60 frames of per-frame work now fire the
--- resize once per tick. If the measured lowest frame keeps shifting after
--- a resize (e.g. Blizzard's collapse/expand animation), each shift re-
--- queues exactly one more pass -- never a continuous OnUpdate loop.
+-- Event-driven resize with a debounce. Every QueueResize call coalesces into a single
+-- deferred ResizeBGToContent pass; bursts of layout events that used to trigger up to
+-- 60 frames of per-frame work now fire the resize once per tick. If the measured lowest
+-- frame keeps shifting after a resize (e.g. Blizzard's collapse/expand animation), each
+-- shift re- queues exactly one more pass -- never a continuous OnUpdate loop.
 local _resizePending = false
 local function QueueResize()
     if _resizePending then return end
@@ -405,10 +405,9 @@ local function ResizeBGToContent()
         if bg:IsShown() then bg:Hide() end
         return
     end
-    -- During active M+ challenge mode, always hide BG. The tracker shows
-    -- Blizzard's scenario blocks (objectives/trash count) which aren't
-    -- quest content we should decorate. Prevents chrome flashing during
-    -- dungeon start/timer transitions.
+    -- During active M+ challenge mode, always hide BG. The tracker shows Blizzard's
+    -- scenario blocks (objectives/trash count) which aren't quest content we should
+    -- decorate. Prevents chrome flashing during dungeon start/timer transitions.
     if C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive
        and C_ChallengeMode.IsChallengeModeActive() then
         if bg:IsShown() then bg:Hide() end
@@ -438,26 +437,27 @@ local function ResizeBGToContent()
     bg._hideCheck = nil
     if not bg:IsShown() then bg:Show() end
     local topOfs = TopGapOffset()
+    local leftOfs = GetBGLeftOffset()
     local anchorFrame, anchorPoint = GetBGTopAnchor()
     anchorFrame = anchorFrame or otf
     local topY = (anchorPoint == "BOTTOM") and anchorFrame:GetBottom() or anchorFrame:GetTop()
     local lowestBottom = lowest:GetBottom()
     if bg._divider then
         bg._divider:ClearAllPoints()
-        bg._divider:SetPoint("TOPLEFT",  anchorFrame, anchorPoint .. "LEFT",  -6, topOfs)
+        bg._divider:SetPoint("TOPLEFT",  anchorFrame, anchorPoint .. "LEFT",  leftOfs, topOfs)
         bg._divider:SetPoint("TOPRIGHT", anchorFrame, anchorPoint .. "RIGHT", 11, topOfs)
     end
     if topY and lowestBottom then
         local h = topY + topOfs - lowestBottom + 15
         if h < 1 then h = 1 end
         bg:ClearAllPoints()
-        bg:SetPoint("TOPLEFT",  anchorFrame, anchorPoint .. "LEFT",  -6, topOfs)
+        bg:SetPoint("TOPLEFT",  anchorFrame, anchorPoint .. "LEFT",  leftOfs, topOfs)
         bg:SetPoint("TOPRIGHT", anchorFrame, anchorPoint .. "RIGHT", 11, topOfs)
         bg:SetHeight(h)
         bg._lastHeight = h
     elseif bg._lastHeight then
         bg:ClearAllPoints()
-        bg:SetPoint("TOPLEFT",  anchorFrame, anchorPoint .. "LEFT",  -6, topOfs)
+        bg:SetPoint("TOPLEFT",  anchorFrame, anchorPoint .. "LEFT",  leftOfs, topOfs)
         bg:SetPoint("TOPRIGHT", anchorFrame, anchorPoint .. "RIGHT", 11, topOfs)
         bg:SetHeight(bg._lastHeight)
     end
@@ -571,12 +571,11 @@ function EQT.InitVisibility()
             if otf then otf:SetAlpha(a) end
             if _bgFrame then _bgFrame:SetAlpha(a) end
         end
-        -- The monitor reveals via SetAlpha(1) + Show(). The BG may have been
-        -- Hidden by a resize pass while idling at alpha 0 (TrackerIsVisible
-        -- reads mouseover-idle the same as the combat alpha-hide), so the
-        -- reveal must re-Show it or hovering brings back the tracker without
-        -- its background. Hide() stays alpha-only; the next resize pass
-        -- re-hides the frame cleanly.
+        -- The monitor reveals via SetAlpha(1) + Show(). The BG may have been Hidden by
+        -- a resize pass while idling at alpha 0 (TrackerIsVisible reads mouseover-idle
+        -- the same as the combat alpha-hide), so the reveal must re-Show it or hovering
+        -- brings back the tracker without its background. Hide() stays alpha-only; the
+        -- next resize pass re-hides the frame cleanly.
         moProxy.Show = function()
             if _bgFrame then _bgFrame:Show() end
         end

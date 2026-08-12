@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUI_SpecOverridesPopup.lua
 --
@@ -19,7 +20,15 @@
 --  Defers behind the Raid Frames, Patch Notes, and Window Skins intro popups
 --  if any is also pending (a user upgrading across several versions at once),
 --  so the announcements never stack on a single login.
+--
+--  RETIRED 2026-08-11: superseded by the 12.1 launch video announcement
+--  (EllesmereUI_VideoGuides.lua, guide "midnight_121") -- only the newest
+--  announcement fires, so users upgrading across versions are never shown
+--  several intro popups back to back. Everything below is inert; the
+--  Settings Overrides video itself stays reachable via the override glyph's
+--  first-click guide. Delete the guard below to revive this popup.
 -------------------------------------------------------------------------------
+do return end
 
 local EllesmereUI = _G.EllesmereUI
 if not EllesmereUI then return end

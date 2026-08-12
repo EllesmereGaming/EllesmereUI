@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUI_PartyMode.lua
 --  Full-screen disco spotlight overlay — toggled from Global Settings.
@@ -264,52 +265,9 @@ end
 local _soundPaths, _soundNames, _soundOrder
 local function GetSoundTables()
     if not _soundPaths then
-        local dir = "Interface\\AddOns\\EllesmereUI\\media\\sounds\\"
-        _soundPaths = {
-            ["none"]      = nil,
-            ["airhorn"]   = dir .. "AirHorn.ogg",
-            ["banana"]    = dir .. "BananaPeelSlip.ogg",
-            ["bikehorn"]  = dir .. "BikeHorn.ogg",
-            ["bite"]      = dir .. "Bite.ogg",
-            ["boxing"]    = dir .. "BoxingArenaSound.ogg",
-            ["catmeow"]   = dir .. "CatMeow.ogg",
-            ["catmeow2"]  = dir .. "CatMeow2.ogg",
-            ["gunshot"]   = dir .. "FrontalsGunshot.wav",
-            ["glass"]     = dir .. "Glass.mp3",
-            ["kaching"]   = dir .. "Kaching.ogg",
-            ["phone"]     = dir .. "Phone.ogg",
-            ["robotblip"] = dir .. "RobotBlip.ogg",
-            ["sonar"]     = dir .. "Sonar.ogg",
-            ["siren"]     = dir .. "WarningSiren.ogg",
-            ["water"]     = dir .. "WaterDrop.ogg",
-            ["wilhelm"]   = dir .. "Wilhelm.ogg",
-        }
-        _soundNames = {
-            ["none"]      = "None",
-            ["airhorn"]   = "Air Horn",
-            ["banana"]    = "Banana Peel Slip",
-            ["bikehorn"]  = "Bike Horn",
-            ["bite"]      = "Bite",
-            ["boxing"]    = "Boxing Arena",
-            ["catmeow"]   = "Cat Meow",
-            ["catmeow2"]  = "Cat Meow 2",
-            ["gunshot"]   = "Frontals Gunshot",
-            ["glass"]     = "Glass",
-            ["kaching"]   = "Kaching",
-            ["phone"]     = "Phone",
-            ["robotblip"] = "Robot Blip",
-            ["sonar"]     = "Sonar",
-            ["siren"]     = "Warning Siren",
-            ["water"]     = "Water Drop",
-            ["wilhelm"]   = "Wilhelm",
-        }
-        _soundOrder = {
-            "none", "airhorn", "banana", "bikehorn", "bite", "boxing", "catmeow",
-            "catmeow2", "gunshot", "glass", "kaching", "phone", "robotblip", "sonar",
-            "siren", "water", "wilhelm",
-        }
         local EUI = _G.EllesmereUI
-        if EUI and EUI.AppendSharedMediaSounds then
+        _soundPaths, _soundNames, _soundOrder = EUI.BuildAlertSoundTables()
+        if EUI.AppendSharedMediaSounds then
             EUI.AppendSharedMediaSounds(_soundPaths, _soundNames, _soundOrder)
         end
     end
@@ -447,6 +405,8 @@ EllesmereUI:RegisterOnHide(OnSettingsClose)
 -- detection used by the CDM lust bar. Fires a celebration the instant lust goes
 -- out (the debuff is applied at that moment). Hardcoded 40s celebration -- it
 -- deliberately ignores the Auto Celebration Duration slider.
+-- (The lust BUFF itself is secret-flagged on 12.1 -- presence reads absent in
+-- restricted combat -- so detection rides the READABLE Sated debuff edge.)
 local PM_SATED_DEBUFFS = { 57723, 57724, 80354, 95809, 160455, 264689, 390435 }
 local _pmSatedPresent = false
 local function _pmPlayerHasSated()

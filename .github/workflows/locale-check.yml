@@ -1,30 +1,35 @@
 name: Locale keys up to date
 
 # Anti-rot gate for the translation system: when source strings change, the
-# committed Locales/_keys.txt must be regenerated so translators always see the
-# current key list. This job fails the PR if it is stale.
+# committed EllesmereUILocales/_keys.txt must be regenerated so translators
+# always see the current key list. This job fails the PR if it is stale.
 
 on:
   pull_request:
     paths:
       - '**/*.lua'
-      - 'Locales/_keys.txt'
+      - 'EllesmereUILocales/_keys.txt'
       - '.tools/extract-locale-keys.sh'
+
+permissions:
+  contents: read
 
 jobs:
   locale-keys:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Regenerate the locale key list
         run: bash .tools/extract-locale-keys.sh
 
-      - name: Fail if Locales/_keys.txt is out of date
+      - name: Fail if EllesmereUILocales/_keys.txt is out of date
         run: |
-          if ! git diff --quiet -- Locales/_keys.txt; then
-            echo "::error::Locales/_keys.txt is out of date. Run .tools/extract-locale-keys.sh and commit the result."
-            git --no-pager diff -- Locales/_keys.txt
+          if ! git diff --quiet -- EllesmereUILocales/_keys.txt; then
+            echo "::error::EllesmereUILocales/_keys.txt is out of date. Run .tools/extract-locale-keys.sh and commit the result."
+            git --no-pager diff -- EllesmereUILocales/_keys.txt
             exit 1
           fi
-          echo "Locales/_keys.txt is current ($(grep -cvE '^#' Locales/_keys.txt) keys)."
+          echo "EllesmereUILocales/_keys.txt is current ($(grep -cvE '^#' EllesmereUILocales/_keys.txt) keys)."

@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EUI_UpgradeCalc.lua  (part of EllesmereUIQoL)
 --  Gear upgrade planner: data tables, game logic, and calculator UI.
@@ -1716,14 +1717,13 @@ SlashCmdList["EUIUPGCALC"] = function()
     if f:IsShown() then f:Hide() else f:Show() end
 end
 
--- ── Profile integration + first-run crest filter ────────────────────────────
--- On PLAYER_LOGIN we call NewDB so our data lives inside EllesmereUIDB.profiles
--- (the same place Cursor, BattleRes etc store theirs).  Without this, NewDB
--- wipes EllesmereUIQoLDB and our saved data is lost every session.
--- The first-run filter runs once (guarded by opts.firstRunV2) to auto-hide
--- crest tracks that have no upgradeable items on the player's current gear.
--- The guard is versioned so the bad verdict written by the v1 enUS-only scan
--- gets discarded and recomputed.
+-- ── Profile integration + first-run crest filter ──────────────────────────── On
+-- PLAYER_LOGIN we call NewDB so our data lives inside EllesmereUIDB.profiles (the same
+-- place Cursor, BattleRes etc store theirs). Without this, NewDB wipes EllesmereUIQoLDB
+-- and our saved data is lost every session. The first-run filter runs once (guarded by
+-- opts.firstRunV2) to auto-hide crest tracks that have no upgradeable items on the
+-- player's current gear. The guard is versioned so the bad verdict written by the v1
+-- enUS-only scan gets discarded and recomputed.
 local _firstRunEvt = CreateFrame("Frame")
 _firstRunEvt:RegisterEvent("PLAYER_LOGIN")
 _firstRunEvt:SetScript("OnEvent", function(self)
@@ -1854,3 +1854,32 @@ do
         end
     end)
 end
+
+-- Open/close with Character Sheet: when the toggle is on, the calculator frame
+-- follows CharacterFrame visibility. Runtime machinery, so it lives here (the
+-- options page is LoadOnDemand and cannot host login-time hooks).
+local _charSheetHooked = false
+local function HookCharacterSheet()
+    if _charSheetHooked then return end
+    if not CharacterFrame then return end
+    _charSheetHooked = true
+    CharacterFrame:HookScript("OnShow", function()
+        if Opts().openWithCharSheet then
+            local fr = _G["EUIUpgCalcFrame"]
+            if fr and not fr:IsShown() then fr:Show() end
+        end
+    end)
+    CharacterFrame:HookScript("OnHide", function()
+        if Opts().openWithCharSheet then
+            local fr = _G["EUIUpgCalcFrame"]
+            if fr and fr:IsShown() then fr:Hide() end
+        end
+    end)
+end
+
+local loginFrame = CreateFrame("Frame")
+loginFrame:RegisterEvent("PLAYER_LOGIN")
+loginFrame:SetScript("OnEvent", function(self)
+    self:UnregisterEvent("PLAYER_LOGIN")
+    HookCharacterSheet()
+end)
