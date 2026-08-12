@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -- Removed: the Resource Bars Advanced per-spec mode was retired in favor of
 -- the shared Spec Overrides system (spec groups + editing-as). Legacy
 -- advancedSpecs data migrates via EllesmereUI.MigrateRBAdvancedProfile

@@ -1,57 +1,32 @@
-﻿-- EUI_RaidFrames_DebuffManager.lua
--- 12.1 Debuff Manager runtime: the base-grid record union (phase 1) plus
--- user-added custom tiles (phases 3/4).
+﻿if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
+-- EUI_RaidFrames_DebuffManager.lua
+-- 12.1 Debuff Manager runtime: base-grid record union plus user-added tiles.
 --
--- BASE GRID: replaces the single debuff filter preset with a UNION OF
--- CATEGORY RECORDS -- one container group per enabled filter checkbox,
--- negation-chained so an aura renders in exactly one record wherever that
--- is expressible:
---   Ownership order (owners first): cc > dispel > raid > raidcombat.
---   Token-backed records exclude higher-priority records via !TOKEN in
---   their (declaration-fixed) filter strings; typed-dispel mode has no
---   token, so the OTHER records exclude it via excludeDispelTypes (live
---   candidate filters).
---   Boolean-backed records (boss/role, priority) negate every enabled
---   token record: positive-only candidates cannot be negated, so token
---   records own their overlaps and boolean records fill in the rest.
---   Boolean x boolean overlap is accepted (cannot be expressed).
+-- BASE GRID: one container group per enabled filter checkbox, negation-chained so an aura renders in exactly one
+-- record wherever expressible. Priority order cc > dispel > raid > raidcombat: token records exclude higher-priority
+-- ones via !TOKEN in declaration-fixed filter strings; typed-dispel has no token, excluded instead via
+-- excludeDispelTypes (live candidates). Boolean records (boss/role, priority) negate every enabled token record
+-- since positive-only candidates cannot be negated, so token records own their overlaps and boolean records fill in
+-- the rest; boolean x boolean overlap is inexpressible and accepted.
 --
--- TILES: user-added indicators driven by the same categories.
---   "icons" tiles CLAIM categories: a claimed category's record moves from
---   the base container to the tile's own container (own anchor/size/cap),
---   while its negation/exclude contributions to the remaining records are
---   KEPT (negations read the EFFECTIVE enabled set = base checkboxes OR
---   claims), so an aura still renders in exactly one icon display.
---   Effect tiles (glow/square/healthcolor/bar) are ADDITIVE signals for a
---   single category -- they do not claim, may overlap the icon displays by
---   design, and are driven by one re-filterable slot each (slot filter
---   strings and candidates are live-settable; no variant churn).
---   Tile containers persist per button (engine frames are never freed);
---   disabled/removed tiles park hidden (a hidden container fully
---   unregisters its events -- the zero-cost state).
+-- TILES: an "icons" tile CLAIMS a category, moving its record into the tile's own container (own anchor/size/cap)
+-- while negation/exclude contributions stay global (negations read the EFFECTIVE set = base checkboxes OR claims),
+-- so an aura still renders exactly once. Effect tiles (glow/square/healthcolor/bar) are ADDITIVE single-category
+-- signals: no claim, may overlap icon displays by design, one re-filterable slot each (live-settable, no variant
+-- churn). Tile containers persist per button (frames never freed); disabled/removed tiles park hidden, and a
+-- hidden container unregisters its events (zero cost).
 --
--- Base records render into the EXISTING per-button debuff container via the
--- existing style/anchor/reload machinery; legacy preset groups park at 0
--- while the manager is active. Every shared integration site lives in the
--- 12.1-gated containers file and this file self-gates: a 12.0 client never
--- executes any of this.
+-- Base records render into the EXISTING per-button debuff container via the existing style/anchor/reload
+-- machinery (shared integration sites live in the containers file); legacy preset groups park at 0. Settings live
+-- at ns.db.profile.dmDebuff (shared raid/party/extra, absent = off = zero cost), all keys NEW/additive as a
+-- nondestructive view over the existing debuff display keys (size/spacing/cap/position); legacy debuffFilter is
+-- untouched and resumes control if the manager is disabled.
 --
--- Settings live at profile root (ns.db.profile.dmDebuff), shared across
--- raid/party/extra modes; absent table = feature off = zero cost. All keys
--- are NEW and additive -- nothing legacy is read differently or written (a
--- nondestructive view over the existing debuff display keys for
--- size/spacing/cap/position). The legacy debuffFilter preset key is
--- untouched and resumes control whenever the manager is disabled.
---
--- This file also owns the BUFF MANAGER's effective-state accessors for the
--- coexistence rework (base grid and custom indicators render together; the
--- legacy either/or bmDisplayMode key is never written, only shimmed).
+-- Also owns BUFF MANAGER effective-state accessors (base grid + custom indicators render together; legacy
+-- bmDisplayMode never written, only shimmed).
 
 local _, ns = ...
 local EllesmereUI = _G.EllesmereUI
-
--- 12.1 ONLY: inert on a 12.0 client.
-if not (EllesmereUI and EllesmereUI.IS_121) then return end
 
 local AK -- EllesmereUI.AuraKit, resolved at first use
 
@@ -63,8 +38,7 @@ local CORNERS = {
     bottomleft = "BOTTOMLEFT", bottom = "BOTTOM", bottomright = "BOTTOMRIGHT",
 }
 
--- Duration-bar frame-level bands, relative to the unit button (the BM bar
--- indicator's Frame Level modes 1:1).
+-- Duration-bar frame levels relative to the unit button (BM bar Frame Level modes 1:1).
 local BAR_FRAMELVL = {
     behindBorders = 7,   -- below the main border (+8)
     behindText    = 11,  -- below the name/health text carrier (+12)
@@ -82,11 +56,8 @@ local function FlowDir(token)
 end
 
 -------------------------------------------------------------------------------
--- Buff Manager effective-state accessors (coexistence shims).
--- The legacy bmDisplayMode key is consulted ONLY here, as the default for
--- profiles that predate the redesign; the new keys are written exclusively
--- by the redesigned options page. Base grid and custom indicators are
--- independently enabled and render together.
+-- Buff Manager effective-state accessors (coexistence shims). Legacy bmDisplayMode is read ONLY here as the
+-- default for older profiles; new keys are written only by the options page. Base grid and custom indicators enable independently and render together.
 -------------------------------------------------------------------------------
 function ns.BM_BaseActive()
     local p = ns.db and ns.db.profile
@@ -108,25 +79,34 @@ end
 -- Settings access
 -------------------------------------------------------------------------------
 local function DM()
-    -- The user-editable exclude list is retired (2026-07-23): the exclude
-    -- set is internal now -- the hardcoded sated/always-hide presets are
-    -- the only blacklistable debuffs (merged in BuildRecords). Stale
-    -- dm.excludeSpellIDs / dm.excludeSeedV keys in saved profiles are
-    -- inert orphans: never read, never written.
+    -- Exclude set is internal: only the hardcoded sated/always-hide presets are blacklistable (merged in
+    -- BuildRecords). Saved dm.excludeSpellIDs / dm.excludeSeedV keys are inert orphans.
     local p = ns.db and ns.db.profile
     return p and p.dmDebuff
 end
 
--- One-shot per-profile migration: maps the retired Auras-tab state onto the
--- manager so existing users' debuffs look as close as possible on first
--- 12.1 login. Runs only when the profile has NO dmDebuff table yet (a
--- profile that already interacted with the manager is never touched); a
--- brand-new profile maps nil/"all" preset to the defaults = harmless.
--- Display/style keys need no mapping -- the base grid reads the legacy
--- debuff keys directly (nondestructive view).
+-- One-shot v2 filter-model upgrade per profile: checked categories now SUBTRACT from Show All instead of being
+-- blocked by it. Old profiles carry add-mode category keys that Show All used to ignore; left alone they would
+-- suddenly subtract content. Show All profiles reset every category key (nothing subtracted; cc nil = cc lead/glow group stays
+-- on, see BuildRecords); add-mode profiles keep their selection with cc's old nil-means-on default materialized (nil now means unchecked everywhere).
+local function EnsureFilterV2(dm)
+    if dm.filtersV2 then return end
+    dm.filtersV2 = true
+    if dm.all ~= false then
+        dm.boss, dm.role, dm.priority, dm.raid = nil, nil, nil, nil
+        dm.raidcombat, dm.nonplayer, dm.dispel, dm.cc = nil, nil, nil, nil
+    else
+        dm.cc = (dm.cc ~= false) and true or nil
+    end
+end
+
+-- One-shot: maps the retired Auras-tab preset onto the manager, runs ONLY
+-- while the profile has no dmDebuff yet (a brand-new profile maps nil/"all" preset to the defaults, harmless). No
+-- display/style key mapping needed; the base grid reads legacy debuff keys directly (nondestructive view).
 local function EnsureMigrated()
     local p = ns.db and ns.db.profile
-    if not p or p.dmDebuff then return end
+    if not p then return end
+    if p.dmDebuff then EnsureFilterV2(p.dmDebuff); return end
     local preset = p.debuffFilter
     local dm = { _fromPreset = preset or "default" }
     if preset == "raid" then
@@ -136,16 +116,14 @@ local function EnsureMigrated()
     elseif preset == "dispellable" then
         dm.all = false
         dm.dispel = true
-        dm.dispelMode = "you" -- live preset = the by-you token, 1:1
+        dm.dispelMode = "you" -- the by-you token, 1:1 with the preset
     elseif preset == "none" then
-        -- The manager has no disable concept: "none" preset users map to
-        -- an empty base grid (Show All and Crowd Control explicitly off).
+        -- No disable concept: "none" = empty base grid (Show All + CC off).
         dm.all = false
         dm.cc = false
     end
-    -- The dispellable-location split (retired) becomes a Dispellable icons
-    -- tile at the old anchor. The legacy split included exactly the TYPED
-    -- debuffs, so the tile rides the "typed" dispel flavor -- 1:1 parity.
+    -- The retired dispellable-location split becomes a Dispellable icons tile at the old anchor, riding the
+    -- "typed" dispel flavor (it covered exactly the TYPED debuffs, 1:1 parity).
     if preset ~= "none" and (p.dispellableDebuffLocation or "same") ~= "same" then
         local size = p.dispellableDebuffSize
         if not size or size <= 0 then size = p.debuffSize or 18 end
@@ -164,21 +142,17 @@ local function EnsureMigrated()
         dm.nextTileId = 2
     end
     p.dmDebuff = dm
+    EnsureFilterV2(dm)
 end
 
 function ns.DM_Active()
-    -- ALWAYS ON: the manager IS the debuff system on 12.1 (the legacy
-    -- preset display retired with the Auras tab; there is no disable --
-    -- an empty grid is expressed through the filters themselves). Kept as
-    -- a function: the containers delegation calls it, and it hosts the
-    -- migration hook. Show All and Crowd Control default on for legacy
-    -- default parity (preset "all" + cc glow row).
+    -- ALWAYS ON: the manager IS the 12.1 debuff system, no disable (an empty grid is expressed via filters); kept
+    -- as a function for the containers delegation and as the migration hook. Show All + cc default on for legacy parity.
     EnsureMigrated()
     return true
 end
 
--- Mirrors of the containers file's tiny per-button helpers (that file is at
--- its local cap; duplicating two 4-line lookups beats exporting them).
+-- Mirrors the containers file's tiny per-button helpers (that file is at its local cap; duplicating two 4-line lookups beats exporting them).
 local function SettingsFor(d)
     if d._isParty then return ns._scaledPartyProxy end
     if d._isExtra then return ns._scaledExtraProxy end
@@ -195,18 +169,13 @@ local function StyleKeyFor(d)
     return "rf:debuff:" .. ClassToken(d)
 end
 
--- The category vocabulary. token = filter-string routing (negatable);
--- cand = candidate-boolean routing (positive-only, identity-gated).
+-- The category vocabulary. token = filter-string routing (negatable); cand = candidate-boolean routing (positive-only, identity-gated).
 local CATS = { "boss", "role", "priority", "cc", "raid", "raidcombat", "dispel" }
 
--- Fingerprint over every input the record/tile synthesis reads that is not
--- already part of the containers file's DebuffCfgFP (which appends this).
--- A missed key here = the corresponding option never live-applies.
--- Per-tile style keys are a VIEW over the base debuff style keys (nil =
--- inherit; ZERO migration): non-nil tile keys shadow their base key via a
--- proxy table, so both the style build AND the style fingerprint see the
--- effective values. Declared ABOVE the config fingerprint (which must
--- flip when overrides change -- EnsureTileStyle only runs behind it).
+-- Fingerprint inputs the record/tile synthesis reads beyond the containers file's DebuffCfgFP (which appends this);
+-- a missed key = that option never live-applies. Per-tile style keys VIEW the base debuff style keys (nil = inherit,
+-- ZERO migration) via a proxy table shadowing non-nil tile keys, so the style build and its fingerprint both see
+-- effective values. Declared ABOVE the config fingerprint, which must flip when overrides change (EnsureTileStyle only runs behind it).
 local TILE_STYLE_KEYS = {
     iconZoom = "debuffIconZoom",
     borderSize = "debuffBorderSize", borderColor = "debuffBorderColor",
@@ -248,13 +217,11 @@ local function TileStyleFP(t)
     return table.concat(o, ";")
 end
 
--- EFFECTS: per-filter effect blocks (fxList array). Each entry: a filters
--- set + optional Icon Glow (glowType/glowClassColor/glowR/G/B) + optional
--- Border override (borderSize/borderColor) + optional Size (icon size for
--- the matched categories; 0/nil = the base grid size). An entry is ACTIVE
--- when it has filters checked and at least one payload; the FIRST matching
--- block wins per button category. Declared ABOVE the config fingerprint
--- (callers).
+-- EFFECTS: per-filter blocks (fxList). Each entry: a filters set + optional
+-- Icon Glow (glowType/glowClassColor/glowR/G/B), Border override (borderSize/
+-- borderColor), and Size for matched categories (0/nil = base grid size).
+-- ACTIVE = filters checked and at least one payload; FIRST matching block
+-- wins per button category. Declared ABOVE the config fingerprint (its caller).
 local function FxEntryActive(e)
     return e.filters ~= nil and next(e.filters) ~= nil
         and (((e.glowType or 0) > 0) or ((e.borderSize or 0) > 0)
@@ -293,7 +260,7 @@ local function FxListFP(list)
     end
     return "fx:" .. table.concat(parts, ";")
 end
--- One-time heal: the first Effects build stored a single fxGlow config.
+-- One-time heal: fold a legacy single fxGlow config into fxList.
 local function FxHeal(owner)
     local fg = owner and owner.fxGlow
     if fg then
@@ -306,11 +273,10 @@ local function FxHeal(owner)
         owner.fxGlow = nil
     end
 end
--- Per-filter Size resolution for a record category: the FIRST matching
--- ACTIVE block wins the category outright (identical rule to the glow/
--- border applier's DmFxBlockFor -- one block owns a category, so a later
--- block's Size never reaches a category an earlier block matched). The
--- merged "bossrole" record matches either constituent, like the applier.
+-- Per-filter Size for a record category: FIRST matching ACTIVE block owns the
+-- category outright (same rule as the glow/border applier's DmFxBlockFor, so
+-- a later block's Size never reaches an already-matched category). Merged
+-- "bossrole" record matches either constituent, like the applier.
 local function FxSizeFor(list, cat)
     if not list then return nil end
     for i = 1, #list do
@@ -346,13 +312,12 @@ function ns.DM_CfgFP()
     local parts = {
         "on",
         dm.all ~= false and 1 or 0, dm.boss and 1 or 0, dm.role and 1 or 0,
-        dm.priority and 1 or 0, dm.cc ~= false and 1 or 0, dm.raid and 1 or 0,
+        dm.priority and 1 or 0, dm.cc == true and 1 or 0, dm.raid and 1 or 0,
         dm.raidcombat and 1 or 0, dm.dispel and 1 or 0,
         dm.nonplayer and 1 or 0,
         (dm.dispelMode == "typed") and "typed" or "you",
         FxListFP(dm.fxList), -- base effects force records
-        -- The internal exclude set varies only with the retail lust-debuff
-        -- opt-out (the hardcoded lists are load-constant).
+        -- Exclude set varies only with the lust-debuff opt-out (hardcoded lists are load-constant).
         (not prof or prof.hideLustDebuff ~= false) and "lx1" or "lx0",
     }
     local tiles = dm.tiles
@@ -392,15 +357,14 @@ end
 -- Record synthesis
 -------------------------------------------------------------------------------
 
--- Effective enabled flags: a category is "on" if the base checkbox shows it
--- OR an enabled icons tile claims it. Negations key off THESE (a claimed
+-- Effective enabled flags: a category is "on" if its base checkbox is set OR
+-- an enabled icons tile claims it; negations key off THESE (a claimed
 -- category must still be excluded from every other record). Also resolves
--- claims: claims[cat] = tile table (first enabled claimer wins).
+-- claims[cat] = tile table (first enabled claimer wins).
 local function EffectiveState(dm)
-    -- cc defaults ON (legacy parity: the CC glow row rendered under every
-    -- active preset); every other category is opt-in.
+    -- Every category key is an explicit checkbox (true/nil); cc's base-grid default-on lives in the apply pass's Show All branch, not here.
     local eff = { boss = dm.boss, role = dm.role, priority = dm.priority,
-        cc = dm.cc ~= false, raid = dm.raid, raidcombat = dm.raidcombat, dispel = dm.dispel,
+        cc = dm.cc == true, raid = dm.raid, raidcombat = dm.raidcombat, dispel = dm.dispel,
         nonplayer = dm.nonplayer }
     local claims = {}
     local tiles = dm.tiles
@@ -421,21 +385,19 @@ local function EffectiveState(dm)
     return eff, claims
 end
 
--- Builds ALL active records with their routing. Each record: key, tokens
--- (declaration-fixed filter parts), cand (fresh candidate table), gated
--- (candidate-boolean record), tile (hosting tile table or nil = base).
--- Also returns the crowd-control candidate table (the base drives the
--- legacy "cc" group -- fixed filter, carries the CC glow style -- whenever
--- cc is UNCLAIMED; a claimed cc renders in its tile with the tile style,
--- and the CC glow stays a base-group property).
+-- Builds ALL active records. Each: key, tokens (declaration-fixed filter
+-- parts), cand (fresh candidate table), gated (candidate-boolean record),
+-- tile (hosting tile table or nil = base). Also returns the cc candidate
+-- table: while cc is UNCLAIMED the base drives the legacy "cc" group (fixed
+-- filter, CC glow style); a claimed cc renders in its tile with the tile
+-- style, and the CC glow stays a base-group property.
 local function BuildRecords(s, dm)
     local eff, claims = EffectiveState(dm)
-    -- EFFECTS routing: per-filter icon effects (fxGlow today) need their
-    -- categories to exist as SEPARATE base records even under Show All --
-    -- like claims, but rendering in the base container -- so the effect
-    -- can target exactly those buttons (stamped d.dmCat). Token categories
-    -- negate out of the all-record; boolean categories duplicate (the same
-    -- accepted limitation as claims).
+    -- EFFECTS routing: per-filter icon effects need their categories as
+    -- SEPARATE base records even under Show All (like claims, but rendering in
+    -- the base container) so the effect can target exactly those buttons
+    -- (stamped d.dmCat). Token categories negate out of the all-record;
+    -- boolean categories duplicate (accepted, same limitation as claims).
     local fxCats = {}
     do
         local fl = dm.fxList
@@ -453,28 +415,35 @@ local function BuildRecords(s, dm)
             end
         end
     end
-    local ccOn = eff.cc and true or false
     local allOn = dm.all ~= false -- Show All defaults ON (legacy "all" preset parity)
+    -- With Show All on, CHECKED categories SUBTRACT from the base grid instead
+    -- of adding records (dropdown live in both modes): token categories negate
+    -- straight off the all-record, typed dispels ride excludeDispelTypes,
+    -- boolean categories use false-valued candidate booleans (nonplayer
+    -- record's complementary-boolean mechanism, inverted per flag).
+    local sub = allOn and {
+        boss = dm.boss == true, role = dm.role == true,
+        priority = dm.priority == true, raid = dm.raid == true,
+        raidcombat = dm.raidcombat == true, dispel = dm.dispel == true,
+        nonplayer = dm.nonplayer == true,
+    } or nil
+    -- Non-cc records always exclude CROWD_CONTROL under Show All: cc group
+    -- renders CC while on, and a subtracted cc (parked by the apply pass) must stay hidden everywhere.
+    local ccOn = allOn or (eff.cc and true or false)
 
-    -- Dispellable has exactly two flavors (the "by anyone" mode was cut):
-    -- "you" = the RAID_PLAYER_DISPELLABLE token; "typed" = anything with a
-    -- dispel type (candidate include map -- not tokenizable, so dedup
-    -- against other records rides excludeDispelTypes instead of a !token).
+    -- Two dispel flavors: "you" = RAID_PLAYER_DISPELLABLE token; "typed" = any dispel
+    -- type (candidate include map, not tokenizable, dedup rides excludeDispelTypes instead of a !token).
     local dispelOn = eff.dispel and true or false
     local dispelMode = (dm.dispelMode == "typed") and "typed" or "you"
     local dispelToken = (dispelOn and dispelMode == "you") and "RAID_PLAYER_DISPELLABLE" or nil
-    -- The typed exclude only applies while the typed dispel record is
-    -- actually BUILT (claimed, or base without Show All) -- otherwise
-    -- Show All would exclude typed debuffs nothing re-adds.
+    -- Typed exclude applies only while the typed dispel record is really BUILT (claimed, or base without Show All), else Show All excludes debuffs nothing re-adds.
     local typedMap = dispelOn and dispelMode == "typed"
-        and ((claims.dispel or fxCats.dispel or not (dm.all ~= false)) and true or false)
+        and ((claims.dispel or fxCats.dispel or not allOn or (sub and sub.dispel)) and true or false)
 
-    -- Internal exclude set (user editing retired): the hardcoded sated
-    -- list -- honoring the retail Show Lust Debuff opt-out -- plus the
-    -- always-hide pair. 68824's never-secret identity-gate exemption makes
-    -- these excludes real on friendly units for never-secret spells; a
-    -- secret-flagged entry is accepted but inert (the engine drops it
-    -- silently).
+    -- Internal exclude set: hardcoded sated list (honoring Show Lust Debuff
+    -- opt-out) plus the always-hide pair. 68824's never-secret identity-gate
+    -- exemption makes these real on friendly units for never-secret spells; a
+    -- secret-flagged entry is accepted but inert (engine drops it silently).
     local ex = {}
     if ns.RFC_AlwaysHideDebuffs then
         for id in pairs(ns.RFC_AlwaysHideDebuffs) do ex[id] = true end
@@ -493,9 +462,8 @@ local function BuildRecords(s, dm)
         return cf
     end
 
-    -- The cc group/record owns dispellable crowd control: its candidates
-    -- must NOT carry the typed exclude (with both, a magic stun would
-    -- vanish from both records).
+    -- The cc group/record owns dispellable crowd control: its candidates must
+    -- NOT carry the typed exclude (a magic stun would vanish from both).
     local ccCand = { excludeSpellIDs = ex }
 
     local recs = {}
@@ -507,41 +475,39 @@ local function BuildRecords(s, dm)
         return toks
     end
 
-    -- Show All short-circuits the BASE union (every other base record would
-    -- be a pure duplicate in one visually-uniform row) but tiles still
-    -- render their claims; the all-record negates claimed TOKEN categories
-    -- so those stay single-rendered (boolean claims duplicate -- accepted,
-    -- positive-only candidates cannot be negated).
+    -- Show All short-circuits the BASE union (other base records would be pure duplicates in one row) but tiles still
+    -- render their claims; all-record negates claimed TOKEN categories to stay single-rendered (boolean claims duplicate: cannot be negated).
     if allOn then
         local toks = { "HARMFUL" }
         Neg(toks, true,
-            (claims.dispel or fxCats.dispel) and true or false,
-            (claims.raid or fxCats.raid) and true or false)
-        if claims.raidcombat or fxCats.raidcombat then toks[#toks + 1] = "!RAID_IN_COMBAT" end
-        recs[#recs + 1] = { key = "all", tokens = toks, cand = Cand(false) }
+            (sub.dispel or claims.dispel or fxCats.dispel) and true or false,
+            (sub.raid or claims.raid or fxCats.raid) and true or false)
+        if sub.raidcombat or claims.raidcombat or fxCats.raidcombat then toks[#toks + 1] = "!RAID_IN_COMBAT" end
+        local cf = Cand(false)
+        -- Subtracted boolean categories (see `sub`); fx-routed keeps its forced base record (effect wins over
+        -- subtraction, same accepted edge as duplicating boolean claims).
+        if sub.boss then cf.isBossAura = false end
+        if sub.role then cf.isRoleAura = false end
+        if sub.priority then cf.isPriorityAura = false end
+        if sub.nonplayer then cf.isFromPlayerOrPlayerPet = true end
+        recs[#recs + 1] = { key = "all", tokens = toks, cand = cf }
     end
 
-    -- Claimed crowd control: the base normally rides the legacy cc group,
-    -- but a claiming tile hosts cc as a normal record (fresh candidate
-    -- table -- NEVER the typed exclude, see ccCand above; tile style, the
-    -- CC glow stays a base-group property).
+    -- Claimed crowd control: base normally rides the legacy cc group, but a claiming tile hosts cc as a normal
+    -- record (fresh candidate table, NEVER the typed exclude -- see ccCand; tile style, CC glow stays base-only).
     if eff.cc and claims.cc then
         recs[#recs + 1] = { key = "cc", tokens = { "HARMFUL", "CROWD_CONTROL" },
             cand = { excludeSpellIDs = ex }, tile = claims.cc }
     end
 
-    -- Sized base crowd control: an Icon Effects Size on cc cannot resize
-    -- the fixed legacy "cc" group's buttons (group->style binding is fixed
-    -- at declare), so cc becomes a base record variant instead; its style
-    -- carries the CC-glow flavor so the glow survives the move. The apply
-    -- pass parks the legacy group while this record exists.
+    -- Sized base crowd control: Icon Effects Size cannot resize the legacy "cc" group (group->style binding fixed
+    -- at declare), so cc becomes a base record variant carrying the CC-glow style; apply pass parks the legacy group while this record exists.
     if eff.cc and not claims.cc and FxSizeFor(dm.fxList, "cc") then
         recs[#recs + 1] = { key = "cc", tokens = { "HARMFUL", "CROWD_CONTROL" },
             cand = { excludeSpellIDs = ex } }
     end
 
-    -- Category records (skipped in the base when Show All covers them;
-    -- always built for their claiming tile).
+    -- Category records: skipped in base when Show All covers them, always built for a claiming tile.
     if dispelOn and (claims.dispel or fxCats.dispel or not allOn) then
         local toks = { "HARMFUL" }
         if dispelToken then toks[#toks + 1] = dispelToken end
@@ -570,8 +536,7 @@ local function BuildRecords(s, dm)
         if eff.raidcombat then toks[#toks + 1] = "!RAID_IN_COMBAT" end
         return toks
     end
-    -- Boss/role merge into one record only when they route to the SAME
-    -- place; split claims build separate records.
+    -- Boss/role merge into one record only when they route to the SAME place; split claims build separate records.
     local bossTile, roleTile = claims.boss, claims.role
     local bossOn = eff.boss and (bossTile or fxCats.boss or not allOn)
     local roleOn = eff.role and (roleTile or fxCats.role or not allOn)
@@ -593,21 +558,16 @@ local function BuildRecords(s, dm)
             cand = Cand(true, { isPriorityAura = true }), gated = true, tile = claims.priority }
     end
 
-    -- Non-player debuffs: pure-token record (HARMFUL + !PLAYER), base-only
-    -- (no tile claim, no fx routing). Rides the full token negation set so
-    -- token categories keep owning their overlaps; overlap with the boolean
-    -- records (boss/role/priority) is accepted, same as boolean x boolean.
-    -- Under Show All it is a pure subset of the all-record, so it is
-    -- skipped like the other category records.
+    -- Non-Player Auras: boolean record (isFromPlayerOrPlayerPet = false -- debuffs not caused by ANY player or
+    -- player pet, engine-evaluated; a !PLAYER token would exclude only YOUR casts, never other players' Sated/Forbearance noise). Base-only, no tile/fx routing. Full
+    -- token negation set keeps token categories owning their overlaps; overlap with boolean records accepted like
+    -- boolean x boolean. Pure subset of the all-record under Show All, so skipped there too.
     if eff.nonplayer and not allOn then
-        local toks = BoolTokens()
-        toks[#toks + 1] = "!PLAYER"
-        recs[#recs + 1] = { key = "nonplayer", tokens = toks, cand = Cand(false) }
+        recs[#recs + 1] = { key = "nonplayer", tokens = BoolTokens(),
+            cand = Cand(false, { isFromPlayerOrPlayerPet = false }) }
     end
 
-    -- Per-filter Icon Effects Size: stamp each record with its owner list's
-    -- resolved size (base records read the base blocks, tile-hosted records
-    -- read their tile's -- the same list the applier matches against).
+    -- Stamp each record with its owner list's resolved Size (base reads base blocks, tile-hosted reads its tile's).
     for i = 1, #recs do
         local r = recs[i]
         r.fxSize = FxSizeFor(r.tile and r.tile.fxList or dm.fxList, r.key)
@@ -616,19 +576,50 @@ local function BuildRecords(s, dm)
     return recs, ccCand, claims, Cand, fxCats
 end
 
--- Group keys embed the normalized filter string: filter strings are
--- declaration-fixed, so an option change that alters a record's negation
--- set declares a NEW variant group and parks the old one at 0 (add-only
--- engine, leak-free parking; boolean records share token sets, hence the
--- record-key prefix keeps them distinct).
+-- Order-independent fingerprint of a candidate-filter table. Candidate payloads are DECLARATION-FIXED
+-- (SetAuraGroupCandidateFilters on a live group does not retake), so a payload change must land in the group key
+-- and declare a fresh variant. Number-keyed sets (spell ids) fingerprint as count:sum; string-keyed sets (dispel names) join outright.
+local function CandFP(cf)
+    if not cf then return "-" end
+    local keys = {}
+    for k in pairs(cf) do keys[#keys + 1] = k end
+    table.sort(keys)
+    local parts = {}
+    for i = 1, #keys do
+        local k = keys[i]
+        local v = cf[k]
+        if type(v) == "table" then
+            local first = next(v)
+            if type(first) == "number" then
+                local n, sum = 0, 0
+                for id in pairs(v) do
+                    n = n + 1
+                    sum = (sum + id) % 2147483647
+                end
+                parts[#parts + 1] = k .. "=" .. n .. ":" .. sum
+            else
+                local names = {}
+                for name in pairs(v) do names[#names + 1] = tostring(name) end
+                table.sort(names)
+                parts[#parts + 1] = k .. "=" .. table.concat(names, "+")
+            end
+        else
+            parts[#parts + 1] = k .. "=" .. tostring(v)
+        end
+    end
+    return table.concat(parts, ",")
+end
+
+-- Group keys embed the normalized filter string AND the candidate fingerprint (both declaration-fixed), so any
+-- change to a record's negation set or candidate payload (subtracted boolean categories, typed-dispel exclude, lust
+-- exclude set) declares a NEW variant group and parks the old at 0 (add-only engine, leak-free). Boolean records
+-- share token sets, so the record-key prefix keeps them distinct.
 local function GroupKey(AKL, r)
-    -- "|sz" marks a SIZED record (group->style binding is fixed at declare,
-    -- so gaining/losing a Size swaps the variant). The size VALUE is
-    -- deliberately not in the key: the sized style key is stable per
-    -- category and its content rebuilds on size edits -- a slider drag
-    -- restyles existing buttons instead of minting an engine batch per step.
+    -- "|sz" marks a SIZED record (group->style binding fixed at declare, so gaining/losing a Size swaps the
+    -- variant); size VALUE excluded on purpose since the sized style key is stable per category and its content
+    -- rebuilds on edits, so a slider drag restyles buttons instead of minting an engine batch per step.
     return "dm_" .. r.key .. "|" .. AKL.Filter(unpack(r.tokens))
-        .. (r.fxSize and "|sz" or "")
+        .. (r.fxSize and "|sz" or "") .. "|" .. CandFP(r.cand)
 end
 
 -- Effect-tile category resolution: one live-settable slot per tile.
@@ -637,8 +628,7 @@ local function EffectFilterFor(dm, cat)
     if cat == "raid" then return { "HARMFUL", "RAID" }, nil, false end
     if cat == "raidcombat" then return { "HARMFUL", "RAID_IN_COMBAT" }, nil, false end
     if cat == "dispel" then
-        -- Follows the base dispel flavor: by-you token, or the typed
-        -- include map ("by anyone" was cut from the design).
+        -- Follows the base dispel flavor: by-you token or typed include map.
         if dm.dispelMode == "typed" then
             return { "HARMFUL" }, { includeDispelTypes = TYPED_DEBUFFS }, false
         end
@@ -654,20 +644,15 @@ end
 -- Tile containers (per button, persistent, parked when unused)
 -------------------------------------------------------------------------------
 
--- Per-slot-button refs for the effect appliers (weak keys: engine buttons
--- are pooled frames we must never write properties onto).
+-- Per-slot-button refs for the effect appliers (weak keys: engine buttons are pooled frames, never write properties onto them).
 local fxRefs = setmetatable({}, { __mode = "k" })
 
--- Effect visuals: ALL created in the slot's extraInit -- the ONLY window
--- where insecure calls on the engine button are legal (the engine denies
--- reads AND writes everywhere else, permanently, and the restyler's pcall
--- swallows the denial silently -- create-in-the-applier builds nothing,
--- ever). The applier (FxApply) only parameterizes frames we own. Children
--- hang off the slot button (visibility rides the aura match) and anchor
--- OUTWARD to our clean frames (unit button / health) -- the dispel-overlay
--- precedent, and the BmEffectInit doctrine.
--- Hide every effect visual on one slot button (filter-gated slots and
--- teardown paths share it).
+-- Effect visuals: ALL created in the slot's extraInit, the ONLY window where insecure calls on the engine button
+-- are legal (elsewhere the engine permanently denies reads/writes and the restyler's pcall swallows the denial
+-- silently, so creating in the applier builds nothing, ever). FxApply only parameterizes frames we own. Children
+-- hang off the slot button (visibility rides the aura match) and anchor OUTWARD to our clean frames (unit button /
+-- health), the dispel-overlay/BmEffectInit precedent. FxHideAll hides every effect visual on one slot button
+-- (shared by filter-gated slots and teardown paths).
 local function FxHideAll(dd)
     local Glows = EllesmereUI.Glows
     if dd.dmFxGlow then
@@ -680,10 +665,8 @@ local function FxHideAll(dd)
     if dd.dmFxGeoF then dd.dmFxGeoF:Hide() end
 end
 
--- Creation-window builder: one kind-specific visual set per effect slot,
--- parked hidden until the applier arms it. Runs inside extraInit (which
--- runs inside a CreateFrameBatch -- an error here kills the whole slot
--- declaration, hence the pcall-degraded engine binding).
+-- Creation-window builder: one kind-specific visual set per effect slot, parked hidden until the applier arms it.
+-- Runs in extraInit inside a CreateFrameBatch: an error here kills the whole slot declaration, hence the pcall-degraded engine binding.
 local function FxCreateVisuals(button, dd, kind, hostBtn, health)
     if not dd then return end
     if kind == "glow" then
@@ -694,12 +677,9 @@ local function FxCreateVisuals(button, dd, kind, hostBtn, health)
         g:Hide()
         dd.dmFxGlow = g
     elseif kind == "healthcolor" then
-        -- BM healthcolor parity via an owned wrapper: level-tied WITH the
-        -- health frame (not above it) so the tint sorts against health's
-        -- own regions by ARTWORK sublevel -- above the fill (0), below the
-        -- heal absorb/prediction bars (+1) and the shield bars (+3) -- and
-        -- anchored to the FILL texture so it covers only the filled
-        -- portion. The wrapper is ours, so the level tie stays legal.
+        -- BM healthcolor parity via an owned wrapper: level-tied WITH (not above) the health frame so the tint
+        -- sorts against health's ARTWORK sublevels (above fill=0, below heal absorb/prediction=+1, shields=+3);
+        -- anchored to the FILL texture so it covers only the filled portion. Wrapper is ours, so the level tie stays legal.
         local f = CreateFrame("Frame", nil, button)
         local fill = health.GetStatusBarTexture and health:GetStatusBarTexture()
         f:SetAllPoints(fill or health)
@@ -731,8 +711,7 @@ local function FxCreateVisuals(button, dd, kind, hostBtn, health)
         dd.dmFxGeoF = sb
         dd.dmFxBar = sb
         dd.dmFxBarBg = bg
-        -- Engine duration binding: the engine drives the fill from the
-        -- aura's duration object. Button call -- legal only HERE.
+        -- Engine drives the fill from the aura's duration object; button call legal only HERE.
         local ok = pcall(button.SetDurationBar, button, sb, {})
         if not ok then pcall(button.SetDurationBar, button, sb) end
     end
@@ -744,8 +723,7 @@ local function FxApplyInner(button, dd, refs, fx)
         local host = dd.dmFxGlow
         if not (Glows and host) then return end -- created in extraInit
         host:Show()
-        -- Color mode (trio swatch): default = the untinted proc gold,
-        -- class = the player's class color, custom = fx.r/g/b.
+        -- Color mode: default = proc gold, class = player class, custom = fx.r/g/b.
         local cr, cg, cb = fx.r or 1, fx.g or 0.78, fx.b or 0.38
         local mode = fx.glowMode or "default"
         if mode == "class" then
@@ -755,16 +733,12 @@ local function FxApplyInner(button, dd, refs, fx)
         elseif mode == "default" then
             cr, cg, cb = 1.0, 0.788, 0.137
         end
-        -- Size from the unit frame's REAL rect (refs.host is our frame,
-        -- outside the forbidden subtree -- reads are legal; this arming
-        -- pass runs in the creation window).
+        -- Size from the unit frame's REAL rect (refs.host is ours, outside the forbidden subtree, so the read is legal here).
         local gw = refs.host:GetWidth() or 0
         local gh = refs.host:GetHeight() or 0
         if gw < 1 then gw = 24 end
         if gh < 1 then gh = gw end
-        -- One style only: the animation-driven pixel march (driver-ticked
-        -- glows freeze on the forbidden slot subtree; this runs C-side
-        -- forever).
+        -- One style only: the animation-driven pixel march (driver-ticked glows freeze on the forbidden slot subtree; this runs C-side).
         if Glows.StartAnimatedAnts then
             Glows.StartAnimatedAnts(host, fx.glowLines or 8, fx.glowThickness or 2,
                 fx.glowSpeed or 4, cr, cg, cb, gw, gh)
@@ -774,9 +748,7 @@ local function FxApplyInner(button, dd, refs, fx)
         local f = dd.dmFxHcFrame
         local tex = dd.dmFxHc
         if not (f and tex) then return end -- created in extraInit
-        -- Level tie is set at creation; NO re-check here -- reads on the
-        -- slot-button subtree (our frames included) are denied outside the
-        -- creation window and would kill this whole branch.
+        -- Level tie set at creation; NO re-check here -- subtree reads (ours included) are denied outside the creation window and would kill this branch.
         tex:SetColorTexture(fx.r or 1, fx.g or 0.2, fx.b or 0.2, fx.a or 0.5)
         f:Show()
 
@@ -788,8 +760,7 @@ local function FxApplyInner(button, dd, refs, fx)
         local sig = table.concat({ tostring(w), tostring(h), tostring(fx.corner),
             tostring(fx.offX), tostring(fx.offY) }, ",")
         if dd.dmFxGeo ~= sig then
-            -- Geometry rides OUR frame (always-legal calls); the sig cache
-            -- just keeps repeat applies cheap.
+            -- Geometry rides OUR frame (always-legal calls); the sig cache keeps repeat applies cheap.
             gf:SetSize(w, h)
             gf:ClearAllPoints()
             gf:SetPoint(fx.corner or "CENTER", refs.health, fx.corner or "CENTER",
@@ -803,10 +774,8 @@ local function FxApplyInner(button, dd, refs, fx)
     elseif fx.kind == "bar" then
         local gf = dd.dmFxGeoF
         if not gf then return end -- created in extraInit
-        -- BM_PlaceBar 1:1: width/height are FILL-axis sliders; the Full
-        -- toggles follow the fill axis too, so they swap screen edges when
-        -- the bar is vertical. Geometry rides OUR StatusBar (always-legal
-        -- calls); the sig cache keeps repeat applies cheap.
+        -- BM_PlaceBar 1:1: width/height are FILL-axis sliders and Full toggles follow the fill axis, swapping
+        -- screen edges when vertical. Geometry rides OUR StatusBar; sig cache keeps repeat applies cheap.
         local w = fx.w or 30
         local h = fx.h or 4
         local isVert = fx.orient == "VERTICAL"
@@ -845,9 +814,7 @@ local function FxApplyInner(button, dd, refs, fx)
                 if isVert then gf:SetSize(h, w) else gf:SetSize(w, h) end
                 gf:SetPoint(pos, health, pos, fx.offX or 0, fx.offY or 0)
             end
-            -- Frame Level band relative to the unit button (our frame; this
-            -- arming pass runs in the creation window where the read is
-            -- legal).
+            -- Frame Level band relative to the unit button (our frame; the read is legal in the creation window).
             gf:SetFrameLevel((refs.host:GetFrameLevel() or 1) + (fx.lvl or 7))
             dd.dmFxGeo = sig
         end
@@ -867,23 +834,21 @@ local function FxApply(button, dd, style)
     local fx = style.fx
     if not (refs and fx) then return end
 
-    -- Per-filter gating: an effect tile declares one slot per EVER-checked
-    -- category (add-only engine); slots whose category is currently
-    -- unchecked render nothing.
-    -- DEBUG: both paths pcall-wrapped with the error RECORDED (the restyler
-    -- swallows applier errors silently -- dbg.err is how we see them).
-    local ok, err
-    if not dbg.gate then
-        ok, err = pcall(FxHideAll, dd)
+    -- Per-filter gating: an effect tile declares one slot per EVER-checked category
+    -- (add-only engine -- a slot cannot be un-declared), so a slot whose category is
+    -- currently UNCHECKED must render nothing. dd.dmCat is stamped at slot creation
+    -- and fx.filters is the live checked set, so the two together are the gate.
+    -- Both paths stay pcall-wrapped: this runs inside the engine's CreateFrameBatch,
+    -- where an uncaught error aborts the whole batch and the slot never appears.
+    if dd and fx.filters and fx.filters[dd.dmCat] then
+        pcall(FxApplyInner, button, dd, refs, fx)
     else
-        ok, err = pcall(FxApplyInner, button, dd, refs, fx)
+        pcall(FxHideAll, dd)
     end
-    dbg.ok = ok
-    dbg.err = (not ok) and tostring(err) or nil
 end
 
--- Icon-tile flow anchoring (corner-pinned chain, CENTER growth centers the
--- row on the anchor point -- the defensives-row math with tile settings).
+-- Icon-tile flow anchoring: corner-pinned chain, CENTER growth centers the
+-- row on the anchor point (the defensives-row math, with tile settings).
 local function AnchorTileContainer(container, health, s, t)
     health = ns.RF_AnchorHost and ns.RF_AnchorHost(health, s) or health
     local corner = CORNERS[t.position or "top"] or "TOP"
@@ -892,10 +857,9 @@ local function AnchorTileContainer(container, health, s, t)
     local offY = t.offsetY or 0
 
     AK = AK or EllesmereUI.AuraKit
-    -- Grid wrap (12.1): Icons Per Row >= 2 wraps lines away from the
-    -- anchored edge (simple-grid convention; lowercase position tokens
-    -- here); vertical growth flips the flow axis so lines are columns.
-    -- Below 2 = the legacy single run, corner pick untouched.
+    -- Grid wrap: Icons Per Row >= 2 wraps lines away from the anchored edge (simple-grid convention, lowercase
+    -- position tokens here); vertical growth flips the flow axis so lines become columns. Below 2 =
+    -- single run, corner pick untouched.
     local per = tonumber(t.iconsPerRow) or 0
     local pl = t.position or "top"
     local wrapUp = pl:find("bottom", 1, true) ~= nil
@@ -939,12 +903,9 @@ end
 -- Per-class tile fingerprints (style/geometry), keyed class .. ":" .. id.
 local dmTileFP = {}
 
--- Ensures the per-class style for one tile exists and is current. Icon
--- tiles reuse the debuff style at the tile's size; effect tiles get a bare
--- noRegions style whose applyExtra renders the effect from style.fx.
--- szOv/szCat: a per-filter Icon Effects Size hosts the sized record on its
--- own STABLE per-category style variant of the tile style (content rebuilds
--- on size edits; the group variant only swaps at the sized/unsized edge).
+-- Ensures one tile's per-class style exists and is current: icon tiles reuse the debuff style at tile size; effect
+-- tiles get a bare noRegions style whose applyExtra renders style.fx. szOv/szCat: an Icon Effects Size hosts the
+-- sized record on its own STABLE per-category variant (content rebuilds on size edits, group variant swaps only at sized/unsized).
 local function EnsureTileStyle(d, s, t, szOv, szCat)
     local cls = ClassToken(d)
     local key
@@ -974,13 +935,10 @@ local function EnsureTileStyle(d, s, t, szOv, szCat)
             st.style = v
             local sty = ns.RFC_BuildDebuffStyle(sv, szOv or t.size or 18)
             if t.type == "square" then
-                -- Square grid: a flat color block covers the spell icon
-                -- (rendered by the shared debuff applier).
+                -- Square grid: flat color block over the icon (shared applier).
                 sty.squareColor = t.color or { r = 1, g = 0.35, b = 0.35, a = 1 }
             end
-            -- Per-tile Effects override the base-injected fx (explicitly,
-            -- including nil -- a tile without its own blocks must not
-            -- inherit the base pane's).
+            -- Per-tile Effects override the base-injected fx explicitly, including nil: a tile without blocks must not inherit the base.
             sty.fxList = FxListView(t.fxList)
             AK.styles[key] = sty
             AK.RestyleSoon(key)
@@ -1013,8 +971,7 @@ local function EnsureTileStyle(d, s, t, szOv, szCat)
                 applyExtra = FxApply,
                 fx = {
                     kind = t.type,
-                    -- Checked-filter set: the applier's per-slot gate (live
-                    -- table reference; the FP above rebuilds on changes).
+                    -- Checked-filter set: the applier's per-slot gate (live table reference; the FP above rebuilds on changes).
                     filters = t.claim or {},
                     glowType = t.glowType or 1, glowLines = t.glowLines,
                     glowThickness = t.glowThickness, glowSpeed = t.glowSpeed,
@@ -1029,8 +986,7 @@ local function EnsureTileStyle(d, s, t, szOv, szCat)
                     bgR = bgc.r, bgG = bgc.g, bgB = bgc.b,
                     lvl = BAR_FRAMELVL[t.frameLevel or "behindBorders"],
                     r = c.r, g = c.g, b = c.b,
-                    -- Health color rides a dedicated Opacity setting (the
-                    -- swatch has no alpha strip there, matching BM).
+                    -- Health color rides a dedicated Opacity setting (the swatch has no alpha strip there, matching BM).
                     a = (t.type == "healthcolor")
                         and ((t.opacity or 45) / 100) or c.a,
                 },
@@ -1041,14 +997,10 @@ local function EnsureTileStyle(d, s, t, szOv, szCat)
     return key
 end
 
--- Sized BASE-record styles: an Icon Effects block with a Size renders its
--- categories at that size. Buttons take their physical size from the style
--- at creation, so each sized category gets its own STABLE style key --
--- content rebuilds when the size or the underlying debuff style changes;
--- the group variant only swaps at the sized/unsized edge (GroupKey "|sz").
--- "cc" builds the CC-glow style flavor so sized crowd control keeps its
--- glow. Registry entries let the containers file refresh these alongside
--- its own base-style rebuilds (DM_RefreshSizedStyles below).
+-- Sized BASE-record styles: an Icon Effects block with a Size renders its categories at that size. Buttons take
+-- physical size from the style at creation, so each sized category gets its own STABLE style key: content rebuilds
+-- on size/base-style changes, group variant swaps only at the sized/unsized edge (GroupKey "|sz"). "cc" builds the
+-- CC-glow flavor so sized crowd control keeps its glow; registry entries let the containers file refresh these on its own rebuilds (DM_RefreshSizedStyles).
 local dmSizeFP = {}
 local function EnsureBaseSizeStyle(d, s, cat, size)
     local cls = ClassToken(d)
@@ -1073,11 +1025,8 @@ local function EnsureBaseSizeStyle(d, s, cat, size)
     return key
 end
 
--- Called by the containers file whenever it rebuilds a class's base debuff
--- styles on a style-fingerprint change: a pure style edit (border color,
--- text font...) does not flip the config fingerprint, so the apply pass --
--- and with it EnsureBaseSizeStyle -- may not run; the sized siblings must
--- refresh at the same site the base styles do or they render stale.
+-- Called by the containers file when it rebuilds a class's base debuff styles on a style-fingerprint change: a pure
+-- style edit (border color, font) does not flip the config fingerprint (so the apply pass/EnsureBaseSizeStyle may not run) -- sized siblings must refresh here or render stale.
 function ns.DM_RefreshSizedStyles(baseStyleKey, s)
     AK = AK or EllesmereUI.AuraKit
     if not AK then return end
@@ -1103,10 +1052,8 @@ function ns.DM_RefreshSizedStyles(baseStyleKey, s)
     end
 end
 
--- Ensures one tile's container exists for this button (queued: container
--- shells are combat-illegal -- probe T3 zombie). Effect tiles declare their
--- single slot at build; icon tiles get record groups declared by the apply
--- pass (combat-legal adds on existing containers).
+-- Ensures one tile's container exists for this button (queued: container shells are combat-illegal). Effect tiles
+-- declare their single slot at build; icon tiles get record groups from the apply pass (combat-legal adds on existing containers).
 local function EnsureTileContainer(d, t)
     local tiles = d.dmTiles
     if not tiles then tiles = {}; d.dmTiles = tiles end
@@ -1138,24 +1085,16 @@ local function EnsureTileContainer(d, t)
         local container = AK.CreateContainerShell(button, {
             point = { "CENTER", health, "CENTER" },
         })
-        -- Level bands (live parity): grid and bar tiles render in the aura
-        -- band (button + LVL_AURA = 13, above every border and the text
-        -- band, exactly like legacy aura icons). Healthcolor slots re-tie
-        -- their own level to the health frame in the applier (BM parity:
-        -- the tint sorts against health's regions by ARTWORK sublevel), so
-        -- their container level is only a pre-apply default; glow hosts
-        -- level themselves absolutely (+15) likewise. Containers default
-        -- far LOWER than all of this, which put tile icons underneath
-        -- borders and text.
+        -- Level bands: grid and bar tiles render in the aura band (button + LVL_AURA = 13, above borders/text like
+        -- legacy aura icons). Healthcolor slots re-tie to the health frame in the applier and glow hosts level
+        -- themselves (+15), so this is only a pre-apply default (container defaults are far lower, which would put tile icons under borders/text).
         if t2.type == "healthcolor" then
             container:SetFrameLevel(button:GetFrameLevel() + 6)
         else
             container:SetFrameLevel(button:GetFrameLevel() + (ns.LVL_AURA or 13))
         end
         if t2.type ~= "icons" and t2.type ~= "square" then
-            -- One slot PER checked filter category (the Filters checkbox
-            -- dropdown); later checks add slots on the live lane, and the
-            -- applier's filter gate silences slots for unchecked ones.
+            -- One slot PER checked filter category; later checks add slots on the live lane, gate silences unchecked ones.
             local host = button
             local hp = health
             local tGroups = d.dmTileGroups
@@ -1173,13 +1112,8 @@ local function EnsureTileContainer(d, t)
                         candidateFilters = cand,
                         style = styleKey,
                         extraInit = function(slotButton, d2, style)
-                            -- Category stamp (the applier's filter gate) +
-                            -- refs for the effect applier (weak map, never
-                            -- frame properties) + ALL visual frames + the
-                            -- ARMING pass -- this is the only window where
-                            -- subtree calls are legal, and the initializer
-                            -- runs applyExtra BEFORE this callback (refs
-                            -- were nil there, so it bailed).
+                            -- Stamp category (applier filter gate) + refs (weak map, NEVER frame properties) +
+                            -- create/arm visuals: the only window subtree calls are legal (earlier applyExtra call with refs nil bailed).
                             if d2 then d2.dmCat = catKey end
                             fxRefs[slotButton] = { host = host, health = hp }
                             slotButton:SetPoint("CENTER", hp, "CENTER")
@@ -1195,8 +1129,7 @@ local function EnsureTileContainer(d, t)
         AK.FinishContainer(container, unit or "none")
         container._dmUnit = unit
         d.dmTiles[tileId] = container
-        -- Re-drive this button's manager config so the fresh container gets
-        -- its groups/counts/anchor (per-button; the pass is cheap).
+        -- Re-drive this button's config so the fresh container gets its groups/counts/anchor (per-button, cheap).
         local c2 = d.rfcDebuffs
         if c2 then
             ns.DM_ApplyDebuffConfig(c2, d, s2, StyleKeyFor(d))
@@ -1210,8 +1143,7 @@ end
 -------------------------------------------------------------------------------
 function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
     AK = AK or EllesmereUI.AuraKit
-    -- Default-ON: a fresh profile has no dmDebuff table yet; the empty
-    -- table reads as the defaults (Show All + Crowd Control on).
+    -- Default-ON: no dmDebuff table yet = the defaults (Show All + cc on).
     local dm = DM() or {}
     local declared = d.rfcDebuffGroups
     if not (AK and declared) then return end
@@ -1244,22 +1176,22 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
         end
     end
 
-    -- Park everything the base does not want (legacy preset groups + stale
-    -- record variants). Setters are dirty marks; this runs only when the
-    -- debuff fingerprint actually changed.
+    -- Park everything the base does not want (legacy preset groups, stale record variants); setters are dirty marks, runs only on an FP change.
     for k in pairs(declared) do
         if k ~= "cc" and not wantedBase[k] then
             container:SetAuraGroupMaxFrameCount(k, 0)
         end
     end
 
-    -- Crowd Control rides the existing cc group (CC glow style intact)
-    -- whenever it is enabled and UNCLAIMED; a claiming tile hosts it as a
-    -- normal record instead (tile style; the glow stays base-only).
+    -- Crowd Control rides the existing cc group (CC glow intact) while enabled and UNCLAIMED; a claiming tile
+    -- hosts it as a normal record instead (tile style, glow stays base-only).
     if declared.cc then
-        -- A sized base cc record (Icon Effects Size on cc) supplants the
-        -- legacy group: park it or every CC debuff renders twice.
-        local ccBase = ((dm.cc ~= false) or (fxCats and fxCats.cc)) and not claims.cc
+        -- A sized base cc record supplants the legacy group: park it or CC debuffs render twice. Under Show All
+        -- the cc lead/glow group is on unless Crowd Control is checked (= subtracted); in add mode it is on
+        -- exactly when checked; fx routing forces it either way.
+        local allOn = dm.all ~= false
+        local ccPicked = (allOn and dm.cc ~= true) or (not allOn and dm.cc == true)
+        local ccBase = (ccPicked or (fxCats and fxCats.cc)) and not claims.cc
             and not baseSizedCC
         container:SetAuraGroupMaxFrameCount("cc", ccBase and cap or 0)
         container:SetAuraGroupCandidateFilters("cc", ccCand)
@@ -1281,9 +1213,7 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
             container:SetAuraGroupMaxFrameCount(gkey, n)
             container:SetAuraGroupCandidateFilters(gkey, r.cand)
             if r.fxSize then
-                -- Sized record: keep the stable per-category style fresh
-                -- (size edits rebuild its content -> existing buttons
-                -- restyle) and feed the flow math the same size.
+                -- Sized record: keep the stable per-category style fresh (size edits restyle existing buttons) + same size in the flow math.
                 EnsureBaseSizeStyle(d, s, r.key, r.fxSize)
                 container:SetAuraGroupLayout(gkey, {
                     elementWidth = r.fxSize, elementHeight = r.fxSize,
@@ -1298,8 +1228,7 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
     d.dmGatedKeys = gatedKeys
     d.dmCap = cap
 
-    -- Missing base record variants: declare on the combat-legal live lane,
-    -- then re-apply (mirrors the containers file's preset-ensure pattern).
+    -- Missing base record variants: declare on the combat-legal live lane, then re-apply (mirrors the containers file's preset-ensure pattern).
     if missingBase and not d.dmEnsure then
         d.dmEnsure = true
         AK.QueueLiveBuildJob(function()
@@ -1316,14 +1245,10 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
                 if not r.tile then
                     local gkey = GroupKey(AK, r)
                     if not declared2[gkey] then
-                        -- Stamp the record category on every button (per-
-                        -- filter EFFECTS match against it) and arm the
-                        -- ICON EFFECTS in the creation window -- the style
-                        -- applier ran BEFORE this stamp at init and found
-                        -- no category.
+                        -- Stamp category (per-filter EFFECTS match on it) and arm ICON EFFECTS in the creation
+                        -- window (style applier ran before this stamp and found none).
                         local catKey = r.key
-                        -- Sized records bind their per-category sized style
-                        -- (buttons take the physical size at creation).
+                        -- Sized records bind their per-category sized style (buttons take physical size at creation).
                         local sk = r.fxSize
                             and EnsureBaseSizeStyle(d, s2, r.key, r.fxSize)
                             or StyleKeyFor(d)
@@ -1343,8 +1268,7 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
         end, "rf:dm-ensure")
     end
 
-    -- Tiles. Stash the host ref the deferred tile builds need (the base
-    -- debuff container is parented to the unit button on every build path).
+    -- Tiles. Stash the host ref the deferred tile builds need (the base debuff container is parented to the unit button on every build path).
     d.dmHost = d.dmHost or (container.GetParent and container:GetParent())
     local dmTiles = dm.tiles
     local live = d.dmTiles
@@ -1366,12 +1290,8 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
                     local gatedContent = false
 
                     if isEffect then
-                        -- One live-settable slot PER CHECKED category. Slot
-                        -- filters/candidates are live (the setter gets the
-                        -- NORMALIZED string; candidates get an explicit
-                        -- empty table, never nil -- NP field lesson).
-                        -- Newly-checked categories without a declared slot
-                        -- add on the combat-legal live lane below.
+                        -- One live-settable slot PER CHECKED category: filter setter takes the NORMALIZED string,
+                        -- candidates an explicit empty table (NEVER nil -- NP field lesson); newly-checked categories without a slot add on the combat-legal live lane below.
                         local missingCats = false
                         for cat, on in pairs(t.claim or {}) do
                             if on then
@@ -1444,8 +1364,7 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
                             end
                         end
                     else
-                        -- Record groups on the tile container (variant keys,
-                        -- additive declares, park stale variants).
+                        -- Record groups on the tile container (variant keys, additive declares, park stale variants).
                         local tWanted = {}
                         local tMissing = false
                         for ri = 1, #recsFor do
@@ -1474,9 +1393,7 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
                                 tc:SetAuraGroupMaxFrameCount(gkey, n)
                                 tc:SetAuraGroupCandidateFilters(gkey, r.cand)
                                 if r.fxSize then
-                                    -- Sized record: keep its per-category
-                                    -- tile style variant fresh + matching
-                                    -- flow math (see the base loop).
+                                    -- Sized record: per-category tile style variant fresh + matching flow math.
                                     EnsureTileStyle(d, s, t, r.fxSize, r.key)
                                     tc:SetAuraGroupLayout(gkey, {
                                         elementWidth = r.fxSize, elementHeight = r.fxSize,
@@ -1489,8 +1406,7 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
                             end
                         end
                         if tMissing then
-                            -- Combat-legal group adds on the existing tile
-                            -- container; keyed ensure per tile.
+                            -- Combat-legal group adds on the existing tile container; keyed ensure per tile.
                             local pendKey = "g" .. tostring(t.id)
                             local pend = d.dmTilePend
                             if not pend then pend = {}; d.dmTilePend = pend end
@@ -1515,15 +1431,13 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
                                                 AK.AddGroupToContainer(tc2, {
                                                     key = gkey, filter = r.tokens,
                                                     maxFrameCount = 0,
-                                                    -- Sized records bind the per-category
-                                                    -- sized variant of the tile style.
+                                                    -- Sized records bind the per-category sized tile-style variant.
                                                     style = r.fxSize
                                                         and EnsureTileStyle(d, s2, r.tile, r.fxSize, r.key)
                                                         or EnsureTileStyle(d, s2, r.tile),
                                                     extraInit = function(btn2, d2, style)
                                                         if d2 then d2.dmCat = catKey end
-                                                        -- Arm ICON EFFECTS in the creation
-                                                        -- window (see the base-record site).
+                                                        -- Arm ICON EFFECTS in the creation window (see the base-record site).
                                                         if style and ns.RFC_ApplyDmFx then
                                                             ns.RFC_ApplyDmFx(btn2, d2, style)
                                                         end
@@ -1547,9 +1461,7 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
                     else
                         tc:Show()
                     end
-                    -- Same-unit re-sets are a full engine re-registration
-                    -- (the RF roster-reprocess storm lesson) -- stamp on our
-                    -- own container frame and only re-point on change.
+                    -- Same-unit re-sets are a full engine re-registration (the RF roster-reprocess storm lesson), so stamp on our own container frame and re-point on change.
                     if d.rfcUnit and tc._dmUnit ~= d.rfcUnit then
                         tc:SetUnit(d.rfcUnit)
                         tc:UpdateAllAuras()
@@ -1574,9 +1486,8 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
     d.dmGatedTiles = gatedTiles
 end
 
--- Legacy-config tail hook: when the manager is INACTIVE the legacy
--- ApplyDebuffConfig only drives its own preset groups, so record variants
--- and tile containers from a just-disabled manager would keep rendering.
+-- Legacy-config tail hook: while INACTIVE the legacy ApplyDebuffConfig drives only its own preset groups, so a
+-- just-disabled manager's record variants and tile containers would otherwise keep rendering.
 function ns.DM_ParkGroups(container, declared, d)
     for k in pairs(declared) do
         if k:sub(1, 3) == "dm_" then
@@ -1588,9 +1499,8 @@ function ns.DM_ParkGroups(container, declared, d)
     end
 end
 
--- Unit re-assignment hook (called from RFC_OnUnitAssigned's unit-change
--- branch): tile containers must re-point like every other per-button
--- container -- the engine does not re-parse on unit change alone.
+-- Unit re-assignment hook (from RFC_OnUnitAssigned's unit-change branch): tile containers must re-point like every
+-- per-button container; the engine does not re-parse on unit change alone.
 function ns.DM_OnUnitAssigned(d, unit)
     local tiles = d.dmTiles
     if not tiles then return end
@@ -1603,9 +1513,8 @@ function ns.DM_OnUnitAssigned(d, unit)
     end
 end
 
--- Assist-state hook (called from ApplyAssistGate on actual state changes):
--- identity-gated records and tiles flip; everything else is assist-blind,
--- matching the token-only behavior of the legacy debuff row.
+-- Assist-state hook (from ApplyAssistGate on real state changes): identity-gated records and tiles flip; everything
+-- else is assist-blind, like the token-only legacy debuff row.
 function ns.DM_OnAssistChanged(d)
     if not ns.DM_Active() then return end
     local assist = d.rfcAssist ~= false
@@ -1633,8 +1542,7 @@ function ns.DM_Tiles()
     local dm = DM()
     if not dm then return nil end
     if not dm.tiles then dm.tiles = {} end
-    -- Read-heal: squares were EFFECT tiles (single cat + width/height)
-    -- before becoming grid tiles; expand the old shape once.
+    -- Read-heal: expand the old single-cat + width/height square shape once.
     for i = 1, #dm.tiles do
         local t = dm.tiles[i]
         if t.type == "square" and not t.claim then
@@ -1647,8 +1555,7 @@ function ns.DM_Tiles()
             t.spacing = t.spacing or 1
             t.cap = t.cap or 3
         end
-        -- Effect tiles moved from a single category (t.cat) to the checkbox
-        -- filter set; expand the old shape once.
+        -- Effect tiles moved from a single t.cat to the filter set; expand once.
         if (t.type == "glow" or t.type == "healthcolor" or t.type == "bar")
             and not t.claim then
             t.claim = {}
@@ -1674,8 +1581,7 @@ function ns.DM_AddTile(tileType)
     dm.nextTileId = id + 1
     local t = { id = id, enabled = true, type = tileType or "icons" }
     if t.type == "icons" or t.type == "square" then
-        -- Grid tiles (Icon / Square): identical shape; squares add the
-        -- block color the flat squares render with.
+        -- Grid tiles (Icon / Square): identical shape; squares add a color.
         t.claim = {}
         t.position = "top"
         t.growDirection = "CENTER"
@@ -1686,8 +1592,7 @@ function ns.DM_AddTile(tileType)
             t.color = { r = 1, g = 0.35, b = 0.35, a = 1 }
         end
     else
-        -- Effect tiles: filters arrive via the checkbox dropdown (or the
-        -- Add New popup's picks); none checked = the effect renders nothing.
+        -- Effect tiles: filters come from the checkbox dropdown or the Add New popup's picks; none checked = nothing.
         t.claim = {}
         if t.type == "bar" then
             t.position = "bottom"; t.width = 60; t.height = 5
@@ -1719,3 +1624,43 @@ end
 
 
 
+
+-------------------------------------------------------------------------------
+-- Override-layer bridge (SpecOverrides DM layers): a fork is a wholesale deep copy of the profile's dmDebuff table.
+-- Both hooks run EnsureMigrated first, so the one-shot preset mapping always precedes any fork traffic.
+-------------------------------------------------------------------------------
+
+local function DmLayerCopy(v)
+    if type(v) ~= "table" then return v end
+    local t = {}
+    for k, x in pairs(v) do t[k] = DmLayerCopy(x) end
+    return t
+end
+
+-- Snapshot of the live Debuff Manager config for layer harvests.
+function _G._ERF_DMHarvestFork()
+    local p = ns.db and ns.db.profile
+    if not p then return nil end
+    EnsureMigrated()
+    local dm = p.dmDebuff
+    if type(dm) ~= "table" then return nil end
+    return DmLayerCopy(dm)
+end
+
+-- Applies a SpecOverrides DM layer into the live profile (wipe + refill in place: open manager pages capture
+-- subtable refs) and re-drives the container runtime (DM_CfgFP flips on content change).
+function _G._ERF_DMApplyLayer(dm, noPageRefresh)
+    if type(dm) ~= "table" then return false end
+    local p = ns.db and ns.db.profile
+    if not p then return false end
+    EnsureMigrated()
+    local live = p.dmDebuff
+    if type(live) ~= "table" then live = {}; p.dmDebuff = live end
+    wipe(live)
+    for k, v in pairs(dm) do live[k] = DmLayerCopy(v) end
+    if ns.RFC_ReloadAll then ns.RFC_ReloadAll() end
+    if not noPageRefresh and ns._dmRoot and EllesmereUI and EllesmereUI.RefreshPage then
+        EllesmereUI:RefreshPage(true)
+    end
+    return true
+end

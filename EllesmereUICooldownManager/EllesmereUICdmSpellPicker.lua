@@ -1,12 +1,12 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUICdmSpellPicker.lua
---  Interactive Preview Helpers (used by options spell picker)
---  Spell list building, add/remove/swap/move/replace operations, and
---  custom bar creation/removal.
+--  Interactive Preview Helpers (used by options spell picker): spell list
+--  building, add/remove/swap/move/replace, and custom bar creation/removal.
 -------------------------------------------------------------------------------
 local _, ns = ...
 
--- Upvalue aliases (tables/functions populated by EllesmereUICooldownManager.lua)
+-- Upvalue aliases (populated by EllesmereUICooldownManager.lua)
 local ECME                   = ns.ECME
 local barDataByKey           = ns.barDataByKey
 local cdmBarFrames           = ns.cdmBarFrames
@@ -16,32 +16,19 @@ local ComputeTopRowStride    = ns.ComputeTopRowStride
 
 -------------------------------------------------------------------------------
 --  SpellVariant helpers
---
---  A "variant family" is the set { spellID, base spell ID, override spell ID,
---  override-of-base spell ID }. Storing/looking up by family lets us treat
---  Heroism (32182) and Bloodlust override variants as the same logical entry
---  without ever calling them duplicates.
---
+--  "variant family" = { spellID, base, override, override-of-base }. Treats
+--  e.g. Heroism/Bloodlust override variants as one logical entry.
 --  StoreVariantValue(target, spellID, value, preserveExisting, directSet):
---      Writes value into target under every key in spellID's variant family.
---      preserveExisting applies to the EXACT id only (first-write-wins); the
---      derived family keys never overwrite an entry that is already there, so
---      one spell's family expansion cannot displace another spell's exact
---      assignment. directSet, when given, records the exact id on its own so
---      callers can tell an explicit assignment from a derived one.
---
---  ResolveVariantValue(sourceMap, spellID):
---      Returns sourceMap[k] for the first k in spellID's variant family
---      that has a value. Returns nil if none match.
---
---  IsVariantOf(spellIDA, spellIDB):
---      True if A and B share any variant family member.
+--  writes value under every family key. preserveExisting applies to the EXACT
+--  id only (first-write-wins); derived keys never overwrite an existing entry,
+--  so one spell's expansion can't displace another's exact assignment.
+--  directSet, if given, records the exact id separately from derived keys.
+--  ResolveVariantValue(sourceMap, spellID): first non-nil sourceMap[k] across
+--  the family, else nil. IsVariantOf(a, b): true if a and b share any member.
 -------------------------------------------------------------------------------
--- Reject secret-tainted numbers BEFORE comparing. In Midnight, frame:GetSpellID()
--- on active CDM viewer frames (DoTs/HoTs/active buffs) can return a secret
--- number flagged by Blizzard's secure infrastructure. Doing `id > 0` on a
--- secret value taints us. issecretvalue detects the flag without touching
--- the value, and type() reads the type tag (also safe).
+-- Reject secret-tainted numbers before comparing: frame:GetSpellID() on active
+-- viewer frames can return a secret, and `id > 0` on it taints us.
+-- issecretvalue/type() read safely without touching the value.
 local function _IsUsableSID(id)
     if type(id) ~= "number" then return false end
     if issecretvalue and issecretvalue(id) then return false end
@@ -68,15 +55,9 @@ local function _StoreIfValid(target, id, value, preserveExisting)
     target[id] = value
 end
 
--- directSet (optional): records the EXACT id that was stored, separately from
--- the variant keys derived from it. Two spells of one variant family can be
--- assigned to different bars (e.g. Divine Toll and its Lightsmith override Holy
--- Bulwark, which share cooldownID and base 375576), and each expands over the
--- other's keys. Without knowing which entry was exact, the winner is decided by
--- collection order and by whichever override happened to be live at build time,
--- so the slot changes bars as the spell transforms. The derived keys therefore
--- only ever FILL GAPS, and the exact id always overwrites, so an explicit
--- assignment can never be clobbered by another spell's family expansion.
+-- Concrete case for directSet: Divine Toll and its override share cooldownID/
+-- base, so without it the winner would depend on collection order and the
+-- slot could change bars as the spell transforms. Derived keys fill gaps only.
 local function StoreVariantValue(target, spellID, value, preserveExisting, directSet)
     if type(target) ~= "table" or not _IsUsableSID(spellID) then return end
     _StoreIfValid(target, spellID, value, preserveExisting)
@@ -128,74 +109,53 @@ ns.StoreVariantValue   = StoreVariantValue
 ns.ResolveVariantValue = ResolveVariantValue
 ns.IsVariantOf         = IsVariantOf
 
--- Per-cooldownID cache of the last CLEAN frame:GetSpellID(). On an ACTIVE
--- buff/HoT/DoT viewer frame GetSpellID()/GetAuraSpellID() return secret values,
--- so while the aura is up we cannot read the live talent form (e.g. 432496
--- Holy Bulwark) -- resolution would otherwise degrade to the generic
--- cooldownInfo.spellID (e.g. 137029 Holy Paladin, a spec aura with a generic
--- icon). We reuse the clean value captured when this same cooldownID's frame
--- was last seen INACTIVE, so the picker/preview agree on the displayed spell
--- regardless of aura state and never offer the generic variant. Shared (ns) so
--- the reanchor pass can prime it at login. Self-heals: any later clean read
--- overwrites the entry, so a re-talented cooldownID re-resolves on next scan.
+-- Per-cooldownID cache of the last CLEAN frame:GetSpellID(). While a viewer
+-- frame is ACTIVE, GetSpellID()/GetAuraSpellID() return secret values, so the
+-- live talent form is unreadable and would degrade to the generic
+-- cooldownInfo.spellID; reuse the clean value from the last INACTIVE read so
+-- picker/preview agree regardless of aura state. Shared (ns) so reanchor can
+-- prime it at login. Self-heals: any later clean read overwrites the entry.
 ns._cdmCleanSidByCDID = ns._cdmCleanSidByCDID or {}
 local _cleanSidByCDID = ns._cdmCleanSidByCDID
 
--------------------------------------------------------------------------------
---  GetCanonicalSpellIDForFrame
---
---  Returns the preferred spell ID to STORE for a given Blizzard CDM viewer
---  frame. The picker, the migration, and the runtime resolution all use
---  this so they agree on which ID to use for the same logical spell.
---
---  Priority order (first non-nil wins):
---    1. frame:GetSpellID()              (frame method, most authoritative)
---    2. info.overrideSpellID            (current override variant)
---    3. info.spellID                    (base/canonical ID)
---    4. info.linkedSpellIDs[*]          (any linked variant)
---    5. C_Spell.GetBaseSpell of (1)     (normalize-to-base fallback)
---
---  Why frame:GetSpellID() first: under transforms (e.g. Glacial Spike from
---  Frostbolt), Blizzard's per-frame method returns the active variant the
---  user can actually cast. The picker should store the spell that exists
---  in the world, not whatever the static cooldownInfo says.
--------------------------------------------------------------------------------
+-- GetCanonicalSpellIDForFrame: preferred spell ID to STORE for a Blizzard CDM
+-- viewer frame. Picker, migration, and runtime resolution all use this so
+-- they agree on the ID for the same logical spell. Priority (first non-nil
+-- wins): 1. frame:GetSpellID() -- most authoritative, the active variant
+-- under transforms (e.g. Glacial Spike from Frostbolt), what the user can
+-- actually cast, not the static info; 2. info.overrideSpellID; 3. info.spellID;
+-- 4. info.linkedSpellIDs[*]; 5. base of (1) as fallback.
 local function GetCanonicalSpellIDForFrame(frame)
     if not frame then return nil end
 
-    -- 1. frame:GetSpellID()
     local fnGetSpellID = frame.GetSpellID
     if type(fnGetSpellID) == "function" then
         local sid = fnGetSpellID(frame)
         if _IsUsableSID(sid) then
-            -- Clean read: cache it by cooldownID so an active (secret) read of
-            -- this same frame later still resolves to the live talent form.
+            -- Clean read: cache by cooldownID so a later secret read still resolves.
             local cdid = frame.cooldownID
             if type(cdid) == "number" then _cleanSidByCDID[cdid] = sid end
             return sid
         end
     end
 
-    -- 1b. frame:GetAuraSpellID() -- buff bar frames expose the actual aura
-    -- variant here (e.g. Eclipse Solar vs Eclipse Lunar) while GetSpellID
-    -- may not exist on these frame types.
+    -- GetAuraSpellID(): buff frames expose the aura variant (Eclipse Solar
+    -- vs Lunar); GetSpellID may not exist there.
     local fnGetAura = frame.GetAuraSpellID
     if type(fnGetAura) == "function" then
         local sid = fnGetAura(frame)
         if _IsUsableSID(sid) then return sid end
     end
 
-    -- 1c. Active-frame fallback: GetSpellID/GetAuraSpellID returned secret/nil
-    -- (the aura is up). Reuse the clean GetSpellID captured for this cooldownID
-    -- while the frame was inactive, instead of degrading to the generic
-    -- cooldownInfo.spellID below.
+    -- Active-frame fallback: both getters returned secret/nil (aura is up).
+    -- Reuse the clean GetSpellID cached while inactive, instead of degrading
+    -- to the generic cooldownInfo.spellID below.
     local cdid = frame.cooldownID
     if type(cdid) == "number" then
         local cached = _cleanSidByCDID[cdid]
         if cached then return cached end
     end
 
-    -- Resolve cooldownInfo (frame.cooldownInfo OR frame:GetCooldownInfo())
     local info = frame.cooldownInfo
     if not info then
         local fnGetInfo = frame.GetCooldownInfo
@@ -205,11 +165,8 @@ local function GetCanonicalSpellIDForFrame(frame)
     end
 
     if info then
-        -- 2. info.overrideSpellID
         if _IsUsableSID(info.overrideSpellID) then return info.overrideSpellID end
-        -- 3. info.spellID
         if _IsUsableSID(info.spellID) then return info.spellID end
-        -- 4. info.linkedSpellIDs[*]
         if info.linkedSpellIDs then
             for _, lid in ipairs(info.linkedSpellIDs) do
                 if _IsUsableSID(lid) then return lid end
@@ -217,7 +174,7 @@ local function GetCanonicalSpellIDForFrame(frame)
         end
     end
 
-    -- 5. base of frame:GetSpellID() if all else failed
+    -- Last resort: base of frame:GetSpellID()
     if type(fnGetSpellID) == "function" then
         local raw = fnGetSpellID(frame)
         if _IsUsableSID(raw) then
@@ -231,16 +188,9 @@ local function GetCanonicalSpellIDForFrame(frame)
 end
 ns.GetCanonicalSpellIDForFrame = GetCanonicalSpellIDForFrame
 
--------------------------------------------------------------------------------
---  EnumerateCDMViewerSpells
---
---  Walks the CD/util viewer pools and returns an array of canonical spell
---  IDs in viewer-then-layoutIndex order. Used by the picker AND the
---  migration so they share a single source of truth -- the same spells the
---  route map will see at reanchor time.
---
---  Returns: { sid, sid, ... } in render order across both viewers.
--------------------------------------------------------------------------------
+-- EnumerateCDMViewerSpells: walks the CD/util viewer pools, returns canonical
+-- spell entries in viewer-then-layoutIndex render order. Shared source of
+-- truth for picker AND migration -- the same spells the route map sees.
 local function EnumerateCDMViewerSpells(includeBuffViewer)
     local viewers
     if includeBuffViewer then
@@ -260,15 +210,12 @@ local function EnumerateCDMViewerSpells(includeBuffViewer)
             for frame in viewer.itemFramePool:EnumerateActive() do
                 if frame:IsShown() or frame.cooldownInfo then
                     local sid = GetCanonicalSpellIDForFrame(frame)
-                    -- Dedup identity. In the BUFF viewer each slot is a distinct
-                    -- cooldownID, and Blizzard can report the SAME canonical
-                    -- spellID for two DIFFERENT cooldownIDs (Diabolist: the
-                    -- Demonic Art slot reports Diabolic Ritual's id) -- deduping
-                    -- by sid there wrongly merges the two into one, so the user
-                    -- can't see or style them individually. Key on cooldownID so
-                    -- both survive. CD/util viewers keep sid-dedup to collapse a
-                    -- spell that shows up in two viewers. Non-colliding specs are
-                    -- unaffected: there a unique sid implies a unique cooldownID.
+                    -- Dedup identity: BUFF viewer can have two cooldownIDs share
+                    -- one spellID (e.g. Diabolist: Demonic Art vs Diabolic
+                    -- Ritual), so key on cooldownID there (sid-dedup would
+                    -- wrongly merge them); CD/util viewers keep sid-dedup to
+                    -- collapse a spell shown in two viewers. Non-colliding specs
+                    -- are unaffected: a unique sid there implies a unique cooldownID.
                     local cd = frame.cooldownID
                     local dkey = (includeBuffViewer and type(cd) == "number")
                         and ("c" .. cd) or sid
@@ -301,24 +248,15 @@ local function EnumerateCDMViewerSpells(includeBuffViewer)
 end
 ns.EnumerateCDMViewerSpells = EnumerateCDMViewerSpells
 
--------------------------------------------------------------------------------
---  Unified spell list helpers
---
---  ONE add path and ONE remove path for every CDM bar's assignedSpells list
---  (default bars, custom bars, ghost bars). Variant-aware via IsVariantOf so
---  adding the same spell under a different variant ID collapses to a no-op.
---
---  These are the canonical functions; AddTrackedSpell / RemoveTrackedSpell
---  delegate to them.
--------------------------------------------------------------------------------
+-- Unified spell list helpers: ONE add path and ONE remove path for every CDM
+-- bar's assignedSpells list (default/custom/ghost bars). Variant-aware via
+-- IsVariantOf, so adding the same spell under a different variant ID is a
+-- no-op. AddTrackedSpell/RemoveTrackedSpell delegate to these.
 
---- Find the index of an entry in a spell list.
----
---- Positive IDs (real spells) match by variant family -- adding any
---- variant of an already-stored spell is a no-op.
---- Negative IDs (trinkets <= -13/-14, item presets <= -100) match by
---- exact equality -- variant resolution doesn't apply to injection
---- markers and StoreVariantValue refuses non-positives anyway.
+--- Find an entry's index in a spell list. Positive IDs (real spells) match by
+--- variant family (re-adding any variant is a no-op); negative IDs (trinkets
+--- <= -13/-14, item presets <= -100) match by exact equality -- variant
+--- resolution doesn't apply to injection markers.
 local function FindVariantIndex(spellList, spellID)
     if type(spellList) ~= "table" or type(spellID) ~= "number" or spellID == 0 then
         return nil
@@ -340,8 +278,7 @@ end
 ns.FindVariantIndexInList = FindVariantIndex
 
 --- Add a spellID to a bar's assignedSpells list. Idempotent under variant
---- equivalence (re-adding any variant-family member is a no-op). Returns
---- true on add, false if already present or invalid.
+--- equivalence (no-op if any family member is present). True on add, else false.
 function ns.AddSpellToBar(barKey, spellID)
     if not _IsUsableSID(spellID) then return false end
     local sd = ns.GetBarSpellData(barKey)
@@ -350,31 +287,26 @@ function ns.AddSpellToBar(barKey, spellID)
     if FindVariantIndex(sd.assignedSpells, spellID) then return false end
     sd.assignedSpells[#sd.assignedSpells + 1] = spellID
     ns._spellOrderDirty = true
-    -- Mutual exclusivity with the ghost bar: putting a spell on a VISIBLE bar
-    -- un-hides it. The route map gives the ghost the highest priority, so a spell
-    -- left in both would stay hidden; remove it from __ghost_cd so it shows.
+    -- Mutual exclusivity with the ghost bar: the route map gives the ghost
+    -- highest priority, so a spell left in both stays hidden; un-hide it here.
     if barKey ~= ns.GHOST_CD_BAR_KEY and ns.RemoveSpellFromBar then
         ns.RemoveSpellFromBar(ns.GHOST_CD_BAR_KEY, spellID)
     end
     local frame = cdmBarFrames[barKey]
     if frame then frame._blizzCache = nil; frame._prevVisibleCount = nil end
-    -- FocusKick arms its proxies on bar CONTENT, and nothing re-runs that when
-    -- the content changes here: adding the interrupt to an empty kick bar left
-    -- the cast sound unarmed until an unrelated rebuild (a spec change or a
-    -- loading screen) happened to run it. Field-reported as "added the spell,
-    -- still no sound; took a portal and it started working".
+    -- FocusKick arms its proxies on bar CONTENT; nothing else re-runs that when
+    -- content changes here, so an add must explicitly re-evaluate.
     if barKey == ns.FOCUSKICK_BAR_KEY and ns.RefreshFocusKickProxies then
         ns.RefreshFocusKickProxies("spell-added")
     end
     return true
 end
 
---- Remove a spellID from a bar's assignedSpells list (variant-aware).
---- Returns the removed spellID (the actual stored variant, which may differ
---- from the queried one) or nil if not present.
+--- Remove a spellID from a bar's assignedSpells list (variant-aware). Returns
+--- the removed spellID (actual stored variant, may differ from queried) or nil.
 function ns.RemoveSpellFromBar(barKey, spellID)
-    -- Accept positive (real spell) AND negative (trinket / item preset)
-    -- IDs. FindVariantIndex handles the dispatch internally.
+    -- Accepts positive (real spell) or negative (trinket/item preset) IDs;
+    -- FindVariantIndex dispatches internally.
     if type(spellID) ~= "number" or spellID == 0 then return nil end
     local sd = ns.GetBarSpellData(barKey)
     if not sd or not sd.assignedSpells then return nil end
@@ -391,11 +323,10 @@ function ns.RemoveSpellFromBar(barKey, spellID)
             if primaryID == removed then sd.customSpellGroups[variantID] = nil end
         end
     end
-    -- Default buffs bar: scrub the removed custom buff's stable order key.
-    -- Absent keys are otherwise kept forever as gaps (the talent-swap feature),
-    -- but a user-removed custom buff never returns to fill its gap -- and the
-    -- accumulated orphans desync the preview's rendered slots from the array.
-    -- Blizzard-tracked buffs key as "c"..cooldownID and are unaffected.
+    -- Default buffs bar: scrub the removed custom buff's stable order key. Absent keys
+    -- are normally kept as gaps (talent-swap feature), but a user-removed custom buff
+    -- never returns to fill its gap, and the orphans would desync the preview's
+    -- rendered slots. Blizzard-tracked buffs key as "c"..cooldownID and are unaffected.
     if barKey == "buffs" and type(removed) == "number" and removed > 0
        and type(sd.buffDisplayOrder) == "table" then
         local t = sd.buffDisplayOrder
@@ -404,12 +335,11 @@ function ns.RemoveSpellFromBar(barKey, spellID)
             if t[i] == skey then table.remove(t, i) end
         end
     end
-    -- Hosted-buff bookkeeping. Removing the MARKER (or a legacy plain entry
-    -- that represents the buff: flag set, no marker in the list) un-hosts the
-    -- buff. Without this, the flag is orphaned and the options self-heal
-    -- re-appends the spell to this bar -- the "removed spell comes back and
-    -- shows on two bars" bug. Removing a plain entry while a marker exists is
-    -- a cooldown-only removal: the hosted buff stays.
+    -- Hosted-buff bookkeeping: removing the MARKER (or a legacy plain entry that
+    -- represents the buff: flag set, no marker in the list) un-hosts the buff --
+    -- otherwise the orphaned flag makes the options self-heal re-append the
+    -- spell here (spell reappears on two bars). A plain entry removed while a
+    -- marker still exists is a cooldown-only removal; the hosted buff stays.
     local hostedSid = ns.HostedBuffMarkerToSpell and ns.HostedBuffMarkerToSpell(removed)
     if not hostedSid and removed and removed > 0
        and sd.hostedBuffSpellIDs and sd.hostedBuffSpellIDs[removed]
@@ -423,40 +353,33 @@ function ns.RemoveSpellFromBar(barKey, spellID)
     end
     local frame = cdmBarFrames[barKey]
     if frame then frame._blizzCache = nil; frame._prevVisibleCount = nil end
-    -- Same reason as AddSpellToBar: emptying the kick bar must re-evaluate the
-    -- proxies. The cast sound survives an empty bar when an explicit interrupt
-    -- spell is set, so this is a re-evaluation, not an unconditional teardown.
+    -- Same as AddSpellToBar: emptying the kick bar must re-evaluate proxies
+    -- (cast sound survives an empty bar if an explicit interrupt is set).
     if barKey == ns.FOCUSKICK_BAR_KEY and ns.RefreshFocusKickProxies then
         ns.RefreshFocusKickProxies("spell-removed")
     end
+    -- Aura-tracked customs: re-sync the bar's engine strip so a removed
+    -- custom stops rendering immediately (the strip's include filter is
+    -- declaration-fixed -- without this it keeps matching the removed id
+    -- until the next full rebuild). Signature-gated: a no-op for every
+    -- other kind of removal.
+    if ns.UpdateCustomBuffAuraTracking then ns.UpdateCustomBuffAuraTracking() end
     return removed
 end
 
--------------------------------------------------------------------------------
---  EnumerateCDMSettingsCatalog
---
---  Arrangement-aware, talent-independent enumeration of the player's tracked
---  CD/utility cooldowns, read from the Blizzard CDM settings panel's data
---  provider. Unlike the live viewer pools, the catalog includes spells the
---  player has NOT talented into (they never get a viewer frame); unlike the
---  static category API, it respects the user's arrangement -- a spell the
---  user moved to Not Displayed reads as a Hidden category and is skipped, and
---  the returned order is the user's arranged order.
---
---  READ-ONLY: getter calls only, every step pcall-guarded. Returns nil when
---  the provider or any expected method is missing so callers fall back to the
---  live-pool behavior unchanged (hard zero-impact fallback).
---
---  Returns: array of { cdID, sid, category } in the user's arranged order,
---  Essential and Utility categories only.
--------------------------------------------------------------------------------
+-- EnumerateCDMSettingsCatalog: arrangement-aware, talent-independent tracked CD/utility
+-- cooldown enumeration from the Blizzard CDM settings panel's data provider. Unlike
+-- live viewer pools, includes untalented spells (never get a viewer frame); unlike the
+-- static category API, respects arrangement (Not Displayed reads Hidden, skipped) and
+-- returns the arranged order. READ-ONLY, pcall-guarded; nil if provider/method missing
+-- (callers fall back to live-pool behavior). Returns { cdID, sid, category } array,
+-- Essential + Utility only.
 function ns.EnumerateCDMSettingsCatalog(wantSet)
     local evc = Enum and Enum.CooldownViewerCategory
     if not evc then return nil end
-    -- Default (no arg): CD/utility catalog (Essential + Utility), preserving the
-    -- original behavior for existing callers. Buff (TrackedBuff = 2) and
-    -- tracked-bar (TrackedBar = 3) callers pass an explicit { [catValue] = true }
-    -- set so each bar type scopes its own catalog and never cross-contaminates.
+    -- Default (no arg): CD/utility catalog (Essential + Utility). Buff
+    -- (TrackedBuff=2) / tracked-bar (TrackedBar=3) callers pass an explicit
+    -- { [catValue] = true } set so each bar type scopes its own catalog.
     if wantSet == nil then
         if evc.Essential == nil or evc.Utility == nil then return nil end
         wantSet = { [evc.Essential] = true, [evc.Utility] = true }
@@ -478,10 +401,9 @@ function ns.EnumerateCDMSettingsCatalog(wantSet)
         local category
         if okI and type(pInfo) == "table" then category = pInfo.category end
         if category ~= nil and wantSet[category] then
-            -- Resolve the spell id from the C_CooldownViewer info (the same
-            -- shape the migration and spell caches use). Prefer the override
-            -- form only when the player actually has it -- CDM info can
-            -- report a stale override after the talent providing it is gone.
+            -- Same shape the migration and spell caches use. Prefer override
+            -- only when the player actually has it -- CDM info can report a
+            -- stale override after the talent providing it is gone.
             local info = gci(cdID)
             local sid
             if info then
@@ -500,19 +422,15 @@ function ns.EnumerateCDMSettingsCatalog(wantSet)
     return result
 end
 
---- Returns array of { cdID, spellID, name, icon, cdmCat, cdmCatGroup, onEUIBar, isKnown }
---- Sorted by viewer order (Essential before Utility), then alpha.
----
---- Walks Blizzard's CDM viewer pools (the live frames the user actually
---- sees), NOT the static category API. This is the same source of truth
---- the route map uses, so the picker contents always match what gets
---- routed to bars at reanchor time. For CD/utility bars, tracked spells
---- with no live frame (untalented) are appended from the settings catalog
---- so whole layouts can be arranged without swapping talents.
+--- Returns array of { cdID, spellID, name, icon, cdmCat, cdmCatGroup, onEUIBar, isKnown },
+--- sorted by viewer order (Essential before Utility) then alpha.
+--- Walks Blizzard's CDM viewer pools (live frames), NOT the static category
+--- API -- the same source of truth the route map uses, so picker contents
+--- always match what routes to bars at reanchor. For CD/utility bars,
+--- untalented tracked spells (no live frame) are appended from the settings
+--- catalog so whole layouts can be arranged without swapping talents.
 function ns.GetCDMSpellsForBar(barKey, includeUntalented)
-    -- Pickers walk the buff icon viewer for buff bars, or the Essential +
-    -- Utility viewers for CD/util bars. ns.* exports because IsBarBuffFamily
-    -- is defined further down in this file (forward reference).
+    -- ns.IsBarBuffFamily: forward reference, defined further down this file.
     local isBuffType = ns.IsBarBuffFamily and ns.IsBarBuffFamily(barKey) or false
 
     -- Variant-keyed lookup of spells already on THIS bar (for onEUIBar flag).
@@ -526,10 +444,7 @@ function ns.GetCDMSpellsForBar(barKey, includeUntalented)
         end
     end
 
-    -- Walk viewer pools via shared helper. Returns entries with metadata
-    -- (sid, cdID, viewerName, viewerOrder, layoutIndex) sorted by render
-    -- order across all relevant viewers. Picker only enumerates pool members,
-    -- so every returned spell is by definition tracked by Blizzard's CDM.
+    -- Picker only enumerates pool members, so every result is Blizzard-tracked.
     local entries = EnumerateCDMViewerSpells(isBuffType)
 
     local spells = {}
@@ -547,20 +462,14 @@ function ns.GetCDMSpellsForBar(barKey, includeUntalented)
                 cdmCat      = e.viewerOrder,  -- preserve viewer grouping for sort
                 cdmCatGroup = isBuffType and "buff" or "cooldown",
                 onEUIBar    = isOnThisBar,
-                -- Live viewer pool members are always learned. Catalog
-                -- entries appended below may not be.
-                isKnown     = true,
+                isKnown     = true,  -- live viewer pool members are always learned
             }
         end
     end
 
-    -- CD/utility bars: also list tracked spells that currently have NO live
-    -- viewer frame -- untalented spells, plus conditionally-pooled ones that
-    -- Blizzard hides based on combat/buff/target state. Sourced from the
-    -- settings catalog, which respects the user's arrangement (Not Displayed
-    -- spells never appear). When the provider is unavailable the catalog is
-    -- nil and nothing is appended (identical to the old behavior). Buff
-    -- pickers are untouched.
+    -- CD/utility bars: also list untalented spells and conditionally-pooled
+    -- ones Blizzard currently hides, sourced from the settings catalog
+    -- (respects Not Displayed). Buff pickers untouched.
     if not isBuffType and ns.EnumerateCDMSettingsCatalog then
         local catalog = ns.EnumerateCDMSettingsCatalog()
         if catalog then
@@ -583,8 +492,7 @@ function ns.GetCDMSpellsForBar(barKey, includeUntalented)
                             spellID     = ce.sid,
                             name        = name,
                             icon        = tex,
-                            -- Match the live entries' viewer grouping values
-                            -- so catalog spells sort beside learned peers.
+                            -- Match live grouping so catalog spells sort beside learned peers.
                             cdmCat      = (evc and ce.category == evc.Utility) and 10000 or 0,
                             cdmCatGroup = "cooldown",
                             onEUIBar    = (ResolveVariantValue(ourPool, ce.sid) == true),
@@ -597,11 +505,8 @@ function ns.GetCDMSpellsForBar(barKey, includeUntalented)
         end
     end
 
-    -- Buff bars: also list tracked-but-untalented buffs (no live BuffIcon
-    -- frame) from the settings catalog (TrackedBuff category). Picker-only
-    -- (includeUntalented) so BarGlows and other consumers stay live-only. When
-    -- the provider is unavailable nothing is appended (identical to the old
-    -- behavior). Same variant-aware dedup as the CD/util path above.
+    -- Buff bars: also list untalented TrackedBuff buffs. Picker-only, so
+    -- BarGlows/other consumers stay live-only.
     if isBuffType and includeUntalented and ns.EnumerateCDMSettingsCatalog then
         local evc = Enum and Enum.CooldownViewerCategory
         local buffCat = evc and (evc.TrackedBuff or 2)
@@ -637,8 +542,7 @@ function ns.GetCDMSpellsForBar(barKey, includeUntalented)
         end
     end
 
-    -- Sort: viewer order first (preserves Essential before Utility),
-    -- then alpha within each viewer.
+    -- Viewer order first (Essential before Utility), then alpha.
     table.sort(spells, function(a, b)
         if a.cdmCat ~= b.cdmCat then return (a.cdmCat or 0) < (b.cdmCat or 0) end
         return a.name < b.name
@@ -669,36 +573,21 @@ function ns.IsSpellDisplayedInCDM(barKey, cdID)
     return false
 end
 
---- One-time per-spec pass that serves TWO purposes with the same logic:
----
----   1. Legacy migration: convert pre-refactor "assignedSpells as content
----      filter" data on default CD/utility bars into the new "ghost-bar
----      diversion" model, preserving the user's original visual state.
----
----   2. Import-authoritative ghosting (_importGhostMode, set on every imported
----      spec): make a freshly imported layout the single source of truth. The
----      import strips all ghost data, so the ghost starts EMPTY -- this pass then
----      ghosts EVERY spell the importer tracks in Blizzard CDM and leaves only
----      the ones the layout assigns to a visible bar (those aren't ghosted), so a
----      cooldown the importer tracks but the layout doesn't place gets hidden
----      instead of spilling onto the default bar.
----
---- Both reduce to the same operation: ghost (tracked spells) MINUS (spells
---- assigned to any visible bar) MINUS (already ghosted). Spells from the
---- Essential and Utility viewer categories that are NOT in any bar's
---- assignedSpells (and NOT already ghosted) are added to __ghost_cd.
----
---- Per-spec lazy because the spell category APIs are spec-dependent. Runs
---- once per spec via the prof._barFilterModelV6 flag, stamped after a
---- successful pass. Skipped if the user has no populated assignedSpells on
---- default CD/utility bars (clean install -- nothing to preserve) UNLESS
---- _importGhostMode is set (an imported layout must run even with empty
---- default bars, e.g. a custom-bar-only layout).
----
---- Buff bars are NOT migrated: under the OLD model, the buff path's
---- viewerBarKey fallback already showed everything from BuffIconCooldownViewer
---- regardless of assignedSpells, so the old visual already matches the new
---- model. Ghost buff bar cleanup is handled by EnsureGhostBars.
+--- One-time per-spec pass serving two purposes with the same logic: (1) legacy
+--- migration of pre-refactor "assignedSpells as content filter" on default
+--- CD/utility bars into the "ghost-bar diversion" model, preserving the
+--- user's visual state; (2) import-authoritative ghosting (_importGhostMode):
+--- a fresh import starts the ghost EMPTY, so this ghosts every importer-
+--- tracked spell except what the layout assigns to a visible bar, so an
+--- unplaced tracked cooldown hides instead of spilling onto the default bar.
+--- Both reduce to: ghost (tracked) MINUS (assigned to any visible bar) MINUS
+--- (already ghosted), over Essential + Utility categories.
+--- Per-spec lazy (category APIs are spec-dependent); runs once via
+--- prof._barFilterModelV6. Skipped when default bars have no populated
+--- assignedSpells (clean install) UNLESS _importGhostMode is set.
+--- Buff bars are NOT migrated: the old buff path's viewerBarKey fallback
+--- already showed everything from BuffIconCooldownViewer regardless of
+--- assignedSpells. Ghost buff bar cleanup is handled by EnsureGhostBars.
 function ns.MigrateSpecToBarFilterModelV6()
     local sp = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
     if not sp then return end
@@ -708,13 +597,10 @@ function ns.MigrateSpecToBarFilterModelV6()
 
     local prof = sp[specKey]
     if not prof or prof._barFilterModelV6 then return end
-    -- Never consume import ghosting in the session that performed the import.
-    -- This pass reads the LIVE Blizzard CDM tracked set, and an installer that
-    -- also rewrites Blizzard's own CDM layout leaves that set unlaundered until
-    -- a reload -- so ghosting computed here would be against the pre-import
-    -- tracked set, then stamped one-shot. Return WITHOUT stamping so the next
-    -- session runs it against settled state. Fail-open: until then the layout's
-    -- unplaced spells simply stay visible on the default bars.
+    -- Never consume import ghosting in the import session: this pass reads the LIVE
+    -- Blizzard CDM tracked set, which an installer that rewrites Blizzard's own layout
+    -- leaves unlaundered until a reload -- so return without stamping and retry next
+    -- session. Fail-open: unplaced spells stay visible until then.
     if prof._importGhostMode and EllesmereUI and EllesmereUI._cdmImportGhostDeferred then
         return
     end
@@ -741,9 +627,8 @@ function ns.MigrateSpecToBarFilterModelV6()
     end
 
     -- Skip if both default CD/util bars are empty: nothing to preserve.
-    -- EXCEPTION: imported layouts (_importGhostMode) always run. A layout that
-    -- intentionally leaves the default bars empty (custom-only) still needs every
-    -- tracked spell it doesn't place ghosted, not spilled onto the default bar.
+    -- EXCEPTION: imported layouts (_importGhostMode) always run -- a
+    -- custom-bar-only layout still needs unplaced tracked spells ghosted.
     local cdBs = prof.barSpells.cooldowns
     local utBs = prof.barSpells.utility
     local hasCDList = cdBs and cdBs.assignedSpells and #cdBs.assignedSpells > 0
@@ -753,9 +638,8 @@ function ns.MigrateSpecToBarFilterModelV6()
         return
     end
 
-    -- Bail if viewer pools aren't populated yet -- the migration must use
-    -- the same source of truth as the route map (live viewer pools), so
-    -- if Blizzard hasn't filled them yet we retry next session.
+    -- Bail if viewer pools aren't populated yet -- migration must use the
+    -- same source of truth as the route map; retry next session if empty.
     local function HasPopulatedPool()
         for _, vName in ipairs({ "EssentialCooldownViewer", "UtilityCooldownViewer" }) do
             local v = _G[vName]
@@ -771,8 +655,7 @@ function ns.MigrateSpecToBarFilterModelV6()
 
     -- Step 2: build assignedSet from the LIVE bar list. Default bars
     -- (cooldowns/utility) contribute too -- their assignedSpells under the
-    -- new model is "preferred order / explicit assignment" and we want
-    -- those spells to remain visible.
+    -- new model is "preferred order / explicit assignment" and stay visible.
     local assignedSet = {}
     for _, bd in ipairs(barList) do
         if bd.enabled and not bd.isGhostBar
@@ -789,7 +672,6 @@ function ns.MigrateSpecToBarFilterModelV6()
         end
     end
 
-    -- Ensure ghost CD bar exists
     local ghostBs = prof.barSpells.__ghost_cd
     if not ghostBs then
         ghostBs = {}
@@ -804,31 +686,18 @@ function ns.MigrateSpecToBarFilterModelV6()
         end
     end
 
-    -- Build the union of every CD/util spell the user could possibly want
-    -- to migrate. Two sources, both contribute:
-    --
-    --   1. LIVE viewer pools (Essential + Utility itemFramePool active set)
-    --      via EnumerateCDMViewerSpells. Catches per-spec / Edit Mode
-    --      arrangements where Blizzard places a spell in a viewer that
-    --      differs from its static category.
-    --
-    --   2. STATIC category API (GetCooldownViewerCategorySet for Essential
-    --      and Utility). Catches spells that aren't in the live pool at
-    --      this exact moment because Blizzard hides them based on combat
-    --      state, buff state, or target state. Beacon of Light is the
-    --      canonical example: it's Essential for Holy Pally always, but
-    --      Blizzard only puts a frame in the pool when relevant.
-    --
-    -- Either source alone misses spells. The union catches everything.
+    -- Union of every CD/util spell to migrate: (1) LIVE viewer pools, catching
+    -- per-spec/Edit Mode placements differing from static category; (2)
+    -- STATIC category API, catching spells Blizzard currently hides by
+    -- combat/buff/target state (e.g. Beacon of Light: always Essential for
+    -- Holy Pally, but only pooled when relevant). Either alone misses spells.
     local sidUnion = {}  -- sid -> true (deduped)
 
-    -- Source 1: viewer pools
     local entries = EnumerateCDMViewerSpells(false)
     for _, e in ipairs(entries) do
         if _IsUsableSID(e.sid) then sidUnion[e.sid] = true end
     end
 
-    -- Source 2: category API (Essential + Utility)
     local gcs = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet
     local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
     local evc = Enum and Enum.CooldownViewerCategory
@@ -864,14 +733,13 @@ function ns.MigrateSpecToBarFilterModelV6()
     return addedCount
 end
 
---- One-shot per-spec migration: merge any pre-existing dormantSpells back
---- into assignedSpells at their stored slot index. The old reconcile model
---- evicted "currently-unknown" spells (pet abilities, choice-node talents,
---- etc.) into dormantSpells to preserve their position. Under the new model
---- assignedSpells is pure user intent and is never mutated based on
---- "is this spell currently known", so dormant entries must be folded back
---- in at their saved positions. After this runs, sd.dormantSpells is wiped.
---- Flagged per-spec via prof._dormantMerged so it only runs once.
+--- One-shot per-spec migration: merge pre-existing dormantSpells back into
+--- assignedSpells at their stored slot. The old reconcile model evicted
+--- "currently-unknown" spells (pet abilities, choice-node talents) into
+--- dormantSpells to preserve position; the new model treats assignedSpells
+--- as pure user intent, never mutated by known-ness, so dormant entries must
+--- fold back at their saved positions. Wipes sd.dormantSpells afterward.
+--- Flagged per-spec via prof._dormantMerged (runs once).
 function ns.MergeDormantSpellsIntoAssigned()
     local sp = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
     if not sp then return end
@@ -918,21 +786,19 @@ function ns.MergeDormantSpellsIntoAssigned()
     prof._dormantMerged = true
 end
 
---- Lazy-seed assignedSpells from the bar's currently rendered icons.
---- Called by reorder helpers (Swap/Move) when the user reorders a bar
---- whose assignedSpells is empty -- captures the current visible order so
---- the reorder has something to manipulate. After this runs, the bar has a
---- populated assignedSpells that mirrors what was visible before.
+--- Lazy-seed assignedSpells from the bar's currently rendered icons. Called
+--- by reorder helpers (Swap/Move) on an empty-assignedSpells bar to capture
+--- the visible order so the reorder has something to manipulate.
 local function EnsureBarOrderSeeded(barKey, sd)
     if sd.assignedSpells and #sd.assignedSpells > 0 then return end
     if not sd.assignedSpells then sd.assignedSpells = {} end
     local icons = cdmBarIcons and cdmBarIcons[barKey]
     if not icons then return end
     local fcCache = ns._ecmeFC
-    -- Buff-family bars seed by the DISPLAYED / canonical id (the same id the
-    -- per-icon settings and options preview key off), not fc.spellID -- which for
-    -- buffs is the cooldownInfo base / a shared ability id. CD/utility keep
-    -- fc.spellID (their icon IS the ability, so the two ids coincide).
+    -- Buff-family bars seed by the DISPLAYED/canonical id (what per-icon
+    -- settings and preview key off), not fc.spellID (cooldownInfo base /
+    -- shared ability id for buffs). CD/utility keep fc.spellID since icon
+    -- IS the ability there, so the two ids coincide.
     local isBuff = ns.IsBarBuffFamily and ns.IsBarBuffFamily(barKey)
     for i = 1, #icons do
         local icon = icons[i]
@@ -1086,9 +952,8 @@ function ns.CollectDefaultBuffTrackEntries()
     local entries = ns.EnumerateCDMViewerSpells and ns.EnumerateCDMViewerSpells(true) or {}
     for _, e in ipairs(entries) do
         -- Dedup on the stable (cooldownID-derived) key, not e.sid: two viewer
-        -- slots can share a canonical spellID but are distinct cooldownIDs
-        -- (Diabolist Demonic Art vs Diabolic Ritual). Keying on sid here would
-        -- re-merge what EnumerateCDMViewerSpells now keeps separate.
+        -- slots can share a spellID but are distinct cooldownIDs; keying on
+        -- sid would re-merge what EnumerateCDMViewerSpells keeps separate.
         local key = BuffDisplayStableKey(e.sid, e.cdID)
         if e.sid and not ResolveVariantValue(diverted, e.sid)
            and not (e.cdID and divertedCd[e.cdID])
@@ -1118,6 +983,21 @@ function ns.CollectDefaultBuffTrackEntries()
                 end
             end
         end
+        -- Aura-tracked customs (customSpellIDs tag, NO stored duration): same
+        -- slot treatment as the legacy cast-timer customs above.
+        if sdSelf.customSpellIDs then
+            for _, sid in ipairs(sdSelf.assignedSpells) do
+                if type(sid) == "number" and sid > 0 and sdSelf.customSpellIDs[sid]
+                   and not (sdSelf.spellDurations and (sdSelf.spellDurations[sid] or 0) > 0) then
+                    local key = BuffDisplayStableKey(sid, nil)
+                    if key and not seen[key] then
+                        seen[key] = true
+                        out[#out + 1] = { key = key, sid = sid, cdID = nil, layoutIndex = extra }
+                        extra = extra + 1
+                    end
+                end
+            end
+        end
         extra = 6000
         for _, sid in ipairs(sdSelf.assignedSpells) do
             if type(sid) == "number" and sid <= -100 then
@@ -1138,19 +1018,12 @@ function ns.CollectDefaultBuffTrackEntries()
     return out
 end
 
--------------------------------------------------------------------------------
---  Same-spellID buff disambiguation (Diabolist Demonic Art vs Diabolic Ritual)
---
---  Blizzard can report the SAME canonical spellID on two DIFFERENT buff-viewer
---  slots (cooldownIDs). Per-icon buff settings are keyed by spellID, so those
---  two collide onto one entry. We let a COLLIDED slot key its settings by
---  "c"..cooldownID instead, giving each its own entry. Only collided slots do
---  this: keying every buff by cooldownID would regress non-collided buffs,
---  whose settings must survive talent swaps (cooldownID drifts; spellID does
---  not). Collided slots trade that away -- their per-slot settings are
---  session-stable but may not follow a talent-loadout swap, which is
---  unavoidable when the two share every identity except the drifting id.
--------------------------------------------------------------------------------
+-- Same-spellID buff disambiguation (e.g. Diabolist: Demonic Art vs Diabolic Ritual):
+-- Blizzard can report the SAME spellID on two DIFFERENT buff-viewer cooldownIDs,
+-- colliding onto one spellID-keyed settings entry. A COLLIDED slot keys by
+-- "c"..cooldownID instead, giving each its own entry -- non-collided buffs keep spellID
+-- (survives talent swaps; cooldownID drifts). Collided slots trade that: session-stable
+-- but may not follow a talent-loadout swap, unavoidable given the shared identity.
 
 --- Set of canonical spellIDs that map to 2+ distinct buff-viewer cooldownIDs.
 --- Cold path (settings popup); recomputed per call from the live viewer pool.
@@ -1171,13 +1044,12 @@ function ns.IsCollidedBuffSid(sid)
     return ns.CollidedBuffSids()[sid] == true
 end
 
--- Runtime hot-path gate: true only when the current spec's buffs store holds at
--- least one "c"..cooldownID key. Cached by store-table identity, so a spec or
--- profile swap (which hands back a different store table) recomputes for free
--- without any explicit invalidation hook.
+-- Runtime hot-path gate: true only when the current spec's buffs store holds at least
+-- one "c"..cooldownID key. Cached by store-table identity, so a spec/profile swap
+-- (different store table) recomputes for free with no explicit invalidation hook.
 local _cdKeyGate
 function ns.BuffFamHasCdKey(store)
-    -- The runtime resolver already holds the buffs store; accept it to skip a
+    -- Accept caller's store (runtime resolver already holds it) to skip a
     -- second spec/profile lookup per buff-frame resolve.
     store = store or (ns.GetSpellSettingsStore and ns.GetSpellSettingsStore("buffs"))
     if not store then return false end
@@ -1228,12 +1100,12 @@ local function SyncPresentBuffOrderToBlizzard(order, present, entries)
 end
 
 --- Dirty flag gating the reconcile in the hot reanchor path: the tracked
---- CATALOG (viewer pool incl. inactive + diversions) only changes on rebuilds
---- and repopulate, not when buffs merely appear/disappear -- so combat
---- reanchors skip the full enumeration/sorts. Set true wherever composition
---- can change (FullCDMRebuild wrapper, RepopulateFromBlizzard); an unreconciled
---- newcomer still renders correctly via the layoutIndex spillover fallback
---- until the next rebuild. Starts true for the login seed pass.
+--- CATALOG (viewer pool incl. inactive + diversions) only changes on rebuild/
+--- repopulate, not on mere buff appear/disappear, so combat reanchors skip
+--- the full enumeration/sort. Set true wherever composition can change
+--- (FullCDMRebuild, RepopulateFromBlizzard); an unreconciled newcomer still
+--- renders via the layoutIndex spillover fallback until the next rebuild.
+--- Starts true for the login seed pass.
 ns._cdmBuffOrderDirty = true
 
 --- Keep stored buffDisplayOrder across talent/spec gaps, seed on first stable
@@ -1324,10 +1196,9 @@ function ns.ResolveBuffDisplaySortIndex(entry, buffOrder, isDefaultBuffs)
     if isDefaultBuffs then
         local cd = entry.frame and entry.frame.cooldownID
         local sid = entry.spellID
-        -- Steady state: the stable key matches directly -- O(1), zero
-        -- allocations. The variant scan below walks every stored key and can
-        -- call GetCooldownViewerCooldownInfo (allocates) per miss, so it is
-        -- reserved for genuine talent-gap frames whose cooldownID drifted.
+        -- Steady state: direct stable-key match, O(1) zero-alloc. The variant
+        -- scan below allocates per miss (calls GetCooldownViewerCooldownInfo),
+        -- so it's reserved for genuine talent-gap frames whose cooldownID drifted.
         local stable = BuffDisplayStableKey(sid, cd)
         local direct = stable and buffOrder[stable]
         if direct then return direct end
@@ -1337,11 +1208,10 @@ function ns.ResolveBuffDisplaySortIndex(entry, buffOrder, isDefaultBuffs)
         return nil
     end
     local ef = entry.frame
-    -- Collided-buff slot (cd-claim marker, see ns.CdClaimMarker): both
-    -- runtime frames of the pair share one spellID, so a spellID-keyed
-    -- lookup can't tell them apart and both would miss. cooldownID is
-    -- unique per slot -- check it first, same stable-key convention as the
-    -- default bar's isDefaultBuffs branch above.
+    -- Collided-buff slot (cd-claim marker, see ns.CdClaimMarker): both runtime
+    -- frames of the pair share one spellID, so a spellID-keyed lookup can't
+    -- tell them apart. Check cooldownID first (same stable-key convention as
+    -- the isDefaultBuffs branch above).
     local cdKey = ef and ef.cooldownID and BuffDisplayStableKey(nil, ef.cooldownID)
     if cdKey and buffOrder[cdKey] then return buffOrder[cdKey] end
     local canon = ef and ns.GetCanonicalSpellIDForFrame and ns.GetCanonicalSpellIDForFrame(ef)
@@ -1350,23 +1220,18 @@ function ns.ResolveBuffDisplaySortIndex(entry, buffOrder, isDefaultBuffs)
         or (entry.baseSpellID and buffOrder[entry.baseSpellID])
 end
 
---- Default buffs bar DISPLAY-ORDER reorder helpers.
----
---- The default "buffs" bar's assignedSpells is shared with routing + custom
---- injection (RebuildSpellRouteMap Pass 4 diverts it at highest priority), so it
---- CANNOT carry the full buff order without clobbering buffs the user diverted to
---- other bars. Instead the display order lives in a dedicated buffDisplayOrder
+--- Default buffs bar DISPLAY-ORDER reorder helpers. assignedSpells is shared
+--- with routing + custom injection (RebuildSpellRouteMap Pass 4 diverts it at
+--- highest priority), so it can't carry the full buff order without
+--- clobbering diverted buffs. Order instead lives in buffDisplayOrder: an
 --- array of STABLE keys ("c"..cooldownID for Blizzard buffs, "s"..spellID for
---- customs) that only the sort + preview + drag read -- routing never touches it.
---- cooldownID is used (not the canonical spellID) because a buff's canonical id
---- flips between ability/aura form across active<->inactive.
----
---- KEY-BASED, not index-based: the stored array keeps ABSENT keys in their
---- slots (talent-gapped buffs reclaim their position on return), while the
---- preview renders only PRESENT keys -- so a preview slot index does not map
---- 1:1 onto the array whenever any gap precedes it. Callers pass the stable
---- keys of the rendered slots (pf._buffSlotKeys); positions are resolved
---- against the live array at call time.
+--- customs) that only sort/preview/drag read -- routing never touches it.
+--- cooldownID (not spellID) is used because a buff's canonical id flips
+--- between ability/aura form across active<->inactive.
+--- KEY-BASED, not index-based: ABSENT keys keep their slot (talent-gapped
+--- buffs reclaim position on return); preview renders only PRESENT keys, so a
+--- slot index doesn't map 1:1 onto the array past any gap. Callers pass
+--- rendered slots' stable keys (pf._buffSlotKeys), resolved live at call time.
 local function BuffOrderIndexOf(t, key)
     for i = 1, #t do
         if t[i] == key then return i end
@@ -1413,14 +1278,9 @@ function ns.MoveBuffDisplayKey(dragKey, beforeKey)
 end
 
 --- Single source of truth for "what type is this bar" / "what family is it in".
----
---- The 3 default bars (cooldowns/utility/buffs) have their barType stamped
---- in DEFAULTS, but legacy installs may have nil barType because the field
---- was added later. Both helpers fall back to key-based inference for those
---- legacy entries.
----
---- Pass either a bar key (string) or a bar data table (with .key and
---- .barType fields). Both forms are accepted for caller convenience.
+--- The 3 default bars have barType stamped in DEFAULTS, but legacy installs
+--- may have nil barType; both helpers fall back to key-based inference.
+--- Accepts either a bar key (string) or a bar data table (.key/.barType).
 local function ResolveBarType(bdOrKey)
     local bd, key
     if type(bdOrKey) == "table" then
@@ -1431,10 +1291,8 @@ local function ResolveBarType(bdOrKey)
         bd  = barDataByKey[key]
     end
 
-    -- Live field wins
     if bd and bd.barType then return bd.barType end
 
-    -- Legacy fallback: infer from default key
     if key == "cooldowns" then return "cooldowns" end
     if key == "utility"   then return "utility"   end
     if key == "buffs"     then return "buffs"     end
@@ -1443,13 +1301,10 @@ local function ResolveBarType(bdOrKey)
 end
 ns.GetBarType = ResolveBarType
 
---- True if a bar is in the "buff" family (default buffs bar OR custom buff
---- bar OR ghost buffs bar). False otherwise. Used by AddTrackedSpell's
---- auto-move sweep, render path, route map, and picker source selection.
----
---- Special cases:
----   __ghost_cd    -> non-buff family
----   custom_buff   -> NOT considered a buff bar (separate aura system)
+--- True if a bar is in the "buff" family (default buffs bar or ghost buffs
+--- bar; custom_buff is NOT a buff bar, it's a separate aura system). Used by
+--- AddTrackedSpell's auto-move sweep, render path, route map, and picker
+--- source selection. __ghost_cd is always non-buff family.
 local function IsBarBuffFamily(bdOrKey)
     local bd, key
     if type(bdOrKey) == "table" then
@@ -1470,23 +1325,17 @@ ns.IsBarBuffFamily = IsBarBuffFamily
 -- Old local alias for backward compat within this file
 local GetBarType = ResolveBarType
 
--------------------------------------------------------------------------------
---  Centralized Spell Assignment Checks
---  Used by spell pickers, overlay system, and options to determine:
---  1. Is a spell already on ANY bar (CDM bars + TBB)?
---  2. Is a spell tracked in the correct Blizzard CDM section for a bar type?
--------------------------------------------------------------------------------
+-- Centralized Spell Assignment Checks -- used by pickers, overlay system,
+-- and options: (1) is a spell already on ANY bar (CDM + TBB)? (2) is a
+-- spell tracked in the correct Blizzard CDM section for a bar type?
 
--- (SpellUsedOnAnyOtherBar deleted: no gray-out check is needed for CD/util/
--- buff custom bar pickers because AddTrackedSpell auto-moves the spell from
--- any other bar in the same family. Adding a spell is always a "claim it"
--- action, never a "blocked because it's already on bar X" failure mode.)
+-- (SpellUsedOnAnyOtherBar deleted: unneeded for CD/util/buff custom bar
+-- pickers since AddTrackedSpell auto-moves the spell from any other bar in
+-- the same family -- adding is always a "claim it", never a "blocked" case.)
 
---- Same check but for TBB (Tracking Bars check other Tracking Bars only).
---- trackType scopes the check to one track family: nil/"buff" = buff bars,
---- "cooldown" = cooldown-tracking bars. A bar of a different track type
---- never blocks a pick (a buff bar and a cooldown bar for the same spell
---- are distinct, legitimate picks).
+--- Same check for TBB (Tracking Bars vs other Tracking Bars only). trackType
+--- scopes to one family: nil/"buff" = buff bars, "cooldown" = cooldown bars.
+--- A different track type never blocks a pick (distinct, legitimate picks).
 function ns.SpellUsedOnAnyOtherTBB(spellID, excludeIdx, trackType)
     local tbb = ns.GetTrackedBuffBars and ns.GetTrackedBuffBars()
     if not tbb or not tbb.bars then return nil end
@@ -1509,15 +1358,12 @@ function ns.SpellUsedOnAnyOtherTBB(spellID, excludeIdx, trackType)
     return nil
 end
 
---- Check if a spell is tracked in the correct Blizzard CDM section for a bar type.
---- Returns true if the spell is properly tracked (no popup/overlay needed).
----
---- Rules:
----   CD/utility bar: must be in Essential/Utility viewer
----   Buff bar: must be in BuffIcon viewer (not just Tracked Bars)
----   TBB: must be in BuffBar viewer (not just Tracked Buffs)
---- Cached spell lookup sets. Rebuilt once per RebuildCDMSpellCaches() call
---- instead of doing full category scans per-frame.
+--- Check if a spell is tracked in the correct Blizzard CDM section for a bar
+--- type (true = properly tracked, no popup/overlay needed): CD/utility bar
+--- needs Essential/Utility viewer; buff bar needs BuffIcon viewer (not just
+--- Tracked Bars); TBB needs BuffBar viewer (not just Tracked Buffs).
+--- Cached lookup sets, rebuilt once per RebuildCDMSpellCaches() call instead
+--- of full category scans per-frame.
 local _knownSpellSet = {}    -- learned spells (cat, false)
 local _allSpellSet = {}      -- all spells including unlearned (cat, true)
 local _cdmSpellCacheDirty = true
@@ -1583,19 +1429,18 @@ function ns.IsSpellInAnyCDMCategory(spellID)
     return _allSpellSet[spellID] == true
 end
 
---- Add a preset group to a bar.
---- For custom_buff bars: adds ALL spell IDs as plain entries (each gets
---- its own C_UnitAuras check — only the active variant shows).
---- For other bars: adds primary ID with duration/group metadata.
+--- Add a preset group to a bar. custom_buff bars: adds ALL spell IDs as plain
+--- entries (each gets its own C_UnitAuras check -- only the active variant
+--- shows). Other bars: adds primary ID with duration/group metadata.
 function ns.AddPresetToBar(barKey, preset)
     local sd = ns.GetBarSpellData(barKey)
     if not sd then return false end
     if not sd.assignedSpells then sd.assignedSpells = {} end
     local spellList = sd.assignedSpells
 
-    -- Check bar type. Buff-family bars use the same cast-timer custom-buff path
-    -- as custom_buff (Auras) bars: store the primary spellID + a hardcoded
-    -- duration; the buff phase injects an own-frame and the buff tick drives it.
+    -- Buff-family bars use the same cast-timer custom-buff path as custom_buff
+    -- (Auras) bars: store primary spellID + hardcoded duration; the buff
+    -- phase injects an own-frame and the buff tick drives it.
     local bd = barDataByKey[barKey]
     local isCustomBuff = bd and (bd.barType == "custom_buff" or bd.barType == "buffs")
 
@@ -1637,28 +1482,23 @@ function ns.AddPresetToBar(barKey, preset)
     return true
 end
 
---- Add a tracked spell (spellID) to a bar.
---- Picker-driven add path. The picker always treats add as "claim this
---- spell for the target bar" -- the spell is auto-removed from EVERY other
---- bar in the same family (default + custom + matching ghost) before being
---- added. One spell, one home, always.
----
---- The picker passes spell IDs from GetCanonicalSpellIDForFrame, so they're
---- already in the right form (matching what the route map and reanchor see).
---- No override-to-base normalization needed at this layer.
+--- Add a tracked spell (spellID) to a bar. Picker-driven add: always treated
+--- as "claim this spell for the target bar" -- auto-removed from EVERY other
+--- bar in the same family (default + custom + matching ghost) first. One
+--- spell, one home, always. Picker passes IDs from GetCanonicalSpellIDForFrame
+--- (already in route-map/reanchor form; no override-to-base normalization
+--- needed here).
 function ns.AddTrackedSpell(barKey, id)
-    -- Validate: must be a non-zero integer. Both positive (real spells) and
-    -- negative (trinkets, item presets) IDs are valid -- negatives are
-    -- injection markers Phase 3 of CollectAndReanchor uses to inject custom
-    -- frames (trinkets at -13/-14, item presets at <= -100).
+    -- Non-zero integer required. Positive = real spell; negative = injection
+    -- marker Phase 3 of CollectAndReanchor uses for custom frames (trinkets
+    -- at -13/-14, item presets at <= -100) -- both valid.
     if type(id) ~= "number" or id == 0 then return false end
     local sd = ns.GetBarSpellData(barKey)
     if not sd then return false end
     if not sd.assignedSpells then sd.assignedSpells = {} end
 
-    -- Dedup against THIS bar. Variant-aware for positive spell IDs;
-    -- exact-match for negatives (FindVariantIndex bails on non-positives,
-    -- so we use a direct linear scan as a fallback for trinkets / items).
+    -- Dedup against THIS bar: variant-aware for positive IDs; exact-match
+    -- linear scan for negatives (FindVariantIndex bails on non-positives).
     if id > 0 then
         if FindVariantIndex(sd.assignedSpells, id) then return false end
     else
@@ -1667,18 +1507,13 @@ function ns.AddTrackedSpell(barKey, id)
         end
     end
 
-    -- Auto-move from any other bar in the same family.
-    --
-    -- A spell can only have ONE home in its family at a time. Adding it to
-    -- bar X removes it from every other bar in the same family, including
-    -- the ghost bar (so a previously-hidden spell auto-restores when claimed
-    -- elsewhere). Family classification handled by ns.IsBarBuffFamily.
-    -- custom_buff bars are a separate system and are never swept.
-    --
-    -- Negative IDs auto-move within whichever family the target bar belongs to
-    -- (the sweep keys off IsBarBuffFamily, no positivity gate): trinkets stay on
-    -- CD/util bars, while custom items can live on either family and sweep only
-    -- their own.
+    -- Auto-move from any other bar in the same family: a spell has ONE home
+    -- at a time, so adding to bar X removes it from every other bar in the
+    -- family (incl. ghost, so a hidden spell auto-restores when claimed
+    -- elsewhere). Family = ns.IsBarBuffFamily; custom_buff bars are a
+    -- separate system, never swept. Negative IDs sweep within whichever
+    -- family the target bar belongs to (no positivity gate): trinkets stay
+    -- on CD/util bars, custom items sweep only their own family.
     local targetBd = barDataByKey[barKey]
     local p = ECME.db.profile
     local targetIsBuff = IsBarBuffFamily(barKey)
@@ -1716,19 +1551,14 @@ function ns.AddTrackedSpell(barKey, id)
 end
 
 --- Track a single buff-viewer SLOT (cooldownID) on a buff-family bar.
---- Collision escape hatch: two viewer slots can share one canonical spellID
---- (Diabolist Demonic Art vs Diabolic Ritual), and AddTrackedSpell's own
---- variant dedup would make the second slot un-addable by sid. Claiming it
---- by a cd-claim MARKER (ns.CdClaimMarker) instead -- a distinct negative id
---- per cooldownID -- sidesteps that dedup while reusing AddTrackedSpell's
---- one-home-per-family sweep, insertion, and route/reanchor plumbing
---- unchanged, and gives the claim a real assignedSpells index (so it drags,
---- reorders and removes exactly like any other entry). Collision-gated by
---- the caller: non-collided buffs keep the sid path, whose identity
---- survives talent swaps (cooldownIDs drift -- the same accepted limitation
---- as the per-cooldownID settings keys). Never valid on the default "buffs"
---- bar: its preview enumerates the live viewer pool directly and never
---- reads assignedSpells for buff content.
+--- Collision escape hatch: two viewer slots can share one spellID, making
+--- AddTrackedSpell's variant dedup reject the second slot by sid. Claiming via
+--- a cd-claim MARKER (ns.CdClaimMarker, distinct negative id per cooldownID)
+--- sidesteps that while reusing AddTrackedSpell's plumbing unchanged, and
+--- gives the claim a real assignedSpells index (drags/reorders/removes like
+--- any entry). Collision-gated: non-collided buffs keep the sid path
+--- (survives talent swaps). Never valid on the default "buffs" bar, which
+--- enumerates the live viewer pool directly, never assignedSpells.
 function ns.AddTrackedBuffByCdID(barKey, cdID)
     if type(cdID) ~= "number" or cdID <= 0 or barKey == "buffs" then return false end
     return ns.AddTrackedSpell(barKey, ns.CdClaimMarker(cdID))
@@ -1736,8 +1566,7 @@ end
 
 function ns.RemoveTrackedBuffCdID(barKey, cdID)
     if type(cdID) ~= "number" then return false end
-    -- RemoveSpellFromBar does not itself trigger a route/reanchor pass --
-    -- every caller does, same as AddTrackedSpell does internally for adds.
+    -- RemoveSpellFromBar doesn't itself trigger route/reanchor; caller must.
     local removed = ns.RemoveSpellFromBar(barKey, ns.CdClaimMarker(cdID))
     if not removed then return false end
     if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
@@ -1745,36 +1574,31 @@ function ns.RemoveTrackedBuffCdID(barKey, cdID)
     return true
 end
 
---- Place a BUFF on a CD/utility bar. The buff is HOSTED: RebuildSpellRouteMap
---- diverts its real Blizzard buff-viewer frame onto this bar, and the reanchor
---- reparents that frame into the bar's layout when active / a placeholder when
---- inactive -- exactly how the buffs bar works, just on a CD/util bar. Blizzard's
---- CDM stays the source of truth (icon, duration, stacks, active state), so real
---- auras, DoTs, totems and pet-summons all work with no detection code and get
---- the normal buff per-icon settings. It is NOT a custom injected spell -- Phase 3
---- must never draw its own frame for it. Additive: only our own data table is
---- written (variant-keyed so any live form of the spell resolves).
+--- Place a BUFF on a CD/utility bar. HOSTED: RebuildSpellRouteMap diverts its
+--- real Blizzard buff-viewer frame onto this bar; reanchor reparents it into
+--- the layout when active / a placeholder when inactive -- like the buffs bar,
+--- just on CD/util. Blizzard's CDM stays the source of truth, so auras, DoTs,
+--- totems and pet-summons all work with no detection code. NOT a custom
+--- injected spell -- Phase 3 must never draw its own frame for it. Additive:
+--- only our own data table is written (variant-keyed).
 function ns.AddBuffToCDUtilBar(barKey, spellID)
     if type(spellID) ~= "number" or spellID <= 0 then return false end
     local sd = ns.GetBarSpellData(barKey)
     if not sd then return false end
-    -- Already hosted here (marker entry, or a legacy plain entry from before
-    -- the marker model): idempotent no-op.
+    -- Already hosted (marker entry, or legacy plain entry pre-marker model): no-op.
     if sd.hostedBuffSpellIDs and sd.hostedBuffSpellIDs[spellID] and sd.assignedSpells
        and (ns.ListHasHostedMarker(sd.assignedSpells, spellID)
             or ns.FindVariantIndexInList(sd.assignedSpells, spellID)) then
         return true
     end
-    -- Claim the slot via the hosted MARKER, never the plain spellID: the plain
-    -- id is the COOLDOWN form's identity, and one spell can be both a cooldown
-    -- and a buff (same id). The marker gives the hosted buff its own slot, so
-    -- the two coexist on one bar and add/remove/reorder independently.
-    -- AddTrackedSpell also auto-moves the marker off any other CD/util bar.
+    -- Claim via the hosted MARKER, never the plain spellID (the COOLDOWN
+    -- form's identity; one spell can be both cooldown and buff, same id).
+    -- The marker gives the buff its own slot to coexist and reorder
+    -- independently; AddTrackedSpell auto-moves it off other CD/util bars.
     ns.AddTrackedSpell(barKey, ns.HostedBuffMarker(spellID))
-    -- Flag keyed by the picked/canonical spellID, so the route-map pass, the
-    -- drop-pass keep test, and the self-heal all match it directly. The route
-    -- map itself expands variants when it writes the diversion, so the LIVE
-    -- frame still resolves regardless of its talent/override form.
+    -- Flag keyed by picked/canonical spellID so route-map/drop-pass/self-heal
+    -- match it directly; the route map expands variants on write, so the
+    -- LIVE frame resolves regardless of talent/override form.
     if not sd.hostedBuffSpellIDs then sd.hostedBuffSpellIDs = {} end
     sd.hostedBuffSpellIDs[spellID] = true
     -- Host flip changes resolution routing: retire memoized results.
@@ -1785,32 +1609,28 @@ function ns.AddBuffToCDUtilBar(barKey, spellID)
 end
 
 --- Host a single collided-buff SLOT (cooldownID) on a CD/util bar. Same
---- collision escape hatch as ns.AddTrackedBuffByCdID (buff-family bars): two
---- viewer slots can share one canonical spellID (Diabolist Demonic Art vs
---- Diabolic Ritual), so AddBuffToCDUtilBar's spellID-keyed idempotency guard
---- would treat the second slot as "already hosted" and silently no-op it.
---- Claiming by the cd-claim MARKER instead sidesteps that, reusing
---- AddTrackedSpell's sweep/insertion/route/reanchor plumbing unchanged.
---- Collision-gated by the caller: non-collided buffs keep AddBuffToCDUtilBar's
---- sid path, whose identity survives talent swaps.
+--- collision escape hatch as ns.AddTrackedBuffByCdID: two viewer slots can
+--- share one canonical spellID, so AddBuffToCDUtilBar's spellID-keyed
+--- idempotency guard would treat the second slot as "already hosted" and
+--- silently no-op it. Claiming by the cd-claim MARKER sidesteps that, reusing
+--- AddTrackedSpell's plumbing unchanged. Collision-gated by the caller:
+--- non-collided buffs keep AddBuffToCDUtilBar's sid path (survives talent
+--- swaps).
 function ns.AddHostedBuffByCdID(barKey, cdID)
     if type(cdID) ~= "number" or cdID <= 0 then return false end
     local sd = ns.GetBarSpellData(barKey)
     if not sd then return false end
     -- Empty-table sentinel: ResolveSpellSettings' hostedFrame gate
-    -- (EllesmereUICdmHooks.lua) short-circuits on this table being non-nil
-    -- to skip the (more expensive) frame-flag checks below it. A cd-claimed
-    -- hosted buff doesn't need a spellID key in it -- it resolves its own
-    -- "c"..cooldownID settings key independently -- just the table's
-    -- existence so that gate still fires for this bar.
+    -- (EllesmereUICdmHooks.lua) short-circuits on this table being non-nil to
+    -- skip pricier frame-flag checks. A cd-claimed hosted buff resolves its
+    -- own "c"..cooldownID key independently -- only the table's existence matters.
     sd.hostedBuffSpellIDs = sd.hostedBuffSpellIDs or {}
     return ns.AddTrackedSpell(barKey, ns.CdClaimMarker(cdID))
 end
 
 function ns.RemoveHostedBuffByCdID(barKey, cdID)
     if type(cdID) ~= "number" then return false end
-    -- RemoveSpellFromBar does not itself trigger a route/reanchor pass --
-    -- every caller does, same as AddTrackedSpell does internally for adds.
+    -- RemoveSpellFromBar doesn't itself trigger route/reanchor; caller must.
     local removed = ns.RemoveSpellFromBar(barKey, ns.CdClaimMarker(cdID))
     if not removed then return false end
     if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
@@ -1830,10 +1650,9 @@ function ns.RemoveTrackedSpell(barKey, idx)
     table.remove(list, idx)
     ns._spellOrderDirty = true
 
-    -- Hosted-buff removal? Either the entry is a MARKER, or it is a legacy
-    -- plain entry that represents the buff (flag set, no marker anywhere in
-    -- the list). A plain entry WITH a marker present is the same spell's
-    -- COOLDOWN slot -- the hosted buff stays.
+    -- Hosted-buff removal? Entry is a MARKER, or a legacy plain entry
+    -- representing the buff (flag set, no marker in list). A plain entry
+    -- WITH a marker present is the same spell's COOLDOWN slot -- buff stays.
     local hostedSid = removedID and ns.HostedBuffMarkerToSpell(removedID)
     if not hostedSid and removedID and removedID > 0
        and sd.hostedBuffSpellIDs and sd.hostedBuffSpellIDs[removedID]
@@ -1841,19 +1660,17 @@ function ns.RemoveTrackedSpell(barKey, idx)
         hostedSid = removedID
     end
     if hostedSid then
-        -- Un-host: clear the flag so the route map stops diverting the buff
-        -- here (it returns to the buffs bar). Never ghost-route a hosted
-        -- buff -- the ghost bar hides by spellID, so it would also hide the
-        -- spell's COOLDOWN form everywhere.
+        -- Un-host: clear the flag so the route map stops diverting here (buff
+        -- returns to the buffs bar). Never ghost-route a hosted buff -- the
+        -- ghost bar hides by spellID, hiding the COOLDOWN form everywhere too.
         if sd.hostedBuffSpellIDs then
             sd.hostedBuffSpellIDs[hostedSid] = nil
             -- Host flip changes resolution routing: retire memoized results.
             ns._cdmResGen = (ns._cdmResGen or 0) + 1
         end
     else
-        -- Auxiliary metadata cleanup (kept here so the wrapper exposes the
-        -- same side effects RemoveSpellFromBar does for symmetry with
-        -- index-based removal).
+        -- Auxiliary metadata cleanup, mirroring RemoveSpellFromBar's side
+        -- effects for symmetry with index-based removal.
         if removedID and sd.customSpellDurations then sd.customSpellDurations[removedID] = nil end
         if removedID and sd.spellDurations       then sd.spellDurations[removedID]       = nil end
         if removedID and sd.customSpellIDs       then sd.customSpellIDs[removedID]       = nil end
@@ -1863,11 +1680,9 @@ function ns.RemoveTrackedSpell(barKey, idx)
             end
         end
 
-        -- Route the removed spell to the ghost CD bar so frames stay in the
-        -- routing system but are hidden. Buff-family bars no longer ghost:
-        -- buff visibility is managed by Blizzard's CDM settings. Negative
-        -- IDs (presets/trinkets) and non-viewer spells (customs, racials) skip
-        -- ghost routing entirely.
+        -- Route to the ghost CD bar so frames stay routed but hidden. Buff-family bars
+        -- don't ghost (visibility managed by Blizzard's CDM settings); negative IDs and
+        -- non-viewer spells (customs, racials) skip ghost routing entirely.
         local isNonViewer = removedID and removedID > 0
             and ((sd.customSpellIDs and sd.customSpellIDs[removedID])
               or (ns._myRacialsSet and ns._myRacialsSet[removedID]))
@@ -1892,7 +1707,6 @@ function ns.ReplaceTrackedSpell(barKey, idx, newID)
     local list = sd.assignedSpells
     if idx < 1 then return false end
     while #list < idx do list[#list + 1] = 0 end
-    -- Remove duplicate if newID already exists at a different index
     for i, existing in ipairs(list) do
         if existing == newID and i ~= idx then
             table.remove(list, i)
@@ -1909,7 +1723,6 @@ function ns.ReplaceTrackedSpell(barKey, idx, newID)
     return true
 end
 
--- Add a new custom CDM bar
 function ns.AddCDMBar(barType, name, numRows)
     local BuildAllCDMBars = ns.BuildAllCDMBars
     local LayoutCDMBar = ns.LayoutCDMBar
@@ -1918,7 +1731,6 @@ function ns.AddCDMBar(barType, name, numRows)
 
     local p = ECME.db.profile
     local bars = p.cdmBars.bars
-    -- Count existing custom bars (non-default)
     local customCount = 0
     for _, b in ipairs(bars) do
         if b.key ~= "cooldowns" and b.key ~= "utility" and b.key ~= "buffs" and not b.isGhostBar then
@@ -1926,14 +1738,12 @@ function ns.AddCDMBar(barType, name, numRows)
         end
     end
     if customCount >= MAX_CUSTOM_BARS then return nil end
-    -- Determine bar type label for default name
     barType = barType or "cooldowns"
     local typeLabel = barType == "cooldowns" and "Cooldowns"
                    or barType == "utility" and "Utility"
                    or barType == "buffs" and "Buffs"
                    or barType == "custom_buff" and "Auras"
                    or "Cooldowns"
-    -- Count existing custom bars of this type for numbering
     local typeCount = 0
     for _, b in ipairs(bars) do
         if b.barType == barType then typeCount = typeCount + 1 end
@@ -1971,7 +1781,6 @@ function ns.AddCDMBar(barType, name, numRows)
         pandemicGlowThickness = 2,
         pandemicGlowSpeed = 4,
     }
-    -- Initialize spell data in the global store for this custom bar
     local sd = ns.GetBarSpellData(key)
     if sd then sd.assignedSpells = {} end
     BuildAllCDMBars()
@@ -1981,45 +1790,38 @@ function ns.AddCDMBar(barType, name, numRows)
     return key
 end
 
--- Remove a custom CDM bar (only custom bars, not the 3 defaults).
--- Spells that were on the deleted bar are migrated to the matching ghost
--- bar for their family so they stay hidden -- without this they'd spill
--- back into the default bar for their viewer category, which is the
--- opposite of what the user wanted (they explicitly created the custom
--- bar to put those spells somewhere specific).
+-- Remove a custom CDM bar (only custom bars, not the 3 defaults). Spells that were on
+-- the deleted bar are migrated to the matching ghost bar for their family so they stay
+-- hidden, instead of spilling back onto the default bar for their viewer category.
 function ns.RemoveCDMBar(key)
     if key == "cooldowns" or key == "utility" or key == "buffs" then return false end
     local RegisterCDMUnlockElements = ns.RegisterCDMUnlockElements
     local p = ECME.db.profile
     for i, barData in ipairs(p.cdmBars.bars) do
         if barData.key == key then
-            -- Clean up frame
             local frame = cdmBarFrames[key]
             if frame then EllesmereUI.SetElementVisibility(frame, false) end
             cdmBarFrames[key] = nil
             cdmBarIcons[key] = nil
             p.cdmBarPositions[key] = nil
             table.remove(p.cdmBars.bars, i)
-            -- Max Icons overflow: clear targets that pointed at the removed
-            -- bar (runtime already fail-safes on a dangling key; this is
-            -- config hygiene on the explicit delete).
+            -- Max Icons overflow: clear targets pointing at the removed bar
+            -- (runtime fail-safes on a dangling key; this is config hygiene).
             for _, b in ipairs(p.cdmBars.bars) do
                 if b.overflowTarget == key then b.overflowTarget = nil end
             end
-            -- Bar deletion shifts every later bar's array index: captured
-            -- override paths into cdmBars.bars would now point at the WRONG
-            -- bars. Drop them all (users re-capture) -- honest beats corrupt.
+            -- Deletion shifts every later bar's array index, so captured
+            -- override paths into cdmBars.bars would point at the WRONG bars.
+            -- Drop them all (users re-capture) -- honest beats corrupt.
             if EllesmereUI.SpecOverrides_OnCDMBarsRestructured then
                 EllesmereUI.SpecOverrides_OnCDMBarsRestructured()
             end
 
-            -- Custom bar deletion: free all spells (don't ghost them). Delete
-            -- the bar's spell data from every spec of the ACTIVE profile only.
-            -- Other profiles own independent spell stores and must keep their
-            -- copy of this bar's spells (this is the fix for deleting a copied
-            -- profile's bar wiping the origin). Custom bar definitions are
-            -- per-profile but spec-independent, so clear all of THIS profile's
-            -- specs to avoid orphaned spell data.
+            -- Free all spells (don't ghost them): delete the bar's spell data
+            -- from every spec of the ACTIVE profile only -- other profiles own
+            -- independent stores and keep their copy (a copied profile's bar
+            -- deletion must not wipe the origin's). Bar defs are per-profile
+            -- but spec-independent, so clear all of THIS profile's specs.
             local sp = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
             if sp then
                 for _, specData in pairs(sp) do
@@ -2029,14 +1831,12 @@ function ns.RemoveCDMBar(key)
                 end
             end
 
-            -- Unregister from unlock mode
             if EllesmereUI and EllesmereUI.UnregisterUnlockElement then
                 EllesmereUI:UnregisterUnlockElement("CDM_" .. key)
             end
             -- Re-register remaining bars to update linkedKeys
             RegisterCDMUnlockElements()
-            -- Rebuild route maps and reanchor so frames re-route to the
-            -- ghost bar (or wherever the diversion set now sends them)
+            -- Reanchor so frames re-route to the ghost bar (or wherever)
             if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
             if ns.CollectAndReanchor then ns.CollectAndReanchor() end
             return true

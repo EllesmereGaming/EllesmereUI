@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  Themed Inspect Sheet
 --  Mirrors the Character Sheet skinning for inspected characters.
@@ -1123,13 +1124,12 @@ local function ShifterPinned(name)
         and EllesmereUIDB.shifterPositions[name] ~= nil
 end
 
--- Reposition `mover` immediately beside `anchor`, on whichever side has screen
--- room. Room is compared in SCREEN-ABSOLUTE units (each frame's coords
--- normalized through ITS OWN effective scale), so a scaled or edge-pinned anchor
--- never shoves the mover off screen and back into an overlap. A protected mover
--- goes through SecureSetPoint (never a raw SetPoint -> taint); since that only
--- anchors to UIParent, the beside-anchor target is converted to a UIParent-
--- CENTER offset.
+-- Reposition `mover` immediately beside `anchor`, on whichever side has screen room.
+-- Room is compared in SCREEN-ABSOLUTE units (each frame's coords normalized through ITS
+-- OWN effective scale), so a scaled or edge-pinned anchor never shoves the mover off
+-- screen and back into an overlap. A protected mover goes through SecureSetPoint (never
+-- a raw SetPoint -> taint); since that only anchors to UIParent, the beside-anchor
+-- target is converted to a UIParent- CENTER offset.
 local function DockBeside(mover, anchor)
     if not mover or not anchor then return end
     local as  = anchor:GetEffectiveScale() or 1
@@ -1196,11 +1196,10 @@ local function RestorePoint(frame)
     end
 end
 
--- Keep the Inspect and Character windows from overlapping while both are open.
--- The INSPECT window is held still and the CHARACTER sheet is the one that docks
--- beside it. If the user has pinned the character sheet with the Shifter, that is
--- respected (it stays put) and the inspect window yields instead; if both are
--- pinned, neither moves.
+-- Keep the Inspect and Character windows from overlapping while both are open. The
+-- INSPECT window is held still and the CHARACTER sheet is the one that docks beside it.
+-- If the user has pinned the character sheet with the Shifter, that is respected (it
+-- stays put) and the inspect window yields instead; if both are pinned, neither moves.
 local function RefreshDock()
     local insp, cf = InspectFrame, _G.CharacterFrame
     if not insp or not cf then return end

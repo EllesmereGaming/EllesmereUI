@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUIBlizzardSkin_GreatVault.lua
 --  Great Vault reskin.
@@ -805,10 +806,9 @@ RefreshGreatVaultFrame = function(frame)
 
         d.borderOverlay = overlay
     end
-    -- The atlas border hangs on the inset overlay, not the frame: the vault
-    -- frame's bounds extend ~10px past its visible panel, so a border on the
-    -- frame itself draws off the panel edge. At half opacity so it sits back
-    -- against the vault scene.
+    -- The atlas border hangs on the inset overlay, not the frame: the vault frame's
+    -- bounds extend ~10px past its visible panel, so a border on the frame itself draws
+    -- off the panel edge. At half opacity so it sits back against the vault scene.
     if ns.WSkin and ns.WSkin.AtlasBorder then
         ns.WSkin.AtlasBorder(d.borderOverlay)
         local ab = ns.WSkin.GetFFD and ns.WSkin.GetFFD(d.borderOverlay).atlasBorderFrame

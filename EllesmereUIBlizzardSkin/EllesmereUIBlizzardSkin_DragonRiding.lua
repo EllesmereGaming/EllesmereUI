@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUIBlizzardSkin_DragonRiding.lua - Skyriding HUD
 -------------------------------------------------------------------------------
@@ -339,6 +340,16 @@ local function EnsureBorder(frame)
     borderedFrames[#borderedFrames + 1] = frame
 end
 
+local function ApplyBorderEdges(frame, hideL, hideR, hideT, hideB)
+    local PP = EllesmereUI and EllesmereUI.PP
+    local edges = PP and PP.GetBorders and PP.GetBorders(frame)
+    if not edges then return end
+    edges._hideLeft = hideL or nil
+    edges._hideRight = hideR or nil
+    edges._hideTop = hideT or nil
+    edges._hideBottom = hideB or nil
+end
+
 local function ApplyBordersAll()
     local PP = EllesmereUI and EllesmereUI.PP
     if not PP then return end
@@ -353,6 +364,31 @@ local function ApplyBordersAll()
             PP.HideBorder(f)
         end
     end
+
+    if thick > 0 then
+        -- At Element Spacing / Stack Spacing = 0 the touching frames each
+        -- draw their own full border, so the shared seam gets two
+        -- independently pixel-snapped lines instead of one. Suppress the
+        -- edge on one side of every seam so only a single line remains.
+        local gapTouch = p.gap == 0
+        local stackTouch = p.stackSpacing == 0
+        -- The icon spans the full column height (speed bar + both pip rows),
+        -- so its left edge also touches each row's LAST pip, not just the
+        -- speed bar, whenever Element Spacing is 0.
+        ApplyBorderEdges(speedBar, false, gapTouch, gapTouch, false)
+        for i = 1, SKYRIDING_PIPS do
+            local hideR = (stackTouch and i < SKYRIDING_PIPS) or (gapTouch and i == SKYRIDING_PIPS)
+            ApplyBorderEdges(stackFrame.pips[i], false, hideR, false, false)
+        end
+        for i = 1, SECONDWIND_PIPS do
+            local hideR = (stackTouch and i < SECONDWIND_PIPS) or (gapTouch and i == SECONDWIND_PIPS)
+            ApplyBorderEdges(swFrame.pips[i], false, hideR, false, gapTouch)
+        end
+        -- Re-snap so the updated hide flags take effect immediately.
+        for _, f in ipairs(borderedFrames) do
+            PP.SetBorderSize(f, thick)
+        end
+    end
 end
 
 local function CreateSpeedBar(parent)
@@ -363,7 +399,17 @@ local function CreateSpeedBar(parent)
     f.bg = CreateSolidTexture(f, "BACKGROUND", 0)
     f.bg:SetAllPoints(f)
     f.tick = CreateSolidTexture(f, "OVERLAY", 5)
-    f.text = f:CreateFontString(nil, "OVERLAY")
+    -- The pip stacks/icon nest their bar textures one parent level deeper
+    -- than the speed bar itself (stackFrame -> pip, wsIcon -> tex/cd), and
+    -- frame level always outranks draw layer across frames. A plain OVERLAY
+    -- fontstring parented directly to f would render behind that nested
+    -- content, so give the text its own frame raised well above every level
+    -- used anywhere in this HUD (same pattern as CreateWhirlingSurgeIcon's
+    -- textFrame).
+    f.textFrame = CreateFrame("Frame", nil, f)
+    f.textFrame:SetAllPoints(f)
+    f.textFrame:SetFrameLevel(f:GetFrameLevel() + 10)
+    f.text = f.textFrame:CreateFontString(nil, "OVERLAY")
     return f
 end
 
@@ -405,29 +451,35 @@ end
 --  Build / Rebuild / Redraw
 -------------------------------------------------------------------------------
 local function LayoutPips(frame, pipCount, width, height, spacing)
-    -- Distribute in whole PHYSICAL-pixel units (PP.mult), not whole
-    -- UI-coordinate units. 1 UI-unit only equals 1 physical pixel at the
-    -- "pixel perfect" scale -- at any other UI Scale, flooring to whole
-    -- UI-units left a fractional remainder unassigned, so the last pip fell
-    -- short of the frame's actual right edge (the "extra spacing between
-    -- charges and Whirling Surge" report, reproducible at UI scales where
-    -- that leftover doesn't round away to ~0).
+    -- Distribute in whole PHYSICAL-pixel units (PP.mult), not whole UI-coordinate
+    -- units. 1 UI-unit only equals 1 physical pixel at the "pixel perfect" scale -- at
+    -- any other UI Scale, flooring to whole UI-units left a fractional remainder
+    -- unassigned, so the last pip fell short of the frame's actual right edge (the
+    -- "extra spacing between charges and Whirling Surge" report, reproducible at UI
+    -- scales where that leftover doesn't round away to ~0).
     local PPdr = EllesmereUI and EllesmereUI.PP
     local px = (PPdr and PPdr.mult and PPdr.mult > 0) and PPdr.mult or 1
     local widthAvail = max(0, width - (pipCount - 1) * spacing)
-    -- If the whole row doesn't span even one physical pixel (a very small
-    -- bar at a low UI Scale, where px itself is large), snapping to whole
-    -- physical-pixel units would floor every pip to 0 width -- pips
-    -- vanishing entirely is worse than the sub-pixel gap this fix targets.
-    -- Fall back to plain UI-unit distribution (pre-fix behavior) in that
-    -- degenerate case so pips stay visible, just not perfectly pixel-snapped.
+    -- If the whole row doesn't span even one physical pixel (a very small bar at a low
+    -- UI Scale, where px itself is large), snapping to whole physical-pixel units would
+    -- floor every pip to 0 width -- pips vanishing entirely is worse than the sub-pixel
+    -- gap this fix targets. Fall back to plain UI-unit distribution (pre-fix behavior)
+    -- in that degenerate case so pips stay visible, just not perfectly pixel-snapped.
     if widthAvail < px then px = 1 end
     local totalUnits = floor(widthAvail / px + 1e-6)
-    local unitsPer = floor(totalUnits / pipCount)
-    local remUnits = totalUnits - unitsPer * pipCount
+    -- Cumulative boundary = floor(totalUnits * i / pipCount), not a fixed
+    -- remainder lumped onto the first N pips. The two pip rows (6 and 3
+    -- charges) share the same widthAvail and pipCount is an exact multiple
+    -- between them, so this formula lands every 2nd Skyward Ascent divider
+    -- on the exact same physical pixel as a Second Wind divider -- a
+    -- per-row remainder would drift the two rows' dividers by up to 1px
+    -- relative to each other even though they should align.
     local x = 0
+    local prevBoundary = 0
     for i = 1, pipCount do
-        local thisW = (unitsPer + (i <= remUnits and 1 or 0)) * px
+        local boundary = floor(totalUnits * i / pipCount + 1e-6)
+        local thisW = (boundary - prevBoundary) * px
+        prevBoundary = boundary
         local pip = frame.pips[i]
         pip:ClearAllPoints()
         pip:SetPoint("TOPLEFT", frame, "TOPLEFT", x, 0)
@@ -615,14 +667,13 @@ function RegisterUnlockElements()
                 p.width = max(60, PPdr and PPdr.Snap(w - p.gap - iconSize) or floor(w - p.gap - iconSize + 0.5))
                 Rebuild()
             end,
-            -- Height is the SUM of three independently-sized bars (Second
-            -- Wind, Skyriding charges, Speed) plus two fixed gaps between
-            -- them -- there's no single "height" field to write. Scale all
-            -- three proportionally toward the requested total, matching how
-            -- the Options page's three height sliders combine to change the
-            -- overall element size, then clamp each to its own Options-page
-            -- slider range (2-24 / 2-24 / 4-40) so a drag can't push one bar
-            -- to zero or past its usable size.
+            -- Height is the SUM of three independently-sized bars (Second Wind,
+            -- Skyriding charges, Speed) plus two fixed gaps between them -- there's no
+            -- single "height" field to write. Scale all three proportionally toward the
+            -- requested total, matching how the Options page's three height sliders
+            -- combine to change the overall element size, then clamp each to its own
+            -- Options-page slider range (2-24 / 2-24 / 4-40) so a drag can't push one
+            -- bar to zero or past its usable size.
             setHeight = function(_, h)
                 local p = db.profile
                 local PPdr = EllesmereUI and EllesmereUI.PP
@@ -653,12 +704,11 @@ function RegisterUnlockElements()
                     b.new = max(b.lo, min(b.hi, floor(b.old * scale + 0.5)))
                 end
 
-                -- A bar already at its min/max absorbs none of a further
-                -- shrink/grow, so plain proportional scaling can leave the
-                -- resize handle feeling stuck once one or two bars saturate.
-                -- Hand any leftover delta to whichever bar(s) still have
-                -- headroom instead of discarding it (bounded to 3 passes --
-                -- one per bar -- so this always terminates).
+                -- A bar already at its min/max absorbs none of a further shrink/grow,
+                -- so plain proportional scaling can leave the resize handle feeling
+                -- stuck once one or two bars saturate. Hand any leftover delta to
+                -- whichever bar(s) still have headroom instead of discarding it
+                -- (bounded to 3 passes -- one per bar -- so this always terminates).
                 for _ = 1, #bars do
                     local sum = bars[1].new + bars[2].new + bars[3].new
                     local leftover = targetSum - sum

@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 -- EllesmereUIQuestTracker_QoL.lua
 --
@@ -98,14 +99,13 @@ local function InstallAutoQuests()
             return
         end
 
-        -- QUEST_AUTOCOMPLETE handling removed: calling ShowQuestComplete()
-        -- from addon execution runs Blizzard's quest-complete panel flow
-        -- (ShowUIPanel, UIPanel attribute writes on WorldMapFrame) under
-        -- our taint, and that state is read by every later map open --
-        -- confirmed in tester taint logs as blocked map-pin calls in
-        -- combat. Blizzard's native auto-quest popup in the tracker covers
-        -- this securely: the player clicks it, and if the reward has no
-        -- choice, the QUEST_COMPLETE auto-turn-in below still fires.
+        -- QUEST_AUTOCOMPLETE handling removed: calling ShowQuestComplete() from addon
+        -- execution runs Blizzard's quest-complete panel flow (ShowUIPanel, UIPanel
+        -- attribute writes on WorldMapFrame) under our taint, and that state is read by
+        -- every later map open -- confirmed in tester taint logs as blocked map-pin
+        -- calls in combat. Blizzard's native auto-quest popup in the tracker covers
+        -- this securely: the player clicks it, and if the reward has no choice, the
+        -- QUEST_COMPLETE auto-turn-in below still fires.
 
         if event == "QUEST_DETAIL" then
             if not Cfg("autoAccept") then return end
@@ -302,13 +302,12 @@ local function InstallQuestItemHotkey()
     end
     EQT.ApplyQuestItemHotkey = ApplyQuestItemHotkey
 
-    -- Loot-storm coalescer (memory pass 2026-08-03): QUEST_LOG_UPDATE fires
-    -- in bursts on loot/objective progress, and each fire paid a full quest
-    -- log scan -- an info table per log entry, the suite's single-frame
-    -- allocation peak (~106KB in one frame). One deferred scan per burst
-    -- instead; the scan keeps its own dirty/combat gates, so a burst that
-    -- ends in combat parks on dirty and the existing PLAYER_REGEN_ENABLED
-    -- path picks it up. Prebuilt closure: no per-burst allocation.
+    -- Loot-storm coalescer (memory pass 2026-08-03): QUEST_LOG_UPDATE fires in bursts
+    -- on loot/objective progress, and each fire paid a full quest log scan -- an info
+    -- table per log entry, the suite's single-frame allocation peak (~106KB in one
+    -- frame). One deferred scan per burst instead; the scan keeps its own dirty/combat
+    -- gates, so a burst that ends in combat parks on dirty and the existing
+    -- PLAYER_REGEN_ENABLED path picks it up. Prebuilt closure: no per-burst allocation.
     local scanPending = false
     local function FlushQuestItemScan()
         scanPending = false

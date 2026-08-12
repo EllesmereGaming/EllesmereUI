@@ -3,14 +3,14 @@
 # extract-locale-keys.sh
 # Extracts every translatable key (the first string literal passed to
 # EllesmereUI.L(...) or EllesmereUI.Lf(...)) from the addon source and writes a
-# sorted, de-duplicated list to Locales/_keys.txt.
+# sorted, de-duplicated list to EllesmereUILocales/_keys.txt.
 #
 # This is the STATIC key list (literals only). Keys passed as variables -- e.g.
 # L(cfg.text) -- cannot be seen statically; use the in-game /euiloc harvester for
 # the complete runtime set. Together they cover everything.
 #
 # Usage:  ./.tools/extract-locale-keys.sh        (run from anywhere)
-# CI uses this to verify Locales/_keys.txt is current (see locale-check.yml).
+# CI uses this to verify EllesmereUILocales/_keys.txt is current (see locale-check.yml).
 #
 set -euo pipefail
 export LC_ALL=C
@@ -18,13 +18,14 @@ export LC_ALL=C
 # cd to the addon root (parent of .tools/)
 cd "$(dirname "$0")/.."
 
-OUT="Locales/_keys.txt"
+OUT="EllesmereUILocales/_keys.txt"
 TMP="$(mktemp)"
 
 grep -rhoE 'EllesmereUI\.Lf?\("[^"]*"' \
   --include='*.lua' \
   --exclude-dir='Libs' \
-  --exclude-dir='Locales' \
+  --exclude-dir='EllesmereUILocales' \
+  --exclude-dir='.release' \
   --exclude='EllesmereUI_LocaleDev.lua' \
   . \
   | sed -E 's/^EllesmereUI\.Lf?\("//; s/"$//' \

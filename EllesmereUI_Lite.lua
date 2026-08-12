@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 --------------------------------------------------------------------------------
 --  EllesmereUI_Lite.lua
 --  Lightweight replacement for AceAddon-3.0, AceEvent-3.0, and AceDB-3.0
@@ -8,11 +9,6 @@ local ADDON_NAME, ns = ...
 
 local EUILite = {}
 EllesmereUI = EllesmereUI or {}
--- TEMPORARY 12.1 compatibility flag. At 12.1 launch the live build reports
--- 120100+, this flips true automatically, and a post-launch cleanup pass
--- deletes the legacy branches and this flag. Documented exception to the
--- CLAUDE.md "no version branches" rule for the dual-client window.
-EllesmereUI.IS_121 = (select(4, GetBuildInfo()) or 0) >= 120100
 EllesmereUI.Lite = EUILite
 
 -- The options-panel scale is exposed as a fixed-step dropdown ("EUI Options
@@ -22,9 +18,8 @@ EllesmereUI.Lite = EUILite
 -- panel renders at something else, and the user is snapped the moment they
 -- open that dropdown. Every seeder must round onto this list.
 --
--- Lives here (first file in the TOC) so the Startup seed, the migration and
--- the panel itself share ONE list -- three copies of these literals is how
--- they drift apart.
+-- Lives here (first file in the TOC) so the Startup seed, the migration and the panel
+-- itself share ONE list -- three copies of these literals is how they drift apart.
 EllesmereUI.PANEL_SCALE_STEPS = { 0.75, 0.90, 1.00, 1.10, 1.25, 1.50, 2.00 }
 
 -- Nearest allowed step to v. Ties round up (harmless: the panel reads large
@@ -59,16 +54,15 @@ local initQueue = {}       -- addons waiting for OnInitialize
 local enableQueue = {}     -- addons waiting for OnEnable
 local statuses = {}        -- name -> true if enabled
 
--- Per-addon event frame. Defined ABOVE NewAddon because NewAddon creates it
--- EAGERLY, and that timing is load-bearing for CPU attribution: the engine
--- bills an event handler's entire call tree to the addon whose execution
--- context called CreateFrame for the frame (probe-verified 2026-07-26; see
--- EllesmereUI_Ticker.lua). NewAddon runs in the child's MAIN CHUNK, so the
--- frame is stamped to the child and its event work bills that addon. The old
--- lazy creation happened at first RegisterEvent -- usually inside
--- OnInitialize/OnEnable, which run under the parent's lifecycle dispatch --
--- so every mixin event frame in the suite was parent-stamped and the whole
--- suite's event handling was billed to the parent addon.
+-- Per-addon event frame. Defined ABOVE NewAddon because NewAddon creates it EAGERLY,
+-- and that timing is load-bearing for CPU attribution: the engine bills an event
+-- handler's entire call tree to the addon whose execution context called CreateFrame
+-- for the frame (probe-verified 2026-07-26; see EllesmereUI_Ticker.lua). NewAddon runs
+-- in the child's MAIN CHUNK, so the frame is stamped to the child and its event work
+-- bills that addon. The old lazy creation happened at first RegisterEvent -- usually
+-- inside OnInitialize/OnEnable, which run under the parent's lifecycle dispatch -- so
+-- every mixin event frame in the suite was parent-stamped and the whole suite's event
+-- handling was billed to the parent addon.
 local function GetOrCreateEventFrame(addon)
     if addon._eventFrame then return addon._eventFrame end
     local f = CreateFrame("Frame")
@@ -225,20 +219,18 @@ local dbRegistry = {}  -- all db objects, for logout cleanup
 -- Expose so the profile system can update db.profile in-place after injection
 EUILite._dbRegistry = dbRegistry
 
--- Pre-SavedVariables db tracking. A NewDB call at FILE SCOPE in the addon
--- that OWNS the central store runs before WoW loads that addon's
--- SavedVariables: it builds its profile inside a fresh table, and the real
--- saved table then replaces the global right after, orphaning the db --
--- session writes go to the orphan and are never serialized (settings
--- silently stop saving). In the suite this can't happen (children's files
--- execute long after the parent's SVs loaded), but in a STANDALONE build
--- everything is one addon, so a file-scope NewDB (Bags) hit exactly this.
--- Any db created before the owning addon's ADDON_LOADED is recorded here
--- and re-rooted in place against the real loaded store at that moment.
--- STANDALONE-GATED: the suite has no pre-SV NewDB callers (children init
--- after the parent's SVs load), so the queue is provably empty there; the
--- gate makes that a hard guarantee instead of a convention. The folder-name
--- test is rename-immune (the standalone build never renames "Standalone").
+-- Pre-SavedVariables db tracking. A NewDB call at FILE SCOPE in the addon that OWNS the
+-- central store runs before WoW loads that addon's SavedVariables: it builds its
+-- profile inside a fresh table, and the real saved table then replaces the global right
+-- after, orphaning the db -- session writes go to the orphan and are never serialized
+-- (settings silently stop saving). In the suite this can't happen (children's files
+-- execute long after the parent's SVs loaded), but in a STANDALONE build everything is
+-- one addon, so a file-scope NewDB (Bags) hit exactly this. Any db created before the
+-- owning addon's ADDON_LOADED is recorded here and re-rooted in place against the real
+-- loaded store at that moment. STANDALONE-GATED: the suite has no pre-SV NewDB callers
+-- (children init after the parent's SVs load), so the queue is provably empty there;
+-- the gate makes that a hard guarantee instead of a convention. The folder-name test is
+-- rename-immune (the standalone build never renames "Standalone").
 local IS_STANDALONE = type(ADDON_NAME) == "string" and ADDON_NAME:find("Standalone") ~= nil
 local _svLoaded = false   -- true once ADDON_NAME's SavedVariables are live
 local _preSVDBs = {}      -- dbs created before that, awaiting re-root
@@ -373,10 +365,9 @@ logoutFrame:SetScript("OnEvent", function()
         safecall(fn)
     end
 
-    -- Strip defaults from a COPY of each profile table, then write the
-    -- stripped copy back into the central store. This keeps the live
-    -- db.profile references untouched (important if any pre-logout
-    -- callback still reads from them after this point).
+    -- Strip defaults from a COPY of each profile table, then write the stripped copy
+    -- back into the central store. This keeps the live db.profile references untouched
+    -- (important if any pre-logout callback still reads from them after this point).
     local activeProfile = EllesmereUIDB and EllesmereUIDB.activeProfile or "Default"
     local profileData = EllesmereUIDB and EllesmereUIDB.profiles and EllesmereUIDB.profiles[activeProfile]
     if profileData and profileData.addons then
@@ -393,42 +384,42 @@ end)
 --------------------------------------------------------------------------------
 --  Lifecycle driver (replaces AceAddon's ADDON_LOADED / PLAYER_LOGIN handler)
 --------------------------------------------------------------------------------
--- OnInitialize fires on ADDON_LOADED (SavedVariables are available).
--- OnEnable fires on PLAYER_LOGIN (game data is available).
--- This matches AceAddon's exact timing.
+-- OnInitialize fires on ADDON_LOADED (SavedVariables are available). OnEnable fires on
+-- PLAYER_LOGIN (game data is available). This matches AceAddon's exact timing.
 --------------------------------------------------------------------------------
 
 --------------------------------------------------------------------------------
 --  Stale central-DB guard
 --------------------------------------------------------------------------------
--- WoW executes a child addon's ENTIRE WTF SavedVariables file when the child
--- loads -- including variables its TOC no longer declares (the TOC only
--- controls what gets WRITTEN at logout). A child TOC that ever declared
--- "## SavedVariables: EllesmereUIDB" left a full copy of the central DB in
--- that child's WTF file; if the child was then disabled, the copy froze.
--- Re-enabling the child executes the frozen copy AFTER the parent loaded the
--- real DB, replacing it -- and the next logout persists the stale data over
--- the real file (all profiles wiped).
+-- WoW executes a child addon's ENTIRE WTF SavedVariables file when the child loads --
+-- including variables its TOC no longer declares (the TOC only controls what gets
+-- WRITTEN at logout). A child TOC that ever declared "## SavedVariables: EllesmereUIDB"
+-- left a full copy of the central DB in that child's WTF file; if the child was then
+-- disabled, the copy froze. Re-enabling the child executes the frozen copy AFTER the
+-- parent loaded the real DB, replacing it -- and the next logout persists the stale
+-- data over the real file (all profiles wiped).
 --
 -- The guard captures the authoritative table at the parent's own ADDON_LOADED
 -- (the only moment it is guaranteed to be the freshly-loaded real data) and
 -- re-points the global at it if any later load in the startup batch swapped
 -- the table. It runs before the init queue below, so a poisoned child's own
 -- OnInitialize never sees the stale table. Armed only until PLAYER_LOGIN:
--- every suite child is a hard dependency (never LoadOnDemand), so all of
--- them -- and any possible stale file -- load before then. Post-login
+-- every SV-bearing suite child is a hard dependency (never LoadOnDemand), so
+-- all of them -- and any possible stale file -- load before then. The one
+-- LoadOnDemand member, EllesmereUIOptions, declares NO SavedVariables by
+-- design: WoW never writes a WTF file for it, so its post-login load executes
+-- no SV file and can never swap the global. Keep it SV-less. Post-login
 -- ADDON_LOADEDs (Blizzard on-demand addons) and intentional table swaps
 -- (full reset + ReloadUI) are never touched. If the parent DB failed to
 -- load (nil), the guard stays unarmed and behavior is unchanged.
 local _parentDBRef           -- the table the parent's own SV file produced
 local _dbGuardArmed = true   -- true from load until PLAYER_LOGIN
 
--- Re-root dbs created before the owning addon's SavedVariables loaded (see
--- _preSVDBs above): resolve the profile inside the REAL loaded central store,
--- merge defaults, and update the db object IN PLACE so every closure holding
--- it reads and writes the table WoW will serialize at logout. The vestigial
--- child SV global is re-wiped in place (its saved copy loaded after NewDB's
--- file-scope wipe and would otherwise persist junk).
+-- Re-root dbs created before the owning addon's SavedVariables loaded (see _preSVDBs
+-- above): resolve the profile inside the REAL loaded central store, merge defaults, and
+-- update the db object IN PLACE so every closure holding it reads and writes the table
+-- WoW will serialize at logout. The vestigial child SV global is re-wiped in place (its
+-- saved copy loaded after NewDB's file-scope wipe and would otherwise persist junk).
 local function RerootPreSVDBs()
     if #_preSVDBs == 0 then return end
     local profileName = (EllesmereUIDB and EllesmereUIDB.activeProfile) or "Default"
@@ -498,10 +489,9 @@ lifecycleFrame:SetScript("OnEvent", function(self, event, arg1)
                 RerootPreSVDBs()
             end
         elseif _dbGuardArmed and _parentDBRef and EllesmereUIDB ~= _parentDBRef then
-            -- A stale SavedVariables copy from a child's WTF file replaced
-            -- the central DB. Restore the real table; the stale copy purges
-            -- from the offending file on its next logout (its TOC no longer
-            -- declares the variable).
+            -- A stale SavedVariables copy from a child's WTF file replaced the central
+            -- DB. Restore the real table; the stale copy purges from the offending file
+            -- on its next logout (its TOC no longer declares the variable).
             EllesmereUIDB = _parentDBRef
         end
     elseif event == "PLAYER_LOGIN" then

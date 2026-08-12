@@ -1,9 +1,11 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
---  EllesmereUIFriends.lua
---  Friends List skin for EllesmereUI. Direct skin of Blizzard's native
---  ScrollBox and buttons -- no custom DataProvider, no friend groups.
+--  EllesmereUIFriends.lua -- Friends List skin. Direct skin of Blizzard's
+--  native ScrollBox and buttons: no custom DataProvider, no friend groups.
 -------------------------------------------------------------------------------
 local ADDON_NAME = ...
+if not (EllesmereUI and EllesmereUI._ModuleNS) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+EllesmereUI._ModuleNS[ADDON_NAME] = select(2, ...)  -- LOD options files read this module ns via the registry
 
 local EBS = EllesmereUI.Lite.NewAddon("EllesmereUIFriends")
 
@@ -19,13 +21,9 @@ local function GetFFD(frame)
     return d
 end
 
--- Modules temporarily disabled for public release (Coming Soon).
--- Force-overrides the per-module "enabled" flag so these do absolutely nothing
--- regardless of what users have in their SavedVariables.
+-- Master kill-switch for modules held back from public release (Coming Soon), keyed by
+-- module name; overrides that module's "enabled" flag to off regardless of the user's SavedVariables.
 local TEMP_DISABLED = {
-    -- minimap = true,
-    -- questTracker = true,
-    -- cursor  = true,
 }
 _G._EBS_TEMP_DISABLED = TEMP_DISABLED
 
@@ -72,20 +70,11 @@ local function GetBorderColor(cfg)
     return cfg.borderR, cfg.borderG, cfg.borderB, cfg.borderA or 1
 end
 
--- 12.1 replaces the friends window wholesale with the Social UI. The legacy
--- FriendsFrame still loads there but is never what the player sees, and
--- skinning it is not free: this module re-anchors Blizzard scroll boxes and
--- SetScripts their mouse wheel, which is a documented way to taint Battle.net
--- whisper handling (SetTellTarget on a secret target). Running a full skin over
--- a window nobody looks at is all cost and no benefit, so on a client serving
--- the Social UI the entire legacy skin stays off and EUI_Friends_Groups_121.lua
--- owns that window instead.
---
--- Resolved live rather than at load: the Social UI is behind a server-side
--- switch that can flip mid-session. On 12.0 IS_121 is false, so this is always
--- false and nothing about live behaviour changes.
+-- Legacy FriendsFrame stays loaded-but-hidden under the Social UI; skinning it
+-- re-anchors Blizzard scroll boxes and hooks mouse wheel, tainting Battle.net
+-- whisper handling (SetTellTarget on a secret target) -- so the skin stays off
+-- there (EUI_Friends_Groups_121.lua owns that window); checked live since the switch can flip mid-session.
 local function LegacyFriendsRetired()
-    if not (EllesmereUI and EllesmereUI.IS_121) then return false end
     if not (C_SocialUI and C_SocialUI.IsSystemEnabled) then return false end
     local ok, enabled = pcall(C_SocialUI.IsSystemEnabled)
     return ok and enabled == true
@@ -106,15 +95,13 @@ combatFrame:SetScript("OnEvent", function(self)
     end
 end)
 
--- The regen listener is armed only while an apply is actually pending, so the
--- frame costs nothing across ordinary combat.
+-- Regen listener is armed only while an apply is pending: zero cost otherwise.
 local function QueueApplyAll()
     if pendingApply then return end
     pendingApply = true
     combatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 end
 
--- Hide all textures on a frame (used by one-time skinning passes)
 local function StripTextures(f)
     if not f then return end
     for i = 1, select("#", f:GetRegions()) do
@@ -128,11 +115,9 @@ end
 -------------------------------------------------------------------------------
 --  Raid Tab Skinning
 -------------------------------------------------------------------------------
--- Taint-safe raid tab skinning: NEVER CreateTexture, CreateFrame, or
--- PP.CreateBorder on any frame in the RaidFrame tree. These permanently
--- taint the frame, breaking ClaimRaidFrame -> RaidFrame:SetParent().
--- Safe operations: SetTexture(""), font/color on FontStrings, HookScript,
--- BackdropTemplateMixin.
+-- NEVER CreateTexture/CreateFrame/PP.CreateBorder on any frame in the RaidFrame
+-- tree -- permanently taints it, breaking ClaimRaidFrame -> RaidFrame:SetParent().
+-- Safe: SetTexture(""), FontString font/color, HookScript, BackdropTemplateMixin.
 
 local function SkinRaidRoleIcon(icon)
     -- No-op: CreateTexture on protected parent taints
@@ -174,7 +159,6 @@ local function SkinRaidTabButton(btn)
     if ht then ht:SetTexture(""); ht:SetAlpha(0) end
     local dt = btn.GetDisabledTexture and btn:GetDisabledTexture()
     if dt then dt:SetTexture(""); dt:SetAlpha(0) end
-    -- Left/Middle/Right chrome (UIPanelButtonTemplate)
     if btn.Left then btn.Left:SetAlpha(0) end
     if btn.Right then btn.Right:SetAlpha(0) end
     if btn.Middle then btn.Middle:SetAlpha(0) end
@@ -530,14 +514,12 @@ local friendsSkinned = false
 
 local CLASS_ICON_SPRITE_BASE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\class-full\\"
 
--- Sprite texture paths keyed by style name
 local CLASS_ICON_SPRITE_TEX = {}
 for _, style in ipairs({"modern", "dark", "light", "clean"}) do
     CLASS_ICON_SPRITE_TEX[style] = CLASS_ICON_SPRITE_BASE .. style .. ".tga"
 end
 local CLASS_SPRITE_COORDS = EllesmereUI.CLASS_ICON_SPRITE_COORDS
 
--- Localized class name -> class file token (built once on first use)
 local classFileByLocalName = {}
 local function BuildClassNameLookup()
     if next(classFileByLocalName) then return end
@@ -553,8 +535,7 @@ local function BuildClassNameLookup()
     end
 end
 
--- Friend data cache: populated on events, read per-button in the hook.
--- BNet friends keyed by [id], WoW friends keyed by [id + 10000].
+-- Filled on events, read per-button in the hook. BNet keyed [id], WoW [id+10000].
 local _friendCache = {}
 local _FC_WOW_OFFSET = 10000
 
@@ -588,7 +569,6 @@ local function GetCachedFriendInfo(button)
     return nil, nil
 end
 
--- Populate cache from APIs (called on events while frame is shown)
 local function RefreshFriendCache()
     wipe(_friendCache)
     local numBNet = BNGetNumFriends and BNGetNumFriends() or 0
@@ -620,8 +600,7 @@ local function GetFriendClassFile(bnetInfo, wowInfo)
     return nil
 end
 
--- Group tag stored in Blizzard friend notes as ||EUI:GroupName||
--- Kept for display only: strips legacy tags so notes render cleanly.
+-- Group tag ||EUI:GroupName|| in Blizzard friend notes; display only, stripped.
 local EUI_NOTE_TAG = "||EUI:"
 local EUI_NOTE_END = "||"
 
@@ -639,10 +618,8 @@ local function ParseGroupFromNote(note)
     return group, clean
 end
 
--- Offline icon path (displayed when friend is not online)
 local OFFLINE_ICON = "Interface\\AddOns\\EllesmereUIFriends\\Media\\offline.png"
 
--- Region display names for friend region tooltips
 local MINI_DISPLAY = {
     namerica = "North America", samerica = "South America",
     australia = "Australia", europe = "Europe",
@@ -650,7 +627,7 @@ local MINI_DISPLAY = {
     taiwan = "Taiwan", china = "China",
 }
 
--- Status orb atlas (online/away/dnd indicator on friend buttons)
+-- Status orb (online/away/dnd): first of the atlas' 6 columns, top of 2 rows.
 local _orbFile, _orbL, _orbR, _orbT, _orbB
 do
     local orbInfo = C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo("lootroll-animreveal-a")
@@ -755,9 +732,7 @@ local function UpdateClassIcon(button, bnetInfo, wowInfo)
     icon:Show()
 end
 
--- Class color hex codes (built on first use per class). Shared with the
--- 12.1 Tiles/Groups files over the addon's _G._EFR_* channel (this file
--- loads first); one cache serves all three consumers.
+-- Class color hex cache (lazy-built); shared via _G._EFR_* with 12.1 Tiles/Groups (this file loads first).
 local _classColorCodes = {}
 local function _getClassColorCode(classFile)
     local code = _classColorCodes[classFile]
@@ -795,7 +770,6 @@ local function UpdateNameColor(button, bnetInfo, wowInfo)
     end
 end
 
--- Faction overlay texture paths
 local FACTION_TEX_ALLIANCE = "Interface\\AddOns\\EllesmereUIFriends\\Media\\alliance.png"
 local FACTION_TEX_HORDE    = "Interface\\AddOns\\EllesmereUIFriends\\Media\\horde.png"
 local FACTION_TEX_NEUTRAL  = "Interface\\AddOns\\EllesmereUIFriends\\Media\\neutral.png"
@@ -839,7 +813,6 @@ local function UpdateFactionOverlay(button, bnetInfo, wowInfo)
     tex:Show()
 end
 
--- Skin a single friend button (one-time structural setup)
 local function SkinFriendButton(button)
     if GetFFD(button).skinned then return end
     GetFFD(button).skinned = true
@@ -852,15 +825,12 @@ local function SkinFriendButton(button)
         fs:SetFont(fontPath, size, "")
     end
 
-    -- Tile background
     local tileBg = button:CreateTexture(nil, "BACKGROUND", nil, 2)
     tileBg:SetAllPoints()
     tileBg:SetColorTexture(0, 0, 0, 0.10)
     GetFFD(button).tileBg = tileBg
 
-    -- Keep Blizzard's highlight texture for native selection/hover
-
-    -- Hover highlight (OnEnter/OnLeave)
+    -- Blizzard's own highlight texture is left intact for native selection/hover.
     local hover = button:CreateTexture(nil, "ARTWORK", nil, -7)
     hover:SetAllPoints()
     hover:SetAtlas("groupfinder-highlightbar-green")
@@ -876,7 +846,6 @@ local function SkinFriendButton(button)
     button:HookScript("OnEnter", function() hover:Show(); hoverFill:Show() end)
     button:HookScript("OnLeave", function() hover:Hide(); hoverFill:Hide() end)
 
-    -- Apply font to friend row text
     local nameText = button.name or button.Name
     ApplyFont(nameText, 12)
     local infoText = button.info or button.Info
@@ -895,21 +864,17 @@ local function SkinFriendButton(button)
     end
 end
 
--- Post-update skinning for friend buttons. Called via hooksecurefunc on
--- FriendsFrame_UpdateFriendButton. Purely cosmetic -- never calls
--- C_BattleNet or C_FriendList APIs. Reads from pre-populated _friendCache.
+-- hooksecurefunc on FriendsFrame_UpdateFriendButton. Purely cosmetic: never
+-- calls C_BattleNet/C_FriendList, reads only the pre-populated _friendCache.
 local function PostUpdateFriendButton(button)
     if not FriendsFrame:IsShown() then return end
     if not EBS.db or not EBS.db.profile.friends.enabled then return end
     if button.buttonType == FRIENDS_BUTTON_TYPE_DIVIDER then return end
     if not button.buttonType then return end
 
-    -- Structural skinning (one-time per button, guarded by FFD flag)
     SkinFriendButton(button)
 
-    -- Selection highlight: use Blizzard's native selection (not stripped)
-
-    -- Hide Blizzard elements
+    -- Hide Blizzard elements we replace (its selection highlight stays).
     local fav = button.Favorite
     if fav then fav:SetAlpha(0) end
     local statusIcon = button.statusIcon or button.StatusIcon
@@ -947,7 +912,6 @@ local function PostUpdateFriendButton(button)
 
     local bnetInfo, wowInfo = GetCachedFriendInfo(button)
 
-    -- Re-anchor info text below name
     local nameText = button.name or button.Name
     local infoText = button.info or button.Info
     if infoText and nameText then
@@ -955,15 +919,12 @@ local function PostUpdateFriendButton(button)
         infoText:SetPoint("TOPLEFT", nameText, "BOTTOMLEFT", 0, -3)
     end
 
-    -- Append friend note (stripped of legacy EUI group tag).
-    -- Save Blizzard's original text first to avoid double-appending on re-skin.
+    -- Append friend note (legacy EUI group tag stripped); Blizzard's original text is cached first so a re-skin can't double-append.
     if infoText and button.buttonType and button.id then
-        -- Capture original text before we modify it (only on first stamp)
         local origInfo = GetFFD(button)._origInfo
         if not origInfo then
             origInfo = infoText:GetText() or ""
-            -- Strip any previously-appended note suffix to avoid stacking
-            -- (button recycling can leave our old text in infoText)
+            -- Button recycling can leave our own suffix behind; strip it.
             origInfo = origInfo:match("^(.-)  |cff888888|") or origInfo
             GetFFD(button)._origInfo = origInfo
         end
@@ -990,7 +951,7 @@ local function PostUpdateFriendButton(button)
         end
     end
 
-    -- Status orb (online/away/busy indicator)
+    -- Status orb. AFK/DND can be secret values, so gate every read.
     local isOnline, isAFK, isDND = false, false, false
     local _isv = issecretvalue
     if bnetInfo then
@@ -1043,7 +1004,7 @@ local function PostUpdateFriendButton(button)
     UpdateNameColor(button, bnetInfo, wowInfo)
     UpdateFactionOverlay(button, bnetInfo, wowInfo)
 
-    -- Region icon
+    -- Region icon: shown only when the friend's region differs from ours.
     local fp2 = EBS.db and EBS.db.profile and EBS.db.profile.friends
     if fp2 and fp2.showRegionIcons == false then
         if GetFFD(button).regionBtn then GetFFD(button).regionBtn:Hide() end
@@ -1096,7 +1057,6 @@ local function PostUpdateFriendButton(button)
     end
 end
 
--- Process all visible friend buttons (safety net for initial show)
 local function ProcessFriendButtons()
     if LegacyFriendsRetired() then return end
     local scrollBox = FriendsListFrame and FriendsListFrame.ScrollBox
@@ -1112,7 +1072,6 @@ local function ProcessFriendButtons()
 end
 
 
--- Skin a single ScrollBox+ScrollBar pair with thin EUI track
 local function SkinOneScrollbar(scrollBox, scrollBar)
     if not scrollBox or not scrollBar then return end
     if GetFFD(scrollBox).track then return end
@@ -1262,11 +1221,6 @@ local function SkinOneScrollbar(scrollBox, scrollBar)
     C_Timer.After(0.1, UpdateScrollThumb)
 end
 
--- Polling scrollbar for the friends list. Does NOT register callbacks or
--- SetScript on Blizzard's ScrollBox/Bar. Instead uses OnUpdate to poll
--- scroll position (only while FriendsFrame is shown).
-
--- Skin a bottom-area button (Add Friend, Send Message, etc.)
 local function SkinBottomButton(btn)
     if not btn or GetFFD(btn).btnSkinned then return end
     GetFFD(btn).btnSkinned = true
@@ -1309,7 +1263,6 @@ local function SkinBottomButton(btn)
     end)
 end
 
--- Skin known buttons by name
 local KNOWN_BUTTONS = {
     "FriendsFrameAddFriendButton",
     "FriendsFrameSendMessageButton",
@@ -1318,7 +1271,6 @@ local KNOWN_BUTTONS = {
     "WhoFrameGroupInviteButton",
 }
 
--- Apply accent coloring to bottom buttons
 local function UpdateBottomButtonAccent()
     local fp = EBS.db and EBS.db.profile and EBS.db.profile.friends
     if not fp then return end
@@ -1344,7 +1296,7 @@ local function UpdateBottomButtonAccent()
         end
     end
 
-    -- Send Message button: text + separate border overlay (skinned outside SkinBottomButton)
+    -- Send Message: text plus a border overlay skinned outside SkinBottomButton.
     local msgBtn = _G.FriendsFrameSendMessageButton
     if msgBtn then
         local text = msgBtn:GetFontString()
@@ -1362,7 +1314,6 @@ local function UpdateBottomButtonAccent()
     end
 end
 
--- Frame background color
 local FRAME_BG_R, FRAME_BG_G, FRAME_BG_B = 0.03, 0.045, 0.05
 
 -------------------------------------------------------------------------------
@@ -1376,7 +1327,6 @@ local function SkinFriendsFrame()
     local p = EBS.db.profile.friends
     local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("friends") or STANDARD_TEXT_FONT
 
-    -- Hide Blizzard decorations
     if frame.NineSlice then frame.NineSlice:Hide() end
     if frame.Bg then frame.Bg:Hide() end
     if frame.TitleBg then frame.TitleBg:Hide() end
@@ -1399,7 +1349,6 @@ local function SkinFriendsFrame()
         if frame.Inset.Bg then frame.Inset.Bg:Hide() end
     end
 
-    -- Resize frame
     if not GetFFD(frame).sizeSet then
         GetFFD(frame).sizeSet = true
         local origW = frame:GetWidth()
@@ -1417,11 +1366,9 @@ local function SkinFriendsFrame()
             frame:SetWidth(origW - 40)
             frame:SetHeight(origH + EXTRA_H)
             FriendsListFrame:SetHeight(origListH + EXTRA_H)
-            -- Reposition Blizzard's ScrollBox to our list pane area
             FriendsListFrame.ScrollBox:ClearAllPoints()
             FriendsListFrame.ScrollBox:SetPoint("TOPLEFT", frame, "TOPLEFT", LIST_LEFT, LIST_TOP)
             FriendsListFrame.ScrollBox:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", LIST_RIGHT, LIST_BOTTOM)
-            -- Match other sub-tab content frames
             local function FitToListPane(f)
                 if not f then return end
                 f:ClearAllPoints()
@@ -1505,20 +1452,18 @@ local function SkinFriendsFrame()
         ApplySize()
     end
 
-    -- Dark background
     GetFFD(frame).bg = frame:CreateTexture(nil, "BACKGROUND", nil, -8)
     GetFFD(frame).bg:SetColorTexture(FRAME_BG_R, FRAME_BG_G, FRAME_BG_B)
     GetFFD(frame).bg:SetAllPoints()
     GetFFD(frame).bg:SetAlpha(1)
 
-    -- Pixel border
     do
         local r, g, b, a = GetBorderColor(p)
         local borderAlpha = (p.showBorder ~= false) and a or 0
         PP.CreateBorder(frame, r, g, b, borderAlpha, p.borderSize or 1, "OVERLAY", 7)
     end
 
-    -- Reparent IgnoreListWindow
+    -- Float these above the resized panel instead of clipping inside it.
     if frame.IgnoreListWindow then
         frame.IgnoreListWindow:SetParent(UIParent)
         frame.IgnoreListWindow:SetFrameStrata("DIALOG")
@@ -1533,7 +1478,6 @@ local function SkinFriendsFrame()
         FriendsTooltip:SetFrameStrata("TOOLTIP")
     end
 
-    -- Tab bar background
     local firstTab = _G.FriendsFrameTab1
     if firstTab then
         GetFFD(frame).tabBarBg = frame:CreateTexture(nil, "BACKGROUND", nil, -7)
@@ -1661,7 +1605,6 @@ local function SkinFriendsFrame()
         if GetFFD(frame).broadcastBtn then GetFFD(frame).broadcastBtn:SetShown(isContacts) end
         if GetFFD(frame).titleBtn then GetFFD(frame).titleBtn:Show() end
         if GetFFD(frame).titleDiv then GetFFD(frame).titleDiv:Show() end
-        -- Sync scrollbar visibility
         local function SetTrackVisSB(sb, vis)
             if sb and GetFFD(sb).track then
                 GetFFD(sb).track:SetShown(vis)
@@ -1677,7 +1620,7 @@ local function SkinFriendsFrame()
 
     GetFFD(frame).updateCustomTabs = UpdateCustomTabs
 
-    -- Detect tab changes
+    -- Tab changes are detected from each content frame's OnShow.
     local tabFrames = {
         { _G.FriendsListFrame, 1 },
         { _G.WhoFrame,         2 },
@@ -1690,7 +1633,7 @@ local function SkinFriendsFrame()
             sf:HookScript("OnShow", function()
                 UpdateCustomTabs(tabIdx)
                 if tabIdx == 1 then
-                    -- Skin buttons immediately on tab switch (user-initiated, safe)
+                    -- Tab switch is user-initiated, so skinning now is safe.
                     RefreshFriendCache()
                     ProcessFriendButtons()
                 end
@@ -1727,7 +1670,7 @@ local function SkinFriendsFrame()
         if who then HideTrackSB(who.ScrollBox or (who.List and who.List.ScrollBox)) end
     end)
 
-    -- Title text
+    -- Blizzard's title is hidden and replaced with a clickable BattleTag label.
     if frame.TitleContainer then
         local blizTitle = frame.TitleContainer.TitleText or frame.TitleContainer:GetFontString()
         if blizTitle then blizTitle:SetAlpha(0) end
@@ -1761,7 +1704,6 @@ local function SkinFriendsFrame()
         titleLabel:SetTextColor(1, 1, 1, 0.75)
     end)
 
-    -- Copy popup for BattleTag
     local copyBackdrop, copyPopup
     local function HideCopyPopup()
         if copyPopup then copyPopup:Hide() end
@@ -1840,7 +1782,6 @@ local function SkinFriendsFrame()
         ShowCopyPopup(titleText, self)
     end)
 
-    -- Divider under title
     GetFFD(frame).titleDiv = frame:CreateTexture(nil, "OVERLAY", nil, 1)
     GetFFD(frame).titleDiv:SetColorTexture(1, 1, 1, 0.06)
     GetFFD(frame).titleDiv:SetHeight(1)
@@ -1880,7 +1821,7 @@ local function SkinFriendsFrame()
         bnetFrame:SetHeight(1)
     end
 
-    -- Player status helper
+    -- UnitIsDND/UnitIsAFK can return secret values; gate both reads.
     local function GetPlayerStatusName()
         local dnd = UnitIsDND("player")
         if not issecretvalue or not issecretvalue(dnd) then
@@ -1993,8 +1934,7 @@ local function SkinFriendsFrame()
                 if isSelected then return end
                 local tabName = info.name or ""
                 if strfind(tabName, "Recruit") then
-                    -- Let Blizzard show the full RAF page natively.
-                    -- Re-enable mouse momentarily so the click registers.
+                    -- Let Blizzard show the full RAF page natively; its tab is mouse-enabled just long enough for the click to register.
                     if bliz then
                         bliz:EnableMouse(true)
                         bliz:Click()
@@ -2065,7 +2005,6 @@ local function SkinFriendsFrame()
             customSubTabs[idx] = ct
         end
 
-        -- Status orb
         local lastSubTab = customSubTabs[#customSubTabs]
         if lastSubTab then
             local orbBtn = CreateFrame("Button", nil, frame)
@@ -2123,9 +2062,7 @@ local function SkinFriendsFrame()
                 if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
             end)
 
-            -- Status changes only repaint the orb, so the listener runs only
-            -- while the panel is shown; the Show hook repaints once on open to
-            -- catch flag changes made while it was closed.
+            -- Listener runs only while the panel is shown; the Show hook repaints once on open to catch flags changed while closed.
             local statusEvt = CreateFrame("Frame")
             statusEvt:SetScript("OnEvent", function() UpdatePlayerOrb() end)
             if frame:IsShown() then
@@ -2136,7 +2073,6 @@ local function SkinFriendsFrame()
 
             GetFFD(frame).statusOrb = orbBtn
 
-            -- Broadcast message button
             local bcBtn = CreateFrame("Button", nil, frame)
             bcBtn:SetSize(20, 20)
             bcBtn:SetFrameLevel(orbBtn:GetFrameLevel())
@@ -2175,8 +2111,7 @@ local function SkinFriendsFrame()
     end
     SkinSubTabs()
 
-    -- Skin scrollbars. Do NOT register callbacks or setScript
-    -- on Blizzard's Scrollbar. This was the taint source
+    -- Scrollbars: NEVER RegisterCallback/SetScript on Blizzard's ScrollBar (the taint source) -- textures and points only.
     do
         local bar = FriendsListFrame and FriendsListFrame.ScrollBar
         if bar then
@@ -2185,17 +2120,14 @@ local function SkinFriendsFrame()
             -- Collapse arrows to zero height so track fills full length
             if bar.Back then bar.Back:SetAlpha(0); bar.Back:SetSize(1, 0.001) end
             if bar.Forward then bar.Forward:SetAlpha(0); bar.Forward:SetSize(1, 0.001) end
-            -- Skin track
             local track = bar.Track
             if track then
                 track:DisableDrawLayer("ARTWORK")
                 track:DisableDrawLayer("BACKGROUND")
-                -- Expand track to fill space left by collapsed arrows
                 track:ClearAllPoints()
                 track:SetPoint("TOPLEFT", bar, "TOPLEFT", 0, 0)
                 track:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", 0, 0)
             end
-            -- Skin thumb: thin 3px bar
             local thumb = bar.GetThumb and bar:GetThumb()
             if thumb then
                 thumb:DisableDrawLayer("ARTWORK")
@@ -2207,13 +2139,11 @@ local function SkinFriendsFrame()
                 thumbTex:SetPoint("BOTTOM", thumb, "BOTTOM", 0, 0)
                 thumbTex:SetPoint("RIGHT", thumb, "RIGHT", 0, 0)
             end
-            -- Narrow the scrollbar, shift left 5px and up 2px
             bar:SetWidth(5)
             local p1, rel, p2, ox, oy = bar:GetPoint(1)
             if p1 then
                 bar:SetPoint(p1, rel, p2, (ox or 0) - 6, (oy or 0) + 4)
             end
-            -- Reduced alpha, full on hover
             bar:SetAlpha(0.6)
             bar:HookScript("OnEnter", function() bar:SetAlpha(0.95) end)
             bar:HookScript("OnLeave", function() bar:SetAlpha(0.6) end)
@@ -2251,7 +2181,6 @@ local function SkinFriendsFrame()
         sPh:SetPoint("LEFT", search, "LEFT", 6, 0)
         sPh:SetText("Invite Friend...")
 
-        -- Clear button
         local clearBtn = CreateFrame("Button", nil, search)
         clearBtn:SetSize(14, 14)
         clearBtn:SetPoint("RIGHT", search, "RIGHT", -4, 0)
@@ -2278,7 +2207,6 @@ local function SkinFriendsFrame()
             end)
         end)
 
-        -- Dropdown results frame
         local dropdown = CreateFrame("Frame", nil, frame)
         dropdown:SetPoint("TOPLEFT", search, "BOTTOMLEFT", 0, -2)
         dropdown:SetPoint("TOPRIGHT", search, "BOTTOMRIGHT", 0, -2)
@@ -2373,7 +2301,6 @@ local function SkinFriendsFrame()
             end)
         end
 
-        -- Result row pool
         local ROW_H = 24
         local MAX_RESULTS = 8
         local resultRows = {}
@@ -2410,7 +2337,6 @@ local function SkinFriendsFrame()
                 local targetId = row._matchId
                 local cached = row._cached
 
-                -- Invite to group
                 if cached and targetType == FRIENDS_BUTTON_TYPE_BNET then
                     if cached.gameAccountInfo and cached.gameAccountInfo.isOnline then
                         local charName = cached.gameAccountInfo.characterName
@@ -2436,11 +2362,9 @@ local function SkinFriendsFrame()
         local function UpdateDropdown(term)
             if term == "" then dropdown:Hide(); return end
 
-            -- Search through cache for matches
             local matches = {}
             for key, info in pairs(_friendCache) do
                 if key <= _FC_WOW_OFFSET then
-                    -- BNet friend
                     local btag = (info.battleTag or ""):lower()
                     local acctName = (info.accountName or ""):lower()
                     local charName = ""
@@ -2469,7 +2393,6 @@ local function SkinFriendsFrame()
                         }
                     end
                 else
-                    -- WoW friend
                     local wowId = key - _FC_WOW_OFFSET
                     local name = (info.name or ""):lower()
                     if strfind(name, term, 1, true) then
@@ -2489,13 +2412,11 @@ local function SkinFriendsFrame()
 
             if #matches == 0 then dropdown:Hide(); return end
 
-            -- Sort: online first, then alpha
             table.sort(matches, function(a, b)
                 if a.online ~= b.online then return a.online end
                 return a.sortName < b.sortName
             end)
 
-            -- Find DataProvider index for each match
             local sb = FriendsListFrame and FriendsListFrame.ScrollBox
             local dp = sb and sb:GetDataProvider()
 
@@ -2536,7 +2457,6 @@ local function SkinFriendsFrame()
                 else
                     row._cached = _friendCache[m.id + _FC_WOW_OFFSET]
                 end
-                -- Find index in DataProvider
                 row._dpIndex = nil
                 if dp then
                     local idx = 0
@@ -2551,7 +2471,6 @@ local function SkinFriendsFrame()
                 row:Show()
             end
 
-            -- Hide unused rows
             for i = shown + 1, #resultRows do
                 resultRows[i]:Hide()
             end
@@ -2576,14 +2495,10 @@ local function SkinFriendsFrame()
 
         GetFFD(frame).searchBox = search
         GetFFD(frame).searchDropdown = dropdown
-    end -- if false
+    end
 
     ---------------------------------------------------------------------------
-    --  Button skinning: hook Blizzard's per-button update so we re-apply
-    --  class colors immediately after Blizzard resets them.  Originally
-    --  avoided (blamed for BNet whisper taint), but the real taint source
-    --  was frame property writes -- fixed in the FFD refactor (session 58).
-    --  This hook only reads button data and calls SetTextColor (safe).
+    --  Re-apply class colors after Blizzard resets them; read-only, NEVER write onto a button (taint).
     ---------------------------------------------------------------------------
     if FriendsFrame_UpdateFriendButton then
         hooksecurefunc("FriendsFrame_UpdateFriendButton", function(button)
@@ -2594,9 +2509,7 @@ local function SkinFriendsFrame()
         end)
     end
 
-    -- Scroll position poller: detects scroll changes (drag, keyboard, etc.)
-    -- without touching Blizzard's ScrollBar/ScrollBox at all. Just reads
-    -- GetScrollPercentage and debounces ProcessFriendButtons.
+    -- Scroll poller catches drag/keyboard scroll without touching Blizzard's ScrollBar/ScrollBox; runs only while the panel is shown (Show/Hide hooks).
     do
         local scrollPoller = CreateFrame("Frame", nil, frame)
         scrollPoller:Hide()
@@ -2623,7 +2536,6 @@ local function SkinFriendsFrame()
         if frame:IsShown() then scrollPoller:Show() end
     end
 
-    -- Sync tab labels with Blizzard's tab text
     local function SyncFriendsTabLabels()
         for i = 1, (FriendsFrame and FriendsFrame.numTabs) or 4 do
             local tab = _G["FriendsFrameTab" .. i]
@@ -2638,8 +2550,7 @@ local function SkinFriendsFrame()
         end
     end
 
-    -- Deferred skinning: sets a dirty flag, processed on next frame via OnUpdate.
-    -- This ensures we NEVER run addon code inside Blizzard's secure dispatch.
+    -- Dirty flag drains next frame so addon code never runs inside Blizzard's secure dispatch; driver frame stays hidden while clean.
     local _skinDirty = false
     local skinDriver = CreateFrame("Frame")
     skinDriver:Hide()
@@ -2657,11 +2568,10 @@ local function SkinFriendsFrame()
         end
     end
 
-    -- Friend events: refresh cache, mark dirty for deferred restyle
     local friendsEventFrame = CreateFrame("Frame")
     friendsEventFrame:SetScript("OnEvent", function(_, event)
         RefreshFriendCache()
-        -- Clear stamps so buttons get restyled with fresh data
+        -- Clear stamps so buttons restyle against the fresh data.
         local sb = FriendsListFrame and FriendsListFrame.ScrollBox
         if sb then
             for _, btn in sb:EnumerateFrames() do
@@ -2690,10 +2600,8 @@ local function SkinFriendsFrame()
     end
     if FriendsFrame:IsShown() then RegisterFriendsEvents() end
 
-    -- Auto-accept group invites from friends
+    -- Auto-accept group invites from friends; GROUP_ROSTER_UPDATE is armed only between an auto-accept and its popup cleanup.
     local _autoAcceptHideStatic = false
-    -- GROUP_ROSTER_UPDATE is armed only between an auto-accept and its popup
-    -- cleanup; the branch below never did anything outside that window.
     local autoAcceptFrame = CreateFrame("Frame")
     autoAcceptFrame:RegisterEvent("PARTY_INVITE_REQUEST")
     autoAcceptFrame:SetScript("OnEvent", function(self, event, _, _, _, _, _, _, inviterGUID)
@@ -2726,7 +2634,7 @@ local function SkinFriendsFrame()
         end
     end)
 
-    -- Show/Hide hooks
+    -- Events live only while the panel is open.
     hooksecurefunc(frame, "Hide", function()
         UnregisterFriendsEvents()
         local fd = GetFFD(frame)
@@ -3001,9 +2909,7 @@ local function SkinFriendsFrame()
         end
     end
 
-    -- Friends list area: border + background via our own frame.
-    -- NEVER reference FriendsListFrame.ScrollBox (even as anchor) -- any
-    -- interaction with Blizzard's ScrollBox taints BNet whisper processing.
+    -- Border/bg live on frames we own; NEVER reference FriendsListFrame.ScrollBox, even as an anchor -- it taints BNet whispers.
     if not GetFFD(frame).listOverlay then
         local overlay = CreateFrame("Frame", nil, frame)
         overlay:SetPoint("TOPLEFT", frame, "TOPLEFT", 15, -92)
@@ -3022,7 +2928,7 @@ local function SkinFriendsFrame()
         GetFFD(frame).listBdr = bdr
     end
 
-    -- Bottom buttons: strip + font + reposition (anchored to frame, not ScrollBox)
+    -- Bottom buttons: anchored to the frame, never to the ScrollBox.
     SkinRaidTab()
     do
         local BTN_H = 22
@@ -3049,7 +2955,7 @@ local function SkinFriendsFrame()
             local BTN_GAP = 10
             local btnY = -BTN_H - BTN_GAP + 10
 
-            -- Fake border overlays (our own frames, border only, no background)
+            -- Border-only overlays on frames we own (no background).
             local addBdr = CreateFrame("Frame", nil, frame)
             addBdr:SetFrameLevel(frame:GetFrameLevel() + 3)
             PP.CreateBorder(addBdr, 1, 1, 1, 0.4, 1, "OVERLAY", 7)
@@ -3075,7 +2981,6 @@ local function SkinFriendsFrame()
                 msgBtn:ClearAllPoints()
                 msgBtn:SetSize(btnW, BTN_H)
                 msgBtn:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -15, 35 + btnY)
-                -- Position border overlays to match
                 addBdr:ClearAllPoints()
                 addBdr:SetAllPoints(addBtn)
                 msgBdr:ClearAllPoints()
@@ -3086,7 +2991,6 @@ local function SkinFriendsFrame()
         end
     end
 
-    -- Position custom tabs below the frame
     local TAB_H = 26
     local numCustomTabs = #customTabs
     if numCustomTabs > 0 then
@@ -3150,7 +3054,6 @@ local function SkinFriendsFrame()
         UpdateCustomTabs()
     end
 
-    -- Close button
     local closeBtn = frame.CloseButton or _G.FriendsFrameCloseButton
     if closeBtn then
         StripTextures(closeBtn)
@@ -3188,7 +3091,6 @@ local function ApplyFriends()
     if not FriendsFrame then return end
     SkinFriendsFrame()
 
-    -- Update border size and colors
     local r, g, b, a = GetBorderColor(p)
     local bs = p.borderSize or 1
     if bs > 0 then
@@ -3205,7 +3107,6 @@ local function ApplyFriends()
         GetFFD(FriendsFrame).tabBarBg:SetAlpha(1)
     end
 
-    -- Update tile backgrounds on visible buttons
     local scrollBox = FriendsListFrame and FriendsListFrame.ScrollBox
     if scrollBox then
         for _, button in scrollBox:EnumerateFrames() do
@@ -3215,7 +3116,6 @@ local function ApplyFriends()
         end
     end
 
-    -- Apply accent colors
     UpdateBottomButtonAccent()
     UpdateRaidTabButtonAccent()
     if GetFFD(FriendsFrame).updateCustomTabs then GetFFD(FriendsFrame).updateCustomTabs() end
@@ -3226,9 +3126,7 @@ local function ApplyFriends()
     end
 end
 
--------------------------------------------------------------------------------
---  Visibility
--------------------------------------------------------------------------------
+-- Visibility
 local function UpdateFriendsVisibility()
     if LegacyFriendsRetired() then return end
     local p = EBS.db and EBS.db.profile and EBS.db.profile.friends
@@ -3242,9 +3140,7 @@ local function UpdateFriendsVisibility()
     end
 end
 
--------------------------------------------------------------------------------
---  Apply All
--------------------------------------------------------------------------------
+-- Apply All
 ApplyAll = function()
     ApplyFriends()
     if EllesmereUI.RequestVisibilityUpdate then
@@ -3263,12 +3159,9 @@ function EBS:OnInitialize()
     _G._EFR_ApplyFriends         = ApplyFriends
     _G._EFR_ProcessFriendButtons = ProcessFriendButtons
 
-    -- Register the visibility updater + mouseover target only while the
-    -- panel is shown. Both registries invoke our closures on this addon's
-    -- time (the dispatcher fan-out on every visibility event, the shared
-    -- mouseover scan every 0.15s), and with the panel closed both calls are
-    -- provable no-ops: the updater early-outs on IsShown and the proxy has
-    -- no rect. A closed friends list must cost nothing.
+    -- Visibility updater + mouseover target register only while the panel is shown;
+    -- both bill this addon (dispatcher fan-out per event, mouseover scan every 0.15s)
+    -- but are true no-ops closed: updater early-outs on IsShown, proxy has no rect.
     local visProxy
     if EllesmereUI.RegisterMouseoverTarget then
         visProxy = CreateFrame("Frame")
@@ -3308,8 +3201,7 @@ function EBS:OnInitialize()
         hooksecurefunc(FriendsFrame, "Hide", UnregisterVis)
         if FriendsFrame:IsShown() then RegisterVis() end
     else
-        -- Frame not created yet (12.1 load-on-demand Social UI): keep the
-        -- always-registered behavior; both closures early-out safely there.
+        -- Frame not created yet (load-on-demand): stay registered; closures early-out safely until it exists.
         RegisterVis()
     end
 end
@@ -3317,7 +3209,7 @@ end
 function EBS:OnEnable()
     ApplyAll()
 
-    -- Live accent color update: re-apply friends skin when accent changes
+    -- Re-apply the skin when the accent color changes.
     if EllesmereUI._accentElements then
         EllesmereUI._accentElements[#EllesmereUI._accentElements + 1] = {
             type = "callback",
@@ -3336,9 +3228,7 @@ function EBS:OnEnable()
         C_Timer.After(0, ApplyAll)
     end)
 
-    -- Hook FriendsFrame for load-on-demand. Skipped entirely once the Social UI
-    -- is the active friends window: there is nothing to hook that the player
-    -- will ever see, and the hook only exists to drive the legacy skin.
+    -- Load-on-demand hook for FriendsFrame; skipped once the Social UI owns the window (this only drives the legacy skin).
     if EBS.db.profile.friends.enabled and not LegacyFriendsRetired() then
         if not FriendsFrame then
             local hookFrame = CreateFrame("Frame")

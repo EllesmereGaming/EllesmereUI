@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EUI_ResourceBars_Options.lua
 --  Registers the Resource Bars module with EllesmereUI
@@ -10,13 +11,12 @@ local function DB()
 	return db and db.profile
 end
 
--- A threshold card is shadowed when an earlier card with the same talent
--- gate covers an overlapping spec scope - a duplicate the resolver can never
--- reach (first match wins). Cards that target another spec, or a talent you
--- aren't running right now, are not shadowed.
--- Spec-overlap mirrors the popup's SpecsConflict (a concrete spec
--- shared, or both "All Specs"); an All-Specs card and a spec-specific card do
--- not shadow each other since the resolver prioritises the specific one.
+-- A threshold card is shadowed when an earlier card with the same talent gate covers an
+-- overlapping spec scope - a duplicate the resolver can never reach (first match wins).
+-- Cards that target another spec, or a talent you aren't running right now, are not
+-- shadowed. Spec-overlap mirrors the popup's SpecsConflict (a concrete spec shared, or
+-- both "All Specs"); an All-Specs card and a spec-specific card do not shadow each
+-- other since the resolver prioritises the specific one.
 ns._ERB_IsThresholdCardShadowed = function(entries, idx)
     local cur = entries and entries[idx]
     if not cur or not cur.specIDs then return false end
@@ -40,10 +40,9 @@ ns._ERB_IsThresholdCardShadowed = function(entries, idx)
     return false
 end
 
--- The unlock-mode open/close cycle leaves these overlays with an
--- undefined rect, so the frame and its regions draw nothing even
--- though it still exists. Capture the overlay's own anchors + height
--- at build time, then on show re-assert them one frame later
+-- The unlock-mode open/close cycle leaves these overlays with an undefined rect, so the
+-- frame and its regions draw nothing even though it still exists. Capture the overlay's
+-- own anchors + height at build time, then on show re-assert them one frame later
 ns.ERB_OverlayHealOnShow = function(ov, obg, olbl, bgAlpha)
 	local txt = olbl:GetText() or ""
 	local pts = {}
@@ -149,10 +148,9 @@ ns.IsBarTypeSecondary = function()
 	return false
 end
 
--- Two cards collide in the resolver only if they share a spec
--- context: a common non-zero specID, OR both are All Specs (0).
--- (A spec-specific card and an All-Specs card sit in different
--- resolver tiers, so they never collide.)
+-- Two cards collide in the resolver only if they share a spec context: a common
+-- non-zero specID, OR both are All Specs (0). (A spec-specific card and an All-Specs
+-- card sit in different resolver tiers, so they never collide.)
 ns.SpecsConflict = function(aIDs, bIDs)
 	if not aIDs or not bIDs then return false end
 	local aHasAll, aSet = false, {}

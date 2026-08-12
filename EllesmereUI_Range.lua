@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUI_Range.lua
 --  Shared range-check engine for the suite's three range consumers:
@@ -164,12 +165,11 @@ local function ItemEntryInRange(entry, unit)
     return res
 end
 
--- In combat (and in protected instances, where protected-function
--- restrictions persist between pulls) C_Item.IsItemInRange is a PROTECTED
--- call against units the player cannot attack -- calling it there is an
--- ADDON_ACTION_BLOCKED, not a secret result, so it must be gated up front.
--- Hostile checks stay legal. Fails toward skipping the walk: a restricted
--- query degrades to nil (no display) instead of a blocked action.
+-- In combat (and in protected instances, where protected-function restrictions persist
+-- between pulls) C_Item.IsItemInRange is a PROTECTED call against units the player
+-- cannot attack -- calling it there is an ADDON_ACTION_BLOCKED, not a secret result, so
+-- it must be gated up front. Hostile checks stay legal. Fails toward skipping the walk:
+-- a restricted query degrades to nil (no display) instead of a blocked action.
 local function ItemChecksAllowed(unit)
     if not (InCombatLockdown()
         or (EllesmereUI.InProtectedInstance and EllesmereUI.InProtectedInstance())) then

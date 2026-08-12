@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 --------------------------------------------------------------------------------
 --  EllesmereUICdmTbbDecimals.lua
 --  12.1-only engine-driven decimal duration text for Tracking Bars.
@@ -36,10 +37,6 @@
 --  mirror, still accurate) and the rebuild runs at regen.
 --------------------------------------------------------------------------------
 
--- 12.1 ONLY: on a 12.0 client this whole file is inert. The tick and build
--- integration sites nil-check the ns hooks, so 12.0 pays nothing.
-if not (EllesmereUI and EllesmereUI.IS_121) then return end
-
 local _, ns = ...
 
 local AK -- EllesmereUI.AuraKit, resolved at first sync
@@ -69,12 +66,11 @@ local function GetDecimalFormatter(thr)
     local Nearest = Enum.NumericRuleFormatRounding.Nearest
     local Up      = Enum.NumericRuleFormatRounding.Up
     local f = C_StringUtil.CreateNumericRuleFormatter()
-    -- Shape of the field-proven threshold-text formatter: tenths Nearest
-    -- below the threshold, whole seconds Up to the minute, then m:ss/h/d
-    -- with boundaries offset just above the unit edge so UP-rounded input
-    -- never flashes "60". step/rounding live at the BREAKPOINT level;
-    -- components carry only the divisor. Off-shape tables get silently
-    -- rejected or default-rounded by the validator -- do not restyle.
+    -- Shape of the field-proven threshold-text formatter: tenths Nearest below the
+    -- threshold, whole seconds Up to the minute, then m:ss/h/d with boundaries offset
+    -- just above the unit edge so UP-rounded input never flashes "60". step/rounding
+    -- live at the BREAKPOINT level; components carry only the divisor. Off-shape tables
+    -- get silently rejected or default-rounded by the validator -- do not restyle.
     local points = {
         { threshold = 0, format = "%.1f", rounding = Nearest },
     }
@@ -127,12 +123,11 @@ local function AddCleanID(include, id)
     AddVariants(include, id)
 end
 
--- Reconcile a config's include set against Blizzard's cooldown info -- the
--- SAME source of truth the tick's frame matching trusts (MatchesSID). The
--- aura that actually appears often carries an id that exists ONLY in
--- linkedSpellIDs (variant chains: rituals, Eclipse-style pairs), never in
--- the stored config ids, and without it the slot filter can never match.
--- Sync-time only (rebuilds), never per tick.
+-- Reconcile a config's include set against Blizzard's cooldown info -- the SAME source
+-- of truth the tick's frame matching trusts (MatchesSID). The aura that actually
+-- appears often carries an id that exists ONLY in linkedSpellIDs (variant chains:
+-- rituals, Eclipse-style pairs), never in the stored config ids, and without it the
+-- slot filter can never match. Sync-time only (rebuilds), never per tick.
 local function AddCooldownInfoIDs(include, cfg)
     local frame = ns.FindTBBChild and ns.FindTBBChild(cfg)
     if not frame then return end
@@ -194,13 +189,12 @@ end
 -- Self-timed presets (lust/potions/Time Spiral) are excluded -- they already
 -- render tenths from their own clean, never-secret countdown.
 --
--- Two passes. Pass 1 collects each bar's SAVED identity (stored ids +
--- override/base variants) and claims those ids for that bar. Pass 2 adds the
--- cooldownInfo enrichment, but an id claimed by a DIFFERENT decimal bar's
--- saved config never leaks in: spell families share one cooldownInfo
--- (ritual + art chains list each other in linkedSpellIDs), and family-wide
--- filters on two bars made the engine bind the live aura to whichever slot
--- it liked -- the losing bar showed no decimals at all.
+-- Two passes. Pass 1 collects each bar's SAVED identity (stored ids + override/base
+-- variants) and claims those ids for that bar. Pass 2 adds the cooldownInfo enrichment,
+-- but an id claimed by a DIFFERENT decimal bar's saved config never leaks in: spell
+-- families share one cooldownInfo (ritual + art chains list each other in
+-- linkedSpellIDs), and family-wide filters on two bars made the engine bind the live
+-- aura to whichever slot it liked -- the losing bar showed no decimals at all.
 local function CollectDesired()
     local tbb = ns.GetTrackedBuffBars and ns.GetTrackedBuffBars()
     local bars = tbb and tbb.bars
@@ -343,10 +337,9 @@ function ns.TBBDecimals_Sync()
                 if bar._tbbEngineFS and boundThr[want.index] ~= want.thr then
                     local fmt = GetDecimalFormatter(want.thr)
                     if fmt then
-                        -- Stamp only on success: SetDurationTextSafe never
-                        -- throws anymore, and a denied re-registration under
-                        -- restriction must stay unstamped so a later Sync
-                        -- retries it.
+                        -- Stamp only on success: SetDurationTextSafe never throws
+                        -- anymore, and a denied re-registration under restriction must
+                        -- stay unstamped so a later Sync retries it.
                         local ok = AK.SetDurationTextSafe(button, bar._tbbEngineFS,
                             AK.BuildDurationTextOpts(fmt, nil, 0.05))
                         if ok then boundThr[want.index] = want.thr end

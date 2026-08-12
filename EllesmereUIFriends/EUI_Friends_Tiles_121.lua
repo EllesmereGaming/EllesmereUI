@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EUI_Friends_Tiles_121.lua
 --  EllesmereUI tile styling for the 12.1 Social UI friends list.
@@ -21,8 +22,6 @@
 -------------------------------------------------------------------------------
 local ADDON_NAME = ...
 
-if not (EllesmereUI and EllesmereUI.IS_121) then return end
-
 local EG = EllesmereUI.ELLESMERE_GREEN
 
 -- External weak-keyed state. Never write custom keys onto a Blizzard frame.
@@ -39,11 +38,10 @@ end
 -- ROW HEIGHT IS BLIZZARD'S. DO NOT TRY TO CHANGE IT.
 --
 -- Their height is 70 (85 with larger text), from
--- FriendsListSocialCardMixin.GetActiveBaseHeight, captured by REFERENCE into
--- the view's extent registration at its OnLoad -- before this addon exists, so
--- replacing the mixin function afterwards cannot reach it. The only lever is
--- overwriting that stored registration, i.e. writing into view's own
--- TemplateRegistrations table.
+-- FriendsListSocialCardMixin.GetActiveBaseHeight, captured by REFERENCE into the view's
+-- extent registration at its OnLoad -- before this addon exists, so replacing the mixin
+-- function afterwards cannot reach it. The only lever is overwriting that stored
+-- registration, i.e. writing into view's own TemplateRegistrations table.
 --
 -- That write was TESTED and it TAINTS BNet whispers: the extent calculator is
 -- read during layout, layout builds the rows, and a row built from an execution
@@ -78,8 +76,7 @@ local TILE_PAINT = true
 -- square that spans the row height, so the text starts at rowHeight + a gutter.
 -- Resolved per paint from the row's live height.
 local TILE_TEXT_GAP  = 4
--- Three lines, each its own size: Battle.net name / character name + level /
--- location.
+-- Three lines, each its own size: Battle.net name / character name + level / location.
 local TILE_NAME_SIZE = 15
 local TILE_CHAR_SIZE = 12
 local TILE_INFO_SIZE = 12

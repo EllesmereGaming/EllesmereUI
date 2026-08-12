@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUIBags_Bank.lua
 --  Bank UI module - opens when interacting with a banker NPC
@@ -1200,16 +1201,15 @@ end
 -------------------------------------------------------------------------------
 --  TradeSkillMaster compatibility
 -------------------------------------------------------------------------------
--- TSM decides whether its Banking UI targets the character bank or the
--- warband bank by watching Blizzard's BankPanel, which EUI reparents to a
--- hidden frame, so TSM never sees bank/warbank switches made in the EUI
--- sidebar. TSM supports addon-provided bank frames through two globals
--- (TSM Core/Service/Banking/Core.lua): it calls Addon_GetBankType() to
--- read the active bank type, and hooksecurefunc's Addon_SetBankType at
--- init so it can re-check whenever the view changes. Both globals must
--- exist before TSM initializes; EUI loads first alphabetically. Cost when
--- TSM is absent is one comparison per RefreshBank. Guarded so another bag
--- addon that already implements the contract wins.
+-- TSM decides whether its Banking UI targets the character bank or the warband bank by
+-- watching Blizzard's BankPanel, which EUI reparents to a hidden frame, so TSM never
+-- sees bank/warbank switches made in the EUI sidebar. TSM supports addon-provided bank
+-- frames through two globals (TSM Core/Service/Banking/Core.lua): it calls
+-- Addon_GetBankType() to read the active bank type, and hooksecurefunc's
+-- Addon_SetBankType at init so it can re-check whenever the view changes. Both globals
+-- must exist before TSM initializes; EUI loads first alphabetically. Cost when TSM is
+-- absent is one comparison per RefreshBank. Guarded so another bag addon that already
+-- implements the contract wins.
 
 local _lastTSMBankType = nil
 
@@ -2457,11 +2457,10 @@ eventFrame:SetScript("OnEvent", function(_, event)
     end
 end)
 
--- Kill Blizzard bank frame: reparent to hidden frame only.
--- Do NOT call BankFrame:Hide() -- that fires BANKFRAME_CLOSED and kills
--- the bank interaction. Reparenting is invisible to the event system.
--- Do NOT use SetScript on BankFrame -- that taints it and breaks
--- PurchaseBankTab() and other secure bank operations.
+-- Kill Blizzard bank frame: reparent to hidden frame only. Do NOT call BankFrame:Hide()
+-- -- that fires BANKFRAME_CLOSED and kills the bank interaction. Reparenting is
+-- invisible to the event system. Do NOT use SetScript on BankFrame -- that taints it
+-- and breaks PurchaseBankTab() and other secure bank operations.
 do
     local hiddenParent = CreateFrame("Frame")
     hiddenParent:Hide()

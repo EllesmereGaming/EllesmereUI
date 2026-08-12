@@ -2,7 +2,8 @@
 
 EllesmereUI's options panel, unlock mode, and popups can be translated into any
 of the languages World of Warcraft supports. Translations are community-driven
-and live in plain Lua files under `Locales/`. Missing translations fall back to
+and live in plain Lua files inside the `EllesmereUILocales` addon (a
+LoadOnDemand sibling of the main addon). Missing translations fall back to
 English automatically, so a partial translation is completely fine and ships
 without breaking anything.
 
@@ -10,8 +11,9 @@ without breaking anything.
 
 - English **is** the key. There are no symbolic IDs: you translate
   `L["Enable"] = "..."`, not `L["OPTIONS_ENABLE"]`.
-- Each locale file builds only on the client whose language matches it. On every
-  other client it loads, returns immediately, and costs nothing.
+- English clients never load the `EllesmereUILocales` addon at all. On a
+  non-English client it loads at startup, and only the file whose language
+  matches builds entries; every other file returns immediately.
 - Any key you leave out (or any string not yet wrapped) renders in English.
 
 ## Add or improve a language
@@ -21,16 +23,17 @@ without breaking anything.
    `itIT` Italian, `ptBR` Portuguese (Brazil), `ruRU` Russian, `koKR` Korean,
    `zhCN` Chinese (Simplified), `zhTW` Chinese (Traditional).
 
-2. **Create `Locales/<code>.lua`** (copy `Locales/deDE.lua` as a starting point),
-   beginning with:
+2. **Create `EllesmereUILocales/<code>.lua`** (copy `EllesmereUILocales/deDE.lua`
+   as a starting point), beginning with:
    ```lua
    local L = EllesmereUI.RegisterLocale("frFR")   -- your code
    if not L then return end
    ```
 
-3. **Add a line in `EllesmereUI.toc`** next to the other locales:
+3. **Add a line in `EllesmereUILocales/EllesmereUILocales.toc`** next to the
+   other locales:
    ```
-   Locales\frFR.lua
+   frFR.lua
    ```
 
 4. **Translate the right-hand side only.** Keep the English key exactly as it is:
@@ -69,7 +72,7 @@ The block is saved to `EllesmereUIDB._localeDump` in
 `WTF\Account\<account>\SavedVariables\EllesmereUI.lua` (after a `/reload` or
 logout). Paste it into your locale file and fill in the translations.
 
-`Locales/_keys.txt` is a committed, static list of the literal keys (regenerated
+`EllesmereUILocales/_keys.txt` is a committed, static list of the literal keys (regenerated
 by `.tools/extract-locale-keys.sh`; CI keeps it current). It is a quick offline
 reference, but the in-game `/euiloc` harvester above is the complete source of
 truth because it also captures strings passed to `L()` as variables.

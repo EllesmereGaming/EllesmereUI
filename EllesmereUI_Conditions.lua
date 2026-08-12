@@ -1,3 +1,4 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUI_Conditions.lua
 --  Conditional Overrides engine: condition definitions, the active-group
@@ -99,10 +100,9 @@ function EllesmereUI.Conditions_GroupById(gid)
 end
 
 function EllesmereUI.Conditions_NewGroupId()
-    -- PERSISTED counter, never max+1: deleted groups' per-gid value maps can
-    -- survive on other groups' shared entries, and a reused id silently
-    -- inherited the dead group's overrides. The counter seeds from max+1
-    -- once (legacy stores) and only ever grows.
+    -- PERSISTED counter, never max+1: deleted groups' per-gid value maps can survive on
+    -- other groups' shared entries, and a reused id silently inherited the dead group's
+    -- overrides. The counter seeds from max+1 once (legacy stores) and only ever grows.
     local prof = GetProfileRoot()
     local groups = EllesmereUI.Conditions_GetGroups(true)
     local maxId = 0
@@ -171,13 +171,12 @@ local _appliedGid = nil        -- gid of the conditional group currently applied
 local _flipPending = false
 local _establish = false       -- post profile-apply: apply-only, no harvests
 
--- Persisted mirror of the applied pointer (profile root). The applied
--- conditional's values are baked into the profile's saved module data, so
--- the pointer must survive with that data: after a /reload the runtime
--- pointer reset to nil while live still held the overlay, and every bank
--- that then resolved the applied gid as nil re-banked the overlay into the
--- conditional DEFAULT maps -- permanent baseline loss on every /reload or
--- login with a conditional active.
+-- Persisted mirror of the applied pointer (profile root). The applied conditional's
+-- values are baked into the profile's saved module data, so the pointer must survive
+-- with that data: after a /reload the runtime pointer reset to nil while live still
+-- held the overlay, and every bank that then resolved the applied gid as nil re-banked
+-- the overlay into the conditional DEFAULT maps -- permanent baseline loss on every
+-- /reload or login with a conditional active.
 local function PersistAppliedGid(gid)
     local prof = EllesmereUI.GetActiveProfileData and EllesmereUI.GetActiveProfileData()
     if prof then prof.condAppliedGid = gid end
@@ -185,10 +184,9 @@ end
 
 function EllesmereUI.Conditions_AppliedGid()
     if _appliedGid ~= nil then return _appliedGid end
-    -- Stale windows (fresh login, profile-apply MarkStale before the
-    -- establish Recheck lands): fall back to the persisted pointer,
-    -- validated against the active profile's groups (a hand-edited or
-    -- imported store may point at a deleted group).
+    -- Stale windows (fresh login, profile-apply MarkStale before the establish Recheck
+    -- lands): fall back to the persisted pointer, validated against the active
+    -- profile's groups (a hand-edited or imported store may point at a deleted group).
     local prof = EllesmereUI.GetActiveProfileData and EllesmereUI.GetActiveProfileData()
     local gid = prof and prof.condAppliedGid
     if gid and EllesmereUI.Conditions_GroupById and EllesmereUI.Conditions_GroupById(gid) then
@@ -253,13 +251,12 @@ function EllesmereUI.Conditions_Recheck()
     -- success -- the next signal then converges values and pointer.
     local est = _establish
     _establish = false
-    -- The options panel's Default Editing Mode is not a reason to defer, only
-    -- one to step out of: the Dark Mode condition's inputs are all options
-    -- widgets, so its flips are ALWAYS raised with that view up, and a
-    -- deferred flip left the outgoing conditional applied (and reporting
-    -- itself applied) until an unrelated event or a /reload -- silently
-    -- filing the user's baseline edits into the override's maps in between.
-    -- Establish transitions never harvest, so they run in place; only real
+    -- The options panel's Default Editing Mode is not a reason to defer, only one to
+    -- step out of: the Dark Mode condition's inputs are all options widgets, so its
+    -- flips are ALWAYS raised with that view up, and a deferred flip left the outgoing
+    -- conditional applied (and reporting itself applied) until an unrelated event or a
+    -- /reload -- silently filing the user's baseline edits into the override's maps in
+    -- between. Establish transitions never harvest, so they run in place; only real
     -- flips need the roundtrip.
     local resumeView = false
     if not est and EllesmereUI.SpecOverrides_SuspendDefaultView then

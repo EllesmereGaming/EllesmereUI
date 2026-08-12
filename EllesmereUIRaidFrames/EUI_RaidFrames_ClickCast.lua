@@ -1,15 +1,11 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EUI_RaidFrames_ClickCast.lua
---  Lightweight click-casting system for EllesmereUI unit frames.
---  Per-spec bindings with global target/menu/macro defaults.
---
---  Two binding paths:
---  1. Frame-based: WrapScript OnEnter/OnLeave on unit frames, activates
---     keyboard bindings via SetBindingClick. Click bindings use direct
---     attribute setting on the frame.
---  2. Hovercast: Persistent global bindings on a dedicated secure button
---     targeting @mouseover in the game world. Friend/harm filtered via
---     macro conditionals.
+--  Click-casting: per-spec bindings + global target/menu/macro defaults.
+--  Two paths: (1) Frame-based -- WrapScript OnEnter/OnLeave sets keyboard
+--  bindings via SetBindingClick; clicks use direct attribute setting.
+--  (2) Hovercast -- persistent bindings on a dedicated secure button
+--  targeting @mouseover, friend/harm filtered via macro conditionals.
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
 
@@ -102,7 +98,7 @@ local REZ_BY_CLASS = {
     WARLOCK     = { battle = 20707 },
 }
 
--- Build a lookup set of spell IDs in these collections
+-- Union of every dispel/external/rez spell ID (exposed as ns.CC_PRESET_SPELL_IDS)
 local PRESET_SPELL_IDS = {}
 for _, s in ipairs(DISPEL_SPELLS) do PRESET_SPELL_IDS[s.id] = true end
 for _, s in ipairs(EXTERNAL_SPELLS) do PRESET_SPELL_IDS[s.id] = true end
@@ -111,23 +107,18 @@ for _, kit in pairs(REZ_BY_CLASS) do
 end
 ns.CC_PRESET_SPELL_IDS = PRESET_SPELL_IDS
 
--- Lookup set of every rez spell ID across all classes. Directly-bound rez
--- spells are exempt from the exists/nodead corpse filter in macro building:
--- corpses are their only valid target, so the filter would break them.
+-- Every rez spell ID across all classes; exempt from the exists/nodead corpse
+-- filter in macro building (corpses are a rez's only valid target).
 local REZ_SPELL_IDS = {}
 for _, kit in pairs(REZ_BY_CLASS) do
     for _, sid in pairs(kit) do REZ_SPELL_IDS[sid] = true end
 end
 
--- True when a spell binding is a rez spell (by stored ID, with a name
--- fallback for legacy bindings saved before spell IDs were stored).
--- Name lookup for the legacy fallback, built ONCE.
---
--- This used to walk every rez spell ID calling C_Spell.GetSpellName on each,
--- for every binding, for every frame registered. CC_RegisterFrame runs per unit
--- button (40+ in a full raid), and the whole thing happens inside the login
--- enable-flush -- which is a SINGLE synchronous execution shared by every
--- module -- so the API calls multiplied out into thousands and helped trip the
+-- True when a binding is a rez spell (by stored ID, with a name fallback for
+-- legacy bindings saved before IDs were stored). Fallback name lookup is cached
+-- ONCE: per-binding/per-frame GetSpellName calls during the login enable-flush
+-- multiply into thousands (40+ frames x many bindings), and the enable-flush is
+-- a SINGLE synchronous execution shared by every module, so this can trip the
 -- "script ran too long" watchdog on /reload.
 local _rezNames
 local function RezNameSet()
@@ -138,9 +129,8 @@ local function RezNameSet()
         local n = C_Spell.GetSpellName(sid)
         if n then set[n] = true; resolved = true end
     end
-    -- Only latch the cache once something actually resolved: spell data can be
-    -- cold this early in login, and freezing an empty set would permanently
-    -- break the fallback for the rest of the session.
+    -- Only latch the cache once something resolved: spell data can be cold this
+    -- early in login, and freezing an empty set would break the fallback for good.
     if resolved then _rezNames = set end
     return set
 end
@@ -171,11 +161,9 @@ local bindProxy          = nil   -- SecureActionButtonTemplate (unnamed frame fa
 local globalBtn        = nil   -- SecureActionButtonTemplate (hovercast bindings)
 local registeredFrames = {}
 local ownedFrames      = {}
--- Native left-click target attrs (type1 / *type1) captured the first time a frame
--- is registered, so DoUnregisterFrame restores EXACTLY what the frame had: raid
--- frames target on left-click, EUI unit frames don't. Without this, disabling
--- click-cast would force the raid default (left-click targets) onto unit frames.
--- Weak-keyed so dead frames drop out.
+-- Captures each frame's native type1/*type1 (left-click target) on first register, so
+-- DoUnregisterFrame restores it exactly (raid -> target, EUI frames -> none; forcing
+-- the raid default onto EUI frames would be wrong). Weak-keyed so dead frames drop out.
 local originalTargetAttrs = setmetatable({}, { __mode = "k" })
 local regQueue         = {}
 local unregQueue       = {}
@@ -213,9 +201,8 @@ local function GetClickCastDB()
     return cc
 end
 
--- Exposed for the suite conflict check (EllesmereUI._RunConflictCheck): true when
--- HoverCast / click-casting is currently enabled. Read on demand (the conflict
--- check runs once at login); not relied on to update dynamically.
+-- Exposed for EllesmereUI._RunConflictCheck: true when click-casting is enabled.
+-- Read on demand at login only; not kept live-updated.
 _G._ERF_IsHoverCastEnabled = function()
     local cc = GetClickCastDB()
     return (cc and cc.enabled) or false
@@ -249,8 +236,8 @@ local function GetGlobalBindings()
     return cc and cc.globals or {}
 end
 
--- Merge globals + current spec. Spec overrides globals on key conflict.
--- Only includes enabled bindings. Respects master enable toggle.
+-- Merges globals + current spec (spec wins key conflicts); only enabled
+-- bindings; gated on the master enable toggle.
 local function GetActiveBindings()
     local cc = GetClickCastDB()
     if not cc or not cc.enabled then return {} end
@@ -279,11 +266,9 @@ local function GetModifierPrefix()
     if IsShiftKeyDown() then p = p .. "SHIFT-" end
     return p
 end
--- Exposed so the keybind-capture button reuses this SAME canonical modifier
--- order (ALT-CTRL-SHIFT -- the order WoW matches bindings/clicks in). The button
--- previously built its own SHIFT-CTRL-ALT prefix, which never matched for a
--- double-modifier bind (e.g. Ctrl+Shift+click) -> the click fell through to the
--- default (target). Single modifier worked because order is irrelevant with one.
+-- Exposed so the keybind-capture button uses this SAME canonical order (WoW matches
+-- bindings/clicks in ALT-CTRL-SHIFT order). A non-canonical order silently fails to
+-- match on double-modifier binds (single-modifier binds are order-independent).
 ns.CC_GetModifierPrefix = GetModifierPrefix
 
 function ns.CC_CaptureKey(rawKey)
@@ -292,11 +277,9 @@ function ns.CC_CaptureKey(rawKey)
     return GetModifierPrefix() .. key
 end
 
--- Parse a key string ("ALT-CTRL-SHIFT-KEY") into modifiers + key. Modifiers are
--- peeled from the FRONT as known prefixes instead of splitting on "-", because
--- the key itself can BE "-" (the minus key). The old split-on-"-" produced no
--- parts for "-" and left key nil -> "attempt to index local 'key'" crash when a
--- user tried to bind the minus key (or any modified form like CTRL--).
+-- Parses "ALT-CTRL-SHIFT-KEY": modifiers are peeled from the FRONT as known
+-- prefixes (never split on "-") because the key itself can BE "-" (minus key) --
+-- splitting on "-" would leave key nil and crash for that bind (or CTRL--).
 local function ParseKeyString(keyStr)
     if not keyStr or keyStr == "" then
         return { modifiers = "", key = "", isMouseButton = false, buttonNum = nil, full = keyStr or "" }
@@ -323,8 +306,8 @@ end
 
 function ns.CC_FormatKey(keyStr)
     if not keyStr or keyStr == "" then return "" end
-    -- Parse via ParseKeyString so the key part can be "-" (the minus key);
-    -- modifiers is a run of "MOD-" tokens (never contains a bare "-").
+    -- ParseKeyString handles key == "-" (minus key); modifiers is a run of
+    -- "MOD-" tokens and never contains a bare "-".
     local parsed = ParseKeyString(keyStr)
     local display = {}
     for m in parsed.modifiers:gmatch("([^-]+)") do
@@ -335,15 +318,10 @@ function ns.CC_FormatKey(keyStr)
 end
 ns.CC_ParseKeyString = ParseKeyString
 
--- Heal saved binding keys whose modifiers are in a non-canonical order. Older
--- builds' keybind button emitted SHIFT-CTRL-ALT, but WoW matches bindings/clicks
--- in ALT-CTRL-SHIFT order, so a double-modifier bind saved that way silently
--- failed (just targeted the frame). Rewrites the key in place -- the DB binding
--- tables are referenced directly -- so old binds start working without the user
--- re-binding. Called once at the top of CC_ApplyBindings, which only fires on
--- load / binding change / spec change / profile swap (never per-frame or in
--- combat); it is a no-op once every key is already canonical, so there is no
--- steady-state cost.
+-- Heals saved keys with non-canonical modifier order (WoW matches ALT-CTRL-SHIFT; other
+-- orders silently fail double-modifier binds). Rewrites DB tables in place. Called once
+-- at the top of CC_ApplyBindings (load/bind-change/spec-change/ profile-swap only,
+-- never per-frame/combat); no-op once canonical -- zero steady-state cost.
 local function NormalizeSavedBindingKeys()
     local cc = GetClickCastDB()
     if not cc then return end
@@ -374,22 +352,15 @@ end
 -------------------------------------------------------------------------------
 --  Macro / spell helpers
 -------------------------------------------------------------------------------
--- Build the macrotext for a binding based on its options.
--- For spells: wraps with @mouseover + friend/harm + nocombat conditionals.
--- For macros: reads the saved macro body, optionally prepends /stopmacro [combat].
--- Mount/vehicle guard appended to hovercast conditionals so override
--- bindings don't consume keypresses while dragonriding or in vehicles.
+-- Macrotext: spells wrap @mouseover+friend/harm+nocombat; macros read the saved
+-- body (+ optional /stopmacro [combat]). MOUNT_GUARD appends to hovercast
+-- conditionals so overrides don't eat keypresses while dragonriding/in vehicles.
 local MOUNT_GUARD = ",nomounted,noflying"
 
--- Resolve a spell binding to its BASE spell NAME so the cast survives talent /
--- hero-talent / proc overrides. Example: a Chronowarden binds "Chrono Flames"
--- (a hero-talent override of Living Flame). Casting the BASE "Living Flame"
--- works in every spec -- the game auto-resolves it to whatever override is
--- currently active (Chrono Flames here) -- whereas "/cast Chrono Flames" fails
--- in a spec that lacks that override. Same for proc overrides (a spell bound
--- while a proc like Mathias's Blessing is up captures the proc form). Resolution
--- is by the stored spellID, so it repairs both existing and new bindings without
--- rewriting saved data. The binding still DISPLAYS the name the user picked.
+-- Resolves a spell binding to its BASE spell NAME (via stored spellID): casting the
+-- base name auto-resolves to whatever talent/hero-talent/proc override is active, while
+-- casting the override name directly fails without it. Works for existing and new
+-- bindings with no DB rewrite; the binding still DISPLAYS the name the user picked.
 local function ResolveCastSpellName(binding)
     local id = binding.spellID
     if type(id) == "number" and id > 0 and C_Spell and C_Spell.GetBaseSpell then
@@ -402,10 +373,9 @@ local function ResolveCastSpellName(binding)
     return binding.spell
 end
 
--- Build the dynamic-rez /cast lines for a binding. Used by the dynamicrez
--- binding type and by Smart Rez on any castable binding. Returns a list of
--- macro lines (possibly empty) or nil when the player's class has no rez kit.
--- Never includes /stopmacro -- the caller adds that for oocOnly.
+-- Builds dynamic-rez /cast lines (used by the dynamicrez binding type + Smart
+-- Rez). Returns a list of macro lines (possibly empty) or nil if the class has
+-- no rez kit. Never includes /stopmacro -- caller adds that for oocOnly.
 local function BuildRezLines(binding, guard)
     local _, pClass = UnitClass("player")
     local kit = REZ_BY_CLASS[pClass]
@@ -433,8 +403,8 @@ local function BuildRezLines(binding, guard)
     return lines
 end
 
--- Build the base macrotext for a binding (without Smart Rez). Returns nil when
--- the binding needs no macro wrapping (it is applied as a direct spell instead).
+-- Builds base macrotext (no Smart Rez). Returns nil when no macro wrapping is
+-- needed (applied as a direct spell instead).
 local function BuildBaseMacroText(binding)
     local isHC = binding.hovercast
     local guard = isHC and MOUNT_GUARD or ""
@@ -451,12 +421,10 @@ local function BuildBaseMacroText(binding)
                 conds[#conds + 1] = "harm"
             end
         end
-        -- exists,nodead: when the hovered unit is gone (left group, phased,
-        -- despawned) or just died, the conditional fails and the macro does
-        -- nothing. Without it the cast goes out against an invalid unit and
-        -- Blizzard default targeting takes over -- with auto self cast
-        -- enabled, the spell lands on the player instead of being dropped.
-        -- Rez spells are exempt: corpses are their only valid target.
+        -- exists,nodead: without it, a gone/dead hovered unit lets the cast fall
+        -- through to Blizzard default targeting -- with auto self-cast on, it
+        -- lands on the player instead of being dropped. Rez spells are exempt
+        -- (corpses are their only valid target).
         if not isRez then
             conds[#conds + 1] = "exists"
             conds[#conds + 1] = "nodead"
@@ -482,12 +450,9 @@ local function BuildBaseMacroText(binding)
         end
         if isHC then
             body = "/stopmacro [mounted][flying]\n" .. body
-            -- The body is the user's macro, so the friendly/enemy filter cannot be
-            -- folded into its conditionals the way the /cast above is assembled.
-            -- Gate the whole macro instead. Same net effect, and a missing
-            -- mouseover also stops it, matching the spell path's exists check.
-            -- Without this the two Hovercast target toggles were built and shown
-            -- for macro bindings but silently did nothing.
+            -- User's macro body can't have friend/harm conditionals folded in like the
+            -- /cast above, so gate the whole macro instead (same net effect; a missing
+            -- mouseover also stops it, matching the spell path's exists check).
             if binding.hoverFriendly and not binding.hoverEnemy then
                 body = "/stopmacro [@mouseover,nohelp]\n" .. body
             elseif binding.hoverEnemy and not binding.hoverFriendly then
@@ -526,10 +491,9 @@ local function BuildBaseMacroText(binding)
         end
         for _, sp in ipairs(spellList) do
             if sp.class == pClass then
-                -- Use the client-localized spell name. /cast resolves spells by
-                -- their localized name, so the hardcoded English sp.name silently
-                -- fails on non-English clients. Fall back to sp.name if the API
-                -- is unavailable or returns nothing.
+                -- /cast resolves by localized name; hardcoded English sp.name
+                -- would silently fail on non-English clients. Fall back to
+                -- sp.name only if the API is unavailable/empty.
                 local castName = (C_Spell.GetSpellName and C_Spell.GetSpellName(sp.id)) or sp.name
                 lines[#lines + 1] = "/cast [@mouseover,exists,nodead" .. guard .. "] " .. castName
             end
@@ -540,10 +504,9 @@ local function BuildBaseMacroText(binding)
     return nil
 end
 
--- Wrap a binding's base macrotext with Smart Rez. When binding.smartRez is set,
--- the dynamic-rez /cast lines are prepended so pressing the binding on a dead
--- unit resurrects it; on a living unit the rez lines fail their [dead] condition
--- and the macro falls through to the binding's normal action.
+-- Wraps base macrotext with Smart Rez: when binding.smartRez is set, dynamic-rez
+-- /cast lines are prepended (they fail their [dead] condition on a living unit,
+-- so the macro falls through to the normal action).
 local function BuildMacroText(binding)
     local base = BuildBaseMacroText(binding)
     if not binding.smartRez then return base end
@@ -559,9 +522,8 @@ local function BuildMacroText(binding)
     if base then
         return rezText .. "\n" .. base
     end
-    -- A plain spell binding produces no base macro (it is applied as a direct
-    -- spell). Convert it to a macro so the rez lines can lead, then cast the
-    -- spell on the same unit the rez check used.
+    -- A plain spell binding produces no base macro (applied as a direct spell);
+    -- convert it to a macro so the rez lines can lead, then cast on the same unit.
     if binding.type == "spell" then
         local name = ResolveCastSpellName(binding)
         if not name then return rezText end
@@ -570,7 +532,6 @@ local function BuildMacroText(binding)
     return rezText
 end
 
--- Get the icon for a binding
 function ns.CC_GetBindingIcon(b)
     if b.type == "dispel" then
         local _, pc = UnitClass("player")
@@ -652,9 +613,7 @@ function ns.CC_GetBindingName(b)
     return EllesmereUI.L("Unknown")
 end
 
--------------------------------------------------------------------------------
---  Spell enumeration (class/spec spells, non-passive, non-general)
--------------------------------------------------------------------------------
+-- Spell enumeration (class/spec spells, non-passive, non-general).
 function ns.CC_GetClassSpells()
     local spells = {}
     if not C_SpellBook then return spells end
@@ -699,9 +658,7 @@ function ns.CC_GetClassSpells()
     return spells
 end
 
--------------------------------------------------------------------------------
---  Macro enumeration
--------------------------------------------------------------------------------
+-- Macro enumeration
 function ns.CC_GetGlobalMacros()
     local macros = {}
     local numGlobal = select(1, GetNumMacros()) or 0
@@ -727,10 +684,7 @@ function ns.CC_GetAllMacros()
     return macros
 end
 
--------------------------------------------------------------------------------
---  Item enumeration (equipped on-use items)
---  Shows trinkets and other equipped items that have an on-use effect.
--------------------------------------------------------------------------------
+-- Item enumeration: equipped/bag items that have an on-use effect (trinkets etc).
 local EQUIP_SLOTS = {
     { slot = 13, label = "Trinket 1" },
     { slot = 14, label = "Trinket 2" },
@@ -746,7 +700,6 @@ local EQUIP_SLOTS = {
 function ns.CC_GetEquippedItems()
     local items = {}
     local seen = {}
-    -- Equipped on-use items
     for _, info in ipairs(EQUIP_SLOTS) do
         local itemID = GetInventoryItemID("player", info.slot)
         if itemID then
@@ -802,23 +755,14 @@ local function ModPrefixForAttr(modsStr)
     return modsStr:lower()
 end
 
--- Set a secure "type" attribute, optionally gated to out-of-combat only.
--- Unlike spell/macro (which carry their own [combat] conditional in the macro
--- text), menu/target are raw action types with no conditional, so when oocOnly
--- is set we drive the type attribute by combat state: the real action out of
--- combat, an inert "none" in combat.
---
--- "none" (not nil) matters: unit buttons set a default type2 = "click" wildcard
--- (the right-click menu via the secure proxy, see AttachSecureUnitMenu). The
--- secure resolver falls back to that wildcard whenever the specific type<N> is
--- nil, so clearing the attribute in combat would let the wildcard menu open
--- anyway. A non-nil unrecognized type ("none") suppresses the wildcard fallback
--- and performs no action.
---
--- Binding application is deferred out of combat (see the InCombatLockdown guards
--- in DoRegisterFrame / CC_ApplyBindings) so these driver calls never run in
--- combat. Unregister first so a stale driver can't survive a rebuild that
--- changed the binding type.
+-- Sets a secure "type" attribute, gated OOC via a combat driver when oocOnly:
+-- menu/target have no macro conditional (unlike spell/macro), so the attribute
+-- itself must switch -- real action OOC, inert "none" in combat. "none" (never
+-- nil) matters: unit buttons default *type2="click" (menu proxy; see
+-- AttachSecureUnitMenu), and the secure resolver falls back to that wildcard
+-- whenever type<N> is nil, so "none" (not nil) suppresses it. OOC-only call
+-- site (InCombatLockdown guards in DoRegisterFrame/CC_ApplyBindings);
+-- unregisters the driver first so a stale one can't survive a type change.
 local function SetGatedType(frame, attrName, value, oocOnly)
     UnregisterAttributeDriver(frame, attrName)
     if oocOnly then
@@ -833,37 +777,24 @@ local function SetClickAttr(frame, parsed, actionType, spellOrMacro, macrotext, 
     local prefix = ModPrefixForAttr(parsed.modifiers)
     local suffix = tostring(parsed.buttonNum)
     local typeAttr = prefix .. "type" .. suffix
-    -- 12.0.7 gates a raw "togglemenu" on unit buttons (and an insecure reopen
-    -- taints its protected items); the gate is still present in 12.1. Route
-    -- the menu through the secure proxy. TRANSPORT: on 12.1 the "click"
-    -- action crashes on a Blizzard typo (SecureTemplates.lua:564, aspect
-    -- check on the mouse-button string), so 12.1 uses a "/click <proxy>"
-    -- macro; 12.0 keeps the proven click action.
+    -- 12.0.7+ gates a raw "togglemenu" on unit buttons (insecure reopen taints
+    -- protected items); route through the secure proxy instead. TRANSPORT: the
+    -- "click" action itself crashes on a Blizzard typo (SecureTemplates.lua:564,
+    -- aspect check on the mouse-button string) -- use a "/click <proxy>" macro.
     if actionType == "togglemenu" and EllesmereUI.GetSecureMenuProxy then
         local proxy = EllesmereUI.GetSecureMenuProxy(frame)
-        if EllesmereUI.IS_121 then
-            SetGatedType(frame, typeAttr, "macro", oocOnly)
-            frame:SetAttribute(prefix .. "macrotext" .. suffix, "/click " .. proxy:GetName())
-        else
-            SetGatedType(frame, typeAttr, "click", oocOnly)
-            frame:SetAttribute(prefix .. "clickbutton" .. suffix, proxy)
-        end
+        SetGatedType(frame, typeAttr, "macro", oocOnly)
+        frame:SetAttribute(prefix .. "macrotext" .. suffix, "/click " .. proxy:GetName())
         return
     end
-    -- 12.0.7 also gates a raw "target" on unit buttons. Plain unmodified
-    -- left-click (button 1) still targets natively via Blizzard's default
-    -- Interaction click-binding, so leave that one direct; route every OTHER
-    -- target binding (other buttons / modifiers) through the ungated "click"
-    -- proxy. Keeps the change scoped to users who rebound target off left-click.
+    -- 12.0.7+ also gates raw "target" on unit buttons, EXCEPT plain unmodified
+    -- left-click (button 1), which still targets via Blizzard's native
+    -- Interaction click-binding -- leave that one direct, route every other
+    -- target binding through the ungated "click" proxy.
     if actionType == "target" and (suffix ~= "1" or prefix ~= "") and EllesmereUI.GetSecureTargetProxy then
         local proxy = EllesmereUI.GetSecureTargetProxy(frame)
-        if EllesmereUI.IS_121 then
-            SetGatedType(frame, typeAttr, "macro", oocOnly)
-            frame:SetAttribute(prefix .. "macrotext" .. suffix, "/click " .. proxy:GetName())
-        else
-            SetGatedType(frame, typeAttr, "click", oocOnly)
-            frame:SetAttribute(prefix .. "clickbutton" .. suffix, proxy)
-        end
+        SetGatedType(frame, typeAttr, "macro", oocOnly)
+        frame:SetAttribute(prefix .. "macrotext" .. suffix, "/click " .. proxy:GetName())
         return
     end
     -- Raw action type. Only menu/target honor oocOnly via the combat driver;
@@ -892,33 +823,22 @@ local function SetKeyAttr(frame, idx, actionType, spellOrMacro, macrotext, oocOn
     local suffix = "eui_" .. idx
     local typeAttr = "type-" .. suffix
     -- Route a "menu" keybind through the secure proxy (see SetClickAttr for
-    -- why 12.1 uses the /click macro transport instead of the click action).
+    -- why this uses the /click macro transport instead of the click action).
     if actionType == "togglemenu" and EllesmereUI.GetSecureMenuProxy then
         local proxy = EllesmereUI.GetSecureMenuProxy(frame)
-        if EllesmereUI.IS_121 then
-            SetGatedType(frame, typeAttr, "macro", oocOnly)
-            frame:SetAttribute("macrotext-" .. suffix, "/click " .. proxy:GetName())
-        else
-            SetGatedType(frame, typeAttr, "click", oocOnly)
-            frame:SetAttribute("clickbutton-" .. suffix, proxy)
-        end
+        SetGatedType(frame, typeAttr, "macro", oocOnly)
+        frame:SetAttribute("macrotext-" .. suffix, "/click " .. proxy:GetName())
         return
     end
     -- A "target" keybind is never plain left-click, so it always hits the 12.0.7
     -- gate -- route it through the ungated "click" proxy (see SetClickAttr).
     if actionType == "target" and EllesmereUI.GetSecureTargetProxy then
         local proxy = EllesmereUI.GetSecureTargetProxy(frame)
-        if EllesmereUI.IS_121 then
-            SetGatedType(frame, typeAttr, "macro", oocOnly)
-            frame:SetAttribute("macrotext-" .. suffix, "/click " .. proxy:GetName())
-        else
-            SetGatedType(frame, typeAttr, "click", oocOnly)
-            frame:SetAttribute("clickbutton-" .. suffix, proxy)
-        end
+        SetGatedType(frame, typeAttr, "macro", oocOnly)
+        frame:SetAttribute("macrotext-" .. suffix, "/click " .. proxy:GetName())
         return
     end
-    -- Only menu/target honor oocOnly via the combat driver; spell/macro carry
-    -- their own conditional in the macro text.
+    -- Only menu/target honor oocOnly via the combat driver (see SetClickAttr).
     local gate = oocOnly and (actionType == "togglemenu" or actionType == "target")
     SetGatedType(frame, typeAttr, actionType, gate)
     if actionType == "spell" then
@@ -951,13 +871,11 @@ local function ClearHoverAttrs(btn, count)
     end
 end
 
--- Resolve a binding to its action type + value for attribute setting.
--- Returns: actionType, spellOrMacroName, macrotext
+-- Resolves a binding to actionType, spellOrMacroName, macrotext for attribute setting.
 local function ResolveBinding(b)
     if b.type == "target" then return "target", nil, nil end
     if b.type == "menu" then return "togglemenu", nil, nil end
 
-    -- Check if we need macro wrapping (OOC, hovercast conditionals)
     local mt = BuildMacroText(b)
     if mt then
         return "macro", nil, mt
@@ -979,12 +897,10 @@ local function ResolveBinding(b)
     return nil, nil, nil
 end
 
--------------------------------------------------------------------------------
---  OnEnter/OnLeave secure script generation (frame-based keyboard bindings)
--------------------------------------------------------------------------------
--- Returns: enterScript, leaveScript, kbClearLines
--- kbClearLines uses self:ClearBinding (for state driver where self=header)
--- leaveScript uses control:ClearBinding (for WrapScript where control=header)
+-- OnEnter/OnLeave secure script generation (frame-based keyboard bindings).
+-- Returns enterScript, leaveScript, kbClearLines. kbClearLines uses
+-- self:ClearBinding (state-driver context, self=header); leaveScript uses
+-- control:ClearBinding (WrapScript context, control=header).
 local function GenerateKeyBindSnippets(bindings)
     local enter, leave, selfClear = {}, {}, {}
     local kbBindings = {}
@@ -1014,7 +930,6 @@ local function GenerateKeyBindSnippets(bindings)
     end
     for _, kb in ipairs(kbBindings) do
         leave[#leave + 1] = format([[control:ClearBinding(%q)]], kb.binding.key)
-        -- self:ClearBinding version for state driver context (self = header)
         selfClear[#selfClear + 1] = format([[self:ClearBinding(%q)]], kb.binding.key)
     end
     return table.concat(enter, "\n"), table.concat(leave, "\n"), selfClear
@@ -1027,12 +942,9 @@ local wrappedFrames = {}
 local externalFrames = {}
 local ccHookInstalled = false
 
--- Clique interop. When EUI click-casting is OFF we hand our frames to Clique (or
--- any other ClickCastFrames consumer) by adding them to the global table, and we
--- never touch the frame's own click attributes -- so the right-click context menu
--- stays exactly as Blizzard set it (Clique only rebinds clicks the user bound in
--- their own Clique profile). These are no-ops once OUR proxy owns the global table
--- (click-casting enabled), because then EUI manages these frames itself.
+-- Third-party interop: while OFF, frames are handed to any other ClickCastFrames
+-- consumer via the global table without touching their click attributes, so
+-- right-click stays Blizzard-default. No-ops once our proxy owns the table.
 local function AddFrameToClickCast(frame)
     if ccHookInstalled or not frame then return end
     if type(ClickCastFrames) ~= "table" then ClickCastFrames = {} end
@@ -1041,32 +953,25 @@ end
 local function RemoveFrameFromClickCast(frame)
     if ccHookInstalled or not frame then return end
     if type(ClickCastFrames) == "table" and ClickCastFrames[frame] then
-        ClickCastFrames[frame] = nil  -- tells Clique to drop its bindings
+        ClickCastFrames[frame] = nil  -- tells the other consumer to drop its bindings
     end
 end
 
 local function GetClickDirection()
     local cc = GetClickCastDB()
-    -- Down-click only applies while click-casting is enabled. When disabled we
-    -- must leave frames on the native "AnyUp" so the right-click context menu
-    -- fires on the up-stroke exactly like Blizzard's default (a down-stroke
-    -- togglemenu opens then instantly dismisses on the trailing up event).
+    -- Down-click only applies while enabled; disabled must stay "AnyUp" so
+    -- right-click fires on the up-stroke like Blizzard's default (a down-stroke
+    -- togglemenu would open then instantly dismiss on the trailing up event).
     return (cc and cc.enabled and cc.downClick) and "AnyDown" or "AnyUp"
 end
 
--- After a frame's click-cast bindings are applied, neutralize the no-click-cast
--- defaults so an UNBOUND left/right click does nothing. A unit button is created
--- with type1/*type1 = "target" and the menu wildcard *type2 = "click" (+
--- *clickbutton2). Clearing the wildcards is not enough on its own:
---   * The creation-time SPECIFIC type1 = "target" survives, and even if it were
---     cleared, plain left-click still targets via Blizzard's native ClickBindings
---     interaction -- which a nil type1 falls through to. So when nothing is bound
---     to plain left-click we write an inert type1 = "none": a non-nil,
---     unrecognized action the secure handler performs (i.e. nothing), which also
---     suppresses the wildcard / native-interaction fallback.
---   * Same idea for the menu on type2.
--- A button the user DID bind already wrote its own type<N> via SetClickAttr, so
--- we leave those alone. Own secure frame, only ever reached out of combat -> no taint.
+-- Neutralizes unbound-click defaults so a click with no binding does nothing.
+-- A unit button is created with type1/*type1="target" + menu wildcard
+-- *type2="click"; clearing the wildcards alone isn't enough (type1 survives,
+-- and nil type1 falls through to Blizzard's native left-click-targets), so an
+-- unbound button gets inert type1/type2="none" instead (non-nil, unrecognized
+-- -> does nothing, suppresses the fallback). Bound buttons keep their own
+-- type<N> from SetClickAttr. Own secure frame, OOC only -> no taint risk.
 local function NeutralizeDefaultClicks(frame, bindings)
     local b1, b2 = false, false
     for _, b in ipairs(bindings) do
@@ -1088,25 +993,19 @@ end
 local function DoRegisterFrame(frame)
     if not frame or not frame.RegisterForClicks then return end
     if not header then return end
-    -- Hard guarantee: while click-casting is disabled we touch ZERO frames --
-    -- no RegisterForClicks, no WrapScript, no attribute writes. The user's
-    -- click bindings (especially right-click) are never altered unless they
-    -- explicitly enable the feature.
+    -- Hard guarantee: while disabled, ZERO frames touched (no RegisterForClicks/
+    -- WrapScript/attribute writes) -- clicks never change unless the user enables.
     local cc = GetClickCastDB()
     if not (cc and cc.enabled) then return end
-    -- Deliberately NO `if registeredFrames[frame] then return end` early-out:
-    -- re-registration MUST re-apply the click attributes. EUI unit frames are
-    -- first registered mid-spawn (they land in ClickCastFrames as oUF builds
-    -- them); SetupUnitMenu then re-attaches the secure right-click menu
-    -- (AttachSecureUnitMenu wipes type2 and re-sets the *type2 menu wildcard)
-    -- and re-adds the frame to ClickCastFrames. If the re-add short-circuited,
-    -- the menu would stay in charge and the bound right-click spell would
-    -- silently revert to opening the menu after every login/reload. Every step
-    -- below is idempotent or self-guarded, so re-running the apply is safe.
+    -- No early-out on registeredFrames[frame]: re-registration MUST re-apply click
+    -- attributes. EUI frames first register mid-spawn (via oUF's ClickCastFrames add);
+    -- SetupUnitMenu then re-attaches the secure menu (AttachSecureUnitMenu wipes type2
+    -- and re-sets the *type2 menu wildcard) and re-adds the frame -- short-circuiting
+    -- would leave the menu in charge and silently revert bound right-clicks every
+    -- login/reload. Every step below is idempotent/self-guarded.
     registeredFrames[frame] = true
-    -- Capture the frame's native left-click target attrs once, before we touch
-    -- anything, so DoUnregisterFrame restores them exactly (raid -> target, EUI
-    -- unit frames -> none). Kept across register/unregister cycles.
+    -- Captures native left-click target attrs ONCE so DoUnregisterFrame restores
+    -- them exactly (raid -> target, EUI frames -> none) across cycles.
     if originalTargetAttrs[frame] == nil then
         originalTargetAttrs[frame] = {
             type1     = frame:GetAttribute("type1"),
@@ -1138,7 +1037,6 @@ local function DoRegisterFrame(frame)
         ]])
     end
 
-    -- Apply current bindings to this frame immediately
     local bindings = GetActiveBindings()
     for i, b in ipairs(bindings) do
         if not b.hovercast and b.key then
@@ -1154,9 +1052,8 @@ local function DoRegisterFrame(frame)
         end
     end
 
-    -- Neutralize the default left-click target / right-click menu for any button
-    -- the user did not bind (see NeutralizeDefaultClicks). Restored in
-    -- DoUnregisterFrame on disable.
+    -- Neutralize unbound left-click target / right-click menu defaults (see
+    -- NeutralizeDefaultClicks); restored in DoUnregisterFrame on disable.
     NeutralizeDefaultClicks(frame, bindings)
 
 end
@@ -1165,7 +1062,6 @@ local function DoUnregisterFrame(frame)
     if not registeredFrames[frame] then return end
     registeredFrames[frame] = nil
 
-    -- Clear all click-cast attributes from this frame
     local bindings = GetActiveBindings()
     for i, b in ipairs(bindings) do
         if not b.hovercast and b.key then
@@ -1177,16 +1073,15 @@ local function DoUnregisterFrame(frame)
     end
     ClearKeyAttrs(frame, lastBindingCount)
 
-    -- Restore the frame's NATIVE left-click target attrs captured at register
-    -- time: raid frames revert to type1/*type1 = "target", EUI unit frames revert
-    -- to NO left-click target (their native state) rather than being forced to
-    -- target. The menu's *type2 / *clickbutton2 are restored by AttachSecureUnitMenu.
+    -- Restores the frame's NATIVE left-click target attrs captured at register
+    -- time (raid -> type1/*type1="target", EUI frames -> none, never forced to
+    -- target). Menu's *type2/*clickbutton2 are restored by AttachSecureUnitMenu.
     local o = originalTargetAttrs[frame]
     if o then
         frame:SetAttribute("type1", o.type1)
         frame:SetAttribute("*type1", o.starType1)
     else
-        -- Never captured (shouldn't happen): fall back to the historical raid default.
+        -- Never captured (shouldn't happen): fall back to the raid default.
         frame:SetAttribute("type1", "target")
         frame:SetAttribute("*type1", "target")
     end
@@ -1195,9 +1090,9 @@ local function DoUnregisterFrame(frame)
     else
         frame:SetAttribute("type2", "togglemenu")
     end
-    -- Fully revert the click registration and remove our secure OnEnter/OnLeave
-    -- wraps so the frame behaves exactly as it did before click-casting touched
-    -- it. Right-click must never be left broken after a disable.
+    -- Fully reverts click registration and removes our OnEnter/OnLeave wraps, so
+    -- the frame behaves exactly as before click-casting touched it (right-click
+    -- must never be left broken after a disable).
     if frame.RegisterForClicks then frame:RegisterForClicks("AnyUp") end
     if frame.EnableMouseWheel then frame:EnableMouseWheel(false) end
     if wrappedFrames[frame] then
@@ -1210,16 +1105,12 @@ local function DoUnregisterFrame(frame)
 end
 
 function ns.CC_RegisterFrame(frame)
-    -- Always record ownership so a later enable can pick the frame up, but do
-    -- not touch the frame's click behavior while disabled.
+    -- Records ownership (for a later enable) without touching click behavior.
     ownedFrames[frame] = true
     local cc = GetClickCastDB()
     if not (cc and cc.enabled) then
-        -- EUI click-casting is OFF: defer to Clique by registering the frame in
-        -- the global ClickCastFrames table. We do NOT alter the frame's own click
-        -- attributes here, so the right-click context menu stays Blizzard-default
-        -- unless the user's Clique profile rebinds it. (Restores Clique support
-        -- that the "touch zero frames while disabled" guard removed.)
+        -- OFF: defer to any other consumer via the global ClickCastFrames table
+        -- without touching click attributes, so right-click stays Blizzard-default.
         AddFrameToClickCast(frame)
         return
     end
@@ -1236,17 +1127,15 @@ end
 local function RegisterExternalFrame(frame)
     if not ccInitialized then tinsert(regQueue, frame); return end
     local cc = GetClickCastDB()
-    -- Never touch external/Blizzard frames unless click-casting is BOTH enabled
-    -- and set to capture all frames. (externalFrames already recorded the frame
-    -- at the call sites, so enabling later still picks it up.)
+    -- Only touches external/Blizzard frames when BOTH enabled and allFrames
+    -- (externalFrames already recorded the frame, so enabling later picks it up).
     if not cc or not cc.enabled or not cc.allFrames then return end
     if InCombatLockdown() then tinsert(regQueue, frame); return end
     DoRegisterFrame(frame)
 end
 
--- Forward declaration: defined further below (after the per-frame registration
--- helpers). Declared here so CC_SetAllFrames can register the static Blizzard
--- frame list when "All Unit Frames" is toggled on at runtime.
+-- Forward-declared (defined below) so CC_SetAllFrames can register the static
+-- Blizzard list at runtime.
 local RegisterBlizzardFrames
 
 function ns.CC_SetAllFrames(enabled)
@@ -1255,10 +1144,8 @@ function ns.CC_SetAllFrames(enabled)
     cc.allFrames = enabled
     if InCombatLockdown() then pendingApply = true; return end
     if enabled then
-        -- Grab the static Blizzard list (PlayerFrame/TargetFrame/party/etc.) and
-        -- install the CompactUnitFrame hook. Idempotent: self-gates on
-        -- enabled+allFrames, the loop below skips already-registered frames,
-        -- and the CUF hook installs at most once.
+        -- Grabs the static Blizzard list + installs the CompactUnitFrame hook.
+        -- Idempotent (self-gates, skips already-registered, hook installs once).
         if RegisterBlizzardFrames then RegisterBlizzardFrames() end
         for frame in pairs(externalFrames) do
             if not registeredFrames[frame] and not ownedFrames[frame] then
@@ -1278,7 +1165,6 @@ function ns.CC_SetDownClick(enabled)
     if not cc then return end
     cc.downClick = enabled
     if InCombatLockdown() then pendingApply = true; return end
-    -- Re-register clicks on all frames with the new direction
     local dir = enabled and "AnyDown" or "AnyUp"
     for frame in pairs(registeredFrames) do
         if frame.RegisterForClicks then
@@ -1287,14 +1173,10 @@ function ns.CC_SetDownClick(enabled)
     end
 end
 
--------------------------------------------------------------------------------
---  ClickCastFrames hook
--------------------------------------------------------------------------------
+-- ClickCastFrames hook
 local function SetupClickCastFramesHook()
-    -- Install exactly once, and only after the user enables click-casting (see
-    -- CC_Init / CC_SetEnabled). A never-enabled install would leave a fresh
-    -- user's default disabled, so the global ClickCastFrames table is never
-    -- replaced and Clique/Blizzard are never perturbed.
+    -- Installs exactly once, only after the user enables (CC_Init/CC_SetEnabled),
+    -- so a fresh disabled install never replaces the global table or perturbs others.
     if ccHookInstalled then return end
     ccHookInstalled = true
     local oldCCF = ClickCastFrames
@@ -1329,13 +1211,12 @@ function ns.CC_ApplyBindings()
     if not ccInitialized then pendingApply = true; return end
     if InCombatLockdown() then pendingApply = true; return end
 
-    -- Self-heal any legacy non-canonical modifier-order keys before reading the
-    -- active set (so GetActiveBindings' key de-dup also sees canonical keys).
+    -- Self-heals non-canonical modifier-order keys before reading active set
+    -- (so GetActiveBindings' de-dup also sees canonical keys).
     NormalizeSavedBindingKeys()
 
     local bindings = GetActiveBindings()
 
-    -- Split into frame-based and hovercast
     local frameBindings = {}
     local hoverBindings = {}
     for i, b in ipairs(bindings) do
@@ -1349,7 +1230,6 @@ function ns.CC_ApplyBindings()
     ---------------------------------------------------------------
     -- Frame-based bindings
     ---------------------------------------------------------------
-    -- Clear old frame attributes
     for frame in pairs(registeredFrames) do
         for _, pb in ipairs(prevBindings) do
             if not pb.b.hovercast then
@@ -1363,7 +1243,6 @@ function ns.CC_ApplyBindings()
     end
     ClearKeyAttrs(bindProxy, lastBindingCount)
 
-    -- Apply new frame-based bindings
     for frame in pairs(registeredFrames) do
         for _, fb in ipairs(frameBindings) do
             local parsed = ParseKeyString(fb.b.key)
@@ -1377,8 +1256,8 @@ function ns.CC_ApplyBindings()
             else
             end
         end
-        -- Re-neutralize the unbound left/right defaults after the rebuild (the
-        -- clear pass above may have stripped a previous binding's type<N>).
+        -- Re-neutralize unbound left/right defaults (the clear pass above may
+        -- have stripped a previous binding's type<N>).
         NeutralizeDefaultClicks(frame, bindings)
     end
     -- Bind proxy gets keyboard attrs too (unnamed frame fallback)
@@ -1390,35 +1269,24 @@ function ns.CC_ApplyBindings()
         end
     end
 
-    -- Generate secure OnEnter/OnLeave scripts
     local enterScript, leaveScript, kbClearLines = GenerateKeyBindSnippets(bindings)
     header:SetAttribute("eui_setup_onenter", enterScript)
     header:SetAttribute("eui_setup_onleave", leaveScript)
 
     ---------------------------------------------------------------
-    -- Hovercast + frame-based keyboard failsafe, unified on ONE header state
-    -- driver (eui_cc) reacting to [@mouseover,exists].
-    --
-    --  * The hover override binding is SET the instant you hover an EUI frame, in
-    --    the frame's secure OnEnter (eui_hover_set), so a keypress on arrival can
-    --    never lose the race against the binding being set. (This is the part the
-    --    old design lacked: it relied solely on the state driver to set, which
-    --    lags on arrival and -- worse -- could stay stuck cleared.)
-    --  * The state driver also SETS on "on", covering NON-EUI mouseover targets
-    --    (nameplates / Blizzard frames that have no OnEnter wrap), and on "off"
-    --    CLEARS the hover bindings AND runs the frame-based keyboard failsafe.
-    --  * The "0" clear is GUARDED: skipped while the last-hovered EUI frame is
-    --    still physically under the cursor, so a transient [@mouseover,exists]==0
-    --    (a churning unit token -- common in follower dungeons) cannot strand the
-    --    binding cleared (the "stuck until I re-mouseover" report).
-    --  * eui_hoveractive gates the SetBindingClick work to the become-active edge
-    --    only, so sweeping the mouse across frames does zero extra binding writes
-    --    (same cadence as before -- no per-hover cost).
-    -- globalBtn stays the @mouseover click target; its macro re-evaluates at cast
-    -- time, so a press always fires on whatever the cursor is actually over.
+    -- Hovercast + frame keyboard failsafe, unified on ONE header state driver
+    -- (eui_cc, [@mouseover,exists]). Override is SET instantly on the frame's
+    -- OnEnter (eui_hover_set) so a keypress on arrival never loses the race; the
+    -- driver ALSO sets on "on" (covers non-EUI targets like nameplates with no
+    -- OnEnter wrap) and on "off" clears + runs the keyboard failsafe, GUARDED
+    -- so a transient exists==0 flicker (common in follower dungeons) while the
+    -- last-hovered frame is still under the cursor can't strand it cleared.
+    -- eui_hoveractive gates SetBindingClick to the become-active edge only
+    -- (zero extra writes on mouse sweep). globalBtn's macro re-evaluates at
+    -- cast time, so a press fires on whatever's hovered.
     ---------------------------------------------------------------
-    -- Retire the previous driver(s) and wipe the override bindings the prior
-    -- build owned (the teardown script also resets eui_hoveractive), then rebuild.
+    -- Retires the previous driver(s) and wipes prior override bindings
+    -- (teardown also resets eui_hoveractive), then rebuilds.
     UnregisterStateDriver(header, "eui_cc")
     UnregisterStateDriver(header, "eui_fbs")     -- legacy: split failsafe driver
     UnregisterStateDriver(globalBtn, "eui_mo")   -- legacy: globalBtn hover driver
@@ -1455,12 +1323,10 @@ function ns.CC_ApplyBindings()
                     hb.b.oocOnly and (aType == "togglemenu" or aType == "target"))
             end
             globalBtn:SetAttribute("unit-" .. suffix, "mouseover")
-            -- Route the key/button to the global button for EVERY action type, not
-            -- just spell/macro. Hovercast "Context Menu" (togglemenu) and "Target"
-            -- bindings previously set their attributes but were never bound to a
-            -- click, so the keypress did nothing. The global button is a
-            -- SecureActionButton, which the 12.0.7 SecureUnitButton menu gate does
-            -- NOT touch, so togglemenu opens the menu here once the click is routed.
+            -- Routes the key/button to the global button for EVERY action type
+            -- (not just spell/macro): the global button is a SecureActionButton,
+            -- which the 12.0.7 SecureUnitButton menu gate does NOT touch, so
+            -- togglemenu/target work here once the click is routed to it.
             hoverSetLines[#hoverSetLines + 1] = string.format(
                 [[self:SetBindingClick(true, %q, %q, %q)]],
                 hb.b.key, gbName, suffix)
@@ -1469,22 +1335,17 @@ function ns.CC_ApplyBindings()
         end
     end
 
-    -- Hover set/clear bodies. Stored as header attributes and invoked via
+    -- Hover set/clear bodies: stored as header attributes, invoked via
     -- RunAttribute from both the OnEnter wrap and the state driver, so they
-    -- always run with self = header (the owner of the override bindings).
+    -- always run with self=header (owner of the override bindings).
     header:SetAttribute("eui_hover_set", table.concat(hoverSetLines, "\n"))
     header:SetAttribute("eui_hover_clear", table.concat(hoverClearLines, "\n"))
 
-    -- Teardown executed on the NEXT rebuild (line ~1311): drop every override
-    -- binding this header owns and reset the active flag. self:ClearBindings()
-    -- wipes them ALL in one shot rather than replaying a per-key ClearBinding
-    -- list. The per-key list was fragile: when the LAST hover/keyboard binding is
-    -- unbound, the state driver is not re-registered (the gate just below), so any
-    -- override the per-key teardown missed -- e.g. one still active because the
-    -- user was hovering a frame when they unbound -- had nothing left to clear it
-    -- and kept firing until /reload (the unbind-doesn't-take-effect bug). The
-    -- header owns only click-cast overrides and they re-establish on the next
-    -- hover, so a full wipe is always safe.
+    -- Teardown (next rebuild): self:ClearBindings() wipes every override this
+    -- header owns in one shot (safe -- they re-establish on next hover). A
+    -- per-key list is fragile: when the LAST binding is unbound the state driver
+    -- isn't re-registered (gate below), so it could miss an override still
+    -- active from an in-progress hover, stuck firing until /reload.
     header._ccClearScript = "self:ClearBindings()\neui_hoveractive = false"
 
     if #hoverSetLines > 0 or #kbClearLines > 0 then
@@ -1502,15 +1363,13 @@ function ns.CC_ApplyBindings()
 
             end
         ]])
-        -- State values are deliberately non-numeric. Blizzard's driver runs
-        -- newValue = tonumber(newValue) or newValue before setting the state, so a
-        -- "1; 0" driver arrives as the NUMBER 1 and never matches a quoted "1" --
-        -- which silently made the set branch above unreachable, leaving nameplates
-        -- (no OnEnter wrap, so the driver is their only path) permanently unbound.
+        -- State values are deliberately non-numeric: Blizzard's driver coerces
+        -- with tonumber(newValue) or newValue, so a "1; 0" driver would arrive as
+        -- NUMBER 1 and never match quoted "1" -- leaving nameplates (whose only
+        -- path is this driver) permanently unbound.
         RegisterStateDriver(header, "eui_cc", "[@mouseover,exists] on; off")
     end
 
-    -- Store for next cleanup
     lastBindingCount = #bindings
     lastHoverCount = #hoverBindings
     prevBindings = {}
@@ -1581,9 +1440,7 @@ function ns.CC_FindBinding(keyStr)
     return nil
 end
 
--------------------------------------------------------------------------------
---  Expose getters
--------------------------------------------------------------------------------
+-- Expose getters
 ns.CC_GetActiveBindings  = GetActiveBindings
 ns.CC_GetSpecBindings    = GetSpecBindings
 ns.CC_GetGlobalBindings  = GetGlobalBindings
@@ -1592,8 +1449,8 @@ ns.CC_GetCurrentSpecName = GetCurrentSpecName
 ns.CC_GetCurrentSpecIcon = GetCurrentSpecIcon
 ns.CC_GetClickCastDB     = GetClickCastDB
 
--- Find all bindings (excluding the given one) that use the same key.
--- Returns a list of binding names, or empty table.
+-- Finds all bindings (excluding the given one) sharing a key; returns a list
+-- of names or an empty table.
 local function FindKeyConflicts(keyStr, excludeBinding)
     if not keyStr then return {} end
     local conflicts = {}
@@ -1621,9 +1478,9 @@ end
 -------------------------------------------------------------------------------
 --  Enable / disable sweep
 -------------------------------------------------------------------------------
--- Register the Blizzard default unit frames + party pool + dynamic raid frames.
--- Self-gated on enabled+allFrames (via RegisterExternalFrame); the
--- CompactUnitFrame hook installs at most once.
+-- Registers the Blizzard default unit frames + party pool + dynamic raid frames.
+-- Self-gated on enabled+allFrames (via RegisterExternalFrame); the CompactUnitFrame
+-- hook installs at most once.
 local blizzHookInstalled = false
 -- Assigns to the forward-declared upvalue above (so CC_SetAllFrames can call it).
 function RegisterBlizzardFrames()
@@ -1641,7 +1498,6 @@ function RegisterBlizzardFrames()
             RegisterExternalFrame(f)
         end
     end
-    -- Party frames (retail pool)
     if PartyFrame and PartyFrame.PartyMemberFramePool then
         for mf in PartyFrame.PartyMemberFramePool:EnumerateActive() do
             externalFrames[mf] = true
@@ -1652,8 +1508,8 @@ function RegisterBlizzardFrames()
             end
         end
     end
-    -- CompactUnitFrames (Blizzard raid frames) created dynamically. Install the
-    -- hook once; it self-gates via RegisterExternalFrame (enabled+allFrames).
+    -- CompactUnitFrames (Blizzard raid frames) are created dynamically; the hook
+    -- installs once and self-gates via RegisterExternalFrame (enabled+allFrames).
     if not blizzHookInstalled and CompactUnitFrame_SetUpFrame then
         blizzHookInstalled = true
         hooksecurefunc("CompactUnitFrame_SetUpFrame", function(frame)
@@ -1668,10 +1524,10 @@ function RegisterBlizzardFrames()
     end
 end
 
--- Toggle click-casting with a full register / restore sweep. Enabling installs
--- the global hook and registers owned + external frames. Disabling returns
--- EVERY touched frame to its native click behavior so right-click is never left
--- broken. Defers to PLAYER_REGEN_ENABLED in combat.
+-- Toggles click-casting with a full register/restore sweep: enabling installs
+-- the global hook + registers owned/external frames; disabling returns EVERY
+-- touched frame to native click behavior (right-click never left broken).
+-- Defers to PLAYER_REGEN_ENABLED in combat.
 function ns.CC_SetEnabled(enabled)
     local cc = GetClickCastDB()
     if not cc then return end
@@ -1679,16 +1535,14 @@ function ns.CC_SetEnabled(enabled)
     if not ccInitialized then return end
     if InCombatLockdown() then pendingSetEnabled = enabled; pendingApply = true; return end
     if enabled then
-        -- Hand our frames back from Clique before we take them over, so Clique
-        -- drops its bindings and we do not double-bind. Must run BEFORE the proxy
+        -- Hand owned frames back to any other consumer before taking over, so it
+        -- drops its bindings and we don't double-bind. Must run BEFORE the proxy
         -- replaces the global table (RemoveFrameFromClickCast no-ops once it has).
         for frame in pairs(ownedFrames) do RemoveFrameFromClickCast(frame) end
         SetupClickCastFramesHook()
-        -- Register owned EUI frames.
         for frame in pairs(ownedFrames) do
             if not registeredFrames[frame] then DoRegisterFrame(frame) end
         end
-        -- Register external/Blizzard frames when allFrames is set.
         if cc.allFrames then
             RegisterBlizzardFrames()
             for frame in pairs(externalFrames) do
@@ -1699,9 +1553,8 @@ function ns.CC_SetEnabled(enabled)
         end
         ns.CC_ApplyBindings()
     else
-        -- Clear applied attributes first (CC_ApplyBindings uses the last-applied
-        -- binding set), then fully revert every registered frame to native
-        -- behavior (restores type1/type2, AnyUp, mousewheel, removes wraps).
+        -- Clears applied attributes first (CC_ApplyBindings uses the last-applied
+        -- set), then reverts every frame to native (type1/type2, AnyUp, wheel, wraps).
         ns.CC_ApplyBindings()
         local list = {}
         for frame in pairs(registeredFrames) do list[#list + 1] = frame end
@@ -1712,22 +1565,17 @@ end
 -------------------------------------------------------------------------------
 --  Events
 -------------------------------------------------------------------------------
--- At login the specialization / trait data can lag PLAYER_ENTERING_WORLD by a
--- few frames. Applying bindings before the spec is known makes every
--- SPEC-scoped binding fall back to its GLOBAL default -- e.g. a spec right-click
--- spell reverts to the global "menu" default, so right-click opens the context
--- menu -- with nothing to re-apply it afterwards (PLAYER_SPECIALIZATION_CHANGED
--- does not fire on a plain login). Poll briefly until GetCurrentSpecID resolves,
--- then reapply so spec bindings take effect. Safe when there is no spec (new /
--- low-level characters): the cap stops the poll and a later spec pick fires
--- PLAYER_SPECIALIZATION_CHANGED, which reapplies.
+-- Spec data can lag PLAYER_ENTERING_WORLD by a few frames at login; applying
+-- bindings too early drops SPEC-scoped bindings to GLOBAL with nothing to
+-- re-apply them (PLAYER_SPECIALIZATION_CHANGED doesn't fire on plain login).
+-- Polls until GetCurrentSpecID resolves, then reapplies; safe with no spec
+-- (cap stops the poll; a later spec pick fires the event instead).
 local specReadyTicker
 local function ReapplyWhenSpecReady()
     if InCombatLockdown() then pendingApply = true; return end
     if GetCurrentSpecID() then ns.CC_ApplyBindings(); return end
-    -- Spec not ready yet: only spin up the readiness poll if click-casting is
-    -- actually enabled. A disabled install has no bindings to re-apply, so the
-    -- poll would be idle cost for a user who never turned the feature on.
+    -- Spec not ready: only start the readiness poll when enabled -- a disabled
+    -- install has nothing to re-apply, so polling would be idle cost otherwise.
     local cc = GetClickCastDB()
     if not (cc and cc.enabled) then return end
     if specReadyTicker then return end
@@ -1765,10 +1613,9 @@ local function OnCCEvent(self, event)
     elseif event == "PLAYER_SPECIALIZATION_CHANGED" then
         if not InCombatLockdown() then ns.CC_ApplyBindings() else pendingApply = true end
     elseif event == "PLAYER_ENTERING_WORLD" then
-        -- Reapply bindings after zone/loading screen to clear any stuck
-        -- frame-based bindings (OnLeave may not fire during transitions).
-        -- Wait for the spec to resolve first so spec-scoped bindings are not
-        -- lost to their global defaults on login (see ReapplyWhenSpecReady).
+        -- Reapplies after zone/loading (OnLeave may not fire during transitions,
+        -- so stuck frame-bindings need clearing); waits for spec via
+        -- ReapplyWhenSpecReady so login doesn't drop spec-scoped bindings to global.
         ReapplyWhenSpecReady()
     end
 end
@@ -1781,13 +1628,11 @@ function ns.CC_Init()
     if not ns.db then return end
     GetClickCastDB()
 
-    -- StateTemplate, not BaseTemplate: only the state template carries the
-    -- OnAttributeChanged script (SecureHandler_StateOnAttributeChanged) that
-    -- dispatches "_onstate-<id>" snippets. Under BaseTemplate the eui_cc driver
-    -- still wrote state-eui_cc, but nothing listened, so the hover set/clear
-    -- handler never ran and hovercast worked only where the OnEnter wrap set the
-    -- binding directly -- i.e. everywhere except nameplates. It inherits the same
-    -- SecureHandler_OnLoad, so Execute / WrapScript / RunAttribute are unchanged.
+    -- StateTemplate (not BaseTemplate): only it carries the OnAttributeChanged script
+    -- (SecureHandler_StateOnAttributeChanged) that dispatches "_onstate-<id>" -- under
+    -- BaseTemplate the driver would write the state but nothing listens, so hovercast
+    -- would only work via the OnEnter wrap (everywhere except nameplates). Same
+    -- SecureHandler_OnLoad, so Execute/ WrapScript/RunAttribute are unchanged.
     header = CreateFrame("Frame", "EUIClickCastHeader", UIParent, "SecureHandlerStateTemplate")
     ns._ccHeader = header
 
@@ -1814,9 +1659,8 @@ function ns.CC_Init()
     header:SetAttribute("eui_hover_set", "")
     header:SetAttribute("eui_hover_clear", "")
 
-    -- Shell-pool adoption (ns.TakeShell, main file): click-cast init runs
-    -- under the parent's lifecycle dispatch, which would bill this frame's
-    -- event tree to the parent addon.
+    -- Shell-pool adoption (ns.TakeShell, main file) so this frame's event tree
+    -- bills to click-cast, not the parent addon's lifecycle dispatch.
     ccEventFrame = (ns.TakeShell and ns.TakeShell()) or CreateFrame("Frame")
     ccEventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
     ccEventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
@@ -1825,11 +1669,9 @@ function ns.CC_Init()
 
     ccInitialized = true
 
-    -- Only touch frames when click-casting is enabled. A fresh/default install
-    -- (enabled=false) registers nothing: the global ClickCastFrames table is
-    -- never replaced, no RegisterForClicks, no WrapScript -- the user's clicks
-    -- (especially right-click) stay exactly as Blizzard set them. Enabling
-    -- later runs the same sweep via CC_SetEnabled.
+    -- Only touches frames when enabled: a fresh/default install registers
+    -- nothing, so clicks stay Blizzard-default. Enabling later runs the same
+    -- sweep via CC_SetEnabled.
     local cc = GetClickCastDB()
     if cc and cc.enabled then
         SetupClickCastFramesHook()
@@ -1901,7 +1743,6 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     local selectedBinding = nil
     local selectedSide = ns._ccSelSide
     local selectedIndex = ns._ccSelIndex
-    -- Resolve the binding reference from stored side+index
     if selectedSide == "global" and selectedIndex then
         selectedBinding = cc.globals[selectedIndex]
     elseif selectedSide == "spec" and selectedIndex then
@@ -1921,7 +1762,6 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         if b.macroName then boundMacros[b.macroName] = true end
         if b.itemSlot then boundItems[b.itemSlot] = true end
     end
-    -- Dim spells covered by bound presets for the player's class
     local _, pClass = UnitClass("player")
     local hasDispel, hasExternal, hasDynamicRez = false, false, false
     for _, gb in ipairs(GetGlobalBindings()) do
@@ -1934,7 +1774,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     if hasDispel then
         for _, sp in ipairs(DISPEL_SPELLS) do
             if sp.class == pClass then
-                -- Match the localized name stored by the spell picker so the
+                -- Matches the localized name stored by the spell picker, so
                 -- "already bound" dimming works on non-English clients.
                 local n = (C_Spell.GetSpellName and C_Spell.GetSpellName(sp.id)) or sp.name
                 boundSpells[n] = true
@@ -1959,9 +1799,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         end
     end
 
-    ---------------------------------------------------------------------------
-    --  Keybind capture button builder (Party Mode pattern)
-    ---------------------------------------------------------------------------
+    -- Keybind capture button builder (Party Mode pattern).
     local function BuildKeybindButton(parentFrame, width, getCurrentKey, onKeySet, onKeyClear)
         local KB_H = 30
         local kbBtn = CreateFrame("Button", nil, parentFrame)
@@ -1983,8 +1821,8 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         end
         RefreshLabel()
 
-        -- Stop capturing: disable keyboard + mouse wheel so the page scrolls
-        -- normally again when this button is not actively listening.
+        -- Stops capturing: disables keyboard + wheel so the page scrolls
+        -- normally again.
         local function StopListening()
             listening = false
             kbBtn:EnableKeyboard(false)
@@ -2027,10 +1865,9 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
             StopListening()
         end)
 
-        -- Scroll wheel binding -- only via this capture button, never Quickbind.
-        -- Mouse wheel is enabled only while listening, so the page scrolls
-        -- normally otherwise. MOUSEWHEELUP/DOWN bind through the keybind path
-        -- (SetBindingClick), same as keyboard keys.
+        -- Scroll-wheel binding only via this capture button (never Quickbind);
+        -- wheel is enabled only while listening. MOUSEWHEELUP/DOWN bind through
+        -- the keybind path (SetBindingClick), same as keyboard keys.
         kbBtn:SetScript("OnMouseWheel", function(self, delta)
             if not listening then return end
             local mods = ns.CC_GetModifierPrefix()
@@ -2059,9 +1896,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         return kbBtn
     end
 
-    ---------------------------------------------------------------------------
-    --  Sidebar tile builder (BM replica)
-    ---------------------------------------------------------------------------
+    -- Sidebar tile builder (BM replica).
     local function BuildTile(scrollChild, tileY, binding, isSelected, side, idx, onSelect, onDelete)
         local tile = CreateFrame("Button", nil, scrollChild)
         tile:SetSize(sidebarW, TILE_H)
@@ -2079,7 +1914,6 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
             accent:SetColorTexture(accentColor.r, accentColor.g, accentColor.b, 1)
         end
 
-        -- Icon
         local iconFrame = CreateFrame("Frame", nil, tile)
         iconFrame:SetSize(ICON_SZ, ICON_SZ)
         iconFrame:SetPoint("LEFT", tile, "LEFT", 8, 0)
@@ -2093,7 +1927,6 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
             PP.CreateBorder(iBdr, 0, 0, 0, 0.6, 1)
         end
 
-        -- Title
         local textX = 8 + ICON_SZ + 8
         local title = MakeFont(tile, 13, 1, 1, 1, 1)
         title:SetPoint("TOPLEFT", tile, "TOPLEFT", textX, -8)
@@ -2101,14 +1934,12 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         title:SetJustifyH("LEFT"); title:SetWordWrap(false)
         title:SetText(EllesmereUI.L(ns.CC_GetBindingName(binding)))
 
-        -- Keybind subtitle
         local keySub = MakeFont(tile, 11, 0.75, 0.75, 0.75, 0.65)
         keySub:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -2)
         keySub:SetPoint("RIGHT", tile, "RIGHT", -30, 0)
         keySub:SetJustifyH("LEFT"); keySub:SetWordWrap(false)
         keySub:SetText(binding.key and ns.CC_FormatKey(binding.key) or EllesmereUI.L("Not Bound"))
 
-        -- Delete button (top-right, where toggle used to be)
         if onDelete then
             local delBtn = CreateFrame("Button", nil, tile)
             delBtn:SetSize(16, 16)
@@ -2125,14 +1956,12 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
             delBtn:SetScript("OnClick", function() onDelete(idx) end)
         end
 
-        -- Separator
         local sep = tile:CreateTexture(nil, "ARTWORK")
         sep:SetHeight(1)
         sep:SetPoint("BOTTOMLEFT", tile, "BOTTOMLEFT", 0, 0)
         sep:SetPoint("BOTTOMRIGHT", tile, "BOTTOMRIGHT", 0, 0)
         sep:SetColorTexture(1, 1, 1, 0.04)
 
-        -- Interaction
         tile:SetScript("OnClick", function() onSelect(side, idx) end)
         tile:SetScript("OnEnter", function() if not isSelected then tileBg:SetColorTexture(1, 1, 1, 0.04) end end)
         tile:SetScript("OnLeave", function() if not isSelected then tileBg:SetColorTexture(1, 1, 1, 0) end end)
@@ -2140,10 +1969,8 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         return tile
     end
 
-    ---------------------------------------------------------------------------
-    --  Icon grid popup builder
-    ---------------------------------------------------------------------------
-    -- side: "left" or "right". sidebarFrame: the sidebar outer frame for anchoring.
+    -- Icon grid popup builder. side: "left" or "right"; sidebarFrame: the
+    -- sidebar outer frame for anchoring.
     local function BuildIconGridPopup(anchorBtn, sidebarFrame, side, items, onSelect)
         local GRID_COLS = 5
         local ICON_SZ2 = 32
@@ -2155,7 +1982,6 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         local DIV_H = 1
         local INSET = 15
 
-        -- Pre-compute per-row: does any item in this row have a name?
         local gridRows = math.ceil(#items / GRID_COLS)
         local rowHasText = {}
         for r = 0, gridRows - 1 do
@@ -2168,8 +1994,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
             end
         end
 
-        -- Compute row Y positions and heights
-        -- Label height: ~14px for font 10. Measure once.
+        -- LABEL_H ~= 14px for font 10 (measured once, not re-measured per row).
         local LABEL_H = 14
         local rowY = {}     -- [r] = top Y of this row (negative, from top)
         local rowH = {}     -- [r] = height of this row
@@ -2236,7 +2061,6 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
 
             local pxSnap = ns.PixelSnap or function(v) return v end
 
-            -- Divider line between rows (drawn once per row, in the gap)
             if col == 0 and r > 0 then
                 local divY = cy + ROW_GAP / 2
                 local div = child:CreateTexture(nil, "ARTWORK")
@@ -2251,7 +2075,6 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
             cell:SetSize(CELL_W, cellH)
             cell:SetPoint("TOPLEFT", child, "TOPLEFT", cx, cy)
 
-            -- Icon with hover border
             local iconFrame = CreateFrame("Frame", nil, cell)
             iconFrame:SetSize(ICON_SZ2, ICON_SZ2)
             local iconTex = iconFrame:CreateTexture(nil, "ARTWORK")
@@ -2309,14 +2132,11 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         return popup
     end
 
-    ---------------------------------------------------------------------------
-    --  Page rebuild function (called on selection change, add, delete, toggle)
-    ---------------------------------------------------------------------------
+    -- Page rebuild (called on selection change, add, delete, toggle).
     local function RebuildPage()
-        -- Hide any open popups (QB stays open -- it's parented to UIParent)
+        -- Hides any open popups (QB stays open -- it's parented to UIParent).
         if ns._ccGridPopup then ns._ccGridPopup:Hide(); ns._ccGridPopup = nil end
         if ns._ccSpecPopup then ns._ccSpecPopup:Hide(); ns._ccSpecPopup = nil end
-        -- Destroy and recreate root
         if ns._ccRoot then ns._ccRoot:Hide(); ns._ccRoot:SetParent(nil); ns._ccRoot = nil end
         ns.CC_BuildPage(pageName, parent, yOffset)
     end
@@ -2337,7 +2157,6 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     local leftBg = leftOuter:CreateTexture(nil, "BACKGROUND")
     leftBg:SetAllPoints(); leftBg:SetColorTexture(0, 0, 0, 0.25)
 
-    -- Header label
     local leftHeader = MakeFont(leftOuter, 13, 1, 1, 1, 0.75)
     leftHeader:SetPoint("TOP", leftOuter, "TOP", 0, -18)
     leftHeader:SetText(EllesmereUI.L("Global Bindings"))
@@ -2371,7 +2190,6 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         leftY = leftY - TILE_H
     end
 
-    -- Add Global Binding button
     local addGlobalBtn = CreateFrame("Button", nil, leftChild)
     addGlobalBtn:SetSize(floor(sidebarW * 0.8), ADD_BTN_H)
     addGlobalBtn:SetPoint("TOP", leftChild, "TOPLEFT", sidebarW / 2, leftY - ADD_BTN_PAD)
@@ -2412,7 +2230,6 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.2, PP)
         ns._ccGridPopup = popup
 
-        -- Macros / Items toggle
         local toggleModeG = "macro"
         local macroToggleG = CreateFrame("Button", nil, popup)
         macroToggleG:SetSize((popupWG - INSETG * 2) / 2 - 2, 26)
@@ -2511,10 +2328,10 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                 local mItems = {}
                 for _, m in ipairs(macros) do mItems[#mItems + 1] = { name = m.name, icon = m.icon, macroName = m.name } end
                 PopulateGridG(mItems, function(itm)
-                    -- Macros default to BOTH reactions, unlike a spell binding
-                    -- (friendly only, the click-cast healing case). A macro is
-                    -- general purpose and commonly a mouseover focus/target one,
-                    -- so a friendly-only default would leave it dead on enemies.
+                    -- Macros default to BOTH reactions (unlike spells, which
+                    -- default friendly-only for the click-cast healing case): a
+                    -- macro is general-purpose (e.g. mouseover focus/target), so
+                    -- friendly-only would leave it dead on enemies.
                     ns.CC_AddGlobalBinding({ type = "macro", macroName = itm.macroName, icon = itm.icon,
                         enabled = true, oocOnly = false, hovercast = false, hoverFriendly = true, hoverEnemy = true })
                     ns._ccSelSide = "global"; ns._ccSelIndex = #(GetGlobalBindings()); RebuildPage()
@@ -2549,7 +2366,6 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     leftY = leftY - ADD_BTN_PAD - ADD_BTN_H - 10
     leftChild:SetHeight(max(10, math.abs(leftY)))
 
-    -- Sticky clone for Add Global button
     local stickyLeftBg = CreateFrame("Frame", nil, leftOuter)
     stickyLeftBg:SetHeight(ADD_BTN_H + 20)
     stickyLeftBg:SetPoint("BOTTOMLEFT", leftOuter, "BOTTOMLEFT", 0, 0)
@@ -2637,7 +2453,6 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         rightY = rightY - TILE_H
     end
 
-    -- Add New + Quickbind buttons
     local btnW = floor(sidebarW * 0.42)
     local addSpecBtn = CreateFrame("Button", nil, rightChild)
     addSpecBtn:SetSize(btnW, ADD_BTN_H)
@@ -2664,7 +2479,6 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     qbBtn:SetScript("OnClick", function()
         if ns._ccQBPopup and ns._ccQBPopup:IsShown() then ns._ccQBPopup:Hide(); return end
 
-        -- Full screen dimmer
         local dimmer = CreateFrame("Frame", nil, UIParent)
         dimmer:SetFrameStrata("FULLSCREEN")
         dimmer:SetAllPoints()
@@ -2697,12 +2511,10 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.2, PP)
         ns._ccQBPopup = dimmer
 
-        -- Title
         local titleLbl = MakeFont(popup, 13, 1, 1, 1, 0.9)
         titleLbl:SetPoint("TOP", popup, "TOP", 0, -QB_INSET)
         titleLbl:SetText(EllesmereUI.L("Quickbind: hover a spell, press a key"))
 
-        -- Spells / Macros / Items toggle
         local toggleModeQB = "spell"
         local toggleInnerQB = popupWQB - QB_INSET * 2
         local toggleBtnWQB = floor(toggleInnerQB / 3) - 2
@@ -2729,7 +2541,6 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         local itHlQB = itemTglQB:CreateTexture(nil, "HIGHLIGHT"); itHlQB:SetAllPoints(); itHlQB:SetColorTexture(1, 1, 1, 0.1)
         local itLblQB = MakeFont(itemTglQB, 12, 1, 1, 1, 0.9); itLblQB:SetPoint("CENTER"); itLblQB:SetText(EllesmereUI.L("Items"))
 
-        -- Grid scroll area
         local gridScrollQB = CreateFrame("ScrollFrame", nil, popup)
         gridScrollQB:SetPoint("TOPLEFT", popup, "TOPLEFT", QB_INSET, toggleTopQB - 36)
         gridScrollQB:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", -QB_INSET, QB_INSET + 38)
@@ -2901,7 +2712,6 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         macroTglQB:SetScript("OnClick", function() toggleModeQB = "macro"; UpdateToggleQB() end)
         itemTglQB:SetScript("OnClick", function() toggleModeQB = "item"; UpdateToggleQB() end)
 
-        -- Done button
         local doneBtn = CreateFrame("Button", nil, popup)
         doneBtn:SetSize(100, 30)
         doneBtn:SetPoint("BOTTOM", popup, "BOTTOM", 0, QB_INSET)
@@ -2914,7 +2724,6 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         doneBtn:SetScript("OnLeave", function() doneBg:SetColorTexture(0.25, 0.25, 0.25, 0.6); doneLbl:SetAlpha(0.5) end)
         doneBtn:SetScript("OnClick", function() dimmer:Hide() end)
 
-        -- Click dimmer to close
         dimmer:SetScript("OnMouseDown", function(self, button)
             if not popup:IsMouseOver() then dimmer:Hide() end
         end)
@@ -2926,13 +2735,11 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         dimmer:Show()
     end)
 
-    -- Add New popup logic
     addSpecBtn:SetScript("OnClick", function()
         if ns._ccSpecPopup and ns._ccSpecPopup:IsShown() then ns._ccSpecPopup:Hide(); return end
 
-        -- Build popup with spell/macro toggle
+        -- Same grid metrics as BuildIconGridPopup (48px cells, 19px gaps)
         local INSET3 = 15
-        -- Match BuildIconGridPopup: 6 cols, 48px wide, 4px gap
         local innerGridW3 = 5 * 48 + 4 * 19
         local popupW = innerGridW3 + INSET3 * 2
         local popupH2 = 400
@@ -2956,10 +2763,8 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         popup:EnableMouse(true)
         EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.2, PP)
 
-        -- Store ref for cleanup
         ns._ccSpecPopup = popup
 
-        -- Spell / Macro toggle
         local INSET2 = 15
         local toggleMode = "spell"
         local toggleInner = popupW - INSET2 * 2
@@ -3013,11 +2818,9 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         local LH2 = 14
 
         local function PopulateGrid(items2, onItemClick)
-            -- Clear existing children
             for _, c2 in ipairs({gridChild:GetChildren()}) do c2:Hide(); c2:SetParent(nil) end
 
             local totalRows2 = math.ceil(#items2 / GC2)
-            -- Per-row text check
             local rht = {}
             for r = 0, totalRows2 - 1 do
                 rht[r] = false
@@ -3028,7 +2831,6 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                     end
                 end
             end
-            -- Compute row positions
             local rY2, rH2 = {}, {}
             local cY2 = 0
             for r = 0, totalRows2 - 1 do
@@ -3060,7 +2862,6 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                 cell:SetSize(CW2, rH2[r])
                 cell:SetPoint("TOPLEFT", gridChild, "TOPLEFT", cx, cy)
 
-                -- Icon with hover border
                 local iconFrame2 = CreateFrame("Frame", nil, cell)
                 iconFrame2:SetSize(ISZ2, ISZ2)
                 local iconTex = iconFrame2:CreateTexture(nil, "ARTWORK")
@@ -3173,7 +2974,6 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     rightY = rightY - ADD_BTN_PAD - ADD_BTN_H - 10
     rightChild:SetHeight(max(10, math.abs(rightY)))
 
-    -- Sticky clones for Add New + Quickbind buttons
     local stickyRightBg = CreateFrame("Frame", nil, rightOuter)
     stickyRightBg:SetHeight(ADD_BTN_H + 20)
     stickyRightBg:SetPoint("BOTTOMLEFT", rightOuter, "BOTTOMLEFT", 0, 0)
@@ -3247,11 +3047,10 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     local SIDE_PAD = 20        -- padding inside each row
     local rowW = centerW - C_PAD * 2  -- row width
     local centerY = 0
-    -- Everything below the Enable Click Casting row is gated on it. Rows parent
-    -- to bodyHost so we can swap in a dimmable container after that first row.
+    -- Everything below Enable Click Casting gates on it; rows parent to bodyHost
+    -- so a dimmable container can be swapped in after that first row.
     local bodyHost = centerFrame
 
-    -- Helper: create a standard row frame with RowBg
     local function MakeRow(yPos)
         local row = CreateFrame("Frame", nil, bodyHost)
         PP.Size(row, rowW, ROW_H)
@@ -3260,7 +3059,6 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         return row
     end
 
-    -- Helper: add a label to a row (left side)
     local function RowLabel(row, text)
         local lbl = EllesmereUI.MakeFont(row, 14, nil,
             EllesmereUI.TEXT_WHITE_R, EllesmereUI.TEXT_WHITE_G, EllesmereUI.TEXT_WHITE_B)
@@ -3269,7 +3067,6 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         return lbl
     end
 
-    -- Helper: add a toggle pill to a row (right side)
     local function RowToggle(row, getValue, setValue)
         local toggleW, toggleH = 36, 18
         local pill = CreateFrame("Button", nil, row)
@@ -3301,7 +3098,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     -------------------------------------------------------------------
     --  GLOBAL OPTIONS section
     -------------------------------------------------------------------
-    -- Section header (accent-colored, matches W:SectionHeader style)
+    -- Accent-colored, matches W:SectionHeader style.
     do
         centerY = centerY - 6
         local secH = 33
@@ -3316,10 +3113,10 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         centerY = centerY - secH
     end
 
-    -- Row 1: Enable Click Casting (everything else gates on it). Disabled while the
-    -- Clique addon is loaded -- Clique and HoverCast both bind click-casting on the
-    -- same frames and cannot coexist. Clique's loaded state cannot change without a
-    -- /reload, so this one-time check is authoritative for the whole session.
+    -- Row 1: Enable Click Casting (everything else gates on it). Disabled when a
+    -- conflicting click-cast addon is loaded (checked below) -- both would bind
+    -- clicks on the same frames. That addon's loaded state can't change without
+    -- a /reload, so this one-time check is authoritative for the session.
     do
         local row = MakeRow(centerY)
         local lbl = RowLabel(row, "Enable Click Casting")
@@ -3330,7 +3127,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         if cliqueLoaded then
             lbl:SetAlpha(0.4)
             pill:SetAlpha(0.3)
-            pill:SetScript("OnClick", nil)  -- non-interactive while Clique owns clicks
+            pill:SetScript("OnClick", nil)  -- non-interactive while the other addon owns clicks
             pill:SetScript("OnEnter", function(self)
                 EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L('Please disable the addon "Clique" to use this feature.'))
             end)
@@ -3339,15 +3136,14 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         centerY = centerY - ROW_H
     end
 
-    -- Container holding every gated center control. Dimmed + click-blocked when
-    -- click casting is off; built into instead of centerFrame from here down.
+    -- Holds every gated center control: dimmed + click-blocked when click-casting
+    -- is off; everything below builds into this instead of centerFrame.
     local centerBody = CreateFrame("Frame", nil, centerFrame)
     centerBody:SetAllPoints(centerFrame)
     centerBody:SetFrameLevel(centerFrame:GetFrameLevel() + 1)
     bodyHost = centerBody
     local gatedTop = centerY  -- Y just below the Enable row; the gated region starts here
 
-    -- Row 2: Trigger Bindings on Down
     do
         local row = MakeRow(centerY)
         RowLabel(row, "Trigger Bindings on Down")
@@ -3357,7 +3153,6 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         centerY = centerY - ROW_H
     end
 
-    -- Row 3: Mouseover Frames
     do
         local row = MakeRow(centerY)
         RowLabel(row, "Mouseover Frames")
@@ -3397,7 +3192,6 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
             titleRow:SetSize(rowW, 44)
             titleRow:SetPoint("TOPLEFT", bodyHost, "TOPLEFT", C_PAD, centerY)
 
-            -- Type label (smaller, dimmer)
             local typeStr = "Spell"
             if selectedBinding.type == "macro" then typeStr = "Macro"
             elseif selectedBinding.type == "item" then typeStr = "Item"
@@ -3409,11 +3203,9 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
             local tType = MakeFont(titleRow, 11, 1, 1, 1, 0.4)
             tType:SetText(EllesmereUI.L(typeStr))
 
-            -- Name label (larger, brighter)
             local tName = MakeFont(titleRow, 15, 1, 1, 1, 0.9)
             tName:SetText(EllesmereUI.L(ns.CC_GetBindingName(selectedBinding)))
 
-            -- Measure widths for centering
             local typeW = tType:GetStringWidth()
             local nameW = tName:GetStringWidth()
             local textW = max(typeW, nameW)
@@ -3421,14 +3213,12 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
             local gap = 10
             local totalW = iconSz + gap + textW
 
-            -- Icon (vertically centered in row, spans both text lines)
             local tIcon = titleRow:CreateTexture(nil, "ARTWORK")
             tIcon:SetSize(iconSz, iconSz)
             tIcon:SetPoint("LEFT", titleRow, "CENTER", -totalW / 2, 0)
             tIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
             tIcon:SetTexture(ns.CC_GetBindingIcon(selectedBinding))
 
-            -- Position text lines to the right of icon
             tType:ClearAllPoints()
             tType:SetPoint("TOPLEFT", tIcon, "TOPRIGHT", gap, 0)
             tName:ClearAllPoints()
@@ -3470,13 +3260,10 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
             centerY = centerY - ROW_H
         end
 
-        -- Smart Rez row: when on, pressing this binding on a dead unit runs the
-        -- dynamic rez logic; on a living unit the binding's normal action fires.
+        -- Smart Rez row: dead unit runs dynamic rez, living unit fires the
+        -- binding's normal action. Only for macro-expressible actions (a [dead]
+        -- /cast can lead); target/menu excluded -- no macro fallback (BuildMacroText).
         do
-            -- Smart Rez applies to any binding whose action is macro-expressible
-            -- (so a [dead] /cast can lead and fall through to the normal action).
-            -- target/menu are excluded: their native secure actions have no macro
-            -- fallback (see note in BuildMacroText).
             local t = selectedBinding.type
             local canSmartRez = t == "spell" or t == "macro" or t == "item"
                 or t == "dispel" or t == "external"
@@ -3491,15 +3278,13 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
             end
         end
 
-        -- Spell/macro-specific options (not for target/menu)
         local hasAdvancedOpts = selectedBinding.type == "spell" or selectedBinding.type == "macro"
             or selectedBinding.type == "item" or selectedBinding.type == "dispel" or selectedBinding.type == "external"
             or selectedBinding.type == "trinket1" or selectedBinding.type == "trinket2"
             or selectedBinding.type == "dynamicrez"
-        -- OOC-Only is available for spell/macro AND for menu/target, so the
-        -- right-click context menu (or targeting) can be suppressed in combat to
-        -- avoid accidental opens. Combat-gating for menu/target is enforced
-        -- securely via an attribute driver (see SetGatedType).
+        -- OOC-Only applies to spell/macro AND menu/target (suppresses the
+        -- context menu / targeting in combat); menu/target's combat-gating is
+        -- enforced securely via an attribute driver (see SetGatedType).
         if hasAdvancedOpts or selectedBinding.type == "menu" or selectedBinding.type == "target" then
             local row = MakeRow(centerY)
             local oocLabel = "Only Cast Out of Combat"
@@ -3522,7 +3307,6 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                 local isBareMouseBtn = selectedBinding.key == "BUTTON1" or selectedBinding.key == "BUTTON2"
                 RowLabel(row, "Only Cast on Actual Units (Not Frames)")
                 if isBareMouseBtn then
-                    -- Force off and show disabled state
                     if selectedBinding.hovercast then
                         selectedBinding.hovercast = false
                         ns.CC_ApplyBindings()
@@ -3550,9 +3334,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                 centerY = centerY - ROW_H
             end
 
-            -- Hovercast targets (only when hovercast is on)
             if selectedBinding.hovercast then
-                -- Friendly row
                 do
                     local row = MakeRow(centerY)
                     RowLabel(row, "    Friendly Units")
@@ -3564,7 +3346,6 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                         end)
                     centerY = centerY - ROW_H
                 end
-                -- Enemy row
                 do
                     local row = MakeRow(centerY)
                     RowLabel(row, "    Enemy Units")
@@ -3579,17 +3360,14 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
             end
         end
     else
-        -- No binding selected hint
         local hint = MakeFont(bodyHost, 12, 1, 1, 1, 0.25)
         hint:SetPoint("TOP", bodyHost, "TOP", 0, centerY - 50)
         hint:SetJustifyH("CENTER")
         hint:SetText(EllesmereUI.L("Select a binding from either sidebar to edit its options"))
     end
 
-    ---------------------------------------------------------------------------
-    --  SPELL STRIP (right edge, always visible)
-    --  Narrow scrollable column of class/spec spell icons. Click to add.
-    ---------------------------------------------------------------------------
+    -- SPELL STRIP (right edge, always visible): narrow scrollable column of
+    -- class/spec spell icons. Click to add.
     do
         local SS_ICON = 32
         local SS_PAD = 10
@@ -3693,10 +3471,9 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         stripChild:SetHeight(max(10, math.abs(stripY)))
     end
 
-    -- Click casting off: the whole UI is gated on the Enable toggle.
-    --   Sidebars  -> dim to 75% alpha + a 50% black overlay that swallows clicks.
-    --   Center    -> dim the gated body to the standard disabled alpha + block clicks.
-    -- (The Enable Click Casting row stays fully interactive on centerFrame above.)
+    -- Click-casting off: whole UI gates on Enable. Sidebars dim to 60% alpha +
+    -- swallow clicks via a black overlay; center's gated body dims + blocks
+    -- clicks (the Enable row itself stays interactive on centerFrame above).
     if not cc.enabled then
         for _, sb in ipairs({ leftOuter, rightOuter }) do
             sb:SetAlpha(0.6)

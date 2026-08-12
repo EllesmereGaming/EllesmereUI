@@ -1,17 +1,15 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -- EllesmereUIDataBars: user-created multi-bar engine.
 --
--- ENGINE FILE. Owns:
---   * DB + fresh profile shape (bars array, monotonic never-reused ids)
---   * shared infra: fonts, formatters, heartbeat, OOC deferral, frame pool,
---     popup helper, text fit cache
---   * the owned rich tooltip (replaces every GameTooltip call site)
---   * the layout solver (auto-fit px + pct weight partition of the remainder)
---   * the bar factory: frame, theme (eui atlas cover-fit / modern flat),
---     slots, per-block background + hover overlay, teardown
---   * visibility runtime (multi-select engine + legacy scalar fallback +
---     per-bar mouseover poll proxies)
---   * unlock-mode registration (one element per bar, key "EDB_<id>")
---   * the bar/block CRUD API on `ns` consumed by the options file
+-- ENGINE FILE. Owns DB + fresh profile shape (bars array, monotonic never-reused
+-- ids); shared infra (fonts, formatters, heartbeat, OOC deferral, frame pool, popup
+-- helper, text fit cache); the owned rich tooltip (replaces every GameTooltip call
+-- site); the layout solver (auto-fit px + pct weight partition of the remainder); the
+-- bar factory (frame, theme -- eui atlas cover-fit / modern flat --, slots, per-block
+-- background + hover overlay, teardown); the visibility runtime (multi-select engine
+-- + legacy scalar fallback + per-bar mouseover poll proxies); unlock-mode
+-- registration (one element per bar, key "EDB_<id>"); and the bar/block CRUD API on
+-- `ns` consumed by the options file.
 --
 -- Block factories (clock, fps, ms, location, coords, gold, xprep, spec,
 -- profession, travel, micromenu, currency, spacer) live in
@@ -46,16 +44,18 @@
 --   ns.MakePreviewBackdrop(host, themeCfg)
 --   ns.BLOCK_TYPES / ns.BLOCK_DEFAULTS / ns.EDB_VIS_CAPS / ns.EDGE_PAD
 --
---  The one call that runs the other way -- options file -> runtime, so a block
+--  The one call that runs the other way (options file -> runtime): a block
 --  whose empty state invites a click can send the player to the control that
---  fills it in. Defined from the options file's PLAYER_LOGIN handler, hence
---  the nil guard at its call site:
+--  fills it in. Defined from the options PLAYER_LOGIN handler, hence the nil
+--  guard at its call site:
 --
 --   ns.OpenBlockSettings(barId, blockId, settingKey)
 --       deep-links to the "block:<blockId>:<settingKey>" click target the
 --       options page registers for that row (see _edbClickTargets).
 
 local ADDON_NAME, ns = ...
+if not (EllesmereUI and EllesmereUI._ModuleNS) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns via the registry
 
 local WB = EllesmereUI.Lite.NewAddon("EllesmereUIDataBars")
 ns.WB = WB
@@ -200,8 +200,8 @@ ns.BLOCK_DEFAULTS = {
     fps        = {},
     ms         = { showIcon = false },
     -- widthMode/maxWidth deliberately unset: "auto" is the resolved default
-    -- (ns.LocationWidthMode) and a nil maxWidth is what marks the width as
-    -- never chosen, which is what the options page pulses about.
+    -- (ns.LocationWidthMode); nil maxWidth marks the width as never chosen,
+    -- which the options page pulses about.
     location   = { showIcon = true, showSubZone = true },
     coords     = { showIcon = true, precision = 0, hideInInstance = true },
     gold       = { showIcons = true, showBagSpace = false, showSmall = false, coinIcons = false },
@@ -266,9 +266,8 @@ function ns.SetFont(fs, size, barCfg)
     local scale = 100
     if barCfg and barCfg.fontScale then scale = barCfg.fontScale end
     local sz = max(6, floor((size or 11) * scale / 100 + 0.5))
-    -- Runtime SetShadowOffset no longer renders on 12.x; shadows must be
-    -- carried by a FontObject. Prime BEFORE SetFont -- the inherited shadow
-    -- survives the typeface call.
+    -- SetShadowOffset does not render on 12.x; shadows must ride a FontObject.
+    -- Prime BEFORE SetFont -- the inherited shadow survives the typeface call.
     if EllesmereUI.PrimeFontShadow then
         local useShadow = flags == "" and EllesmereUI.GetFontUseShadow
             and EllesmereUI.GetFontUseShadow()
@@ -314,21 +313,19 @@ local DENOMINATIONS = {
     { divisor = 1,     symbol = COPPER_AMOUNT_SYMBOL, color = "|cffed8a3f" },  -- copper-orange
 }
 
--- Coin textures, one per denomination, same paths the bag module already uses.
--- ":0:0:2:0" is Blizzard's own sizing in GetCoinTextureString: 0 height means
--- inherit the font, so the icons follow the bar's and the tooltip's text size.
--- Split per coin on purpose -- GetCoinTextureString returns all three welded
--- into one string, which cannot be laid out in aligned columns.
+-- Coin textures, one per denomination. ":0:0:2:0" is Blizzard's own
+-- GetCoinTextureString sizing: 0 height inherits the font, so icons follow the
+-- bar's/tooltip's text size. Split per coin on purpose -- GetCoinTextureString welds
+-- all three into one string, which cannot be laid out in aligned columns.
 local COIN_TEX = {
     "|TInterface\\MoneyFrame\\UI-GoldIcon:0:0:2:0|t",
     "|TInterface\\MoneyFrame\\UI-SilverIcon:0:0:2:0|t",
     "|TInterface\\MoneyFrame\\UI-CopperIcon:0:0:2:0|t",
 }
--- What trails the number for denomination i: a coin texture when Coin Icons is
--- on, otherwise the localized suffix letter, colored on request. Every money
--- renderer goes through this, so Coin Icons, Coin Colored and Show Silver and
--- Copper compose the same way in all of them -- GetCoinTextureString could not
--- do that, it always emits all three coins in one indivisible string.
+-- Trailer for denomination i: coin texture when Coin Icons is on, else the localized
+-- suffix letter (colored on request). Every money renderer routes through this so Coin
+-- Icons/Coin Colored/Show Silver&Copper compose identically everywhere --
+-- GetCoinTextureString can't, it always emits all three coins welded into one string.
 local function CoinMarker(i, coinIcons, coloured)
     if coinIcons then return COIN_TEX[i] end
     local d = DENOMINATIONS[i]
@@ -336,11 +333,11 @@ local function CoinMarker(i, coinIcons, coloured)
     return d.symbol
 end
 
--- Money split per denomination: one token per coin, so callers can lay them out
--- in aligned columns (the tooltip) or on separate lines (a vertical bar). A
--- single formatted string can do neither -- the game font is proportional, so
--- "9o" and "1 234o" are different widths and everything after the first drifts.
--- The buffer is reused; Tip_AddColumns copies it, so one buffer serves all rows.
+-- Money split per denomination: one token per coin, so callers can align them
+-- in columns (tooltip) or separate lines (vertical bar) -- a single formatted
+-- string can't, since the proportional font makes "9g" and "1 234g" different
+-- widths and everything after the first drifts. Buffer is reused;
+-- Tip_AddColumns copies it, so one buffer serves all rows.
 local _moneyTokens = {}
 
 function ns.MoneyTokens(amount, showSmall, coinIcons, coloured)
@@ -396,14 +393,11 @@ function ns.FormatMoney(amount, useColors, showSmall, coinIcons)
     return tconcat(parts, " ")
 end
 
--- Reset countdowns, for the clock tooltip. SecondsToTime is the client's own
--- duration formatter, so the units are localized -- the hand-rolled "d"/"h"/
--- "min" this replaces were English on every client. Same call the minimap
--- already makes for the weekly reset (EllesmereUIMinimap.lua), so the two
--- modules now render that value identically.
--- Seconds are suppressed above a minute (3 units is already "2 d 5 h 30 m");
--- below one they are all that is left to show, and suppressing them there
--- would return an empty string.
+-- Reset countdowns for the clock tooltip. SecondsToTime is the client's own duration
+-- formatter, so units come out localized. Same call the Minimap module
+-- (EllesmereUIMinimap.lua) makes for the weekly reset, so both render identically.
+-- Seconds are suppressed above a minute (3 units already covers "2d 5h 30m"); below a
+-- minute they're all that's left, so suppressing them there would return "".
 function ns.FormatTimeLeft(seconds)
     seconds = floor(seconds or 0)
     return SecondsToTime(seconds, seconds >= 60, nil, 3)
@@ -575,8 +569,7 @@ do
 
     function ns.CreatePopupFrame(parent)
         -- House tooltip styling (same recipe as ns.Tip_*'s EnsureTip), NOT
-        -- Blizzard's TooltipBackdropTemplate -- the popups must look like
-        -- every other EllesmereUI tooltip.
+        -- Blizzard's TooltipBackdropTemplate -- must match every other tip.
         local popup = CreateFrame("Frame", nil, UIParent)
         local bg = popup:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
@@ -707,24 +700,20 @@ do
     local COL_GAP = 18
     local TOKEN_GAP = 8
     local FONT_SIZE = 12
-    -- TOOLTIP is the topmost strata, so height inside it is decided by frame
-    -- level alone -- and a frame created straight under UIParent starts at the
-    -- bottom of it. That is why a unit tooltip (hovering a player through a
-    -- bar block, or any addon tooltip anchored nearby) drew over this one.
-    -- Sit far above Blizzard's tooltips; the overlay hosts stack on top of
-    -- this (see Tip_Show).
+    -- TOOLTIP strata orders purely by frame level, and a frame created straight
+    -- under UIParent starts at the bottom of it -- so a plain level let other
+    -- tooltips (e.g. a unit tooltip through a bar block) draw over this one.
+    -- Sit far above Blizzard's tooltips; overlay hosts stack on top (Tip_Show).
     local TIP_LEVEL = 900
 
-    -- Interactive rows: a pool of secure spell buttons overlaid on rows that
-    -- declared an action (Tip_AddActionDouble). Casting mechanism matches the
-    -- QoL teleport prompt: SecureActionButtonTemplate, type="spell" fed a
-    -- STATIC INTEGER spellID, attributes written out of combat only (the
-    -- overlay build is combat-skipped). The buttons live on a secure host
-    -- under UIParent whose visibility state driver yanks them the moment
-    -- lockdown starts (covers a tip left open across a pull); the tip itself
-    -- keeps no protected children, so Tip_Hide stays combat-legal. A
-    -- keep-alive poll lets the cursor travel off the owner onto the tip to
-    -- click a row without the tip closing under it.
+    -- Interactive rows: secure spell buttons overlaid on action rows
+    -- (Tip_AddActionDouble). SecureActionButtonTemplate, type="spell" fed a
+    -- STATIC INTEGER spellID, attributes written OOC only (same contract as
+    -- the QoL teleport prompt). Buttons live on a secure host under UIParent
+    -- whose visibility driver yanks them the instant lockdown starts (covers
+    -- a tip left open across a pull); the tip keeps no protected children, so
+    -- Tip_Hide stays combat-legal. Keep-alive poll lets the cursor travel off
+    -- the owner onto the tip to click a row without it closing.
     local actionPool = {}
     local activeActions = 0
     local actionHost           -- secure container, built with the first button
@@ -736,10 +725,10 @@ do
     local keepAlive
 
     -- Plain clickable rows: an insecure Button overlay running a Lua callback
-    -- on click (Tip_AddClickable). Used by the social/guild member lists, whose
-    -- actions -- whisper, invite, BNet whisper -- are all UNPROTECTED, so unlike
-    -- the spell pool above these buttons need no secure host and no combat
-    -- handling: they are created and configured freely, in or out of combat.
+    -- on click (Tip_AddClickable). Used by social/guild member lists, whose
+    -- actions (whisper, invite, BNet whisper) are all UNPROTECTED -- unlike
+    -- the spell pool above, no secure host or combat handling needed; free
+    -- to create/configure in or out of combat.
     local clickPool = {}
     local activeClicks = 0
 
@@ -780,17 +769,16 @@ do
         return fs
     end
 
-    -- Rows are pooled across shows: a row reused with fewer (or no) sub-columns
-    -- must not leave the previous show's token FontStrings on screen.
+    -- Pooled rows: a row reused with fewer/no sub-columns must not leave
+    -- the previous show's token FontStrings on screen.
     local function HideCols(row, from)
         for c = from, #row.cols do row.cols[c]:Hide() end
     end
 
-    -- Hide/detach every overlay button. The buttons are PROTECTED
-    -- (SecureActionButtonTemplate), so touching them is OOC-only: a teardown
-    -- that lands mid-combat sets the dirty flag and the host's regen handler
-    -- finishes it (the state driver has already pulled the host off screen at
-    -- lockdown start, so nothing stays clickable meanwhile).
+    -- Hide/detach every overlay button. PROTECTED (SecureActionButtonTemplate),
+    -- so OOC-only: a mid-combat teardown sets the dirty flag and the host's
+    -- regen handler finishes it (state driver already pulled the host off
+    -- screen, so nothing stays clickable meanwhile).
     local function HideActionButtons()
         if activeActions == 0 and not actionsDirty then return end
         if InCombatLockdown() then actionsDirty = true; return end
@@ -823,14 +811,11 @@ do
                 if actionsDirty then HideActionButtons() end
                 return
             end
-            -- PLAYER_REGEN_DISABLED: InCombatLockdown() already reports true
-            -- here, but protected-frame writes are still legal until the
-            -- handler returns -- the last window to act. A PROTECTED frame
-            -- (host or button) left anchored to the tip turns tip:SetSize()
-            -- into a blocked call for the whole fight, so hovering ANY plain
-            -- tooltip (clock etc.) fires ADDON_ACTION_BLOCKED. Sever every
-            -- protected anchor on the tip now; the next out-of-combat
-            -- Tip_Show re-attaches the host.
+            -- REGEN_DISABLED: InCombatLockdown() reports true already, but
+            -- protected-frame writes are still legal until this handler returns. A
+            -- protected frame left anchored would block tip:SetSize() all fight, firing
+            -- ADDON_ACTION_BLOCKED on any plain tooltip hover. Sever the anchor now;
+            -- next OOC Tip_Show re-attaches the host.
             actionsDirty = false
             for i = 1, #actionPool do
                 local b = actionPool[i]
@@ -845,13 +830,11 @@ do
         return actionHost
     end
 
-    -- Grow-only pool; buttons are configured fresh on every Tip_Show. Creation
-    -- and reconfiguration only ever run out of combat (the overlay build is
-    -- combat-skipped), so the secure attribute writes are always legal.
-    -- House style for an interactive tooltip row: a white 0.10 wash across the
-    -- whole row on hover, HIGHLIGHT layer, no scripts involved. Both overlay
-    -- pools go through this -- when only one of them had it, the two kinds of
-    -- clickable row silently looked different for as long as they existed.
+    -- Grow-only pool; buttons configured fresh each Tip_Show. Creation/
+    -- reconfiguration only run OOC (overlay build is combat-skipped), so
+    -- secure attribute writes are always legal. House style: white 0.10
+    -- wash on hover, HIGHLIGHT layer, no scripts -- shared by both overlay
+    -- pools so the two clickable-row kinds always look identical.
     local function AddRowHighlight(b)
         local hl = b:CreateTexture(nil, "HIGHLIGHT")
         hl:SetAllPoints()
@@ -865,10 +848,10 @@ do
             b = CreateFrame("Button", nil, EnsureActionHost(), "SecureActionButtonTemplate")
             b:SetFrameLevel(TIP_LEVEL + 10)
             b:EnableMouse(true)
-            -- AnyUp only + useOnKeyDown=false: registering both click phases
-            -- lets the ActionButtonUseKeyDown CVar fire the cast twice, and
-            -- the second press cancels the teleport cast the first one
-            -- started -- same rule as the travel block's hearth button.
+            -- AnyUp only + useOnKeyDown=false: registering both click phases lets
+            -- ActionButtonUseKeyDown fire the cast twice, and the second press
+            -- cancels the cast the first started (same rule as the travel
+            -- block's hearth button).
             b:RegisterForClicks("AnyUp")
             b:SetAttribute("useOnKeyDown", false)
             AddRowHighlight(b)
@@ -883,9 +866,9 @@ do
         return b
     end
 
-    -- Insecure clickable pool (social/guild rows). No secure host, no combat
-    -- gymnastics: the callbacks call unprotected functions only, so the buttons
-    -- can be built and clicked in any lockdown state.
+    -- Insecure clickable pool (social/guild rows): callbacks call unprotected
+    -- functions only, so no secure host or combat handling needed -- buttons
+    -- build/click in any lockdown state.
     local function HideClickButtons()
         if activeClicks == 0 then return end
         for i = 1, #clickPool do
@@ -916,16 +899,14 @@ do
     end
 
     -- Lay an overlay button over row i and wire its hover affordance. Shared by
-    -- both kinds -- secure action rows and insecure clickable ones -- because
-    -- they are the same thing to the player: an interactive tooltip row.
-    -- The accent recolor only shows if the row's left text carries no embedded
-    -- |c..|r codes; callers pass the normal color through the left-color args.
+    -- both secure action rows and insecure clickable ones -- to the player
+    -- they're the same thing, an interactive tooltip row. The accent recolor
+    -- only shows if the row's left text carries no embedded |c..|r codes.
     local function PlaceRowOverlay(b, i, innerW)
         local d, row = data[i], rows[i]
-        -- Re-stated per placement, not just at creation: the tip's own level
-        -- can be raised on any show (Tip_Show), and a pooled button that kept
-        -- the old base would sink under the tip's background. Never lowered --
-        -- the secure pool sits higher still, on its own host.
+        -- Re-stated per placement, not just at creation: the tip's level can
+        -- rise on any Tip_Show, and a pooled button keeping the old base
+        -- would sink under the background. Never lowered.
         local want = tip:GetFrameLevel() + 5
         if b:GetFrameLevel() < want then b:SetFrameLevel(want) end
         b:ClearAllPoints()
@@ -942,15 +923,11 @@ do
         if keepAlive then keepAlive:Cancel(); keepAlive = nil end
     end
 
-    -- Dismiss the interactive tip once the cursor is over neither the owner nor
-    -- the tip. IsMouseOver tests rectangles (ignores the overlay buttons on
-    -- top), so hovering a clickable row still counts as "over the tip". Both
-    -- rects are tested EXPANDED: the tip anchors with a 6px gap off the bar
-    -- (plus the block's inset from the bar edge), and an unexpanded test hides
-    -- the tip the instant a tick lands while the cursor is crossing that dead
-    -- zone -- the expansions overlap across the gap so the crossing always
-    -- counts as "over". The two-tick grace covers slow diagonal exits past a
-    -- corner without making a real leave feel sticky (~0.2s).
+    -- Dismiss once the cursor is over neither owner nor tip. IsMouseOver tests
+    -- rectangles (ignores overlay buttons), so a clickable row still counts as
+    -- "over the tip". Both rects test EXPANDED (the tip sits a 6px gap off the
+    -- bar; unexpanded would drop the tip crossing that dead zone). Two-tick
+    -- grace (~0.2s) covers slow diagonal exits past a corner.
     local KA_SLACK = 12
     local function StartKeepAlive()
         if keepAlive then return end
@@ -976,18 +953,15 @@ do
         forceInteractive = false
     end
 
-    -- Secret text must never enter a row: SetText would display it, but
-    -- Tip_Show sizes the tooltip from GetStringWidth, which returns a SECRET
-    -- number for secret-fed FontStrings, and the max-width compare errors.
-    -- Rows carrying a secret are dropped at this single chokepoint, so the
-    -- tooltip shortens in restricted content instead of erroring. Add
-    -- functions return true when the row was actually added.
+    -- Secret text must never enter a row: SetText would display it, and
+    -- Tip_Show sizes via GetStringWidth, which errors on a SECRET-fed
+    -- FontString. Rows carrying a secret are dropped here, so the tooltip
+    -- shortens instead of erroring. Add functions return true when added.
     function ns.Tip_AddLine(text, r, g, b)
         if not tip then return end
         if text ~= nil and issecretvalue(text) then return end
-        -- Localize: fixed UI strings (click hints, labels) resolve through the
-        -- shared EllesmereUI locale; dynamic content (names, numbers, strings
-        -- the game already localized) has no key and falls back unchanged.
+        -- Fixed UI strings resolve through the shared locale; dynamic content
+        -- (names, numbers, already-localized strings) has no key, falls back unchanged.
         text = EllesmereUI.L(text)
         dataCount = dataCount + 1
         local d = data[dataCount]
@@ -1036,12 +1010,11 @@ do
         return true
     end
 
-    -- Like Tip_AddDouble, but the right side is a series of tokens laid out in
-    -- pixel-aligned sub-columns instead of one right-aligned string. A single
-    -- string cannot line up vertically across rows: the game font is
-    -- proportional, so "+10" and "0/4" are different widths and every token
-    -- left of the last one drifts. Tokens carry their own inline color codes.
-    -- The array is copied, so callers may reuse one buffer for every row.
+    -- Like Tip_AddDouble, but the right side is tokens in pixel-aligned
+    -- sub-columns instead of one right-aligned string -- a single string can't
+    -- line up vertically since the proportional font makes "+10" and "0/4"
+    -- different widths. Tokens carry their own inline color codes; the array
+    -- is copied, so callers may reuse one buffer for every row.
     function ns.Tip_AddColumns(left, tokens, lr, lg, lb)
         if not tip then return end
         if left ~= nil and issecretvalue(left) then return end
@@ -1073,30 +1046,27 @@ do
         return true
     end
 
-    -- Click-to-cast row: identical to Tip_AddDouble, but Tip_Show overlays a
-    -- secure spell button over it and keeps the tip alive while hovered.
-    -- spellID MUST be a static integer spell ID (never an API-derived name or
-    -- secret-capable value -- same contract as the QoL teleport prompt).
-    -- Degrades to a plain double line in combat.
+    -- Click-to-cast row: like Tip_AddDouble, but Tip_Show overlays a secure
+    -- spell button and keeps the tip alive while hovered. spellID MUST be a
+    -- static integer (never API-derived or secret-capable -- same contract as
+    -- the QoL teleport prompt). Degrades to a plain double line in combat.
     function ns.Tip_AddActionDouble(left, right, spellID, lr, lg, lb, rr, rg, rb)
         if ns.Tip_AddDouble(left, right, lr, lg, lb, rr, rg, rb) and spellID then
             data[dataCount].action = spellID
         end
     end
 
-    -- Click-to-use TOY row: same overlay, keep-alive, and combat-degrade
-    -- contract as Tip_AddActionDouble, but the secure button fires
-    -- type="toy" with a STATIC integer toy itemID (the UseToy path -- toy
-    -- effects are not reliably castable through the spell attribute).
+    -- Click-to-use TOY row: same overlay/keep-alive/combat-degrade contract as
+    -- Tip_AddActionDouble, but fires type="toy" with a STATIC integer toy
+    -- itemID (toy effects aren't reliably castable via the spell attribute).
     function ns.Tip_AddToyActionDouble(left, right, toyItemID, lr, lg, lb, rr, rg, rb)
         if ns.Tip_AddDouble(left, right, lr, lg, lb, rr, rg, rb) and toyItemID then
             data[dataCount].actionToy = toyItemID
         end
     end
 
-    -- Click-to-run MACRO row: same overlay/degrade contract. macrotext MUST
-    -- be built from static ids only (the travel hearthstone row passes
-    -- "/use item:NNNN" style text) -- never from API-derived strings.
+    -- Click-to-run MACRO row: same overlay/degrade contract. macrotext MUST be built
+    -- from static ids only (e.g. "/use item:NNNN") -- never API-derived strings.
     function ns.Tip_AddMacroActionDouble(left, right, macrotext, lr, lg, lb, rr, rg, rb)
         if ns.Tip_AddDouble(left, right, lr, lg, lb, rr, rg, rb) and macrotext then
             data[dataCount].actionMacro = macrotext
@@ -1110,11 +1080,10 @@ do
         if tip and dataCount > 0 then data[dataCount]._padBand = true end
     end
 
-    -- Click-to-act row: like Tip_AddDouble, but Tip_Show overlays an insecure
-    -- button that runs onClick(mouseButton) and keeps the tip alive while
-    -- hovered. onClick MUST call unprotected functions only (whisper/invite) --
-    -- never a protected call. Unlike Tip_AddActionDouble this stays live in
-    -- combat.
+    -- Click-to-act row: like Tip_AddDouble, but overlays an insecure button
+    -- running onClick(mouseButton) and keeps the tip alive while hovered.
+    -- onClick MUST call unprotected functions only (whisper/invite). Unlike
+    -- Tip_AddActionDouble, this stays live in combat.
     function ns.Tip_AddClickable(left, right, onClick, lr, lg, lb, rr, rg, rb)
         if ns.Tip_AddDouble(left, right, lr, lg, lb, rr, rg, rb) and onClick then
             data[dataCount].onClick = onClick
@@ -1122,9 +1091,8 @@ do
     end
 
     -- Tip_AddColumns + Tip_AddClickable: sub-column alignment AND a click
-    -- overlay. The two were mutually exclusive only because each add-function
-    -- clears the other's field; the overlay is placed over the row's rectangle
-    -- and never cared how the row was laid out.
+    -- overlay -- combinable since the overlay only covers the row's rect and
+    -- never cares how the row was laid out.
     function ns.Tip_AddClickableColumns(left, tokens, onClick, lr, lg, lb)
         if ns.Tip_AddColumns(left, tokens, lr, lg, lb) and onClick then
             data[dataCount].onClick = onClick
@@ -1133,10 +1101,9 @@ do
 
     function ns.Tip_Show()
         if not tip or not owner then return end
-        -- Re-check the height contest on every show: GameTooltip's level is not
-        -- a constant (Blizzard raises it, and tooltip addons reparent/restack
-        -- it), so a level picked once at creation can be overtaken later. Only
-        -- ever raises -- TIP_LEVEL is the floor.
+        -- Re-check the level contest on every show: GameTooltip's level is not constant
+        -- (Blizzard raises it, addons reparent/restack it), so a level picked once at
+        -- creation could be overtaken. Only ever raises -- TIP_LEVEL is the floor.
         do
             local lvl = TIP_LEVEL
             local gt = GameTooltip and GameTooltip.GetFrameLevel and GameTooltip:GetFrameLevel()
@@ -1146,26 +1113,25 @@ do
         local maxLeft, maxRight, totalH = 0, 0, 0
         local anyRight = false
         local colCount = 0
-        -- Wrapped rows (prose: currency descriptions) are measured but NOT
-        -- laid out in this pass. They carry no right text, so they own the
-        -- whole inner width -- but that width is only known once the rows
-        -- that DO have a right column have been measured. Sizing them here
-        -- against their own wrap cap instead is what used to leave a dead
-        -- right gutter beside the prose, as wide as the widest right value.
+        -- Wrapped rows (prose: currency descriptions) are measured but NOT laid
+        -- out here -- they own the whole inner width, but that width is only
+        -- known once rows WITH a right column are measured. Sizing against
+        -- their own wrap cap here instead would leave a dead gutter beside
+        -- the prose as wide as the widest right value.
         local maxWrap, anyWrap = 0, false
         wipe(colW)
         for i = 1, dataCount do
             local d = data[i]
             local row = EnsureRow(i)
             ns.SetFont(row.left, FONT_SIZE)
-            -- The right FS needs a font even on left-only rows: SetText("")
-            -- on a never-fonted FontString is a hard error, and a pooled
-            -- row's FIRST use can be a plain line.
+            -- The right FS needs a font even on left-only rows: SetText("") on a
+            -- never-fonted FontString hard-errors, and a pooled row's first use
+            -- can be a plain line.
             ns.SetFont(row.right, FONT_SIZE)
             -- Rows are pooled: reset wrap state every pass so a wrapped row
-            -- reused as a plain one measures naturally again. Wrapped rows
-            -- measure UNWRAPPED here -- GetStringWidth then reports the
-            -- natural one-line width, which is what the cap applies to.
+            -- reused as plain measures naturally. Wrapped rows measure
+            -- UNWRAPPED here so GetStringWidth reports the natural one-line
+            -- width, which the wrap cap is applied to.
             row.left:SetWordWrap(false)
             row.left:SetWidth(0)
             row.left:SetText(d.l)
@@ -1208,10 +1174,9 @@ do
                 end
             end
             HideCols(row, (d.ncols or 0) + 1)
-            -- Row height covers whichever of the three shapes the row uses, so
-            -- a token taller than its label cannot bleed into the next row.
-            -- A wrapped row's height depends on the width it ends up with, so
-            -- it is filled in below; totalH is summed once both kinds are in.
+            -- Covers whichever of the three row shapes is in play, so a taller
+            -- token can't bleed into the next row. Wrapped-row height depends
+            -- on final width, so it's filled in below.
             if not d.wrap then
                 local h = row.left:GetStringHeight() or FONT_SIZE
                 if d.r then
@@ -1242,10 +1207,9 @@ do
 
         local innerW = maxLeft
         if anyRight then innerW = maxLeft + COL_GAP + maxRight end
-        -- Prose spans the whole inner width rather than stopping where the
-        -- left column of the value rows ends -- no dead gutter beside it, and
-        -- it wraps into fewer, fuller lines. It only widens the tip when its
-        -- own capped width exceeds what the other rows already need.
+        -- Prose spans the whole inner width instead of stopping at the value rows' left
+        -- column, wrapping into fewer, fuller lines with no dead gutter. Only widens
+        -- the tip when its capped width exceeds what the other rows already need.
         if anyWrap then
             if maxWrap > innerW then innerW = maxWrap end
             for i = 1, dataCount do
@@ -1285,10 +1249,9 @@ do
                 row.right:SetPoint("TOPRIGHT", tip, "TOPRIGHT", -PAD, ty)
             end
             if d.ncols then
-                -- Walk the columns right to left so the block ends flush with
-                -- the tip's right edge, exactly where a plain right string
-                -- lands. Each token is anchored by its own right edge and keeps
-                -- its natural width, so nothing can clip.
+                -- Walk columns right to left so the block ends flush with the
+                -- tip's right edge, where a plain right string would land.
+                -- Each token anchors by its own right edge at natural width.
                 local off = PAD
                 for c = colCount, 1, -1 do
                     local fs = c <= d.ncols and row.cols[c]
@@ -1303,11 +1266,10 @@ do
             y = y - d._h - ROW_GAP
         end
 
-        -- Interactive overlay: one secure spell button per row that declared an
-        -- action, spanning the full row rect. Skipped in combat -- rows degrade
-        -- to plain text and no protected-frame touches fire. Rebuilt from
-        -- scratch each show (HideActionButtons first) so a reused tip never
-        -- carries stale buttons.
+        -- Interactive overlay: one secure spell button per action row, spanning
+        -- the full row rect. Skipped in combat (rows degrade to plain text, no
+        -- protected touches fire). Rebuilt from scratch each show so a reused
+        -- tip never carries stale buttons.
         HideActionButtons()
         interactive = false
         if not InCombatLockdown() then
@@ -1315,14 +1277,13 @@ do
                 local d = data[i]
                 if d.action or d.actionToy or d.actionMacro then
                     interactive = true
-                    -- Re-attach the host: the REGEN_DISABLED handler detaches
-                    -- it (and the buttons) from the tip at every combat start.
+                    -- Re-attach the host: REGEN_DISABLED detaches it (and the
+                    -- buttons) from the tip at every combat start.
                     if activeActions == 0 then
                         local host = EnsureActionHost()
                         host:ClearAllPoints()
                         host:SetAllPoints(tip)
-                        -- Follow the tip up if it was raised above a
-                        -- higher-than-expected GameTooltip this show.
+                        -- Follow the tip up if it outranked GameTooltip this show.
                         local hw = tip:GetFrameLevel() + 10
                         if host:GetFrameLevel() < hw then host:SetFrameLevel(hw) end
                     end
@@ -1350,9 +1311,8 @@ do
             end
         end
 
-        -- Insecure clickable overlay (social/guild rows). No combat guard --
-        -- the callbacks are unprotected -- and rebuilt from scratch each show
-        -- so a reused tip never carries stale buttons.
+        -- Insecure clickable overlay (social/guild rows): callbacks are
+        -- unprotected, so no combat guard. Rebuilt from scratch each show.
         HideClickButtons()
         for i = 1, dataCount do
             local d = data[i]
@@ -1369,13 +1329,10 @@ do
         tip:EnableMouse(interactive)
         if interactive then StartKeepAlive() else StopKeepAlive() end
 
-        -- Smart anchoring: the tooltip opens off the BAR's roomier side --
-        -- above/below for horizontal bars, left/right for vertical bars --
-        -- with a 6px gap from the bar edge so it can never overlap the bar,
-        -- centered on the hovered block along the bar's axis and clamped to
-        -- the screen. Screen-px normalization: block content can be scaled
-        -- (per-block Content Scale), so owner coords are converted through
-        -- effective scale before comparing with the bar's.
+        -- Smart anchoring: opens off the BAR's roomier side (above/below H,
+        -- left/right V) with a 6px gap, centered on the hovered block along
+        -- the bar axis, clamped to screen. Owner coords convert through
+        -- effective scale first since blocks carry their own Content Scale.
         tip:ClearAllPoints()
         local bar = owner:GetParent()
         while bar do
@@ -1409,8 +1366,8 @@ do
                 end
             end
         else
-            -- Owner not inside a live bar: fall back to above/below by the
-            -- owner's own screen half.
+            -- Owner not inside a live bar: fall back to above/below by owner's
+            -- own screen half.
             local half = UIParent:GetHeight() / 2
             if ocy and ocy < half then
                 tip:SetPoint("BOTTOM", owner, "TOP", 0, 6)
@@ -1433,10 +1390,8 @@ do
         tip:Hide()
     end
 
-    -- Owner OnLeave hook: an interactive tip is dismissed by its own keep-alive
-    -- poll (so the cursor can move onto the tip to click a row), a plain tip
-    -- hides immediately -- exactly the old behavior for every non-interactive
-    -- block.
+    -- Owner OnLeave hook: an interactive tip defers to its own keep-alive poll (so the
+    -- cursor can move onto it to click a row); a plain tip hides immediately.
     function ns.Tip_HideUnlessInteractive(ownerFrame)
         if not tip then return end
         if ownerFrame and owner ~= ownerFrame then return end
@@ -1449,10 +1404,9 @@ do
         return tip:IsShown() and owner == ownerFrame
     end
 
-    -- Force the tip being built into interactive (hover-persistent) mode
-    -- even when it contains no clickable row: OnLeave then defers to the
-    -- keep-alive poll, so the cursor can travel onto the tip to read it.
-    -- Call anywhere between Tip_Begin and Tip_Show.
+    -- Force the tip into interactive (hover-persistent) mode even with no
+    -- clickable row, so OnLeave defers to the keep-alive poll and the cursor
+    -- can travel onto the tip to read it. Call between Tip_Begin and Tip_Show.
     function ns.Tip_MarkInteractive()
         forceInteractive = true
     end
@@ -1461,23 +1415,18 @@ end
 -------------------------------------------------------------------------------
 --  Layout solver (pure)
 --
---  Semantics: the bar is ALWAYS exactly filled -- segments sum to the usable
---  length L on every solve, live bar and preview alike. Sizing is a
---  PER-BAR mode (cfg.sizingMode, ns.BarSizingMode):
---    "even"  every block gets an equal share of L. No per-block options.
---    "auto"  every block is content-sized: measured extent + per-side gaps
---            (contentGapL/contentGapR, legacy contentGap fallback, then
---            10). Spacers have no content, so their width IS their two
---            gaps. Exactly ONE block per bar (cfg.fillBlockId, healed to
---            the LAST block) is the Fill Remaining block: it absorbs the
---            slack, so the bar exactly fills; over-full bars scale the
---            sized blocks down (fill gets 0).
---  Vertical bars run the identical solver with L = bar height.
+--  Semantics: bar is ALWAYS exactly filled -- segments sum to L, live and
+--  preview alike. PER-BAR mode (cfg.sizingMode): "even" = equal share of L,
+--  no per-block options. "auto" = content-sized (measured extent + per-side
+--  gaps: contentGapL/contentGapR, fallback legacy contentGap then 10;
+--  spacers' width IS their two gaps), with ONE Fill Remaining block
+--  (cfg.fillBlockId, healed to LAST) absorbing slack so the bar exactly
+--  fills (over-full bars scale sized blocks down instead, fill gets 0).
+--  Vertical bars: identical solver, L = bar height.
 -------------------------------------------------------------------------------
--- Inset between the bar's ends and the outermost blocks. ZERO: blocks run
--- flush edge to edge (a nonzero pad leaves the bar background visibly
--- extending past the first/last block -- user-reported as a defect). Kept
--- as the single tunable ALL layout math derives from.
+-- Inset between the bar's ends and outermost blocks. ZERO: blocks run flush
+-- edge to edge (nonzero pad leaves background visibly past the first/last
+-- block). Single tunable ALL layout math derives from.
 local EDGE_PAD = 0
 ns.EDGE_PAD = EDGE_PAD
 
@@ -1519,23 +1468,21 @@ local function ContentGapsOf(b)
 end
 ns.ContentGapsOf = ContentGapsOf
 
--- L = usable content length (px). measure(b) returns the block's live
--- content extent along the bar axis (consulted in auto mode only).
--- Every segment carries seg.at (start offset from the bar start) as well
--- as seg.px: segments normally chain seamlessly, but a Force Centered
--- block leaves uncovered bar background beside it, so consumers must
--- position from seg.at, never from a running cursor.
+-- L = usable content length (px). measure(b) returns the block's live content
+-- extent along the bar axis (auto mode only). Every segment carries seg.at
+-- (start offset from bar start) as well as seg.px: segments normally chain
+-- seamlessly, but a Force Centered block leaves uncovered background beside
+-- it, so consumers must position from seg.at, never a running cursor.
 function ns.SolveLayout(barCfg, L, measure)
     local segs = {}
     local n = #barCfg.blocks
     if n == 0 then return segs end
 
     if ns.BarSizingMode(barCfg) == "even" then
-        -- Equal shares among blocks that exist for layout: a collapsed
-        -- block (non-spacer measuring 0 -- e.g. xprep with no XP and no
-        -- watched faction) takes no share, same doesn't-exist rule as the
-        -- auto solver below. Cumulative rounding telescopes to EXACTLY L
-        -- across the sharing blocks.
+        -- Equal shares among blocks that exist for layout: a collapsed block
+        -- (non-spacer measuring 0, e.g. xprep with no XP and no watched
+        -- faction) takes no share, same doesn't-exist rule as the auto solver
+        -- below. Cumulative rounding telescopes to EXACTLY L.
         local shares, nShare = {}, 0
         for i = 1, n do
             local b = barCfg.blocks[i]
@@ -1566,15 +1513,12 @@ function ns.SolveLayout(barCfg, L, measure)
         return segs
     end
 
-    -- AUTO: content + per-side gaps everywhere; the single fill block
-    -- absorbs the remainder. An optional Force Centered block
-    -- (cfg.centerBlockId) pins its CONTENT at exactly L/2 and splits the
-    -- solve: blocks before it pack toward the LEFT edge, blocks after it
-    -- pack toward the RIGHT edge. When the centered block is ALSO the
-    -- fill block, its slot absorbs the entire middle span (bar exactly
-    -- fills; content stays pinned via seg.contentShift). Otherwise a
-    -- region containing the fill spans edge-to-edge and any leftover
-    -- beside the center is plain bar background.
+    -- AUTO: content + per-side gaps everywhere; fill block absorbs the
+    -- remainder. Optional Force Centered block (cfg.centerBlockId) pins its
+    -- CONTENT at L/2, splitting the solve: blocks before pack LEFT, after
+    -- pack RIGHT. Centered block ALSO fill: its slot absorbs the whole middle
+    -- span, content pinned via seg.contentShift. Otherwise fill's region
+    -- spans edge-to-edge; leftover beside center is plain background.
     local fillId = ns.EnsureFillBlock(barCfg)
     local centerIdx
     do
@@ -1593,10 +1537,9 @@ function ns.SolveLayout(barCfg, L, measure)
         if b.type ~= "spacer" and measure then
             w = measure(b) or 0
             if w <= 0 then
-                -- Collapsed block (nothing rendered -- e.g. xprep with no
-                -- XP and no watched faction): contributes nothing at all,
-                -- gaps included, as if it were not in the bar. Spacers are
-                -- exempt: their width IS their gaps.
+                -- Collapsed block (nothing rendered, e.g. xprep with no XP and no
+                -- watched faction): contributes nothing, gaps included, as if not
+                -- in the bar. Spacers are exempt: their width IS their gaps.
                 return 0, 0, 0
             end
         end
@@ -1615,11 +1558,10 @@ function ns.SolveLayout(barCfg, L, measure)
         segs[i] = seg
     end
 
-    -- Lays a contiguous run of segments into [regionStart, regionEnd]:
-    -- packs left (or right), with cumulative edge rounding so the run
-    -- telescopes; a fill segment in the run absorbs the slack so the run
-    -- spans the whole region. Both region bounds may be fractional; the
-    -- pinned edge always rounds onto the region bound.
+    -- Lays a run of segments into [regionStart, regionEnd]: packs left (or
+    -- right) with cumulative edge rounding so it telescopes; a fill segment
+    -- absorbs the slack so the run spans the region. Bounds may be
+    -- fractional; the pinned edge always rounds onto the region bound.
     local function SolveRegion(first, last, regionStart, regionEnd, packRight)
         if first > last then return end
         local regionLen = regionEnd - regionStart
@@ -1689,10 +1631,9 @@ function ns.SolveLayout(barCfg, L, measure)
     SolveRegion(centerIdx + 1, n, cAt + cPx, L, true)
 
     if cIsFill then
-        -- Centered fill: the slot stretches over the whole middle span
-        -- (sides packed to the edges, nothing left uncovered); the slot
-        -- is generally asymmetric around L/2, so the content pins to the
-        -- true center via seg.contentShift (consumed by AnchorContent).
+        -- Centered fill: slot stretches over the whole middle span (sides packed to the
+        -- edges, nothing uncovered); generally asymmetric around L/2, so content pins
+        -- to true center via seg.contentShift (consumed by AnchorContent).
         local leftEnd = 0
         if centerIdx > 1 then
             local ls = segs[centerIdx - 1]
@@ -1735,8 +1676,8 @@ local function EnsureThemeTextures(host)
     local modernBg = host:CreateTexture(nil, "BACKGROUND", nil, -7)
     modernBg:SetColorTexture(0.067, 0.067, 0.067, 0.95)
     modernBg:SetAllPoints(host)
-    -- Bar Texture layer: when a texture is picked it replaces the flat /
-    -- art background, tinted by the style's color+opacity knobs.
+    -- Bar Texture layer: replaces the flat/art background when picked,
+    -- tinted by the style's color+opacity knobs.
     local barTex = host:CreateTexture(nil, "BACKGROUND", nil, -6)
     barTex:SetAllPoints(host)
     barTex:SetAlpha(0)
@@ -1780,8 +1721,8 @@ local function ApplyThemeToHost(host, theme, texKey)
         host._edbBgOverlay:SetAlpha(0)
         local c = theme.modernColor or {}
         if texPath then
-            -- Texture tinted by the Modern color; the color's alpha rides
-            -- the vertex tint so Bar Opacity keeps working.
+            -- Tinted by the Modern color; its alpha rides the vertex tint
+            -- so Bar Opacity keeps working.
             host._edbBarTex:SetTexture(texPath)
             host._edbBarTex:SetVertexColor(c.r or 0.067, c.g or 0.067, c.b or 0.067, c.a or 0.95)
             host._edbBarTex:SetAlpha(c.a or 0.95)
@@ -1794,10 +1735,9 @@ local function ApplyThemeToHost(host, theme, texKey)
         op = c.a
         if op == nil then op = 0.95 end
     else
-        -- euiOpacity fades the WHOLE background stack (art + dim overlay);
-        -- euiAlpha stays the darkening amount of the overlay itself.
-        -- Bar Texture never applies here: the EllesmereUI style always
-        -- renders its own untextured art (the picker is Modern-only).
+        -- euiOpacity fades the WHOLE background stack (art + dim overlay); euiAlpha is
+        -- the overlay's own darkening amount. Bar Texture never applies here -- the eui
+        -- style always renders untextured art (the texture picker is Modern-only).
         op = theme.euiOpacity
         if op == nil then op = 1 end
         host._edbBarTex:SetAlpha(0)
@@ -1886,8 +1826,8 @@ local function ApplyBarPosition(id)
     local cfg = ns.GetBar(id)
     if not (rec and rec.bar and cfg) then return end
     local bar = rec.bar
-    -- Implicitly protected bar (secure children): repositioning is blocked
-    -- in combat. Keep the current position and re-apply once on regen.
+    -- Implicitly protected bar (secure children): reposition is blocked in
+    -- combat; keep current position and re-apply once on regen.
     if InCombatLockdown() and bar:IsProtected() then
         ns.DeferUntilOOC("pos:" .. id, function() ApplyBarPosition(id) end)
         return
@@ -1919,22 +1859,15 @@ local function ApplyBarPosition(id)
         return
     end
 
-    -- Full-screen length: pin BOTH ends to UIParent so the ENGINE keeps the
-    -- bar exactly full through every resolution/UI-scale change -- a
-    -- computed-width snapshot goes stale whenever it is taken before the
-    -- final screen metrics land (field-reported as not-full bars). Only the
-    -- cross-axis coordinate is computed below; the explicit SetSize from
-    -- ApplyBar remains as a fallback if anything ever strips the anchors
-    -- (the anchor rect overrides it while both points are set).
-
-    -- Full-screen length and/or edge snap: compute the final center
-    -- ANALYTICALLY and anchor once. Never read GetCenter here -- when the
-    -- size or orientation changed earlier in this same apply, GetCenter
-    -- still returns the previous layout's rect and the bar lands offset
-    -- by the old geometry. The bar was explicitly SetSize'd just before
-    -- this call, so GetSize is trustworthy.
-    -- Along-axis: screen-centered when full, else from the saved position.
-    -- Cross-axis: flush to the snapped edge, else from the saved position.
+    -- Full-screen length: pin BOTH ends to UIParent so the bar stays exactly
+    -- full through resolution/UI-scale changes (a computed-width snapshot
+    -- goes stale if taken before final screen metrics land). Only cross-axis
+    -- is computed below; ApplyBar's SetSize is a fallback if anchors strip.
+    -- Compute the final center ANALYTICALLY, once. Never GetCenter -- if
+    -- size/orientation changed earlier this apply, it returns the stale
+    -- rect (GetSize is trustworthy since SetSize just ran). Along-axis:
+    -- screen-centered when full, else saved position. Cross-axis: flush to
+    -- the snapped edge, else saved position.
     local uw, uh = UIParent:GetWidth(), UIParent:GetHeight()
     local bw, bh = bar:GetSize()
     local cx, cy = uw / 2, uh / 2
@@ -1998,9 +1931,9 @@ local function ApplyBlockDecor(slot, blockCfg, barCfg)
     elseif slot._edbBg then
         slot._edbBg:Hide()
     end
-    -- Optional hover highlight (4% white), one bar-wide switch. Mouse
-    -- MOTION only: clicks pass through to the block's own buttons; motion
-    -- is off entirely when the option is disabled (zero cost).
+    -- Optional hover highlight (4% white), one bar-wide switch. Mouse MOTION
+    -- only: clicks pass through to the block's own buttons; off entirely when
+    -- disabled (zero cost).
     if barCfg and barCfg.hoverHighlight then
         if not slot._edbHover then
             slot._edbHover = slot:CreateTexture(nil, "OVERLAY", nil, 6)
@@ -2022,9 +1955,9 @@ end
 local function AnchorContent(slot, blockCfg, vertical, barCfg)
     local content = slot._edbContent
     if not content then return end
-    -- Per-block content scale: the whole content tree (icons + texts)
-    -- scales as a group inside its slot. Offsets divide by the scale so
-    -- stored X/Y stay screen-true regardless of it.
+    -- Per-block content scale: the whole content tree (icons + texts) scales
+    -- as a group inside its slot. Offsets divide by scale so stored X/Y stay
+    -- screen-true regardless.
     local s = (blockCfg.scale or 100) / 100
     if s < 0.25 then s = 0.25 elseif s > 3 then s = 3 end
     content:SetScale(s)
@@ -2032,20 +1965,19 @@ local function AnchorContent(slot, blockCfg, vertical, barCfg)
     local a = blockCfg.align or "CENTER"
     local x = (blockCfg.xOff or 0) / s
     local y = (blockCfg.yOff or 0) / s
-    -- Centered-fill slot: the solver pins the CONTENT to the bar's true
-    -- center via this along-axis shift (the slot itself is asymmetric).
-    -- Align is forced CENTER -- pinning is the block's whole point.
+    -- Centered-fill slot: the solver pins CONTENT to the bar's true center via
+    -- this along-axis shift (the slot itself is asymmetric). Align is forced
+    -- CENTER -- pinning is the whole point.
     local cShift = slot._edbCenterShift
     if cShift then
         a = "CENTER"
         if vertical then y = y - cShift / s else x = x + cShift / s end
     end
-    -- Auto-mode slots reserve per-side gaps around the content; the align
-    -- anchor must step inward by the LEADING gap (align LEFT otherwise
-    -- piles the whole reserve on the far side), and CENTER shifts by half
-    -- the gap DIFFERENCE so asymmetric gaps land on their sides. Gaps are
-    -- slot-space px, so they divide by the content scale like the offsets.
-    -- The fill block's slot is the remainder, not gap-sized: plain align.
+    -- Auto-mode slots reserve per-side gaps around content; align steps inward
+    -- by the LEADING gap (LEFT otherwise piles the whole reserve on the far
+    -- side), CENTER shifts by half the gap DIFFERENCE. Gaps are slot-space px,
+    -- so divide by content scale like the offsets. Fill block's slot is the
+    -- remainder, not gap-sized: plain align.
     if barCfg and ns.BarSizingMode(barCfg) == "auto"
        and blockCfg.id ~= ns.EnsureFillBlock(barCfg) then
         local gl, gr = ns.ContentGapsOf(blockCfg)
@@ -2081,9 +2013,9 @@ local function AnchorContent(slot, blockCfg, vertical, barCfg)
 end
 
 -- Forces every block to fully re-render (inst:Refresh) on the next layout
--- pass by forgetting the assigned widths. For options that change how the
--- factories anchor their internals (e.g. the text-only offset, injected by
--- each re-anchor), where a plain ApplyBar would see unchanged px and skip.
+-- pass by forgetting assigned widths. For options that change how factories
+-- anchor internals (e.g. the injected text-only offset), where a plain
+-- ApplyBar would see unchanged px and skip.
 function ns.ReflowBlocks(id)
     local rec = live and live[id]
     if not rec then return end
@@ -2109,11 +2041,10 @@ ApplyLayout = function(id)
     local cfg = ns.GetBar(id)
     if not (rec and rec.bar and cfg) then return end
     if not rec.enabled then return end
-    -- A bar holding secure children (profession/micromenu passthrough
-    -- buttons) is implicitly protected, and so is every ancestor of those
-    -- buttons: slot geometry on it is blocked in combat (raid-reported
-    -- ADDON_ACTION_BLOCKED on slot:ClearAllPoints). Freeze the current
-    -- layout for the fight and run ONE deferred pass on regen.
+    -- A bar holding secure children (profession/micromenu passthrough buttons) is
+    -- implicitly protected, and so is every ancestor of those buttons: slot geometry on
+    -- it is blocked in combat (ADDON_ACTION_BLOCKED on slot:ClearAllPoints). Freeze the
+    -- current layout for the fight and run ONE deferred pass on regen.
     if InCombatLockdown() and rec.bar:IsProtected() then
         ns.DeferUntilOOC("layout:" .. id, function() ApplyLayout(id) end)
         return
@@ -2192,10 +2123,9 @@ function ns.ApplyBar(id)
     end
 
     -- "Never" visibility = fully disabled: the bar does NO work (no
-    -- instances, no events, no ticks). A cfg.enabled key may exist in
-    -- stored data (a caller-less setter once allowed field stores to pick
-    -- up enabled=false with no UI to recover) -- it is deliberately
-    -- IGNORED everywhere; visibility is the only disable channel.
+    -- instances, no events, no ticks). A stray cfg.enabled key may still
+    -- exist in old stored data -- it is deliberately IGNORED everywhere;
+    -- visibility is the only disable channel.
     if not cfg or cfg.visibility == "never" then
         if rec and rec.enabled then
             for _, inst in pairs(rec.insts) do
@@ -2218,8 +2148,8 @@ function ns.ApplyBar(id)
         rec.bar:SetClampedToScreen(true)
         rec.bar._edbBorder = PP.CreateBorder(rec.bar, 0, 0, 0, 0.8, 1, "OVERLAY", 7)
         -- Anchor-driven size changes (full-length bars stretching with the
-        -- screen) re-solve the block layout; RequestLayout coalesces and
-        -- the combat gate defers protected bars to regen.
+        -- screen) re-solve the layout; RequestLayout coalesces, and the
+        -- combat gate defers protected bars to regen.
         rec.bar:HookScript("OnSizeChanged", function() ns.RequestLayout(id) end)
         rec.ctx = MakeBarCtx(id)
         rec.ctx.frame = rec.bar
@@ -2227,20 +2157,13 @@ function ns.ApplyBar(id)
         RegisterBarMouseoverProxy(id)
     end
 
-    -- Bar Strata (cfg.barStrata, cog on the Visibility row). nil = "MEDIUM",
-    -- the value the bar was hardcoded to at creation above, so an unset bar
-    -- renders byte-identically and there is nothing to migrate. Applied on
-    -- EVERY apply rather than only at creation, so a change lands without a
-    -- reload.
-    --
-    -- Setting a frame's strata RE-STACKS its children's levels as well as their
-    -- stratas, so the creation-time levels are re-asserted immediately after:
-    -- the bar at 10, and the border container at bar + 1 (what PP.CreateBorder
-    -- gave it). Slots and block content set no explicit levels and re-stack
-    -- correctly on their own.
-    --
-    -- Combat-safe by position: ApplyBar's protected-bar gate has already
-    -- returned above, so a protected bar never reaches this in lockdown.
+    -- Bar Strata (cfg.barStrata, Visibility-row cog). nil = "MEDIUM" (the
+    -- hardcoded creation-time value, so an unset bar renders byte-identically).
+    -- Applied on EVERY apply, not just creation, so a change lands without a
+    -- reload. SetFrameStrata RE-STACKS children's levels too, so they're
+    -- re-asserted right after: bar at 10, border at bar + 1 (slots/content
+    -- re-stack on their own). Combat-safe: the protected-bar gate above
+    -- already returned, so a protected bar never reaches this in lockdown.
     rec.bar:SetFrameStrata(cfg.barStrata or "MEDIUM")
     rec.bar:SetFrameLevel(10)
     if rec.bar._edbBorder then
@@ -2341,8 +2264,8 @@ end
 
 -- Effective share of the TOTAL bar for one block in percentage points,
 -- matching SolveLayout. Lives below the live table (unlike the pure solver)
--- because Auto Sized blocks need the real bar length and live content
--- measurements; falls back to the configured length for unbuilt bars.
+-- since Auto Sized blocks need the real bar length and live content
+-- measurements; falls back to configured length for unbuilt bars.
 function ns.NormalizedShare(barCfg, blockId)
     if not barCfg or #barCfg.blocks == 0 then return 0 end
     local rec = live[barCfg.id]
@@ -2389,29 +2312,24 @@ end
 -------------------------------------------------------------------------------
 ns.EDB_VIS_CAPS = { partyIncludesRaid = false, luaDragonriding = true }
 
--- Bar visibility = ALPHA ONLY, applied directly. A bar hosting a secure
--- block (micromenu passthrough buttons, travel hearth) is an IMPLICITLY
--- PROTECTED ancestor: EnableMouse/Show/Hide on it during combat is
--- ADDON_ACTION_BLOCKED (the parent SetElementVisibility helper toggles
--- EnableMouse, so it must never touch these bars). SetAlpha is combat-legal
--- on protected frames, and the bar never has mouse enabled anyway.
+-- Bar visibility = ALPHA ONLY. A bar hosting a secure block (micromenu
+-- passthrough, travel hearth) is IMPLICITLY PROTECTED: EnableMouse/Show/Hide on it in
+-- combat is ADDON_ACTION_BLOCKED (the parent SetElementVisibility helper toggles
+-- EnableMouse, so it must never touch these bars). SetAlpha is combat-legal on
+-- protected frames, and the bar never has mouse enabled anyway.
 local function SetBarAlphaVisible(rec, visible)
     if rec and rec.bar then
         rec.bar:SetAlpha(visible and 1 or 0)
     end
 end
 
--- Alpha alone would leave block children (including the SECURE
--- travel/micromenu buttons) fully click-interactive while invisible.
--- Slots are OUR insecure frames, so toggling their shown state suppresses
--- every child in one stroke; the bar frame itself stays shown so the
--- mouseover poll can keep measuring it. The layout pass reads
--- rec.contentShown for the same gate, so relayouts while hidden cannot
--- resurrect click-catchers. Slots hosting secure blocks are implicitly
--- protected in combat -- those flips defer (rec.contentDeferred) and the
--- REGEN_ENABLED visibility pass re-applies them; meanwhile alpha 0 covers
--- the visual and the micromenu buttons self-disable via their combatlock
--- driver.
+-- Alpha alone leaves SECURE travel/micromenu buttons click-interactive while invisible.
+-- Slots are OUR insecure frames, so toggling their shown state suppresses every child
+-- at once; the bar frame stays shown so the mouseover poll keeps measuring it (layout
+-- reads rec.contentShown for the same gate, so relayouts while hidden can't resurrect
+-- click-catchers). Slots hosting secure blocks are implicitly protected in combat --
+-- those flips defer (rec.contentDeferred) and REGEN_ENABLED re-applies them; alpha 0
+-- covers the visual meanwhile, and micromenu buttons self-disable via combatlock.
 local function SetBarContentShown(id, shown)
     local rec = live[id]
     if not rec then return end
@@ -2672,10 +2590,10 @@ end
 
 -------------------------------------------------------------------------------
 --  Unlock mode
---  One element per bar in the profile, key "EDB_<id>". Elements are NEVER
---  unregistered: a bar deleted mid-session leaves its element registered
---  with isHidden true / getFrame nil (mover goes dormant, anchors survive).
---  Next login the retired id simply is not registered again.
+--  One element per bar, key "EDB_<id>". Elements are NEVER unregistered: a
+--  bar deleted mid-session leaves its element with isHidden true / getFrame
+--  nil (mover goes dormant, anchors survive); the retired id just is not
+--  registered again next login.
 -------------------------------------------------------------------------------
 local function MakeBarElement(barId, orderIdx)
     local function cfgOf() return ns.GetBar(barId) end
@@ -2687,14 +2605,11 @@ local function MakeBarElement(barId, orderIdx)
         label    = label,
         group    = "DataBars",
         order    = 700 + orderIdx,
-        -- ApplyBarPosition is the sole position authority: full-screen
-        -- centering and edge snap recompute the anchor from cfg, so the
-        -- centralized init loop re-applying the stored CENTER position
-        -- (captured under whatever footprint was live at save time) would
-        -- clobber it -- e.g. a bar switched H->V got re-pinned at the old
-        -- horizontal bar's center on every login and size change. The
-        -- resize/init paths delegate to applyPosition instead; mover,
-        -- save/load, and anchors are unaffected.
+        -- ApplyBarPosition is the sole position authority: full-screen/edge-snap
+        -- recompute the anchor from cfg, so re-applying the stored CENTER
+        -- position here would clobber it (a bar switched H->V would re-pin at
+        -- the old horizontal center every login/resize). Delegates to
+        -- applyPosition instead; mover, save/load, anchors are unaffected.
         noInitHook = true,
         getFrame = function()
             local rec = live[barId]
@@ -2733,14 +2648,11 @@ local function MakeBarElement(barId, orderIdx)
         applyPos = function()
             ApplyBarPosition(barId)
         end,
-        -- Width/height matches NEVER override full-screen mode on the
-        -- along-axis: ApplyAllWidthHeightMatches re-applies stored matches
-        -- on EVERY login, and the old "flip lengthMode to custom so the
-        -- match sticks" here silently reverted users' Full Screen bars on
-        -- each /reload (field-reported; a match stored on the bar from
-        -- unlock mode re-fired forever). Full wins; a user who wants the
-        -- match must turn Full Screen off first. Cross-axis (thickness)
-        -- always applies.
+        -- Width/height matches NEVER override full-screen mode on the along-axis:
+        -- ApplyAllWidthHeightMatches re-applies stored matches on EVERY login,
+        -- so flipping lengthMode to custom here would silently revert a Full
+        -- Screen bar every /reload. Full wins; turn Full Screen off first to
+        -- use the match. Cross-axis (thickness) always applies.
         setWidth = function(_, w)
             local cfg = cfgOf()
             if not cfg then return end
@@ -2796,10 +2708,8 @@ end
 -------------------------------------------------------------------------------
 local TEMPLATES = {
     bottom = {
-        -- Mirrors the author's live Bottom Info Bar exactly (snapshotted
-        -- from SavedVariables 2026-07-20): 40px gaps, coin-colored gold,
-        -- accent professions (left-aligned), 90% clock with 12-hour time,
-        -- random-hearthstone travel block on the right edge.
+        -- 40px gaps, coin-colored gold, accent professions (left-aligned), 90% clock
+        -- with 12-hour time, random-hearthstone travel block on the right edge.
         name = "Bottom Info Bar", orientation = "H", lengthMode = "full",
         length = 1200, thickness = 30, theme = "eui", snapEdge = "top",
         sizingMode = "auto", fillType = "clock", centerType = "clock",
@@ -2884,10 +2794,9 @@ function ns.AddBlock(barId, typeKey)
         bg       = nil,
         settings = DeepCopy(ns.BLOCK_DEFAULTS[typeKey]),
     }
-    -- Micro menu counters default 8px above their buttons -- via the SAME
-    -- textYOff the Text Position cog edits, so the slider starts at 8 and
-    -- ONE value owns the counter position (the old osSocialText offset +
-    -- top-bar sign flip are dead; the anchor is plain button-center).
+    -- Micro menu counters default 8px above their buttons via the SAME
+    -- textYOff the Text Position cog edits, so ONE value owns the counter
+    -- position (anchor is plain button-center).
     if typeKey == "micromenu" then b.textYOff = 8 end
     cfg.blocks[#cfg.blocks + 1] = b
     ns.ApplyBar(barId)
@@ -3139,12 +3048,11 @@ end
 -------------------------------------------------------------------------------
 function WB:OnInitialize()
     self.db = EllesmereUI.Lite.NewDB("EllesmereUIDataBarsDB", defaults)
-    -- The cross-character gold ledger used to live in the profile, which put
-    -- every character's name, realm and balance into shared export strings and
-    -- gave each profile its own separate ledger. It is account data now
-    -- (EllesmereUIDB.dataBarsGold, see GoldStore). Drop the old copy rather
-    -- than migrate it: on anyone who imported a profile it holds the exporter's
-    -- characters, not their own, and the account store refills from live play.
+    -- Cross-character gold ledger is account data (EllesmereUIDB.dataBarsGold,
+    -- GoldStore), not profile -- a profile-scoped copy would leak every
+    -- character's name/realm/balance into export strings. Drop any old
+    -- profile copy (don't migrate): on an imported profile it holds the
+    -- exporter's characters, and the account store refills from play anyway.
     self.db.profile.characters = nil
 end
 
@@ -3154,13 +3062,11 @@ function WB:OnEnable()
     for i = 1, #profile.bars do
         ns.ApplyBar(profile.bars[i].id)
     end
-    -- Mid-combat /reload: lockdown has NOT re-engaged during this early
-    -- login window (the same trick the suite uses to position elements
-    -- during the load screen), but RequestLayout's next-frame timer fires
-    -- AFTER it does -- the protected-bar gate would then freeze bars whose
-    -- slots were never placed (field report: blank bar until regen). Lay
-    -- out synchronously NOW while geometry is still legal; the queued
-    -- pass coalesces into a harmless re-run.
+    -- Mid-combat /reload: lockdown has NOT re-engaged yet (same technique the suite
+    -- uses elsewhere to position elements during the load screen), but RequestLayout's
+    -- next-frame timer fires AFTER it does, so the protected-bar gate would freeze bars
+    -- whose slots were never placed (blank until regen). Lay out synchronously NOW
+    -- while still legal; the queued pass coalesces harmlessly.
     for i = 1, #profile.bars do
         ApplyLayout(profile.bars[i].id)
     end
@@ -3185,10 +3091,10 @@ function WB:OnDisable()
 end
 
 -------------------------------------------------------------------------------
---  Profile-swap apply hook. The profile system re-points db.profile in
---  place then calls this: retire live records whose bar ids do not exist in
---  the incoming profile (ApplyBar treats missing cfg as disable), build the
---  incoming set, re-register unlock movers, and re-sync every gate.
+--  Profile-swap apply hook. Profile system re-points db.profile then calls
+--  this: retire live records whose bar ids are absent from the incoming
+--  profile (ApplyBar treats missing cfg as disable), build the incoming
+--  set, re-register unlock movers, re-sync every gate.
 -------------------------------------------------------------------------------
 _G._EDB_Apply = function()
     if not (WB.db and WB.db.profile) then return end
