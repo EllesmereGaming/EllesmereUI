@@ -461,10 +461,16 @@ initFrame:SetScript("OnEvent", function(self)
                             pip._borderFrame = bf
                         end
                         pip._borderFrame:SetFrameLevel(sp.borderBehind and math.max(0, pip:GetFrameLevel() - 1) or (pip:GetFrameLevel() + 2))
+
+                        local spBorderColor = {sp.borderR or 0, sp.borderG or 0, sp.borderB or 0}
+                        if sp.borderClassColor then
+                            if cc then spBorderColor = {cc[1], cc[2], cc[3]} end
+                        end
+
                         EllesmereUI.ApplyBorderStyle(pip._borderFrame, sp.borderSize or 1,
-                            sp.borderR or 0, sp.borderG or 0, sp.borderB or 0, sp.borderA or 1,
+                            spBorderColor[1], spBorderColor[2], spBorderColor[3], sp.borderA or 1,
                             sp.borderTexture or "solid", sp.borderTextureOffset, sp.borderTextureOffsetY,
-                            sp.borderTextureShiftX, sp.borderTextureShiftY)
+                            sp.borderTextureShiftX, sp.borderTextureShiftY, "resourcebars", sp.borderThickness or sp.borderSize)
                         pip._borderFrame:Show()
                     else
                         if pip._borderFrame then pip._borderFrame:Hide() end
@@ -571,10 +577,14 @@ initFrame:SetScript("OnEvent", function(self)
             if sp.borderOnPips and cf ~= "DEATHKNIGHT" and not isBar then
                 pc._barBorderFrame:Hide()
             else
+                local spBorderColor = {sp.borderR or 0, sp.borderG or 0, sp.borderB or 0}
+                if sp.borderClassColor then
+                    if cc then spBorderColor = {cc[1], cc[2], cc[3]} end
+                end
                 EllesmereUI.ApplyBorderStyle(pc._barBorderFrame, sp.borderSize or 1,
-                    sp.borderR or 0, sp.borderG or 0, sp.borderB or 0, sp.borderA or 1,
+                    spBorderColor[1], spBorderColor[2], spBorderColor[3], sp.borderA or 1,
                     sp.borderTexture or "solid", sp.borderTextureOffset, sp.borderTextureOffsetY,
-                    sp.borderTextureShiftX, sp.borderTextureShiftY)
+                    sp.borderTextureShiftX, sp.borderTextureShiftY, "resourcebars", sp.borderThickness or sp.borderSize)
                 pc._barBorderFrame:Show()
             end
 
@@ -3001,188 +3011,12 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Health Border Style dropdown + inline offset cog. Style/size/colour/cog operate on cfg(); the cross-bar "apply to all" sync icons (+ _syncRows registration) are Simple-only.
         do
-            local texValues, texOrder = EllesmereUI.GetBorderTextureDropdown()
-            local hpBsRow
-            hpBsRow, h = W:DualRow(parent, y,
-                { type="dropdown", text="Border Style",
-                  disabled = healthOff,
-                  disabledTooltip = "Health Bar",
-                  values=texValues, order=texOrder,
-                  getValue=function() local c = cfg(); return c and c.borderTexture or "solid" end,
-                  setValue=function(v)
-                      local c = cfg(); if not c then return end
-                      c.borderTexture = v; c.borderTextureOffset = nil; c.borderTextureOffsetY = nil; c.borderTextureShiftX = nil; c.borderTextureShiftY = nil
-                      local _bcol, _bbehind = EllesmereUI.GetBorderStyleSelectDefaults(v)
-                      c.borderR = _bcol.r; c.borderG = _bcol.g; c.borderB = _bcol.b; c.borderA = 1
-                      c.borderBehind = _bbehind
-                      local defSz = EllesmereUI.GetBorderDefaultSize("resourcebars", v)
-                      if defSz then c.borderSize = defSz end
-                      RebuildHealth(); EllesmereUI:RefreshPage()
-                  end },
-                { type = "slider", text = "Border Size",
-                  min = 0, max = 4, step = 1,
-                  disabled = healthOff,
-                  disabledTooltip = "Health Bar",
-                  getValue = function() local c = cfg(); return c and c.borderSize or 1 end,
-                  setValue = function(v)
-                      local c = cfg(); if not c then return end
-                      c.borderSize = v; RebuildHealth()
-                      EllesmereUI:RefreshPage()
-                  end });  y = y - h
-            if not EllesmereUI._prebuilding then
-                local rgn = hpBsRow._rightRegion
-                local ctrl = rgn._control
-                local borderSwatch, updateBorderSwatch = EllesmereUI.BuildColorSwatch(
-                    rgn, hpBsRow:GetFrameLevel() + 3,
-                    function()
-                        local c = cfg()
-                        return (c and c.borderR or 0), (c and c.borderG or 0),
-                               (c and c.borderB or 0), (c and c.borderA or 1)
-                    end,
-                    function(r, g, b, a)
-                        local c = cfg(); if not c then return end
-                        c.borderR, c.borderG, c.borderB, c.borderA = r, g, b, a
-                        SmoothRefresh(); EllesmereUI:RefreshPage()
-                    end,
-                    true, 20)
-                PP.Point(borderSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
-                EllesmereUI.RegisterWidgetRefresh(function() updateBorderSwatch() end)
-                local swBlock = CreateFrame("Frame", nil, borderSwatch)
-                swBlock:SetAllPoints()
-                swBlock:SetFrameLevel(borderSwatch:GetFrameLevel() + 10)
-                swBlock:EnableMouse(true)
-                swBlock:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(borderSwatch, EllesmereUI.DisabledTooltip("Health Bar")) end)
-                swBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                local function UpdateBorderSwDis()
-                    if healthOff() then borderSwatch:SetAlpha(0.3); swBlock:Show()
-                    else borderSwatch:SetAlpha(1); swBlock:Hide() end
-                end
-                EllesmereUI.RegisterWidgetRefresh(UpdateBorderSwDis)
-                UpdateBorderSwDis()
-            end
-            if not EllesmereUI._prebuilding then
-                local rgn = hpBsRow._leftRegion
-                local _, cogShow = EllesmereUI.BuildCogPopup({
-                    title = "Border Offset",
-                    rows = {
-                        { type = "slider", label = "Offset X", min = -10, max = 10, step = 1,
-                          get = function()
-                              local c = cfg(); if not c then return 0 end
-                              local v = c.borderTextureOffset
-                              if v then return v end
-                              local dox = EllesmereUI.GetBorderDefaults("resourcebars", c.borderTexture or "solid", c.borderSize or 1)
-                              return dox
-                          end,
-                          set = function(v)
-                              local c = cfg(); if not c then return end
-                              c.borderTextureOffset = v; RebuildHealth(); EllesmereUI:RefreshPage()
-                          end },
-                        { type = "slider", label = "Offset Y", min = -10, max = 10, step = 1,
-                          get = function()
-                              local c = cfg(); if not c then return 0 end
-                              local v = c.borderTextureOffsetY
-                              if v then return v end
-                              local _, doy = EllesmereUI.GetBorderDefaults("resourcebars", c.borderTexture or "solid", c.borderSize or 1)
-                              return doy
-                          end,
-                          set = function(v)
-                              local c = cfg(); if not c then return end
-                              c.borderTextureOffsetY = v; RebuildHealth(); EllesmereUI:RefreshPage()
-                          end },
-                        { type = "slider", label = "Shift X", min = -10, max = 10, step = 1,
-                          get = function()
-                              local c = cfg(); if not c then return 0 end
-                              local v = c.borderTextureShiftX
-                              if v then return v end
-                              local _, _, dsx = EllesmereUI.GetBorderDefaults("resourcebars", c.borderTexture or "solid", c.borderSize or 1)
-                              return dsx
-                          end,
-                          set = function(v)
-                              local c = cfg(); if not c then return end
-                              c.borderTextureShiftX = v == 0 and nil or v; RebuildHealth(); EllesmereUI:RefreshPage()
-                          end },
-                        { type = "slider", label = "Shift Y", min = -10, max = 10, step = 1,
-                          get = function()
-                              local c = cfg(); if not c then return 0 end
-                              local v = c.borderTextureShiftY
-                              if v then return v end
-                              local _, _, _, dsy = EllesmereUI.GetBorderDefaults("resourcebars", c.borderTexture or "solid", c.borderSize or 1)
-                              return dsy
-                          end,
-                          set = function(v)
-                              local c = cfg(); if not c then return end
-                              c.borderTextureShiftY = v == 0 and nil or v; RebuildHealth(); EllesmereUI:RefreshPage()
-                          end },
-                        { type = "toggle", label = "Show Behind",
-                          get = function() local c = cfg(); return c and c.borderBehind or false end,
-                          set = function(v)
-                              local c = cfg(); if not c then return end
-                              c.borderBehind = v == false and nil or v; RebuildHealth(); EllesmereUI:RefreshPage()
-                          end },
-                    },
-                })
-                local cogBtn = MakeCogBtn(rgn, cogShow, nil, EllesmereUI.DIRECTIONS_ICON)
-                local function UpdateCogVis()
-                    local c = cfg()
-                    local tex = c and c.borderTexture or "solid"
-                    if tex == "solid" then cogBtn:Hide() else cogBtn:Show() end
-                end
-                EllesmereUI.RegisterWidgetRefresh(UpdateCogVis)
-                UpdateCogVis()
-            end
-            -- Cross-bar "apply to all" sync icons: Simple only
-            if not ctx.advanced and ctx.syncRows and not EllesmereUI._prebuilding then
-                ctx.syncRows.healthBorder = hpBsRow._rightRegion
-                EllesmereUI.BuildSyncIcon({
-                    region  = hpBsRow._leftRegion,
-                    tooltip = "Apply Border Style to all Bars",
-                    onClick = function()
-                        local p = DB(); if not p then return end
-                        local s = p.health
-                        local function apply(t)
-                            t.borderTexture = s.borderTexture
-                            t.borderTextureOffset = s.borderTextureOffset; t.borderTextureOffsetY = s.borderTextureOffsetY
-                            t.borderTextureShiftX = s.borderTextureShiftX; t.borderTextureShiftY = s.borderTextureShiftY
-                            t.borderR = s.borderR; t.borderG = s.borderG; t.borderB = s.borderB; t.borderA = s.borderA
-                            t.borderSize = s.borderSize
-                            t.borderBehind = s.borderBehind
-                        end
-                        apply(p.secondary); apply(p.primary)
-                        SmoothRefresh(); EllesmereUI:RefreshPage()
-                    end,
-                    isSynced = function()
-                        local p = DB(); if not p then return false end
-                        local bt = p.health.borderTexture or "solid"
-                        local bh = p.health.borderBehind or false
-                        return (p.secondary.borderTexture or "solid") == bt and (p.primary.borderTexture or "solid") == bt
-                            and (p.secondary.borderBehind or false) == bh and (p.primary.borderBehind or false) == bh
-                    end,
-                    flashTargets = function() return { hpBsRow._leftRegion } end,
-                })
-                EllesmereUI.BuildSyncIcon({
-                    region  = hpBsRow._rightRegion,
-                    tooltip = "Apply Border to all Bars",
-                    onClick = function()
-                        local p = DB(); if not p then return end
-                        local r, g, b, a = p.health.borderR, p.health.borderG, p.health.borderB, p.health.borderA
-                        local sz = p.health.borderSize or 1
-                        local bt = p.health.borderTexture or "solid"
-                        p.secondary.borderR, p.secondary.borderG, p.secondary.borderB, p.secondary.borderA = r, g, b, a
-                        p.secondary.borderSize = sz; p.secondary.borderTexture = bt
-                        p.primary.borderR, p.primary.borderG, p.primary.borderB, p.primary.borderA = r, g, b, a
-                        p.primary.borderSize = sz; p.primary.borderTexture = bt
-                        SmoothRefresh(); EllesmereUI:RefreshPage()
-                    end,
-                    isSynced = function()
-                        local p = DB(); if not p then return false end
-                        local sr, sg, sb, sa, ssz = p.health.borderR, p.health.borderG, p.health.borderB, p.health.borderA, p.health.borderSize or 1
-                        local sbt = p.health.borderTexture or "solid"
-                        local function eq(t) return t.borderR == sr and t.borderG == sg and t.borderB == sb and t.borderA == sa and (t.borderSize or 1) == ssz and (t.borderTexture or "solid") == sbt end
-                        return eq(p.secondary) and eq(p.primary)
-                    end,
-                    flashTargets = function() return { ctx.syncRows.healthBorder, ctx.syncRows.classBorder, ctx.syncRows.powerBorder } end,
-                })
-            end
+            local bd = cfg()
+            local bsRow
+            bsRow, h = EllesmereUI.BuildBorderOptionBlock(parent, y, bd, "resourcebars", function() RebuildHealth() SmoothRefresh() end, false, function(fn) 
+                local p = DB(); if not p then return false end
+                fn(p.primary) fn(p.secondary) fn(p.health) end)
+            y = y - h
         end
 
         -- Row 4: Opacity | Fill Color (gradient/custom/class). The Opacity "apply to all" sync icon is Simple-only; the gradient swatch disables while threshold coloring is on.
@@ -3767,187 +3601,12 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Power Border Style dropdown + inline offset cog
         do
-            local texValues, texOrder = EllesmereUI.GetBorderTextureDropdown()
-            local pwrBsRow
-            pwrBsRow, h = W:DualRow(parent, y,
-                { type="dropdown", text="Border Style",
-                  disabled = powerOff,
-                  disabledTooltip = powerDisTip,
-                  values=texValues, order=texOrder,
-                  getValue=function() local c = cfg(); return c and c.borderTexture or "solid" end,
-                  setValue=function(v)
-                      local c = cfg(); if not c then return end
-                      c.borderTexture = v; c.borderTextureOffset = nil; c.borderTextureOffsetY = nil; c.borderTextureShiftX = nil; c.borderTextureShiftY = nil
-                      local _bcol, _bbehind = EllesmereUI.GetBorderStyleSelectDefaults(v)
-                      c.borderR = _bcol.r; c.borderG = _bcol.g; c.borderB = _bcol.b; c.borderA = 1
-                      c.borderBehind = _bbehind
-                      local defSz = EllesmereUI.GetBorderDefaultSize("resourcebars", v)
-                      if defSz then c.borderSize = defSz end
-                      RebuildPower(); EllesmereUI:RefreshPage()
-                  end },
-                { type = "slider", text = "Border Size",
-                  min = 0, max = 4, step = 1,
-                  disabled = powerOff,
-                  disabledTooltip = powerDisTip,
-                  getValue = function() local c = cfg(); return c and c.borderSize or 1 end,
-                  setValue = function(v)
-                      local c = cfg(); if not c then return end
-                      c.borderSize = v; RebuildPower()
-                      EllesmereUI:RefreshPage()
-                  end });  y = y - h
-            if not EllesmereUI._prebuilding then
-                local rgn = pwrBsRow._rightRegion
-                local ctrl = rgn._control
-                local borderSwatch, updateBorderSwatch = EllesmereUI.BuildColorSwatch(
-                    rgn, pwrBsRow:GetFrameLevel() + 3,
-                    function()
-                        local c = cfg()
-                        return (c and c.borderR or 0), (c and c.borderG or 0),
-                               (c and c.borderB or 0), (c and c.borderA or 1)
-                    end,
-                    function(r, g, b, a)
-                        local c = cfg(); if not c then return end
-                        c.borderR, c.borderG, c.borderB, c.borderA = r, g, b, a
-                        SmoothRefresh(); EllesmereUI:RefreshPage()
-                    end,
-                    true, 20)
-                PP.Point(borderSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
-                EllesmereUI.RegisterWidgetRefresh(function() updateBorderSwatch() end)
-                local swBlock = CreateFrame("Frame", nil, borderSwatch)
-                swBlock:SetAllPoints()
-                swBlock:SetFrameLevel(borderSwatch:GetFrameLevel() + 10)
-                swBlock:EnableMouse(true)
-                swBlock:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(borderSwatch, EllesmereUI.DisabledTooltip(powerDisTip)) end)
-                swBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                local function UpdateBorderSwDis()
-                    if powerOff() then borderSwatch:SetAlpha(0.3); swBlock:Show()
-                    else borderSwatch:SetAlpha(1); swBlock:Hide() end
-                end
-                EllesmereUI.RegisterWidgetRefresh(UpdateBorderSwDis)
-                UpdateBorderSwDis()
-            end
-            if not EllesmereUI._prebuilding then
-                local rgn = pwrBsRow._leftRegion
-                local _, cogShow = EllesmereUI.BuildCogPopup({
-                    title = "Border Offset",
-                    rows = {
-                        { type = "slider", label = "Offset X", min = -10, max = 10, step = 1,
-                          get = function()
-                              local c = cfg(); if not c then return 0 end
-                              local v = c.borderTextureOffset
-                              if v then return v end
-                              local dox = EllesmereUI.GetBorderDefaults("resourcebars", c.borderTexture or "solid", c.borderSize or 1)
-                              return dox
-                          end,
-                          set = function(v)
-                              local c = cfg(); if not c then return end
-                              c.borderTextureOffset = v; RebuildPower(); EllesmereUI:RefreshPage()
-                          end },
-                        { type = "slider", label = "Offset Y", min = -10, max = 10, step = 1,
-                          get = function()
-                              local c = cfg(); if not c then return 0 end
-                              local v = c.borderTextureOffsetY
-                              if v then return v end
-                              local _, doy = EllesmereUI.GetBorderDefaults("resourcebars", c.borderTexture or "solid", c.borderSize or 1)
-                              return doy
-                          end,
-                          set = function(v)
-                              local c = cfg(); if not c then return end
-                              c.borderTextureOffsetY = v; RebuildPower(); EllesmereUI:RefreshPage()
-                          end },
-                        { type = "slider", label = "Shift X", min = -10, max = 10, step = 1,
-                          get = function()
-                              local c = cfg(); if not c then return 0 end
-                              local v = c.borderTextureShiftX
-                              if v then return v end
-                              local _, _, dsx = EllesmereUI.GetBorderDefaults("resourcebars", c.borderTexture or "solid", c.borderSize or 1)
-                              return dsx
-                          end,
-                          set = function(v)
-                              local c = cfg(); if not c then return end
-                              c.borderTextureShiftX = v == 0 and nil or v; RebuildPower(); EllesmereUI:RefreshPage()
-                          end },
-                        { type = "slider", label = "Shift Y", min = -10, max = 10, step = 1,
-                          get = function()
-                              local c = cfg(); if not c then return 0 end
-                              local v = c.borderTextureShiftY
-                              if v then return v end
-                              local _, _, _, dsy = EllesmereUI.GetBorderDefaults("resourcebars", c.borderTexture or "solid", c.borderSize or 1)
-                              return dsy
-                          end,
-                          set = function(v)
-                              local c = cfg(); if not c then return end
-                              c.borderTextureShiftY = v == 0 and nil or v; RebuildPower(); EllesmereUI:RefreshPage()
-                          end },
-                        { type = "toggle", label = "Show Behind",
-                          get = function() local c = cfg(); return c and c.borderBehind or false end,
-                          set = function(v)
-                              local c = cfg(); if not c then return end
-                              c.borderBehind = v == false and nil or v; RebuildPower(); EllesmereUI:RefreshPage()
-                          end },
-                    },
-                })
-                local cogBtn = MakeCogBtn(rgn, cogShow, nil, EllesmereUI.DIRECTIONS_ICON)
-                local function UpdateCogVis()
-                    local c = cfg()
-                    local tex = c and c.borderTexture or "solid"
-                    if tex == "solid" then cogBtn:Hide() else cogBtn:Show() end
-                end
-                EllesmereUI.RegisterWidgetRefresh(UpdateCogVis)
-                UpdateCogVis()
-            end
-            if not ctx.advanced and ctx.syncRows and not EllesmereUI._prebuilding then
-                ctx.syncRows.powerBorder = pwrBsRow._rightRegion
-                EllesmereUI.BuildSyncIcon({
-                    region  = pwrBsRow._leftRegion,
-                    tooltip = "Apply Border Style to all Bars",
-                    onClick = function()
-                        local p = DB(); if not p then return end
-                        local s = p.primary
-                        local function apply(t)
-                            t.borderTexture = s.borderTexture
-                            t.borderTextureOffset = s.borderTextureOffset; t.borderTextureOffsetY = s.borderTextureOffsetY
-                            t.borderTextureShiftX = s.borderTextureShiftX; t.borderTextureShiftY = s.borderTextureShiftY
-                            t.borderR = s.borderR; t.borderG = s.borderG; t.borderB = s.borderB; t.borderA = s.borderA
-                            t.borderSize = s.borderSize
-                            t.borderBehind = s.borderBehind
-                        end
-                        apply(p.secondary); apply(p.health)
-                        SmoothRefresh(); EllesmereUI:RefreshPage()
-                    end,
-                    isSynced = function()
-                        local p = DB(); if not p then return false end
-                        local bt = p.primary.borderTexture or "solid"
-                        local bh = p.primary.borderBehind or false
-                        return (p.secondary.borderTexture or "solid") == bt and (p.health.borderTexture or "solid") == bt
-                            and (p.secondary.borderBehind or false) == bh and (p.health.borderBehind or false) == bh
-                    end,
-                    flashTargets = function() return { pwrBsRow._leftRegion } end,
-                })
-                EllesmereUI.BuildSyncIcon({
-                    region  = pwrBsRow._rightRegion,
-                    tooltip = "Apply Border to all Bars",
-                    onClick = function()
-                        local p = DB(); if not p then return end
-                        local r, g, b, a = p.primary.borderR, p.primary.borderG, p.primary.borderB, p.primary.borderA
-                        local sz = p.primary.borderSize or 1
-                        local bt = p.primary.borderTexture or "solid"
-                        p.secondary.borderR, p.secondary.borderG, p.secondary.borderB, p.secondary.borderA = r, g, b, a
-                        p.secondary.borderSize = sz; p.secondary.borderTexture = bt
-                        p.health.borderR, p.health.borderG, p.health.borderB, p.health.borderA = r, g, b, a
-                        p.health.borderSize = sz; p.health.borderTexture = bt
-                        SmoothRefresh(); EllesmereUI:RefreshPage()
-                    end,
-                    isSynced = function()
-                        local p = DB(); if not p then return false end
-                        local sr, sg, sb, sa, ssz = p.primary.borderR, p.primary.borderG, p.primary.borderB, p.primary.borderA, p.primary.borderSize or 1
-                        local sbt = p.primary.borderTexture or "solid"
-                        local function eq(t) return t.borderR == sr and t.borderG == sg and t.borderB == sb and t.borderA == sa and (t.borderSize or 1) == ssz and (t.borderTexture or "solid") == sbt end
-                        return eq(p.secondary) and eq(p.health)
-                    end,
-                    flashTargets = function() return { ctx.syncRows.powerBorder, ctx.syncRows.classBorder, ctx.syncRows.healthBorder } end,
-                })
-            end
+            local bd = cfg()
+            local bsRow
+            bsRow, h = EllesmereUI.BuildBorderOptionBlock(parent, y, bd, "resourcebars", function() RebuildPower() SmoothRefresh() end, false, function(fn) 
+                local p = DB(); if not p then return false end
+                fn(p.primary) fn(p.secondary) fn(p.health) end)
+            y = y - h
         end
 
         -- Row 4: Opacity | Fill Color (gradient/custom/power-colored)
@@ -4684,194 +4343,28 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Border Style dropdown + inline offset cog
         do
-            local texValues, texOrder = EllesmereUI.GetBorderTextureDropdown()
-            local classBsRow
-            classBsRow, h = W:DualRow(parent, y,
-                { type="dropdown", text="Border Style",
-                  disabled = classOff,
-                  disabledTooltip = "Class Resource",
-                  values=texValues, order=texOrder,
-                  getValue=function() local c = cfg(); return c and c.borderTexture or "solid" end,
-                  setValue=function(v)
-                      local c = cfg(); if not c then return end
-                      c.borderTexture = v; c.borderTextureOffset = nil; c.borderTextureOffsetY = nil; c.borderTextureShiftX = nil; c.borderTextureShiftY = nil
-                      local _bcol, _bbehind = EllesmereUI.GetBorderStyleSelectDefaults(v)
-                      c.borderR = _bcol.r; c.borderG = _bcol.g; c.borderB = _bcol.b; c.borderA = 1
-                      c.borderBehind = _bbehind
-                      local defSz = EllesmereUI.GetBorderDefaultSize("resourcebars", v)
-                      if defSz then c.borderSize = defSz end
-                      RebuildClass(); EllesmereUI:RefreshPage()
-                  end },
-                { type = "slider", text = "Border Size",
-                  min = 0, max = 4, step = 1,
-                  disabled = classOff,
-                  disabledTooltip = "Class Resource",
-                  getValue = function() local c = cfg(); return c and c.borderSize or 1 end,
-                  setValue = function(v)
-                      local c = cfg(); if not c then return end
-                      c.borderSize = v; RebuildClass()
-                      EllesmereUI:RefreshPage()
-                  end });  y = y - h
-            if not ctx.advanced and ctx.syncRows then ctx.syncRows.classBorder = classBsRow._rightRegion end
-            if not EllesmereUI._prebuilding then
-                local rgn = classBsRow._rightRegion
-                local ctrl = rgn._control
-                local borderSwatch, updateBorderSwatch = EllesmereUI.BuildColorSwatch(
-                    rgn, classBsRow:GetFrameLevel() + 3,
-                    function()
-                        local c = cfg()
-                        return (c and c.borderR or 0), (c and c.borderG or 0),
-                               (c and c.borderB or 0), (c and c.borderA or 1)
-                    end,
-                    function(r, g, b, a)
-                        local c = cfg(); if not c then return end
-                        c.borderR, c.borderG, c.borderB, c.borderA = r, g, b, a
-                        SmoothRefresh(); EllesmereUI:RefreshPage()
-                    end,
-                    true, 20)
-                PP.Point(borderSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
-                EllesmereUI.RegisterWidgetRefresh(function() updateBorderSwatch() end)
-            end
-            if not EllesmereUI._prebuilding then
-                local rgn = classBsRow._leftRegion
-                local _, cogShow = EllesmereUI.BuildCogPopup({
-                    title = "Border Offset",
-                    rows = {
-                        { type = "slider", label = "Offset X", min = -10, max = 10, step = 1,
-                          get = function()
-                              local c = cfg(); if not c then return 0 end
-                              local v = c.borderTextureOffset
-                              if v then return v end
-                              local dox = EllesmereUI.GetBorderDefaults("resourcebars", c.borderTexture or "solid", c.borderSize or 1)
-                              return dox
-                          end,
-                          set = function(v)
-                              local c = cfg(); if not c then return end
-                              c.borderTextureOffset = v; RebuildClass(); EllesmereUI:RefreshPage()
-                          end },
-                        { type = "slider", label = "Offset Y", min = -10, max = 10, step = 1,
-                          get = function()
-                              local c = cfg(); if not c then return 0 end
-                              local v = c.borderTextureOffsetY
-                              if v then return v end
-                              local _, doy = EllesmereUI.GetBorderDefaults("resourcebars", c.borderTexture or "solid", c.borderSize or 1)
-                              return doy
-                          end,
-                          set = function(v)
-                              local c = cfg(); if not c then return end
-                              c.borderTextureOffsetY = v; RebuildClass(); EllesmereUI:RefreshPage()
-                          end },
-                        { type = "slider", label = "Shift X", min = -10, max = 10, step = 1,
-                          get = function()
-                              local c = cfg(); if not c then return 0 end
-                              local v = c.borderTextureShiftX
-                              if v then return v end
-                              local _, _, dsx = EllesmereUI.GetBorderDefaults("resourcebars", c.borderTexture or "solid", c.borderSize or 1)
-                              return dsx
-                          end,
-                          set = function(v)
-                              local c = cfg(); if not c then return end
-                              c.borderTextureShiftX = v == 0 and nil or v; RebuildClass(); EllesmereUI:RefreshPage()
-                          end },
-                        { type = "slider", label = "Shift Y", min = -10, max = 10, step = 1,
-                          get = function()
-                              local c = cfg(); if not c then return 0 end
-                              local v = c.borderTextureShiftY
-                              if v then return v end
-                              local _, _, _, dsy = EllesmereUI.GetBorderDefaults("resourcebars", c.borderTexture or "solid", c.borderSize or 1)
-                              return dsy
-                          end,
-                          set = function(v)
-                              local c = cfg(); if not c then return end
-                              c.borderTextureShiftY = v == 0 and nil or v; RebuildClass(); EllesmereUI:RefreshPage()
-                          end },
-                        { type = "toggle", label = "Show Behind",
-                          get = function() local c = cfg(); return c and c.borderBehind or false end,
-                          set = function(v)
-                              local c = cfg(); if not c then return end
-                              c.borderBehind = v == false and nil or v; RebuildClass(); EllesmereUI:RefreshPage()
-                          end },
-                    },
-                })
-                local cogBtn = MakeCogBtn(rgn, cogShow, nil, EllesmereUI.DIRECTIONS_ICON)
-                local function UpdateCogVis()
-                    local c = cfg()
-                    local tex = c and c.borderTexture or "solid"
-                    if tex == "solid" then cogBtn:Hide() else cogBtn:Show() end
-                end
-                EllesmereUI.RegisterWidgetRefresh(UpdateCogVis)
-                UpdateCogVis()
-            end
-            -- Cross-bar sync icons: Simple page only
-            if not ctx.advanced and ctx.syncRows and not EllesmereUI._prebuilding then
-                -- Border Style: class -> primary + health
-                EllesmereUI.BuildSyncIcon({
-                    region  = classBsRow._leftRegion,
-                    tooltip = "Apply Border Style to all Bars",
-                    onClick = function()
-                        local p = DB(); if not p then return end
-                        local s = p.secondary
-                        local function apply(t)
-                            t.borderTexture = s.borderTexture
-                            t.borderTextureOffset = s.borderTextureOffset; t.borderTextureOffsetY = s.borderTextureOffsetY
-                            t.borderTextureShiftX = s.borderTextureShiftX; t.borderTextureShiftY = s.borderTextureShiftY
-                            t.borderR = s.borderR; t.borderG = s.borderG; t.borderB = s.borderB; t.borderA = s.borderA
-                            t.borderSize = s.borderSize
-                            t.borderBehind = s.borderBehind
-                        end
-                        apply(p.primary); apply(p.health)
-                        SmoothRefresh(); EllesmereUI:RefreshPage()
-                    end,
-                    isSynced = function()
-                        local p = DB(); if not p then return false end
-                        local bt = p.secondary.borderTexture or "solid"
-                        local bh = p.secondary.borderBehind or false
-                        return (p.primary.borderTexture or "solid") == bt and (p.health.borderTexture or "solid") == bt
-                            and (p.primary.borderBehind or false) == bh and (p.health.borderBehind or false) == bh
-                    end,
-                    flashTargets = function() return { classBsRow._leftRegion } end,
-                })
-                -- Border: right region of the Border Style row
-                EllesmereUI.BuildSyncIcon({
-                    region  = classBsRow._rightRegion,
-                    tooltip = "Apply Border to all Bars",
-                    onClick = function()
-                        local p = DB(); if not p then return end
-                        local r, g, b, a = p.secondary.borderR, p.secondary.borderG, p.secondary.borderB, p.secondary.borderA
-                        local sz = p.secondary.borderSize or 1
-                        local bt = p.secondary.borderTexture or "solid"
-                        p.primary.borderR, p.primary.borderG, p.primary.borderB, p.primary.borderA = r, g, b, a
-                        p.primary.borderSize = sz; p.primary.borderTexture = bt
-                        p.health.borderR, p.health.borderG, p.health.borderB, p.health.borderA = r, g, b, a
-                        p.health.borderSize = sz; p.health.borderTexture = bt
-                        SmoothRefresh(); EllesmereUI:RefreshPage()
-                    end,
-                    isSynced = function()
-                        local p = DB(); if not p then return false end
-                        local sr, sg, sb, sa, ssz = p.secondary.borderR, p.secondary.borderG, p.secondary.borderB, p.secondary.borderA, p.secondary.borderSize or 1
-                        local sbt = p.secondary.borderTexture or "solid"
-                        local function eq(t) return t.borderR == sr and t.borderG == sg and t.borderB == sb and t.borderA == sa and (t.borderSize or 1) == ssz and (t.borderTexture or "solid") == sbt end
-                        return eq(p.primary) and eq(p.health)
-                    end,
-                    flashTargets = function() return { ctx.syncRows.classBorder, ctx.syncRows.powerBorder, ctx.syncRows.healthBorder } end,
-                })
-            end
+            local bd = cfg()
+            local bsRow
+            bsRow, h = EllesmereUI.BuildBorderOptionBlock(parent, y, bd, "resourcebars", function() RebuildClass() SmoothRefresh() end, false, function(fn) 
+                local p = DB(); if not p then return false end
+                fn(p.primary) fn(p.secondary) fn(p.health) end)
+            y = y - h
 
             -- Pip Border cog on Border Style (left region): per-pip borders
             -- instead of one border around the whole bar.
             if not EllesmereUI._prebuilding then
-                local rgn = classBsRow._leftRegion
+                local rgn = bsRow._leftRegion
                 local lastInline = rgn._lastInline or rgn._control
                 local _, cogShow = EllesmereUI.BuildCogPopup({
                     title = "Pip Border",
                     rows = {
                         { type = "toggle", label = "Border on individual pips",
-                          tooltip = "Draws a border around each pip instead of the bar as a whole.",
-                          get = function() local c = cfg(); return c and c.borderOnPips end,
-                          set = function(v)
-                              local c = cfg(); if not c then return end
-                              c.borderOnPips = v; RebuildClass(); EllesmereUI:RefreshPage()
-                          end },
+                        tooltip = "Draws a border around each pip instead of the bar as a whole.",
+                        get = function() local c = cfg(); return c and c.borderOnPips end,
+                        set = function(v)
+                            local c = cfg(); if not c then return end
+                            c.borderOnPips = v; RebuildClass(); EllesmereUI:RefreshPage()
+                        end },
                     },
                 })
 
@@ -7868,7 +7361,7 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.ApplyBorderStyle(pf.container._border, cb.borderSize or 0,
                 cb.borderR or 0, cb.borderG or 0, cb.borderB or 0, cb.borderA or 1,
                 cb.borderTexture or "solid", cb.borderTextureOffset, cb.borderTextureOffsetY,
-                cb.borderTextureShiftX, cb.borderTextureShiftY)
+                cb.borderTextureShiftX, cb.borderTextureShiftY, "resourcebars", cb.borderThickness or cb.borderSize)
         end
 
         -- Status bar: full bar frame, no inset
@@ -8034,7 +7527,7 @@ initFrame:SetScript("OnEvent", function(self)
         EllesmereUI.ApplyBorderStyle(bdrFrame, cb.borderSize or 0,
             cb.borderR or 0, cb.borderG or 0, cb.borderB or 0, cb.borderA or 1,
             cb.borderTexture or "solid", cb.borderTextureOffset, cb.borderTextureOffsetY,
-            cb.borderTextureShiftX, cb.borderTextureShiftY)
+            cb.borderTextureShiftX, cb.borderTextureShiftY, "resourcebars", cb.borderThickness or cb.borderSize)
 
         -- Background (full bar area, no inset)
         local bg = barFrame:CreateTexture(nil, "BACKGROUND")
@@ -8364,141 +7857,10 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Row: Cast Bar Border Style dropdown (+ inline offset cog)
         do
-            local texValues, texOrder = EllesmereUI.GetBorderTextureDropdown()
-            local cbBsRow
-            cbBsRow, h = W:DualRow(parent, y,
-                { type="dropdown", text="Border Style",
-                  disabled = castOff,
-                  disabledTooltip = "Player Cast Bar",
-                  values=texValues, order=texOrder,
-                  getValue=function() local p = DB(); return p and p.castBar.borderTexture or "solid" end,
-                  setValue=function(v)
-                      local p = DB(); if not p then return end
-                      p.castBar.borderTexture = v; p.castBar.borderTextureOffset = nil; p.castBar.borderTextureOffsetY = nil; p.castBar.borderTextureShiftX = nil; p.castBar.borderTextureShiftY = nil
-                      local _bcol, _bbehind = EllesmereUI.GetBorderStyleSelectDefaults(v)
-                      p.castBar.borderR = _bcol.r; p.castBar.borderG = _bcol.g; p.castBar.borderB = _bcol.b; p.castBar.borderA = 1
-                      p.castBar.borderBehind = _bbehind
-                      local defSz = EllesmereUI.GetBorderDefaultSize("resourcebars", v)
-                      if defSz then p.castBar.borderSize = defSz end
-                      RefreshCast(); EllesmereUI:RefreshPage()
-                  end },
-                { type = "slider", text = "Border Size",
-                  min = 0, max = 4, step = 1,
-                  disabled = castOff,
-                  disabledTooltip = "Player Cast Bar",
-                  getValue = function()
-                      local p = DB(); return p and (p.castBar.borderSize or 0) or 0
-                  end,
-                  setValue = function(v)
-                      local p = DB(); if not p then return end
-                      p.castBar.borderSize = v; RefreshCast(); EllesmereUI:RefreshPage()
-                  end });  y = y - h
-            -- Inline border color swatch on Border slider (right region)
-            if not EllesmereUI._prebuilding then
-                local rgn = cbBsRow._rightRegion
-                local ctrl = rgn._control
-                local borderSwatch, updateBorderSwatch = EllesmereUI.BuildColorSwatch(
-                    rgn, cbBsRow:GetFrameLevel() + 3,
-                    function()
-                        local p = DB()
-                        return (p and p.castBar.borderR or 0), (p and p.castBar.borderG or 0),
-                               (p and p.castBar.borderB or 0), (p and p.castBar.borderA or 1)
-                    end,
-                    function(r, g, b, a)
-                        local p = DB(); if not p then return end
-                        p.castBar.borderR, p.castBar.borderG, p.castBar.borderB, p.castBar.borderA = r, g, b, a
-                        RefreshCast(); EllesmereUI:RefreshPage()
-                    end,
-                    true, 20)
-                PP.Point(borderSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
-                -- Disable swatch when border size is 0
-                local borderSwatchBlock = CreateFrame("Frame", nil, borderSwatch)
-                borderSwatchBlock:SetAllPoints()
-                borderSwatchBlock:SetFrameLevel(borderSwatch:GetFrameLevel() + 10)
-                borderSwatchBlock:EnableMouse(true)
-                borderSwatchBlock:SetScript("OnEnter", function()
-                    EllesmereUI.ShowWidgetTooltip(borderSwatch, EllesmereUI.DisabledTooltip("This option requires a Border Size above 0."))
-                end)
-                borderSwatchBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                local function UpdateBorderSwatchState()
-                    local p = DB()
-                    local noBorder = not p or (p.castBar.borderSize or 0) == 0
-                    if noBorder then borderSwatch:SetAlpha(0.3); borderSwatchBlock:Show()
-                    else borderSwatch:SetAlpha(1); borderSwatchBlock:Hide() end
-                end
-                EllesmereUI.RegisterWidgetRefresh(function() updateBorderSwatch(); UpdateBorderSwatchState() end)
-                UpdateBorderSwatchState()
-            end
-            if not EllesmereUI._prebuilding then
-                local rgn = cbBsRow._leftRegion
-                local _, cogShow = EllesmereUI.BuildCogPopup({
-                    title = "Border Offset",
-                    rows = {
-                        { type = "slider", label = "Offset X", min = -10, max = 10, step = 1,
-                          get = function()
-                              local p = DB(); if not p then return 0 end
-                              local v = p.castBar.borderTextureOffset
-                              if v then return v end
-                              local dox = EllesmereUI.GetBorderDefaults("resourcebars", p.castBar.borderTexture or "solid", p.castBar.borderSize or 0)
-                              return dox
-                          end,
-                          set = function(v)
-                              local p = DB(); if not p then return end
-                              p.castBar.borderTextureOffset = v; RefreshCast(); EllesmereUI:RefreshPage()
-                          end },
-                        { type = "slider", label = "Offset Y", min = -10, max = 10, step = 1,
-                          get = function()
-                              local p = DB(); if not p then return 0 end
-                              local v = p.castBar.borderTextureOffsetY
-                              if v then return v end
-                              local _, doy = EllesmereUI.GetBorderDefaults("resourcebars", p.castBar.borderTexture or "solid", p.castBar.borderSize or 0)
-                              return doy
-                          end,
-                          set = function(v)
-                              local p = DB(); if not p then return end
-                              p.castBar.borderTextureOffsetY = v; RefreshCast(); EllesmereUI:RefreshPage()
-                          end },
-                        { type = "slider", label = "Shift X", min = -10, max = 10, step = 1,
-                          get = function()
-                              local p = DB(); if not p then return 0 end
-                              local v = p.castBar.borderTextureShiftX
-                              if v then return v end
-                              local _, _, dsx = EllesmereUI.GetBorderDefaults("resourcebars", p.castBar.borderTexture or "solid", p.castBar.borderSize or 0)
-                              return dsx
-                          end,
-                          set = function(v)
-                              local p = DB(); if not p then return end
-                              p.castBar.borderTextureShiftX = v == 0 and nil or v; RefreshCast(); EllesmereUI:RefreshPage()
-                          end },
-                        { type = "slider", label = "Shift Y", min = -10, max = 10, step = 1,
-                          get = function()
-                              local p = DB(); if not p then return 0 end
-                              local v = p.castBar.borderTextureShiftY
-                              if v then return v end
-                              local _, _, _, dsy = EllesmereUI.GetBorderDefaults("resourcebars", p.castBar.borderTexture or "solid", p.castBar.borderSize or 0)
-                              return dsy
-                          end,
-                          set = function(v)
-                              local p = DB(); if not p then return end
-                              p.castBar.borderTextureShiftY = v == 0 and nil or v; RefreshCast(); EllesmereUI:RefreshPage()
-                          end },
-                        { type = "toggle", label = "Show Behind",
-                          get = function() local p = DB(); return p and p.castBar.borderBehind or false end,
-                          set = function(v)
-                              local p = DB(); if not p then return end
-                              p.castBar.borderBehind = v == false and nil or v; RefreshCast(); EllesmereUI:RefreshPage()
-                          end },
-                    },
-                })
-                local cogBtn = MakeCogBtn(rgn, cogShow, nil, EllesmereUI.DIRECTIONS_ICON)
-                local function UpdateCogVis()
-                    local p = DB()
-                    local tex = p and p.castBar.borderTexture or "solid"
-                    if tex == "solid" then cogBtn:Hide() else cogBtn:Show() end
-                end
-                EllesmereUI.RegisterWidgetRefresh(UpdateCogVis)
-                UpdateCogVis()
-            end
+            local bd = DB().castBar;
+            local bsRow
+            bsRow, h = EllesmereUI.BuildBorderOptionBlock(parent, y, bd, "resourcebars", function() RefreshCast(); SmoothRefresh() end, false, nil)
+            y = y - h
         end
 
         -- Row 2: Fill Color (opacity slider + inline swatches + cog: gradient) | Background

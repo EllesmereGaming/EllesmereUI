@@ -3008,7 +3008,14 @@ local function BuildBars()
                 SmoothBarAnimate(healthBar, "h", hpHeight, function() ApplyHealthBarTransform() end)
             end
         end
-        healthBar:ApplyBorder(hp.borderSize, hp.borderR, hp.borderG, hp.borderB, hp.borderA, hp.borderTexture, hp.borderTextureOffset, hp.borderTextureOffsetY, hp.borderTextureShiftX, hp.borderTextureShiftY, "resourcebars", hp.borderSize, hp.borderBehind)
+
+        local hbcolor = { hp.borderR or 0, hp.borderG or 0, hp.borderB or 0 }
+         if hp.borderClassColor then
+            local cc = CLASS_COLORS[cachedClass]
+            if cc then hbcolor = cc end
+        end
+
+        healthBar:ApplyBorder(hp.borderSize, hbcolor[1], hbcolor[2], hbcolor[3], hp.borderA, hp.borderTexture, hp.borderTextureOffset, hp.borderTextureOffsetY, hp.borderTextureShiftX, hp.borderTextureShiftY, "resourcebars", hp.borderThickness or hp.borderSize, hp.borderBehind)
 
         -- Bar texture (must be applied before colors since SetStatusBarTexture resets vertex color)
         ApplyBarTexture(healthBar, g.barTexture or "none")
@@ -3177,7 +3184,12 @@ local function BuildBars()
         -- ->up, below->down) via ppDirSign/ResolveExpandDirSign for the free and
         -- dragged branches above; anchorTo/unlock-anchored branches grow per their
         -- own anchor edge.
-        primaryBar:ApplyBorder(pp.borderSize, pp.borderR, pp.borderG, pp.borderB, pp.borderA, pp.borderTexture, pp.borderTextureOffset, pp.borderTextureOffsetY, pp.borderTextureShiftX, pp.borderTextureShiftY, "resourcebars", pp.borderSize, pp.borderBehind)
+        local pbcolor = { pp.borderR or 0, pp.borderG or 0, pp.borderB or 0 }
+        if pp.borderClassColor then
+            local cc = CLASS_COLORS[cachedClass]
+            if cc then pbcolor = cc end
+        end
+        primaryBar:ApplyBorder(pp.borderSize, pbcolor[1], pbcolor[2], pbcolor[3], pp.borderA, pp.borderTexture, pp.borderTextureOffset, pp.borderTextureOffsetY, pp.borderTextureShiftX, pp.borderTextureShiftY, "resourcebars", pp.borderThickness or pp.borderSize, pp.borderBehind)
 
         -- Bar texture (must be applied before colors since SetStatusBarTexture resets vertex color)
         ApplyBarTexture(primaryBar, g.barTexture or "none")
@@ -3620,9 +3632,19 @@ local function BuildBars()
                 pip["_barAnim_ph"] = pipH
                 ApplyPipPos()
                 if sp.borderOnPips then
-                    pips[i]:ApplyBorder(sp.borderSize, sp.borderR, sp.borderG, sp.borderB, sp.borderA,
+                    if pips[i]._border._frame then
+                        local pl = pips[i]:GetFrameLevel()
+                        pips[i]._border._frame:SetFrameLevel(sp.borderBehind and math.max(0, pl - 1) or (pl + 5))
+                    end
+
+                    local spBorderColor = {sp.borderR or 0, sp.borderG or 0, sp.borderB or 0}
+                    if sp.borderClassColor then
+                        local cc = CLASS_COLORS[cachedClass]
+                        if cc then spBorderColor = {cc[1], cc[2], cc[3]} end
+                    end
+                    pips[i]:ApplyBorder(sp.borderSize, spBorderColor[1], spBorderColor[2], spBorderColor[3], sp.borderA,
                         sp.borderTexture, sp.borderTextureOffset, sp.borderTextureOffsetY,
-                        sp.borderTextureShiftX, sp.borderTextureShiftY, "resourcebars", sp.borderSize)
+                        sp.borderTextureShiftX, sp.borderTextureShiftY, "resourcebars", sp.borderThickness or sp.borderSize)
                 else
                     pips[i]:ApplyBorder(0, 0, 0, 0, 0)
                 end
@@ -3669,9 +3691,14 @@ local function BuildBars()
         if sp.borderOnPips and cachedSecondary.type ~= "runes" and not isBarType then
             secondaryFrame._barBorder:ApplyStyle(0,0,0,0,0)
         else
-            secondaryFrame._barBorder:ApplyStyle(sp.borderSize, sp.borderR, sp.borderG, sp.borderB, sp.borderA,
+            local spBorderColor = {sp.borderR or 0, sp.borderG or 0, sp.borderB or 0}
+            if sp.borderClassColor then
+                local cc = CLASS_COLORS[cachedClass]
+                if cc then spBorderColor = {cc[1], cc[2], cc[3]} end
+            end
+            secondaryFrame._barBorder:ApplyStyle(sp.borderSize, spBorderColor[1], spBorderColor[2], spBorderColor[3], sp.borderA,
                 sp.borderTexture, sp.borderTextureOffset, sp.borderTextureOffsetY,
-                sp.borderTextureShiftX, sp.borderTextureShiftY, "resourcebars", sp.borderSize)
+                sp.borderTextureShiftX, sp.borderTextureShiftY, "resourcebars", sp.borderThickness or sp.borderSize)
         end
 
         -- Full-bar background (behind all pips) -- what shows through the pip
@@ -6354,13 +6381,18 @@ BuildCastBar = function()
     if castBarFrame._border then
         local bs = cb.borderSize or 0
         local texKey = cb.borderTexture or "solid"
+        local bcolor = { cb.borderR or 0, cb.borderG or 0, cb.borderB or 0}
+        if cb.borderClassColor then
+            local cc = CLASS_COLORS[cachedClass]
+            if cc then bcolor = cc end
+        end
         -- "Show Behind": +5 in front of the bar, level-1 behind it.
         local pl = castBarFrame:GetFrameLevel()
         castBarFrame._border:SetFrameLevel(cb.borderBehind and math.max(0, pl - 1) or (pl + 5))
         EllesmereUI.ApplyBorderStyle(castBarFrame._border, bs,
-            cb.borderR or 0, cb.borderG or 0, cb.borderB or 0, cb.borderA or 1,
+            bcolor[1], bcolor[2], bcolor[3], cb.borderA or 1,
             texKey, cb.borderTextureOffset, cb.borderTextureOffsetY,
-            cb.borderTextureShiftX, cb.borderTextureShiftY, "resourcebars", bs)
+            cb.borderTextureShiftX, cb.borderTextureShiftY, "resourcebars", cb.borderThickness or bs)
     end
 
     -- Icon: left or right side (iconOnRight), full height, no inset
@@ -7850,7 +7882,7 @@ BuildGCDBar = function()
         EllesmereUI.ApplyBorderStyle(gcdBarFrame._border, bs,
             g.borderR or 0, g.borderG or 0, g.borderB or 0, g.borderA or 1,
             g.borderTexture or "solid", g.borderTextureOffset, g.borderTextureOffsetY,
-            g.borderTextureShiftX, g.borderTextureShiftY, "resourcebars", bs)
+            g.borderTextureShiftX, g.borderTextureShiftY, "resourcebars", g.borderThickness or bs)
     end
 
     -- Clip + bar layout. The 1px inset keeps the fill from bleeding past the
@@ -8217,7 +8249,7 @@ local function LayoutTotemBar()
         EllesmereUI.ApplyBorderStyle(overlay, bs,
             tb.borderR or 0, tb.borderG or 0, tb.borderB or 0, tb.borderA or 1,
             texKey, tb.borderTextureOffset, tb.borderTextureOffsetY,
-            tb.borderTextureShiftX, tb.borderTextureShiftY, "resourcebars", bs)
+            tb.borderTextureShiftX, tb.borderTextureShiftY, "resourcebars", tb.borderThickness or bs)
     end
 
     -- Hide overlays for buttons no longer active (O(n) via set lookup)

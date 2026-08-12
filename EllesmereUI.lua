@@ -3102,6 +3102,9 @@ do
                 if eok and es and es > 0.01 and uiES > 0 then ratio = uiES / es end
             end
             local edgeSize = (EDGE_MAP[size] or EDGE_MAP[1]) * ratio
+            if sizeKey == "custom" then
+                edgeSize = size * ratio
+            end
             -- Resolve offset/shift defaults: per-addon registry first, then global fallback.
             local adjX, adjY, sx, sy
             if addonKey and sizeKey then

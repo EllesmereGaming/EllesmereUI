@@ -2558,7 +2558,7 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
             cfg.borderR or 0, cfg.borderG or 0, cfg.borderB or 0, 1,
             textureKey, cfg.borderTextureOffset, cfg.borderTextureOffsetY,
             cfg.borderTextureShiftX, cfg.borderTextureShiftY,
-            "resourcebars", bSz)
+            "resourcebars", cfg.borderThickness or bSz)
     end
 
     -- Threshold overlay + tick marks

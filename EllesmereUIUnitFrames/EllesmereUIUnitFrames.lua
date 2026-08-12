@@ -3827,8 +3827,13 @@ local function UpdateBordersForScale(frame, unit)
     -- 1) Main frame border textures.
     if frame.unifiedBorder then
         local bc = settings.borderColor or { r = 0, g = 0, b = 0 }
+        if settings.borderClassColor then
+            local _, playerClass = UnitClass("player")
+            local cc = playerClass and RAID_CLASS_COLORS[playerClass]
+            if cc then bc = cc end
+        end
         local textureKey = settings.borderTexture or "solid"
-        EllesmereUI.ApplyBorderStyle(frame.unifiedBorder, borderSize, bc.r, bc.g, bc.b, settings.borderAlpha or 1, textureKey, settings.borderTextureOffset, settings.borderTextureOffsetY, settings.borderTextureShiftX, settings.borderTextureShiftY, "unitframes", borderSize)
+        EllesmereUI.ApplyBorderStyle(frame.unifiedBorder, borderSize, bc.r, bc.g, bc.b, settings.borderAlpha or 1, textureKey, settings.borderTextureOffset, settings.borderTextureOffsetY, settings.borderTextureShiftX, settings.borderTextureShiftY, "unitframes", settings.borderThickness or borderSize)
     end
 
     -- 2) Gather layout info.
@@ -6586,6 +6591,11 @@ local function FrameBorderLeave(self)
     local isMini = (unit == "pet" or unit == "targettarget" or unit == "focustarget")
     local settings = isMini and GetMiniDonorSettings() or GetSettingsForUnit(unit)
     local bc = settings.borderColor or { r = 0, g = 0, b = 0 }
+    if settings.borderClassColor then
+        local _, playerClass = UnitClass("player")
+        local cc = playerClass and RAID_CLASS_COLORS[playerClass]
+        if cc then bc = cc end
+    end
     local ba = settings.borderAlpha or 1
     EllesmereUI.SetBorderStyleColor(self.unifiedBorder, bc.r, bc.g, bc.b, ba)
 end
@@ -6595,6 +6605,11 @@ local function CreateUnifiedBorder(frame, unit)
     local settings = GetSettingsForUnit(unit or "player")
     local size = settings.borderSize or 1
     local bc = settings.borderColor or { r = 0, g = 0, b = 0 }
+    if settings.borderClassColor then
+        local _, playerClass = UnitClass("player")
+        local cc = playerClass and RAID_CLASS_COLORS[playerClass]
+        if cc then bc = cc end
+    end
     local textureKey = settings.borderTexture or "solid"
 
     local border = CreateFrame("Frame", nil, frame)
@@ -6603,7 +6618,7 @@ local function CreateUnifiedBorder(frame, unit)
     local borderBehind = settings.borderBehind
     border:SetFrameLevel(borderBehind and math.max(0, frame:GetFrameLevel() - 1) or (frame:GetFrameLevel() + 10))
 
-    EllesmereUI.ApplyBorderStyle(border, size, bc.r, bc.g, bc.b, settings.borderAlpha or 1, textureKey, settings.borderTextureOffset, settings.borderTextureOffsetY, settings.borderTextureShiftX, settings.borderTextureShiftY, "unitframes", size)
+    EllesmereUI.ApplyBorderStyle(border, size, bc.r, bc.g, bc.b, settings.borderAlpha or 1, textureKey, settings.borderTextureOffset, settings.borderTextureOffsetY, settings.borderTextureShiftX, settings.borderTextureShiftY, "unitframes", settings.borderThickness or size)
 
     frame.unifiedBorder = border
 
@@ -11637,10 +11652,15 @@ local function ReloadFrames()
                 -- still inherit from the donor. nil = inherit the donor size.
                 local bs = settings.borderSizeOverride or donorSettings.borderSize or 1
                 local bc = donorSettings.borderColor or { r = 0, g = 0, b = 0 }
+                 if donorSettings.borderClassColor then
+                    local _, playerClass = UnitClass("player")
+                    local cc = playerClass and RAID_CLASS_COLORS[playerClass]
+                    if cc then bc = cc end
+                end
                 local btex = donorSettings.borderTexture or "solid"
                 PP.Point(frame.unifiedBorder, "TOPLEFT", frame, "TOPLEFT", 0, 0)
                 PP.Point(frame.unifiedBorder, "BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
-                EllesmereUI.ApplyBorderStyle(frame.unifiedBorder, bs, bc.r, bc.g, bc.b, donorSettings.borderAlpha or 1, btex, donorSettings.borderTextureOffset, donorSettings.borderTextureOffsetY, donorSettings.borderTextureShiftX, donorSettings.borderTextureShiftY, "unitframes", bs)
+                EllesmereUI.ApplyBorderStyle(frame.unifiedBorder, bs, bc.r, bc.g, bc.b, donorSettings.borderAlpha or 1, btex, donorSettings.borderTextureOffset, donorSettings.borderTextureOffsetY, donorSettings.borderTextureShiftX, donorSettings.borderTextureShiftY, "unitframes", donorSettings.borderThickness or bs)
             end
 
             -- Helper: set font on a FontString, using donor font for mini frames
