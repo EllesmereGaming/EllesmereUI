@@ -8585,12 +8585,15 @@ function EllesmereUI.BuildBorderOptionBlock(parentFrame, y, barData, addonKey, R
                     classBorderSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
 
                     -- Custom color swatch (left of class swatch)
+                    local UpdateBorderState
                     local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
                         rightRgn, bsRow:GetFrameLevel() + 3,
                         function()
                             local bColor = barData.borderColor or { r = barData.borderR or 0, g = barData.borderG or 0, b = barData.borderB or 0 }
                             return bColor.r , bColor.g, bColor.b end,
                         function(r, g, b)
+                            -- Picking a color always switches off class color so the chosen custom color actually applies.
+                            barData.borderClassColor = false
                             if barData.borderColor then
                                 barData.borderColor.r, barData.borderColor.g, barData.borderColor.b = r, g, b
                             else
@@ -8606,28 +8609,30 @@ function EllesmereUI.BuildBorderOptionBlock(parentFrame, y, barData, addonKey, R
                     swatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
 
                     rightRgn._lastInline = swatch
-                    -- Click the dimmed custom swatch to switch back from class color (no block overlay)
+                    -- Clicking the custom swatch switches class color off AND opens
+                    -- the color picker in the same click (a toggle-only first click
+                    -- leaves the border black and the swatch looking stuck).
                     local origClick = swatch:GetScript("OnClick")
                     swatch:SetScript("OnClick", function(self, ...)
+                        -- No border selected: don't open the color picker
+                        if (barData.borderThickness or "thin") == "none" then return end
                         if barData.borderClassColor then
                             barData.borderClassColor = false
                             Refresh();
                             EllesmereUI:RefreshPage()
-                            return
+                            updateSwatch(); UpdateBorderState()
                         end
-                        -- No border selected: allow swapping boxes but do not open the color picker
-                        if (barData.borderThickness or "thin") == "none" then return end
                         if origClick then origClick(self, ...) end
                     end)
 
-                    local function UpdateBorderSwatchState()
+                    function UpdateBorderState()
                         local isClassColored = barData.borderClassColor
                         local isNone = (barData.borderThickness or "thin") == "none"
                         swatch:SetAlpha((isClassColored or isNone) and 0.3 or 1)
                         classBorderSwatch:SetAlpha((isClassColored and not isNone) and 1 or 0.3)
                     end
-                    EllesmereUI.RegisterWidgetRefresh(function() updateSwatch(); updateClassBorderSwatch(); UpdateBorderSwatchState() end)
-                    UpdateBorderSwatchState()
+                    EllesmereUI.RegisterWidgetRefresh(function() updateSwatch(); updateClassBorderSwatch(); UpdateBorderState() end)
+                    UpdateBorderState()
                 end
 
                 -- Inline cog for custom border size, only active when custom size is selected (right region)
