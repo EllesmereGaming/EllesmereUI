@@ -762,9 +762,20 @@ end
     -- re-parses on the way back, and no event marks that end -- STOP_MOVIE
     -- fires only for an ENGINE-stopped movie, never for the close dialog's
     -- skip or the QoL auto-skip, which both just hide the frame. OnHide is
-    -- the one point every end path shares.
+    -- the one point every end path shares. Deferred a tick, like the other
+    -- recovery lanes: a re-parse taken inside OnHide runs while the restore is
+    -- still landing (and bills to the Blizzard frame that owns the handler,
+    -- not to us) -- one tick later the gate has settled and the work is ours.
     if MovieFrame and MovieFrame.HookScript then
-        MovieFrame:HookScript("OnHide", ReparseArmed)
+        local moviePending = false
+        MovieFrame:HookScript("OnHide", function()
+            if moviePending or not C_Timer then return end
+            moviePending = true
+            C_Timer.After(0, function()
+                moviePending = false
+                ReparseArmed()
+            end)
+        end)
     end
     pew:SetScript("OnEvent", function(_, event)
         if event == "UNIT_FACTION" then
