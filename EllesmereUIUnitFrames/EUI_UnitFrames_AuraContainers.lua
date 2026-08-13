@@ -1490,13 +1490,7 @@ end
 -- events that fire only on cinematics/faction flips/vehicle transitions.
 do
     local pending = false
-    local w = CreateFrame("Frame")
-    w:RegisterUnitEvent("UNIT_FACTION", "player")
-    w:RegisterEvent("CINEMATIC_STOP")
-    w:RegisterUnitEvent("UNIT_ENTERING_VEHICLE", "player")
-    w:RegisterUnitEvent("UNIT_ENTERED_VEHICLE", "player")
-    w:RegisterUnitEvent("UNIT_EXITED_VEHICLE", "player")
-    w:SetScript("OnEvent", function(_, event)
+    local function Recover()
         if pending then return end
         pending = true
         C_Timer.After(0, function()
@@ -1509,7 +1503,22 @@ do
             end
             RefreshUnit("player")
         end)
-    end)
+    end
+    local w = CreateFrame("Frame")
+    w:RegisterUnitEvent("UNIT_FACTION", "player")
+    w:RegisterEvent("CINEMATIC_STOP")
+    w:RegisterUnitEvent("UNIT_ENTERING_VEHICLE", "player")
+    w:RegisterUnitEvent("UNIT_ENTERED_VEHICLE", "player")
+    w:RegisterUnitEvent("UNIT_EXITED_VEHICLE", "player")
+    w:SetScript("OnEvent", Recover)
+    -- Pre-rendered movies hide UIParent and re-show it, so the containers take
+    -- the same hide/re-show re-parse a cancelled cinematic gives them -- but no
+    -- event marks the end: STOP_MOVIE fires only for an ENGINE-stopped movie,
+    -- not for the close dialog's ConfirmButton or our QoL auto-skip, both of
+    -- which just hide the frame. Hook the one point they share.
+    if MovieFrame and MovieFrame.HookScript then
+        MovieFrame:HookScript("OnHide", Recover)
+    end
 end
 
 -- The 12.1 ping-receiver strip workaround lived here until build 68914

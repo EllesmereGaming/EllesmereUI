@@ -4501,5 +4501,16 @@ function ns.PAB_ArmRecovery()
     -- Safety net only: an exit that never fires EXITED (teleport out of a
     -- vehicle). Zero work on ordinary loading screens.
     initFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+    -- Pre-rendered movies (MovieFrame) are the fourth trigger and the one
+    -- edge no event covers: MovieFrame hides UIParent on show and re-shows it
+    -- on hide, which puts every container through the same hide/re-show
+    -- re-parse as a cancelled cinematic, but STOP_MOVIE only fires when the
+    -- ENGINE stops playback. Skipping (close dialog -> ConfirmButton ->
+    -- FinishMovie) and our own QoL auto-skip (MovieFrame:Hide()) both end the
+    -- movie without it. OnHide is the one point every path passes through,
+    -- and it runs after UIParent is back up.
+    if MovieFrame and MovieFrame.HookScript then
+        MovieFrame:HookScript("OnHide", ReapplyAllAfterCinematic)
+    end
 end
 

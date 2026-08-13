@@ -3417,3 +3417,17 @@ assistWatch:SetScript("OnEvent", function(_, event)
     assistSweepPending = true
     C_Timer.After(0.25, AssistSweepDrain)
 end)
+-- Pre-rendered movies (MovieFrame) close the same gap from the other side: the
+-- frame hides UIParent on show and re-shows it on hide, so every container
+-- re-parses on the way back, and the only event for it (STOP_MOVIE) fires just
+-- for an ENGINE-stopped movie -- skipping via the close dialog and our QoL
+-- auto-skip both end the movie by hiding the frame instead. OnHide is the
+-- shared point. Deferred a tick: the sweep must read the gate after the
+-- restore has landed, not during it.
+if MovieFrame and MovieFrame.HookScript then
+    MovieFrame:HookScript("OnHide", function()
+        if assistSweepPending then return end
+        assistSweepPending = true
+        C_Timer.After(0, AssistSweepDrain)
+    end)
+end
