@@ -3586,7 +3586,8 @@ local function Refresh()
                 petLabel = "Water Elemental"
                 if specID ~= 64 or not Known(31687) then suppress = true end
             end
-            if not suppress and not (UnitExists("pet") and not UnitIsDead("pet")) then
+            if not suppress and not IsMounted()
+               and not (UnitExists("pet") and not UnitIsDead("pet")) then
                 local e = AcquireEntry()
                 e.mode = "texture"
                 e.texture = petIcon
