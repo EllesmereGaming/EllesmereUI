@@ -8602,6 +8602,24 @@ eventFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
 -- Cinematic/cutscene end: Blizzard restores hidden frames, so re-hide ours
 eventFrame:RegisterEvent("CINEMATIC_STOP")
 eventFrame:RegisterEvent("STOP_MOVIE")
+-- STOP_MOVIE only fires when the ENGINE stops a movie. The close dialog's skip
+-- (ConfirmButton -> FinishMovie) and our own QoL auto-skip (MovieFrame:Hide())
+-- both end one without it, and the restore that follows the frame's OnHide
+-- puts the Blizzard CDM back on screen with nothing to re-hide it. OnHide is
+-- the point every end path shares; same re-hide as the event branch below.
+if MovieFrame and MovieFrame.HookScript then
+    MovieFrame:HookScript("OnHide", function()
+        local p = ECME.db and ECME.db.profile
+        if p and p.cdmBars and p.cdmBars.hideBlizzard then
+            C_Timer.After(0, function()
+                HideBlizzardCDM()
+                if p.cdmBars.useBlizzardBuffBars then
+                    RestoreBlizzardBuffFrame()
+                end
+            end)
+        end
+    end)
+end
 -- Equipment changes: trinket/weapon swaps update trinket frames and reanchor
 eventFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
 -- Visibility option events: mounted, target, instance zone changes

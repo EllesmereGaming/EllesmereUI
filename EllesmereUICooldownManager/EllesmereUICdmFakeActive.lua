@@ -750,13 +750,25 @@ end
     -- instead of the rule's, and no aura edge is guaranteed to follow the
     -- restore. Reparse armed built slots on that edge (typically one slot).
     pew:RegisterUnitEvent("UNIT_FACTION", "player")
+    local function ReparseArmed()
+        for _, st in pairs(FA121.byRule) do
+            if st.armed and st.built and st.container then
+                st.container:UpdateAllAuras()
+            end
+        end
+    end
+    -- Pre-rendered movies degrade the same slot a different way: MovieFrame
+    -- hides UIParent on show and re-shows it on hide, so the slot's container
+    -- re-parses on the way back, and no event marks that end -- STOP_MOVIE
+    -- fires only for an ENGINE-stopped movie, never for the close dialog's
+    -- skip or the QoL auto-skip, which both just hide the frame. OnHide is
+    -- the one point every end path shares.
+    if MovieFrame and MovieFrame.HookScript then
+        MovieFrame:HookScript("OnHide", ReparseArmed)
+    end
     pew:SetScript("OnEvent", function(_, event)
         if event == "UNIT_FACTION" then
-            for _, st in pairs(FA121.byRule) do
-                if st.armed and st.built and st.container then
-                    st.container:UpdateAllAuras()
-                end
-            end
+            ReparseArmed()
             return
         end
         FA121.Rescan()
