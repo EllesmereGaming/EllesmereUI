@@ -273,8 +273,10 @@ end
 --      FCF_OpenTemporaryWindow taint cascade). Link classes whose SetItemRef
 --      branch writes editbox/tell state are blocked in protected content
 --      with a user-visible message; secret links (lockdown lines) are
---      blocked whole. Right-click player menus run insecure: Set Focus /
---      Follow can throw for that one menu instance, the accepted trade.
+--      blocked whole; clubTicket is refused outright (REFUSED_LINK_TYPES --
+--      the one handler whose taint OUTLIVES the click). Right-click player
+--      menus run insecure: Set Focus / Follow can throw for that one menu
+--      instance, the accepted trade.
 --    - Off = mouse off, these scripts never dispatch, and Blizzard's zones
 --      serve clicks exactly as before. Zero per-line, zero per-frame cost.
 -------------------------------------------------------------------------------
@@ -287,22 +289,42 @@ local EDITBOX_LINK_TYPES = {
     BNplayer = true, BNplayerCommunity = true, channel = true,
 }
 
-local function LinkBlockedMsg()
+-- Refused everywhere, not just in protected content. Blizzard's clubTicket
+-- handler ends at CommunitiesHyperlink.OnClickLink, which lazily CreateFrames
+-- a CLUB_TICKET_RECEIVED listener and SetScripts its OnEvent. Reached from
+-- here that SetScript runs under OUR taint, so the handler stays tainted for
+-- the session -- and its first statement is C_Club.GetLastTicketResponse,
+-- which is protected. Every ticket that arrives afterwards throws
+-- ADDON_ACTION_FORBIDDEN against this addon, including the ones Blizzard's
+-- own frames requested. Forwarding buys nothing to weigh against that: the
+-- response is unreadable from an insecure path either way, so one click
+-- would trade a link that cannot work for community invites that no longer
+-- work at all. Refuse it before the listener exists.
+local REFUSED_LINK_TYPES = { clubTicket = true }
+
+local function LinkBlockedMsg(msg)
     if UIErrorsFrame then
-        UIErrorsFrame:AddMessage("This link is protected in Mythic+ and raid combat.", 1.0, 0.3, 0.3, 1.0)
+        UIErrorsFrame:AddMessage(msg, 1.0, 0.3, 0.3, 1.0)
     end
 end
 
+local PROTECTED_MSG = "This link is protected in Mythic+ and raid combat."
+local REFUSED_MSG = "Community invite links need Blizzard's chat: turn off Shortened Channel Names and Timestamp All Messages."
+
 local function WinLinkClick(smf, link, text, button)
     if issecretL and (issecretL(link) or issecretL(text)) then
-        LinkBlockedMsg()
+        LinkBlockedMsg(PROTECTED_MSG)
         return
     end
     if type(link) ~= "string" then return end
     local linkType = link:match("^([^:]+)")
+    if REFUSED_LINK_TYPES[linkType] then
+        LinkBlockedMsg(REFUSED_MSG)
+        return
+    end
     if EDITBOX_LINK_TYPES[linkType]
         and EUI.InProtectedInstance and EUI.InProtectedInstance() then
-        LinkBlockedMsg()
+        LinkBlockedMsg(PROTECTED_MSG)
         return
     end
     SetItemRef(link, text, button, SMFCF[smf] or DEFAULT_CHAT_FRAME)
