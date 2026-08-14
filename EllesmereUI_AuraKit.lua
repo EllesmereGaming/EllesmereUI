@@ -313,7 +313,7 @@ local function ApplyStyleToRegions(button, style)
     -- only on typed (dispellable) auras and tints per dispel type -- per-aura dispel
     -- data is secret, so show/hide and color are ENGINE decisions. The Color style
     -- never assigns a texture file, only vertex- tints: the ring ART is entirely ours
-    -- (media/textures/square-ring.png, a flat white band flush to a 64px canvas, 16
+    -- (media/textures/square-ring.png, a flat white band flush to a 256px canvas, 64
     -- texels thick), registered purely as a tint target, and the user's dispel palette
     -- rides in via customDispelColorMap (68824). The ring lives on a dedicated holder
     -- one frame level over the static border host so the recolor always draws ON TOP
@@ -354,15 +354,30 @@ local function ApplyStyleToRegions(button, style)
             d.akDispelLvl = bl
         end
         -- Physical-pixel thickness by SOURCE CROPPING, never stretching:
-        -- the art is a flush band of B = 16 texels on a C = 64 canvas
+        -- the art is a flush band of B = 64 texels on a C = 256 canvas
         -- (B/C = 1/4). Shrinking the sampled window inward by fraction a
         -- per side leaves (B - C*a) band texels over a C*(1-2a) span, so
         -- the rendered thickness at drawn size s is
         --   t = s*(B - C*a) / (C*(1-2a))   =>   a = (s - 4t) / (4*(s - 2t)).
+        -- The literal 4 is C/B, so the canvas may be re-cut at any resolution
+        -- as long as that ratio holds; no math here changes with it.
         -- t converts the user's physical-pixel setting into this frame's
         -- units via the holder's effective scale (our frame -- readable);
         -- s is the style size, never a rect read (button rects are
-        -- restricted). The cropped band stays solid at any icon size.
+        -- restricted).
+        --
+        -- Canvas RESOLUTION is a correctness constraint, not an art choice.
+        -- The surviving band measures C*t / (2*(s - 2t)) texels, and once
+        -- that drops below 1 the bilinear filter samples across the band's
+        -- inner edge into the transparent interior: the ring renders at
+        -- alpha < 1 and the static border underneath bleeds through, so the
+        -- engine's dispel tint reads as mixed with the user's border color.
+        -- Only the corners stay solid there (band in BOTH axes). Field-
+        -- reported 2026-08-14 on Player Aura Bars debuffs; the old 64px
+        -- canvas crossed that line at s > 34t, i.e. every Icon Size above 34
+        -- with a 1px border. At 256 the band holds >= 2.2 texels across the
+        -- whole 16-60 Icon Size range. Raising that slider past 60 means
+        -- re-checking C >= 4*(s - 2t)/t and re-cutting the art if it fails.
         local sw = style.width or 18
         local px = style.dispelBorderPx or 2
         local t = px
