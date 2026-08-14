@@ -6397,14 +6397,19 @@ BuildCastBar = function()
     -- Border: update the dedicated child border frame (PP or textured)
     if castBarFrame._border then
         local bs = cb.borderSize or 0
-        local texKey = cb.borderTexture or "solid"
-        -- "Show Behind": +5 in front of the bar, level-1 behind it.
-        local pl = castBarFrame:GetFrameLevel()
-        castBarFrame._border:SetFrameLevel(cb.borderBehind and math.max(0, pl - 1) or (pl + 5))
-        EllesmereUI.ApplyBorderStyle(castBarFrame._border, bs,
-            cb.borderR or 0, cb.borderG or 0, cb.borderB or 0, cb.borderA or 1,
-            texKey, cb.borderTextureOffset, cb.borderTextureOffsetY,
-            cb.borderTextureShiftX, cb.borderTextureShiftY, "resourcebars", bs)
+        if bs > 0 then
+            local texKey = cb.borderTexture or "solid"
+            -- "Show Behind": +5 in front of the bar, level-1 behind it.
+            local pl = castBarFrame:GetFrameLevel()
+            castBarFrame._border:SetFrameLevel(cb.borderBehind and math.max(0, pl - 1) or (pl + 5))
+            EllesmereUI.ApplyBorderStyle(castBarFrame._border, bs,
+                cb.borderR or 0, cb.borderG or 0, cb.borderB or 0, cb.borderA or 1,
+                texKey, cb.borderTextureOffset, cb.borderTextureOffsetY,
+                cb.borderTextureShiftX, cb.borderTextureShiftY, "resourcebars", bs)
+            if PP and PP.ShowBorder then PP.ShowBorder(castBarFrame._border) end
+        else
+            if PP and PP.HideBorder then PP.HideBorder(castBarFrame._border) end
+        end
     end
 
     -- Icon: left or right side (iconOnRight), full height, no inset
@@ -6426,15 +6431,19 @@ BuildCastBar = function()
     -- Clip frame + bar: beside the icon (or full width), full height
     local clipFrame = castBarFrame._barClip
     local bar = castBarFrame._bar
-    local bdrInset = (PP and PP.mult) or 1
+    local bs = cb.borderSize or 0
+    local bdrInset = (bs > 0 and PP and PP.mult) or 0
     clipFrame:ClearAllPoints()
+    
     -- The icon-adjacent side sits FLUSH against the icon (no inset): that seam is
     -- interior with no border, and insetting it exposes a 1px background column
     -- next to the icon. Outer edges keep the inset so the fill never bleeds out.
-    local clipLeft  = (hasIcon and not iconOnRight) and h or bdrInset
-    local clipRight = iconOnRight and h or bdrInset
-    clipFrame:SetPoint("TOPLEFT", castBarFrame, "TOPLEFT", clipLeft, -bdrInset)
-    clipFrame:SetPoint("BOTTOMRIGHT", castBarFrame, "BOTTOMRIGHT", -clipRight, bdrInset)
+    local clipLeft  = (hasIcon and not iconOnRight) and h or (bs > 0 and bdrInset or 0)
+    local clipRight = (hasIcon and iconOnRight) and h or (bs > 0 and bdrInset or 0)
+    local clipTopBot = (bs > 0 and bdrInset or 0)
+
+    clipFrame:SetPoint("TOPLEFT", castBarFrame, "TOPLEFT", clipLeft, -clipTopBot)
+    clipFrame:SetPoint("BOTTOMRIGHT", castBarFrame, "BOTTOMRIGHT", -clipRight, clipTopBot)
     clipFrame:SetFrameLevel(castBarFrame:GetFrameLevel() + 1)
     bar:ClearAllPoints()
     bar:SetAllPoints(clipFrame)
@@ -7115,7 +7124,12 @@ function ns.ApplyCastBgAnchor()
     local bar = castBarFrame._bar
     local casting = castBarFrame._casting or castBarFrame._channeling or castBarFrame._empowering
     castBarFrame._bg:ClearAllPoints()
-    if casting and (cb.fillOpacity or 100) < 100 then
+    
+    local bs = cb.borderSize or 0
+    if bs == 0 then
+        -- No border: Background strictly covers the active bar clip area
+        castBarFrame._bg:SetAllPoints(castBarFrame._barClip or castBarFrame)
+    elseif casting and (cb.fillOpacity or 100) < 100 then
         castBarFrame._bg:SetPoint("TOPLEFT", bar:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
         castBarFrame._bg:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", 0, 0)
     else
@@ -7916,7 +7930,7 @@ BuildGCDBar = function()
     -- it eats the whole height of very thin bars (height 1-2 -> nothing visible).
     local clipFrame = gcdBarFrame._barClip
     local bar = gcdBarFrame._bar
-    local bdrInset = ((g.borderSize or 0) > 0 and PP and PP.mult) or 0
+    local bdrInset = ((cb.borderSize or 0) > 0 and PP and PP.mult) or 0
     clipFrame:ClearAllPoints()
     clipFrame:SetPoint("TOPLEFT", gcdBarFrame, "TOPLEFT", bdrInset, -bdrInset)
     clipFrame:SetPoint("BOTTOMRIGHT", gcdBarFrame, "BOTTOMRIGHT", -bdrInset, bdrInset)
