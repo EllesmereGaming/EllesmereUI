@@ -10116,7 +10116,7 @@ initFrame:SetScript("OnEvent", function(self)
               swatches = {
                 { tooltip = "Has Aggro",
                   disabled = isDpsHasAggroDisabled,
-                  disabledTooltip = "DPS: Show \"Has Aggro\" Color",
+                  disabledTooltip = "DPS: Has Aggro Color",
                   getValue = function() return DBColor("dpsHasAggro") end,
                   setValue = function(r, g, b)
                     DB().dpsHasAggro = { r = r, g = g, b = b }
@@ -10124,7 +10124,7 @@ initFrame:SetScript("OnEvent", function(self)
                   end },
                 { tooltip = "Near Aggro",
                   disabled = isDpsNearAggroDisabled,
-                  disabledTooltip = "DPS: Show \"Near Aggro\" Color",
+                  disabledTooltip = "DPS: Near Aggro Color",
                   getValue = function() return DBColor("dpsNearAggro") end,
                   setValue = function(r, g, b)
                     DB().dpsNearAggro = { r = r, g = g, b = b }
@@ -10142,7 +10142,7 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="toggle", label="Glow Nameplate When Near Aggro",
                       tooltip="Adds a steady red glow around the nameplate while the Near Aggro color is active.",
                       disabled=isDpsNearAggroDisabled,
-                      disabledTooltip="DPS: Show \"Near Aggro\" Color",
+                      disabledTooltip="DPS: Near Aggro Color",
                       get=function()
                         local db = DB()
                         local v = db and db.threatNearAggroGlow
@@ -10179,9 +10179,9 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
-        -- Row 2: DPS: Show "Has Aggro" Color (left) ---- DPS: Show "Near Aggro" Color (right)
+        -- Row 2: DPS: Has Aggro Color (left) ---- DPS: Near Aggro Color (right)
         _, h = W:DualRow(parent, y,
-            { type="toggle", text="DPS: Show \"Has Aggro\" Color",
+            { type="toggle", text="DPS: Has Aggro Color",
               tooltip="Recolors nameplates when you have aggro, including casters and mini-bosses. Disable to keep enemy-type colors.",
               getValue=function()
                 local db = DB()
@@ -10193,7 +10193,7 @@ initFrame:SetScript("OnEvent", function(self)
                 RefreshAllPlates()
                 EllesmereUI:RefreshPage()
               end },
-            { type="toggle", text="DPS: Show \"Near Aggro\" Color",
+            { type="toggle", text="DPS: Near Aggro Color",
               tooltip="Recolors nameplates when you are close to pulling aggro, including casters and mini-bosses. Disable to keep enemy-type colors.",
               getValue=function()
                 local db = DB()
