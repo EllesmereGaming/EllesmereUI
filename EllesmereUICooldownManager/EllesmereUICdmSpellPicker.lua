@@ -259,6 +259,10 @@ local function GetCanonicalSpellIDForFrame(frame)
     if type(fnGetSpellID) == "function" then
         local sid = fnGetSpellID(frame)
         if _IsUsableSID(sid) then
+            local cdid = frame.cooldownID
+            if type(cdid) == "number" then _cleanSidByCDID[cdid] = sid end
+            return sid
+        end
             -- Clean read: cache by cooldownID so a later secret read still resolves.
             local cdid = frame.cooldownID
             if type(cdid) == "number" then _cleanSidByCDID[cdid] = sid end
@@ -294,11 +298,9 @@ local function GetCanonicalSpellIDForFrame(frame)
     if info then
         if _IsUsableSID(info.overrideSpellID) then return info.overrideSpellID end
         if _IsUsableSID(info.spellID) then return info.spellID end
-        if info.linkedSpellIDs then
-            for _, lid in ipairs(info.linkedSpellIDs) do
-                if _IsUsableSID(lid) then return lid end
-            end
-        end
+        -- Not falling back to linkedSpellIDs[1]: that list is shared by every
+        -- related spell in the group, so it can't tell frames apart. Return
+        -- nil instead of guessing wrong.
     end
 
     -- Last resort: base of frame:GetSpellID()
