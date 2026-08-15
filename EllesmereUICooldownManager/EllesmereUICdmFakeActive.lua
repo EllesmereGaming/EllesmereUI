@@ -376,8 +376,12 @@ ApplyToFrame = function(iconFrame, rule, win)
     end
 end
 
+-- Built-in rules only ever apply to these bar keys. Prevents a stale cached
+-- spellID on a reused icon frame from matching a bar it doesn't belong to.
+local NATIVE_VIEWER_BARKEYS = { cooldowns = true, utility = true, buffs = true }
+
 -- Apply (or clear) a rule on every matching live icon. A rule with .barKey only
--- matches icons on that bar (user rules are per-bar); built-in rules match any.
+-- matches icons on that bar; built-in rules only match native viewer bars.
 ApplyRule = function(rule, win)
     local icons = ns.cdmBarIcons
     local FCt = ns._ecmeFC
@@ -387,7 +391,13 @@ ApplyRule = function(rule, win)
         for i = 1, #list do
             local f = list[i]
             local fc = f and FCt[f]
-            if fc and KeyMatches(sid, fc.spellID) and (not rule.barKey or fc.barKey == rule.barKey) then
+            local barScopeOK
+            if rule.barKey then
+                barScopeOK = fc and fc.barKey == rule.barKey
+            else
+                barScopeOK = fc and fc.barKey and NATIVE_VIEWER_BARKEYS[fc.barKey]
+            end
+            if fc and barScopeOK and KeyMatches(sid, fc.spellID) then
                 ApplyToFrame(f, rule, win)
                 if ns._fakeActiveDebug then
                     print(("|cff0cd29fEUI FakeActive|r %s sid=%s"):format(
