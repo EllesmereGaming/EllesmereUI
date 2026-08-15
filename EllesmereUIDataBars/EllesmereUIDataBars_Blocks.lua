@@ -4044,7 +4044,7 @@ local function MakeOnlineCountBlock(blockCfg, slot, content, barCtx, opts)
     end
 
     local function ShowTooltip()
-        ns.Tip_Begin(frame)
+        ns.Tip_Begin(frame, blockCfg.settings and blockCfg.settings.tooltipDirection)
         ns.Tip_AddLine("|cFFFFFFFF" .. opts.label .. "|r", 1, 1, 1)
         if InCombatLockdown() then
             ns.Tip_AddLine(L["CANNOT_USE_COMBAT"], 0.65, 0.65, 0.65)

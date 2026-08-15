@@ -217,8 +217,8 @@ ns.BLOCK_DEFAULTS = {
     profession = {},
     profession2 = {},
     travel     = { randomizeHs = true },
-    guildonline = {},
-    friendsonline = {},
+    guildonline = { tooltipDirection = "auto" },
+    friendsonline = { tooltipDirection = "auto" },
     micromenu  = { disableBlizzardMicroMenu = false, hideSocialText = false, charStatsTooltip = false, socialTooltip = false, mainMenuSpacing = 4, iconSpacing = 2,
                    menu = true, guild = true, social = true, char = true, spell = true, ach = true, quest = true, lfg = true,
                    pvp = true, housing = true, journal = true, pet = true, shop = true, help = true },
@@ -699,6 +699,7 @@ end
 do
     local tip
     local owner
+    local tipDirection
     local rows = {}       -- rows[i] = { left = fs, right = fs, cols = { fs, ... } }
     local data = {}       -- data[i] = { l, r, lr, lg, lb, rr, rg, rb }
     local dataCount = 0
@@ -954,9 +955,10 @@ do
         end)
     end
 
-    function ns.Tip_Begin(ownerFrame)
+    function ns.Tip_Begin(ownerFrame, direction)
         EnsureTip()
         owner = ownerFrame
+        tipDirection = (direction == "up" or direction == "down") and direction or nil
         dataCount = 0
         forceInteractive = false
     end
@@ -1349,7 +1351,11 @@ do
             bar = bar:GetParent()
         end
         local ocx, ocy = owner:GetCenter()
-        if bar and ocx then
+        if tipDirection == "up" then
+            tip:SetPoint("BOTTOM", owner, "TOP", 0, 6)
+        elseif tipDirection == "down" then
+            tip:SetPoint("TOP", owner, "BOTTOM", 0, -6)
+        elseif bar and ocx then
             local os = owner:GetEffectiveScale()
             local ts = tip:GetEffectiveScale()
             local bcx, bcy = bar:GetCenter()
@@ -1390,6 +1396,7 @@ do
         if not tip then return end
         if ownerFrame and owner ~= ownerFrame then return end
         owner = nil
+        tipDirection = nil
         HideActionButtons()
         HideClickButtons()
         StopKeepAlive()
