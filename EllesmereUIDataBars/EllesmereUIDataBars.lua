@@ -12,7 +12,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -- `ns` consumed by the options file.
 --
 -- Block factories (clock, fps, ms, location, coords, gold, xprep, spec,
--- profession, travel, micromenu, currency, spacer) live in
+-- profession, travel, guildonline, friendsonline, micromenu, currency, spacer) live in
 -- EllesmereUIDataBars_Blocks.lua and attach themselves to ns.BlockFactories.
 --
 -- API HANDOFF (everything the options file may call; nothing else):
@@ -192,6 +192,8 @@ ns.BLOCK_TYPES = {
     { key = "profession", label = "Professions" },
     { key = "profession2", label = "Secondary Professions" },
     { key = "travel",     label = "Travel Cooldowns" },
+    { key = "guildonline", label = "Guild Online" },
+    { key = "friendsonline", label = "Friends Online" },
     { key = "micromenu",  label = "Micro Menu" },
     { key = "currency",   label = "Currency" },
     { key = "greatvault", label = "Great Vault" },
@@ -215,6 +217,8 @@ ns.BLOCK_DEFAULTS = {
     profession = {},
     profession2 = {},
     travel     = { randomizeHs = true },
+    guildonline = {},
+    friendsonline = {},
     micromenu  = { disableBlizzardMicroMenu = false, hideSocialText = false, charStatsTooltip = false, socialTooltip = false, mainMenuSpacing = 4, iconSpacing = 2,
                    menu = true, guild = true, social = true, char = true, spell = true, ach = true, quest = true, lfg = true,
                    pvp = true, housing = true, journal = true, pet = true, shop = true, help = true },
