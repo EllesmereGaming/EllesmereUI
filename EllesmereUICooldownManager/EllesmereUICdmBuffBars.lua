@@ -2668,11 +2668,14 @@ local _findChildCache = {}
 -- Sticky cfg->frame bindings for the one-to-one assignment pass below (cfg table -> last
 -- paired Blizzard frame). Separate table for the same serialization reason; dropped on cache invalidation.
 local _tbbStickyFrame = {}
+-- cooldownID a sticky frame had when bound, to catch object reuse for a different slot.
+local _tbbStickyCdID = {}
 
 function ns.InvalidateTBBFrameCache()
     _findChildGeneration = _findChildGeneration + 1
     wipe(_findChildCache)
     wipe(_tbbStickyFrame)
+    wipe(_tbbStickyCdID)
     -- Every structural edge funnels here (pool Acquire, spec swap, rebuilds), so the assignment memo retires with the caches.
     _tbbAssignDirty = true
 end
@@ -2750,6 +2753,19 @@ local function FrameIsActive(frames, target)
     return false
 end
 
+-- Debug trace: shows which path set a bar's name and what data it used. Toggle with /euitbbdebug.
+local _tbbDebug = false
+local function TBBDebugName(cfg, src, text)
+    if not _tbbDebug then return end
+    print(string.format("|cff33ff99TBB|r spellID=%s src=%s text=%s",
+        tostring(cfg and cfg.spellID), src, tostring(text)))
+end
+SLASH_EUITBBDEBUG1 = "/euitbbdebug"
+SlashCmdList.EUITBBDEBUG = function()
+    _tbbDebug = not _tbbDebug
+    print("TBB name debug: " .. (_tbbDebug and "ON" or "OFF"))
+end
+
 local function AssignFramesToConfigs(bars)
     local assignment = _tbbAssignment
     -- Memo: pairing moves only on composition edges (player aura events, pool
@@ -2798,15 +2814,21 @@ local function AssignFramesToConfigs(bars)
             if sid then
                 -- Clean read available: keep only if still the right variant.
                 if CfgWantsSID(cfg, sid) then
-                    assignment[cfg]   = bound
-                    consumed[bound]   = true
+                    assignment[cfg]      = bound
+                    consumed[bound]      = true
+                    _tbbStickyCdID[cfg]  = bound.cooldownID
                 else
                     _tbbStickyFrame[cfg] = nil
+                    _tbbStickyCdID[cfg]  = nil
                 end
-            else
-                -- Secret/combat: trust the binding locked in earlier.
+            elseif bound.cooldownID == _tbbStickyCdID[cfg] then
+                -- Secret/combat, but still the same cooldown slot: trust the binding locked in earlier.
                 assignment[cfg] = bound
                 consumed[bound] = true
+                else
+                -- Same frame object, different cooldown slot now (pool reused it) -- don't guess.
+                _tbbStickyFrame[cfg] = nil
+                _tbbStickyCdID[cfg]  = nil
             end
         end
     end
@@ -2822,6 +2844,7 @@ local function AssignFramesToConfigs(bars)
                         assignment[cfg]      = frame
                         consumed[frame]      = true
                         _tbbStickyFrame[cfg] = frame
+                        _tbbStickyCdID[cfg]  = frame.cooldownID
                         break
                     end
                 end
@@ -2830,14 +2853,27 @@ local function AssignFramesToConfigs(bars)
     end
 
     -- Pass 3: cooldownInfo/linkedSpellIDs struct fallback. NEVER sticky a fuzzy match: let a later clean read re-pair it exactly in pass 2.
+    -- Only bind if unique both ways, else skip -- a guess is worse than a blank bar.
     for _, cfg in ipairs(bars) do
         if not assignment[cfg] then
+            local candidate, matches = nil, 0
             for i = 1, #frames do
                 local frame = frames[i]
                 if not consumed[frame] and MatchFrameToConfig(frame, cfg) then
-                    assignment[cfg] = frame
-                    consumed[frame] = true
-                    break
+                    matches = matches + 1
+                    candidate = frame
+                end
+            end
+            if matches == 1 then
+                local cfgMatches = 0
+                for _, other in ipairs(bars) do
+                    if not assignment[other] and MatchFrameToConfig(candidate, other) then
+                        cfgMatches = cfgMatches + 1
+                    end
+                end
+                if cfgMatches == 1 then
+                    assignment[cfg]      = candidate
+                    consumed[candidate]  = true
                 end
             end
         end
@@ -4620,28 +4656,30 @@ function ns.UpdateTrackedBuffBarTimers()
                         end
                     end
 
-                    -- Name from aura data (same source as icon) so it always matches the
-                    -- actual buff; the Blizzard frame's font string can be stale after pool
-                    -- recycling. Falls back to C_Spell for the config spell ID.
+                    -- Name comes from the config's spellID, not the frame's own label text,
+                    -- which can lag the icon after a pool reuse.
                     if bar._nameText and bar._nameText:IsShown() then
                         local nameStr
-                        if blzChild and blzChild.auraInstanceID and blzChild.auraDataUnit then
-                            local ok, ad = pcall(C_UnitAuras.GetAuraDataByAuraInstanceID,
-                                blzChild.auraDataUnit, blzChild.auraInstanceID)
-                            if ok and ad and ad.name then nameStr = ad.name end
-                        end
-                        if not nameStr then
-                            local blizzNameFS = GetBlizzBarFontStrings(blizzBar)
-                            if blizzNameFS then
-                                local ok, txt = pcall(blizzNameFS.GetText, blizzNameFS)
-                                if ok and txt then nameStr = txt end
+                        if cfg.spellID and cfg.spellID > 0 then
+                            local spInfo = C_Spell.GetSpellInfo(cfg.spellID)
+                            if spInfo then
+                                nameStr = spInfo.name
+                            elseif C_Spell.RequestLoadSpellData then
+                                C_Spell.RequestLoadSpellData(cfg.spellID)
                             end
                         end
-                        if not nameStr and cfg.spellID and cfg.spellID > 0 then
-                            local spInfo = C_Spell.GetSpellInfo(cfg.spellID)
+                        if not nameStr and cfg.baseSpellID and cfg.baseSpellID > 0 then
+                            local spInfo = C_Spell.GetSpellInfo(cfg.baseSpellID)
                             if spInfo then nameStr = spInfo.name end
                         end
+                        if not nameStr and blzChild and blzChild.auraInstanceID and blzChild.auraDataUnit then
+                            local ok, ad = pcall(C_UnitAuras.GetAuraDataByAuraInstanceID,
+                                blzChild.auraDataUnit, blzChild.auraInstanceID)
+                            -- instance ids get recycled onto other buffs; only trust a matching one.
+                            if ok and ad and ad.name and CfgWantsSID(cfg, ad.spellId) then nameStr = ad.name end
+                        end
                         if nameStr then
+                            TBBDebugName(cfg, "mirror", nameStr)
                             bar._nameText:SetText(nameStr)
                             bar._nameSet = true
                         end
@@ -4690,7 +4728,7 @@ function ns.UpdateTrackedBuffBarTimers()
                         if not gotIcon and blzChild.auraInstanceID and blzChild.auraDataUnit then
                             local ok, ad = pcall(C_UnitAuras.GetAuraDataByAuraInstanceID,
                                 blzChild.auraDataUnit, blzChild.auraInstanceID)
-                            if ok and ad and ad.icon then
+                            if ok and ad and ad.icon and CfgWantsSID(cfg, ad.spellId) then
                                 bar._icon._tex:SetTexture(ad.icon)
                                 bar._lastIconSID = nil
                                 gotIcon = true
@@ -4851,6 +4889,7 @@ function ns.UpdateTrackedBuffBarTimers()
                 local fbName = fbAura.name
                 if bar._nameText and bar._nameText:IsShown() and fbName
                    and not (isSec and isSec(fbName)) then
+                    TBBDebugName(cfg, "fallback-aura", fbName)
                     bar._nameText:SetText(fbName)
                     bar._nameSet = true
                 end
@@ -4896,6 +4935,7 @@ function ns.UpdateTrackedBuffBarTimers()
         if bar and bar._nameText and not bar._nameSet and cfg.spellID and cfg.spellID > 0 then
             local si = C_Spell.GetSpellInfo(cfg.spellID)
             if si and si.name then
+                TBBDebugName(cfg, "deferred-spellid", si.name)
                 bar._nameText:SetText(si.name)
                 bar._nameSet = true
             end
