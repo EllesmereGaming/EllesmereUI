@@ -304,6 +304,53 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = W:DualRow(parent, y, PullSlider(1), PullSlider(2));      y = y - h
         _, h = W:DualRow(parent, y, PullSlider(3), { type="spacer" });  y = y - h
 
+        -- RAID CHECK
+        --
+        -- Its own feature in its own file and its own profile slice, but its
+        -- controls live here: it is triggered by a ready check, and the ready
+        -- check button is on this page. Page grouping is a UI decision, not a
+        -- DB one. Every read and write goes through the ns accessors the
+        -- feature publishes, so this page knows nothing about its slice.
+        _, h = W:SectionHeader(parent, "RAID CHECK", y);  y = y - h
+
+        local function RCDisabled() return not ns.RaidCheckEnabled() end
+
+        _, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Show on Ready Check",
+              tooltip = "Lists every group member against the consumables a raid expects -- flask, food, augment rune, vantus -- whenever a ready check starts, whoever started it.",
+              getValue = ns.RaidCheckEnabled,
+              setValue = function(v)
+                  ns.RaidCheckEnabled(v)
+                  EllesmereUI:RefreshPage()
+              end },
+            { type = "toggle", text = "Show Without Lead or Assist",
+              tooltip = "Shows the window even when you can do nothing about what it reports. Every column is read from your own client, so this view is complete rather than degraded.",
+              disabled = RCDisabled,
+              getValue = ns.RaidCheckShowWithoutRank,
+              setValue = ns.RaidCheckShowWithoutRank }
+        );  y = y - h
+
+        _, h = W:DualRow(parent, y,
+            { type = "slider", text = "Raid Check Window Scale", min = 0.5, max = 2.0, step = 0.05,
+              disabled = RCDisabled,
+              getValue = ns.RaidCheckScale,
+              setValue = ns.RaidCheckScale },
+            { type = "toggle", text = "Hide Inapplicable Columns",
+              tooltip = "Drops columns nothing in this group can satisfy instead of greying them: no mage means no Intellect column, and a Mythic+ key means no Vantus. Turn off to keep every column in place whatever the group.",
+              disabled = RCDisabled,
+              getValue = ns.RaidCheckHideInapplicable,
+              setValue = ns.RaidCheckHideInapplicable }
+        );  y = y - h
+
+        _, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Show Only Players Missing Something",
+              tooltip = "Lists only the people something is actually wrong with, so a thirty-man roster becomes the three names you need to whisper. Someone whose client has not reported yet is not counted as missing.",
+              disabled = RCDisabled,
+              getValue = ns.RaidCheckHideReady,
+              setValue = ns.RaidCheckHideReady },
+            { type = "label", text = "" }
+        );  y = y - h
+
         return math.abs(y)
     end
 

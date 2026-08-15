@@ -4239,6 +4239,52 @@ function EllesmereUI.GetClassColorForRestrictedUnit(unit, secretClassToken)
     return true, r, g, b
 end
 
+-- Where durability stops being cosmetic: the point the tint reaches full red
+-- and the point a check flags someone. One number, because a module that
+-- paints "alarming" at one threshold and reports it at another is telling the
+-- user two different things about the same gear.
+EllesmereUI.DURABILITY_LOW = 20
+
+-- Durability tint: white at full, fading to soft red over the range above
+-- DURABILITY_LOW, and fully red at or below it.
+--
+-- The game exposes no colour scale for this, so the suite owns one, and it
+-- lives here because more than one module shows durability: the DataBars block
+-- and the Raid Tools consumable check must not drift apart on what "low" looks
+-- like.
+function EllesmereUI.GetDurabilityColor(pct)
+    local low = EllesmereUI.DURABILITY_LOW
+    local t = ((pct or 100) - low) * (100 / (100 - low))
+    if t < 0 then t = 0 elseif t > 100 then t = 100 end
+    local gb = 0.35 + 0.65 * (t / 100)
+    return 1, gb, gb
+end
+
+-- Weapon enchant summary in the legacy GetWeaponEnchantInfo tuple shape:
+-- hasMH, mhExpireMs, mhCharges, mhEnchantID, hasOH, ohExpireMs, ohCharges,
+-- ohEnchantID.
+--
+-- Prefers C_PaperDollInfo.GetTemporaryEnchantmentInfo where it exists: on 12.1
+-- GetWeaponEnchantInfo is a deprecation-CVar shim. remainingTimeMs matches the
+-- legacy ms expiration values one to one, so a call site written against the
+-- old API reads the new one unchanged.
+--
+-- Here rather than in a module because two of them ask this question -- Aura
+-- Buff Reminders nags you to re-oil, the Raid Tools consumable check reports it
+-- to the raid -- and a second copy would mean the 12.1 workaround living in
+-- only one of them. Same reasoning as EllesmereUI_RaidBuffs.lua.
+function EllesmereUI.WeaponEnchants()
+    if C_PaperDollInfo and C_PaperDollInfo.GetTemporaryEnchantmentInfo then
+        local mh = C_PaperDollInfo.GetTemporaryEnchantmentInfo(INVSLOT_MAINHAND)
+        local oh = C_PaperDollInfo.GetTemporaryEnchantmentInfo(INVSLOT_OFFHAND)
+        return (mh and true or false), mh and mh.remainingTimeMs,
+            mh and mh.chargesRemaining, mh and mh.enchantID,
+            (oh and true or false), oh and oh.remainingTimeMs,
+            oh and oh.chargesRemaining, oh and oh.enchantID
+    end
+    return GetWeaponEnchantInfo()
+end
+
 -- Get power color (cached, darken baked in). Returns nil for unknown keys.
 function EllesmereUI.GetPowerColor(powerKey)
     if EllesmereUI._colorCacheDirty then EllesmereUI._RebuildColorCache() end

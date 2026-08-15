@@ -971,31 +971,20 @@ _G._EABR_SpellName = function(spellID, fallback)
     return n or fallback
 end
 
--- Returns the legacy GetWeaponEnchantInfo tuple shape (hasMH, mhExpireMs, mhCharges, mhEnchantID, hasOH,
--- ohExpireMs, ohCharges, ohEnchantID). Prefers C_PaperDollInfo.GetTemporaryEnchantmentInfo (12.1: GetWeaponEnchantInfo is a deprecation-CVar shim there); remainingTimeMs maps 1:1 to legacy ms values. On EABR -- 200-local cap.
-EABR.WeaponEnchants = function()
-    if C_PaperDollInfo and C_PaperDollInfo.GetTemporaryEnchantmentInfo then
-        local mh = C_PaperDollInfo.GetTemporaryEnchantmentInfo(INVSLOT_MAINHAND)
-        local oh = C_PaperDollInfo.GetTemporaryEnchantmentInfo(INVSLOT_OFFHAND)
-        return (mh and true or false), mh and mh.remainingTimeMs,
-            mh and mh.chargesRemaining, mh and mh.enchantID,
-            (oh and true or false), oh and oh.remainingTimeMs,
-            oh and oh.chargesRemaining, oh and oh.enchantID
-    end
-    return GetWeaponEnchantInfo()
-end
+-- Moved to EllesmereUI.WeaponEnchants in the parent: the Raid Tools consumable
+-- check asks the same question, and a second copy would mean the 12.1
+-- deprecation workaround living in only one of the two. Same move, and same
+-- reason, as RAID_BUFFS just below.
+--
+-- Still a field on EABR rather than a file local: the call sites below are
+-- unchanged that way, and this file runs at the 200-local cap.
+EABR.WeaponEnchants = EllesmereUI.WeaponEnchants
 
-local RAID_BUFFS = {
-    { key="motw",   class="DRUID",   name="Mark of the Wild",       castSpell=1126,   buffIDs={1126,432661},    check="raid" },
-    { key="bshout", class="WARRIOR", name="Battle Shout",           castSpell=6673,   buffIDs={6673},    check="raid", benefit="attackPower" },
-    { key="fort",   class="PRIEST",  name="Power Word: Fortitude",  castSpell=21562,  buffIDs={21562},   check="raid" },
-    { key="ai",     class="MAGE",    name="Arcane Intellect",       castSpell=1459,   buffIDs={1459,432778},    check="raid", benefit="intellect" },
-    { key="bronze", class="EVOKER",  name="Blessing of the Bronze", castSpell=364342,
-      buffIDs={381732,381741,381746,381748,381749,381750,381751,381752,381753,381754,381756,381757,381758},
-      check="raid" },
-    { key="sky",    class="SHAMAN",  name="Skyfury",                castSpell=462854, buffIDs={462854},  check="raid" },
-    -- Hunter's Mark: disabled (under maintenance); entry intentionally omitted.
-}
+-- Moved to EllesmereUI_RaidBuffs.lua in the parent: the Raid Tools consumable
+-- check needs the same answers, and a second copy would mean two lists to
+-- update with one of them silently wrong. Every child has the parent, so
+-- neither module now depends on the other being enabled.
+local RAID_BUFFS = EllesmereUI.RaidBuffs
 
 -------------------------------------------------------------------------------
 --  SPELL DATA Auras (some non-secret, some still OOC-only)

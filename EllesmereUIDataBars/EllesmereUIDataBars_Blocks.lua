@@ -218,12 +218,10 @@ function ns.BlockIconDefault(bType)
         return ns.GetAccent()
     end
     if bType == "durability" then
-        -- White(100%) fades to soft red(1,.35,.35) over 20..100; <=20% is fully red.
-        local pct = _lastDurabilityPct or 100
-        local t = (pct - 20) * (100 / 80)
-        if t < 0 then t = 0 elseif t > 100 then t = 100 end
-        local gb = 0.35 + 0.65 * (t / 100)
-        return 1, gb, gb
+        -- Shared with the Raid Tools consumable check, which shows the same
+        -- reading for everyone in the group: one ramp, so "low" looks the same
+        -- wherever the suite says it.
+        return EllesmereUI.GetDurabilityColor(_lastDurabilityPct)
     end
     local d = ICON_DEFAULTS[bType]
     if d then return d[1], d[2], d[3] end

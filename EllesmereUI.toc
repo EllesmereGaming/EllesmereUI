@@ -18,6 +18,10 @@ Libs\LibSharedMedia-3.0\LibSharedMedia-3.0.lua
 Libs\LibDeflate\LibDeflate.lua
 Libs\LibKeystone\LibKeystone.lua
 Libs\LibSpecialization\LibSpecialization.lua
+# Durability of other players is not readable locally; every addon that shows
+# it speaks this library's channel, so embedding it means our users appear in
+# other addons' raid checks and theirs appear in ours. Embedded unmodified.
+Libs\LibDurability\LibDurability.lua
 
 # Lightweight addon framework (replaces Ace3)
 EllesmereUI_Lite.lua
@@ -51,6 +55,8 @@ EUI_UnlockMode.lua
 EllesmereUI_Glows.lua
 EllesmereUI_Range.lua
 EllesmereUI_AuraKit.lua
+EllesmereUI_RaidBuffs.lua
+EllesmereUI_Comms.lua
 EllesmereUI_FirstInstall.lua
 EllesmereUI_RaidFramesPopup.lua
 EllesmereUI_PatchNotesPopup.lua
