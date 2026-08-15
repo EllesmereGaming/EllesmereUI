@@ -2397,6 +2397,11 @@ do
         local info = db and db[childKey]
         local fb = info and info.fallback
         if not fb or not fb.target then HideGhost(g) return end
+        if EllesmereUI._ShouldHideUnlockElement(childKey)
+           or EllesmereUI._ShouldHideUnlockElement(fb.target) then
+            HideGhost(g)
+            return
+        end
         local cx, cy = GhostSnapBase(childKey, fb)
         if not cx then HideGhost(g) return end
         cx = cx + (fb.offsetX or 0)
@@ -3052,6 +3057,11 @@ do
         if g._dragging then return end
         local ov = GhostPos(g)
         if not ov then HideGhost(g) return end
+        if EllesmereUI._ShouldHideUnlockElement(g._childKey)
+           or EllesmereUI._ShouldHideUnlockElement(ov.target) then
+            HideGhost(g)
+            return
+        end
         local cx, cy = OvSnapBase(g._childKey, ov)
         if not cx then HideGhost(g) return end
         cx = cx + (ov.offsetX or 0)
@@ -4691,6 +4701,18 @@ GetBarFrame = function(barKey)
     if barKey == "MicroBar"   then return _G["MicroMenuContainer"] or _G["MicroMenu"] end
     if barKey == "BagBar"     then return _G["BagsBar"] end
     return nil
+end
+
+-- Optional unlock filter for elements explicitly disabled or configured with
+-- Visibility = Never. Contextual visibility (combat, group, mouseover, missing
+-- units, alpha, and current frame state) is intentionally ignored so
+-- situational elements remain available for layout work.
+function EllesmereUI._ShouldHideUnlockElement(key)
+    if not (EllesmereUIDB and EllesmereUIDB.unlockHideDisabled) then return false end
+    local elem = registeredElements[key]
+    if not elem then return false end
+    if elem.isExplicitlyDisabled and elem.isExplicitlyDisabled(key) == true then return true end
+    return elem.isNeverVisible and elem.isNeverVisible(key) == true or false
 end
 
 GetBarLabel = function(barKey)
@@ -6372,8 +6394,9 @@ local function CreateMover(barKey)
 
     -- Skip elements that are intentionally hidden or currently anchored
     -- (keepMoverWhenAnchored elements keep a position-locked mover instead).
-    if elem and ((elem.isHidden and elem.isHidden())
-        or (elem.isAnchored and elem.isAnchored() and not elem.keepMoverWhenAnchored)) then
+    if (elem and ((elem.isHidden and elem.isHidden())
+        or (elem.isAnchored and elem.isAnchored() and not elem.keepMoverWhenAnchored)))
+        or EllesmereUI._ShouldHideUnlockElement(barKey) then
         if existing then existing:Hide() end
         return nil
     end
@@ -7575,8 +7598,9 @@ local function CreateMover(barKey)
         -- bar) must NOT be shown. Mirrors the CreateMover guard so blanket
         -- `for _, m in pairs(movers) do m:Sync() end` loops can't re-show a mover
         -- CreateMover intentionally hid. Action bars resolve elem == nil (no-op); isHidden is read live, so an un-hidden element still syncs.
-        if elem and ((elem.isHidden and elem.isHidden())
-                  or (elem.isAnchored and elem.isAnchored() and not elem.keepMoverWhenAnchored)) then
+        if (elem and ((elem.isHidden and elem.isHidden())
+                  or (elem.isAnchored and elem.isAnchored() and not elem.keepMoverWhenAnchored)))
+           or EllesmereUI._ShouldHideUnlockElement(bk) then
             self:Hide()
             return
         end
@@ -10090,7 +10114,8 @@ do
                 -- re-enabled mid-session -- the drop half always worked, the
                 -- restore half never did). Session temp-hides
                 -- (Shift+Right-Click) stay respected.
-                if elem.isHidden and elem.isHidden() then
+                if (elem.isHidden and elem.isHidden())
+                   or EllesmereUI._ShouldHideUnlockElement(key) then
                     movers[key]:Hide()
                 elseif not movers[key]:IsShown() and not movers[key]._tempHidden then
                     movers[key]:Sync()
@@ -12319,7 +12344,8 @@ function ns.OpenUnlockMode()
                             -- Mover exists but bar frame was not ready on
                             -- first Sync -- re-sync now that it may be available
                             local re = registeredElements[rk]
-                            if not (re and re.isHidden and re.isHidden()) then
+                            if not (re and re.isHidden and re.isHidden())
+                               and not EllesmereUI._ShouldHideUnlockElement(rk) then
                                 local rm = movers[rk]
                                 rm:Sync()
                                 if rm:IsShown() then

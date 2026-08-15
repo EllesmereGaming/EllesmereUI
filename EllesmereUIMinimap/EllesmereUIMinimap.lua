@@ -5314,9 +5314,17 @@ function EBS:OnEnable()
                 getSize  = function()
                     return Minimap:GetWidth(), Minimap:GetHeight()
                 end,
+                isExplicitlyDisabled = function()
+                    local m = MDB()
+                    return not m or not m.enabled
+                end,
                 isHidden = function()
                     local m = MDB()
                     return not m or not m.enabled
+                end,
+                isNeverVisible = function()
+                    local m = MDB()
+                    return m and m.visibility == "never" or false
                 end,
                 savePos = function(_, point, relPoint, x, y)
                     local m = MDB(); if not m then return end

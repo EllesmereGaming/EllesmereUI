@@ -2893,6 +2893,9 @@ function EMT:OnEnable()
                 group = "Mythic+",
                 order = 520,
                 noResize = true,
+                isExplicitlyDisabled = function()
+                    return db and db.profile and db.profile.enabled == false or false
+                end,
                 getFrame = function()
                     return _G._EMT_GetStandaloneFrame and _G._EMT_GetStandaloneFrame()
                 end,

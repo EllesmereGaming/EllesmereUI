@@ -2686,6 +2686,13 @@ local function MakeBarElement(barId, orderIdx)
         isHidden = function()
             return cfgOf() == nil
         end,
+        isExplicitlyDisabled = function()
+            return cfgOf() == nil
+        end,
+        isNeverVisible = function()
+            local cfg = cfgOf()
+            return cfg and cfg.visibility == "never" or false
+        end,
         allowMatchSource = true,
     })
 end

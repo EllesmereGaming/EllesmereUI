@@ -928,6 +928,10 @@ local function RegisterLootUnlockElements()
             -- to tell them apart from live-frame movers.
             moverBg  = { r = 0.165, g = 0.11, b = 0.055 },
             subtitle = "Disable Loot unlock mode overlays in Shifter once done positioning",
+            isExplicitlyDisabled = function()
+                return not LootEnabled()
+                    or (EllesmereUIDB and EllesmereUIDB.shifterLootHideOverlays) or false
+            end,
             isHidden = function()
                 if not LootEnabled() or not _G[info.name] then return true end
                 -- "Hide Unlock Mode Overlays": the movers stay out of unlock
@@ -1106,6 +1110,10 @@ local function RegisterTopBarUnlockElement()
             noSizeMatchTarget = true,
             moverBg  = { r = 0.165, g = 0.11, b = 0.055 },
             subtitle = "Disable the Top Bar Event Text overlay in Shifter once done positioning",
+            isExplicitlyDisabled = function()
+                return not TopBarEnabled()
+                    or (EllesmereUIDB and EllesmereUIDB.shifterTopBarHideOverlay) or false
+            end,
             isHidden = function()
                 if not TopBarEnabled() or not _G[TOPBAR_NAME] then return true end
                 -- "Hide Unlock Mode Overlay": mover stays out of unlock mode
