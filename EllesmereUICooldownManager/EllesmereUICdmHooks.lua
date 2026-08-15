@@ -918,6 +918,11 @@ local _divertedBuffCdIDs  = {}
 --- same way listing a spellID claims a spell. On ns, not a local: this file is at
 --- the 200-local cap.
 ns._divertedSlotCD = {}
+-- Buff-replacement lookups can be queried by Blizzard's early layout refresh
+-- before the first route-map rebuild. Keep stable empty tables from file load
+-- so that path is a harmless miss instead of indexing nil.
+ns._replacementBuffRoutes = ns._replacementBuffRoutes or {}
+ns._replacementBuffCdRoutes = ns._replacementBuffCdRoutes or {}
 -- EXACT assigned ids, split from the maps above (which also hold variant-family
 -- derived keys). One cooldown slot can carry several family members on different
 -- bars (Divine Toll/override Holy Bulwark share cooldownID 29342, base 375576);
@@ -1097,8 +1102,8 @@ function ns.RebuildSpellRouteMap()
     wipe(_divertedVarBaseCD)
     wipe(_divertedBuffCdIDs)
     wipe(ns._divertedSlotCD)
-    if ns._replacementBuffRoutes then wipe(ns._replacementBuffRoutes) end
-    if ns._replacementBuffCdRoutes then wipe(ns._replacementBuffCdRoutes) end
+    wipe(ns._replacementBuffRoutes)
+    wipe(ns._replacementBuffCdRoutes)
     _routeMapBuilt = false
 
     local p = ECME.db and ECME.db.profile
@@ -1319,10 +1324,12 @@ end
 function ns.GetBuffReplacementRoute(spellID, cooldownID)
     if not ns._cdmAnyBuffReplacement then return nil end
     if cooldownID then
-        local exact = ns._replacementBuffCdRoutes[cooldownID]
+        local exact = ns._replacementBuffCdRoutes
+            and ns._replacementBuffCdRoutes[cooldownID]
         if exact then return exact end
     end
-    return ns.ResolveVariantValue and ns.ResolveVariantValue(ns._replacementBuffRoutes, spellID)
+    return ns.ResolveVariantValue and ns._replacementBuffRoutes
+        and ns.ResolveVariantValue(ns._replacementBuffRoutes, spellID)
 end
 
 --- Lazily resolve a cooldownID to a bar key (per-frame at reanchor).
