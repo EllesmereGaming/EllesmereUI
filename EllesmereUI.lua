@@ -2638,7 +2638,7 @@ do
         -- 4 strips instead of BackdropTemplate: NineSlice corner sub-frames render as black boxes on nameplates.
         local container = CreateFrame("Frame", nil, frame)
         container:SetAllPoints(frame)
-        container:SetFrameLevel(frame:GetFrameLevel() + 1)
+        container:SetFrameLevel(frame:GetFrameLevel())
 
         local WHITE = "Interface\\Buttons\\WHITE8X8"
         local function MakeTex()
