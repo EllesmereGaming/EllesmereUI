@@ -287,7 +287,14 @@ initFrame:SetScript("OnEvent", function(self)
               setValue = function(v)
                   Set("growDir", v)
                   Refresh()
-              end }
+              end },
+            -- The raid groups window keeps its own slice and its own scale: it
+            -- is a popup opened on purpose, not one of the panels, so it is
+            -- sized for reading rather than for sitting on screen.
+            { type = "slider", text = "Raid Groups Window Scale", min = 0.5, max = 2.0, step = 0.05,
+              disabled = Disabled,
+              getValue = ns.RaidGroupsScale,
+              setValue = ns.RaidGroupsScale }
         );  y = y - h
 
         -- PULL TIMER

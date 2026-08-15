@@ -637,6 +637,15 @@ local function RefreshPermissions(force)
         convertButton._lbl:SetText(raid and EllesmereUI.L("Convert to Party")
                                          or EllesmereUI.L("Convert to Raid"))
     end
+
+    -- The raid groups cog appears and vanishes with rank, which is exactly what
+    -- this function already memoizes on -- and it is the ONLY writer: a copy in
+    -- the settings pass would be overwritten by the forced call at the end of
+    -- Apply anyway, and this one also rides PARTY_LEADER_CHANGED.
+    local gw = sections.Group
+    if gw and gw._groupsCog then
+        gw._groupsCog:SetShown(ns.RaidGroupsPermitted())
+    end
 end
 
 -------------------------------------------------------------------------------
@@ -949,10 +958,37 @@ local function BuildCollapsedIcon()
     iconBtn:SetAttribute("_onclick", EXPAND_SNIPPET)
 end
 
+-- Raid group composition cog, riding the title band left of the collapse
+-- control. Built outside MakeShell so the factory stays key-agnostic -- the
+-- same arrangement BuildCollapsedIcon uses, wired to the Group shell by its
+-- caller rather than by a key test inside the factory.
+--
+-- Group & Pull only: arranging the raid is that group's business.
+-- RefreshPermissions owns whether it shows, because the answer depends on
+-- rank and rank moves mid-session.
+--
+-- A plain Button on a secure shell is fine -- scripts on a protected frame are
+-- unrestricted, only its attributes are combat-sensitive -- and the window it
+-- opens is not secure at all (see EllesmereUIQoL_RaidGroups.lua).
+local function BuildGroupsCog(shell)
+    local cog = CreateFrame("Button", nil, shell)
+    cog:SetSize(14, 14)
+    cog:SetPoint("RIGHT", shell._collapseBtn, "LEFT", -4, 0)
+    cog:SetAlpha(0.5)
+    local cogTex = cog:CreateTexture(nil, "OVERLAY")
+    cogTex:SetAllPoints()
+    cogTex:SetTexture(EllesmereUI.COGS_ICON)
+    cog:SetScript("OnEnter", function(self) self:SetAlpha(0.85) end)
+    cog:SetScript("OnLeave", function(self) self:SetAlpha(0.5) end)
+    cog:SetScript("OnClick", ns.ShowRaidGroupsWindow)
+    shell._groupsCog = cog
+end
+
 local function BuildAll()
     if sections.Group then return end
     MakeShell("Group")
     MakeShell("Markers")
+    BuildGroupsCog(sections.Group)
     BuildGroupContent()
     BuildMarkersContent()
     BuildCollapsedIcon()
