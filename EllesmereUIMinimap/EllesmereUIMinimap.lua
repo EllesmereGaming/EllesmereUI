@@ -4139,8 +4139,9 @@ function EBS._ApplyAlternateVehicleLocation()
 
     if not EBS._vehicleMinimapDriverRegistered then
         EBS._vehicleMinimapController:SetAttribute("state-euivehicle", nil)
+        -- Prevent activating on multi person mounts
         RegisterStateDriver(EBS._vehicleMinimapController, "euivehicle",
-            "[vehicleui][@vehicle,exists] vehicle; normal")
+            "[vehicleui] vehicle; normal")
         EBS._vehicleMinimapDriverRegistered = true
     end
     EBS._RegisterVehicleMinimapUnlock()
