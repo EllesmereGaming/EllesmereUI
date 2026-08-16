@@ -2809,6 +2809,7 @@ local _tbbStickyFrame = {}
 -- only trust a binding while the pooled frame still serves the same cooldown
 -- slot (Blizzard reuses frame objects fast in combat). cooldownID stays a
 -- plain readable number in secret windows (the clean-sid cache keys on it).
+-- cooldownID a sticky frame had when bound, to catch object reuse for a different slot.
 local _tbbStickyCdID = {}
 
 function ns.InvalidateTBBFrameCache()
@@ -2949,14 +2950,12 @@ local function AssignFramesToConfigs(bars)
                     _tbbStickyCdID[cfg]  = nil
                 end
             elseif bound.cooldownID == _tbbStickyCdID[cfg] then
-                -- Secret/combat, but the frame still serves the cooldown slot it
-                -- was bound under: trust the binding locked in earlier.
+                -- Secret/combat, but still the same cooldown slot: trust the binding locked in earlier.
                 assignment[cfg] = bound
                 consumed[bound] = true
             else
-                -- Same frame object, different cooldown slot (pool reused it
-                -- mid-secret-window) -- a stale binding here is exactly the
-                -- wrong-name/wrong-icon report; drop it rather than guess.
+                -- Same frame object, different cooldown slot now (pool reused it) -- don't guess.
+                 _tbbStickyFrame[cfg] = nil
                 _tbbStickyFrame[cfg] = nil
                 _tbbStickyCdID[cfg]  = nil
             end
@@ -2982,11 +2981,9 @@ local function AssignFramesToConfigs(bars)
         end
     end
 
-    -- Pass 3: cooldownInfo/linkedSpellIDs struct fallback. NEVER sticky a fuzzy
-    -- match: let a later clean read re-pair it exactly in pass 2. Binds only
-    -- when the match is unique BOTH ways (one frame fits this cfg, and no other
-    -- unassigned cfg fits that frame) -- shared linkedSpellIDs data makes fuzzy
-    -- matches ambiguous, and a guessed pairing is worse than a blank bar.
+    -- Pass 3: cooldownInfo/linkedSpellIDs struct fallback. NEVER sticky a fuzzy match:
+    -- let a later clean read re-pair it exactly in pass 2. Only bind if unique both
+    -- ways, else skip -- a guess is worse than a blank bar.
     for _, cfg in ipairs(bars) do
         if not assignment[cfg] then
             local candidate, matches = nil, 0
@@ -3272,14 +3269,33 @@ end
 -- restriction, and both feed StatusBar:SetValue/FontString:SetText natively. The
 -- instance-id query is the fallback for an unpopulated cache and HARD-ERRORS on 12.1
 -- restricted units, hence the pcall and the secret-iid guard.
-local function ReadStackApplications(blzChild)
+-- Aura spellId behind a Blizzard child, for identity checks. nil if unreadable.
+local function BlzChildAuraSID(blzChild)
     local ad = blzChild.auraDataCached
-    if ad and ad.applications then return ad.applications end
+    if ad and ad.spellId then return ad.spellId end
     local auraInstID = blzChild.auraInstanceID
     local auraUnit = blzChild.auraDataUnit
     if auraInstID and auraUnit and not issecretvalue(auraInstID) then
         local ok, d = pcall(C_UnitAuras.GetAuraDataByAuraInstanceID, auraUnit, auraInstID)
-        if ok and d and d.applications then return d.applications end
+        if ok and d and d.spellId then return d.spellId end
+    end
+    return nil
+end
+
+local function ReadStackApplications(blzChild, cfg)
+    local ad = blzChild.auraDataCached
+    if ad and ad.applications then
+        if CfgWantsSID(cfg, ad.spellId) then return ad.applications end
+        return nil, true
+    end
+    local auraInstID = blzChild.auraInstanceID
+    local auraUnit = blzChild.auraDataUnit
+    if auraInstID and auraUnit and not issecretvalue(auraInstID) then
+        local ok, d = pcall(C_UnitAuras.GetAuraDataByAuraInstanceID, auraUnit, auraInstID)
+        if ok and d and d.applications then
+            if CfgWantsSID(cfg, d.spellId) then return d.applications end
+            return nil, true
+        end
     end
     return nil
 end
@@ -3294,7 +3310,7 @@ local function UpdateStacks(bar, blzChild, cfg)
         -- Stack-based bar: skip the Blizzard text mirror (blank below 2 stacks) and drive
         -- fill/text from the aura data. This helper only runs for active frames, so the aura is
         -- up and a readable count floors at 1; a secret count passes through to SetValue/SetText untouched.
-        local apps = ReadStackApplications(blzChild)
+        local apps = ReadStackApplications(blzChild, cfg)
         if apps then
             if not issecretvalue(apps) and apps < 1 then apps = 1 end
             bar._stackCount = apps
@@ -3314,7 +3330,30 @@ local function UpdateStacks(bar, blzChild, cfg)
         end
         return
     end
-    -- Read stacks from blzChild.Icon.Applications FontString.
+    -- Prefer a validated count over Blizzard's raw text mirror.
+    local rejected
+    if blzChild then
+        local apps
+        apps, rejected = ReadStackApplications(blzChild, cfg)
+        if apps then
+            if bar._stacksText and not bar._stacksHidden then
+                bar._stacksText:SetText(apps)
+                bar._stacksText:Show()
+            elseif bar._stacksText then
+                bar._stacksText:Hide()
+            end
+            bar._stackCount = apps
+            return
+        end
+    end
+    -- Already know this frame's aura isn't ours -- raw text would be the same wrong data.
+    if rejected then
+        if bar._stacksText then bar._stacksText:Hide() end
+        bar._stackCount = 0
+        return
+    end
+    -- Fallback: Blizzard's own rendered text, only when a validated read
+    -- above wasn't available (e.g. secret instance id in combat).
     if blzChild and blzChild.Icon and blzChild.Icon.Applications then
         -- NEVER compare the text (it may be secret); SetText takes it natively.
         local ok, txt = pcall(blzChild.Icon.Applications.GetText, blzChild.Icon.Applications)
@@ -3329,9 +3368,7 @@ local function UpdateStacks(bar, blzChild, cfg)
             elseif bar._stacksText then
                 bar._stacksText:Hide()
             end
-            -- Stack count for the threshold overlay: applications can be a secret number we
-            -- cannot compare, but the overlay consumes it via SetValue (FeedTBBThresholdOverlay), which accepts secrets.
-            bar._stackCount = ReadStackApplications(blzChild) or 0
+            bar._stackCount = 0
             return
         end
     end
@@ -3345,7 +3382,7 @@ local function UpdateStacks(bar, blzChild, cfg)
                     bar._stacksText:SetText(txt)
                     bar._stacksText:Show()
                 end
-                bar._stackCount = ReadStackApplications(blzChild) or 0
+                bar._stackCount = 0
                 return
             end
         end
@@ -4690,6 +4727,12 @@ function ns.UpdateTrackedBuffBarTimers()
                 elseif blzChild.IsShown then
                     isActive = blzChild:IsShown() or false
                 end
+                if isActive then
+                    local seenSID = BlzChildAuraSID(blzChild)
+                    if seenSID and not CfgWantsSID(cfg, seenSID) then
+                        isActive = false
+                    end
+                end
             end
 
             -- Blizzard viewer bind-miss / not-tracked-at-all fallback: covers (1) the
@@ -4789,14 +4832,8 @@ function ns.UpdateTrackedBuffBarTimers()
                         end
                     end
 
-                    -- Name from the bar's own configured spellID -- deterministic, and
-                    -- spell-data APIs stay readable while auras are secret. NEVER from
-                    -- Blizzard's label FontString: their pooled frames recycle fast in
-                    -- combat and the label can lag a tick behind the icon, so scraping
-                    -- it faithfully copied a leftover name from the frame's previous
-                    -- occupant (the in-combat wrong-name field report). Live aura data
-                    -- is the last resort for unloaded spell data, and only when its
-                    -- spellId actually matches this config (instance ids recycle too).
+                    -- Name comes from the bar's own spellID, not Blizzard's label text,
+                    -- which can lag the icon after a pool reuse.
                     if bar._nameText and bar._nameText:IsShown() then
                         local nameStr
                         if cfg.spellID and cfg.spellID > 0 then
