@@ -702,6 +702,11 @@ local defaults = {
         partyUnlockPos    = nil,
         -- Party mirror of autoResizeTrackedBuffs ("Auto Resize Icons", Party tab); nil = on.
         partyAutoResizeTrackedBuffs = true,
+        -- Party Targets: a minimal clickable frame next to each party member
+        -- showing that member's current target (party1target..party4target).
+        -- OFF by default; the feature builds lazily on first enable (see
+        -- ns.PT_SetEnabled / the Party Target section below).
+        partyShowTargets = false,
     }
 }
 
@@ -9800,6 +9805,206 @@ ns._PositionPartySlots = function(bw, bh, cs, unitGrowth)
     return useSelf
 end
 
+-------------------------------------------------------------------------------
+--  Party Targets (opt-in, Party-only)
+--
+--  A minimal secure frame next to each party member showing that member's
+--  current target (party1target..party4target). Left-click targets that unit.
+--
+--  Design notes (see .github/CONTRIBUTING.md acceptance criteria):
+--   * Zero cost while disabled: nothing here runs until PT_SetEnabled(true).
+--     No frames, no events, no OnUpdate, no polling.
+--   * Built lazily on first enable; toggling off unregisters events and hides
+--     the frames (secure ops are deferred out of combat).
+--   * Taint-free click: each frame is a SecureUnitButton whose unit follows its
+--     owner party button via useparent-unit + unitsuffix="target", so the
+--     Blizzard secure handler resolves party<N>target at click time, in combat,
+--     with no protected mutation by us. Visibility is owned by RegisterUnitWatch
+--     (the same mechanism the party member's own frame drift uses), so the
+--     frame shows/hides itself as the target appears/disappears -- no polling.
+--   * Party-only: these frames attach exclusively to the party header buttons.
+--     Raid buttons, the raid header, sorting, layout and events are untouched.
+-------------------------------------------------------------------------------
+ns._partyTargetFrames = {}     -- one secure frame per party header button
+ns._ptEnabled  = false         -- currently-applied state
+ns._ptDesired  = false         -- requested state (may differ while in combat)
+ns._ptEventFrame = nil         -- name-refresh event host (created on first enable)
+
+-- Owner units whose UNIT_TARGET should refresh a party target name. Party
+-- tokens cover normal groups; raid1-5 cover arena (the party header binds
+-- raid1-5 there); player covers an in-header player frame. Kept as a set so
+-- the handler ignores the flood of nameplate/boss UNIT_TARGET events.
+local PT_OWNER_UNITS = {
+    party1 = true, party2 = true, party3 = true, party4 = true,
+    raid1 = true, raid2 = true, raid3 = true, raid4 = true, raid5 = true,
+    player = true,
+}
+
+-- Refresh one target frame's name from its owner button's live unit. The
+-- owner's unit attribute is the party token the header currently holds, so
+-- appending "target" mirrors the secure unitsuffix resolution used for clicks.
+local function PT_RefreshName(tf)
+    if not (tf and tf._ptName) then return end
+    local owner = tf._ptOwner
+    local pu = owner and owner:GetAttribute("unit")
+    if pu then
+        local tu = pu .. "target"
+        if UnitExists(tu) then
+            tf._ptName:SetText(UnitName(tu) or "")
+            return
+        end
+    end
+    tf._ptName:SetText("")
+end
+
+ns._PT_RefreshName = PT_RefreshName
+
+-- Refresh every target frame (small fixed loop, no allocation).
+ns._PT_RefreshAll = function()
+    local frames = ns._partyTargetFrames
+    for i = 1, #frames do
+        PT_RefreshName(frames[i])
+    end
+end
+
+-- Name-refresh events (visibility is handled by RegisterUnitWatch, not here).
+local function PT_OnEvent(_, event, arg1)
+    if not ns._ptEnabled then return end
+    if event == "UNIT_TARGET" then
+        if PT_OWNER_UNITS[arg1] then ns._PT_RefreshAll() end
+    else
+        ns._PT_RefreshAll()
+    end
+end
+
+-- Size and anchor the target frames beside their owner party buttons. Secure
+-- frames cannot be moved in combat, so this is out-of-combat only (mirrors the
+-- other party layout passes). The anchor is relative to the owner button, so it
+-- travels automatically when the header re-sorts or moves.
+ns._PT_Layout = function()
+    if not ns._ptEnabled then return end
+    if InCombatLockdown() then return end
+    local s = db.profile
+    local bw = PixelSnap(s.partyFrameWidth or s.frameWidth or 125)
+    local bh = PixelSnap(s.partyFrameHeight or s.frameHeight or 60)
+    local gap = PixelSnap(s.partyCellSpacing or s.cellSpacing or 2)
+    local frames = ns._partyTargetFrames
+    for i = 1, #frames do
+        local tf = frames[i]
+        tf:SetSize(bw, bh)
+        tf:ClearAllPoints()
+        tf:SetPoint("LEFT", tf._ptOwner, "RIGHT", gap, 0)
+    end
+end
+
+-- One-time construction of the secure target frames (one per party header
+-- button). Called only from PT_Apply, out of combat.
+ns._PT_Create = function()
+    if ns._ptCreated then return end
+    if not ns._partyHeader then return end
+    ns._ptCreated = true
+
+    for i = 1, 5 do
+        local owner = ns._partyHeader[i]
+        if owner then
+            local tf = CreateFrame("Button", "ERFPartyTarget" .. i, owner, "SecureUnitButtonTemplate")
+            -- Secure unit resolution: follow the owner button's unit + "target".
+            tf:SetAttribute("useparent-unit", true)
+            tf:SetAttribute("unitsuffix", "target")
+            -- Secure left-click targets the resolved unit (resolved at click
+            -- time by the Blizzard handler, so it is correct in combat).
+            tf:RegisterForClicks("AnyUp")
+            tf:SetAttribute("*type1", "target")
+            tf:Hide()  -- RegisterUnitWatch owns show/hide once enabled
+
+            -- Background (reuses the party/raid background convention).
+            local bg = tf:CreateTexture(nil, "BACKGROUND")
+            bg:SetAllPoints()
+            local c = db.profile.customBgColor or { r = 0, g = 0, b = 0 }
+            bg:SetColorTexture(c.r, c.g, c.b, (db.profile.bgDarkness or 50) / 100)
+            if PP then PP.DisablePixelSnap(bg) end
+            tf._ptBg = bg
+
+            -- Border (same 1px black convention as the power/dispel borders).
+            local bdr = CreateFrame("Frame", nil, tf)
+            bdr:SetAllPoints(tf)
+            bdr:SetFrameLevel(tf:GetFrameLevel() + 8)
+            if PP then PP.CreateBorder(bdr, 0, 0, 0, 1, 1) end
+            tf._ptBorder = bdr
+
+            -- Name text (reuses the raid-frames font helper).
+            local carrier = CreateFrame("Frame", nil, tf)
+            carrier:SetAllPoints(tf)
+            carrier:SetFrameLevel(tf:GetFrameLevel() + ns.LVL_TEXT)
+            local nameFS = carrier:CreateFontString(nil, "OVERLAY")
+            ApplyFont(nameFS, db.profile.nameSize or 10)
+            nameFS:SetPoint("LEFT", tf, "LEFT", 3, 0)
+            nameFS:SetPoint("RIGHT", tf, "RIGHT", -3, 0)
+            nameFS:SetJustifyH("CENTER")
+            nameFS:SetWordWrap(false)
+            nameFS:SetTextColor(1, 1, 1, 1)
+            tf._ptName = nameFS
+
+            tf._ptOwner = owner
+            -- Refresh the name the moment the unit watch shows the frame (the
+            -- owner acquired a target). Live target switches are covered by the
+            -- UNIT_TARGET handler; this is our own frame, so the hook is safe.
+            tf:HookScript("OnShow", function(self) PT_RefreshName(self) end)
+
+            ns._partyTargetFrames[#ns._partyTargetFrames + 1] = tf
+        end
+    end
+end
+
+-- Reconcile the applied state to ns._ptDesired. Out of combat only; if called
+-- in combat it arms a one-shot combat-end watcher and returns.
+ns._PT_Apply = function()
+    if ns._ptDesired == ns._ptEnabled then return end
+    if InCombatLockdown() then
+        if not ns._ptCombatWatcher then
+            local f = CreateFrame("Frame")
+            f:RegisterEvent("PLAYER_REGEN_ENABLED")
+            f:SetScript("OnEvent", function() ns._PT_Apply() end)
+            ns._ptCombatWatcher = f
+        end
+        return
+    end
+
+    if ns._ptDesired then
+        ns._PT_Create()
+        local ev = ns._ptEventFrame
+        if not ev then
+            ev = ns.TakeShell()
+            ev:SetScript("OnEvent", PT_OnEvent)
+            ns._ptEventFrame = ev
+        end
+        ev:RegisterEvent("UNIT_TARGET")
+        ev:RegisterEvent("UNIT_NAME_UPDATE")
+        ev:RegisterEvent("GROUP_ROSTER_UPDATE")
+        ev:RegisterEvent("PLAYER_ENTERING_WORLD")
+        ns._ptEnabled = true
+        ns._PT_Layout()
+        local frames = ns._partyTargetFrames
+        for i = 1, #frames do RegisterUnitWatch(frames[i]) end
+        ns._PT_RefreshAll()
+    else
+        if ns._ptEventFrame then ns._ptEventFrame:UnregisterAllEvents() end
+        local frames = ns._partyTargetFrames
+        for i = 1, #frames do
+            local tf = frames[i]
+            UnregisterUnitWatch(tf)
+            tf:Hide()
+        end
+        ns._ptEnabled = false
+    end
+end
+
+-- Public entry point wired to the "Enable Party Targets" option.
+ns.PT_SetEnabled = function(on)
+    ns._ptDesired = on and true or false
+    ns._PT_Apply()
+end
+
 -- Layout party frames: apply unitGrowth direction and cell spacing to the header.
 ns._LayoutPartyFrames = function()
     if not ns._partyHeader then return end
@@ -9951,6 +10156,10 @@ ns._LayoutPartyFrames = function()
     -- cell spacing -- has to move it too. OOC only (this function bails in combat). In a raid the
     -- boss group hangs off the raid headers instead, so skip the re-anchor scan there.
     if not IsInRaid() and ns.FB_ReAnchor then ns.FB_ReAnchor() end
+
+    -- Party Targets (opt-in): re-anchor/size the target frames alongside the
+    -- party buttons. No-op unless the feature is enabled.
+    ns._PT_Layout()
 end
 
 -- Party visibility: show/hide based on group state.
@@ -10217,6 +10426,10 @@ ns.ReloadPartyFrames = function(skipButtons)
     -- Aura containers read the party class through its scaled proxy; the
     -- fingerprint guards make this near-free when nothing party-side changed.
     if ns.RFC_ReloadAll then ns.RFC_ReloadAll() end
+
+    -- Party Targets (opt-in): keep the target frames sized/anchored with the
+    -- party buttons. No-op unless the feature is enabled.
+    ns._PT_Layout()
 end
 
 local function RegisterWithUnlockMode()
@@ -15382,6 +15595,10 @@ function ERF:OnEnable()
 
     -- Party layout minus the restyle loop (bodies deferred)
     ns.ReloadPartyFrames(true)
+
+    -- Party Targets (opt-in, default OFF): builds lazily on first enable, so a
+    -- profile with the feature off pays nothing here.
+    ns.PT_SetEnabled(db.profile.partyShowTargets)
 
     -- Friendly Boss Frames: initial activation (raid-only boss1-5 frames)
     if ns.FB_Apply then ns.FB_Apply() end

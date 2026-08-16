@@ -5462,7 +5462,13 @@ initFrame:SetScript("OnEvent", function(self)
                   else db.profile.partyFlipGrowth = false end
                   PartyReloadAndUpdate()
               end },
-            { type="label", text="" });  y = y - h
+            { type="toggle", text="Enable Party Targets",
+              tooltip="Show a small clickable frame next to each party member with that member's current target. Left-click a target to select it.",
+              getValue=function() return db.profile.partyShowTargets or false end,
+              setValue=function(v)
+                  db.profile.partyShowTargets = v
+                  if ns.PT_SetEnabled then ns.PT_SetEnabled(v) end
+              end });  y = y - h
 
         -------------------------------------------------------------------
         --  ALL VISUAL SECTIONS
