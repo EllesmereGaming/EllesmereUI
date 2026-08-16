@@ -107,6 +107,7 @@ local ROW_GAP      = 4
 local MARKER_SZ    = 23
 local MARKER_LBL_H = 10
 local ICON_SZ      = 30
+local RAID_GROUPS  = 8               -- subgroups a raid can hold; fixed by the game
 local PULL_SLOTS   = 3
 local PULL_DEFAULTS = { 3, 5, 10 }   -- also seeded into DB_DEFAULTS below
 ns.PULL_DEFAULTS = PULL_DEFAULTS
@@ -232,6 +233,9 @@ local shellTitle = {}          -- key -> title fontstring
 local groupHolder, markersHolder   -- plain content holders (see header)
 local iconBtn                  -- collapsed-state square
 local GROUP_CONTENT_H, MARKERS_CONTENT_H   -- computed at build
+local raidGroupButtons = {}    -- the eight subgroup toggles, in order
+local raidGroupsRowLabel       -- doubles as the no-raid-frames explanation
+local groupsPending            -- a group toggle that combat stopped us applying
 local Apply                    -- forward: the event handler closes over it
 
 -- ONE representation of each secure decision, run from both paths.
@@ -622,7 +626,13 @@ local function RefreshPermissions(force)
     lastAssist, lastLeader, lastRaid = assist, leader, raid
 
     for _, b in ipairs(groupButtons) do
-        if b.needsLeader then SetButtonEnabled(b, leader) else SetButtonEnabled(b, assist) end
+        -- The subgroup toggles change only what THIS client draws, so rank has
+        -- no say in them and RefreshRaidGroups owns their enabled state alone.
+        -- Without this the two would fight over the same alpha, last writer
+        -- winning, and a raider with no assist could not filter their own view.
+        if b.localOnly then                                  -- owned elsewhere
+        elseif b.needsLeader then SetButtonEnabled(b, leader)
+        else SetButtonEnabled(b, assist) end
     end
 
     -- Secure buttons: cosmetic only, never Enable/Disable (see header).
@@ -807,6 +817,112 @@ local function MakeShell(key)
     return f
 end
 
+-------------------------------------------------------------------------------
+--  Subgroup visibility
+--
+--  Which subgroups the raid frames draw, as a row of eight numerals. Blizzard
+--  used to expose this on the raid frame manager and removed the UI; the
+--  functions linger but nothing exercises them, so a raid leader who wants to
+--  watch only groups 1-4 has nowhere to say so.
+--
+--  This is a ROW inside Group & Pull, not a panel of its own. Show As owns the
+--  window composition outright and does so deliberately; a fourth axis for one
+--  row of buttons would be paying for a whole window's worth of state -- a
+--  shell, a saved position, an unlock element, a title -- to draw eight
+--  numerals. It rides whatever composition the user already picked.
+--
+--  It drives EllesmereUIRaidFrames' own visibleGroups directly rather than
+--  keeping a copy: one setting, one owner. When that addon is disabled there is
+--  nothing to drive and the row says so instead of lying.
+-------------------------------------------------------------------------------
+
+local RAIDGROUPS_ROW_LABEL = "Groups Shown"
+local RAIDGROUPS_ROW_NO_RF = "Groups Shown (needs EllesmereUI Raid Frames)"
+
+-- Re-resolved on every call: nil while the Raid Frames addon is disabled, and
+-- a profile switch repoints .profile underneath.
+local function RaidFramesProfile()
+    local get = EllesmereUI.Lite and EllesmereUI.Lite.GetAddon
+    local a = get and get("EllesmereUIRaidFrames", true)
+    return a and a.db and a.db.profile
+end
+
+-- Matches how the raid frames themselves read it: absent means unfiltered.
+-- Their DEFAULT is groups 1-6 (7 and 8 off), which this row shows as-is -- a
+-- second default here would be exactly the drift that reading theirs avoids.
+local function GroupShown(index)
+    local p = RaidFramesProfile()
+    local vg = p and p.visibleGroups
+    return not vg or vg[index] ~= false
+end
+
+local function SetGroupShown(index, on)
+    local p = RaidFramesProfile()
+    local vg = p and p.visibleGroups
+    if not vg then return end
+    vg[index] = on
+
+    -- Applying this rebuilds secure group headers, which the game forbids in
+    -- combat: their _LayoutGroupsImpl returns early under lockdown, and their
+    -- own post-combat pass only re-lays out for roster and size-tier changes,
+    -- so it would never pick this up. The setting lands now; the re-render
+    -- waits for PLAYER_REGEN_ENABLED.
+    if InCombatLockdown() then
+        groupsPending = true
+    elseif _G._ERF_RefreshAll then
+        _G._ERF_RefreshAll()
+    end
+end
+
+-- Accent numeral = this group is drawn. The colour is passed in rather than
+-- resolved here: the caller repaints eight buttons from one accent read.
+local function PaintRaidGroup(b, shown, ar, ag, ab)
+    if shown then
+        b._lbl:SetTextColor(ar, ag, ab, 1)
+    else
+        b._lbl:SetTextColor(1, 1, 1, 0.35)
+    end
+end
+
+-- Repaints all eight, and cuts input when there are no EllesmereUI raid frames
+-- to redraw.
+--
+-- That is the whole fallback for a user running the Blizzard raid frames or
+-- another addon's. Driving Blizzard's own group filter was considered and
+-- rejected: CompactRaidFrameManager is protected, and this filter is the one
+-- part of it whose UI Blizzard has already removed -- there is no supported
+-- read to paint from. Anyone who disabled our raid frames is using a
+-- replacement that carries its own group filter anyway.
+--
+-- Memoized on the state it draws, the same reason RefreshPermissions is: this
+-- runs on GROUP_ROSTER_UPDATE, which bursts through a raid night, and nothing
+-- it reads changes on that event. `force` is for callers that have to repaint
+-- regardless -- Apply, whose accent colour or fonts may have moved underneath.
+local lastGroupsMask
+local function RefreshRaidGroups(force)
+    if not raidGroupsRowLabel then return end   -- before build
+    local p  = RaidFramesProfile()
+    local vg = p and p.visibleGroups
+
+    -- One integer standing for everything this function would draw: the eight
+    -- toggles plus whether there is anything to drive at all.
+    local mask, bit = p and 1 or 0, 2
+    for i = 1, RAID_GROUPS do
+        if not vg or vg[i] ~= false then mask = mask + bit end
+        bit = bit * 2
+    end
+    if not force and mask == lastGroupsMask then return end
+    lastGroupsMask = mask
+
+    local ar, ag, ab = EllesmereUI.GetAccentColor()
+    for i, b in ipairs(raidGroupButtons) do
+        SetButtonEnabled(b, p ~= nil)
+        PaintRaidGroup(b, not vg or vg[i] ~= false, ar, ag, ab)
+    end
+    raidGroupsRowLabel:SetText(EllesmereUI.L(
+        p and RAIDGROUPS_ROW_LABEL or RAIDGROUPS_ROW_NO_RF))
+end
+
 -- Group & Pull content, in its own plain holder so one-window mode can treat
 -- it uniformly with the markers holder.
 local function BuildGroupContent()
@@ -848,6 +964,32 @@ local function BuildGroupContent()
     end
     local cancel = MakeGroupButton(f, "Stop", w, StopPull)
     cancel:SetPoint("TOPLEFT", f, "TOPLEFT", PAD + (w + ROW_GAP) * PULL_SLOTS, y)
+    y = y - ROW_H - ROW_GAP
+
+    -- Subgroup visibility row. Labelled like the marker rows, because it is the
+    -- same kind of thing: a strip of small toggles that needs a word to say
+    -- what it toggles. The text belongs to RefreshRaidGroups, which also uses
+    -- it to explain an absent Raid Frames addon.
+    raidGroupsRowLabel = TrackFont(f, EllesmereUI.MakeFont(f, 9, nil, 1, 1, 1), 9)
+    raidGroupsRowLabel:SetAlpha(0.55)
+    raidGroupsRowLabel:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, y)
+    y = y - MARKER_LBL_H - 2
+
+    local gw = (PANEL_W - PAD * 2 - (RAID_GROUPS - 1) * ROW_GAP) / RAID_GROUPS
+    for i = 1, RAID_GROUPS do
+        -- Declared before the call: the click closure reaches the button
+        -- through it, and `local b = ...` would not be in scope inside its own
+        -- initializer. Same shape the pull buttons use.
+        local b
+        b = MakeGroupButton(f, "", gw, function()
+            SetGroupShown(i, not GroupShown(i))
+            PaintRaidGroup(b, GroupShown(i), EllesmereUI.GetAccentColor())
+        end)
+        b._lbl:SetText(tostring(i))
+        b.localOnly = true   -- rank does not gate a local view setting
+        b:SetPoint("TOPLEFT", f, "TOPLEFT", PAD + (gw + ROW_GAP) * (i - 1), y)
+        raidGroupButtons[i] = b
+    end
     y = y - ROW_H
 
     GROUP_CONTENT_H = -y
@@ -1267,8 +1409,17 @@ local function EnsureEvents()
                 Apply()
                 return
             end
+            -- A subgroup toggled during combat set the value but could not
+            -- rebuild the secure headers. Replayed before the mode gate for the
+            -- same reason applyPending is: the setting is already changed, and
+            -- swallowing the re-render leaves the frames showing the old set.
+            if event == "PLAYER_REGEN_ENABLED" and groupsPending then
+                groupsPending = nil
+                if _G._ERF_RefreshAll then _G._ERF_RefreshAll() end
+            end
             if Mode() == "never" then return end
             RefreshPermissions()
+            RefreshRaidGroups()
             RefreshAssistGate()
         end)
     end
@@ -1406,6 +1557,8 @@ function Apply()
     ApplyFonts()
     RefreshPullTimes()
     RefreshPermissions(true)
+    -- Forced: the accent colour the numerals are painted in may have moved.
+    RefreshRaidGroups(true)
 end
 _G._EUI_RaidTools_Apply = Apply
 
