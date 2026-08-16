@@ -125,6 +125,15 @@ local function AddCleanID(include, id)
     AddVariants(include, id)
 end
 
+-- True if two ids are forms of the same ability, not just linked in the same group.
+local function SameBaseSpell(a, b)
+    if a == b then return true end
+    if not (C_Spell and C_Spell.GetBaseSpell) then return false end
+    local ba = C_Spell.GetBaseSpell(a)
+    local bb = C_Spell.GetBaseSpell(b)
+    return (ba or a) == (bb or b)
+end
+
 -- Reconcile a config's include set against Blizzard's cooldown info -- the SAME source
 -- of truth the tick's frame matching trusts (MatchesSID). The aura that actually
 -- appears often carries an id that exists ONLY in linkedSpellIDs (variant chains:
@@ -146,8 +155,14 @@ local function AddCooldownInfoIDs(include, cfg)
     AddCleanID(include, info.overrideSpellID)
     AddCleanID(include, info.overrideTooltipSpellID)
     if info.linkedSpellIDs then
+        -- Only widen the filter for ids that are truly the same ability.
+        local root = cfg.spellID or cfg.baseSpellID
         for k = 1, #info.linkedSpellIDs do
-            AddCleanID(include, info.linkedSpellIDs[k])
+            local lid = info.linkedSpellIDs[k]
+            if not (issecretvalue and issecretvalue(lid)) and type(lid) == "number"
+               and root and SameBaseSpell(lid, root) then
+                AddCleanID(include, lid)
+            end
         end
     end
 end
