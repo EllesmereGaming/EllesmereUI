@@ -118,6 +118,14 @@ local function BandRank(bands, cur, reverse)
 end
 
 local _prevRank
+-- Own generation tracker, NOT shared with EvalThresholdSound's _prevGen: the
+-- two are called back-to-back at every wiring site (threshold unconditionally,
+-- then band inside "if band mode on"). If they shared _prevGen, whichever
+-- runs first on the tick ns.CfgGen changes would consume the resync, and the
+-- other would compare against a stale baseline from before the edit instead
+-- of resyncing -- silently breaking the "no spurious cue after a
+-- profile/spec/threshold edit" guarantee for whichever call comes second.
+local _prevGenBand
 
 -- bands:  the resolved band array for the active entry (already includes the
 --         sp.bands fallback the caller applied via ResolveBandConfig). The
@@ -134,8 +142,8 @@ function ns.EvalBandSound(bands, cur, reverse)
         _prevRank = nil
         return
     end
-    if ns.CfgGen ~= _prevGen then
-        _prevGen = ns.CfgGen
+    if ns.CfgGen ~= _prevGenBand then
+        _prevGenBand = ns.CfgGen
         _prevRank = BandRank(bands, cur, reverse)
         return
     end
