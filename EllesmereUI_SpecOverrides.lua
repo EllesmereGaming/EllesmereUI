@@ -2294,8 +2294,14 @@ local function BmApplyLayer(layer, noPageRefresh)
     rf.bmDisplayMode = layer.displayMode or "custom"
     rf.bmIconZoom = layer.iconZoom or 0.08
     -- v2 payload: applied through the BM2 bridge, which also converts
-    -- legacy-only layers in place on first touch.
-    if _G._ERF_BM2ApplyLayer then _G._ERF_BM2ApplyLayer(layer) end
+    -- legacy-only layers in place on first touch. The baseline rides along so the
+    -- bridge can seed it under the fork: a spec the fork never configured inherits
+    -- the baseline set instead of being wiped to empty. Passing the baseline AS the
+    -- layer (restoring it) is harmless, the overlay is then identical.
+    if _G._ERF_BM2ApplyLayer then
+        local bs = GetBmStore()
+        _G._ERF_BM2ApplyLayer(layer, bs and bs.baselineLayout or nil)
+    end
     if _G._ERF_BMRefresh then _G._ERF_BMRefresh(noPageRefresh) end
     return true
 end

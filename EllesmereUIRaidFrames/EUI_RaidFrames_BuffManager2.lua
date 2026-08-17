@@ -260,15 +260,34 @@ end
 -- Applies a BM layer's v2 payload into the live store, converting legacy-only
 -- layers in place on first touch. layer.bm2 doubles as the conversion marker:
 -- layers already carrying v2 data are never re-derived from legacy fields.
-function _G._ERF_BM2ApplyLayer(layer)
+-- baseLayer (the shared baseline layer, nil when there is none) is seeded FIRST and
+-- the fork overlays it, so a spec the fork never configured inherits the baseline
+-- instead of going blank. The refill used to be a plain replacement, which silently
+-- emptied the indicator set of every spec not seeded at activation time: a Death
+-- Knight's defensives vanished on entering a raid and no amount of editing the
+-- baseline could bring them back, because the fork overwrote it every zone-in.
+-- Presence in the fork wins, never value: a spec deliberately left with an empty
+-- set still reads empty, because the key exists.
+function _G._ERF_BM2ApplyLayer(layer, baseLayer)
     local b = Store()
     if not b or not layer then return end
     if not layer.bm2 then
         layer.bm2 = ns.BM2_ConvertLegacySet(layer.indicators, layer.displayMode)
     end
+    -- Same lazy conversion the header promises for the baseline and other forks.
+    if baseLayer and not baseLayer.bm2 then
+        baseLayer.bm2 = ns.BM2_ConvertLegacySet(baseLayer.indicators, baseLayer.displayMode)
+    end
+    local base = baseLayer and baseLayer.bm2 or nil
     wipe(b.specs)
+    if base and base.specs then
+        for k, v in pairs(base.specs) do b.specs[k] = LegacyCopy(v) end
+    end
     for k, v in pairs(layer.bm2.specs or {}) do b.specs[k] = LegacyCopy(v) end
     wipe(b.seeded)
+    if base and base.seeded then
+        for k, v in pairs(base.seeded) do b.seeded[k] = v end
+    end
     for k, v in pairs(layer.bm2.seeded or {}) do b.seeded[k] = v end
     ns.BM2_Invalidate()
 end
