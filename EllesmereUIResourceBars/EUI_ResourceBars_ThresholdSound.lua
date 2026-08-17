@@ -84,3 +84,75 @@ function ns.EvalThresholdSound(entry, cur, useThresh)
         PlaySoundKey(entry.thresholdSoundKey)
     end
 end
+
+-------------------------------------------------------------------------------
+-- Per-band alert sound (multi-band coloring): plays a distinct cue as the
+-- resource crosses into a HIGHER band on a gain -- same "gain, not every
+-- tick" spirit as EvalThresholdSound above, but keyed on which band matches
+-- instead of the raw count.
+--
+-- Rank, not raw count: bands[i] holds { to, r, g, b, a, soundKey }, sorted
+-- ascending by `to`. FindCountBand's matched index moves monotonically with
+-- `cur` in BOTH directions (forward scan for "Up to", backward scan for
+-- "From"), so tracking "which index matched" and firing when it INCREASES is
+-- a correct, direction-agnostic gain signal. A raw _prevCur comparison can't
+-- do this cleanly: FindCountBand returns nil on both sides of the band list,
+-- and nil means something different per direction (above the top band for
+-- "Up to", below the first band for "From") -- BandRank folds both cases into
+-- a single monotonic 0..#bands+1 scale so "rank increased" always means "cur
+-- moved toward the more severe end", regardless of direction.
+-------------------------------------------------------------------------------
+local function BandRank(bands, cur, reverse)
+    if not bands or #bands == 0 then return 0 end
+    local band = ns.FindCountBand and ns.FindCountBand(bands, cur, reverse)
+    if not band then
+        -- "Up to": no match = above every band (most severe, no sound to
+        -- play there -- nothing configured past the last band). "From": no
+        -- match = below every band (least severe, baseline).
+        return reverse and 0 or (#bands + 1)
+    end
+    for i = 1, #bands do
+        if bands[i] == band then return i end
+    end
+    return 0
+end
+
+local _prevRank
+
+-- bands:  the resolved band array for the active entry (already includes the
+--         sp.bands fallback the caller applied via ResolveBandConfig). The
+--         caller only invokes this from inside its own "band mode is on"
+--         branch (_tsBandOn/bandOn), so there is no separate enabled flag to
+--         re-check here -- unlike EvalThresholdSound's `entry`, which the
+--         caller passes unconditionally every tick and which can legitimately
+--         be nil (single threshold off) while band mode is independently on.
+-- cur:    current resource count -- same clean-value contract as
+--         EvalThresholdSound; never call this with a possibly-secret value
+-- reverse: the resolved band direction ("Up to"/false vs "From"/true)
+function ns.EvalBandSound(bands, cur, reverse)
+    if not bands or #bands == 0 then
+        _prevRank = nil
+        return
+    end
+    if ns.CfgGen ~= _prevGen then
+        _prevGen = ns.CfgGen
+        _prevRank = BandRank(bands, cur, reverse)
+        return
+    end
+    if GetTime() < _settleUntil then
+        _prevRank = BandRank(bands, cur, reverse)
+        return
+    end
+
+    local rank = BandRank(bands, cur, reverse)
+    local prevRank = _prevRank
+    _prevRank = rank
+    -- prevRank can still be nil on the very first call of a session (no
+    -- resync branch has run yet) -- just establish the baseline, no cue,
+    -- mirroring EvalThresholdSound's own resync-then-observe behavior.
+    if prevRank == nil then return end
+    if rank > prevRank and rank >= 1 and rank <= #bands then
+        local band = bands[rank]
+        if band and band.soundKey then PlaySoundKey(band.soundKey) end
+    end
+end
