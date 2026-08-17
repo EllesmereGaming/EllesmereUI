@@ -1404,6 +1404,13 @@ initFrame:SetScript("OnEvent", function(self)
         local soundPaths, soundNames, soundOrder = EllesmereUI.GetSoundCatalog()
         for sk, sv in pairs(soundNames) do soundValues[sk] = sv end
         soundValues._menuOpts = {
+            -- Parents the dropdown's popup menu INTO the Color Bands popup
+            -- instead of UIParent, so it inherits the popup's scale and,
+            -- crucially, draws as a child of it rather than competing on raw
+            -- frame level (BuildDropdownMenu hardcodes level 200, well below
+            -- this popup's own level -- unparented, the menu rendered behind
+            -- the popup and only the part spilling past its edges was visible).
+            parent = bandPopup,
             itemHeight = 24, maxTextWidthPct = 0.8, searchable = true,
             iconAtlas = function(key)
                 if key == "none" or not soundPaths[key] then return nil end
@@ -6396,6 +6403,14 @@ initFrame:SetScript("OnEvent", function(self)
 							set = function(v) local e=_thrEnt(); if not e then return end e.thresholdSoundKey=v; RefreshClass() end },
 					},
 				})
+				-- Parent the Sound dropdown's popup menu into this cog popup
+				-- instead of UIParent: BuildDropdownMenu hardcodes its menu
+				-- frame level (200), well below this cog's own level (500), so
+				-- unparented it renders BEHIND the cog and is only visible
+				-- where it spills past the cog's edges. threshCog only exists
+				-- once BuildCogPopup returns, so this has to be set here
+				-- rather than inline in the values table above.
+				threshSoundValues._menuOpts.parent = threshCog
 				local threshCogBtn = CreateFrame("Button", nil, threshRow)
 				threshCogBtn:SetSize(20, 20)
 				threshCogBtn:SetPoint("RIGHT", threshRow, "RIGHT", 0, 0)
