@@ -290,6 +290,38 @@ local function EntryOwning(fkey)
     return _fkeyIndex[fkey]
 end
 
+--- Spec precedence over a conditional, SCOPED to the spec being applied. A spec
+--- override only outranks a conditional where it actually holds a value:
+--- _fkeyIndex answers the store-wide question ("did ANY group ever capture this
+--- fkey"), which froze conditionals on specs in no group at all -- a healer-only
+--- group silently killed a Raid override on a Guardian. specID nil (unknown
+--- spec) stays conservative and reports a claim.
+local function SpecClaimsFKey(fkey, specID)
+    local entry = EntryOwning(fkey)
+    if not entry then return false end
+    if not specID then return true end
+    local m = entry.values and entry.values[specID]
+    return (m and m[fkey] ~= nil) or false
+end
+
+--- True when the APPLIED conditional supplies this fkey, so live holds the
+--- conditional's write and NOT a user edit. Harvest must retain the stored value
+--- verbatim for these (same reasoning as MatchOwnedFKey): now that the gate above
+--- lets a conditional write fkeys a group tracks without claiming, banking live
+--- would adopt the conditional's value as the spec's own. Reads the published
+--- namespace, not the Cond local, which is declared much further down this file.
+local function CondHeldFKey(fkey)
+    local C = EllesmereUI._CondOv
+    if not C or not C.EntryOwning then return false end
+    local e = C.EntryOwning(fkey)
+    if not e then return false end
+    local gid = EllesmereUI.Conditions_AppliedGid
+        and EllesmereUI.Conditions_AppliedGid() or nil
+    if not gid then return false end
+    local m = e.values and e.values[gid]
+    return (m and m[fkey] ~= nil) or false
+end
+
 -------------------------------------------------------------------------------
 --  Live profile access by fkey
 -------------------------------------------------------------------------------
@@ -651,6 +683,12 @@ local function Harvest(specID)
                 -- edit; Apply skips them so live permanently diverges from stored.
                 -- Banking it would adopt the matched width into every spec map it
                 -- touches (store-wide homogenization) -- retain stored verbatim.
+                if prev then m[fkey] = prev[fkey] else m[fkey] = nil end
+            elseif CondHeldFKey(fkey) then
+                -- The applied conditional owns this fkey's live value, so live is
+                -- its write and not a user edit. Same hazard and same remedy as
+                -- match-owned above: banking would plant the conditional's value
+                -- as this spec's own override, permanently.
                 if prev then m[fkey] = prev[fkey] else m[fkey] = nil end
             elseif m[fkey] == dv then
                 -- Equal to default is never a revert outside a session (the default
@@ -1330,8 +1368,11 @@ function EllesmereUI.SpecOverrides_PeekEffectiveValues(folder)
             for _, entry in ipairs(cstore) do
                 local map = gid and entry.values[gid] or nil
                 for fkey, def in pairs(entry.values.default) do
+                    -- Same per-spec gate the runtime overlay uses, so the reported
+                    -- effective value matches what actually applies.
                     if not BlacklistedFKey(fkey) and not MatchOwnedFKey(fkey)
-                       and not EntryOwning(fkey) and SplitFKey(fkey) == folder then
+                       and not SpecClaimsFKey(fkey, _activeSpec or CurrentSpecID())
+                       and SplitFKey(fkey) == folder then
                         local v = def
                         local fromCond = false
                         if map and map[fkey] ~= nil then
@@ -3456,11 +3497,14 @@ function Cond.WriteValues(gid, forSession)
     local store = Cond.GetStore()
     if not store or #store == 0 then return nil end
     local touched = nil
+    -- Spec precedence is per-SPEC, not store-wide: see SpecClaimsFKey. Harvest
+    -- retains conditional-held fkeys, so a write here never banks into a spec map.
+    local specID = _activeSpec or CurrentSpecID()
     for _, entry in ipairs(store) do
         local map = gid and entry.values[gid] or nil
         for fkey, def in pairs(entry.values.default) do
             if not BlacklistedFKey(fkey) and not MatchOwnedFKey(fkey)
-               and (forSession or not EntryOwning(fkey)) then
+               and (forSession or not SpecClaimsFKey(fkey, specID)) then
                 local v = def
                 if map and map[fkey] ~= nil then v = map[fkey] end
                 if v == NIL_SENT then v = nil end
