@@ -224,11 +224,58 @@ end
 -- displayed buff is purgeable by construction and no per-aura signal is needed. Style and
 -- color come from the Dispel Glow options.
 
+-- Engine token for "has a dispel type". Blizzard documents it as dispellable
+-- REGARDLESS of whether the player's raid can dispel it, so it narrows the row
+-- but cannot answer "can I remove this" -- that is the capability gate's job.
+local DISPELLABLE = AuraUtil and AuraUtil.AuraFilters and AuraUtil.AuraFilters.Dispellable
+
 -- Effective glow state: with Show All Enemy Buffs on, the row is no
 -- longer dispellable-only, so the glow is suppressed entirely (the style
 -- dropdown and swatch are disabled in the options while that toggle is on).
+-- A character with no offensive dispel gets no glow either -- the option
+-- promises "you can dispel this", and the engine's DISPELLABLE token is
+-- documented as dispellable "regardless of whether the player's raid can
+-- dispel them", so it cannot answer that on its own.
 local function PurgeGlowActive()
-    return not not (ns.GetDispelGlow and ns.GetDispelGlow() and not PVal("showAllEnemyBuffs"))
+    if not (ns.GetDispelGlow and ns.GetDispelGlow()) then return false end
+    if PVal("showAllEnemyBuffs") then return false end
+    -- Without the DISPELLABLE token the row is not dispellable-only, so nothing
+    -- in it can be claimed to be dispellable by anyone.
+    if not DISPELLABLE then return false end
+    local magic, enrage = false, false
+    if ns.GetOffensiveDispelTypes then magic, enrage = ns.GetOffensiveDispelTypes() end
+    return magic or enrage
+end
+
+-- Buff row split. DISPELLABLE admits Magic buffs AND enrages, and the player
+-- rarely removes both, so the row is cut into two groups whose candidate
+-- filters are exact complements: group "np" carries Magic, group "np2" carries
+-- everything else, which on an enemy buff means an enrage. An enrage has no
+-- dispelName, so includeDispelTypes rejects it (a nil key reads as "not in the
+-- list") and excludeDispelTypes keeps it -- proven live against Agitation.
+-- Nothing is hidden by the split; only the glow follows capability.
+local BUFF_MAGIC = { includeDispelTypes = { Magic = true } }
+local BUFF_NONMAGIC = { excludeDispelTypes = { Magic = true } }
+
+-- The split costs an extra engine group per plate, so take it only when the
+-- two halves must look different: one dispel type known and not the other, or
+-- both known and drawn in their own colors.
+local function BuffSplit()
+    if not PurgeGlowActive() then return false end
+    local magic, enrage = ns.GetOffensiveDispelTypes()
+    if magic ~= enrage then return true end
+    return (ns.GetDispelGlowUseTypeColor and ns.GetDispelGlowUseTypeColor()) or false
+end
+
+-- Glow state and dispel type for buff group idx (1 = Magic, or the whole row
+-- while unsplit; 2 = non-Magic). The type is passed on unconditionally --
+-- GetDispelGlowColor ignores it unless per-type colors are on.
+local function BuffGroupGlow(idx)
+    if not PurgeGlowActive() then return false, nil end
+    if not BuffSplit() then return idx ~= 2, nil end
+    local magic, enrage = ns.GetOffensiveDispelTypes()
+    if idx == 2 then return enrage == true, "enrage" end
+    return magic == true, "magic"
 end
 
 -- PANDEMIC_GLOW_STYLES index -> shared EllesmereUI.Glows.STYLES index (the
@@ -288,7 +335,9 @@ local function ApplyNPBuffExtra(button, d, style)
     end
 end
 
-local function BuildNPStyle(kind)
+-- idx picks the buff group (see BuffGroupGlow); it is meaningless for the
+-- other kinds.
+local function BuildNPStyle(kind, idx)
     local size = NPSize(kind)
     local height, cropped = NPHeight(kind, size)
     -- User text settings, resolved through the legacy fallback chains, so
@@ -324,16 +373,29 @@ local function BuildNPStyle(kind)
         stackOffY = stk.y,
     }
     if kind == "buffs" then
-        style.purgeGlow = PurgeGlowActive()
+        -- Per-aura dispel type is unreadable under 12.1 secrecy, so the type is
+        -- a property of the GROUP and resolves once, here.
+        local glow, dispelType = BuffGroupGlow(idx or 1)
+        style.purgeGlow = glow
         style.purgeStyle = (ns.GetDispelGlowStyle and ns.GetDispelGlowStyle()) or 2
-        -- Type-color option removed (per-aura type is unreadable under
-        -- 12.1 secrecy); the glow always uses the custom color.
         if ns.GetDispelGlowColor then
-            style.purgeR, style.purgeG, style.purgeB = ns.GetDispelGlowColor(nil)
+            style.purgeR, style.purgeG, style.purgeB = ns.GetDispelGlowColor(dispelType)
         end
         style.applyExtra = ApplyNPBuffExtra
     end
     return style
+end
+
+-- Buff group -> style key. Group keys and style keys are both fixed; only the
+-- style CONTENTS follow capability, so a talent swap never has to re-declare a
+-- group (the engine bakes the style in at declaration).
+local BUFF_STYLE = { "np:buffs", "np:buffs2" }
+
+local function BuildNPStyles()
+    for i = 1, #KINDS do
+        AK.styles["np:" .. KINDS[i]] = BuildNPStyle(KINDS[i])
+    end
+    AK.styles["np:buffs2"] = BuildNPStyle("buffs", 2)
 end
 
 ------------------------------------------------------------------------------
@@ -745,20 +807,26 @@ end
 
 -- Builds one bundle container from a pre-born shell when available (group add + finish
 -- are combat-legal -- probe T1/T1b), else creates fresh (OOC only; the callers guard).
-local function BundleContainer(b, kind, groupSpec)
+local function BundleContainer(b, kind, groupSpecs)
     local shell = b.shells and b.shells[kind]
     if shell then
         b.shells[kind] = nil
-        AK.AddGroupToContainer(shell, groupSpec)
+        for i = 1, #groupSpecs do
+            AK.AddGroupToContainer(shell, groupSpecs[i])
+        end
         AK.FinishContainer(shell, "none")
         return shell
     end
     return (AK.CreateContainer(b.holder, "none", {
         point = { "CENTER", b.holder, "CENTER" },
-        groups = { groupSpec },
+        groups = groupSpecs,
     }))
 end
 
+-- Declared up top (near PurgeGlowActive, which reads it) rather than here: a
+-- file-scope local is invisible to functions defined above it, and the earlier
+-- reference would silently resolve to a nil global.
+--
 -- Enemy buff narrowing belongs in the FILTER STRING, not in candidateFilters. A candidate
 -- filter is a Lua compare against auraData.isStealable, and aura data on an enemy unit is
 -- SECRET in instanced PvP: there "isStealable ~= true" is true for every buff, so the group
@@ -767,7 +835,6 @@ end
 -- the engine in C, like every filter string, so it stays plain under restriction -- which is
 -- also why the debuff row never broke. Clients predating the token keep the old candidate
 -- filter: no worse than before, and PvE is unaffected either way.
-local DISPELLABLE = AuraUtil and AuraUtil.AuraFilters and AuraUtil.AuraFilters.Dispellable
 
 -- INCLUDE_NAME_PLATE_ONLY matches Blizzard's own buffFilterString: without it a
 -- nameplate-only enemy buff never enters the container at all.
@@ -779,13 +846,16 @@ local function BuffFilter()
     return t
 end
 
+-- Candidate filter for buff group 1. While split it carries Magic only; the
+-- rest of the row moves to group 2.
 local function BuffCand()
+    if BuffSplit() then return BUFF_MAGIC end
     if DISPELLABLE or PVal("showAllEnemyBuffs") then return nil end
     return { isStealable = true }
 end
 
 local function AddBundleDebuffs(b)
-    b.containers.debuffs = BundleContainer(b, "debuffs", {
+    b.containers.debuffs = BundleContainer(b, "debuffs", { {
         key = "np",
         filter = { "HARMFUL", "PLAYER", "INCLUDE_NAME_PLATE_ONLY", "!CROWD_CONTROL" },
         maxFrameCount = PVal("maxDebuffs") or 5,
@@ -793,41 +863,75 @@ local function AddBundleDebuffs(b)
         candidateFilters = DebuffCand(),
         style = "np:debuffs",
         layout = { elementWidth = 26, elementHeight = 26, elementSpacing = 4, lineSpacing = 4 },
-    })
+    } })
 end
 
-local function AddBundleBuffs(b)
-    -- Default: dispellable (purgeable/stealable) enemy buffs only, matching
-    -- the live behavior; "Show All Enemy Buffs" drops the narrowing live
-    -- and falls back to the important-sorted full set.
-    b.containers.buffs = BundleContainer(b, "buffs", {
-        key = "np",
+-- One buff group spec. idx 1 is the whole row while unsplit and the Magic half
+-- while split; idx 2 is the non-Magic half and is only ever declared while the
+-- split is on (it parks at 0 frames afterwards rather than being removed).
+local function BuffGroupSpec(idx)
+    local styleKey = BUFF_STYLE[idx]
+    return {
+        key = (idx == 1) and "np" or "np2",
         filter = BuffFilter(),
         maxFrameCount = 4,
         sortMethod = SORT_IMPORTANT,
-        candidateFilters = BuffCand(),
-        style = "np:buffs",
+        candidateFilters = (idx == 1) and BuffCand() or BUFF_NONMAGIC,
+        style = styleKey,
         -- Purge glow: built on first paint so a button born while the glow is
         -- already on does not wait for the next style pass.
         extraInit = function(btn, dd)
-            local style = AK.styles["np:buffs"]
+            local style = AK.styles[styleKey]
             if style and style.purgeGlow then
                 ApplyNPBuffExtra(btn, dd, style)
             end
         end,
         layout = { elementWidth = 24, elementHeight = 24, elementSpacing = 4, lineSpacing = 4 },
-    })
+    }
+end
+
+local function AddBundleBuffs(b)
+    -- Default: dispellable (purgeable/stealable) enemy buffs only, matching
+    -- the live behavior; "Show All Enemy Buffs" drops the narrowing live
+    -- and falls back to the important-sorted full set. Group 2 is declared
+    -- only once the split is on -- see NPB_ApplyContainer for the later
+    -- declare, which is combat-legal.
+    local specs = { BuffGroupSpec(1) }
+    if BuffSplit() then specs[2] = BuffGroupSpec(2) end
+    b.containers.buffs = BundleContainer(b, "buffs", specs)
+    if #specs > 1 then b.containers.buffs._npbSplit = true end
 end
 
 local function AddBundleCC(b)
-    b.containers.cc = BundleContainer(b, "cc", {
+    b.containers.cc = BundleContainer(b, "cc", { {
         key = "np",
         filter = { "HARMFUL", "CROWD_CONTROL" },
         maxFrameCount = 2,
         sortMethod = SORT_DEFAULT,
         style = "np:cc",
         layout = { elementWidth = 24, elementHeight = 24, elementSpacing = 4, lineSpacing = 4 },
-    })
+    } })
+end
+
+-- Declares or parks the non-Magic buff group to match the current split.
+-- Group frames are never freed, so a group that falls out of the split parks
+-- at 0 rather than being removed.
+local function NPB_ApplyContainer(container)
+    if not container then return end
+    local split = BuffSplit()
+    if split and not container._npbSplit then
+        AK.AddGroupToContainer(container, BuffGroupSpec(2))
+        container._npbSplit = true
+        -- The new group carries the declaration's placeholder sizing until an
+        -- anchor pass reaches it, and that pass skips containers whose layout
+        -- stamp is current -- so drop the stamp.
+        container._npcGeoGen = nil
+        -- A group added after FinishContainer's parse renders nothing until the
+        -- next SetUnit unless this container is asked to re-parse now.
+        if container._npcBoundUnit then container:UpdateAllAuras() end
+    elseif container._npbSplit then
+        container:SetAuraGroupMaxFrameCount("np2", split and 4 or 0)
+    end
 end
 
 -- A skeleton = holder + three bare container shells, born in the early
@@ -994,6 +1098,10 @@ local function AnchorNPContainer(container, kind, plate, slotVal)
         elementSpacing = spacing, lineSpacing = spacing,
     }
     container:SetAuraGroupLayout("np", gLayout)
+    -- The buff row's non-Magic group shares the row's element sizing.
+    if container._npbSplit then
+        container:SetAuraGroupLayout("np2", gLayout)
+    end
     -- NPF record groups share the row's element sizing.
     if container._npfGroups then
         for gkey in pairs(container._npfGroups) do
@@ -1237,7 +1345,7 @@ end
 
 local npFP = {}
 
-local function StyleFPFor(kind)
+local function StyleFPFor(kind, idx)
     local size = NPSize(kind)
     local height = NPHeight(kind, size)
     -- Text settings feed BuildNPStyle, so every input must flip this
@@ -1247,11 +1355,14 @@ local function StyleFPFor(kind)
     local stk = StackCfg()
     local purge = "-"
     if kind == "buffs" and ns.GetDispelGlow then
+        -- Capability and the per-type color toggle both feed BuildNPStyle, so
+        -- they have to reach this fingerprint or a talent swap never restyles.
+        local glow, dispelType = BuffGroupGlow(idx or 1)
         local pr, pg, pb = 0, 0, 0
         if ns.GetDispelGlowColor then
-            pr, pg, pb = ns.GetDispelGlowColor(nil)
+            pr, pg, pb = ns.GetDispelGlowColor(dispelType)
         end
-        purge = FP(PurgeGlowActive(), ns.GetDispelGlowStyle and ns.GetDispelGlowStyle() or 2, pr, pg, pb)
+        purge = FP(idx or 1, glow, ns.GetDispelGlowStyle and ns.GetDispelGlowStyle() or 2, pr, pg, pb)
     end
     local durFP = FP(dur.size, dur.x, dur.y, dur.pos, dur.color.r, dur.color.g, dur.color.b)
     local stkFP = FP(stk.size, stk.x, stk.y, stk.pos, stk.color.r, stk.color.g, stk.color.b)
@@ -1283,8 +1394,10 @@ local function GeoFP()
 end
 
 local function CfgFP()
+    -- BuffSplit decides how many groups the buff row runs, so it belongs with
+    -- the container config rather than with the styles.
     return FP(PVal("maxDebuffs"), PVal("showAllDebuffs"), PVal("showAllEnemyBuffs"),
-        PVal("debuffIncludeCC"), ns.NPF_FP())
+        PVal("debuffIncludeCC"), BuffSplit(), ns.NPF_FP())
 end
 
 local function ReanchorActive()
@@ -1341,6 +1454,9 @@ local function QueueBundleEnsure(b)
         ensure("debuffs", ds, AddBundleDebuffs)
         ensure("buffs", bs, AddBundleBuffs)
         ensure("cc", cs, AddBundleCC)
+        -- Buff split: declare or park the non-Magic group on containers that
+        -- already existed when the player's dispel capability changed.
+        NPB_ApplyContainer(b.containers.buffs)
         -- NPF record groups (Tracked Auras): declare missing variants,
         -- park stale ones, drive the np groups' counts by the configs.
         NPF_EnsureRecords(b)
@@ -1371,14 +1487,15 @@ function ns.NPC_ReloadAll()
         for _, b in pairs(active) do scan(b) end
     end
 
-    local v = StyleFPFor("debuffs") .. ";" .. StyleFPFor("buffs") .. ";" .. StyleFPFor("cc")
+    local v = StyleFPFor("debuffs") .. ";" .. StyleFPFor("buffs") .. ";"
+        .. StyleFPFor("buffs", 2) .. ";" .. StyleFPFor("cc")
     if npFP.style ~= v then
         npFP.style = v
+        BuildNPStyles()
         for i = 1, #KINDS do
-            local kind = KINDS[i]
-            AK.styles["np:" .. kind] = BuildNPStyle(kind)
-            AK.RestyleSoon("np:" .. kind)
+            AK.RestyleSoon("np:" .. KINDS[i])
         end
+        AK.RestyleSoon("np:buffs2")
     end
 
     v = CfgFP()
@@ -1410,6 +1527,9 @@ function ns.NPC_ReloadAll()
                 -- toggle has to re-drive the string (the setter no-ops when unchanged).
                 if b.containers.buffs.SetAuraGroupFilterString then
                     b.containers.buffs:SetAuraGroupFilterString("np", buffFilter)
+                    if b.containers.buffs._npbSplit then
+                        b.containers.buffs:SetAuraGroupFilterString("np2", buffFilter)
+                    end
                 end
             end
             -- NPF record groups + np counts: declares run on the queued,
@@ -1501,9 +1621,7 @@ boot:SetScript("OnEvent", function(self, event)
         if AuraContainerSortDirection then
             SORT_DIR = AuraContainerSortDirection.Normal
         end
-        for i = 1, #KINDS do
-            AK.styles["np:" .. KINDS[i]] = BuildNPStyle(KINDS[i])
-        end
+        BuildNPStyles()
         -- No skeleton pre-birth: creation is combat-legal since 68914, so pool jobs
         -- birth their skeletons inline whenever they run. Plates that spawn before the
         -- first bundles land wait in `waiting` and are serviced as bundles complete.

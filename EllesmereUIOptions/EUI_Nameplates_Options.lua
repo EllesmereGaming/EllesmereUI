@@ -300,8 +300,14 @@ initFrame:SetScript("OnEvent", function(self)
             BUFF_COUNT = 1,
             CC_COUNT = 1,
         }
-        -- Type colors for preview dispel glow: Magic (blue), Enrage (red)
-        local previewDispelColors = { CreateColor(0.2, 0.6, 1.0, 1), CreateColor(1.0, 0.2, 0.2, 1) }
+        -- There is one preview buff slot, so it shows the type THIS character removes -- and nil (no glow at all) for a character with no offensive dispel, which is what their nameplates will do.
+        local function PreviewDispelType()
+            local magic, enrage = false, false
+            if ns.GetOffensiveDispelTypes then magic, enrage = ns.GetOffensiveDispelTypes() end
+            if magic then return "magic" end
+            if enrage then return "enrage" end
+            return nil
+        end
         if not _previewHpPct then RandomizePreviewValues() end
         local previewHpPct = _previewHpPct
         local previewHpVal = math.floor(PV_CONST.FAKE_MAX_HP * previewHpPct / 100)
@@ -1702,12 +1708,13 @@ initFrame:SetScript("OnEvent", function(self)
                     ApplyTimerPos(buffs[i].durationText, buffs[i], buffTPos, buffDurSz, buffDurX, buffDurY, buffDurC)
                     PlaceInSlot(buffs[i], buffSlotVal, i, PV_CONST.BUFF_COUNT, buffSz, buffH, buffSpacing, buffXOff, buffYOff)
                     -- Dispel glow preview (always stop first to pick up color/style changes)
+                    local previewType = PreviewDispelType()
                     if showDispelGlowPreview and DBVal("dispelGlow") == true
-                        and DBVal("showAllEnemyBuffs") ~= true then
+                        and DBVal("showAllEnemyBuffs") ~= true and previewType then
                         if buffs[i].dispelGlow and buffs[i].dispelGlow.active then
                             ns.StopDispelGlow(buffs[i])
                         end
-                        ns.StartDispelGlow(buffs[i], buffSz, previewDispelColors[i])
+                        ns.StartDispelGlow(buffs[i], buffSz, previewType)
                     elseif buffs[i].dispelGlow and buffs[i].dispelGlow.active then
                         ns.StopDispelGlow(buffs[i])
                     end
@@ -3301,10 +3308,11 @@ initFrame:SetScript("OnEvent", function(self)
             return DBVal("dispelGlow") ~= true
         end
 
-        -- Shared graying for inline swatch/eye: Show All Enemy Buffs suppresses the glow entirely (not dispellable-only), locking style/color controls.
+        -- Shared graying for inline swatch/eye: Show All Enemy Buffs suppresses the glow entirely (not dispellable-only), locking style/color controls. checkTypeColor additionally locks the custom color, which per-type coloring replaces.
         local function dispelGlowLocked(checkTypeColor)
             if dispelGlowOff() then return true end
-            return DBVal("showAllEnemyBuffs") == true
+            if DBVal("showAllEnemyBuffs") == true then return true end
+            return checkTypeColor and DBVal("dispelGlowUseTypeColor") == true
         end
 
         local dispelGlowStyleValues = { [0] = "None" }
@@ -3436,6 +3444,21 @@ initFrame:SetScript("OnEvent", function(self)
                 eyeBtn:EnableMouse(not off)
             end)
         end
+
+        -- Magic buffs and enrages are separate groups in the buff row, so the color can follow the type. Only meaningful when the player removes both kinds; with one kind the row already glows in a single color.
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Color Dispel Glow by Type",
+              tooltip="Blue on Magic buffs, red on enrages.",
+              disabled=function() return dispelGlowLocked(false) end,
+              disabledTooltip="Dispel Glow Style",
+              getValue=function() return DBVal("dispelGlowUseTypeColor") or false end,
+              setValue=function(v)
+                DB().dispelGlowUseTypeColor = v
+                RefreshAllAuras()
+                UpdatePreview()
+                C_Timer.After(0, function() EllesmereUI:RefreshPage() end)
+              end },
+            { type="label", text="" });  y = y - h
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
 

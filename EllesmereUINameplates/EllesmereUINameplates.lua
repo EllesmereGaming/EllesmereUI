@@ -703,38 +703,17 @@ function ns.GetPandemicGlowBackgroundColor()
     return c.r or 0, c.g or 0, c.b or 0
 end
 
--- Dispellable buff glow: taint-safe detection via GetAuraDispelTypeColor
+-- Offensive dispel capability. This asks what the PLAYER knows, never what an
+-- aura is, so it keeps working in restricted content, where a tainted addon's
+-- aura reads are denied outright rather than merely classified.
 do
-    -- Dispel type IDs from SpellDispelType (DB2)
-    local DISPEL_NONE    = 0
-    local DISPEL_MAGIC   = 1
-    local DISPEL_CURSE   = 2
-    local DISPEL_DISEASE = 3
-    local DISPEL_POISON  = 4
-    local DISPEL_ENRAGE  = 9
-
-    -- Color curve for taint-safe dispel detection. Step curve: each point = exact ID. Magic->blue, Enrage->red, others transparent.
-    local dispelDetectionCurve
-    if C_CurveUtil and C_CurveUtil.CreateColorCurve and Enum and Enum.LuaCurveType then
-        dispelDetectionCurve = C_CurveUtil.CreateColorCurve()
-        dispelDetectionCurve:SetType(Enum.LuaCurveType.Step)
-        local clear = CreateColor(0, 0, 0, 0)
-        local blue  = CreateColor(0.2, 0.6, 1.0, 1)
-        local red   = CreateColor(1.0, 0.2, 0.2, 1)
-        dispelDetectionCurve:AddPoint(DISPEL_NONE,    clear)
-        dispelDetectionCurve:AddPoint(DISPEL_MAGIC,   blue)
-        dispelDetectionCurve:AddPoint(DISPEL_CURSE,   clear)
-        dispelDetectionCurve:AddPoint(DISPEL_DISEASE, clear)
-        dispelDetectionCurve:AddPoint(DISPEL_POISON,  clear)
-        dispelDetectionCurve:AddPoint(DISPEL_ENRAGE,  red)
-    end
-
     local _, playerClass = UnitClass("player")
     -- { spellID, category ("Magic", "Enrage", or "Both"), requiredClass or nil, requiredTalent or nil }
     local OFFENSIVE_DISPEL_SPELLS = {
         { 370,    "Magic",  nil       },  -- Purge (Shaman)
         { 378773, "Magic",  nil       },  -- Greater Purge (Shaman)
         { 528,    "Magic",  nil       },  -- Dispel Magic (Priest)
+        { 32375,  "Magic",  nil       },  -- Mass Dispel (Priest)
         { 278326, "Magic",  nil       },  -- Consume Magic (Demon Hunter)
         { 19505,  "Magic",  "WARLOCK" },  -- Devour Magic (Felhunter)
         { 19801,  "Both",   nil       },  -- Tranquilizing Shot (Hunter)
@@ -743,32 +722,41 @@ do
         { 115078, "Enrage", "MONK", 450432 },  -- Paralysis (w/ Pressure Points talent)
     }
     local canDispelMagic, canDispelEnrage = false, false
+    local built = false
+    local BANK = Enum and Enum.SpellBookSpellBank
+
+    -- IsSpellKnown answers "does the player have this", which is the question a
+    -- PASSIVE talent needs -- IsSpellInSpellBook says no for one. The globals
+    -- this used to call (IsPlayerSpell, IsSpellKnown) exist only in
+    -- Blizzard_DeprecatedSpellBook, behind the loadDeprecationFallbacks CVar and
+    -- removed next expansion; with that CVar off the talent branch never fired.
+    local function Knows(spellID, bank)
+        if not (C_SpellBook and C_SpellBook.IsSpellKnown and BANK) then return false end
+        local ok, v = pcall(C_SpellBook.IsSpellKnown, spellID, bank or BANK.Player)
+        return ok and v == true
+    end
+    local function InBook(spellID, bank)
+        if not (C_SpellBook and BANK) then return false end
+        if not C_SpellBook.IsSpellKnownOrInSpellBook then return Knows(spellID, bank) end
+        local ok, v = pcall(C_SpellBook.IsSpellKnownOrInSpellBook, spellID, bank or BANK.Player)
+        return ok and v == true
+    end
+
     local function RebuildDispelTypes()
+        local wasMagic, wasEnrage = canDispelMagic, canDispelEnrage
         canDispelMagic, canDispelEnrage = false, false
         for _, entry in ipairs(OFFENSIVE_DISPEL_SPELLS) do
             local spellID, cat, reqClass, reqTalent = entry[1], entry[2], entry[3], entry[4]
-            if reqClass and playerClass ~= reqClass then
-            else
-                local known = false
-                if reqClass and not reqTalent then
-                    -- Class-gated pet spell: check via pet bank
-                    if C_SpellBook and C_SpellBook.IsSpellKnownOrInSpellBook
-                        and Enum and Enum.SpellBookSpellBank then
-                        known = C_SpellBook.IsSpellKnownOrInSpellBook(spellID, Enum.SpellBookSpellBank.Pet)
-                    elseif IsSpellKnown then
-                        known = IsSpellKnown(spellID, true)
-                    end
-                elseif reqTalent then
-                    -- Talent-gated: check if the talent is known
-                    if IsPlayerSpell then
-                        known = IsPlayerSpell(reqTalent)
-                    elseif IsSpellKnown then
-                        known = IsSpellKnown(reqTalent, false)
-                    end
-                elseif C_SpellBook and C_SpellBook.IsSpellKnownOrInSpellBook then
-                    known = C_SpellBook.IsSpellKnownOrInSpellBook(spellID)
-                elseif IsSpellKnown then
-                    known = IsSpellKnown(spellID, false)
+            if not (reqClass and playerClass ~= reqClass) then
+                local known
+                if reqTalent then
+                    known = Knows(reqTalent)
+                elseif reqClass then
+                    -- Pet bank: true only while that pet is actually out, which
+                    -- is why UNIT_PET is registered below.
+                    known = InBook(spellID, BANK and BANK.Pet)
+                else
+                    known = InBook(spellID)
                 end
                 if known then
                     if cat == "Magic" or cat == "Both" then canDispelMagic = true end
@@ -776,28 +764,34 @@ do
                 end
             end
         end
+        -- Capability picks the buff row's candidate filter, so a change has to
+        -- rebuild the containers, not merely repaint them. The first pass has
+        -- nothing to compare against and nothing built yet, so it never
+        -- notifies -- the pool build reads capability when it runs.
+        if built and (wasMagic ~= canDispelMagic or wasEnrage ~= canDispelEnrage) then
+            if ns.NPC_ReloadAll then ns.NPC_ReloadAll() end
+        end
+        built = true
     end
     local dispelFrame = CreateFrame("Frame")
     dispelFrame:RegisterEvent("SPELLS_CHANGED")
     dispelFrame:RegisterEvent("UNIT_PET")
+    -- A talent swap does not reliably reach SPELLS_CHANGED first, and without
+    -- these a talent-gated entry is only correct after a /reload.
+    dispelFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
+    dispelFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     dispelFrame:SetScript("OnEvent", function(_, event, unit)
         if event == "UNIT_PET" and unit ~= "player" then return end
         RebuildDispelTypes()
     end)
     RebuildDispelTypes()
 
-    -- Returns shouldGlow, typeColor (ColorMixin or nil). Enemy aura fields are secret in
-    -- Midnight; the curve's typeColor alpha drives visibility (Magic/Enrage=1, else 0). Secret
-    -- RGBA passes safely to C visual functions (SetAlpha/SetVertexColor) since Lua never tests it.
-    ns.CanDispelAura = function(unit, aura)
-        if not (canDispelMagic or canDispelEnrage) then return false end
-        local typeColor
-        if dispelDetectionCurve and C_UnitAuras and C_UnitAuras.GetAuraDispelTypeColor then
-            local ok, c = pcall(C_UnitAuras.GetAuraDispelTypeColor, unit, aura.auraInstanceID, dispelDetectionCurve)
-            if ok and c then typeColor = c end
-        end
-        return true, typeColor
+    -- canDispelMagic, canDispelEnrage. Consumed by the buff row to pick its
+    -- candidate filter and by the glow gate.
+    ns.GetOffensiveDispelTypes = function()
+        return canDispelMagic, canDispelEnrage
     end
+
     ns.GetDispelGlow = function()
         return (p and p.dispelGlow) or defaults.dispelGlow
     end
@@ -807,11 +801,24 @@ do
         if type(raw) == "number" then return raw end
         return 2
     end
-    ns.GetDispelGlowColor = function(typeColor)
-        local useType = (p and p.dispelGlowUseTypeColor)
-        if useType == nil then useType = defaults.dispelGlowUseTypeColor end
-        if useType and typeColor then
-            return typeColor:GetRGBA()  -- secret values pass through to visual ops
+    -- Per-type colors. The buff row is split into a Magic group and a non-Magic
+    -- (enrage) group, so the type is a property of the GROUP and resolves once at
+    -- style-build time -- no per-aura read, which is what made the old
+    -- ColorMixin-per-aura version impossible under 12.1.
+    local TYPE_COLOR = {
+        magic  = { r = 0.2, g = 0.6, b = 1.0 },
+        enrage = { r = 1.0, g = 0.2, b = 0.2 },
+    }
+    function ns.GetDispelGlowUseTypeColor()
+        local v = p and p.dispelGlowUseTypeColor
+        if v == nil then v = defaults.dispelGlowUseTypeColor end
+        return v == true
+    end
+    -- dispelType is "magic", "enrage", or nil for the undifferentiated row.
+    ns.GetDispelGlowColor = function(dispelType)
+        if dispelType and ns.GetDispelGlowUseTypeColor() then
+            local c = TYPE_COLOR[dispelType]
+            if c then return c.r, c.g, c.b end
         end
         local c = (p and p.dispelGlowColor) or defaults.dispelGlowColor
         return c.r, c.g, c.b
@@ -1427,7 +1434,9 @@ local function StopDispelGlow(slot)
     dg.active = false
 end
 
-local function StartDispelGlow(slot, slotSize, typeColor)
+-- Preview only: the live nameplate glow runs through EllesmereUI.Glows on the
+-- engine buttons. dispelType is "magic" / "enrage" / nil.
+local function StartDispelGlow(slot, slotSize, dispelType)
     local dg = slot.dispelGlow
     local styleIdx = ns.GetDispelGlowStyle()
     local styles = PANDEMIC_GLOW_STYLES
@@ -1459,7 +1468,7 @@ local function StartDispelGlow(slot, slotSize, typeColor)
         StopDispelGlow(slot)
     end
 
-    local cr, cg, cb = ns.GetDispelGlowColor(typeColor)
+    local cr, cg, cb = ns.GetDispelGlowColor(dispelType)
 
     if entry.procedural then
         dg.flipTex:Hide()
@@ -1517,14 +1526,10 @@ local function StartDispelGlow(slot, slotSize, typeColor)
     dg.wrapper:Show()
     dg.active = true
     dg.styleIdx = styleIdx
-    -- Curve color alpha controls visibility (Magic/Enrage=1, else 0); it's a secret number, but
-    -- SetAlpha (a C function) accepts secrets. typeColor is nil in preview mode -> fallback alpha 1.
-    if typeColor then
-        local _, _, _, a = typeColor:GetRGBA()
-        dg.wrapper:SetAlpha(a)
-    else
-        dg.wrapper:SetAlpha(1)
-    end
+    -- Always opaque. Visibility used to ride a per-aura dispel-type curve's alpha;
+    -- dispellability is now decided by which aura GROUP the button belongs to, and
+    -- this path only ever draws the options preview.
+    dg.wrapper:SetAlpha(1)
 end
 
 ns.StopDispelGlow = StopDispelGlow
