@@ -659,15 +659,27 @@ local TILE_FILTER_ITEMS = {
 -- the full two-lane build below instead.
 local function BuildFilterCBDropdown(rgn, claim, dm)
     local PP = EllesmereUI.PP or EllesmereUI.PanelPP
+
+    local filterDm = (ns.DM_FilterStateForKey
+        and ns.DM_FilterStateForKey(dmSpecSel, false))
+        or dm
+
+    local function EditableFilterDm()
+        filterDm = (ns.DM_FilterStateForKey
+            and ns.DM_FilterStateForKey(dmSpecSel, true))
+            or dm
+        return filterDm
+    end
+
     if rgn._control then rgn._control:Hide() end
     local cbDD = EllesmereUI.BuildVisOptsCBDropdown(
         rgn, 190, rgn:GetFrameLevel() + 2,
         TILE_FILTER_ITEMS,
         function(k)
             if k == "dispel_you" then
-                return (claim.dispel and true or false) and dm.dispelMode ~= "typed"
+                return (claim.dispel and true or false) and filterDm.dispelMode ~= "typed"
             elseif k == "dispel_typed" then
-                return (claim.dispel and true or false) and dm.dispelMode == "typed"
+                return (claim.dispel and true or false) and filterDm.dispelMode == "typed"
             end
             return claim[k] and true or false
         end,
@@ -675,13 +687,17 @@ local function BuildFilterCBDropdown(rgn, claim, dm)
             if k == "dispel_you" or k == "dispel_typed" then
                 if v then
                     claim.dispel = true
-                    dm.dispelMode = (k == "dispel_typed") and "typed" or "you"
+
+                    local fdm = EditableFilterDm()
+                    fdm.dispelMode = (k == "dispel_typed") and "typed" or "you"
                 else
                     claim.dispel = false
                 end
+
                 DmApply()
                 return
             end
+
             claim[k] = v and true or false
             DmApply()
         end,
@@ -724,9 +740,25 @@ local TILE_LANE_ITEMS = {
 }
 local function BuildTileFiltersDD(rgn, t, dm)
     local PP = EllesmereUI.PP or EllesmereUI.PanelPP
+
     if rgn._control then rgn._control:Hide() end
     if not t.claim then t.claim = {} end
+
     local claim = t.claim
+
+    -- The dispel flavor follows the currently edited bucket. Read without
+    -- materializing an override; the first actual flavor edit copy-on-writes.
+    local filterDm = (ns.DM_FilterStateForKey
+        and ns.DM_FilterStateForKey(dmSpecSel, false))
+        or dm
+
+    local function EditableFilterDm()
+        filterDm = (ns.DM_FilterStateForKey
+            and ns.DM_FilterStateForKey(dmSpecSel, true))
+            or dm
+        return filterDm
+    end
+
     local function NegHas(cat) return t.neg ~= nil and t.neg[cat] == true end
     local function SetNeg(cat, v)
         if v then
@@ -737,6 +769,7 @@ local function BuildTileFiltersDD(rgn, t, dm)
             if not next(t.neg) then t.neg = nil end
         end
     end
+
     local cbDD = EllesmereUI.BuildVisOptsCBDropdown(
         rgn, 190, rgn:GetFrameLevel() + 2,
         TILE_LANE_ITEMS,
@@ -744,11 +777,11 @@ local function BuildTileFiltersDD(rgn, t, dm)
             if k == TILE_CA_ALL then return t.all == true end
             if k == TILE_CA_DUR then return t.hasDuration == true end
             if k == "dispel_you" then
-                if neg then return NegHas("dispel") and dm.dispelMode ~= "typed" end
-                return (claim.dispel and true or false) and dm.dispelMode ~= "typed"
+                if neg then return NegHas("dispel") and filterDm.dispelMode ~= "typed" end
+                return (claim.dispel and true or false) and filterDm.dispelMode ~= "typed"
             elseif k == "dispel_typed" then
-                if neg then return NegHas("dispel") and dm.dispelMode == "typed" end
-                return (claim.dispel and true or false) and dm.dispelMode == "typed"
+                if neg then return NegHas("dispel") and filterDm.dispelMode == "typed" end
+                return (claim.dispel and true or false) and filterDm.dispelMode == "typed"
             end
             if neg then return NegHas(k) end
             return claim[k] and true or false
@@ -766,27 +799,31 @@ local function BuildTileFiltersDD(rgn, t, dm)
                 EllesmereUI:RefreshPage()
                 return
             end
+
             if k == "dispel_you" or k == "dispel_typed" then
-                -- ONE dispel category, one global flavor (shared with the base
-                -- grid): any checked lane owns both the lane and dm.dispelMode;
+                -- ONE dispel category, one flavor for the selected editing
+                -- bucket: any checked lane owns both the lane and dispelMode;
                 -- checking one lane/flavor clears the other.
+                local fdm = EditableFilterDm()
+
                 if neg then
                     SetNeg("dispel", v and true or false)
                     if v then
                         claim.dispel = nil
-                        dm.dispelMode = (k == "dispel_typed") and "typed" or "you"
+                        fdm.dispelMode = (k == "dispel_typed") and "typed" or "you"
                     end
                 else
                     claim.dispel = v and true or nil
                     if v then
                         SetNeg("dispel", false)
-                        dm.dispelMode = (k == "dispel_typed") and "typed" or "you"
+                        fdm.dispelMode = (k == "dispel_typed") and "typed" or "you"
                     end
                 end
                 DmApply()
                 EllesmereUI:RefreshPage()
                 return
             end
+
             -- Two-lane category write: checking one lane clears the other.
             if neg then
                 SetNeg(k, v and true or false)
@@ -802,10 +839,12 @@ local function BuildTileFiltersDD(rgn, t, dm)
             EllesmereUI:RefreshPage()
         end,
         nil, 12)
+
     PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
     rgn._control = cbDD
     rgn._lastInline = nil
 end
+
 local function BuildFxEffects(frame, sy, fxOwner)
     local W = EllesmereUI.Widgets
     local PP = EllesmereUI.PP or EllesmereUI.PanelPP
@@ -1029,8 +1068,25 @@ end
 local function BuildBaseDetailDM(frame, fontPath)
     local W = EllesmereUI.Widgets
     local p = DmProfile()
-    local dm = DmTable()
-    if not (W and p and dm) then return 0 end
+    local dmRoot = DmTable()
+
+    -- Read the selected bucket without creating an override merely by
+    -- opening/viewing the page.
+    local dm = (ns.DM_FilterStateForKey
+        and ns.DM_FilterStateForKey(dmSpecSel, false))
+        or dmRoot
+
+    if not (W and p and dmRoot and dm) then return 0 end
+
+    -- Copy-on-write: the first actual edit creates this bucket's own
+    -- Base Filters snapshot.
+    local function EditableDm()
+        dm = (ns.DM_FilterStateForKey
+            and ns.DM_FilterStateForKey(dmSpecSel, true))
+            or dmRoot
+        return dm
+    end
+
     frame._showRowDivider = true
     local sy, hh = 0, 0
 
@@ -1162,6 +1218,7 @@ local function BuildBaseDetailDM(frame, fontPath)
                 if k == DM_ALL_KEY then
                     -- Lanes persist across mode flips (the hide lane subtracts in
                     -- both modes; the show lane goes dormant while All is on).
+                    dm = EditableDm()
                     dm.all = v and true or false
                     DmApply()
                     EllesmereUI:RefreshPage()
@@ -1170,12 +1227,14 @@ local function BuildBaseDetailDM(frame, fontPath)
                 if k == DM_DUR_KEY then
                     -- AND-modifier: combines with All Debuffs or any show-lane
                     -- selection; checked alone it acts as the timed catch-all.
-                    dm.hasDuration = v or nil
+                    dm = EditableDm()
+                    dm.hasDuration = v and true or nil
                     DmApply()
                     EllesmereUI:RefreshPage()
                     return
                 end
                 if k == "dispel_you" or k == "dispel_typed" then
+                    dm = EditableDm()
                     -- ONE dispel category, one global flavor: any checked lane owns
                     -- both the lane and dm.dispelMode; checking one lane/flavor
                     -- clears the other lane.
@@ -1199,6 +1258,7 @@ local function BuildBaseDetailDM(frame, fontPath)
                     return
                 end
                 -- Two-lane category write: checking one lane clears the other.
+                dm = EditableDm()
                 if neg then
                     SetNeg(k, v and true or false)
                     if v then dm[k] = nil end
@@ -1438,7 +1498,8 @@ local function BuildBaseDetailDM(frame, fontPath)
           getValue = function() return p.debuffShowSwipe ~= false end,
           setValue = function(v) p.debuffShowSwipe = v; DmApply() end }); sy = sy - hh
 
-    sy = BuildFxEffects(frame, sy, dm)
+    --sy = BuildFxEffects(frame, sy, dm)
+    sy = BuildFxEffects(frame, sy, dmRoot)
     return sy
 end
 
@@ -2929,8 +2990,15 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
                     popup:Hide()
                     if t then
                         if mode then
-                            local dm2 = DmTable()
-                            if dm2 then dm2.dispelMode = mode end
+                            -- The picked dispel flavor belongs to the editing bucket, matching
+                            -- the tile that is being created there.
+                            local fdm = (ns.DM_FilterStateForKey
+                                and ns.DM_FilterStateForKey(dmSpecSel, true))
+                                or DmTable()
+
+                            if fdm then
+                                fdm.dispelMode = mode
+                            end
                         end
                         -- Every tile type takes the full picked set now
                         -- (effect tiles run one slot per category).

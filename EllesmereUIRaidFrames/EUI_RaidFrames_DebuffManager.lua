@@ -351,22 +351,24 @@ function ns.DM_CfgFP()
     EnsureMigrated() -- profile switches re-fingerprint before rendering
     local dm = DM() or {}
     FxHeal(dm)
+    local fdm = (ns.DM_ActiveFilterState and ns.DM_ActiveFilterState()) or dm
+    
     local prof = ns.db and ns.db.profile
-    local neg = dm.neg
+    local neg = fdm.neg
     local parts = {
         "on",
-        dm.all ~= false and 1 or 0, dm.hasDuration == true and 1 or 0,
-        dm.boss and 1 or 0, dm.role and 1 or 0,
-        dm.priority and 1 or 0, dm.cc == true and 1 or 0, dm.raid and 1 or 0,
-        dm.raidcombat and 1 or 0, dm.dispel and 1 or 0,
-        dm.nonplayer and 1 or 0,
+        fdm.all ~= false and 1 or 0, fdm.hasDuration == true and 1 or 0,
+        fdm.boss and 1 or 0, fdm.role and 1 or 0,
+        fdm.priority and 1 or 0, fdm.cc == true and 1 or 0, fdm.raid and 1 or 0,
+        fdm.raidcombat and 1 or 0, fdm.dispel and 1 or 0,
+        fdm.nonplayer and 1 or 0,
         -- Hide lane (dm.neg): subtracts in both modes, so every entry is a
         -- record-shape input.
         neg and table.concat({
             neg.boss and 1 or 0, neg.role and 1 or 0, neg.priority and 1 or 0,
             neg.cc and 1 or 0, neg.raid and 1 or 0, neg.raidcombat and 1 or 0,
             neg.dispel and 1 or 0, neg.nonplayer and 1 or 0 }, "") or "-",
-        (dm.dispelMode == "typed") and "typed" or "you",
+        (fdm.dispelMode == "typed") and "typed" or "you",
         FxListFP(dm.fxList), -- base effects force records
         -- Exclude set varies only with the lust-debuff opt-out (hardcoded lists are load-constant).
         (not prof or prof.hideLustDebuff ~= false) and "lx1" or "lx0",
@@ -474,7 +476,8 @@ end
 -- filter, CC glow style); a claimed cc renders in its tile with the tile
 -- style, and the CC glow stays a base-group property.
 local function BuildRecords(s, dm)
-    local eff, claims, claimsAll = EffectiveState(dm)
+    local fdm = (ns.DM_ActiveFilterState and ns.DM_ActiveFilterState()) or dm
+    local eff, claims, claimsAll = EffectiveState(fdm)
     -- EFFECTS routing: per-filter icon effects need their categories as
     -- SEPARATE base records even under Show All (like claims, but rendering in
     -- the base container) so the effect can target exactly those buttons
@@ -497,15 +500,15 @@ local function BuildRecords(s, dm)
             end
         end
     end
-    local allOn = dm.all ~= false -- Show All defaults ON (legacy "all" preset parity)
+    local allOn = fdm.all ~= false -- Show All defaults ON (legacy "all" preset parity)
     -- Has Duration is an AND-MODIFIER (user directive 2026-08-16): it rides
     -- every base-owned record via the duration fold at the bottom. The base
     -- catch-all record joins when Show All is on, or when Has Duration is
     -- checked with no show-lane picks (checked alone = every timed debuff).
-    local durOn = dm.hasDuration == true
-    local anyShow = dm.boss == true or dm.role == true or dm.priority == true
-        or dm.cc == true or dm.raid == true or dm.raidcombat == true
-        or dm.dispel == true or dm.nonplayer == true
+    local durOn = fdm.hasDuration == true
+    local anyShow = fdm.boss == true or fdm.role == true or fdm.priority == true
+        or fdm.cc == true or fdm.raid == true or fdm.raidcombat == true
+        or fdm.dispel == true or fdm.nonplayer == true
     local durAlone = durOn and not allOn and not anyShow
     -- HIDE lane (dm.neg): subtracts in BOTH modes. Token categories negate off
     -- every lower-ranked record (ownership rank cc > dispel > raid > raidcombat
@@ -513,7 +516,7 @@ local function BuildRecords(s, dm)
     -- overlap, same doctrine as cc owning dispellable CC), typed dispels ride
     -- excludeDispelTypes, boolean categories use false-valued candidate booleans
     -- (nonplayer via the complementary TRUE).
-    local neg = dm.neg
+    local neg = fdm.neg
     local function NegHas(cat) return neg ~= nil and neg[cat] == true end
     local sub = allOn and {
         boss = NegHas("boss"), role = NegHas("role"),
@@ -533,7 +536,7 @@ local function BuildRecords(s, dm)
     -- record but its !token / typed exclude must still reach the others.
     local dispelOn = eff.dispel and true or false
     local dispelActive = dispelOn or NegHas("dispel")
-    local dispelMode = (dm.dispelMode == "typed") and "typed" or "you"
+    local dispelMode = (fdm.dispelMode == "typed") and "typed" or "you"
     local dispelToken = (dispelActive and dispelMode == "you") and "RAID_PLAYER_DISPELLABLE" or nil
     -- Typed exclude applies only while the typed dispel record is really BUILT (claimed, or base without Show All)
     -- or the category is hidden, else Show All excludes debuffs nothing re-adds.
@@ -816,12 +819,13 @@ end
 
 -- Effect-tile category resolution: one live-settable slot per tile.
 local function EffectFilterFor(dm, cat)
+    local fdm = (ns.DM_ActiveFilterState and ns.DM_ActiveFilterState()) or dm
     if cat == "cc" then return { "HARMFUL", "CROWD_CONTROL" }, nil, false end
     if cat == "raid" then return { "HARMFUL", "RAID" }, nil, false end
     if cat == "raidcombat" then return { "HARMFUL", "RAID_IN_COMBAT" }, nil, false end
     if cat == "dispel" then
         -- Follows the base dispel flavor: by-you token or typed include map.
-        if dm.dispelMode == "typed" then
+        if fdm.dispelMode == "typed" then
             return { "HARMFUL" }, { includeDispelTypes = TYPED_DEBUFFS }, false
         end
         return { "HARMFUL", "RAID_PLAYER_DISPELLABLE" }, nil, false
@@ -842,6 +846,7 @@ end
 -- the cc slot takes no folds at all -- cc owns its overlaps, base parity with
 -- ccCand bypassing Cand).
 local function EffectFilterForTile(dm, t, cat)
+    local fdm = (ns.DM_ActiveFilterState and ns.DM_ActiveFilterState()) or dm
     local toks, cf, gated = EffectFilterFor(dm, cat)
     if t and t.hasDuration == true and cat ~= "cc" then
         cf = cf or {}
@@ -851,7 +856,7 @@ local function EffectFilterForTile(dm, t, cat)
     if tn and cat ~= "cc" then
         if tn.cc == true then toks[#toks + 1] = "!CROWD_CONTROL" end
         if tn.dispel == true and cat ~= "dispel" then
-            if dm.dispelMode == "typed" then
+            if fdm.dispelMode == "typed" then
                 cf = cf or {}
                 if not cf.includeDispelTypes then cf.excludeDispelTypes = TYPED_DEBUFFS end
             else
@@ -1425,6 +1430,7 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
     AK = AK or EllesmereUI.AuraKit
     -- Default-ON: no dmDebuff table yet = the defaults (Show All + cc on).
     local dm = DM() or {}
+    local fdm = (ns.DM_ActiveFilterState and ns.DM_ActiveFilterState()) or dm
     local declared = d.rfcDebuffGroups
     if not (AK and declared) then return end
 
@@ -1470,9 +1476,9 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
         -- the cc lead/glow group is on unless Crowd Control rides the hide lane (dm.neg.cc = subtracted); in add
         -- mode it is on exactly when the show lane checks it; fx routing forces it either way. Has Duration never
         -- flips this: cc surfaces are exempt from the duration fold (declaration-fixed candidates).
-        local allOn = dm.all ~= false
-        local ccHidden = dm.neg ~= nil and dm.neg.cc == true
-        local ccPicked = (allOn and not ccHidden) or (not allOn and dm.cc == true)
+        local allOn = fdm.all ~= false
+        local ccHidden = fdm.neg ~= nil and fdm.neg.cc == true
+        local ccPicked = (allOn and not ccHidden) or (not allOn and fdm.cc == true)
         local ccBase = (ccPicked or (fxCats and fxCats.cc)) and not claims.cc
             and not baseSizedCC
         container:SetAuraGroupMaxFrameCount("cc", ccBase and cap or 0)
@@ -1901,6 +1907,124 @@ local function SpecBucket(dm, key, create)
     if not b.tiles then b.tiles = {} end
     if not b.inhDis then b.inhDis = {} end
     return b
+end
+
+-------------------------------------------------------------------------------
+-- Base Icons filter state.
+--
+-- All Specs uses the legacy/root dm fields for backwards compatibility.
+-- Every other editing bucket may own a .baseFilters table. Until a bucket
+-- actually edits its Base Filters, it reads the closest inherited state.
+-------------------------------------------------------------------------------
+
+local BASE_FILTER_KEYS = {
+    "all",
+    "hasDuration",
+    "boss",
+    "role",
+    "priority",
+    "cc",
+    "raid",
+    "raidcombat",
+    "dispel",
+    "nonplayer",
+    "dispelMode",
+}
+
+local function CopyBaseFilterState(src)
+    local out = {}
+
+    for i = 1, #BASE_FILTER_KEYS do
+        local k = BASE_FILTER_KEYS[i]
+        out[k] = src[k]
+    end
+
+    if src.neg then
+        out.neg = {}
+        for k, v in pairs(src.neg) do
+            if v then
+                out.neg[k] = true
+            end
+        end
+    end
+
+    return out
+end
+
+-- Resolve what a bucket currently inherits before it has its own Base Filters.
+-- Concrete specs follow the same group order used by the Buff/Debuff Manager:
+-- All Specs -> Non-Healer (when applicable) -> role group.
+local function InheritedBaseFilterState(dm, key)
+    local state = dm
+
+    local groups = ns.BM_InheritedGroupsFor
+        and ns.BM_InheritedGroupsFor(key)
+
+    if groups then
+        for i = 1, #groups do
+            local groupKey = groups[i]
+
+            -- All Specs is the root dm table itself.
+            if groupKey ~= "allspecs" then
+                local b = SpecBucket(dm, groupKey, false)
+                if b and b.baseFilters then
+                    state = b.baseFilters
+                end
+            end
+        end
+    end
+
+    return state
+end
+
+-- Returns the Base Icons filter state for an EDITING bucket.
+--
+-- create=false:
+--   read-only resolution; does not create an override.
+--
+-- create=true:
+--   copy-on-write; snapshot the currently inherited state into this bucket.
+function ns.DM_FilterStateForKey(key, create)
+    local dm = DM()
+    if not dm then return nil end
+
+    -- Legacy/root storage remains All Specs.
+    if not key or key == "allspecs" then
+        return dm
+    end
+
+    local b = SpecBucket(dm, key, false)
+
+    if b and b.baseFilters then
+        return b.baseFilters
+    end
+
+    local inherited = InheritedBaseFilterState(dm, key)
+
+    if not create then
+        return inherited
+    end
+
+    b = SpecBucket(dm, key, true)
+    b.baseFilters = CopyBaseFilterState(inherited)
+
+    return b.baseFilters
+end
+
+-- Runtime Base Icons filter state for the player's CURRENT specialization.
+function ns.DM_ActiveFilterState()
+    local dm = DM()
+    if not dm then return nil end
+
+    local idx = GetSpecialization and GetSpecialization()
+    local specID = idx and GetSpecializationInfo
+        and GetSpecializationInfo(idx)
+
+    if not specID then
+        return dm
+    end
+
+    return ns.DM_FilterStateForKey("spec" .. specID, false) or dm
 end
 
 -- Bucket tile array for an EDITED view ("allspecs"/nil = the legacy array).
