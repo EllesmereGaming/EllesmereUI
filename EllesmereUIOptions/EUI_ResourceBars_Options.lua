@@ -1487,316 +1487,348 @@ initFrame:SetScript("OnEvent", function(self)
         bandPopup:Show()
     end
 
-    -- Buff colors editor: per-threshold-entry list of { spellID, r,g,b,a }. The bar takes a
-    -- buff's color while active; the FIRST active buff (list order = priority) wins and
-    -- overrides threshold coloring. Stored on the entry (per-spec via its specIDs). Mirrors
-    -- the band editor; edits CurrentBuffEntry().buffColors.
-    local buffPopup
-    local _buffRows = {}
-    local _buffEntryIdx
-    local _buffGetBarData, _buffRefreshFn
-    local _buffTitleFS, _buffAddBtn
-    local BUFF_POPUP_W = 320
-    local BUFF_ROW_H = 26
-    local RefreshBuffEditor  -- forward decl
-    -- Drag-to-reorder (list order = buff priority); mirrors the BuildCogPopup 'reorder' row type.
-    local _BuffDragTick      -- forward decl; called each frame from popup OnUpdate
-    local _buffInsLine       -- insertion-line texture, created in BuildBuffPopup
-    local _buffDrag = { row = nil, startY = nil, active = false }
-    local BUFF_STEP = BUFF_ROW_H + 4
+    -- Generic "activity color list" popup: per-threshold-entry list of { spellID, r,g,b,a }.
+    -- The bar takes an entry's color while its spell/buff is "active" (Buff Colors: the
+    -- buff is up; Spenders: the spell is currently castable) -- the FIRST active entry (list
+    -- order = priority) wins. Stored on the resolved threshold entry via kind.field (per-spec
+    -- through the entry's specIDs, same as everything else on that entry).
+    --
+    -- Buff Colors and Spenders both instantiate this ONE factory rather than each carrying
+    -- their own copy of the row/drag/add/delete UI, which is otherwise identical between
+    -- them (kind.field/title/addLabel are the only things that differ). Instantiating it
+    -- twice below gives each its own popup, row pool, and drag state.
+    local function BuildActivityColorPopup(kind)
+        local popup
+        local rows = {}
+        local entryIdx
+        local getBarData, refreshFn
+        local titleFS, addBtn
+        local POPUP_W = 320
+        local ROW_H = 26
+        local RefreshEditor  -- forward decl
+        -- Drag-to-reorder (list order = priority); mirrors the BuildCogPopup 'reorder' row type.
+        local DragTick        -- forward decl; called each frame from popup OnUpdate
+        local insLine          -- insertion-line texture, created in BuildPopup
+        local drag = { row = nil, startY = nil, active = false }
+        local STEP = ROW_H + 4
+
+        local function CurrentEntry()
+            if not entryIdx or not getBarData then return nil end
+            local bd = getBarData(); if not bd or not bd.thresholdSpecs then return nil end
+            return bd.thresholdSpecs[entryIdx]
+        end
+
+        local function BuildPopup()
+            popup = CreateFrame("Frame", nil, UIParent)
+            popup:SetFrameStrata("FULLSCREEN_DIALOG")
+            popup:SetFrameLevel(260)
+            popup:SetClampedToScreen(true)
+            popup:EnableMouse(true)
+            popup:SetScale(0.9)
+            popup:Hide()
+            PP.Size(popup, POPUP_W, 200)
+            local bg = popup:CreateTexture(nil, "BACKGROUND")
+            bg:SetAllPoints(); bg:SetColorTexture(0.06, 0.08, 0.10, 0.97)
+            PP.CreateBorder(popup, 1, 1, 1, 0.18, 1, "BORDER", 7)
+
+            -- Insertion line shown while dragging a row to reorder
+            insLine = popup:CreateTexture(nil, "OVERLAY", nil, 7)
+            insLine:SetHeight(2)
+            -- ELLESMERE_GREEN is the resolved theme accent (ACCENT_COLOR is never set); matches the raid "Sort By" reorder line
+            local _ilEG = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
+            insLine:SetColorTexture(_ilEG.r, _ilEG.g, _ilEG.b, 0.9)
+            insLine:Hide()
+
+            local clickCatcher = CreateFrame("Button", nil, popup)
+            clickCatcher:SetFrameStrata("FULLSCREEN_DIALOG")
+            clickCatcher:SetFrameLevel(popup:GetFrameLevel() - 1)
+            clickCatcher:SetAllPoints((EllesmereUI.GetMainFrame and EllesmereUI:GetMainFrame()) or UIParent)
+            clickCatcher:SetScript("OnClick", function() if drag.active then return end popup:Hide() end)
+            clickCatcher:Hide()
+            popup:SetScript("OnShow", function(self)
+                clickCatcher:Show()
+                self:SetScript("OnUpdate", function(pp)
+                    if drag.row then DragTick(); return end  -- dragging: move/reorder, never dismiss
+                    if IsMouseButtonDown("LeftButton") then
+                        local mf = EllesmereUI._mainFrame
+                        if not pp:IsMouseOver() and not (mf and mf:IsMouseOver()) then pp:Hide() end
+                    end
+                end)
+            end)
+            popup:SetScript("OnHide", function(self) clickCatcher:Hide(); self:SetScript("OnUpdate", nil) end)
+
+            titleFS = EllesmereUI.MakeFont(popup, 13, nil, 1, 1, 1)
+            titleFS:SetAlpha(0.7)
+            titleFS:SetPoint("TOP", popup, "TOP", 0, -BAND_PAD)
+            titleFS:SetText(EllesmereUI.L(kind.title))
+			local ht = popup:CreateFontString(nil, "OVERLAY")
+			local FONT = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF"
+			ht:SetFont(FONT, 10, "")
+			ht:SetPoint("TOPLEFT", popup, "TOPLEFT", 16, -BAND_PAD - 4)
+			ht:SetTextColor(1, 1, 1, 0.25)
+			ht:SetText(EllesmereUI.L("Drag to Reorder"))
+
+            addBtn = CreateFrame("Button", nil, popup)
+            PP.Size(addBtn, POPUP_W - BAND_PAD * 2, 26)
+            addBtn:SetFrameLevel(popup:GetFrameLevel() + 3)
+            local abg = EllesmereUI.SolidTex(addBtn, "BACKGROUND", 0.05, 0.07, 0.09, 0.92)
+            abg:SetAllPoints()
+            addBtn._border = EllesmereUI.MakeBorder(addBtn, 1, 1, 1, 0.4, PP)
+            local albl = EllesmereUI.MakeFont(addBtn, 12, nil, 1, 1, 1)
+            albl:SetAlpha(0.5); albl:SetPoint("CENTER"); albl:SetText(EllesmereUI.L(kind.addLabel))
+            addBtn:SetScript("OnEnter", function() albl:SetAlpha(0.7); if addBtn._border and addBtn._border.SetColor then addBtn._border:SetColor(1, 1, 1, 0.6) end end)
+            addBtn:SetScript("OnLeave", function() albl:SetAlpha(0.5); if addBtn._border and addBtn._border.SetColor then addBtn._border:SetColor(1, 1, 1, 0.4) end end)
+            addBtn:SetScript("OnClick", function()
+                local ent = CurrentEntry(); if not ent then return end
+                if not ent[kind.field] then ent[kind.field] = {} end
+                local list = ent[kind.field]
+                list[#list + 1] = { spellID = nil, r = 0.2, g = 0.6, b = 1.0, a = 1 }
+                if refreshFn then refreshFn() end
+                RefreshEditor()
+            end)
+        end
+
+        local function EnsureRow(k)
+            local row = rows[k]
+            if row then return row end
+            row = {}
+            local rf = CreateFrame("Frame", nil, popup)
+            rf:SetSize(POPUP_W - BAND_PAD * 2, ROW_H)
+            rf:SetFrameLevel(popup:GetFrameLevel() + 2)
+            row.frame = rf
+
+            local input = CreateFrame("EditBox", nil, rf)
+            input:SetSize(58, 22)
+            input:SetPoint("LEFT", rf, "LEFT", 16, 0)
+            input:SetFrameLevel(rf:GetFrameLevel() + 2)
+            input:SetAutoFocus(false)
+            local inFont = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("main") or "Fonts\\FRIZQT__.TTF"
+            input:SetFont(inFont, 12, "")
+            input:SetTextColor(1, 1, 1, 0.75)
+            input:SetJustifyH("CENTER")
+            input:SetNumeric(true)
+            input:SetMaxLetters(7)
+            local inBg = input:CreateTexture(nil, "BACKGROUND"); inBg:SetAllPoints()
+            inBg:SetColorTexture(0.12, 0.12, 0.12, 0.8)
+            EllesmereUI.MakeBorder(input, 1, 1, 1, 0.08, PP)
+            row.input = input
+
+            -- Drag grip: list order = priority, so rows are draggable
+            local grip = CreateFrame("Button", nil, rf)
+            grip:SetSize(14, ROW_H)
+            grip:SetPoint("LEFT", rf, "LEFT", 0, 0)
+            grip:SetFrameLevel(rf:GetFrameLevel() + 4)
+            local gripFS = grip:CreateFontString(nil, "OVERLAY")
+            gripFS:SetFont(inFont, 13, "")
+            gripFS:SetPoint("CENTER")
+            gripFS:SetText("=")
+            gripFS:SetTextColor(1, 1, 1, 0.25)
+            grip:SetScript("OnEnter", function() gripFS:SetTextColor(1, 1, 1, 0.6) end)
+            grip:SetScript("OnLeave", function() gripFS:SetTextColor(1, 1, 1, 0.25) end)
+            grip:SetScript("OnMouseDown", function(self, b)
+                if b ~= "LeftButton" then return end
+                local _, cy = GetCursorPosition()
+                drag.row = row; drag.startY = cy; drag.active = false
+            end)
+            row.grip = grip
+
+            local nameFS = EllesmereUI.MakeFont(rf, 11, nil, 1, 1, 1)
+            nameFS:SetAlpha(0.6)
+            nameFS:SetPoint("LEFT", input, "RIGHT", 8, 0)
+            nameFS:SetJustifyH("LEFT")
+            nameFS:SetWidth(150)
+            nameFS:SetWordWrap(false)
+            row.nameFS = nameFS
+
+            local function RefreshName()
+                local ent = CurrentEntry()
+                local list = ent and ent[kind.field]
+                local e = list and list[row._idx]
+                local id = e and e.spellID
+                if id and C_Spell and C_Spell.GetSpellName then
+                    nameFS:SetText(C_Spell.GetSpellName(id) or "|cffcc5555Unknown ID|r")
+                else
+                    nameFS:SetText("|cff888888(enter Spell ID)|r")
+                end
+            end
+            row.RefreshName = RefreshName
+
+            local function CommitInput(self)
+                if self._cancelCommit then self._cancelCommit = nil; return end
+                local ent = CurrentEntry()
+                local list = ent and ent[kind.field]
+                local e = list and list[row._idx]
+                if not e then return end
+                local val = tonumber(self:GetText())
+                e.spellID = (val and val > 0) and val or nil
+                RefreshName()
+                if refreshFn then refreshFn() end
+            end
+            input:SetScript("OnEditFocusLost", CommitInput)
+            input:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+            input:SetScript("OnEscapePressed", function(self) self._cancelCommit = true; self:ClearFocus(); RefreshEditor() end)
+
+            local swatch, swatchSnap = EllesmereUI.BuildColorSwatch(rf, rf:GetFrameLevel() + 3,
+                function()
+                    local ent = CurrentEntry()
+                    local list = ent and ent[kind.field]
+                    local e = list and list[row._idx]
+                    if not e then return 0.2, 0.6, 1.0, 1 end
+                    return e.r or 0.2, e.g or 0.6, e.b or 1.0, e.a or 1
+                end,
+                function(r, g, b, a)
+                    local ent = CurrentEntry()
+                    local list = ent and ent[kind.field]
+                    local e = list and list[row._idx]
+                    if e then e.r, e.g, e.b, e.a = r, g, b, a; if refreshFn then refreshFn() end end
+                end, true, 19)
+            swatch:SetPoint("RIGHT", rf, "RIGHT", -24, 0)
+            row.swatch = swatch
+            row.swatchSnap = swatchSnap
+
+            local delBtn = CreateFrame("Button", nil, rf)
+            delBtn:SetSize(14, 14)
+            delBtn:SetPoint("RIGHT", rf, "RIGHT", -2, 0)
+            delBtn:SetFrameLevel(rf:GetFrameLevel() + 3)
+            local delIcon = delBtn:CreateTexture(nil, "OVERLAY")
+            delIcon:SetAllPoints(); delIcon:SetTexture(_bandCloseIcon); delIcon:SetAlpha(0.4)
+            delBtn:SetScript("OnEnter", function() delIcon:SetAlpha(0.9) end)
+            delBtn:SetScript("OnLeave", function() delIcon:SetAlpha(0.4) end)
+            delBtn:SetScript("OnClick", function()
+                local ent = CurrentEntry()
+                local list = ent and ent[kind.field]
+                if list and list[row._idx] then
+                    table.remove(list, row._idx)
+                    if refreshFn then refreshFn() end
+                    RefreshEditor()
+                end
+            end)
+            row.delBtn = delBtn
+
+            rows[k] = row
+            return row
+        end
+
+        RefreshEditor = function()
+            if not popup then return end
+            local ent = CurrentEntry()
+            if not ent then popup:Hide(); return end
+            if not ent[kind.field] then ent[kind.field] = {} end
+            local list = ent[kind.field]
+            local curY = -(BAND_PAD + 24)
+            local n = #list
+            for k = 1, n do
+                local row = EnsureRow(k)
+                row._idx = k
+                row.frame:ClearAllPoints()
+                PP.Point(row.frame, "TOPLEFT", popup, "TOPLEFT", BAND_PAD, curY)
+                row._baseY = curY  -- for the drag-reorder hit test
+                row.frame:SetFrameLevel(popup:GetFrameLevel() + 2)  -- reset after a drag raised it
+                row.frame:SetAlpha(1)
+                row.input:SetText(list[k].spellID and tostring(list[k].spellID) or "")
+                if row.RefreshName then row.RefreshName() end
+                if row.swatchSnap then row.swatchSnap() end
+                row.frame:Show()
+                curY = curY - ROW_H - 4
+            end
+            for k = n + 1, #rows do if rows[k] then rows[k].frame:Hide() end end
+            curY = curY - 4
+            addBtn:ClearAllPoints()
+            PP.Point(addBtn, "TOPLEFT", popup, "TOPLEFT", BAND_PAD, curY)
+            curY = curY - 26
+            PP.Size(popup, POPUP_W, math.abs(curY) + BAND_PAD)
+        end
+
+        -- Runs each frame from the popup's OnUpdate while a grip is held: separates click from
+        -- drag, moves the row under the cursor with an insertion line, and on release reorders
+        -- the list (order = priority) and re-renders. Mirrors BuildCogPopup's 'reorder' row.
+        DragTick = function()
+            local d = drag
+            local row = d.row
+            if not row then return end
+            local down = IsMouseButtonDown("LeftButton")
+            local _, cy = GetCursorPosition()
+            if not d.active then
+                if not down then d.row = nil; return end          -- released before threshold = a click
+                if math.abs(cy - (d.startY or cy)) < 3 then return end
+                d.active = true
+                row.frame:SetFrameLevel(popup:GetFrameLevel() + 20)
+                row.frame:SetAlpha(0.85)
+            end
+            local ent = CurrentEntry()
+            local list = ent and ent[kind.field]
+            local n = list and #list or 0
+            local sc = popup:GetEffectiveScale()
+            local cY = cy / sc
+            local mT = popup:GetTop() or 0
+            -- Insertion index among the STATIC (non-dragged) rows
+            local iI = n
+            for ri = 1, n do
+                local r2 = rows[ri]
+                if r2 ~= row and r2._baseY then
+                    local rm = mT + r2._baseY - ROW_H / 2
+                    if cY > rm then iI = ri; break end
+                    iI = ri + 1
+                end
+            end
+            iI = math.max(1, math.min(iI, n + 1))
+            if down then
+                local firstY = -(BAND_PAD + 24)
+                local lnY = (iI <= 1) and (firstY + 2) or (firstY - (iI - 1) * STEP + 2)
+                insLine:ClearAllPoints()
+                insLine:SetPoint("TOPLEFT", popup, "TOPLEFT", BAND_PAD, lnY)
+                insLine:SetPoint("TOPRIGHT", popup, "TOPRIGHT", -BAND_PAD, lnY)
+                insLine:Show()
+                row.frame:ClearAllPoints()
+                row.frame:SetPoint("TOPLEFT", popup, "TOPLEFT", BAND_PAD, cY - mT)
+            else
+                -- Dropped: reorder the list + re-render
+                local from = row._idx
+                if from and from < iI then iI = iI - 1 end
+                local to = math.max(1, math.min(iI, n))
+                insLine:Hide()
+                d.row = nil; d.active = false
+                if list and from and from ~= to then
+                    local mv = table.remove(list, from)
+                    table.insert(list, to, mv)
+                    if refreshFn then refreshFn() end
+                end
+                RefreshEditor()
+            end
+        end
+
+        local function Show(params)
+            if not popup then BuildPopup() end
+            getBarData = params.getBarData
+            refreshFn  = params.refreshFn
+            entryIdx   = params.entryIdx
+            local ent = CurrentEntry()
+            if ent and not ent[kind.field] then ent[kind.field] = {} end
+            RefreshEditor()
+            popup:ClearAllPoints()
+            popup:SetPoint("TOP", params.anchor, "BOTTOM", 0, -4)
+            popup:Show()
+        end
+
+        return { Show = Show }
+    end
+
     local BUFF_HELP_TIP =
         "Recolor the bar while you have a buff. The first active buff in the list wins, so order = priority. Overrides threshold coloring while active.\n"
         .. "You must be tracking the buff in Blizzard CDM, added to EUI CDM, and this only works with CDM trackable buffs."
+    local _buffEditor = BuildActivityColorPopup({
+        field = "buffColors", title = "Buff Colors", addLabel = "+ Add Buff",
+    })
+    local ShowBuffEditor = _buffEditor.Show
 
-    local function CurrentBuffEntry()
-        if not _buffEntryIdx or not _buffGetBarData then return nil end
-        local bd = _buffGetBarData(); if not bd or not bd.thresholdSpecs then return nil end
-        return bd.thresholdSpecs[_buffEntryIdx]
-    end
-
-    local function BuildBuffPopup()
-        buffPopup = CreateFrame("Frame", nil, UIParent)
-        buffPopup:SetFrameStrata("FULLSCREEN_DIALOG")
-        buffPopup:SetFrameLevel(260)
-        buffPopup:SetClampedToScreen(true)
-        buffPopup:EnableMouse(true)
-        buffPopup:SetScale(0.9)
-        buffPopup:Hide()
-        PP.Size(buffPopup, BUFF_POPUP_W, 200)
-        local bg = buffPopup:CreateTexture(nil, "BACKGROUND")
-        bg:SetAllPoints(); bg:SetColorTexture(0.06, 0.08, 0.10, 0.97)
-        PP.CreateBorder(buffPopup, 1, 1, 1, 0.18, 1, "BORDER", 7)
-
-        -- Insertion line shown while dragging a row to reorder
-        _buffInsLine = buffPopup:CreateTexture(nil, "OVERLAY", nil, 7)
-        _buffInsLine:SetHeight(2)
-        -- ELLESMERE_GREEN is the resolved theme accent (ACCENT_COLOR is never set); matches the raid "Sort By" reorder line
-        local _bilEG = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
-        _buffInsLine:SetColorTexture(_bilEG.r, _bilEG.g, _bilEG.b, 0.9)
-        _buffInsLine:Hide()
-
-        local clickCatcher = CreateFrame("Button", nil, buffPopup)
-        clickCatcher:SetFrameStrata("FULLSCREEN_DIALOG")
-        clickCatcher:SetFrameLevel(buffPopup:GetFrameLevel() - 1)
-        clickCatcher:SetAllPoints((EllesmereUI.GetMainFrame and EllesmereUI:GetMainFrame()) or UIParent)
-        clickCatcher:SetScript("OnClick", function() if _buffDrag.active then return end buffPopup:Hide() end)
-        clickCatcher:Hide()
-        buffPopup:SetScript("OnShow", function(self)
-            clickCatcher:Show()
-            self:SetScript("OnUpdate", function(pp)
-                if _buffDrag.row then _BuffDragTick(); return end  -- dragging: move/reorder, never dismiss
-                if IsMouseButtonDown("LeftButton") then
-                    local mf = EllesmereUI._mainFrame
-                    if not pp:IsMouseOver() and not (mf and mf:IsMouseOver()) then pp:Hide() end
-                end
-            end)
-        end)
-        buffPopup:SetScript("OnHide", function(self) clickCatcher:Hide(); self:SetScript("OnUpdate", nil) end)
-
-        _buffTitleFS = EllesmereUI.MakeFont(buffPopup, 13, nil, 1, 1, 1)
-        _buffTitleFS:SetAlpha(0.7)
-        _buffTitleFS:SetPoint("TOP", buffPopup, "TOP", 0, -BAND_PAD)
-        _buffTitleFS:SetText(EllesmereUI.L("Buff Colors"))
-		local ht = buffPopup:CreateFontString(nil, "OVERLAY")
-		local FONT = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF"
-		ht:SetFont(FONT, 10, "")
-		ht:SetPoint("TOPLEFT", buffPopup, "TOPLEFT", 16, -BAND_PAD - 4)
-		ht:SetTextColor(1, 1, 1, 0.25)
-		ht:SetText(EllesmereUI.L("Drag to Reorder"))
-
-        _buffAddBtn = CreateFrame("Button", nil, buffPopup)
-        PP.Size(_buffAddBtn, BUFF_POPUP_W - BAND_PAD * 2, 26)
-        _buffAddBtn:SetFrameLevel(buffPopup:GetFrameLevel() + 3)
-        local abg = EllesmereUI.SolidTex(_buffAddBtn, "BACKGROUND", 0.05, 0.07, 0.09, 0.92)
-        abg:SetAllPoints()
-        _buffAddBtn._border = EllesmereUI.MakeBorder(_buffAddBtn, 1, 1, 1, 0.4, PP)
-        local albl = EllesmereUI.MakeFont(_buffAddBtn, 12, nil, 1, 1, 1)
-        albl:SetAlpha(0.5); albl:SetPoint("CENTER"); albl:SetText(EllesmereUI.L("+ Add Buff"))
-        _buffAddBtn:SetScript("OnEnter", function() albl:SetAlpha(0.7); if _buffAddBtn._border and _buffAddBtn._border.SetColor then _buffAddBtn._border:SetColor(1, 1, 1, 0.6) end end)
-        _buffAddBtn:SetScript("OnLeave", function() albl:SetAlpha(0.5); if _buffAddBtn._border and _buffAddBtn._border.SetColor then _buffAddBtn._border:SetColor(1, 1, 1, 0.4) end end)
-        _buffAddBtn:SetScript("OnClick", function()
-            local ent = CurrentBuffEntry(); if not ent then return end
-            if not ent.buffColors then ent.buffColors = {} end
-            ent.buffColors[#ent.buffColors + 1] = { spellID = nil, r = 0.2, g = 0.6, b = 1.0, a = 1 }
-            if _buffRefreshFn then _buffRefreshFn() end
-            RefreshBuffEditor()
-        end)
-    end
-
-    local function EnsureBuffRow(k)
-        local row = _buffRows[k]
-        if row then return row end
-        row = {}
-        local rf = CreateFrame("Frame", nil, buffPopup)
-        rf:SetSize(BUFF_POPUP_W - BAND_PAD * 2, BUFF_ROW_H)
-        rf:SetFrameLevel(buffPopup:GetFrameLevel() + 2)
-        row.frame = rf
-
-        local input = CreateFrame("EditBox", nil, rf)
-        input:SetSize(58, 22)
-        input:SetPoint("LEFT", rf, "LEFT", 16, 0)
-        input:SetFrameLevel(rf:GetFrameLevel() + 2)
-        input:SetAutoFocus(false)
-        local inFont = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("main") or "Fonts\\FRIZQT__.TTF"
-        input:SetFont(inFont, 12, "")
-        input:SetTextColor(1, 1, 1, 0.75)
-        input:SetJustifyH("CENTER")
-        input:SetNumeric(true)
-        input:SetMaxLetters(7)
-        local inBg = input:CreateTexture(nil, "BACKGROUND"); inBg:SetAllPoints()
-        inBg:SetColorTexture(0.12, 0.12, 0.12, 0.8)
-        EllesmereUI.MakeBorder(input, 1, 1, 1, 0.08, PP)
-        row.input = input
-
-        -- Drag grip: list order = buff priority, so rows are draggable
-        local grip = CreateFrame("Button", nil, rf)
-        grip:SetSize(14, BUFF_ROW_H)
-        grip:SetPoint("LEFT", rf, "LEFT", 0, 0)
-        grip:SetFrameLevel(rf:GetFrameLevel() + 4)
-        local gripFS = grip:CreateFontString(nil, "OVERLAY")
-        gripFS:SetFont(inFont, 13, "")
-        gripFS:SetPoint("CENTER")
-        gripFS:SetText("=")
-        gripFS:SetTextColor(1, 1, 1, 0.25)
-        grip:SetScript("OnEnter", function() gripFS:SetTextColor(1, 1, 1, 0.6) end)
-        grip:SetScript("OnLeave", function() gripFS:SetTextColor(1, 1, 1, 0.25) end)
-        grip:SetScript("OnMouseDown", function(self, b)
-            if b ~= "LeftButton" then return end
-            local _, cy = GetCursorPosition()
-            _buffDrag.row = row; _buffDrag.startY = cy; _buffDrag.active = false
-        end)
-        row.grip = grip
-
-        local nameFS = EllesmereUI.MakeFont(rf, 11, nil, 1, 1, 1)
-        nameFS:SetAlpha(0.6)
-        nameFS:SetPoint("LEFT", input, "RIGHT", 8, 0)
-        nameFS:SetJustifyH("LEFT")
-        nameFS:SetWidth(150)
-        nameFS:SetWordWrap(false)
-        row.nameFS = nameFS
-
-        local function RefreshName()
-            local ent = CurrentBuffEntry()
-            local e = ent and ent.buffColors and ent.buffColors[row._idx]
-            local id = e and e.spellID
-            if id and C_Spell and C_Spell.GetSpellName then
-                nameFS:SetText(C_Spell.GetSpellName(id) or "|cffcc5555Unknown ID|r")
-            else
-                nameFS:SetText("|cff888888(enter Spell ID)|r")
-            end
-        end
-        row.RefreshName = RefreshName
-
-        local function CommitInput(self)
-            if self._cancelCommit then self._cancelCommit = nil; return end
-            local ent = CurrentBuffEntry()
-            local e = ent and ent.buffColors and ent.buffColors[row._idx]
-            if not e then return end
-            local val = tonumber(self:GetText())
-            e.spellID = (val and val > 0) and val or nil
-            RefreshName()
-            if _buffRefreshFn then _buffRefreshFn() end
-        end
-        input:SetScript("OnEditFocusLost", CommitInput)
-        input:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
-        input:SetScript("OnEscapePressed", function(self) self._cancelCommit = true; self:ClearFocus(); RefreshBuffEditor() end)
-
-        local swatch, swatchSnap = EllesmereUI.BuildColorSwatch(rf, rf:GetFrameLevel() + 3,
-            function()
-                local ent = CurrentBuffEntry()
-                local e = ent and ent.buffColors and ent.buffColors[row._idx]
-                if not e then return 0.2, 0.6, 1.0, 1 end
-                return e.r or 0.2, e.g or 0.6, e.b or 1.0, e.a or 1
-            end,
-            function(r, g, b, a)
-                local ent = CurrentBuffEntry()
-                local e = ent and ent.buffColors and ent.buffColors[row._idx]
-                if e then e.r, e.g, e.b, e.a = r, g, b, a; if _buffRefreshFn then _buffRefreshFn() end end
-            end, true, 19)
-        swatch:SetPoint("RIGHT", rf, "RIGHT", -24, 0)
-        row.swatch = swatch
-        row.swatchSnap = swatchSnap
-
-        local delBtn = CreateFrame("Button", nil, rf)
-        delBtn:SetSize(14, 14)
-        delBtn:SetPoint("RIGHT", rf, "RIGHT", -2, 0)
-        delBtn:SetFrameLevel(rf:GetFrameLevel() + 3)
-        local delIcon = delBtn:CreateTexture(nil, "OVERLAY")
-        delIcon:SetAllPoints(); delIcon:SetTexture(_bandCloseIcon); delIcon:SetAlpha(0.4)
-        delBtn:SetScript("OnEnter", function() delIcon:SetAlpha(0.9) end)
-        delBtn:SetScript("OnLeave", function() delIcon:SetAlpha(0.4) end)
-        delBtn:SetScript("OnClick", function()
-            local ent = CurrentBuffEntry()
-            if ent and ent.buffColors and ent.buffColors[row._idx] then
-                table.remove(ent.buffColors, row._idx)
-                if _buffRefreshFn then _buffRefreshFn() end
-                RefreshBuffEditor()
-            end
-        end)
-        row.delBtn = delBtn
-
-        _buffRows[k] = row
-        return row
-    end
-
-    RefreshBuffEditor = function()
-        if not buffPopup then return end
-        local ent = CurrentBuffEntry()
-        if not ent then buffPopup:Hide(); return end
-        if not ent.buffColors then ent.buffColors = {} end
-        local curY = -(BAND_PAD + 24)
-        local n = #ent.buffColors
-        for k = 1, n do
-            local row = EnsureBuffRow(k)
-            row._idx = k
-            row.frame:ClearAllPoints()
-            PP.Point(row.frame, "TOPLEFT", buffPopup, "TOPLEFT", BAND_PAD, curY)
-            row._baseY = curY  -- for the drag-reorder hit test
-            row.frame:SetFrameLevel(buffPopup:GetFrameLevel() + 2)  -- reset after a drag raised it
-            row.frame:SetAlpha(1)
-            row.input:SetText(ent.buffColors[k].spellID and tostring(ent.buffColors[k].spellID) or "")
-            if row.RefreshName then row.RefreshName() end
-            if row.swatchSnap then row.swatchSnap() end
-            row.frame:Show()
-            curY = curY - BUFF_ROW_H - 4
-        end
-        for k = n + 1, #_buffRows do if _buffRows[k] then _buffRows[k].frame:Hide() end end
-        curY = curY - 4
-        _buffAddBtn:ClearAllPoints()
-        PP.Point(_buffAddBtn, "TOPLEFT", buffPopup, "TOPLEFT", BAND_PAD, curY)
-        curY = curY - 26
-        PP.Size(buffPopup, BUFF_POPUP_W, math.abs(curY) + BAND_PAD)
-    end
-
-    -- Runs each frame from the popup's OnUpdate while a grip is held: separates click from
-    -- drag, moves the row under the cursor with an insertion line, and on release reorders
-    -- ent.buffColors (order = priority) and re-renders. Mirrors BuildCogPopup's 'reorder' row.
-    _BuffDragTick = function()
-        local d = _buffDrag
-        local row = d.row
-        if not row then return end
-        local down = IsMouseButtonDown("LeftButton")
-        local _, cy = GetCursorPosition()
-        if not d.active then
-            if not down then d.row = nil; return end          -- released before threshold = a click
-            if math.abs(cy - (d.startY or cy)) < 3 then return end
-            d.active = true
-            row.frame:SetFrameLevel(buffPopup:GetFrameLevel() + 20)
-            row.frame:SetAlpha(0.85)
-        end
-        local ent = CurrentBuffEntry()
-        local n = (ent and ent.buffColors) and #ent.buffColors or 0
-        local sc = buffPopup:GetEffectiveScale()
-        local cY = cy / sc
-        local mT = buffPopup:GetTop() or 0
-        -- Insertion index among the STATIC (non-dragged) rows
-        local iI = n
-        for ri = 1, n do
-            local r2 = _buffRows[ri]
-            if r2 ~= row and r2._baseY then
-                local rm = mT + r2._baseY - BUFF_ROW_H / 2
-                if cY > rm then iI = ri; break end
-                iI = ri + 1
-            end
-        end
-        iI = math.max(1, math.min(iI, n + 1))
-        if down then
-            local firstY = -(BAND_PAD + 24)
-            local lnY = (iI <= 1) and (firstY + 2) or (firstY - (iI - 1) * BUFF_STEP + 2)
-            _buffInsLine:ClearAllPoints()
-            _buffInsLine:SetPoint("TOPLEFT", buffPopup, "TOPLEFT", BAND_PAD, lnY)
-            _buffInsLine:SetPoint("TOPRIGHT", buffPopup, "TOPRIGHT", -BAND_PAD, lnY)
-            _buffInsLine:Show()
-            row.frame:ClearAllPoints()
-            row.frame:SetPoint("TOPLEFT", buffPopup, "TOPLEFT", BAND_PAD, cY - mT)
-        else
-            -- Dropped: reorder the list + re-render
-            local from = row._idx
-            if from and from < iI then iI = iI - 1 end
-            local to = math.max(1, math.min(iI, n))
-            _buffInsLine:Hide()
-            d.row = nil; d.active = false
-            if ent and ent.buffColors and from and from ~= to then
-                local mv = table.remove(ent.buffColors, from)
-                table.insert(ent.buffColors, to, mv)
-                if _buffRefreshFn then _buffRefreshFn() end
-            end
-            RefreshBuffEditor()
-        end
-    end
-
-    local function ShowBuffEditor(params)
-        if not buffPopup then BuildBuffPopup() end
-        _buffGetBarData = params.getBarData
-        _buffRefreshFn  = params.refreshFn
-        _buffEntryIdx   = params.entryIdx
-        local ent = CurrentBuffEntry()
-        if ent and not ent.buffColors then ent.buffColors = {} end
-        RefreshBuffEditor()
-        buffPopup:ClearAllPoints()
-        buffPopup:SetPoint("TOP", params.anchor, "BOTTOM", 0, -4)
-        buffPopup:Show()
-    end
+    local SPENDER_HELP_TIP =
+        "Recolor the bar while a tracked spell is currently castable (checks your own resources, not cooldown). The first usable spell in the list wins, so order = priority.\n"
+        .. "Never overrides Buff Colors -- if a tracked buff above is also active, that color wins instead. Works with any spell ID; the spell does not need to be tracked in CDM.\n"
+        .. "For abilities with Spell Overrides, always use the original/base Spell ID."
+    local _spenderEditor = BuildActivityColorPopup({
+        field = "spenderColors", title = "Spenders", addLabel = "+ Add Spell",
+    })
+    local ShowSpenderEditor = _spenderEditor.Show
 
     -- Shared per-spec threshold popup builder, used by power and health bar sections.
     -- cfg fields:
@@ -6306,6 +6338,48 @@ initFrame:SetScript("OnEvent", function(self)
 				multiDis:Hide()
 				multiRow._dis = multiDis
 
+				-- Row: Spender colors (per-entry list). "Spells" opens the editor, the toggle enables
+				-- applying them. First currently-castable spell wins. Placed above Buff Colors and
+				-- checked with lower priority than it (ActiveSpenderColor is only consulted when no
+				-- buff is active) -- it can never override Buff Colors.
+				local spenderRow = DRow("Spenders", ROWH)
+				local spendersBtn = CreateFrame("Button", nil, spenderRow)
+				PP.Size(spendersBtn, 60, 22)
+				spendersBtn:SetPoint("RIGHT", spenderRow, "RIGHT", 0, 0)
+				spendersBtn:SetFrameLevel(spenderRow:GetFrameLevel() + 4)
+				local fsBg = spendersBtn:CreateTexture(nil, "BACKGROUND"); fsBg:SetAllPoints()
+				fsBg:SetColorTexture(0.12, 0.12, 0.12, 0.8)
+				spendersBtn._border = EllesmereUI.MakeBorder(spendersBtn, 1, 1, 1, 0.08, PP)
+				local fsLbl = EllesmereUI.MakeFont(spendersBtn, 12, nil, 1, 1, 1)
+				fsLbl:SetAlpha(0.8); fsLbl:SetPoint("CENTER"); fsLbl:SetText(EllesmereUI.L("Spells"))
+				spendersBtn:SetScript("OnEnter", function(self) fsBg:SetColorTexture(0.16, 0.16, 0.16, 0.9); EllesmereUI.ShowWidgetTooltip(self, SPENDER_HELP_TIP) end)
+				spendersBtn:SetScript("OnLeave", function(self) fsBg:SetColorTexture(0.12, 0.12, 0.12, 0.8); EllesmereUI.HideWidgetTooltip() end)
+				spendersBtn:SetScript("OnClick", function(self)
+					local ent = CurEntry(); if not ent then return end
+					ShowSpenderEditor({
+						getBarData = function() local pp = DB(); return pp and pp.secondary end,
+						refreshFn = function() RefreshClass() end,
+						entryIdx = _selectedIdx, anchor = self,
+					})
+				end)
+				spenderRow._spendersBtn = spendersBtn
+				local spenderToggle, _, spenderSnap = EllesmereUI.BuildToggleControl(
+					spenderRow, DLVL + 4,
+					function() local ent = CurEntry(); return ent and ent.spenderColorEnabled or false end,
+					function(v)
+						local ent = CurEntry(); if not ent then return end
+						ent.spenderColorEnabled = v
+						RefreshClass()
+						if RefreshDetail then RefreshDetail() end
+					end,
+					{ sizeRatio = 0.95 }
+				)
+				spenderToggle:SetPoint("RIGHT", spendersBtn, "LEFT", -10, 0)
+				spenderRow._toggle = spenderToggle
+				spenderRow._snap = spenderSnap
+				spenderToggle:HookScript("OnEnter", function(self) EllesmereUI.ShowWidgetTooltip(self, SPENDER_HELP_TIP) end)
+				spenderToggle:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
 				-- Row: Buff colors (per-entry list). "Buffs" opens the editor, the toggle enables applying them. First active buff wins and overrides threshold coloring.
 				local buffRow = DRow("Buff Colors", ROWH)
 				local buffsBtn = CreateFrame("Button", nil, buffRow)
@@ -6520,7 +6594,7 @@ initFrame:SetScript("OnEvent", function(self)
 					-- Snap the toggles / swatches to the entry
 					if talentDD._refreshLabel then talentDD._refreshLabel() end
 					hashRow._swatchSnap()
-					threshEnableSnap(); threshSwatchSnap(); multiSnap(); buffSnap(); textInsteadSnap(); ceilingSnap()
+					threshEnableSnap(); threshSwatchSnap(); multiSnap(); spenderSnap(); buffSnap(); textInsteadSnap(); ceilingSnap()
 
 					-- Single threshold and multi-band are independent toggles
 					local entEnabled = ent.thresholdEnabled
@@ -6559,6 +6633,7 @@ initFrame:SetScript("OnEvent", function(self)
 					if not isGuardian and not isIgnorePain then place(hashRow) end
 					place(threshRow)
 					place(multiRow)
+					place(spenderRow)
 					place(buffRow)
 					-- Bar-wide text-instead toggle always gets a row (no visible effect for pip resources / Ignore Pain, whose render path keeps its own coloring)
 					place(textInsteadRow)

@@ -4356,6 +4356,57 @@ local function SecondaryTracksBuff(sp)
     return (e and e.buffColorEnabled and e.buffColors and #e.buffColors > 0) and true or false
 end
 
+-- Spender coloring for the class-resource bar ("Spenders" in the options UI): the FIRST
+-- entry in the list whose spell is currently castable wins. Lower priority than Buff
+-- Colors -- callers only reach this when ActiveBuffColor already returned nil, so a tracked
+-- buff always wins when both would otherwise apply.
+--
+-- C_Spell.IsSpellUsable is documented (and field-tested) as reporting the PLAYER'S OWN
+-- ability to cast a spell, not an opponent-facing combat value, so it is not expected to be
+-- a Midnight secret value the way e.g. an enemy's interrupt-protection flag is elsewhere in
+-- this file. Even so, both the call and the boolean branch on its result happen INSIDE the
+-- pcall below (not just the call): if IsSpellUsable's return were ever secret in some
+-- content mode this hasn't been tested against, evaluating it truthy/falsy is what would
+-- throw, and only wrapping the call would not catch that. A failure here just treats that
+-- list entry as "not usable" and moves on -- it never surfaces as a Lua error.
+-- Note on override-swapped abilities (buttons whose spell changes based on player state,
+-- e.g. Devourer DH's Void Metamorphosis button becoming Collapsing Star while active):
+-- C_Spell.IsSpellUsable is override-aware for the ORIGINAL/base spell ID -- it correctly
+-- reports whatever the button currently resolves to, including custom resource gates the
+-- override target itself has no cost data for (confirmed via GetSpellPowerCost returning
+-- empty on the override target while behaving correctly on the base ID). Querying the
+-- override target's spellID directly returns a static, meaningless result.
+local function ActiveSpenderColor(entry)
+    if not entry or not entry.spenderColorEnabled then return nil end
+    local list = entry.spenderColors
+    if not (list and C_Spell and C_Spell.IsSpellUsable) then return nil end
+    for i = 1, #list do
+        local e = list[i]
+        if e.spellID then
+            local ok, usable = pcall(function()
+                return C_Spell.IsSpellUsable(e.spellID) and true or false
+            end)
+            if ok and usable then return e.r, e.g, e.b, e.a end
+        end
+    end
+    return nil
+end
+-- True when the current spec's resolved threshold entry has an enabled, non-empty spender
+-- list. Mirrors SecondaryTracksBuff above.
+local function SecondaryTracksSpender(sp)
+    if not sp then return false end
+    local e = ResolveThresholdSpecEntry(sp)
+    return (e and e.spenderColorEnabled and e.spenderColors and #e.spenderColors > 0) and true or false
+end
+-- Combined "does this resolved entry need buff/spender-aware live-refresh treatment" check.
+-- ns.STB is a SINGLE cache read by four independent call sites (the points-type
+-- value-unchanged early-out, the ns.PollTick/ns.ArmTick poll gates, and the UNIT_AURA
+-- handler) -- this is the one place that ORs "tracks a buff" with "tracks a spender" so all
+-- four stay consistent instead of drifting via four separately-written OR-expressions.
+local function SecondaryNeedsLiveColorTracking(sp)
+    return SecondaryTracksBuff(sp) or SecondaryTracksSpender(sp)
+end
+
 -- Per-frame render for the Guardian Ironfur bar: prune expired ticks, position
 -- the moving hash lines (right -> left as each cast decays), and drive the fill
 -- to the longest-remaining fraction.
@@ -4427,8 +4478,12 @@ local function UpdateIronfurBar()
     -- survives (buff + text-instead => buff colors the count text, fill stays base).
     local _tiWanted = (tsEntry and tsEntry.thresholdTextInstead and sp.showText) and true or false
     -- Buff coloring wins: a tracked buff on this entry overrides the base color and
-    -- suppresses the stack-count threshold/bands below.
+    -- suppresses the stack-count threshold/bands below. Spenders is checked only when no
+    -- buff is active, so it can never override Buff Colors.
     local _bfr, _bfg, _bfb, _bfa = ActiveBuffColor(tsEntry)
+    if not _bfr then
+        _bfr, _bfg, _bfb, _bfa = ActiveSpenderColor(tsEntry)
+    end
     local _buffActive = _bfr ~= nil
     if _buffActive and not _tiWanted then r, g, b, a = _bfr or r, _bfg or g, _bfb or b, _bfa or a end
     -- Ironfur colors by active stack count, NOT the bar's duration fraction, so
@@ -4708,7 +4763,7 @@ local function UpdateSecondaryResource()
             if not stb or stb.gen ~= ns.CfgGen then
                 if not stb then stb = {}; ns.STB = stb end
                 stb.gen = ns.CfgGen
-                stb.v = SecondaryTracksBuff(_G._ERB_ResolveSecondaryCfg()) and true or false
+                stb.v = SecondaryNeedsLiveColorTracking(_G._ERB_ResolveSecondaryCfg())
             end
             if not stb.v then
                 local st = ns.SecSt
@@ -4801,8 +4856,15 @@ local function UpdateSecondaryResource()
 
     -- A tracked buff overrides the fill (buff wins over threshold). With "recolor
     -- text instead" on, the buff colors the count TEXT (done at the end of this
-    -- function) and fill/pips stay at their base color.
+    -- function) and fill/pips stay at their base color. Spenders is checked only when no
+    -- buff is active (it must never override Buff Colors), and shares this same variable
+    -- pair -- every branch below (runes, bar-type/stagger, points/pip, secret pip overlay,
+    -- final text coloring) already keys off _buffActive/_bfr and doesn't care which of the
+    -- two sources produced the color.
     local _bfr, _bfg, _bfb, _bfa = ActiveBuffColor(_buffEntry)
+    if not _bfr then
+        _bfr, _bfg, _bfb, _bfa = ActiveSpenderColor(_buffEntry)
+    end
     local _buffActive = _bfr ~= nil
     if _buffActive then
         if not _spTextInstead then
@@ -6092,7 +6154,7 @@ ns.PollTick = EllesmereUI.Tick.NewAnimTicker(CreateFrame("Frame"), function()   
     if not stb or stb.gen ~= ns.CfgGen then
         if not stb then stb = {}; ns.STB = stb end
         stb.gen = ns.CfgGen
-        stb.v = SecondaryTracksBuff(_G._ERB_ResolveSecondaryCfg()) and true or false
+        stb.v = SecondaryNeedsLiveColorTracking(_G._ERB_ResolveSecondaryCfg())
     end
     if stb.v then
         UpdateSecondaryResource()
@@ -6123,7 +6185,7 @@ function ns.ArmTick()
             if not stb or stb.gen ~= ns.CfgGen then
                 if not stb then stb = {}; ns.STB = stb end
                 stb.gen = ns.CfgGen
-                stb.v = SecondaryTracksBuff(_G._ERB_ResolveSecondaryCfg()) and true or false
+                stb.v = SecondaryNeedsLiveColorTracking(_G._ERB_ResolveSecondaryCfg())
             end
             if stb.v then ns.PollTick.Start() end
         end
@@ -8914,9 +8976,10 @@ local function OnEvent(self, event, ...)
         if unit == "player" then
             if cachedPrimary == "EBON_MIGHT" then UpdatePrimaryBar() end
             if cachedSecondary then
-                -- Refresh on aura change for custom resources and for buff coloring
-                -- (any resource type -- a tracked buff gain/loss recolors the bar).
-                if cachedSecondary.type == "custom" or SecondaryTracksBuff(_G._ERB_ResolveSecondaryCfg()) then
+                -- Refresh on aura change for custom resources and for buff/spender coloring
+                -- (any resource type -- a tracked buff gain/loss, or an aura-gated reactive
+                -- spender becoming usable, recolors the bar).
+                if cachedSecondary.type == "custom" or SecondaryNeedsLiveColorTracking(_G._ERB_ResolveSecondaryCfg()) then
                     UpdateSecondaryResource()
                 end
             end
