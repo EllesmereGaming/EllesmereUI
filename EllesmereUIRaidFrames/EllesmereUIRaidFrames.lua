@@ -9830,6 +9830,13 @@ ns._ptEnabled  = false         -- currently-applied state
 ns._ptDesired  = false         -- requested state (may differ while in combat)
 ns._ptEventFrame = nil         -- name-refresh event host (created on first enable)
 
+-- Party targets are secondary frames, so they render noticeably smaller than
+-- their owner party button -- mirroring EllesmereUI's Target vs Target-of-Target
+-- size convention (the ToT frame is ~0.56x the Target width and ~0.55x its
+-- height). Keeping them small keeps the party -> party-target pairing readable.
+local PT_WIDTH_SCALE  = 0.56
+local PT_HEIGHT_SCALE = 0.55
+
 -- Owner units whose UNIT_TARGET should refresh a party target name. Party
 -- tokens cover normal groups; raid1-5 cover arena (the party header binds
 -- raid1-5 there); player covers an in-header player frame. Kept as a set so
@@ -9885,8 +9892,8 @@ ns._PT_Layout = function()
     if not ns._ptEnabled then return end
     if InCombatLockdown() then return end
     local s = db.profile
-    local bw = PixelSnap(s.partyFrameWidth or s.frameWidth or 125)
-    local bh = PixelSnap(s.partyFrameHeight or s.frameHeight or 60)
+    local bw = PixelSnap((s.partyFrameWidth or s.frameWidth or 125) * PT_WIDTH_SCALE)
+    local bh = PixelSnap((s.partyFrameHeight or s.frameHeight or 60) * PT_HEIGHT_SCALE)
     local gap = PixelSnap(s.partyCellSpacing or s.cellSpacing or 2)
     local frames = ns._partyTargetFrames
     for i = 1, #frames do
