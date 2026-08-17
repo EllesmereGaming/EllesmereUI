@@ -1115,7 +1115,11 @@ initFrame:SetScript("OnEvent", function(self)
     local _bandModeRow, _bandModeSeg, _bandModeSegRefresh, _bandModeHint, _bandAddBtn, _bandTitleFS
     local _bandReverseRow, _bandReverseSeg, _bandReverseSegRefresh
     local BAND_POPUP_W = 300
-    local BAND_ROW_H = 26
+    -- Two lines per row: boundary/color/delete on top, a per-band alert
+    -- Sound dropdown below it. BAND_ROW_H is the full row pitch (used by
+    -- both row sizing and the stacking step in RefreshBandEditor).
+    local BAND_LINE1_H = 26
+    local BAND_ROW_H = 50
     local BAND_PAD = 14
     local BAND_GAP = 10
     local RefreshBandEditor  -- forward decl
@@ -1125,7 +1129,8 @@ initFrame:SetScript("OnEvent", function(self)
         "Color the bar by ranges instead of a single threshold.\n"
         .. "Up to (<=) / From (>=)\n"
 		.. "Any remaning values outside the bands will use fill color.\n"
-        .. "|cff888888Bars can use % or actual value; pip resources use counts.|r"
+        .. "|cff888888Bars can use % or actual value; pip resources use counts.|r\n"
+        .. "Each band can also play its own sound as you cross into it."
 
     local BAND_REPLACES_TIP =
         "Single threshold is off while Multi-band is on.\n"
@@ -1306,7 +1311,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         local lbl = EllesmereUI.MakeFont(rf, 12, nil, 1, 1, 1)
         lbl:SetAlpha(0.6)
-        lbl:SetPoint("LEFT", rf, "LEFT", 2, 0)
+        lbl:SetPoint("TOPLEFT", rf, "TOPLEFT", 2, -2)
         lbl:SetText(EllesmereUI.L("Up to"))  -- band colors values up to `to`
         row.lbl = lbl
 
@@ -1369,7 +1374,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         local delBtn = CreateFrame("Button", nil, rf)
         delBtn:SetSize(14, 14)
-        delBtn:SetPoint("RIGHT", rf, "RIGHT", -2, 0)
+        delBtn:SetPoint("TOPRIGHT", rf, "TOPRIGHT", -2, -6)
         delBtn:SetFrameLevel(rf:GetFrameLevel() + 3)
         local delIcon = delBtn:CreateTexture(nil, "OVERLAY")
         delIcon:SetAllPoints()
@@ -1386,6 +1391,48 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end)
         row.delBtn = delBtn
+
+        -- Line 2: per-band alert sound, reusing the shared catalogue plumbing
+        -- from the single-threshold Sound dropdown (EllesmereUI.GetSoundCatalog).
+        local soundLbl = EllesmereUI.MakeFont(rf, 10, nil, 1, 1, 1)
+        soundLbl:SetAlpha(0.5)
+        soundLbl:SetPoint("TOPLEFT", rf, "TOPLEFT", 2, -(BAND_LINE1_H + 6))
+        soundLbl:SetText(EllesmereUI.L("Sound"))
+        row.soundLbl = soundLbl
+
+        local soundValues = {}
+        local soundPaths, soundNames, soundOrder = EllesmereUI.GetSoundCatalog()
+        for sk, sv in pairs(soundNames) do soundValues[sk] = sv end
+        soundValues._menuOpts = {
+            itemHeight = 24, maxTextWidthPct = 0.8, searchable = true,
+            iconAtlas = function(key)
+                if key == "none" or not soundPaths[key] then return nil end
+                return "common-icon-sound"
+            end,
+            iconPressedAtlas = function(key)
+                if key == "none" then return nil end
+                return "common-icon-sound-pressed"
+            end,
+            iconOnClick = function(key)
+                local path = soundPaths[key]
+                if path then PlaySoundFile(path, "Master") end
+            end,
+            iconTooltip = function() return "Preview Sound" end,
+        }
+        local soundDD = EllesmereUI.BuildDropdownControl(rf, 150, rf:GetFrameLevel() + 2,
+            soundValues, soundOrder,
+            function()
+                local ent = CurrentBandEntry()
+                local band = ent and ent.bands and ent.bands[row._idx]
+                return (band and band.soundKey) or "none"
+            end,
+            function(v)
+                local ent = CurrentBandEntry()
+                local band = ent and ent.bands and ent.bands[row._idx]
+                if band then band.soundKey = v end
+            end)
+        soundDD:SetPoint("LEFT", soundLbl, "RIGHT", 6, 0)
+        row.soundDD = soundDD
 
         _bandRows[k] = row
         return row
@@ -1439,6 +1486,7 @@ initFrame:SetScript("OnEvent", function(self)
             PP.Point(row.frame, "TOPLEFT", bandPopup, "TOPLEFT", BAND_PAD, curY)
             row.input:SetText(tostring(ent.bands[k].to or 1))
             if row.swatchSnap then row.swatchSnap() end
+            if row.soundDD and row.soundDD._refreshLabel then row.soundDD._refreshLabel() end
             row.frame:Show()
             curY = curY - BAND_ROW_H - 4
         end
@@ -1498,7 +1546,11 @@ initFrame:SetScript("OnEvent", function(self)
     local _buffGetBarData, _buffRefreshFn
     local _buffTitleFS, _buffAddBtn
     local BUFF_POPUP_W = 320
-    local BUFF_ROW_H = 26
+    -- Two lines per row: spellID/name/color/delete on top, Alt Threshold
+    -- toggle+count below it. BUFF_ROW_H is the full row pitch used by both
+    -- layout and the drag-to-reorder math, so it must stay a single constant.
+    local BUFF_LINE1_H = 26
+    local BUFF_ROW_H = 52
     local RefreshBuffEditor  -- forward decl
     -- Drag-to-reorder (list order = buff priority); mirrors the BuildCogPopup 'reorder' row type.
     local _BuffDragTick      -- forward decl; called each frame from popup OnUpdate
@@ -1507,7 +1559,8 @@ initFrame:SetScript("OnEvent", function(self)
     local BUFF_STEP = BUFF_ROW_H + 4
     local BUFF_HELP_TIP =
         "Recolor the bar while you have a buff. The first active buff in the list wins, so order = priority. Overrides threshold coloring while active.\n"
-        .. "You must be tracking the buff in Blizzard CDM, added to EUI CDM, and this only works with CDM trackable buffs."
+        .. "You must be tracking the buff in Blizzard CDM, added to EUI CDM, and this only works with CDM trackable buffs.\n"
+        .. "Alt Threshold: instead of just recoloring, switch the trigger point itself (color and sound) to a different count while the buff is up. Has no effect when Multi-band Coloring is on -- bands never use the single-threshold count."
 
     local function CurrentBuffEntry()
         if not _buffEntryIdx or not _buffGetBarData then return nil end
@@ -1595,7 +1648,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         local input = CreateFrame("EditBox", nil, rf)
         input:SetSize(58, 22)
-        input:SetPoint("LEFT", rf, "LEFT", 16, 0)
+        input:SetPoint("TOPLEFT", rf, "TOPLEFT", 16, -2)
         input:SetFrameLevel(rf:GetFrameLevel() + 2)
         input:SetAutoFocus(false)
         local inFont = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("main") or "Fonts\\FRIZQT__.TTF"
@@ -1612,7 +1665,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Drag grip: list order = buff priority, so rows are draggable
         local grip = CreateFrame("Button", nil, rf)
         grip:SetSize(14, BUFF_ROW_H)
-        grip:SetPoint("LEFT", rf, "LEFT", 0, 0)
+        grip:SetPoint("TOPLEFT", rf, "TOPLEFT", 0, 0)
         grip:SetFrameLevel(rf:GetFrameLevel() + 4)
         local gripFS = grip:CreateFontString(nil, "OVERLAY")
         gripFS:SetFont(inFont, 13, "")
@@ -1674,13 +1727,13 @@ initFrame:SetScript("OnEvent", function(self)
                 local e = ent and ent.buffColors and ent.buffColors[row._idx]
                 if e then e.r, e.g, e.b, e.a = r, g, b, a; if _buffRefreshFn then _buffRefreshFn() end end
             end, true, 19)
-        swatch:SetPoint("RIGHT", rf, "RIGHT", -24, 0)
+        swatch:SetPoint("TOPRIGHT", rf, "TOPRIGHT", -24, -3)
         row.swatch = swatch
         row.swatchSnap = swatchSnap
 
         local delBtn = CreateFrame("Button", nil, rf)
         delBtn:SetSize(14, 14)
-        delBtn:SetPoint("RIGHT", rf, "RIGHT", -2, 0)
+        delBtn:SetPoint("TOPRIGHT", rf, "TOPRIGHT", -2, -6)
         delBtn:SetFrameLevel(rf:GetFrameLevel() + 3)
         local delIcon = delBtn:CreateTexture(nil, "OVERLAY")
         delIcon:SetAllPoints(); delIcon:SetTexture(_bandCloseIcon); delIcon:SetAlpha(0.4)
@@ -1695,6 +1748,58 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end)
         row.delBtn = delBtn
+
+        -- Line 2: Alt Threshold toggle + count. Switches the trigger point
+        -- itself (color and sound) while this buff is active, instead of
+        -- just recoloring. See EllesmereUIResourceBars.lua's
+        -- _activeBuffEntry.useAltThreshold/altThresholdCount consumers.
+        local function _altEntry()
+            local ent = CurrentBuffEntry()
+            return ent and ent.buffColors and ent.buffColors[row._idx]
+        end
+
+        local altToggle, _, altSnap = EllesmereUI.BuildToggleControl(rf, rf:GetFrameLevel() + 2,
+            function() local e = _altEntry(); return (e and e.useAltThreshold) and true or false end,
+            function(v) local e = _altEntry(); if not e then return end e.useAltThreshold = v; if _buffRefreshFn then _buffRefreshFn() end end,
+            { sizeRatio = 0.6 })
+        altToggle:SetPoint("TOPLEFT", rf, "TOPLEFT", 16, -(BUFF_LINE1_H + 6))
+        row.altToggle = altToggle
+        row.altSnap = altSnap
+
+        local altLabel = EllesmereUI.MakeFont(rf, 10, nil, 1, 1, 1)
+        altLabel:SetAlpha(0.6)
+        altLabel:SetPoint("LEFT", altToggle, "RIGHT", 5, 0)
+        altLabel:SetText(EllesmereUI.L("Alt Threshold"))
+
+        local altInput = CreateFrame("EditBox", nil, rf)
+        altInput:SetSize(40, 18)
+        altInput:SetPoint("LEFT", altLabel, "RIGHT", 6, 0)
+        altInput:SetFrameLevel(rf:GetFrameLevel() + 2)
+        altInput:SetAutoFocus(false)
+        altInput:SetFont(inFont, 11, "")
+        altInput:SetTextColor(1, 1, 1, 0.75)
+        altInput:SetJustifyH("CENTER")
+        altInput:SetNumeric(true)
+        altInput:SetMaxLetters(5)
+        local altInBg = altInput:CreateTexture(nil, "BACKGROUND"); altInBg:SetAllPoints()
+        altInBg:SetColorTexture(0.12, 0.12, 0.12, 0.8)
+        EllesmereUI.MakeBorder(altInput, 1, 1, 1, 0.08, PP)
+        local function CommitAltInput(self)
+            if self._cancelCommit then self._cancelCommit = nil; return end
+            local e = _altEntry(); if not e then return end
+            local val = tonumber(self:GetText())
+            e.altThresholdCount = (val and val > 0) and val or nil
+            if _buffRefreshFn then _buffRefreshFn() end
+        end
+        altInput:SetScript("OnEditFocusLost", CommitAltInput)
+        altInput:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+        altInput:SetScript("OnEscapePressed", function(self)
+            self._cancelCommit = true
+            local e = _altEntry()
+            self:SetText(e and e.altThresholdCount and tostring(e.altThresholdCount) or "")
+            self:ClearFocus()
+        end)
+        row.altInput = altInput
 
         _buffRows[k] = row
         return row
@@ -1718,6 +1823,11 @@ initFrame:SetScript("OnEvent", function(self)
             row.input:SetText(ent.buffColors[k].spellID and tostring(ent.buffColors[k].spellID) or "")
             if row.RefreshName then row.RefreshName() end
             if row.swatchSnap then row.swatchSnap() end
+            if row.altSnap then row.altSnap() end
+            if row.altInput then
+                local altVal = ent.buffColors[k].altThresholdCount
+                row.altInput:SetText(altVal and tostring(altVal) or "")
+            end
             row.frame:Show()
             curY = curY - BUFF_ROW_H - 4
         end
