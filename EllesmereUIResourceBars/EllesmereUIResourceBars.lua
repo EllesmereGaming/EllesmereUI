@@ -4475,7 +4475,7 @@ local function UpdateIronfurBar()
     -- both single-threshold and multi-band match against `count`; multi wins when
     -- enabled with bands, else the single stack-count threshold (FindCountBand).
     local bandOn, bands, _bandMode, bandRev = ResolveBandConfig(sp, tsEntry)
-    if _buffActive and not (_activeBuffEntry and _activeBuffEntry.useAltThreshold) then
+    if _buffActive and not _activeBuffEntry.useAltThreshold then
         tsEntry = nil; bandOn = false
     end
     -- Active (threshold/band) color is computed separately from the base so it can
