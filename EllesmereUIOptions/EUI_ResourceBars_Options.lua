@@ -1455,10 +1455,12 @@ initFrame:SetScript("OnEvent", function(self)
         -- frames (rf:GetFrameLevel(), ~262+) and its click-outside-to-close
         -- catcher (bandPopup:GetFrameLevel()-1 = 259), so the menu still
         -- rendered behind them and clicks on it fell through to the catcher
-        -- instead. Bump it above both once it exists (built lazily on first
-        -- click, hence the hook rather than a one-time SetFrameLevel here).
+        -- instead. Bump its STRATA (not just level -- matches the existing
+        -- talentDD row's "Keep the menu above the cog popups" pattern
+        -- elsewhere in this file) above both once it exists, built lazily on
+        -- first click, hence the hook rather than a one-time set here.
         soundDD:HookScript("OnClick", function(self)
-            if self._ddMenu then self._ddMenu:SetFrameLevel(bandPopup:GetFrameLevel() + 40) end
+            if self._ddMenu then self._ddMenu:SetFrameStrata("TOOLTIP") end
         end)
 
         _bandRows[k] = row
@@ -6431,6 +6433,27 @@ initFrame:SetScript("OnEvent", function(self)
 				-- once BuildCogPopup returns, so this has to be set here
 				-- rather than inline in the values table above.
 				threshSoundValues._menuOpts.parent = threshCog
+				-- BuildCogPopup gives no handle to a DSL row's built dropdown
+				-- widget (unlike the hand-built talentDD row above, which
+				-- hooks its own ddBtn), so there's no button to hook here
+				-- directly. threshCog has exactly one dropdown row, so watch
+				-- the shared EllesmereUI._openDropdownMenu instead: whichever
+				-- menu shows while this popup is visible IS this one.
+				-- HookScript("OnUpdate", ...) is inert while threshCog is
+				-- hidden (WoW skips OnUpdate on hidden frames), so this costs
+				-- nothing when the popup isn't open. Bumping STRATA (not just
+				-- level, matching the talentDD pattern above) guarantees it
+				-- renders above threshCog regardless of BuildDropdownMenu's
+				-- hardcoded frame level (200) -- the same gap that hid and
+				-- made unclickable the per-band Sound dropdown in
+				-- EnsureBandRow before it got this same treatment.
+				threshCog:HookScript("OnUpdate", function()
+					local dm = EllesmereUI._openDropdownMenu
+					if dm and dm:IsShown() and not dm._threshCogStrataFixed then
+						dm:SetFrameStrata("TOOLTIP")
+						dm._threshCogStrataFixed = true
+					end
+				end)
 				local threshCogBtn = CreateFrame("Button", nil, threshRow)
 				threshCogBtn:SetSize(20, 20)
 				threshCogBtn:SetPoint("RIGHT", threshRow, "RIGHT", 0, 0)
