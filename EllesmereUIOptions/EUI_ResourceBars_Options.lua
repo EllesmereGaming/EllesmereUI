@@ -1168,7 +1168,16 @@ initFrame:SetScript("OnEvent", function(self)
         clickCatcher:SetFrameStrata("FULLSCREEN_DIALOG")
         clickCatcher:SetFrameLevel(bandPopup:GetFrameLevel() - 1)
         clickCatcher:SetAllPoints((EllesmereUI.GetMainFrame and EllesmereUI:GetMainFrame()) or UIParent)
-        clickCatcher:SetScript("OnClick", function() bandPopup:Hide() end)
+        -- Skip the close when an open dropdown menu (e.g. the per-band Sound
+        -- picker) is what's actually under the click -- otherwise the click
+        -- lands on this catcher instead (see the frame-level hook on the
+        -- Sound dropdown in EnsureBandRow) and hides the whole popup instead
+        -- of picking the sound.
+        clickCatcher:SetScript("OnClick", function()
+            local dm = EllesmereUI._openDropdownMenu
+            if dm and dm:IsShown() and dm:IsMouseOver() then return end
+            bandPopup:Hide()
+        end)
         clickCatcher:Hide()
         -- Close on entering combat
         bandPopup:SetScript("OnEvent", function(self, event)
@@ -1440,6 +1449,17 @@ initFrame:SetScript("OnEvent", function(self)
             end)
         soundDD:SetPoint("LEFT", soundLbl, "RIGHT", 6, 0)
         row.soundDD = soundDD
+        -- BuildDropdownMenu hardcodes its menu frame's level to 200 with no
+        -- override -- parenting it into bandPopup (above) fixed which popup
+        -- it renders inside, but 200 is still BELOW this popup's own row
+        -- frames (rf:GetFrameLevel(), ~262+) and its click-outside-to-close
+        -- catcher (bandPopup:GetFrameLevel()-1 = 259), so the menu still
+        -- rendered behind them and clicks on it fell through to the catcher
+        -- instead. Bump it above both once it exists (built lazily on first
+        -- click, hence the hook rather than a one-time SetFrameLevel here).
+        soundDD:HookScript("OnClick", function(self)
+            if self._ddMenu then self._ddMenu:SetFrameLevel(bandPopup:GetFrameLevel() + 40) end
+        end)
 
         _bandRows[k] = row
         return row
