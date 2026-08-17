@@ -2230,7 +2230,11 @@ local PLAYER_POWER_ALT = {
     SHAMAN = { [1] = 0 },                       -- Elemental -> Mana
 }
 
+-- Forced display power type for the player (number = Enum.PowerType, nil =
+-- UnitPowerType decides). Shared by the bar's GetDisplayPower, the color
+-- resolver and the options preview so all three agree.
 function EllesmereUI.GetPlayerPowerOverride()
+    if not (db and db.profile) then return nil end
     local _, classFile = UnitClass("player")
     local classDef = PLAYER_POWER_DEFAULT[classFile]
     local classAlt = PLAYER_POWER_ALT[classFile]

@@ -1357,34 +1357,15 @@ burstFrame:SetScript("OnEvent", function()
     buildWorker:Show() -- in case jobs were queued behind the screen
 end)
 
--- Combat-safe wrapper: fulfills immediately out of combat, otherwise queues
--- until PLAYER_REGEN_ENABLED. The listener frame is never handed to the
--- restricted environment, so its event registration is aspect-safe.
-local pending = {}
-local regenListener
-
+-- Synchronous create-and-callback, in ANY combat state. Container creation
+-- has been combat-legal since 68914 (see CreateContainerShell; RF/NP build
+-- in combat through the queue above); the pre-68914 "queue until
+-- PLAYER_REGEN_ENABLED" gate this wrapper used to carry left Player Aura Bars
+-- (and the Movement Alert) blank until combat ended after an in-combat reload.
+-- Kept as a wrapper so callers keep one entry point.
 function AK.RequestContainer(parent, unitToken, spec, callback)
-    if not InCombatLockdown() then
-        local container, slotFrames = AK.CreateContainer(parent, unitToken, spec)
-        if callback then callback(container, slotFrames) end
-        return
-    end
-
-    pending[#pending + 1] = { parent = parent, unit = unitToken, spec = spec, callback = callback }
-
-    if not regenListener then
-        regenListener = CreateFrame("Frame")
-        regenListener:RegisterEvent("PLAYER_REGEN_ENABLED")
-        regenListener:SetScript("OnEvent", function()
-            local queue = pending
-            pending = {}
-            for i = 1, #queue do
-                local q = queue[i]
-                local container, slotFrames = AK.CreateContainer(q.parent, q.unit, q.spec)
-                if q.callback then q.callback(container, slotFrames) end
-            end
-        end)
-    end
+    local container, slotFrames = AK.CreateContainer(parent, unitToken, spec)
+    if callback then callback(container, slotFrames) end
 end
 
 function AK.GetContainerData(container)

@@ -7,11 +7,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  placeable mid-combat) -- shown either as one combined window (default) or
 --  as two independently positioned windows.
 --
---  Which Group & Pull buttons exist is a SETTING, not a build fact: Role
---  Check, Convert and Disband each have a switch, and a pull slot set to 0
---  seconds drops out. Buttons are still created once, at build; the layout
---  pass (LayoutGroupContent) re-flows the survivors across the rows and is the
---  only writer of the content height the shells are sized from.
+--  Group & Pull buttons are all created once at build; per-button switches and
+--  0-second pull slots decide which ones LayoutGroupContent places (it re-flows
+--  the survivors and is the only writer of the group content height).
 --
 --  SHOW MODE (p.mode) replaces the old shared-visibility system outright:
 --
@@ -386,10 +384,8 @@ end
 local groupButtons = {}        -- plain buttons, enable-gated on assist
 local markerButtons = {}       -- secure buttons, dimmed on assist
 local pullButtons = {}         -- fixed set of 3; only the ones above 0s show
--- Individually hideable content. Every one of these is created at build and
--- kept for the lifetime of the session; the layout pass decides which of them
--- reach the screen. Ready Check is the one action button with no switch -- a
--- raid panel without it has no reason to exist.
+-- Created once at build; the layout pass decides which reach the screen. Ready
+-- Check has no switch by design.
 local readyButton, roleButton, convertButton, disbandButton, stopButton
 
 -- Both marker rows draw Blizzard's own raid target sheet -- the texture the
@@ -428,14 +424,9 @@ local DB_DEFAULTS = {
         -- Three slots is a LAYOUT choice (they fill one row beside Stop), not a
         -- security constraint -- the pull buttons are plain, only the marker buttons
         -- are secure. Growing the count later means growing the panel, nothing more.
-        --
-        -- 0 means "no button": the slot drops out of the row and the survivors
-        -- share the width. All three at 0 takes the row away entirely, Stop
-        -- included (see LayoutGroupContent).
+        -- 0 = slot hidden; all three at 0 removes the pull row, Stop included.
         pullTimes     = { PULL_DEFAULTS[1], PULL_DEFAULTS[2], PULL_DEFAULTS[3] },
-        -- Per-button switches for the three optional actions. Ready Check has
-        -- none on purpose. Same flow rule as the pull slots: a hidden button
-        -- leaves no hole, the rest close up.
+        -- Per-button switches (Ready Check has none); hidden buttons close up.
         showRoleCheck = true,
         showConvert   = true,
         showDisband   = true,
@@ -837,22 +828,15 @@ local function MakeShell(key)
     return f
 end
 
--- Where the Group & Pull content actually lands. Re-run on every Apply, and
--- the ONLY writer of GROUP_CONTENT_H -- which button is on screen is a
--- setting, so positions, widths and the holder height all follow the profile
--- rather than the build.
---
--- Everything it touches is a plain frame, and Apply is out-of-combat only, so
--- this is an ordinary re-point with no lockdown story. It must run BEFORE
--- ApplyLayout, which sizes the shells from GROUP_CONTENT_H.
+-- Places the Group & Pull buttons per the settings and is the ONLY writer of
+-- GROUP_CONTENT_H. Plain frames only, run from build and Apply (out of combat);
+-- must run BEFORE ApplyLayout, which sizes the shells from that height.
 local function LayoutGroupContent()
     if not groupHolder then return end
     local f = groupHolder
 
-    -- Row plan first, geometry second: collect what is actually shown, two
-    -- action buttons per row in the fixed order below, so a hidden button
-    -- closes the gap instead of leaving a hole. A row that ends up with a
-    -- single button takes the full width.
+    -- Row plan: two action buttons per row in fixed order; hidden buttons close
+    -- the gap, a lone button takes the full width.
     local rows, pair = {}, {}
     local function Add(b)
         pair[#pair + 1] = b
@@ -864,12 +848,8 @@ local function LayoutGroupContent()
     if ButtonShown("showDisband")   then Add(disbandButton) end
     if #pair > 0 then rows[#rows + 1] = pair end
 
-    -- Pull row: the slots left above 0, sharing the row with Stop. The
-    -- duration lives on the button (the click closure reads it back), so the
-    -- surviving durations simply move onto the leading buttons.
-    --
-    -- All three at 0 drops the row entirely, Stop included: a Stop button
-    -- alone is a pull-timer row with no pull timer.
+    -- Pull row: surviving durations move onto the leading buttons (the click
+    -- closure reads b.secs), Stop last; no durations = no row at all.
     local times = VisiblePullTimes()
     if #times > 0 then
         local pull = {}
@@ -883,8 +863,7 @@ local function LayoutGroupContent()
         rows[#rows + 1] = pull
     end
 
-    -- Hide first, show what the plan placed: anything the switches dropped
-    -- stops at this line.
+    -- Hide all, then show only what the plan placed.
     for _, b in ipairs(groupButtons) do b:Hide() end
 
     local y = 0

@@ -1243,7 +1243,7 @@ local function BuildBmIconStyle(ind, iscale, size)
         width = size,
         height = size,
         iconCrop = true,
-        iconZoom = 0.08,
+        iconZoom = (ns.db and ns.db.profile and ns.db.profile.bmIconZoom) or 0.08,
         hideIcon = hideIcon,
         border = (not hideIcon and (ind.indBorderSize or 1) > 0)
             and { br, bg, bb, 1, size = ind.indBorderSize or 1 } or nil,
@@ -1931,7 +1931,8 @@ local function BmVisualKey(kind, ind, size, font, spellID)
     -- BmTipsOff joins every interactive kind's key so the "Hide Buff
     -- Tooltips" toggle restyles (the fingerprint guards skip otherwise).
     if kind == "icon" then
-        return FP(font, size, ind.iconOpacity, ind.hideIcon, ind.indBorderSize, CK(ind.indBorderColor),
+        return FP(font, size, (ns.db and ns.db.profile and ns.db.profile.bmIconZoom) or 0.08,
+            ind.iconOpacity, ind.hideIcon, ind.indBorderSize, CK(ind.indBorderColor),
             ind.showDuration, ind.showDurationText, ind.durationTextSize, CK(ind.durationTextColor),
             ind.durationTextOffsetX, ind.durationTextOffsetY, ind.thresholdEnabled, ind.threshold,
             CK(ind.thresholdColor), ind.showStacks, ind.stacksTextSize, CK(ind.stacksTextColor),

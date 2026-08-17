@@ -6266,11 +6266,9 @@ L["warcraft logs"] = "Warcraft Logs"
 L["warlock gateway"] = "Hexenmeister Dämonentor"
 L["world marker"] = "Weltmarkierung"
 L["yard"] = "Meter"
-L["yards"] = "Meter"L["Raid Tools is hidden in a raid without leader or assist -- none of its buttons work there."] = "Die Raid-Tools werden im Schlachtzug ohne Anführer- oder Assistentenrechte ausgeblendet -- dort funktioniert keine ihrer Schaltflächen."
+L["yards"] = "Meter"
+L["Raid Tools is hidden in a raid without leader or assist -- none of its buttons work there."] = "Die Raid-Tools werden im Schlachtzug ohne Anführer- oder Assistentenrechte ausgeblendet -- dort funktioniert keine ihrer Schaltflächen."
 L["Toggles the Raid Tools panels, in or out of combat.\n\nLeft-click to set a keybind.\nRight-click to unbind."] = "Blendet die Raid-Tools-Fenster ein und aus, im Kampf wie außerhalb.\n\nLinksklick, um eine Taste zu belegen.\nRechtsklick, um die Belegung zu entfernen."
-L["Toggling an action bar is only available out of combat\n\nLeft-click to set a keybind.\nRight-click to unbind."] = "Das Umschalten einer Aktionsleiste ist nur außerhalb des Kampfes verfügbar\n\nLinks-Klick zum Festlegen einer Tastenbelegung.\nRechts-Klick zum Aufheben."
-L["Two Windows"] = "Zwei Fenster"
-L["Uses the Hover Effect color and opacity."] = "Verwendet Farbe und Deckkraft des Hervorhebungseffekts."
 
 -- QoL: Raid Tools -- per-button switches and the 0-second pull slots
 L["GROUP BUTTONS"] = "GRUPPENSCHALTFLÄCHEN"

@@ -192,6 +192,66 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
+-- The Friendly/Enemy toggles now gate every reaction binding (frame + hover
+-- spells, items, hover macros) and "both off" means disabled; an UNSET pair
+-- now reads as friendly-only. Legacy semantics were: frame spells/items and
+-- hover items ignored the flags (unrestricted); hover spells/macros were
+-- help-only iff (friendly and not enemy), harm-only iff (enemy and not
+-- friendly), otherwise unrestricted -- including nil/nil and false/false.
+-- Seed every reaction binding to booleans reproducing exactly that, and split
+-- legacy "Frames + Hovercast" bindings so each path keeps its own behavior.
+-- Marker `reactionSeeded` keeps the pass idempotent (a post-migration
+-- false/false is a real user disable and must never be re-enabled).
+EllesmereUI.RegisterMigration({
+    id          = "clickcast_frame_spell_reaction_v1",
+    scope       = "global",
+    description = "Preserve legacy click-cast reaction behavior when the Friendly/Enemy toggles become active for all reaction bindings",
+    body        = function(ctx)
+        local cc = ctx.db.clickCast
+        if type(cc) ~= "table" then return end
+        local function LegacyHover(b)
+            local f, e = b.hoverFriendly, b.hoverEnemy
+            if f and not e then return true, false end
+            if e and not f then return false, true end
+            return true, true
+        end
+        local function migrate(list)
+            if type(list) ~= "table" then return end
+            local count = #list
+            for i = 1, count do
+                local b = list[i]
+                if type(b) == "table" and not b.reactionSeeded
+                   and (b.type == "spell" or b.type == "item"
+                        or (b.type == "macro" and b.hovercast)) then
+                    if b.hovercast == "both" then
+                        -- Frame copy: flags were ignored on the frame path.
+                        local frameBinding = {}
+                        for key, value in pairs(b) do frameBinding[key] = value end
+                        frameBinding.hovercast = false
+                        frameBinding.hoverFriendly = true
+                        frameBinding.hoverEnemy = true
+                        frameBinding.reactionSeeded = true
+                        list[#list + 1] = frameBinding
+                        b.hovercast = true
+                    end
+                    if not b.hovercast or b.type == "item" then
+                        -- Frame path (any type) and hover items ignored the flags.
+                        b.hoverFriendly, b.hoverEnemy = true, true
+                    else
+                        -- Hover spells / macros: reproduce the old conditional.
+                        b.hoverFriendly, b.hoverEnemy = LegacyHover(b)
+                    end
+                    b.reactionSeeded = true
+                end
+            end
+        end
+        migrate(cc.globals)
+        if type(cc.specs) == "table" then
+            for _, list in pairs(cc.specs) do migrate(list) end
+        end
+    end,
+})
+
 --------------------------------------------------------------------------------
 --  Position snap helpers
 --  Used by position_snap_v3 and exposed as EllesmereUI.SnapProfilePositions for
@@ -2251,7 +2311,7 @@ EllesmereUI.RegisterMigration({
             "bagHideEmptyCategories", "bagSidebarCollapsed", "bankSidebarCollapsed",
             "bagShowPinnedItems", "bagShowRecentItems", "bagPinnedInOneBag",
             "bagRecentInOneBag", "bagShowPinRecentTips", "bagShowSortIcon",
-            "bagHideRandomize", "bagDefaultOneBag", "bagNestByExpansion",
+            "bagHideRandomize", "bagDefaultOneBag", "bagNestByExpansion", "bagArmoryGroupBySlot",
             "bagHideOneBagWarning", "bagHideAddCategory", "bagMoveNoShift",
             "enableGoldTracking", "detachReagentBag", "enhancedBags",
             "bagCategoryState", "bagCategoryOrder", "bagDisabledCategories",

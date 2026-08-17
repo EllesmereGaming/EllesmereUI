@@ -18860,24 +18860,9 @@ initFrame:SetScript("OnEvent", function(self)
             local function SetAddOffset(axisKey, v)
                 local b = BD(); if not b then return end
                 b[axisKey] = (v ~= 0) and v or nil
-                local hasOff = (b.addOffsetX or 0) ~= 0 or (b.addOffsetY or 0) ~= 0
-                -- Keep the anchor extra-offset registry in sync immediately
-                -- (unlock-anchored bars fold the offset through it): set a
-                -- fresh live-reading getter or clear the entry. The unlock
-                -- registration pass maintains the same entries at setup.
-                local xoff = EllesmereUI._anchorExtraOffset
-                if not xoff then
-                    xoff = {}
-                    EllesmereUI._anchorExtraOffset = xoff
-                end
-                if hasOff then
-                    xoff["CDM_" .. b.key] = function()
-                        if EllesmereUI._unlockActive then return 0, 0 end
-                        return b.addOffsetX or 0, b.addOffsetY or 0
-                    end
-                else
-                    xoff["CDM_" .. b.key] = nil
-                end
+                -- The anchor extra-offset registry getter is registered for
+                -- every eligible bar by the unlock registration pass below and
+                -- reads the live value, so no per-edit set/clear is needed.
                 -- Re-register unlock elements so the mover's offset marker
                 -- (tint + tooltip) reflects the new state at the next unlock
                 -- entry, then re-apply positions: the build covers saved and

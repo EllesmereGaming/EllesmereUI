@@ -8403,6 +8403,20 @@ local function _IsUsableSID(id)
     return id > 0 and id == math.floor(id)
 end
 
+-- Active BLIZZARD CDM layout id (the user's "preset"), not to be confused with
+-- ns.GetActiveLayoutName (EUI's own account-wide spell-layout system). Used to
+-- scope the automatic-reseed session gate by layout as well as spec: a spell
+-- only tracked on a preset the user switches to LATER in the session was
+-- invisible at the first reseed and must still get its own materialize pass.
+function ns.GetActiveCDMLayoutID()
+    if not (CooldownViewerSettings and CooldownViewerSettings.GetLayoutManager) then return nil end
+    local okLM, layoutManager = pcall(CooldownViewerSettings.GetLayoutManager, CooldownViewerSettings)
+    if not okLM or not layoutManager or not layoutManager.GetActiveLayoutID then return nil end
+    local okID, layoutID = pcall(layoutManager.GetActiveLayoutID, layoutManager)
+    if not okID then return nil end
+    return layoutID
+end
+
 -- GroupBuff (category 4) hidden check: getter-only on the layout manager, never
 -- WriteHiddenGroupBuffsToLayout. No active layout yet (fresh install, never
 -- customized) is not "nothing hidden" evidence -- treated as unreachable and kept
@@ -8871,10 +8885,12 @@ RegisterCDMUnlockElements = function()
             local bd = barDataByKey[key]
             -- Additional Bar Offset: the unlock-anchored side folds through the
             -- shared _anchorExtraOffset registry (both ApplyAnchorPosition
-            -- placement branches consume it) -- the getter is registered ONLY
-            -- while the offset is nonzero (zero-cost otherwise) and cleared
-            -- here so an edit back to 0 leaves no stale entry. It returns 0
-            -- during unlock mode: movers show and save the BASE position.
+            -- placement branches consume it). Registered for EVERY eligible bar
+            -- and resolved LIVE: the value can change without this pass running
+            -- (spec-override writes land raw in the bar table), so a
+            -- register-only-while-nonzero getter went missing exactly when a
+            -- spec's override turned the offset on. Zero reads as 0,0; it also
+            -- returns 0 during unlock mode: movers show and save the BASE.
             local hasAddOffset = (barData.addOffsetX or 0) ~= 0 or (barData.addOffsetY or 0) ~= 0
             do
                 local xoff = EllesmereUI._anchorExtraOffset
@@ -8882,14 +8898,10 @@ RegisterCDMUnlockElements = function()
                     xoff = {}
                     EllesmereUI._anchorExtraOffset = xoff
                 end
-                if hasAddOffset then
-                    xoff["CDM_" .. key] = function()
-                        local bd3 = barDataByKey[key]
-                        if not bd3 or EllesmereUI._unlockActive then return 0, 0 end
-                        return bd3.addOffsetX or 0, bd3.addOffsetY or 0
-                    end
-                else
-                    xoff["CDM_" .. key] = nil
+                xoff["CDM_" .. key] = function()
+                    local bd3 = barDataByKey[key]
+                    if not bd3 or EllesmereUI._unlockActive then return 0, 0 end
+                    return bd3.addOffsetX or 0, bd3.addOffsetY or 0
                 end
             end
             -- Collect linked unlock element keys (children anchored to this bar)
@@ -8913,14 +8925,18 @@ RegisterCDMUnlockElements = function()
                 -- explanatory tooltip while an offset is set (nil otherwise --
                 -- the mover renders exactly as before).
                 moverBg = hasAddOffset and { r = 0.32, g = 0.19, b = 0.05 } or nil,
-                moverTooltip = hasAddOffset and function()
+                -- Tooltip resolves live (nil = inert) so an override-written
+                -- offset still explains itself even when the tint was
+                -- registered without one.
+                moverTooltip = function()
                     local bd3 = barDataByKey[key]
                     local ox = (bd3 and bd3.addOffsetX) or 0
                     local oy = (bd3 and bd3.addOffsetY) or 0
+                    if ox == 0 and oy == 0 then return nil end
                     return EllesmereUI.Lf(
                         "This bar has an Additional Bar Offset (X %1$s, Y %2$s) set in its options. Unlock mode shows the base position; the offset re-applies when you exit.",
                         ox, oy)
-                end or nil,
+                end,
                 linkedKeys = linked,
                 noAnchorTarget = isDynamic,
                 noResize = isDynamic,
@@ -9140,6 +9156,37 @@ end
 ns.RegisterCDMUnlockElements = RegisterCDMUnlockElements
 _G._ECME_RegisterUnlock = RegisterCDMUnlockElements
 
+-- Positions-only re-apply for every enabled bar (no rebuild): un-anchored
+-- bars from their saved position (Additional Bar Offset folded by
+-- ApplyBarPositionCentered), unlock-anchored bars through the anchor chain
+-- (offset folded by the _anchorExtraOffset getter). Module-anchored bars
+-- (party/player/ERB) are placed inside BuildCDMBar and are left to the next
+-- build. Used when a settings write lands but the follow-up rebuild is
+-- deliberately suppressed (spec-override values written right after a spec
+-- change), so the bar still moves to its new offset. On ns: 200-local cap.
+ns.CDMReapplyBarPositions = function()
+    local p = ECME and ECME.db and ECME.db.profile
+    local bars = p and p.cdmBars and p.cdmBars.bars
+    -- Never inside unlock mode: movers own positions there and a re-place
+    -- from saved coords would revert un-saved drags.
+    if not bars or InCombatLockdown() or EllesmereUI._unlockActive then return end
+    for i = 1, #bars do
+        local bd = bars[i]
+        if bd.enabled and (bd.anchorTo or "none") == "none" then
+            local ukey = "CDM_" .. bd.key
+            if EllesmereUI.IsUnlockAnchored and EllesmereUI.IsUnlockAnchored(ukey) then
+                if EllesmereUI.PropagateAnchorChain then EllesmereUI.PropagateAnchorChain(ukey) end
+            else
+                local frame = cdmBarFrames[bd.key]
+                local pos = p.cdmBarPositions and p.cdmBarPositions[bd.key]
+                if frame and pos and pos.point then
+                    ApplyBarPositionCentered(frame, pos, bd.key)
+                end
+            end
+        end
+    end
+end
+
 -- RequestUpdate delegates to ns.RequestUpdate (defined in EllesmereUICdmBarGlows.lua). Falls back to no-op if bar glows module hasn't loaded yet.
 local function RequestUpdate()
     if ns.RequestUpdate then ns.RequestUpdate() end
@@ -9179,6 +9226,11 @@ function ECME:OnInitialize()
             -- -- but same-profile swaps never run that follow-up, leaving the flag armed until some LATER apply consumed it and silently skipped a rebuild the caller needed. Only honor the suppression while the spec change is recent.
             if not (ns._specChangeAt and (GetTime() - ns._specChangeAt) < 3) then
                 ns.FullCDMRebuild("apply")
+            elseif ns.CDMReapplyBarPositions then
+                -- Suppressed rebuild: the caller may still have written bar
+                -- settings (spec-override values land AFTER the reconcile), so
+                -- re-place the bars from the now-current settings.
+                ns.CDMReapplyBarPositions()
             end
         else
             ns.FullCDMRebuild("apply")

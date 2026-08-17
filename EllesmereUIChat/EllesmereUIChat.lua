@@ -4207,26 +4207,45 @@ local function SkinChatFrame(cf)
                 HideSidebarIconTooltip(self)
             end)
 
-            local fcPending
+            local fcLast, fcDirty
             local function UpdateFriendsCount()
-                fcPending = nil
+                if InCombatLockdown() then
+                    fcDirty = true
+                    return
+                end
+                fcDirty = nil
                 local _, numOnline = BNGetNumFriends()
-                local wowOnline = C_FriendList.GetNumOnlineFriends()
-                friendsCount:SetText(numOnline + wowOnline)
+                local wowOnline = C_FriendList.GetNumOnlineFriends() or 0
+                local total = numOnline + wowOnline
+                if total ~= fcLast then
+                    fcLast = total
+                    friendsCount:SetText(total)
+                end
             end
 
             local fcEvents = CreateFrame("Frame")
             fcEvents:RegisterEvent("BN_FRIEND_LIST_SIZE_CHANGED")
-            fcEvents:RegisterEvent("BN_FRIEND_INFO_CHANGED")
+            fcEvents:RegisterEvent("BN_FRIEND_ACCOUNT_ONLINE")
+            fcEvents:RegisterEvent("BN_FRIEND_ACCOUNT_OFFLINE")
             fcEvents:RegisterEvent("FRIENDLIST_UPDATE")
             fcEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
-            -- BN_FRIEND_INFO_CHANGED storms on big friend lists (presence spam)
-            -- and each recount walks both friend APIs, so the storm coalesces
-            -- into one trailing recount per second.
-            fcEvents:SetScript("OnEvent", function()
-                if fcPending then return end
-                fcPending = true
-                C_Timer.After(1, UpdateFriendsCount)
+            fcEvents:RegisterEvent("BN_CONNECTED")
+            fcEvents:RegisterEvent("BN_DISCONNECTED")
+            fcEvents:RegisterEvent("PLAYER_REGEN_ENABLED")
+            -- Recount inline on the exact edges -- the narrow account
+            -- online/offline pair (the same field-proven set the DataBars
+            -- micromenu count uses), NOT the BN_FRIEND_INFO_CHANGED presence
+            -- firehose, so nothing fires between real login/logout edges.
+            -- Two cached count reads plus one compare, no timers, and the
+            -- label only rewrites when the number changed. In combat nothing
+            -- recounts at all -- events mark the count dirty and the regen
+            -- edge settles it once.
+            fcEvents:SetScript("OnEvent", function(_, event)
+                if event == "PLAYER_REGEN_ENABLED" then
+                    if fcDirty then UpdateFriendsCount() end
+                    return
+                end
+                UpdateFriendsCount()
             end)
 
             CFD(cf).friendsCount = friendsCount

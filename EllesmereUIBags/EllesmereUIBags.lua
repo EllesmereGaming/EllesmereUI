@@ -404,6 +404,142 @@ local function BuildExpansionBuckets(itemList)
 end
 
 -------------------------------------------------------------------------------
+--  Armory slot grouping: equip-slot sub-headers inside gear-only sidebar groups
+-------------------------------------------------------------------------------
+local IC_WEAPON = Enum.ItemClass.Weapon
+local IC_ARMOR  = Enum.ItemClass.Armor
+
+local function IsArmoryGearCategory(cat)
+    if not cat then return false end
+    if cat.isEquipSet then return true end
+    if cat.isSetGear then return true end
+    return cat._defaultName == "Weapons / Trinkets" or cat._defaultName == "Armor"
+end
+
+local function IsGearOnlyGroup(groupName)
+    if not groupName or not EUI_CategoryManager then return false end
+    local members = EUI_CategoryManager:GetGroupMembers(groupName)
+    if not members or #members == 0 then return false end
+    local cats = EUI_CategoryManager:GetCategories()
+    if not cats then return false end
+    for _, mi in ipairs(members) do
+        if not IsArmoryGearCategory(cats[mi]) then return false end
+    end
+    return true
+end
+
+-- Constants hoisted out of the per-item path (built once at load).
+local ARMORY_IDS = {
+    wand     = (Enum.ItemWeaponSubclass and Enum.ItemWeaponSubclass.Wand) or 19,
+    bow      = (Enum.ItemWeaponSubclass and Enum.ItemWeaponSubclass.Bow) or 2,
+    gun      = (Enum.ItemWeaponSubclass and Enum.ItemWeaponSubclass.Gun) or 3,
+    crossbow = (Enum.ItemWeaponSubclass and Enum.ItemWeaponSubclass.Crossbow) or 18,
+    cosmetic = Enum.ItemArmorSubclass and Enum.ItemArmorSubclass.Cosmetic,
+}
+-- equipSlot -> { sortKey, Blizzard global-string name for the label }
+local ARMORY_ARMOR_SLOTS = {
+    INVTYPE_HEAD      = { 10, "INVTYPE_HEAD" },
+    INVTYPE_NECK      = { 20, "INVTYPE_NECK" },
+    INVTYPE_SHOULDER  = { 30, "INVTYPE_SHOULDER" },
+    INVTYPE_CLOAK     = { 40, "INVTYPE_CLOAK" },
+    INVTYPE_CHEST     = { 50, "INVTYPE_CHEST" },
+    INVTYPE_ROBE      = { 50, "INVTYPE_CHEST" },
+    INVTYPE_BODY      = { 60, "INVTYPE_BODY" },
+    INVTYPE_TABARD    = { 70, "INVTYPE_TABARD" },
+    INVTYPE_WRIST     = { 80, "INVTYPE_WRIST" },
+    INVTYPE_HAND      = { 90, "INVTYPE_HAND" },
+    INVTYPE_WAIST     = { 100, "INVTYPE_WAIST" },
+    INVTYPE_LEGS      = { 110, "INVTYPE_LEGS" },
+    INVTYPE_FEET      = { 120, "INVTYPE_FEET" },
+    INVTYPE_FINGER    = { 140, "INVTYPE_FINGER" },
+    INVTYPE_TRINKET   = { 150, "INVTYPE_TRINKET" },
+}
+
+-- Sort key + label for one item's equip slot. Item facts are fetched lazily
+-- (GetItemInfoInstant, local client DB) and cached on the slot table -- the
+-- refresh pre-cache deliberately does not fill them, so this runs only for
+-- gear items and only while Group Armory by Slot is on.
+local function GetArmorySlotBucket(data)
+    local equipSlot = data._equipSlot
+    local classID = data._classID
+    local subclassID = data._subclassID
+    if data.itemLink and classID == nil then
+        local _
+        _, _, _, equipSlot, _, classID, subclassID = GetItemInfoInstant(data.itemLink)
+        data._equipSlot, data._classID, data._subclassID = equipSlot, classID, subclassID
+    end
+
+    if classID == IC_ARMOR and ARMORY_IDS.cosmetic and subclassID == ARMORY_IDS.cosmetic then
+        return 130, EllesmereUI.L("Cosmetic")
+    end
+
+    equipSlot = equipSlot or ""
+
+    if equipSlot == "INVTYPE_WEAPONOFFHAND" or equipSlot == "INVTYPE_HOLDABLE" or equipSlot == "INVTYPE_SHIELD" then
+        return 180, EllesmereUI.L("OH")
+    end
+
+    if classID == IC_WEAPON then
+        if subclassID == ARMORY_IDS.wand then
+            return 170, EllesmereUI.L("1H")
+        end
+        if subclassID == ARMORY_IDS.bow or subclassID == ARMORY_IDS.gun or subclassID == ARMORY_IDS.crossbow then
+            return 190, _G["INVTYPE_RANGED"] or EllesmereUI.L("Ranged")
+        end
+        if equipSlot == "INVTYPE_2HWEAPON" then
+            return 160, EllesmereUI.L("2H")
+        end
+        if equipSlot == "INVTYPE_RANGED" or equipSlot == "INVTYPE_RANGEDRIGHT" then
+            return 190, _G["INVTYPE_RANGED"] or EllesmereUI.L("Ranged")
+        end
+        if equipSlot == "INVTYPE_WEAPON" or equipSlot == "INVTYPE_WEAPONMAINHAND" then
+            return 170, EllesmereUI.L("1H")
+        end
+    end
+
+    local entry = ARMORY_ARMOR_SLOTS[equipSlot]
+    if entry then
+        return entry[1], _G[entry[2]] or equipSlot
+    end
+
+    return 999, EllesmereUI.L("Other")
+end
+
+local function BuildSlotBuckets(itemList)
+    local byKey = {}
+    for _, data in ipairs(itemList) do
+        local sk, label = GetArmorySlotBucket(data)
+        local b = byKey[sk]
+        if not b then
+            b = { sortKey = sk, label = label, items = {} }
+            byKey[sk] = b
+        end
+        b.items[#b.items + 1] = data
+    end
+    local keys = {}
+    for sk in pairs(byKey) do
+        keys[#keys + 1] = sk
+    end
+    table.sort(keys)
+    local out = {}
+    for _, sk in ipairs(keys) do
+        local b = byKey[sk]
+        if #b.items > 0 then
+            PreCacheSortFields(b.items)
+            table.sort(b.items, VisualSortCompare)
+            out[#out + 1] = b
+        end
+    end
+    return out
+end
+
+local function ArmorySlotGroupingEnabled()
+    if not BP().bagArmoryGroupBySlot then return false end
+    local dc = BP().bagDisabledCategories
+    return not (dc and dc["Armor"])
+end
+
+-------------------------------------------------------------------------------
 --  Slot data table pool (avoids ~200 table allocations per refresh)
 -------------------------------------------------------------------------------
 local _slotPool = {}
@@ -4915,6 +5051,10 @@ function EUI_Bags:RefreshInventory()
                 -- Pre-cache per-item data for RenderButton (zero API calls at render time)
                 if itemLink then
                     local _, _, q, ilvl, _, _, _, _, _, _, _, _, _, bindType = GetItemInfo(itemLink)
+                    -- Slot-grouping fields (_equipSlot/_classID/_subclassID) are NOT
+                    -- pre-cached here: GetArmorySlotBucket fetches them lazily, only
+                    -- for gear items and only while Group Armory by Slot is on, so the
+                    -- feature costs nothing on the refresh path when disabled.
                     d._giQuality = q
                     d._giIlvl = ilvl
                     d._giBindType = bindType
@@ -5267,6 +5407,36 @@ function EUI_Bags:RefreshInventory()
         end
     end
 
+    local function RenderItemBlock(blockItems)
+        local n = #blockItems
+        for j, data in ipairs(blockItems) do
+            slotIdx = slotIdx + 1
+            local btn = GetOrCreateSlot(slotIdx)
+            if btn then  -- nil during combat (avoids minting tainted secure buttons)
+                btn:GetParent():SetParent(child)
+                local col = (j - 1) % columns
+                local row = math.floor((j - 1) / columns)
+                RenderButton(btn, data, slotIdx, col, row, startX, curY, columns)
+            end
+        end
+        local remainder = n % columns
+        local padCount
+        if n == 0 then
+            padCount = columns
+        elseif remainder == 0 then
+            padCount = 0
+        else
+            padCount = columns - remainder
+        end
+        -- Filler pads are cosmetic row-fillers (the "+" button is the only real slot); NEVER clamp to #emptySlots or they vanish when bags are full.
+        if padCount > 0 then
+            RenderEmptyPad(n, padCount)
+        end
+        local totalInBlock = n + math.max(padCount, 0)
+        local blockRows = math.ceil(totalInBlock / columns)
+        curY = curY - (blockRows * (SLOT_SIZE + SPACING))
+    end
+
 
     if selectedCategoryIndex == -1 or selectedCategoryIndex == -2 then
         -- OneBag/MultiBag: Pinned Items (display-only) + bag section(s) + Reagent Bag. OneBag
@@ -5593,42 +5763,19 @@ function EUI_Bags:RefreshInventory()
         local headerIdx = 0
         local expSubIdx = 0
 
-        local function RenderItemBlock(blockItems)
-            local n = #blockItems
-            for j, data in ipairs(blockItems) do
-                slotIdx = slotIdx + 1
-                local btn = GetOrCreateSlot(slotIdx)
-                if btn then  -- nil during combat (avoids minting tainted secure buttons)
-                    btn:GetParent():SetParent(child)
-                    local col = (j - 1) % columns
-                    local row = math.floor((j - 1) / columns)
-                    RenderButton(btn, data, slotIdx, col, row, startX, curY, columns)
-                end
-            end
-            local remainder = n % columns
-            local padCount
-            if n == 0 then
-                padCount = columns
-            elseif remainder == 0 then
-                padCount = 0
-            else
-                padCount = columns - remainder
-            end
-            -- Filler pads are cosmetic row-fillers (the "+" button is the only real slot); NEVER clamp to #emptySlots or they vanish when bags are full.
-            if padCount > 0 then
-                RenderEmptyPad(n, padCount)
-            end
-            local totalInBlock = n + math.max(padCount, 0)
-            local blockRows = math.ceil(totalInBlock / columns)
-            curY = curY - (blockRows * (SLOT_SIZE + SPACING))
-        end
-
         local function RenderSection(sectionName, sectionItems, isUserCreated, showPinAdd, alwaysShow, assignCatIdx, nestByExpansion)
             local itemCount = #sectionItems
             if itemCount == 0 and not isUserCreated and not showPinAdd and not alwaysShow then return end
 
+            local useSlotNest = ArmorySlotGroupingEnabled()
+                and IsGearOnlyGroup(sectionName)
+                and itemCount > 0
+                and not showPinAdd
+                and not alwaysShow
+
             local useExpNest = nestByExpansion
                 and BP().bagNestByExpansion
+                and not useSlotNest
                 and itemCount > 0
                 and not showPinAdd
                 and not alwaysShow
@@ -5687,6 +5834,58 @@ function EUI_Bags:RefreshInventory()
             end
             hdr:Show()
             curY = curY - 22
+
+            if useSlotNest then
+                local buckets = BuildSlotBuckets(sectionItems)
+                if #buckets > 0 then
+                    local showAssign = assignCatIdx and EUI_CategoryManager
+                        and EUI_CategoryManager:CanAssignToCategory(assignCatIdx)
+                    local assignShown = false
+                    for _, buck in ipairs(buckets) do
+                        if #buck.items > 0 then
+                            expSubIdx = expSubIdx + 1
+                            local sh = GetOrCreateExpSubHeader(expSubIdx)
+                            sh:SetParent(child)
+                            sh:ClearAllPoints()
+                            sh:SetPoint("TOPLEFT", child, "TOPLEFT", startX, curY)
+                            sh:SetWidth(gridW)
+                            sh._label:SetText(buck.label .. " (" .. #buck.items .. ")")
+                            SetBagFont(sh._label, math.max(8, catTitleSize - 2))
+                            sh:Show()
+                            curY = curY - 18
+                            RenderItemBlock(buck.items)
+                            if showAssign and not assignShown then
+                                assignShown = true
+                                local cats = EUI_CategoryManager:GetCategories()
+                                local aCat = cats[assignCatIdx]
+                                if aCat then
+                                    local n = #buck.items
+                                    local remainder = n % columns
+                                    if remainder ~= 0 then
+                                        curY = curY + (SLOT_SIZE + SPACING)
+                                    end
+                                    slotIdx = slotIdx + 1
+                                    local aSlot = GetOrCreateSlot(slotIdx)
+                                    if aSlot then
+                                        aSlot:GetParent():SetParent(child)
+                                        local col = remainder
+                                        RenderButton(aSlot, { bag = 0, slot = 0 }, slotIdx, col, 0, startX, curY, columns)
+                                        local aOv = GetOrCreateAssignOverlay()
+                                        aOv._assignCatKey = aCat._defaultName
+                                        aOv:SetParent(child)
+                                        aOv:ClearAllPoints()
+                                        aOv:SetAllPoints(aSlot)
+                                        aOv:Show()
+                                    end
+                                    curY = curY - (SLOT_SIZE + SPACING)
+                                end
+                            end
+                        end
+                    end
+                    curY = curY - 6
+                    return
+                end
+            end
 
             if useExpNest then
                 local buckets = BuildExpansionBuckets(sectionItems)
@@ -5907,6 +6106,8 @@ function EUI_Bags:RefreshInventory()
             local cats = EUI_CategoryManager:GetCategories()
             local members = EUI_CategoryManager:GetGroupMembers(selectedGroupName)
             local headerIdx = 0
+            local expSubIdx = 0
+            local useSlotNest = ArmorySlotGroupingEnabled() and IsGearOnlyGroup(selectedGroupName)
 
             local itemsByMember = {}
             for _, mi in ipairs(members) do itemsByMember[mi] = {} end
@@ -5952,6 +6153,49 @@ function EUI_Bags:RefreshInventory()
                 hdr:Show()
                 curY = curY - 22
 
+                if useSlotNest and #memberItems > 0 then
+                    local buckets = BuildSlotBuckets(memberItems)
+                    local showAssign = EUI_CategoryManager and EUI_CategoryManager:CanAssignToCategory(mi)
+                    local assignShown = false
+                    for _, buck in ipairs(buckets) do
+                        if #buck.items > 0 then
+                            expSubIdx = expSubIdx + 1
+                            local sh = GetOrCreateExpSubHeader(expSubIdx)
+                            sh:SetParent(child)
+                            sh:ClearAllPoints()
+                            sh:SetPoint("TOPLEFT", child, "TOPLEFT", startX, curY)
+                            sh:SetWidth(gridW)
+                            sh._label:SetText(buck.label .. " (" .. #buck.items .. ")")
+                            SetBagFont(sh._label, math.max(8, catTitleSize - 2))
+                            sh:Show()
+                            curY = curY - 18
+                            RenderItemBlock(buck.items)
+                            if showAssign and not assignShown and memberCat then
+                                assignShown = true
+                                local n = #buck.items
+                                local remainder = n % columns
+                                if remainder ~= 0 then
+                                    curY = curY + (SLOT_SIZE + SPACING)
+                                end
+                                slotIdx = slotIdx + 1
+                                local aSlot = GetOrCreateSlot(slotIdx)
+                                if aSlot then
+                                    aSlot:GetParent():SetParent(child)
+                                    local col = remainder
+                                    RenderButton(aSlot, { bag = 0, slot = 0 }, slotIdx, col, 0, startX, curY, columns)
+                                    local aOv = GetOrCreateAssignOverlay()
+                                    aOv._assignCatKey = memberCat._defaultName
+                                    aOv:SetParent(child)
+                                    aOv:ClearAllPoints()
+                                    aOv:SetAllPoints(aSlot)
+                                    aOv:Show()
+                                end
+                                curY = curY - (SLOT_SIZE + SPACING)
+                            end
+                        end
+                    end
+                    curY = curY - 6
+                else
                 for j, data in ipairs(memberItems) do
                     slotIdx = slotIdx + 1
                     local btn = GetOrCreateSlot(slotIdx)
@@ -5997,6 +6241,8 @@ function EUI_Bags:RefreshInventory()
                 local totalInSection = memberItemCount + math.max(padCount, 0)
                 local sectionRows = math.ceil(totalInSection / columns)
                 curY = curY - (sectionRows * (SLOT_SIZE + SPACING)) - 6
+
+                end -- slot nest vs flat grid
 
                 end -- hideEmpty guard
             end
@@ -6130,6 +6376,56 @@ function EUI_Bags:RefreshInventory()
             end
 
             local itemCount = #displayItems
+            local useSlotNest = ArmorySlotGroupingEnabled()
+                and selCat and IsArmoryGearCategory(selCat)
+                and itemCount > 0
+
+            if useSlotNest then
+                local expSubIdx = 0
+                local buckets = BuildSlotBuckets(displayItems)
+                local showAssign = selectedCategoryIndex > 0
+                    and EUI_CategoryManager
+                    and EUI_CategoryManager:CanAssignToCategory(selectedCategoryIndex)
+                local assignShown = false
+                for _, buck in ipairs(buckets) do
+                    if #buck.items > 0 then
+                        expSubIdx = expSubIdx + 1
+                        local sh = GetOrCreateExpSubHeader(expSubIdx)
+                        sh:SetParent(child)
+                        sh:ClearAllPoints()
+                        sh:SetPoint("TOPLEFT", child, "TOPLEFT", startX, curY)
+                        sh:SetWidth(gridW)
+                        sh._label:SetText(buck.label .. " (" .. #buck.items .. ")")
+                        SetBagFont(sh._label, math.max(8, catTitleSize - 2))
+                        sh:Show()
+                        curY = curY - 18
+                        RenderItemBlock(buck.items)
+                        if showAssign and not assignShown and selCat then
+                            assignShown = true
+                            local n = #buck.items
+                            local remainder = n % columns
+                            if remainder ~= 0 then
+                                curY = curY + (SLOT_SIZE + SPACING)
+                            end
+                            slotIdx = slotIdx + 1
+                            local aSlot = GetOrCreateSlot(slotIdx)
+                            if aSlot then
+                                aSlot:GetParent():SetParent(child)
+                                local col = remainder
+                                RenderButton(aSlot, { bag = 0, slot = 0 }, slotIdx, col, 0, startX, curY, columns)
+                                local aOv = GetOrCreateAssignOverlay()
+                                aOv._assignCatKey = selCat._defaultName
+                                aOv:SetParent(child)
+                                aOv:ClearAllPoints()
+                                aOv:SetAllPoints(aSlot)
+                                aOv:Show()
+                            end
+                            curY = curY - (SLOT_SIZE + SPACING)
+                        end
+                    end
+                end
+                curY = curY - 6
+            else
             for i, data in ipairs(displayItems) do
                 slotIdx = slotIdx + 1
                 local btn = GetOrCreateSlot(slotIdx)
@@ -6158,6 +6454,7 @@ function EUI_Bags:RefreshInventory()
             local totalItems = itemCount + math.max(padCount, 0)
             local gridRows = math.ceil(totalItems / columns)
             curY = curY - (gridRows * (SLOT_SIZE + SPACING))
+            end -- slot nest vs flat grid
         end
     end
 

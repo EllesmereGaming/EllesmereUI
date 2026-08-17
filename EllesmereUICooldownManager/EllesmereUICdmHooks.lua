@@ -5289,12 +5289,15 @@ local function ProcessPresetCooldowns()
                 -- changed state -- every start edge arms it (cast/named/wave lanes
                 -- set _cdPushArm, usability edges set _cdEvalArm), and the 5s sweep
                 -- heals anything missed. Running frames (_lastOnRealCD ~= false,
-                -- incl. never-read nil), dimmed frames and visible charge texts
-                -- keep polling as the eventless ready-edge belt.
+                -- incl. never-read nil) and dimmed frames keep polling as the
+                -- eventless ready-edge belt. A visible charge text no longer
+                -- holds the frame in the poll: its count only moves on edges
+                -- that arm (a cast unsettles the drain and its named events arm
+                -- the exact frame; a charge regen completing while settled
+                -- wakes via the listener's settled-state charge lane).
                 if sid and (fullSweep or f._cdPushArm or f._cdEvalArm
-                   or f._lastOnRealCD ~= false or f._lastVertexDim
-                   or (ns._cdmAnyCustomForceCount and f._isCustomSpellFrame
-                       and f._castCountText and f._castCountText:IsShown())) then
+                   or f._lastOnRealCD ~= false or f._lastVertexDim) then
+                    local textArm = (fullSweep or f._cdPushArm or f._cdEvalArm) and true or nil
                     f._cdEvalArm = nil
                     local cdInfo = C_Spell.GetSpellCooldown and C_Spell.GetSpellCooldown(sid)
                     local onRealCD = (cdInfo and cdInfo.isActive and not cdInfo.isOnGCD) and true or false
@@ -5306,6 +5309,7 @@ local function ProcessPresetCooldowns()
                     if f._lastOnRealCD ~= onRealCD then
                         f._lastOnRealCD = onRealCD
                         f._cdPushArm = true
+                        textArm = true
                     end
                     if f._cdPushArm then
                         f._cdPushArm = false
@@ -5360,34 +5364,37 @@ local function ProcessPresetCooldowns()
                         local sdF = bkF and ns.GetBarSpellData and ns.GetBarSpellData(bkF)
                         local forceCount = sdF and sdF.customSpellForceCount and sdF.customSpellForceCount[sid]
                         if forceCount then
-                            if not f._castCountText then
-                                f._castCountText = f:CreateFontString(nil, "OVERLAY")
-                                -- Match the bar's native stack/charge text styling
-                                -- (font, size, color, anchor, X/Y offset);
-                                -- RefreshCDMIconAppearance keeps it in sync afterwards.
-                                ns.StyleCustomChargeText(f, bkF)
-                            end
-                            local chargeInfo = C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(sid)
-                            local n = (chargeInfo and C_Spell.GetSpellDisplayCount and C_Spell.GetSpellDisplayCount(sid))
-                                or (C_Spell.GetSpellCastCount and C_Spell.GetSpellCastCount(sid))
-                            -- The count is a SECRET value in Midnight (cannot be read or
-                            -- compared -- issecretvalue was making the old code bail), so
-                            -- render it Blizzard's way: TruncateWhenZero turns it into a
-                            -- display-safe string and drops it at zero, without reading
-                            -- the value. pcall because it can throw; failure -> hide.
-                            local ok, str
-                            if C_StringUtil and C_StringUtil.TruncateWhenZero then
-                                ok, str = pcall(C_StringUtil.TruncateWhenZero, n)
-                            end
-                            if ok and str then
-                                f._castCountText:SetText(str)
-                                if not f._castCountText:IsShown() then f._castCountText:Show() end
-                                -- Charge counts regen eventlessly: keep polling
-                                -- while the text is on screen.
-                                anyUnsettled = true
-                            elseif f._castCountText:IsShown() then
-                                f._castCountText:SetText("")
-                                f._castCountText:Hide()
+                            -- Render only on ARMED passes: the count moves only
+                            -- on edges that arm (gate comment above). An armed
+                            -- pass re-reads; an unarmed pass keeps the text --
+                            -- and no longer blocks the drain from settling.
+                            if textArm then
+                                if not f._castCountText then
+                                    f._castCountText = f:CreateFontString(nil, "OVERLAY")
+                                    -- Match the bar's native stack/charge text styling
+                                    -- (font, size, color, anchor, X/Y offset);
+                                    -- RefreshCDMIconAppearance keeps it in sync afterwards.
+                                    ns.StyleCustomChargeText(f, bkF)
+                                end
+                                local chargeInfo = C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(sid)
+                                local n = (chargeInfo and C_Spell.GetSpellDisplayCount and C_Spell.GetSpellDisplayCount(sid))
+                                    or (C_Spell.GetSpellCastCount and C_Spell.GetSpellCastCount(sid))
+                                -- The count is a SECRET value in Midnight (cannot be read or
+                                -- compared -- issecretvalue was making the old code bail), so
+                                -- render it Blizzard's way: TruncateWhenZero turns it into a
+                                -- display-safe string and drops it at zero, without reading
+                                -- the value. pcall because it can throw; failure -> hide.
+                                local ok, str
+                                if C_StringUtil and C_StringUtil.TruncateWhenZero then
+                                    ok, str = pcall(C_StringUtil.TruncateWhenZero, n)
+                                end
+                                if ok and str then
+                                    f._castCountText:SetText(str)
+                                    if not f._castCountText:IsShown() then f._castCountText:Show() end
+                                elseif f._castCountText:IsShown() then
+                                    f._castCountText:SetText("")
+                                    f._castCountText:Hide()
+                                end
                             end
                         elseif f._castCountText and f._castCountText:IsShown() then
                             f._castCountText:SetText("")
@@ -5667,12 +5674,20 @@ _racialCdListener:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
         -- early or is modified. Re-walk the item chains on the next pass;
         -- between these edges the cached start/dur drives the display.
         -- (Live set: hidden frames re-arm on their Show edge.)
-        for f in pairs(_pcActive) do
-            if f._isItemPresetFrame then f._itemWalkArm = true end
+        -- SETTLED-GATED (measured 2026-08-16: this event fires ~0.7 Hz
+        -- ambiently at idle with nothing cooling, and was the drain's -- and
+        -- the buff ticker's -- dominant wake source): with every preset
+        -- settled there is no running item cd to end or modify, and an item
+        -- cd can only START via edges that own UNGATED lanes (player cast,
+        -- bag content, equipment, encounter reset), so ambient chatter has
+        -- nothing to report.
+        if not _pcAllSettled then
+            for f in pairs(_pcActive) do
+                if f._isItemPresetFrame then f._itemWalkArm = true end
+            end
+            _presetCdDirty = true
+            if ns.ArmBuffTicker then ns.ArmBuffTicker() end
         end
-        _presetCdDirty = true
-        _pcAllSettled = false
-        if ns.ArmBuffTicker then ns.ArmBuffTicker() end
         return
     end
     if event == "ENCOUNTER_END" or event == "CHALLENGE_MODE_START" then
@@ -5795,6 +5810,34 @@ _racialCdListener:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
         end
         _presetCdDirty = true
         if ns.ArmBuffTicker then ns.ArmBuffTicker() end
+    elseif event == "SPELL_UPDATE_CHARGES" and ns._cdmAnyCustomForceCount then
+        -- Settled-state charge wake, shown charge texts ONLY: a charge regen
+        -- completing is the one count edge that arrives with no cast and no
+        -- unsettled state (a SPEND always rides a cast, which unsettles and
+        -- lets the named lane above arm precisely). Named ids wake just the
+        -- matching text; unreadable ids (instanced secrecy) wake every shown
+        -- text, capped at one arm per 0.2s so charge chatter can never hold
+        -- the settled drain awake.
+        local nowC = GetTime()
+        if nowC >= (ns._pcChargeNext or 0) then
+            local sid = a1
+            local named = _PlainNum(sid)
+            local hit
+            for f in pairs(_pcActive) do
+                if f._isCustomSpellFrame and f._castCountText
+                   and f._castCountText:IsShown()
+                   and (not named or not f._cachedPresetSID
+                        or f._cachedPresetSID == sid) then
+                    f._cdEvalArm = true
+                    hit = true
+                end
+            end
+            if hit then
+                ns._pcChargeNext = nowC + 0.2
+                _presetCdDirty = true
+                if ns.ArmBuffTicker then ns.ArmBuffTicker() end
+            end
+        end
     end
 end)
 
@@ -7973,7 +8016,7 @@ local function CollectAndReanchor()
                 if ns.QueueReanchor then ns.QueueReanchor() end
             end
         end
-        -- Automatic base-bar materialization (once per spec per session):
+        -- Automatic base-bar materialization (once per spec+layout per session):
         -- untouched default-bar spells render through the frames-as-truth fallback
         -- without ever being recorded in assignedSpells, so export strings shipped
         -- incomplete stores and the import ghost pass hid exactly those spells on
@@ -7982,12 +8025,17 @@ local function CollectAndReanchor()
         -- old-model spillovers would materialize), never while an import's
         -- ghosting is pending (Reseed self-guards too), and buff-family bars
         -- excluded (cdUtilOnly: picker-authoritative). The session flag is wiped
-        -- on talent/loadout changes so newly learned spells re-materialize.
+        -- on talent/loadout changes so newly learned spells re-materialize,
+        -- and on Blizzard settings-panel close (in-place layout edits). Keyed
+        -- by spec + active Blizzard layout id: a spell tracked only on a
+        -- layout switched to later in the session must still get its pass.
         if ns.ReseedAssignedSpellsFromLiveIcons and prof
            and prof._barFilterModelV6 and not prof._importGhostMode then
             ns._reseededSpecsSession = ns._reseededSpecsSession or {}
-            if not ns._reseededSpecsSession[specKey] then
-                ns._reseededSpecsSession[specKey] = true
+            local layoutID = ns.GetActiveCDMLayoutID and ns.GetActiveCDMLayoutID()
+            local reseedKey = specKey .. "|" .. tostring(layoutID or "?")
+            if not ns._reseededSpecsSession[reseedKey] then
+                ns._reseededSpecsSession[reseedKey] = true
                 ns.ReseedAssignedSpellsFromLiveIcons(true)
                 -- NO drop pass here, EVER (field data loss, 8.8.7 -> fixed
                 -- 8.8.8): this tail runs synchronously inside the spec-swap
@@ -9201,6 +9249,16 @@ function ns.SetupViewerHooks()
         EventRegistry:RegisterCallback("CooldownViewerSettings.OnShow",
             QueueReanchor, cdmSettingsOwner)
         EventRegistry:RegisterCallback("CooldownViewerSettings.OnHide", function()
+            -- In-place edits to the ACTIVE Blizzard layout (spell added to the
+            -- layout you are already on) do not change its layout id, so the
+            -- spec+layout auto-reseed gate would never re-materialize them.
+            -- Wipe the session table here, on panel close (edits happen with the
+            -- panel open; the reanchor queued below re-runs the add-only
+            -- reseed). NOT on CooldownViewerSettings.OnDataChanged: Blizzard
+            -- also fires that from RefreshFromExternalUpdate on SPELLS_CHANGED
+            -- / PLAYER_EQUIPMENT_CHANGED / PvP talent updates, which would
+            -- re-run a full reseed pass on every form swap or gear change.
+            if ns._reseededSpecsSession then wipe(ns._reseededSpecsSession) end
             C_Timer.After(0.1, QueueReanchor)
             -- Delay sync slightly longer so Blizzard finishes rebuilding pools
             C_Timer.After(0.3, function()

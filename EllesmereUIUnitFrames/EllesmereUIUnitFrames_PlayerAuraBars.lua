@@ -1819,11 +1819,33 @@ local function QueuePABRegenApply(key, fn)
     pabRegenFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 end
 
+-- Combat-safe Show/Hide for a bar PARENT. The engine aura container is a
+-- CHILD of the parent, so the parent's own Show/Hide is ADDON_ACTION_BLOCKED
+-- in lockdown exactly like its SetSize/SetPoint (field report: the
+-- cinematic/faction recovery lane re-asserting the default bars mid-combat).
+-- No call at all when the state already matches; in combat the visual verdict
+-- lands through alpha (never protected) and the real Show/Hide is replayed at
+-- regen via `recompute`, which re-derives the verdict at that time.
+local function SetParentShownSafe(key, parent, want, recompute)
+    want = want and true or false
+    local shown = parent:IsShown()
+    if issecretvalue and issecretvalue(shown) then shown = nil end
+    if not InCombatLockdown() then
+        if parent:GetAlpha() ~= 1 then parent:SetAlpha(1) end
+        if shown ~= want then parent:SetShown(want) end
+        return
+    end
+    if shown == want then
+        if want and parent:GetAlpha() ~= 1 then parent:SetAlpha(1) end
+        return
+    end
+    parent:SetAlpha(want and 1 or 0)
+    QueuePABRegenApply("shown:" .. key, recompute)
+end
+
 -- Default-bar enable toggle (cfg.enabled, nil = enabled): the parent hides
--- exactly like a disabled custom bar's (the unguarded parent:SetShown gate in
--- ReloadCustomBuffBarImpl -- field-proven pattern; showing/hiding the anchor
--- ancestor is not one of the protected geometry writes). Vehicle suppression
--- owns the parents during a ride, so it wins while active.
+-- exactly like a disabled custom bar's. Vehicle suppression owns the parents
+-- during a ride, so it wins while active.
 local function ApplyDefaultBarShown(isBuff)
     local s = PAB()
     if not s then return end
@@ -1834,8 +1856,9 @@ local function ApplyDefaultBarShown(isBuff)
     local cfg = isBuff and DefaultBuffsCfg(s) or DefaultDebuffsCfg(s)
     -- Master enable + Use Blizzard Buffs both stand the defaults down (the
     -- recovery lane can reach this while disabled-awaiting-reload).
-    parent:SetShown(s.enabled == true and cfg.enabled ~= false
-        and s.useBlizzardBuffs ~= true)
+    SetParentShownSafe(isBuff and "default-buffs" or "default-debuffs", parent,
+        s.enabled == true and cfg.enabled ~= false and s.useBlizzardBuffs ~= true,
+        function() ApplyDefaultBarShown(isBuff) end)
 end
 
 -- Grow direction. AK.ApplyContainerLayout only applies growth when BOTH growthH and
@@ -3791,7 +3814,8 @@ local function ReloadCustomBuffBarImpl(barId)
     -- bucket's applicability to the current spec AND this spec's per-spec
     -- disable of group bars. Inactive parks exactly like disabled.
     local barActive = ns.PAB_BarActive(bar, barBucket)
-    parent:SetShown(barActive and true or false)
+    SetParentShownSafe("custom-buff-" .. barId, parent, barActive,
+        function() ns.PAB_ReloadCustomBuffBar(barId) end)
     if not barActive then return end
 
     if not geomLocked then
@@ -3928,7 +3952,8 @@ local function ReloadCustomDebuffBarImpl(barId)
     end
     -- Same effective-render verdict as the custom buff reload above.
     local barActive = ns.PAB_BarActive(bar, barBucket)
-    parent:SetShown(barActive and true or false)
+    SetParentShownSafe("custom-debuff-" .. barId, parent, barActive,
+        function() ns.PAB_ReloadCustomDebuffBar(barId) end)
     if not barActive then return end
 
     if not geomLocked then
@@ -5302,8 +5327,8 @@ end
 
 -- Called by the options page's activation overlay and the sidebar's Disable
 -- All toggle. Enabling builds the bars live (CreateBars guards its own
--- re-entry; AK.RequestContainer self-defers to PLAYER_REGEN_ENABLED in
--- combat). Disabling is reload-bound for the BLIZZARD side (the corner-frame
+-- re-entry; container creation is combat-legal). Disabling is reload-bound
+-- for the BLIZZARD side (the corner-frame
 -- hide latches for the session) but stands every PAB frame down NOW -- the
 -- field bug was custom bars lingering through the "Later" window while the
 -- default bars hid: Disable All must be a complete visual no-op.
@@ -5407,17 +5432,19 @@ end
 -- vehicle exit must never re-show a disabled bar's fully-populated grid.
 local function ApplyVehicleHidden(hidden)
     local s = PAB()
+    -- Regen replay re-derives from the LIVE vehicle state, not the argument.
+    local function recompute() ApplyVehicleHidden(vehicleHidden) end
     -- Master enable + Use Blizzard Buffs both stand the defaults down: a
     -- vehicle exit during the disabled "Later" window must not re-show them.
     if buffsParent then
-        buffsParent:SetShown(not hidden and (not s
+        SetParentShownSafe("vehicle-buffs", buffsParent, not hidden and (not s
             or (s.enabled == true and DefaultBuffsCfg(s).enabled ~= false
-                and s.useBlizzardBuffs ~= true)))
+                and s.useBlizzardBuffs ~= true)), recompute)
     end
     if debuffsParent then
-        debuffsParent:SetShown(not hidden and (not s
+        SetParentShownSafe("vehicle-debuffs", debuffsParent, not hidden and (not s
             or (s.enabled == true and DefaultDebuffsCfg(s).enabled ~= false
-                and s.useBlizzardBuffs ~= true)))
+                and s.useBlizzardBuffs ~= true)), recompute)
     end
     -- Restore honors the FULL render verdict (master enable + bar toggle +
     -- editing-spec bucket applicability + per-spec disable): a vehicle exit
@@ -5426,11 +5453,13 @@ local function ApplyVehicleHidden(hidden)
     -- `not bar` show-fallback punched through every gate.
     for barId, parent in pairs(customBuffParents) do
         local bar, bk = ns.PAB_GetCustomBuffBar(barId)
-        parent:SetShown(not hidden and bar ~= nil and ns.PAB_BarActive(bar, bk))
+        SetParentShownSafe("vehicle-cb-" .. barId, parent,
+            not hidden and bar ~= nil and ns.PAB_BarActive(bar, bk), recompute)
     end
     for barId, parent in pairs(customDebuffParents) do
         local bar, bk = ns.PAB_GetCustomDebuffBar(barId)
-        parent:SetShown(not hidden and bar ~= nil and ns.PAB_BarActive(bar, bk))
+        SetParentShownSafe("vehicle-cd-" .. barId, parent,
+            not hidden and bar ~= nil and ns.PAB_BarActive(bar, bk), recompute)
     end
 end
 local function SetVehicleHidden(hidden)

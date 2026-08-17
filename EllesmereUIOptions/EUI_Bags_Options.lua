@@ -405,6 +405,7 @@ initFrame:SetScript("OnEvent", function(self)
                                     if _G.EUI_Bags:IsVisible() then _G.EUI_Bags:RefreshInventory() end
                                 end)
                             end
+                            EllesmereUI:RefreshPage()
                         end, nil, 10, true)
                     PP.Point(cbDD, "RIGHT", leftRgn, "RIGHT", -20, 0)
                     leftRgn._control = cbDD
@@ -834,6 +835,23 @@ initFrame:SetScript("OnEvent", function(self)
                       db.profile.bagHideRandomize = v
                       if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
                   end }
+            ); y = y - h
+
+            -- Group Armory by Slot (left column only)
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Group Armory by Slot",
+                  tooltip="In The Armory and the Weapons / Trinkets, Armor, and Item Set Gear category views, group items under equip-slot sub-headers (Head, Shoulders, Chest, Cosmetic, ...). Does not add sidebar views.",
+                  disabled=function()
+                      local dc = db.profile.bagDisabledCategories
+                      return dc and dc["Armor"] == true
+                  end,
+                  disabledTooltip="Armor",
+                  getValue=function() return db.profile.bagArmoryGroupBySlot == true end,
+                  setValue=function(v)
+                      db.profile.bagArmoryGroupBySlot = v and true or false
+                      if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                  end },
+                { type="label", text="" }
             ); y = y - h
 
             _, h = W:Spacer(parent, y, 20); y = y - h

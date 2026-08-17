@@ -958,7 +958,12 @@ local function MakeBarUnlockElement(which, label, order)
         label = label,
         group = "Mythic+",
         order = order,
+        -- Sized by the options sliders (no drag-resize handle), but the bar can
+        -- size-MATCH another element and be matched TO: the match apply pushes
+        -- through setWidth/setHeight into the same cfg keys the sliders write,
+        -- so a match survives reloads exactly like a slider value.
         noResize = true,
+        allowMatchSource = true,
         isHidden = function()
             local cfg = BarCfg(which)
             return not (cfg and cfg.enabled == true)
@@ -970,6 +975,18 @@ local function MakeBarUnlockElement(which, label, order)
         getSize = function()
             local cfg = BarCfg(which)
             return (cfg and cfg.width) or 260, (cfg and cfg.height) or 22
+        end,
+        setWidth = function(_, w)
+            local cfg = BarCfg(which)
+            if not cfg then return end
+            cfg.width = math.floor(w + 0.5)
+            ns.TFB_Refresh()
+        end,
+        setHeight = function(_, h)
+            local cfg = BarCfg(which)
+            if not cfg then return end
+            cfg.height = math.floor(h + 0.5)
+            ns.TFB_Refresh()
         end,
         savePos = function()
             local cfg = BarCfg(which)

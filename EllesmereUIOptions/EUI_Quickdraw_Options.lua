@@ -914,23 +914,11 @@ initFrame:SetScript("OnEvent", function(self)
         return out
     end
 
-    -- This character's profession positions, by POSITION rather than by
-    -- identity -- the same trick as DynamicSpecEntries above, resolved by
-    -- EllesmereUIQuickdraw.lua's ns.ProfessionBookIndexFor. 1 and 2 are the two
-    -- primary professions in GetProfessions' own order, so "Profession 1"
-    -- and "Profession 2" go dead on arrival at neither -- carried from a
-    -- skinner/leatherworker to a herbalist/miner, they show Herbalism and
-    -- Mining. 3 through 5 are always Cooking, Fishing and Archaeology; a
-    -- fixed count rather than a walked one, since unlike a class's specs
-    -- every character has exactly these five slots.
-    --
-    -- The next five are each position's second ability instead of its
-    -- opener -- Smelting, Prospecting, Milling and the like. Offered for all
-    -- five positions on equal terms even though only the two primary
-    -- professions grant one today: Cooking, Fishing and Archaeology simply
-    -- resolve to nothing and go dark under Hide Unusable Entries, the same
-    -- as a position this character has not learned at all, rather than
-    -- being hardcoded absent here.
+    -- Profession POSITIONS (DynamicSpecEntries counterpart): the five
+    -- GetProfessions slots as openers, then the same five as second abilities;
+    -- unlearned / no-second-ability positions resolve to nothing and go dark
+    -- under Hide Unusable Entries (see the Dynamic Profession section in
+    -- EllesmereUIQuickdraw.lua).
     local function DynamicProfessionEntries()
         local out = {}
         if not ns.ProfessionPositionName then return out end

@@ -2893,6 +2893,34 @@ local function FrameIsActive(frames, target)
     return false
 end
 
+-- Name FAMILY of a display name: the part before the first colon, lowered
+-- ("Diabolic Ritual: Overlord" -> "diabolic ritual"; a name without a colon
+-- is its own family). Disambiguates collided viewer slots whose aura names
+-- share a canonical spellID but not a prefix. nil for empty/unreadable.
+local function TbbNameFamily(name)
+    if type(name) ~= "string" or name == "" then return nil end
+    local i = name:find(":", 1, true)
+    local fam = i and name:sub(1, i - 1) or name
+    fam = fam:gsub("^%s+", ""):gsub("%s+$", ""):lower()
+    if fam == "" then return nil end
+    return fam
+end
+
+-- Live aura name family of a pool frame; nil when no clean aura read exists
+-- (secret in restricted content, no bound instance) -- callers fall back to
+-- first-match. Aura reads are the ONLY name source: never the frame's label.
+local function TbbFrameNameFamily(frame)
+    local iid = frame.auraInstanceID
+    if not iid or (issecretvalue and issecretvalue(iid)) then return nil end
+    local unit = frame.auraDataUnit
+    if not unit then return nil end
+    local ok, ad = pcall(C_UnitAuras.GetAuraDataByAuraInstanceID, unit, iid)
+    if not ok or not ad then return nil end
+    local nm = ad.name
+    if nm == nil or (issecretvalue and issecretvalue(nm)) then return nil end
+    return TbbNameFamily(nm)
+end
+
 local function AssignFramesToConfigs(bars)
     local assignment = _tbbAssignment
     -- Memo: pairing moves only on composition edges (player aura events, pool
@@ -2939,8 +2967,18 @@ local function AssignFramesToConfigs(bars)
         if bound and not consumed[bound] and FrameIsActive(frames, bound) then
             local sid = _tbbFrameSID[bound]
             if sid then
-                -- Clean read available: keep only if still the right variant.
-                if CfgWantsSID(cfg, sid) then
+                -- Clean read available: keep only if still the right variant AND
+                -- (collided slots) still the right name family -- a crossed
+                -- pairing must release here or pass 2 can never re-pair it.
+                local keep = CfgWantsSID(cfg, sid)
+                if keep then
+                    local want = TbbNameFamily(cfg.name)
+                    if want then
+                        local fam = TbbFrameNameFamily(bound)
+                        if fam and fam ~= want then keep = false end
+                    end
+                end
+                if keep then
                     assignment[cfg]      = bound
                     consumed[bound]      = true
                     _tbbStickyCdID[cfg]  = bound.cooldownID
@@ -2963,21 +3001,38 @@ local function AssignFramesToConfigs(bars)
         end
     end
 
-    -- Pass 2: exact per-frame identity.
+    -- Pass 2: exact per-frame identity. COLLIDED slots (two viewer slots
+    -- sharing one canonical spellID -- Diabolist Demonic Art vs Diabolic
+    -- Ritual, where Blizzard hands the Art slot the Ritual's id) fit two
+    -- configs identically by sid, and a first-match pairing crosses them
+    -- ("Diabolic Ritual" bar bound to the Art frame, faithfully naming
+    -- Overlord). Tie-break by NAME FAMILY: the config keeps the picker's
+    -- display name and the two slots' aura names differ by prefix, so among
+    -- sid-matching frames the one whose live aura name shares the config
+    -- name's prefix wins; unique matches take the fast path unchanged.
     for _, cfg in ipairs(bars) do
         if not assignment[cfg] then
+            local pick
+            local want = TbbNameFamily(cfg.name)
             for i = 1, #frames do
                 local frame = frames[i]
                 if not consumed[frame] then
                     local sid = _tbbFrameSID[frame]
                     if sid and CfgWantsSID(cfg, sid) then
-                        assignment[cfg]      = frame
-                        consumed[frame]      = true
-                        _tbbStickyFrame[cfg] = frame
-                        _tbbStickyCdID[cfg]  = frame.cooldownID
-                        break
+                        if not want then pick = frame; break end
+                        local fam = TbbFrameNameFamily(frame)
+                        if fam == want then pick = frame; break end
+                        -- Family unreadable/other: remember the first, keep looking
+                        -- for a frame that actually names this config's family.
+                        if not pick then pick = frame end
                     end
                 end
+            end
+            if pick then
+                assignment[cfg]      = pick
+                consumed[pick]       = true
+                _tbbStickyFrame[cfg] = pick
+                _tbbStickyCdID[cfg]  = pick.cooldownID
             end
         end
     end
@@ -4789,17 +4844,76 @@ function ns.UpdateTrackedBuffBarTimers()
                         end
                     end
 
-                    -- Name from the bar's own configured spellID -- deterministic, and
-                    -- spell-data APIs stay readable while auras are secret. NEVER from
-                    -- Blizzard's label FontString: their pooled frames recycle fast in
-                    -- combat and the label can lag a tick behind the icon, so scraping
-                    -- it faithfully copied a leftover name from the frame's previous
-                    -- occupant (the in-combat wrong-name field report). Live aura data
-                    -- is the last resort for unloaded spell data, and only when its
-                    -- spellId actually matches this config (instance ids recycle too).
+                    -- Name resolution ladder (Diabolist field probe 2026-08-16,
+                    -- /euitbbdbg: on the ACTIVE ritual frame GetSpellID,
+                    -- GetAuraSpellID AND the aura-instance read are all
+                    -- secret/nil even out of combat -- the variant identity is
+                    -- unreadable to Lua; only Blizzard's own label knows which
+                    -- ritual is up):
+                    --  1. Blizzard's rendered label FontString on the BOUND
+                    --     frame -- the ONLY channel that carries the live
+                    --     variant name (Overlord / Mother of Chaos / Pit Lord)
+                    --     while ids are unreadable. Handed straight to SetText
+                    --     (accepts secrets natively; NEVER compared or stored),
+                    --     and taken only while that frame is SHOWN with a bound
+                    --     aura: the old wrong-name report came from scraping a
+                    --     label whose pooled frame had been recycled under a
+                    --     stale binding -- bindings are cooldownID-anchored now
+                    --     (sticky releases on slot change), and a shown frame's
+                    --     label belongs to its current occupant.
+                    --  2. Live aura data, when readable and provably this bar's
+                    --     family (exact config ids or the bound slot's
+                    --     cooldownInfo override/spellID/linkedSpellIDs).
+                    --  3. The configured spell's name (deterministic).
                     if bar._nameText and bar._nameText:IsShown() then
                         local nameStr
-                        if cfg.spellID and cfg.spellID > 0 then
+                        -- auraInstanceID may itself be SECRET on the active frame
+                        -- (probe-confirmed): type() reads the tag without touching
+                        -- the value -- the taint-safe presence test for secrets.
+                        -- SLOT CHECK (the Wardead class, 2+ bars in one group in
+                        -- combat): the frame's label is right for its CURRENT
+                        -- occupant, so it is wrong only when OUR binding is stale
+                        -- -- a pool re-acquire that moved this frame to another
+                        -- slot before the next re-pair. cooldownID stays a plain
+                        -- readable number in secret windows, so comparing it to
+                        -- the slot we bound under catches that same-tick window
+                        -- (the sticky pass applies the identical test on its own
+                        -- schedule); a mismatch skips the label and falls through.
+                        if blzChild and blzChild:IsShown() and blizzBar
+                           and type(blzChild.auraInstanceID) ~= "nil"
+                           and (_tbbStickyCdID[cfg] == nil
+                                or blzChild.cooldownID == _tbbStickyCdID[cfg]) then
+                            local blizzNameFS = GetBlizzBarFontStrings(blizzBar)
+                            if blizzNameFS then
+                                local ok, txt = pcall(blizzNameFS.GetText, blizzNameFS)
+                                if ok and txt ~= nil
+                                   and ((issecretvalue and issecretvalue(txt)) or txt ~= "") then
+                                    nameStr = txt
+                                end
+                            end
+                        end
+                        if not nameStr and blzChild and blzChild.auraInstanceID and blzChild.auraDataUnit
+                           and not (issecretvalue and issecretvalue(blzChild.auraInstanceID)) then
+                            local ok, ad = pcall(C_UnitAuras.GetAuraDataByAuraInstanceID,
+                                blzChild.auraDataUnit, blzChild.auraInstanceID)
+                            if ok and ad and ad.name and not (issecretvalue and issecretvalue(ad.name)) then
+                                local sid = ad.spellId
+                                if sid ~= nil and not (issecretvalue and issecretvalue(sid)) then
+                                    local mine = CfgWantsSID(cfg, sid)
+                                    if not mine and blzChild.cooldownID
+                                       and not (issecretvalue and issecretvalue(blzChild.cooldownID))
+                                       and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
+                                        local ok2, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, blzChild.cooldownID)
+                                        if ok2 and info then
+                                            local ok3, m = pcall(MatchesSID, info, sid)
+                                            mine = ok3 and m
+                                        end
+                                    end
+                                    if mine then nameStr = ad.name end
+                                end
+                            end
+                        end
+                        if not nameStr and cfg.spellID and cfg.spellID > 0 then
                             local spInfo = C_Spell.GetSpellInfo(cfg.spellID)
                             if spInfo then
                                 nameStr = spInfo.name
@@ -4810,11 +4924,6 @@ function ns.UpdateTrackedBuffBarTimers()
                         if not nameStr and cfg.baseSpellID and cfg.baseSpellID > 0 then
                             local spInfo = C_Spell.GetSpellInfo(cfg.baseSpellID)
                             if spInfo then nameStr = spInfo.name end
-                        end
-                        if not nameStr and blzChild and blzChild.auraInstanceID and blzChild.auraDataUnit then
-                            local ok, ad = pcall(C_UnitAuras.GetAuraDataByAuraInstanceID,
-                                blzChild.auraDataUnit, blzChild.auraInstanceID)
-                            if ok and ad and ad.name and CfgWantsSID(cfg, ad.spellId) then nameStr = ad.name end
                         end
                         if nameStr then
                             bar._nameText:SetText(nameStr)

@@ -982,52 +982,20 @@ ns.SpecPositionName = function(index)
 end
 
 -------------------------------------------------------------------------------
---  Dynamic Profession
---
---  "Profession 1" and "Profession 2" name a POSITION rather than an
---  identity, the same trick as dynamicspec above: the entry that opens
---  whatever this character's first primary profession is, so a palette
---  carried from a skinner/leatherworker to a herbalist/miner shows Herbalism
---  and Mining without being rebuilt. Cooking, Fishing and Archaeology are
---  fixed identities instead -- every character has at most one of each, so
---  there is nothing to be the "first" or "second" of -- but they resolve the
---  same way, live, and go dark under Hide Unusable Entries exactly like a
---  position this character's professions do not reach.
---
---  slot.extra on any position names that position's second ability instead
---  of its opener -- Smelting, Prospecting, Milling, and the like. It goes
---  dark the same way, and for a second reason beyond not being learned: a
---  profession simply without one, Alchemy among them. Every position is
---  offered one on equal terms even though only the two primary professions
---  grant one today -- Cooking, Fishing and Archaeology stay dark rather
---  than absent, so a future one that gains a second ability needs no code
---  change here to pick it up.
---
---  Both resolvers are assigned onto ns rather than kept as chunk-level
---  locals, the same reason as ns.SpecPositionName just above: this file's
---  main chunk is at Lua's ceiling of 200 locals, and a field costs nothing
---  extra where a local would not fit.
---
---  Memoized, unlike SpecIndexFor above: resolving one position walks a
---  profession's whole spellbook block rather than doing index arithmetic,
---  and every one of SlotUsable, ResolveAction and SlotDisplay asks for the
---  same slot on every push, so an unmemoized version would walk it three
---  times over -- more again for the same position repeated across palettes.
---  Only ten combinations of index and extra ever exist, so the cache never
---  holds more than ten entries.
---
---  Cleared from PushAllPalettes in the same breath as usableMemo (see
---  ns.WipeProfessionCache below and the call beside wipe(usableMemo)), which
---  is exactly "when the player learns or unlearns a profession": that push
---  is itself requested by SPELLS_CHANGED, the event a profession's own
---  spellbook entry appearing or disappearing fires.
+--  Dynamic Profession: a dynamicprofession slot names a POSITION (1/2 = the
+--  two primary professions in GetProfessions order, 3/4/5 = Cooking, Fishing,
+--  Archaeology), resolved live to that profession's opener spell, or with
+--  slot.extra its second non-passive spell (Smelting, Prospecting, Milling).
+--  Unlearned positions and professions with no second ability resolve to nil
+--  and go dark under Hide Unusable Entries. Resolvers live on ns (200-local
+--  ceiling). Memoized per (index, extra) -- SlotUsable, ResolveAction and
+--  SlotDisplay all ask for the same slot every push -- and wiped from
+--  PushAllPalettes beside usableMemo, whose SPELLS_CHANGED request is the
+--  learn/unlearn edge.
 -------------------------------------------------------------------------------
 do
     local cache = {}
 
-    -- The profession-book index and the resolved spell together, for one
-    -- (index, extra) combination -- computed once per push no matter how
-    -- many times or from where it is asked for.
     local function Resolve(slot)
         if not slot or slot.kind ~= "dynamicprofession" then return nil, nil end
         local i = tonumber(slot.index)
@@ -1036,11 +1004,6 @@ do
         local hit = cache[key]
         if hit then return hit.book, hit.spell end
 
-        -- The profession-book index for a fixed position: 1 and 2 are this
-        -- character's two primary professions, in GetProfessions' own
-        -- order; 3, 4 and 5 are always Cooking, Fishing and Archaeology.
-        -- Nil for a position this character has not got, the same as a
-        -- spec position beyond this class's count.
         local prof1, prof2, arch, fish, cook = GetProfessions()
         local book
         if i == 1 then book = prof1
@@ -1050,14 +1013,8 @@ do
         elseif i == 5 then book = arch
         end
 
-        -- The Nth non-passive spell in that book index's own spellbook
-        -- block: N=1 is the opener every profession has, the same spell its
-        -- spellbook icon casts to open its window; N=2 (slot.extra) is the
-        -- second ability only some professions grant -- Smelting for
-        -- Mining, Prospecting for Jewelcrafting, Milling for Inscription.
-        -- Left nil when the profession has no spell at that position,
-        -- whether because it was never learned or because it simply has no
-        -- second ability.
+        -- Nth non-passive spell of the book's spellbook block: 1 = opener,
+        -- 2 = second ability (nil when the profession has none).
         local spell
         if book then
             local _, _, _, _, numSpells, spellOffset = GetProfessionInfo(book)
@@ -1082,15 +1039,9 @@ do
     ns.WipeProfessionCache = function() wipe(cache) end
 end
 
--- What a dynamicprofession entry is CALLED when it is being picked, and on
--- the character that cannot resolve it -- the same job ns.SpecPositionName
--- does for a spec position. 1 and 2 read as "Profession 1" / "Profession 2"
--- since they name a position; 3 through 5 read as the fixed skill they
--- always are, in the client's own localized string. extra names the SAME
--- position's second ability instead of its opener -- Cooking, Fishing and
--- Archaeology have none on live, but nothing here assumes that stays true,
--- since ns.ProfessionSpellFor walks every position's spellbook block the
--- same way regardless of which one it is.
+-- Picker / unresolved-placeholder name for a dynamicprofession position (the
+-- ns.SpecPositionName counterpart): positions 1-2 by number, 3-5 by the
+-- client's own skill name.
 ns.ProfessionPositionName = function(index, extra)
     index = tonumber(index)
     local base

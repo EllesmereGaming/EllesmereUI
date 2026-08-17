@@ -7468,13 +7468,9 @@ local function BuildUnlockLayoutRow(parent, y, g, opts)
     end)
 
     -- Edit: opens the fork's OWN editing session, then jumps to its manager page.
-    -- Without this the only way to reach a conditional fork is to be standing in
-    -- its real context, and edits made anywhere else land silently in whichever
-    -- layer happens to be live (usually the shared baseline). Entering the
-    -- session is load-bearing, NOT a convenience: the manager page's prelude
-    -- engages the fork only while the session is open, and Cond.ExitEdit is the
-    -- sole release path -- engaging the swap directly here would strand the
-    -- session flag with nothing to ever bank and restore it.
+    -- The session is load-bearing: the manager page prelude engages the fork only
+    -- while a session is open, and Cond.ExitEdit is the sole release path, so the
+    -- swap is never engaged directly here.
     if opts.editKind and opts.editPage then
         local e = CreateFrame("Button", nil, row)
         e:SetSize(116, 22)
@@ -7487,9 +7483,11 @@ local function BuildUnlockLayoutRow(parent, y, g, opts)
         e:SetScript("OnEnter", function() if ebrd and ebrd.SetColor then ebrd:SetColor(ACCENT_R, ACCENT_G, ACCENT_B, 0.8) end end)
         e:SetScript("OnLeave", function() if ebrd and ebrd.SetColor then ebrd:SetColor(1, 1, 1, 0.22) end end)
         e:SetScript("OnClick", function()
-            -- Both entry points refuse (with their own popup) when another fork
-            -- holds the manager page; navigating anyway would show a page bound
-            -- to a different group, so confirm the session actually opened.
+            -- Raid Frames must be registered to navigate to (same gate as the
+            -- entry rows' Go to Setting).
+            if not (EllesmereUI.GetModuleTitle and EllesmereUI:GetModuleTitle("EllesmereUIRaidFrames")) then return end
+            -- Both entry points refuse (own popup) when another fork holds the
+            -- manager page; only navigate once the session actually opened.
             if opts.editKind == "cond" then
                 if not Cond.EnterEdit then return end
                 Cond.EnterEdit(g)

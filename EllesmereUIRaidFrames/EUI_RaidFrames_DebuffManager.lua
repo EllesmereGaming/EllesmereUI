@@ -1183,6 +1183,32 @@ local dmTileFP = {}
 -- Ensures one tile's per-class style exists and is current: icon tiles reuse the debuff style at tile size; effect
 -- tiles get a bare noRegions style whose applyExtra renders style.fx. szOv/szCat: an Icon Effects Size hosts the
 -- sized record on its own STABLE per-category variant (content rebuilds on size edits, group variant swaps only at sized/unsized).
+-- Grid-tile style core, shared by EnsureTileStyle and DM_RefreshSizedStyles: tile styles VIEW the base debuff
+-- style keys, so a pure base-style edit must re-derive them here too or they render stale (same as sized siblings).
+local function RefreshTileGridStyle(key, st, s, t, szOv, font)
+    local sv = TileStyleView(s, t)
+    local v = ((ns.RFC_DebuffStyleFP and ns.RFC_DebuffStyleFP(sv, font)) or "")
+        .. "|" .. tostring(szOv or t.size or 18)
+        .. "|" .. FxListFP(t.fxList)
+    if t.type == "square" then
+        local c = t.color or {}
+        v = v .. "|sq" .. string.format("%.2f,%.2f,%.2f,%.2f",
+            c.r or 1, c.g or 0.35, c.b or 0.35, c.a or 1)
+    end
+    if st.style ~= v and ns.RFC_BuildDebuffStyle then
+        st.style = v
+        local sty = ns.RFC_BuildDebuffStyle(sv, szOv or t.size or 18)
+        if t.type == "square" then
+            -- Square grid: flat color block over the icon (shared applier).
+            sty.squareColor = t.color or { r = 1, g = 0.35, b = 0.35, a = 1 }
+        end
+        -- Per-tile Effects override the base-injected fx explicitly, including nil: a tile without blocks must not inherit the base.
+        sty.fxList = FxListView(t.fxList)
+        AK.styles[key] = sty
+        AK.RestyleSoon(key)
+    end
+end
+
 local function EnsureTileStyle(d, s, t, szOv, szCat)
     local cls = ClassToken(d)
     local key
@@ -1199,27 +1225,9 @@ local function EnsureTileStyle(d, s, t, szOv, szCat)
     local font = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("raidFrames")) or ""
     local v
     if isGrid then
-        local sv = TileStyleView(s, t)
-        v = ((ns.RFC_DebuffStyleFP and ns.RFC_DebuffStyleFP(sv, font)) or "")
-            .. "|" .. tostring(szOv or t.size or 18)
-            .. "|" .. FxListFP(t.fxList)
-        if t.type == "square" then
-            local c = t.color or {}
-            v = v .. "|sq" .. string.format("%.2f,%.2f,%.2f,%.2f",
-                c.r or 1, c.g or 0.35, c.b or 0.35, c.a or 1)
-        end
-        if st.style ~= v and ns.RFC_BuildDebuffStyle then
-            st.style = v
-            local sty = ns.RFC_BuildDebuffStyle(sv, szOv or t.size or 18)
-            if t.type == "square" then
-                -- Square grid: flat color block over the icon (shared applier).
-                sty.squareColor = t.color or { r = 1, g = 0.35, b = 0.35, a = 1 }
-            end
-            -- Per-tile Effects override the base-injected fx explicitly, including nil: a tile without blocks must not inherit the base.
-            sty.fxList = FxListView(t.fxList)
-            AK.styles[key] = sty
-            AK.RestyleSoon(key)
-        end
+        -- Rebuild handles for DM_RefreshSizedStyles (base-style edits re-derive this key without an apply pass).
+        st.cls, st.tid, st.szOv, st.grid = cls, t.id, szOv, true
+        RefreshTileGridStyle(key, st, s, t, szOv, font)
     else
         local c = t.color or {}
         local bgc = t.barBgColor or {}
@@ -1326,6 +1334,18 @@ function ns.DM_RefreshSizedStyles(baseStyleKey, s)
                 end
                 AK.styles[key] = sty
                 AK.RestyleSoon(key)
+            end
+        end
+    end
+    -- Grid tiles view the same base style keys; refresh them on this edge too.
+    local act = ns.DM_ActiveTiles and ns.DM_ActiveTiles()
+    if act then
+        local byId = {}
+        for i = 1, #act do byId[act[i].id] = act[i] end
+        for key, st in pairs(dmTileFP) do
+            if st.grid and st.cls == cls then
+                local t = byId[st.tid]
+                if t then RefreshTileGridStyle(key, st, s, t, st.szOv, font) end
             end
         end
     end

@@ -242,7 +242,7 @@ local defaults = {
             combatOnly       = false,
             -- text_nd = "Name Duration", text_dn = "Duration Name"; the
             -- legacy "text" value renders identically to text_dn.
-            displayMode      = "text",   -- text (legacy) | text_nd | text_dn | icon | bar
+            displayMode      = "text",   -- text (legacy) | text_nd | text_dn | text_d (number only) | icon | bar
             textSize         = 24,
             iconSize         = 40,
             textColorR       = 1, textColorG = 1, textColorB = 1,
@@ -646,6 +646,9 @@ local function ShowEngineCountdown(slot, displayMode, duration)
     local reserved = fontSize * (precision == 1 and 2.4 or 1.6)
     local shift = (reserved + gap) / 2
     local numberFirst = (displayMode ~= "text_nd")
+    -- text_d: no name at all, the number IS the text -- centre it on the slot.
+    local numberOnly = (displayMode == "text_d")
+    if numberOnly then shift = 0 end
 
     slot.text:ClearAllPoints()
     slot.text:SetPoint("CENTER", slot, "CENTER", numberFirst and shift or -shift, 0)
@@ -662,7 +665,10 @@ local function ShowEngineCountdown(slot, displayMode, duration)
         -- No SetWidth: the anchor below already grows the digits outward, and a
         -- hard width clips five-glyph values like "120.0" (Stampeding Roar).
         -- reserved is only an estimate for the centring shift above.
-        if numberFirst then
+        if numberOnly then
+            fs:SetJustifyH("CENTER")
+            fs:SetPoint("CENTER", slot.text, "CENTER", 0, 0)
+        elseif numberFirst then
             fs:SetJustifyH("RIGHT")
             fs:SetPoint("RIGHT", slot.text, "LEFT", -gap, 0)
         else
@@ -671,7 +677,9 @@ local function ShowEngineCountdown(slot, displayMode, duration)
         end
     else
         cd:SetSize(reserved, fontSize * 1.4)
-        if numberFirst then
+        if numberOnly then
+            cd:SetPoint("CENTER", slot.text, "CENTER", 0, 0)
+        elseif numberFirst then
             cd:SetPoint("RIGHT", slot.text, "LEFT", -gap, 0)
         else
             cd:SetPoint("LEFT", slot.text, "RIGHT", gap, 0)
@@ -1120,12 +1128,14 @@ local function ShowMovementSlot(index, cdInfo, spellEntry, duration)
     -- literal "%" so SetFormattedText cannot misread it as a format
     -- directive expecting arguments it never gets.
     local escapedName = (spellName:gsub("%%", "%%%%"))
-    -- Two fixed text arrangements, both reading as "No <ability>" (the
-    -- alert shows while the spell is unavailable); the legacy "text" value
-    -- keeps the old default's duration-first order.
+    -- Three fixed text arrangements: two read as "No <ability>" (the alert
+    -- shows while the spell is unavailable), text_d is the bare number; the
+    -- legacy "text" value keeps the old default's duration-first order.
     local fmtStr
     if displayMode == "text_nd" then
         fmtStr = "No " .. escapedName .. " " .. precFmt
+    elseif displayMode == "text_d" then
+        fmtStr = precFmt
     else
         fmtStr = precFmt .. " No " .. escapedName
     end
@@ -1315,7 +1325,9 @@ local function ShowMovementSlot(index, cdInfo, spellEntry, duration)
             -- Cooldown widget draw the secret -- so the two branches disagreed
             -- and the text one was wrong. Gating on hasSecretDuration covers
             -- both producers and drops the fragile type() test with it.
-            slot.text:SetText("No " .. spellName)
+            -- text_d shows only the number, so the label stays empty and the
+            -- engine countdown is centred on the slot instead of beside it.
+            slot.text:SetText(displayMode == "text_d" and "" or ("No " .. spellName))
             -- The number Lua cannot format, drawn by the engine.
             if fromDuration then ShowEngineCountdown(slot, displayMode, duration) end
         else
@@ -1465,10 +1477,9 @@ local function EnsureBuffAlertLane()
     end
     -- Denial must not postpone the BUILD, only the display: logging in inside a
     -- vehicle (or behind an intro cinematic) would otherwise defer creation to
-    -- the first allowed pass, and if that landed in combat AK.RequestContainer
-    -- queues it to PLAYER_REGEN_ENABLED -- no alert for the whole fight. Build
-    -- unconditionally and park at the end; the container is created and hidden
-    -- inside one call, so nothing renders in between.
+    -- the first allowed pass. Build unconditionally and park at the end; the
+    -- container is created and hidden inside one call, so nothing renders in
+    -- between.
     buffAlertBuilt = true
     buffAlertHost = CreateFrame("Frame", nil, UIParent)
     buffAlertHost:SetSize(2, 2)

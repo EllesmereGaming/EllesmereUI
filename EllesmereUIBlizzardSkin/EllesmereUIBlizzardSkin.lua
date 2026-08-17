@@ -3244,6 +3244,16 @@ end
         -- of a pooled bar cannot stack a second hook on it.
         hooked   = setmetatable({}, { __mode = "k" }),
         containers = {},
+        -- Foreign-set gate state. setIds = the widgetSetIDs currently owned by
+        -- containers the sweep actually walks, rebuilt as a side-read of every
+        -- sweep; setHooked = containers whose RegisterForWidgetSet is hooked
+        -- (a mid-life re-registration books a sweep, which re-records);
+        -- setIdsExact = whether every container's set id was readable last
+        -- sweep. While false the gate stands down and every widget event
+        -- sweeps, exactly as before the gate existed.
+        setIds   = {},
+        setHooked = setmetatable({}, { __mode = "k" }),
+        setIdsExact = false,
         -- Set at PLAYER_LOGIN only when the setting is on. Nothing here has
         -- run while this is false.
         installed = false,
@@ -3745,6 +3755,37 @@ end
     -- for the GC.
     HUD.scratchBars, HUD.scratchSeen = {}, {}
 
+    -- Mid-life set changes on a container we sweep (vigor set arming when the
+    -- player mounts, a pooled plate container re-targeted) book a sweep, and
+    -- that sweep re-records the registry. Named function, created once.
+    local function OnWidgetSetRegistered()
+        HUD.setIdsExact = false
+        Refresh()
+    end
+
+    -- Record one container's widget-set id into the gate registry and make
+    -- sure its re-registrations are hooked. Returns the running exactness:
+    -- an unreadable id (or a secret one) means the registry cannot prove a
+    -- foreign event foreign, so the gate must stand down. A container with NO
+    -- set (nil id) stays exact -- no widget event can belong to it.
+    local function NoteContainerSet(c, exact)
+        if not HUD.setHooked[c] then
+            local okR, reg = pcall(HUDGet, c, "RegisterForWidgetSet")
+            if okR then
+                HUD.setHooked[c] = true
+                if type(reg) == "function" then
+                    pcall(hooksecurefunc, c, "RegisterForWidgetSet", OnWidgetSetRegistered)
+                end
+            end
+        end
+        local okS, sid = pcall(HUDGet, c, "widgetSetID")
+        if not okS then return false end
+        if sid == nil then return exact end
+        if (_isSecretV and _isSecretV(sid)) or type(sid) ~= "number" then return false end
+        HUD.setIds[sid] = true
+        return exact
+    end
+
     -- No CoverEnabled() check here on purpose. The setting is read ONCE, at
     -- login, and decides whether any of this is wired up at all; re-testing it
     -- per pass would only produce a half-state where the covers are still on
@@ -3753,7 +3794,10 @@ end
         local live = 0
         local seen, bars = HUD.scratchSeen, HUD.scratchBars
         wipe(seen); wipe(bars)
+        wipe(HUD.setIds)
+        local exact = true
         for i = 1, #HUD.containers do
+            exact = NoteContainerSet(HUD.containers[i], exact)
             CollectBars(HUD.containers[i], 0, bars, seen)
         end
         -- WIDGET CONTAINERS ONLY, never the whole plate. A nameplate base
@@ -3770,17 +3814,24 @@ end
                     if ch and not (ch.IsForbidden and ch:IsForbidden()) then
                         local okP, pools = pcall(HUDGet, ch, "widgetPools")
                         if okP and pools ~= nil then
+                            exact = NoteContainerSet(ch, exact)
                             CollectBars(ch, 0, bars, seen)
                         else
                             local okW, wc = pcall(HUDGet, ch, "WidgetContainer")
                             if okW and wc and not (wc.IsForbidden and wc:IsForbidden()) then
+                                exact = NoteContainerSet(wc, exact)
                                 CollectBars(wc, 0, bars, seen)
                             end
                         end
                     end
                 end
+            else
+                -- A plate whose children could not be read holds containers
+                -- the registry cannot see: gate stands down.
+                exact = false
             end
         end
+        HUD.setIdsExact = exact
         for i = 1, #bars do
             Adopt(bars[i])
             if SyncCover(bars[i]) then live = live + 1 end
@@ -3897,6 +3948,23 @@ end
             -- Retirement is per-instance: a bar that handed back secret data
             -- in a delve is fine again in the open world.
             wipe(HUD.retired)
+            -- Plate-hosted widget bars are an OPEN-WORLD surface by decision
+            -- (2026-08-16): inside instanced content the plate lane is fully
+            -- off -- both plate events unregistered (they never enter Lua),
+            -- the plate set empty (sweeps walk no plates), and unwalked plate
+            -- containers never reach the set registry, so their widget events
+            -- die at the foreign-set gate. The rare over-a-plate mechanic bar
+            -- simply renders Blizzard-default in instances. Re-registering on
+            -- the way out is complete on its own: every plate fires ADDED
+            -- after the loading screen, so the set repopulates naturally.
+            if IsInInstance() then
+                self:UnregisterEvent("NAME_PLATE_UNIT_ADDED")
+                self:UnregisterEvent("NAME_PLATE_UNIT_REMOVED")
+                wipe(HUD.plates)
+            else
+                self:RegisterEvent("NAME_PLATE_UNIT_ADDED")
+                self:RegisterEvent("NAME_PLATE_UNIT_REMOVED")
+            end
             Discover()
             Refresh()
         elseif event == "NAME_PLATE_UNIT_ADDED" then
@@ -3917,6 +3985,23 @@ end
             -- from here: the first build of this system did, and that is
             -- precisely what caused the CPU complaint. Refresh is a flag test
             -- once the frame's pass is already booked.
+            --
+            -- Foreign-set gate: UPDATE_UI_WIDGET fires for EVERY widget
+            -- update anywhere in the UI (tracker timers, scenario widgets,
+            -- score frames), and most of those live in frames the sweep never
+            -- walks -- each one bought a full container walk that could not
+            -- find anything. The payload names its widget set, and Blizzard's
+            -- own container gates on exactly this field, so an event whose
+            -- set no swept container owns is skipped outright. Every doubt
+            -- path (registry inexact, payload missing, unreadable or secret
+            -- id) falls through to Refresh -- worst case is today's sweep.
+            if event == "UPDATE_UI_WIDGET" and HUD.setIdsExact and unit ~= nil then
+                local okS, sid = pcall(HUDGet, unit, "widgetSetID")
+                if okS and sid ~= nil and not (_isSecretV and _isSecretV(sid))
+                   and type(sid) == "number" and not HUD.setIds[sid] then
+                    return
+                end
+            end
             Refresh()
         end
     end)

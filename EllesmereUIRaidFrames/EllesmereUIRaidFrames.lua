@@ -1622,7 +1622,6 @@ local function GetNameColor(unit, s)
         return c.r, c.g, c.b
     else -- "class"
         local _, classToken = UnitClass(unit)
-        -- Secret-safe: a secret classToken would throw on GetClassColor's table index.
         if classToken and not issecretvalue(classToken) then
             local cc = EllesmereUI.GetClassColor(classToken)
             if cc then return cc.r, cc.g, cc.b end
@@ -1639,7 +1638,6 @@ local function GetTopNameBarColor(unit, s)
         return c.r, c.g, c.b
     end
     local _, classToken = UnitClass(unit)
-    -- Secret-safe: a secret classToken would throw on GetClassColor's table index.
     if classToken and not issecretvalue(classToken) then
         local cc = EllesmereUI.GetClassColor(classToken)
         if cc then return cc.r, cc.g, cc.b end
@@ -1726,7 +1724,6 @@ local function GetHealthTextColor(unit, s)
         return 1, 1, 1
     elseif mode == "class" then
         local _, classToken = UnitClass(unit)
-        -- Secret-safe: a secret classToken would throw on GetClassColor's table index.
         if classToken and not issecretvalue(classToken) then
             local cc = EllesmereUI.GetClassColor(classToken)
             if cc then return cc.r, cc.g, cc.b end
@@ -1749,7 +1746,6 @@ function ns.GetHealAbsorbTextColor(unit, s)
         return 1, 0.3, 0.3
     elseif mode == "class" then
         local _, classToken = UnitClass(unit)
-        -- Secret-safe: a secret classToken would throw on GetClassColor's table index.
         if classToken and not issecretvalue(classToken) then
             local cc = EllesmereUI.GetClassColor(classToken)
             if cc then return cc.r, cc.g, cc.b end
@@ -13471,7 +13467,7 @@ end
 
 -------------------------------------------------------------------------------
 --  Size preview (simple: just health + power bars at the tier's dimensions)
---  Shows the correct number of frames for the tier (10/15/25/30).
+--  Shows the correct number of frames for the tier (10/15/25/30/40).
 --  Always screen-anchored exactly where the live frames land (shared
 --  growth-corner origin ns._RFTierTopLeft), regardless of preview mode.
 --  No indicators, no randomization.
@@ -14381,10 +14377,12 @@ end
 -- Inert when none is present. Called once from OnEnable.
 ns._RegisterTrackerProviders = function()
     -- MiniAuras: stable public global MiniAurasApi.v1, created at its file load and so
-    -- present by PLAYER_LOGIN whenever MiniAuras is enabled.
-    if MiniAurasApi and MiniAurasApi.v1 and MiniAurasApi.v1.RegisterFrameProvider then
+    -- present by PLAYER_LOGIN whenever MiniAuras is enabled. MiniCCApi is the
+    -- pre-rename global (same v1 contract), kept as a fallback for older installs.
+    local api = MiniAurasApi or MiniCCApi
+    if api and api.v1 and api.v1.RegisterFrameProvider then
         pcall(function()
-            MiniAurasApi.v1:RegisterFrameProvider({
+            api.v1:RegisterFrameProvider({
                 Name = "EllesmereUI",
                 GetFrames = ns._CollectTrackerFrames,
                 RegisterRefreshFrames = function(cb) ns._trackerRefreshCb = cb end,

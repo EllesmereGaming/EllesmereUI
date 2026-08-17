@@ -4561,6 +4561,15 @@ ApplyCenterPosition = function(barKey, pos)
         end
     end
 
+    -- Registered extra offset (CDM Additional Bar Offset): this centralized pass
+    -- overrides the module's own placement, so it folds the same render-only
+    -- displacement the anchor path folds, PRE-snap. Absent getter = 0,0; the CDM
+    -- getter itself returns 0,0 while unlock mode is active.
+    do
+        local ex, ey = ExtraAnchorOffset(barKey)
+        adjX, adjY = adjX + ex, adjY + ey
+    end
+
     -- Snap the final position to the physical pixel grid, allowing for odd-dimension
     -- frames that need half-pixel centering. adjX/adjY and the dims are UIParent
     -- units, so snap against UIParent's grid, not the frame's own.
@@ -4732,6 +4741,9 @@ local function MigrateAndApplyPosition(barKey, pos, frame)
     -- Save & Exit (CommitPositions) saves, and the edge anchor is correct as stored.
     if frame then
         local px, py = pos.x or 0, pos.y or 0
+        -- Same registered extra offset fold as ApplyCenterPosition (pre-snap).
+        local ex, ey = ExtraAnchorOffset(barKey)
+        px, py = px + ex, py + ey
         local PPa = EllesmereUI and EllesmereUI.PP
         if PPa and PPa.SnapForES then
             local es = frame:GetEffectiveScale()

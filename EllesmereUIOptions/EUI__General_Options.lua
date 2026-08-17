@@ -955,6 +955,97 @@ end
 -------------------------------------------------------------------------------
 EllesmereUI._WHATSNEW_PATCHES = {
     {
+        version = "8.9.1",
+        heroes = {},
+        features = {
+            {
+                module = "Bags",
+                title  = "Group Armory by Slot",
+                desc   = "Nest The Armory and gear category views under equip-slot headers (Head, Chest, Trinket, 2H, 1H, ...); off by default",
+                nav    = { module = "EllesmereUIBags", page = "Bags", section = "EXTRAS", highlight = "Group Armory by Slot" },
+            },
+            {
+                module = "Mythic+ Tools",
+                title  = "Cast Bar Size Matching",
+                desc   = "Target/Focus Cast Bars and Targeted Spell Bars can width and height match other elements in Unlock Mode",
+                nav    = { module = "EllesmereUIMythicTimer", page = "Target/Focus Bars" },
+            },
+            {
+                module = "Nameplates",
+                title  = "Smarter Dispel Glow",
+                desc   = "Glows only on buffs your character can actually dispel, updates live on talent swaps, plus a Color by Type cog",
+                nav    = { module = "EllesmereUINameplates", page = "General", section = "EXTRA AURA OPTIONS", highlight = "Dispel Glow Style" },
+            },
+            {
+                module = "Nameplates",
+                title  = "Hide Copies of Blood Plague",
+                desc   = "Blood Death Knights get a toggle (on by default) that shows one Blood Plague icon instead of one per copy",
+                nav    = { module = "EllesmereUINameplates", page = "General", section = "EXTRAS" },
+            },
+            {
+                module = "Performance",
+                title  = "Suite-Wide Efficiency Pass",
+                desc   = "Idle CPU cost cut by a third; several background systems now cost nothing until their feature is on screen",
+            },
+            {
+                module = "Spec Overrides",
+                title  = "Edit Custom Buff and Debuff Managers",
+                desc   = "An Edit button on custom Buff and Debuff Manager overrides opens them for editing directly, in any context",
+                nav    = { module = "_EUIProfiles", page = "Overrides" },
+            },
+            {
+                module = "Quality of Life",
+                title  = "Raid Tools Button Switches",
+                desc   = "Hide Role Check, Convert to Raid or Disband, and drop pull timers by setting them to 0; the panel shrinks to fit",
+                nav    = { module = "EllesmereUIQoL", page = "Raid Tools", section = "GROUP BUTTONS", highlight = "Show Role Check" },
+            },
+            {
+                module = "Quickdraw",
+                title  = "Dynamic Profession Entries",
+                desc   = "Profession 1 and 2, Cooking, Fishing, Archaeology and their second abilities resolve per character, so one palette fits every alt",
+                nav    = { module = "EllesmereUIQuickdraw", page = "Quickdraw" },
+            },
+            {
+                module = "Raid Frames",
+                title  = "40 Man Raid Size",
+                desc   = "A 40 Man custom raid size tier for open-world and 40-player content",
+                nav    = { module = "EllesmereUIRaidFrames", page = "Frames", section = "FRAME SIZES" },
+            },
+            {
+                module = "Raid Frames",
+                title  = "Buff Manager Filter Colors",
+                desc   = "Square indicators get a color swatch per assigned filter, coloring all of that filter's spells at once",
+                nav    = { module = "EllesmereUIRaidFrames", page = "Buff Manager" },
+            },
+            {
+                module = "Raid Frames",
+                title  = "Click-Cast Unit Types",
+                desc   = "Frame clicks and items can be limited to friendly or enemy units, and a friendly + harmful spell can share one key",
+                nav    = { module = "EllesmereUIRaidFrames", page = "HoverCast" },
+            },
+        },
+        fixes = {
+            { module = "Bags", text = "Right-clicking a bank tab to open its settings no longer errors when the options panel has not been opened yet this session." },
+            { module = "Blizz UI Enhanced", text = "Widget-bar reskins over nameplates (boss and rare mechanic bars) are now open-world only; inside instances those bars keep Blizzard's default look." },
+            { module = "Cooldown Manager", text = "Icons no longer come up missing (with a stretched racial) after a slow login." },
+            { module = "Cooldown Manager", text = "Spells that only exist on a Blizzard cooldown layout you switch to later in the session now keep your assigned position instead of jumping to the front of the bar." },
+            { module = "Cooldown Manager", text = "The Additional Bar Offset now stays applied after a spec swap or profile switch instead of snapping the bar back to its base position." },
+            { module = "Cooldown Manager", text = "Tracking bars for spells that cycle through differently-named forms (such as Diabolist rituals) show the active form's name again instead of a fixed one." },
+            { module = "Nameplates", text = "The Enemy Buff Filter's Important mode now always includes dispellable buffs (purges and enrages), so the Dispel Glow can no longer miss one; the Show All option was retired." },
+            { module = "Nameplates", text = "The Dispel Glow color swatch and preview toggle now sit beside the Dispel Glow Style dropdown." },
+            { module = "Player Aura Bars", text = "Fixed an \"attempted to call a protected function\" error when a bar was shown or hidden during combat (vehicle rides, cinematics, faction changes)." },
+            { module = "Player Aura Bars", text = "Bars now appear immediately after a reload during combat instead of waiting for combat to end." },
+            { module = "Quality of Life", text = "The Movement Alert gains a Text: Duration display mode that shows only the countdown number." },
+            { module = "Raid Frames", text = "Fixed a Lua error on friendly boss frames when names or health text are set to class color." },
+            { module = "Raid Frames", text = "The Buff Manager Icon Zoom slider now applies to the real frames (not just the preview), and Debuff Manager custom tiles pick up debuff style changes immediately instead of after a reload." },
+            { module = "Raid Frames", text = "The CC tracker integration now recognizes MiniAuras (the renamed MiniCC), while older MiniCC installs keep working." },
+            { module = "Raid Frames", text = "Fixed errors opening the party preview with an incomplete imported profile, and warning spam opening the Debuff Manager page with debuff stacks disabled." },
+            { module = "Resource Bars", text = "The player cast bar and its channel tick marks no longer vanish when a channel is instantly recast mid-channel (such as Arcane Missiles with Clearcasting)." },
+            { module = "Unit Frames", text = "The player power bar and its text now use the color of the power type you chose to display (Mana on Shadow, Balance, Feral, Guardian and Elemental) instead of the spec's real resource color." },
+            { module = "Localization", text = "Brazilian Portuguese and Traditional Chinese translations caught up with everything added since 8.8.8." },
+        },
+    },
+    {
         version = "8.9.0",
         heroes = {
             {

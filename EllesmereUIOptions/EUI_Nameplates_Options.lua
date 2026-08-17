@@ -198,7 +198,6 @@ initFrame:SetScript("OnEvent", function(self)
     local showClassificationPreview = false
     local showTargetGlowPreview = false
     local showAbsorbPreview = false
-    local showDispelGlowPreview = false
 
     -- Transient flags: force-show indicators during slider drag
     local _sliderDragShowRaidMarker = false
@@ -300,8 +299,16 @@ initFrame:SetScript("OnEvent", function(self)
             BUFF_COUNT = 1,
             CC_COUNT = 1,
         }
-        -- Type colors for preview dispel glow: Magic (blue), Enrage (red)
-        local previewDispelColors = { CreateColor(0.2, 0.6, 1.0, 1), CreateColor(1.0, 0.2, 0.2, 1) }
+        -- There is one preview buff slot, so it shows the type THIS character
+        -- removes -- and nil (no glow at all) for a character with no
+        -- offensive dispel, which is what their nameplates will do.
+        local function PreviewDispelType()
+            local magic, enrage = false, false
+            if ns.GetOffensiveDispelTypes then magic, enrage = ns.GetOffensiveDispelTypes() end
+            if magic then return "magic" end
+            if enrage then return "enrage" end
+            return nil
+        end
         if not _previewHpPct then RandomizePreviewValues() end
         local previewHpPct = _previewHpPct
         local previewHpVal = math.floor(PV_CONST.FAKE_MAX_HP * previewHpPct / 100)
@@ -1702,11 +1709,12 @@ initFrame:SetScript("OnEvent", function(self)
                     ApplyTimerPos(buffs[i].durationText, buffs[i], buffTPos, buffDurSz, buffDurX, buffDurY, buffDurC)
                     PlaceInSlot(buffs[i], buffSlotVal, i, PV_CONST.BUFF_COUNT, buffSz, buffH, buffSpacing, buffXOff, buffYOff)
                     -- Dispel glow preview (always stop first to pick up color/style changes)
-                    if showDispelGlowPreview and DBVal("dispelGlow") == true then
+                    local previewType = PreviewDispelType()
+                    if DBVal("dispelGlow") == true and previewType then
                         if buffs[i].dispelGlow and buffs[i].dispelGlow.active then
                             ns.StopDispelGlow(buffs[i])
                         end
-                        ns.StartDispelGlow(buffs[i], buffSz, previewDispelColors[i])
+                        ns.StartDispelGlow(buffs[i], buffSz, previewType)
                     elseif buffs[i].dispelGlow and buffs[i].dispelGlow.active then
                         ns.StopDispelGlow(buffs[i])
                     end
@@ -3304,8 +3312,11 @@ initFrame:SetScript("OnEvent", function(self)
         -- glow's own enable only -- the Enemy Buff Filter never locks them
         -- (user-directed 2026-08-16: the glow styles the dispellable GROUP,
         -- independent of which filter mode decides what shows).
+        -- checkTypeColor additionally locks the custom color swatch, which
+        -- per-type coloring replaces.
         local function dispelGlowLocked(checkTypeColor)
-            return dispelGlowOff()
+            if dispelGlowOff() then return true end
+            return checkTypeColor and DBVal("dispelGlowUseTypeColor") == true
         end
 
         local dispelGlowStyleValues = { [0] = "None" }
@@ -3360,18 +3371,19 @@ initFrame:SetScript("OnEvent", function(self)
         }
         -- Enemy Buff Filter (replaces the retired Show All Enemy Buffs toggle;
         -- npEnemyBuffFilter, default "important" for EVERYONE -- a deliberate
-        -- new default, the old key is an inert orphan). The filter decides
-        -- WHAT shows; the Dispel Glow decides which of those glow (the
-        -- dispellable subset renders as its own engine group carrying the
-        -- glow style), so the two settings never interact.
+        -- new default, the old key is an inert orphan). UNION semantics
+        -- (2026-08-17): Important = important OR dispellable (two engine
+        -- groups); Dispellable = dispellable only; the removed "all" value
+        -- reads back as important. The Dispel Glow never changes the filters
+        -- -- it is just the style the dispellable group wears, so every shown
+        -- dispellable buff glows when a style is set.
         local buffFilterDropdown = { type="dropdown", text="Enemy Buff Filter",
-            tooltip = "Which enemy buffs show on nameplates. Important shows the buffs Blizzard flags for enemy nameplates. Dispellable shows only buffs that can be dispelled or purged. None shows every enemy buff. With a Dispel Glow style set, the dispellable buffs glow under any of these.",
-            values = { important = "Important", dispellable = "Dispellable",
-                       all = "None (Show All)" },
-            order = { "important", "dispellable", "all" },
+            tooltip = "Which enemy buffs show on nameplates. Important shows the buffs Blizzard flags for enemy nameplates plus anything dispellable; Dispellable shows only buffs that can be dispelled, purged or soothed. With a Dispel Glow style set, every dispellable buff shown glows.",
+            values = { important = "Important", dispellable = "Dispellable" },
+            order = { "important", "dispellable" },
             getValue = function()
                 local m = DBVal("npEnemyBuffFilter")
-                if m == "dispellable" or m == "all" then return m end
+                if m == "dispellable" then return m end
                 return "important"
             end,
             setValue = function(v)
@@ -3397,57 +3409,85 @@ initFrame:SetScript("OnEvent", function(self)
                 RefreshAllAuras()
                 UpdatePreview()
             end
-            local leftRgn = dispelGlowRow._leftRegion
+            -- Dispel Glow Style lives in the RIGHT slot (the Enemy Buff Filter
+            -- dropdown took the left), so its swatch and eye follow it there.
+            local leftRgn = dispelGlowRow._rightRegion
             local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, glowColorGet, glowColorSet, nil, 20)
             PP.Point(swatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
             leftRgn._lastInline = swatch
-            -- Gray out swatch when dispel glow is off or suppressed
-            EllesmereUI.RegisterWidgetRefresh(function()
+            -- Blocking overlay (canonical inline disabled-state pattern):
+            -- catches hover while the swatch is locked and names WHICH of the
+            -- two conditions locks it -- no glow style chosen, or per-type
+            -- coloring replacing the custom color.
+            local block = CreateFrame("Frame", nil, swatch)
+            block:SetAllPoints()
+            block:SetFrameLevel(swatch:GetFrameLevel() + 10)
+            block:EnableMouse(true)
+            block:SetScript("OnEnter", function()
+                if dispelGlowOff() then
+                    EllesmereUI.ShowWidgetTooltip(swatch, EllesmereUI.DisabledTooltip("a Dispel Glow Style"))
+                else
+                    EllesmereUI.ShowWidgetTooltip(swatch, EllesmereUI.DisabledTooltip("Color by Type", "disabled"))
+                end
+            end)
+            block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            local function RefreshGlowSwatch()
                 local off = dispelGlowLocked(true)
                 swatch:SetAlpha(off and 0.15 or 1)
                 swatch:EnableMouse(not off)
+                block:SetShown(off)
                 updateSwatch()
-            end)
-            local initialOff = dispelGlowLocked(true)
-            swatch:SetAlpha(initialOff and 0.15 or 1)
-            swatch:EnableMouse(not initialOff)
+            end
+            EllesmereUI.RegisterWidgetRefresh(RefreshGlowSwatch)
+            RefreshGlowSwatch()
         end
 
-        -- Eye icon: show/hide dispel glow on preview buff icons
-        do
-            local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
-            local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
-            local leftRgn = dispelGlowRow._leftRegion
-            local eyeBtn = CreateFrame("Button", nil, leftRgn)
-            eyeBtn:SetSize(26, 26)
-            eyeBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
-            eyeBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
-            eyeBtn:SetAlpha(0.4)
-            leftRgn._lastInline = eyeBtn
-            local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
-            eyeTex:SetAllPoints()
-            local function RefreshEyeIcon()
-                eyeTex:SetTexture(showDispelGlowPreview and EYE_INVISIBLE or EYE_VISIBLE)
-            end
-            RefreshEyeIcon()
-            eyeBtn:SetScript("OnClick", function()
-                showDispelGlowPreview = not showDispelGlowPreview
-                RefreshEyeIcon()
-                UpdatePreview()
+        -- Inline cog on Dispel Glow Style: holds the per-type color option
+        -- (Magic buffs and enrages are separate groups in the buff row, so
+        -- the color can follow the type). Chain: [cog][swatch][dropdown].
+        if not EllesmereUI._prebuilding then
+            local leftRgn = dispelGlowRow._rightRegion
+            local _, dgCogShow = EllesmereUI.BuildCogPopup({
+                title = "Dispel Glow",
+                rows = {
+                    { type="toggle", label="Color by Type (Magic/Enrage)",
+                      get=function() return DBVal("dispelGlowUseTypeColor") or false end,
+                      set=function(v)
+                          DB().dispelGlowUseTypeColor = v
+                          RefreshAllAuras()
+                          UpdatePreview()
+                          C_Timer.After(0, function() EllesmereUI:RefreshPage() end)
+                      end },
+                },
+            })
+            local cogBtn = CreateFrame("Button", nil, leftRgn)
+            cogBtn:SetSize(26, 26)
+            cogBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
+            cogBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
+            cogBtn:SetAlpha(dispelGlowLocked(false) and 0.15 or 0.4)
+            leftRgn._lastInline = cogBtn
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+            cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
+            cogBtn:SetScript("OnEnter", function(self)
+                if dispelGlowLocked(false) then
+                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip("a Dispel Glow Style"))
+                else
+                    self:SetAlpha(0.7)
+                end
             end)
-            eyeBtn:SetScript("OnEnter", function(self)
-                self:SetAlpha(0.7)
-                EllesmereUI.ShowWidgetTooltip(self, "Show/Hide on Preview", { width = 155 })
-            end)
-            eyeBtn:SetScript("OnLeave", function(self)
-                self:SetAlpha(0.4)
+            cogBtn:SetScript("OnLeave", function(self)
                 EllesmereUI.HideWidgetTooltip()
+                self:SetAlpha(dispelGlowLocked(false) and 0.15 or 0.4)
             end)
-            -- Gray out when dispel glow is off or suppressed
+            cogBtn:SetScript("OnClick", function(self)
+                if dispelGlowLocked(false) then return end
+                dgCogShow(self)
+            end)
+            -- Gray out with the glow, like the swatch.
             EllesmereUI.RegisterWidgetRefresh(function()
                 local off = dispelGlowLocked(false)
-                eyeBtn:SetAlpha(off and 0.15 or 0.4)
-                eyeBtn:EnableMouse(not off)
+                cogBtn:SetAlpha(off and 0.15 or 0.4)
+                cogBtn:EnableMouse(true)
             end)
         end
 
@@ -4074,6 +4114,26 @@ initFrame:SetScript("OnEvent", function(self)
                 DB().hideEnemyPlatesOOC = v
                 if ns.ApplyOOCPlates then ns.ApplyOOCPlates() end
               end });  y = y - h
+
+        -- Row 6 (Blood Death Knight only): Hide Copies of Blood Plague. The row
+        -- is not built at all for anyone else -- the setting only affects a
+        -- debuff Blood spec applies.
+        do
+            local _, classFile = UnitClass("player")
+            local specIdx = GetSpecialization and GetSpecialization()
+            local specID = specIdx and GetSpecializationInfo(specIdx)
+            if classFile == "DEATHKNIGHT" and specID == 250 then
+                _, h = W:DualRow(parent, y,
+                    { type="toggle", text="Hide Copies of Blood Plague",
+                      tooltip="Shows a single Blood Plague debuff on enemy nameplates instead of one per copy (Blood Boil from weapon copies).",
+                      getValue=function() return DBVal("hideBloodPlagueCopies") ~= false end,
+                      setValue=function(v)
+                        DB().hideBloodPlagueCopies = v
+                        if ns.NPC_ReloadAll then ns.NPC_ReloadAll() end
+                      end },
+                    { type="label", text="" });  y = y - h
+            end
+        end
 
         return math.abs(y)
     end
