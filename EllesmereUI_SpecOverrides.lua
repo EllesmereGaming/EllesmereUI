@@ -3063,9 +3063,14 @@ end
 --  CONDITIONAL OVERRIDES integration (engine in EllesmereUI_Conditions.lua). Same
 --  machine as spec overrides keyed by conditional GROUP instead of spec: entries
 --  carry values = { default = {fkey=v}, [gid] = {fkey=v} }; "no condition active"
---  plays the role of a non-member spec (defaults write). PRECEDENCE: a SPEC-owned
---  fkey (EntryOwning) is off-limits, checked at every conditional write, so
---  later-created spec overrides evict conditional claims silently. Unlock layouts
+--  plays the role of a non-member spec (defaults write). PRECEDENCE: a spec override
+--  outranks a conditional only for the specs it actually holds a value for
+--  (SpecClaimsFKey), applied symmetrically at every conditional write AND every
+--  conditional harvest -- scoping one side alone means the apply writes a value
+--  nothing banks, silently discarding the user's edit. The check was once store-wide
+--  (_fkeyIndex/EntryOwning), which froze conditionals on specs in NO group at all:
+--  one healer-only group killed a Raid override on a Guardian. EntryOwning stays
+--  store-wide for capture/UI ownership questions, which are not per-spec. Unlock layouts
 --  ride the layer engine via the namespaced active pointer ("cond:"..gid); a spec
 --  whose group has a layout ignores conditional layouts entirely (first branch of
 --  layer resolution). Functions live in one table (file local budget).
@@ -3544,9 +3549,14 @@ end
 function Cond.RestoreEntryDefaults(entry, touched)
     local def = entry.values and entry.values.default
     if not def then return end
+    -- Spec claim scoped to the APPLYING spec, because the docstring's promise that
+    -- these guards mirror Cond.WriteValues is load-bearing: a store-wide check here
+    -- against a spec-scoped apply would leave the conditional's value sitting live
+    -- after its entry is dropped, turning it into the profile's own setting.
+    local specID = _activeSpec or CurrentSpecID()
     for fkey, dv in pairs(def) do
         if not BlacklistedFKey(fkey) and not MatchOwnedFKey(fkey)
-           and not EntryOwning(fkey) and FKeyLoaded(fkey) then
+           and not SpecClaimsFKey(fkey, specID) and FKeyLoaded(fkey) then
             local v = (dv == NIL_SENT) and nil or dv
             local nilPoison = (v == nil) and HasRegisteredDefault(fkey)
             local cur = ReadLive(fkey)
@@ -3613,12 +3623,17 @@ function Cond.Harvest(gid)
     -- (HarvestCurrent orders its call after the canonical restore; this is the belt
     -- for any other caller.)
     local sessionLive = _defaultView or _editGroup or Cond._edit
-    -- SPEC-OWNED fkeys are never harvested in either direction: while the spec store
-    -- tracks an fkey, live reflects SPEC values (runtime applies skip it), so banking
-    -- live here would poison the conditional's default/group maps with spec-scoped
-    -- values; Cond values stay dormant until the spec override is removed. TABLE-typed
-    -- live values are never banked either (structure change; mirror of HarvestMap --
-    -- would alias store to profile).
+    -- SPEC-CLAIMED fkeys are never harvested in either direction, and "claimed" is
+    -- scoped to the APPLYING spec (SpecClaimsFKey), exactly as Cond.WriteValues scopes
+    -- the apply. Where the spec holds a value, live reflects SPEC values (the apply
+    -- skips it), so banking would poison the conditional's default/group maps with
+    -- spec-scoped values and Cond values stay dormant, as before. Where it does NOT,
+    -- the apply wrote the conditional's own value, so live belongs to the conditional
+    -- and MUST bank here. Keeping this store-wide while the apply is spec-scoped is
+    -- what silently discards a user's edit: apply writes it, nothing banks it.
+    -- TABLE-typed live values are never banked either (structure change; mirror of
+    -- HarvestMap, would alias store to profile).
+    local specID = _activeSpec or CurrentSpecID()
     for _, entry in ipairs(store) do
         if gid then
             local map = entry.values[gid]
@@ -3627,7 +3642,7 @@ function Cond.Harvest(gid)
                 -- poison the maps with deletion markers. MatchOwnedFKey: match-engine
                 -- writes never bank (mirrors spec-side Harvest; Cond.WriteValues skips
                 -- these at apply time).
-                if not EntryOwning(fkey) and FKeyLoaded(fkey)
+                if not SpecClaimsFKey(fkey, specID) and FKeyLoaded(fkey)
                    and not MatchOwnedFKey(fkey) then
                     local live = ReadLive(fkey)
                     if type(live) ~= "table" then
@@ -3648,7 +3663,7 @@ function Cond.Harvest(gid)
         elseif not sessionLive then
             local map = entry.values.default
             for fkey in pairs(map) do
-                if not EntryOwning(fkey) and FKeyLoaded(fkey)
+                if not SpecClaimsFKey(fkey, specID) and FKeyLoaded(fkey)
                    and not MatchOwnedFKey(fkey) then
                     local live = ReadLive(fkey)
                     if type(live) ~= "table" then
