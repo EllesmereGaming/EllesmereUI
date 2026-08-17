@@ -6425,35 +6425,16 @@ initFrame:SetScript("OnEvent", function(self)
 							set = function(v) local e=_thrEnt(); if not e then return end e.thresholdSoundKey=v; RefreshClass() end },
 					},
 				})
-				-- Parent the Sound dropdown's popup menu into this cog popup
-				-- instead of UIParent: BuildDropdownMenu hardcodes its menu
-				-- frame level (200), well below this cog's own level (500), so
-				-- unparented it renders BEHIND the cog and is only visible
-				-- where it spills past the cog's edges. threshCog only exists
-				-- once BuildCogPopup returns, so this has to be set here
-				-- rather than inline in the values table above.
-				threshSoundValues._menuOpts.parent = threshCog
-				-- BuildCogPopup gives no handle to a DSL row's built dropdown
-				-- widget (unlike the hand-built talentDD row above, which
-				-- hooks its own ddBtn), so there's no button to hook here
-				-- directly. threshCog has exactly one dropdown row, so watch
-				-- the shared EllesmereUI._openDropdownMenu instead: whichever
-				-- menu shows while this popup is visible IS this one.
-				-- HookScript("OnUpdate", ...) is inert while threshCog is
-				-- hidden (WoW skips OnUpdate on hidden frames), so this costs
-				-- nothing when the popup isn't open. Bumping STRATA (not just
-				-- level, matching the talentDD pattern above) guarantees it
-				-- renders above threshCog regardless of BuildDropdownMenu's
-				-- hardcoded frame level (200) -- the same gap that hid and
-				-- made unclickable the per-band Sound dropdown in
-				-- EnsureBandRow before it got this same treatment.
-				threshCog:HookScript("OnUpdate", function()
-					local dm = EllesmereUI._openDropdownMenu
-					if dm and dm:IsShown() and not dm._threshCogStrataFixed then
-						dm:SetFrameStrata("TOOLTIP")
-						dm._threshCogStrataFixed = true
-					end
-				end)
+				-- threshCog (BuildCogPopup's first return value) is nil right
+				-- here: the popup frame is built lazily on first show, inside
+				-- showFn's __call, which stashes it on showFn._popupFrame --
+				-- threshCog itself never gets that update (a plain local
+				-- snapshot from the call above, not a live reference), so
+				-- indexing it before the popup has ever been opened throws.
+				-- The one-time setup below (menu parenting + Z-order fix) is
+				-- deferred into the OnClick handler and gated on
+				-- threshCogShow._popupFrame existing, running once right
+				-- after the frame is actually created.
 				local threshCogBtn = CreateFrame("Button", nil, threshRow)
 				threshCogBtn:SetSize(20, 20)
 				threshCogBtn:SetPoint("RIGHT", threshRow, "RIGHT", 0, 0)
@@ -6463,7 +6444,41 @@ initFrame:SetScript("OnEvent", function(self)
 				threshCogTex:SetAllPoints(); threshCogTex:SetTexture(EllesmereUI.COGS_ICON)
 				threshCogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.8) end)
 				threshCogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.5) end)
-				threshCogBtn:SetScript("OnClick", function(self) threshCogShow(self) end)
+				local _threshCogWired = false
+				threshCogBtn:SetScript("OnClick", function(self)
+					threshCogShow(self)
+					if _threshCogWired or not threshCogShow._popupFrame then return end
+					_threshCogWired = true
+					local popup = threshCogShow._popupFrame
+					-- Parent the Sound dropdown's popup menu into this cog
+					-- popup instead of UIParent: BuildDropdownMenu hardcodes
+					-- its menu frame level (200), well below this cog's own
+					-- level (500), so unparented it renders BEHIND the cog
+					-- and is only visible where it spills past its edges.
+					threshSoundValues._menuOpts.parent = popup
+					-- BuildCogPopup gives no handle to a DSL row's built
+					-- dropdown widget (unlike the hand-built talentDD row
+					-- above, which hooks its own ddBtn), so there's no button
+					-- to hook directly. This cog has exactly one dropdown
+					-- row, so watch the shared EllesmereUI._openDropdownMenu
+					-- instead: whichever menu shows while this popup is
+					-- visible IS this one. HookScript("OnUpdate", ...) is
+					-- inert while the popup is hidden (WoW skips OnUpdate on
+					-- hidden frames), so this costs nothing once closed.
+					-- Bumping STRATA (not just level, matching the talentDD
+					-- pattern above) guarantees it renders above the popup
+					-- regardless of BuildDropdownMenu's hardcoded frame level
+					-- -- the same gap that hid and made unclickable the
+					-- per-band Sound dropdown in EnsureBandRow before it got
+					-- this same treatment.
+					popup:HookScript("OnUpdate", function()
+						local dm = EllesmereUI._openDropdownMenu
+						if dm and dm:IsShown() and not dm._threshCogStrataFixed then
+							dm:SetFrameStrata("TOOLTIP")
+							dm._threshCogStrataFixed = true
+						end
+					end)
+				end)
 				local threshEnable, _, threshEnableSnap = EllesmereUI.BuildToggleControl(
 					threshRow, DLVL + 4,
 					function()
