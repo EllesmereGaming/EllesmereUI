@@ -266,8 +266,15 @@ end
 -- emptied the indicator set of every spec not seeded at activation time: a Death
 -- Knight's defensives vanished on entering a raid and no amount of editing the
 -- baseline could bring them back, because the fork overwrote it every zone-in.
--- Presence in the fork wins, never value: a spec deliberately left with an empty
--- set still reads empty, because the key exists.
+--
+-- The overlay is by CONTENT, not presence: BM2_SpecInds seeds an empty {inds={}}
+-- skeleton into b.specs on the FIRST READ of any bucket key and then marks it
+-- seeded, so a bucket can be present-but-empty purely because it was looked at,
+-- with no relation to what the user built. A presence check treats that identically
+-- to a deliberate empty choice and permanently shadows the baseline's real content
+-- the moment anything reads the bucket once -- which any BM2_SpecIndicators() call
+-- does, so it happens on the very next frame. A fork bucket therefore wins only
+-- when it actually holds indicators; an empty one falls through to the baseline.
 function _G._ERF_BM2ApplyLayer(layer, baseLayer)
     local b = Store()
     if not b or not layer then return end
@@ -283,7 +290,14 @@ function _G._ERF_BM2ApplyLayer(layer, baseLayer)
     if base and base.specs then
         for k, v in pairs(base.specs) do b.specs[k] = LegacyCopy(v) end
     end
-    for k, v in pairs(layer.bm2.specs or {}) do b.specs[k] = LegacyCopy(v) end
+    for k, v in pairs(layer.bm2.specs or {}) do
+        local hasContent = v and v.inds and #v.inds > 0
+        if hasContent or not b.specs[k] then
+            b.specs[k] = LegacyCopy(v)
+        end
+        -- else: the fork's bucket for k is an empty seeded placeholder and the
+        -- baseline already supplied real content for k -- keep the baseline's.
+    end
     wipe(b.seeded)
     if base and base.seeded then
         for k, v in pairs(base.seeded) do b.seeded[k] = v end
