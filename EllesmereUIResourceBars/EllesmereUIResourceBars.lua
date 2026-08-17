@@ -942,6 +942,9 @@ local function FindCountBand(bands, count, reverse)
     end
     return nil
 end
+-- Exposed so EUI_ResourceBars_ThresholdSound.lua can resolve the same match
+-- for its per-band sound rank, without re-deriving the boundary logic.
+ns.FindCountBand = FindCountBand
 
 -- Multi-stop step ColorCurve from band fractions. `stops` is ordered
 -- { frac=<0..1 upper boundary>, r, g, b, a }. Secret-safe: evaluated C-side by
@@ -4351,18 +4354,28 @@ local function PlayerHasBuff(spellID)
     return false
 end
 
--- Buff coloring for the class-resource bar
-local function ActiveBuffColor(entry)
+-- Resolves the active buffColors row for the class-resource bar (first
+-- match wins), or nil when no tracked buff is up. Shared by the color
+-- override below and by the alt-threshold override in UpdateSecondaryResource
+-- / UpdateIronfurBar, so the buff scan runs once per tick rather than twice.
+local function ActiveBuffEntry(entry)
     if not entry or not entry.buffColorEnabled then return nil end
     local list = entry.buffColors
     if not list then return nil end
     for i = 1, #list do
         local e = list[i]
         if e.spellID and PlayerHasBuff(e.spellID) then
-            return e.r, e.g, e.b, e.a
+            return e
         end
     end
     return nil
+end
+
+-- Buff coloring for the class-resource bar
+local function ActiveBuffColor(entry)
+    local e = ActiveBuffEntry(entry)
+    if not e then return nil end
+    return e.r, e.g, e.b, e.a
 end
 -- True when the current spec's resolved threshold entry tracks any buff (drives
 -- the aura poll / refresh so the bar recolors as buffs come and go).
@@ -4439,25 +4452,52 @@ local function UpdateIronfurBar()
         r, g, b, a = sp.fillR, sp.fillG, sp.fillB, 1
     end
     local tsEntry = ResolveThresholdSpecEntry(sp)
+    local _activeBuffEntry = ActiveBuffEntry(tsEntry)
+    -- A tracked buff can swap in an alternate trigger point instead of just
+    -- recoloring, mirroring UpdateSecondaryResource's alt-threshold override.
+    local _ifThreshCount = tsEntry and (tsEntry.thresholdCount or sp.thresholdCount or 3)
+    if tsEntry and _activeBuffEntry and _activeBuffEntry.useAltThreshold and _activeBuffEntry.altThresholdCount then
+        _ifThreshCount = _activeBuffEntry.altThresholdCount
+    end
     -- Capture "recolor text instead" BEFORE the buff nils tsEntry below so the flag
     -- survives (buff + text-instead => buff colors the count text, fill stays base).
     local _tiWanted = (tsEntry and tsEntry.thresholdTextInstead and sp.showText) and true or false
     -- Buff coloring wins: a tracked buff on this entry overrides the base color and
-    -- suppresses the stack-count threshold/bands below.
-    local _bfr, _bfg, _bfb, _bfa = ActiveBuffColor(tsEntry)
-    local _buffActive = _bfr ~= nil
+    -- suppresses the stack-count threshold/bands below, unless it defines an alt
+    -- threshold -- then the threshold stays live, just against the swapped count.
+    local _bfr, _bfg, _bfb, _bfa
+    if _activeBuffEntry then
+        _bfr, _bfg, _bfb, _bfa = _activeBuffEntry.r, _activeBuffEntry.g, _activeBuffEntry.b, _activeBuffEntry.a
+    end
+    local _buffActive = _activeBuffEntry ~= nil
     if _buffActive and not _tiWanted then r, g, b, a = _bfr or r, _bfg or g, _bfb or b, _bfa or a end
     -- Ironfur colors by active stack count, NOT the bar's duration fraction, so
     -- both single-threshold and multi-band match against `count`; multi wins when
     -- enabled with bands, else the single stack-count threshold (FindCountBand).
     local bandOn, bands, _bandMode, bandRev = ResolveBandConfig(sp, tsEntry)
-    if _buffActive then tsEntry = nil; bandOn = false end
+    if _buffActive and not (_activeBuffEntry and _activeBuffEntry.useAltThreshold) then
+        tsEntry = nil; bandOn = false
+    end
     -- Active (threshold/band) color is computed separately from the base so it can
     -- route to the fill or the count text. `triggered` = the stack count satisfies
     -- the threshold/band.
     local arR, arG, arB, arA = r, g, b, a
     local triggered = false
+    -- Single-threshold verdict, computed once regardless of band state: sound
+    -- always evaluates against the plain threshold (EvalThresholdSound itself
+    -- no-ops when multiBandEnabled is set), while band coloring below may
+    -- override `triggered`/the fill color for display only.
+    -- Direction: "From" (>=, default) or "Up to" (<=, thresholdReverse).
+    local threshOver = false
+    if tsEntry and tsEntry.thresholdEnabled ~= false then
+        local threshCount = _ifThreshCount or 3
+        local reverse = tsEntry.thresholdReverse
+        if reverse == nil then reverse = sp.thresholdReverse end
+        threshOver = (reverse and count <= threshCount) or ((not reverse) and count >= threshCount)
+    end
+    if ns.EvalThresholdSound then ns.EvalThresholdSound(tsEntry, count, threshOver) end
     if bandOn then
+        if ns.EvalBandSound then ns.EvalBandSound(bands, count, bandRev) end
         local band = FindCountBand(bands, count, bandRev)
         if band then
             arR = band.r or r
@@ -4466,15 +4506,12 @@ local function UpdateIronfurBar()
             arA = band.a or a
             triggered = true
         end
-    elseif tsEntry and tsEntry.thresholdEnabled ~= false then
-        local threshCount = tsEntry.thresholdCount or sp.thresholdCount or 3
-        if count >= threshCount then
-            arR = tsEntry.thresholdR or sp.thresholdR or r
-            arG = tsEntry.thresholdG or sp.thresholdG or g
-            arB = tsEntry.thresholdB or sp.thresholdB or b
-            arA = tsEntry.thresholdA or sp.thresholdA or a
-            triggered = true
-        end
+    elseif threshOver then
+        arR = tsEntry.thresholdR or sp.thresholdR or r
+        arG = tsEntry.thresholdG or sp.thresholdG or g
+        arB = tsEntry.thresholdB or sp.thresholdB or b
+        arA = tsEntry.thresholdA or sp.thresholdA or a
+        triggered = true
     end
     local _spTextInstead = _tiWanted
     local ft = secondaryBar:GetStatusBarTexture()
@@ -4490,8 +4527,10 @@ local function UpdateIronfurBar()
 
     if sp.showText and secondaryFrame and secondaryFrame._countText then
         secondaryFrame._countText:SetText(count > 0 and tostring(count) or "")
-        -- Buff + text-instead: use the buff color as the text base (there's no
-        -- stack-threshold trigger while a buff is up), so colorText paints it.
+        -- Buff + text-instead: use the buff color as the text base while
+        -- buffed and no alt threshold overrides it (triggered/arR already
+        -- reflect the swapped threshold when one is set), so colorText paints
+        -- whichever base is right.
         local _tbR, _tbG, _tbB = sp.textR or 1, sp.textG or 1, sp.textB or 1
         if _buffActive and _spTextInstead then _tbR, _tbG, _tbB = _bfr, _bfg, _bfb end
         colorText(_spTextInstead, triggered, arR, arG, arB, _tbR, _tbG, _tbB)
@@ -4747,11 +4786,21 @@ local function UpdateSecondaryResource()
     -- Per-spec threshold entry, resolved once per update
     local _tsEntry = ResolveThresholdSpecEntry(sp)
     local _buffEntry = _tsEntry
+    -- Resolved once, shared by the alt-threshold override below and the
+    -- fill-color override further down (was two separate PlayerHasBuff scans).
+    local _activeBuffEntry = ActiveBuffEntry(_buffEntry)
     -- Per-entry thresholdEnabled (absent field = true, for migrated entries)
     local _tsEnabled = _tsEntry and (_tsEntry.thresholdEnabled ~= false) or false
     local _tsBandOn, _tsBands, _tsBandMode, _tsBandReverse = ResolveBandConfig(sp, _tsEntry)
     if not _tsEnabled then _tsEntry = nil end
     local _tsThreshCount = _tsEntry and _tsEntry.thresholdCount or sp.thresholdCount
+    -- A tracked buff can swap in an alternate trigger point (e.g. alert
+    -- earlier while a proc is up) instead of just recoloring -- only when the
+    -- matched buffColors row opts in, so every existing profile (buff color
+    -- only, no alt threshold) is unaffected.
+    if _tsEntry and _activeBuffEntry and _activeBuffEntry.useAltThreshold and _activeBuffEntry.altThresholdCount then
+        _tsThreshCount = _activeBuffEntry.altThresholdCount
+    end
     -- Enhance Five Bar needs a threshold of at least 7 (5 pips + overflow). Clamp
     -- the value used this update, and persist a stale entry saved below 7 so it
     -- actually updates (Enhancement entry only).
@@ -4818,14 +4867,23 @@ local function UpdateSecondaryResource()
     -- A tracked buff overrides the fill (buff wins over threshold). With "recolor
     -- text instead" on, the buff colors the count TEXT (done at the end of this
     -- function) and fill/pips stay at their base color.
-    local _bfr, _bfg, _bfb, _bfa = ActiveBuffColor(_buffEntry)
-    local _buffActive = _bfr ~= nil
+    local _bfr, _bfg, _bfb, _bfa
+    if _activeBuffEntry then
+        _bfr, _bfg, _bfb, _bfa = _activeBuffEntry.r, _activeBuffEntry.g, _activeBuffEntry.b, _activeBuffEntry.a
+    end
+    local _buffActive = _activeBuffEntry ~= nil
     if _buffActive then
         if not _spTextInstead then
             r, g, b, a = _bfr or r, _bfg or g, _bfb or b, _bfa or a
         end
-        _tsEntry = nil
-        _tsBandOn = false
+        -- Threshold/band coloring is suppressed while buffed UNLESS the buff
+        -- carries an alt threshold, in which case _tsThreshCount was already
+        -- swapped above and every downstream branch should keep evaluating
+        -- against it (coloring, bands, and sound alike).
+        if not _activeBuffEntry.useAltThreshold then
+            _tsEntry = nil
+            _tsBandOn = false
+        end
     end
 
     -- Points: read once. A secret can't survive the comparison-based points
@@ -4856,11 +4914,15 @@ local function UpdateSecondaryResource()
             end
         end
 
-        -- Threshold: color ready runes differently when enough are available
-        local runeUseThresh = _tsEntry and readyN >= _tsThreshCount
+        -- Threshold: color ready runes differently when enough are available.
+        -- Direction: "From" (>=, default) or "Up to" (<=, thresholdReverse).
+        local runeUseThresh = _tsEntry and ((_tsReverse and readyN <= _tsThreshCount)
+            or ((not _tsReverse) and readyN >= _tsThreshCount))
+        if ns.EvalThresholdSound then ns.EvalThresholdSound(_tsEntry, readyN, runeUseThresh) end
         local tr, tg, tb = _tsR, _tsG, _tsB
         -- Multi-band threshold
         if _tsBandOn then
+            if ns.EvalBandSound then ns.EvalBandSound(_tsBands, readyN, _tsBandReverse) end
             local band = FindCountBand(_tsBands, readyN, _tsBandReverse)
             if band then
                 runeUseThresh = true
@@ -5106,6 +5168,16 @@ local function UpdateSecondaryResource()
                     -- if a rebuild reset the fill in that window.
                     staggerPct = secondaryBar._staggerPctCache
                 end
+                -- Threshold sound: computed unconditionally (theme/buff/band
+                -- state below only affects the FILL color) off the same
+                -- taint-safe staggerPct the color branch uses, so it survives
+                -- intermittent secrecy the same way.
+                if ns.EvalThresholdSound and _tsEntry and staggerPct then
+                    local _stOver
+                    if _tsReverse then _stOver = staggerPct <= (_tsThreshCount or 30)
+                    else _stOver = staggerPct >= (_tsThreshCount or 30) end
+                    ns.EvalThresholdSound(_tsEntry, staggerPct, _stOver)
+                end
                 if _buffActive then
                     local _sft = secondaryBar:GetStatusBarTexture()
                     if _sft then
@@ -5152,6 +5224,12 @@ local function UpdateSecondaryResource()
                 -- Prot Ignore Pain: total absorbs vs the IP cap (30% max health) --
                 -- the only readable source, since aura stack data is fully secret.
                 -- A secret absorb value flows into SetValue via the smooth target.
+                -- No threshold sound here: unlike Stagger, there is no persisted
+                -- clean-percent fallback for this resource, so no comparable value
+                -- is ever available to gate a gain check. (IP.value, populated by
+                -- a separate text-hook driver at a different cadence, is
+                -- occasionally clean but not a fit for EvalThresholdSound's
+                -- per-render-tick assumptions -- deliberately not used here.)
                 cur = UnitGetTotalAbsorbs("player") or 0
                 maxC = UnitHealthMax("player")
                 if (issecretvalue and issecretvalue(maxC)) or not maxC or maxC <= 0 then
@@ -5159,6 +5237,25 @@ local function UpdateSecondaryResource()
                 else
                     maxC = maxC * IP.CAP
                 end
+            end
+            -- Threshold sound for Maelstrom/Insanity/Focus/Lunar Power: unlike
+            -- their fill color (a ColorCurve evaluated C-side via
+            -- UnitPowerPercent specifically because cur/maxC can be secret in
+            -- combat), a sound decision needs a real Lua comparison. Best
+            -- effort: only evaluate on ticks where both are clean; stay silent
+            -- otherwise. This is a client limitation (the value is genuinely
+            -- unreadable), not something more guarding can fix.
+            if ns.EvalThresholdSound and _tsEntry
+               and (powerType == "MAELSTROM_BAR" or powerType == "INSANITY_BAR"
+                    or powerType == "FOCUS_BAR" or powerType == "LUNAR_POWER_BAR")
+               and not (issecretvalue and (issecretvalue(cur) or issecretvalue(maxC)))
+               and maxC and maxC > 0 then
+                local _bpPct = cur / maxC * 100
+                local _bpThresh = _tsThreshCount or 30
+                if _tsEntry.thresholdMode == "value" then _bpThresh = math.min(100, _bpThresh / maxC * 100) end
+                local _bpOver
+                if _tsReverse then _bpOver = _bpPct <= _bpThresh else _bpOver = _bpPct >= _bpThresh end
+                ns.EvalThresholdSound(_tsEntry, _bpPct, _bpOver)
             end
             -- Brewmaster stagger ceiling
             local barMax = maxC
@@ -5259,17 +5356,35 @@ local function UpdateSecondaryResource()
                         else
                             ft:SetVertexColor(r, g, b, a)
                         end
-                    elseif _tsEntry and powerType == "SOUL_FRAGMENTS_DEVOURER" then
-                        local threshVal = _tsThreshCount or 30
-                        if _tsEntry.thresholdMode ~= "value" and maxC and maxC > 0 then
-                            threshVal = maxC * threshVal / 100
+                    elseif (_tsEntry or _tsBandOn) and powerType == "SOUL_FRAGMENTS_DEVOURER" then
+                        -- cur is always a clean Lua number here (GetSoulFragments
+                        -- reads aura .applications, never UnitPower), so unlike
+                        -- the ColorCurve types above this can do a plain Lua
+                        -- comparison AND drive the threshold sound directly.
+                        local _tsThreshVal = _tsThreshCount or 30
+                        if _tsEntry and _tsEntry.thresholdMode ~= "value" and maxC and maxC > 0 then
+                            _tsThreshVal = maxC * _tsThreshVal / 100
+                        end
+                        local over = _tsEntry and ((_tsReverse and cur <= _tsThreshVal)
+                            or ((not _tsReverse) and cur >= _tsThreshVal))
+                        if ns.EvalThresholdSound then ns.EvalThresholdSound(_tsEntry, cur, over) end
+                        local tr, tg, tb = _tsR or 1, _tsG or 0.2, _tsB or 0.2
+                        if _tsBandOn then
+                            if ns.EvalBandSound then ns.EvalBandSound(_tsBands, cur, _tsBandReverse) end
+                            local band = FindCountBand(_tsBands, cur, _tsBandReverse)
+                            if band then
+                                over = true
+                                tr, tg, tb = band.r or tr, band.g or tg, band.b or tb
+                            else
+                                over = false
+                            end
                         end
                         if _spTextInstead then
                             -- Fill at base; tint the count text when at/over the threshold.
                             ft:SetVertexColor(r, g, b, a)
-                            colorText(true, cur >= threshVal, _tsR or 1, _tsG or 0.2, _tsB or 0.2, _spTextBaseR, _spTextBaseG, _spTextBaseB)
-                        elseif cur >= threshVal then
-                            ft:SetVertexColor(_tsR or 1, _tsG or 0.2, _tsB or 0.2, _tsA or 1)
+                            colorText(true, over, tr, tg, tb, _spTextBaseR, _spTextBaseG, _spTextBaseB)
+                        elseif over then
+                            ft:SetVertexColor(tr, tg, tb, _tsA or 1)
                         else
                             ft:SetVertexColor(r, g, b, a)
                         end
@@ -5688,6 +5803,7 @@ local function UpdateSecondaryResource()
             local tr, tg, tb = _tsR, _tsG, _tsB
             -- Multi-band: whole bar takes the color of the band containing `cur`.
             if _tsBandOn and not _enhFive then
+                if ns.EvalBandSound then ns.EvalBandSound(_tsBands, cur, _tsBandReverse) end
                 local band = FindCountBand(_tsBands, cur, _tsBandReverse)
                 if band then
                     useThresh = true
@@ -5756,6 +5872,7 @@ local function UpdateSecondaryResource()
         local tr, tg, tb = _tsR, _tsG, _tsB
         -- Multi-band
         if _tsBandOn then
+            if ns.EvalBandSound then ns.EvalBandSound(_tsBands, cur, _tsBandReverse) end
             local band = FindCountBand(_tsBands, cur, _tsBandReverse)
             if band then
                 useThresh = true
