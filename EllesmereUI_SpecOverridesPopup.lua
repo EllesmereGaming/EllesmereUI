@@ -254,9 +254,10 @@ local function ShowSpecOverridesPopup()
         ReleaseConflictCheck()
         if not showMe then return end
         local target = FirstLoadedCoreModule()
-        if target and EllesmereUI.SelectModule then
-            EllesmereUI:Show()
-            EllesmereUI:SelectModule(target)
+        if target and EllesmereUI.ShowModule then
+            -- ShowModule, not Show + SelectModule: it carries the first-open
+            -- split, so the module still lands when the panel builds next frame.
+            EllesmereUI:ShowModule(target)
             -- Next frame: the toolbar glyph exists once the panel has built.
             C_Timer.After(0, function()
                 if EllesmereUI.SpecOverrides_PulseButton then

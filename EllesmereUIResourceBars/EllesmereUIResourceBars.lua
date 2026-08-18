@@ -167,6 +167,11 @@ local PT = {
 --  Channel tick data: spellID -> { ticks, [modSpell, modTicks] } or { tickInterval }
 --  ticks = fixed tick count (haste speeds ticks up, count unchanged).
 --  tickInterval = fixed seconds/tick (haste extends duration, adds ticks).
+--  missiles = fencepost count: first missile AT channel start, last AT the
+--  channel end, so M missiles span M-1 intervals (interior marks at
+--  i/(M-1)); addMissiles = { [spellID] = extra } raises M while the player
+--  knows the spell or carries the aura, and a recast during a running
+--  channel keeps the outgoing cast's schedule -- see ShowChannelTicks.
 --  modSpell/modTicks: use modTicks if player knows modSpell (talent).
 --  Spell IDs verified against Wowhead/Warcraft Wiki; add a row when a spell
 --  reworks or a new channeled spell is added.
@@ -189,11 +194,18 @@ local CHANNEL_TICK_DATA = {
     [373129]  = { ticks = 3 },                                     -- Penance / Dark Reprimand (DPS)
     [400171]  = { ticks = 3 },                                     -- Penance / Dark Reprimand (Heal)
     -- Mage
-    [5143]    = { ticks = 5 },                                     -- Arcane Missiles
+    -- Arcane Missiles: 5 missiles, fenceposted (see the missiles model
+    -- above), so only 3 interior marks base. Amplification (236628) adds 2
+    -- missiles and the tier set 2pc (1296581) adds 1.
+    [5143]    = { missiles = 5, addMissiles = { [236628] = 2, [1296581] = 1 } },
     [12051]   = { ticks = 6 },                                     -- Evocation
     [205021]  = { ticks = 5 },                                     -- Ray of Frost
     -- Druid
     [740]     = { ticks = 4 },                                     -- Tranquility
+    -- Hunter
+    -- Rapid Fire shoots once at channel start and once at channel end. Quick
+    -- Draw (459794) adds three shots without changing the channel duration.
+    [257044]  = { missiles = 7, addMissiles = { [459794] = 3 } },  -- Rapid Fire
     -- Demon Hunter
     [198013]  = { tickInterval = 0.2 },                            -- Eye Beam
     [473728]  = { tickInterval = 0.2 },                            -- Void Ray (Devourer)
@@ -6593,15 +6605,32 @@ end
     ns.ReflowFontString(timerText)
     ns.ReflowFontString(nameText)
 
-    -- Hide pips when not empowering
+    -- Hide pips (build reset), then RE-LAY them for an in-flight empower:
+    -- same wipe-sticks class as the channel ticks below (field: Evokers
+    -- randomly losing all stage marks for one empowered cast whenever a
+    -- width-match/anchor re-apply landed mid-cast). Geometry is final here,
+    -- so the pips re-anchor against the rebuilt bar.
     if castBarFrame._pips then
         for i = 1, #castBarFrame._pips do
             castBarFrame._pips[i]:Hide()
         end
     end
+    if castBarFrame._empowering and castBarFrame._empStages then
+        ns.ERB_LayoutEmpowerPips(castBarFrame._empStages)
+    end
 
-    -- Hide channel ticks when not channeling
+    -- Hide channel ticks (build reset), then RE-SHOW them for an in-flight
+    -- channel: ApplyAll can run mid-channel (unlock rebuilds, width-match and
+    -- anchor-link re-applies, options edits, spec-override/profile refreshes --
+    -- field: Arcane Missiles marks vanishing when a Bloodlust buff arrived
+    -- mid-channel), and without the re-show the wipe sticks until the NEXT
+    -- channel starts: a channel whose reported window never changes gets no
+    -- further CHANNEL_UPDATE to redraw them. Geometry is final here, so the
+    -- marks re-anchor against the rebuilt bar.
     HideChannelTicks()
+    if castBarFrame._channeling and castBarFrame._tickSpellID then
+        ShowChannelTicks(castBarFrame._tickSpellID)
+    end
 
     -- Idle when not casting (empty bar with "Always Show", else hidden). Runs LAST
     -- on purpose: the idle state re-suppresses the spark and icon the style pass
@@ -6619,6 +6648,10 @@ end
 -- point) draws slightly wider in gold. Layout mirrors the empower pip code above.
 ShowChannelTicks = function(spellID)
     if not castBarFrame then return end
+    -- Stashed so a mid-channel bar rebuild can re-show this channel's marks
+    -- (see the BuildCastBar tail). Stale values are inert: the re-show gates
+    -- on _channeling, and every channel start restores the stash.
+    castBarFrame._tickSpellID = spellID
     local cb = ERB.db.profile.castBar
     if not cb.showChannelTicks then return end
 
@@ -6706,6 +6739,96 @@ ShowChannelTicks = function(spellID)
                     positions[#positions + 1] = t / dur
                     t = t + interval
                 end
+            end
+        elseif tickData.missiles then
+            -- Fencepost cadence: the first missile fires AT channel start and
+            -- the last AT channel end, so M missiles span M-1 intervals and
+            -- interior marks sit at i/(M-1). A recast begun while the
+            -- previous channel of the SAME spell was still running fires one
+            -- missile immediately (at the bar start, no mark) and then keeps
+            -- the OUTGOING cast's schedule: its first mark lands where the
+            -- old cadence's next missile was due, and the channel runs that
+            -- much longer -- one more interior mark than a fresh cast.
+            local M = tickData.missiles
+            if tickData.addMissiles then
+                for id, extra in pairs(tickData.addMissiles) do
+                    -- Talents answer IsPlayerSpell; set bonuses may only
+                    -- surface as a hidden player aura. Either counts.
+                    if IsPlayerSpell(id)
+                        or (C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID
+                            and C_UnitAuras.GetPlayerAuraBySpellID(id)) then
+                        M = M + extra
+                    end
+                end
+            end
+            local dur = castBarFrame._endTime - castBarFrame._startTime
+            local startT = castBarFrame._startTime
+            -- Chain carry is computed ONCE per cast, keyed on the channel
+            -- castID: a mid-cast CHANNEL_UPDATE can re-time the reported
+            -- window while the live channel keeps its snapshotted cadence
+            -- (observed with Bloodlust landing mid-channel), and hover
+            -- refires duplicate events -- both re-enter here for the SAME
+            -- cast and must not chain the cast onto itself. The 0.5s start
+            -- window is the fallback when no castID is available.
+            local castID = castBarFrame._castID
+            local sameCast
+            if castID and castBarFrame._mslCastID then
+                sameCast = (castID == castBarFrame._mslCastID)
+            else
+                sameCast = castBarFrame._mslStart
+                    and (startT - castBarFrame._mslStart) < 0.5
+            end
+            if not sameCast then
+                local carry = 0
+                local pEnd = castBarFrame._mslPrevEnd
+                local pInt = castBarFrame._mslPrevInterval
+                if castBarFrame._mslPrevSpell == spellID
+                    and pEnd and pInt and pInt > 0 and startT < pEnd - 0.01 then
+                    -- The missile grid is anchored at the channel END, so
+                    -- time-to-next-missile is (pEnd - startT) mod pInt.
+                    carry = math.fmod(pEnd - startT, pInt)
+                    -- Near-zero carry is grid-aligned, and a recast right
+                    -- after a missile (carry ~= a full interval) has been
+                    -- observed to LOSE the bonus missile: both lay out
+                    -- like a fresh cast.
+                    if carry < 0.01 or carry > pInt - 0.05 then carry = 0 end
+                end
+                castBarFrame._mslCarry = carry
+                castBarFrame._mslCastID = castID
+                castBarFrame._mslStart = startT
+            end
+            local carry = castBarFrame._mslCarry or 0
+            -- Chained layout: the reported duration is carry plus M-1
+            -- intervals, so marks sit at carry + k*interval as fractions of
+            -- the reported window.
+            local chained = false
+            if carry > 0 and dur > 0 then
+                local interval = (dur - carry) / (M - 1)
+                if interval > 0.01 then
+                    positions = {}
+                    local t = carry
+                    while t < dur - interval * 0.05 and #positions < 12 do
+                        positions[#positions + 1] = t / dur
+                        t = t + interval
+                    end
+                    if #positions > 0 then chained = true else positions = nil end
+                end
+            end
+            -- Fresh layout: pure fractions, independent of the reported
+            -- window. Also the fallback when the chained math degenerates
+            -- (carry at or past the reported end, non-positive duration), so
+            -- a mid-channel re-report can never blank the marks outright.
+            if not positions then
+                positions = {}
+                for i = 1, min(M - 2, 12) do
+                    positions[i] = i / (M - 1)
+                end
+            end
+            -- Bank this cast's cadence for a possible chain into the next.
+            if dur > 0 then
+                castBarFrame._mslPrevEnd = castBarFrame._endTime
+                castBarFrame._mslPrevInterval = (chained and (dur - carry) or dur) / (M - 1)
+                castBarFrame._mslPrevSpell = spellID
             end
         else
             local numTicks
@@ -7328,10 +7451,14 @@ end
 -- is documented Nilable on BOTH UnitChannelInfo and this event's payload, so an
 -- equality test rejects real stops. Blizzard's own CastingBarFrame matches a
 -- castID for plain casts only and accepts any channel/empower stop, which is
--- what OnEmpowerStop below already does.
+-- what OnEmpowerStop below already does. Instead the live channel is re-queried:
+-- an instantly restarted channel (Clearcasting Arcane Missiles) can deliver the
+-- OLD channel's STOP after the NEW channel's START, and that late stop must not
+-- tear down the bar that is still channeling.
 local function OnChannelStop()
     if not castBarFrame then return end
     if not castBarFrame._channeling then return end
+    if UnitChannelInfo("player") then return end
     castBarFrame._channeling = false
     castBarFrame._castID = nil
     ns.ShowIdleCastBar()
@@ -7474,56 +7601,72 @@ OnEmpowerStart = function()
         cachedStageThresholds = nil
     end
     if stages then
-        local bar = castBarFrame._bar
-        local barWidth = bar:GetWidth()
-        local barHeight = bar:GetHeight()
-        local numStages = #stages
-        castBarFrame._numStages = numStages
-
-        -- Physical-pixel sizing: PP.perfect / effectiveScale = one PHYSICAL
-        -- pixel in the bar's local units, so the pip is exactly 2 physical
-        -- pixels wide at every UI scale (the old effectiveScale rounding
-        -- treated 2 as UI units and drifted between 1 and 3 physical pixels).
-        local effectiveScale = bar:GetEffectiveScale()
-        local PPc = EllesmereUI and EllesmereUI.PP
-        local onePx = ((PPc and PPc.perfect) or 1) / effectiveScale
-        local pipWidth = 2 * onePx
-        local snappedHeight = (PPc and PPc.SnapForES)
-            and PPc.SnapForES(barHeight, effectiveScale) or barHeight
-
-        -- Position a pip at each stage boundary (skip the last -- it's the bar end)
-        local lastOffset = 0
-        for i = 1, numStages - 1 do
-            local pip = castBarFrame._pips[i]
-            if not pip then
-                pip = bar:CreateTexture(nil, "OVERLAY", nil, 2)
-                pip:SetColorTexture(1, 1, 1, 0.85)
-                if pip.SetSnapToPixelGrid then
-                    pip:SetSnapToPixelGrid(false)
-                    pip:SetTexelSnappingBias(0)
-                end
-                castBarFrame._pips[i] = pip
-            end
-            local rawOffset = lastOffset + (barWidth * stages[i])
-            lastOffset = rawOffset
-            -- Width-aware center snap: both pip edges land on the physical
-            -- grid (a centered even-width mark on a grid point is exact).
-            local snappedOffset = (PPc and PPc.SnapCenterForDim)
-                and PPc.SnapCenterForDim(rawOffset, pipWidth, effectiveScale)
-                or (floor(rawOffset * effectiveScale + 0.5) / effectiveScale)
-            pip:SetSize(pipWidth, snappedHeight)
-            pip:ClearAllPoints()
-            pip:SetPoint("CENTER", bar, "LEFT", snappedOffset, 0)
-            pip:Show()
-        end
-
-        -- Hide any extra pips from a previous cast with more stages
-        for i = numStages, #castBarFrame._pips do
-            castBarFrame._pips[i]:Hide()
-        end
+        -- Stashed so a mid-empower bar rebuild can re-lay this cast's stage
+        -- pips (see the BuildCastBar tail; the channel ticks' stash twin).
+        -- Stale values are inert: the re-lay gates on _empowering, and every
+        -- empower start restores the stash.
+        castBarFrame._empStages = stages
+        ns.ERB_LayoutEmpowerPips(stages)
     end
 
     ns.ActivateCastBar()
+end
+
+-- Stage pip layout for an empowered cast, shared by OnEmpowerStart and the
+-- BuildCastBar tail (a mid-empower rebuild must re-lay the marks against
+-- the rebuilt bar, exactly like the channel-tick re-show -- without it the
+-- build reset's pip wipe sticks for the rest of that cast; field: Evokers
+-- randomly losing all stage ticks for one cast). On ns: the file is at the
+-- 200-local cap.
+function ns.ERB_LayoutEmpowerPips(stages)
+    if not (castBarFrame and stages) then return end
+    local bar = castBarFrame._bar
+    local barWidth = bar:GetWidth()
+    local barHeight = bar:GetHeight()
+    local numStages = #stages
+    castBarFrame._numStages = numStages
+
+    -- Physical-pixel sizing: PP.perfect / effectiveScale = one PHYSICAL
+    -- pixel in the bar's local units, so the pip is exactly 2 physical
+    -- pixels wide at every UI scale (the old effectiveScale rounding
+    -- treated 2 as UI units and drifted between 1 and 3 physical pixels).
+    local effectiveScale = bar:GetEffectiveScale()
+    local PPc = EllesmereUI and EllesmereUI.PP
+    local onePx = ((PPc and PPc.perfect) or 1) / effectiveScale
+    local pipWidth = 2 * onePx
+    local snappedHeight = (PPc and PPc.SnapForES)
+        and PPc.SnapForES(barHeight, effectiveScale) or barHeight
+
+    -- Position a pip at each stage boundary (skip the last -- it's the bar end)
+    local lastOffset = 0
+    for i = 1, numStages - 1 do
+        local pip = castBarFrame._pips[i]
+        if not pip then
+            pip = bar:CreateTexture(nil, "OVERLAY", nil, 2)
+            pip:SetColorTexture(1, 1, 1, 0.85)
+            if pip.SetSnapToPixelGrid then
+                pip:SetSnapToPixelGrid(false)
+                pip:SetTexelSnappingBias(0)
+            end
+            castBarFrame._pips[i] = pip
+        end
+        local rawOffset = lastOffset + (barWidth * stages[i])
+        lastOffset = rawOffset
+        -- Width-aware center snap: both pip edges land on the physical
+        -- grid (a centered even-width mark on a grid point is exact).
+        local snappedOffset = (PPc and PPc.SnapCenterForDim)
+            and PPc.SnapCenterForDim(rawOffset, pipWidth, effectiveScale)
+            or (floor(rawOffset * effectiveScale + 0.5) / effectiveScale)
+        pip:SetSize(pipWidth, snappedHeight)
+        pip:ClearAllPoints()
+        pip:SetPoint("CENTER", bar, "LEFT", snappedOffset, 0)
+        pip:Show()
+    end
+
+    -- Hide any extra pips from a previous cast with more stages
+    for i = numStages, #castBarFrame._pips do
+        castBarFrame._pips[i]:Hide()
+    end
 end
 
 OnEmpowerUpdate = function()
@@ -8960,42 +9103,50 @@ function ERB:OnInitialize()
         if not IsPowerBarHidden() then return 0 end
         return (mode == "Up") and 1 or -1
     end
-    -- Consulted inside ApplyAnchorPosition. Returns 0 while unlock mode is
-    -- active so the layout shows normal (and movers capture true positions).
-    -- Returns dir (+1/-1/0) and an optional extra-pixel offset added to the shift
-    -- magnitude ("Extra Y Offset"). The extra is only meaningful when dir ~= 0.
-    EllesmereUI._GetAnchorTargetShiftDir = function(targetKey, childKey)
-        if EllesmereUI._unlockActive then return 0 end
-        if targetKey == "ERB_ClassResource" then
-            local dir = ResolveShiftDir()
-            if dir == 0 then return 0 end
-            local sp = ERB.db and ERB.db.profile and ERB.db.profile.secondary
-            return dir, (sp and sp.shiftElementsIfNoResourceExtraY) or 0
-        end
-        if targetKey == "ERB_Power" then
-            local dir = ResolveShiftDirPower()
-            if dir == 0 then return 0 end
-            local pp = ERB.db and ERB.db.profile and ERB.db.profile.primary
-            return dir, (pp and pp.shiftElementsIfNoPowerExtraY) or 0
-        end
-        return 0
-    end
-    -- Whether a shift WOULD apply outside unlock mode (unlock entry uses this to
-    -- decide whether to un-shift before snapshotting positions). None = false.
-    _G._ERB_ShiftWantsApply = function()
-        return ResolveShiftDir() ~= 0 or ResolveShiftDirPower() ~= 0
-    end
-    -- Re-apply the shift after unlock mode closes (PropagateAnchorChain is a
-    -- no-op while unlocked, so this runs on exit). Gated so None = zero work.
-    _G._ERB_RestoreShift = function()
-        if not EllesmereUI.PropagateAnchorChain then return end
-        if ResolveShiftDir() ~= 0 then
-            EllesmereUI.PropagateAnchorChain("ERB_ClassResource")
-        end
-        if ResolveShiftDirPower() ~= 0 then
-            EllesmereUI.PropagateAnchorChain("ERB_Power")
-        end
-    end
+    -- Seeded into the shared shift-provider list (EUI_UnlockMode.lua dispatches
+    -- EllesmereUI._GetAnchorTargetShiftDir over it; CooldownManager seeds its
+    -- own provider for TBBG_ keys). Direct or-preserve push, NEVER an API call:
+    -- registration must carry zero load-order coupling (the old single-slot
+    -- assignment's property; a cross-file call here hit nil in the field).
+    -- dir: consulted inside ApplyAnchorPosition; returns 0 while unlock mode is
+    -- active so the layout shows normal (and movers capture true positions),
+    -- else dir (+1/-1/0) and an optional extra-pixel offset added to the shift
+    -- magnitude ("Extra Y Offset" -- only meaningful when dir ~= 0). wants:
+    -- whether a shift WOULD apply outside unlock mode (unlock entry un-shifts
+    -- before snapshotting; deliberately ignores unlock state). restore:
+    -- re-apply after unlock closes (PropagateAnchorChain is a no-op while
+    -- unlocked). Gated so None = zero work.
+    EllesmereUI._anchorShiftProviders = EllesmereUI._anchorShiftProviders or {}
+    table.insert(EllesmereUI._anchorShiftProviders, {
+        dir = function(targetKey, childKey)
+            if EllesmereUI._unlockActive then return 0 end
+            if targetKey == "ERB_ClassResource" then
+                local dir = ResolveShiftDir()
+                if dir == 0 then return 0 end
+                local sp = ERB.db and ERB.db.profile and ERB.db.profile.secondary
+                return dir, (sp and sp.shiftElementsIfNoResourceExtraY) or 0
+            end
+            if targetKey == "ERB_Power" then
+                local dir = ResolveShiftDirPower()
+                if dir == 0 then return 0 end
+                local pp = ERB.db and ERB.db.profile and ERB.db.profile.primary
+                return dir, (pp and pp.shiftElementsIfNoPowerExtraY) or 0
+            end
+            return 0
+        end,
+        wants = function()
+            return ResolveShiftDir() ~= 0 or ResolveShiftDirPower() ~= 0
+        end,
+        restore = function()
+            if not EllesmereUI.PropagateAnchorChain then return end
+            if ResolveShiftDir() ~= 0 then
+                EllesmereUI.PropagateAnchorChain("ERB_ClassResource")
+            end
+            if ResolveShiftDirPower() ~= 0 then
+                EllesmereUI.PropagateAnchorChain("ERB_Power")
+            end
+        end,
+    })
 
     BuildBarTypeSpecMap()
 

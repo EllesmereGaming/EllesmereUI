@@ -709,9 +709,10 @@ qolFrame:SetScript("OnEvent", function(self)
             trainBtn:SetScript("OnEnter", function(self)
                 local n, gold = TrainableSummary()
                 if n <= 0 then return end
-                local msg = string.format("Learn %d skill%s for %s",
-                    n, n == 1 and "" or "s",
-                    C_CurrencyInfo.GetCoinTextureString(gold))
+                local goldStr = C_CurrencyInfo.GetCoinTextureString(gold)
+                local msg = (n == 1)
+                    and EllesmereUI.Lf("Learn %1$d skill for %2$s", n, goldStr)
+                    or  EllesmereUI.Lf("Learn %1$d skills for %2$s", n, goldStr)
                 EllesmereUI.ShowWidgetTooltip(self, msg)
             end)
             trainBtn:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
@@ -1440,6 +1441,110 @@ qolFrame:SetScript("OnEvent", function(self)
                     self:UnregisterAllEvents()
                 end
             end)
+        end
+    end
+
+    ---------------------------------------------------------------------------
+    --  Hide Loot Rolls Window (GroupLootHistoryFrame) -- the running list of
+    --  what dropped, who rolled what, and who won. Two modes off one toggle:
+    --  hide it outright, or let it appear and close itself after a delay.
+    --
+    --  Blizzard re-shows the window on every drop and roll result, so a single
+    --  Hide() never sticks -- enforcement has to ride the show path. BOTH the
+    --  OnShow script and the Show method are hooked: a drop landing while the
+    --  window is already up re-calls Show() without firing OnShow, and that is
+    --  exactly when the auto-close delay has to restart.
+    --
+    --  The window is unprotected and purely informational (no secure state, no
+    --  managed-position involvement), so a plain Hide() is safe. Nothing is
+    --  unregistered or reparented either, so turning the toggle back off hands
+    --  the window straight back to Blizzard without a reload.
+    ---------------------------------------------------------------------------
+    do
+        local DEFAULT_DELAY = 5
+        local closeGen = 0  -- bumped on every show; invalidates older timers
+
+        local function HistoryFrame()
+            local f = _G.GroupLootHistoryFrame
+            if not f or not f.HookScript then return nil end
+            if f.IsForbidden and f:IsForbidden() then return nil end
+            return f
+        end
+
+        local function CloseDelay()
+            local d = EllesmereUIDB and EllesmereUIDB.lootHistoryDelay
+            if type(d) ~= "number" or d <= 0 then return DEFAULT_DELAY end
+            return d
+        end
+
+        local function Enforce()
+            if not (EllesmereUIDB and EllesmereUIDB.hideLootHistory) then return end
+            local f = HistoryFrame()
+            if not f then return end
+            closeGen = closeGen + 1
+            if EllesmereUIDB.lootHistoryMode ~= "autoclose" then
+                f:Hide()
+                return
+            end
+            local gen = closeGen
+            C_Timer.After(CloseDelay(), function()
+                -- A newer show (or a settings change) armed its own timer.
+                if gen ~= closeGen then return end
+                if not (EllesmereUIDB and EllesmereUIDB.hideLootHistory) then return end
+                local live = HistoryFrame()
+                if live and live:IsShown() then live:Hide() end
+            end)
+        end
+
+        local function HookHistory()
+            local f = HistoryFrame()
+            if not f or EllesmereUI._GetFFD(f).lootHistHooked then return end
+            EllesmereUI._GetFFD(f).lootHistHooked = true
+            f:HookScript("OnShow", Enforce)
+            hooksecurefunc(f, "Show", Enforce)
+        end
+
+        -- Hook now, or arm ONE waiter for the frame's Blizzard_ addon (it is
+        -- created on first use, not necessarily at login). Shared by the
+        -- load-time install and a mid-session enable that beats the frame's
+        -- creation -- without the waiter half, that enable would silently
+        -- never hook.
+        local waiterArmed = false
+        local function EnsureInstalled()
+            if _G.GroupLootHistoryFrame then
+                HookHistory()
+                return
+            end
+            if waiterArmed then return end
+            waiterArmed = true
+            local waiter = CreateFrame("Frame")
+            waiter:RegisterEvent("ADDON_LOADED")
+            waiter:SetScript("OnEvent", function(self)
+                if _G.GroupLootHistoryFrame then
+                    HookHistory()
+                    self:UnregisterAllEvents()
+                end
+            end)
+        end
+
+        -- Options-side apply: a toggle must bite now, not on the next drop.
+        -- The closeGen bump also cancels a pending auto-close when the mode
+        -- changes or the feature is switched off mid-countdown.
+        EllesmereUI._applyHideLootHistory = function()
+            if EllesmereUIDB and EllesmereUIDB.hideLootHistory then
+                EnsureInstalled()
+            end
+            closeGen = closeGen + 1
+            local f = HistoryFrame()
+            if f and f:IsShown() then Enforce() end
+        end
+
+        -- Load-time install ONLY for users with the feature already on
+        -- (zero cost disabled: no waiter frame, no ADDON_LOADED listener,
+        -- no hooks -- a later enable installs through _applyHideLootHistory
+        -- above).
+        if EllesmereUIDB and EllesmereUIDB.hideLootHistory then
+            EnsureInstalled()
         end
     end
 

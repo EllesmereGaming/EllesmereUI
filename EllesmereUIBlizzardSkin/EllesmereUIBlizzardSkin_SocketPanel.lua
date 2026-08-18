@@ -432,7 +432,8 @@ local function AcquireIcon(i)
             -- Empty socket: plain-text hint uses the EUI widget tooltip.
             if EllesmereUI and EllesmereUI.ShowWidgetTooltip then
                 EllesmereUI.ShowWidgetTooltip(self,
-                    (rec.emptyName or "Empty Socket") .. "\nPick a gem from the list to socket it.",
+                    EllesmereUI.L(rec.emptyName or "Empty Socket")
+                        .. EllesmereUI.L("\nPick a gem from the list to socket it."),
                     { anchor = "right" })
             end
         end
@@ -668,7 +669,7 @@ local function PopulateFlyout()
         local row = AcquireGemRow(1)
         row.icon:SetTexture(nil)
         row.icon:SetColorTexture(0, 0, 0, 0)
-        row.label:SetText("No gems in bags.")
+        row.label:SetText(EllesmereUI.L("No gems in bags."))
         row.label:SetTextColor(0.5, 0.5, 0.5)
         row.count:SetText("")
         row.gemItemID = nil

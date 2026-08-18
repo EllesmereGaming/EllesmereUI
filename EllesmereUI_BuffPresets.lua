@@ -248,8 +248,8 @@ spells = {
     offensive = {
         [1249658] = { class = "DEATHKNIGHT", alts = { 152279 } },
         [42650] = { class = "DEATHKNIGHT" },
-        [191427] = { class = "DEMONHUNTER", alts = { 187827, 321067, 321068 } },
-        [471306] = { class = "DEMONHUNTER", alts = { 1217605, 1225789, 473671, 1217607 } },
+        [191427] = { class = "DEMONHUNTER", alts = { 187827, 321067, 321068, 162264 } },
+        [471306] = { class = "DEMONHUNTER", alts = { 1217605, 473671, 1217607 } },
         [194223] = { class = "DRUID" },
         [106951] = { class = "DRUID" },
         [50334] = { class = "DRUID" },
@@ -258,10 +258,10 @@ spells = {
         [186254] = { class = "HUNTER", alts = { 1235388, 1285912, 19574 } },
         [288613] = { class = "HUNTER" },
         [190319] = { class = "MAGE" },
-        [365350] = { class = "MAGE" },
+        [365350] = { class = "MAGE", alts = { 365362 } },
         [1249625] = { class = "MONK" },
         [10060] = { class = "PRIEST" },
-        [114050] = { class = "SHAMAN", alts = { 114051, 114052 } },
+        [114050] = { class = "SHAMAN", alts = { 114051, 114052, 1219480 } },
         [107574] = { class = "WARRIOR" },
     },
     movement = {
@@ -313,10 +313,14 @@ spells = {
         [387626] = { class = "WARLOCK" },
         [387633] = { class = "WARLOCK" },
         [202164] = { class = "WARRIOR" },
+        [1244157] = { class = "WARRIOR" },
         [358267] = { class = "EVOKER" },
         [358733] = { class = "EVOKER" },
         [370889] = { class = "EVOKER" },
-        [375234] = { class = "EVOKER" },
+        -- Time Spiral: the buff lands under a different spell id per RECIPIENT
+        -- class (each class gets its own empowered-movement aura).
+        [375234] = { class = "EVOKER", alts = { 375226, 375229, 375230, 375238,
+            375240, 375252, 375253, 375254, 375255, 375256, 375257, 375258 } },
         [406732] = { class = "EVOKER" },
     },
     utility = {

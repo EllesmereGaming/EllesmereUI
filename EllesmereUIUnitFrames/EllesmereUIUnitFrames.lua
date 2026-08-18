@@ -1465,6 +1465,216 @@ local function ClassColorSourceUnit(unitKey, unit)
     return unit or unitKey
 end
 
+-------------------------------------------------------------------------------
+--  Health-percent fill colors ("Dynamic Health Color")
+--
+--  The fill color follows how wounded the unit is: full health reads as one
+--  color and bleeds toward another as health drops. Deliberately a PORT of the
+--  Raid Frames implementation (GetClassicHealthCurve / GetCustomDynamicCurve /
+--  GetClassReactiveCurve there) rather than a fresh model, so a unit frame and
+--  a party frame set to the same mode paint the same color at the same health.
+--  Keep the two in step if either side's stops or curve shape ever change.
+--
+--  Secret-value safe by construction: the curve is handed to UnitHealthPercent
+--  and evaluated ENGINE-side, so a restricted unit's health never reaches Lua.
+--  The returned ColorMixin's channels may themselves be secret -- they are only
+--  ever passed to a setter, never inspected or arithmetic'd.
+--
+--  Per-unit settings (all nil-defaulted, so an untouched profile keeps the
+--  existing flat class/custom fill):
+--    healthColorMode  "none" | "classic" | "customDynamic" | "classReactive"
+--    dynamicColor100 / dynamicColor50 / dynamicColor0   gradient stops
+--
+--  Wrapped in do/end: the caches are state these functions own, and the block
+--  releases its registers at the close so the main chunk pays nothing.
+-------------------------------------------------------------------------------
+do
+    -- Stop defaults, shared with the options page's swatch fallbacks. Same
+    -- values the Raid Frames module uses.
+    local DEF100 = { r = 0, g = 1, b = 0 }
+    local DEF50  = { r = 0xEC/255, g = 0xEC/255, b = 0x32/255 }
+    local DEF0   = { r = 0xE3/255, g = 0x30/255, b = 0x30/255 }
+    ns.UF_DYN_DEF100, ns.UF_DYN_DEF50, ns.UF_DYN_DEF0 = DEF100, DEF50, DEF0
+
+    -- Classic: red (dead) -> yellow (mid) -> green (full). One curve, forever.
+    local classicCurve
+    local function GetClassicCurve()
+        if classicCurve then return classicCurve end
+        local curve = C_CurveUtil.CreateColorCurve()
+        curve:SetType(Enum.LuaCurveType.Linear)
+        curve:AddPoint(0, CreateColor(1, 0, 0, 1))
+        curve:AddPoint(0.5, CreateColor(1, 1, 0, 1))
+        curve:AddPoint(1, CreateColor(0, 1, 0, 1))
+        classicCurve = curve
+        return curve
+    end
+
+    -- Custom Dynamic: the Classic path with the unit's three chosen stops.
+    -- ONE cached curve keyed by the stop colors, not by unit: unit frames are
+    -- repainted one at a time, and a rebuild is only the cost of three AddPoint
+    -- calls. Frames configured differently therefore rebuild as they alternate;
+    -- that is bounded by the number of DISTINCT palettes in use (nearly always
+    -- one), not by the paint rate.
+    local dynCurve
+    local d0r, d0g, d0b, d50r, d50g, d50b, d100r, d100g, d100b
+    local function GetDynamicCurve(s)
+        local c0   = s.dynamicColor0   or DEF0
+        local c50  = s.dynamicColor50  or DEF50
+        local c100 = s.dynamicColor100 or DEF100
+        if not (dynCurve
+            and d0r   == c0.r   and d0g   == c0.g   and d0b   == c0.b
+            and d50r  == c50.r  and d50g  == c50.g  and d50b  == c50.b
+            and d100r == c100.r and d100g == c100.g and d100b == c100.b) then
+            dynCurve = C_CurveUtil.CreateColorCurve()
+            dynCurve:SetType(Enum.LuaCurveType.Linear)
+            dynCurve:AddPoint(0,   CreateColor(c0.r,   c0.g,   c0.b,   1))
+            dynCurve:AddPoint(0.5, CreateColor(c50.r,  c50.g,  c50.b,  1))
+            dynCurve:AddPoint(1,   CreateColor(c100.r, c100.g, c100.b, 1))
+            d0r, d0g, d0b       = c0.r, c0.g, c0.b
+            d50r, d50g, d50b    = c50.r, c50.g, c50.b
+            d100r, d100g, d100b = c100.r, c100.g, c100.b
+        end
+        return dynCurve
+    end
+
+    -- Class Color Reactive: the same gradient whose 100% stop is the unit's
+    -- CLASS color, so full health reads as class identity and wounds bleed into
+    -- the reactive palette (fully reactive by 40%). Cached per class token; the
+    -- fingerprint names every input, so a Custom Class Colors edit rebuilds too.
+    local GRAY = { r = 0.5, g = 0.5, b = 0.5 }
+    local reactiveCurves = {}   -- classToken -> { curve, r, g, b } (class color used)
+    local r0r, r0g, r0b, r50r, r50g, r50b
+    local function GetClassReactiveCurve(s, classToken)
+        local c0  = s.dynamicColor0  or DEF0
+        local c50 = s.dynamicColor50 or DEF50
+        if not (r0r == c0.r and r0g == c0.g and r0b == c0.b
+            and r50r == c50.r and r50g == c50.g and r50b == c50.b) then
+            wipe(reactiveCurves)
+            r0r, r0g, r0b    = c0.r, c0.g, c0.b
+            r50r, r50g, r50b = c50.r, c50.g, c50.b
+        end
+        local cc = EllesmereUI.GetClassColor(classToken) or GRAY
+        local e = reactiveCurves[classToken]
+        if not (e and e.r == cc.r and e.g == cc.g and e.b == cc.b) then
+            local curve = C_CurveUtil.CreateColorCurve()
+            curve:SetType(Enum.LuaCurveType.Linear)
+            -- Front-loaded class return: fully reactive at 40% health, and the
+            -- 0.75 stop already carries 75% class weight so identity snaps back
+            -- quickly (40->75% climbs 0->75% class, 75->100% eases in the rest).
+            curve:AddPoint(0,    CreateColor(c0.r,  c0.g,  c0.b,  1))
+            curve:AddPoint(0.4,  CreateColor(c50.r, c50.g, c50.b, 1))
+            curve:AddPoint(0.75, CreateColor(
+                c50.r + (cc.r - c50.r) * 0.75,
+                c50.g + (cc.g - c50.g) * 0.75,
+                c50.b + (cc.b - c50.b) * 0.75, 1))
+            curve:AddPoint(1,    CreateColor(cc.r,  cc.g,  cc.b,  1))
+            e = { curve = curve, r = cc.r, g = cc.g, b = cc.b }
+            reactiveCurves[classToken] = e
+        end
+        return e.curve
+    end
+
+    -- Resolved fill color for a unit under the settings table `s`.
+    -- Returns  ok, r, g, b, secret  -- ok false means "not on a dynamic mode"
+    -- (or the mode could not resolve) and the caller keeps whatever it had.
+    --
+    -- `ok` and `secret` are PLAIN booleans on purpose: on an identity-restricted
+    -- unit r/g/b are SECRET numbers, and both truthiness-testing and comparing
+    -- one throw. They may only ever be handed to a setter -- and `secret` marks
+    -- exactly that case, because SetGradient refuses secrets where
+    -- SetStatusBarColor accepts them.
+    --
+    -- classReactive needs a readable class token; a restricted unit has none, so
+    -- it declines and the flat class/reaction fill already on the bar stands.
+    -- (The Raid Frames twin greys out instead; keeping the real color is
+    -- strictly better here, and only differs on focus/ToT-style units.)
+    function ns.UF_DynamicHealthColor(unit, s)
+        local mode = s and s.healthColorMode
+        if not mode or mode == "none" or not unit then return false end
+        if not (C_CurveUtil and UnitHealthPercent) then return false end
+        local curve
+        if mode == "classic" then
+            curve = GetClassicCurve()
+        elseif mode == "customDynamic" then
+            curve = GetDynamicCurve(s)
+        elseif mode == "classReactive" then
+            local _, classToken = UnitClass(unit)
+            if not classToken or issecretvalue(classToken) then return false end
+            curve = GetClassReactiveCurve(s, classToken)
+        else
+            return false
+        end
+        local color = UnitHealthPercent(unit, true, curve)
+        if not (color and color.GetRGB) then return false end
+        local r, g, b = color:GetRGB()
+        return true, r, g, b, issecretvalue(r)
+    end
+
+    -- Clean-number twins for the options previews, where the health percent is a
+    -- known fake (0-1) rather than a secret. These MUST match the curves above
+    -- or the designer teaches a color the live bar never shows.
+    function ns.UF_ResolveDynamicColor(s, pct01)
+        local c0   = s.dynamicColor0   or DEF0
+        local c50  = s.dynamicColor50  or DEF50
+        local c100 = s.dynamicColor100 or DEF100
+        if pct01 >= 0.5 then
+            local t = (pct01 - 0.5) * 2
+            return c50.r + (c100.r - c50.r) * t,
+                   c50.g + (c100.g - c50.g) * t,
+                   c50.b + (c100.b - c50.b) * t
+        end
+        local t = pct01 * 2
+        return c0.r + (c50.r - c0.r) * t,
+               c0.g + (c50.g - c0.g) * t,
+               c0.b + (c50.b - c0.b) * t
+    end
+
+    function ns.UF_ResolveClassicColor(pct01)
+        if pct01 >= 0.5 then
+            local t = (pct01 - 0.5) * 2
+            return 1 - t, 1, 0
+        end
+        return 1, pct01 * 2, 0
+    end
+
+    function ns.UF_ResolveClassReactiveColor(s, classToken, pct01)
+        local cc = (classToken and EllesmereUI.GetClassColor(classToken)) or GRAY
+        local c0  = s.dynamicColor0  or DEF0
+        local c50 = s.dynamicColor50 or DEF50
+        if pct01 >= 0.4 then
+            local w
+            if pct01 >= 0.75 then
+                w = 0.75 + (pct01 - 0.75)
+            else
+                w = (pct01 - 0.4) / 0.35 * 0.75
+            end
+            return c50.r + (cc.r - c50.r) * w,
+                   c50.g + (cc.g - c50.g) * w,
+                   c50.b + (cc.b - c50.b) * w
+        end
+        local t = pct01 / 0.4
+        return c0.r + (c50.r - c0.r) * t,
+               c0.g + (c50.g - c0.g) * t,
+               c0.b + (c50.b - c0.b) * t
+    end
+
+    -- One entry point for every preview surface: resolves whichever dynamic mode
+    -- `s` is on at a FAKE percent, or nil when the unit is on a flat fill.
+    function ns.UF_PreviewDynamicColor(s, pct01)
+        local mode = s and s.healthColorMode
+        if not mode or mode == "none" then return nil end
+        if mode == "classic" then
+            return ns.UF_ResolveClassicColor(pct01)
+        elseif mode == "customDynamic" then
+            return ns.UF_ResolveDynamicColor(s, pct01)
+        elseif mode == "classReactive" then
+            local _, ct = UnitClass("player")
+            return ns.UF_ResolveClassReactiveColor(s, ct, pct01)
+        end
+        return nil
+    end
+end
+
 -- Carrier for a resolved-but-secret class color. Reused: it is written and consumed inside one
 -- UpdateColor pass (SetStatusBarColor, then PostUpdateColor), and nothing stores it.
 local SECRET_CLASS_COLOR = CreateColor(1, 1, 1, 1)
@@ -1538,7 +1748,11 @@ local function UF_SecretSafeHealthColor(self, event, unit)
     end
 end
 
-local function ApplyDarkTheme(health)
+-- `unit` is optional and used only to converge the setup paint with the repaint
+-- paint (see the PostUpdateColor call at the tail of the non-dark branch). It is
+-- passed by every caller that has it; Health elements never get `__owner`
+-- (only aura elements do), so there is no fallback to recover it from.
+local function ApplyDarkTheme(health, unit)
     if not health then return end
     -- TEMPORARY (see UF_SecretSafeHealthColor). Idempotent: this function
     -- re-runs on settings changes and re-assigning is harmless.
@@ -1621,7 +1835,15 @@ local function ApplyDarkTheme(health)
             -- errors, so it may only ever be handed to a setter.
             local bR, bG, bB
             local haveBase, baseSecret = false, false
-            if cFill and not classColored then
+            -- Dynamic Health Color outranks every FLAT source (custom fill, class,
+            -- reaction): the whole point is that the fill tracks damage taken. It
+            -- does not displace the spatial Gradient below -- it becomes that
+            -- gradient's start color, so the two compose.
+            local haveDyn, dR, dG, dB, dSecret = ns.UF_DynamicHealthColor(unit, uSettings)
+            if haveDyn then
+                bR, bG, bB = dR, dG, dB
+                haveBase, baseSecret = true, dSecret
+            elseif cFill and not classColored then
                 bR, bG, bB = cFill.r, cFill.g, cFill.b
                 haveBase = true
             elseif classColored and uKey == "pet" then
@@ -1645,6 +1867,13 @@ local function ApplyDarkTheme(health)
                 ApplyBarGradient(self:GetStatusBarTexture(), uSettings.gradientDir or "HORIZONTAL",
                     bR, bG, bB, ga,
                     gc and gc.r or 0.20, gc and gc.g or 0.20, gc and gc.b or 0.80, ga)
+            elseif haveDyn then
+                -- Must be written explicitly: the health element painted the flat
+                -- class/reaction color a moment ago, and unlike the pet/custom
+                -- branches below there is no earlier setup pass that pre-applied
+                -- this one. SetStatusBarColor takes secrets, so a restricted unit
+                -- still gets its real curve color here.
+                self:SetStatusBarColor(bR, bG, bB)
             elseif classColored and uKey == "pet" and haveBase then
                 self:SetStatusBarColor(bR, bG, bB)
             elseif cFill and not classColored then
@@ -1655,13 +1884,7 @@ local function ApplyDarkTheme(health)
                 local bgClassR, bgClassG, bgClassB
                 if bgClassColored then
                     local classUnit = ClassColorSourceUnit(uKey, unit or self.unit or uKey)
-                    if classUnit then
-                        local _, ct = UnitClass(classUnit)
-                        -- ct can be secret (out-of-range/uninspectable units).
-                        -- issecretvalue FIRST: truthiness-testing a secret errors.
-                        local cc = not issecretvalue(ct) and ct and EllesmereUI.GetClassColor(ct)
-                        if cc then bgClassR, bgClassG, bgClassB = cc.r, cc.g, cc.b end
-                    end
+                    bgClassR, bgClassG, bgClassB = ns.ResolveBgClassColor(classUnit)
                 end
                 if bgClassR then
                     -- Full class color; opacity comes from customBgAlpha (SetAlpha).
@@ -1693,13 +1916,7 @@ local function ApplyDarkTheme(health)
             local bgClassR, bgClassG, bgClassB
             if bgClassColored then
                 local classUnit = ClassColorSourceUnit(unitKey, unitKey or (health.__owner and health.__owner.unit))
-                if classUnit then
-                    local _, ct = UnitClass(classUnit)
-                    -- ct can be secret (out-of-range/uninspectable units).
-                    -- issecretvalue FIRST: truthiness-testing a secret errors.
-                    local cc = not issecretvalue(ct) and ct and EllesmereUI.GetClassColor(ct)
-                    if cc then bgClassR, bgClassG, bgClassB = cc.r, cc.g, cc.b end
-                end
+                bgClassR, bgClassG, bgClassB = ns.ResolveBgClassColor(classUnit)
             end
             if bgClassR then
                 -- Full class color; PostUpdateColor keeps it correct on updates.
@@ -1713,6 +1930,21 @@ local function ApplyDarkTheme(health)
                 health.bg:SetColorTexture(DARK_HEALTH_R, DARK_HEALTH_G, DARK_HEALTH_B, 1)
             end
         end
+        -- Converge the SETUP paint with the REPAINT paint. Everything above only
+        -- writes the flat class/custom color and then INSTALLS PostUpdateColor
+        -- without ever running it, so any color that PostUpdateColor owns was
+        -- lost until the next health event. That is invisible for a flat fill
+        -- (setup already painted it) but not for Dynamic Health Color, which is
+        -- resolved from the health percent and lives only in PostUpdateColor:
+        -- the bar sat on the class/custom color until the unit was damaged.
+        -- ReloadFrames makes this reachable on every settings change too -- it
+        -- repaints via Engine.ForceAll FIRST and re-runs ApplyDarkTheme after,
+        -- so the setup pass clobbered the correct color a moment after it landed.
+        -- Idempotent by construction: PostUpdateColor is built to run on every
+        -- health event, so one extra call here is free. A nil `color` just means
+        -- the class/reaction tier contributes nothing, which is right at setup --
+        -- the element has not resolved one yet.
+        if health.PostUpdateColor then health:PostUpdateColor(unit, nil) end
     end
 end
 ns.ApplyDarkTheme = ApplyDarkTheme
@@ -1723,7 +1955,7 @@ ns.ApplyDarkTheme = ApplyDarkTheme
 if EllesmereUI.RegisterDarkModeRefresh then
     EllesmereUI.RegisterDarkModeRefresh(function()
         for _, obj in pairs(frames) do
-            if type(obj) == "table" and obj.Health then ApplyDarkTheme(obj.Health) end
+            if type(obj) == "table" and obj.Health then ApplyDarkTheme(obj.Health, obj.unit) end
         end
         -- Boss "Activate Preview" fake frames need their red class-color
         -- substitute re-applied after the dark repaint above.
@@ -1989,6 +2221,35 @@ end
 -- Balance Druid showing Mana instead of Astral Power).
 _G._EUI_ResolvedPowerType = _G._EUI_ResolvedPowerType or {}
 
+local PLAYER_POWER_DEFAULT = {
+    PRIEST = { [3] = 0 },   -- Shadow: default to Mana
+}
+local PLAYER_POWER_ALT = {
+    DRUID  = { [1] = 0, [2] = 0, [3] = 0 },  -- Balance/Feral/Guardian -> Mana
+    PRIEST = { [3] = nil },                     -- Shadow alt -> Insanity (UnitPowerType)
+    SHAMAN = { [1] = 0 },                       -- Elemental -> Mana
+}
+
+-- Forced display power type for the player (number = Enum.PowerType, nil =
+-- UnitPowerType decides). Shared by the bar's GetDisplayPower, the color
+-- resolver and the options preview so all three agree.
+function EllesmereUI.GetPlayerPowerOverride()
+    if not (db and db.profile) then return nil end
+    local _, classFile = UnitClass("player")
+    local classDef = PLAYER_POWER_DEFAULT[classFile]
+    local classAlt = PLAYER_POWER_ALT[classFile]
+    if not (classDef or classAlt) then return nil end
+    local spec = GetSpecialization and GetSpecialization()
+    if not spec then return nil end
+    local ov = db.profile.player and db.profile.player.powerTypeOverride
+    if ov and ov[spec] and classAlt then
+        return classAlt[spec]
+    elseif classDef and classDef[spec] ~= nil then
+        return classDef[spec]
+    end
+    return nil
+end
+
 -- (The perpp/curpp/absorb piece functions live in the zone-formatter block
 -- below; they read the _EUI_ globals above.)
 
@@ -2035,6 +2296,24 @@ ns.ResolveUnitNameColor = function(unit)
         end
     end
     return nil
+end
+
+-- Background class-color source, enemy-aware. UnitClass() reports WARRIOR for NPCs
+-- rather than nil, so a bare lookup paints every mob Warrior tan. Players (and AI
+-- party members) keep EllesmereUI.GetClassColor (custom colors + Class Color Darken
+-- baked in); NPCs fall through to the reaction color, matching the unit name, the
+-- border and the custom Enemy Colors override. On ns for the local cap.
+ns.ResolveBgClassColor = function(classUnit)
+    if not classUnit then return nil end
+    if UnitIsPlayer(classUnit) or (UnitInPartyIsAI and UnitInPartyIsAI(classUnit)) then
+        local _, ct = UnitClass(classUnit)
+        -- ct can be secret (out-of-range/uninspectable units).
+        -- issecretvalue FIRST: truthiness-testing a secret errors.
+        local cc = not issecretvalue(ct) and ct and EllesmereUI.GetClassColor(ct)
+        if cc then return cc.r, cc.g, cc.b end
+        return nil
+    end
+    return ns.ResolveUnitNameColor(classUnit)
 end
 
 -- External nickname providers key us by this addon name. Suite = "EllesmereUI" (the
@@ -3386,6 +3665,12 @@ local MASK_INSETS = {
     square   = 17,
 }
 
+-- Shared with EllesmereUIUnitFrames_PlayerAuraBars.lua (same addon/ns), which reuses
+-- this shape media set for Player Aura Bars' iconShape feature.
+ns.PORTRAIT_MASKS   = PORTRAIT_MASKS
+ns.PORTRAIT_BORDERS = PORTRAIT_BORDERS
+ns.MASK_INSETS      = MASK_INSETS
+
 -- Apply a detached portrait shape (mask + border overlay) to a portrait backdrop;
 -- creates the mask/border textures on first call, then updates them.
 --   backdrop  : the portrait backdrop frame
@@ -4178,7 +4463,7 @@ local function CreateHealthBar(frame, unit, height, xOffset, settings, rightInse
     ApplyHealthBarAlpha(health, UnitToSettingsKey(unit))
     health:SetReverseFill(settings.healthReverseFill and true or false)
     ns.ApplyHealthOrientation(health, settings)
-    ApplyDarkTheme(health)
+    ApplyDarkTheme(health, unit)
 
     -- Smooth bar interpolation (opt-in).
     if settings.smoothBars then
@@ -5453,32 +5738,10 @@ local function CreatePowerBar(frame, unit, settings)
     -- other specs default to UnitPowerType.
     if unit == "player" then
         local _, classFile = UnitClass("player")
-        -- Specs whose addon default differs from UnitPowerType (forced value).
-        local SPEC_DEFAULT_POWER = {
-            PRIEST = { [3] = 0 },   -- Shadow: default to Mana
-        }
-        -- Specs with an alternative choice; value = powerType to force
-        -- (nil = remove the override and let UnitPowerType decide).
-        local SPEC_ALT_POWER = {
-            DRUID  = { [1] = 0, [2] = 0, [3] = 0 },  -- Balance/Feral/Guardian -> Mana
-            PRIEST = { [3] = nil },                     -- Shadow alt -> Insanity (UnitPowerType)
-            SHAMAN = { [1] = 0 },                       -- Elemental -> Mana
-        }
-        local classDef = SPEC_DEFAULT_POWER[classFile]
-        local classAlt = SPEC_ALT_POWER[classFile]
-        if classDef or classAlt then
+        if PLAYER_POWER_DEFAULT[classFile] or PLAYER_POWER_ALT[classFile] then
             power.displayAltPower = true
             power.GetDisplayPower = function(self, u)
-                local spec = GetSpecialization and GetSpecialization()
-                if not spec then return nil end
-                local resolved
-                local ps = GetSettingsForUnit("player")
-                local ov = ps and ps.powerTypeOverride
-                if ov and ov[spec] and classAlt then
-                    resolved = classAlt[spec]  -- nil = UnitPowerType, number = forced
-                elseif classDef and classDef[spec] ~= nil then
-                    resolved = classDef[spec]
-                end
+                local resolved = EllesmereUI.GetPlayerPowerOverride()
                 -- Publish for tags so the text matches the bar.
                 _G._EUI_ResolvedPowerType[u or "player"] = resolved
                 return resolved
@@ -8043,7 +8306,7 @@ local function StyleSimpleFrame(frame, unit)
     ApplyHealthBarAlpha(health, unitKey)
     health:SetReverseFill(settings.healthReverseFill and true or false)
     ns.ApplyHealthOrientation(health, settings)
-    ApplyDarkTheme(health)
+    ApplyDarkTheme(health, unit)
 
     frame.Health = health
 
@@ -8278,7 +8541,7 @@ local function StylePetFrame(frame, unit)
     ApplyHealthBarAlpha(health, unitKey)
     health:SetReverseFill(settings.healthReverseFill and true or false)
     ns.ApplyHealthOrientation(health, settings)
-    ApplyDarkTheme(health)
+    ApplyDarkTheme(health, unit)
 
     frame.Health = health
 
@@ -11564,7 +11827,7 @@ local function ReloadFrames()
             end
             frame.Health:SetReverseFill(settings.healthReverseFill and true or false)
             ns.ApplyHealthOrientation(frame.Health, settings)
-            ApplyDarkTheme(frame.Health)  -- re-anchors health.bg for the new axis
+            ApplyDarkTheme(frame.Health, unit)  -- re-anchors health.bg for the new axis
             UpdateAbsorbBarReverseFill(frame, settings.healthReverseFill and true or false, settings)
             -- Smooth bar interpolation (live toggle without /reload)
             if settings.smoothBars then
@@ -11828,6 +12091,12 @@ local function ReloadFrames()
     -- settings path landing here (fonts, profiles, options) forces one explicit
     -- re-skin of the default and custom bars, both change-guarded no-ops when nothing changed.
     if ns.PAB_Restyle then ns.PAB_Restyle() end
+    -- Profile-grade resync: enable/useBlizzard modes, native frames, default
+    -- movers, and a late build when a swap lands on an enabled profile from
+    -- a disabled-at-login session. Cheap no-op when nothing changed.
+    if ns.PAB_ProfileResync then ns.PAB_ProfileResync() end
+    -- Reload-all also SWEEPS stale bar ids (a previous profile's bars must
+    -- park on swap -- field report).
     if ns.PAB_ReloadAllCustomBars then ns.PAB_ReloadAllCustomBars() end
 end
 

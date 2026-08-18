@@ -167,7 +167,7 @@ initFrame:SetScript("OnEvent", function(self)
                   EllesmereUIDB.tooltipFontScale = v
               end },
             { type="toggle", text="Reskin Queue Popup",
-              tooltip="Reskins the LFG/dungeon queue accept popup with the EUI dark style and adds an accept countdown timer bar.",
+              tooltip="Reskins the dungeon and battleground queue accept popups with the EUI dark style, and adds an accept countdown timer bar to the dungeon one.",
               getValue=function()
                   -- Independent, default on (not tied to any master reskin toggle).
                   return not EllesmereUIDB or EllesmereUIDB.reskinQueuePopup ~= false
@@ -745,6 +745,51 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(UpdateIStacksModState)
             UpdateIStacksModState()
         end
+
+        -----------------------------------------------------------------------
+        --  Blizzard HUD. Two on-screen elements that are not windows, so they
+        --  get plain toggles here rather than cards on the Window Skins page.
+        --
+        --  EXACTLY TWO configs in the DualRow below. W:DualRow takes a left and
+        --  a right and SILENTLY DROPS a third -- a row shipped with three once
+        --  rendered only two toggles and nothing errored. If a third HUD toggle
+        --  is ever added, it needs its own row.
+        -----------------------------------------------------------------------
+        _, h = W:SectionHeader(parent, "BLIZZARD HUD", y);  y = y - h
+
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Reskin Widget Bars",
+              tooltip="Restyles Blizzard's on-screen progress bars (event objectives, nameplate counters) to the EUI look. Requires reload to apply.\n\nThese bars are drawn over rather than modified, so if the game ever reports their contents as protected the original bar is shown instead.",
+              getValue=function()
+                  return not EllesmereUIDB or EllesmereUIDB.reskinWidgetBars ~= false
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.reskinWidgetBars = v and true or false
+                  -- Reload-bound, like the window packs: turned OFF, the skin
+                  -- registers no events at all rather than running and
+                  -- returning early, so the decision is taken once at login.
+                  if EllesmereUI.ShowConfirmPopup then
+                      EllesmereUI:ShowConfirmPopup({
+                          title       = "Reload Required",
+                          message     = "Widget bar reskin requires a UI reload to apply.",
+                          confirmText = "Reload Now",
+                          cancelText  = "Later",
+                          onConfirm   = function() ReloadUI() end,
+                      })
+                  end
+              end },
+            { type="toggle", text="Reskin Extra Action Buttons",
+              tooltip="Squares the extra action and zone ability buttons and gives them a thin black border.\n\nOff by default. The size slider below works whether this is on or off.",
+              getValue=function()
+                  -- DEFAULT OFF: opt-in, so nil reads as unchecked.
+                  return EllesmereUIDB and EllesmereUIDB.reskinExtraActionButton == true
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.reskinExtraActionButton = v and true or false
+              end })
+        y = y - h
 
         return math.abs(y)
     end
@@ -1380,6 +1425,7 @@ initFrame:SetScript("OnEvent", function(self)
         return y
     end
 
+
     local function BuildLootToastContent(parent, y)
         local W = EllesmereUI.Widgets
         local _, h
@@ -1790,6 +1836,16 @@ initFrame:SetScript("OnEvent", function(self)
             end,
         },
         {
+            key   = "readycheck",
+            title = "Ready Check",
+            desc  = "The ready check prompt with its Yes / No buttons.",
+            reloadMsg = "Changing the Ready Check reskin requires a UI reload to fully swap between Blizzard and Ellesmere styles.",
+            setEnabled = function(v)
+                if not EllesmereUIDB then EllesmereUIDB = {} end
+                EllesmereUIDB.reskinReadyCheck = v
+            end,
+        },
+        {
             key   = "housing",
             title = "Housing Dashboard",
             desc  = "The housing dashboard window background, border, and title bar.",
@@ -1948,6 +2004,46 @@ initFrame:SetScript("OnEvent", function(self)
             setEnabled = function(v)
                 if not EllesmereUIDB then EllesmereUIDB = {} end
                 EllesmereUIDB.reskinSocialUI = v
+            end,
+        },
+        {
+            key   = "queuestatus",
+            title = "Queue Status",
+            desc  = "The panel the minimap Group Finder eye shows on hover: queue titles, role icons and counts, and time in queue.",
+            reloadMsg = "Changing the Queue Status reskin requires a UI reload to fully swap between Blizzard and Ellesmere styles.",
+            setEnabled = function(v)
+                if not EllesmereUIDB then EllesmereUIDB = {} end
+                EllesmereUIDB.reskinQueueStatus = v
+            end,
+        },
+        {
+            key   = "delvepicker",
+            title = "Delve Tier Picker",
+            desc  = "The delve difficulty window: tier dropdown, reward list and Enter button. The Map Properties row is left stock -- it is a Blizzard widget display and is not safe to restyle.",
+            reloadMsg = "Changing the Delve Tier Picker reskin requires a UI reload to fully swap between Blizzard and Ellesmere styles.",
+            setEnabled = function(v)
+                if not EllesmereUIDB then EllesmereUIDB = {} end
+                EllesmereUIDB.reskinDelvePicker = v
+            end,
+        },
+        {
+            key   = "playerchoice",
+            title = "Choice Windows",
+            desc  = "Weekly and event choice windows such as Abundance harvests and \"how will you aid...\" pickers: option plates, headers, reward icons and buttons. Option artwork stays.",
+            reloadMsg = "Changing the Choice Windows reskin requires a UI reload to fully swap between Blizzard and Ellesmere styles.",
+            setEnabled = function(v)
+                if not EllesmereUIDB then EllesmereUIDB = {} end
+                EllesmereUIDB.reskinPlayerChoice = v
+            end,
+        },
+        {
+            key   = "trade",
+            title = "Trade",
+            desc  = "The player-to-player trade window: frame, both item columns, the enchant slots, money rows and buttons. Item icons are squared and carry a rarity border. Both portraits are removed, as on every other window.",
+            reloadMsg = "Changing the Trade reskin requires a UI reload to fully swap between Blizzard and Ellesmere styles.",
+            setEnabled = function(v)
+                if not EllesmereUIDB then EllesmereUIDB = {} end
+                EllesmereUIDB.reskinTrade = v
             end,
         },
     }
@@ -2915,6 +3011,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.reskinLootRoll = nil
                 EllesmereUIDB.reskinLootHistory = nil
                 EllesmereUIDB.reskinGroupInvite = nil
+                EllesmereUIDB.reskinReadyCheck = nil
                 EllesmereUIDB.reskinMicroMenu = nil
                 EllesmereUIDB.reskinHousing = nil
                 EllesmereUIDB.reskinProfessions = nil
@@ -2933,6 +3030,12 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.reskinInspectRecipe = nil
                 EllesmereUIDB.reskinDelves = nil
                 EllesmereUIDB.reskinSocialUI = nil
+                EllesmereUIDB.reskinQueueStatus = nil
+                EllesmereUIDB.reskinDelvePicker = nil
+                EllesmereUIDB.reskinPlayerChoice = nil
+                EllesmereUIDB.reskinTrade = nil
+                EllesmereUIDB.reskinWidgetBars = nil
+                EllesmereUIDB.reskinExtraActionButton = nil
                 EllesmereUIDB.lfgRememberRoles = nil
                 EllesmereUIDB.lfgSavedRoles = nil
                 EllesmereUIDB.showMythicRating = nil

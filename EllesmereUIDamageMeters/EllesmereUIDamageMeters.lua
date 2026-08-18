@@ -379,6 +379,19 @@ ns.ApplyWinPosition = function(frame, wdb, idx)
     local W = ns._windows and ns._windows[idx]
     if W and W.resizing then return end
     local pos = wdb.position
+    -- Unlock-anchored window (e.g. one meter window anchored to another): the
+    -- anchor system owns the position ENTIRELY -- the standard Build* guard
+    -- (see the ERB/CDM siblings), but stricter: never seed from the stored
+    -- absolute either. A window anchored long ago carries an arbitrarily
+    -- stale absolute (wherever it sat before being anchored), and re-applying
+    -- it on every login/reload flashed the window at that spot for the first
+    -- frames until the login anchor pass landed (field report). With no
+    -- geometry yet the window simply stays UNPLACED (renders nothing) for
+    -- those frames instead; a genuinely absent anchor target is what the
+    -- fallback-anchor feature covers.
+    if EUI.IsUnlockAnchored and EUI.IsUnlockAnchored("EDM_Win" .. idx) then
+        return
+    end
     frame:ClearAllPoints()
     if pos and pos.point then
         frame:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)

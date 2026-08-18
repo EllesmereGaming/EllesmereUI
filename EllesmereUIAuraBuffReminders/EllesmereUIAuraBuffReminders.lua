@@ -1955,6 +1955,15 @@ local function GetStrata()
     return db and db.profile.display.frameStrata or "MEDIUM"
 end
 
+function EABR.GetIconTextOverlay(f)
+    if f._textOverlay then return f._textOverlay end
+    local overlay = CreateFrame("Frame", nil, f)
+    overlay:SetAllPoints()
+    overlay:SetFrameLevel(f:GetFrameLevel() + 5)
+    f._textOverlay = overlay
+    return overlay
+end
+
 local function GetOrCreateCombatIcon(index)
     if combatIconPool[index] then return combatIconPool[index] end
     local f = CreateFrame("Frame", "EABR_CombatIcon"..index, combatAnchor)
@@ -1967,7 +1976,7 @@ local function GetOrCreateCombatIcon(index)
     f._icon = icon
     local PP = EllesmereUI and EllesmereUI.PP
     if PP then PP.CreateBorder(f, 0, 0, 0, 1, 1, "OVERLAY", 7) end
-    local text = f:CreateFontString(nil, "OVERLAY")
+    local text = EABR.GetIconTextOverlay(f):CreateFontString(nil, "OVERLAY")
     text:SetPoint("TOP", f, "BOTTOM", 0, -2)
     SetABRFont(text, ResolveFontPath(), 11)
     text:SetTextColor(1, 1, 1, 1)
@@ -2072,7 +2081,7 @@ local function GetOrCreateCursorIcon(index)
     f._icon = icon
     local PP = EllesmereUI and EllesmereUI.PP
     if PP then PP.CreateBorder(f, 0, 0, 0, 1, 1, "OVERLAY", 7) end
-    local text = f:CreateFontString(nil, "OVERLAY")
+    local text = EABR.GetIconTextOverlay(f):CreateFontString(nil, "OVERLAY")
     text:SetPoint("TOP", f, "BOTTOM", 0, -2)
     SetABRFont(text, ResolveFontPath(), 11)
     text:SetTextColor(1, 1, 1, 1)
@@ -2217,7 +2226,7 @@ function EABR.EnsureProviderCastButton()
     btn._icon = icon
     local PP = EllesmereUI and EllesmereUI.PP
     if PP then PP.CreateBorder(btn, 0, 0, 0, 1, 1, "OVERLAY", 7) end
-    local text = btn:CreateFontString(nil, "OVERLAY")
+    local text = EABR.GetIconTextOverlay(btn):CreateFontString(nil, "OVERLAY")
     text:SetPoint("TOP", btn, "BOTTOM", 0, -2)
     SetABRFont(text, ResolveFontPath(), 11)
     text:SetTextColor(1, 1, 1, 1)
@@ -2469,7 +2478,7 @@ end
 
 function EABR.CreateIconCountOverlay(f)
     if f._count then return f._count end
-    local count = f:CreateFontString(nil, "OVERLAY", "NumberFontNormalLarge")
+    local count = EABR.GetIconTextOverlay(f):CreateFontString(nil, "OVERLAY", "NumberFontNormalLarge")
     count:SetPoint("CENTER", f._icon, "CENTER", 0, 0)
     count:Hide()
     f._count = count
@@ -2536,7 +2545,7 @@ end
 -- Bag-count badge (how many of the consumable remain), bottom-right corner.
 function EABR.CreateIconBagCountOverlay(f)
     if f._bagCount then return f._bagCount end
-    local fs = f:CreateFontString(nil, "OVERLAY")
+    local fs = EABR.GetIconTextOverlay(f):CreateFontString(nil, "OVERLAY")
     SetABRFont(fs, ResolveFontPath(), 11)
     fs:Hide()
     f._bagCount = fs
@@ -2697,7 +2706,7 @@ local function GetOrCreateIcon(index)
     local PP = EllesmereUI and EllesmereUI.PP
     if PP then PP.CreateBorder(btn, 0, 0, 0, 1, 1, "OVERLAY", 7) end
 
-    local text = btn:CreateFontString(nil, "OVERLAY")
+    local text = EABR.GetIconTextOverlay(btn):CreateFontString(nil, "OVERLAY")
     text:SetPoint("TOP", btn, "BOTTOM", 0, -2)
     SetABRFont(text, ResolveFontPath(), 11)
     text:SetTextColor(1, 1, 1, 1)
@@ -4081,7 +4090,7 @@ local function BeaconMakeIcon(spellID)
     f._spellID = spellID
     local PP = EllesmereUI and EllesmereUI.PP
     if PP then PP.CreateBorder(f, 0, 0, 0, 1, 1, "OVERLAY", 7) end
-    local text = f:CreateFontString(nil, "OVERLAY")
+    local text = EABR.GetIconTextOverlay(f):CreateFontString(nil, "OVERLAY")
     text:SetPoint("TOP", f, "BOTTOM", 0, -2)
     SetABRFont(text, ResolveFontPath(), 11)
     text:SetTextColor(1, 1, 1, 1)

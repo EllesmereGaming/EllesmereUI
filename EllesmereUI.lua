@@ -1436,6 +1436,9 @@ _G.EllesmereUI = EllesmereUI
 EllesmereUI.GLOBAL_KEY = "_EUIGlobal"
 EllesmereUI.ADDON_ROSTER = ADDON_ROSTER
 EllesmereUI.LOCALE_FONT_FALLBACK = LOCALE_FONT_FALLBACK
+-- Script the fallback stands in for: "cyrillic" | "cjk" | nil. Table field, not a
+-- file-scope local: this file sits on the Lua 5.1 200-local cap.
+EllesmereUI.LOCALE_SCRIPT = EllesmereUI._localeScript
 EllesmereUI.EXPRESSWAY = LOCALE_FONT_FALLBACK or EXPRESSWAY
 
 -- Taint-safe print: AddMessage, never global print() (its C-side handler taints the chat
@@ -1450,6 +1453,46 @@ function EllesmereUI.Print(...)
        and C_ChallengeMode.IsChallengeModeActive() then return end
     if (instanceType == "pvp" or instanceType == "arena") and InCombatLockdown() then return end
     f:AddMessage(strjoin(" ", tostringall(...)))
+end
+
+-- Budgeted step runner -- the 12.1 script-watchdog defense for any pass whose
+-- cost scales with data size (frames x settings x profile keys). Runs `steps`
+-- (an array of functions) strictly in order, spending at most `msBudget`
+-- (default 8) milliseconds of CPU per execution; when the budget is spent the
+-- remainder re-queues via C_Timer.After(0), so every continuation gets a
+-- fresh watchdog budget. By construction no single execution here can
+-- approach the watchdog limit, on any machine, at any step count.
+--
+-- NOTHING runs in the caller's execution: the first slice is deferred too,
+-- so a caller that already spent real budget (a profile apply, an options
+-- click) never gets this work stacked on top. Timers do not fire during
+-- loading screens, so from a login-window caller the first slice lands on
+-- the first frame after the screen drops.
+--
+-- Each step runs under pcall with errors routed to the standard error
+-- handler and the chain CONTINUING: an async chain that died mid-way would
+-- silently strand `onDone` (completion/cleanup) and every later step, which
+-- is worse than one step's failure. Steps must tolerate a failed
+-- predecessor; a sequence that cannot should stay synchronous instead.
+-- `onDone` (optional) runs after the last step, in that final execution.
+-- No file-scope locals here on purpose: this file sits on the 200-local cap.
+function EllesmereUI.RunBudgeted(steps, msBudget, onDone)
+    local idx, n = 1, #steps
+    local budget = msBudget or 8
+    local function drain()
+        local deadline = debugprofilestop() + budget
+        while idx <= n do
+            local ok, err = pcall(steps[idx])
+            idx = idx + 1
+            if not ok and err then geterrorhandler()(err) end
+            if idx <= n and debugprofilestop() > deadline then
+                C_Timer.After(0, drain)
+                return
+            end
+        end
+        if onDone then onDone() end
+    end
+    C_Timer.After(0, drain)
 end
 
 local mainFrame, bgFrame, clickArea, sidebar, contentFrame
@@ -2739,6 +2782,62 @@ do
         if bd then bd.container:Show() end
     end
 
+    -- Variable-thickness border ring drawn from a single pre-shaped texture (natively
+    -- 7px thick), scaled by (7 - rawBorderSize) and clipped by `mask`. Called with `:`
+    -- so self.Point resolves to whichever PP module owns host's frame hierarchy
+    -- (world PP vs PanelPP) -- calling with `.` shifts every argument left by one.
+    function PP:ApplyMaskedShapeBorder(host, mask, texPath, rawBorderSize, r, g, b, a)
+        if not host then return end
+        rawBorderSize = rawBorderSize or 0
+        if rawBorderSize <= 0 or not texPath then
+            if host._shapeBorderShown then
+                host._shapeBorderTex:Hide()
+                host._shapeBorderShown = nil
+            end
+            return
+        end
+        r, g, b, a = r or 0, g or 0, b or 0, a or 1
+        -- Every field guarded: callers invoke this on every restyle pass regardless
+        -- of whether the border changed, and Remove/AddMaskTexture aren't cheap.
+        if host._shapeBorderShown and host._sbTex == texPath and host._sbSize == rawBorderSize
+            and host._sbMask == mask and host._sbR == r and host._sbG == g
+            and host._sbB == b and host._sbA == a then
+            return
+        end
+        if not host._shapeBorderTex then
+            host._shapeBorderTex = host:CreateTexture(nil, "OVERLAY")
+            local t = host._shapeBorderTex
+            if t.SetSnapToPixelGrid then t:SetSnapToPixelGrid(false); t:SetTexelSnappingBias(0) end
+        end
+        local tex = host._shapeBorderTex
+        local bExp = 7 - math.min(rawBorderSize, 7)
+        tex:ClearAllPoints()
+        self.Point(tex, "TOPLEFT", host, "TOPLEFT", -bExp, bExp)
+        self.Point(tex, "BOTTOMRIGHT", host, "BOTTOMRIGHT", bExp, -bExp)
+        if mask then
+            pcall(tex.RemoveMaskTexture, tex, mask)
+            pcall(tex.AddMaskTexture, tex, mask)
+        end
+        tex:SetTexture(texPath)
+        tex:SetVertexColor(r, g, b, a)
+        tex:Show()
+        host._sbTex, host._sbSize, host._sbMask, host._sbR, host._sbG, host._sbB, host._sbA =
+            texPath, rawBorderSize, mask, r, g, b, a
+        host._shapeBorderShown = true
+    end
+
+    -- Callers switching away from a shaped border (to the plain-line border, or off
+    -- entirely) must hide _shapeBorderTex through this, not a raw :Hide() -- the guard
+    -- above trusts _shapeBorderShown, so an external hide it doesn't know about leaves
+    -- a later ApplyMaskedShapeBorder call with the exact same args wrongly skipping
+    -- its own Show().
+    function PP:HideMaskedShapeBorder(host)
+        if host and host._shapeBorderShown then
+            host._shapeBorderTex:Hide()
+            host._shapeBorderShown = nil
+        end
+    end
+
     ---------------------------------------------------------------------------
     --  Scale change watcher
     ---------------------------------------------------------------------------
@@ -2861,6 +2960,8 @@ do
     PanelPP.UpdateBorder  = PP.UpdateBorder
     PanelPP.HideBorder    = PP.HideBorder
     PanelPP.ShowBorder    = PP.ShowBorder
+    PanelPP.ApplyMaskedShapeBorder = PP.ApplyMaskedShapeBorder
+    PanelPP.HideMaskedShapeBorder = PP.HideMaskedShapeBorder
 end
 
 -- File-level PanelPP reference for panel layout code outside the do block
@@ -3644,6 +3745,28 @@ EllesmereUI.FONT_FILES = {
     ["Morpheus"]            = nil,  -- Blizzard font
     ["Skurri"]              = nil,  -- Blizzard font
 }
+-- Bundled faces whose cmap covers the FULL Russian alphabet (U+0410-U+044F plus U+0401
+-- and U+0451, i.e. the Yo pair): these stay
+-- usable in ruRU instead of being swapped for the system glyph font. Verified per file
+-- against its cmap table -- everything omitted here (Poppins, Exo, Gotham, Changa, Cinzel,
+-- Future X Black, Homespun, KMT Ninja Naruto, Barlow Condensed) has ZERO Cyrillic and would
+-- render boxes. Re-check coverage before adding a face; a wrong entry ships unreadable text.
+-- Deliberately NOT extended to FONT_BLIZZARD: the Cyrillic-capable Blizzard face is
+-- FRIZQT___CYR (already the fallback), and the plain ones vary by installed client locale.
+EllesmereUI.FONT_CYRILLIC = {
+    ["Expressway"]       = true,
+    ["Expressway Bold"]  = true,
+    ["Avant Garde"]      = true,
+    ["Arial Bold"]       = true,
+    ["Arial Narrow"]     = true,
+    ["Fira Sans Medium"] = true,
+    ["Fira Sans Bold"]   = true,
+    ["Fira Sans Light"]  = true,
+    ["KMT Kimberley"]    = true,
+    ["Russo One"]        = true,
+    ["Ubuntu"]           = true,
+}
+
 -- Blizzard built-in font paths (not in our media folder)
 EllesmereUI.FONT_BLIZZARD = {
     ["Friz Quadrata"] = "Fonts\\FRIZQT__.TTF",
@@ -3745,7 +3868,12 @@ function EllesmereUI.GetFontsDB()
     if not EllesmereUIDB then EllesmereUIDB = {} end
     if not EllesmereUIDB.fonts then
         EllesmereUIDB.fonts = {
-            global      = "Expressway",
+            -- Cyrillic locales seed the system glyph font, not Expressway: the FONT_CYRILLIC
+            -- faces do render ruRU correctly, but they stay an explicit opt-in so a fresh
+            -- install looks exactly like every prior version. Existing installs are pinned
+            -- by the ru_cyrillic_font_optin_v1 migration.
+            global      = (EllesmereUI.LOCALE_SCRIPT == "cyrillic")
+                          and EllesmereUI.SYSTEM_FONT_KEY or "Expressway",
             outlineMode = "shadow",
         }
     end
@@ -3759,11 +3887,20 @@ local function ResolveFontName(fontName)
     if fontName == EllesmereUI.EXPRESSWAY_FORCED_KEY then
         return MEDIA_PATH .. "fonts\\Expressway.TTF"
     end
-    -- Glyph-restricted locales (CJK, Cyrillic): bundled fonts are Latin-only, so they
-    -- and the System Default sentinel map to the system glyph font. Only an external
-    -- SharedMedia font may override. Bundled names are excluded first (they are also
-    -- LSM-registered and would resolve Latin).
+    -- Glyph-restricted locales (CJK, Cyrillic): bundled fonts without coverage for the
+    -- script, and the System Default sentinel, map to the system glyph font. Only an
+    -- external SharedMedia font (or a FONT_CYRILLIC face in ruRU, handled first) may
+    -- override. Bundled names are excluded below because they are LSM-registered too and
+    -- would otherwise resolve to their Latin file.
     if LOCALE_FONT_FALLBACK then
+        -- Cyrillic locales: a bundled face with verified Cyrillic coverage renders ruRU
+        -- text correctly, so honour the pick instead of forcing the system glyph font.
+        -- Gated on LOCALE_SCRIPT, not on the fallback alone: CJK has no bundled coverage.
+        if EllesmereUI.LOCALE_SCRIPT == "cyrillic" and fontName
+           and EllesmereUI.FONT_CYRILLIC[fontName] then
+            local cyrFile = EllesmereUI.FONT_FILES[fontName]
+            if cyrFile then return MEDIA_PATH .. "fonts\\" .. cyrFile end
+        end
         if fontName
            and not EllesmereUI.FONT_FILES[fontName]
            and not EllesmereUI.FONT_BLIZZARD[fontName] then
@@ -3992,29 +4129,46 @@ do
     end
 end
 
--- "Apply to All Game Text": swaps Blizzard's default game fonts to the user's global face.
--- Taint-safe: runs once at PLAYER_LOGIN (out of combat), sets STANDARD_TEXT_FONT, and SetFonts
--- Blizzard's named font OBJECTS (not secure frames, no keys written onto Blizzard frame
--- tables). Typeface only, native size/outline preserved; toggling requires a reload (no undo path: disabled = skipped, defaults kept).
+-- "Apply to All Game Text" + "Game Text Scale": swaps Blizzard's default game fonts to
+-- the user's global face and/or scales their sizes. Taint-safe: runs once at PLAYER_LOGIN
+-- (out of combat), sets STANDARD_TEXT_FONT, and SetFonts Blizzard's named font OBJECTS
+-- (not secure frames, no keys written onto Blizzard frame tables). Outline preserved;
+-- sizes multiply from each object's NATIVE size (single once-per-session pass, so the
+-- scale can never compound); either setting requires a reload (no undo path: off/100% =
+-- that half skipped, defaults kept). Scale works without the face swap too -- each
+-- object keeps its own face at the scaled size.
 function EllesmereUI.ApplyGlobalFontToGameText()
     local db = EllesmereUI.GetFontsDB()
-    if not db.applyToAllGameText then return end
-    local path = ResolveFontName(db.global or "Expressway")
-    if not path then return end
+    -- Zero cost while fully off: both settings absent (scale 100 stores nil)
+    -- means two table reads and out -- nothing computed, nothing enumerated.
+    if not db.applyToAllGameText and not db.gameTextScale then return end
+    local scale = tonumber(db.gameTextScale) or 100
+    if scale < 75 then scale = 75 elseif scale > 125 then scale = 125 end
+    scale = scale / 100
+    local swap = db.applyToAllGameText and true or false
+    local path
+    if swap then
+        path = ResolveFontName(db.global or "Expressway")
+        if not path then swap = false end
+    end
+    if not swap and scale == 1 then return end
 
-    -- Universal fallback consumed by newly-created Blizzard/addon text.
-    _G.STANDARD_TEXT_FONT = path
+    if swap then
+        -- Universal fallback consumed by newly-created Blizzard/addon text.
+        _G.STANDARD_TEXT_FONT = path
+    end
 
     -- Enumerate every registered font object via the game's own font list (no
     -- hardcoded list to go stale); covers Blizzard + other addons in one pass.
     local fonts = (GetFonts and GetFonts()) or {}
     for i = 1, #fonts do
         local obj = _G[fonts[i]]
-        -- Swap the face only (native size/outline preserved). Guard each:
-        -- GetFonts may list entries that are not usable font objects.
+        -- Guard each: GetFonts may list entries that are not usable font objects.
         if obj and type(obj) == "table" and obj.GetFont and obj.SetFont then
-            local _, size, flags = obj:GetFont()
-            if size and size > 0 then obj:SetFont(path, size, flags) end
+            local face, size, flags = obj:GetFont()
+            if size and size > 0 then
+                obj:SetFont(swap and path or face, size * scale, flags)
+            end
         end
     end
 end
@@ -4303,6 +4457,16 @@ end
 --      the REAL color in altR/altG/altB (what oUF paints the bar with), so use it.
 --   3) Token unmatched, no alt color, standard integer type -> custom color (safety net).
 function EllesmereUI.ResolveUnitPowerColor(unit)
+    -- Player: the forced display power type (UF Power Type dropdown) wins over
+    -- the real one, resolved live so it never lags a setting or spec change.
+    if unit == "player" and EllesmereUI.GetPlayerPowerOverride then
+        local override = EllesmereUI.GetPlayerPowerOverride()
+        if override ~= nil then
+            local overrideKey = EllesmereUI.POWER_ENUM_TO_KEY[override]
+            local overrideInfo = overrideKey and EllesmereUI.GetPowerColor(overrideKey)
+            if overrideInfo then return overrideInfo.r, overrideInfo.g, overrideInfo.b end
+        end
+    end
     local pType, pToken, altR, altG, altB = UnitPowerType(unit)
     local info = EllesmereUI.GetPowerColor(pToken)
     if info then return info.r, info.g, info.b end
@@ -5497,8 +5661,11 @@ function EllesmereUI.MakeUnlockElement(opts)
         -- resize and width/height matching stay available.
         keepMoverWhenAnchored = opts.keepMoverWhenAnchored,
         -- moverBg: optional {r,g,b} tint for the mover background (default: dark overlay).
+        -- moverTooltip: optional hover tooltip (string or function) on the mover
+        -- (first use: CDM's Additional Bar Offset marker).
         -- subtitle: optional dimmed helper line under the mover label.
         moverBg           = opts.moverBg,
+        moverTooltip      = opts.moverTooltip,
         subtitle          = opts.subtitle,
     }
 end
@@ -9620,6 +9787,13 @@ function EllesmereUI:NavigateToElementSettings(moduleName, pageName, sectionName
         return nil
     end
 
+    -- First-open split (see _SplitFirstOpen): Show() below returns without
+    -- building the panel on the session's first open, so run the whole deep
+    -- link next frame rather than navigating a panel that does not exist yet.
+    if self:_SplitFirstOpen(function()
+        EllesmereUI:NavigateToElementSettings(moduleName, pageName, sectionName, preSelectFn, highlightText)
+    end) then return end
+
     self:Show()
     self:SelectModule(moduleName)
     self:SelectPage(pageName)
@@ -10562,6 +10736,13 @@ end
 
 function EllesmereUI:SelectModule(folderName)
     if not modules[folderName] then return end
+    -- The panel is not always built when we get here: on the session's first
+    -- open the first-open split (see _SplitFirstOpen) makes Show()/Toggle()
+    -- return BEFORE CreateMainFrame, so a caller that opens the panel and
+    -- selects a module in the same execution arrives with headerFrame nil.
+    -- Bail before activeModule is written -- a half-applied selection also
+    -- suppresses CreateMainFrame's default-module pick, leaving a blank panel.
+    if not headerFrame then return end
     if folderName == activeModule then return end
     -- Excluded modules are locked while an override editing session is
     -- active; blocking at the choke point covers every navigation path
@@ -10962,8 +11143,34 @@ local function ShowSidebarUnlockTip()
     end)
 end
 
-function EllesmereUI:Show()
+-- FIRST-OPEN SPLIT: the session's first open pays two heavy bills --
+-- EnsureLoaded (LoadAddOn parsing the whole LoD options addon + every deferred
+-- init) and the full panel build -- and the per-execution watchdog meters them
+-- TOGETHER when both run in one hardware-event handler (field: "script ran too
+-- long" aborting mid-sidebar on the very first open). Split them: the
+-- triggering execution only LOADS; afterFn (the caller re-invoking itself)
+-- runs next frame with its own fresh budget. Later opens (already loaded) stay
+-- fully synchronous -- returns false and the caller proceeds as before.
+-- EnsureLoaded itself stays synchronous: direct callers (DataBars' block
+-- settings path) use the deferred inits' results in the same execution. A
+-- failed load (options addon disabled) also returns false so the caller runs
+-- the exact legacy failure path; _openPending swallows re-clicks during the
+-- one-frame gap so a Toggle can't double-fire.
+function EllesmereUI:_SplitFirstOpen(afterFn)
+    if self._deferredLoaded then return false end
     self:EnsureLoaded()
+    if not self._deferredLoaded then return false end
+    self._openPending = true
+    C_Timer.After(0, function()
+        EllesmereUI._openPending = nil
+        afterFn()
+    end)
+    return true
+end
+
+function EllesmereUI:Show()
+    if self._openPending then return end
+    if self:_SplitFirstOpen(function() EllesmereUI:Show() end) then return end
     CreateMainFrame()
     RefreshSidebarStates()
     mainFrame:Show()
@@ -10971,7 +11178,8 @@ function EllesmereUI:Show()
 end
 function EllesmereUI:Hide()   if mainFrame then mainFrame:Hide() end end
 function EllesmereUI:Toggle()
-    self:EnsureLoaded()
+    if self._openPending then return end
+    if self:_SplitFirstOpen(function() EllesmereUI:Toggle() end) then return end
     CreateMainFrame()
     if mainFrame:IsShown() then
         mainFrame:Hide()
@@ -11039,7 +11247,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "8.8.8"
+EllesmereUI.VERSION = "8.9.1"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end
@@ -11532,7 +11740,10 @@ function EllesmereUI:ShowModule(folderName)
         EllesmereUI.Print("|cffff6060[EllesmereUI]|r Cannot open options during combat.")
         return
     end
-    self:EnsureLoaded()
+    if self._openPending then return end
+    -- First-open split (see _SplitFirstOpen): the combat check above stays in
+    -- the click execution; the deferred re-invoke re-checks it harmlessly.
+    if self:_SplitFirstOpen(function() EllesmereUI:ShowModule(folderName) end) then return end
     CreateMainFrame()
     RefreshSidebarStates()
     mainFrame:Show()

@@ -1194,6 +1194,25 @@ initFrame:SetScript("OnEvent", function(self)
     ---------------------------------------------------------------------------
     --  Menu, Bags & XP Bars page  (dedicated tab)
     ---------------------------------------------------------------------------
+    -- Shared by the data-bar page builder AND BuildSharedBarSettings below
+    -- (a local is only visible below its declaration, so it lives at this
+    -- common scope rather than inside either builder).
+    local function MakeCogBtn(rgn, showFn, anchorTo, iconPath)
+        local cogBtn = CreateFrame("Button", nil, rgn)
+        cogBtn:SetSize(26, 26)
+        cogBtn:SetPoint("RIGHT", anchorTo or rgn._control, "LEFT", -8, 0)
+        rgn._lastInline = cogBtn
+        cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+        cogBtn:SetAlpha(0.4)
+        local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+        cogTex:SetAllPoints()
+        cogTex:SetTexture(iconPath or EllesmereUI.COGS_ICON)
+        cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+        cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+        cogBtn:SetScript("OnClick", function(self) showFn(self) end)
+        return cogBtn
+    end
+
     local function BuildMenuBagsXPPage(pageName, parent, yOffset)
         local W = EllesmereUI.Widgets
         local y = yOffset
@@ -1484,7 +1503,8 @@ initFrame:SetScript("OnEvent", function(self)
                       if ns.ApplyDataBarLayout then ns.ApplyDataBarLayout(barKey) end
                   end });  y = y - h
 
-            _, h = W:DualRow(parent, y,
+            local textRow
+            textRow, h = W:DualRow(parent, y,
                 { type="toggle", text="Click Through",
                   tooltip="Mouse clicks pass through the bar. Disable to allow the mouseover tooltip.",
                   getValue=function() return S().clickThrough end,
@@ -1498,6 +1518,28 @@ initFrame:SetScript("OnEvent", function(self)
                       S().textSize = v
                       if ns.ApplyDataBarLayout then ns.ApplyDataBarLayout(barKey) end
                   end });  y = y - h
+
+            if not EllesmereUI._prebuilding then
+                local rgn = textRow._rightRegion
+                local _, dbCogShowRaw = EllesmereUI.BuildCogPopup({
+                    title = "Bar Text Offsets",
+                    rows = {
+                        { type="slider", label="X Offset", min=-150, max=150, step=1,
+                          get=function() return S().textOffsetX or 0 end,
+                          set=function(v)
+                              S().textOffsetX = v
+                              if ns.ApplyDataBarLayout then ns.ApplyDataBarLayout(barKey) end
+                          end },
+                        { type="slider", label="Y Offset", min=-150, max=150, step=1,
+                          get=function() return S().textOffsetY or 0 end,
+                          set=function(v)
+                              S().textOffsetY = v
+                              if ns.ApplyDataBarLayout then ns.ApplyDataBarLayout(barKey) end
+                          end },
+                    },
+                })
+                MakeCogBtn(rgn, dbCogShowRaw, nil, EllesmereUI.DIRECTIONS_ICON)
+            end
 
             return visRow, sizeRow
         end
@@ -1584,22 +1626,6 @@ initFrame:SetScript("OnEvent", function(self)
         local function SUpdatePreviewAndResize()
             UpdatePreviewAndResize()
         end
-        local function MakeCogBtn(rgn, showFn, anchorTo, iconPath)
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", anchorTo or rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(0.4)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints()
-            cogTex:SetTexture(iconPath or EllesmereUI.COGS_ICON)
-            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
-            cogBtn:SetScript("OnClick", function(self) showFn(self) end)
-            return cogBtn
-        end
-
         parent._showRowDivider = true
 
         local visOnly = IsVisOnly()

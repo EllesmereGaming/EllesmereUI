@@ -616,6 +616,108 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
 
+        -- Row: Hide Loot Rolls Window (left, with settings cog) | Combat
+        -- Alert (right, with its own settings cog below)
+        local lootHistRow
+        lootHistRow, h = W:DualRow(parent, y,
+            { type="toggle", text="Hide Loot Rolls Window",
+              tooltip="Hides Blizzard's \"Loot Rolls\" window -- the running list of dropped items showing who rolled what and who won. Use the cog to let it appear briefly and close itself instead. The Need/Greed roll popups themselves are not affected.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.hideLootHistory or false
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.hideLootHistory = v
+                  if EllesmereUI._applyHideLootHistory then EllesmereUI._applyHideLootHistory() end
+                  EllesmereUI:RefreshPage()  -- update the cog disabled state
+              end },
+            { type="toggle", text="Combat Alert",
+              tooltip="Shows a large on-screen text when you enter and/or leave combat (e.g. \"+Combat\" / \"-Combat\"). Use the cog to set the display text, size, colors and which transitions are shown; use Unlock Mode to reposition the alert.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.combatAlertEnabled or false
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.combatAlertEnabled = v
+                  if EllesmereUI._applyCombatAlert then EllesmereUI._applyCombatAlert() end
+                  EllesmereUI:RefreshPage()
+              end }
+        );  y = y - h
+
+        -- Inline cog (mode + auto-close delay) on the Hide Loot Rolls toggle
+        if not EllesmereUI._prebuilding then
+            local leftRgn = lootHistRow._leftRegion
+            local function lootHistOff()
+                return not (EllesmereUIDB and EllesmereUIDB.hideLootHistory)
+            end
+            -- The delay only means anything in auto-close mode.
+            local function delayOff()
+                return lootHistOff()
+                    or (EllesmereUIDB and EllesmereUIDB.lootHistoryMode) ~= "autoclose"
+            end
+
+            local lhModeValues = {
+                hide      = "Hide Completely",
+                autoclose = "Close After Delay",
+            }
+            local lhModeOrder = { "hide", "autoclose" }
+
+            local _, lootHistCogShow = EllesmereUI.BuildCogPopup({
+                title = "Loot Rolls Window Settings",
+                minWidth = 300,
+                rows = {
+                    { type="dropdown", label="Mode",
+                      values=lhModeValues, order=lhModeOrder,
+                      get=function() return (EllesmereUIDB and EllesmereUIDB.lootHistoryMode) or "hide" end,
+                      set=function(v)
+                        if not EllesmereUIDB then EllesmereUIDB = {} end
+                        EllesmereUIDB.lootHistoryMode = v
+                        if EllesmereUI._applyHideLootHistory then EllesmereUI._applyHideLootHistory() end
+                      end },
+                    { type="slider", label="Close After (sec)",
+                      min=1, max=30, step=1,
+                      disabled=delayOff,
+                      get=function()
+                        return (EllesmereUIDB and EllesmereUIDB.lootHistoryDelay) or 5
+                      end,
+                      set=function(v)
+                        if not EllesmereUIDB then EllesmereUIDB = {} end
+                        EllesmereUIDB.lootHistoryDelay = v
+                        if EllesmereUI._applyHideLootHistory then EllesmereUI._applyHideLootHistory() end
+                      end },
+                },
+            })
+
+            local lhCogBtn = CreateFrame("Button", nil, leftRgn)
+            lhCogBtn:SetSize(26, 26)
+            lhCogBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -9, 0)
+            leftRgn._lastInline = lhCogBtn
+            lhCogBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
+            lhCogBtn:SetAlpha(lootHistOff() and 0.15 or 0.4)
+            local lhCogTex = lhCogBtn:CreateTexture(nil, "OVERLAY")
+            lhCogTex:SetAllPoints()
+            lhCogTex:SetTexture(EllesmereUI.COGS_ICON)
+            lhCogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+            lhCogBtn:SetScript("OnLeave", function(self) self:SetAlpha(lootHistOff() and 0.15 or 0.4) end)
+            lhCogBtn:SetScript("OnClick", function(self) lootHistCogShow(self) end)
+
+            local lhCogBlock = CreateFrame("Frame", nil, lhCogBtn)
+            lhCogBlock:SetAllPoints()
+            lhCogBlock:SetFrameLevel(lhCogBtn:GetFrameLevel() + 10)
+            lhCogBlock:EnableMouse(true)
+            lhCogBlock:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(lhCogBtn, EllesmereUI.DisabledTooltip("Hide Loot Rolls Window"))
+            end)
+            lhCogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            EllesmereUI.RegisterWidgetRefresh(function()
+                local off = lootHistOff()
+                lhCogBtn:SetAlpha(off and 0.15 or 0.4)
+                if off then lhCogBlock:Show() else lhCogBlock:Hide() end
+            end)
+            if lootHistOff() then lhCogBlock:Show() else lhCogBlock:Hide() end
+        end
+
         -- Row 7: Announce Group Deaths (left, with Text Size cog) | Hide Item
         -- Transforms (right, with picker cog)
         local deathRow
@@ -744,26 +846,10 @@ initFrame:SetScript("OnEvent", function(self)
             if deathInitOff then deathCogBlock:Show() else deathCogBlock:Hide() end
         end
 
-        -- Row: Combat Alert (left, with settings cog)
-        local combatAlertRow
-        combatAlertRow, h = W:DualRow(parent, y,
-            { type="toggle", text="Combat Alert",
-              tooltip="Shows a large on-screen text when you enter and/or leave combat (e.g. \"+Combat\" / \"-Combat\"). Use the cog to set the display text, size, colors and which transitions are shown; use Unlock Mode to reposition the alert.",
-              getValue=function()
-                  return EllesmereUIDB and EllesmereUIDB.combatAlertEnabled or false
-              end,
-              setValue=function(v)
-                  if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.combatAlertEnabled = v
-                  if EllesmereUI._applyCombatAlert then EllesmereUI._applyCombatAlert() end
-                  EllesmereUI:RefreshPage()
-              end },
-            { type="label", text="" }
-        );  y = y - h
-
         -- Inline cog (text, size, colors, mode) on the Combat Alert toggle
+        -- (the RIGHT slot of the Hide Loot Rolls row above).
         if not EllesmereUI._prebuilding then
-            local leftRgn = combatAlertRow._leftRegion
+            local leftRgn = lootHistRow._rightRegion
             local function caOff()
                 return not (EllesmereUIDB and EllesmereUIDB.combatAlertEnabled)
             end
@@ -2705,6 +2791,10 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.shifterEnabled = false
                 EllesmereUIDB.shifterPositions = nil
                 EllesmereUIDB.hideErrorMessages = false
+                EllesmereUIDB.hideLootHistory = false
+                EllesmereUIDB.lootHistoryMode = nil
+                EllesmereUIDB.lootHistoryDelay = nil
+                if EllesmereUI._applyHideLootHistory then EllesmereUI._applyHideLootHistory() end
                 EllesmereUIDB.announceGroupDeaths = false
                 EllesmereUIDB.groupDeathTextSize = nil
                 EllesmereUIDB.groupDeathAlertPos = nil

@@ -111,6 +111,15 @@ local function GlyphFont(locale)
     return nil
 end
 
+-- Script class behind the glyph font. The two classes are NOT interchangeable: several
+-- bundled faces carry the full Cyrillic block, so ruRU can honour a bundled pick
+-- (see EllesmereUI.FONT_CYRILLIC), while no bundled face has CJK coverage at all.
+local function GlyphScript(locale)
+    if locale == "zhCN" or locale == "zhTW" or locale == "koKR" then return "cjk" end
+    if locale == "ruRU" then return "cyrillic" end
+    return nil
+end
+
 local function Activate()
     local client = GetLocale()
     if client == "enGB" then client = "enUS" end
@@ -124,6 +133,7 @@ local function Activate()
     EllesmereUI.LOCALE     = locale
     EllesmereUI.IS_ENGLISH = (locale == "enUS")
     EllesmereUI._localeFont = GlyphFont(locale)
+    EllesmereUI._localeScript = GlyphScript(locale)
 
     reverse = {}
     if locale == "enUS" then

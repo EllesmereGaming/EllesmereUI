@@ -145,7 +145,7 @@ local function GetCharacterBankTabs()
                 if numSlots > 0 then
                     local icon = td.icon
                     if not icon or icon == 134400 then icon = GetFallbackIcon(bagID) end
-                    tabs[#tabs + 1] = { bagID = bagID, numSlots = numSlots, name = td.name or ("Bank Tab " .. i), icon = icon, depositFlags = td.depositFlags or 0 }
+                    tabs[#tabs + 1] = { bagID = bagID, numSlots = numSlots, name = td.name or EUI.Lf("Bank Tab %1$d", i), icon = icon, depositFlags = td.depositFlags or 0 }
                 end
             end
         end
@@ -153,7 +153,7 @@ local function GetCharacterBankTabs()
         for i, bagID in ipairs(CHARACTER_BANK_BAGS) do
             local numSlots = C_Container.GetContainerNumSlots(bagID)
             if numSlots > 0 then
-                tabs[#tabs + 1] = { bagID = bagID, numSlots = numSlots, name = "Bank Tab " .. #tabs + 1, icon = GetFallbackIcon(bagID), depositFlags = 0 }
+                tabs[#tabs + 1] = { bagID = bagID, numSlots = numSlots, name = EUI.Lf("Bank Tab %1$d", #tabs + 1), icon = GetFallbackIcon(bagID), depositFlags = 0 }
             end
         end
     end
@@ -178,7 +178,7 @@ local function GetWarbandBankTabs()
             if bagID then
                 local numSlots = C_Container.GetContainerNumSlots(bagID)
                 if numSlots > 0 then
-                    local name = td.name or ("Tab " .. i)
+                    local name = td.name or EUI.Lf("Tab %1$d", i)
                     local icon = td.icon
                     if not icon or icon == 134400 then icon = GetFallbackIcon(bagID) end
                     tabs[#tabs + 1] = { bagID = bagID, numSlots = numSlots, name = EUI.L("Warbank") .. " " .. name, icon = icon, depositFlags = td.depositFlags or 0 }
@@ -189,7 +189,7 @@ local function GetWarbandBankTabs()
         for i, bagID in ipairs(WARBAND_BANK_BAGS) do
             local numSlots = C_Container.GetContainerNumSlots(bagID)
             if numSlots > 0 then
-                tabs[#tabs + 1] = { bagID = bagID, numSlots = numSlots, name = EUI.L("Warbank") .. " Tab " .. #tabs + 1, icon = GetFallbackIcon(bagID), depositFlags = 0 }
+                tabs[#tabs + 1] = { bagID = bagID, numSlots = numSlots, name = EUI.L("Warbank") .. " " .. EUI.Lf("Tab %1$d", #tabs + 1), icon = GetFallbackIcon(bagID), depositFlags = 0 }
             end
         end
     end
@@ -270,6 +270,7 @@ searchClear:Hide()
 searchClear:SetScript("OnClick", function()
     bankSearch:SetText("")
     bankSearch:ClearFocus()
+    C_Container.SetItemSearch("")
 end)
 
 bankSearch:SetScript("OnEnterPressed", function(self)
@@ -278,12 +279,17 @@ end)
 bankSearch:SetScript("OnEscapePressed", function(self)
     self:SetText("")
     self:ClearFocus()
+    C_Container.SetItemSearch("")
 end)
 bankSearch:SetScript("OnTextChanged", function(self)
     local text = self:GetText()
     searchPlaceholder:SetShown(text == "")
     searchClear:SetShown(text ~= "")
+    C_Container.SetItemSearch(text)
     if EUI_Bank:IsVisible() then EUI_Bank:RefreshBank() end
+    if EUI_Bags and EUI_Bags:IsVisible() and EUI_Bags.RefreshInventory then
+        EUI_Bags:RefreshInventory()
+    end
 end)
 
 -- Sort button
@@ -590,6 +596,9 @@ EUI_BankTabConfigFrame:Hide()
 -- Built lazily on the first right-click of a bank tab.
 local function EnsureBankTabConfigFrame()
     if EUI_BankTabConfigFrame.OpenBankTabSettings then return end
+    -- Options surface is LoadOnDemand; load it so EUI.BuildCheckboxControl exists.
+    if not EUI.BuildCheckboxControl then EUI:EnsureLoaded() end
+    if not EUI.BuildCheckboxControl then return end
     local bgAtlasBTC = EUI_BankTabConfigFrame:CreateTexture(nil, "BACKGROUND")
     bgAtlasBTC:SetAllPoints()
     bgAtlasBTC:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.png")
@@ -796,7 +805,7 @@ local function EnsureBankTabConfigFrame()
         if parent.bankType and parent.tabId then
             local newName = bankTabNameEditBox:GetText()
             if not newName or newName == "" then
-                newName = parent.fallbackName or ("Tab " .. tostring(parent.tabId))
+                newName = parent.fallbackName or EUI.Lf("Tab %1$d", parent.tabId)
             end
 
             C_Bank.UpdateBankTabSettings(parent.bankType, parent.tabId, newName, parent.icon, parent.depositFlags or 0)
@@ -1615,7 +1624,6 @@ function EUI_Bank:RefreshBank()
     local searchQuery = ""
     if EUI_Bank._searchBox then
         searchQuery = EUI_Bank._searchBox:GetText() or ""
-        searchQuery = searchQuery:lower()
     end
     local hasSearch = searchQuery ~= ""
 
@@ -1645,10 +1653,7 @@ function EUI_Bank:RefreshBank()
         if not hasSearch then return true end
         local info = C_Container.GetContainerItemInfo(bagID, slot)
         if not info then return false end
-        local link = C_Container.GetContainerItemLink(bagID, slot)
-        local itemName = link and GetItemInfo(link)
-        if not itemName then return false end
-        return itemName:lower():find(searchQuery, 1, true) ~= nil
+        return not info.isFiltered
     end
 
     -- Phase 1: Build flat layout list (no button creation, just positions).
@@ -2085,7 +2090,9 @@ function BuildBankSidebar()
                     -- The bagID is the tab ID UpdateBankTabSettings expects:
                     -- Enum.BagIndex.CharacterBankTab_1..6 / AccountBankTab_1..5
                     EnsureBankTabConfigFrame()
-                    EUI_BankTabConfigFrame:OpenBankTabSettings(tabData, tabData.bagID)
+                    if EUI_BankTabConfigFrame.OpenBankTabSettings then
+                        EUI_BankTabConfigFrame:OpenBankTabSettings(tabData, tabData.bagID)
+                    end
                     return
                 end
             end
@@ -2369,6 +2376,7 @@ eventFrame:SetScript("OnEvent", function(_, event)
             EUI_Bank._searchBox:SetText("")
             EUI_Bank._searchBox:ClearFocus()
         end
+        C_Container.SetItemSearch("")
         local bankScale = BP().bagScale or 1
         EUI_Bank:SetScale(bankScale)
         EUI_Bank:Show()
@@ -2411,6 +2419,7 @@ eventFrame:SetScript("OnEvent", function(_, event)
             EUI_Bank._searchBox:SetText("")
             EUI_Bank._searchBox:ClearFocus()
         end
+        C_Container.SetItemSearch("")
         EUI_Bank:Hide()
         -- Auto-close bags if we auto-opened them
         if EUI_Bank._autoOpenedBags and EUI_Bags and EUI_Bags:IsVisible() then

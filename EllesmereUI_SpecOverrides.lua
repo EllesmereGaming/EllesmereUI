@@ -7467,6 +7467,43 @@ local function BuildUnlockLayoutRow(parent, y, g, opts)
         })
     end)
 
+    -- Edit: opens the fork's OWN editing session, then jumps to its manager page.
+    -- The session is load-bearing: the manager page prelude engages the fork only
+    -- while a session is open, and Cond.ExitEdit is the sole release path, so the
+    -- swap is never engaged directly here.
+    if opts.editKind and opts.editPage then
+        local e = CreateFrame("Button", nil, row)
+        e:SetSize(116, 22)
+        e:SetPoint("RIGHT", b, "LEFT", -8, 0)
+        EllesmereUI.SolidTex(e, "BACKGROUND", 0.10, 0.10, 0.11, 0.9)
+        local ebrd = EllesmereUI.MakeBorder(e, 1, 1, 1, 0.22)
+        local elbl = EllesmereUI.MakeFont(e, 11, nil, 1, 1, 1, 0.8)
+        elbl:SetPoint("CENTER")
+        elbl:SetText(L("Edit"))
+        e:SetScript("OnEnter", function() if ebrd and ebrd.SetColor then ebrd:SetColor(ACCENT_R, ACCENT_G, ACCENT_B, 0.8) end end)
+        e:SetScript("OnLeave", function() if ebrd and ebrd.SetColor then ebrd:SetColor(1, 1, 1, 0.22) end end)
+        e:SetScript("OnClick", function()
+            -- Raid Frames must be registered to navigate to (same gate as the
+            -- entry rows' Go to Setting).
+            if not (EllesmereUI.GetModuleTitle and EllesmereUI:GetModuleTitle("EllesmereUIRaidFrames")) then return end
+            -- Both entry points refuse (own popup) when another fork holds the
+            -- manager page; only navigate once the session actually opened.
+            if opts.editKind == "cond" then
+                if not Cond.EnterEdit then return end
+                Cond.EnterEdit(g)
+                if Cond._edit ~= g then return end
+            else
+                if not EnterGroupEdit then return end
+                EnterGroupEdit(g)
+                if _editGroup ~= g then return end
+            end
+            EllesmereUI:SelectModule("EllesmereUIRaidFrames")
+            if EllesmereUI.SelectPage then
+                EllesmereUI:SelectPage(opts.editPage)
+            end
+        end)
+    end
+
     return row, 38
 end
 
@@ -7476,12 +7513,14 @@ local BM_ROW_SPEC = {
     title = "Delete Custom Buff Manager",
     message = "Delete the custom Buff Manager for '%s'? Its specs return to your default Buff Manager.",
     removeFn = function(gid) EllesmereUI.SpecOverrides_RemoveBmLayout(gid) end,
+    editKind = "spec", editPage = "Buff Manager",
 }
 local BM_ROW_COND = {
     crumb = "Custom Buff Manager",
     title = "Delete Custom Buff Manager",
     message = "Delete the custom Buff Manager for '%s'? Its conditions return to your default Buff Manager.",
     removeFn = function(gid) EllesmereUI.Conditions_RemoveBmLayout(gid) end,
+    editKind = "cond", editPage = "Buff Manager",
 }
 
 --- Row presets for the Debuff Manager forks (spec + conditional variants).
@@ -7490,12 +7529,14 @@ local DM_ROW_SPEC = {
     title = "Delete Custom Debuff Manager",
     message = "Delete the custom Debuff Manager for '%s'? Its specs return to your default Debuff Manager.",
     removeFn = function(gid) EllesmereUI.SpecOverrides_RemoveDmLayout(gid) end,
+    editKind = "spec", editPage = "Debuff Manager",
 }
 local DM_ROW_COND = {
     crumb = "Custom Debuff Manager",
     title = "Delete Custom Debuff Manager",
     message = "Delete the custom Debuff Manager for '%s'? Its conditions return to your default Debuff Manager.",
     removeFn = function(gid) EllesmereUI.Conditions_RemoveDmLayout(gid) end,
+    editKind = "cond", editPage = "Debuff Manager",
 }
 
 -------------------------------------------------------------------------------

@@ -1143,6 +1143,135 @@ do
         return list
     end
 
+    -- "Shift Elements If No Bars" (entry.shiftNoBar = "Up"/"Down", nil = None;
+    -- entry.shiftNoBarExtraY tunes the magnitude). Stand-in frame for a global
+    -- group on memberless specs, created ONLY while the option is set (None =
+    -- byte-identical legacy behavior: nil getFrame, anchors dormant/fallback):
+    -- a bare script-free frame holding the group's slot -- registry position,
+    -- last-stamped anchor-bar size -- so anchored elements keep resolvable
+    -- bounds and the shift has a magnitude when no member bar frame exists.
+    -- Renders nothing and costs nothing (no events, no OnUpdate). Re-positioned
+    -- every build; the IsUnlockAnchored guard leaves it alone when the anchor
+    -- system owns the TBBG_ key (same guard as the bar placement below).
+    local tbbStandins = {}
+    function ns.TBBEnsureStandin(gk)
+        local entry = ns.TBBGlobalGroup(gk)
+        if not entry then return nil end
+        local f = tbbStandins[gk]
+        if not f then
+            f = CreateFrame("Frame", nil, UIParent)
+            tbbStandins[gk] = f
+        end
+        local PPl = EllesmereUI and EllesmereUI.PP
+        local sn = PPl and PPl.Snap or function(v) return v end
+        f:SetSize(sn(entry.width or 270), sn(entry.height or 24))
+        -- SetPoint ONLY on an actual position change (signature-stamped): this
+        -- runs from getFrame, and the unlock machinery hooksecurefuncs SetPoint
+        -- on resolved frames -- an unconditional re-point per resolve fed the
+        -- move-check timer a fresh SetPoint every frame, forever (audit-caught).
+        -- getFrame must never mutate what it merely resolves.
+        local anchored = EllesmereUI.IsUnlockAnchored and EllesmereUI.IsUnlockAnchored("TBBG_" .. gk)
+        if anchored and f:GetLeft() then return f end
+        local pos = entry.pos
+        local sig
+        if pos and pos.point then
+            sig = pos.point .. "|" .. (pos.relPoint or pos.point) .. "|"
+                .. (pos.x or 0) .. "|" .. (pos.y or 0)
+        else
+            sig = "default"
+        end
+        if f._posSig ~= sig then
+            f._posSig = sig
+            f:ClearAllPoints()
+            if pos and pos.point then
+                f:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
+            else
+                f:SetPoint("CENTER", UIParent, "CENTER", 0, 200)
+            end
+        end
+        return f
+    end
+    -- Read-only lookup (no create): lets getFrame keep resolving a stand-in
+    -- built earlier this session after the option flips to None, so the flip's
+    -- cascade can land anchored children back at the true slot instead of
+    -- stranding them shifted. A fresh session with the option off never creates
+    -- one, preserving the legacy nil-frame behavior.
+    function ns.TBBStandinFrame(gk)
+        return tbbStandins[gk]
+    end
+
+    -- Whether ANY spec profile links this global key. A fully-orphaned entry
+    -- (every spec detached; the registry keeps it for re-attachment) must stop
+    -- shifting -- with no linked spec, no group settings page can reach the
+    -- option to clear it (audit-caught). Bounded scan: specs x groups, only
+    -- reached when the option is set and the ACTIVE spec is memberless.
+    local function TBBGlobalLinkedAnywhere(gkey)
+        local sp = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
+        if not sp then return false end
+        for _, prof in pairs(sp) do
+            local tbb = prof.trackedBuffBars
+            local groups = tbb and tbb.groups
+            if groups then
+                for _, g in pairs(groups) do
+                    if g.globalKey == gkey then return true end
+                end
+            end
+        end
+        return false
+    end
+
+    -- Direction the shift WOULD apply for one registry entry (ignores unlock
+    -- state): 0 while the active spec has an enabled member bar (the real
+    -- anchor frame covers the slot), the option is off, or no spec links the
+    -- entry at all; else +1/-1.
+    local function TBBShiftDirFor(entry, gk)
+        local mode = entry and entry.shiftNoBar
+        if mode ~= "Up" and mode ~= "Down" then return 0 end
+        local gid = ns.TBBLocalGidForGlobal(gk)
+        if gid and ns.TBBGroupAnchorIndex(gid) then return 0 end
+        if not TBBGlobalLinkedAnywhere(gk) then return 0 end
+        return (mode == "Up") and 1 or -1
+    end
+    ns.TBBShiftDirFor = TBBShiftDirFor
+
+    -- Seeded into the shared shift-provider list (EUI_UnlockMode.lua dispatches
+    -- EllesmereUI._GetAnchorTargetShiftDir over it; ResourceBars seeds the
+    -- ERB_* keys the same way). Direct or-preserve push, NEVER an API call:
+    -- registration must carry zero load-order coupling. Elements anchored to a
+    -- shifting TBBG_ key move into the empty slot by the stand-in's height +
+    -- Extra Y -- visual-only, never written to saved positions; 0 while unlock
+    -- mode is active so movers capture true positions.
+    EllesmereUI._anchorShiftProviders = EllesmereUI._anchorShiftProviders or {}
+    table.insert(EllesmereUI._anchorShiftProviders, {
+        dir = function(targetKey)
+            if EllesmereUI._unlockActive then return 0 end
+            if type(targetKey) ~= "string" or targetKey:sub(1, 5) ~= "TBBG_" then return 0 end
+            local gk = targetKey:sub(6)
+            local entry = ns.TBBGlobalGroup(gk)
+            local dir = TBBShiftDirFor(entry, gk)
+            if dir == 0 then return 0 end
+            return dir, entry.shiftNoBarExtraY or 0
+        end,
+        wants = function()
+            local reg = TBBGlobalDB(false)
+            if not reg then return false end
+            for gk, entry in pairs(reg) do
+                if TBBShiftDirFor(entry, gk) ~= 0 then return true end
+            end
+            return false
+        end,
+        restore = function()
+            if not EllesmereUI.PropagateAnchorChain then return end
+            local reg = TBBGlobalDB(false)
+            if not reg then return end
+            for gk, entry in pairs(reg) do
+                if TBBShiftDirFor(entry, gk) ~= 0 then
+                    EllesmereUI.PropagateAnchorChain("TBBG_" .. gk)
+                end
+            end
+        end,
+    })
+
     -- Opt in: seed the registry from the group's current per-spec settings and anchor
     -- position. Detach: materialize shared values back into the per-spec store so nothing
     -- moves; the registry entry persists for other specs (full removal is TBBDeleteGlobalGroup).
@@ -1339,6 +1468,14 @@ do
             end
         end
         reg[gkey] = nil
+        -- Retire the group's shift stand-in with it: a leftover frame would keep
+        -- resolving through getFrame's session fallback and glue anchored
+        -- elements to the deleted group's last position (audit-caught).
+        local sf = tbbStandins[gkey]
+        if sf then
+            sf:Hide()
+            tbbStandins[gkey] = nil
+        end
     end
 end
 
@@ -2668,11 +2805,17 @@ local _findChildCache = {}
 -- Sticky cfg->frame bindings for the one-to-one assignment pass below (cfg table -> last
 -- paired Blizzard frame). Separate table for the same serialization reason; dropped on cache invalidation.
 local _tbbStickyFrame = {}
+-- cooldownID each sticky frame carried when bound: the secret-trust branch can
+-- only trust a binding while the pooled frame still serves the same cooldown
+-- slot (Blizzard reuses frame objects fast in combat). cooldownID stays a
+-- plain readable number in secret windows (the clean-sid cache keys on it).
+local _tbbStickyCdID = {}
 
 function ns.InvalidateTBBFrameCache()
     _findChildGeneration = _findChildGeneration + 1
     wipe(_findChildCache)
     wipe(_tbbStickyFrame)
+    wipe(_tbbStickyCdID)
     -- Every structural edge funnels here (pool Acquire, spec swap, rebuilds), so the assignment memo retires with the caches.
     _tbbAssignDirty = true
 end
@@ -2750,6 +2893,34 @@ local function FrameIsActive(frames, target)
     return false
 end
 
+-- Name FAMILY of a display name: the part before the first colon, lowered
+-- ("Diabolic Ritual: Overlord" -> "diabolic ritual"; a name without a colon
+-- is its own family). Disambiguates collided viewer slots whose aura names
+-- share a canonical spellID but not a prefix. nil for empty/unreadable.
+local function TbbNameFamily(name)
+    if type(name) ~= "string" or name == "" then return nil end
+    local i = name:find(":", 1, true)
+    local fam = i and name:sub(1, i - 1) or name
+    fam = fam:gsub("^%s+", ""):gsub("%s+$", ""):lower()
+    if fam == "" then return nil end
+    return fam
+end
+
+-- Live aura name family of a pool frame; nil when no clean aura read exists
+-- (secret in restricted content, no bound instance) -- callers fall back to
+-- first-match. Aura reads are the ONLY name source: never the frame's label.
+local function TbbFrameNameFamily(frame)
+    local iid = frame.auraInstanceID
+    if not iid or (issecretvalue and issecretvalue(iid)) then return nil end
+    local unit = frame.auraDataUnit
+    if not unit then return nil end
+    local ok, ad = pcall(C_UnitAuras.GetAuraDataByAuraInstanceID, unit, iid)
+    if not ok or not ad then return nil end
+    local nm = ad.name
+    if nm == nil or (issecretvalue and issecretvalue(nm)) then return nil end
+    return TbbNameFamily(nm)
+end
+
 local function AssignFramesToConfigs(bars)
     local assignment = _tbbAssignment
     -- Memo: pairing moves only on composition edges (player aura events, pool
@@ -2796,48 +2967,101 @@ local function AssignFramesToConfigs(bars)
         if bound and not consumed[bound] and FrameIsActive(frames, bound) then
             local sid = _tbbFrameSID[bound]
             if sid then
-                -- Clean read available: keep only if still the right variant.
-                if CfgWantsSID(cfg, sid) then
-                    assignment[cfg]   = bound
-                    consumed[bound]   = true
+                -- Clean read available: keep only if still the right variant AND
+                -- (collided slots) still the right name family -- a crossed
+                -- pairing must release here or pass 2 can never re-pair it.
+                local keep = CfgWantsSID(cfg, sid)
+                if keep then
+                    local want = TbbNameFamily(cfg.name)
+                    if want then
+                        local fam = TbbFrameNameFamily(bound)
+                        if fam and fam ~= want then keep = false end
+                    end
+                end
+                if keep then
+                    assignment[cfg]      = bound
+                    consumed[bound]      = true
+                    _tbbStickyCdID[cfg]  = bound.cooldownID
                 else
                     _tbbStickyFrame[cfg] = nil
+                    _tbbStickyCdID[cfg]  = nil
                 end
-            else
-                -- Secret/combat: trust the binding locked in earlier.
+            elseif bound.cooldownID == _tbbStickyCdID[cfg] then
+                -- Secret/combat, but the frame still serves the cooldown slot it
+                -- was bound under: trust the binding locked in earlier.
                 assignment[cfg] = bound
                 consumed[bound] = true
+            else
+                -- Same frame object, different cooldown slot (pool reused it
+                -- mid-secret-window) -- a stale binding here is exactly the
+                -- wrong-name/wrong-icon report; drop it rather than guess.
+                _tbbStickyFrame[cfg] = nil
+                _tbbStickyCdID[cfg]  = nil
             end
         end
     end
 
-    -- Pass 2: exact per-frame identity.
+    -- Pass 2: exact per-frame identity. COLLIDED slots (two viewer slots
+    -- sharing one canonical spellID -- Diabolist Demonic Art vs Diabolic
+    -- Ritual, where Blizzard hands the Art slot the Ritual's id) fit two
+    -- configs identically by sid, and a first-match pairing crosses them
+    -- ("Diabolic Ritual" bar bound to the Art frame, faithfully naming
+    -- Overlord). Tie-break by NAME FAMILY: the config keeps the picker's
+    -- display name and the two slots' aura names differ by prefix, so among
+    -- sid-matching frames the one whose live aura name shares the config
+    -- name's prefix wins; unique matches take the fast path unchanged.
     for _, cfg in ipairs(bars) do
         if not assignment[cfg] then
+            local pick
+            local want = TbbNameFamily(cfg.name)
             for i = 1, #frames do
                 local frame = frames[i]
                 if not consumed[frame] then
                     local sid = _tbbFrameSID[frame]
                     if sid and CfgWantsSID(cfg, sid) then
-                        assignment[cfg]      = frame
-                        consumed[frame]      = true
-                        _tbbStickyFrame[cfg] = frame
-                        break
+                        if not want then pick = frame; break end
+                        local fam = TbbFrameNameFamily(frame)
+                        if fam == want then pick = frame; break end
+                        -- Family unreadable/other: remember the first, keep looking
+                        -- for a frame that actually names this config's family.
+                        if not pick then pick = frame end
                     end
                 end
+            end
+            if pick then
+                assignment[cfg]      = pick
+                consumed[pick]       = true
+                _tbbStickyFrame[cfg] = pick
+                _tbbStickyCdID[cfg]  = pick.cooldownID
             end
         end
     end
 
-    -- Pass 3: cooldownInfo/linkedSpellIDs struct fallback. NEVER sticky a fuzzy match: let a later clean read re-pair it exactly in pass 2.
+    -- Pass 3: cooldownInfo/linkedSpellIDs struct fallback. NEVER sticky a fuzzy
+    -- match: let a later clean read re-pair it exactly in pass 2. Binds only
+    -- when the match is unique BOTH ways (one frame fits this cfg, and no other
+    -- unassigned cfg fits that frame) -- shared linkedSpellIDs data makes fuzzy
+    -- matches ambiguous, and a guessed pairing is worse than a blank bar.
     for _, cfg in ipairs(bars) do
         if not assignment[cfg] then
+            local candidate, matches = nil, 0
             for i = 1, #frames do
                 local frame = frames[i]
                 if not consumed[frame] and MatchFrameToConfig(frame, cfg) then
-                    assignment[cfg] = frame
-                    consumed[frame] = true
-                    break
+                    matches = matches + 1
+                    candidate = frame
+                end
+            end
+            if matches == 1 then
+                local cfgMatches = 0
+                for _, other in ipairs(bars) do
+                    if not assignment[other] and MatchFrameToConfig(candidate, other) then
+                        cfgMatches = cfgMatches + 1
+                    end
+                end
+                if cfgMatches == 1 then
+                    assignment[cfg]     = candidate
+                    consumed[candidate] = true
                 end
             end
         end
@@ -4620,25 +4844,85 @@ function ns.UpdateTrackedBuffBarTimers()
                         end
                     end
 
-                    -- Name from aura data (same source as icon) so it always matches the
-                    -- actual buff; the Blizzard frame's font string can be stale after pool
-                    -- recycling. Falls back to C_Spell for the config spell ID.
+                    -- Name resolution ladder (Diabolist field probe 2026-08-16,
+                    -- /euitbbdbg: on the ACTIVE ritual frame GetSpellID,
+                    -- GetAuraSpellID AND the aura-instance read are all
+                    -- secret/nil even out of combat -- the variant identity is
+                    -- unreadable to Lua; only Blizzard's own label knows which
+                    -- ritual is up):
+                    --  1. Blizzard's rendered label FontString on the BOUND
+                    --     frame -- the ONLY channel that carries the live
+                    --     variant name (Overlord / Mother of Chaos / Pit Lord)
+                    --     while ids are unreadable. Handed straight to SetText
+                    --     (accepts secrets natively; NEVER compared or stored),
+                    --     and taken only while that frame is SHOWN with a bound
+                    --     aura: the old wrong-name report came from scraping a
+                    --     label whose pooled frame had been recycled under a
+                    --     stale binding -- bindings are cooldownID-anchored now
+                    --     (sticky releases on slot change), and a shown frame's
+                    --     label belongs to its current occupant.
+                    --  2. Live aura data, when readable and provably this bar's
+                    --     family (exact config ids or the bound slot's
+                    --     cooldownInfo override/spellID/linkedSpellIDs).
+                    --  3. The configured spell's name (deterministic).
                     if bar._nameText and bar._nameText:IsShown() then
                         local nameStr
-                        if blzChild and blzChild.auraInstanceID and blzChild.auraDataUnit then
-                            local ok, ad = pcall(C_UnitAuras.GetAuraDataByAuraInstanceID,
-                                blzChild.auraDataUnit, blzChild.auraInstanceID)
-                            if ok and ad and ad.name then nameStr = ad.name end
-                        end
-                        if not nameStr then
+                        -- auraInstanceID may itself be SECRET on the active frame
+                        -- (probe-confirmed): type() reads the tag without touching
+                        -- the value -- the taint-safe presence test for secrets.
+                        -- SLOT CHECK (the Wardead class, 2+ bars in one group in
+                        -- combat): the frame's label is right for its CURRENT
+                        -- occupant, so it is wrong only when OUR binding is stale
+                        -- -- a pool re-acquire that moved this frame to another
+                        -- slot before the next re-pair. cooldownID stays a plain
+                        -- readable number in secret windows, so comparing it to
+                        -- the slot we bound under catches that same-tick window
+                        -- (the sticky pass applies the identical test on its own
+                        -- schedule); a mismatch skips the label and falls through.
+                        if blzChild and blzChild:IsShown() and blizzBar
+                           and type(blzChild.auraInstanceID) ~= "nil"
+                           and (_tbbStickyCdID[cfg] == nil
+                                or blzChild.cooldownID == _tbbStickyCdID[cfg]) then
                             local blizzNameFS = GetBlizzBarFontStrings(blizzBar)
                             if blizzNameFS then
                                 local ok, txt = pcall(blizzNameFS.GetText, blizzNameFS)
-                                if ok and txt then nameStr = txt end
+                                if ok and txt ~= nil
+                                   and ((issecretvalue and issecretvalue(txt)) or txt ~= "") then
+                                    nameStr = txt
+                                end
+                            end
+                        end
+                        if not nameStr and blzChild and blzChild.auraInstanceID and blzChild.auraDataUnit
+                           and not (issecretvalue and issecretvalue(blzChild.auraInstanceID)) then
+                            local ok, ad = pcall(C_UnitAuras.GetAuraDataByAuraInstanceID,
+                                blzChild.auraDataUnit, blzChild.auraInstanceID)
+                            if ok and ad and ad.name and not (issecretvalue and issecretvalue(ad.name)) then
+                                local sid = ad.spellId
+                                if sid ~= nil and not (issecretvalue and issecretvalue(sid)) then
+                                    local mine = CfgWantsSID(cfg, sid)
+                                    if not mine and blzChild.cooldownID
+                                       and not (issecretvalue and issecretvalue(blzChild.cooldownID))
+                                       and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
+                                        local ok2, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, blzChild.cooldownID)
+                                        if ok2 and info then
+                                            local ok3, m = pcall(MatchesSID, info, sid)
+                                            mine = ok3 and m
+                                        end
+                                    end
+                                    if mine then nameStr = ad.name end
+                                end
                             end
                         end
                         if not nameStr and cfg.spellID and cfg.spellID > 0 then
                             local spInfo = C_Spell.GetSpellInfo(cfg.spellID)
+                            if spInfo then
+                                nameStr = spInfo.name
+                            elseif C_Spell.RequestLoadSpellData then
+                                C_Spell.RequestLoadSpellData(cfg.spellID)
+                            end
+                        end
+                        if not nameStr and cfg.baseSpellID and cfg.baseSpellID > 0 then
+                            local spInfo = C_Spell.GetSpellInfo(cfg.baseSpellID)
                             if spInfo then nameStr = spInfo.name end
                         end
                         if nameStr then
@@ -4690,7 +4974,8 @@ function ns.UpdateTrackedBuffBarTimers()
                         if not gotIcon and blzChild.auraInstanceID and blzChild.auraDataUnit then
                             local ok, ad = pcall(C_UnitAuras.GetAuraDataByAuraInstanceID,
                                 blzChild.auraDataUnit, blzChild.auraInstanceID)
-                            if ok and ad and ad.icon then
+                            -- Instance ids recycle onto other buffs; only trust a match.
+                            if ok and ad and ad.icon and CfgWantsSID(cfg, ad.spellId) then
                                 bar._icon._tex:SetTexture(ad.icon)
                                 bar._lastIconSID = nil
                                 gotIcon = true
@@ -5098,6 +5383,15 @@ function ns.BuildTrackedBuffBars()
                     local entry = ns.TBBGlobalGroup(gkeyPos)
                     pos = entry and entry.pos
                     unlockKey = "TBBG_" .. gkeyPos
+                    -- Stamp the anchor bar's size onto the registry entry so the
+                    -- "Shift Elements If No Bars" stand-in (memberless specs)
+                    -- holds the slot at the size the group last rendered. Gated
+                    -- on the option so None profiles see zero new writes; a
+                    -- never-stamped entry's stand-in uses the bar defaults.
+                    if entry and (entry.shiftNoBar == "Up" or entry.shiftNoBar == "Down") then
+                        entry.width = cfg.width or 270
+                        entry.height = cfg.height or 24
+                    end
                 else
                     pos = _tbbPos[posKey]
                     unlockKey = "TBB_" .. posKey
@@ -5151,6 +5445,45 @@ function ns.BuildTrackedBuffBars()
     -- Start/stop the player-only Sated-debuff listener that drives the lust displays. Goes
     -- through the arbiter so a Custom Auras (icon) lust display keeps the listener armed even when no Tracking Bar lust bar exists.
     ns.UpdateLustListener()
+
+    -- "Shift Elements If No Bars" (global groups): position each opted-in
+    -- group's stand-in, and on an empty<->populated EDGE re-cascade the group's
+    -- anchor chain so anchored elements pick up (or drop) the shift. The flip
+    -- changes neither the stand-in's size nor its position (both come from the
+    -- registry), so neither OnSizeChanged nor a move hook fires -- the cascade
+    -- must be explicit, exactly like ResourceBars' BuildBars tail. Edge-gated
+    -- via the per-key memo so a None-everywhere profile schedules ZERO anchor
+    -- work here; unlock entry/exit manage the shift themselves.
+    do
+        local reg = ns.GetTBBGlobalGroups and ns.GetTBBGlobalGroups()
+        if reg then
+            for gk, entry in pairs(reg) do
+                -- Also keep maintaining a stand-in that already exists with the
+                -- option back at None (session fallback, see TBBStandinFrame):
+                -- it must track registry-pos edits from other specs instead of
+                -- freezing anchored children on a phantom (audit-caught).
+                if entry.shiftNoBar == "Up" or entry.shiftNoBar == "Down"
+                    or (ns.TBBStandinFrame and ns.TBBStandinFrame(gk)) then
+                    ns.TBBEnsureStandin(gk)
+                end
+                if not EllesmereUI._unlockActive and EllesmereUI.PropagateAnchorChain then
+                    -- dir: 0 = covered (members present or option off), +/-1 =
+                    -- shifting. Unset memo reads as 0, so the first build with
+                    -- nothing to shift schedules nothing (ERB memo parity).
+                    local dir = ns.TBBShiftDirFor(entry, gk)
+                    local memo = ns._tbbShiftDirMemo
+                    if not memo then
+                        memo = {}
+                        ns._tbbShiftDirMemo = memo
+                    end
+                    if dir ~= (memo[gk] or 0) then
+                        memo[gk] = dir
+                        EllesmereUI.PropagateAnchorChain("TBBG_" .. gk)
+                    end
+                end
+            end
+        end
+    end
 
     -- Unlock mode
     if ns.RegisterTBBUnlockElements then ns.RegisterTBBUnlockElements() end
@@ -5366,11 +5699,21 @@ function ns.RegisterTBBUnlockElements()
                 end,
                 isAnchored = function() return false end,
                 getFrame = function()
-                    -- Nil when the active spec has no member bars: anchors involving this key
-                    -- stay dormant (or take their stored fallback) instead of gluing to a stale frame.
                     local gid = ns.TBBLocalGidForGlobal(gk)
                     local ai = gid and ns.TBBGroupAnchorIndex(gid)
-                    return ai and tbbFrames[ai] or nil
+                    if ai then return tbbFrames[ai] end
+                    -- No member bars on the active spec. With "Shift Elements If
+                    -- No Bars" set, the opt-in stand-in holds the group's slot so
+                    -- anchored elements keep position (and shift into it); with
+                    -- it off (None), nil keeps legacy behavior -- anchors stay
+                    -- dormant (or take their stored fallback) instead of gluing
+                    -- to a stale frame. A stand-in built earlier this session
+                    -- keeps resolving after a None flip (see TBBStandinFrame).
+                    local e = ns.TBBGlobalGroup(gk)
+                    if e and (e.shiftNoBar == "Up" or e.shiftNoBar == "Down") then
+                        return ns.TBBEnsureStandin(gk)
+                    end
+                    return ns.TBBStandinFrame and ns.TBBStandinFrame(gk) or nil
                 end,
                 getSize = function()
                     local gid = ns.TBBLocalGidForGlobal(gk)
@@ -5382,6 +5725,12 @@ function ns.RegisterTBBUnlockElements()
                     if c then
                         return sn(c.width or 270), sn(c.height or 24)
                     end
+                    -- Memberless spec: the registry's last-stamped anchor size
+                    -- (what the stand-in renders at), else the defaults.
+                    local e = ns.TBBGlobalGroup(gk)
+                    if e and e.width then
+                        return sn(e.width), sn(e.height or 24)
+                    end
                     return 270, 24
                 end,
                 setWidth = function(_, w)
@@ -5389,30 +5738,61 @@ function ns.RegisterTBBUnlockElements()
                     local ai = gid and ns.TBBGroupAnchorIndex(gid)
                     local t = ns.GetTrackedBuffBars()
                     local c = ai and t.bars and t.bars[ai]
-                    if not c then return end
-                    local f = tbbFrames[ai]
                     local PPt = EllesmereUI and EllesmereUI.PP
                     w = PPt and PPt.Snap(w) or math.floor(w + 0.5)
-                    if EllesmereUI._unlockActive or EllesmereUI._propagatingMatch then
-                        c.width = w
-                        ns.PropagateTBBGroupSize(ai, "width", w)
+                    if c then
+                        local f = tbbFrames[ai]
+                        if EllesmereUI._unlockActive or EllesmereUI._propagatingMatch then
+                            c.width = w
+                            ns.PropagateTBBGroupSize(ai, "width", w)
+                        end
+                        if f then f:SetWidth(w) end
+                        return
                     end
-                    if f then f:SetWidth(w) end
+                    -- Memberless spec, STRICTLY gated on "Shift Elements If No
+                    -- Bars" being Up/Down (the stand-in feature): a width match
+                    -- landing here must still persist (the registry stamp is
+                    -- what the stand-in renders from) and resize the frame, so
+                    -- its size-changed hook reaches anchored children -- an
+                    -- edge-preserve follower has to track the matched width
+                    -- even while the group has no bars (field report). With the
+                    -- option off this stays the legacy hard no-op: no write,
+                    -- no resize.
+                    local e = ns.TBBGlobalGroup(gk)
+                    if not (e and (e.shiftNoBar == "Up" or e.shiftNoBar == "Down")) then return end
+                    if EllesmereUI._unlockActive or EllesmereUI._propagatingMatch then
+                        e.width = w
+                    end
+                    local sf = ns.TBBStandinFrame and ns.TBBStandinFrame(gk)
+                    if sf then sf:SetWidth(w) end
                 end,
                 setHeight = function(_, h)
                     local gid = ns.TBBLocalGidForGlobal(gk)
                     local ai = gid and ns.TBBGroupAnchorIndex(gid)
                     local t = ns.GetTrackedBuffBars()
                     local c = ai and t.bars and t.bars[ai]
-                    if not c then return end
-                    local f = tbbFrames[ai]
                     local PPt = EllesmereUI and EllesmereUI.PP
                     h = PPt and PPt.Snap(h) or math.floor(h + 0.5)
-                    if EllesmereUI._unlockActive or EllesmereUI._propagatingMatch then
-                        c.height = h
-                        ns.PropagateTBBGroupSize(ai, "height", h)
+                    if c then
+                        local f = tbbFrames[ai]
+                        if EllesmereUI._unlockActive or EllesmereUI._propagatingMatch then
+                            c.height = h
+                            ns.PropagateTBBGroupSize(ai, "height", h)
+                        end
+                        if f then f:SetHeight(h) end
+                        return
                     end
-                    if f then f:SetHeight(h) end
+                    -- Memberless stand-in: same strict option gate as setWidth
+                    -- (option off = legacy hard no-op). Height also feeds the
+                    -- shift magnitude (target height), so anchored children
+                    -- re-shift to the matched size.
+                    local e = ns.TBBGlobalGroup(gk)
+                    if not (e and (e.shiftNoBar == "Up" or e.shiftNoBar == "Down")) then return end
+                    if EllesmereUI._unlockActive or EllesmereUI._propagatingMatch then
+                        e.height = h
+                    end
+                    local sf = ns.TBBStandinFrame and ns.TBBStandinFrame(gk)
+                    if sf then sf:SetHeight(h) end
                 end,
                 savePos = function(_, point, relPoint, x, y)
                     local e = ns.TBBGlobalGroup(gk)

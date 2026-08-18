@@ -7,6 +7,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  placeable mid-combat) -- shown either as one combined window (default) or
 --  as two independently positioned windows.
 --
+--  Group & Pull buttons are all created once at build; per-button switches and
+--  0-second pull slots decide which ones LayoutGroupContent places (it re-flows
+--  the survivors and is the only writer of the group content height).
+--
 --  SHOW MODE (p.mode) replaces the old shared-visibility system outright:
 --
 --    "never"  -- the default. NOTHING exists: no frames, no events, no
@@ -231,7 +235,9 @@ local sections = {}            -- key -> shell frame
 local shellTitle = {}          -- key -> title fontstring
 local groupHolder, markersHolder   -- plain content holders (see header)
 local iconBtn                  -- collapsed-state square
-local GROUP_CONTENT_H, MARKERS_CONTENT_H   -- computed at build
+-- Markers are fixed at build; the Group & Pull height follows the settings and
+-- is re-computed by LayoutGroupContent on every Apply.
+local GROUP_CONTENT_H, MARKERS_CONTENT_H
 local Apply                    -- forward: the event handler closes over it
 
 -- ONE representation of each secure decision, run from both paths.
@@ -377,8 +383,10 @@ end
 
 local groupButtons = {}        -- plain buttons, enable-gated on assist
 local markerButtons = {}       -- secure buttons, dimmed on assist
-local pullButtons = {}         -- fixed set of 3; durations are re-labelled live
-local convertButton
+local pullButtons = {}         -- fixed set of 3; only the ones above 0s show
+-- Created once at build; the layout pass decides which reach the screen. Ready
+-- Check has no switch by design.
+local readyButton, roleButton, convertButton, disbandButton, stopButton
 
 -- Both marker rows draw Blizzard's own raid target sheet -- the texture the
 -- rest of the suite already uses for markers, in nameplates and raid frames.
@@ -416,7 +424,12 @@ local DB_DEFAULTS = {
         -- Three slots is a LAYOUT choice (they fill one row beside Stop), not a
         -- security constraint -- the pull buttons are plain, only the marker buttons
         -- are secure. Growing the count later means growing the panel, nothing more.
+        -- 0 = slot hidden; all three at 0 removes the pull row, Stop included.
         pullTimes     = { PULL_DEFAULTS[1], PULL_DEFAULTS[2], PULL_DEFAULTS[3] },
+        -- Per-button switches (Ready Check has none); hidden buttons close up.
+        showRoleCheck = true,
+        showConvert   = true,
+        showDisband   = true,
         -- Per-section: pos[key] = { point, relPoint, x, y }
         pos           = {},
     },
@@ -598,15 +611,23 @@ local function AssistSuppressed()
     return IsInRaid() and not HasAssist()
 end
 
--- Durations are the only pull-timer setting that can change at runtime: the
--- button count is fixed at build, so re-labelling is all it takes.
-local function RefreshPullTimes()
+-- An optional button's switch, defaulting to shown for an unset profile.
+local function ButtonShown(key)
+    local p = P()
+    return not p or p[key] ~= false
+end
+
+-- The pull durations worth a button, in slot order. 0 (and anything below it)
+-- means the user turned that slot off.
+local function VisiblePullTimes()
     local times = (P() and P().pullTimes) or {}
-    for i, b in ipairs(pullButtons) do
-        local secs = times[i] or PULL_DEFAULTS[i]
-        b.secs = secs
-        b._lbl:SetText(tostring(secs))
+    local out = {}
+    for i = 1, PULL_SLOTS do
+        local secs = times[i]
+        if secs == nil then secs = PULL_DEFAULTS[i] end
+        if secs and secs > 0 then out[#out + 1] = secs end
     end
+    return out
 end
 
 -- GROUP_ROSTER_UPDATE is one of the chattiest events in a raid -- it bursts on
@@ -807,51 +828,96 @@ local function MakeShell(key)
     return f
 end
 
+-- Places the Group & Pull buttons per the settings and is the ONLY writer of
+-- GROUP_CONTENT_H. Plain frames only, run from build and Apply (out of combat);
+-- must run BEFORE ApplyLayout, which sizes the shells from that height.
+local function LayoutGroupContent()
+    if not groupHolder then return end
+    local f = groupHolder
+
+    -- Row plan: two action buttons per row in fixed order; hidden buttons close
+    -- the gap, a lone button takes the full width.
+    local rows, pair = {}, {}
+    local function Add(b)
+        pair[#pair + 1] = b
+        if #pair == 2 then rows[#rows + 1] = pair; pair = {} end
+    end
+    Add(readyButton)
+    if ButtonShown("showRoleCheck") then Add(roleButton) end
+    if ButtonShown("showConvert")   then Add(convertButton) end
+    if ButtonShown("showDisband")   then Add(disbandButton) end
+    if #pair > 0 then rows[#rows + 1] = pair end
+
+    -- Pull row: surviving durations move onto the leading buttons (the click
+    -- closure reads b.secs), Stop last; no durations = no row at all.
+    local times = VisiblePullTimes()
+    if #times > 0 then
+        local pull = {}
+        for i, secs in ipairs(times) do
+            local b = pullButtons[i]
+            b.secs = secs
+            b._lbl:SetText(tostring(secs))
+            pull[i] = b
+        end
+        pull[#pull + 1] = stopButton
+        rows[#rows + 1] = pull
+    end
+
+    -- Hide all, then show only what the plan placed.
+    for _, b in ipairs(groupButtons) do b:Hide() end
+
+    local y = 0
+    for _, row in ipairs(rows) do
+        local n = #row
+        local w = (PANEL_W - PAD * 2 - ROW_GAP * (n - 1)) / n
+        for i, b in ipairs(row) do
+            b:SetWidth(w)
+            b:ClearAllPoints()
+            b:SetPoint("TOPLEFT", f, "TOPLEFT", PAD + (w + ROW_GAP) * (i - 1), y)
+            b:Show()
+        end
+        y = y - ROW_H - ROW_GAP
+    end
+    y = y + ROW_GAP   -- the last row's trailing gap is not content
+
+    GROUP_CONTENT_H = -y
+    f:SetHeight(GROUP_CONTENT_H)
+end
+
 -- Group & Pull content, in its own plain holder so one-window mode can treat
--- it uniformly with the markers holder.
+-- it uniformly with the markers holder. Creation only -- the buttons are born
+-- unplaced at full-row width, and LayoutGroupContent puts them where the
+-- settings say (MakeGroupButton runs labels through L itself).
 local function BuildGroupContent()
     groupHolder = CreateFrame("Frame", nil, sections.Group)
     groupHolder:SetWidth(PANEL_W)
     fontOwners[#fontOwners + 1] = groupHolder
     local f = groupHolder
-    local y = 0
+    local full = PANEL_W - PAD * 2
 
-    -- MakeGroupButton runs labels through L itself.
-    local half = (PANEL_W - PAD * 2 - ROW_GAP) / 2
-    local ready = MakeGroupButton(f, "Ready Check", half, function() DoReadyCheck() end)
-    ready:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, y)
+    readyButton = MakeGroupButton(f, "Ready Check", full, function() DoReadyCheck() end)
+    roleButton  = MakeGroupButton(f, "Role Check", full, function() InitiateRolePoll() end)
 
-    local role = MakeGroupButton(f, "Role Check", half, function() InitiateRolePoll() end)
-    role:SetPoint("TOPLEFT", f, "TOPLEFT", PAD + half + ROW_GAP, y)
-    y = y - ROW_H - ROW_GAP
-
-    convertButton = MakeGroupButton(f, "Convert to Raid", half, function()
+    convertButton = MakeGroupButton(f, "Convert to Raid", full, function()
         if IsInRaid() then C_PartyInfo.ConvertToParty() else C_PartyInfo.ConvertToRaid() end
     end, true)
-    convertButton:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, y)
 
-    local disband = MakeGroupButton(f, "Disband", half, function()
+    disbandButton = MakeGroupButton(f, "Disband", full, function()
         ConfirmDisband()
     end, true)
-    disband:SetPoint("TOPLEFT", f, "TOPLEFT", PAD + half + ROW_GAP, y)
-    y = y - ROW_H - ROW_GAP
 
-    -- Pull timer row: three durations + Stop, sharing the holder's width.
-    local w = (PANEL_W - PAD * 2 - PULL_SLOTS * ROW_GAP) / (PULL_SLOTS + 1)
     for i = 1, PULL_SLOTS do
         -- The pull duration lives on the button and changes at runtime, so
         -- the click reads it through the closure.
         local b
-        b = MakeGroupButton(f, "", w, function() StartPull(b.secs) end)
-        b:SetPoint("TOPLEFT", f, "TOPLEFT", PAD + (w + ROW_GAP) * (i - 1), y)
+        b = MakeGroupButton(f, "", full, function() StartPull(b.secs) end)
         pullButtons[i] = b
     end
-    local cancel = MakeGroupButton(f, "Stop", w, StopPull)
-    cancel:SetPoint("TOPLEFT", f, "TOPLEFT", PAD + (w + ROW_GAP) * PULL_SLOTS, y)
-    y = y - ROW_H
+    stopButton = MakeGroupButton(f, "Stop", full, StopPull)
 
-    GROUP_CONTENT_H = -y
-    f:SetHeight(GROUP_CONTENT_H)
+    -- A height right away: BuildAll has callers (the slash command, unlock
+    -- mode) that reach the shells without going through Apply.
+    LayoutGroupContent()
 end
 
 -- Row order matches how they are used: unit markers first, ground markers
@@ -1394,6 +1460,9 @@ function Apply()
     EnsureEvents()
     RegisterUnlock()
     BuildAll()
+    -- Before ApplyLayout: it sizes the shells from GROUP_CONTENT_H, which the
+    -- hidden buttons and the 0-second pull slots move.
+    LayoutGroupContent()
     ApplyLayout()
     -- One Window Scale for everything the feature draws.
     local scale = WindowScale()
@@ -1404,7 +1473,6 @@ function Apply()
     ApplyVisibility()
     ApplyToggleKeybind()
     ApplyFonts()
-    RefreshPullTimes()
     RefreshPermissions(true)
 end
 _G._EUI_RaidTools_Apply = Apply

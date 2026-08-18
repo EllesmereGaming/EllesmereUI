@@ -566,7 +566,10 @@ initFrame:SetScript("OnEvent", function(self)
             local textSize = d and d.textSize or 11
             local textXOff = d and d.textXOffset or 0
             local textYOff = d and d.textYOffset or -2
-            local text = btn:CreateFontString(nil, "OVERLAY")
+            local textOverlay = CreateFrame("Frame", nil, btn)
+            textOverlay:SetAllPoints()
+            textOverlay:SetFrameLevel(btn:GetFrameLevel() + 5)
+            local text = textOverlay:CreateFontString(nil, "OVERLAY")
             do
                 local tp, ip = GetPreviewTextAnchor(d)
                 text:SetPoint(tp, btn, ip, textXOff, textYOff)

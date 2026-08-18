@@ -966,7 +966,9 @@ local function SkinCharacterSheet()
         INVTYPE_FINGER = {slots = {11, 12}, name = "Ring"},
         INVTYPE_TRINKET = {slots = {13, 14}, name = "Trinket"},
         -- A cloak's equip-location string is INVTYPE_CLOAK, never INVTYPE_BACK.
-        INVTYPE_CLOAK = {slot = 15, name = "Back"},
+        -- "Cloak" (not "Back") so this doesn't collide with the "Back" nav-button
+        -- key elsewhere in the catalog; matches EUI_UpgradeCalc.lua's slotNames[15].
+        INVTYPE_CLOAK = {slot = 15, name = "Cloak"},
         -- One-hand weapons report INVTYPE_WEAPONMAINHAND / INVTYPE_WEAPONOFFHAND;
         -- INVTYPE_MAINHAND / INVTYPE_OFFHAND do not exist and match no item. An
         -- ambiguous one-hander (INVTYPE_WEAPON) can go in either slot.
@@ -1322,7 +1324,7 @@ local function SkinCharacterSheet()
             for i = 1, maxShow do
                 local item = betterItems[i]
                 local leftText = string.format("|T%s:16|t  %s (iLvl %d)", item.icon, item.name, item.level)
-                GameTooltip:AddDoubleLine(leftText, item.slot, 1, 1, 1, 0.7, 0.7, 0.7)
+                GameTooltip:AddDoubleLine(leftText, L(item.slot), 1, 1, 1, 0.7, 0.7, 0.7)
             end
 
             if #betterItems > 10 then
@@ -1342,7 +1344,7 @@ local function SkinCharacterSheet()
             local maxShow = math.min(#betterItems, 10)
             for i = 1, maxShow do
                 local item = betterItems[i]
-                local text = string.format("%s (iLvl %d) - %s", item.name, item.level, item.slot)
+                local text = string.format("%s (iLvl %d) - %s", item.name, item.level, L(item.slot))
                 -- Rough estimate: ~6 pixels per character + icon space
                 local estimatedWidth = #text * 6 + 30
                 if estimatedWidth > maxWidth then
@@ -2214,7 +2216,7 @@ local function SkinCharacterSheet()
                         if currencyInfo then
                             local earned = currencyInfo.totalEarned or 0
                             local maximum = currencyInfo.maxQuantity or 0
-                            GameTooltip:AddLine(L(stat.name) .. " Crests", scR, scG, scB, 1)
+                            GameTooltip:AddLine(L(stat.name) .. L(" Crests"), scR, scG, scB, 1)
                             GameTooltip:AddLine(string.format("%d / %d", earned, maximum), 1, 1, 1, true)
                         end
                     -- Secondary stats with raw rating
@@ -3236,8 +3238,10 @@ local function SkinCharacterSheet()
         if not setItems then return {} end
 
         local missing = {}
+        -- "Cloak" (not "Back") so this doesn't collide with the "Back" nav-button
+        -- key elsewhere in the catalog; matches EUI_UpgradeCalc.lua's slotNames[15].
         local slotNames = {
-            "Head", "Neck", "Shoulder", "Back",
+            "Head", "Neck", "Shoulder", "Cloak",
             "Chest", "Waist", "Legs", "Feet",
             "Wrist", "Hands", "Finger 1", "Finger 2",
             "Trinket 1", "Trinket 2", "Main Hand", "Off Hand",
@@ -3464,7 +3468,7 @@ local function SkinCharacterSheet()
                                 or (GetItemIcon and GetItemIcon(item.itemID))
                             local iconText = icon and string.format("|T%s:16|t", icon) or ""
                             GameTooltip:AddLine(
-                                string.format("%s %s: %s", iconText, item.slot, item.itemName),
+                                string.format("%s %s: %s", iconText, L(item.slot), item.itemName),
                                 1, 1, 1, true)
                         end
                         GameTooltip:Show()

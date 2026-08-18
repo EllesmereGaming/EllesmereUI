@@ -4615,16 +4615,29 @@ local function SkinLabeledPageButton(btn, ch, extraX)
     end
 end
 
-local function SkinMailItemButton(b)
+-- `quality` opts the button into the SQUARE rarity border instead of the plain
+-- black one. OPT-IN because this helper is shared: the merchant grid passes it,
+-- MAIL deliberately does not. Mail rows have no other rarity cue and Blizzard's
+-- rounded ring is the only one they get, so flipping it there is a visual
+-- change nobody asked for -- it is a one-word change if that is ever wanted.
+local function SkinMailItemButton(b, quality)
     if not b or b:IsForbidden() then return end
     local nt = b.GetNormalTexture and b:GetNormalTexture()
     if nt and nt.SetAlpha then nt:SetAlpha(0) end
     local bn = b.GetName and b:GetName()
     local slot = bn and _G[bn .. "Slot"]
     if slot and slot.SetAlpha then slot:SetAlpha(0) end
-    -- IconBorder is the item-quality color ring: leave to Blizzard (colored per rarity, hidden on common items).
+    -- IconBorder is the item-quality color ring. Left to Blizzard without
+    -- `quality`; with it, the ROUNDED ring is stripped and its color is read
+    -- back onto a square border, so the tile keeps the rarity and loses the
+    -- round art. Alpha 0 does not hide it from the read -- WSkin.RingQuality
+    -- goes by shown state and vertex color.
     local icon = b.Icon or b.icon or (bn and _G[bn .. "IconTexture"])
-    if icon then WSkin.SquareIcon(icon, b) end
+    if quality then
+        local ring = b.IconBorder or (bn and _G[bn .. "IconBorder"])
+        if ring and ring.SetAlpha then ring:SetAlpha(0) end
+    end
+    if icon then WSkin.SquareIcon(icon, b, quality) end
 end
 
 -- Inbox row: parchment gone, flat block, white sender/subject, squared icon.
@@ -6682,6 +6695,54 @@ local function Skin_WorldMap()
                     WhitenTextIn(rw)  -- catch nested spell/effect + SimpleHTML reward blurbs
                     if rw.Header and rw.Header.SetTextColor then rw.Header:SetTextColor(1, 0.82, 0) end
                 end
+                -- Reward tiles in the MAP / quest log. Blizzard ships a SECOND
+                -- rewards frame for this panel -- MapQuestInfoRewardsFrame,
+                -- built from the Small item button template -- so the quest
+                -- pack's work on QuestInfoRewardsFrame never reaches here and
+                -- every reward in the log stayed stock. Both are walked because
+                -- which one the map populates has moved between builds.
+                --
+                -- Same treatment as the NPC window: drop the QuestItemBorder
+                -- plate, white the name, square the icon, and give it back the
+                -- rarity as a SQUARE border rather than Blizzard's rounded one.
+                for _, rf in ipairs({ _G.MapQuestInfoRewardsFrame, rw }) do
+                    if rf and rf.RewardButtons then
+                        for _, btn in ipairs(rf.RewardButtons) do
+                            WSkin.QuestRewardTile(btn)
+                        end
+                    end
+                    if rf then
+                        -- Same as the NPC window: strip the rings, THEN square.
+                        -- Squaring alone left the gold coin wearing its border
+                        -- while the currency tiles beside it were clean.
+                        for _, k in ipairs({ "MoneyFrame", "XPFrame", "HonorFrame",
+                                             "SkillPointFrame", "PlayerTitleFrame" }) do
+                            local sub = rf[k]
+                            if sub then
+                                for _, ak in ipairs({ "NameFrame", "IconBorder", "IconOverlay",
+                                                      "IconOverlay2", "IconBorder2", "Border" }) do
+                                    local t = sub[ak]
+                                    if t and t.SetAlpha and t.IsObjectType
+                                       and t:IsObjectType("Texture") then
+                                        t:SetAlpha(0)
+                                    end
+                                end
+                                if sub.Icon then
+                                    WSkin.SquareIcon(sub.Icon, nil)
+                                elseif sub.GetRegions then
+                                    local regs = { sub:GetRegions() }
+                                    for ri = 1, #regs do
+                                        local r = regs[ri]
+                                        if r and r.IsObjectType and r:IsObjectType("Texture")
+                                           and r:GetAlpha() > 0 then
+                                            WSkin.SquareIcon(r, nil)
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
                 for _, n in ipairs({ "QuestInfoDescriptionText", "QuestInfoObjectivesText",
                                      "QuestInfoGroupSize" }) do
                     local fs = _G[n]
@@ -7353,10 +7414,20 @@ local function SkinMerchantListItem(item)
     item.ItemButton.NormalTexture:SetTexture(nil)
     item.ItemButton.HighlightTexture:SetTexture(item.highlight)
 
-    -- Quality border + azerite overlay, repositioned onto the icon.
-    item.ItemButton.IconBorder:ClearAllPoints()
-    item.ItemButton.IconBorder:SetPoint("CENTER", item.SlotTexture, "CENTER", 0, 0)
-    item.ItemButton.IconBorder:SetSize(item.SlotTexture:GetWidth(), item.SlotTexture:GetHeight())
+    -- Quality ring: STRIPPED, not repositioned onto the icon as it used to be.
+    -- It is ROUNDED, and in list mode it was being stretched to the full icon
+    -- square, so the round art was at its most obvious here.
+    --
+    -- The rarity comes back as a SQUARE border reading that same ring. Anchored
+    -- to SlotTexture because THAT is the icon in list mode -- the row repurposes
+    -- Blizzard's empty-slot art (`row.SlotTexture:SetTexture(texture)` in
+    -- UpdateCustomMerchantList) rather than using the item button's own icon.
+    --
+    -- Registered against the ItemButton, so the color is read from
+    -- ItemButton.IconBorder and the repaint hook lands on the frame Blizzard
+    -- actually calls SetItemButtonQuality on.
+    item.ItemButton.IconBorder:SetAlpha(0)
+    WSkin.QualityBorder(item.ItemButton, item.SlotTexture)
     item.ItemButton.IconOverlay:ClearAllPoints()
     item.ItemButton.IconOverlay:SetPoint("CENTER", item.SlotTexture, "CENTER", 0, 0)
     item.ItemButton.IconOverlay:SetSize(item.SlotTexture:GetWidth(), item.SlotTexture:GetHeight())
@@ -7601,7 +7672,29 @@ local function SkinMerchantTile(item)
         if nameFS.SetMaxLines then nameFS:SetMaxLines(2) end
     end
     local btn = item.ItemButton or (name and _G[name .. "ItemButton"])
-    if btn then SkinMailItemButton(btn) end
+    -- true: vendor tiles take the square RARITY border. Mail, which shares this
+    -- helper, keeps Blizzard's rounded ring.
+    if btn then SkinMailItemButton(btn, true) end
+
+    -- CENTRE THE ICON IN THE ROW.
+    --
+    -- MerchantItemTemplate is 44px tall and anchors its ItemButton TOPLEFT to
+    -- the row, but the button is only ~37px -- so the icon sits against the top
+    -- with a 7px gap underneath, about 3-4px high of centre. Blizzard's slot
+    -- and name-plate art hid that; the flat card this pack draws spans the full
+    -- row, so the icon reads as top-heavy against it.
+    --
+    -- Re-anchored to LEFT rather than nudged by a fixed offset, so it stays
+    -- centred whatever height the row ends up. Done ONCE -- the tiles are
+    -- re-skinned on every page flip and re-anchoring per pass is pointless.
+    if btn and btn.SetPoint then
+        local bd = GetFFD(btn)
+        if not bd.rowCentred then
+            bd.rowCentred = true
+            btn:ClearAllPoints()
+            btn:SetPoint("LEFT", item, "LEFT", 0, 0)
+        end
+    end
 end
 
 -- Lift a tile's currency display 6px above Blizzard's seat. Blizzard re-anchors
@@ -8325,11 +8418,83 @@ local function Skin_Quest()
             if rw.XPFrame and rw.XPFrame.ReceiveText and rw.XPFrame.ReceiveText.SetTextColor then
                 rw.XPFrame.ReceiveText:SetTextColor(1, 1, 1)
             end
-            -- Reward item tiles: drop the parchment name plate, white the name.
+            -- Reward item tiles: drop the parchment name plate, white the name,
+            -- square the icon. SquareIcon carries its own masked-texture guard
+            -- (SetTexCoord on a masked texture is a hard Lua error), so a
+            -- reward that Blizzard masks is left native rather than skipped
+            -- by a test here.
+            --
+            -- Blizzard's own rings are stripped -- IconBorder is a ROUNDED
+            -- quality ring, and leaving it on defeats the square crop
+            -- underneath, which is why these tiles kept looking unchanged.
+            --
+            -- The rarity it carried comes back as a SQUARE border: the tile
+            -- gets WSkin.QualityBorder (via SquareIcon's `quality` flag), which
+            -- reads the color back off that same stripped ring and repaints
+            -- whenever SetItemButtonQuality touches the button. Alpha 0 does
+            -- not affect the read -- the ring's SHOWN state and vertex color
+            -- are what carry the quality.
             if rw.RewardButtons then
                 for _, btn in ipairs(rw.RewardButtons) do
-                    if btn.NameFrame and btn.NameFrame.SetAlpha then btn.NameFrame:SetAlpha(0) end
-                    if btn.Name and btn.Name.SetTextColor then btn.Name:SetTextColor(1, 1, 1) end
+                    WSkin.QuestRewardTile(btn)
+                end
+            end
+
+            -- REWARD BUTTONS ARE CREATED LAZILY, and populated AFTER creation.
+            -- QuestInfo_GetRewardButton builds RewardButtons[index] the first
+            -- time an index is needed, so a quest with an extra tile ("This
+            -- quest may have additional rewards") produces a button after this
+            -- pass has already run.
+            --
+            -- Hooked on QuestInfo_Display rather than on the accessor. The
+            -- accessor hands the button back BEFORE Blizzard fills it in, so
+            -- skinning there lands too early: the rarity border stuck (it
+            -- repaints itself off SetItemButtonQuality) but the name plate came
+            -- straight back when the tile was populated. Display runs the whole
+            -- build, so by the time it returns every tile exists AND is filled.
+            --
+            -- Both frames are walked because which one is populated has moved
+            -- between builds. Installed once.
+            if not WSkin.__questRewardHook and type(_G.QuestInfo_Display) == "function" then
+                WSkin.__questRewardHook = true
+                hooksecurefunc("QuestInfo_Display", function()
+                    WSkin.QuestRewardTiles(_G.QuestInfoRewardsFrame)
+                    WSkin.QuestRewardTiles(_G.MapQuestInfoRewardsFrame)
+                end)
+            end
+            -- The single "you will also receive" tiles (money, XP, honor and
+            -- the currency rows) are separate frames from RewardButtons.
+            -- Money / XP / honor tiles get the SAME treatment as the item
+            -- reward tiles: strip the rings, then square. Squaring alone left
+            -- the gold coin wearing its border while the currency tiles beside
+            -- it were clean.
+            --
+            -- The icon is .Icon on most of these; the money tile names it
+            -- differently on some builds, so fall back to the frame's own
+            -- texture regions and square whichever one is not the plate art.
+            for _, k in ipairs({ "MoneyFrame", "XPFrame", "HonorFrame",
+                                 "SkillPointFrame", "PlayerTitleFrame" }) do
+                local sub = rw[k]
+                if sub then
+                    for _, ak in ipairs({ "NameFrame", "IconBorder", "IconOverlay",
+                                          "IconOverlay2", "IconBorder2", "Border" }) do
+                        local t = sub[ak]
+                        if t and t.SetAlpha and t.IsObjectType and t:IsObjectType("Texture") then
+                            t:SetAlpha(0)
+                        end
+                    end
+                    if sub.Icon then
+                        WSkin.SquareIcon(sub.Icon, nil)
+                    elseif sub.GetRegions then
+                        local regs = { sub:GetRegions() }
+                        for ri = 1, #regs do
+                            local r = regs[ri]
+                            if r and r.IsObjectType and r:IsObjectType("Texture")
+                               and r:GetAlpha() > 0 then
+                                WSkin.SquareIcon(r, nil)
+                            end
+                        end
+                    end
                 end
             end
             if rw.Header and rw.Header.SetTextColor then rw.Header:SetTextColor(1, 0.82, 0) end
@@ -11221,9 +11386,18 @@ local function Skin_LootToast()
     -- Toast events ONLY. Never CURRENCY_DISPLAY_UPDATE: it fires on every
     -- currency change (quest turn-ins, vendoring, combat drops), far more often
     -- than a toast appears, and each fire costs a full sweep for nothing.
+    -- TRANSMOG_COSMETIC_COLLECTION_SOURCE_ADDED is the "You Collected"
+    -- appearance toast (NewCosmeticAlertFrameSystem). SweepAlerts already
+    -- REACHED that frame -- it walks every alertFrameSubSystems pool, and the
+    -- toast passes SkinToast's shape test via .Label/.Icon -- but nothing woke
+    -- the sweep while one was on screen, so it lived and died stock.
+    -- TRANSMOG_COLLECTION_SOURCE_ADDED is the same toast on the Trading Post
+    -- path (AlertFrames.lua routes both into the same system).
     for _, e in ipairs({ "SHOW_LOOT_TOAST", "SHOW_LOOT_TOAST_UPGRADE",
                          "SHOW_PVP_FACTION_LOOT_TOAST", "SHOW_RATED_PVP_REWARD_TOAST",
-                         "LOOT_ITEM_ROLL_WON" }) do
+                         "LOOT_ITEM_ROLL_WON",
+                         "TRANSMOG_COSMETIC_COLLECTION_SOURCE_ADDED",
+                         "TRANSMOG_COLLECTION_SOURCE_ADDED" }) do
         pcall(ev.RegisterEvent, ev, e)
     end
     SweepAlerts(true)
@@ -11451,13 +11625,14 @@ WSkin.RegisterWindow({
 end
 
 ---------
---  Loot rolls and group invites.
+--  Loot rolls, group invites and the ready check.
 --
---  Three small packs sharing one block: lootroll (group loot roll popups:
+--  Four small packs sharing one block: lootroll (group loot roll popups:
 --  need/greed/DE/pass), loothistory ("Loot Rolls" window, GroupLootHistoryFrame),
---  groupinvite ("You have been invited to a group", both invite dialogs).
+--  groupinvite ("You have been invited to a group", both invite dialogs),
+--  readycheck (the ready prompt + the initiator's response list).
 --
---  ONE file-scope local for all three, same rule as the Social UI pack: this
+--  ONE file-scope local for all four, same rule as the Social UI pack: this
 --  file's main chunk sits at Lua 5.1's hard 200-local ceiling, and going over
 --  is a COMPILE ERROR. Helpers and constants hang off LP; a do...end block buys no headroom on its own.
 -------------------------------------------------------------------------------
@@ -11585,7 +11760,7 @@ function LP.SkinRollFrame(f)
     LP.Shell("lootroll", f)
     LP.FadeKeys(f, LP.ART_KEYS)
 
-    -- Item icon: squared + 1px black frame, as every list icon in the suite.
+    -- Item icon: squared + a 1px RARITY-colored frame.
     -- Roll BUTTONS (dice/coin/transmog/pass) KEEP Blizzard's glyphs: they are the popup's identity and no house equivalent reads as fast.
     local host = f.IconFrame or f.Item
     local icon = (host and (host.Icon or host.icon)) or f.Icon
@@ -11594,7 +11769,39 @@ function LP.SkinRollFrame(f)
         local nt = host.GetNormalTexture and host:GetNormalTexture()
         if nt and nt.SetAlpha then nt:SetAlpha(0) end
     end
-    if icon and icon.SetTexCoord then WSkin.SquareIcon(icon, host or f) end
+    -- The ONE surface with no ring to read. GroupLootFrame_OnShow does not use
+    -- SetItemButtonQuality at all: it picks an ATLAS whose NAME encodes the
+    -- quality (GetAtlasDataForLootBorderItemQuality), so there is no vertex
+    -- color anywhere to recover. The roll API hands over the quality directly,
+    -- which is both cheaper and exact -- and the frame is re-skinned on every
+    -- START_LOOT_ROLL and container update, so a pooled frame taking a new
+    -- item repaints without needing the SetItemButtonQuality hook.
+    --
+    -- Bordered only if the crop actually happened: SquareIcon leaves a MASKED
+    -- icon native, and a square border round a masked shape is the same
+    -- mistake as a square crop.
+    if icon and icon.SetTexCoord and WSkin.SquareIcon(icon, nil) then
+        local qr, qg, qb = 0, 0, 0
+        if f.rollID and type(_G.GetLootRollItemInfo) == "function" then
+            local _, _, _, quality = GetLootRollItemInfo(f.rollID)
+            if type(quality) == "number" then
+                local cr, cg, cb
+                if C_Item and C_Item.GetItemQualityColor then
+                    cr, cg, cb = C_Item.GetItemQualityColor(quality)
+                elseif GetItemQualityColor then
+                    cr, cg, cb = GetItemQualityColor(quality)
+                end
+                -- Same uncommon-and-up rule the other surfaces get from
+                -- WSkin.RingQuality, applied to the same chroma test so a
+                -- common drop looks identical across all of them.
+                if type(cr) == "number"
+                   and (math.max(cr, cg, cb) - math.min(cr, cg, cb)) > 0.1 then
+                    qr, qg, qb = cr, cg, cb
+                end
+            end
+        end
+        WSkin.QualityBorder(host or f, icon, qr, qg, qb)
+    end
 
     LP.Bar(f.Timer or f.Bar or f.StatusBar)
 
@@ -11950,4 +12157,1476 @@ WSkin.RegisterWindow({
         Wire("LFGInvitePopup", true)
     end,
 })
+
+-------------------------------------------------------------------------------
+--  Ready check. Two frames, one setting -- and the names are actively
+--  misleading, so read Blizzard_FrameXML/Mainline/ReadyCheck.xml before
+--  touching this. ReadyCheckListenerFrame is NOT a listener and NOT a response
+--  list: it is a CHILD of ReadyCheckFrame, setAllPoints to it, and it owns
+--  every visible piece of the popup -- Bg, NineSlice, TitleContainer,
+--  PortraitContainer, ReadyCheckFrameText, and both Yes/No buttons.
+--  ReadyCheckFrame itself is an empty 323x100 container with no art at all.
+--
+--  ShowReadyCheck() then does this:
+--
+--      if UnitIsUnit("player", initiator) then ReadyCheckListenerFrame:Hide()
+--      else                                    ReadyCheckListenerFrame:Show()
+--
+--  So the person who STARTED the check is shown the bare outer frame and
+--  nothing else. Anything drawn on ReadyCheckFrame is a block only they see.
+--  The shell therefore belongs on the listener, never on the outer frame.
+--
+--  The portrait is ReadyCheckPortrait, inside the listener's PortraitContainer
+--  -- one level down from the listener's own regions, so the shell's blanket
+--  region fade never reaches it and it needs no protection slot.
+--
+--  Both frames are skinned from their own OnShow, never from the login pass:
+--  a skin must never be what triggers a frame's first layout.
+-------------------------------------------------------------------------------
+LP.RC_PAD      = 24   -- side padding kept clear of the message
+LP.RC_MAX_GROW = 2    -- hard ceiling: never wider than twice Blizzard's own width
+LP.RC_TEXT_Y   = -30  -- message top offset (Blizzard's -37; see FitReadyCheck)
+LP.RC_BTN_GAP  = 12   -- gap between Ready and Not Ready
+LP.RC_BTN_Y    = 16   -- button row off the panel bottom (Blizzard's own value)
+
+-- Capture a region's offset from the frame's TOP anchor (center-x delta, top
+-- delta, half width) so it can be re-anchored later without guessing Blizzard's
+-- own points. The half width is what lets a GROUP of regions be re-centered
+-- from stored numbers alone, with no second measuring pass.
+-- Returns nil while the layout has no usable geometry yet -- the caller then
+-- skips this pass and captures on the next show, rather than freezing garbage.
+function LP.CaptureTopOffset(region, fr)
+    local rl, rr, rt = region:GetLeft(), region:GetRight(), region:GetTop()
+    local fl, fRight, ft = fr:GetLeft(), fr:GetRight(), fr:GetTop()
+    if not (rl and rr and rt and fl and fRight and ft) then return nil end
+    for _, v in ipairs({ rl, rr, rt, fl, fRight, ft }) do
+        if issecretvalue(v) then return nil end
+    end
+    return ((rl + rr) / 2) - ((fl + fRight) / 2), rt - ft, (rr - rl) / 2
+end
+
+-- Geometry pass, run on every show and whenever the portrait is toggled.
+--
+--  1. WIDTH. Blizzard sizes this popup for a bare name, so on most realms
+--     "<name>-<realm> has initiated a ready check." wraps mid-sentence. The
+--     message is measured and the frame grown to fit it on one line -- always
+--     recomputed from the ORIGINAL width, so a long name cannot leave the popup
+--     permanently wide, and capped so a pathological one wraps instead of
+--     running off the screen.
+--  2. CENTERING, and ONLY with the portrait hidden. Blizzard insets message,
+--     title and buttons to clear the glyph; with it up that inset is load-
+--     bearing (centering the message runs it under the artwork), with it hidden
+--     it is a lopsided hole on the left. So all three keep Blizzard's own offset
+--     while the glyph is up and go dead center once it is gone.
+function LP.FitReadyCheck()
+    local fr = _G.ReadyCheckFrame
+    if not fr or fr:IsForbidden() then return end
+    local d = FFD[fr]
+    local fs = d and d.rcText
+    if not fs then return end
+
+    if not d.rcBaseW then
+        local w = fr:GetWidth()
+        if not w or w <= 0 or issecretvalue(w) then return end
+        d.rcBaseW = w
+    end
+
+    if not d.rcTextDX then
+        local dx, dy = LP.CaptureTopOffset(fs, fr)
+        if not dy then return end
+        d.rcTextDX, d.rcTextDY = dx, dy
+    end
+    -- Own guard, not folded into the one above: a title whose geometry is not
+    -- ready yet would otherwise never be captured once the message succeeded.
+    -- A true offset of 0 still guards correctly -- 0 is truthy in Lua.
+    if d.rcTitle and not d.rcTitleDX then
+        d.rcTitleDX, d.rcTitleDY = LP.CaptureTopOffset(d.rcTitle, fr)
+    end
+    local need = fs.GetStringWidth and fs:GetStringWidth()
+    if not need or issecretvalue(need) then return end
+
+    -- EVERYTHING is centered, because the portrait is gone (SkinReadyCheckList
+    -- removes it). Blizzard insets the title, message and button row to the
+    -- right to clear a glyph that is no longer drawn, and left alone that reads
+    -- as a lopsided hole down the left side of the panel. No inset is reserved
+    -- in the wrap box either -- the full width is usable now.
+    local pad  = LP.RC_PAD * 2
+    local want = math.max(d.rcBaseW, math.min(need + pad, d.rcBaseW * LP.RC_MAX_GROW))
+    fr:SetWidth(want)
+    fs:SetWidth(want - pad)
+    fs:ClearAllPoints()
+    -- RC_TEXT_Y, not Blizzard's -37: a long "<Name>-<Realm> has initiated a
+    -- ready check." wraps to TWO lines and the second one runs into the button
+    -- row. The message moves UP rather than the buttons moving down -- the
+    -- buttons sit RC_BTN_Y off the bottom edge and have no room to give.
+    fs:SetPoint("TOP", fr, "TOP", 0, LP.RC_TEXT_Y)
+
+    if d.rcTitle and d.rcTitleDY then
+        d.rcTitle:ClearAllPoints()
+        d.rcTitle:SetPoint("TOP", fr, "TOP", 0, d.rcTitleDY)
+    end
+
+    -- Anchored symmetrically about the panel's BOTTOM rather than replayed from
+    -- Blizzard's own offsets. Blizzard puts Ready at BOTTOMRIGHT->BOTTOM x=+11
+    -- and Not Ready at BOTTOMLEFT->BOTTOM x=+22, which sits the pair's midpoint
+    -- ~16px right of center -- the same portrait inset the text carries, and the
+    -- most visible one, because a shifted pair shows as unequal margins on each
+    -- side. Half the gap from the middle each keeps the gap even AND centers the
+    -- row, and it tracks the SetWidth above for free.
+    local yes, no = d.rcBtns and d.rcBtns[1], d.rcBtns and d.rcBtns[2]
+    if yes and no then
+        local half = LP.RC_BTN_GAP / 2
+        yes:ClearAllPoints()
+        yes:SetPoint("BOTTOMRIGHT", fr, "BOTTOM", -half, LP.RC_BTN_Y)
+        no:ClearAllPoints()
+        no:SetPoint("BOTTOMLEFT", fr, "BOTTOM", half, LP.RC_BTN_Y)
+    end
+end
+
+function LP.SkinReadyCheck(fr)
+    if not fr or fr:IsForbidden() then return end
+    local d = GetFFD(fr)
+
+    -- NO SHELL ON THIS FRAME. ReadyCheckFrame is a bare 323x100 container: the
+    -- background, NineSlice, TitleContainer, portrait, message and BOTH buttons
+    -- are all children of ReadyCheckListenerFrame, which is setAllPoints to it.
+    -- ShowReadyCheck() HIDES that child for the initiator, so Blizzard shows the
+    -- person who started the check a completely artless frame. A backdrop here
+    -- is therefore a black block that ONLY the initiator ever sees -- the rest
+    -- of the group has the listener's own skin covering it.
+    --
+    -- The listener carries the shell instead (LP.SkinReadyCheckList). This stays
+    -- as the fallback for a template that ever drops the child and puts the art
+    -- back on the outer frame.
+    if not _G.ReadyCheckListenerFrame then
+        LP.Shell("readycheck", fr)
+    end
+
+    if fr.NineSlice then WSkin.FadeNineSlice(fr.NineSlice) end
+    LP.FadeKeys(fr, LP.ART_KEYS)
+    WSkin.FadeKeyedArt(fr)
+
+    -- Yes/No are UIPanelButtons named off the frame on some templates and
+    -- globally (ReadyCheckFrameYesButton) on others; both paths are cheap and idempotent.
+    local n = fr.GetName and fr:GetName()
+    local btns = d.rcBtns or {}
+    for _, k in ipairs({ "YesButton", "NoButton" }) do
+        local b = fr[k] or (n and _G[n .. k])
+        if b then
+            WSkin.Button(b)
+            WSkin.StateButtonLabel(b)
+            if not d.rcBtns then btns[#btns + 1] = b end
+        end
+    end
+    d.rcBtns = btns
+    WSkin.ButtonsIn(fr)
+
+    LP.FontRegions(fr)
+    if n and _G[n .. "Text"] then WSkin.Font(_G[n .. "Text"]) end
+
+    -- Message + title for the geometry pass below. Resolved here, where the
+    -- frame is in hand, and parked on FFD so the pass itself needs no lookups.
+    --
+    -- The title is looked up on the LISTENER first. TitleContainer is a child
+    -- of that frame, not of this one, and its TitleText is an unnamed parentKey
+    -- -- so every lookup rooted at ReadyCheckFrame (fr.TitleContainer,
+    -- fr.TitleText, _G.ReadyCheckFrameTitleText) misses, silently, and the
+    -- title simply never gets positioned. The fr.* paths stay as the fallback
+    -- for a template that moves it back out.
+    local host = _G.ReadyCheckListenerFrame or fr
+    d.rcText = d.rcText or (n and _G[n .. "Text"]) or fr.Text
+    d.rcTitle = d.rcTitle
+        or (host.TitleContainer and host.TitleContainer.TitleText)
+        or host.TitleText
+        or (fr.TitleContainer and fr.TitleContainer.TitleText)
+        or fr.TitleText
+        or (n and _G[n .. "TitleText"])
+
+    -- A second ready check started while the first is still up re-uses a SHOWN
+    -- frame, so OnShow never fires and the width would keep the previous name's
+    -- measurement. The message being written is the reliable signal.
+    if d.rcText and not d.rcTextHooked then
+        d.rcTextHooked = true
+        for _, setter in ipairs({ "SetText", "SetFormattedText" }) do
+            if d.rcText[setter] then hooksecurefunc(d.rcText, setter, LP.FitReadyCheck) end
+        end
+    end
+
+    -- Last, and after the re-font: the message is measured here, so it has to
+    -- be carrying its final face and size.
+    LP.FitReadyCheck()
+end
+
+-- The prompt's BODY, despite the name -- see the block comment above. This is
+-- the frame that actually carries the popup's art, so it is the one that gets
+-- the shell. It is shown to everyone EXCEPT the initiator, which is precisely
+-- what keeps the skin off the initiator's screen.
+function LP.SkinReadyCheckList(fr)
+    if not fr or fr:IsForbidden() then return end
+
+    -- Keeps its title row, so no noTopBar here: the black strip is what the
+    -- title then sits on (WSkin.CommonChrome re-centers it there).
+    WSkin.Shell("readycheck", fr)
+
+    if fr.NineSlice then WSkin.FadeNineSlice(fr.NineSlice) end
+    LP.FadeKeys(fr, LP.ART_KEYS)
+    WSkin.FadeKeyedArt(fr)
+
+    -- Header art lives on the title container, one level down from the frame's
+    -- own regions, so the shell fade never reaches it. Textures only -- the
+    -- title FontString is a region of the same container.
+    local tc = fr.TitleContainer
+    if tc then
+        WSkin.FadeRegions(tc)
+        WSkin.Register(tc, true)
+        LP.FontRegions(tc)
+    end
+
+    -- Portrait REMOVED, and with no option to bring it back. Blizzard's corner
+    -- portrait is a PortraitFrameTemplate device: drawn half outside the panel
+    -- and relying on the ornate ring art to nest into. Once the shell strips
+    -- that art the circle just floats off the left edge. Nothing is lost -- the
+    -- initiator's name is already in the message text -- and FitReadyCheck
+    -- centers the panel's contents on the strength of it being gone.
+    WSkin.RemovePortrait(fr)
+
+    -- Title and message explicitly whitened: both are GameFontNormal, so they
+    -- come up Blizzard gold against the shell instead of matching every other
+    -- skinned window.
+    local title = fr.TitleContainer and fr.TitleContainer.TitleText
+    if title then WSkin.White(title) end
+    local body = _G.ReadyCheckFrameText
+    if body then WSkin.White(body) end
+
+    WSkin.CommonChrome(fr)
+    LP.FontRegions(fr)
+
+    -- The geometry pass keys off ReadyCheckFrame, and its capture needs the
+    -- message laid out -- which it now is, on the frame that actually owns it.
+    LP.FitReadyCheck()
+end
+
+WSkin.RegisterWindow({
+    key = "readycheck",
+    apply = function()
+        local function Wire(name, fn)
+            LP.WhenFrameExists(name, function(fr)
+                local function apply() fn(fr) end
+                WSkin.HookShow(fr, apply)
+                -- A ready check running through a reload puts one of these on
+                -- screen before we ever see an OnShow.
+                if fr:IsShown() then apply() end
+            end)
+        end
+        Wire("ReadyCheckFrame", LP.SkinReadyCheck)
+        Wire("ReadyCheckListenerFrame", LP.SkinReadyCheckList)
+    end,
+})
+end
+
+-------------------------------------------------------------------------------
+--  Queue frames, ready popups and choice windows.
+--
+--  Five packs sharing one block: queuestatus (the panel the LFG eye shows on
+--  hover), readycheck, pvpscoreboard, delvepicker (the Delves TIER PICKER --
+--  a DIFFERENT frame from the "delves" companion window further up) and
+--  playerchoice (the Abundance / "how will you aid" weekly choice windows).
+--
+--  ONE file-scope local for all five, same rule as the Social UI and loot
+--  packs above: this file's main chunk sits at Lua 5.1's hard 200-local
+--  ceiling (9 spare as of 8.8.6) and going over is a COMPILE ERROR, not a
+--  warning. Helpers and constants hang off HP; a do...end block buys no
+--  headroom on its own.
+--
+--  WIDGET TREES ARE OFF LIMITS. The delve picker's "Map Properties" row
+--  (.DelveModifiersWidgetContainer) and its scenic backdrop
+--  (.DelveBackgroundWidgetContainer) are UIWidgetContainerTemplate frames.
+--  Widget values are SECRET inside instanced content, and an insecure write
+--  anywhere in that tree resurfaces later as "attempt to compare a secret
+--  number value" out of LayoutFrame when a widget set is laid out. Both
+--  subtrees stay fully native, and HP.IsWidget fails CLOSED -- a probe that
+--  throws counts as a widget -- so an unrecognised container is skipped rather
+--  than skinned.
+-------------------------------------------------------------------------------
+do
+local HP = {
+    FLAT = "Interface\\Buttons\\WHITE8X8",
+
+    -- Plate / frame art living one level down from a frame's own regions,
+    -- where the shell's region fade never reaches it.
+    ART_KEYS = {
+        "Background", "Bg", "BG", "Border", "BorderFrame", "Backdrop",
+        "Decoration", "DividingLine", "Divider", "bottomArt", "background",
+    },
+
+    -- The scoreboard's inset is eight separately-named corner/edge tiles
+    -- rather than a NineSlice, so FadeRegions cannot recognise them as a set.
+    INSET_KEYS = {
+        "InsetBorderTopLeft", "InsetBorderTopRight", "InsetBorderBottomLeft",
+        "InsetBorderBottomRight", "InsetBorderTop", "InsetBorderBottom",
+        "InsetBorderLeft", "InsetBorderRight",
+    },
+
+    -- Keys whose presence anywhere in a frame's parent chain marks it as part
+    -- of a UI widget set. Same probe list the quest tracker's guard uses.
+    WIDGET_KEYS = {
+        "OnAcquireWidget", "widgetPools", "widgetSetID", "widgetContainer",
+        "widgetType",
+    },
+
+    -- NineSlicePanelTemplate's eight EDGE pieces. Center is deliberately absent:
+    -- on DialogBorderTemplate the middle is a separate tiled .Bg parchment that
+    -- we keep, so fading a "center" here would blank the panel.
+    NINESLICE_PIECES = {
+        "TopLeftCorner", "TopRightCorner", "BottomLeftCorner", "BottomRightCorner",
+        "TopEdge", "BottomEdge", "LeftEdge", "RightEdge",
+    },
+
+    -- Every ring/plate stacked on a reward tile's icon. All of these defeat a
+    -- square crop: IconBorder is Blizzard's ROUNDED quality ring, the overlays
+    -- are the same shape, and NameFrame is the parchment plate behind the name.
+    -- One inset for every close button we own, so the X sits in the same
+    -- place regardless of how far a window's rect overhangs its panel.
+    -- Inset of the close button from the frame's top-right, INSIDE
+    -- WSkin.AtlasBorder's drawn line. Two dials because the atlas's padding is
+    -- not square: sharing one number moved the X down as far as it moved it
+    -- left, and it was already sitting too low.
+    --   X: larger = further LEFT (further from the right edge)
+    --   Y: larger = further DOWN
+    CLOSE_INSET_X = -2,
+    CLOSE_INSET_Y = -3,
+
+    REWARD_ART = {
+        "IconBorder", "IconOverlay", "IconOverlay2", "IconBorder2", "NameFrame",
+    },
+}
+
+-- Plain indexed read, passed BY ARGUMENT to pcall. The obvious spelling here is
+-- pcall(function() return t[k] end), but that allocates a fresh closure per
+-- probe -- up to 25 of them per IsWidget call, on a path that runs for every
+-- option of every choice window.
+function HP.RawGet(t, k)
+    return t[k]
+end
+
+-- Children as a TABLE, taken ONCE, and pcall-able by argument. Never
+-- select(i, f:GetChildren()) in a loop: that rebuilds the entire vararg every
+-- iteration, which is O(n^2) and has caused a real CPU complaint here before.
+function HP.Kids(f)
+    return { f:GetChildren() }
+end
+
+-- Same idea for REGIONS, and it is the only way to reach art that Blizzard
+-- declared inline with no name and no parentKey -- the trade window's enchant
+-- glyph being the case that forced it. pcall-able by argument for the usual
+-- reason: a field access on a forbidden or widget-backed frame can throw.
+function HP.Regions(f)
+    return { f:GetRegions() }
+end
+
+-- Fail-CLOSED widget test: walks up to `depth` parents looking for any widget
+-- marker. Every read is pcall'd because a widget frame fed secret data can
+-- throw from an ordinary field access, and a probe that THROWS counts as a
+-- widget. Cheap: the chains here are 3-5 deep and each pass is per-show.
+function HP.IsWidget(frame, depth)
+    local cur, hops = frame, 0
+    while cur and hops <= (depth or 5) do
+        for i = 1, #HP.WIDGET_KEYS do
+            local ok, val = pcall(HP.RawGet, cur, HP.WIDGET_KEYS[i])
+            if not ok then return true end
+            if val ~= nil then return true end
+        end
+        local ok2, parent = pcall(cur.GetParent, cur)
+        if not ok2 then return true end
+        cur = parent
+        hops = hops + 1
+    end
+    return false
+end
+
+-- Popup/window shell. Idempotent: Shell re-runs its region fade every call but
+-- builds its textures once, so re-calling doubles as repaint catch-up.
+function HP.Shell(winKey, frame, opts)
+    if not frame or frame:IsForbidden() then return end
+    WSkin.Shell(winKey, frame, opts)
+end
+
+-- Alpha a list of named art keys. TEXTURES ONLY, and the type test is
+-- load-bearing: several of these names are a Texture on one template and a
+-- FRAME on another ("Border" is a NineSlice on portrait windows), and
+-- SetAlpha(0) on a frame takes its whole subtree with it.
+function HP.FadeKeys(frame, keys)
+    if not frame then return end
+    for i = 1, #keys do
+        local t = frame[keys[i]]
+        if t and t.IsObjectType then
+            if t:IsObjectType("Texture") then
+                t:SetAlpha(0)
+            elseif t.TopEdge or t.TopLeftCorner then
+                WSkin.FadeNineSlice(t)
+            end
+        end
+    end
+end
+
+-- Re-font a frame's own FontString regions. `white` also forces the color;
+-- without it the existing color is kept (quality/faction coloring is content).
+function HP.FontRegions(frame, white)
+    if not frame or not frame.GetRegions then return end
+    local regions = { frame:GetRegions() }
+    for i = 1, #regions do
+        local r = regions[i]
+        if r and r.IsObjectType and r:IsObjectType("FontString") then
+            if white then WSkin.White(r) else WSkin.Font(r) end
+        end
+    end
+end
+
+-- Run fn(frame) as soon as a named Blizzard frame exists: immediately if it
+-- already does, otherwise on the ADDON_LOADED that creates it. Which of these
+-- dialogs are base UI vs load-on-demand has moved between expansions, so none
+-- is assumed present at login.
+function HP.WhenFrameExists(name, fn)
+    if _G[name] then fn(_G[name]); return end
+    local ev = CreateFrame("Frame")
+    ev:RegisterEvent("ADDON_LOADED")
+    ev:SetScript("OnEvent", function(self)
+        local fr = _G[name]
+        if fr then
+            self:UnregisterAllEvents()
+            fn(fr)
+        end
+    end)
+end
+
+-- Skin again on each re-show. One debounced pass per frame, early-outing while
+-- hidden so a hide/show burst costs nothing.
+--
+-- Deliberately does NOT run fn() itself: every caller already makes one
+-- explicit pass before wiring this up, and running it here too made the first
+-- pass happen TWICE for every window (caught by the header-row GetChildren
+-- counter, which saw two walks for one apply).
+function HP.OnShow(frame, fn)
+    if not frame then return end
+    local d = GetFFD(frame)
+    if d.hpShow then return end
+    d.hpShow = true
+    frame:HookScript("OnShow", WSkin.Debounce(function()
+        if frame:IsVisible() then fn() end
+    end))
+end
+
+-- Post-hook a mixin method on a frame instance, once.
+function HP.HookMethod(frame, method, fn)
+    if not frame or type(frame[method]) ~= "function" then return false end
+    local d = GetFFD(frame)
+    d.hpHooks = d.hpHooks or {}
+    if d.hpHooks[method] then return true end
+    d.hpHooks[method] = true
+    hooksecurefunc(frame, method, fn)
+    return true
+end
+
+-- Any StatusBar -> flat fill in the user's bar-fill color over a near-black
+-- trough. Re-asserted every pass: Blizzard re-applies a bar's own art on reuse.
+function HP.Bar(bar)
+    if not bar or bar:IsForbidden() or not bar.SetStatusBarTexture then return end
+    local d = GetFFD(bar)
+    bar:SetStatusBarTexture(HP.FLAT)
+    local fill = bar.GetStatusBarTexture and bar:GetStatusBarTexture()
+    if fill and fill ~= d.fill then
+        d.fill = fill
+        -- GetRegions() on a StatusBar includes the fill, so an unguarded
+        -- FadeRegions blanks the very thing we just installed.
+        WSkin.FadeRegions(bar, { [fill] = true })
+        WSkin.Register(bar, { [fill] = true })
+    end
+    if not d.bg then
+        local bg = SolidTex(bar, "BACKGROUND", 0, 0, 0, 0.55)
+        bg:SetAllPoints(bar)
+        d.bg = bg
+    end
+    WSkin.ApplyBarFill(bar)
+end
+
+-- Close button: skinned AND re-anchored to one house position.
+--
+-- Blizzard anchors each window's X to that window's own rect, and those rects
+-- overhang the VISIBLE panel by different amounts per frame (PlayerChoice pins
+-- it at a bare TOPRIGHT, the delve picker insets it), so the X lands a
+-- different distance from the panel edge in every window. Re-anchoring to a
+-- fixed inset is what makes them agree.
+--
+-- One-shot per button: Blizzard re-runs its own SetPoint on some layouts, but
+-- re-applying every pass would fight a window that legitimately moves its X.
+function HP.CloseButton(frame, btn)
+    if not frame or not btn or btn:IsForbidden() then return end
+    WSkin.CloseButton(btn)
+    -- Blizzard's close button carries its own .Border texture, which survives
+    -- WSkin.CloseButton and rings the X with leftover frame art. Confirmed by a
+    -- /framestack over the X: PlayerChoiceFrame.CloseButton.Border drawing at
+    -- level 510, right under the cursor. Cleared, not alpha'd -- these buttons
+    -- get re-textured per texture kit.
+    for _, k in ipairs({ "Border", "BorderArt", "Background", "Bg" }) do
+        local t = btn[k]
+        if t and t.IsObjectType and t:IsObjectType("Texture") then
+            if t.SetAtlas then t:SetAtlas("") end
+            if t.SetTexture then t:SetTexture("") end
+            t:SetAlpha(0)
+        end
+    end
+
+    -- Pin to the FRAME's TOPRIGHT at +3,+3 on every PlayerChoice layout.
+    --
+    -- Two /framestacks settled this. The 4-option window anchors its X at
+    -- TOPRIGHT +3,+3 and looks right; the 3-option window anchors the SAME
+    -- button to the SAME point at -9,-9 and sits wrong. Blizzard varies the
+    -- OFFSET per layout, not the reference -- so the frame was always the
+    -- correct thing to anchor to, and copying the good layout's numbers is what
+    -- makes them agree.
+    --
+    -- Two earlier attempts failed for instructive reasons, both recorded so
+    -- they are not retried: a flat -4,-4 off the frame (wrong constant, put the
+    -- X off the panel), and anchoring to NineSlice (that layout HAS no
+    -- NineSlice -- it uses BorderOverlay -- so the re-anchor silently skipped
+    -- and Blizzard's -9,-9 stood).
+    -- Inset inside OUR OWN atlas border.
+    --
+    -- A /framestack on the panel's visible corner named it: the border there is
+    -- WSkin.AtlasBorder's AdventureMap_TopBorder texture, anchored 0,0 to the
+    -- frame rect. So the panel edge IS the frame edge -- the drawn line just
+    -- sits inside the atlas's transparent padding. Every Blizzard frame chased
+    -- before this (NineSlice, BorderOverlay, the frame at Blizzard's own
+    -- offsets) was irrelevant, because none of them draws that corner.
+    --
+    -- CLOSE_INSET_X/Y are the tunables: how far in from the frame the atlas's
+    -- line falls on each axis. -4 was tried and left the X outside the line.
+    -- RE-ASSERTED EVERY PASS, not one-shot. PlayerChoiceFrame re-anchors its
+    -- own close button during setup, so a single application at skin time is
+    -- silently overwritten and the X never moves at all -- which is exactly the
+    -- symptom: not "wrong offset", but "no change whatsoever". Pass() runs on
+    -- show and on both SetupOptions paths, i.e. precisely when Blizzard
+    -- re-lays it out.
+    if btn.SetPoint then
+        btn:ClearAllPoints()
+        btn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -HP.CLOSE_INSET_X, -HP.CLOSE_INSET_Y)
+    end
+end
+
+-- Button + label, with Blizzard's own frame art removed FIRST.
+--
+-- WSkin.Button strips the old Left/Middle/Right texture trio, but modern
+-- UIPanelButtonTemplate draws its frame as a NINESLICE instead -- which
+-- survives, so the house border lands on top of Blizzard's and every button
+-- reads as double-bordered. Fading the NineSlice is what makes it single.
+function HP.Button(b)
+    if not b or b:IsForbidden() then return end
+    -- ONCE PER BUTTON. SkinChoiceOption reaches the same button by two routes
+    -- (the OptionButtonsContainer child walk AND the named-key loop), and each
+    -- skin pass lays another border -- which is the actual double border, not
+    -- Blizzard's art surviving.
+    local d = GetFFD(b)
+    if d.hpButton then return end
+    d.hpButton = true
+    -- UIPanelButtonTemplate frames itself with Left/Middle/Right textures
+    -- (UI-Panel-Button-Up), NOT a NineSlice. Cleared explicitly so a stray
+    -- reapply cannot bring Blizzard's frame back under ours.
+    for _, k in ipairs({ "Left", "Middle", "Right" }) do
+        local t = b[k]
+        if t and t.SetTexture then
+            if t.SetAtlas then t:SetAtlas("") end
+            t:SetTexture("")
+            t:SetAlpha(0)
+        end
+    end
+    if b.NineSlice then WSkin.FadeNineSlice(b.NineSlice) end
+    WSkin.Button(b)
+    WSkin.WhiteButtonLabel(b)
+end
+
+-- Square an icon and give it the house border. Masked icons are left native by
+-- WSkin.SquareIcon itself (SetTexCoord on a masked texture is a hard error).
+--
+-- Pass a parent ONLY for item icons. Atlas glyph art (role icons, faction
+-- marks) must not come through here at all: SetTexCoord fights the atlas's own
+-- coordinates, and the border boxes empty slots.
+function HP.Icon(icon, parent)
+    if not icon then return end
+    WSkin.SquareIcon(icon, parent or icon:GetParent())
+end
+
+-- One reward tile: square the icon, strip every ring stacked on it, and put
+-- the rarity back as a SQUARE border.
+--
+-- Keeping .IconBorder was a deliberate call at first, on the grounds that it
+-- carries item QUALITY -- and it was wrong. It is a ROUNDED ring, so it is
+-- exactly the "border" that kept coming back in screenshot after screenshot,
+-- and it defeats the square crop underneath it. NameFrame (the parchment
+-- plate) goes for the same reason.
+--
+-- Dropping the rarity cue ENTIRELY was the follow-on call, and that was wrong
+-- too (reversed 2026-08-14 on maintainer request): "quality still reads from the
+-- tooltip" meant hovering every tile to see what mattered. The ring stays
+-- stripped, but it is now the SOURCE the square border reads its color from,
+-- so the rarity is back without the rounded art coming with it.
+function HP.SkinRewardTile(btn)
+    if not btn then return end
+    for i = 1, #HP.REWARD_ART do
+        local t = btn[HP.REWARD_ART[i]]
+        if t and t.SetAlpha and t.IsObjectType and t:IsObjectType("Texture") then
+            t:SetAlpha(0)
+        end
+    end
+    if btn.Name and btn.Name.SetTextColor then btn.Name:SetTextColor(1, 1, 1) end
+    WSkin.SquareIcon(btn.Icon, btn, true)
+end
+
+-- Square the icons of a ScrollBox's currently-materialised rows.
+--
+-- NO border is added and Blizzard's is stripped: passing a parent to SquareIcon
+-- draws an EUI border, and .IconBorder is a rounded quality ring. Between them
+-- that is two borders on something that was asked to be a square icon.
+--
+-- ForEachFrame is the ScrollBox's own API for "the rows that exist right now".
+-- Preferred over walking children because a WowScrollBoxList keeps its rows
+-- under a ScrollTarget child, so GetChildren on the box returns the scaffolding
+-- rather than the rows.
+function HP.SquareRewards(sb)
+    if not sb then return end
+    local function Square(row)
+        if row and row.Icon then HP.SkinRewardTile(row) end
+    end
+    if type(sb.ForEachFrame) == "function" and pcall(sb.ForEachFrame, sb, Square) then
+        return
+    end
+    local okKids, kids = pcall(HP.Kids, sb)
+    if not okKids then return end
+    for i = 1, #kids do
+        local ch = kids[i]
+        if ch and ch.Icon then
+            Square(ch)
+        elseif ch then
+            -- One level deeper: the ScrollTarget holding the pooled rows.
+            local okInner, inner = pcall(HP.Kids, ch)
+            if okInner then
+                for j = 1, #inner do Square(inner[j]) end
+            end
+        end
+    end
+end
+
+-------------------------------------------------------------------------------
+--  Queue status panel (QueueStatusFrame): what the minimap LFG eye shows on
+--  hover. Inherits TooltipBackdropTemplate, so the shell replaces a genuine
+--  tooltip backdrop rather than a window frame.
+--
+--  Entries are POOLED (statusEntriesPool of QueueStatusEntryTemplate) and
+--  rebuilt by QueueStatusFrameMixin:Update, so the skin hangs off that hook
+--  and walks only the ACTIVE entries -- typically one or two.
+-------------------------------------------------------------------------------
+-- Role icons are left FULLY NATIVE. They are ATLAS textures
+-- (UI-LFG-RoleIcon-Generic), so the square-icon treatment was wrong twice over:
+-- SetTexCoord fights the atlas's own coordinates, and the house border it draws
+-- boxed every role glyph -- including ones with no art for the current queue
+-- type, which showed up as an empty square floating in the panel corner.
+-- Only the COUNT gets house text.
+function HP.SkinRoleCount(rc)
+    if not rc then return end
+    if rc.Count then WSkin.White(rc.Count) end
+end
+
+function HP.SkinQueueEntry(entry)
+    if not entry or entry:IsForbidden() then return end
+    -- Title stays accent-colored by Blizzard for eligibility state; the rest
+    -- goes white so the panel reads as one block of house text.
+    if entry.Title then WSkin.Font(entry.Title) end
+    for _, k in ipairs({ "Status", "SubTitle", "TimeInQueue", "AverageWait", "ExtraText" }) do
+        local fs = entry[k]
+        if fs then WSkin.White(fs) end
+    end
+    -- RoleIcon1/2/3 are deliberately untouched, same reason as SkinRoleCount:
+    -- atlas art, and bordering them boxes empty slots.
+    for _, k in ipairs({ "TanksFound", "HealersFound", "DamagersFound" }) do
+        HP.SkinRoleCount(entry[k])
+    end
+    -- Assigned spec badge: Blizzard draws it as a circle (CircleMask) inside a
+    -- minimap tracking border. The mask makes SetTexCoord illegal, so the icon
+    -- is left native and only the brass border goes.
+    local spec = entry.AssignedSpec
+    if spec and spec.Border then spec.Border:SetAlpha(0) end
+    -- Separator between stacked entries -> thin house rule.
+    local sep = entry.EntrySeparator
+    if sep and sep.SetColorTexture then
+        sep:SetColorTexture(1, 1, 1, 0.12)
+        if sep.SetAtlas then sep:SetAtlas("") end
+    end
+end
+
+function HP.ApplyQueueStatus()
+    local f = _G.QueueStatusFrame
+    if not f or f:IsForbidden() then return end
+    HP.Shell("queuestatus", f, { noTopBar = true })
+    if f.NineSlice then WSkin.FadeNineSlice(f.NineSlice) end
+    HP.FadeKeys(f, HP.ART_KEYS)
+
+    local function Pass()
+        local pool = f.statusEntriesPool
+        if not (pool and pool.EnumerateActive) then return end
+        local ok, iter = pcall(pool.EnumerateActive, pool)
+        if not ok or not iter then return end
+        for entry in iter do HP.SkinQueueEntry(entry) end
+    end
+    Pass()
+    -- Update rebuilds the entry list; it is the only thing that changes what
+    -- is on screen, so nothing else needs polling.
+    HP.HookMethod(f, "Update", WSkin.Debounce(function()
+        if f:IsVisible() then Pass() end
+    end))
+end
+
+WSkin.RegisterWindow({
+    key = "queuestatus",
+    addons = { Blizzard_QueueStatusFrame = true },
+    apply = function()
+        HP.WhenFrameExists("QueueStatusFrame", function() HP.ApplyQueueStatus() end)
+    end,
+})
+
+-------------------------------------------------------------------------------
+--  Delves difficulty picker (DelvesDifficultyPickerFrame,
+--  Blizzard_DelvesDifficultyPicker): the tier picker with the reward list.
+--
+--  NOT the "delves" pack further up -- that one is the companion
+--  configuration window in Blizzard_DelvesCompanionConfiguration.
+--
+--  The "Map Properties" icon row and the scenic backdrop are
+--  UIWidgetContainerTemplate frames. They are named here only to be SKIPPED;
+--  nothing in this function may write into either subtree.
+-------------------------------------------------------------------------------
+function HP.ApplyDelvePicker()
+    local f = _G.DelvesDifficultyPickerFrame
+    if not f or f:IsForbidden() then return end
+
+    local function Pass()
+        -- FOUR TARGETED CHANGES, by maintainer call. The full window shell was
+        -- built, shown to him and REJECTED, so there is deliberately no
+        -- HP.Shell, no region fade and no font pass here: Blizzard's
+        -- background, title, scenario label, description, scenic art, reward
+        -- text and challenge grid all stay exactly as shipped.
+        --   1. ornate dialog border -> EUI's window border
+        --   2. close button        -> EUI's X
+        --   3. tier dropdown + Enter button
+        --   4. "Chance to receive" icons squared
+        -- Resist re-adding anything else here; the restraint IS the request.
+
+        -- DialogBorderTemplate is a NineSlicePanelTemplate plus a tiled .Bg
+        -- parchment. Only the eight border PIECES are faded, never the Border
+        -- FRAME itself: WSkin.FadeNineSlice alphas the container too, which
+        -- would take .Bg with it and leave the panel see-through.
+        local brd = f.Border
+        if brd then
+            for i = 1, #HP.NINESLICE_PIECES do
+                local t = brd[HP.NINESLICE_PIECES[i]]
+                if t and t.SetAlpha then t:SetAlpha(0) end
+            end
+            WSkin.AtlasBorder(f)
+        end
+        HP.CloseButton(f, f.CloseButton)
+
+        if f.Dropdown then WSkin.Dropdown(f.Dropdown) end
+        if f.EnterDelveButton then HP.Button(f.EnterDelveButton) end
+
+        local rc = f.DelveRewardsContainerFrame
+        if rc and not HP.IsWidget(rc, 2) then HP.SquareRewards(rc.ScrollBox) end
+        -- .DelveModifiersWidgetContainer / .DelveBackgroundWidgetContainer:
+        -- deliberately untouched, see the block header.
+    end
+
+    Pass()
+    HP.OnShow(f, Pass)
+    -- Switching tier re-lays the reward list.
+    HP.HookMethod(f, "CheckAndSetDisplayMode", WSkin.Debounce(function()
+        if f:IsVisible() then Pass() end
+    end))
+    -- Scrolling ACQUIRES fresh row frames from the pool, so squaring only on
+    -- show would leave anything scrolled into view uncropped.
+    local rc0 = f.DelveRewardsContainerFrame
+    if rc0 and rc0.ScrollBox then
+        HP.HookMethod(rc0.ScrollBox, "Update", WSkin.Debounce(function()
+            if f:IsVisible() then HP.SquareRewards(rc0.ScrollBox) end
+        end))
+    end
+end
+
+WSkin.RegisterWindow({
+    key = "delvepicker",
+    addons = { Blizzard_DelvesDifficultyPicker = true },
+    apply = function()
+        HP.WhenFrameExists("DelvesDifficultyPickerFrame", function() HP.ApplyDelvePicker() end)
+    end,
+})
+
+-------------------------------------------------------------------------------
+--  Player choice windows (PlayerChoiceFrame, Blizzard_PlayerChoice): the
+--  Abundance harvest picker and the weekly "how will you aid ..." windows are
+--  the same frame with two different option layouts --
+--  PlayerChoiceNormalOptionTemplate (columns) and
+--  PlayerChoiceNormalOptionGridTemplate (the grid variant).
+--
+--  Blizzard drives this frame's art from a TEXTURE KIT chosen per choice, so
+--  every option is re-textured on each SetupOptions pass and a one-shot skin
+--  would survive exactly one window. Both setup paths are hooked.
+--
+--  Option ARTWORK (the scene image on each card) is content and stays; only
+--  the parchment plate, header and button chrome are replaced.
+-------------------------------------------------------------------------------
+-- The reputation / progress bars on a choice option ("Friendly", "Revered" on
+-- the weekly cartel picker) are UI WIDGETS: PlayerChoiceBaseOptionTemplate owns
+-- a .WidgetContainer inheriting UIWidgetContainerTemplate, and each option calls
+-- RegisterForWidgetSet on it. They can NEVER be skinned in place -- that is the
+-- secret-value rule, and it is why HP.IsWidget already refuses to descend into
+-- them. Instead they are handed to the HUD cover system, which draws an
+-- EUI-owned bar anchored over Blizzard's without writing to it.
+--
+-- Handed over rather than discovered: the cover system's own sweep only walks
+-- UIParent's direct children, and these containers are two levels inside a
+-- window.
+function HP.AdoptOptionWidgets(opt)
+    local adopt = EllesmereUI._HUDWidgetAdopt
+    if type(adopt) ~= "function" then return end
+    for _, k in ipairs({ "WidgetContainer" }) do
+        local okC, wc = pcall(HP.RawGet, opt, k)
+        if okC and wc then adopt(wc) end
+    end
+end
+
+function HP.SkinChoiceOption(opt)
+    if not opt then return end
+    -- BEFORE the widget test: this option's own frame is ordinary, only its
+    -- WidgetContainer child is a widget tree, and the container is exactly what
+    -- we want to register.
+    HP.AdoptOptionWidgets(opt)
+    -- IsWidget FIRST, before any unguarded call on the frame. Every read it
+    -- makes is pcall'd, so a frame whose field access throws is classified as a
+    -- widget and skipped; calling opt:IsForbidden() ahead of it would throw on
+    -- that same frame and take the whole pass down with it.
+    if HP.IsWidget(opt, 2) then return end
+    local okF, forbidden = pcall(opt.IsForbidden, opt)
+    if not okF or forbidden then return end
+    HP.FadeKeys(opt, HP.ART_KEYS)
+    if opt.NineSlice then WSkin.FadeNineSlice(opt.NineSlice) end
+
+    -- Header plate + title.
+    local hdr = opt.Header
+    if hdr then
+        HP.FadeKeys(hdr, HP.ART_KEYS)
+        if hdr.Text then WSkin.White(hdr.Text) end
+        HP.FontRegions(hdr, true)
+    end
+    if opt.OptionText then WSkin.White(opt.OptionText) end
+    if opt.Title then WSkin.White(opt.Title) end
+
+    -- Body text frames keep Blizzard's inline coloring (the requirement lines
+    -- are red/green on purpose), so re-font without recoloring.
+    local tf = opt.OptionButtonsContainer or opt.Text
+    if tf then HP.FontRegions(tf) end
+
+    -- Choice buttons ("Harvest", "Choose Quest", ...).
+    -- The container's children are WRAPPER frames, not the buttons: the real
+    -- one is a level deeper at <wrapper>.Button. A /framestack over a
+    -- "Work for ..." button showed
+    -- OptionButtonsContainer.<wrapper>.Button.Middle still drawing, because a
+    -- walk that only tested the wrappers for GetObjectType()=="Button" found
+    -- nothing and skinned nothing. What looked like a double border was
+    -- Blizzard's own button art, never touched.
+    local bc = opt.OptionButtonsContainer
+    if bc and bc.GetChildren then
+        local kids = { bc:GetChildren() }
+        for i = 1, #kids do
+            local w = kids[i]
+            if w then
+                if w.GetObjectType and w:GetObjectType() == "Button" then
+                    HP.Button(w)
+                end
+                local okB, inner = pcall(HP.RawGet, w, "Button")
+                if okB and inner and inner.GetObjectType
+                   and inner:GetObjectType() == "Button" then
+                    HP.Button(inner)
+                end
+            end
+        end
+    end
+    for _, k in ipairs({ "OptionButton", "Button", "ConfirmationButton" }) do
+        local b = opt[k]
+        if b and b.GetObjectType and b:GetObjectType() == "Button" then
+            HP.Button(b)
+        end
+    end
+
+    -- Reward icons (item / currency rows under each option).
+    local rewards = opt.Rewards or opt.RewardsFrame
+    if rewards and rewards.GetChildren then
+        local kids = { rewards:GetChildren() }
+        for i = 1, #kids do
+            local r = kids[i]
+            if r and not r:IsForbidden() then
+                HP.Icon(r.Icon, r)
+                if r.Name then WSkin.Font(r.Name) end
+            end
+        end
+    end
+end
+
+function HP.ApplyPlayerChoice()
+    local f = _G.PlayerChoiceFrame
+    if not f or f:IsForbidden() then return end
+
+    local function Pass()
+        HP.Shell("playerchoice", f)
+        HP.FadeKeys(f, HP.ART_KEYS)
+        if f.NineSlice then WSkin.FadeNineSlice(f.NineSlice) end
+        -- Close button: skinned AND re-stripped every pass. PlayerChoice drives
+        -- its art from a per-choice TEXTURE KIT, so Blizzard re-applies the
+        -- button's own textures when the window is set up -- a one-shot skin
+        -- gets painted over on the next choice. The Border key is a separate
+        -- frame on UIPanelCloseButton and survives a plain region fade.
+        HP.CloseButton(f, f.CloseButton)
+        if f.Title then WSkin.White(f.Title) end
+        if f.Header then
+            HP.FadeKeys(f.Header, HP.ART_KEYS)
+            HP.FontRegions(f.Header, true)
+        end
+        -- PlayerChoiceFrame owns a WidgetContainer of its own, above the
+        -- options; same cover treatment as the per-option ones.
+        HP.AdoptOptionWidgets(f)
+
+        -- Options come from `optionPools`, a FramePoolCollection -- NOT a
+        -- parentArray. The first build looked for f.Options and then fell back
+        -- to walking children for an .OptionButtonsContainer key that does not
+        -- exist, so it found NOTHING: no option was ever skinned and, worse, no
+        -- option WidgetContainer was ever handed to the cover system, which is
+        -- why the reputation bars stayed stock.
+        local pools = f.optionPools
+        local done = false
+        if pools then
+            -- EnumerateActive covers every pool in the collection, so both the
+            -- column and grid option templates are picked up in one pass.
+            if type(pools.EnumerateActive) == "function" then
+                local okE, iter = pcall(pools.EnumerateActive, pools)
+                if okE and iter then
+                    for opt in iter do HP.SkinChoiceOption(opt) end
+                    done = true
+                end
+            end
+            if not done and type(pools.EnumerateActiveByTemplate) == "function"
+               and f.optionFrameTemplate then
+                local okT, iter2 = pcall(pools.EnumerateActiveByTemplate, pools,
+                                         f.optionFrameTemplate)
+                if okT and iter2 then
+                    for opt in iter2 do HP.SkinChoiceOption(opt) end
+                    done = true
+                end
+            end
+        end
+        if not done and f.GetChildren then
+            -- Last resort: an option is any child carrying a WidgetContainer.
+            local kids = { f:GetChildren() }
+            for i = 1, #kids do
+                local ch = kids[i]
+                local okW, wc = pcall(HP.RawGet, ch, "WidgetContainer")
+                if okW and wc then HP.SkinChoiceOption(ch) end
+            end
+        end
+    end
+
+    Pass()
+    HP.OnShow(f, Pass)
+    -- Both layout paths re-texture every option from the texture kit, so both
+    -- must re-skin. Debounced: SetupOptions and AlignOptionHeights can fire
+    -- several times for one window.
+    local restrip = WSkin.Debounce(function()
+        if f:IsVisible() then Pass() end
+    end)
+    HP.HookMethod(f, "SetupOptions", restrip)
+    HP.HookMethod(f, "SetupOptionsAsGrid", restrip)
+    HP.HookMethod(f, "SetupFrame", restrip)
+end
+
+WSkin.RegisterWindow({
+    key = "playerchoice",
+    addons = { Blizzard_PlayerChoice = true },
+    apply = function()
+        HP.WhenFrameExists("PlayerChoiceFrame", function() HP.ApplyPlayerChoice() end)
+    end,
+})
+
+-------------------------------------------------------------------------------
+--  Stack split popup (StackSplitFrame): the quantity box that opens over the
+--  merchant window on a shift-click / right-click buy.
+--
+--  Registered under the MERCHANT key rather than one of its own -- it is the
+--  merchant window's own popup as far as the user is concerned, and a second
+--  registration on an existing key is the same shape charsheet and
+--  professionsbook already use.
+--
+--  Blizzard swaps between two BACKGROUND textures depending on how many digits
+--  the count needs (SingleItem vs MultiItem, chosen in ChooseFrameType), and
+--  re-shows whichever it picked on each open. Both are faded every pass rather
+--  than once, or the first multi-digit split brings the brass money-frame art
+--  back on a window that has already been skinned.
+-------------------------------------------------------------------------------
+function HP.ApplyStackSplit()
+    local f = _G.StackSplitFrame
+    if not f or f:IsForbidden() then return end
+
+    local function Pass()
+        HP.Shell("merchant", f, { noTopBar = true })
+        HP.FadeKeys(f, HP.ART_KEYS)
+        if f.SingleItemSplitBackground then f.SingleItemSplitBackground:SetAlpha(0) end
+        if f.MultiItemSplitBackground then f.MultiItemSplitBackground:SetAlpha(0) end
+        if f.NineSlice then WSkin.FadeNineSlice(f.NineSlice) end
+
+        -- GIVE THE COUNT ITS FIELD BACK.
+        --
+        -- StackSplitFrame has NO EditBox -- the count is a FontString and the
+        -- frame takes digits through enableKeyboard/OnKeyDown. What made it
+        -- READ as a typeable field in Blizzard's version was
+        -- SingleItemSplitBackground, the money-frame plate behind the number,
+        -- and this pack fades that (correctly -- it is stock art). Fading it
+        -- without replacing it left the count floating between two arrows with
+        -- nothing to say it accepts input.
+        --
+        -- So the plate comes back in the house style: flat panel + 1px edge,
+        -- sized to the text rather than to the old art, which was far wider
+        -- than the number it framed.
+        if f.StackSplitText and f.LeftButton and f.RightButton then
+            local d = GetFFD(f)
+            if not d.splitField then
+                -- SPANS THE GAP BETWEEN THE ARROWS, not the text.
+                --
+                -- Anchoring to StackSplitText gave a box that hugged the digit:
+                -- the string is justifyH="RIGHT" and anchored to the frame's
+                -- RIGHT at x=-50, so its rect is narrow and sits off-centre
+                -- (right edge lands at CENTER+36 while the arrows are at
+                -- CENTER-59 and CENTER+64). A field has to be the whole gap.
+                --
+                -- Anchored to the BUTTONS rather than hardcoding those offsets,
+                -- so it still fits if Blizzard moves them, and the LEFT/RIGHT
+                -- anchors centre it vertically on the arrow row for free.
+                -- SEARCH-BOX LOOK, matched to WSkin.EditBox: a near-black
+                -- 0.02 fill under the THEMED grey border, not the flat black
+                -- edge the item tiles use. Black reads as an outline drawn
+                -- round a number; the grey edge is what makes a rectangle look
+                -- like something you can type into. Aesthetic only -- the frame
+                -- already takes digits through enableKeyboard, so there is no
+                -- EditBox to build.
+                local bg = f:CreateTexture(nil, "BACKGROUND", nil, -6)
+                bg:SetColorTexture(0.02, 0.02, 0.02, 1)
+                bg:SetPoint("LEFT", f.LeftButton, "RIGHT", 5, 0)
+                bg:SetPoint("RIGHT", f.RightButton, "LEFT", -5, 0)
+                bg:SetHeight(22)
+                d.splitField = bg
+                WSkin.QualityBorder(f, bg,
+                    Theme.brdR or 0.2, Theme.brdG or 0.2, Theme.brdB or 0.2)
+
+                -- ...and put the number in the MIDDLE of it. Stock leaves it
+                -- right-justified against an offset that only made sense with
+                -- the old money-frame plate behind it.
+                f.StackSplitText:ClearAllPoints()
+                f.StackSplitText:SetPoint("CENTER", bg, "CENTER", 0, 0)
+                if f.StackSplitText.SetJustifyH then
+                    f.StackSplitText:SetJustifyH("CENTER")
+                end
+            end
+        end
+
+        if f.StackSplitText then WSkin.White(f.StackSplitText) end
+        if f.StackItemCountText then WSkin.White(f.StackItemCountText) end
+        for _, k in ipairs({ "OkayButton", "CancelButton" }) do
+            local b = f[k]
+            if b then HP.Button(b) end
+        end
+        -- The two arrows are plain Buttons carrying Normal/Pushed/Disabled
+        -- money-frame textures rather than a template, so WSkin.Button has
+        -- nothing to strip. Recolor the art in place: white at rest, dimmed
+        -- when disabled, which keeps the disabled state readable.
+        for _, k in ipairs({ "LeftButton", "RightButton" }) do
+            local b = f[k]
+            if b then
+                for _, getter in ipairs({ "GetNormalTexture", "GetPushedTexture",
+                                          "GetDisabledTexture", "GetHighlightTexture" }) do
+                    local t = b[getter] and b[getter](b)
+                    if t and t.SetVertexColor then t:SetVertexColor(1, 1, 1) end
+                end
+                local dis = b.GetDisabledTexture and b:GetDisabledTexture()
+                if dis and dis.SetVertexColor then dis:SetVertexColor(0.4, 0.4, 0.4) end
+            end
+        end
+    end
+
+    Pass()
+    HP.OnShow(f, Pass)
+    -- ChooseFrameType is what swaps the two backdrops, so re-fade after it.
+    HP.HookMethod(f, "UpdateStackSplitFrame", WSkin.Debounce(function()
+        if f:IsVisible() then Pass() end
+    end))
+end
+
+WSkin.RegisterWindow({
+    key = "merchant",
+    apply = function()
+        HP.WhenFrameExists("StackSplitFrame", function() HP.ApplyStackSplit() end)
+    end,
+})
+
+-------------------------------------------------------------------------------
+--  Trade window (TradeFrame).
+--
+--  A ButtonFrameTemplate window of two mirrored halves -- theirs on the left,
+--  yours on the right -- each with 6 item slots plus one ENCHANT slot, its own
+--  insets, and a money row. Yours is editable (MoneyInputFrameTemplate, three
+--  edit boxes); theirs is read-only.
+--
+--  BOTH PORTRAITS GO, as on every other window pack. Two are in play:
+--    - TradeFrame's ButtonFrameTemplate CORNER portrait is removed as always.
+--      It is drawn half outside the panel and floats free once the frame art
+--      is gone.
+--    - TradeFrame.RecipientOverlay.portrait -- the trade partner's face -- is
+--      removed by HP.TradeHidePortrait. Blizzard anchors that overlay above
+--      the frame's top edge and lets its metal corner atlas bridge the
+--      overhang, so with the atlas gone there is nowhere for it to sit that
+--      does not read as pasted onto the title row; the partner's name is
+--      already in the header.
+-------------------------------------------------------------------------------
+
+-- Frame art that is NOT reachable through the shell's own region fade: the
+-- divider between the two halves and the recipient's tinted backdrop are
+-- globals parented to TradeFrame, not regions of it.
+-- THE CURRENCY ROW: STRIP BLIZZARD'S SURROUND, ADD NOTHING.
+--
+-- Two different things got conflated when this was "stripped" the first time:
+--   - DRAWING an EUI box on the row -- that was the reskin attempt, it is gone
+--     and stays gone;
+--   - FADING Blizzard's own surround (the money insets and the gold-edged
+--     recipient box) -- that is just stray chrome removal, and pulling it out
+--     left an outlined panel and a gold box sitting on a dark window.
+-- The second is back. The three g/s/c boxes keep their bevels because they are
+-- forbidden and genuinely cannot be touched; everything AROUND them can be,
+-- and is.
+
+-- Frame art that is NOT reachable through the shell's own region fade: the
+-- divider between the two halves and the recipient's tinted backdrop are
+-- globals parented to TradeFrame, not regions of it.
+HP.TRADE_EDGE = {
+    "TradeRecipientBotLeftCorner", "TradeRecipientLeftBorder", "TradeRecipientBG",
+    -- Named in a /framestack over the live window, not in the source dump's
+    -- layout: the frame's own backdrop, still drawn under everything.
+    "TradeFrameBg",
+    -- The recipient's money surround, a ThinGoldEdgeTemplate FRAME (not a
+    -- texture). Pulled out with the currency work and that was wrong: it is
+    -- not part of skinning the row, it is a gold-edged box sitting on a dark
+    -- panel, and dropping it put Blizzard's gold outline back on the top
+    -- right. Fading the frame is safe -- it holds the edge art only, and the
+    -- money AMOUNT lives in TradeRecipientMoneyFrame, a sibling.
+    "TradeRecipientMoneyBg",
+}
+
+-- Hoisted rather than written inline in the pass: both of these run on EVERY
+-- window open, and a table literal in the loop header builds a fresh table
+-- each time for no reason.
+HP.TRADE_TEXTS = {
+    "TradeFramePlayerNameText", "TradeFrameRecipientNameText",
+    "TradeFramePlayerEnchantText", "TradeFrameRecipientEnchantText",
+}
+HP.TRADE_PORTRAIT_KEYS = { "portrait", "portraitFrame" }
+
+HP.TRADE_INSETS = {
+    -- ButtonFrameTemplate's own panel. Its bottom edge sits at y=+26, right
+    -- above the Trade/Cancel row, and it is what drew the stray line across
+    -- the bottom of the window -- it is `$parentInset` on the TEMPLATE, so it
+    -- is not in the Trade* naming scheme and was missed on the first pass.
+    "TradeFrameInset",
+    "TradeRecipientItemsInset", "TradeRecipientEnchantInset",
+    "TradePlayerItemsInset", "TradePlayerEnchantInset",
+    -- The money surrounds. Their ART is faded like every other inset; nothing
+    -- is DRAWN in their place -- that is the line between removing Blizzard's
+    -- chrome and reskinning a row that cannot be reskinned.
+    "TradePlayerInputMoneyInset", "TradeRecipientMoneyInset",
+}
+
+-- A flat dark panel with a 1px black edge, built once per host and anchored to
+-- `region`. The house look for a BOX -- the same weight as a squared icon's
+-- edge, which is what these name plates were asked to match.
+function HP.TradeBox(host, region, inset)
+    if not host or not region then return end
+    -- IsForbidden on BOTH, and it is not belt-and-braces. This CREATES a
+    -- texture on `host` and anchors it to `region`, and either call THROWS on a
+    -- forbidden object rather than no-opping. The pack is pcall-isolated at the
+    -- window level, so one throw here takes out every remaining step of the
+    -- pass -- the buttons, the close button and the portrait all run after the
+    -- money row -- and the result reads as a half-skinned window rather than an
+    -- obvious failure. That is exactly how this shipped broken once.
+    --
+    -- WSkin.EditBox, which this replaced for the money row, carries the same
+    -- guard and was quietly skipping the object; dropping to a raw
+    -- CreateTexture is what turned a silent skip into an error.
+    if host.IsForbidden and host:IsForbidden() then return end
+    if region.IsForbidden and region:IsForbidden() then return end
+    local d = GetFFD(host)
+    if not d.tradeBox then
+        local bg = host:CreateTexture(nil, "BACKGROUND", nil, -6)
+        bg:SetColorTexture(0.04, 0.04, 0.04, 0.9)
+        d.tradeBox = bg
+    end
+    local i = inset or 0
+    d.tradeBox:ClearAllPoints()
+    d.tradeBox:SetPoint("TOPLEFT", region, "TOPLEFT", i, -i)
+    d.tradeBox:SetPoint("BOTTOMRIGHT", region, "BOTTOMRIGHT", -i, i)
+    -- Explicit BLACK through the quality helper: it is the 1px pixel-snapped
+    -- edge, and unlike BorderRegion it hands back a frame so the box can be
+    -- re-anchored or hidden later.
+    WSkin.QualityBorder(host, d.tradeBox, 0, 0, 0)
+end
+
+-- One trade slot: an empty-slot backdrop, a NAME PLATE, a name string and a
+-- standard ItemButton.
+function HP.SkinTradeSlot(slot)
+    if not slot or slot:IsForbidden() then return end
+    local n = slot.GetName and slot:GetName()
+    -- The 64x64 empty-slot socket art, faded: with the panel's own frame art
+    -- gone it reads as a stray bevel behind a square icon.
+    local st = slot.SlotTexture or (n and _G[n .. "SlotTexture"])
+    if st and st.SetAlpha then st:SetAlpha(0) end
+
+    -- THE NAME PLATE. UI-QuestItemNameFrame, 124x64 of rounded parchment art
+    -- around a 37px row -- most of what still read as Blizzard on this window,
+    -- because it has NO parentKey and is only reachable as $parentNameFrame.
+    -- Replaced with the same flat box + 1px edge the icons carry.
+    local nameFrame = n and _G[n .. "NameFrame"]
+    -- Guarded HERE, where it is first touched. SkinTradeSlot alphas this before
+    -- handing it to TradeBox, so a forbidden plate throws on the SetAlpha and
+    -- takes the remaining slots with it -- TradeBox's own guard never gets a
+    -- look in.
+    if nameFrame and nameFrame.IsForbidden and nameFrame:IsForbidden() then
+        nameFrame = nil
+    end
+    if nameFrame then
+        nameFrame:SetAlpha(0)
+        -- Inset vertically: the art is 64 tall around a 37px row, so tracking
+        -- its rect exactly would draw a box half again as tall as the slot.
+        HP.TradeBox(slot, nameFrame, 14)
+    end
+
+    -- Name keeps Blizzard's item-quality COLOR -- that is content, not chrome.
+    local nameFS = slot.Name or (n and _G[n .. "Name"])
+    if nameFS then WSkin.Font(nameFS) end
+
+    -- THE ENCHANT GLYPH. Slot 7 on each side carries an extra texture that has
+    -- NO NAME and NO parentKey -- a bare 62x62 UI-TradeFrame-EnchantIcon
+    -- declared inline on TradeRecipientItem7/TradePlayerItem7 -- so no
+    -- key-based sweep can ever reach it. At 62px over a 37px slot it hangs well
+    -- outside the squared box and is the reason the enchant rows read as chunky
+    -- next to the clean slots above.
+    --
+    -- Found by walking the slot's REGIONS, which is the only way to see an
+    -- anonymous one, and everything we own is spared by object identity rather
+    -- than by name. The row keeps its "Will not be traded" caption, so nothing
+    -- is lost by dropping the glyph.
+    local d = GetFFD(slot)
+    local okR, regs = pcall(HP.Regions, slot)
+    if okR and regs then
+        for i = 1, #regs do
+            local r = regs[i]
+            if r and r ~= d.tradeBox and r.IsObjectType and r:IsObjectType("Texture")
+               and r.SetAlpha and not (r.IsForbidden and r:IsForbidden()) then
+                r:SetAlpha(0)
+            end
+        end
+    end
+
+    local btn = slot.ItemButton or (n and _G[n .. "ItemButton"])
+    -- true: square icon plus the square RARITY border, the same call the
+    -- merchant grid makes. Reused rather than reimplemented -- this is a
+    -- file-scope local declared far above, so it is in scope here.
+    if btn then SkinMailItemButton(btn, true) end
+end
+
+-- REMOVED ENTIRELY, on request, after several rounds of trying to make it sit
+-- well. Both portraits on this window now go:
+--   - TradeFrame's ButtonFrameTemplate CORNER portrait, via WSkin.RemovePortrait
+--     in the shell phase, as on every other window;
+--   - TradeFrame.RecipientOverlay, the trade partner's face, here.
+--
+-- Blizzard anchors that overlay 7px ABOVE the frame's top edge and lets its
+-- metal corner atlas bridge the overhang, so with the atlas gone there is
+-- nowhere for it to sit that does not read as pasted onto the title row. The
+-- name is already in the header; the picture was not earning its place.
+--
+-- ALPHA, never Hide: house rule is that Blizzard frames are not shown or
+-- hidden, only made invisible.
+function HP.TradeHidePortrait()
+    local f = _G.TradeFrame
+    local ov = f and f.RecipientOverlay
+    if not ov or (ov.IsForbidden and ov:IsForbidden()) then return end
+    for _, k in ipairs(HP.TRADE_PORTRAIT_KEYS) do
+        local t = ov[k]
+        if t and t.SetAlpha and not (t.IsForbidden and t:IsForbidden()) then
+            t:SetAlpha(0)
+        end
+    end
+end
+
+function HP.ApplyTrade()
+    local f = _G.TradeFrame
+    if not f or f:IsForbidden() then return end
+
+    -- PHASE-ISOLATED, and this window earned it. The engine pcalls each WINDOW,
+    -- so one throw anywhere in a pass takes out every step after it -- which
+    -- happened twice in two rounds here, both times a FORBIDDEN object (every
+    -- method on one throws), and both times the symptom was a half-skinned
+    -- window with nothing obvious to point at rather than a clean failure.
+    --
+    -- Each phase below runs in its own pcall, so a bad object costs THAT phase
+    -- and nothing after it. Built ONCE and kept in FFD: the pass re-runs on
+    -- every window open, and rebuilding the closures each time is needless
+    -- churn.
+    local fd = GetFFD(f)
+    if not fd.tradePhases then
+        fd.tradeFailed = {}
+        fd.tradePhases = {
+            function()
+                HP.Shell("trade", f)
+                -- The metal frame. NineSlice is a CHILD FRAME, not a region,
+                -- so the shell's region fade never reaches it -- a /framestack
+                -- over the live window found it still drawing
+                -- !UI-Frame-Metal-EdgeLeft at level 500, on top of everything.
+                if f.NineSlice then WSkin.FadeNineSlice(f.NineSlice) end
+                -- The CORNER portrait only. The recipient's is its own phase
+                -- and is deliberately not part of this.
+                WSkin.RemovePortrait(f)
+                if f.TitleContainer then HP.FontRegions(f.TitleContainer, true) end
+            end,
+            function() HP.TradeEdges() end,
+            function() HP.TradeSlots() end,
+            function() HP.TradeTexts() end,
+            function()
+                HP.Button(_G.TradeFrameTradeButton)
+                HP.Button(_G.TradeFrameCancelButton)
+                HP.CloseButton(f, f.CloseButton or _G.TradeFrameCloseButton)
+            end,
+            function() HP.TradeHidePortrait() end,
+        }
+    end
+
+    local function Pass()
+        local ph, failed = fd.tradePhases, fd.tradeFailed
+        for i = 1, #ph do
+            local ok, err = pcall(ph[i])
+            -- Reported ONCE per phase. A forbidden object stays forbidden, and
+            -- an error thrown on every window open is spam rather than a
+            -- diagnostic -- but swallowing it entirely would hide a real bug,
+            -- so the first one still goes through the normal error handler.
+            if not ok and err and not failed[i] then
+                failed[i] = true
+                geterrorhandler()(err)
+            end
+        end
+    end
+
+    Pass()
+    -- Re-run on show: the slots are repopulated per trade, and Blizzard
+    -- re-textures an ItemButton every time its slot changes hands.
+    HP.OnShow(f, Pass)
+end
+
+function HP.TradeEdges()
+        for i = 1, #HP.TRADE_EDGE do
+            local t = _G[HP.TRADE_EDGE[i]]
+            -- Per-ITEM guard, not just per-phase. One forbidden texture must
+            -- not stop the rest of the list -- phase isolation would still
+            -- leave the other three pieces of divider art up.
+            if t and t.SetAlpha and not (t.IsForbidden and t:IsForbidden()) then
+                t:SetAlpha(0)
+            end
+        end
+        for i = 1, #HP.TRADE_INSETS do
+            local ins = _G[HP.TRADE_INSETS[i]]
+            if ins then WSkin.Inset(ins) end
+        end
+end
+
+-- 7 slots a side: 6 items and the enchant slot, which is slot 7 on both halves
+-- rather than a separately named frame.
+function HP.TradeSlots()
+        for i = 1, 7 do
+            HP.SkinTradeSlot(_G["TradePlayerItem" .. i])
+            HP.SkinTradeSlot(_G["TradeRecipientItem" .. i])
+        end
+end
+
+-- Both player names and both "Will not be traded" enchant captions. White,
+-- because they sit on the panel rather than on an item.
+function HP.TradeTexts()
+        for _, n in ipairs(HP.TRADE_TEXTS) do
+            local fs = _G[n]
+            if fs then WSkin.Font(fs); WSkin.White(fs) end
+        end
+end
+
+-- THE CURRENCY ROW IS LEFT ENTIRELY ALONE -- there is no HP.TradeMoney.
+--
+-- Nothing in it can be touched. Settled with /euitrade against the live client
+-- after five rounds:
+--
+--   TradePlayerInputMoneyFrame            FORBIDDEN
+--   TradePlayerInputMoneyFrameGold        FORBIDDEN
+--   TradePlayerInputMoneyFrameGoldMiddle  FORBIDDEN  <- the bevel ART itself
+--   TradeFramePlayerInputMoneyFrame*      MISSING
+--
+-- Every method on a forbidden object throws, so the frame, the three edit boxes
+-- and the textures drawing their bevels are all out of reach. The
+-- `TradeFramePlayerInputMoneyFrame...` names read off a /framestack are not
+-- globals at all, which is what most of those rounds were chasing.
+--
+-- The inset behind the row was the one reachable object, and boxing it just put
+-- an EUI border around three Blizzard boxes -- rejected on sight. It still gets
+-- its art faded via HP.TRADE_INSETS like every other inset, and that is all.
+--
+-- Do not try again unless /euitrade starts reporting something reachable.
+
+-- THE ACCEPT HIGHLIGHT IS LEFT ENTIRELY ALONE.
+--
+-- Two attempts, both worse than stock. Squaring it to a 1px outline lost the
+-- green wash that IS the signal; replacing the wash with a flat fill across the
+-- highlight frame tinted the whole column, because these frames sit ABOVE the
+-- item slots -- so the green landed on top of every slot instead of framing the
+-- area the way Blizzard's edge glow does.
+--
+-- It is a transient state indicator that was already legible, and it is the one
+-- thing on this window that has to read instantly. Left stock deliberately: do
+-- not re-skin it without a way to see the result first.
+
+WSkin.RegisterWindow({
+    key = "trade",
+    apply = function()
+        HP.WhenFrameExists("TradeFrame", function() HP.ApplyTrade() end)
+    end,
+})
+
+-------------------------------------------------------------------------------
+--  NO SECURE TRANSFER DIALOG PACK -- it cannot be skinned.
+--
+--  "Are you sure you want to accept this trade?" (SecureTransferDialog) looks
+--  ordinary in a /framestack, but Blizzard_SecureTransferUI.toc carries
+--  `## UseSecureEnvironment: 1`, so every frame that addon creates is FORBIDDEN
+--  to other addons -- same mechanism as ForbiddenNamePlate. A pack was written
+--  for it and did precisely nothing: the standard `f:IsForbidden()` guard at
+--  the top returned immediately, silently, with no error and nothing in the
+--  frame stack to show for it.
+--
+--  CHECK THE .TOC FIRST. `UseSecureEnvironment: 1` is visible before a line of
+--  code is written and settles the question outright -- cheaper than a
+--  framestack, and far cheaper than a pack plus an options card.
+-------------------------------------------------------------------------------
+
 end

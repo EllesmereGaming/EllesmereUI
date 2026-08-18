@@ -259,6 +259,7 @@ local defaults = {
     hitboxScaleY = 100,
     nameplateYOffset = 0,
     enemyNameTextSize = 11,
+    enemyNameTextReactionColor = false,
     debuffTimerColor = { r = 1, g = 1, b = 1 },
     auraTextPosition = "topleft",
     debuffTimerPosition = "topleft",
@@ -379,6 +380,7 @@ local defaults = {
     pandemicGlowBackground = false,
     pandemicGlowBackgroundColor = { r = 0, g = 0, b = 0 },
     lowHpGlow = false,  -- Execute Pulse Glow (Extras): red glow around plates below 30% health
+    hideBloodPlagueCopies = true,  -- Extras (Blood DK only): collapse the Blood Plague copies to one debuff icon
     dispelGlow = false,
     dispelGlowStyle = 2,
     dispelGlowColor = { r = 1.0, g = 1.0, b = 1.0 },
@@ -702,38 +704,17 @@ function ns.GetPandemicGlowBackgroundColor()
     return c.r or 0, c.g or 0, c.b or 0
 end
 
--- Dispellable buff glow: taint-safe detection via GetAuraDispelTypeColor
+-- Offensive dispel capability. This asks what the PLAYER knows, never what an
+-- aura is, so it keeps working in restricted content, where a tainted addon's
+-- aura reads are denied outright rather than merely classified.
 do
-    -- Dispel type IDs from SpellDispelType (DB2)
-    local DISPEL_NONE    = 0
-    local DISPEL_MAGIC   = 1
-    local DISPEL_CURSE   = 2
-    local DISPEL_DISEASE = 3
-    local DISPEL_POISON  = 4
-    local DISPEL_ENRAGE  = 9
-
-    -- Color curve for taint-safe dispel detection. Step curve: each point = exact ID. Magic->blue, Enrage->red, others transparent.
-    local dispelDetectionCurve
-    if C_CurveUtil and C_CurveUtil.CreateColorCurve and Enum and Enum.LuaCurveType then
-        dispelDetectionCurve = C_CurveUtil.CreateColorCurve()
-        dispelDetectionCurve:SetType(Enum.LuaCurveType.Step)
-        local clear = CreateColor(0, 0, 0, 0)
-        local blue  = CreateColor(0.2, 0.6, 1.0, 1)
-        local red   = CreateColor(1.0, 0.2, 0.2, 1)
-        dispelDetectionCurve:AddPoint(DISPEL_NONE,    clear)
-        dispelDetectionCurve:AddPoint(DISPEL_MAGIC,   blue)
-        dispelDetectionCurve:AddPoint(DISPEL_CURSE,   clear)
-        dispelDetectionCurve:AddPoint(DISPEL_DISEASE, clear)
-        dispelDetectionCurve:AddPoint(DISPEL_POISON,  clear)
-        dispelDetectionCurve:AddPoint(DISPEL_ENRAGE,  red)
-    end
-
     local _, playerClass = UnitClass("player")
     -- { spellID, category ("Magic", "Enrage", or "Both"), requiredClass or nil, requiredTalent or nil }
     local OFFENSIVE_DISPEL_SPELLS = {
         { 370,    "Magic",  nil       },  -- Purge (Shaman)
         { 378773, "Magic",  nil       },  -- Greater Purge (Shaman)
         { 528,    "Magic",  nil       },  -- Dispel Magic (Priest)
+        { 32375,  "Magic",  nil       },  -- Mass Dispel (Priest)
         { 278326, "Magic",  nil       },  -- Consume Magic (Demon Hunter)
         { 19505,  "Magic",  "WARLOCK" },  -- Devour Magic (Felhunter)
         { 19801,  "Both",   nil       },  -- Tranquilizing Shot (Hunter)
@@ -742,32 +723,41 @@ do
         { 115078, "Enrage", "MONK", 450432 },  -- Paralysis (w/ Pressure Points talent)
     }
     local canDispelMagic, canDispelEnrage = false, false
+    local built = false
+    local BANK = Enum and Enum.SpellBookSpellBank
+
+    -- IsSpellKnown answers "does the player have this", which is the question a
+    -- PASSIVE talent needs -- IsSpellInSpellBook says no for one. The globals
+    -- this used to call (IsPlayerSpell, IsSpellKnown) exist only in
+    -- Blizzard_DeprecatedSpellBook, behind the loadDeprecationFallbacks CVar and
+    -- removed next expansion; with that CVar off the talent branch never fired.
+    local function Knows(spellID, bank)
+        if not (C_SpellBook and C_SpellBook.IsSpellKnown and BANK) then return false end
+        local ok, v = pcall(C_SpellBook.IsSpellKnown, spellID, bank or BANK.Player)
+        return ok and v == true
+    end
+    local function InBook(spellID, bank)
+        if not (C_SpellBook and BANK) then return false end
+        if not C_SpellBook.IsSpellKnownOrInSpellBook then return Knows(spellID, bank) end
+        local ok, v = pcall(C_SpellBook.IsSpellKnownOrInSpellBook, spellID, bank or BANK.Player)
+        return ok and v == true
+    end
+
     local function RebuildDispelTypes()
+        local wasMagic, wasEnrage = canDispelMagic, canDispelEnrage
         canDispelMagic, canDispelEnrage = false, false
         for _, entry in ipairs(OFFENSIVE_DISPEL_SPELLS) do
             local spellID, cat, reqClass, reqTalent = entry[1], entry[2], entry[3], entry[4]
-            if reqClass and playerClass ~= reqClass then
-            else
-                local known = false
-                if reqClass and not reqTalent then
-                    -- Class-gated pet spell: check via pet bank
-                    if C_SpellBook and C_SpellBook.IsSpellKnownOrInSpellBook
-                        and Enum and Enum.SpellBookSpellBank then
-                        known = C_SpellBook.IsSpellKnownOrInSpellBook(spellID, Enum.SpellBookSpellBank.Pet)
-                    elseif IsSpellKnown then
-                        known = IsSpellKnown(spellID, true)
-                    end
-                elseif reqTalent then
-                    -- Talent-gated: check if the talent is known
-                    if IsPlayerSpell then
-                        known = IsPlayerSpell(reqTalent)
-                    elseif IsSpellKnown then
-                        known = IsSpellKnown(reqTalent, false)
-                    end
-                elseif C_SpellBook and C_SpellBook.IsSpellKnownOrInSpellBook then
-                    known = C_SpellBook.IsSpellKnownOrInSpellBook(spellID)
-                elseif IsSpellKnown then
-                    known = IsSpellKnown(spellID, false)
+            if not (reqClass and playerClass ~= reqClass) then
+                local known
+                if reqTalent then
+                    known = Knows(reqTalent)
+                elseif reqClass then
+                    -- Pet bank: true only while that pet is actually out, which
+                    -- is why UNIT_PET is registered below.
+                    known = InBook(spellID, BANK and BANK.Pet)
+                else
+                    known = InBook(spellID)
                 end
                 if known then
                     if cat == "Magic" or cat == "Both" then canDispelMagic = true end
@@ -775,28 +765,34 @@ do
                 end
             end
         end
+        -- Capability picks the buff row's candidate filter, so a change has to
+        -- rebuild the containers, not merely repaint them. The first pass has
+        -- nothing to compare against and nothing built yet, so it never
+        -- notifies -- the pool build reads capability when it runs.
+        if built and (wasMagic ~= canDispelMagic or wasEnrage ~= canDispelEnrage) then
+            if ns.NPC_ReloadAll then ns.NPC_ReloadAll() end
+        end
+        built = true
     end
     local dispelFrame = CreateFrame("Frame")
     dispelFrame:RegisterEvent("SPELLS_CHANGED")
     dispelFrame:RegisterEvent("UNIT_PET")
+    -- A talent swap does not reliably reach SPELLS_CHANGED first, and without
+    -- these a talent-gated entry is only correct after a /reload.
+    dispelFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
+    dispelFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     dispelFrame:SetScript("OnEvent", function(_, event, unit)
         if event == "UNIT_PET" and unit ~= "player" then return end
         RebuildDispelTypes()
     end)
     RebuildDispelTypes()
 
-    -- Returns shouldGlow, typeColor (ColorMixin or nil). Enemy aura fields are secret in
-    -- Midnight; the curve's typeColor alpha drives visibility (Magic/Enrage=1, else 0). Secret
-    -- RGBA passes safely to C visual functions (SetAlpha/SetVertexColor) since Lua never tests it.
-    ns.CanDispelAura = function(unit, aura)
-        if not (canDispelMagic or canDispelEnrage) then return false end
-        local typeColor
-        if dispelDetectionCurve and C_UnitAuras and C_UnitAuras.GetAuraDispelTypeColor then
-            local ok, c = pcall(C_UnitAuras.GetAuraDispelTypeColor, unit, aura.auraInstanceID, dispelDetectionCurve)
-            if ok and c then typeColor = c end
-        end
-        return true, typeColor
+    -- canDispelMagic, canDispelEnrage. Consumed by the buff row to pick its
+    -- candidate filter and by the glow gate.
+    ns.GetOffensiveDispelTypes = function()
+        return canDispelMagic, canDispelEnrage
     end
+
     ns.GetDispelGlow = function()
         return (p and p.dispelGlow) or defaults.dispelGlow
     end
@@ -806,11 +802,24 @@ do
         if type(raw) == "number" then return raw end
         return 2
     end
-    ns.GetDispelGlowColor = function(typeColor)
-        local useType = (p and p.dispelGlowUseTypeColor)
-        if useType == nil then useType = defaults.dispelGlowUseTypeColor end
-        if useType and typeColor then
-            return typeColor:GetRGBA()  -- secret values pass through to visual ops
+    -- Per-type colors. The buff row is split into a Magic group and a
+    -- non-Magic (enrage) group, so the type is a property of the GROUP and
+    -- resolves once at style-build time -- no per-aura read, which is what
+    -- made the old ColorMixin-per-aura version impossible under 12.1.
+    local TYPE_COLOR = {
+        magic  = { r = 0.2, g = 0.6, b = 1.0 },
+        enrage = { r = 1.0, g = 0.2, b = 0.2 },
+    }
+    function ns.GetDispelGlowUseTypeColor()
+        local v = p and p.dispelGlowUseTypeColor
+        if v == nil then v = defaults.dispelGlowUseTypeColor end
+        return v == true
+    end
+    -- dispelType is "magic", "enrage", or nil for the undifferentiated row.
+    ns.GetDispelGlowColor = function(dispelType)
+        if dispelType and ns.GetDispelGlowUseTypeColor() then
+            local c = TYPE_COLOR[dispelType]
+            if c then return c.r, c.g, c.b end
         end
         local c = (p and p.dispelGlowColor) or defaults.dispelGlowColor
         return c.r, c.g, c.b
@@ -1271,6 +1280,33 @@ function ns.GetTargetHighlightAlpha()
     if a == nil then return defaults.targetHighlightAlpha end
     return a
 end
+-- Hover Effect (mirrors the Target Effect model, user-directed 2026-08-16).
+-- Highlight is the ONLY default-on channel and reuses the legacy
+-- hoverColor/hoverAlpha keys as its color/opacity, so every existing AND new
+-- profile renders EXACTLY the old flat hover highlight (including the alpha
+-- 0 = invisible case) until other channels are opted in. New-channel colors
+-- start from the target effect's defaults.
+function ns.GetHoverGlowEllesmereUI() return (p and p.hoverGlowEllesmereUI) == true end
+function ns.GetHoverGlowBorderColor() return (p and p.hoverGlowBorderColor) == true end
+function ns.GetHoverGlowHighlight()
+    if p and p.hoverGlowHighlight ~= nil then return p.hoverGlowHighlight == true end
+    return true
+end
+function ns.GetHoverGlowBorderSize() return (p and p.hoverGlowBorderSize) == true end
+-- nil until the effect's first enable snapshots the user's current border
+-- size (options side); nil = applies nothing.
+function ns.GetHoverBorderSizeValue() return p and p.hoverBorderSizeValue end
+function ns.GetHoverBorderColor()
+    return (p and p.hoverBorderColor) or defaults.targetBorderColor
+end
+function ns.GetHoverGlowColor()
+    return (p and p.hoverGlowColor) or defaults.targetGlowColor
+end
+function ns.GetHoverGlowAlpha()
+    local a = p and p.hoverGlowAlpha
+    if a == nil then return defaults.targetGlowAlpha end
+    return a
+end
 local function GetShowTargetGlow()
     return ns.GetTargetGlowEllesmereUI() or ns.GetTargetGlowBorderColor() or ns.GetTargetGlowHighlight()
 end
@@ -1426,7 +1462,9 @@ local function StopDispelGlow(slot)
     dg.active = false
 end
 
-local function StartDispelGlow(slot, slotSize, typeColor)
+-- Preview only: the live nameplate glow runs through EllesmereUI.Glows on the
+-- engine buttons. dispelType is "magic" / "enrage" / nil.
+local function StartDispelGlow(slot, slotSize, dispelType)
     local dg = slot.dispelGlow
     local styleIdx = ns.GetDispelGlowStyle()
     local styles = PANDEMIC_GLOW_STYLES
@@ -1458,7 +1496,7 @@ local function StartDispelGlow(slot, slotSize, typeColor)
         StopDispelGlow(slot)
     end
 
-    local cr, cg, cb = ns.GetDispelGlowColor(typeColor)
+    local cr, cg, cb = ns.GetDispelGlowColor(dispelType)
 
     if entry.procedural then
         dg.flipTex:Hide()
@@ -1516,14 +1554,10 @@ local function StartDispelGlow(slot, slotSize, typeColor)
     dg.wrapper:Show()
     dg.active = true
     dg.styleIdx = styleIdx
-    -- Curve color alpha controls visibility (Magic/Enrage=1, else 0); it's a secret number, but
-    -- SetAlpha (a C function) accepts secrets. typeColor is nil in preview mode -> fallback alpha 1.
-    if typeColor then
-        local _, _, _, a = typeColor:GetRGBA()
-        dg.wrapper:SetAlpha(a)
-    else
-        dg.wrapper:SetAlpha(1)
-    end
+    -- Always opaque. Visibility used to ride a per-aura dispel-type curve's
+    -- alpha; dispellability is now decided by which aura GROUP the button
+    -- belongs to, and this path only ever draws the options preview.
+    dg.wrapper:SetAlpha(1)
 end
 
 ns.StopDispelGlow = StopDispelGlow
@@ -3331,6 +3365,13 @@ end
 
 function ns.ShowHoverEffect(plate)
     if not plate or not plate.health then return end
+    -- Highlight channel gate (the Hover Effect dropdown's Highlight box): off
+    -- = both the flat wash and the Hover Texture overlay stay hidden; the
+    -- extra channels render independently via ns.ApplyHoverExtras.
+    if not ns.GetHoverGlowHighlight() then
+        ns.HideHoverEffect(plate)
+        return
+    end
     local db2 = p or defaults
     local hoverTex = db2.hoverOverlayTexture or defaults.hoverOverlayTexture
     local hc = db2.hoverColor or defaults.hoverColor
@@ -3382,8 +3423,10 @@ function ns.RefreshHoverEffect()
         end
         if plate == ns._currentMouseoverPlate then
             ns.ShowHoverEffect(plate)
+            ns.ApplyHoverExtras(plate)
         else
             ns.HideHoverEffect(plate)
+            ns.ClearHoverExtras(plate)
         end
     end
     for _, plate in pairs(ns.friendlyPlates or {}) do
@@ -3392,8 +3435,10 @@ function ns.RefreshHoverEffect()
         end
         if plate == ns._currentMouseoverPlate then
             ns.ShowHoverEffect(plate)
+            ns.ApplyHoverExtras(plate)
         else
             ns.HideHoverEffect(plate)
+            ns.ClearHoverExtras(plate)
         end
     end
 end
@@ -4445,7 +4490,60 @@ end
 local _inThreatContent = false
 local _isTankRole      = false
 
+-- Off-tank color under identity restriction: the mob-target ROLE is secret, so
+-- the question flips sides -- "is any OTHER tank tanking this mob" -- via
+-- UnitDetailedThreatSituation(tankToken, mob) (plain tokens in; isTanking
+-- boolean out, plain or secret; field-probed real boolean in keys) folded
+-- through C_CurveUtil.EvaluateColorValueFromBoolean so no secret is ever read
+-- in Lua. Returns ok plus possibly-SECRET r,g,b: the caller must hand them to
+-- SETTERS ONLY -- never compare, cache, multiply or format them. Tank tokens
+-- rebuild lazily off ns._otherTanksDirty (set by RefreshThreatCache's existing
+-- roster/role/zone events -- zero new registrations; own-group role reads are
+-- plain). On ns (file is at the 200-local cap).
+function ns.ComputeOffTankFold(unit, br, bg, bb, otr, otg, otb)
+    local eval = C_CurveUtil and C_CurveUtil.EvaluateColorValueFromBoolean
+    if not eval then return false end
+    if ns._otherTanksDirty or not ns._otherTankTokens then
+        ns._otherTanksDirty = false
+        local t = ns._otherTankTokens
+        if t then wipe(t) else t = {}; ns._otherTankTokens = t end
+        local n = 0
+        local prefix, count
+        if IsInRaid() then prefix, count = "raid", GetNumGroupMembers()
+        elseif IsInGroup() then prefix, count = "party", GetNumGroupMembers() - 1 end
+        if prefix then
+            for i = 1, count do
+                if n >= 3 then break end
+                local tok = prefix .. i
+                if not UnitIsUnit(tok, "player")
+                    and UnitGroupRolesAssigned(tok) == "TANK" then
+                    n = n + 1; t[n] = tok
+                end
+            end
+        end
+    end
+    local toks = ns._otherTankTokens
+    if not toks[1] then return false end
+    -- All colors arrive from the caller: the _C accessor is declared far BELOW
+    -- this function, so resolving colors here read a nil global (field crash).
+    local r, g, b = br, bg, bb
+    if not (r and otr) then return false end
+    for i = 1, #toks do
+        local isTanking = UnitDetailedThreatSituation(toks[i], unit)
+        -- type() is legal on secrets and reports the underlying type, so one
+        -- check admits both plain and secret booleans; a refused call (nil)
+        -- skips and the accumulator keeps the safe tankNoAggro color.
+        if type(isTanking) == "boolean" then
+            r = eval(isTanking, otr, r)
+            g = eval(isTanking, otg, g)
+            b = eval(isTanking, otb, b)
+        end
+    end
+    return true, r, g, b
+end
+
 local function RefreshThreatCache()
+    ns._otherTanksDirty = true
     -- Zone: party/raid instances and delves (difficultyID 204) are threat-relevant
     local _, instanceType, difficultyID = GetInstanceInfo()
     difficultyID = tonumber(difficultyID) or 0
@@ -4613,6 +4711,25 @@ local function ResolveNeutralColor(unit)
     local c = _C("neutral")
     return c.r, c.g, c.b
 end
+-- Enemy Name Text "Reaction Color" (EXTRAS toggle, default off): colors the name text
+-- Hostile or Neutral to match the unit's reaction, independent of the health-bar palette.
+-- Every NameplateFrame unit is an enemy (HideBlizzardFrame only suppresses Blizzard's frame
+-- on UnitCanAttack units), so only these two reactions are ever relevant here. Same
+-- reaction/UnitCanAttack idiom as the health-bar Neutral check below (GetReactionColor step 5)
+-- so a secret reaction read (identity-restricted units) falls through safely instead of erroring.
+local function GetEnemyNameReactionColor(unit)
+    local reaction = UnitReaction(unit, "player")
+    local isNeutral = (reaction and reaction == 4)
+        or (UnitCanAttack("player", unit) and not UnitIsEnemy(unit, "player"))
+    local db = p or defaults
+    local c
+    if isNeutral then
+        c = db.enemyNameNeutralColor or defaults.neutral
+    else
+        c = db.enemyNameHostileColor or defaults.hostile
+    end
+    return c.r, c.g, c.b
+end
 -- Blizzard's own plate for this unit, colored by untainted code. Under HideBlizzardFrame the
 -- UnitFrame keeps its unit and its events (only castBar is silenced), so its health bar still
 -- carries whatever CompactUnitFrame_UpdateHealthColor last resolved -- including the class
@@ -4645,6 +4762,11 @@ local function GetReactionColor(unit)
     -- Same idiom, for the enemy player class color at step 6: set when the class token
     -- came back redacted, so UpdateHealthColor knows to mirror Blizzard's bar instead.
     ns._reactionMirrorClass = false
+    -- Same idiom, for the off-tank color under identity restriction: set when the
+    -- mob-target ROLE read came back secret with Off-Tank Color enabled, so
+    -- UpdateHealthColor asks ns.ComputeOffTankFold for a C-folded color instead
+    -- of the plain tankNoAggro fallback this function returns.
+    ns._reactionOffTankFold = false
     local db = p or defaults
     -- 1. Tapped always highest
     if UnitIsTapDenied(unit) then
@@ -4679,7 +4801,18 @@ local function GetReactionColor(unit)
                 end
                 end
             else
-                -- Tank: losing aggro / no aggro absolute priority
+                -- Tank arm. 12.1 field facts (side-by-side dump): the situation
+                -- API pins 3 on plate tokens while the DETAILED API returns
+                -- SECRET booleans for plate pairings (plain only for "target"
+                -- pairings) -- no Lua branch can know who holds the mob. With
+                -- Off-Tank Color on, mark EVERY tank-arm paint for the C-side
+                -- fold: it starts from the plain color this function returns
+                -- and overrides toward offTankAggro exactly when a co-tank's
+                -- isTanking folds true. One tank holds per mob, so the fold
+                -- self-resolves with zero secret reads.
+                local otE = db.offTankAggroEnabled
+                if otE == nil then otE = defaults.offTankAggroEnabled end
+                if otE then ns._reactionOffTankFold = true end
                 if status < 3 and status >= 2 then
                     local c = _C("tankLosingAggro")
                     return c.r, c.g, c.b
@@ -4690,9 +4823,22 @@ local function GetReactionColor(unit)
                     -- Role reads on identity-restricted units return SECRET values: never
                     -- truthiness-chain or compare one. Unreadable role reads as non-tank.
                     local targetRole = "NONE"
+                    local roleSecret = false
                     if UnitExists(unitTarget) then
                         local r = UnitGroupRolesAssigned(unitTarget)
-                        if not issecretvalue(r) and r then targetRole = r end
+                        if issecretvalue(r) then roleSecret = true
+                        elseif r then targetRole = r end
+                    end
+                    -- Role unreadable (identity restriction): the plain path
+                    -- below lands on tankNoAggro, but mark the frame so
+                    -- UpdateHealthColor can answer the REAL question from the
+                    -- other side -- "is any other tank tanking this mob" via
+                    -- UnitDetailedThreatSituation + the C_CurveUtil color fold
+                    -- (field-probed: returns a real boolean in keys).
+                    if roleSecret then
+                        local otE = db.offTankAggroEnabled
+                        if otE == nil then otE = defaults.offTankAggroEnabled end
+                        if otE then ns._reactionOffTankFold = true end
                     end
                     if targetRole ~= "TANK" then
                         local c = _C("tankNoAggro")
@@ -5044,16 +5190,11 @@ local function HideBlizzardFrame(nameplate, unit)
                 local base = stf and stf:GetParent()
                 local ufUnit = base and base.namePlateUnitToken
                 if not ufUnit then return end
-                -- Non-self unit comparison: secret boolean whenever the unit is
-                -- identity-restricted -- which is NORMAL for enemies, and hostile
-                -- interactables (skinnable corpses, quest objects) are legitimate
-                -- soft-interact targets. Secret = cannot judge = leave the icon
-                -- alone (stock shows every soft-target icon; fail toward stock,
-                -- never toward hiding -- collapsing secret to hidden killed
-                -- enemy interact icons in the field).
-                local same = UnitIsUnit(ufUnit, "softinteract")
-                if issecretvalue and issecretvalue(same) then return end
-                if same ~= true then self:Hide() end
+                -- Hide only for attackable enemies. NPCs and non-attackable
+                -- objects, even hostile ones, keep the icon.
+                local canAttack = UnitCanAttack("player", ufUnit)
+                if issecretvalue and issecretvalue(canAttack) then return end
+                if canAttack then self:Hide() end
             end)
         end
     end
@@ -5330,6 +5471,12 @@ function NameplateFrame:ApplyAppearance()
         local nr, ng, nb = GetTextSlotColor(nameSlotKey)
         self.name:SetTextColor(nr, ng, nb, 1)
     end
+    -- Enemy Name Text "Reaction Color" cache: ApplyAppearance is a second writer of
+    -- self.name's color (the slot-color line above), so invalidate the skip-if-unchanged
+    -- cache here too -- otherwise a stale cache can wrongly skip re-applying the reaction
+    -- color on the very next UpdateHealthColor call (which always runs immediately after
+    -- this, from the same SetUnit), leaving the plate showing this slot color instead.
+    self._lastNameReactR, self._lastNameReactG, self._lastNameReactB = nil, nil, nil
     self:RefreshNamePosition()
     -- Cast text sizes, colors, and offsets
     local cns = (p and p.castNameSize) or defaults.castNameSize
@@ -6279,13 +6426,44 @@ function NameplateFrame:UpdateHealthColor()
     else
         self._mirrorPending = nil
     end
+    -- Off-tank fold: same shape as mirror -- the folded components can be
+    -- SECRET, so they bypass the value compare, never enter the caches, and
+    -- reach setters only. hr/hg/hb stay the plain tankNoAggro fallback.
+    local folded, fr, fg, fb = false
+    if not mirrored and ns._reactionOffTankFold and ns.ComputeOffTankFold then
+        local otc = _C("offTankAggro")
+        folded, fr, fg, fb = ns.ComputeOffTankFold(unit, hr, hg, hb, otc.r, otc.g, otc.b)
+    end
     if mirrored then
         -- Cache invalidated, never written with a secret: the next plain colour must reapply.
         self._lastHCr, self._lastHCg, self._lastHCb = nil, nil, nil
         self.health:SetStatusBarColor(mr, mg, mb)
+    elseif folded then
+        self._lastHCr, self._lastHCg, self._lastHCb = nil, nil, nil
+        self.health:SetStatusBarColor(fr, fg, fb)
     elseif hr ~= self._lastHCr or hg ~= self._lastHCg or hb ~= self._lastHCb then
         self._lastHCr, self._lastHCg, self._lastHCb = hr, hg, hb
         self.health:SetStatusBarColor(hr, hg, hb)
+    end
+    -- Enemy Name Text "Reaction Color" (EXTRAS toggle): zero cost while off (one field read),
+    -- other than the one-time restore below for a plate that was previously colored by this
+    -- feature. Piggybacks on this function's existing event-driven calls rather than
+    -- registering anything of its own.
+    if p and p.enemyNameTextReactionColor then
+        local nnr, nng, nnb = GetEnemyNameReactionColor(unit)
+        if nnr ~= self._lastNameReactR or nng ~= self._lastNameReactG or nnb ~= self._lastNameReactB then
+            self._lastNameReactR, self._lastNameReactG, self._lastNameReactB = nnr, nng, nnb
+            self.name:SetTextColor(nnr, nng, nnb, 1)
+        end
+    elseif self._lastNameReactR then
+        -- Toggled off after having been applied to this plate: restore the slot color
+        -- directly here rather than depending on ApplyAppearance re-running elsewhere.
+        self._lastNameReactR, self._lastNameReactG, self._lastNameReactB = nil, nil, nil
+        local nameSlotKey = ns.FindNameSlot()
+        if nameSlotKey then
+            local nr, ng, nb = GetTextSlotColor(nameSlotKey)
+            self.name:SetTextColor(nr, ng, nb, 1)
+        end
     end
     -- Near-aggro glow (Non-Tank Threat cog): ns._reactionNearAggro was written
     -- by the GetReactionColor call ABOVE (same decision that picked the color).
@@ -6331,6 +6509,8 @@ function NameplateFrame:UpdateHealthColor()
         if NoTintFlag(db2, "focusOverlayNoTint") then
             if mirrored then
                 ocr, ocg, ocb, forced = mr, mg, mb, true
+            elseif folded then
+                ocr, ocg, ocb, forced = fr, fg, fb, true
             else
                 ocr, ocg, ocb = hr, hg, hb
             end
@@ -6387,6 +6567,8 @@ function NameplateFrame:UpdateHealthColor()
         if NoTintFlag(db2, "targetOverlayNoTint") then
             if mirrored then
                 ocr, ocg, ocb, forced = mr, mg, mb, true
+            elseif folded then
+                ocr, ocg, ocb, forced = fr, fg, fb, true
             else
                 ocr, ocg, ocb = hr, hg, hb
             end
@@ -6838,11 +7020,80 @@ function NameplateFrame:ApplyMouseover()
     if not self.unit then return end
     if UnitExists("mouseover") and UnitIsUnit(self.unit, "mouseover") then
         ns.ShowHoverEffect(self)
+        ns.ApplyHoverExtras(self)
         ns._currentMouseoverPlate = self
         if ns._EnsureMouseoverTicker then ns._EnsureMouseoverTicker() end
     else
         ns.HideHoverEffect(self)
+        ns.ClearHoverExtras(self)
     end
+end
+
+-- Hover Effect extra channels (EUI Glow / Border Color / Border Size --
+-- mirrors ApplyTarget's branches; the Highlight channel lives inside
+-- ShowHoverEffect). TARGET PRECEDENCE per shared visual: while this plate is
+-- the target and the TARGET effect drives the same channel, hover leaves it
+-- alone -- and ApplyTarget runs after every target change, so the target
+-- state always reasserts over a stale hover write.
+function ns.ApplyHoverExtras(plate)
+    if not plate or not plate.unit or not plate.health then return end
+    local isTarget = plate._isTarget
+    local any = false
+    -- EUI Glow (shared self.glow visual).
+    if ns.GetHoverGlowEllesmereUI() and not (isTarget and ns.GetTargetGlowEllesmereUI()) then
+        EnsureGlow(plate)
+        if plate.glowTextures then
+            local gc = ns.GetHoverGlowColor()
+            local ga = ns.GetHoverGlowAlpha()
+            for _, t in ipairs(plate.glowTextures) do t:SetVertexColor(gc.r, gc.g, gc.b, ga) end
+        end
+        plate.glow:Show()
+        any = true
+    end
+    -- Border Size (a target-sized border wins; restore is ClearHoverExtras').
+    if ns.GetHoverGlowBorderSize() and not plate._targetBorderSized then
+        local hbsz = ns.GetHoverBorderSizeValue()
+        if hbsz then
+            if ns.IsCustomBorderEnabled() then
+                ns.ApplyCustomBorderStyle(plate, hbsz)
+            elseif PP and IsBorderEnabled() then
+                PP.SetBorderSize(plate.health, hbsz)
+            end
+            plate._hoverBorderSized = true
+            any = true
+        end
+    end
+    -- Border Color (the target color wins).
+    if ns.GetHoverGlowBorderColor() and not (isTarget and ns.GetTargetGlowBorderColor()) then
+        if PP then
+            local bc = ns.GetHoverBorderColor()
+            if ns.IsCustomBorderEnabled() then
+                if not plate._customBorder then ns.ApplyCustomBorderStyle(plate) end
+                if plate._customBorder and EllesmereUI.SetBorderStyleColor then
+                    EllesmereUI.SetBorderStyleColor(plate._customBorder, bc.r, bc.g, bc.b, 1)
+                end
+            else
+                PP.SetBorderColor(plate.health, bc.r, bc.g, bc.b, 1)
+            end
+            any = true
+        end
+        if plate._wrapActive then plate:UpdateBorderWrap() end
+    end
+    if any then plate._hoverFxOn = true end
+end
+
+-- One-shot restore of every shared channel to the target/base state: the
+-- hover-sized border resets explicitly (ApplyTarget only restores its OWN
+-- sizing flag), then ApplyTarget's else-branches reset glow/border color.
+-- Early-out keeps the no-extras case (the shipped default) zero-cost.
+function ns.ClearHoverExtras(plate)
+    if not plate or not plate._hoverFxOn then return end
+    plate._hoverFxOn = nil
+    if plate._hoverBorderSized then
+        plate._hoverBorderSized = nil
+        plate:ApplyBorder()
+    end
+    plate:ApplyTarget()
 end
 function NameplateFrame:UpdateImportantCastGlow(spellID)
     local cfg = p or defaults
@@ -7879,12 +8130,17 @@ function ns._ClearMouseoverPlate(plate)
         ns._currentMouseoverPlate = nil
         if ns._mouseoverTicker then ns._mouseoverTicker:Cancel(); ns._mouseoverTicker = nil end
     end
+    -- Pooled frames recycle: drop the hover-extras flags without a restore
+    -- pass (the reuse path re-runs ApplyBorder/ApplyTarget anyway).
+    plate._hoverFxOn = nil
+    plate._hoverBorderSized = nil
 end
 
 function ns._UpdateMouseover()
     local cur = ns._currentMouseoverPlate
     if cur then
         ns.HideHoverEffect(cur)
+        ns.ClearHoverExtras(cur)
         ns._currentMouseoverPlate = nil
     end
     if not UnitExists("mouseover") then return end
@@ -7899,6 +8155,7 @@ function ns._UpdateMouseover()
     end
     if found then
         ns.ShowHoverEffect(found)
+        ns.ApplyHoverExtras(found)
         ns._currentMouseoverPlate = found
     end
     ns._EnsureMouseoverTicker()
@@ -8528,4 +8785,5 @@ ns._oocPlatesCtl:SetScript("OnEvent", function(self, event)
     end
 end)
 ns._oocPlatesCtl:RegisterEvent("PLAYER_LOGIN")
+
 

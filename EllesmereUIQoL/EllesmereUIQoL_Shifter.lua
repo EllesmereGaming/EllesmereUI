@@ -356,6 +356,15 @@ wheelOverlay:EnableMouse(false)
 wheelOverlay:EnableMouseWheel(true)
 wheelOverlay:SetFrameStrata("TOOLTIP")
 
+-- True zero cost while no registered panel is open: the wheel machinery is
+-- armed by panel VISIBILITY. WheelArm.shown counts visible registry frames
+-- (OnShow/OnHide hooks installed in HookFrame); the 0<->1 edges register and
+-- unregister MODIFIER_STATE_CHANGED itself, so with every panel closed a
+-- modifier press never enters Lua and the overlay (with its 10Hz poll) stays
+-- hidden. The drag path needs none of this -- its hooks are click-driven.
+-- One table = one file-scope local; Sync/Note defined below UpdateWheelOverlay.
+local WheelArm = { shown = 0 }
+
 local function FindWheelTarget()
     for i = 1, #hookedFrames do
         local e = hookedFrames[i]
@@ -366,7 +375,8 @@ local function FindWheelTarget()
 end
 
 local function UpdateWheelOverlay()
-    if not (IsEnabled() and (IsShiftKeyDown() or IsControlKeyDown())) then
+    if WheelArm.shown == 0
+       or not (IsEnabled() and (IsShiftKeyDown() or IsControlKeyDown())) then
         wheelTarget, wheelTargetName = nil, nil
         wheelOverlay:Hide()
         return
@@ -406,6 +416,30 @@ wheelOverlay:SetScript("OnMouseWheel", function(_, delta)
         ApplyScaleStep(frame, name, delta, "temp")
     end
 end)
+
+-- Arm/disarm the modifier listener from the visible-panel count. IsEnabled is
+-- re-read here, so count edges while the feature is toggled off keep the
+-- listener down, and the mid-session enable path (InitShifter tail) re-arms
+-- even with a panel already open. UpdateWheelOverlay runs on both edges: on
+-- arm a modifier may already be held as the panel opens; on disarm its head
+-- gate parks the overlay.
+function WheelArm.Sync()
+    if not eventFrame then return end
+    if WheelArm.shown > 0 and IsEnabled() then
+        eventFrame:RegisterEvent("MODIFIER_STATE_CHANGED")
+    else
+        eventFrame:UnregisterEvent("MODIFIER_STATE_CHANGED")
+    end
+    UpdateWheelOverlay()
+end
+
+function WheelArm.Note(delta)
+    local was = WheelArm.shown
+    local now = was + delta
+    if now < 0 then now = 0 end
+    WheelArm.shown = now
+    if (was == 0) ~= (now == 0) then WheelArm.Sync() end
+end
 
 -------------------------------------------------------------------------------
 --  Cursor-delta drag (for PROTECTED frames)
@@ -504,6 +538,14 @@ local function HookFrame(frame, name)
     if ffd._shHooked then return end
     ffd._shHooked = true
     hookedFrames[#hookedFrames + 1] = { frame = frame, name = name }
+
+    -- Wheel arming rides panel visibility (WheelArm.Note): registry frames
+    -- are all top-level closable panels, so OnShow/OnHide track exactly the
+    -- IsVisible state FindWheelTarget tests. A frame hooked while already
+    -- open (LoD addon load, /reload with the map up) counts immediately.
+    frame:HookScript("OnShow", function() WheelArm.Note(1) end)
+    frame:HookScript("OnHide", function() WheelArm.Note(-1) end)
+    if frame:IsShown() then WheelArm.Note(1) end
 
     -- Non-protected frames use the cheap native StartMoving path. Protected frames are
     -- NEVER made movable / SetMovable'd / StartMoving'd / SetPoint'd by insecure code
@@ -1152,8 +1194,11 @@ local function InitShifter()
     if next(pendingAddons) then
         eventFrame:RegisterEvent("ADDON_LOADED")
     end
-    -- Scroll-wheel scaling: arm the capture overlay on modifier presses.
-    eventFrame:RegisterEvent("MODIFIER_STATE_CHANGED")
+    -- Scroll-wheel scaling: the modifier listener is owned by WheelArm.Sync
+    -- and registered ONLY while a registered panel is open -- with everything
+    -- closed a modifier press never enters Lua. Called here (not just on
+    -- count edges) so a mid-session enable with a panel already open arms.
+    WheelArm.Sync()
 end
 
 eventFrame:RegisterEvent("PLAYER_LOGIN")

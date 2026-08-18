@@ -252,6 +252,12 @@ local function SanitizeLineList(lines)
         if type(L) == "table" then
             local msg = MessageForStorage(L.message)
             if msg then msg = StripTimestampPrefix(msg) end
+            -- Legacy stored lines can carry |K protected-name tokens from a
+            -- DEAD session's mapping (captured before the capture-side
+            -- substitution existed): unrecoverable and wrongly attributed on
+            -- replay, so they are dropped -- this heals poisoned stores on
+            -- the first sanitize after update.
+            if msg and msg:find("|K", 1, true) then msg = nil end
             if msg then
                 out[#out + 1] = {
                     message = msg,
@@ -315,6 +321,46 @@ end
 --  execution (the tail is the last step after Blizzard's pipeline finished);
 --  secret lines never pass IsValidMessage.
 -------------------------------------------------------------------------------
+
+-- Battle.net display names arrive as |K..|k protected-name tokens, resolved by
+-- the CLIENT from a SESSION-SCOPED table at render time. Persisting a token
+-- and replaying it next session resolves it against the new session's table --
+-- the line renders under whichever friend now holds that id (field report
+-- 2026-08-16: a whole BN whisper conversation attributed to the wrong friend
+-- after an update's relaunch). Capture therefore substitutes each token with
+-- the friend's literal BattleTag (stable across sessions): a friend's
+-- accountName IS their token string this session, so plain string equality
+-- maps token -> tag, and tokens are escaped for literal gsub so the exact
+-- token format never matters. Returns nil when any token is left unresolved
+-- (friend removed mid-session, non-friend token) -- wrong attribution is
+-- worse than a missing line, so such lines are never stored.
+local function ResolveBNetTokens(text)
+    if not text:find("|K", 1, true) then return text end
+    local map
+    local numFriends = BNGetNumFriends and BNGetNumFriends()
+    if numFriends and C_BattleNet and C_BattleNet.GetFriendAccountInfo then
+        for i = 1, numFriends do
+            local acc = C_BattleNet.GetFriendAccountInfo(i)
+            local tokenName = acc and acc.accountName
+            local tag = acc and acc.battleTag
+            if tokenName ~= nil and not (issecretvalue and issecretvalue(tokenName))
+               and type(tokenName) == "string" and tokenName:find("|K", 1, true)
+               and tag ~= nil and not (issecretvalue and issecretvalue(tag))
+               and type(tag) == "string" and tag ~= "" then
+                map = map or {}
+                map[tokenName] = tag
+            end
+        end
+    end
+    if map then
+        for token, tag in pairs(map) do
+            text = text:gsub(token:gsub("(%W)", "%%%1"), tag)
+        end
+    end
+    if text:find("|K", 1, true) then return nil end
+    return text
+end
+
 local function OnBridgeLine(cf, msg, r, g, b, chatTypeID, event)
     if not event or not CAPTURE_EVENTS[event] then return end
     if not sessionEpochTime or GetTime() < sessionEpochTime then return end
@@ -325,6 +371,8 @@ local function OnBridgeLine(cf, msg, r, g, b, chatTypeID, event)
     if not body then return end
     body = StripTimestampPrefix(body)
     if body == "" then return end
+    body = ResolveBNetTokens(body)
+    if not body then return end
 
     captureSeq = captureSeq + 1
     AppendLogEntry({

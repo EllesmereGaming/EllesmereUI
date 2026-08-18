@@ -192,6 +192,66 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
+-- The Friendly/Enemy toggles now gate every reaction binding (frame + hover
+-- spells, items, hover macros) and "both off" means disabled; an UNSET pair
+-- now reads as friendly-only. Legacy semantics were: frame spells/items and
+-- hover items ignored the flags (unrestricted); hover spells/macros were
+-- help-only iff (friendly and not enemy), harm-only iff (enemy and not
+-- friendly), otherwise unrestricted -- including nil/nil and false/false.
+-- Seed every reaction binding to booleans reproducing exactly that, and split
+-- legacy "Frames + Hovercast" bindings so each path keeps its own behavior.
+-- Marker `reactionSeeded` keeps the pass idempotent (a post-migration
+-- false/false is a real user disable and must never be re-enabled).
+EllesmereUI.RegisterMigration({
+    id          = "clickcast_frame_spell_reaction_v1",
+    scope       = "global",
+    description = "Preserve legacy click-cast reaction behavior when the Friendly/Enemy toggles become active for all reaction bindings",
+    body        = function(ctx)
+        local cc = ctx.db.clickCast
+        if type(cc) ~= "table" then return end
+        local function LegacyHover(b)
+            local f, e = b.hoverFriendly, b.hoverEnemy
+            if f and not e then return true, false end
+            if e and not f then return false, true end
+            return true, true
+        end
+        local function migrate(list)
+            if type(list) ~= "table" then return end
+            local count = #list
+            for i = 1, count do
+                local b = list[i]
+                if type(b) == "table" and not b.reactionSeeded
+                   and (b.type == "spell" or b.type == "item"
+                        or (b.type == "macro" and b.hovercast)) then
+                    if b.hovercast == "both" then
+                        -- Frame copy: flags were ignored on the frame path.
+                        local frameBinding = {}
+                        for key, value in pairs(b) do frameBinding[key] = value end
+                        frameBinding.hovercast = false
+                        frameBinding.hoverFriendly = true
+                        frameBinding.hoverEnemy = true
+                        frameBinding.reactionSeeded = true
+                        list[#list + 1] = frameBinding
+                        b.hovercast = true
+                    end
+                    if not b.hovercast or b.type == "item" then
+                        -- Frame path (any type) and hover items ignored the flags.
+                        b.hoverFriendly, b.hoverEnemy = true, true
+                    else
+                        -- Hover spells / macros: reproduce the old conditional.
+                        b.hoverFriendly, b.hoverEnemy = LegacyHover(b)
+                    end
+                    b.reactionSeeded = true
+                end
+            end
+        end
+        migrate(cc.globals)
+        if type(cc.specs) == "table" then
+            for _, list in pairs(cc.specs) do migrate(list) end
+        end
+    end,
+})
+
 --------------------------------------------------------------------------------
 --  Position snap helpers
 --  Used by position_snap_v3 and exposed as EllesmereUI.SnapProfilePositions for
@@ -2251,7 +2311,7 @@ EllesmereUI.RegisterMigration({
             "bagHideEmptyCategories", "bagSidebarCollapsed", "bankSidebarCollapsed",
             "bagShowPinnedItems", "bagShowRecentItems", "bagPinnedInOneBag",
             "bagRecentInOneBag", "bagShowPinRecentTips", "bagShowSortIcon",
-            "bagHideRandomize", "bagDefaultOneBag", "bagNestByExpansion",
+            "bagHideRandomize", "bagDefaultOneBag", "bagNestByExpansion", "bagArmoryGroupBySlot",
             "bagHideOneBagWarning", "bagHideAddCategory", "bagMoveNoShift",
             "enableGoldTracking", "detachReagentBag", "enhancedBags",
             "bagCategoryState", "bagCategoryOrder", "bagDisabledCategories",
@@ -2590,6 +2650,27 @@ EllesmereUI.RegisterMigration({
         if db.reskinGreatVault  == nil then db.reskinGreatVault  = master end
         if db.reskinGameMenu    == nil then db.reskinGameMenu    = master and queueNotFalse end
         if db.reskinLFGMenu     == nil then db.reskinLFGMenu     = master and queueNotFalse end
+    end,
+})
+
+EllesmereUI.RegisterMigration({
+    id          = "blizzskin_widget_bars_seed_v1",
+    scope       = "global",
+    description = "Seed the new Reskin Widget Bars toggle from existing chrome preferences: on only when Reskin Tooltips AND Reskin Popups and Menus are both on, so accounts that turned those off do not get newly skinned HUD bars.",
+    body        = function(ctx)
+        local db = ctx.db
+        if not db then return end
+        -- Registered AFTER the master-split migration on purpose: an account
+        -- jumping many versions gets reskinPopupsMenus seeded first in the
+        -- same pass, so this reads the settled value. Writes an explicit
+        -- boolean both ways; the key is independent from here on (same
+        -- contract as reskinPopupsMenus itself). Fresh installs never run
+        -- this (genesis stamp) and keep nil = on, which matches both masters
+        -- defaulting on.
+        if db.reskinWidgetBars == nil then
+            db.reskinWidgetBars = (db.customTooltips ~= false)
+                and (db.reskinPopupsMenus ~= false)
+        end
     end,
 })
 
@@ -3849,6 +3930,34 @@ EllesmereUI.RegisterMigration({
         local willBeLive = (ss and ss.healthBar  == false) and true or false
         if wasLive ~= willBeLive then
             rf.party_threatBorderSize = nil
+        end
+    end,
+})
+
+--------------------------------------------------------------------------------
+--  Cyrillic locales gained real font choice: several bundled faces carry the
+--  full Cyrillic block (EllesmereUI.FONT_CYRILLIC) and ResolveFontName now
+--  honours them instead of forcing the system glyph font. That must not change
+--  what anyone already sees, so existing installs are pinned to System Default
+--  and the new faces stay an opt-in pick.
+--
+--  Detecting "untouched" is exact here: before this change the ruRU picker could
+--  only ever store the __system sentinel, the __expressway sentinel, or an
+--  external SharedMedia name. Plain "Expressway" was unreachable as a choice, so
+--  it can only be the seeded default -- rewriting just that value leaves every
+--  deliberate pick alone. Fresh installs never reach this body; GetFontsDB seeds
+--  the correct default for them directly.
+--------------------------------------------------------------------------------
+EllesmereUI.RegisterMigration({
+    id          = "ru_cyrillic_font_optin_v1",
+    scope       = "global",
+    description = "Pin existing Cyrillic-locale installs to the system glyph font so the newly selectable bundled Cyrillic faces stay opt-in.",
+    body        = function(ctx)
+        if EllesmereUI.LOCALE_SCRIPT ~= "cyrillic" then return end
+        local fonts = ctx.db and ctx.db.fonts
+        if not fonts then return end            -- fresh install: GetFontsDB seeds it
+        if fonts.global == "Expressway" then
+            fonts.global = EllesmereUI.SYSTEM_FONT_KEY
         end
     end,
 })

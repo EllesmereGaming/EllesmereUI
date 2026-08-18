@@ -1341,107 +1341,98 @@ function EllesmereUI.ApplyProfileData(profileData)
     if EllesmereUI.RefreshAccent then EllesmereUI.RefreshAccent() end
 end
 
---- Trigger live refresh on all loaded addons after a profile apply.
-function EllesmereUI.RefreshAllAddons()
-    -- Spec Overrides: write the current spec's override values into the live
-    -- profile FIRST, so every module refresh below picks them up. This makes
-    -- profile swaps and imports override-correct without their own pass.
-    -- (The import-time default re-bank runs SYNCHRONOUSLY inside
-    -- ImportProfile, never from here: by the time any RefreshAllAddons fires,
-    -- overlays may already be live and re-banking would poison defaults.)
-    if EllesmereUI.SpecOverrides_ApplyValues then
-        EllesmereUI.SpecOverrides_ApplyValues()
-    end
-    -- Suppress stale anchor moves on AB bars during the rebuild phase. LayoutBar
-    -- positions them from the new profile's barPositions; resize hooks would reposition
-    -- them with old-profile offsets (1-frame blink). Separate flag from
-    -- _applyingSavedPositions so CDM's early-return in ApplyAnchorPosition (which
-    -- checks _applyingSavedPositions) isn't triggered prematurely by the wider window.
-    EllesmereUI._abAnchorSuppressed = true
-    -- Phase 3: RefreshAllAddons runs on a real profile apply (swap/import) and on
-    -- a per-spec-profile spec switch -- both load a NEW cdmBarPositions table with
-    -- its own saved edges + follow baselines, so clear the follow-ready flag.
-    -- Anchored CDM growth bars then re-pin to the new profile's absolute edge
-    -- (delta 0) until that profile's chain settles and the settle debounce re-arms
-    -- follow. A SHARED-profile spec change does NOT call RefreshAllAddons, so the
-    -- flag stays set there and the bars track the sliding target smoothly.
-    EllesmereUI._anchorFollowReady = nil
-    -- Re-resolve + apply the UI accent color for the now-active profile BEFORE
-    -- child modules refresh, since several re-read GetAccentColor() during their
-    -- own apply (chat, cursor, mythic timer, glows, borders). Per-profile accent
-    -- falls back to the frozen global root, so swapping profiles never changes
-    -- the accent for users who never set a per-profile one.
-    if EllesmereUI.RefreshAccent then EllesmereUI.RefreshAccent() end
+--- Per-module refresh steps for RefreshAllAddons, in load-bearing order.
+--- Kept as an array of closures so the budgeted path can run each step (or a
+--- time-boxed slice of steps) as its own watchdog execution. Every step is a
+--- stateless re-apply reading the LIVE db at call time, so a step firing a
+--- frame or two after the swap reads the same settled data the synchronous
+--- path would have.
+local REFRESH_ADDON_STEPS = {
     -- ResourceBars (full rebuild)
-    if _G._ERB_Apply then _G._ERB_Apply() end
+    function() if _G._ERB_Apply then _G._ERB_Apply() end end,
     -- CDM: skip during spec-profile switch. CDM's SPELLS_CHANGED handler
     -- will detect the spec key mismatch and rebuild with the correct spec.
     -- Running it here would race with that rebuild.
-    if not EllesmereUI._specProfileSwitching then
-        if _G._ECME_LoadSpecProfile and _G._ECME_GetCurrentSpecKey then
-            local curKey = _G._ECME_GetCurrentSpecKey()
-            if curKey then _G._ECME_LoadSpecProfile(curKey) end
+    function()
+        if not EllesmereUI._specProfileSwitching then
+            if _G._ECME_LoadSpecProfile and _G._ECME_GetCurrentSpecKey then
+                local curKey = _G._ECME_GetCurrentSpecKey()
+                if curKey then _G._ECME_LoadSpecProfile(curKey) end
+            end
+            if _G._ECME_Apply then _G._ECME_Apply() end
         end
-        if _G._ECME_Apply then _G._ECME_Apply() end
-    end
-    -- Cursor (style + position)
-    if _G._ECL_Apply then _G._ECL_Apply() end
-    if _G._ECL_ApplyTrail then _G._ECL_ApplyTrail() end
-    if _G._ECL_ApplyGCDCircle then _G._ECL_ApplyGCDCircle() end
-    if _G._ECL_ApplyCastCircle then _G._ECL_ApplyCastCircle() end
-    -- Crosshair
-    if EllesmereUI._applyCrosshair then EllesmereUI._applyCrosshair() end
-    -- QoL extras (FPS counter + Secondary Stats) -- per-profile, so re-apply on
-    -- swap. One call for both: the FPS readout may be drawn by the Secondary
-    -- Stats block, so the two owners have to re-evaluate together.
-    if EllesmereUI._applyFPSDisplay then
-        EllesmereUI._applyFPSDisplay()
-    elseif EllesmereUI._applySecondaryStats then
-        EllesmereUI._applySecondaryStats()
-    end
+    end,
+    -- Cursor (style + position), Crosshair, and the QoL extras (FPS counter +
+    -- Secondary Stats -- one call for both: the FPS readout may be drawn by
+    -- the Secondary Stats block, so the two owners re-evaluate together).
+    function()
+        if _G._ECL_Apply then _G._ECL_Apply() end
+        if _G._ECL_ApplyTrail then _G._ECL_ApplyTrail() end
+        if _G._ECL_ApplyGCDCircle then _G._ECL_ApplyGCDCircle() end
+        if _G._ECL_ApplyCastCircle then _G._ECL_ApplyCastCircle() end
+        if EllesmereUI._applyCrosshair then EllesmereUI._applyCrosshair() end
+        if EllesmereUI._applyFPSDisplay then
+            EllesmereUI._applyFPSDisplay()
+        elseif EllesmereUI._applySecondaryStats then
+            EllesmereUI._applySecondaryStats()
+        end
+    end,
     -- AuraBuffReminders (refresh + position)
-    if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
-    if _G._EABR_ApplyUnlockPos then _G._EABR_ApplyUnlockPos() end
+    function()
+        if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
+        if _G._EABR_ApplyUnlockPos then _G._EABR_ApplyUnlockPos() end
+    end,
     -- ActionBars (style + layout + position)
-    if _G._EAB_Apply then _G._EAB_Apply() end
+    function() if _G._EAB_Apply then _G._EAB_Apply() end end,
     -- UnitFrames (style + layout + position)
-    if _G._EUF_ReloadFrames then _G._EUF_ReloadFrames() end
-    -- Raid Frames + Party Frames (style + layout + size; positions re-applied below)
-    if _G._ERF_RefreshAll then _G._ERF_RefreshAll() end
+    function() if _G._EUF_ReloadFrames then _G._EUF_ReloadFrames() end end,
+    -- Raid Frames + Party Frames (style + layout + size; positions re-applied
+    -- by the tail)
+    function() if _G._ERF_RefreshAll then _G._ERF_RefreshAll() end end,
     -- Nameplates
-    if _G._ENP_RefreshAllSettings then _G._ENP_RefreshAllSettings() end
+    function() if _G._ENP_RefreshAllSettings then _G._ENP_RefreshAllSettings() end end,
     -- Quest Tracker
-    if _G._EQT_RefreshAll then _G._EQT_RefreshAll() end
+    function() if _G._EQT_RefreshAll then _G._EQT_RefreshAll() end end,
     -- Chat (sidebar icons, borders, fonts, visibility)
-    if _G._ECHAT_RefreshAll then _G._ECHAT_RefreshAll() end
-    -- Friends List
-    if _G._EFR_ApplyFriends then _G._EFR_ApplyFriends() end
-    -- Mythic Timer
-    if _G._EMT_Apply then _G._EMT_Apply() end
+    function() if _G._ECHAT_RefreshAll then _G._ECHAT_RefreshAll() end end,
+    -- Friends List + Mythic Timer
+    function()
+        if _G._EFR_ApplyFriends then _G._EFR_ApplyFriends() end
+        if _G._EMT_Apply then _G._EMT_Apply() end
+    end,
     -- Damage Meters
-    if _G._EDM_Apply then _G._EDM_Apply() end
+    function() if _G._EDM_Apply then _G._EDM_Apply() end end,
     -- DataBars (bar set + blocks + layout + positions are all per-profile)
-    if _G._EDB_Apply then _G._EDB_Apply() end
-    -- Quickdraw (enable state + palette count drive the override bindings)
-    if _G._EQD_Apply then _G._EQD_Apply() end
-    -- Dragon Riding HUD
-    if _G._EDR_Rebuild then _G._EDR_Rebuild() end
-    -- Minimap (flyout button state)
-    if _G._EMIN_RefreshFlyout then _G._EMIN_RefreshFlyout() end
+    function() if _G._EDB_Apply then _G._EDB_Apply() end end,
+    -- Quickdraw (enable state + palette count drive the override bindings),
+    -- Dragon Riding HUD, Minimap (flyout button state)
+    function()
+        if _G._EQD_Apply then _G._EQD_Apply() end
+        if _G._EDR_Rebuild then _G._EDR_Rebuild() end
+        if _G._EMIN_RefreshFlyout then _G._EMIN_RefreshFlyout() end
+    end,
     -- Global class/power colors (updates oUF, nameplates, raid frames)
-    if EllesmereUI.ApplyColorsToOUF then EllesmereUI.ApplyColorsToOUF() end
+    function() if EllesmereUI.ApplyColorsToOUF then EllesmereUI.ApplyColorsToOUF() end end,
     -- Re-register unlock elements for all modules whose bar sets can
     -- differ between profiles. Without this, _applySavedPositions uses
     -- stale registrations from the outgoing profile and anchors fail
     -- for elements that only exist in the incoming profile (they land
     -- at CENTER/CENTER = screen center).
-    if _G._ECME_RegisterUnlock then _G._ECME_RegisterUnlock() end
-    if _G._ECME_RegisterTBBUnlock then _G._ECME_RegisterTBBUnlock() end
-    if _G._ERB_RegisterUnlock then _G._ERB_RegisterUnlock() end
-    if _G._EABR_RegisterUnlock then _G._EABR_RegisterUnlock() end
-    if _G._ECL_RegisterUnlock then _G._ECL_RegisterUnlock() end
-    if _G._EUI_BattleRes_RegisterUnlock then _G._EUI_BattleRes_RegisterUnlock() end
-    if _G._EDB_RegisterUnlock then _G._EDB_RegisterUnlock() end
+    function()
+        if _G._ECME_RegisterUnlock then _G._ECME_RegisterUnlock() end
+        if _G._ECME_RegisterTBBUnlock then _G._ECME_RegisterTBBUnlock() end
+        if _G._ERB_RegisterUnlock then _G._ERB_RegisterUnlock() end
+        if _G._EABR_RegisterUnlock then _G._EABR_RegisterUnlock() end
+        if _G._ECL_RegisterUnlock then _G._ECL_RegisterUnlock() end
+        if _G._EUI_BattleRes_RegisterUnlock then _G._EUI_BattleRes_RegisterUnlock() end
+        if _G._EDB_RegisterUnlock then _G._EDB_RegisterUnlock() end
+    end,
+}
+
+--- Completion tail shared by both RefreshAllAddons drivers. In the budgeted
+--- path this runs from the drain's final execution, so its ordering
+--- guarantees ("after all addons have rebuilt") hold identically.
+local function RefreshAllAddonsTail()
     -- After all addons have rebuilt and positioned their frames from
     -- db.profile.positions, re-apply centralized grow-direction positioning (handles
     -- lazy migration of imported TOPLEFT positions to CENTER format) and resync anchor
@@ -1449,7 +1440,9 @@ function EllesmereUI.RefreshAllAddons()
     -- Triple-deferred so it runs AFTER debounced rebuilds have completed and frames are
     -- at final positions. Position re-application and anchor resync are deferred to
     -- OnSpecSwitchComplete (if spec switching) or run inline here for non-spec profile
-    -- switches (manual switch from options).
+    -- switches (manual switch from options). This also clears _abAnchorSuppressed
+    -- (inside _applySavedPositions), so the suppression window spans every
+    -- module step regardless of driver.
     if not EllesmereUI._specProfileSwitching then
         C_Timer.After(0, function()
             C_Timer.After(0, function()
@@ -1486,6 +1479,57 @@ function EllesmereUI.RefreshAllAddons()
         and C_AddOns.IsAddOnLoaded("EllesmereUICooldownManager")
     if not cdmLoaded then
         EllesmereUI.OnSpecSwitchComplete()
+    end
+end
+
+--- Trigger live refresh on all loaded addons after a profile apply.
+--- `budgeted` true runs the module steps through EllesmereUI.RunBudgeted --
+--- each step (or time-boxed slice of steps) in its own script-watchdog
+--- execution -- so a full-suite refresh can never hit 12.1's "script ran too
+--- long" on slow machines. Pass it ONLY from MANUAL swap sites (profile
+--- dropdown, profile keybind, options spec-assign apply): spec-DRIVEN
+--- switches must stay synchronous, because CDM's SPELLS_CHANGED pipeline
+--- calls OnSpecSwitchComplete on its own clock and could otherwise apply
+--- saved positions mid-drain, before some modules have re-applied.
+function EllesmereUI.RefreshAllAddons(budgeted)
+    -- Spec Overrides: write the current spec's override values into the live
+    -- profile FIRST, so every module refresh below picks them up. This makes
+    -- profile swaps and imports override-correct without their own pass.
+    -- (The import-time default re-bank runs SYNCHRONOUSLY inside
+    -- ImportProfile, never from here: by the time any RefreshAllAddons fires,
+    -- overlays may already be live and re-banking would poison defaults.)
+    -- The whole preamble stays in the caller's execution in both drivers:
+    -- these are cheap flag/value writes that later steps depend on.
+    if EllesmereUI.SpecOverrides_ApplyValues then
+        EllesmereUI.SpecOverrides_ApplyValues()
+    end
+    -- Suppress stale anchor moves on AB bars during the rebuild phase. LayoutBar
+    -- positions them from the new profile's barPositions; resize hooks would reposition
+    -- them with old-profile offsets (1-frame blink). Separate flag from
+    -- _applyingSavedPositions so CDM's early-return in ApplyAnchorPosition (which
+    -- checks _applyingSavedPositions) isn't triggered prematurely by the wider window.
+    EllesmereUI._abAnchorSuppressed = true
+    -- Phase 3: RefreshAllAddons runs on a real profile apply (swap/import) and on
+    -- a per-spec-profile spec switch -- both load a NEW cdmBarPositions table with
+    -- its own saved edges + follow baselines, so clear the follow-ready flag.
+    -- Anchored CDM growth bars then re-pin to the new profile's absolute edge
+    -- (delta 0) until that profile's chain settles and the settle debounce re-arms
+    -- follow. A SHARED-profile spec change does NOT call RefreshAllAddons, so the
+    -- flag stays set there and the bars track the sliding target smoothly.
+    EllesmereUI._anchorFollowReady = nil
+    -- Re-resolve + apply the UI accent color for the now-active profile BEFORE
+    -- child modules refresh, since several re-read GetAccentColor() during their
+    -- own apply (chat, cursor, mythic timer, glows, borders). Per-profile accent
+    -- falls back to the frozen global root, so swapping profiles never changes
+    -- the accent for users who never set a per-profile one.
+    if EllesmereUI.RefreshAccent then EllesmereUI.RefreshAccent() end
+    if budgeted and EllesmereUI.RunBudgeted then
+        EllesmereUI.RunBudgeted(REFRESH_ADDON_STEPS, 8, RefreshAllAddonsTail)
+    else
+        for i = 1, #REFRESH_ADDON_STEPS do
+            REFRESH_ADDON_STEPS[i]()
+        end
+        RefreshAllAddonsTail()
     end
 end
 
@@ -1544,7 +1588,8 @@ local function EnsureProfileBindBtn(profileName)
         local fontWillChange = EllesmereUI.ProfileChangesFont(profiles and profiles[profileName])
         local skinsWillChange = EllesmereUI.ProfileChangesWindowSkins(profiles and profiles[profileName])
         EllesmereUI.SwitchProfile(profileName)
-        EllesmereUI.RefreshAllAddons()
+        -- true = budgeted: manual swap site, watchdog-sliced module refresh.
+        EllesmereUI.RefreshAllAddons(true)
         if fontWillChange or skinsWillChange then
             EllesmereUI:ShowConfirmPopup({
                 title       = "Reload Required",
@@ -1784,6 +1829,7 @@ do
         "showItemMaxStacks", "itemStackModifier",
         "reskinPopupsMenus", "reskinGameMenu", "reskinQueuePopup",
         "showQueueTimer", "resurrectAcceptGlow",
+        "reskinWidgetBars", "reskinExtraActionButton",
         "popupMenuButtonBackgroundColor", "popupMenuButtonTextColorMode",
         "popupMenuButtonTextColor",
         "accentReskinElements",
@@ -1808,11 +1854,14 @@ do
         "reskinItemUpgrade", "reskinLoot", "reskinLootToast", "lootToastQualityStrip",
         "lootToastQualityStripMoney", "lootToastScale",
         "reskinLootRoll", "reskinLootHistory", "reskinGroupInvite",
+        "reskinReadyCheck",
         "reskinMicroMenu", "reskinHousing", "reskinDressUp", "reskinTransmog",
         "reskinMerchant", "reskinAuctionHouse", "reskinMacros",
         "reskinSettings", "reskinAddonList", "reskinCraftOrders",
         "reskinTrainer", "reskinGossip", "reskinQuest", "reskinInspectRecipe",
-        "reskinDelves",
+        "reskinDelves", "reskinSocialUI",
+        "reskinQueueStatus", "reskinDelvePicker", "reskinPlayerChoice",
+        "reskinTrade",
         "blizzWindowSkinStyles", "blizzWindowModernDefault",
         "blizzWinAccentBar", "blizzWinBarFill", "blizzWinLinks",
         "thirdPartySkinsOff", "thirdPartySkinAddons",
@@ -5044,6 +5093,15 @@ function EllesmereUI.ImportProfileInteractive(opts)
     if existing and existing.state ~= "done" then
         return false, "an interactive import is already pending"
     end
+
+    -- First-open split (see _SplitFirstOpen): on the session's first open the
+    -- navigation below only LOADS and the panel builds next frame, so the
+    -- Profiles page -- and with it _ProfilesConsumeApiImport -- does not exist
+    -- yet. Re-run the whole call next frame instead; the session is not created
+    -- until then, so the re-entry is not blocked as "already pending".
+    if EllesmereUI:_SplitFirstOpen(function()
+        EllesmereUI.ImportProfileInteractive(opts)
+    end) then return true end
 
     EllesmereUI._apiImportSession = {
         str      = opts.importString,

@@ -2387,6 +2387,10 @@ do
     end
 
     local function SyncGhost(g)
+        -- Temporarily hidden for this unlock session (Shift+Right Click, mover
+        -- gesture parity). Every refresh path funnels here, so the ghost stays
+        -- hidden until the next unlock entry clears the flag.
+        if g._tempHidden then g:Hide(); return end
         if g._dragging then return end
         local childKey = g._childKey
         local db = GetAnchorDB()
@@ -2501,6 +2505,15 @@ do
             end
         end)
         g:SetScript("OnMouseUp", function(self, btn)
+            -- Shift+Right Click temporarily hides this fallback ghost for the
+            -- current unlock session (regular-mover gesture parity). Cleared on
+            -- the next unlock entry; purely visual, the stored link is untouched.
+            if btn == "RightButton" and IsShiftKeyDown() then
+                self._tempHidden = true
+                self._dragging = nil
+                HideGhost(self)
+                return
+            end
             if btn ~= "LeftButton" or not self._dragging then return end
             self._dragging = nil
             local db = GetAnchorDB()
@@ -2568,6 +2581,14 @@ do
             SetGhostSelected(selectedGhost, false)
             selectedGhost = nil
         end
+    end
+
+    -- Clear per-session temp-hides (Shift+Right Click): unlock entry calls this
+    -- alongside the mover/Blizz-overlay clears so every session starts with all
+    -- ghosts visible again. The ghosts table is a do-block local, hence the
+    -- namespaced helper.
+    function EllesmereUI._ClearFallbackGhostTempHides()
+        for _, g in pairs(ghosts) do g._tempHidden = nil end
     end
 
     -- Arrow-key nudge for the selected ghost. Same convention as nudging an
@@ -3024,6 +3045,10 @@ do
     end
 
     local function SyncGhost(g)
+        -- Temporarily hidden for this unlock session (Shift+Right Click, mover
+        -- gesture parity). Every refresh path funnels here, so the ghost stays
+        -- hidden until the next unlock entry clears the flag.
+        if g._tempHidden then g:Hide(); return end
         if g._dragging then return end
         local ov = GhostPos(g)
         if not ov then HideGhost(g) return end
@@ -3132,6 +3157,15 @@ do
             end
         end)
         g:SetScript("OnMouseUp", function(self, btn)
+            -- Shift+Right Click temporarily hides this override ghost for the
+            -- current unlock session (regular-mover gesture parity). Cleared on
+            -- the next unlock entry; purely visual, the stored link is untouched.
+            if btn == "RightButton" and IsShiftKeyDown() then
+                self._tempHidden = true
+                self._dragging = nil
+                HideGhost(self)
+                return
+            end
             if btn ~= "LeftButton" or not self._dragging then return end
             self._dragging = nil
             local ov = GhostPos(self)
@@ -3192,6 +3226,14 @@ do
             SetGhostSelected(selectedGhost, false)
             selectedGhost = nil
         end
+    end
+
+    -- Clear per-session temp-hides (Shift+Right Click): unlock entry calls this
+    -- alongside the mover/Blizz-overlay clears so every session starts with all
+    -- ghosts visible again. The ghosts table is a do-block local, hence the
+    -- namespaced helper.
+    function EllesmereUI._ClearOverrideGhostTempHides()
+        for _, g in pairs(ghosts) do g._tempHidden = nil end
     end
 
     -- Arrow-key nudge for the selected ghost: the exact delta lands on the
@@ -3322,6 +3364,63 @@ local function ExtraAnchorOffset(childKey)
     local ok, dx, dy = pcall(fn, childKey)
     if not ok or type(dx) ~= "number" or type(dy) ~= "number" then return 0, 0 end
     return dx, dy
+end
+
+-- Anchor-target shift providers ("Shift Elements if No Resource" and kin):
+-- modules register (targetKey, childKey) -> dir, extraY functions; the public
+-- EllesmereUI._GetAnchorTargetShiftDir the apply paths consult dispatches to
+-- them, first non-zero answer wins (each provider returns 0 for foreign keys).
+-- A LIST, not a single slot: ResourceBars (ERB_* bars) and CooldownManager
+-- (TBBG_* tracking-bar global groups) both provide. Companion enter/exit hooks
+-- ride the same registration: `wants` = a shift WOULD apply outside unlock mode
+-- (unlock entry un-shifts before snapshotting -- deliberately ignores unlock
+-- state), `restore` = re-apply after unlock closes (PropagateAnchorChain is a
+-- no-op while unlocked).
+-- or-preserve + self-seeding registration (modules push directly instead of
+-- calling an API): providers must register with ZERO load-order coupling --
+-- whichever file runs first creates the shared list, exactly like the
+-- _anchorExtraOffset registry and this file's own _unlockRegisteredElements.
+EllesmereUI._anchorShiftProviders = EllesmereUI._anchorShiftProviders or {}
+-- pcall-isolated: one provider erroring must not take the OTHER module's
+-- anchoring (or unlock entry) down with it.
+EllesmereUI._GetAnchorTargetShiftDir = function(targetKey, childKey)
+    local t = EllesmereUI._anchorShiftProviders
+    for i = 1, #t do
+        local ok, dir, extraY = pcall(t[i].dir, targetKey, childKey)
+        if ok and dir and dir ~= 0 then return dir, extraY end
+    end
+    return 0
+end
+function EllesmereUI.AnchorShiftWantsApply()
+    local t = EllesmereUI._anchorShiftProviders
+    for i = 1, #t do
+        local w = t[i].wants
+        if w then
+            local ok, wants = pcall(w)
+            if ok and wants then return true end
+        end
+    end
+    return false
+end
+function EllesmereUI.RestoreAnchorShifts()
+    local t = EllesmereUI._anchorShiftProviders
+    for i = 1, #t do
+        local r = t[i].restore
+        if r then pcall(r) end
+    end
+end
+-- Optional `enter` hooks: run at unlock entry (and combat resume) BEFORE
+-- positions are snapshotted, for providers whose visual adjustment lives
+-- outside the anchor system (e.g. CDM's Additional Bar Offset repositions
+-- UN-anchored bars) -- the anchored side is covered by the wants-gated
+-- ReapplyAllUnlockAnchors strip. Each hook self-gates, so providers with
+-- nothing active cost one function call.
+function EllesmereUI.RunAnchorShiftEnters()
+    local t = EllesmereUI._anchorShiftProviders
+    for i = 1, #t do
+        local e = t[i].enter
+        if e then pcall(e) end
+    end
 end
 
 ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove, fromCascade)
@@ -4462,6 +4561,15 @@ ApplyCenterPosition = function(barKey, pos)
         end
     end
 
+    -- Registered extra offset (CDM Additional Bar Offset): this centralized pass
+    -- overrides the module's own placement, so it folds the same render-only
+    -- displacement the anchor path folds, PRE-snap. Absent getter = 0,0; the CDM
+    -- getter itself returns 0,0 while unlock mode is active.
+    do
+        local ex, ey = ExtraAnchorOffset(barKey)
+        adjX, adjY = adjX + ex, adjY + ey
+    end
+
     -- Snap the final position to the physical pixel grid, allowing for odd-dimension
     -- frames that need half-pixel centering. adjX/adjY and the dims are UIParent
     -- units, so snap against UIParent's grid, not the frame's own.
@@ -4633,6 +4741,9 @@ local function MigrateAndApplyPosition(barKey, pos, frame)
     -- Save & Exit (CommitPositions) saves, and the edge anchor is correct as stored.
     if frame then
         local px, py = pos.x or 0, pos.y or 0
+        -- Same registered extra offset fold as ApplyCenterPosition (pre-snap).
+        local ex, ey = ExtraAnchorOffset(barKey)
+        px, py = px + ex, py + ey
         local PPa = EllesmereUI and EllesmereUI.PP
         if PPa and PPa.SnapForES then
             local es = frame:GetEffectiveScale()
@@ -7435,6 +7546,23 @@ local function CreateMover(barKey)
         local b = GetBarFrame(bk)
         local elem = registeredElements[bk]
 
+        -- Re-read the element's moverBg tint: movers persist for the session
+        -- while elements re-register with STATE-DEPENDENT tints (CDM's
+        -- Additional Bar Offset marker), so a stale CreateMover-time color
+        -- would stick until /reload. Change-guarded repaint.
+        do
+            local bgTint = elem and elem.moverBg
+            local nr = bgTint and bgTint.r or 0.075
+            local ng = bgTint and bgTint.g or 0.113
+            local nb = bgTint and bgTint.b or 0.141
+            if self._bgR ~= nr or self._bgG ~= ng or self._bgB ~= nb then
+                self._bgR, self._bgG, self._bgB = nr, ng, nb
+                if self._bg and darkOverlaysEnabled then
+                    self._bg:SetColorTexture(nr, ng, nb, 0.95)
+                end
+            end
+        end
+
         -- Stale/intentionally-hidden registrations (e.g. a deleted CDM tracking bar
         -- whose TBB_<idx> element is never unregistered, or a grouped non-anchor
         -- bar) must NOT be shown. Mirrors the CreateMover guard so blanket
@@ -9897,6 +10025,31 @@ local function CreateMover(barKey)
         RefreshAnchoredIdle()
     end
 
+    -- Opt-in hover tooltip (element definition field `moverTooltip`, string or
+    -- function): additive-only -- absent = the handlers no-op. Installed
+    -- UNCONDITIONALLY and resolved LIVE from registeredElements, because movers
+    -- persist for the whole session while elements re-register with
+    -- state-dependent tooltips (CDM's Additional Bar Offset marker). Placed
+    -- after every SetScript above so the HookScripts can never be replaced.
+    -- Suppressed while dragging and in the pick/select modes (the base OnEnter
+    -- early-returns there and a tooltip over the pickers would mislead).
+    mover:HookScript("OnEnter", function()
+        local el = registeredElements[barKey]
+        local tip = el and el.moverTooltip
+        if not tip then return end
+        if _mouseHeld or pickMode or selectElementPicker then return end
+        if type(tip) == "function" then tip = tip(barKey) end
+        if tip and EllesmereUI.ShowWidgetTooltip then
+            EllesmereUI.ShowWidgetTooltip(mover, tip)
+        end
+    end)
+    mover:HookScript("OnLeave", function()
+        if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
+    end)
+    mover:HookScript("OnDragStart", function()
+        if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
+    end)
+
     movers[barKey] = mover
     return mover
 end
@@ -9915,9 +10068,18 @@ do
         for _, elem in ipairs(elements) do
             local key = elem.key
             if movers[key] then
-                -- Re-registration: hide mover if element is now hidden
+                -- Re-registration: hide mover if element is now hidden, and
+                -- RE-SHOW one whose element came back (e.g. a PAB bar
+                -- re-enabled mid-session -- the drop half always worked, the
+                -- restore half never did). Session temp-hides
+                -- (Shift+Right-Click) stay respected.
                 if elem.isHidden and elem.isHidden() then
                     movers[key]:Hide()
+                elseif not movers[key]:IsShown() and not movers[key]._tempHidden then
+                    movers[key]:Sync()
+                    movers[key]:SetAlpha(darkOverlaysEnabled and 1 or MOVER_ALPHA)
+                    movers[key]:Show()
+                    spawned = true
                 end
             else
                 local m = CreateMover(key)
@@ -10453,9 +10615,12 @@ local function CreateHUD(parent)
     ---------------------------------------------------------------
     --  Hover-bar logic: when hoverBarEnabled, the banner + all children fade out
     --  unless the cursor is in a 1144x60 zone at the top of the screen. Fade = 0.5s.
+    --  Holding Shift fades the bar out in ANY mode so elements beneath it can
+    --  be seen and clicked; releasing Shift brings it straight back.
     ---------------------------------------------------------------
     local HOVER_ZONE_H = 60
     local HOVER_FADE = 0.5
+    local SHIFT_FADE = 0.15
     local hoverAlpha = 1  -- current fade alpha (1 = fully visible)
 
     -- Invisible hover detection zone (parented to UIParent, not hudFrame,
@@ -10470,7 +10635,43 @@ local function CreateHUD(parent)
     hoverZone:Hide()
     hudFrame._hoverZone = hoverZone
 
+    -- Every mouse-interactive banner child. Mouse is cut while Shift-hidden so
+    -- the invisible buttons can't eat clicks meant for elements under the bar.
+    local hudMouseKids = {
+        hudFrame._gridBtn, hudFrame._darkOverlayBtn, hudFrame._flashBtn,
+        hudFrame._magnetBtn, hudFrame._coordBtn, hudFrame._hoverBtn,
+        hudFrame._exitBtn, hudFrame._saveBtn, hudFrame._minusBtn, hudFrame._plusBtn,
+    }
+    local shiftMouseCut = false
+
     hudFrame:SetScript("OnUpdate", function(self, dt)
+        -- Hold Shift: temporarily hide the top bar (works in both modes)
+        local shiftHeld = IsShiftKeyDown()
+        if shiftHeld ~= shiftMouseCut then
+            shiftMouseCut = shiftHeld
+            for i = 1, #hudMouseKids do
+                local kid = hudMouseKids[i]
+                if shiftHeld then
+                    -- EnableMouse(false) does not fire OnLeave on a frame the
+                    -- cursor is already over; reset hover visuals explicitly
+                    -- so no button sticks in its highlighted state.
+                    local leave = kid:GetScript("OnLeave")
+                    if leave then leave(kid) end
+                end
+                kid:EnableMouse(not shiftHeld)
+            end
+        end
+        if shiftHeld then
+            -- Push-through, no change guard: unlock entry force-sets frame
+            -- alpha to 1 while hoverAlpha can still be 0 from a close that
+            -- happened with Shift held; a guarded write would strand the
+            -- banner visible with its buttons mouse-dead.
+            hoverAlpha = max(0, hoverAlpha - dt / SHIFT_FADE)
+            self:SetAlpha(hoverAlpha)
+            if not hoverBarEnabled then hoverZone:Hide() end
+            return
+        end
+
         if not hoverBarEnabled then
             -- Not in hover mode — ensure full alpha
             if hoverAlpha < 1 then
@@ -11017,11 +11218,12 @@ local function DoClose(closeAction)
 
     -- Restore expandIfNoResource after unlock mode finishes
     if _G._ERB_RestoreExpand then pcall(_G._ERB_RestoreExpand) end
-    -- Re-apply the anchor-target shift after unlock mode finishes. Independent of
+    -- Re-apply the anchor-target shifts after unlock mode finishes. Independent of
     -- expand restore (which early-returns when expand was never suppressed); runs
-    -- after _unlockActive is cleared above so the provider returns non-zero and
-    -- PropagateAnchorChain is no longer a no-op. Gated so None = no work.
-    if _G._ERB_RestoreShift then pcall(_G._ERB_RestoreShift) end
+    -- after _unlockActive is cleared above so the providers return non-zero and
+    -- PropagateAnchorChain is no longer a no-op. Each provider gates itself so
+    -- None = no work.
+    EllesmereUI.RestoreAnchorShifts()
 
     -- Restore unit frame buffs/debuffs
     local UF_FRAME_NAMES = {
@@ -11791,13 +11993,22 @@ function ns.OpenUnlockMode()
     -- Clear per-session temporary overlay hides (Shift+Right Click). Every unlock
     -- session starts with all overlays visible again. Cleared before the fade-in
     -- Sync / ShowBlizzOwnedOverlays calls so last session's hides don't persist.
+    -- Fallback/override anchor ghosts carry the same flag (their tables are
+    -- do-block locals, hence the namespaced helpers).
     for _, m in pairs(movers) do m._tempHidden = nil end
     for _, ov in pairs(_blizzOwnedOverlays) do ov._tempHidden = nil end
-    -- Strip any temporary anchor-target shift (e.g. ResourceBars "Shift Elements if
-    -- No Resource") so movers snapshot TRUE saved positions. _unlockActive is
-    -- already true above, so the shift provider returns 0 and this re-apply snaps
-    -- shifted children back to their real positions. Gated so non-shift profiles do no extra work on unlock entry.
-    if _G._ERB_ShiftWantsApply and _G._ERB_ShiftWantsApply()
+    if EllesmereUI._ClearFallbackGhostTempHides then EllesmereUI._ClearFallbackGhostTempHides() end
+    if EllesmereUI._ClearOverrideGhostTempHides then EllesmereUI._ClearOverrideGhostTempHides() end
+    -- Strip provider-owned visual adjustments that live OUTSIDE the anchor
+    -- system (CDM's Additional Bar Offset on un-anchored bars): each enter hook
+    -- self-gates, so this is near-free when nothing is active.
+    EllesmereUI.RunAnchorShiftEnters()
+    -- Strip any temporary anchor-target shift (e.g. "Shift Elements if No
+    -- Resource"/"...if No Bars") so movers snapshot TRUE saved positions.
+    -- _unlockActive is already true above, so the shift providers return 0 and
+    -- this re-apply snaps shifted children back to their real positions. Gated so
+    -- non-shift profiles do no extra work on unlock entry.
+    if EllesmereUI.AnchorShiftWantsApply()
        and EllesmereUI.ReapplyAllUnlockAnchors then
         -- Force edge-preservation for this reapply so custom-growth anchored bars
         -- snap to their fixed growth edge (their true saved position), not the
@@ -12548,12 +12759,16 @@ local function ResumeAfterCombat()
     if gridFrame and gridMode ~= "disabled" then gridFrame:Show() end
     if hudFrame then hudFrame:Show() end
 
-    -- Strip any temporary anchor-target shift (e.g. ResourceBars "Shift Elements if
-    -- No Resource") that may have re-applied during the combat-suspend window (when
-    -- _unlockActive was false). _unlockActive is true again above, so the provider
-    -- returns 0 and this snaps shifted children back BEFORE the movers re-sync
-    -- below capture their positions. Mirrors the OpenUnlockMode entry strip.
-    if _G._ERB_ShiftWantsApply and _G._ERB_ShiftWantsApply()
+    -- Mirrors the OpenUnlockMode entry strip: provider enter hooks first (CDM's
+    -- Additional Bar Offset may have re-applied to un-anchored bars during the
+    -- combat-suspend window)...
+    EllesmereUI.RunAnchorShiftEnters()
+    -- ...then strip any temporary anchor-target shift (e.g. "Shift Elements if
+    -- No Resource"/"...if No Bars") that may have re-applied while
+    -- _unlockActive was false. _unlockActive is true again above, so the
+    -- providers return 0 and this snaps shifted children back BEFORE the movers
+    -- re-sync below capture their positions.
+    if EllesmereUI.AnchorShiftWantsApply()
        and EllesmereUI.ReapplyAllUnlockAnchors then
         -- Force edge-preservation so custom-growth anchored bars snap to their fixed
         -- growth edge, not the center-offset position. Reset via pcall so it can't leak.

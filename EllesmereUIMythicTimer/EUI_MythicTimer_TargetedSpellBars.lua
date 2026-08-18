@@ -641,7 +641,12 @@ local function RegisterUnlock()
             label = "Targeted Spell Bars",
             group = "Mythic+",
             order = 521,
+            -- Sized by the options sliders (no drag-resize handle), but the
+            -- group can size-MATCH another element and be matched TO: the match
+            -- apply pushes through setWidth/setHeight into the same cfg keys
+            -- the sliders write (per-bar size; the container relayouts).
             noResize = true,
+            allowMatchSource = true,
             isHidden = function()
                 local cfg = Cfg()
                 return not (cfg and cfg.enabled == true)
@@ -652,6 +657,18 @@ local function RegisterUnlock()
             getSize = function()
                 local cfg = Cfg()
                 return (cfg and cfg.width) or 240, (cfg and cfg.height) or 20
+            end,
+            setWidth = function(_, w)
+                local cfg = Cfg()
+                if not cfg then return end
+                cfg.width = math.floor(w + 0.5)
+                ns.TSB_Refresh()
+            end,
+            setHeight = function(_, h)
+                local cfg = Cfg()
+                if not cfg then return end
+                cfg.height = math.floor(h + 0.5)
+                ns.TSB_Refresh()
             end,
             savePos = function()
                 local cfg = Cfg()

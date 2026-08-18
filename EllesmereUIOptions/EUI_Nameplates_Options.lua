@@ -198,7 +198,6 @@ initFrame:SetScript("OnEvent", function(self)
     local showClassificationPreview = false
     local showTargetGlowPreview = false
     local showAbsorbPreview = false
-    local showDispelGlowPreview = false
 
     -- Transient flags: force-show indicators during slider drag
     local _sliderDragShowRaidMarker = false
@@ -300,8 +299,16 @@ initFrame:SetScript("OnEvent", function(self)
             BUFF_COUNT = 1,
             CC_COUNT = 1,
         }
-        -- Type colors for preview dispel glow: Magic (blue), Enrage (red)
-        local previewDispelColors = { CreateColor(0.2, 0.6, 1.0, 1), CreateColor(1.0, 0.2, 0.2, 1) }
+        -- There is one preview buff slot, so it shows the type THIS character
+        -- removes -- and nil (no glow at all) for a character with no
+        -- offensive dispel, which is what their nameplates will do.
+        local function PreviewDispelType()
+            local magic, enrage = false, false
+            if ns.GetOffensiveDispelTypes then magic, enrage = ns.GetOffensiveDispelTypes() end
+            if magic then return "magic" end
+            if enrage then return "enrage" end
+            return nil
+        end
         if not _previewHpPct then RandomizePreviewValues() end
         local previewHpPct = _previewHpPct
         local previewHpVal = math.floor(PV_CONST.FAKE_MAX_HP * previewHpPct / 100)
@@ -1702,12 +1709,12 @@ initFrame:SetScript("OnEvent", function(self)
                     ApplyTimerPos(buffs[i].durationText, buffs[i], buffTPos, buffDurSz, buffDurX, buffDurY, buffDurC)
                     PlaceInSlot(buffs[i], buffSlotVal, i, PV_CONST.BUFF_COUNT, buffSz, buffH, buffSpacing, buffXOff, buffYOff)
                     -- Dispel glow preview (always stop first to pick up color/style changes)
-                    if showDispelGlowPreview and DBVal("dispelGlow") == true
-                        and DBVal("showAllEnemyBuffs") ~= true then
+                    local previewType = PreviewDispelType()
+                    if DBVal("dispelGlow") == true and previewType then
                         if buffs[i].dispelGlow and buffs[i].dispelGlow.active then
                             ns.StopDispelGlow(buffs[i])
                         end
-                        ns.StartDispelGlow(buffs[i], buffSz, previewDispelColors[i])
+                        ns.StartDispelGlow(buffs[i], buffSz, previewType)
                     elseif buffs[i].dispelGlow and buffs[i].dispelGlow.active then
                         ns.StopDispelGlow(buffs[i])
                     end
@@ -3301,10 +3308,15 @@ initFrame:SetScript("OnEvent", function(self)
             return DBVal("dispelGlow") ~= true
         end
 
-        -- Shared graying for inline swatch/eye: Show All Enemy Buffs suppresses the glow entirely (not dispellable-only), locking style/color controls.
+        -- Shared graying for inline swatch/eye: the glow controls follow the
+        -- glow's own enable only -- the Enemy Buff Filter never locks them
+        -- (user-directed 2026-08-16: the glow styles the dispellable GROUP,
+        -- independent of which filter mode decides what shows).
+        -- checkTypeColor additionally locks the custom color swatch, which
+        -- per-type coloring replaces.
         local function dispelGlowLocked(checkTypeColor)
             if dispelGlowOff() then return true end
-            return DBVal("showAllEnemyBuffs") == true
+            return checkTypeColor and DBVal("dispelGlowUseTypeColor") == true
         end
 
         local dispelGlowStyleValues = { [0] = "None" }
@@ -3357,20 +3369,34 @@ initFrame:SetScript("OnEvent", function(self)
             end,
             order=dispelGlowStyleOrder,
         }
-        local dispelRightWidget
-            dispelGlowDropdown.disabled = function() return DBVal("showAllEnemyBuffs") == true end
-            dispelGlowDropdown.disabledTooltip = "Disable Show All Enemy Buffs"
-            dispelRightWidget = { type="toggle", text="Show All Enemy Buffs",
-              getValue=function() return DBVal("showAllEnemyBuffs") or false end,
-              setValue=function(v)
-                DB().showAllEnemyBuffs = v
-                -- Applies live: RefreshAllAuras drives the container reload; its cfg pass replaces the buff group's candidate filters, and its style/purge passes re-evaluate the dispel glow.
+        -- Enemy Buff Filter (replaces the retired Show All Enemy Buffs toggle;
+        -- npEnemyBuffFilter, default "important" for EVERYONE -- a deliberate
+        -- new default, the old key is an inert orphan). UNION semantics
+        -- (2026-08-17): Important = important OR dispellable (two engine
+        -- groups); Dispellable = dispellable only; the removed "all" value
+        -- reads back as important. The Dispel Glow never changes the filters
+        -- -- it is just the style the dispellable group wears, so every shown
+        -- dispellable buff glows when a style is set.
+        local buffFilterDropdown = { type="dropdown", text="Enemy Buff Filter",
+            tooltip = "Which enemy buffs show on nameplates. Important shows the buffs Blizzard flags for enemy nameplates plus anything dispellable; Dispellable shows only buffs that can be dispelled, purged or soothed. With a Dispel Glow style set, every dispellable buff shown glows.",
+            values = { important = "Important", dispellable = "Dispellable" },
+            order = { "important", "dispellable" },
+            getValue = function()
+                local m = DBVal("npEnemyBuffFilter")
+                if m == "dispellable" then return m end
+                return "important"
+            end,
+            setValue = function(v)
+                DB().npEnemyBuffFilter = v
+                -- Applies live: RefreshAllAuras drives the container reload;
+                -- its cfg pass re-drives both buff group filter strings and
+                -- parks/unparks the plain remainder group.
                 RefreshAllAuras()
                 UpdatePreview()
                 C_Timer.After(0, function() EllesmereUI:RefreshPage() end)
-              end }
+            end }
         local dispelGlowRow
-        dispelGlowRow, h = W:DualRow(parent, y, dispelGlowDropdown, dispelRightWidget);  y = y - h
+        dispelGlowRow, h = W:DualRow(parent, y, buffFilterDropdown, dispelGlowDropdown);  y = y - h
 
         -- Inline color swatch for dispel glow
         if not EllesmereUI._prebuilding then
@@ -3383,57 +3409,85 @@ initFrame:SetScript("OnEvent", function(self)
                 RefreshAllAuras()
                 UpdatePreview()
             end
-            local leftRgn = dispelGlowRow._leftRegion
+            -- Dispel Glow Style lives in the RIGHT slot (the Enemy Buff Filter
+            -- dropdown took the left), so its swatch and eye follow it there.
+            local leftRgn = dispelGlowRow._rightRegion
             local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, glowColorGet, glowColorSet, nil, 20)
             PP.Point(swatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
             leftRgn._lastInline = swatch
-            -- Gray out swatch when dispel glow is off or suppressed
-            EllesmereUI.RegisterWidgetRefresh(function()
+            -- Blocking overlay (canonical inline disabled-state pattern):
+            -- catches hover while the swatch is locked and names WHICH of the
+            -- two conditions locks it -- no glow style chosen, or per-type
+            -- coloring replacing the custom color.
+            local block = CreateFrame("Frame", nil, swatch)
+            block:SetAllPoints()
+            block:SetFrameLevel(swatch:GetFrameLevel() + 10)
+            block:EnableMouse(true)
+            block:SetScript("OnEnter", function()
+                if dispelGlowOff() then
+                    EllesmereUI.ShowWidgetTooltip(swatch, EllesmereUI.DisabledTooltip("a Dispel Glow Style"))
+                else
+                    EllesmereUI.ShowWidgetTooltip(swatch, EllesmereUI.DisabledTooltip("Color by Type", "disabled"))
+                end
+            end)
+            block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            local function RefreshGlowSwatch()
                 local off = dispelGlowLocked(true)
                 swatch:SetAlpha(off and 0.15 or 1)
                 swatch:EnableMouse(not off)
+                block:SetShown(off)
                 updateSwatch()
-            end)
-            local initialOff = dispelGlowLocked(true)
-            swatch:SetAlpha(initialOff and 0.15 or 1)
-            swatch:EnableMouse(not initialOff)
+            end
+            EllesmereUI.RegisterWidgetRefresh(RefreshGlowSwatch)
+            RefreshGlowSwatch()
         end
 
-        -- Eye icon: show/hide dispel glow on preview buff icons
-        do
-            local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
-            local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
-            local leftRgn = dispelGlowRow._leftRegion
-            local eyeBtn = CreateFrame("Button", nil, leftRgn)
-            eyeBtn:SetSize(26, 26)
-            eyeBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
-            eyeBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
-            eyeBtn:SetAlpha(0.4)
-            leftRgn._lastInline = eyeBtn
-            local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
-            eyeTex:SetAllPoints()
-            local function RefreshEyeIcon()
-                eyeTex:SetTexture(showDispelGlowPreview and EYE_INVISIBLE or EYE_VISIBLE)
-            end
-            RefreshEyeIcon()
-            eyeBtn:SetScript("OnClick", function()
-                showDispelGlowPreview = not showDispelGlowPreview
-                RefreshEyeIcon()
-                UpdatePreview()
+        -- Inline cog on Dispel Glow Style: holds the per-type color option
+        -- (Magic buffs and enrages are separate groups in the buff row, so
+        -- the color can follow the type). Chain: [cog][swatch][dropdown].
+        if not EllesmereUI._prebuilding then
+            local leftRgn = dispelGlowRow._rightRegion
+            local _, dgCogShow = EllesmereUI.BuildCogPopup({
+                title = "Dispel Glow",
+                rows = {
+                    { type="toggle", label="Color by Type (Magic/Enrage)",
+                      get=function() return DBVal("dispelGlowUseTypeColor") or false end,
+                      set=function(v)
+                          DB().dispelGlowUseTypeColor = v
+                          RefreshAllAuras()
+                          UpdatePreview()
+                          C_Timer.After(0, function() EllesmereUI:RefreshPage() end)
+                      end },
+                },
+            })
+            local cogBtn = CreateFrame("Button", nil, leftRgn)
+            cogBtn:SetSize(26, 26)
+            cogBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
+            cogBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
+            cogBtn:SetAlpha(dispelGlowLocked(false) and 0.15 or 0.4)
+            leftRgn._lastInline = cogBtn
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+            cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
+            cogBtn:SetScript("OnEnter", function(self)
+                if dispelGlowLocked(false) then
+                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip("a Dispel Glow Style"))
+                else
+                    self:SetAlpha(0.7)
+                end
             end)
-            eyeBtn:SetScript("OnEnter", function(self)
-                self:SetAlpha(0.7)
-                EllesmereUI.ShowWidgetTooltip(self, "Show/Hide on Preview", { width = 155 })
-            end)
-            eyeBtn:SetScript("OnLeave", function(self)
-                self:SetAlpha(0.4)
+            cogBtn:SetScript("OnLeave", function(self)
                 EllesmereUI.HideWidgetTooltip()
+                self:SetAlpha(dispelGlowLocked(false) and 0.15 or 0.4)
             end)
-            -- Gray out when dispel glow is off or suppressed
+            cogBtn:SetScript("OnClick", function(self)
+                if dispelGlowLocked(false) then return end
+                dgCogShow(self)
+            end)
+            -- Gray out with the glow, like the swatch.
             EllesmereUI.RegisterWidgetRefresh(function()
                 local off = dispelGlowLocked(false)
-                eyeBtn:SetAlpha(off and 0.15 or 0.4)
-                eyeBtn:EnableMouse(not off)
+                cogBtn:SetAlpha(off and 0.15 or 0.4)
+                cogBtn:EnableMouse(true)
             end)
         end
 
@@ -4060,6 +4114,26 @@ initFrame:SetScript("OnEvent", function(self)
                 DB().hideEnemyPlatesOOC = v
                 if ns.ApplyOOCPlates then ns.ApplyOOCPlates() end
               end });  y = y - h
+
+        -- Row 6 (Blood Death Knight only): Hide Copies of Blood Plague. The row
+        -- is not built at all for anyone else -- the setting only affects a
+        -- debuff Blood spec applies.
+        do
+            local _, classFile = UnitClass("player")
+            local specIdx = GetSpecialization and GetSpecialization()
+            local specID = specIdx and GetSpecializationInfo(specIdx)
+            if classFile == "DEATHKNIGHT" and specID == 250 then
+                _, h = W:DualRow(parent, y,
+                    { type="toggle", text="Hide Copies of Blood Plague",
+                      tooltip="Shows a single Blood Plague debuff on enemy nameplates instead of one per copy (Blood Boil from weapon copies).",
+                      getValue=function() return DBVal("hideBloodPlagueCopies") ~= false end,
+                      setValue=function(v)
+                        DB().hideBloodPlagueCopies = v
+                        if ns.NPC_ReloadAll then ns.NPC_ReloadAll() end
+                      end },
+                    { type="label", text="" });  y = y - h
+            end
+        end
 
         return math.abs(y)
     end
@@ -8096,32 +8170,175 @@ initFrame:SetScript("OnEvent", function(self)
                     UpdatePreview()
                     EllesmereUI:RefreshPage()
                   end },
-                { type="slider", text="Hover Effect", min=0, max=100, step=1,
-                  tooltip="Controls the highlight shown over a nameplate when you mouse over it. Set to 0 to disable.",
-                  getValue=function()
-                    return math.floor(((DBVal("hoverAlpha") or defaults.hoverAlpha) * 100) + 0.5)
-                  end,
-                  setValue=function(v)
-                    DB().hoverAlpha = v / 100
-                    ns.RefreshHoverEffect()
-                    UpdatePreview()
-                  end });  y = y - h
+                { type="dropdown", text="Hover Effect",
+                  values={ __placeholder = "..." }, order={ "__placeholder" },
+                  getValue=function() return "__placeholder" end,
+                  setValue=function() end });  y = y - h
             if not EllesmereUI._prebuilding then
-            -- Inline color swatch on Hover Effect (right region)
+            -- Hover Effect: the Target Effect model copied onto mouseover
+            -- (user-directed 2026-08-16, no preview integration). Highlight is
+            -- the only default-on channel and rides the legacy
+            -- hoverColor/hoverAlpha keys, so every profile keeps its exact
+            -- pre-rework hover visuals until other channels are opted in.
             local rightRgn = hoverRow._rightRegion
-            local hvColorGet = function()
-                local c = (DB() and DB().hoverColor) or defaults.hoverColor
-                return c.r, c.g, c.b
+            if rightRgn._control then rightRgn._control:Hide() end
+            local refreshHoverBorderSwatch
+            local refreshHoverGlowSwatch
+            local refreshHoverCog
+            local hoverItems = {
+                { key = "ellesmereui", label = "EUI Glow" },
+                { key = "borderColor", label = "Border Color" },
+                { key = "highlight",   label = "Highlight" },
+                { key = "borderSize",  label = "Border Size",
+                  tooltip = "Change Size in the Cogwheel" },
+            }
+            local hvDD, hvDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                rightRgn, 170, rightRgn:GetFrameLevel() + 2,
+                hoverItems,
+                function(k)
+                    if k == "ellesmereui" then return ns.GetHoverGlowEllesmereUI() end
+                    if k == "borderColor" then return ns.GetHoverGlowBorderColor() end
+                    if k == "highlight"   then return ns.GetHoverGlowHighlight() end
+                    if k == "borderSize"  then return ns.GetHoverGlowBorderSize() end
+                    return false
+                end,
+                function(k, v)
+                    if k == "ellesmereui" then DB().hoverGlowEllesmereUI = v
+                    elseif k == "borderColor" then DB().hoverGlowBorderColor = v
+                    elseif k == "highlight" then DB().hoverGlowHighlight = v
+                    elseif k == "borderSize" then
+                        DB().hoverGlowBorderSize = v
+                        -- First-enable snapshot: seed the cog slider with the user's
+                        -- CURRENT border size, so enabling changes nothing until they
+                        -- move it (one-time, never re-snapshots later).
+                        if v and DB().hoverBorderSizeValue == nil then
+                            if ns.IsCustomBorderEnabled() then
+                                DB().hoverBorderSizeValue = DBVal("customBorderSize") or defaults.customBorderSize
+                            else
+                                DB().hoverBorderSizeValue = DBVal("borderSize") or defaults.borderSize
+                            end
+                        end
+                    end
+                    ns.RefreshHoverEffect()
+                    if refreshHoverBorderSwatch then refreshHoverBorderSwatch() end
+                    if refreshHoverGlowSwatch then refreshHoverGlowSwatch() end
+                    if refreshHoverCog then refreshHoverCog() end
+                end)
+            PP.Point(hvDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
+            rightRgn._control = hvDD
+            rightRgn._lastInline = nil
+            EllesmereUI.RegisterWidgetRefresh(hvDDRefresh)
+
+            -- Inline Border Color swatch: dimmed unless Border Color is checked.
+            local hvBSwatch, hvUpdateBSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5,
+                function() local c = ns.GetHoverBorderColor(); return c.r, c.g, c.b end,
+                function(r, g, b)
+                    DB().hoverBorderColor = { r = r, g = g, b = b }
+                    ns.RefreshHoverEffect()
+                end, nil, 20)
+            PP.Point(hvBSwatch, "RIGHT", rightRgn._control, "LEFT", -8, 0)
+            rightRgn._lastInline = hvBSwatch
+            hvBSwatch:SetScript("OnEnter", function() if EllesmereUI.ShowWidgetTooltip then EllesmereUI.ShowWidgetTooltip(hvBSwatch, "Border Color") end end)
+            hvBSwatch:SetScript("OnLeave", function() if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end end)
+            refreshHoverBorderSwatch = function()
+                local off = not ns.GetHoverGlowBorderColor()
+                hvBSwatch:SetAlpha(off and 0.15 or 1)
+                hvBSwatch:EnableMouse(not off)
+                hvUpdateBSwatch()
             end
-            local hvColorSet = function(r, g, b)
-                DB().hoverColor = { r = r, g = g, b = b }
-                ns.RefreshHoverEffect()
-                UpdatePreview()
+            EllesmereUI.RegisterWidgetRefresh(refreshHoverBorderSwatch)
+            refreshHoverBorderSwatch()
+
+            -- Inline Glow Color swatch: dimmed unless EUI Glow is checked.
+            local hvGSwatch, hvUpdateGSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5,
+                function() local c = ns.GetHoverGlowColor(); return c.r, c.g, c.b end,
+                function(r, g, b)
+                    DB().hoverGlowColor = { r = r, g = g, b = b }
+                    ns.RefreshHoverEffect()
+                end, nil, 20)
+            PP.Point(hvGSwatch, "RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
+            rightRgn._lastInline = hvGSwatch
+            hvGSwatch:SetScript("OnEnter", function() if EllesmereUI.ShowWidgetTooltip then EllesmereUI.ShowWidgetTooltip(hvGSwatch, "Glow Color") end end)
+            hvGSwatch:SetScript("OnLeave", function() if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end end)
+            refreshHoverGlowSwatch = function()
+                local off = not ns.GetHoverGlowEllesmereUI()
+                hvGSwatch:SetAlpha(off and 0.15 or 1)
+                hvGSwatch:EnableMouse(not off)
+                hvUpdateGSwatch()
             end
-            local hvSwatch, hvUpdateSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, hvColorGet, hvColorSet, nil, 20)
-            PP.Point(hvSwatch, "RIGHT", rightRgn._control, "LEFT", -12, 0)
-            rightRgn._lastInline = hvSwatch
-            EllesmereUI.RegisterWidgetRefresh(function() hvUpdateSwatch() end)
+            EllesmereUI.RegisterWidgetRefresh(refreshHoverGlowSwatch)
+            refreshHoverGlowSwatch()
+
+            -- Inline cog "More Effects": Highlight color/opacity (the legacy
+            -- hoverColor/hoverAlpha keys) + Glow Opacity + Border Size.
+            do
+                local _, hoverCogShow = EllesmereUI.BuildCogPopup({
+                    title = "More Effects",
+                    rows = {
+                        { type="colorpicker", label="Highlight Color", hasAlpha=false,
+                          get=function()
+                            local c = (DB() and DB().hoverColor) or defaults.hoverColor
+                            return c.r, c.g, c.b
+                          end,
+                          set=function(r, g, b)
+                            DB().hoverColor = { r = r, g = g, b = b }
+                            ns.RefreshHoverEffect()
+                            UpdatePreview()
+                          end },
+                        { type="slider", label="Highlight Opacity", min=0, max=100, step=1,
+                          get=function()
+                            return math.floor(((DBVal("hoverAlpha") or defaults.hoverAlpha) * 100) + 0.5)
+                          end,
+                          set=function(v)
+                            DB().hoverAlpha = v / 100
+                            ns.RefreshHoverEffect()
+                            UpdatePreview()
+                          end },
+                        { type="slider", label="Glow Opacity", min=0, max=100, step=1,
+                          get=function() return math.floor((ns.GetHoverGlowAlpha() * 100) + 0.5) end,
+                          set=function(v)
+                            DB().hoverGlowAlpha = v / 100
+                            ns.RefreshHoverEffect()
+                          end },
+                        { type="slider", label="Border Size", min=0, max=4, step=1,
+                          get=function()
+                            local v = DBVal("hoverBorderSizeValue")
+                            if v ~= nil then return v end
+                            if ns.IsCustomBorderEnabled() then
+                                return DBVal("customBorderSize") or defaults.customBorderSize
+                            end
+                            return DBVal("borderSize") or defaults.borderSize
+                          end,
+                          set=function(v)
+                            DB().hoverBorderSizeValue = v
+                            ns.RefreshHoverEffect()
+                          end,
+                          disabled=function() return not ns.GetHoverGlowBorderSize() end,
+                          disabledTooltip="Border Size Hover Effect" },
+                    },
+                })
+                local hoverCogBtn = CreateFrame("Button", nil, rightRgn)
+                hoverCogBtn:SetSize(26, 26)
+                hoverCogBtn:SetPoint("RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
+                rightRgn._lastInline = hoverCogBtn
+                hoverCogBtn:SetFrameLevel(rightRgn:GetFrameLevel() + 5)
+                local hoverCogTex = hoverCogBtn:CreateTexture(nil, "OVERLAY")
+                hoverCogTex:SetAllPoints(); hoverCogTex:SetTexture(EllesmereUI.COGS_ICON)
+                local function hoverCogOff()
+                    return not (ns.GetHoverGlowHighlight() or ns.GetHoverGlowEllesmereUI()
+                        or ns.GetHoverGlowBorderSize())
+                end
+                hoverCogBtn:SetScript("OnEnter", function(s) if not hoverCogOff() then s:SetAlpha(0.7) end end)
+                hoverCogBtn:SetScript("OnLeave", function(s) if not hoverCogOff() then s:SetAlpha(0.4) end end)
+                hoverCogBtn:SetScript("OnClick", function(s) if not hoverCogOff() then hoverCogShow(s) end end)
+                refreshHoverCog = function()
+                    local off = hoverCogOff()
+                    hoverCogBtn:SetAlpha(off and 0.15 or 0.4)
+                    hoverCogBtn:EnableMouse(not off)
+                end
+                EllesmereUI.RegisterWidgetRefresh(refreshHoverCog)
+                refreshHoverCog()
+            end
 
             -- Inline Hover Texture cog (Full alpha on empty part of bar), left of the dropdown; disabled while set to None.
             local leftRgn = hoverRow._leftRegion
@@ -10053,6 +10270,81 @@ initFrame:SetScript("OnEvent", function(self)
             darkenCogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
             darkenCogBtn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
             darkenCogBtn:SetScript("OnClick", function(s) darkenCogShow(s) end)
+        end
+
+        -- Enemy Name Text Reaction Color: colors the enemy nameplate NAME TEXT (not the
+        -- health bar) Hostile or Neutral to match the unit's reaction. Off by default. The
+        -- two inline swatches fall back to the Hostile/Neutral defaults until the player sets
+        -- their own, and are dimmed/mouse-disabled while the toggle is off -- same pattern as
+        -- the "Enable Quest Mob Color" inline swatch above.
+        local nameReactionRow
+        nameReactionRow, h = W:DualRow(parent, y,
+            { type="toggle", text="Color Name by Reaction",
+              getValue=function() return DBVal("enemyNameTextReactionColor") == true end,
+              setValue=function(v)
+                DB().enemyNameTextReactionColor = v
+                RefreshAllPlates()
+                EllesmereUI:RefreshPage()
+              end,
+              tooltip="Colors the enemy nameplate name text to match the unit's reaction (Hostile or Neutral) instead of the Enemy Name Text color." },
+            { type="label", text="" });  y = y - h
+
+        -- Inline Neutral/Hostile swatches next to the toggle, dimmed and mouse-disabled while off.
+        if not EllesmereUI._prebuilding then
+            local leftRgn = nameReactionRow._leftRegion
+            local isReactionOff = function() return DBVal("enemyNameTextReactionColor") ~= true end
+
+            local hostileGet = function()
+                local c = (DB() and DB().enemyNameHostileColor) or defaults.hostile
+                return c.r, c.g, c.b
+            end
+            local hostileSet = function(r, g, b)
+                DB().enemyNameHostileColor = { r = r, g = g, b = b }
+                RefreshAllPlates()
+            end
+            local hostileSwatch, updateHostileSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, hostileGet, hostileSet, nil, 20)
+            PP.Point(hostileSwatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
+
+            local neutralGet = function()
+                local c = (DB() and DB().enemyNameNeutralColor) or defaults.neutral
+                return c.r, c.g, c.b
+            end
+            local neutralSet = function(r, g, b)
+                DB().enemyNameNeutralColor = { r = r, g = g, b = b }
+                RefreshAllPlates()
+            end
+            local neutralSwatch, updateNeutralSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, neutralGet, neutralSet, nil, 20)
+            PP.Point(neutralSwatch, "RIGHT", hostileSwatch, "LEFT", -8, 0)
+
+            -- Two side-by-side unlabeled chips: hover tooltips say which is
+            -- which (the sibling single-swatch rows never needed one).
+            hostileSwatch:HookScript("OnEnter", function(s)
+                EllesmereUI.ShowWidgetTooltip(s, EllesmereUI.L("Hostile Color"))
+            end)
+            hostileSwatch:HookScript("OnLeave", function()
+                EllesmereUI.HideWidgetTooltip()
+            end)
+            neutralSwatch:HookScript("OnEnter", function(s)
+                EllesmereUI.ShowWidgetTooltip(s, EllesmereUI.L("Neutral Color"))
+            end)
+            neutralSwatch:HookScript("OnLeave", function()
+                EllesmereUI.HideWidgetTooltip()
+            end)
+
+            EllesmereUI.RegisterWidgetRefresh(function()
+                local off = isReactionOff()
+                hostileSwatch:SetAlpha(off and 0.15 or 1)
+                hostileSwatch:EnableMouse(not off)
+                updateHostileSwatch()
+                neutralSwatch:SetAlpha(off and 0.15 or 1)
+                neutralSwatch:EnableMouse(not off)
+                updateNeutralSwatch()
+            end)
+            local off = isReactionOff()
+            hostileSwatch:SetAlpha(off and 0.15 or 1)
+            hostileSwatch:EnableMouse(not off)
+            neutralSwatch:SetAlpha(off and 0.15 or 1)
+            neutralSwatch:EnableMouse(not off)
         end
 
         _, h = W:Spacer(parent, y, 20);  y = y - h

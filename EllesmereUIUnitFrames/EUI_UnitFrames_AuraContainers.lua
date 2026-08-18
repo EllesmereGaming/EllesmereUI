@@ -167,14 +167,119 @@ local function ClassEnabled(class, isBuff, s, unit)
     return s[prefix .. class.skey] == true
 end
 
+-- Hide-lane test (two-lane filter dropdowns): mirrors ClassEnabled's per-unit
+-- vocabulary limits, reading the negative sets (s.buffNegClasses /
+-- s.debuffNegClasses, keyed by class.skey). The options setters keep the two
+-- lanes mutually exclusive; if stale data ever disagrees, show wins (the hidden
+-- pass skips enabled classes).
+local function ClassNegated(class, isBuff, s, unit)
+    if class.buffOnly and not isBuff then return false end
+    if class.debuffOnly and isBuff then return false end
+    if class.playerUnitOnly and unit ~= "player" then return false end
+    if not isBuff and unit ~= "player" and class.key ~= "priority" then return false end
+    if isBuff and unit ~= "player" and class.key ~= "steal"
+        and class.key ~= "bigdef" and class.key ~= "dispellable" then
+        return false
+    end
+    local negs
+    if isBuff then negs = s.buffNegClasses else negs = s.debuffNegClasses end
+    return negs ~= nil and negs[class.skey] == true
+end
+
 local function BuildChain(base, isBuff, s, unit)
     local chain, negations = {}, {}
+    local subCand, negDispelTypes, npNegOwned
+
+    -- HIDDEN PASS -- hide-lane classes join FIRST as parked links so their
+    -- negations / forward excludes / inverted booleans reach every positive link
+    -- (and the show-all catch-all below, when one is emitted). These link keys
+    -- self-describe (tokens embedded, PlayerDebuffChain's convention) because
+    -- their shapes change with the lane selection; with an empty hide lane this
+    -- pass emits nothing and every legacy key below stays byte-identical.
+    for i = 1, #TOKEN_CLASSES do
+        local class = TOKEN_CLASSES[i]
+        if ClassNegated(class, isBuff, s, unit) and not ClassEnabled(class, isBuff, s, unit) then
+            local tokens = { base, class.token }
+            for n = 1, #negations do tokens[#tokens + 1] = negations[n] end
+            chain[#chain + 1] = { key = class.key .. "|" .. table.concat(tokens, ""),
+                tokens = tokens, hidden = true }
+            negations[#negations + 1] = class.neg or ("!" .. class.token)
+        end
+    end
+    for i = 1, #CANDIDATE_CLASSES do
+        local class = CANDIDATE_CLASSES[i]
+        local cc = class.cand
+        if cc and ClassNegated(class, isBuff, s, unit) and not ClassEnabled(class, isBuff, s, unit) then
+            -- Forward-capable candidate classes (dispeltyped's include map,
+            -- nonplayer's complementary boolean) subtract through the hidden-link
+            -- + forward-exclude route; pure boolean classes invert onto subCand
+            -- (false-valued candidate booleans, field-proven).
+            local forward = cc.includeDispelTypes ~= nil or cc.isFromPlayerOrPlayerPet ~= nil
+            if forward then
+                local tokens = { base }
+                for n = 1, #negations do tokens[#tokens + 1] = negations[n] end
+                chain[#chain + 1] = { key = class.key .. "|" .. table.concat(tokens, ""),
+                    tokens = tokens, cand = cc, hidden = true }
+                if cc.includeDispelTypes then negDispelTypes = cc.includeDispelTypes end
+                if cc.isFromPlayerOrPlayerPet == false then npNegOwned = true end
+            else
+                subCand = subCand or {}
+                for k, v in pairs(cc) do
+                    if type(v) == "boolean" then subCand[k] = not v end
+                end
+                -- Non-player "Important" renders through TWO groups (priority +
+                -- prioritynp below); hiding it must exclude both faces.
+                if class.key == "priority" and unit ~= "player" then
+                    subCand.nameplateShowPersonal = false
+                end
+            end
+        end
+    end
+
+    local lanesActive = #chain > 0 or subCand ~= nil
+    -- Merge the hide lane's candidate-side exclusions over a positive/catch-all
+    -- group's own cand (copy-on-write: the vocabulary tables are shared and must
+    -- never be mutated). Identity-preserving no-op while the hide lane is empty.
+    local function NegCand(baseCand)
+        if not lanesActive then return baseCand end
+        local out
+        if baseCand then
+            out = {}
+            for k, v in pairs(baseCand) do out[k] = v end
+        end
+        if subCand then
+            out = out or {}
+            for k, v in pairs(subCand) do
+                if out[k] == nil then out[k] = v end
+            end
+        end
+        if negDispelTypes and not (out and out.includeDispelTypes) then
+            out = out or {}
+            out.excludeDispelTypes = negDispelTypes
+        end
+        if npNegOwned then
+            out = out or {}
+            if out.isFromPlayerOrPlayerPet == nil then out.isFromPlayerOrPlayerPet = true end
+        end
+        return out
+    end
+    -- Candidate payloads (and token sets) are declaration-fixed, so lane-shaped
+    -- links need self-describing keys; legacy plain keys survive untouched
+    -- configs byte-identically.
+    local function LaneKey(key, tokens, cand)
+        if not lanesActive then return key end
+        return key .. "|" .. table.concat(tokens, "") .. "|" .. CandFP(cand)
+    end
+
+    -- POSITIVE PASS -- the legacy chain verbatim when the hide lane is empty
+    -- (negations arrive pre-seeded with the hidden pass).
     for i = 1, #TOKEN_CLASSES do
         local class = TOKEN_CLASSES[i]
         if ClassEnabled(class, isBuff, s, unit) then
             local tokens = { base, class.token }
             for n = 1, #negations do tokens[#tokens + 1] = negations[n] end
-            chain[#chain + 1] = { key = class.key, tokens = tokens }
+            local cand = NegCand(nil)
+            chain[#chain + 1] = { key = LaneKey(class.key, tokens, cand), tokens = tokens, cand = cand }
             negations[#negations + 1] = class.neg or ("!" .. class.token)
         end
     end
@@ -196,7 +301,8 @@ local function BuildChain(base, isBuff, s, unit)
                 for k, v in pairs(src) do cand[k] = v end
                 cand.isFromPlayerOrPlayerPet = true
             end
-            chain[#chain + 1] = { key = class.key, tokens = tokens, cand = cand }
+            cand = NegCand(cand)
+            chain[#chain + 1] = { key = LaneKey(class.key, tokens, cand), tokens = tokens, cand = cand }
             -- Important on non-player frames covers BOTH importance concepts (the
             -- unit's hostility is dynamic -- a target can be an ally or an enemy): a
             -- second group adds the nameplate-importance flag, partitioned against the
@@ -204,9 +310,35 @@ local function BuildChain(base, isBuff, s, unit)
             -- handoff never applies here (that class is player-frame only, so npOwned
             -- is always false off-player).
             if class.key == "priority" and unit ~= "player" then
-                chain[#chain + 1] = { key = "prioritynp", tokens = tokens, cand = PRIORITY_NONPLAYER_CAND }
+                local pnp = NegCand(PRIORITY_NONPLAYER_CAND)
+                chain[#chain + 1] = { key = LaneKey("prioritynp", tokens, pnp), tokens = tokens, cand = pnp }
             end
             if class.key == "nonplayer" then npOwned = true end
+        end
+    end
+
+    -- Hide lane with NOTHING positive on a non-player unit: the legacy show-all
+    -- fallback (plain "all" group, ApplyGroupConfig) cannot carry the negations,
+    -- so an explicit catch-all link takes its place -- everything minus the hide
+    -- lane. Suppressed when Tracked Auras includes exist (explicit includes keep
+    -- owning the frame's content, consistent with includes winning everywhere).
+    -- Player frames keep PAB semantics: nothing positive = show nothing.
+    if lanesActive and unit ~= "player" then
+        local hasPositive = false
+        for i = 1, #chain do
+            if not chain[i].hidden then hasPositive = true break end
+        end
+        local hasInc = false
+        if not isBuff and s.debuffInclude then
+            for _, v in pairs(s.debuffInclude) do
+                if v then hasInc = true break end
+            end
+        end
+        if not hasPositive and not hasInc then
+            local allTokens = { base }
+            for n = 1, #negations do allTokens[#allTokens + 1] = negations[n] end
+            local cand = NegCand(nil)
+            chain[#chain + 1] = { key = LaneKey("nall", allTokens, cand), tokens = allTokens, cand = cand }
         end
     end
     -- Tracked Auras include list (target/focus/boss debuff filters): the
@@ -230,28 +362,65 @@ local function BuildChain(base, isBuff, s, unit)
     return chain
 end
 
+-- One-shot lane split for the player frame's two-lane filter dropdowns (stamp on
+-- the player unit's settings table; an imported older profile lacks the stamp and
+-- re-splits). Broad-mode selections were SUBTRACTING under the old one-lane model --
+-- move them to the hide lane (s.buffNegFilters / s.debuffNegClasses) so rendering
+-- is bit-identical; add-mode selections already mean SHOW and stay put.
+local function EnsurePlayerAuraLanes(s)
+    if s.auraFilterLanesV1 then return end
+    s.auraFilterLanesV1 = true
+    if (s.buffShowAll ~= false or s.buffHasDuration == true)
+        and s.buffFilters and next(s.buffFilters) then
+        s.buffNegFilters = s.buffFilters
+        s.buffFilters = nil
+    end
+    if s.debuffShowAll ~= false then
+        local neg
+        local function Move(list)
+            for i = 1, #list do
+                local class = list[i]
+                if not class.buffOnly and s["debuff" .. class.skey] == true then
+                    neg = neg or {}
+                    neg[class.skey] = true
+                    s["debuff" .. class.skey] = nil
+                end
+            end
+        end
+        Move(TOKEN_CLASSES)
+        Move(CANDIDATE_CLASSES)
+        if neg then s.debuffNegClasses = neg end
+    end
+end
+ns.UF_EnsurePlayerAuraLanes = EnsurePlayerAuraLanes
+
 -- Player-frame buffs run the Player Aura Bars content model (the shared
--- PAB_Filters registry + All Buffs / Has Duration / Own Only, subtract
+-- PAB_Filters registry + All Buffs / Has Duration / Own Only, two-lane
 -- semantics -- identical dropdown, identical engine behavior; see the
 -- player branch in EUI_UnitFrames_Options.lua's Buff Filter slot). Keys:
 --   buffShowAll     (nil = on) -- All Buffs
---   buffFilters     ([filterId] = true, shared ns.PAB_Filters registry)
+--   buffFilters     ([filterId] = true, SHOW lane, shared ns.PAB_Filters registry)
+--   buffNegFilters  ([filterId] = true, HIDE lane)
 --   buffSpells      ({ spellID, ... } -- reserved for Extra Spells parity)
 --   buffHasDuration (true = hide permanent buffs, candidate maxDuration)
 -- Chain keys embed each link's candidate fingerprint: payload changes
 -- declare fresh variants through the existing sig/declare machinery and
--- stale variants park at 0. While All Buffs is on, checked filters
--- SUBTRACT their resolved spells via the catch-all's excludeSpellIDs and
--- are kept OUT of the include group; with it off they add. The legacy
--- buff class checkboxes no longer apply to the player frame (stale class
--- keys stay inert); an empty chain = add mode with nothing selected =
--- show nothing, exactly like an empty Player Aura Bar.
+-- stale variants park at 0. Hide-lane filters SUBTRACT their resolved
+-- spells via the catch-all's excludeSpellIDs in the broad modes and drop
+-- out of the include group's union in add mode (Extra Spells win over the
+-- hide lane). The legacy buff class checkboxes no longer apply to the
+-- player frame (stale class keys stay inert); an empty chain = add mode
+-- with nothing selected = show nothing, exactly like an empty Player Aura
+-- Bar.
 local pbImportEnsured
 local function PlayerBuffChain(s)
-    if not pbImportEnsured and s.buffFilters and next(s.buffFilters) then
-        -- Selected registry filters need the curated presets materialized
-        -- (idempotent; normally PAB/options do this, but PAB can be
-        -- disabled while the player frame still uses the registry).
+    EnsurePlayerAuraLanes(s)
+    if not pbImportEnsured
+        and ((s.buffFilters and next(s.buffFilters))
+            or (s.buffNegFilters and next(s.buffNegFilters))) then
+        -- Selected registry filters (either lane) need the curated presets
+        -- materialized (idempotent; normally PAB/options do this, but PAB can
+        -- be disabled while the player frame still uses the registry).
         pbImportEnsured = true
         if ns.PAB_ImportBM2Filters then ns.PAB_ImportBM2Filters() end
     end
@@ -272,8 +441,8 @@ local function PlayerBuffChain(s)
     if broad then
         local cand
         local ex
-        if s.buffFilters then
-            for filterId in pairs(s.buffFilters) do
+        if s.buffNegFilters then
+            for filterId in pairs(s.buffNegFilters) do
                 local f = ns.PAB_GetFilter and ns.PAB_GetFilter(filterId)
                 if f and f.spells then
                     for id, on in pairs(f.spells) do
@@ -323,6 +492,24 @@ local function PlayerBuffChain(s)
             end
         end
     end
+    -- Add-mode hide lane: drop hidden filters' spells from the union. Direct
+    -- Extra Spells (s.buffSpells) win over the hide lane.
+    if not broad and inc and s.buffNegFilters then
+        local direct
+        if s.buffSpells then
+            direct = {}
+            for i = 1, #s.buffSpells do direct[s.buffSpells[i]] = true end
+        end
+        for filterId in pairs(s.buffNegFilters) do
+            local f = ns.PAB_GetFilter and ns.PAB_GetFilter(filterId)
+            if f and f.spells then
+                for id, on in pairs(f.spells) do
+                    if on and not (direct and direct[id]) then inc[id] = nil end
+                end
+            end
+        end
+        if next(inc) == nil then inc = nil end
+    end
     if inc then
         local cand = { includeSpellIDs = inc }
         if dur then cand.maxDuration = math.huge end
@@ -338,19 +525,21 @@ end
 
 -- Player-frame debuffs run the Player Aura Bars debuff model (identical
 -- dropdown, identical engine behavior; see the player branch of the
--- Debuff Filter slot in EUI_UnitFrames_Options.lua). All Debuffs
--- (s.debuffShowAll, nil = on) flips the semantics of the SAME per-class
--- keys the legacy dropdown always wrote (s.debuff<SKey>): on = checked
--- classes SUBTRACT from the catch-all (hidden links whose negations /
--- forward excludes remove them; pure boolean classes invert onto the
--- catch-all's candidates -- the shared complementary-boolean mechanism);
--- off = checked classes ADD via the legacy class-chain model verbatim.
+-- Debuff Filter slot in EUI_UnitFrames_Options.lua). Two-lane keys:
+-- s.debuff<SKey> booleans = the SHOW lane (add mode via the legacy
+-- class-chain model, which now also honors the hide lane through
+-- BuildChain); s.debuffNegClasses = the HIDE lane, subtracting in both
+-- modes -- under All Debuffs (s.debuffShowAll, nil = on) hidden classes
+-- become parked links whose negations / forward excludes remove them from
+-- the catch-all, and pure boolean classes invert onto the catch-all's
+-- candidates (the shared complementary-boolean mechanism).
 -- Link keys embed their token sets (token strings are declaration-fixed, same as
 -- candidates) plus the catch-all's candidate fingerprint, so every payload shape
 -- declares its own variant through the existing sig/declare machinery and stale
 -- variants park at 0. The sated/ always-hide excludes ride the catch-all's DECLARED
 -- candidates and its fingerprint.
 local function PlayerDebuffChain(s)
+    EnsurePlayerAuraLanes(s)
     if s.debuffShowAll == false then
         return BuildChain("HARMFUL", false, s, "player")
     end
@@ -358,7 +547,8 @@ local function PlayerDebuffChain(s)
     local subCand, excludeDispelTypes, npOwned
     local function Checked(class)
         if class.buffOnly then return false end
-        return s["debuff" .. class.skey] == true
+        local neg = s.debuffNegClasses
+        return neg ~= nil and neg[class.skey] == true
     end
     for i = 1, #TOKEN_CLASSES do
         local class = TOKEN_CLASSES[i]

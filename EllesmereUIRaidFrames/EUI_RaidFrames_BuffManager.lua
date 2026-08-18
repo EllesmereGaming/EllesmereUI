@@ -327,6 +327,22 @@ function ns.BM_SpecKeyForSpecID(specID)
     return spec and spec.key or nil
 end
 
+-- Role GROUP bucket for a specialization ID: membership in the healer/Aug
+-- list wins ("healers" -- keeps the complement exactly equal to the All Non
+-- Healers/Aug bucket), then TANK role -> "tanks", everything else -> "dps".
+-- Shared by the Buff Manager v2 union, the Debuff Manager union and both
+-- pages' editing-spec rosters. nil specID = no bucket (no spec yet).
+function ns.BM_RoleBucketForSpecID(specID)
+    if not specID then return nil end
+    if SPEC_BY_ID[specID] then return "healers" end
+    local role = GetSpecializationInfoByID and select(5, GetSpecializationInfoByID(specID))
+    if role == "TANK" then return "tanks" end
+    if role then return "dps" end
+    -- Unknown spec/unavailable API: no role bucket at all beats silently
+    -- classing a tank as DPS.
+    return nil
+end
+
 -- Curated display names by spell ID (from the spec lists above)
 local STORED_NAME_BY_ID = {}
 for _, spec in ipairs(HEALER_SPECS) do
@@ -353,6 +369,59 @@ for _, spec in ipairs(HEALER_SPECS) do
     SPEC_DD_VALUES[spec.key] = spec.name
     SPEC_DD_ORDER[#SPEC_DD_ORDER + 1] = spec.key
 end
+
+-- GROUP buckets of the editing-spec dropdown, in menu order: shared unions
+-- whose indicators render across every matching spec (concrete specs show
+-- them as inherited tiles with a per-spec enable). Shared with the Debuff
+-- Manager page's roster via ns. Names run through L() at build time.
+do
+    local list = {
+        { key = "allspecs",  name = "All Specs",
+            icon = "Interface\\Icons\\Achievement_GuildPerk_EverybodysFriend" },
+        { key = "nonhealer", name = "All Non Healers/Aug",
+            icon = "Interface\\Icons\\Achievement_GuildPerk_EverybodysFriend" },
+        { key = "tanks",     name = "All Tanks",
+            icon = "Interface\\Icons\\Ability_Warrior_DefensiveStance" },
+        { key = "dps",       name = "All DPS (Non-Aug)",
+            icon = "Interface\\Icons\\Ability_DualWield" },
+        { key = "healers",   name = "All Healers/Aug",
+            icon = "Interface\\Icons\\Spell_Holy_Renew" },
+    }
+    local info = {}
+    for i = 1, #list do info[list[i].key] = list[i] end
+    ns.BM_GROUP_BUCKETS = list
+    ns.BM_GROUP_BUCKET_INFO = info
+end
+
+-- Group buckets a CONCRETE bucket (healer spec key or "spec<ID>") inherits
+-- from, in display order: All Specs always, All Non Healers/Aug for
+-- non-healer specs, then the spec's role group. nil for group buckets and
+-- unknown keys (nothing inherits there). Membership tests the SPEC (tracked
+-- or not), never the key shape: the Debuff Manager views healer specs
+-- through "spec<ID>" keys too.
+function ns.BM_InheritedGroupsFor(bucketKey)
+    local hs = bucketKey and SPEC_BY_KEY[bucketKey]
+    local sid = hs and hs.specID
+    if not sid then
+        local m = type(bucketKey) == "string" and bucketKey:match("^spec(%d+)$")
+        sid = m and tonumber(m)
+    end
+    if not sid then return nil end
+    local out = { "allspecs" }
+    if not SPEC_BY_ID[sid] then out[#out + 1] = "nonhealer" end
+    local roleKey = ns.BM_RoleBucketForSpecID(sid)
+    if roleKey then out[#out + 1] = roleKey end
+    return out
+end
+
+-- Sidebar/preview id offsets per group bucket: every bucket allocates ids
+-- from the same base, so unioned DISPLAY lists shift inherited entries into
+-- unique ranges (the runtime union in BM2_SpecIndicators carries its own
+-- offsets). Role groups never co-occur, so they share one slot.
+ns.BM_INH_OFFSETS = {
+    allspecs = 2000000, nonhealer = 4000000,
+    tanks = 3000000, dps = 3000000, healers = 3000000,
+}
 
 local trackedSpellIDs   = {}   -- set of all tracked spell IDs (including secret)
 
@@ -1032,6 +1101,8 @@ local function PvInd_OnLeave(self)
 end
 
 -- Resolve the indicator table for a preview frame's stored indicator id.
+-- Second return = the owning GROUP bucket key when the id came from an
+-- INHERITED preview copy (display-offset id ranges; see BM_INH_OFFSETS).
 local function BM_FindIndicatorById(indId)
     local specKey = ns._bmSelectedSpecKey
     -- v2: resolve against the REAL store (legacy is stale/absent, preview ids come from v2 copies) -- selection must hit storage so edits stick.
@@ -1040,6 +1111,27 @@ local function BM_FindIndicatorById(indId)
         if inds then
             for _, ind in ipairs(inds) do
                 if ind.id == indId then return ind end
+            end
+        end
+        -- Inherited copies carry their group's display offset: undo it and
+        -- resolve in the owning group's store. Group-bucket ids always start
+        -- at the 1000001 base (seeded buckets; legacy small ids exist only
+        -- in healer-key OWN buckets), so a floor keeps a wrong-offset probe
+        -- from landing in another bucket's small-id band.
+        local groups = ns.BM_InheritedGroupsFor and ns.BM_InheritedGroupsFor(specKey)
+        if groups then
+            for gi = 1, #groups do
+                local gkey = groups[gi]
+                local off = ns.BM_INH_OFFSETS[gkey] or 0
+                local rawId = indId - off
+                if rawId >= 1000000 and rawId ~= indId then
+                    local ginds = ns.BM2_SpecInds(gkey)
+                    if ginds then
+                        for _, ind in ipairs(ginds) do
+                            if ind.id == rawId then return ind, gkey end
+                        end
+                    end
+                end
             end
         end
         return nil
@@ -1056,14 +1148,21 @@ end
 
 local function PvInd_OnClick(self, button)
     if not self._bmIndId then return end
-    local ind = BM_FindIndicatorById(self._bmIndId)
+    local ind, inhGroup = BM_FindIndicatorById(self._bmIndId)
     if not ind then return end
 
     -- Right-click: deliberately no action.
     if button == "RightButton" then return end
 
-    -- Left-click: select the indicator for editing in the sidebar.
-    selectedIndicator = ind
+    -- Left-click: select the indicator for editing in the sidebar. An
+    -- inherited copy selects its read-only tile instead.
+    if inhGroup then
+        selectedIndicator = nil
+        ns._bm2InhSel = { group = inhGroup, id = ind.id }
+    else
+        selectedIndicator = ind
+        ns._bm2InhSel = nil
+    end
     EllesmereUI:RefreshPage(true)
 end
 
@@ -1087,8 +1186,12 @@ function ns.BM_CreatePreviewIndicators(f, health, PP)
     if not health then return end
 
     local iconPool = {}
-    -- Pool is larger than per-group caps: every group must still get icons on specs with many groups (non-selected groups dim, never vanish).
-    for i = 1, ICON_POOL_SIZE + 8 do
+    -- Pool is larger than per-group caps: every group must still get icons on
+    -- specs with many groups (non-selected groups dim, never vanish). The
+    -- extra headroom covers the editing-spec union too -- concrete views
+    -- preview inherited group buckets on top of their own list, and overflow
+    -- is a silent vanish.
+    for i = 1, ICON_POOL_SIZE + 24 do
         local fr = CreateFrame("Frame", nil, health)
         fr:SetFrameLevel(f:GetFrameLevel() + ns.LVL_AURA)
         fr:SetSize(12, 12)
@@ -1143,7 +1246,9 @@ function ns.BM_CreatePreviewIndicators(f, health, PP)
     end
 
     local barPool = {}
-    for i = 1, BAR_POOL_SIZE do
+    -- +4: bar indicators inherited from group buckets preview alongside the
+    -- edited bucket's own (same union-headroom reasoning as the icon pool).
+    for i = 1, BAR_POOL_SIZE + 4 do
         local bar = CreateFrame("StatusBar", nil, health)
         bar:SetFrameLevel(f:GetFrameLevel() + ns.LVL_AURA)
         bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
@@ -1280,51 +1385,81 @@ function ns.BM_ApplyPreviewIndicators(f, index, s)
             edClass = cf
         end
         local spellClass = ns.BM2_SpellClass
-        local inds = ns.BM2_SpecInds(activeSpecKey)
         local out = {}
-        if inds then
-            for i = 1, #inds do
-                local ind = inds[i]
-                local resolved
-                if ns.BM2_ResolveSpells then
-                    resolved = ns.BM2_ResolveSpells(ind)
+        -- Shared per-indicator preview synthesis; idOffset shifts INHERITED
+        -- copies into their display id range (BM_INH_OFFSETS) so ids stay
+        -- unique for the anchor pass, selection highlight and click-resolve.
+        local function AppendPv(ind, idOffset)
+            local resolved
+            if ns.BM2_ResolveSpells then
+                resolved = ns.BM2_ResolveSpells(ind)
+            end
+            if not (resolved and #resolved > 0) then return end
+            -- Own-only is per-indicator: preview only spells the edited class could have cast.
+            local kept = {}
+            for j = 1, #resolved do
+                local sid = resolved[j]
+                local c = spellClass and spellClass[sid]
+                if not (ind.ownOnly == true) or c == nil or c == "ALL"
+                    or c == edClass then
+                    kept[#kept + 1] = sid
                 end
-                if resolved and #resolved > 0 then
-                    -- Own-only is per-indicator: preview only spells the edited class could have cast.
-                    local kept = {}
-                    for j = 1, #resolved do
-                        local sid = resolved[j]
-                        local c = spellClass and spellClass[sid]
-                        if not (ind.ownOnly == true) or c == nil or c == "ALL"
-                            or c == edClass then
-                            kept[#kept + 1] = sid
-                        end
+            end
+            if #kept == 0 then return end
+            local v = {}
+            for k, val in pairs(ind) do v[k] = val end
+            -- Preview parity: per-filter square colors expand exactly like the
+            -- live view assembly.
+            if ns.BM2_SquareFilterColors then
+                v.spellColors = ns.BM2_SquareFilterColors(ind) or ind.spellColors
+            end
+            -- Healing-preset groups preview stacked icons (HoTs coexist); others preview ONE. Read by the render cap.
+            local multi = false
+            if ind.filters and ns.BM2_GetFilter then
+                for fid in pairs(ind.filters) do
+                    local pf = ns.BM2_GetFilter(fid)
+                    if pf and (pf.preset == "coreheals"
+                        or pf.preset == "lesserheals") then
+                        multi = true
+                        break
                     end
-                    if #kept > 0 then
-                        local v = {}
-                        for k, val in pairs(ind) do v[k] = val end
-                        -- Healing-preset groups preview stacked icons (HoTs coexist); others preview ONE. Read by the render cap.
-                        local multi = false
-                        if ind.filters and ns.BM2_GetFilter then
-                            for fid in pairs(ind.filters) do
-                                local pf = ns.BM2_GetFilter(fid)
-                                if pf and (pf.preset == "coreheals"
-                                    or pf.preset == "lesserheals") then
-                                    multi = true
-                                    break
-                                end
-                            end
+                end
+            end
+            v._pvMulti = multi
+            -- Lead with an edited-class spell so the single-icon preview shows something that spec could cast/receive.
+            for j = 2, #kept do
+                if spellClass and spellClass[kept[j]] == edClass then
+                    kept[1], kept[j] = kept[j], kept[1]
+                    break
+                end
+            end
+            v.spells = kept
+            if idOffset then
+                if type(v.id) == "number" then v.id = v.id + idOffset end
+                if type(v.anchorTo) == "number" then v.anchorTo = v.anchorTo + idOffset end
+            end
+            out[#out + 1] = v
+        end
+        local inds = ns.BM2_SpecInds(activeSpecKey)
+        if inds then
+            for i = 1, #inds do AppendPv(inds[i], nil) end
+        end
+        -- Concrete views union the inherited group buckets, so the preview
+        -- matches what the spec actually renders; per-spec disabled entries
+        -- are excluded (they do not render live either).
+        local inhGroups = ns.BM_InheritedGroupsFor and ns.BM_InheritedGroupsFor(activeSpecKey)
+        if inhGroups then
+            for gi = 1, #inhGroups do
+                local gkey = inhGroups[gi]
+                local ginds = ns.BM2_SpecInds(gkey)
+                if ginds then
+                    local off = ns.BM_INH_OFFSETS[gkey] or 0
+                    for i = 1, #ginds do
+                        local gind = ginds[i]
+                        if not (ns.BM2_InhDisabled
+                            and ns.BM2_InhDisabled(activeSpecKey, gkey, gind.id)) then
+                            AppendPv(gind, off)
                         end
-                        v._pvMulti = multi
-                        -- Lead with an edited-class spell so the single-icon preview shows something that spec could cast/receive.
-                        for j = 2, #kept do
-                            if spellClass and spellClass[kept[j]] == edClass then
-                                kept[1], kept[j] = kept[j], kept[1]
-                                break
-                            end
-                        end
-                        v.spells = kept
-                        out[#out + 1] = v
                     end
                 end
             end
@@ -2128,9 +2263,45 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
     -- Current spec's indicators for the sidebar. v2: editing dropdown stays functional (healer specs + shared Non-Healer bucket); defaults to current spec on first page open each session.
     if ns.BM2_Enabled and ns.BM2_SpecKey and not ns._bm2SpecInited then
         ns._bm2SpecInited = true
-        selectedSpecKey = ns.BM2_SpecKey()
+        local landKey = ns.BM2_SpecKey()
+        -- Non-healers land on their CONCRETE "spec<ID>" view, not the shared
+        -- All Non Healers/Aug group: the concrete view is where inherited
+        -- group tiles (All Specs / Non Healers / role) are visible, so the
+        -- player sees everything their spec actually renders. The shared
+        -- bucket stays one dropdown pick away.
+        if landKey == "nonhealer" then
+            local specIdx = GetSpecialization and GetSpecialization()
+            local sid = specIdx and GetSpecializationInfo and GetSpecializationInfo(specIdx)
+            if sid then landKey = "spec" .. sid end
+        end
+        selectedSpecKey = landKey
     end
     local specIndicators = selectedSpecKey and GetSpecIndicators(db, selectedSpecKey) or {}
+
+    -- Group buckets this view INHERITS from (concrete spec views only):
+    -- their indicators lead the sidebar as read-only tiles with a per-spec
+    -- enable. nil on group-bucket views.
+    local inheritedGroups = ns.BM2_Enabled and ns.BM_InheritedGroupsFor
+        and ns.BM_InheritedGroupsFor(selectedSpecKey) or nil
+
+    -- Inherited-tile selection (ns._bm2InhSel = { group, id }): resolve it
+    -- against the owning group's store; drop it when the view no longer
+    -- inherits that group or the indicator is gone. While valid it OWNS the
+    -- left pane (read-only), so the indicator selection clears.
+    local inhSelInd = nil
+    if ns.BM2_Enabled and ns._bm2InhSel then
+        local isel = ns._bm2InhSel
+        for gi = 1, #(inheritedGroups or {}) do
+            if inheritedGroups[gi] == isel.group then
+                for _, gind in ipairs(GetSpecIndicators(db, isel.group) or {}) do
+                    if gind.id == isel.id then inhSelInd = gind; break end
+                end
+                break
+            end
+        end
+        if not inhSelInd then ns._bm2InhSel = nil end
+    end
+    if inhSelInd then selectedIndicator = nil end
 
     -- The Base Icons tile is a selectable sidebar entry: while selected no indicator
     -- is highlighted and the left pane shows the base (simple-grid) settings; defaults to Base when the spec has no indicators yet.
@@ -2144,7 +2315,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
     -- Validate selected indicator
     if ns._bmBaseSel then
         selectedIndicator = nil
-    else
+    elseif not inhSelInd then
         if not selectedIndicator and #specIndicators > 0 then
             selectedIndicator = specIndicators[1]
         end
@@ -2157,9 +2328,86 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
         end
     end
 
-    -- Expose selected spec + indicator ID for preview logic
+    -- Expose selected spec + indicator ID for preview logic. An inherited
+    -- selection exposes its DISPLAY id (group offset applied) so the preview
+    -- highlight finds the unioned copy.
     ns._bmSelectedSpecKey = selectedSpecKey
-    ns._bmSelectedIndId = selectedIndicator and selectedIndicator.id or nil
+    if inhSelInd then
+        ns._bmSelectedIndId = ns._bm2InhSel.id + (ns.BM_INH_OFFSETS[ns._bm2InhSel.group] or 0)
+    else
+        ns._bmSelectedIndId = selectedIndicator and selectedIndicator.id or nil
+    end
+
+    -- Editing-spec roster, shared by the Editing Spec dropdown and the
+    -- right-click "Add To" menu: group buckets lead, then a divider, the
+    -- healer/Aug specs, a divider, then EVERY other spec in the game (own
+    -- additive "spec<ID>" buckets), enumerated live so new specs appear on
+    -- their own. Standard spec icons throughout. Returns local copies -- the
+    -- shared order table must never accumulate inserts.
+    local function BuildSpecRoster()
+        local values = {}
+        for k, v in pairs(SPEC_DD_VALUES) do values[k] = EllesmereUI.L(v) end
+        local order = SPEC_DD_ORDER
+        local icons, classes
+        if ns.BM2_Enabled then
+            icons, classes = {}, {}
+            order = {}
+            for i = 1, #ns.BM_GROUP_BUCKETS do
+                local g = ns.BM_GROUP_BUCKETS[i]
+                values[g.key] = EllesmereUI.L(g.name)
+                order[#order + 1] = g.key
+                icons[g.key] = g.icon
+            end
+            order[#order + 1] = "---a"
+            local inHealerList = {}
+            for i = 1, #SPEC_DD_ORDER do
+                local key = SPEC_DD_ORDER[i]
+                order[#order + 1] = key
+                local hs = SPEC_BY_KEY[key]
+                if hs and hs.specID then
+                    inHealerList[hs.specID] = true
+                    if GetSpecializationInfoByID then
+                        local _, _, _, sIcon = GetSpecializationInfoByID(hs.specID)
+                        icons[key] = sIcon
+                    end
+                end
+            end
+            order[#order + 1] = "---b"
+            for classID = 1, (GetNumClasses and GetNumClasses() or 0) do
+                local className, classFile = GetClassInfo(classID)
+                local numSpecs = GetNumSpecializationsForClassID and GetNumSpecializationsForClassID(classID) or 0
+                for si = 1, numSpecs do
+                    local specID, specName, _, sIcon = GetSpecializationInfoForClassID(classID, si)
+                    if specID and not inHealerList[specID] then
+                        local key = "spec" .. specID
+                        values[key] = (specName or "") .. " " .. (className or "")
+                        order[#order + 1] = key
+                        icons[key] = sIcon
+                        classes[key] = classFile
+                    end
+                end
+            end
+        end
+        return values, order, icons, classes
+    end
+
+    -- Right-click "Add To" items: the roster minus dividers, the edited
+    -- bucket (= the source) disabled.
+    local function BucketMenuItems()
+        local values, order, icons = BuildSpecRoster()
+        local items = {}
+        for i = 1, #order do
+            local key = order[i]
+            if not key:match("^%-%-%-") then
+                items[#items + 1] = {
+                    key = key, label = values[key],
+                    icon = icons and icons[key],
+                    disabled = key == selectedSpecKey,
+                }
+            end
+        end
+        return items
+    end
 
     -------------------------------------------------------------------
     --  FIXED LAYOUT: fills visible area, no outer scroll.
@@ -2183,6 +2431,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
     -- Store reference so we can clean up on page switch
     if ns._bmRoot then ns._bmRoot:Hide(); ns._bmRoot:SetParent(nil) end
     if ns._addNewPopup then ns._addNewPopup:Hide() end
+    if EllesmereUI._pickMenu then EllesmereUI._pickMenu:Hide() end
     ns._bmRoot = outerRoot
 
     -- Override-session full-page overlay (state from the prelude above).
@@ -2300,6 +2549,165 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 EllesmereUI:RefreshPage(true)
             end,
         })
+    end
+
+    -------------------------------------------------------------------
+    --  INHERITED group indicators lead concrete spec views: read-only
+    --  here (edit them in their group), marked by a blue edge strip +
+    --  blue group-name subtitle; the pill toggles ONLY the per-spec
+    --  disable (BM2_SetInhDisabled) -- other specs are never affected.
+    -------------------------------------------------------------------
+    if ns.BM2_Enabled and inheritedGroups then
+        local IR, IG, IB = 0.55, 0.72, 1  -- inherited accent (soft blue)
+        for gi = 1, #inheritedGroups do
+            local gkey = inheritedGroups[gi]
+            local ginfo = ns.BM_GROUP_BUCKET_INFO[gkey]
+            local gname = ginfo and EllesmereUI.L(ginfo.name) or gkey
+            for _, gind in ipairs(GetSpecIndicators(db, gkey) or {}) do
+                local tile = CreateFrame("Button", nil, sidebarFrame)
+                tile:SetSize(sidebarW, TILE_H)
+                tile:SetPoint("TOPLEFT", sidebarFrame, "TOPLEFT", 0, tileY)
+                tile:SetFrameLevel(sidebarFrame:GetFrameLevel() + 1)
+
+                local tileBg = tile:CreateTexture(nil, "BACKGROUND")
+                tileBg:SetAllPoints()
+                local isSelected = ns._bm2InhSel and ns._bm2InhSel.group == gkey
+                    and ns._bm2InhSel.id == gind.id
+                tileBg:SetColorTexture(1, 1, 1, isSelected and 0.06 or 0)
+
+                -- Blue edge strip: always visible (the inherited marker),
+                -- brighter while selected.
+                local edge = tile:CreateTexture(nil, "ARTWORK", nil, 2)
+                edge:SetSize(2, TILE_H)
+                edge:SetPoint("TOPLEFT", tile, "TOPLEFT", 0, 0)
+                edge:SetColorTexture(IR, IG, IB, isSelected and 1 or 0.45)
+
+                local iconFrame = CreateFrame("Frame", nil, tile)
+                iconFrame:SetSize(ICON_SZ, ICON_SZ)
+                iconFrame:SetPoint("TOPLEFT", tile, "TOPLEFT", 8, -8)
+                iconFrame:SetFrameLevel(tile:GetFrameLevel() + 1)
+
+                local gSpells = ns.BM2_ResolveSpells and ns.BM2_ResolveSpells(gind) or gind.spells
+                local iconTex = iconFrame:CreateTexture(nil, "ARTWORK")
+                iconTex:SetAllPoints()
+                iconTex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+                if gSpells and #gSpells > 0 then
+                    local faceId = (ns.BM2_PreferredSpell
+                        and ns.BM2_PreferredSpell(gind, SelectedBucketClass())) or gSpells[1]
+                    iconTex:SetTexture(GetSpellIcon(faceId))
+                else
+                    iconTex:SetTexture(136243)
+                end
+                if PP then
+                    local iconBdr = CreateFrame("Frame", nil, iconFrame)
+                    iconBdr:SetAllPoints()
+                    iconBdr:SetFrameLevel(iconFrame:GetFrameLevel() + 1)
+                    PP.CreateBorder(iconBdr, 0, 0, 0, 0.6, 1)
+                end
+
+                local textX = 8 + ICON_SZ + 8
+                local textRight = -52
+
+                local gTypeName = INDICATOR_TYPE_MAP[gind.type]
+                    and INDICATOR_TYPE_MAP[gind.type].name or gind.type
+                local titleFS = tile:CreateFontString(nil, "OVERLAY")
+                titleFS:SetPoint("TOPLEFT", tile, "TOPLEFT", textX, -8)
+                titleFS:SetFont(fontPath, 13, "")
+                titleFS:SetJustifyH("LEFT")
+                titleFS:SetWordWrap(false)
+                titleFS:SetText(gind.name and EllesmereUI.L(gind.name) or EllesmereUI.L(gTypeName))
+                titleFS:SetTextColor(IR, IG, IB)
+
+                local gTypeInfo = INDICATOR_TYPE_MAP[gind.type]
+                if gTypeInfo and gTypeInfo.placed and gind.position then
+                    local posText = POSITION_VALUES[gind.position] or gind.position
+                    local posFS = tile:CreateFontString(nil, "OVERLAY")
+                    posFS:SetPoint("LEFT", titleFS, "RIGHT", 4, 0)
+                    posFS:SetPoint("RIGHT", tile, "RIGHT", textRight, 0)
+                    posFS:SetFont(fontPath, 11, "")
+                    posFS:SetJustifyH("LEFT")
+                    posFS:SetWordWrap(false)
+                    posFS:SetText("(" .. EllesmereUI.L(posText) .. ")")
+                    posFS:SetTextColor(0.75, 0.75, 0.75, 0.65)
+                end
+
+                -- Subtitle = the owning group, in the inherited tint.
+                local fromFS = tile:CreateFontString(nil, "OVERLAY")
+                fromFS:SetPoint("TOPLEFT", titleFS, "BOTTOMLEFT", 0, -4)
+                fromFS:SetPoint("RIGHT", tile, "RIGHT", textRight, 0)
+                fromFS:SetFont(fontPath, 11, "")
+                fromFS:SetJustifyH("LEFT")
+                fromFS:SetWordWrap(false)
+                fromFS:SetText(gname)
+                fromFS:SetTextColor(IR, IG, IB, 0.55)
+
+                -- Pill: the PER-SPEC enable ONLY -- it reflects and toggles
+                -- exactly the layer this view owns (a group-level disable is
+                -- conveyed by the dimmed tile below, never by this pill, so
+                -- the control can never look dead).
+                local disHere = ns.BM2_InhDisabled(selectedSpecKey, gkey, gind.id)
+                local pillOn = not disHere
+                local toggleBtn = CreateFrame("Button", nil, tile)
+                toggleBtn:SetSize(32, 16)
+                toggleBtn:SetPoint("TOPRIGHT", tile, "TOPRIGHT", -8, -8)
+                toggleBtn:SetFrameLevel(tile:GetFrameLevel() + 2)
+                -- The pill is the per-spec CONTROL: it stays full-brightness
+                -- even when the row itself dims (group-disabled) or wears the
+                -- inherited tint.
+                if toggleBtn.SetIgnoreParentAlpha then
+                    toggleBtn:SetIgnoreParentAlpha(true)
+                end
+                local toggleBg = toggleBtn:CreateTexture(nil, "BACKGROUND")
+                toggleBg:SetAllPoints()
+                local toggleKnob = toggleBtn:CreateTexture(nil, "ARTWORK")
+                toggleKnob:SetSize(12, 12)
+                if pillOn then
+                    local acr, acg, acb = EllesmereUI.ResolveActiveAccent()
+                    toggleBg:SetColorTexture(acr, acg, acb, 1)
+                    toggleKnob:SetPoint("RIGHT", toggleBtn, "RIGHT", -2, 0)
+                    toggleKnob:SetColorTexture(1, 1, 1, 1)
+                else
+                    toggleBg:SetColorTexture(0.25, 0.25, 0.25, 1)
+                    toggleKnob:SetPoint("LEFT", toggleBtn, "LEFT", 2, 0)
+                    toggleKnob:SetColorTexture(0.5, 0.5, 0.5, 1)
+                end
+                toggleBtn:SetScript("OnClick", function()
+                    ns.BM2_SetInhDisabled(selectedSpecKey, gkey, gind.id,
+                        not ns.BM2_InhDisabled(selectedSpecKey, gkey, gind.id))
+                    RebuildLookup(db)
+                    if ns.ReloadFrames then ns.ReloadFrames() end
+                    EllesmereUI:RefreshPage(true)
+                end)
+
+                tile:SetScript("OnClick", function()
+                    ns._bmBaseSel = false
+                    selectedIndicator = nil
+                    ns._bm2InhSel = { group = gkey, id = gind.id }
+                    EllesmereUI:RefreshPage(true)
+                end)
+                tile:SetScript("OnEnter", function()
+                    if not isSelected then tileBg:SetColorTexture(1, 1, 1, 0.04) end
+                    EllesmereUI.ShowWidgetTooltip(tile,
+                        EllesmereUI.Lf("Inherited from %1$s. Editable only there.", gname))
+                end)
+                tile:SetScript("OnLeave", function()
+                    if not isSelected then tileBg:SetColorTexture(1, 1, 1, 0) end
+                    EllesmereUI.HideWidgetTooltip()
+                end)
+
+                local sep = tile:CreateTexture(nil, "ARTWORK")
+                sep:SetHeight(1)
+                sep:SetPoint("BOTTOMLEFT", tile, "BOTTOMLEFT", 0, 0)
+                sep:SetPoint("BOTTOMRIGHT", tile, "BOTTOMRIGHT", 0, 0)
+                sep:SetColorTexture(1, 1, 1, 0.04)
+
+                -- Group-disabled indicators render dimmer here: they are off
+                -- everywhere until re-enabled in their group.
+                if not gind.enabled then tile:SetAlpha(0.55) end
+
+                tileY = tileY - TILE_H
+            end
+        end
     end
     for _, ind in ipairs(specIndicators) do
         local tile = CreateFrame("Button", nil, sidebarFrame)
@@ -2471,6 +2879,13 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                     if selectedIndicator and selectedIndicator.id == ind.id then
                         selectedIndicator = nil
                     end
+                    -- Deleting a GROUP indicator sweeps its per-spec disable
+                    -- keys from every concrete bucket (stale keys are inert
+                    -- but would leak forever).
+                    if ns.BM2_SweepInhDis and ns.BM_GROUP_BUCKET_INFO
+                        and ns.BM_GROUP_BUCKET_INFO[selectedSpecKey] then
+                        ns.BM2_SweepInhDis(selectedSpecKey, ind.id)
+                    end
                     RebuildLookup(db)
                     if ns.ReloadFrames then ns.ReloadFrames() end
                     EllesmereUI:RefreshPage(true)
@@ -2518,8 +2933,33 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             end)
         end
 
-        tile:SetScript("OnClick", function()
+        -- Right-click: "Add To" context menu -- copies this indicator into
+        -- another editing-spec bucket (full clone, fresh id; source stays).
+        tile:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        tile:SetScript("OnClick", function(self, btn)
+            if btn == "RightButton" then
+                if not (ns.BM2_Enabled and EllesmereUI.ShowPickMenu) then return end
+                EllesmereUI.ShowPickMenu(tile, {
+                    title = EllesmereUI.L("Add To"),
+                    fontPath = fontPath,
+                    items = BucketMenuItems(),
+                    onPick = function(key)
+                        -- Target cap: silently blocked at the limit (house
+                        -- silent-correction pattern; CountSpecIndicators
+                        -- seeds only the picked bucket).
+                        if CountSpecIndicators(db, key) >= MAX_PER_SPEC then return end
+                        if ns.BM2_CopyIndicator and ns.BM2_CopyIndicator(ind, key) then
+                            if db and db.profile then db.profile.bmIndicatorsEnabled = true end
+                            RebuildLookup(db)
+                            if ns.ReloadFrames then ns.ReloadFrames() end
+                            EllesmereUI:RefreshPage(true)
+                        end
+                    end,
+                })
+                return
+            end
             ns._bmBaseSel = false
+            ns._bm2InhSel = nil
             selectedIndicator = ind
             EllesmereUI:RefreshPage(true)
         end)
@@ -2644,6 +3084,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                     -- Clear spell selections so reopening starts fresh
                     wipe(selectedSpells)
                     if p._v2Filters then wipe(p._v2Filters) end
+                    if p._v2NegFilters then wipe(p._v2NegFilters) end
                     if p._v2Extras then wipe(p._v2Extras) end
                     -- Refresh the abilities dropdown label + checkboxes
                     if p._spellDDRefresh then p._spellDDRefresh() end
@@ -2656,6 +3097,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                     -- v2 creation flow: Indicator type, then the SAME Filters and
                     -- Extra Spells dropdowns as Assigned Buffs; picks apply to the new indicator on Create.
                     popup._v2Filters = {}
+                    popup._v2NegFilters = {}
                     popup._v2Extras = {}
 
                     local indLbl2 = popup:CreateFontString(nil, "OVERLAY")
@@ -2699,23 +3141,37 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                         popup._fltDD, popup._exDD = nil, nil
 
                         -- Dynamic items: fresh per menu open (adds/renames live).
+                        -- Two-lane rows: Show picks (popup._v2Filters) and Hide picks
+                        -- (popup._v2NegFilters), applied to the new indicator on Create.
                         local function FItems()
                             local filters = (ns.BM2_Filters and ns.BM2_Filters()) or {}
                             local fItems = {
                                 { isTopAction = true, label = "Edit Filters", onClick = function()
                                     if ns.BMP_ShowFilterEditor then ns.BMP_ShowFilterEditor() end
                                 end },
+                                { isHeader = true, label = "Show", rightLabel = "Hide" },
                             }
                             for i = 1, #filters do
-                                fItems[#fItems + 1] = { key = filters[i].id, label = filters[i].name }
+                                fItems[#fItems + 1] = { key = filters[i].id, label = filters[i].name, dual = true }
                             end
                             return fItems
                         end
                         local fltDD = EllesmereUI.BuildVisOptsCBDropdown(
                             popup, ddW, popup:GetFrameLevel() + 2,
                             FItems,
-                            function(k) return popup._v2Filters[k] and true or false end,
-                            function(k, v) popup._v2Filters[k] = v and true or nil end,
+                            function(k, neg)
+                                if neg then return popup._v2NegFilters[k] and true or false end
+                                return popup._v2Filters[k] and true or false
+                            end,
+                            function(k, v, neg)
+                                if neg then
+                                    popup._v2NegFilters[k] = v and true or nil
+                                    if v then popup._v2Filters[k] = nil end
+                                else
+                                    popup._v2Filters[k] = v and true or nil
+                                    if v then popup._v2NegFilters[k] = nil end
+                                end
+                            end,
                             nil, 12)
                         fltDD:SetSize(ddW, ROW_H)
                         fltDD:SetPoint("TOPLEFT", popup, "TOPLEFT", POPUP_PAD, fltDDY)
@@ -2922,6 +3378,12 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                             for fid in pairs(popup._v2Filters or {}) do
                                 newInd.filters[fid] = true
                             end
+                            if popup._v2NegFilters and next(popup._v2NegFilters) then
+                                newInd.negFilters = {}
+                                for fid in pairs(popup._v2NegFilters) do
+                                    newInd.negFilters[fid] = true
+                                end
+                            end
                             local exList = {}
                             for sid in pairs(popup._v2Extras or {}) do
                                 exList[#exList + 1] = sid
@@ -2933,6 +3395,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                             selectedIndicator = newInd
                         end
                         ns._bmBaseSel = false
+                        ns._bm2InhSel = nil
                         if db and db.profile then db.profile.bmIndicatorsEnabled = true end
                         RebuildLookup(db)
                         if ns.ReloadFrames then ns.ReloadFrames() end
@@ -3054,50 +3517,9 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
         ---------------------------------------------------------------
         local specCenterX = pvSplitW + specSplitW / 2
 
-        -- v2 dropdown roster: "All Specs" (renders for everyone) leads,
-        -- then "All Non Healers/Aug" (the shared non-healer bucket), a
-        -- divider, the healer/Aug specs, a divider, then EVERY other spec
-        -- in the game (own additive "spec<ID>" buckets), enumerated live so
-        -- new specs appear on their own. Standard spec icons throughout.
-        -- Local copies -- the shared order table must never accumulate inserts.
-        local specDDValues = {}
-        for k, v in pairs(SPEC_DD_VALUES) do specDDValues[k] = EllesmereUI.L(v) end
-        local specDDOrder = SPEC_DD_ORDER
-        local specDDIcons, specDDClass
-        if ns.BM2_Enabled then
-            specDDIcons, specDDClass = {}, {}
-            specDDValues.allspecs = EllesmereUI.L("All Specs")
-            specDDValues.nonhealer = EllesmereUI.L("All Non Healers/Aug")
-            specDDOrder = { "allspecs", "nonhealer", "---a" }
-            local inHealerList = {}
-            for i = 1, #SPEC_DD_ORDER do
-                local key = SPEC_DD_ORDER[i]
-                specDDOrder[#specDDOrder + 1] = key
-                local hs = SPEC_BY_KEY[key]
-                if hs and hs.specID then
-                    inHealerList[hs.specID] = true
-                    if GetSpecializationInfoByID then
-                        local _, _, _, sIcon = GetSpecializationInfoByID(hs.specID)
-                        specDDIcons[key] = sIcon
-                    end
-                end
-            end
-            specDDOrder[#specDDOrder + 1] = "---b"
-            for classID = 1, (GetNumClasses and GetNumClasses() or 0) do
-                local className, classFile = GetClassInfo(classID)
-                local numSpecs = GetNumSpecializationsForClassID and GetNumSpecializationsForClassID(classID) or 0
-                for si = 1, numSpecs do
-                    local specID, specName, _, sIcon = GetSpecializationInfoForClassID(classID, si)
-                    if specID and not inHealerList[specID] then
-                        local key = "spec" .. specID
-                        specDDValues[key] = (specName or "") .. " " .. (className or "")
-                        specDDOrder[#specDDOrder + 1] = key
-                        specDDIcons[key] = sIcon
-                        specDDClass[key] = classFile
-                    end
-                end
-            end
-        end
+        -- Roster shared with the right-click "Add To" menu (built once per
+        -- page build here; the menu rebuilds it lazily per open).
+        local specDDValues, specDDOrder, specDDIcons, specDDClass = BuildSpecRoster()
 
         -- Background class icon (covers right section, faded)
         local classIconBg = leftFixed:CreateTexture(nil, "BACKGROUND", nil, 1)
@@ -3114,12 +3536,13 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             selClass = specDDClass[selectedSpecKey]
         end
         local selCoords = selClass and CLASS_SPRITE_COORDS[selClass]
+        local selGroup = selectedSpecKey and ns.BM_GROUP_BUCKET_INFO
+            and ns.BM_GROUP_BUCKET_INFO[selectedSpecKey]
         if selCoords then
             classIconBg:SetTexCoord(selCoords[1], selCoords[2], selCoords[3], selCoords[4])
-        elseif selectedSpecKey == "allspecs" or selectedSpecKey == "nonhealer" then
-            -- The shared buckets (All Specs + All Non Healers/Aug) wear the
-            -- everyone-icon.
-            classIconBg:SetTexture("Interface\\Icons\\Achievement_GuildPerk_EverybodysFriend")
+        elseif selGroup then
+            -- Group buckets wear their roster icon.
+            classIconBg:SetTexture(selGroup.icon)
             classIconBg:SetTexCoord(0.08, 0.92, 0.08, 0.92)
         else
             classIconBg:Hide()
@@ -3140,11 +3563,10 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             maxHeight = 300,
             icon = function(key)
                 if ns.BM2_Enabled then
-                    -- Standard spec icons; the two shared buckets (All Specs
-                    -- + All Non Healers/Aug) wear the everyone-icon.
-                    if key == "allspecs" or key == "nonhealer" then
-                        return "Interface\\Icons\\Achievement_GuildPerk_EverybodysFriend"
-                    end
+                    -- Standard spec icons; group buckets wear their roster
+                    -- icon.
+                    local g = ns.BM_GROUP_BUCKET_INFO and ns.BM_GROUP_BUCKET_INFO[key]
+                    if g then return g.icon end
                     local ic = specDDIcons and specDDIcons[key]
                     if ic then return ic end
                 end
@@ -3164,6 +3586,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             function(v)
                 selectedSpecKey = v
                 selectedIndicator = nil
+                ns._bm2InhSel = nil
                 wipe(selectedSpells)
                 EllesmereUI:RefreshPage(true)
             end)
@@ -3644,7 +4067,61 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
     leftFrame._showRowDivider = true
     local sy = 0  -- Y within settings scroll child
 
-    if selectedIndicator then
+    if ns.BM2_Enabled and inhSelInd then
+        -------------------------------------------------------------------
+        --  Read-only pane for an INHERITED group indicator: explains where
+        --  it lives, links to the owning group, and points at the tile
+        --  toggle for the per-spec enable. No settings render -- edits
+        --  belong to the group.
+        -------------------------------------------------------------------
+        local ind = inhSelInd
+        local gkey = ns._bm2InhSel.group
+        local ginfo = ns.BM_GROUP_BUCKET_INFO[gkey]
+        local gname = ginfo and EllesmereUI.L(ginfo.name) or gkey
+        local inhTypeName = INDICATOR_TYPE_MAP[ind.type]
+            and INDICATOR_TYPE_MAP[ind.type].name or ind.type
+        settingsTitle:SetTextColor(0.55, 0.72, 1)
+        settingsTitle:SetText(ind.name and EllesmereUI.L(ind.name)
+            or EllesmereUI.L(inhTypeName .. " Indicator"))
+        spellsTitle:SetText("(" .. EllesmereUI.Lf("Inherited from %1$s", gname) .. ")")
+
+        -- Child x = padDiff + PAD aligns with the PAD margin (the scroll
+        -- child is widened by padDiff each side and shifted left, so x = 0
+        -- sits OFF the visible column and clips).
+        local info = leftFrame:CreateFontString(nil, "OVERLAY")
+        info:SetFont(fontPath, 12, "")
+        info:SetPoint("TOPLEFT", leftFrame, "TOPLEFT", padDiff + PAD, sy - 14)
+        info:SetPoint("RIGHT", leftFrame, "RIGHT", -(padDiff + PAD), 0)
+        info:SetJustifyH("LEFT")
+        info:SetWordWrap(true)
+        info:SetText(EllesmereUI.Lf("Inherited from %1$s. Edit it there, or use the tile toggle to enable or disable it for this spec.", gname))
+        info:SetTextColor(0.65, 0.65, 0.65)
+        sy = sy - 64
+
+        local link = CreateFrame("Button", nil, leftFrame)
+        link:SetPoint("TOPLEFT", leftFrame, "TOPLEFT", padDiff + PAD, sy - 4)
+        link:SetFrameLevel(leftFrame:GetFrameLevel() + 2)
+        local linkFS = link:CreateFontString(nil, "OVERLAY")
+        linkFS:SetFont(fontPath, 12, "")
+        linkFS:SetPoint("TOPLEFT")
+        linkFS:SetText(EllesmereUI.Lf("Edit in %1$s", gname))
+        local lac = EllesmereUI.ELLESMERE_GREEN
+        if lac then
+            linkFS:SetTextColor(lac.r, lac.g, lac.b, 0.85)
+        else
+            linkFS:SetTextColor(0.05, 0.82, 0.62, 0.85)
+        end
+        link:SetSize(linkFS:GetStringWidth() + 4, 18)
+        link:SetScript("OnEnter", function() linkFS:SetAlpha(1) end)
+        link:SetScript("OnLeave", function() linkFS:SetAlpha(0.85) end)
+        link:SetScript("OnClick", function()
+            selectedSpecKey = gkey
+            selectedIndicator = ind
+            ns._bm2InhSel = nil
+            EllesmereUI:RefreshPage(true)
+        end)
+        sy = sy - 30
+    elseif selectedIndicator then
         local ind = selectedIndicator
         local indType = ind.type
         local typeInfo = INDICATOR_TYPE_MAP[indType]
@@ -4323,6 +4800,40 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                     local nm = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(mySid)
                     if nm then
                         swatch:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(swatch, nm) end)
+                        swatch:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                    end
+                end
+                -- One swatch per ASSIGNED FILTER, continuing the chain: colors
+                -- every spell that filter shows (direct per-spell swatches
+                -- above win on overlap -- BM2_SquareFilterColors doctrine).
+                -- Ascending fid order matches the runtime's overlap resolution.
+                if ind.filters then
+                    local fids = {}
+                    for fid in pairs(ind.filters) do fids[#fids + 1] = fid end
+                    table.sort(fids)
+                    for _, fid in ipairs(fids) do
+                        local myFid = fid
+                        local swatch = EllesmereUI.BuildColorSwatch(
+                            rgn, stacksRow:GetFrameLevel() + 3,
+                            function()
+                                local c = (ind.filterColors and ind.filterColors[myFid])
+                                    or ind.color or DEFAULT_SQ
+                                return c.r, c.g, c.b, 1
+                            end,
+                            function(r, g, b)
+                                if not ind.filterColors then ind.filterColors = {} end
+                                ind.filterColors[myFid] = { r=r, g=g, b=b }
+                                ReloadAndUpdate()
+                            end, false, 20)
+                        if prev then
+                            swatch:SetPoint("RIGHT", prev, "LEFT", -8, 0)
+                        else
+                            swatch:SetPoint("RIGHT", rgn, "RIGHT", -20, 0)
+                        end
+                        prev = swatch
+                        local f = ns.BM2_GetFilter and ns.BM2_GetFilter(myFid)
+                        local fname = (f and f.name) or ("Filter " .. tostring(myFid))
+                        swatch:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(swatch, fname) end)
                         swatch:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                     end
                 end

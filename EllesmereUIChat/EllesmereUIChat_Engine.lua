@@ -808,6 +808,18 @@ local function EngineTail(cf, msg, r, g, b, chatTypeID, accessID, typeID, event,
     end
     if win then
         win.smf:AddMessage(display, r, g, b, chatTypeID, ExtractLineID(eventArgs), event)
+        -- Scrolled-view DOUBLE-PIN fix (field report 2026-08-16: "chat moves
+        -- one line on a new message while scrolled, every zone off by one
+        -- message after"): SMF:AddMessage auto-pins a scrolled view via an
+        -- INTERNAL ScrollUp (Blizzard source, ScrollingMessageFrame.lua:12).
+        -- cf's internal ScrollUp fires the scroll mirror mid-add (our offset
+        -- = cf's pinned offset), and our own AddMessage above then auto-pins
+        -- AGAIN -- one line past cf, visible text drifting off Blizzard's
+        -- invisible interaction zones until the next wheel step re-mirrors.
+        -- cf's offset is the scroll authority at every add: re-copy it after
+        -- our add. No-op at bottom (0 == 0) and SetScrollOffset early-outs
+        -- when equal, so the settled path stays zero-write.
+        win.smf:SetScrollOffset(cf:GetScrollOffset())
         -- Divergence check: if Blizzard's buffer was cleared behind our back
         -- (window reset, a third-party Clear call, temp-window pool reuse),
         -- its count falls below ours the moment the next line lands. Both

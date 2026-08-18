@@ -337,6 +337,49 @@ function ns.BM2_GetFilter(id)
     end
 end
 
+-- Square per-FILTER colors (ind.filterColors[fid], options swatches): fan the
+-- filter's color out to every enabled member so the whole per-spell color
+-- machinery downstream (BmSquareColor, BmChainMode slot forcing, style keys)
+-- consumes it unchanged. DIRECT per-spell colors overlay last (an explicit
+-- pick wins); overlapping colored filters resolve in ascending fid order
+-- (deterministic). Returns nil when no filter color exists, so plain
+-- indicators keep their raw spellColors reference -- zero behavior change.
+-- A single uniform filter color keeps chain GROUP mode (identical entries);
+-- only genuinely mixed colors force per-spell slots, same as mixed direct
+-- colors always did. Keyed by PRIMARY ids (alternates ride their primary's
+-- include map and inherit its slot color).
+function ns.BM2_SquareFilterColors(ind)
+    local fc = ind.filterColors
+    if not fc or not ind.filters or ind.type ~= "square" then return nil end
+    local fids
+    for fid in pairs(ind.filters) do
+        if fc[fid] then
+            fids = fids or {}
+            fids[#fids + 1] = fid
+        end
+    end
+    if not fids then return nil end
+    table.sort(fids)
+    local merged
+    for i = 1, #fids do
+        local c = fc[fids[i]]
+        local f = ns.BM2_GetFilter(fids[i])
+        if f and f.spells then
+            for id, on in pairs(f.spells) do
+                if on then
+                    merged = merged or {}
+                    if merged[id] == nil then merged[id] = c end
+                end
+            end
+        end
+    end
+    if not merged then return nil end
+    if ind.spellColors then
+        for id, c in pairs(ind.spellColors) do merged[id] = c end
+    end
+    return merged
+end
+
 function ns.BM2_AddFilter(name)
     local b = Store()
     if not b then return nil end
@@ -368,6 +411,7 @@ function ns.BM2_DeleteFilter(id)
         for j = 1, #spec.inds do
             local ind = spec.inds[j]
             if ind.filters then ind.filters[id] = nil end
+            if ind.negFilters then ind.negFilters[id] = nil end
         end
     end
     ns.BM2_Invalidate()
@@ -428,16 +472,22 @@ end
 local function SeedSpec(b, specKey)
     if b.seeded[specKey] then return end
     b.seeded[specKey] = true
-    local pf = PresetIdsByKey(b)
     local spec = b.specs[specKey]
     -- Id namespace offset: the legacy page's own global id counter is synced
     -- from LEGACY storage only, so v2 ids start far above its reachable range.
     if not spec then spec = { nextId = 1000001, inds = {} }; b.specs[specKey] = spec end
 
-    -- Additive union buckets ("allspecs" + per-spec "spec<ID>") start EMPTY:
-    -- nothing renders from them until the user builds something there, so
-    -- existing setups are untouched by their arrival.
-    if specKey == "allspecs" or specKey:match("^spec%d") then return end
+    -- Additive union buckets ("allspecs", the role groups "tanks"/"dps"/
+    -- "healers", per-spec "spec<ID>") start EMPTY: nothing renders from them
+    -- until the user builds something there, so existing setups are
+    -- untouched by their arrival.
+    if specKey == "allspecs" or specKey == "tanks" or specKey == "dps"
+        or specKey == "healers" or specKey:match("^spec%d") then return end
+
+    -- Resolved only for healer-key seeds (below the group early-return so
+    -- group buckets never pay the scan, and so a caller that reached here
+    -- through Store() without EnsureFilters cannot bake empty assignments).
+    local pf = PresetIdsByKey(b)
 
     local g1 = {
         id = spec.nextId, enabled = true, type = "icon",
@@ -522,6 +572,72 @@ function ns.BM2_SpecInds(key)
     return spec and spec.inds or nil, specKey
 end
 
+-------------------------------------------------------------------------------
+-- Per-spec disables of GROUP-bucket indicators ("allspecs"/"nonhealer"/
+-- "tanks"/"dps"/"healers"). Stored on the CONCRETE bucket (a healer spec key,
+-- or a non-healer spec's "spec<ID>" bucket) as inhDis["<group>:<id>"] = true.
+-- The group indicator itself is untouched: every other spec keeps rendering
+-- it, and re-enabling is a pure key delete.
+-------------------------------------------------------------------------------
+function ns.BM2_InhDisabled(concreteKey, groupKey, id)
+    local b = Store()
+    local spec = b and concreteKey and b.specs[concreteKey]
+    local dis = spec and spec.inhDis
+    return (dis and dis[groupKey .. ":" .. id]) and true or false
+end
+
+function ns.BM2_SetInhDisabled(concreteKey, groupKey, id, disabled)
+    -- EnsureFilters (not bare Store): a healer key seeding here must see the
+    -- preset filters or its starter groups would bake empty assignments.
+    local b = EnsureFilters()
+    if not (b and concreteKey and groupKey and id) then return end
+    SeedSpec(b, concreteKey)
+    local spec = b.specs[concreteKey]
+    -- seeded[k] can outlive specs[k] (layer payloads/imports may prune empty
+    -- bucket tables): re-create rather than index nil.
+    if not spec then
+        spec = { nextId = 1000001, inds = {} }
+        b.specs[concreteKey] = spec
+    end
+    spec.inhDis = spec.inhDis or {}
+    spec.inhDis[groupKey .. ":" .. id] = disabled and true or nil
+    ns.BM2_Invalidate()
+end
+
+-- Deep-copies an indicator into another bucket (the right-click "Add To"
+-- menu): full settings clone under a FRESH id from the TARGET bucket's
+-- counter; the source is untouched. anchorTo is severed -- it references a
+-- sibling id in the SOURCE bucket, which in the target would be an
+-- unrelated indicator (or dangle).
+function ns.BM2_CopyIndicator(srcInd, targetKey)
+    local b = EnsureFilters()
+    if not (b and srcInd and targetKey) then return nil end
+    SeedSpec(b, targetKey)
+    local spec = b.specs[targetKey]
+    if not spec then
+        spec = { nextId = 1000001, inds = {} }
+        b.specs[targetKey] = spec
+    end
+    local v = LegacyCopy(srcInd)
+    v.id = spec.nextId
+    spec.nextId = spec.nextId + 1
+    v.anchorTo = nil
+    spec.inds[#spec.inds + 1] = v
+    ns.BM2_Invalidate()
+    return v
+end
+
+-- Deleting a GROUP indicator sweeps its per-spec disable keys from every
+-- concrete bucket (stale keys are inert but would leak forever).
+function ns.BM2_SweepInhDis(groupKey, id)
+    local b = Store()
+    if not b then return end
+    local k = groupKey .. ":" .. id
+    for _, spec in pairs(b.specs) do
+        if spec.inhDis then spec.inhDis[k] = nil end
+    end
+end
+
 -- key (optional) = the EDITED bucket; defaults to the player's active key.
 function ns.BM2_AddIndicator(indType, key)
     local b = Store()
@@ -593,6 +709,25 @@ function ns.BM2_ResolveSpellsOwn(ind)
             end
         end
     end
+    -- Hide lane (ind.negFilters): hidden filters' enabled spells drop out of the
+    -- union. Direct spell picks (ind.spells) win over the hide lane -- an explicit
+    -- pick is the stronger statement. Excluded primaries never reach the engine
+    -- include maps, so their alternates fall away with them.
+    if ind.negFilters then
+        local direct
+        if ind.spells then
+            direct = {}
+            for i = 1, #ind.spells do direct[ind.spells[i]] = true end
+        end
+        for fid in pairs(ind.negFilters) do
+            local f = ns.BM2_GetFilter(fid)
+            if f then
+                for id, on in pairs(f.spells) do
+                    if on and not (direct and direct[id]) then set[id] = nil end
+                end
+            end
+        end
+    end
     -- Alternates are deliberately NOT in the resolved list: one entry per buff
     -- FAMILY, else the preview/slot layer renders the same buff once per
     -- talent/rank id. Alt ids ride the engine include maps instead
@@ -653,34 +788,52 @@ local bm2ViewCache = setmetatable({}, { __mode = "k" })
 
 function ns.BM2_SpecIndicators()
     local inds, specKey = ns.BM2_SpecInds()
-    -- Additive union buckets: "allspecs" renders for EVERY spec, and a spec
+    -- Additive union buckets: "allspecs" renders for EVERY spec, the role
+    -- group ("tanks"/"dps"/"healers") for specs of that role, and a spec
     -- outside the healer/Aug list also renders its own "spec<ID>" bucket on
     -- top of its active one (for those specs the active bucket IS "nonhealer"
     -- -- BM2_SpecKey resolves borrow-free, so Ret/Prot/Ele/Enh land here like
-    -- every other non-healer). Both are empty until the user fills them.
-    local ownInds, allInds
+    -- every other non-healer). All are empty until the user fills them.
+    local ownInds, allInds, roleInds
     local specIdx = GetSpecialization and GetSpecialization()
     local specID = specIdx and GetSpecializationInfo and GetSpecializationInfo(specIdx)
-    if specID and ns.BM_SpecKeyForSpecID and not ns.BM_SpecKeyForSpecID(specID) then
+    local tracked = specID and ns.BM_SpecKeyForSpecID and ns.BM_SpecKeyForSpecID(specID) or nil
+    if specID and not tracked then
         ownInds = ns.BM2_SpecInds("spec" .. specID)
     end
     allInds = ns.BM2_SpecInds("allspecs")
-    if not inds and not ownInds and not allInds then return nil, specKey, "custom" end
+    local roleKey = specID and ns.BM_RoleBucketForSpecID and ns.BM_RoleBucketForSpecID(specID) or nil
+    if roleKey then roleInds = ns.BM2_SpecInds(roleKey) end
+    if not inds and not ownInds and not allInds and not roleInds then return nil, specKey, "custom" end
+    -- Per-spec disables of group indicators live on the CONCRETE bucket:
+    -- the healer spec key itself, or the non-healer spec's "spec<ID>".
+    local concreteKey = tracked and specKey or (specID and ("spec" .. specID)) or nil
+    local bStore = concreteKey and Store() or nil
+    local cSpec = bStore and bStore.specs[concreteKey]
+    local inhDis = cSpec and cSpec.inhDis or nil
     local out = {}
     -- idOffset disambiguates slot/chain/style keys across unioned buckets
     -- (every bucket allocates ids from the same 1000001 base) and shifts
     -- anchorTo identically so Anchor To links stay bucket-internal.
-    local function Append(list, idOffset)
+    -- groupKey marks a GROUP bucket's contribution: the active spec's
+    -- per-spec disable set drops those indicators here (render side); the
+    -- indicator itself is untouched for every other spec.
+    local function Append(list, idOffset, groupKey)
         if not list then return end
         for i = 1, #list do
             local ind = list[i]
-            local resolved = ns.BM2_ResolveSpells(ind)
-            if #resolved > 0 then
+            local drop = groupKey and inhDis and inhDis[groupKey .. ":" .. ind.id]
+            local resolved = not drop and ns.BM2_ResolveSpells(ind) or nil
+            if resolved and #resolved > 0 then
                 local v = bm2ViewCache[ind]
                 if not v then v = {}; bm2ViewCache[ind] = v end
                 for k in pairs(v) do v[k] = nil end
                 for k, val in pairs(ind) do v[k] = val end
                 v.spells = resolved
+                -- Per-filter square colors fan out into the view's spellColors
+                -- (fresh merged table; readers reach it through the stable
+                -- view, so the identity-stability contract holds).
+                v.spellColors = ns.BM2_SquareFilterColors(ind) or ind.spellColors
                 -- Always explicit: the legacy nil-default (own-only TRUE)
                 -- can't leak.
                 v.ownOnly = ind.ownOnly == true
@@ -693,9 +846,12 @@ function ns.BM2_SpecIndicators()
             end
         end
     end
-    Append(inds, nil)
-    Append(ownInds, 1000000)
-    Append(allInds, 2000000)
+    -- For non-healer specs the active bucket IS the All Non Healers/Aug
+    -- group, so its rows honor the per-spec disable set too.
+    Append(inds, nil, (not tracked) and "nonhealer" or nil)
+    Append(ownInds, 1000000, nil)
+    Append(allInds, 2000000, "allspecs")
+    Append(roleInds, 3000000, roleKey)
     return out, specKey, "custom"
 end
 

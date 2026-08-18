@@ -376,8 +376,20 @@ ApplyToFrame = function(iconFrame, rule, win)
     end
 end
 
--- Apply (or clear) a rule on every matching live icon. A rule with .barKey only
--- matches icons on that bar (user rules are per-bar); built-in rules match any.
+-- BUILT-IN rules only ever target native viewer entries, so they only match
+-- icons on the three native bars. Guards against a stale cached spellID on a
+-- Blizzard-pool-reused icon frame matching a custom bar it never belonged to
+-- (field: Ebon Might's built-in overlay painting a custom-bar potion slot
+-- after icon-size/glow adjustments forced frame reuse). USER rules are
+-- deliberately NOT scoped: they are barKey-less by design and follow the
+-- spell to whichever bar hosts it (see the AddUserRule contract below) --
+-- scoping them would kill custom-bar cd-state effects, overlays and
+-- ready-sounds.
+local NATIVE_VIEWER_BARKEYS = { cooldowns = true, utility = true, buffs = true }
+
+-- Apply (or clear) a rule on every matching live icon. A rule with .barKey
+-- only matches icons on that bar; a user rule matches any bar; a built-in
+-- rule matches native viewer bars only.
 ApplyRule = function(rule, win)
     local icons = ns.cdmBarIcons
     local FCt = ns._ecmeFC
@@ -387,7 +399,15 @@ ApplyRule = function(rule, win)
         for i = 1, #list do
             local f = list[i]
             local fc = f and FCt[f]
-            if fc and KeyMatches(sid, fc.spellID) and (not rule.barKey or fc.barKey == rule.barKey) then
+            local barScopeOK
+            if rule.barKey then
+                barScopeOK = fc and fc.barKey == rule.barKey
+            elseif rule.user then
+                barScopeOK = fc ~= nil
+            else
+                barScopeOK = fc and fc.barKey and NATIVE_VIEWER_BARKEYS[fc.barKey]
+            end
+            if barScopeOK and KeyMatches(sid, fc.spellID) then
                 ApplyToFrame(f, rule, win)
                 if ns._fakeActiveDebug then
                     print(("|cff0cd29fEUI FakeActive|r %s sid=%s"):format(
@@ -513,7 +533,12 @@ end
                     for i = 1, #list do
                         local f = list[i]
                         local fc = f and FCt[f]
-                        if fc and KeyMatches(rule.spellID, fc.spellID) then
+                        -- Native-bars-only, same scope as ApplyRule's built-in
+                        -- arm: this walk only ever runs for built-in engine-slot
+                        -- rules, and a stale cached spellID on a reused custom-
+                        -- bar frame must not donate srcFrame/crop/styling here.
+                        if fc and fc.barKey and NATIVE_VIEWER_BARKEYS[fc.barKey]
+                           and KeyMatches(rule.spellID, fc.spellID) then
                             local barKey = fc.barKey
                             bd = barKey and ns.barDataByKey and ns.barDataByKey[barKey]
                             ss = rule.cas

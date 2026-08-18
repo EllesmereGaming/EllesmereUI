@@ -1100,7 +1100,7 @@ initFrame:SetScript("OnEvent", function(self)
               disabled=Off, disabledTooltip=REQ,
               getValue=function() local c = TSB(); return (c and c.width) or 240 end,
               setValue=function(v) local c = TSB(); if c then c.width = v; TSBRefresh() end end },
-            { type="slider", text="Height", min=8, max=60, step=1, pixel=true,
+            { type="slider", text="Height", min=6, max=60, step=1, pixel=true,
               disabled=Off, disabledTooltip=REQ,
               getValue=function() local c = TSB(); return (c and c.height) or 20 end,
               setValue=function(v) local c = TSB(); if c then c.height = v; TSBRefresh() end end });  y = y - h
@@ -1313,7 +1313,7 @@ initFrame:SetScript("OnEvent", function(self)
                   disabled=Off, disabledTooltip=REQ,
                   getValue=function() local c = C(); return (c and c.width) or 260 end,
                   setValue=function(v) local c = C(); if c then c.width = v; TFBRefresh() end end },
-                { type="slider", text="Height", min=8, max=60, step=1, pixel=true,
+                { type="slider", text="Height", min=6, max=60, step=1, pixel=true,
                   disabled=Off, disabledTooltip=REQ,
                   getValue=function() local c = C(); return (c and c.height) or 22 end,
                   setValue=function(v) local c = C(); if c then c.height = v; TFBRefresh() end end });  y = y - h

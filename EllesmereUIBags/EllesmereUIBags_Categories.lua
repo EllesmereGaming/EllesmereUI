@@ -183,6 +183,33 @@ function CategoryManager:InitCategories()
                 groupName         = state and state.groupName,
                 groupNameCustom   = state and state.groupNameCustom,
             }
+            -- Split mode: append one child category per equipment set right after
+            -- the "Item Set Gear" anchor. Runtime-only -- SaveState skips them, so
+            -- per-character set names never reach the shared profile; the sidebar
+            -- renders them nested one level under the anchor, wherever it sits.
+            if def.isSetGear and BP().bagSplitSetGearBySet then
+                local setIDs = C_EquipmentSet.GetEquipmentSetIDs()
+                if setIDs then
+                    local sets = {}
+                    for _, setID in ipairs(setIDs) do
+                        local sname, sicon = C_EquipmentSet.GetEquipmentSetInfo(setID)
+                        if sname then sets[#sets + 1] = { id = setID, name = sname, icon = sicon } end
+                    end
+                    table.sort(sets, function(a, b) return a.name < b.name end)
+                    for _, s in ipairs(sets) do
+                        cats[#cats + 1] = {
+                            _defaultName = "EquipSet:" .. s.id,
+                            name         = s.name,
+                            types        = def.types,
+                            icon         = s.icon or def.icon,
+                            isSetGear    = true,   -- keeps gear sorting/type-walk exclusion
+                            isEquipSet   = true,
+                            equipSetID   = s.id,
+                            noGroup      = true,
+                        }
+                    end
+                end
+            end
         end
     end
 
@@ -216,6 +243,13 @@ function CategoryManager:InitCategories()
 
     self._categories = cats
 
+    -- setID -> category index, for split-mode classification
+    local setCatIdx = {}
+    for i, cat in ipairs(cats) do
+        if cat.equipSetID then setCatIdx[cat.equipSetID] = i end
+    end
+    self._setCatIdxBySetID = setCatIdx
+
     -- Clean up legacy DB keys
     EllesmereUIDB.bagCategoryDefs = nil
     EllesmereUIDB.categoryItems = nil
@@ -238,28 +272,34 @@ function CategoryManager:SaveState()
     local userState = {}
     local userOrder = {}
     for _, cat in ipairs(cats) do
-        userOrder[#userOrder + 1] = cat._defaultName
-        local hasState = false
-        local entry = {}
-        -- Compare against the LOCALIZED default name. cat.name is the localized
-        -- display string (state.rename or L(_defaultName)) while _defaultName is the
-        -- English identity key. On a non-English client a plain inequality would see
-        -- every untouched default category as "renamed" and freeze its localized name
-        -- into the DB, so only treat it as a rename when it differs from the locale default.
-        if cat.name ~= EllesmereUI.L(cat._defaultName) then
-            entry.rename = cat.name
-            hasState = true
-        end
-        if cat.groupName then
-            entry.groupName = cat.groupName
-            hasState = true
-        end
-        if cat.groupNameCustom then
-            entry.groupNameCustom = cat.groupNameCustom
-            hasState = true
-        end
-        if hasState then
-            userState[cat._defaultName] = entry
+        if cat.isEquipSet then
+            -- Runtime-only children of the "Item Set Gear" anchor: never persisted;
+            -- InitCategories re-appends them after the anchor each rebuild.
+            -- (skip)
+        else
+            userOrder[#userOrder + 1] = cat._defaultName
+            local hasState = false
+            local entry = {}
+            -- Compare against the LOCALIZED default name. cat.name is the localized
+            -- display string (state.rename or L(_defaultName)) while _defaultName is the
+            -- English identity key. On a non-English client a plain inequality would see
+            -- every untouched default category as "renamed" and freeze its localized name
+            -- into the DB, so only treat it as a rename when it differs from the locale default.
+            if cat.name ~= EllesmereUI.L(cat._defaultName) then
+                entry.rename = cat.name
+                hasState = true
+            end
+            if cat.groupName then
+                entry.groupName = cat.groupName
+                hasState = true
+            end
+            if cat.groupNameCustom then
+                entry.groupNameCustom = cat.groupNameCustom
+                hasState = true
+            end
+            if hasState then
+                userState[cat._defaultName] = entry
+            end
         end
     end
     BP().bagCategoryState = userState
@@ -299,21 +339,32 @@ end
 -------------------------------------------------------------------------------
 --  Classification
 -------------------------------------------------------------------------------
--- Equipment set lookup: built once per ClassifyAll pass, maps "bag:slot" -> true
+-- Equipment set lookup: built once per ClassifyAll pass.
+-- Maps "bag*1000+slot" -> setID. A slot in several sets keeps the first
+-- (enumeration order), matching split-mode classification's first-set-wins.
 local _setGearLookup = {}
+-- setID -> set name, for the on-item set name label (no API call at stamp time)
+local _setNames = {}
 
 local function BuildSetGearLookup()
     wipe(_setGearLookup)
+    wipe(_setNames)
     local setIDs = C_EquipmentSet.GetEquipmentSetIDs()
     if not setIDs then return end
+    -- Names only feed the on-item label; skip the API calls when it's off
+    local wantNames = BP().bagShowSetGearName == true
     for _, setID in ipairs(setIDs) do
+        if wantNames then
+            _setNames[setID] = C_EquipmentSet.GetEquipmentSetInfo(setID)
+        end
         local locs = C_EquipmentSet.GetItemLocations(setID)
         if locs then
             for _, loc in pairs(locs) do
                 if loc and loc ~= 0 and loc ~= 1 and loc ~= -1 then
                     local data = EquipmentManager_GetLocationData(loc)
                     if data.isBags then
-                        _setGearLookup[data.bag * 1000 + data.slot] = true
+                        local key = data.bag * 1000 + data.slot
+                        if not _setGearLookup[key] then _setGearLookup[key] = setID end
                     end
                 end
             end
@@ -389,11 +440,18 @@ function CategoryManager:ClassifyItem(itemLink, itemID, bag, slot)
     end
 
     -- Equipment set gear check: if item is Armor/Weapon AND in an equipment set,
-    -- route to the "Item Set Gear" category before normal type matching
+    -- route to its own set's category (split mode; first set wins for items in
+    -- several) or the merged "Item Set Gear" category, before normal type matching
     if bag and slot and (classID == IC_ARMOR or classID == IC_WEAPON) then
-        if _setGearLookup[bag * 1000 + slot] then
+        local setID = _setGearLookup[bag * 1000 + slot]
+        if setID then
+            local byID = self._setCatIdxBySetID
+            local idx = byID and byID[setID]
+            if idx then return idx end
             for i, cat in ipairs(cats) do
-                if cat.isSetGear then return i end
+                -- Anchor explicitly: children are isSetGear too, and cats order
+                -- can put them first after the anchor is drag-reordered
+                if cat.isSetGear and not cat.isEquipSet then return i end
             end
         end
     end
@@ -441,6 +499,17 @@ local _claDisabledIdxSet = {}
 function CategoryManager:ClassifyAll(items)
     BuildSetGearLookup()
     local cats = self:GetCategories()
+    -- Rebuild setID -> index every pass: drag-reorder and custom-category
+    -- add/remove mutate cats in place without InitCategories, shifting indices.
+    -- Refill gated on split mode (no children exist when it's off).
+    local setCatIdx = self._setCatIdxBySetID or {}
+    wipe(setCatIdx)
+    if BP().bagSplitSetGearBySet then
+        for i, cat in ipairs(cats) do
+            if cat.equipSetID then setCatIdx[cat.equipSetID] = i end
+        end
+    end
+    self._setCatIdxBySetID = setCatIdx
     wipe(_claCounts)
     for i = 1, #cats do _claCounts[i] = 0 end
     local counts = _claCounts
@@ -458,12 +527,24 @@ function CategoryManager:ClassifyAll(items)
             if cat._defaultName and disabledCats[cat._defaultName] then
                 disabledIdxSet[i] = true
             end
+            -- Disabling the "Item Set Gear" anchor disables its set children too,
+            -- or split mode would silently bypass the user's choice.
+            if cat.isEquipSet and disabledCats["Item Set Gear"] then
+                disabledIdxSet[i] = true
+            end
         end
     end
 
+    -- On-item label stamping gated on its toggle (recycled tables are wiped on
+    -- acquire, so no stale _setName survives while it's off)
+    local stampNames = BP().bagShowSetGearName == true
     for _, data in ipairs(items) do
         if data.info and data.itemLink then
             local idx = self:ClassifyItem(data.itemLink, data.info.itemID, data.bag, data.slot)
+            if stampNames then
+                local sid = _setGearLookup[data.bag * 1000 + data.slot]
+                data._setName = sid and _setNames[sid] or nil
+            end
             -- Reroute disabled categories to catch-all
             if disabledIdxSet and idx and disabledIdxSet[idx] and catchAllIdx then
                 idx = catchAllIdx
@@ -501,6 +582,9 @@ end
 function CategoryManager:ReorderCategory(fromIndex, toIndex)
     local cats = self:GetCategories()
     if not cats[fromIndex] or fromIndex == toIndex then return end
+    -- Equip-set categories move as a block via their anchor; a single one dragged
+    -- out would snap back on the next rebuild (SaveState collapses the block).
+    if cats[fromIndex].isEquipSet then return end
     if toIndex < 1 or toIndex > #cats + 1 then return end
     local entry = table.remove(cats, fromIndex)
     local insertAt = toIndex
@@ -752,7 +836,14 @@ function CategoryManager:CanAssignToCategory(catIndex)
     local cat = cats[catIndex]
     if not cat then return false end
     if cat.isPinned or cat.isRecent or cat.isReagentBag then return false end
+    if cat.isEquipSet then return false end  -- membership comes from the set itself
     return true
+end
+
+-- Equipment sets changed (created/renamed/deleted): drop the cached list so the
+-- next GetCategories rebuilds split-mode categories from the current sets.
+function CategoryManager:OnEquipmentSetsChanged()
+    self._categories = nil
 end
 
 -------------------------------------------------------------------------------

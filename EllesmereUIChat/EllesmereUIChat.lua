@@ -289,7 +289,7 @@ local function GetInnerBorderColor(cfg)
 end
 
 -- Chat frame text size is Blizzard's per-frame setting (right-click tab ->
--- Font Size); we only control font family + outline.
+-- Font Size); the EUI profile mirrors the latest user-selected value.
 local function GetFrameFontSize(id)
     if FCF_GetChatWindowInfo then
         local _, fontSize = FCF_GetChatWindowInfo(id)
@@ -297,6 +297,7 @@ local function GetFrameFontSize(id)
     end
     return 12
 end
+
 local function GetEditBoxHeight()
     return min(60, max(10, ECHAT.DB().editBoxHeight or 23))
 end
@@ -620,9 +621,10 @@ function ECHAT.ApplyFonts()
 end
 
 -- One size for every chat window (the options slider). Persistence rides
--- Blizzard's own per-window storage -- SetChatWindowSize is a plain C write,
--- so there is no DB key, no migration, their tab menu keeps working for
--- later per-window tweaks, and their login pass re-applies it. NEVER route
+-- Blizzard's own per-window storage -- SetChatWindowSize is a plain C write.
+-- The EUI profile mirrors the latest size selected either here or through a
+-- chat tab's right-click menu, so the native menu choice survives reload.
+-- NEVER route
 -- this through FCF_SetChatWindowFontSize: the old in-place skin's size
 -- control rippled through Blizzard's tab-resize/dock machinery measuring
 -- secret label widths under our taint (the v7.15-era removal). Under the
@@ -651,9 +653,10 @@ end
 -- means "not yet captured") is the source of truth; Blizzard's per-window
 -- storage stays the delivery vehicle via ApplyChatFontSize, so the taint
 -- posture is unchanged. Genesis: seeded from the FIRST character's live
--- size at the first settled sight (pixel-invisible on that character);
--- every later login re-asserts the profile value, flattening per-character
--- and per-window sizes to it.
+-- size at the first settled sight (pixel-invisible on that character); every
+-- later login re-asserts the profile value across windows. The interaction
+-- follower mirrors native tab-menu changes because that menu writes the
+-- frame font directly without emitting UPDATE_CHAT_WINDOWS.
 function ECHAT.SyncChatFontSize()
     local cfg = ECHAT.DB()
     if not cfg then return end
@@ -1084,8 +1087,18 @@ do
     local accum = 0
     local lastSelected
     local lastShown = {}
-    local lastFontH = {}
+    local lastFontSize = {}
     local lastDockCount
+
+    -- Seed before the first interaction so a fast tab-menu change is still
+    -- recognized as a change from the settled Blizzard value.
+    for i = 1, 20 do
+        local cf = _G["ChatFrame" .. i]
+        if cf and cf.GetFont then
+            local size = GetFrameFontSize(i)
+            if size and size > 0 then lastFontSize[i] = size end
+        end
+    end
 
     follower:SetScript("OnUpdate", function(_, elapsed)
         -- Geometry every frame while armed: drags need per-frame follow.
@@ -1122,18 +1135,25 @@ do
                 if ECHAT.QueueTabPass then ECHAT.QueueTabPass() end
             end
         end
-        -- Per-window font size can change from Blizzard's tab menu (secure
-        -- flow we never touch); our view follows by re-reading the provider.
-        -- First sight only seeds the cache.
+        -- Blizzard's tab menu writes the frame font directly and does not emit
+        -- UPDATE_CHAT_WINDOWS. Mirror the changed stored size into the EUI
+        -- profile while this existing interaction-only watcher is armed, then
+        -- refresh our visible copy from Blizzard's storage.
         for i = 1, 20 do
             local cf = _G["ChatFrame" .. i]
             if cf and cf.GetFont then
-                local _, fh = cf:GetFont()
-                if fh and fh ~= lastFontH[i] then
-                    if lastFontH[i] and ECHAT.EngineApplyFontTo then
+                local size = GetFrameFontSize(i)
+                if size and size ~= lastFontSize[i] then
+                    if lastFontSize[i] then
+                        local cfg = ECHAT.DB()
+                        if cfg and cfg.chatFontSize ~= size then
+                            cfg.chatFontSize = size
+                        end
+                    end
+                    if lastFontSize[i] and ECHAT.EngineApplyFontTo then
                         ECHAT.EngineApplyFontTo(cf)
                     end
-                    lastFontH[i] = fh
+                    lastFontSize[i] = size
                 end
             end
         end
@@ -4187,26 +4207,45 @@ local function SkinChatFrame(cf)
                 HideSidebarIconTooltip(self)
             end)
 
-            local fcPending
+            local fcLast, fcDirty
             local function UpdateFriendsCount()
-                fcPending = nil
+                if InCombatLockdown() then
+                    fcDirty = true
+                    return
+                end
+                fcDirty = nil
                 local _, numOnline = BNGetNumFriends()
-                local wowOnline = C_FriendList.GetNumOnlineFriends()
-                friendsCount:SetText(numOnline + wowOnline)
+                local wowOnline = C_FriendList.GetNumOnlineFriends() or 0
+                local total = numOnline + wowOnline
+                if total ~= fcLast then
+                    fcLast = total
+                    friendsCount:SetText(total)
+                end
             end
 
             local fcEvents = CreateFrame("Frame")
             fcEvents:RegisterEvent("BN_FRIEND_LIST_SIZE_CHANGED")
-            fcEvents:RegisterEvent("BN_FRIEND_INFO_CHANGED")
+            fcEvents:RegisterEvent("BN_FRIEND_ACCOUNT_ONLINE")
+            fcEvents:RegisterEvent("BN_FRIEND_ACCOUNT_OFFLINE")
             fcEvents:RegisterEvent("FRIENDLIST_UPDATE")
             fcEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
-            -- BN_FRIEND_INFO_CHANGED storms on big friend lists (presence spam)
-            -- and each recount walks both friend APIs, so the storm coalesces
-            -- into one trailing recount per second.
-            fcEvents:SetScript("OnEvent", function()
-                if fcPending then return end
-                fcPending = true
-                C_Timer.After(1, UpdateFriendsCount)
+            fcEvents:RegisterEvent("BN_CONNECTED")
+            fcEvents:RegisterEvent("BN_DISCONNECTED")
+            fcEvents:RegisterEvent("PLAYER_REGEN_ENABLED")
+            -- Recount inline on the exact edges -- the narrow account
+            -- online/offline pair (the same field-proven set the DataBars
+            -- micromenu count uses), NOT the BN_FRIEND_INFO_CHANGED presence
+            -- firehose, so nothing fires between real login/logout edges.
+            -- Two cached count reads plus one compare, no timers, and the
+            -- label only rewrites when the number changed. In combat nothing
+            -- recounts at all -- events mark the count dirty and the regen
+            -- edge settles it once.
+            fcEvents:SetScript("OnEvent", function(_, event)
+                if event == "PLAYER_REGEN_ENABLED" then
+                    if fcDirty then UpdateFriendsCount() end
+                    return
+                end
+                UpdateFriendsCount()
             end)
 
             CFD(cf).friendsCount = friendsCount

@@ -880,15 +880,34 @@ local function MakeStatBlock(blockCfg, slot, content, barCtx, opts)
         frame:SetScript("OnClick", opts.click(inst, function() return mouseOver end))
     end
 
+    -- Evented stat blocks (opts.events) never touch the heartbeat: the game
+    -- names the exact edges their value changes on, so the block samples only
+    -- there and costs nothing between them. Time-driven blocks (fps/ms) keep
+    -- the shared 1s ticker.
+    local function ForceTick()
+        tickCount = (opts.interval or 1) - 1
+        Tick()
+    end
+
     function inst:Enable()
         content:Show()
         lastVal = -1
         -- Sample on the very first tick regardless of interval.
         tickCount = (opts.interval or 1) - 1
-        ns.RegisterHeartbeat(opts.hbPrefix .. ":" .. self.key, Tick)
+        if opts.events then
+            if not self.eventFrame then
+                self.events = opts.events
+                self.eventFrame = MakeEventFrame(self, ForceTick)
+            end
+            RegisterInstEvents(self)
+            ForceTick()
+        else
+            ns.RegisterHeartbeat(opts.hbPrefix .. ":" .. self.key, Tick)
+        end
     end
 
     function inst:Disable()
+        UnregisterInstEvents(self)
         ns.UnregisterHeartbeat(opts.hbPrefix .. ":" .. self.key)
         content:Hide()
     end
@@ -902,6 +921,7 @@ local function MakeStatBlock(blockCfg, slot, content, barCtx, opts)
 
     function inst:Destroy()
         self._dead = true
+        UnregisterInstEvents(self)
         content:Hide()
     end
 
@@ -1173,7 +1193,10 @@ ns.BlockFactories.durability = function(blockCfg, slot, content, barCtx)
         hbPrefix = "durability",
         texture  = MEDIA .. "forge.png",
         iconExtra = 7,
-        interval = 2,
+        -- Durability only moves on damage/repair edges the game announces, so
+        -- the block samples on those events alone -- no heartbeat, and with no
+        -- other time-driven block enabled the 1s ticker never runs at all.
+        events   = { "UPDATE_INVENTORY_DURABILITY", "PLAYER_ENTERING_WORLD" },
         sample   = SampleDurability,
         suffix   = function() return "%" end,
         tooltip  = DurabilityTooltip,
@@ -2537,6 +2560,10 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
     local inst = { cfg = blockCfg, slot = slot, content = content, ctx = barCtx }
     inst.key = InstKey(barCtx, blockCfg)
     -- BAG_UPDATE_DELAYED / SPELLS_CHANGED: ownership edges that must clear the negative hearthstone cache (rare at idle, cheap refresh).
+    -- Cooldown-START edges ride a player-filtered UNIT_SPELLCAST_SUCCEEDED
+    -- registered in Enable (RegisterInstEvents cannot unit-filter): every
+    -- hearth start IS a player cast, and BAG_UPDATE_COOLDOWN measured
+    -- idle-chatty (~0.7 Hz ambient with nothing cooling).
     inst.events = { "HEARTHSTONE_BOUND", "PLAYER_ENTERING_WORLD",
         "BAG_UPDATE_DELAYED", "SPELLS_CHANGED" }
 
@@ -2544,6 +2571,11 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
     local _trvFitBuf1 = { "" }
     local _trvFitBuf2 = { "" }
     local mouseOver = false
+    -- Heartbeat demand-gate: the 1s tick runs ONLY while something is cooling
+    -- or the tooltip is open (live M:SS columns). Ready + un-hovered = no tick
+    -- at all; BAG_UPDATE_COOLDOWN announces every start edge and re-arms.
+    local ticking = false
+    local TravelSyncTicker -- forward declaration, filled in after TravelTick
 
     -- Pre-allocated tooltip line buffers (no per-show garbage). `spellId` is the static teleport spell ID (click overlay attribute), not the shown `name`.
     local _mythicLinesBuf = {}
@@ -2821,6 +2853,8 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
         -- Block renders only icon + bind location; remaining cooldown lives in
         -- the tooltip. On cooldown (or an unknown/secret one) it dims to gray.
         local cd, cdKnown = TravelGetPrimaryCooldown()
+        inst._lastCooling = (not cdKnown) or cd > 0
+        TravelSyncTicker(mouseOver or inst._lastCooling)
 
         if mouseOver then
             local ar, ag, ab = ns.GetAccent()
@@ -2897,10 +2931,35 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
         if cooling ~= inst._lastCooling then
             inst._lastCooling = cooling
             inst:Refresh()
+        elseif not cooling and not mouseOver then
+            -- Settled ready with no edge to paint: nothing left to watch.
+            TravelSyncTicker(false)
         end
     end
 
-    inst.eventFrame = MakeEventFrame(inst, function(self)
+    -- Fills the forward declaration above. Register/unregister is flag-guarded
+    -- so redundant syncs cost one boolean test.
+    TravelSyncTicker = function(want)
+        if want then
+            if not ticking then
+                ticking = true
+                ns.RegisterHeartbeat("travel:" .. inst.key, TravelTick)
+            end
+        elseif ticking then
+            ticking = false
+            ns.UnregisterHeartbeat("travel:" .. inst.key)
+        end
+    end
+
+    inst.eventFrame = MakeEventFrame(inst, function(self, event)
+        if event == "UNIT_SPELLCAST_SUCCEEDED" then
+            -- Cooldown-START lane (player casts only; every hearth start is
+            -- one): never invalidates the hearthstone pick, and while the
+            -- ticker already runs there is nothing to learn. One probe on a
+            -- start edge re-arms the tick; zero fires standing idle.
+            if not ticking then TravelTick() end
+            return
+        end
         ns.TravelInvalidateHearthCache()
         self:Refresh()
     end)
@@ -2908,11 +2967,16 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
     function inst:Enable()
         content:Show()
         RegisterInstEvents(self)
-        ns.RegisterHeartbeat("travel:" .. self.key, TravelTick)
+        -- Player-filtered registration; Disable's UnregisterAllEvents drops it,
+        -- so it re-registers here (re-registration is idempotent).
+        pcall(self.eventFrame.RegisterUnitEvent, self.eventFrame, "UNIT_SPELLCAST_SUCCEEDED", "player")
+        -- Armed at enable as a belt; the first settled ready read stands it
+        -- down (TravelTick's else branch or any Refresh).
+        TravelSyncTicker(true)
     end
 
     function inst:Disable()
-        ns.UnregisterHeartbeat("travel:" .. self.key)
+        TravelSyncTicker(false)
         UnregisterInstEvents(self)
         content:Hide()
     end

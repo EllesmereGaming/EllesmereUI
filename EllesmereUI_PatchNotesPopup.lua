@@ -205,9 +205,10 @@ local function ShowPatchNotesPopup()
             -- Patch Notes is its own sidebar module now (_EUIPatchNotes), not a
             -- page under Global Settings. Select that module directly so the
             -- sidebar highlights Patch Notes (mirrors the sidebar button OnClick).
-            if EllesmereUI.SelectModule then
-                EllesmereUI:Show()
-                EllesmereUI:SelectModule("_EUIPatchNotes")
+            -- ShowModule, not Show + SelectModule: it carries the first-open
+            -- split, so the module still lands when the panel builds next frame.
+            if EllesmereUI.ShowModule then
+                EllesmereUI:ShowModule("_EUIPatchNotes")
             end
         end
     end

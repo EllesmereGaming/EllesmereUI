@@ -14194,10 +14194,13 @@ local function ApplyDataBarLayout(barKey)
         frame._restedBar:SetRotatesTexture(orient ~= "HORIZONTAL")
     end
 
-    -- Per-bar Text Size (default 9). Re-applied here so the options slider
-    -- takes effect live through the existing ApplyDataBarLayout calls.
+    -- Per-bar Text Size (default 9) + text X/Y offsets (default 0,0).
+    -- Re-applied here so the options slider and offset cog take effect live
+    -- through the existing ApplyDataBarLayout calls.
     if frame._text then
         frame._text:SetFont(FONT_PATH, s.textSize or 9, GetEABOutline())
+        frame._text:ClearAllPoints()
+        frame._text:SetPoint("CENTER", s.textOffsetX or 0, s.textOffsetY or 0)
     end
 
     if frame._updateFunc then frame._updateFunc() end
@@ -14238,12 +14241,22 @@ local function CreateDataBarFrame(barKey, updateFunc)
     bar:SetValue(0)
     bar:GetStatusBarTexture():SetDrawLayer("ARTWORK", 4)
 
-    local text = bar:CreateFontString(nil, "OVERLAY")
+    -- Text lives on its own host ABOVE the MakeBorder strips: the border
+    -- container renders two levels above the holder, and frame level beats
+    -- draw layer, so a string on the bar itself gets cut by the border edges
+    -- whenever the glyphs reach them (large Text Size / short bars).
+    local textHost = CreateFrame("Frame", nil, bar)
+    textHost:SetAllPoints(bar)
+    local edges = holder._border and holder._border.edges
+    textHost:SetFrameLevel(((edges and edges.GetFrameLevel and edges:GetFrameLevel())
+        or holder:GetFrameLevel() + 2) + 1)
+
+    local text = textHost:CreateFontString(nil, "OVERLAY")
     if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(text, GetEABUseShadow()) end
-    local textSize = EAB.db and EAB.db.profile and EAB.db.profile.bars
-        and EAB.db.profile.bars[barKey] and EAB.db.profile.bars[barKey].textSize or 9
-    text:SetFont(FONT_PATH, textSize, GetEABOutline())
-    text:SetPoint("CENTER")
+    local sInit = EAB.db and EAB.db.profile and EAB.db.profile.bars
+        and EAB.db.profile.bars[barKey]
+    text:SetFont(FONT_PATH, sInit and sInit.textSize or 9, GetEABOutline())
+    text:SetPoint("CENTER", sInit and sInit.textOffsetX or 0, sInit and sInit.textOffsetY or 0)
     text:SetTextColor(1, 1, 1, 1)
 
     holder._bar = bar

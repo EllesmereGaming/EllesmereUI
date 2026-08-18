@@ -1108,6 +1108,12 @@ initFrame:SetScript("OnEvent", function(self)
             else
                 hR, hG, hB = 0.8, 0.2, 0.2
             end
+            -- Dynamic Health Color outranks every flat source above, exactly as it
+            -- does on the live bar. The preview's health percent is a known fake,
+            -- so this takes the clean-number twin of the engine curve rather than
+            -- UnitHealthPercent.
+            local pvDynR, pvDynG, pvDynB = ns.UF_PreviewDynamicColor(settings, _previewHealthPct or 0.70)
+            if pvDynR then hR, hG, hB = pvDynR, pvDynG, pvDynB end
             -- Class-colored background (designer shows the player's class), else custom.
             local bgClassCC
             if settings.bgClassColored then
@@ -1325,10 +1331,8 @@ initFrame:SetScript("OnEvent", function(self)
         local function PreviewPowerColor(fs, contentKey, usePowerColor)
             if not fs or not usePowerColor then return end
             if contentKey == "perpp" or contentKey == "curpp" or contentKey == "curhp_curpp" or contentKey == "perhp_perpp" then
-                -- EUI global power color (player's current power) as the real frame
-                -- uses, not hardcoded blue.
-                local _, pToken = UnitPowerType("player")
-                local info = EllesmereUI.GetPowerColor(pToken or "MANA")
+                local pcR, pcG, pcB = EllesmereUI.ResolveUnitPowerColor("player")
+                local info = pcR and { r = pcR, g = pcG, b = pcB }
                 if info then fs:SetTextColor(info.r, info.g, info.b)
                 else fs:SetTextColor(1, 1, 1) end
             end
@@ -2481,6 +2485,10 @@ initFrame:SetScript("OnEvent", function(self)
                     else
                         uHR, uHG, uHB = 0.8, 0.2, 0.2
                     end
+                    -- Dynamic Health Color overrides the flat sources above (see the
+                    -- build-time twin); resolved at the preview's fake health percent.
+                    local uDynR, uDynG, uDynB = ns.UF_PreviewDynamicColor(s, _previewHealthPct or 0.70)
+                    if uDynR then uHR, uHG, uHB = uDynR, uDynG, uDynB end
                     -- Class-colored background (designer shows the player's class), else custom.
                     local uBgClassCC
                     if s.bgClassColored then
@@ -5944,6 +5952,13 @@ initFrame:SetScript("OnEvent", function(self)
                   end },
                 { tooltip = "Custom Colored Fill",
                   hasAlpha = false,
+                  -- Dynamic Color resolves the fill from health percent, so the flat
+                  -- custom/class choice below has no effect while it is on. Greyed and
+                  -- click-blocked rather than reset: the stored customFillColor and
+                  -- healthClassColored are left exactly as the user had them and come
+                  -- back untouched the moment Dynamic Color goes to Off.
+                  disabled = function() return SVal("healthColorMode", "none") ~= "none" end,
+                  disabledTooltip = "Dynamic Color is on -- the fill color comes from the unit's health", rawTooltip = true,
                   getValue = function()
                       local c = SGet("customFillColor")
                       if c then return c.r, c.g, c.b end
@@ -5973,6 +5988,12 @@ initFrame:SetScript("OnEvent", function(self)
                   end },
                 { tooltip = "Class Colored Fill",
                   hasAlpha = false,
+                  -- Same as the custom swatch: inert while Dynamic Color is on, so it
+                  -- greys out instead of silently doing nothing. Class Reactive still
+                  -- uses the class color, but as the 100% stop of the curve, not as
+                  -- this flat choice.
+                  disabled = function() return SVal("healthColorMode", "none") ~= "none" end,
+                  disabledTooltip = "Dynamic Color is on -- the fill color comes from the unit's health", rawTooltip = true,
                   getValue = function()
                       local _, ct = UnitClass("player")
                       if ct and RAID_CLASS_COLORS[ct] then
@@ -6100,6 +6121,9 @@ initFrame:SetScript("OnEvent", function(self)
         -- Sync icon: Bar Color (left) -- fill/class color and gradient
         if not EllesmereUI._prebuilding then
             local rgn = sharedHealthColorRow._leftRegion
+            -- Dynamic Color lives in this slot's cog, and its three stops are inline
+            -- swatches on this row, so they travel with the rest of Bar Color.
+            local DYN_STOP_KEYS = { "dynamicColor100", "dynamicColor50", "dynamicColor0" }
             local function ApplyColorTo(keys)
                 local src = UNIT_DB_MAP[selectedUnit]()
                 local cc = src.healthClassColored or false
@@ -6107,6 +6131,7 @@ initFrame:SetScript("OnEvent", function(self)
                 local gEn = src.gradientEnabled or false
                 local gDir = src.gradientDir or "HORIZONTAL"
                 local gc = src.gradientColor
+                local dynMode = src.healthColorMode or "none"
                 for _, key in ipairs(keys) do
                     if key ~= selectedUnit then
                         local d = UNIT_DB_MAP[key]()
@@ -6117,6 +6142,11 @@ initFrame:SetScript("OnEvent", function(self)
                         d.gradientDir = gDir
                         if gc then d.gradientColor = { r=gc.r, g=gc.g, b=gc.b }
                         else d.gradientColor = nil end
+                        d.healthColorMode = dynMode
+                        for _, ck in ipairs(DYN_STOP_KEYS) do
+                            local sc = src[ck]
+                            if sc then d[ck] = { r=sc.r, g=sc.g, b=sc.b } else d[ck] = nil end
+                        end
                     end
                 end
                 ReloadAndUpdate(); EllesmereUI:RefreshPage()
@@ -6139,6 +6169,10 @@ initFrame:SetScript("OnEvent", function(self)
                         if (d.gradientEnabled or false) ~= (src.gradientEnabled or false) then return false end
                         if not colEq(d.gradientColor, src.gradientColor) then return false end
                         if (d.gradientDir or "HORIZONTAL") ~= (src.gradientDir or "HORIZONTAL") then return false end
+                        if (d.healthColorMode or "none") ~= (src.healthColorMode or "none") then return false end
+                        for _, ck in ipairs(DYN_STOP_KEYS) do
+                            if not colEq(d[ck], src[ck]) then return false end
+                        end
                     end
                     return true
                 end,
@@ -6151,12 +6185,29 @@ initFrame:SetScript("OnEvent", function(self)
                 },
             })
         end
-        -- Gradient cog on Bar Color (left region)
+        -- Fill Color cog on Bar Color (left region): the two settings that decide
+        -- what color the fill actually ends up, beyond the flat swatches.
+        -- Dynamic Color and Gradient COMPOSE -- Dynamic picks the color from the
+        -- unit's health percent, Gradient then runs from that color to the
+        -- gradient end color -- so they share one popup rather than fighting.
         if not EllesmereUI._prebuilding then
             local rgn = sharedHealthColorRow._leftRegion
             local _, gradCogShow = EllesmereUI.BuildCogPopup({
-                title = "Gradient Settings",
+                title = "Fill Color Settings",
                 rows = {
+                    -- Ported from the Raid Frames "Fill Color" dropdown: same modes,
+                    -- same curve shape, same stop defaults, so a unit frame and a
+                    -- party frame on the same mode paint the same color at the same
+                    -- health. The 100%/50%/0% stops are swatches on the row itself
+                    -- (cog popups have no color row type).
+                    { type="dropdown", label="Dynamic Color",
+                      tooltip="Color the health bar by how much health is left, instead of a flat color. Classic runs green at full health through yellow to red at empty. Custom Colors blends between the three stop swatches on this row -- full (100%), half (50%) and empty (0%). Class Reactive shows the class color at full health, bleeding into the 50% and 0% colors as the unit takes damage. Off leaves the flat Fill Color swatches in charge; either way the Gradient below still applies, running from whichever color this picks.",
+                      values={ none="Off", classic="Classic",
+                               customDynamic="Custom Colors", classReactive="Class Reactive" },
+                      order={ "none", "classic", "customDynamic", "classReactive" },
+                      get=function() return SVal("healthColorMode", "none") end,
+                      -- RefreshPage re-runs the stop swatches' show/hide pass.
+                      set=function(v) SSet("healthColorMode", v); ReloadAndUpdate(); UpdatePreview(); EllesmereUI:RefreshPage() end },
                     { type="toggle", label="Enable Gradient",
                       get=function() return SVal("gradientEnabled", false) end,
                       set=function(v) SSet("gradientEnabled", v); ReloadAndUpdate(); UpdatePreview(); EllesmereUI:RefreshPage() end },
@@ -6167,6 +6218,60 @@ initFrame:SetScript("OnEvent", function(self)
                 },
             })
             MakeCogBtn(rgn, gradCogShow)
+        end
+        -- Dynamic Color stop swatches (100% | 50% | 0%), chained LEFT of the cog so
+        -- they sit at the far end of the row's inline run: hiding them for the modes
+        -- that don't read them then leaves no hole in the middle of the controls,
+        -- and Off restores exactly the original [cog][gradient][custom][class] look.
+        if not EllesmereUI._prebuilding then
+            local rgn = sharedHealthColorRow._leftRegion
+            local dynDefs = {
+                { key = "dynamicColor100", def = { r = 0, g = 1, b = 0 },
+                  tip = "Health bar color at full (100%) health" },
+                { key = "dynamicColor50",  def = { r = 0xEC/255, g = 0xEC/255, b = 0x32/255 },
+                  tip = "Health bar color at half (50%) health" },
+                { key = "dynamicColor0",   def = { r = 0xE3/255, g = 0x30/255, b = 0x30/255 },
+                  tip = "Health bar color at empty (0%) health" },
+            }
+            local dynSwatches, dynUpdaters = {}, {}
+            local prevAnchor = rgn._lastInline or rgn._control
+            for i = #dynDefs, 1, -1 do
+                local dd = dynDefs[i]
+                local sw, swUpdate = EllesmereUI.BuildColorSwatch(
+                    rgn, sharedHealthColorRow:GetFrameLevel() + 3,
+                    function()
+                        local c = SGet(dd.key) or dd.def
+                        return c.r, c.g, c.b, 1
+                    end,
+                    function(r, g, b)
+                        UNIT_DB_MAP[selectedUnit]()[dd.key] = { r=r, g=g, b=b }
+                        ReloadAndUpdate(); UpdatePreview()
+                    end, false, 18)
+                sw:SetPoint("RIGHT", prevAnchor, "LEFT", -8, 0)
+                sw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, dd.tip) end)
+                sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                dynSwatches[i] = sw
+                dynUpdaters[i] = swUpdate
+                prevAnchor = sw
+            end
+            rgn._lastInline = prevAnchor
+            -- dynSwatches[1] is the 100% stop. Class Reactive drives that stop from
+            -- the unit's own class color, so only 50%/0% are editable there.
+            -- The swatch UPDATERS must run on every refresh too: the stops are
+            -- per-unit, and switching the selected unit refreshes widgets rather
+            -- than rebuilding the page, so without this the swatches keep showing
+            -- the previous unit's colors.
+            local function UpdateDynSwatchVis()
+                local mode = SVal("healthColorMode", "none")
+                local isDynamic = mode == "customDynamic"
+                local isReactive = mode == "classReactive"
+                for i, sw in ipairs(dynSwatches) do
+                    if dynUpdaters[i] then dynUpdaters[i]() end
+                    if isDynamic or (isReactive and i > 1) then sw:Show() else sw:Hide() end
+                end
+            end
+            RegisterWidgetRefresh(UpdateDynSwatchVis)
+            UpdateDynSwatchVis()
         end
 
         -- Dark Mode: disable all Bar Color + Bar Background controls (the flat dark
@@ -10580,19 +10685,24 @@ initFrame:SetScript("OnEvent", function(self)
         if not (BuffDisabled() and DebuffDisabled()) then
         do
             local buffFilterItems, debuffFilterItems, BUFF_FILTER_KEYS, DEBUFF_FILTER_KEYS
-                -- Full classification set, OR'd together at runtime, all default OFF
-                -- (off = show everything). Non-player buff vocabulary is just these three
+            local BUFF_NEG_SKEYS, DEBUFF_NEG_SKEYS
+                -- Two-lane rows: Show narrows the frame to checked classes (legacy
+                -- behavior, nothing checked = show everything); Hide removes a class
+                -- from whatever shows (s.buffNegClasses/s.debuffNegClasses, engine
+                -- ClassNegated). Non-player buff vocabulary is just these three
                 -- now (the engine gates every other class off for these units; stale keys from retired checkboxes stay inert).
                 buffFilterItems = {
-                    { key = "stealable",         label = "Stealable",          tooltip = "Shows only buffs you can spellsteal or purge" },
-                    { key = "bigDefensive",      label = "Big Defensive",      tooltip = "Shows only major defensive cooldowns" },
-                    { key = "dispellable",       label = "Dispellable",        tooltip = "Shows only auras with a dispel type you can dispel" },
+                    { isHeader = true, label = "Show", rightLabel = "Hide" },
+                    { key = "stealable",         label = "Stealable",          dual = true, tooltip = "Buffs you can spellsteal or purge" },
+                    { key = "bigDefensive",      label = "Big Defensive",      dual = true, tooltip = "Major defensive cooldowns" },
+                    { key = "dispellable",       label = "Dispellable",        dual = true, tooltip = "Auras with a dispel type you can dispel" },
                 }
                 -- Non-player debuff vocabulary is just Own Only + Important now (engine
                 -- gates every other class for these units; stale retired-checkbox keys stay inert); per-spell control goes through Tracked Auras.
                 debuffFilterItems = {
+                    { isHeader = true, label = "Show", rightLabel = "Hide" },
                     { key = "ownOnly",           label = "Own Only",           tooltip = "Shows only the Debuffs you apply" },
-                    { key = "priorityAura",      label = "Important",          tooltip = "Shows only debuffs Blizzard flags as important" },
+                    { key = "priorityAura",      label = "Important",          dual = true, tooltip = "Debuffs Blizzard flags as important" },
                 }
                 if selectedUnit == "target" or selectedUnit == "focus" then
                     table.insert(debuffFilterItems, 1, {
@@ -10602,6 +10712,10 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 BUFF_FILTER_KEYS   = { ownOnly = "onlyPlayerBuffs",   raidFrames = "buffRaid",   raidInCombat = "buffRaidInCombat",   dispellable = "buffDispellable",   crowdControl = "buffCrowdControl",   bigDefensive = "buffBigDefensive",   externalDefensive = "buffExternalDefensive",   cancelable = "buffCancelable", stealable = "buffStealable" }
                 DEBUFF_FILTER_KEYS = { ownOnly = "onlyPlayerDebuffs", raidFrames = "debuffRaid", raidInCombat = "debuffRaidInCombat", dispellable = "debuffDispellable", crowdControl = "debuffCrowdControl", bigDefensive = "debuffBigDefensive", externalDefensive = "debuffExternalDefensive", bossAura = "debuffBossAura", roleAura = "debuffRoleAura", priorityAura = "debuffPriorityAura", nonplayer = "debuffNonPlayer" }
+                -- Hide-lane storage skeys (per-class entries in s.buffNegClasses /
+                -- s.debuffNegClasses); only dual rows appear here.
+                BUFF_NEG_SKEYS   = { stealable = "Stealable", bigDefensive = "BigDefensive", dispellable = "Dispellable" }
+                DEBUFF_NEG_SKEYS = { priorityAura = "PriorityAura" }
             local unitLabel = UNIT_LABELS_SUP[selectedUnit] or "Player"
             local filterRow
             filterRow, h = W:DualRow(parent, y,
@@ -10677,11 +10791,14 @@ initFrame:SetScript("OnEvent", function(self)
                                   })
                               end },
                             { key = ALL_KEY, label = "All Buffs",
-                              tooltip = "Show every buff. While this is on, checked filters below are hidden from the frame instead of added." },
+                              tooltip = "Show every buff. Use the Hide lane below to remove specific filters." },
                             { key = DUR_KEY, label = "Has Duration",
-                              tooltip = "Show every buff that has a duration (hides permanent buffs). While this is on, checked filters below are hidden instead of added." },
-                            { isHeader = true, label = "" },
+                              tooltip = "Show every buff that has a duration (hides permanent buffs). Use the Hide lane below to remove specific filters." },
+                            { isHeader = true, label = "Show", rightLabel = "Hide" },
                         }
+                        local BroadOn = function()
+                            return ps.buffShowAll ~= false or ps.buffHasDuration == true
+                        end
                         local list = ns.PAB_Filters and ns.PAB_Filters() or {}
                         -- Buff Manager parity ordering (matches the PAB pages'
                         -- SortFiltersCanonical): presets in curated catalogue
@@ -10701,49 +10818,110 @@ initFrame:SetScript("OnEvent", function(self)
                             return (rank[a.name] or (1000 + pos[a])) < (rank[b.name] or (1000 + pos[b]))
                         end)
                         for i = 1, #sorted do
-                            items[#items + 1] = { key = sorted[i].id, label = sorted[i].name }
+                            items[#items + 1] = { key = sorted[i].id, label = sorted[i].name,
+                                dual = true, showLockedFn = BroadOn }
                         end
                         return items
                     end
+                    if ns.UF_EnsurePlayerAuraLanes then ns.UF_EnsurePlayerAuraLanes(ps) end
                     cbDD, cbRefresh = EllesmereUI.BuildVisOptsCBDropdown(
                         rgn, 210, rgn:GetFrameLevel() + 2,
                         FilterItems,
-                        function(k)
+                        function(k, neg)
                             if k == ALL_KEY then return ps.buffShowAll ~= false end
                             if k == DUR_KEY then return ps.buffHasDuration == true end
+                            if neg then
+                                local nf = ps.buffNegFilters
+                                return nf and nf[k] == true
+                            end
                             return ps.buffFilters and ps.buffFilters[k] == true
                         end,
-                        function(k, v)
+                        function(k, v, neg)
+                            -- No-empty rule (Player Aura Bars parity): the frame's
+                            -- buff filter always keeps a content source. Sources
+                            -- besides the broad modes: Show-lane filters + direct
+                            -- spells.
+                            local function OtherContent()
+                                if ps.buffFilters and next(ps.buffFilters) then return true end
+                                if ps.buffSpells and #ps.buffSpells > 0 then return true end
+                                return false
+                            end
                             if k == ALL_KEY then
+                                -- Silent block: the last content source cannot be
+                                -- unchecked (use Buff Display None to blank the frame).
+                                if not v and not OtherContent() then return end
                                 ps.buffShowAll = v
-                                -- Mode flip clears selection (subtract set != add set).
-                                -- Mutually exclusive with Has Duration (both are broad-content modes).
+                                -- Mutually exclusive with Has Duration (both are broad-content
+                                -- modes). Lanes persist across mode flips (the hide lane
+                                -- subtracts in both modes).
                                 ps.buffHasDuration = nil
-                                ps.buffFilters = nil
                                 ReloadAndUpdate()
                                 EllesmereUI:RefreshPage()
                                 return
                             end
                             if k == DUR_KEY then
+                                if not v and not OtherContent() then return end
                                 ps.buffHasDuration = v or nil
                                 -- Mutually exclusive with All Buffs (its own broad-content
-                                -- mode); mode flips clear the filter selection.
+                                -- mode); lanes persist.
                                 if v then ps.buffShowAll = false end
-                                ps.buffFilters = nil
                                 ReloadAndUpdate()
                                 EllesmereUI:RefreshPage()
                                 return
                             end
-                            ps.buffFilters = ps.buffFilters or {}
-                            ps.buffFilters[k] = v or nil
+                            -- Two-lane filter write: checking one lane clears the other;
+                            -- emptied lane tables drop to nil (saved-variable hygiene).
+                            if neg then
+                                ps.buffNegFilters = ps.buffNegFilters or {}
+                                ps.buffNegFilters[k] = v or nil
+                                if not next(ps.buffNegFilters) then ps.buffNegFilters = nil end
+                                if v and ps.buffFilters then ps.buffFilters[k] = nil end
+                            else
+                                ps.buffFilters = ps.buffFilters or {}
+                                ps.buffFilters[k] = v or nil
+                                if v and ps.buffNegFilters then
+                                    ps.buffNegFilters[k] = nil
+                                    if not next(ps.buffNegFilters) then ps.buffNegFilters = nil end
+                                end
+                            end
+                            if ps.buffFilters and not next(ps.buffFilters) then ps.buffFilters = nil end
+                            -- Removing the last add-mode source falls back to All Buffs.
+                            if ps.buffShowAll == false and ps.buffHasDuration ~= true
+                                and not OtherContent() then
+                                ps.buffShowAll = nil
+                            end
                             ReloadAndUpdate()
                         end,
                         nil, 12)
                 else
                     cbDD, cbRefresh = EllesmereUI.BuildVisOptsCBDropdown(
                         rgn, 210, rgn:GetFrameLevel() + 2, buffFilterItems,
-                        function(k) return SValSupported(BUFF_FILTER_KEYS[k], false) end,
-                        function(k, v) SSetSupported(BUFF_FILTER_KEYS[k], v) end)
+                        function(k, neg)
+                            if neg then
+                                local m = SDB().buffNegClasses
+                                local sk = BUFF_NEG_SKEYS[k]
+                                return m ~= nil and sk ~= nil and m[sk] == true
+                            end
+                            return SValSupported(BUFF_FILTER_KEYS[k], false)
+                        end,
+                        function(k, v, neg)
+                            local db = SDB()
+                            local sk = BUFF_NEG_SKEYS[k]
+                            if neg then
+                                if not sk then return end
+                                db.buffNegClasses = db.buffNegClasses or {}
+                                db.buffNegClasses[sk] = v and true or nil
+                                if not next(db.buffNegClasses) then db.buffNegClasses = nil end
+                                if v then db[BUFF_FILTER_KEYS[k]] = nil end
+                                ReloadAndUpdate(); UpdatePreview()
+                                return
+                            end
+                            if v and sk and db.buffNegClasses then
+                                db.buffNegClasses[sk] = nil
+                                if not next(db.buffNegClasses) then db.buffNegClasses = nil end
+                            end
+                            SSetSupported(BUFF_FILTER_KEYS[k], v)
+                        end)
                 end
                 PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
                 rgn._control = cbDD; rgn._lastInline = nil
@@ -10763,53 +10941,110 @@ initFrame:SetScript("OnEvent", function(self)
                 if selectedUnit == "player" then
                     local ps = UNIT_DB_MAP[selectedUnit]()
                     local ALL_KEY = "__allDebuffs"
+                    local function AllOn() return ps.debuffShowAll ~= false end
                     local function FilterItems()
                         local items = {
                             { key = ALL_KEY, label = "All Debuffs",
-                              tooltip = "Show every debuff. While this is on, checked filters below are hidden from the frame instead of added." },
-                            { isHeader = true, label = "" },
+                              tooltip = "Show every debuff. Use the Hide lane below to remove specific filters." },
+                            { isHeader = true, label = "Show", rightLabel = "Hide" },
                         }
                         local classItems = ns.PAB_ClassItems and ns.PAB_ClassItems(false) or {}
-                        for i = 1, #classItems do items[#items + 1] = classItems[i] end
+                        for i = 1, #classItems do
+                            local ci = classItems[i]
+                            items[#items + 1] = { key = ci.key, label = ci.label, tooltip = ci.tooltip,
+                                dual = true, showLockedFn = AllOn }
+                        end
                         return items
                     end
+                    if ns.UF_EnsurePlayerAuraLanes then ns.UF_EnsurePlayerAuraLanes(ps) end
                     cbDD, cbRefresh = EllesmereUI.BuildVisOptsCBDropdown(
                         rgn, 210, rgn:GetFrameLevel() + 2,
                         FilterItems,
-                        function(k)
-                            if k == ALL_KEY then return ps.debuffShowAll ~= false end
+                        function(k, neg)
+                            if k == ALL_KEY then return AllOn() end
+                            if neg then
+                                local m = ps.debuffNegClasses
+                                return m ~= nil and m[k] == true
+                            end
                             return ps["debuff" .. k] == true
                         end,
-                        function(k, v)
-                            if k == ALL_KEY then
-                                ps.debuffShowAll = v
-                                -- Mode flip clears class selection (subtract set != add
-                                -- set) including legacy-only class keys the new dropdown
-                                -- no longer offers, so a stale check can't silently add content in add mode.
-                                local function ClearSide(list)
-                                    if not list then return end
+                        function(k, v, neg)
+                            -- No-empty rule (Player Aura Bars parity): any Show-lane
+                            -- class counts as a content source -- scanned over the FULL
+                            -- vocabulary (stale keys from retired checkboxes still
+                            -- render in add mode, so they legitimately hold content).
+                            local function AnyShowClass()
+                                local function Scan(list)
+                                    if not list then return false end
                                     for i = 1, #list do
                                         local class = list[i]
-                                        if not class.buffOnly then
-                                            ps["debuff" .. class.skey] = nil
-                                        end
+                                        if not class.buffOnly and ps["debuff" .. class.skey] == true then return true end
                                     end
+                                    return false
                                 end
-                                ClearSide(ns.UF_TokenClasses)
-                                ClearSide(ns.UF_CandidateClasses)
+                                return Scan(ns.UF_TokenClasses) or Scan(ns.UF_CandidateClasses)
+                            end
+                            if k == ALL_KEY then
+                                -- Silent block: the last content source cannot be
+                                -- unchecked (use Debuff Display None to blank the frame).
+                                if not v and not AnyShowClass() then return end
+                                -- Lanes persist across mode flips (the hide lane
+                                -- subtracts in both modes; the show lane goes dormant
+                                -- while All Debuffs is on).
+                                ps.debuffShowAll = v
                                 ReloadAndUpdate()
                                 EllesmereUI:RefreshPage()
                                 return
                             end
-                            ps["debuff" .. k] = v or nil
+                            -- Two-lane class write: checking one lane clears the other.
+                            if neg then
+                                ps.debuffNegClasses = ps.debuffNegClasses or {}
+                                ps.debuffNegClasses[k] = v or nil
+                                if not next(ps.debuffNegClasses) then ps.debuffNegClasses = nil end
+                                if v then ps["debuff" .. k] = nil end
+                            else
+                                ps["debuff" .. k] = v or nil
+                                if v and ps.debuffNegClasses then
+                                    ps.debuffNegClasses[k] = nil
+                                    if not next(ps.debuffNegClasses) then ps.debuffNegClasses = nil end
+                                end
+                            end
+                            -- Removing the last add-mode class falls back to All Debuffs.
+                            if ps.debuffShowAll == false and not AnyShowClass() then
+                                ps.debuffShowAll = nil
+                            end
                             ReloadAndUpdate()
                         end,
                         nil, 12)
                 else
                     cbDD, cbRefresh = EllesmereUI.BuildVisOptsCBDropdown(
                         rgn, 210, rgn:GetFrameLevel() + 2, debuffFilterItems,
-                        function(k) return SValSupported(DEBUFF_FILTER_KEYS[k], false) end,
-                        function(k, v) SSetSupported(DEBUFF_FILTER_KEYS[k], v) end)
+                        function(k, neg)
+                            if neg then
+                                local m = SDB().debuffNegClasses
+                                local sk = DEBUFF_NEG_SKEYS[k]
+                                return m ~= nil and sk ~= nil and m[sk] == true
+                            end
+                            return SValSupported(DEBUFF_FILTER_KEYS[k], false)
+                        end,
+                        function(k, v, neg)
+                            local db = SDB()
+                            local sk = DEBUFF_NEG_SKEYS[k]
+                            if neg then
+                                if not sk then return end
+                                db.debuffNegClasses = db.debuffNegClasses or {}
+                                db.debuffNegClasses[sk] = v and true or nil
+                                if not next(db.debuffNegClasses) then db.debuffNegClasses = nil end
+                                if v then db[DEBUFF_FILTER_KEYS[k]] = nil end
+                                ReloadAndUpdate(); UpdatePreview()
+                                return
+                            end
+                            if v and sk and db.debuffNegClasses then
+                                db.debuffNegClasses[sk] = nil
+                                if not next(db.debuffNegClasses) then db.debuffNegClasses = nil end
+                            end
+                            SSetSupported(DEBUFF_FILTER_KEYS[k], v)
+                        end)
                 end
                 PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
                 rgn._control = cbDD; rgn._lastInline = nil
@@ -12801,24 +13036,48 @@ initFrame:SetScript("OnEvent", function(self)
                   getValue=function() return MVal("customBgAlpha", 100) end,
                   setValue=function(v) MSet("customBgAlpha", v) end },
                 reverseFillWidget);  y = y - h
-            -- Inline Bar Background color swatch (customBgColor) on the slider region.
+            -- inline bg colors - custom swatch + class swatch
+            -- tot/focus use class for player, reaction for npc
+            -- pet resolves to player's class color
             if not EllesmereUI._prebuilding then
-                local rgn = bgRow._leftRegion
-                local bgSwGet = function()
-                    local c = MGet("customBgColor")
-                    if c then return c.r, c.g, c.b end
-                    return 17/255, 17/255, 17/255
-                end
-                local bgSwSet = function(r, g, b)
-                    settingsTable.customBgColor = { r=r, g=g, b=b }
-                    ReloadAndUpdate()
-                end
-                local bgSw, bgSwUpdate = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, bgSwGet, bgSwSet, false, 20)
-                bgSw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(bgSw, "Bar Background Color") end)
-                bgSw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                PP.Point(bgSw, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-                rgn._lastInline = bgSw
-                RegisterWidgetRefresh(function() bgSwUpdate() end)
+                EllesmereUI.BuildInlineSwatches(bgRow._leftRegion, {
+                    { tooltip = "Custom Background Color", hasAlpha = false,
+                      getValue = function()
+                          local c = MGet("customBgColor")
+                          if c then return c.r, c.g, c.b end
+                          return 17/255, 17/255, 17/255
+                      end,
+                      setValue = function(r, g, b)
+                          settingsTable.customBgColor = { r=r, g=g, b=b }
+                          ReloadAndUpdate()
+                      end,
+                      onClick = function(self)
+                          if MVal("bgClassColored", false) then
+                              settingsTable.bgClassColored = false
+                              ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                              return
+                          end
+                          if self._eabOrigClick then self._eabOrigClick(self) end
+                      end,
+                      refreshAlpha = function()
+                          return MVal("bgClassColored", false) and 0.3 or 1
+                      end },
+                    { tooltip = "Class Colored Background", hasAlpha = false,
+                      getValue = function()
+                          local _, ct = UnitClass("player")
+                          local cc = ct and RAID_CLASS_COLORS[ct]
+                          if cc then return cc.r, cc.g, cc.b end
+                          return 1, 1, 1
+                      end,
+                      setValue = function() end,
+                      onClick = function()
+                          settingsTable.bgClassColored = true
+                          ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                      end,
+                      refreshAlpha = function()
+                          return MVal("bgClassColored", false) and 1 or 0.3
+                      end },
+                })
             end
         end
 
@@ -14461,25 +14720,31 @@ initFrame:SetScript("OnEvent", function(self)
             do
                 local PP = EllesmereUI.PanelPP
                 local filterItems, DEBUFF_FILTER_KEYS, buffFilterItems, BUFF_FILTER_KEYS
+                local BOSS_BUFF_NEG_SKEYS, BOSS_DEBUFF_NEG_SKEYS
                     -- Non-player debuff vocabulary is just Own Only +
                     -- Important now (see the Main Frames list); per-spell
                     -- control goes through Tracked Auras (boss1-5 share
                     -- the one "boss" settings table = one list set).
+                    -- Two-lane rows (Show/Hide) mirror the Main Frames dropdowns.
                     filterItems = {
                         { isTopAction = true, label = "Edit Tracked Auras",
                           onClick = function() ns.UFOpt_ShowTrackedAuras("boss") end },
+                        { isHeader = true, label = "Show", rightLabel = "Hide" },
                         { key = "ownOnly",           label = "Own Only",           tooltip = "Shows only the Debuffs you apply" },
-                        { key = "priorityAura",      label = "Important",          tooltip = "Shows only debuffs Blizzard flags as important" },
+                        { key = "priorityAura",      label = "Important",          dual = true, tooltip = "Debuffs Blizzard flags as important" },
                     }
                     DEBUFF_FILTER_KEYS = { ownOnly = "onlyPlayerDebuffs", raidFrames = "debuffRaid", raidInCombat = "debuffRaidInCombat", dispellable = "debuffDispellable", crowdControl = "debuffCrowdControl", bigDefensive = "debuffBigDefensive", externalDefensive = "debuffExternalDefensive", bossAura = "debuffBossAura", roleAura = "debuffRoleAura", priorityAura = "debuffPriorityAura" }
                     -- Non-player buff vocabulary is just these three (see
                     -- the Main Frames list).
                     buffFilterItems = {
-                        { key = "stealable",         label = "Stealable",          tooltip = "Shows only buffs you can spellsteal or purge" },
-                        { key = "bigDefensive",      label = "Big Defensive",      tooltip = "Shows only major defensive cooldowns" },
-                        { key = "dispellable",       label = "Dispellable",        tooltip = "Shows only auras with a dispel type you can dispel" },
+                        { isHeader = true, label = "Show", rightLabel = "Hide" },
+                        { key = "stealable",         label = "Stealable",          dual = true, tooltip = "Buffs you can spellsteal or purge" },
+                        { key = "bigDefensive",      label = "Big Defensive",      dual = true, tooltip = "Major defensive cooldowns" },
+                        { key = "dispellable",       label = "Dispellable",        dual = true, tooltip = "Auras with a dispel type you can dispel" },
                     }
                     BUFF_FILTER_KEYS = { ownOnly = "onlyPlayerBuffs", raidFrames = "buffRaid", raidInCombat = "buffRaidInCombat", dispellable = "buffDispellable", crowdControl = "buffCrowdControl", bigDefensive = "buffBigDefensive", externalDefensive = "buffExternalDefensive", cancelable = "buffCancelable", stealable = "buffStealable" }
+                    BOSS_BUFF_NEG_SKEYS   = { stealable = "Stealable", bigDefensive = "BigDefensive", dispellable = "Dispellable" }
+                    BOSS_DEBUFF_NEG_SKEYS = { priorityAura = "PriorityAura" }
                 -- Debuff Size | Debuff Text Size: mirrors the buff pair above. Debuff
                 -- Text Size gates on "Show Duration" inside its Duration & Stack cog
                 -- (also holds Duration X/Y + Stack size/position/X/Y). HIDDEN while the
@@ -14685,8 +14950,33 @@ initFrame:SetScript("OnEvent", function(self)
                     if rgn._control then rgn._control:Hide() end
                     local cbDD, cbRefresh = EllesmereUI.BuildVisOptsCBDropdown(
                         rgn, 210, rgn:GetFrameLevel() + 2, filterItems,
-                        function(k) return db.profile.boss[DEBUFF_FILTER_KEYS[k]] or false end,
-                        function(k, v) db.profile.boss[DEBUFF_FILTER_KEYS[k]] = v; ReloadAndUpdate() end)
+                        function(k, neg)
+                            if neg then
+                                local m = db.profile.boss.debuffNegClasses
+                                local sk = BOSS_DEBUFF_NEG_SKEYS[k]
+                                return m ~= nil and sk ~= nil and m[sk] == true
+                            end
+                            return db.profile.boss[DEBUFF_FILTER_KEYS[k]] or false
+                        end,
+                        function(k, v, neg)
+                            local bt = db.profile.boss
+                            local sk = BOSS_DEBUFF_NEG_SKEYS[k]
+                            if neg then
+                                if not sk then return end
+                                bt.debuffNegClasses = bt.debuffNegClasses or {}
+                                bt.debuffNegClasses[sk] = v and true or nil
+                                if not next(bt.debuffNegClasses) then bt.debuffNegClasses = nil end
+                                if v then bt[DEBUFF_FILTER_KEYS[k]] = nil end
+                                ReloadAndUpdate()
+                                return
+                            end
+                            if v and sk and bt.debuffNegClasses then
+                                bt.debuffNegClasses[sk] = nil
+                                if not next(bt.debuffNegClasses) then bt.debuffNegClasses = nil end
+                            end
+                            bt[DEBUFF_FILTER_KEYS[k]] = v
+                            ReloadAndUpdate()
+                        end)
                     PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
                     rgn._control = cbDD; rgn._lastInline = nil
                     EllesmereUI.RegisterWidgetRefresh(cbRefresh)
@@ -14719,8 +15009,33 @@ initFrame:SetScript("OnEvent", function(self)
                     if rgn._control then rgn._control:Hide() end
                     local cbDD, cbRefresh = EllesmereUI.BuildVisOptsCBDropdown(
                         rgn, 210, rgn:GetFrameLevel() + 2, buffFilterItems,
-                        function(k) return db.profile.boss[BUFF_FILTER_KEYS[k]] or false end,
-                        function(k, v) db.profile.boss[BUFF_FILTER_KEYS[k]] = v; ReloadAndUpdate() end)
+                        function(k, neg)
+                            if neg then
+                                local m = db.profile.boss.buffNegClasses
+                                local sk = BOSS_BUFF_NEG_SKEYS[k]
+                                return m ~= nil and sk ~= nil and m[sk] == true
+                            end
+                            return db.profile.boss[BUFF_FILTER_KEYS[k]] or false
+                        end,
+                        function(k, v, neg)
+                            local bt = db.profile.boss
+                            local sk = BOSS_BUFF_NEG_SKEYS[k]
+                            if neg then
+                                if not sk then return end
+                                bt.buffNegClasses = bt.buffNegClasses or {}
+                                bt.buffNegClasses[sk] = v and true or nil
+                                if not next(bt.buffNegClasses) then bt.buffNegClasses = nil end
+                                if v then bt[BUFF_FILTER_KEYS[k]] = nil end
+                                ReloadAndUpdate()
+                                return
+                            end
+                            if v and sk and bt.buffNegClasses then
+                                bt.buffNegClasses[sk] = nil
+                                if not next(bt.buffNegClasses) then bt.buffNegClasses = nil end
+                            end
+                            bt[BUFF_FILTER_KEYS[k]] = v
+                            ReloadAndUpdate()
+                        end)
                     PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
                     rgn._control = cbDD; rgn._lastInline = nil
                     EllesmereUI.RegisterWidgetRefresh(cbRefresh)

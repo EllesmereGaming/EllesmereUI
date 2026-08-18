@@ -35,10 +35,11 @@ end
 local DISPLAY_MODE_VALUES = {
     text_nd = "Text: Name Duration",
     text_dn = "Text: Duration Name",
+    text_d  = "Text: Duration",
     icon    = "Icon",
     bar     = "Bar",
 }
-local DISPLAY_MODE_ORDER  = { "text_nd", "text_dn", "icon", "bar" }
+local DISPLAY_MODE_ORDER  = { "text_nd", "text_dn", "text_d", "icon", "bar" }
 
 -- One-shot guard: the options-close hook that kills the movement preview is
 -- registered on first page build, never per rebuild.
@@ -549,12 +550,12 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
         end
     end
 
-    -- Text modes come in two fixed arrangements (the old free-form Text
+    -- Text modes come in three fixed arrangements (the old free-form Text
     -- Format input is gone); the legacy stored "text" value maps to the
     -- duration-first arrangement it used to render.
     local function DMIsText()
         local v = ma.displayMode or "text"
-        return v == "text" or v == "text_nd" or v == "text_dn"
+        return v == "text" or v == "text_nd" or v == "text_dn" or v == "text_d"
     end
     local function DMSwatchesDisabled()
         return maOff() or ma.displayMode == "icon"
@@ -574,7 +575,7 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
               ma.displayMode = v
               -- Crossing the text <-> bar/icon boundary re-seeds Text Size
               -- to that family's default (text 24, bar/icon 12).
-              local isText = (v == "text_nd" or v == "text_dn")
+              local isText = (v == "text_nd" or v == "text_dn" or v == "text_d")
               if wasText ~= isText then ma.textSize = isText and 24 or 12 end
               Refresh(); EllesmereUI:RefreshPage()
           end },
