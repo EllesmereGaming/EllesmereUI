@@ -1770,6 +1770,10 @@ L["Nothing Extra"] = "추가 없음"
 L["Overrides"] = "재정의"
 L["Shift+Middle Click to always show all settings"] = "쉬프트 + 가운데 클릭 = 모든 설정 항상 보기"
 L["Unlock Mode Layout"] = "잠금 해제 모드 배치"
+L["Game Text Scale"] = "게임 글자 크기"
+L["Scales the size of Blizzard's default game text (menus, tooltips, quest log, and more). Requires a UI reload."] = "블리자드 기본 게임 글자의 크기를 조절합니다(메뉴, 툴팁, 퀘스트 창 등). UI 리로드가 필요합니다."
+L["Resize Blizzard's default game text from 75-125%"] = "블리자드 기본 게임 글자를 75-125% 로 조절"
+
 -- == add ActionBars (행동 단축바) ==============================================
 L["Alpha when on CD"] = "재사용 중 투명도"
 L["Always Show Buttons"] = "버튼 항상 표시"
@@ -2326,6 +2330,10 @@ L["Out of Combat Color"] = "비전투 시 색상"
 L["Glow Nameplate When Near Aggro"] = "위협 근접 시 이름표 반짝임"
 L["Edit Tracked Auras"] = "추적 오라 편집"
 L["Edit Tracked CC"] = "추적 군중 제어 편집"
+L["Enemy Buff Filter"] = "적 강화 효과 필터"
+L["None (Show All)"] = "없음 (모두 표시)"
+L["Which enemy buffs show on nameplates. Important shows the buffs Blizzard flags for enemy nameplates. Dispellable shows only buffs that can be dispelled or purged. None shows every enemy buff. With a Dispel Glow style set, the dispellable buffs glow under any of these."] = "이름표에 어떤 적 강화 효과를 표시할지 정합니다. 중요는 블리자드가 적 이름표용으로 지정한 효과만 표시합니다. 해제 가능은 해제하거나 정화할 수 있는 효과만 표시합니다. 없음은 모든 적 강화 효과를 표시합니다. 해제 강조 모양을 설정해 두면 어느 것을 골라도 해제 가능한 효과에는 강조가 들어갑니다."
+
 -- == add UnitFrames (유닛 프레임) ==============================================
 L["Only Dispellable by You"] = "내가 해제 가능한 것만"
 L["Shows the overlay only for debuffs you can currently dispel."] = "현재 내가 해제할 수 있는 약화 효과에만 오버레이를 표시합니다."
@@ -2771,6 +2779,13 @@ L["One-time copy of the Raid Frames Buff Manager filters into these filters. Sam
 L["Enter the spell ID to track."] = "추적할 주문 ID를 입력하세요."
 L["Growth"] = "성장"
 L["Icon Wrap"] = "아이콘 줄바꿈"
+L["Disable All"] = "전부 끄기"
+L["Turns off Player Aura Bars completely."] = "플레이어 오라 바를 완전히 끕니다."
+L["Use Blizzard Buffs"] = "블리자드 강화 효과 사용"
+L["Keeps Blizzard's own buff and debuff display and turns off the built-in Buffs and Debuffs bars. Custom bars keep working."] = "블리자드 기본 강화/약화 효과 표시를 그대로 두고, 내장 강화 효과 바와 약화 효과 바를 끕니다. 사용자 지정 바는 계속 동작합니다."
+L["Player Aura Bars are disabled and Blizzard's default display is back. A UI reload is recommended to finish cleanup."] = "플레이어 오라 바를 껐고 블리자드 기본 표시로 돌아왔습니다. 정리를 마치려면 UI 리로드를 권장합니다."
+L["EDITING SPEC"] = "편집 중인 전문화"
+
 -- == add RaidFrames (공격대 프레임) =============================================
 L["Previewing Override: %1$s"] = "재정의 미리보기: %1$s"
 L["Previewing Overrides: %1$s, %2$s"] = "재정의 미리보기: %1$s, %2$s"
@@ -3380,6 +3395,8 @@ L["Show Names in Raid"] = "공격대에서 이름 표시"
 L["Class Colored Names"] = "직업 색상 이름"
 L["Shows a mana percentage row for every healer in your group as its own movable text display. Position it in Unlock Mode."] = "그룹의 모든 치유 전담에 대해 마나 비율 줄을 별도의 이동 가능한 글자로 표시합니다. 위치는 잠금 해제 모드에서 조정하세요."
 L["All Non Healers/Aug"] = "치유 전담/증강 외 전체"
+L["All DPS (Non-Aug)"] = "증강 외 전체 딜러"
+L["All Healers/Aug"] = "치유 전담/증강"
 L["Custom Order"] = "사용자 지정 순서"
 L["Buff Order"] = "강화 효과 순서"
 L["Active Mitigation"] = "능동 피해 완화"
@@ -3399,6 +3416,18 @@ L["Vertical space between rows."] = "줄 사이의 세로 간격입니다."
 L["Which way the rows stack as healers are added."] = "치유 전담이 늘어날 때 줄이 쌓이는 방향입니다."
 L["All Debuffs"] = "모든 약화 효과"
 L["Non-Player Auras"] = "플레이어 외 오라"
+L["Inherited from %1$s. Editable only there."] = "%1$s 에서 물려받았습니다. 수정은 거기서만 할 수 있습니다."
+L["Inherited from %1$s"] = "%1$s 에서 물려받음"
+L["Inherited from %1$s. Edit it there, or use the tile toggle to enable or disable it for this spec."] = "%1$s 에서 물려받았습니다. 수정은 거기서 하고, 이 전문화에서 켜고 끄는 것은 타일의 스위치를 쓰세요."
+
+L["Show every buff. Use the Hide lane below to remove specific filters."] = "모든 강화 효과를 표시합니다. 특정 필터를 빼려면 아래 숨김 칸을 쓰세요."
+L["Show every buff that has a duration (hides permanent buffs). Use the Hide lane below to remove specific filters."] = "지속시간이 있는 강화 효과만 표시합니다(영구 효과는 숨김). 특정 필터를 빼려면 아래 숨김 칸을 쓰세요."
+L["Show every debuff. Use the Hide lane below to remove specific filters."] = "모든 약화 효과를 표시합니다. 특정 필터를 빼려면 아래 숨김 칸을 쓰세요."
+L["Show every debuff in this indicator. Use the Hide lane below to remove specific filters."] = "이 표시기에서 모든 약화 효과를 표시합니다. 특정 필터를 빼려면 아래 숨김 칸을 쓰세요."
+L["Only show debuffs that have a duration, excluding permanent ones. Combines with the filters below; checked alone it shows every timed debuff."] = "지속시간이 있는 약화 효과만 표시하고 영구 효과는 제외합니다. 아래 필터와 함께 동작하며, 이것만 체크하면 지속시간이 있는 모든 약화 효과를 표시합니다."
+L["Debuffs not caused by any player or player pet (this is what shows most pve debuffs)."] = "플레이어나 플레이어의 소환수가 건 것이 아닌 약화 효과입니다(대부분의 PvE 약화 효과가 여기에 해당합니다)."
+L["Which debuffs this indicator watches for. Show every debuff turns the grid around: the filters you tick are hidden instead of added."] = "이 표시기가 어떤 약화 효과를 볼지 정합니다. 모든 약화 효과를 켜면 반대로 동작합니다 - 체크한 필터가 추가되는 대신 숨겨집니다."
+
 -- == add CooldownManager (재사용 대기시간 관리자) ===================================
 L["Apply Height to all %s Bars"] = "모든 %s 바에 높이 적용"
 L["Apply Width to all %s Bars"] = "모든 %s 바에 너비 적용"
@@ -3796,6 +3825,11 @@ L["How much is trimmed from the icon's top and bottom, as a percentage per side.
 L["Power Colored Background. Power colors can be adjusted in Global Settings -> Fonts & Colors."] = "자원 색 배경입니다. 자원 색은 전체 설정 -> 글꼴 및 색상에서 조정할 수 있습니다."
 L["Power Colored Fill. Power colors can be adjusted in Global Settings -> Fonts & Colors."] = "자원 색 채움입니다. 자원 색은 전체 설정 -> 글꼴 및 색상에서 조정할 수 있습니다."
 L["This option requires Dark Mode Class Resource to be disabled. Dark Mode colors can be adjusted in Global Settings -> Fonts & Colors."] = "이 옵션은 어두운 모드 직업 자원을 꺼야 사용할 수 있습니다. 어두운 모드 색은 전체 설정 -> 글꼴 및 색상에서 조정할 수 있습니다."
+L["Swap Combat Potions When Missing"] = "없으면 다른 전투 물약으로 교체"
+L["When your bags have none of one combat potion type, its icon swaps to track the next type you own."] = "가방에 특정 전투 물약이 하나도 없으면, 그 아이콘이 가지고 있는 다음 물약을 추적하도록 바뀝니다."
+L["Concentrated Health Potion"] = "농축된 실버문 생명력 물약"
+L["Liquid Luster"] = "액화 광택제"
+
 -- == add ResourceBars (자원 바) ==============================================
 L["(Ex: 2,4)"] = "(예: 2,4)"
 L["(Ex: 25,50,75)"] = "(예: 25,50,75)"
@@ -4429,6 +4463,18 @@ L["Pick which content this section's reminders appear in.\nRested areas (cities 
 L["Others are missing my buff"] = "다른 사람에게 내 강화 효과 없음"
 L["I am missing others' buffs"] = "나에게 다른 사람 강화 효과 없음"
 L["Others are missing my buff: remind when a groupmate is missing a buff you can cast.\nI am missing others' buffs: remind when you are missing a buff a groupmate could give you (only shown when someone who can cast it is present). Off by default."] = "'다른 사람에게 내 강화 효과 없음' = 내가 걸어줄 수 있는 강화 효과가 없는 파티원이 있으면 알립니다.\n'나에게 다른 사람 강화 효과 없음' = 파티원이 걸어줄 수 있는 강화 효과가 나에게 없으면 알립니다 (걸어줄 수 있는 사람이 있을 때만 표시). 기본 꺼짐."
+L["Pick which content these consumable reminders appear in.\nRested areas (cities and inns) always stay hidden."] = "이 소모품 알림을 어떤 콘텐츠에서 표시할지 고릅니다.\n휴식 지역(도시와 여관)에서는 항상 숨겨집니다."
+-- 던전/공격대/전장 이름 (wago Map + JournalInstance koKR 공식)
+L["The Venomous Abyss"] = "맹독 심연"
+L["Murder Row"] = "죽음의 골목"
+L["Den of Nalorakk"] = "날로라크의 소굴"
+L["The Blinding Vale"] = "눈부신 골짜기"
+L["Voidscar Arena"] = "공허흉터 투기장"
+L["Altar of Fangs"] = "송곳니의 제단"
+L["Ruby Life Pools"] = "루비 생명의 웅덩이"
+L["Temple of Sethraliss"] = "세스랄리스 사원"
+L["Kings' Rest"] = "왕들의 안식처"
+
 -- == add Quickdraw (빠른 실행) ================================================
 -- 신규 모듈 2026-08-12 전수 등록. 키를 누르고 있으면 동작 메뉴가 열리는 기능.
 -- nest = 하위 메뉴(중첩) / action menu = 동작 메뉴 로 통일.
@@ -4519,6 +4565,8 @@ L["Hide entries this character cannot use: another class's specializations and s
 L["Toggle World Markers"] = "장소 표식 토글"
 L["Use a world marker entry again to pick that marker back up. Off places the marker again, at the new position.\nThis does not change the entry that clears all world markers, or the cycling entry."] = "장소 표식 항목을 다시 사용하면 그 표식을 도로 집어 듭니다. 끄면 새 위치에 표식을 다시 놓습니다.\n모든 장소 표식을 지우는 항목과 순환 항목은 이 설정의 영향을 받지 않습니다."
 L["Disable Quickdraw"] = "빠른 실행 비활성화"
+L["This option requires the module to be enabled"] = "이 설정은 모듈을 켜야 사용할 수 있습니다"
+
 -- == add QoL (편의 기능) ====================================================
 L[" (guild bank)"] = " (길드 은행)"
 L["(est)"] = "(예상)"
@@ -4890,6 +4938,15 @@ L["Loss of Control (off)"] = "행동 불가 (꺼짐)"
 L["Spin"] = "회전"
 L["Slowly orbits your action bar buttons around each bar's centre while Party Mode is active. The buttons stay upright, so clicking, cooldowns and keybinds are unaffected. Pauses in combat, where moving a button is blocked."] = "파티 모드가 켜져 있는 동안 행동 단축바 버튼들이 각 바의 중심을 천천히 공전합니다. 버튼 자체는 똑바로 유지되어 클릭, 재사용 대기시간, 단축키에 영향이 없습니다. 버튼 이동이 차단되는 전투 중에는 멈춥니다."
 L["Degrees per second. 360 is one full turn a second; 0 parks the bars where they are."] = "초당 회전 각도입니다. 360이면 1초에 한 바퀴 돌고, 0이면 바가 제자리에 멈춥니다."
+L["GROUP BUTTONS"] = "그룹 단추"
+L["Show Role Check"] = "역할 체크 단추 표시"
+L["Shows the Role Check button. Turn it off and the remaining buttons close the gap."] = "역할 체크 단추를 표시합니다. 끄면 남은 단추들이 빈자리를 메웁니다."
+L["Show Convert to Raid"] = "공격대로 전환 단추 표시"
+L["Shows the Convert to Raid button, which reads Convert to Party while you are in a raid."] = "공격대로 전환 단추를 표시합니다. 공격대에 있는 동안에는 파티로 전환으로 바뀝니다."
+L["Show Disband"] = "공격대 해체 단추 표시"
+L["Shows the Disband button. It always asks before disbanding, but hiding it puts it out of misclick range for good."] = "공격대 해체 단추를 표시합니다. 해체 전에 항상 한 번 묻지만, 숨겨 두면 잘못 누를 일이 아예 없습니다."
+L["Countdown length of this pull button, in seconds. Set it to 0 to hide the button; with all three at 0 the whole pull row disappears, Stop included."] = "이 풀링 단추의 초읽기 길이입니다(초). 0으로 두면 그 단추가 숨겨지고, 셋 다 0이면 정지 단추까지 포함해 풀링 줄 전체가 사라집니다."
+
 -- == add BlizzardSkin (블리자드 스킨) ===========================================
 L["Accent Colored Elements"] = "강조 색상 요소"
 L["AddOn List"] = "애드온 목록"
@@ -5230,6 +5287,8 @@ L["Enable Skin Third-Party Addons"] = "외부 애드온 스킨 적용 켜기"
 L["THIRD-PARTY ADDONS"] = "외부 애드온"
 L["Some addon skins could not apply live. A UI reload will fully apply them."] = "일부 애드온 스킨을 바로 적용하지 못했습니다. UI를 리로드하면 완전히 적용됩니다."
 L["Removing third-party addon skins requires a UI reload."] = "외부 애드온 스킨을 제거하려면 UI 리로드가 필요합니다."
+L["The ready check prompt with its Yes / No buttons."] = "수락 / 거절 단추가 포함된 전투 준비 창입니다."
+
 -- == add Friends (친구 목록) ==================================================
 L["Australia"] = "오스트레일리아"
 L["Auto-Accept Friend Invites"] = "친구 초대 자동 수락"
@@ -6009,6 +6068,15 @@ L["Warband Bank (%1$d / %2$d)"] = "전투부대 은행 (%1$d / %2$d)"   -- 선�
 L["Sorting normally packs your items into the first free slots, at the top of the grid. Turn this on to pack them into the last slots instead, so the empty slots end up at the top. The item order itself does not change. This affects the OneBag, MultiBag and bank views -- category views fill their own grid with no gaps, so there is nothing to move. MultiBag and the bank use Blizzard's own sorting, so while this is on it also flips Blizzard's cleanup direction; turning it back off restores the direction you had."] = "정렬은 보통 아이템을 격자 위쪽의 첫 빈 칸부터 채웁니다. 켜면 마지막 칸부터 채워서 빈 칸이 위쪽에 모입니다. 아이템 순서 자체는 바뀌지 않습니다. 통합 가방/멀티 가방/은행 보기에 적용되며, 카테고리 보기는 빈틈없이 자체 격자를 채우므로 해당 없습니다. 멀티 가방과 은행은 블리자드 자체 정렬을 쓰기 때문에 켜져 있는 동안 블리자드 정리 방향도 뒤집히고, 끄면 원래 방향으로 돌아갑니다."
 L["Containers received from the mailbox are held until you close the mailbox, so opening them cannot collide with mail still delivering items."] = "우편함에서 받은 상자는 우편함을 닫을 때까지 대기하므로, 아이템을 전달 중인 우편과 충돌하지 않습니다."
 L["Automatically opens bags, boxes and parcels in your inventory when they are added to your bags.\n\nContainers received from the mailbox are held until you close the mailbox, so opening them cannot collide with mail still delivering items."] = "가방에 추가되는 가방/상자/꾸러미를 자동으로 엽니다.\n\n우편함에서 받은 상자는 우편함을 닫을 때까지 대기하므로, 아이템을 전달 중인 우편과 충돌하지 않습니다."
+L["1H"] = "한손 장비"
+L["2H"] = "양손 장비"
+L["OH"] = "보조 장비"
+L["Ranged"] = "원거리 장비"
+L["Cosmetic"] = "장식"
+L["Group Armory by Slot"] = "장비를 부위별로 묶기"
+L["In The Armory and the Weapons / Trinkets, Armor, and Item Set Gear category views, group items under equip-slot sub-headers (Head, Shoulders, Chest, Cosmetic, ...). Does not add sidebar views."] = "장비 / 무기·장신구 / 방어구 / 장비 세트 분류 화면에서 착용 부위별 소제목(머리, 어깨, 가슴, 장식 ...) 아래로 묶어 보여줍니다. 사이드바에 분류를 추가하지는 않습니다."
+L["Set Name Text Options"] = "세트 이름 글자 설정"
+
 -- == add Misc - dynamic/concat, not in source (기타 - 동적 생성·조합, 소스 리터럴 미발견,) ===
 L["%.2f%% Enemy Forces"] = "적 병력 %.2f%%"
 L["%d / %d Items"] = "%d / %d개"
