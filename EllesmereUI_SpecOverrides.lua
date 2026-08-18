@@ -817,14 +817,26 @@ local function WriteSpecValues(specID)
     if not store or #store == 0 or not specID then return nil end
     local touched = nil
     for _, entry in ipairs(store) do
-        local m = entry.values[specID] or entry.values.default
+        local own = entry.values[specID]
+        local m = own or entry.values.default
         for fkey, def in pairs(entry.values.default) do
+            -- An entry tracks a key for EVERY spec, but only the specs in its
+            -- group supply a value; the rest fall back to the recorded baseline.
+            -- That baseline must not outrank an ACTIVE conditional: a group
+            -- holding "Debuff Size" for the healer specs was re-writing its
+            -- pre-capture value on every apply for unrelated specs, silently
+            -- pinning the key store-wide so a conditional could never own it
+            -- (visible as a conditional that reads correct in its edit session
+            -- -- those bypass spec precedence -- yet never applies). A spec that
+            -- claims the key ITSELF still wins, which is the documented rule.
+            local claimed = own ~= nil and own[fkey] ~= nil
             -- Apply-side folder blacklist: legacy entries can carry paths into
             -- hands-off addons (CDM runs its own per-spec system; a stale write
             -- re-injects frozen spell data and its unmapped folder forces a full
             -- RefreshAllAddons mid-play). Match-owned keys: the match engine owns
             -- them while a link exists, so stored is a stale copy.
-            if not BlacklistedFKey(fkey) and not MatchOwnedFKey(fkey) then
+            if not BlacklistedFKey(fkey) and not MatchOwnedFKey(fkey)
+               and not (not claimed and CondHeldFKey(fkey)) then
                 local v = m[fkey]
                 if v == nil then v = def end
                 if v == NIL_SENT then v = nil end
