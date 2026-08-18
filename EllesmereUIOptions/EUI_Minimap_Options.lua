@@ -538,6 +538,21 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(UpdateResetVis)
         end
 
+        -- Alternate Vehicle Location | (empty)
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Alternate Vehicle Location",
+              tooltip="Use a separate minimap position while in a vehicle. Set the position in Unlock Mode.",
+              getValue=function()
+                local m = MinimapDB(); return m and m.alternateVehicleLocation or false
+              end,
+              setValue=function(v)
+                local m = MinimapDB(); if not m then return end
+                m.alternateVehicleLocation = v
+                RefreshMinimap()
+              end },
+            { type="label", text="" }
+        );  y = y - h
+
         y = y - 10
 
         -- MINIMAP & QOL BUTTONS section header

@@ -173,6 +173,8 @@ local defaults = {
             locationOffsetY = 0,
             lock          = false,
             position      = nil,
+            alternateVehicleLocation = false,
+            vehiclePosition = nil,
             visibility    = "always",
             visOnlyInstances = false,
             visHideHousing   = false,
@@ -3982,6 +3984,169 @@ function EBS._ApplyAddonCompartment()
     end
 end
 
+-------------------------------------------------------------------------------
+--  Alternate vehicle location
+--  Built lazily on first enable. The controller uses the two mover
+--  positions so the protected Minimap follows vehicle state in combat.
+-------------------------------------------------------------------------------
+function EBS._PositionMinimapLocation(frame, position)
+    if not frame then return end
+    frame:ClearAllPoints()
+    if position then
+        local px, py = position.x, position.y
+        local PPa = EllesmereUI and EllesmereUI.PP
+        if PPa and px and py then
+            local es = frame:GetEffectiveScale()
+            local isCenterAnchor = (position.point == "CENTER")
+                and (position.relPoint == "CENTER" or position.relPoint == nil)
+            if isCenterAnchor and PPa.SnapCenterForDim then
+                px = PPa.SnapCenterForDim(px, frame:GetWidth() or 0, es)
+                py = PPa.SnapCenterForDim(py, frame:GetHeight() or 0, es)
+            elseif PPa.SnapForES then
+                px = PPa.SnapForES(px, es)
+                py = PPa.SnapForES(py, es)
+            end
+        end
+        frame:SetPoint(position.point, UIParent, position.relPoint, px, py)
+    else
+        frame:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -10, -10)
+    end
+end
+
+function EBS._RegisterVehicleMinimapUnlock()
+    if EBS._vehicleMinimapUnlockRegistered then return end
+    if not (EllesmereUI and EllesmereUI.RegisterUnlockElements and EllesmereUI.MakeUnlockElement) then return end
+
+    EBS._vehicleMinimapUnlockRegistered = true
+    local MK = EllesmereUI.MakeUnlockElement
+    local function MDB() return EBS.db and EBS.db.profile.minimap end
+    EllesmereUI:RegisterUnlockElements({
+        MK({
+            key   = "EBS_VehicleMinimap",
+            label = "Vehicle Minimap Location",
+            group = "Minimap",
+            order = 501,
+            noResize = true,
+            noAnchorTo = true,
+            getFrame = function() return EBS._vehicleMinimapVehicleAnchor end,
+            getSize = function()
+                return Minimap:GetWidth(), Minimap:GetHeight()
+            end,
+            isHidden = function()
+                local m = MDB()
+                return not m or not m.enabled or not m.alternateVehicleLocation
+            end,
+            savePos = function(_, point, relPoint, x, y)
+                local m = MDB(); if not m then return end
+                m.vehiclePosition = { point = point, relPoint = relPoint, x = x, y = y }
+                if not EllesmereUI._unlockActive then
+                    EBS._ApplyAlternateVehicleLocation()
+                end
+            end,
+            loadPos = function()
+                local m = MDB()
+                if not m or not m.enabled or not m.alternateVehicleLocation then return nil end
+                return m.vehiclePosition
+            end,
+            clearPos = function()
+                local m = MDB(); if not m then return end
+                m.vehiclePosition = nil
+            end,
+            applyPos = function()
+                local m = MDB()
+                if not m or not m.enabled or not m.alternateVehicleLocation then return end
+                EBS._ApplyAlternateVehicleLocation()
+            end,
+        }),
+    })
+end
+
+function EBS._ApplyAlternateVehicleLocation()
+    local p = EBS.db and EBS.db.profile and EBS.db.profile.minimap
+    local minimap = Minimap
+    if not p or not minimap then return end
+    if InCombatLockdown() then QueueApplyAll(); return end
+
+    if not p.alternateVehicleLocation then
+        if not EBS._vehicleMinimapDriverRegistered then return end
+        UnregisterStateDriver(EBS._vehicleMinimapController, "euivehicle")
+        EBS._vehicleMinimapDriverRegistered = false
+        EBS._PositionMinimapLocation(minimap, p.position)
+        EBS._vehicleMinimapController:Hide()
+        EBS._vehicleMinimapNormalAnchor:Hide()
+        EBS._vehicleMinimapVehicleAnchor:Hide()
+        return
+    end
+
+    if EBS._vehicleMinimapDriverRegistered then
+        UnregisterStateDriver(EBS._vehicleMinimapController, "euivehicle")
+        EBS._vehicleMinimapDriverRegistered = false
+    end
+
+    if not EBS._vehicleMinimapController then
+        local normalAnchor = CreateFrame("Frame", nil, UIParent)
+        local vehicleAnchor = CreateFrame("Frame", nil, UIParent)
+        local controller = CreateFrame("Frame", nil, UIParent, "SecureHandlerStateTemplate")
+        normalAnchor:SetClampedToScreen(true)
+        vehicleAnchor:SetClampedToScreen(true)
+        controller:SetSize(1, 1)
+        controller:SetAttribute("_onstate-euivehicle", [[
+            local point, relPoint, x, y
+            if newstate == "vehicle" then
+                point = self:GetAttribute("vehiclePoint")
+                relPoint = self:GetAttribute("vehicleRelPoint")
+                x = self:GetAttribute("vehicleX")
+                y = self:GetAttribute("vehicleY")
+            else
+                point = self:GetAttribute("normalPoint")
+                relPoint = self:GetAttribute("normalRelPoint")
+                x = self:GetAttribute("normalX")
+                y = self:GetAttribute("normalY")
+            end
+            self:ClearAllPoints()
+            self:SetPoint(point, self:GetParent(), relPoint, x, y)
+        ]])
+        EBS._vehicleMinimapNormalAnchor = normalAnchor
+        EBS._vehicleMinimapVehicleAnchor = vehicleAnchor
+        EBS._vehicleMinimapController = controller
+    end
+
+    local w, h = minimap:GetWidth(), minimap:GetHeight()
+    EBS._vehicleMinimapNormalAnchor:SetSize(w, h)
+    EBS._vehicleMinimapVehicleAnchor:SetSize(w, h)
+    EBS._vehicleMinimapController:SetSize(w, h)
+    EBS._PositionMinimapLocation(EBS._vehicleMinimapNormalAnchor, p.position)
+    EBS._PositionMinimapLocation(EBS._vehicleMinimapVehicleAnchor, p.vehiclePosition)
+    local np, _, nrp, nx, ny = EBS._vehicleMinimapNormalAnchor:GetPoint(1)
+    local vp, _, vrp, vx, vy = EBS._vehicleMinimapVehicleAnchor:GetPoint(1)
+    EBS._vehicleMinimapController:SetAttribute("normalPoint", np)
+    EBS._vehicleMinimapController:SetAttribute("normalRelPoint", nrp)
+    EBS._vehicleMinimapController:SetAttribute("normalX", nx)
+    EBS._vehicleMinimapController:SetAttribute("normalY", ny)
+    EBS._vehicleMinimapController:SetAttribute("vehiclePoint", vp)
+    EBS._vehicleMinimapController:SetAttribute("vehicleRelPoint", vrp)
+    EBS._vehicleMinimapController:SetAttribute("vehicleX", vx)
+    EBS._vehicleMinimapController:SetAttribute("vehicleY", vy)
+    EBS._vehicleMinimapNormalAnchor:Show()
+    EBS._vehicleMinimapVehicleAnchor:Show()
+    EBS._vehicleMinimapController:Show()
+
+    if not EBS._vehicleMinimapDriverRegistered then
+        EBS._PositionMinimapLocation(EBS._vehicleMinimapController, p.position)
+    end
+    minimap:ClearAllPoints()
+    minimap:SetPoint("CENTER", EBS._vehicleMinimapController, "CENTER", 0, 0)
+
+    if not EBS._vehicleMinimapDriverRegistered then
+        EBS._vehicleMinimapController:SetAttribute("state-euivehicle", nil)
+        -- Prevent activating on multi person mounts
+        RegisterStateDriver(EBS._vehicleMinimapController, "euivehicle",
+            "[vehicleui] vehicle; normal")
+        EBS._vehicleMinimapDriverRegistered = true
+    end
+    EBS._RegisterVehicleMinimapUnlock()
+end
+
 local function ApplyMinimap()
     if TEMP_DISABLED.minimap then return end
     if InCombatLockdown() then QueueApplyAll(); return end
@@ -4917,26 +5082,11 @@ local function ApplyMinimap()
 
     -- Position: only set on first activation; after that, unlock mode owns positioning.
     if not GetFFD(minimap).active then
-        minimap:ClearAllPoints()
-        if p.position then
-            local px, py = p.position.x, p.position.y
-            local PPa = EllesmereUI and EllesmereUI.PP
-            if PPa and px and py then
-                local es = minimap:GetEffectiveScale()
-                local isCenterAnchor = (p.position.point == "CENTER")
-                    and (p.position.relPoint == "CENTER" or p.position.relPoint == nil)
-                if isCenterAnchor and PPa.SnapCenterForDim then
-                    px = PPa.SnapCenterForDim(px, minimap:GetWidth() or 0, es)
-                    py = PPa.SnapCenterForDim(py, minimap:GetHeight() or 0, es)
-                elseif PPa.SnapForES then
-                    px = PPa.SnapForES(px, es)
-                    py = PPa.SnapForES(py, es)
-                end
-            end
-            minimap:SetPoint(p.position.point, UIParent, p.position.relPoint, px, py)
-        else
-            minimap:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -10, -10)
-        end
+        EBS._PositionMinimapLocation(minimap, p.position)
+    end
+
+    if p.alternateVehicleLocation or EBS._vehicleMinimapDriverRegistered then
+        EBS._ApplyAlternateVehicleLocation()
     end
 
     -- Mark module as active so persistent hooks know they can fire
@@ -5310,7 +5460,13 @@ function EBS:OnEnable()
                 order = 500,
                 noResize = true,
                 noAnchorTo = true,
-                getFrame = function() return Minimap end,
+                getFrame = function()
+                    local m = MDB()
+                    if m and m.alternateVehicleLocation and EBS._vehicleMinimapNormalAnchor then
+                        return EBS._vehicleMinimapNormalAnchor
+                    end
+                    return Minimap
+                end,
                 getSize  = function()
                     return Minimap:GetWidth(), Minimap:GetHeight()
                 end,
