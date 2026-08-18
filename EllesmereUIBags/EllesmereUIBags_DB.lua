@@ -39,6 +39,7 @@ local BAGS_DEFAULTS = {
         bagDefaultOneBag      = false,   -- legacy; migrated to bagDefaultBagType
         bagNestByExpansion    = false,
         bagArmoryGroupBySlot  = false,
+        bagCompactArmorySlotGroups = false,
         bagHideOneBagWarning  = false,
         bagHideAddCategory    = false,
         bagMoveNoShift        = false,

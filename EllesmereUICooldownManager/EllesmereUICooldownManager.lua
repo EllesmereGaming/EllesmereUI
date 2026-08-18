@@ -1246,6 +1246,11 @@ end
 function ns.PresetHasCdState(frame)
     local fc = ns._ecmeFC and ns._ecmeFC[frame]
     if not fc or not fc.spellID then return false end
+    -- Only frames WE inject can own a custom active state -- same gate the
+    -- Fake-Active engine applies before honoring one. Without it an orphaned
+    -- profile-level entry both hid a plain tracked spell and stopped the
+    -- appearance refresh from ever clearing the flag it set.
+    if ns.CdmIsInjectedFrame and not ns.CdmIsInjectedFrame(frame) then return false end
     local cas = ns.GetEffectiveCustomActiveState(fc.spellID)
     local eff = cas and cas.cdStateEffect
     if eff == false then eff = nil end  -- blocking-false = no effect
@@ -6773,6 +6778,18 @@ local function UpdateAllCDMBars(dt) end
 --  Bar Visibility (always / in combat / never) + Housing
 -------------------------------------------------------------------------------
 
+-- Does this cd/utility bar draw any frame out of the BuffIcon viewer? True for a
+-- hosted buff (spellID-keyed) and for a cd-claimed collided buff slot. Called
+-- only for the BuffIcon viewer's vote below, so bars pay nothing in the common
+-- case where nothing is hosted. On ns, not a file local: this file sits at
+-- Lua's 200-local cap.
+function ns.BarUsesBuffViewer(barKey)
+    local sd = ns.GetBarSpellData and ns.GetBarSpellData(barKey)
+    if not sd then return false end
+    if sd.hostedBuffSpellIDs and next(sd.hostedBuffSpellIDs) then return true end
+    return (ns.CollectCdClaimSet and ns.CollectCdClaimSet(sd)) and true or false
+end
+
 _CDMApplyVisibility = function()
     local p = ECME.db and ECME.db.profile
     if not p then return end
@@ -6935,6 +6952,16 @@ _CDMApplyVisibility = function()
                             if bt == "buffs" and viewerBarKey == "buffs" then
                                 anyVisible = true; break
                             elseif bt ~= "buffs" and (viewerBarKey == "cooldowns" or viewerBarKey == "utility") then
+                                anyVisible = true; break
+                            -- A HOSTED buff renders on a cd/utility bar but its frame
+                            -- still comes out of the BuffIcon viewer pool and is never
+                            -- reparented, so it inherits that viewer's alpha. Without
+                            -- this vote a visible cd/utility bar hosting a buff went
+                            -- dark the moment the buffs bar was hidden: the aura-down
+                            -- placeholder (our own frame, parented to UIParent) kept
+                            -- rendering while the live buff did not.
+                            elseif bt ~= "buffs" and viewerBarKey == "buffs"
+                                   and ns.BarUsesBuffViewer(barData.key) then
                                 anyVisible = true; break
                             end
                         end
@@ -7887,6 +7914,15 @@ function ns.ReseedAssignedSpellsFromLiveIcons(cdUtilOnly)
     -- spells spill onto default bars until the migration ghosts them, and materializing those spills would defeat the import-authoritative hide.
     if aprof and aprof._importGhostMode then return end
 
+    -- Unlike every other assignedSpells mutation site (the picker's add/remove/move calls,
+    -- BuildAllCDMBars), this one never marked the cached render-order map (spellOrder,
+    -- CdmHooks.lua ~7000) dirty -- so a spell this pass just materialized had no key in the
+    -- STALE cache, fell through every OrderKeyFor match probe, and rendered via the raw
+    -- layoutIndex spillover fallback (the same imprecise path #1211/#1420 already fixed once)
+    -- instead of the position it was just given. Field-confirmed: Cobra Shot's assignedSpells
+    -- entry was correct and it still rendered first. Set once, only when something actually inserted.
+    local didInsert = false
+
     -- Spell -> owning bar (variant-aware), built once. A live icon whose stored owner is a DIFFERENT bar is a transient spillover we must not materialize.
     local ownerOf
     -- One-racial-total invariant (see NormalizeRacialAssignments): while ANY
@@ -8006,14 +8042,24 @@ function ns.ReseedAssignedSpellsFromLiveIcons(cdUtilOnly)
                             local racialBlocked = anyRacialOwned and ALL_RACIAL_SPELLS[sid]
                             if not ghosted and not racialBlocked and not (owner and owner ~= barData.key) then
                                 -- Store the BASE form, matching what the options normalize pass writes -- otherwise this pass persists the talent-override form and the two writers diverge (exports could ship either).
+                                -- Only trust that substitution when Blizzard's OWN cooldownInfo already
+                                -- recorded a base/display split for THIS icon (fc.baseSpellID ~= fc.resolvedSid,
+                                -- e.g. a Wither slot whose base is Immolate). GetBaseSpell can also tie
+                                -- together spells with no override relationship at all -- field-confirmed
+                                -- for Cobra Shot -> Arcane Shot, and #842 saw the same API do it to SV Kill
+                                -- Command -- and substituting on that spurious tie stores an id the live
+                                -- spell never actually shares a slot with, orphaning it as a permanent spillover.
                                 local nsid = sid
-                                if C_Spell and C_Spell.GetBaseSpell then
+                                if C_Spell and C_Spell.GetBaseSpell
+                                   and fc.baseSpellID and fc.resolvedSid
+                                   and fc.baseSpellID ~= fc.resolvedSid then
                                     local b = C_Spell.GetBaseSpell(sid)
                                     if b and b > 0 then nsid = b end
                                 end
                                 local pos = insertPos and (insertPos + 1) or 1
                                 table.insert(sd.assignedSpells, pos, nsid)
                                 insertPos = pos
+                                didInsert = true
                             end
                         end
                     end
@@ -8021,6 +8067,7 @@ function ns.ReseedAssignedSpellsFromLiveIcons(cdUtilOnly)
             end
         end
     end
+    if didInsert then ns._spellOrderDirty = true end
 end
 
 -- Parent-facing bridge for the automatic/export-time reconcile: cd and utility bars only

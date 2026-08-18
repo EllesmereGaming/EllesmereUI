@@ -5482,6 +5482,50 @@ initFrame:SetScript("OnEvent", function(self)
         local displayHeader
         displayHeader, h = W:SectionHeader(parent, "Display", y);  y = y - h
 
+        -- Visibility (mode dropdown) | Visibility Options (checkbox dropdown, CDM-Bars-style
+        -- plus the TBB-only Hide When Inactive cap; Only In Combat lives in the Visibility
+        -- mode dropdown itself now, In Combat).
+        local tbbVisRow, tbbVisH = EllesmereUI.BuildVisibilityModeRow(W, parent, y,
+            { getStore = SelectedTBB, legacyKey = "barVisibility",
+              caps = { partyIncludesRaid = false, noMouseover = true, luaDragonriding = true },
+              onChanged = function() RefreshTBB() end },
+            { type="dropdown", text="Visibility Options",
+              values={ __placeholder = "..." }, order={ "__placeholder" },
+              getValue=function() return "__placeholder" end,
+              setValue=function() end });  y = y - tbbVisH
+
+        -- Replace the dummy right dropdown with the checkbox dropdown (same technique CDM
+        -- Bars uses -- BuildVisibilityModeRow only knows how to build a plain dropdown slot).
+        if not EllesmereUI._prebuilding then
+            local rightRgn = tbbVisRow._rightRegion
+            if rightRgn._control then rightRgn._control:Hide() end
+            -- The shared list (skyriding included) plus the TBB-only Hide When Inactive cap.
+            local tbbVisItems = {}
+            for _, item in ipairs(EllesmereUI.VIS_OPT_ITEMS) do
+                tbbVisItems[#tbbVisItems + 1] = item
+            end
+            tbbVisItems[#tbbVisItems + 1] = { key = "hideWhenInactive", label = "Hide When Inactive",
+                tooltip = "Only show this bar while the tracked buff/cooldown is active. Unchecked keeps an empty bar on screen at all times." }
+            local tbbCbDD, tbbCbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                rightRgn, 210, rightRgn:GetFrameLevel() + 2,
+                tbbVisItems,
+                function(k)
+                    local bd = SelectedTBB(); if not bd then return false end
+                    -- hideWhenInactive predates this dropdown and is nil-means-on everywhere
+                    -- it is read, so it cannot go through the plain truthiness path.
+                    if k == "hideWhenInactive" then return bd.hideWhenInactive ~= false end
+                    return bd[k] or false
+                end,
+                function(k, v)
+                    local bd = SelectedTBB(); if not bd then return end
+                    bd[k] = v; RefreshTBB()
+                end)
+            PP.Point(tbbCbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
+            rightRgn._control = tbbCbDD
+            rightRgn._lastInline = nil
+            EllesmereUI.RegisterWidgetRefresh(tbbCbDDRefresh)
+        end
+
         -- Show Icon | Opacity
         local iconRow
         iconRow, h = W:DualRow(parent, y,
@@ -5747,24 +5791,6 @@ initFrame:SetScript("OnEvent", function(self)
                         bd.bgR, bd.bgG, bd.bgB, bd.bgA = r, g, b, a; RefreshTBB()
                     end },
               } },
-            { type = "toggle", text = "Hide When Inactive",
-              getValue = function() local bd = SelectedTBB(); return bd and bd.hideWhenInactive ~= false end,
-              setValue = function(v)
-                  local bd = SelectedTBB(); if not bd then return end
-                  bd.hideWhenInactive = v and true or false; RefreshTBB()
-              end,
-              tooltip = "Only show this bar while the tracked buff/cooldown is active. Turn off to keep an empty bar on screen at all times." }
-        );  y = y - h
-
-        -- Only In Combat | empty
-        _, h = W:DualRow(parent, y,
-            { type = "toggle", text = "Only In Combat",
-              getValue = function() local bd = SelectedTBB(); return bd and bd.onlyInCombat == true end,
-              setValue = function(v)
-                  local bd = SelectedTBB(); if not bd then return end
-                  bd.onlyInCombat = v and true or false; RefreshTBB()
-              end,
-              tooltip = "Hide this bar completely while out of combat, even when the tracked buff/cooldown is active." },
             { type = "label", text = "" }
         );  y = y - h
 

@@ -725,15 +725,15 @@ local function PAB_ApplyExtraText(button, d, style)
         -- BmRebindDurationCurve rule: a denied registration under the
         -- secret-aura button restriction must leave the stamp unchanged so
         -- the next restyle retries.
-        local wantS = style.durationShowSeconds and true or false
-        if d.durationFmtS ~= nil and d.durationFmtS ~= wantS then
+        local wantFmt = (style.durationShowSeconds and "s" or "b") .. tostring(style.durationPrecisionThreshold or 0)
+        if d.durationFmtS ~= nil and d.durationFmtS ~= wantFmt then
             local AK = EllesmereUI.AuraKit
             local durationOpts = AK.BuildDurationTextOpts(
-                AK.GetDurationFormatter(style.durationShowSeconds),
+                AK.GetDurationFormatter(style.durationShowSeconds, style.durationPrecisionThreshold),
                 style.durationColorCurve, style.durationUpdateInterval)
             local ok, full = AK.SetDurationTextSafe(button, d.duration, durationOpts)
             if ok and (full or not style.durationColorCurve) then
-                d.durationFmtS = wantS
+                d.durationFmtS = wantFmt
             end
         end
     end
@@ -907,6 +907,7 @@ local function BuildStyle(isBuff, cfg)
         -- readings keep their unit ("10s"); selects AK's s-variant duration
         -- formatter at creation, PAB_ApplyExtraText rebinds live.
         durationShowSeconds = cfg.durationShowSeconds == true,
+        durationPrecisionThreshold = tonumber(cfg.durationPrecisionThreshold),
         -- Show Tooltips (per-bar, default on): AK's noTooltips path kills
         -- hover on this style's buttons; the flip-back handles re-enables.
         noTooltips = (cfg.showTooltips == false) or nil,

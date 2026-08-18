@@ -347,19 +347,32 @@ function ns.DM_FxFP()
     return FxListFP(dm and dm.fxList)
 end
 
+-- Base Icons view for the CURRENT spec. The base grid lives in All Specs
+-- like any indicator there, so a concrete spec can switch it off for itself
+-- (ns.DM_SetBaseDisabled): every base-owned input (mode, lanes, duration
+-- modifier, base effects) then reads this empty view and no base record is
+-- built -- tiles, claims and the shared dispel flavor (always read off the
+-- profile table) are untouched. Read-only by construction.
+local BASE_OFF_VIEW = { all = false }
+local function BaseView(dm)
+    if ns.DM_CurrentSpecBaseOff and ns.DM_CurrentSpecBaseOff() then return BASE_OFF_VIEW end
+    return dm
+end
+
 function ns.DM_CfgFP()
     EnsureMigrated() -- profile switches re-fingerprint before rendering
     local dm = DM() or {}
     FxHeal(dm)
+    local bv = BaseView(dm)
     local prof = ns.db and ns.db.profile
-    local neg = dm.neg
+    local neg = bv.neg
     local parts = {
         "on",
-        dm.all ~= false and 1 or 0, dm.hasDuration == true and 1 or 0,
-        dm.boss and 1 or 0, dm.role and 1 or 0,
-        dm.priority and 1 or 0, dm.cc == true and 1 or 0, dm.raid and 1 or 0,
-        dm.raidcombat and 1 or 0, dm.dispel and 1 or 0,
-        dm.nonplayer and 1 or 0,
+        bv.all ~= false and 1 or 0, bv.hasDuration == true and 1 or 0,
+        bv.boss and 1 or 0, bv.role and 1 or 0,
+        bv.priority and 1 or 0, bv.cc == true and 1 or 0, bv.raid and 1 or 0,
+        bv.raidcombat and 1 or 0, bv.dispel and 1 or 0,
+        bv.nonplayer and 1 or 0,
         -- Hide lane (dm.neg): subtracts in both modes, so every entry is a
         -- record-shape input.
         neg and table.concat({
@@ -367,7 +380,7 @@ function ns.DM_CfgFP()
             neg.cc and 1 or 0, neg.raid and 1 or 0, neg.raidcombat and 1 or 0,
             neg.dispel and 1 or 0, neg.nonplayer and 1 or 0 }, "") or "-",
         (dm.dispelMode == "typed") and "typed" or "you",
-        FxListFP(dm.fxList), -- base effects force records
+        FxListFP(bv.fxList), -- base effects force records
         -- Exclude set varies only with the lust-debuff opt-out (hardcoded lists are load-constant).
         (not prof or prof.hideLustDebuff ~= false) and "lx1" or "lx0",
     }
@@ -474,7 +487,10 @@ end
 -- filter, CC glow style); a claimed cc renders in its tile with the tile
 -- style, and the CC glow stays a base-group property.
 local function BuildRecords(s, dm)
-    local eff, claims, claimsAll = EffectiveState(dm)
+    -- Base-owned inputs read the current spec's base view (empty when the
+    -- spec switched the All Specs base grid off); dm keeps the shared flavor.
+    local bv = BaseView(dm)
+    local eff, claims, claimsAll = EffectiveState(bv)
     -- EFFECTS routing: per-filter icon effects need their categories as
     -- SEPARATE base records even under Show All (like claims, but rendering in
     -- the base container) so the effect can target exactly those buttons
@@ -482,7 +498,7 @@ local function BuildRecords(s, dm)
     -- boolean categories duplicate (accepted, same limitation as claims).
     local fxCats = {}
     do
-        local fl = dm.fxList
+        local fl = bv.fxList
         if fl then
             for i = 1, #fl do
                 local e = fl[i]
@@ -497,15 +513,15 @@ local function BuildRecords(s, dm)
             end
         end
     end
-    local allOn = dm.all ~= false -- Show All defaults ON (legacy "all" preset parity)
+    local allOn = bv.all ~= false -- Show All defaults ON (legacy "all" preset parity)
     -- Has Duration is an AND-MODIFIER (user directive 2026-08-16): it rides
     -- every base-owned record via the duration fold at the bottom. The base
     -- catch-all record joins when Show All is on, or when Has Duration is
     -- checked with no show-lane picks (checked alone = every timed debuff).
-    local durOn = dm.hasDuration == true
-    local anyShow = dm.boss == true or dm.role == true or dm.priority == true
-        or dm.cc == true or dm.raid == true or dm.raidcombat == true
-        or dm.dispel == true or dm.nonplayer == true
+    local durOn = bv.hasDuration == true
+    local anyShow = bv.boss == true or bv.role == true or bv.priority == true
+        or bv.cc == true or bv.raid == true or bv.raidcombat == true
+        or bv.dispel == true or bv.nonplayer == true
     local durAlone = durOn and not allOn and not anyShow
     -- HIDE lane (dm.neg): subtracts in BOTH modes. Token categories negate off
     -- every lower-ranked record (ownership rank cc > dispel > raid > raidcombat
@@ -513,7 +529,7 @@ local function BuildRecords(s, dm)
     -- overlap, same doctrine as cc owning dispellable CC), typed dispels ride
     -- excludeDispelTypes, boolean categories use false-valued candidate booleans
     -- (nonplayer via the complementary TRUE).
-    local neg = dm.neg
+    local neg = bv.neg
     local function NegHas(cat) return neg ~= nil and neg[cat] == true end
     local sub = allOn and {
         boss = NegHas("boss"), role = NegHas("role"),
@@ -618,7 +634,7 @@ local function BuildRecords(s, dm)
 
     -- Sized base crowd control: Icon Effects Size cannot resize the legacy "cc" group (group->style binding fixed
     -- at declare), so cc becomes a base record variant carrying the CC-glow style; apply pass parks the legacy group while this record exists.
-    if eff.cc and not claims.cc and FxSizeFor(dm.fxList, "cc") then
+    if eff.cc and not claims.cc and FxSizeFor(bv.fxList, "cc") then
         recs[#recs + 1] = { key = "cc", tokens = { "HARMFUL", "CROWD_CONTROL" },
             cand = { excludeSpellIDs = ex } }
     end
@@ -758,11 +774,11 @@ local function BuildRecords(s, dm)
     -- base blocks, tile-hosted reads its tile's).
     for i = 1, #recs do
         local r = recs[i]
-        local owner = r.tile or dm
+        local owner = r.tile or bv
         if owner.hasDuration == true and r.key ~= "cc" then
             r.cand.maxDuration = math.huge
         end
-        r.fxSize = FxSizeFor(r.tile and r.tile.fxList or dm.fxList, r.key)
+        r.fxSize = FxSizeFor(r.tile and r.tile.fxList or bv.fxList, r.key)
     end
 
     return recs, ccCand, claims, Cand, fxCats
@@ -1490,9 +1506,10 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
         -- the cc lead/glow group is on unless Crowd Control rides the hide lane (dm.neg.cc = subtracted); in add
         -- mode it is on exactly when the show lane checks it; fx routing forces it either way. Has Duration never
         -- flips this: cc surfaces are exempt from the duration fold (declaration-fixed candidates).
-        local allOn = dm.all ~= false
-        local ccHidden = dm.neg ~= nil and dm.neg.cc == true
-        local ccPicked = (allOn and not ccHidden) or (not allOn and dm.cc == true)
+        local bv = BaseView(dm)
+        local allOn = bv.all ~= false
+        local ccHidden = bv.neg ~= nil and bv.neg.cc == true
+        local ccPicked = (allOn and not ccHidden) or (not allOn and bv.cc == true)
         local ccBase = (ccPicked or (fxCats and fxCats.cc)) and not claims.cc
             and not baseSizedCC
         container:SetAuraGroupMaxFrameCount("cc", ccBase and cap or 0)
@@ -1899,7 +1916,7 @@ end
 
 -------------------------------------------------------------------------------
 -- Editing-spec buckets. dm.tiles IS "allspecs"; every other bucket lives
--- under dm.specTiles[key] = { tiles, inhDis }, key = "nonhealer"/"tanks"/
+-- under dm.specTiles[key] = { tiles, inhDis, baseOff }, key = "nonhealer"/"tanks"/
 -- "dps"/"healers" (group buckets) or "spec<ID>" (a concrete spec -- healer
 -- specs included; the Debuff Manager has no healer-key legacy). Tile ids
 -- stay globally unique across buckets (one shared dm.nextTileId), so
@@ -1947,6 +1964,34 @@ function ns.DM_SetInhDisabled(concreteKey, id, disabled)
     if not (dm and concreteKey and id) then return end
     local b = SpecBucket(dm, concreteKey, true)
     b.inhDis[id] = disabled and true or nil
+end
+
+-- Per-spec disable of the Base Icons grid (the All Specs base, inherited by
+-- every concrete spec like an All Specs tile): b.baseOff on the viewing
+-- spec's bucket, beside the tile disables.
+function ns.DM_BaseDisabled(concreteKey)
+    local dm = DM()
+    local b = dm and SpecBucket(dm, concreteKey, false)
+    return (b and b.baseOff) and true or false
+end
+
+function ns.DM_SetBaseDisabled(concreteKey, disabled)
+    local dm = DM()
+    if not (dm and concreteKey) then return end
+    local b = SpecBucket(dm, concreteKey, true)
+    b.baseOff = disabled and true or nil
+end
+
+-- Runtime read for the player's CURRENT spec (record synthesis + FP). No
+-- specTiles = buckets never used = zero cost.
+function ns.DM_CurrentSpecBaseOff()
+    local dm = DM()
+    local st = dm and dm.specTiles
+    if not st then return false end
+    local idx = GetSpecialization and GetSpecialization()
+    local sid = idx and GetSpecializationInfo and GetSpecializationInfo(idx) or nil
+    local b = sid and st["spec" .. sid] or nil
+    return (b and b.baseOff) and true or false
 end
 
 -- The ACTIVE union: every tile the CURRENT spec renders, in bucket order

@@ -3145,10 +3145,40 @@ function EllesmereUI.SpecOverrides_BmOverlayState()
     return {
         mode = "activate", kind = kind, gid = g.id,
         text = kind == "spec"
-            and L("This will create a fully unique Buff Manager for this override group. Your current Buff Manager settings are copied as its starting point, and changes made to your default Buff Manager will no longer affect these specs.")
-            or L("This will create a fully unique Buff Manager for this conditional group. Your current Buff Manager settings are copied as its starting point, and changes made to your default Buff Manager will no longer affect it."),
+            and L("This will create a fully unique Buff Manager for this override group. Changes made to your default Buff Manager will no longer affect these specs.")
+            or L("This will create a fully unique Buff Manager for this conditional group. Changes made to your default Buff Manager will no longer affect it."),
     }
 end
+
+--- Starting points offered by the create popup, in menu order: the main
+--- (baseline) Buff Manager, every other override that already has its own
+--- Buff Manager, then the two presets. Returns values, order for a dropdown.
+--- Keys: "main" | "spec:<gid>" | "cond:<gid>" | "default" | "empty".
+function EllesmereUI.SpecOverrides_BmSeedSources(kind, gid)
+    local values, order = {}, {}
+    local function Add(key, label) values[key] = label; order[#order + 1] = key end
+    Add("main", L("Copy from main Buff Manager"))
+    local s = GetBmStore()
+    if s and s.layouts then
+        for _, g in ipairs(GetGroups() or {}) do
+            if s.layouts[g.id] ~= nil and not (kind == "spec" and g.id == gid) then
+                Add("spec:" .. g.id, EllesmereUI.Lf("Copy from %1$s Buff Manager", g.name or "?"))
+            end
+        end
+    end
+    local cs = GetCondBmStore()
+    if cs and cs.layouts and EllesmereUI.Conditions_GetGroups then
+        for _, g in ipairs(EllesmereUI.Conditions_GetGroups() or {}) do
+            if cs.layouts[g.id] ~= nil and not (kind == "cond" and g.id == gid) then
+                Add("cond:" .. g.id, EllesmereUI.Lf("Copy from %1$s Buff Manager", g.name or "?"))
+            end
+        end
+    end
+    Add("default", L("Default Preset"))
+    Add("empty", L("Empty Preset"))
+    return values, order
+end
+
 
 --- Page-build entry point for the RF Buff Manager page: call FIRST, before any
 --- content builds. Heals a stale live layer (so the page renders the edited
@@ -3189,15 +3219,47 @@ function EllesmereUI.SpecOverrides_BmPagePrelude()
     return state
 end
 
---- Creates the edited group's BM fork (the overlay's Activate click, no second
---- popup -- the overlay text IS the confirmation). Re-validates every gate (race
---- guard), banks live into its current owner, then seeds: spec forks born while a
---- conditional BM layer is live seed from the BASELINE (spec layers void
---- conditionals -- never fork a dungeon state); everything else seeds from live.
-function EllesmereUI.SpecOverrides_ActivateBm(kind, gid)
+--- Creates the edited group's BM fork (the overlay's create popup). Re-validates
+--- every gate (race guard), banks live into its current owner, then seeds from
+--- `source` (SpecOverrides_BmSeedSources key; nil/"main" = the main Buff
+--- Manager): spec forks born while a conditional BM layer is live seed from the
+--- BASELINE (spec layers void conditionals -- never fork a dungeon state);
+--- otherwise from live. Other overrides and the two presets seed a fresh layer,
+--- which must then be PAINTED when the new fork becomes the live one (the main
+--- copy is already what is on screen).
+function EllesmereUI.SpecOverrides_ActivateBm(kind, gid, source)
     local state = EllesmereUI.SpecOverrides_BmOverlayState()
     if not state or state.mode ~= "activate" or state.kind ~= kind
        or state.gid ~= gid then return end
+    -- Source key -> fresh layer table; nil = "main" (seeded below as before).
+    local function SeedLayerFor(src)
+        if not src or src == "main" then return nil end
+        if src == "default" or src == "empty" then
+            local rf = LiteProfile("EllesmereUIRaidFrames")
+            return {
+                indicators  = {},
+                simple      = {},
+                displayMode = "custom",
+                iconZoom    = (rf and rf.bmIconZoom) or 0.08,
+                bm2         = _G._ERF_BM2PresetFork and _G._ERF_BM2PresetFork(src)
+                    or { specs = {}, seeded = {} },
+            }
+        end
+        local sgid = tonumber(src:match("^spec:(%d+)$"))
+        if sgid then
+            local s = GetBmStore()
+            local layer = s and s.layouts and s.layouts[sgid]
+            return layer and DeepCopy(layer) or nil
+        end
+        local cgid = tonumber(src:match("^cond:(%d+)$"))
+        if cgid then
+            local cs = GetCondBmStore()
+            local layer = cs and cs.layouts and cs.layouts[cgid]
+            return layer and DeepCopy(layer) or nil
+        end
+        return nil
+    end
+    local seeded = SeedLayerFor(source)
     local cur = CurrentSpecID()
     EllesmereUI.SpecOverrides_HarvestBmLayout()
     -- Virgin-store baseline seed: the first-ever BM layer must capture the
@@ -3214,7 +3276,12 @@ function EllesmereUI.SpecOverrides_ActivateBm(kind, gid)
         local s = GetBmStore(true)
         if not s or s.layouts[gid] ~= nil then return end
         local fromCond = type(s.active) == "string"
-        if fromCond and s.baselineLayout then
+        -- Live differs from the new layer when it was seeded from anything but
+        -- the main copy of what is on screen -> paint on activation.
+        local needPaint = seeded ~= nil or fromCond
+        if seeded then
+            s.layouts[gid] = seeded
+        elseif fromCond and s.baselineLayout then
             s.layouts[gid] = DeepCopy(s.baselineLayout)
         else
             local snap = BmHarvestLayer()
@@ -3223,10 +3290,11 @@ function EllesmereUI.SpecOverrides_ActivateBm(kind, gid)
         end
         if BmOwnerGid(cur) == gid then
             s.active = gid
-            -- Baseline-seeded fork while a conditional was live: the
-            -- conditional ceased to exist for this spec, so swap the screen to
-            -- the new (base-identical) layer. RefreshPage below is the repaint.
-            if fromCond then BmApplyLayer(s.layouts[gid], true) end
+            -- Baseline-seeded fork while a conditional was live (the
+            -- conditional ceased to exist for this spec), or a preset/other-
+            -- override seed: swap the screen to the new layer. RefreshPage
+            -- below is the repaint.
+            if needPaint then BmApplyLayer(s.layouts[gid], true) end
         end
     else
         local cs = GetCondBmStore(true)
@@ -3234,18 +3302,22 @@ function EllesmereUI.SpecOverrides_ActivateBm(kind, gid)
         local s = GetBmStore(true)
         -- Seed from the BASELINE when any layer is live (another conditional
         -- applied right now); live IS the baseline only when nothing is.
-        local snap
-        if s and s.active and s.baselineLayout then
-            snap = DeepCopy(s.baselineLayout)
-        else
-            snap = BmHarvestLayer()
-            if not snap then return end
+        local snap = seeded
+        if not snap then
+            if s and s.active and s.baselineLayout then
+                snap = DeepCopy(s.baselineLayout)
+            else
+                snap = BmHarvestLayer()
+                if not snap then return end
+            end
         end
         cs.layouts[gid] = snap
         local ag = EllesmereUI.Conditions_ActiveGroup and EllesmereUI.Conditions_ActiveGroup()
         if ag and ag.id == gid then
-            -- In-context creation: the fork is the runtime layer from here.
+            -- In-context creation: the fork is the runtime layer from here. A
+            -- non-main seed differs from what is on screen -> paint it.
             if s then s.active = "cond:" .. gid end
+            if seeded then BmApplyLayer(snap, true) end
         else
             -- Out-of-context creation: session-scoped apply only. The runtime
             -- pointer must never point at a layer whose condition is not met.
@@ -4364,9 +4436,42 @@ end
 -- APPLIED conditional owns this setting NOW -- the on-screen value is the
 -- override's, an edit would bank into it at the next boundary, not the default;
 -- labeled overlay + click blocker pointing at its edit mode).
-local function SetSlotMark(region, mode, conflictSpecID, condName)
+-- tip: gold only -- the "Overridden by: ..." tooltip text (SlotTipFor), shown from
+-- a small info badge in the slot's top-left corner (the only hover surface: the
+-- widget's own label/control tooltips stay untouched).
+local function SetSlotMark(region, mode, conflictSpecID, condName, tip)
     if mode == "gold" and not region._specOvGold then
         region._specOvGold = MakeBorderHost(region, GOLD_R, GOLD_G, GOLD_B)
+    end
+    if mode == "gold" and tip and not region._specOvHover then
+        -- Info badge: gold "i" bubble tucked inside the gold border's top-left
+        -- corner (that corner is empty on every slot layout -- labels start at
+        -- the side pad, vertically centered). Motion-only and click-through
+        -- (same recipe as the widget label hit frames), one level above the
+        -- border host so it renders on top; nothing else lives in that corner,
+        -- so no control loses hover to it.
+        local badge = CreateFrame("Frame", nil, region)
+        badge:SetSize(14, 14)
+        badge:SetPoint("TOPLEFT", region, "TOPLEFT", 3, -3)
+        badge:SetFrameLevel(region:GetFrameLevel() + 31)
+        local ico = badge:CreateTexture(nil, "OVERLAY")
+        ico:SetAllPoints()
+        if ico.SetSnapToPixelGrid then ico:SetSnapToPixelGrid(false); ico:SetTexelSnappingBias(0) end
+        ico:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-info.png")
+        ico:SetVertexColor(GOLD_R, GOLD_G, GOLD_B, 0.85)
+        badge:SetScript("OnEnter", function()
+            ico:SetVertexColor(GOLD_R, GOLD_G, GOLD_B, 1)
+            local t = region._specOvTip
+            if t and EllesmereUI.ShowWidgetTooltip then
+                EllesmereUI.ShowWidgetTooltip(badge, t)
+            end
+        end)
+        badge:SetScript("OnLeave", function()
+            ico:SetVertexColor(GOLD_R, GOLD_G, GOLD_B, 0.85)
+            if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
+        end)
+        badge:SetMouseClickEnabled(false)
+        region._specOvHover = badge
     end
     if mode == "red" and not region._specOvRed then
         local host = MakeBorderHost(region, 0.9, 0.2, 0.2)
@@ -4431,6 +4536,9 @@ local function SetSlotMark(region, mode, conflictSpecID, condName)
         region._specOvCondActive = host
     end
     if region._specOvGold then region._specOvGold:SetShown(mode == "gold") end
+    -- Tip lives only while the slot is gold; the label tooltips read it live.
+    if mode == "gold" then region._specOvTip = tip else region._specOvTip = nil end
+    if region._specOvHover then region._specOvHover:SetShown(region._specOvTip ~= nil) end
     if region._specOvRed then
         region._specOvRed:SetShown(mode == "red")
         if mode == "red" and region._specOvRed._blocker then
@@ -4533,11 +4641,91 @@ function EllesmereUI.SpecOverrides_AttachEditLock(region, tip, predicate)
     end
 end
 
+-- "Overridden by: ..." tooltip for a gold slot, from the slot's traced fkeys:
+-- every spec group with a member spec HOLDING a value on any of them (a spec in
+-- several groups lists each -- the management list buckets the same way), held
+-- values on ungrouped specs by spec name (legacy / stranded values still apply),
+-- the creating group when nothing holds a value yet (a fresh session capture banks
+-- at exit), and every conditional group holding a value. Holding, not differing:
+-- a member value equal to the current default still pins that spec, which is
+-- exactly what a base editor needs to know. Outside a session a second line says
+-- what a base edit does. nil when no override names resolve.
+local _tipNames = {}   -- array part = names in order; hash part = dedupe set
+local function AddTipName(name)
+    if name and not _tipNames[name] then
+        _tipNames[name] = true
+        _tipNames[#_tipNames + 1] = name
+    end
+end
+local function SlotTipFor(sink)
+    wipe(_tipNames)
+    local groups = GetGroups()
+    for fkey in pairs(sink) do
+        local e = EntryOwning(fkey)
+        if e and e.values then
+            local held = false
+            for k, m in pairs(e.values) do
+                if type(k) == "number" and type(m) == "table" and m[fkey] ~= nil then
+                    held = true
+                    local grouped = false
+                    for _, g in ipairs(groups or {}) do
+                        for _, sid in ipairs(g.specs or {}) do
+                            if sid == k then
+                                AddTipName(g.name or "?")
+                                grouped = true
+                                break
+                            end
+                        end
+                    end
+                    if not grouped then AddTipName(SpecName(k)) end
+                end
+            end
+            if not held and e.group then
+                local g = GroupById(e.group)
+                if g then AddTipName(g.name or "?") end
+            end
+        end
+        local ce = Cond.EntryOwning(fkey)
+        if ce and ce.values then
+            -- A spec override on the same fkey evicts the conditional at runtime
+            -- (Cond.WriteValues skips spec-owned fkeys outside a session); say so
+            -- with the same "held by" wording the Overrides list row uses.
+            local heldBy
+            if e and e.group then
+                local og = GroupById(e.group)
+                heldBy = og and og.name
+            end
+            for k, m in pairs(ce.values) do
+                if type(k) == "number" and type(m) == "table" and m[fkey] ~= nil then
+                    local cg = EllesmereUI.Conditions_GroupById
+                        and EllesmereUI.Conditions_GroupById(k)
+                    if cg then
+                        local tag = L("conditional")
+                        if heldBy then
+                            tag = tag .. ", " .. string.format(L("held by '%s'"), heldBy)
+                        end
+                        AddTipName((cg.name or "?") .. " |cff909090(" .. tag .. ")|r")
+                    end
+                end
+            end
+        end
+    end
+    if #_tipNames == 0 then return nil end
+    local s = "|cffc7a65a" .. L("Overridden by:") .. "|r " .. table.concat(_tipNames, ", ")
+    if not _editGroup and not Cond._edit then
+        s = s .. "\n|cff909090"
+            .. L("Changes here edit the shared default; overrides keep their own values.")
+            .. "|r"
+    end
+    return s
+end
+
 local function GoldWalk(frame, forceOff, condGid, condName)
     local cfg = frame._captureCfg
     if cfg and not cfg.noCapture and not forceOff then
         local entry, condActive
-        for fkey in pairs(TraceSlot(cfg)) do
+        local sink = TraceSlot(cfg)
+        for fkey in pairs(sink) do
             -- Applied-conditional context (no session): a slot whose fkey the
             -- LIVE conditional banks a value for shows that override's value
             -- right now -- labeled overlay instead of plain gold.
@@ -4555,7 +4743,11 @@ local function GoldWalk(frame, forceOff, condGid, condName)
             SetSlotMark(frame, "condActive", nil, condName)
         elseif entry then
             local conflict = ConflictSpec(entry)
-            SetSlotMark(frame, conflict and "red" or "gold", conflict)
+            if conflict then
+                SetSlotMark(frame, "red", conflict)
+            else
+                SetSlotMark(frame, "gold", nil, nil, SlotTipFor(sink))
+            end
         else
             SetSlotMark(frame, false)
         end
@@ -4563,6 +4755,10 @@ local function GoldWalk(frame, forceOff, condGid, condName)
         if frame._specOvGold then frame._specOvGold:Hide() end
         if frame._specOvRed then frame._specOvRed:Hide() end
         if frame._specOvCondActive then frame._specOvCondActive:Hide() end
+        if frame._specOvHover then
+            frame._specOvTip = nil
+            frame._specOvHover:Hide()
+        end
     end
     local kids = { frame:GetChildren() }
     for i = 1, #kids do GoldWalk(kids[i], forceOff, condGid, condName) end
@@ -4924,12 +5120,62 @@ local function ProcessNotifiedWrites()
     _watchSnap = SnapshotProfiles()
 end
 
+-- One-time warning when a BASE edit (Default Editing Mode) lands on an OVERRIDDEN
+-- slot: the change edits the shared default only, and a user who does not know the
+-- system reads "my change didn't apply" on the specs the override covers. Same
+-- video-guide popup as the glyph's first click with warning copy; FireOnce stamps
+-- seen before showing (/euivideos resets). Reached only while the Default view is
+-- live (store non-empty, panel open, no session), so users without overrides pay a
+-- single boolean per write.
+local _warnWatch   -- one-shot GLOBAL_MOUSE_UP frame: the guide never pops mid-drag
+local function MaybeWarnDefaultEdit(frame)
+    local DEFAULT_EDIT_GUIDE = "override_default_edit"
+    local VG = EllesmereUI.VideoGuides
+    if not VG or VG.HasSeen(DEFAULT_EDIT_GUIDE) then return end
+    -- Hidden search prebuild: selector setters run on pages the user never sees.
+    if EllesmereUI._prebuilding then return end
+    if _warnWatch and _warnWatch._pending then return end
+    local n = frame
+    while n do
+        if n._captureCfg then break end
+        n = n.GetParent and n:GetParent() or nil
+    end
+    -- Only a slot the last gold walk marked as overridden qualifies.
+    if not (n and n._specOvTip) then return end
+    if not _warnWatch then
+        _warnWatch = CreateFrame("Frame")
+        _warnWatch:SetScript("OnEvent", function(self)
+            self:UnregisterEvent("GLOBAL_MOUSE_UP")
+            -- Next frame: the release itself (slider commit, picker close) settles first.
+            C_Timer.After(0, function()
+                self._pending = nil
+                VG.FireOnce(DEFAULT_EDIT_GUIDE)
+            end)
+        end)
+    end
+    _warnWatch._pending = true
+    if IsMouseButtonDown() then
+        -- Sliders and color pickers notify on every drag step; a dimmer landing
+        -- under a held button would swallow the release. Fire when it comes up.
+        _warnWatch:RegisterEvent("GLOBAL_MOUSE_UP")
+    else
+        -- Deferred: the notify runs inside the widget setter, often mid-refresh.
+        C_Timer.After(0, function()
+            _warnWatch._pending = nil
+            VG.FireOnce(DEFAULT_EDIT_GUIDE)
+        end)
+    end
+end
+
 --- Called by the widget factory whenever any options widget writes a value.
 function EllesmereUI._NotifySettingWrite(frame)
     -- Conditional sessions capture through this path too. Without them in the gate they
     -- fall back to watcher/exit-sweep capture only, losing edits whenever a setter's
     -- forced refresh raises the resync absorb before a tick can attribute them.
-    if not (_editGroup or Cond._edit) then return end
+    if not (_editGroup or Cond._edit) then
+        if _defaultView and type(frame) == "table" then MaybeWarnDefaultEdit(frame) end
+        return
+    end
     _pendingWrites = _pendingWrites or {}
     _pendingWrites[#_pendingWrites + 1] = frame or false
     if not _pendingWriteQueued then
@@ -7198,6 +7444,38 @@ local function BuildListRow(parent, y, entry)
             end
         end
     end
+    -- A conditional entry whose fkey a SPEC override also owns never applies at
+    -- runtime: Cond.WriteValues skips spec-owned fkeys outside an editing session
+    -- (the forSession gate), so the value shows while the session is open and is
+    -- dropped the moment it closes. The row otherwise reads as live while doing
+    -- nothing, which is the whole reason this is hard to diagnose -- name the
+    -- owner instead of leaving the eviction silent.
+    if isCondEntry then
+        local ownerEntry
+        for fkey in pairs(entry.values and entry.values.default or {}) do
+            ownerEntry = EntryOwning(fkey)
+            if ownerEntry then break end
+        end
+        if ownerEntry then
+            local og = GroupById(ownerEntry.group)
+            local warn = EllesmereUI.MakeFont(row, 11, nil, 1, 0.45, 0.45, 0.85)
+            warn:SetPoint("LEFT", crumb, "RIGHT", 10, 0)
+            warn:SetText(string.format(L("held by '%s'"), (og and og.name) or "?"))
+            local hit = CreateFrame("Frame", nil, row)
+            hit:SetAllPoints(warn)
+            hit:EnableMouse(true)
+            hit:SetScript("OnEnter", function(self)
+                if EllesmereUI.ShowWidgetTooltip then
+                    EllesmereUI.ShowWidgetTooltip(self,
+                        L("A spec override owns this setting, so this conditional value never applies outside an editing session. Remove the spec override to let it through."))
+                end
+            end)
+            hit:SetScript("OnLeave", function()
+                if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
+            end)
+        end
+    end
+
     local rm, rmBrd = MakeBtn("Remove Override", -20, 116)
     rm:SetScript("OnEnter", function() if rmBrd and rmBrd.SetColor then rmBrd:SetColor(1, 0.35, 0.35, 0.8) end end)
     rm:SetScript("OnLeave", function() if rmBrd and rmBrd.SetColor then rmBrd:SetColor(1, 1, 1, 0.22) end end)

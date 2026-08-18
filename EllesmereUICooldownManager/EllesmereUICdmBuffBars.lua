@@ -23,6 +23,10 @@ local ECME
 local _anyPandemic  = false
 local _anyThreshold = false
 local _anyStacks    = false
+-- True while any bar uses a Visibility mode/option, i.e. a state no tick-side aura or
+-- cooldown edge can reveal. Gates the dispatcher wake below so profiles that never touch
+-- Visibility keep the idle sleeper's original wake set.
+local _anyVisCond   = false
 
 -- Glow helpers (from main CDM file)
 local function StartGlow(...) if ns.StartNativeGlow then return ns.StartNativeGlow(...) end end
@@ -222,6 +226,13 @@ local TBB_DEFAULT_BAR = {
     enabled   = true,
     hideWhenInactive = true,  -- hide the bar unless the tracked aura is active
     onlyInCombat = false,     -- keep the bar hidden entirely while out of combat
+    barVisibility = "always", -- CDM-Bars-style visibility mode (always/in_combat/in_raid/.../multi-select)
+    visOnlyInstances = false,
+    visHideHousing = false,
+    visHideMounted = false,
+    visHideDragonriding = false,
+    visHideNoTarget = false,
+    visHideNoEnemy = false,
     grouped   = true,   -- per-bar "Group Tracking Bars" checkbox; checked bars chain + share width/height
     height    = 24,
     width     = 270,
@@ -332,6 +343,20 @@ function ns.GetTrackedBuffBars()
             end
         end
         tbb._pandemicModeMigrated = true
+    end
+    -- Live migration: standalone onlyInCombat=true folds into the new barVisibility mode
+    -- dropdown (Visibility -> In Combat) so the effective setting is unchanged. Cleared
+    -- after folding in so the Visibility Options checkbox does not show it doubly checked;
+    -- hideWhenInactive needs no migration, it already reads/writes the same field the new
+    -- Visibility Options checkbox uses.
+    if not tbb._visMigrated then
+        for _, b in ipairs(tbb.bars or {}) do
+            if b.onlyInCombat and (not b.barVisibility or b.barVisibility == "always") then
+                b.barVisibility = "in_combat"
+                b.onlyInCombat = false
+            end
+        end
+        tbb._visMigrated = true
     end
     return tbb
 end
@@ -887,6 +912,22 @@ function _tbbWake.OnEvent(_, event)
 end
 _tbbWake:SetScript("OnEvent", _tbbWake.OnEvent)
 ns.WakeTBBTick = _tbbWake.Wake
+
+-- The Visibility edges (mount, shapeshift, gliding, target, group, zone, combat) are exactly
+-- the set the shared dispatcher already owns, so subscribe there instead of re-registering
+-- them on the sleeper. Without this a parked tick never learns that a Visibility condition
+-- flipped: a bar hidden while mounted stays hidden past the dismount until some unrelated
+-- aura or cast happens to wake it, and the dragonriding modes never fire at all because
+-- takeoff/landing is not in the sleeper's wake set.
+if EllesmereUI.RegisterVisibilityUpdater then
+    EllesmereUI.RegisterVisibilityUpdater(function()
+        -- Only a parked tick needs the nudge; an awake one re-evaluates every frame anyway.
+        if _anyVisCond and _tbbWake._enabled
+           and tbbTickFrame and not tbbTickFrame:IsShown() then
+            _tbbWake.Wake()
+        end
+    end)
+end
 
 function ns.GetTBBFrame(idx) return tbbFrames[idx] end
 
@@ -1575,6 +1616,12 @@ local TBB_STYLE_KEYS = {
     "bgR", "bgG", "bgB", "bgA",
     "gradientEnabled", "gradientR", "gradientG", "gradientB", "gradientA", "gradientDir",
     "opacity", "hideWhenInactive", "onlyInCombat",
+    -- Visibility rides along because the onlyInCombat toggle it replaced already did: a new
+    -- bar inheriting a neighbour's style, or one joining a group, kept that gate before.
+    "barVisibility", "visibilityModes",
+    "visOnlyInstances", "visHideHousing", "visOnlyHousing",
+    "visHideMounted", "visOnlyMounted", "visHideDragonriding",
+    "visHideNoTarget", "visHideNoEnemy",
     "showTimer", "timerPosition", "timerSize", "timerX", "timerY",
     "timerTextR", "timerTextG", "timerTextB", "timerTextA",
     "timerDecimals", "timerDecimalThreshold",
@@ -4659,6 +4706,59 @@ local function HideTBBBarForCombat(bar)
 end
 
 -------------------------------------------------------------------------------
+--  "Visibility" gate (CDM-Bars-style mode + options, TBB-scoped)
+--  Mirrors _CDMApplyVisibility's priority-2/3 checks (EllesmereUICooldownManager.lua),
+--  but folded into TBB's own tick since TBB bars are not native CDM bars.
+--  Zero cost for bars without a condition: the tick consults the gate only
+--  for bars flagged at build (bar._tbbVisCond) and fills the shared state
+--  table ONCE per pass (TBBFillVisState) when any bar carries a condition.
+-------------------------------------------------------------------------------
+local _tbbVisState = {}
+
+local function TBBFillVisState()
+    local inRaid = IsInRaid and IsInRaid() or false
+    _tbbVisState.inCombat = TBBInCombat()
+    _tbbVisState.inRaid = inRaid
+    _tbbVisState.inParty = not inRaid and (IsInGroup and IsInGroup() or false)
+end
+
+local function TBBVisibilityHides(cfg)
+    if EllesmereUI.CheckVisibilityOptions and EllesmereUI.CheckVisibilityOptions(cfg) then
+        return true
+    end
+
+    local vis = cfg.barVisibility or "always"
+    local visExt = EllesmereUI.EvalVisibilityExtended
+        and EllesmereUI.EvalVisibilityExtended(cfg, "barVisibility", _tbbVisState, EllesmereUI.VIS_CAPS_DEFAULT)
+    if visExt ~= nil then return not visExt end
+    if vis == "never" then return true end
+    if vis == "in_combat" then return not _tbbVisState.inCombat end
+    if vis == "out_of_combat" then return _tbbVisState.inCombat end
+    if vis == "in_raid" then return not _tbbVisState.inRaid end
+    if vis == "in_party" then return not _tbbVisState.inParty end
+    if vis == "solo" then return _tbbVisState.inRaid or _tbbVisState.inParty end
+    return false
+end
+
+-- Does this bar rely on a Visibility mode or option? Mirrors what TBBVisibilityHides reads,
+-- minus hideWhenInactive/onlyInCombat, which flip on the aura and combat edges the sleeper
+-- already wakes on. Option keys come from the shared list so a new one is covered here too.
+local function TBBUsesVisCondition(cfg)
+    if not cfg then return false end
+    local vis = cfg.barVisibility
+    if vis and vis ~= "always" then return true end
+    local vm = cfg.visibilityModes
+    if type(vm) == "table" and next(vm) then return true end
+    local items = EllesmereUI.VIS_OPT_ITEMS
+    if items then
+        for i = 1, #items do
+            if cfg[items[i].key] then return true end
+        end
+    end
+    return false
+end
+
+-------------------------------------------------------------------------------
 --  Main Tick: UpdateTrackedBuffBarTimers
 --  Direct reskin of Blizzard's BuffBarCooldownViewer StatusBars: reads
 --  min/max/value from Blizzard's Bar, zero duration computation.
@@ -4700,6 +4800,9 @@ function ns.UpdateTrackedBuffBarTimers()
     -- configs sharing a cooldownInfo (Eclipse Solar+Lunar) cannot both mirror the same frame and show twice.
     local assignment = AssignFramesToConfigs(bars)
 
+    -- Visibility gate inputs, once per pass, only when some bar has a condition.
+    if _anyVisCond then TBBFillVisState() end
+
     for i, cfg in ipairs(bars) do
         local bar = tbbFrames[i]
         if not bar or not bar._tbbReady then
@@ -4709,6 +4812,8 @@ function ns.UpdateTrackedBuffBarTimers()
             if not bar:IsShown() then bar:Show() end
         elseif cfg.enabled == false then
             bar:Hide()
+        elseif bar._tbbVisCond and TBBVisibilityHides(cfg) then
+            HideTBBBarForCombat(bar)
         elseif cfg.onlyInCombat and not TBBInCombat() then
             -- "Only In Combat": out of combat the bar is gone regardless of aura/cooldown state, and regardless of Hide When Inactive.
             HideTBBBarForCombat(bar)
@@ -5289,6 +5394,7 @@ function ns.BuildTrackedBuffBars()
     _anyPandemic  = false
     _anyThreshold = false
     _anyStacks    = false
+    _anyVisCond   = false
 
     local anyEnabled = false
     local anyLust = false  -- any enabled bloodlust bar -> needs the Sated listener
@@ -5300,11 +5406,15 @@ function ns.BuildTrackedBuffBars()
         if (cfg.stacksPosition or "center") ~= "none"  then _anyStacks    = true end
         if cfg.stackBasedBar and cfg.trackType ~= "cooldown"
            and cfg.stackThresholdMaxEnabled             then _anyStacks    = true end
+        local visCond = TBBUsesVisCondition(cfg)
+        if visCond                                      then _anyVisCond   = true end
 
         if not tbbFrames[i] then
             tbbFrames[i] = CreateTrackedBuffBarFrame(UIParent, i)
         end
         local bar = tbbFrames[i]
+        -- Per-bar gate flag for the tick (our frame; the tick never re-derives it).
+        bar._tbbVisCond = visCond or nil
 
         if cfg.enabled == false then
             bar:Hide()

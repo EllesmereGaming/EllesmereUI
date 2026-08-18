@@ -1963,8 +1963,16 @@ local function DmPvClick(self)
     local id = self._dmSel
     -- An id outside the edited bucket belongs to an INHERITED group tile
     -- (concrete spec views union them into the preview): select its
-    -- read-only sidebar row instead of the (absent) own tile.
-    if id ~= "base" then
+    -- read-only sidebar row instead of the (absent) own tile. The base
+    -- grid is an All Specs row, inherited in every concrete spec view.
+    if id == "base" then
+        if dmSpecSel ~= "allspecs" and ns.BM_InheritedGroupsFor
+            and ns.BM_InheritedGroupsFor(dmSpecSel) then
+            dmInhSel = { group = "allspecs", id = "base" }
+            EllesmereUI:RefreshPage(true)
+            return
+        end
+    else
         local own = (ns.DM_BucketTiles and ns.DM_BucketTiles(dmSpecSel)) or {}
         local inOwn = false
         for i = 1, #own do
@@ -2262,8 +2270,18 @@ function ns.DMP_RefreshPreview()
     end
 
     -- Base grid (BM icon-cap parity: selected 4, unselected 2, dimmed 0.5).
-    do
-        local sel = (dmSel == "base")
+    -- An All Specs indicator: drawn in the All Specs view and in concrete
+    -- spec views that have not switched it off; group views omit it like
+    -- every other All Specs row.
+    local baseShown
+    if dmSpecSel == "allspecs" then
+        baseShown = true
+    elseif ns.BM_InheritedGroupsFor and ns.BM_InheritedGroupsFor(dmSpecSel) then
+        baseShown = not (ns.DM_BaseDisabled and ns.DM_BaseDisabled(dmSpecSel))
+    end
+    if baseShown then
+        local sel = (dmSel == "base" and not dmInhSel)
+            or (dmInhSel and dmInhSel.id == "base") or false
         RenderRun({
             selKey = "base",
             count = math.min(p.debuffCap or 3, (sel or allVis) and 4 or 2),
@@ -2480,21 +2498,35 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
     -- only): their tiles lead the sidebar as read-only rows.
     local inhGroups = ns.BM_InheritedGroupsFor and ns.BM_InheritedGroupsFor(dmSpecSel) or nil
 
+    -- The Base Icons grid is an All Specs indicator: OWN in the All Specs
+    -- view, INHERITED (read-only, per-spec disable pill) in concrete spec
+    -- views, absent from the other group views like any All Specs tile.
+    local baseOwn = (dmSpecSel == "allspecs")
+    local baseInherited = (inhGroups ~= nil)
+    local allSpecsName = (ns.BM_GROUP_BUCKET_INFO and ns.BM_GROUP_BUCKET_INFO.allspecs)
+        and L(ns.BM_GROUP_BUCKET_INFO.allspecs.name) or L("All Specs")
+
     -- Inherited selection: resolve against the owning group's bucket; drop
     -- it when the view no longer inherits that group or the tile is gone.
+    -- id "base" = the inherited Base Icons grid (concrete spec views only).
     local inhSelTile = nil
+    local inhSelBase = false
     if dmInhSel and inhGroups then
-        for gi = 1, #inhGroups do
-            if inhGroups[gi] == dmInhSel.group then
-                local gl = ns.DM_BucketTiles and ns.DM_BucketTiles(dmInhSel.group)
-                for i = 1, #(gl or {}) do
-                    if gl[i].id == dmInhSel.id then inhSelTile = gl[i] break end
+        if dmInhSel.id == "base" then
+            inhSelBase = (dmInhSel.group == "allspecs")
+        else
+            for gi = 1, #inhGroups do
+                if inhGroups[gi] == dmInhSel.group then
+                    local gl = ns.DM_BucketTiles and ns.DM_BucketTiles(dmInhSel.group)
+                    for i = 1, #(gl or {}) do
+                        if gl[i].id == dmInhSel.id then inhSelTile = gl[i] break end
+                    end
+                    break
                 end
-                break
             end
         end
     end
-    if not inhSelTile then dmInhSel = nil end
+    if not (inhSelTile or inhSelBase) then dmInhSel = nil end
 
     -- Validate selection.
     if dmSel ~= "base" then
@@ -2503,6 +2535,11 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
             if tiles[i].id == dmSel then found = true break end
         end
         if not found then dmSel = "base" end
+    end
+    -- "base" in a concrete spec view IS the inherited base grid.
+    if dmSel == "base" and not dmInhSel and baseInherited then
+        dmInhSel = { group = "allspecs", id = "base" }
+        inhSelBase = true
     end
 
     -- Editing-spec roster, shared by the Editing Spec dropdown and the
@@ -2589,22 +2626,48 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
 
     local tileY = 0
 
-    -- Pinned Base Icons tile: undeletable, no toggle (the manager has no
-    -- disable concept -- an empty grid is expressed through the filters).
-    tileY = tileY - BuildTile(sidebarChild, tileY, {
-        width = sidebarW, fontPath = fontPath,
-        icon = SampleDebuffTexture(1),
-        title = L("Base Icons"),
-        posText = "(" .. L(POS_VALUES[p.debuffPosition or "bottomright"] or "") .. ")",
-        subtitle = L("The standard debuff grid"),
-        selected = (dmSel == "base" and not dmInhSel),
-        enabled = true,
-        onSelect = function()
-            dmSel = "base"
-            dmInhSel = nil
-            EllesmereUI:RefreshPage(true)
-        end,
-    })
+    -- Pinned Base Icons tile (All Specs view): undeletable, no toggle (an
+    -- empty grid is expressed through the filters).
+    if baseOwn then
+        tileY = tileY - BuildTile(sidebarChild, tileY, {
+            width = sidebarW, fontPath = fontPath,
+            icon = SampleDebuffTexture(1),
+            title = L("Base Icons"),
+            posText = "(" .. L(POS_VALUES[p.debuffPosition or "bottomright"] or "") .. ")",
+            subtitle = L("The standard debuff grid"),
+            selected = (dmSel == "base" and not dmInhSel),
+            enabled = true,
+            onSelect = function()
+                dmSel = "base"
+                dmInhSel = nil
+                EllesmereUI:RefreshPage(true)
+            end,
+        })
+    elseif baseInherited then
+        -- Concrete spec view: the All Specs base grid as an INHERITED row
+        -- (read-only here; the pill is this spec's own on/off).
+        local disHere = ns.DM_BaseDisabled and ns.DM_BaseDisabled(dmSpecSel)
+        tileY = tileY - BuildTile(sidebarChild, tileY, {
+            width = sidebarW, fontPath = fontPath,
+            icon = SampleDebuffTexture(1),
+            title = L("Base Icons"),
+            posText = "(" .. L(POS_VALUES[p.debuffPosition or "bottomright"] or "") .. ")",
+            subtitle = allSpecsName,
+            inheritedTooltip = EllesmereUI.Lf("Inherited from %1$s. Editable only there.", allSpecsName),
+            selected = inhSelBase,
+            enabled = (not disHere) and true or false,
+            showToggle = true,
+            onSelect = function()
+                dmInhSel = { group = "allspecs", id = "base" }
+                EllesmereUI:RefreshPage(true)
+            end,
+            onToggle = function()
+                ns.DM_SetBaseDisabled(dmSpecSel, not ns.DM_BaseDisabled(dmSpecSel))
+                DmApply()
+                EllesmereUI:RefreshPage(true)
+            end,
+        })
+    end
 
     -- INHERITED group tiles lead concrete spec views: read-only here (edit
     -- them in their group); the pill toggles ONLY this spec's enable.
@@ -3105,15 +3168,26 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
             if tiles[i].id == dmSel then selTile = tiles[i] break end
         end
     end
+    -- Group views (not All Specs, not a concrete spec) list no base grid: a
+    -- "base" selection there means nothing is selected.
+    local groupEmpty = (dmSel == "base" and not dmInhSel and not baseOwn and not baseInherited)
     if dmInhSel and inhSelTile then
         local ginfo2 = ns.BM_GROUP_BUCKET_INFO and ns.BM_GROUP_BUCKET_INFO[dmInhSel.group]
         local gname2 = ginfo2 and L(ginfo2.name) or dmInhSel.group
         settingsTitle:SetTextColor(0.55, 0.72, 1)
         settingsTitle:SetText(inhSelTile.name or L(TYPE_NAMES[inhSelTile.type] or inhSelTile.type))
         subTitle:SetText("(" .. EllesmereUI.Lf("Inherited from %1$s", gname2) .. ")")
+    elseif dmInhSel and inhSelBase then
+        settingsTitle:SetTextColor(0.55, 0.72, 1)
+        settingsTitle:SetText(L("Base Icons"))
+        subTitle:SetText("(" .. EllesmereUI.Lf("Inherited from %1$s", allSpecsName) .. ")")
     elseif selTile then
         settingsTitle:SetText(L(TYPE_NAMES[selTile.type] or selTile.type))
         subTitle:SetText("(" .. TileSubtitle(selTile) .. ")")
+    elseif groupEmpty then
+        local ginfo3 = ns.BM_GROUP_BUCKET_INFO and ns.BM_GROUP_BUCKET_INFO[dmSpecSel]
+        settingsTitle:SetText(ginfo3 and L(ginfo3.name) or dmSpecSel)
+        subTitle:SetText("(" .. L("No indicator selected") .. ")")
     else
         settingsTitle:SetText(L("Base Icons"))
         subTitle:SetText("(" .. L("The standard debuff grid") .. ")")
@@ -3212,15 +3286,12 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
         end)
     end)
 
-    -- Detail rows build inside the scroll child
-    local sy
-    if dmInhSel and inhSelTile then
-        -- Read-only pane for an INHERITED group tile: where it lives, a
-        -- jump link to the owning group, and a pointer at the tile toggle
-        -- for the per-spec enable. No settings render -- edits belong to
-        -- the group. (Child x = padDiff + PAD aligns with the PAD margin.)
-        local ginfo2 = ns.BM_GROUP_BUCKET_INFO and ns.BM_GROUP_BUCKET_INFO[dmInhSel.group]
-        local gname2 = ginfo2 and L(ginfo2.name) or dmInhSel.group
+    -- Read-only pane for an INHERITED row (group tile or the All Specs base
+    -- grid): where it lives, a jump link to the owning group, and a pointer
+    -- at the tile toggle for the per-spec enable. No settings render --
+    -- edits belong to the group. (Child x = padDiff + PAD aligns with the
+    -- PAD margin.) Returns the consumed height.
+    local function BuildInheritedPane(gname2, jumpGroup, jumpId)
         local info = settingsChild:CreateFontString(nil, "OVERLAY")
         info:SetFont(fontPath, 12, "")
         info:SetPoint("TOPLEFT", settingsChild, "TOPLEFT", padDiff + PAD, -14)
@@ -3242,16 +3313,37 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
         link:SetSize(linkFS:GetStringWidth() + 4, 18)
         link:SetScript("OnEnter", function() linkFS:SetAlpha(1) end)
         link:SetScript("OnLeave", function() linkFS:SetAlpha(0.85) end)
-        local jumpGroup, jumpId = dmInhSel.group, dmInhSel.id
         link:SetScript("OnClick", function()
             dmSpecSel = jumpGroup
             dmSel = jumpId
             dmInhSel = nil
             EllesmereUI:RefreshPage(true)
         end)
-        sy = -110
+        return -110
+    end
+
+    -- Detail rows build inside the scroll child
+    local sy
+    if dmInhSel and inhSelTile then
+        local ginfo2 = ns.BM_GROUP_BUCKET_INFO and ns.BM_GROUP_BUCKET_INFO[dmInhSel.group]
+        local gname2 = ginfo2 and L(ginfo2.name) or dmInhSel.group
+        sy = BuildInheritedPane(gname2, dmInhSel.group, dmInhSel.id)
+    elseif dmInhSel and inhSelBase then
+        sy = BuildInheritedPane(allSpecsName, "allspecs", "base")
     elseif selTile then
         sy = BuildTileDetail(settingsChild, fontPath, selTile)
+    elseif groupEmpty then
+        -- Group view with nothing selected: All Specs content (base grid
+        -- included) is not listed here, exactly like it is not for tiles.
+        local info = settingsChild:CreateFontString(nil, "OVERLAY")
+        info:SetFont(fontPath, 12, "")
+        info:SetPoint("TOPLEFT", settingsChild, "TOPLEFT", padDiff + PAD, -14)
+        info:SetPoint("RIGHT", settingsChild, "RIGHT", -(padDiff + PAD), 0)
+        info:SetJustifyH("LEFT")
+        info:SetWordWrap(true)
+        info:SetText(EllesmereUI.Lf("Indicators added here show on every spec in this group. The Base Icons grid lives in %1$s.", allSpecsName))
+        info:SetTextColor(0.65, 0.65, 0.65)
+        sy = -60
     else
         sy = BuildBaseDetailDM(settingsChild, fontPath)
     end

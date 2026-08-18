@@ -4481,7 +4481,7 @@ initFrame:SetScript("OnEvent", function(self)
                         }
                         local tb = TIER_BOUNDS[tier]
                         local _, cogShow = EllesmereUI.BuildCogPopup({
-                            title = EllesmereUI.Lf("%1$s Options", tierLabel),
+                            title = EllesmereUI.Lf("%1$s Options", EllesmereUI.L(tierLabel)),
                             rows = {
                                 { type="slider", label=tb.label, min=tb.min, max=tb.max, step=1,
                                   tooltip=tb.tip,

@@ -752,6 +752,21 @@ local function ApplyUFText(button, d, style)
             d.duration:SetPoint("CENTER", button, "CENTER", style.cdOffX or 0, style.cdOffY or 0)
             d.ufDurAnchor = aKey
         end
+        -- Duration formatter options are registered once when an AuraKit button
+        -- is created. Re-register when the user changes the precision threshold;
+        -- a normal style restyle alone does not change the engine binding.
+        -- SAME stamp key + shape as MakeInitializer's creation write ("b" --
+        -- UF styles never set durationShowSeconds -- plus the threshold), so
+        -- untouched configs compare equal to the creation stamp and never
+        -- rebind: zero cost while the feature is off.
+        local wantFmt = "b" .. tostring(style.durationPrecisionThreshold or 0)
+        if d.durationFmtS ~= wantFmt then
+            local AK = EllesmereUI.AuraKit
+            local opts = AK.BuildDurationTextOpts(
+                AK.GetDurationFormatter(nil, style.durationPrecisionThreshold))
+            local ok = AK.SetDurationTextSafe(button, d.duration, opts)
+            if ok then d.durationFmtS = wantFmt end
+        end
     end
     if d.stack then
         local fontKey = path .. "|" .. (style.stackSize or 14)
@@ -809,7 +824,7 @@ local function StyleTableFP(st, font)
     local tc = st.texCoord
     local b = st.border
     return FP(font, st.width, st.height, tc[1], tc[2], tc[3], tc[4],
-        st.hideDurationText, st.cdTextSize, CK(st.cdTextColor), st.cdOffX, st.cdOffY,
+        st.hideDurationText, st.durationPrecisionThreshold, st.cdTextSize, CK(st.cdTextColor), st.cdOffX, st.cdOffY,
         st.stackSize, CK(st.stackColor), st.stackPos, st.stackOffX, st.stackOffY,
         b and b.texture, b and b.size, b and b[1], b and b[2], b and b[3], b and b[4],
         b and b.offsetX, b and b.offsetY, b and b.shiftX, b and b.shiftY,
@@ -920,6 +935,7 @@ local function BuildStyle(unit, base, s, unitFrame)
         cooldownDrawEdge = false,
         noDefaultFonts = true,
         hideDurationText = not s[showCdKey],
+        durationPrecisionThreshold = tonumber(s[p .. "CooldownTextPrecision"]),
         cdTextSize = s[cdSizeKey] or cdSizeDefault,
         cdTextColor = s[p .. "CooldownTextColor"],
         cdOffX = s[p .. "CooldownTextOffsetX"] or 0,

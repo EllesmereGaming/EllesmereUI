@@ -231,18 +231,28 @@ qolFrame:SetScript("OnEvent", function(self)
         local function BankOpen()
             return (BankFrame and BankFrame:IsShown()) and true or false
         end
-        -- "Exclude Warbound Containers": true only when on AND the slot is confirmed
-        -- warband-bank-eligible. Guarded like the bags module (C_Bank/ItemLocation/
-        -- DoesItemExist can be absent or invalid); any uncertainty returns false so the container opens normally.
+        -- "Exclude Warbound Containers": checks the item's own bind type
+        -- instead of asking the bank if it would accept a deposit right now --
+        -- that answer needs a live bank session and defaults to "no" outdoors,
+        -- which let warbound items open anyway. Bind type works anywhere.
+        local WARBOUND_BIND_TYPES = {
+            [Enum.ItemBind.ToWoWAccount] = true,
+            [Enum.ItemBind.ToBnetAccount] = true,
+            [Enum.ItemBind.ToBnetAccountUntilEquipped] = true,
+        }
         local function IsWarboundExcluded(bag, slot)
             -- Default ON (unset behaves as enabled, matching the options UI's
             -- checked-by-default display); only explicit false disables it -- `not value` would wrongly let nil skip the exclusion.
             if not EllesmereUIDB or EllesmereUIDB.autoOpenContainersExcludeWarbound == false then return false end
-            if not (C_Bank and C_Bank.IsItemAllowedInBankType and ItemLocation
-                and C_Item and C_Item.DoesItemExist) then return false end
-            local loc = ItemLocation:CreateFromBagAndSlot(bag, slot)
-            if not (loc and C_Item.DoesItemExist(loc)) then return false end
-            return C_Bank.IsItemAllowedInBankType(Enum.BankType.Account, loc) and true or false
+            if not (C_Container and C_Container.GetContainerItemInfo and C_Item and C_Item.GetItemInfo) then return false end
+            local info = C_Container.GetContainerItemInfo(bag, slot)
+            if not (info and info.itemID) then return false end
+            local _, _, _, _, _, _, _, _, _, _, _, _, _, bindType = C_Item.GetItemInfo(info.itemID)
+            -- Item data not cached yet: fail CLOSED (skip this pass; the scan
+            -- re-checks once the data lands) so a warbound container is never
+            -- opened just because its bind type was not known yet.
+            if not bindType then return true end
+            return WARBOUND_BIND_TYPES[bindType] == true
         end
         local SLOTS_PER_FRAME = 3  -- check 3 slots per OnUpdate tick
 
@@ -257,6 +267,14 @@ qolFrame:SetScript("OnEvent", function(self)
                         return true
                     end
                 end
+            end
+            -- A brand-new item's data can still be loading server-side when
+            -- this first check runs, so an empty tooltip here doesn't mean
+            -- "not openable" -- it can just mean "not loaded yet". Only cache
+            -- the negative once the item's data is actually in, so a real
+            -- negative sticks but an early miss gets rechecked on the next scan.
+            if C_Item and C_Item.IsItemDataCachedByID and not C_Item.IsItemDataCachedByID(itemID) then
+                return false
             end
             _openableCache[itemID] = false
             return false

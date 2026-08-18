@@ -493,6 +493,8 @@ initFrame:SetScript("OnEvent", function(self)
                         and "specialization, by position on this character")
                     -- Checked before the plain profession caption below,
                     -- since slot.extra would otherwise still match it.
+                    or (slot.kind == "dynamicprofession" and slot.specialization
+                        and "profession specialization ability, by position on this character")
                     or (slot.kind == "dynamicprofession" and slot.extra
                         and "profession's second ability, by position on this character")
                     -- Same icon and same name as a fixed profession entry on
@@ -915,10 +917,10 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     -- Profession POSITIONS (DynamicSpecEntries counterpart): the five
-    -- GetProfessions slots as openers, then the same five as second abilities;
-    -- unlearned / no-second-ability positions resolve to nothing and go dark
-    -- under Hide Unusable Entries (see the Dynamic Profession section in
-    -- EllesmereUIQuickdraw.lua).
+    -- GetProfessions slots as openers, then the same five as second abilities,
+    -- then the two primary slots as gathering specialization abilities.
+    -- Unlearned or inapplicable positions resolve to nothing and go dark under
+    -- Hide Unusable Entries (see Dynamic Profession in EllesmereUIQuickdraw).
     local function DynamicProfessionEntries()
         local out = {}
         if not ns.ProfessionPositionName then return out end
@@ -931,6 +933,15 @@ initFrame:SetScript("OnEvent", function(self)
             local slot = { kind = "dynamicprofession", index = i, extra = true }
             local icon = ns.SlotDisplay(slot)
             out[#out + 1] = { icon = icon, name = ns.ProfessionPositionName(i, true), slot = slot }
+        end
+        for i = 1, 2 do
+            local slot = { kind = "dynamicprofession", index = i, specialization = true }
+            local icon = ns.SlotDisplay(slot)
+            out[#out + 1] = {
+                icon = icon,
+                name = ns.ProfessionPositionName(i, false, true),
+                slot = slot,
+            }
         end
         return out
     end

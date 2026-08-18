@@ -985,13 +985,13 @@ end
 --  Dynamic Profession: a dynamicprofession slot names a POSITION (1/2 = the
 --  two primary professions in GetProfessions order, 3/4/5 = Cooking, Fishing,
 --  Archaeology), resolved live to that profession's opener spell, or with
---  slot.extra its second non-passive spell (Smelting, Prospecting, Milling).
+--  slot.extra its second non-passive spell. slot.specialization resolves the
+--  first known specialization ability for Mining, Herbalism, or Skinning.
 --  Unlearned positions and professions with no second ability resolve to nil
 --  and go dark under Hide Unusable Entries. Resolvers live on ns (200-local
---  ceiling). Memoized per (index, extra) -- SlotUsable, ResolveAction and
---  SlotDisplay all ask for the same slot every push -- and wiped from
---  PushAllPalettes beside usableMemo, whose SPELLS_CHANGED request is the
---  learn/unlearn edge.
+--  ceiling). SlotUsable, ResolveAction and SlotDisplay share a memo per
+--  position and ability kind. PushAllPalettes wipes it beside usableMemo;
+--  SPELLS_CHANGED covers the learn/unlearn edge.
 -------------------------------------------------------------------------------
 do
     local cache = {}
@@ -1000,7 +1000,8 @@ do
         if not slot or slot.kind ~= "dynamicprofession" then return nil, nil end
         local i = tonumber(slot.index)
         if not i then return nil, nil end
-        local key = i * 2 + (slot.extra and 1 or 0)
+        local key = i * 4 + (slot.extra and 1 or 0)
+            + (slot.specialization and 2 or 0)
         local hit = cache[key]
         if hit then return hit.book, hit.spell end
 
@@ -1013,19 +1014,38 @@ do
         elseif i == 5 then book = arch
         end
 
-        -- Nth non-passive spell of the book's spellbook block: 1 = opener,
-        -- 2 = second ability (nil when the profession has none).
+        -- Gathering specialization abilities live in general spellbook
+        -- flyouts, outside the profession's own spellbook block.
         local spell
         if book then
-            local _, _, _, _, numSpells, spellOffset = GetProfessionInfo(book)
-            local which = slot.extra and 2 or 1
-            local seen = 0
-            for n = 1, (numSpells or 0) do
-                local info = C_SpellBook.GetSpellBookItemInfo(
-                    n + (spellOffset or 0), Enum.SpellBookSpellBank.Player)
-                if info and info.spellID and not info.isPassive then
-                    seen = seen + 1
-                    if seen == which then spell = info.spellID; break end
+            local _, _, _, _, numSpells, spellOffset, skillLine = GetProfessionInfo(book)
+            if slot.specialization then
+                -- Blizzard exposes each learned flyout and each profession's
+                -- skill line, but no relationship between the two.
+                local flyoutID
+                if skillLine == 182 then flyoutID = 239       -- Herbalism
+                elseif skillLine == 186 then flyoutID = 240   -- Mining
+                elseif skillLine == 393 then flyoutID = 238   -- Skinning
+                end
+                if flyoutID then
+                    local numSlots = select(3, GetFlyoutInfo(flyoutID))
+                    for n = 1, (numSlots or 0) do
+                        local spellID, _, isKnown = GetFlyoutSlotInfo(flyoutID, n)
+                        if isKnown then spell = spellID; break end
+                    end
+                end
+            else
+                -- Nth non-passive spell in the profession block: 1 = opener,
+                -- 2 = the profession's native extra action, when it has one.
+                local which = slot.extra and 2 or 1
+                local seen = 0
+                for n = 1, (numSpells or 0) do
+                    local info = C_SpellBook.GetSpellBookItemInfo(
+                        n + (spellOffset or 0), Enum.SpellBookSpellBank.Player)
+                    if info and info.spellID and not info.isPassive then
+                        seen = seen + 1
+                        if seen == which then spell = info.spellID; break end
+                    end
                 end
             end
         end
@@ -1042,7 +1062,7 @@ end
 -- Picker / unresolved-placeholder name for a dynamicprofession position (the
 -- ns.SpecPositionName counterpart): positions 1-2 by number, 3-5 by the
 -- client's own skill name.
-ns.ProfessionPositionName = function(index, extra)
+ns.ProfessionPositionName = function(index, extra, specialization)
     index = tonumber(index)
     local base
     if index == 3 then base = COOKING or "Cooking"
@@ -1050,7 +1070,9 @@ ns.ProfessionPositionName = function(index, extra)
     elseif index == 5 then base = ARCHAEOLOGY or "Archaeology"
     else base = EllesmereUI.Lf("Profession %1$d", index or 0)
     end
-    if extra then
+    if specialization then
+        return EllesmereUI.Lf("%1$s Specialization Ability", base)
+    elseif extra then
         return EllesmereUI.Lf("%1$s Extra Ability", base)
     end
     return base
@@ -1696,11 +1718,9 @@ local function SlotDisplay(slot)
         return QUESTION_MARK, slot.name
 
     elseif k == "dynamicprofession" then
-        if slot.extra then
-            -- The ABILITY's own name and icon -- Smelting, Prospecting,
-            -- Milling -- rather than the profession's: unlike the opener,
-            -- which is the profession by another name, the second ability
-            -- is its own spell and reads as one.
+        if slot.extra or slot.specialization then
+            -- The ABILITY's own name and icon rather than the profession's:
+            -- unlike the opener, these entries are distinct spells.
             local spellID = ns.ProfessionSpellFor(slot)
             if spellID then
                 local info = C_Spell.GetSpellInfo(spellID)
@@ -1715,10 +1735,10 @@ local function SlotDisplay(slot)
                 return icon or QUESTION_MARK, name or slot.name
             end
         end
-        -- A position this character does not reach, or (on slot.extra) a
-        -- profession with no second ability. Names the seat rather than an
-        -- occupant, same as an empty dynamicspec position.
-        return QUESTION_MARK, ns.ProfessionPositionName(tonumber(slot.index), slot.extra)
+        -- An unavailable position, native extra, or specialization ability.
+        -- Name the seat rather than an occupant, like an empty dynamicspec.
+        return QUESTION_MARK, ns.ProfessionPositionName(
+            tonumber(slot.index), slot.extra, slot.specialization)
 
     elseif k == "battlepet" then
         if type(slot.guid) ~= "string" then return QUESTION_MARK, slot.name end
@@ -1791,15 +1811,16 @@ ns.SlotDisplay = SlotDisplay
 -- flag and there is no duration-object equivalent for items.
 --
 -- The spellID an entry's live state is read from, for the kinds that HAVE one.
--- A Dynamic Rez answers the branch it would take right now, so its cooldown
--- swipe, its charge count and its usability tint all describe the one spell its
--- icon is drawn from -- three separate resolutions could disagree.
+-- Dynamic entries answer the spell they resolve to right now, so their
+-- cooldown describes the same spell as their icon and secure action.
 local function SlotSpellID(slot)
     if not slot then return nil end
     if slot.kind == "spell" then
         return type(slot.id) == "number" and slot.id or nil
     elseif slot.kind == "dynamicrez" then
         return Rez.SpellNow()
+    elseif slot.kind == "dynamicprofession" then
+        return ns.ProfessionSpellFor(slot)
     end
     return nil
 end
@@ -1807,7 +1828,8 @@ end
 local function SlotCooldown(slot)
     if not slot then return nil end
     local k = slot.kind
-    if k == "spell" or k == "mount" or k == "dynamicrez" then
+    if k == "spell" or k == "mount" or k == "dynamicrez"
+       or k == "dynamicprofession" then
         local id
         if k == "mount" then
             -- No falling back to slot.id here: that is a mountID, and looking

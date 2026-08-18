@@ -955,6 +955,75 @@ end
 -------------------------------------------------------------------------------
 EllesmereUI._WHATSNEW_PATCHES = {
     {
+        version = "8.9.2",
+        heroes = {},
+        features = {
+            {
+                module = "Bags",
+                title  = "Compact Slot Groups",
+                desc   = "Pack the smaller equip-slot groups beside each other so Armory views take less vertical space; cog on Group Armory by Slot",
+                nav    = { module = "EllesmereUIBags", page = "Bags", section = "EXTRAS", highlight = "Group Armory by Slot" },
+            },
+            {
+                module = "Blizz UI Enhanced",
+                title  = "Character Sheet Durability",
+                desc   = "Opt-in durability display above the model, in the stats header or the footer, colored green to red",
+                nav    = { module = "EllesmereUIBlizzardSkin", page = "Blizzard Window Skins", section = "CORE OPTIONS", highlight = "Show Item Durability" },
+            },
+            {
+                module = "Cooldown Manager",
+                title  = "Tracking Bars Visibility",
+                desc   = "Tracking Bars gain the CDM Bars Visibility mode and Visibility Options, reacting to changes instantly",
+                nav    = { module = "EllesmereUICooldownManager", page = "Tracking Bars", section = "Display", highlight = "Visibility" },
+            },
+            {
+                module = "Player Aura Bars & Unit Frames",
+                title  = "Precise Below Timers",
+                desc   = "Show aura timers under your chosen threshold as minutes and seconds (4:37 instead of 4m)",
+                nav    = { module = "EllesmereUIUnitFrames", page = "Player Aura Bars" },
+            },
+            {
+                module = "Quickdraw",
+                title  = "Profession Specialization Abilities",
+                desc   = "Overload Herbs, Overload Ore or Sharpen Your Knife resolve per character, with cooldowns shown",
+                nav    = { module = "EllesmereUIQuickdraw", page = "Quickdraw" },
+            },
+            {
+                module = "Spec Overrides",
+                title  = "Buff Manager Starting Point",
+                desc   = "New override Buff Managers can start as a copy of main, a copy of another override, the default preset, or empty",
+                nav    = { module = "_EUIProfiles", page = "Overrides" },
+            },
+            {
+                module = "Spec Overrides",
+                title  = "Override Info Icons",
+                desc   = "Gold-bordered settings show which overrides adjust them; the first Default Editing Mode edit gets a one-time heads-up",
+            },
+            {
+                module = "Visibility",
+                title  = "Hide when Skyriding Mounted",
+                desc   = "Formerly Resource Bars only; now in every module's Visibility Options dropdown",
+            },
+        },
+        fixes = {
+            { module = "Chat", text = "Clicking [Show Message] on a filtered whisper now reveals the message." },
+            { module = "Chat", text = "Moving the main chat window in Unlock Mode no longer shrinks it to an old Edit Mode size or lands it slightly off after saving, and the resize corner icon is easier to see." },
+            { module = "Cooldown Manager", text = "Reordering a spell no longer makes an unrelated potion or trinket icon vanish from its slot, and a potion's CD Ready glow now survives a reload." },
+            { module = "Cooldown Manager", text = "Fixed icons that could render invisible in their slot -- buffs hosted on a cooldown or utility bar vanished while active if the Buffs bar was hidden, and a spell re-added through the spell picker could inherit an old hidden-when-ready state it no longer showed anywhere." },
+            { module = "Cooldown Manager", text = "Cobra Shot (and other spells the game spuriously ties to an unrelated base spell) now keeps its assigned position instead of jumping to the front of the bar." },
+            { module = "Player Aura Bars", text = "Default bar and filter names now show translated on non-English clients." },
+            { module = "Profiles", text = "The Spec Overrides list now points out a conditional override that a spec override is holding back, naming the group, instead of showing it as live." },
+            { module = "Quality of Life", text = "Auto Open Containers now correctly skips warbound containers like the Cache of Void-Touched when Exclude Warbound Containers is on, and no longer permanently ignores a container it first saw before its data had loaded." },
+            { module = "Raid Frames", text = "Overshields no longer disappear in dungeons, raids and duels (they were hidden whenever restricted content was active -- most visibly under a dispel highlight)." },
+            { module = "Raid Frames", text = "In the Debuff Manager the Base Icons grid now follows the Editing Spec dropdown like every indicator -- inherited from All Specs in each spec's view, with a toggle to switch it off for that spec only." },
+            { module = "Resource Bars & Unit Frames", text = "The Power Type choice (Insanity, Astral Power, Maelstrom, Ebon Might, Mana alternates) no longer resets to mana on a slow login, and it is now stored per specialization instead of colliding across classes on a shared profile -- if you had an alternate Power Type selected, re-select it once." },
+            { module = "Unit Frames", text = "The absorb shield overlay and absorb text now clear when a shield expires on its own timer instead of sticking until the next update." },
+            { module = "Unit Frames", text = "The player frame's All Buffs, Has Duration and All Debuffs filter toggles can be turned off again; an empty selection is now flagged with the same red warning as Player Aura Bars." },
+            { module = "Unit Frames", text = "Class Color on the Target of Target and Focus Target frames (name and background) no longer turns white in combat." },
+            { module = "Localization", text = "Simplified Chinese, Korean, Traditional Chinese, German and Brazilian Portuguese all caught up with 8.9.1, and the custom raid size cog title now translates the tier name." },
+        },
+    },
+    {
         version = "8.9.1",
         heroes = {},
         features = {

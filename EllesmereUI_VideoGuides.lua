@@ -759,6 +759,8 @@ end
 --  Guide #1: Settings Overrides
 --  Fired by the spec-override toolbar glyph's first-ever click (see the
 --  OnClick in EllesmereUI_SpecOverrides.lua / SpecOverrides_SetupButton).
+--  Guide #4 (override_default_edit) shares its art: the one-time warning
+--  fired by the first BASE edit of a setting that has an override.
 -------------------------------------------------------------------------------
 do
     local MODERN_SPRITE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\class-full\\modern.tga"
@@ -767,53 +769,79 @@ do
         { 0, 0.125, 0.25, 0.375 },      -- PALADIN
         { 0.125, 0.25, 0.25, 0.375 },   -- DEATHKNIGHT
     }
+    local OVERRIDES_VIDEO_URL = "https://youtu.be/8VKV26lrGSc"
+
+    -- Shared art: ghost card behind a gold override-group card (tank class
+    -- glyphs + gold name line) with a play badge beside it. Each guide id builds
+    -- its own band from this, so both popups read as the same system.
+    local function OverridesArt(popup, ctx)
+        local PPx, band = ctx.PP, ctx.band
+        -- Ghost card behind (the layered-overrides read).
+        local ghost = CreateFrame("Frame", nil, band)
+        ghost:SetFrameLevel(band:GetFrameLevel() + 1)
+        PPx.Size(ghost, 150, 52)
+        PPx.Point(ghost, "CENTER", band, "CENTER", -39, -6)
+        local gbg = ghost:CreateTexture(nil, "BACKGROUND")
+        gbg:SetAllPoints()
+        gbg:SetColorTexture(0.10, 0.11, 0.13, 1)
+        ctx.MakeBorder(ghost, 1, 1, 1, 0.08, PPx)
+
+        -- Gold override-group card (tank class glyphs + gold name line).
+        local card = CreateFrame("Frame", nil, band)
+        card:SetFrameLevel(band:GetFrameLevel() + 2)
+        PPx.Size(card, 150, 52)
+        PPx.Point(card, "CENTER", band, "CENTER", -31, 2)
+        local cbg = card:CreateTexture(nil, "BACKGROUND")
+        cbg:SetAllPoints()
+        cbg:SetColorTexture(0.12, 0.13, 0.15, 1)
+        ctx.MakeBorder(card, ctx.GOLD.r, ctx.GOLD.g, ctx.GOLD.b, 0.85, PPx)
+
+        local ICON, GAP = 20, 8
+        local rowW = #ART_COORDS * ICON + (#ART_COORDS - 1) * GAP
+        for k, c in ipairs(ART_COORDS) do
+            local tex = card:CreateTexture(nil, "ARTWORK")
+            PPx.Size(tex, ICON, ICON)
+            PPx.Point(tex, "LEFT", card, "LEFT",
+                (150 - rowW) / 2 + (k - 1) * (ICON + GAP), 5)
+            tex:SetTexture(MODERN_SPRITE)
+            tex:SetTexCoord(c[1], c[2], c[3], c[4])
+        end
+        local line = card:CreateTexture(nil, "ARTWORK")
+        line:SetColorTexture(ctx.GOLD.r, ctx.GOLD.g, ctx.GOLD.b, 0.75)
+        PPx.Size(line, 56, 3)
+        PPx.Point(line, "BOTTOM", card, "BOTTOM", 0, 6)
+
+        -- Play badge standing beside the card with a clear gap, border
+        -- matching the card's gold: "watch the video about this system".
+        local badge = ctx.MakePlayBadge(band, 44, ctx.GOLD)
+        PPx.Point(badge, "LEFT", card, "RIGHT", 18, 0)
+    end
 
     EllesmereUI.VideoGuides.Register("settings_overrides", {
         title = "Settings Overrides",
         blurb = "Settings Overrides are the most powerful system in EllesmereUI, and the deepest. A few minutes with this video will save you hours of working it out on your own.",
-        url = "https://youtu.be/8VKV26lrGSc",
-        art = function(popup, ctx)
-            local PPx, band = ctx.PP, ctx.band
-            -- Ghost card behind (the layered-overrides read).
-            local ghost = CreateFrame("Frame", nil, band)
-            ghost:SetFrameLevel(band:GetFrameLevel() + 1)
-            PPx.Size(ghost, 150, 52)
-            PPx.Point(ghost, "CENTER", band, "CENTER", -39, -6)
-            local gbg = ghost:CreateTexture(nil, "BACKGROUND")
-            gbg:SetAllPoints()
-            gbg:SetColorTexture(0.10, 0.11, 0.13, 1)
-            ctx.MakeBorder(ghost, 1, 1, 1, 0.08, PPx)
+        url = OVERRIDES_VIDEO_URL,
+        art = OverridesArt,
+    })
 
-            -- Gold override-group card (tank class glyphs + gold name line).
-            local card = CreateFrame("Frame", nil, band)
-            card:SetFrameLevel(band:GetFrameLevel() + 2)
-            PPx.Size(card, 150, 52)
-            PPx.Point(card, "CENTER", band, "CENTER", -31, 2)
-            local cbg = card:CreateTexture(nil, "BACKGROUND")
-            cbg:SetAllPoints()
-            cbg:SetColorTexture(0.12, 0.13, 0.15, 1)
-            ctx.MakeBorder(card, ctx.GOLD.r, ctx.GOLD.g, ctx.GOLD.b, 0.85, PPx)
-
-            local ICON, GAP = 20, 8
-            local rowW = #ART_COORDS * ICON + (#ART_COORDS - 1) * GAP
-            for k, c in ipairs(ART_COORDS) do
-                local tex = card:CreateTexture(nil, "ARTWORK")
-                PPx.Size(tex, ICON, ICON)
-                PPx.Point(tex, "LEFT", card, "LEFT",
-                    (150 - rowW) / 2 + (k - 1) * (ICON + GAP), 5)
-                tex:SetTexture(MODERN_SPRITE)
-                tex:SetTexCoord(c[1], c[2], c[3], c[4])
-            end
-            local line = card:CreateTexture(nil, "ARTWORK")
-            line:SetColorTexture(ctx.GOLD.r, ctx.GOLD.g, ctx.GOLD.b, 0.75)
-            PPx.Size(line, 56, 3)
-            PPx.Point(line, "BOTTOM", card, "BOTTOM", 0, 6)
-
-            -- Play badge standing beside the card with a clear gap, border
-            -- matching the card's gold: "watch the video about this system".
-            local badge = ctx.MakePlayBadge(band, 44, ctx.GOLD)
-            PPx.Point(badge, "LEFT", card, "RIGHT", 18, 0)
-        end,
+    ---------------------------------------------------------------------------
+    --  Guide #4: base edit of an overridden setting (one-time warning)
+    --  Fired from EllesmereUI._NotifySettingWrite (EllesmereUI_SpecOverrides.lua)
+    --  the first time a Default Editing Mode edit lands on a gold-marked slot.
+    --  Gold accent = the override system's own color; taller shell for the
+    --  longer warning blurb (the OK button is bottom-anchored, so the extra
+    --  height opens up between the URL hint and the button).
+    ---------------------------------------------------------------------------
+    EllesmereUI.VideoGuides.Register("override_default_edit", {
+        eyebrow  = "OVERRIDES WARNING",
+        accent   = GOLD,
+        title    = "This Setting Has Overrides",
+        blurb    = "You changed the default value of a setting that has overrides. Overrides keep their own values, so this change will not reach the specs or conditions they cover. To change it for an override, pick that override from the class glyph beside the module search bar and edit it there.",
+        url      = OVERRIDES_VIDEO_URL,
+        footnote = "Gold border settings have overrides. Hover info icon for details.",
+        okText   = "I Understand",
+        height   = 420,
+        art      = OverridesArt,
     })
 end
 

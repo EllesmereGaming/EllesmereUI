@@ -568,6 +568,12 @@ local function ApplyRFDispelSlot(button, dd, style)
 
     -- Overlay texture (fill / full / gradient). Sublevel 2+def.level (3..7)
     -- gives higher-priority types the higher sublevel at the shared level.
+    -- The fill mode's carrier is a plain texture ANCHORED to the health bar's
+    -- fill texture: anchor-derived geometry is the one health-tracking route
+    -- that stays legal on aura-slot subtrees (DenyTaintedAccessWhenAurasAreSecret
+    -- refuses every tainted WRITE to slot-owned objects while auras are secret
+    -- -- a value-fed StatusBar here threw 37x in the field, and OnShow/OnHide
+    -- scripts on slot-children never dispatch).
     if not dd.overlay then
         dd.overlay = button:CreateTexture(nil, "ARTWORK", nil, 2 + def.level)
     end

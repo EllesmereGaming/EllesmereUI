@@ -257,6 +257,26 @@ function _G._ERF_BM2HarvestFork()
     return { specs = LegacyCopy(b.specs), seeded = LegacyCopy(b.seeded) }
 end
 
+-- Preset v2 payloads for a fork created from scratch (SpecOverrides' create
+-- popup). "default" = a fresh profile: nothing seeded, so SeedSpec lays down
+-- the starter sets on first read. "empty" = every key SeedSpec would fill with
+-- content (healer keys + the shared non-healer key) pre-seeded EMPTY, so nothing
+-- renders anywhere until the user builds it; the additive group buckets start
+-- empty either way.
+function _G._ERF_BM2PresetFork(kind)
+    local out = { specs = {}, seeded = {} }
+    if kind ~= "empty" then return out end
+    local function Empty(key)
+        out.specs[key] = { nextId = 1000001, inds = {} }
+        out.seeded[key] = true
+    end
+    for _, spec in ipairs(ns.BM_HEALER_SPECS or {}) do
+        if spec.key then Empty(spec.key) end
+    end
+    Empty("nonhealer")
+    return out
+end
+
 -- Applies a BM layer's v2 payload into the live store, converting legacy-only
 -- layers in place on first touch. layer.bm2 doubles as the conversion marker:
 -- layers already carrying v2 data are never re-derived from legacy fields.

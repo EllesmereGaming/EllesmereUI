@@ -7261,7 +7261,7 @@ initFrame:SetScript("OnEvent", function(self)
         if not EllesmereUI._prebuilding then
             local rightRgn = visRow._rightRegion
             if rightRgn._control then rightRgn._control:Hide() end
-            local visItems = EllesmereUI.VIS_OPT_ITEMS_RESOURCE_BARS
+            local visItems = EllesmereUI.VIS_OPT_ITEMS
             local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
                 rightRgn, 210, rightRgn:GetFrameLevel() + 2,
                 visItems,
@@ -7766,23 +7766,34 @@ initFrame:SetScript("OnEvent", function(self)
                     powerTypeRow, h = W:DualRow(parent, y,
                         { type="dropdown", text="Power Type",
                           values = ptValues, order = ptOrder,
+                          -- Stored by SPEC ID, not the GetSpecialization() index:
+                          -- one profile holds one set, so an index key collides
+                          -- across classes (slot 3 is Guardian, Shadow AND
+                          -- Augmentation, which want three different power types).
+                          -- classAlts stays index-keyed, it is already per class.
                           getValue = function()
                               local s = GetSpecialization and GetSpecialization()
                               if not s or not classAlts[s] then return "default" end
+                              local sid = C_SpecializationInfo
+                                  and C_SpecializationInfo.GetSpecializationInfo(s)
+                              if not sid then return "default" end
                               local p = DB(); if not p then return "default" end
                               local ov = p.primary.powerTypeOverride
-                              if ov and ov[s] then return "alt" end
+                              if ov and ov[sid] then return "alt" end
                               return "default"
                           end,
                           setValue = function(v)
                               local s = GetSpecialization and GetSpecialization()
                               if not s then return end
+                              local sid = C_SpecializationInfo
+                                  and C_SpecializationInfo.GetSpecializationInfo(s)
+                              if not sid then return end
                               local p = DB(); if not p then return end
                               if v == "alt" then
                                   if not p.primary.powerTypeOverride then p.primary.powerTypeOverride = {} end
-                                  p.primary.powerTypeOverride[s] = true
+                                  p.primary.powerTypeOverride[sid] = true
                               else
-                                  if p.primary.powerTypeOverride then p.primary.powerTypeOverride[s] = nil end
+                                  if p.primary.powerTypeOverride then p.primary.powerTypeOverride[sid] = nil end
                               end
                               RebuildPower()
                           end },

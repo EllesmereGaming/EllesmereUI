@@ -574,6 +574,9 @@ RebuildSockets = function()
     local count = #sockets
     if count == 0 then
         panel:Hide()
+        if EllesmereUI and EllesmereUI._updateCharSheetDurability then
+            EllesmereUI._updateCharSheetDurability()
+        end
         return
     end
 
@@ -594,6 +597,9 @@ RebuildSockets = function()
 
     panel:SetWidth(count * (SIZE + PAD) - PAD)
     panel:Show()
+    if EllesmereUI and EllesmereUI._updateCharSheetDurability then
+        EllesmereUI._updateCharSheetDurability()
+    end
 end
 
 --------------------------------------------------------------------------------

@@ -2488,10 +2488,99 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             btn:SetScript("OnLeave", function()
                 if brd and brd.SetColor then brd:SetColor(1, 1, 1, 0.22) end
             end)
-            btn:SetScript("OnClick", function()
-                if EllesmereUI.SpecOverrides_ActivateBm then
-                    EllesmereUI.SpecOverrides_ActivateBm(st.kind, st.gid)
+            -- Create popup: pick what the new Buff Manager starts from (main
+            -- copy, another override's copy, or a preset), then Create. Child of
+            -- the overlay so every page teardown destroys it with the overlay.
+            local createPopup
+            local chosen = "main"
+            btn:SetScript("OnClick", function(self)
+                if createPopup and createPopup:IsShown() then createPopup:Hide(); return end
+                if not (EllesmereUI.SpecOverrides_ActivateBm and EllesmereUI.SpecOverrides_BmSeedSources
+                        and EllesmereUI.BuildDropdownControl) then
+                    if EllesmereUI.SpecOverrides_ActivateBm then
+                        EllesmereUI.SpecOverrides_ActivateBm(st.kind, st.gid)
+                    end
+                    return
                 end
+                local values, order = EllesmereUI.SpecOverrides_BmSeedSources(st.kind, st.gid)
+                chosen = "main"
+                if not createPopup then
+                    local POPUP_W, POPUP_PAD, ROW_H, LABEL_H = 260, 10, 30, 14
+                    local LBL_GAP, DD_GAP = 4, 11
+                    local popup = CreateFrame("Frame", nil, ov)
+                    popup:SetFrameStrata("DIALOG")
+                    popup:SetFrameLevel(ov:GetFrameLevel() + 20)
+                    popup:SetSize(POPUP_W, POPUP_PAD + LABEL_H + LBL_GAP + ROW_H + DD_GAP + ROW_H + POPUP_PAD)
+                    popup:EnableMouse(true)
+                    popup:SetClampedToScreen(true)
+                    local pbg = popup:CreateTexture(nil, "BACKGROUND")
+                    pbg:SetAllPoints()
+                    pbg:SetColorTexture(0.067, 0.067, 0.067, 0.95)
+                    EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.2, PP)
+                    -- Click-away close (not while the dropdown's own menu is open).
+                    popup:SetScript("OnShow", function(p2)
+                        p2:SetScript("OnUpdate", function(m)
+                            if not self:IsMouseOver() and not m:IsMouseOver() then
+                                local dd = m._srcDD
+                                if dd and dd._ddMenu and dd._ddMenu:IsShown() and dd._ddMenu:IsMouseOver() then return end
+                                if IsMouseButtonDown("LeftButton") or IsMouseButtonDown("RightButton") then
+                                    m:Hide()
+                                end
+                            end
+                        end)
+                    end)
+                    popup:SetScript("OnHide", function(p2) p2:SetScript("OnUpdate", nil) end)
+                    local ddW = POPUP_W - POPUP_PAD * 2
+                    local py = -POPUP_PAD
+                    local srcLbl = popup:CreateFontString(nil, "OVERLAY")
+                    srcLbl:SetFont(fontPath, 11, "")
+                    srcLbl:SetPoint("TOPLEFT", popup, "TOPLEFT", POPUP_PAD, py)
+                    srcLbl:SetText(EllesmereUI.L("Start From"))
+                    srcLbl:SetTextColor(1, 1, 1, 0.6)
+                    py = py - LABEL_H - LBL_GAP
+                    popup._srcValues, popup._srcOrder = values, order
+                    local srcDD = EllesmereUI.BuildDropdownControl(
+                        popup, ddW, popup:GetFrameLevel() + 2,
+                        popup._srcValues, popup._srcOrder,
+                        function() return chosen end,
+                        function(v) chosen = v end)
+                    srcDD:SetPoint("TOPLEFT", popup, "TOPLEFT", POPUP_PAD, py)
+                    popup._srcDD = srcDD
+                    py = py - ROW_H - DD_GAP
+                    local ac = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
+                    local cBtn = CreateFrame("Button", nil, popup)
+                    cBtn:SetSize(ddW, ROW_H)
+                    cBtn:SetPoint("TOPLEFT", popup, "TOPLEFT", POPUP_PAD, py)
+                    cBtn:SetFrameLevel(popup:GetFrameLevel() + 1)
+                    local cBg = cBtn:CreateTexture(nil, "BACKGROUND")
+                    cBg:SetAllPoints()
+                    cBg:SetColorTexture(ac.r, ac.g, ac.b, 0.8)
+                    local cLbl = cBtn:CreateFontString(nil, "OVERLAY")
+                    if EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(cLbl, true) end
+                    cLbl:SetFont(fontPath, 12, "")
+                    cLbl:SetPoint("CENTER")
+                    cLbl:SetText(EllesmereUI.L("Create Custom Buff Manager"))
+                    cLbl:SetTextColor(1, 1, 1)
+                    cBtn:SetScript("OnEnter", function() cBg:SetColorTexture(ac.r, ac.g, ac.b, 1) end)
+                    cBtn:SetScript("OnLeave", function() cBg:SetColorTexture(ac.r, ac.g, ac.b, 0.8) end)
+                    cBtn:SetScript("OnClick", function()
+                        popup:Hide()
+                        EllesmereUI.SpecOverrides_ActivateBm(st.kind, st.gid, chosen)
+                    end)
+                    createPopup = popup
+                else
+                    -- Refresh the source list in place (other overrides may have
+                    -- gained or lost a Buff Manager since the popup was built).
+                    wipe(createPopup._srcValues); wipe(createPopup._srcOrder)
+                    for k, v in pairs(values) do createPopup._srcValues[k] = v end
+                    for i = 1, #order do createPopup._srcOrder[i] = order[i] end
+                    local dd = createPopup._srcDD
+                    if dd._invalidateMenu then dd._invalidateMenu() end
+                    if dd._refreshLabel then dd._refreshLabel() end
+                end
+                createPopup:ClearAllPoints()
+                createPopup:SetPoint("TOP", self, "BOTTOM", 0, -6)
+                createPopup:Show()
             end)
         end
     end
@@ -2985,6 +3074,32 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
         end
 
         tileY = tileY - TILE_H
+    end
+
+    -------------------------------------------------------------------
+    --  Empty-override hint: an override Buff Manager shows ONLY what it
+    --  contains, so a spec with no indicators in it renders nothing. Say so
+    --  in place of the blank tile list (fork live on this page only).
+    -------------------------------------------------------------------
+    if #specIndicators == 0 and EllesmereUI.SpecOverrides_BmActiveInfo
+       and EllesmereUI.SpecOverrides_BmActiveInfo() then
+        local inhCount = 0
+        if inheritedGroups then
+            for gi = 1, #inheritedGroups do
+                inhCount = inhCount + #(GetSpecIndicators(db, inheritedGroups[gi]) or {})
+            end
+        end
+        if inhCount == 0 then
+            local hint = sidebarFrame:CreateFontString(nil, "OVERLAY")
+            hint:SetFont(fontPath, 11, "")
+            hint:SetPoint("TOP", sidebarFrame, "TOPLEFT", floor(sidebarW / 2), tileY - 8)
+            hint:SetWidth(sidebarW - 24)
+            hint:SetJustifyH("CENTER")
+            hint:SetWordWrap(true)
+            hint:SetTextColor(1, 0.75, 0.35, 0.9)
+            hint:SetText(EllesmereUI.L("This override has no indicators for this spec, so nothing shows here until you add some."))
+            tileY = tileY - hint:GetStringHeight() - 16
+        end
     end
 
     -------------------------------------------------------------------

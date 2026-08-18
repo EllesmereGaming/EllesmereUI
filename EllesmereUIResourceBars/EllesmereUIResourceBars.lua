@@ -381,12 +381,18 @@ local function GetPrimaryPowerType()
     local _, classFile = UnitClass("player")
     local spec = GetSpecialization()
     local form = GetShapeshiftFormID()
+    -- powerTypeOverride is keyed by SPEC ID, never by the GetSpecialization()
+    -- index: one profile holds one set, so an index key collides across classes
+    -- and the same flag means opposite things per class (slot 3 is Guardian,
+    -- Shadow and Augmentation, wanting Mana, Insanity and Ebon Might). Cached, so
+    -- this is one table read after the first call per spec.
+    local ovSpec = _G._ERB_ResolveSpecIDCached and _G._ERB_ResolveSpecIDCached() or nil
 
     -- Druid form handling
     if classFile == "DRUID" then
         local pp = ERB.db and ERB.db.profile and ERB.db.profile.primary
         local ov = pp and pp.powerTypeOverride
-        if ov and ov[spec] then
+        if ovSpec and ov and ov[ovSpec] then
             if spec == 1 then return PT.LUNAR_POWER end  -- Balance alt: Astral Power
             return PT.MANA                                -- Feral/Guardian alt: Mana
         end
@@ -398,12 +404,12 @@ local function GetPrimaryPowerType()
     if classFile == "SHAMAN" and spec == 1 then
         local pp = ERB.db and ERB.db.profile and ERB.db.profile.primary
         local ov = pp and pp.powerTypeOverride
-        if ov and ov[spec] then return PT.MAELSTROM end  -- Elemental alt: Maelstrom
+        if ovSpec and ov and ov[ovSpec] then return PT.MAELSTROM end  -- Elemental alt: Maelstrom
     end
     if classFile == "PRIEST" and spec == 3 then
         local pp = ERB.db and ERB.db.profile and ERB.db.profile.primary
         local ov = pp and pp.powerTypeOverride
-        if ov and ov[spec] then return PT.INSANITY end   -- Shadow alt: Insanity
+        if ovSpec and ov and ov[ovSpec] then return PT.INSANITY end   -- Shadow alt: Insanity
     end
     if classFile == "HUNTER" then
         -- BM/MM show Focus as the class resource bar, not power; Survival keeps
@@ -425,7 +431,9 @@ local function GetPrimaryPowerType()
     if classFile == "EVOKER" and spec == 3 then
         local pp = ERB.db and ERB.db.profile and ERB.db.profile.primary
         local ov = pp and pp.powerTypeOverride
-        if not (ov and ov[spec]) then return "EBON_MIGHT" end
+        -- Inverted against the others: Augmentation's DEFAULT is Ebon Might and
+        -- the override opts into plain Mana. Same spec-ID key either way.
+        if not (ovSpec and ov and ov[ovSpec]) then return "EBON_MIGHT" end
         return PT.MANA
     end
 
@@ -8841,6 +8849,41 @@ do
 end
 
 
+-- Login race on the primary power type. GetPrimaryPowerType branches on
+-- GetSpecialization(), which can still read nil half a second after
+-- PLAYER_ENTERING_WORLD on a slow login (heavy addon load). Every class whose spec
+-- power differs from its class base falls through to MANA on a nil spec -- Shadow
+-- loses Insanity, Guardian loses Rage, Augmentation loses Ebon Might -- and
+-- PLAYER_SPECIALIZATION_CHANGED fires only on a CHANGE, never at login, so the
+-- wrong value stayed cached for the whole session. Reported as "power type resets
+-- to mana every time I log in".
+--
+-- Retry until the spec reads, then re-resolve exactly what the spec-change branch
+-- does. Costs one call and no timer when the spec is already available, which is
+-- the common case. The attempt cap matters: a character with no specialization
+-- chosen reads nil forever, so an uncapped retry would arm timers for the session.
+local _specResolveTries = 0
+local ScheduleSpecResolve
+ScheduleSpecResolve = function()
+    if GetSpecialization() then _specResolveTries = 0; return end
+    if _specResolveTries >= 40 then return end   -- ~20s, then stop rather than spin
+    _specResolveTries = _specResolveTries + 1
+    C_Timer.After(0.5, function()
+        if not GetSpecialization() then
+            ScheduleSpecResolve()
+            return
+        end
+        _specResolveTries = 0
+        ns.InvalidateThresholdCaches()
+        cachedPrimary = GetPrimaryPowerType()
+        cachedSecondary = GetSecondaryResource()
+        BuildBars()
+        UpdatePrimaryBar()
+        UpdateSecondaryResource()
+        UpdateVisibility()
+    end)
+end
+
 -- Event handling
 local function OnEvent(self, event, ...)
     if event == "UNIT_HEALTH" then
@@ -9026,6 +9069,9 @@ local function OnEvent(self, event, ...)
         C_Timer.After(0.5, function()
             ERB:ApplyAll()
             RegisterUnlockElements()
+            -- ApplyAll just cached the power type off a spec that may not have
+            -- loaded yet; correct it once it does.
+            ScheduleSpecResolve()
         end)
     elseif event == "UNIT_SPELLCAST_START" then
         local unit = ...

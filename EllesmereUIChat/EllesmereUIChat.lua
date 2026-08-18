@@ -1396,22 +1396,6 @@ local function ApplyChatPosition()
     -- before anchoring so the enforcement itself can never land clamped.
     EnsureChatClampInsets()
     local px, py = pos.x, pos.y
-    local PPa = EllesmereUI and EllesmereUI.PP
-    if PPa and px and py then
-        local es = cf1:GetEffectiveScale()
-        local isCenterAnchor = (pos.point == "CENTER")
-            and (pos.relPoint == "CENTER" or pos.relPoint == nil)
-        if isCenterAnchor and PPa.SnapCenterForDim then
-            px = PPa.SnapCenterForDim(px, cf1:GetWidth() or 0, es)
-            py = PPa.SnapCenterForDim(py, cf1:GetHeight() or 0, es)
-        elseif PPa.SnapForES then
-            px = PPa.SnapForES(px, es)
-            py = PPa.SnapForES(py, es)
-        end
-    end
-    if not pos.point or not (px and py) then return end
-    cf1:ClearAllPoints()
-    cf1:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, px or 0, py or 0)
     -- Saved size rides as a SECOND corner anchor: a two-point rect is
     -- anchor-determined, so no code path ever calls SetSize on ChatFrame1
     -- (a synchronous SetSize dispatch would run the dock relayout tainted),
@@ -1423,19 +1407,52 @@ local function ApplyChatPosition()
     -- size and this stands down. Late-bound ns field: the EM helpers are
     -- defined below this function.
     local size = cfg.chatSize
-    if size and size.w and size.h
-        and (not ns._EMChatSizeDelta or ns._EMChatSizeDelta()) then
-        local composed = false
+    local sizeLane = size and size.w and size.h
+        and (not ns._EMChatSizeDelta or ns._EMChatSizeDelta())
+    local isCenterAnchor = (pos.point == "CENTER")
+        and (pos.relPoint == "CENTER" or pos.relPoint == nil)
+    local PPa = EllesmereUI and EllesmereUI.PP
+    if PPa and px and py then
+        local es = cf1:GetEffectiveScale()
+        if isCenterAnchor and PPa.SnapCenterForDim then
+            -- Snap against the dimensions the rect is about to carry: the
+            -- composed lane below sizes it from the saved size, which the
+            -- frame's explicit size (Edit Mode's last apply) can differ from.
+            local dimW = sizeLane and size.w or (cf1:GetWidth() or 0)
+            local dimH = sizeLane and size.h or (cf1:GetHeight() or 0)
+            px = PPa.SnapCenterForDim(px, dimW, es)
+            py = PPa.SnapCenterForDim(py, dimH, es)
+        elseif PPa.SnapForES then
+            px = PPa.SnapForES(px, es)
+            py = PPa.SnapForES(py, es)
+        end
+    end
+    if not pos.point or not (px and py) then return end
+    cf1:ClearAllPoints()
+    local composed = false
+    if sizeLane and isCenterAnchor then
+        -- CENTER-form saves (unlock mode Save & Exit) compose the rect around
+        -- the centre outright. A lone CENTER anchor would resolve on the
+        -- frame's explicit size for a tick, and the canonicalize below would
+        -- read the corner of THAT rect -- landing the chat half the size delta
+        -- away from where it was dropped.
+        cf1:SetPoint("TOPLEFT", UIParent, "CENTER", px - size.w / 2, py + size.h / 2)
+        cf1:SetPoint("BOTTOMRIGHT", UIParent, "CENTER", px + size.w / 2, py - size.h / 2)
+        composed = true
+    else
+        cf1:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, px or 0, py or 0)
+    end
+    if sizeLane then
         if pos.point == "BOTTOMLEFT" and (pos.relPoint or "BOTTOMLEFT") == "BOTTOMLEFT" then
             cf1:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT",
                 (px or 0) + size.w, (py or 0) + size.h)
             composed = true
         elseif pos.point == "TOPLEFT" and (pos.relPoint or "TOPLEFT") == "TOPLEFT" then
-            -- Unlock-mode drag saves land in TOPLEFT form: compose the size
-            -- anchor directly. A single-anchor apply would leave the rect on
-            -- the frame's explicit (Edit Mode, stale) size until the deferred
-            -- normalize below lands -- a window where a late Edit Mode pass
-            -- baked the old size in.
+            -- TOPLEFT-form positions compose the size anchor directly. A
+            -- single-anchor apply would leave the rect on the frame's
+            -- explicit (Edit Mode, stale) size until the deferred normalize
+            -- below lands -- a window where a late Edit Mode pass baked the
+            -- old size in.
             cf1:SetPoint("BOTTOMRIGHT", UIParent, "TOPLEFT",
                 (px or 0) + size.w, (py or 0) - size.h)
             composed = true
@@ -1718,15 +1735,23 @@ end
 -- owner still writes must stay in its tree). Chat can be neither
 -- highlighted nor dragged in Edit Mode; asserted from the state sync since
 -- Edit Mode rewrites the overlay across its sessions.
+-- Edit Mode's resize handle on the main window (EditModeResizeButton, a
+-- Button child Edit Mode shows on enter and hides on exit) gets the same
+-- in-place treatment: sizing belongs to our grip, and a live handle here
+-- would write Edit Mode's size store behind the size lane's back.
+local function SuppressEditModeChild(f)
+    if not f then return end
+    if f:GetAlpha() ~= 0 then f:SetAlpha(0) end
+    if f.SetMouseClickEnabled then
+        if f:IsMouseClickEnabled() then f:SetMouseClickEnabled(false) end
+        if f:IsMouseMotionEnabled() then f:SetMouseMotionEnabled(false) end
+    end
+end
 function ECHAT.SuppressChatEditModeSelection()
     local cf1 = _G.ChatFrame1
-    local sel = cf1 and cf1.Selection
-    if not sel then return end
-    if sel:GetAlpha() ~= 0 then sel:SetAlpha(0) end
-    if sel.SetMouseClickEnabled then
-        if sel:IsMouseClickEnabled() then sel:SetMouseClickEnabled(false) end
-        if sel:IsMouseMotionEnabled() then sel:SetMouseMotionEnabled(false) end
-    end
+    if not cf1 then return end
+    SuppressEditModeChild(cf1.Selection)
+    SuppressEditModeChild(cf1.EditModeResizeButton)
 end
 ns._CaptureChatPositionGenesis = CaptureChatPositionGenesis
 ns._InstallChatAnchorGuard = InstallChatAnchorGuard
@@ -1764,15 +1789,16 @@ local function BuildMainChatResizeGrip(cf)
     d.resizeGrip = grip
     grip:SetSize(18, 18)
     -- Anchored to the chat frame like the undocked buttons, so the icon
-    -- hugs the true resize corner regardless of panel insets.
-    grip:SetPoint("BOTTOMRIGHT", cf, "BOTTOMRIGHT", -2, 2)
+    -- hugs the true resize corner regardless of panel insets; nudged out
+    -- past the frame edge so it sits in the panel's corner, not the text's.
+    grip:SetPoint("BOTTOMRIGHT", cf, "BOTTOMRIGHT", 4, -3)
     grip:SetFrameStrata("HIGH")
     local tex = grip:CreateTexture(nil, "ARTWORK")
     tex:SetAllPoints()
     tex:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\resize_element.png")
     tex:SetDesaturated(true)
     tex:SetVertexColor(1, 1, 1)
-    grip:SetAlpha(0.2)
+    grip:SetAlpha(0.4)
 
     -- Damage-meters drag mechanics, anchor-driven: per tick the TOPLEFT stays
     -- pinned and the BOTTOMRIGHT corner anchor follows the cursor (shift =
@@ -1897,11 +1923,11 @@ local function BuildMainChatResizeGrip(cf)
     -- grip, so the geometry follower arms while the mouse is here and the
     -- panels ride the drag live.
     grip:SetScript("OnEnter", function(self)
-        self:SetAlpha(0.7)
+        self:SetAlpha(0.75)
         if ECHAT.FollowArm then ECHAT.FollowArm() end
     end)
     grip:SetScript("OnLeave", function(self)
-        self:SetAlpha(0.2)
+        self:SetAlpha(0.4)
         if ECHAT.FollowRelease then ECHAT.FollowRelease() end
     end)
     -- Combat gate: resizing is disabled in combat, matching Edit Mode's own
@@ -1916,6 +1942,45 @@ local function BuildMainChatResizeGrip(cf)
     end)
 end
 ns._BuildMainChatResizeGrip = BuildMainChatResizeGrip
+
+-- Unlock-mode placements of ChatFrame1 (the Chat mover's drag start, every
+-- drag tick, arrow/cog nudges) collapse it to ONE anchor point: the mover
+-- treats every element as explicitly sized. The main window's size rides a
+-- second corner anchor instead (SetSize on ChatFrame1 is banned -- see the
+-- grip above), so a one-point frame falls back to its explicit size, which
+-- is whatever Edit Mode's last apply set, not ours. Called from the
+-- element's onLiveMove after each placement: re-add the opposite corner
+-- from the anchor DEFINITION (GetPoint returns the SetPoint arguments, never
+-- a lagging rect) so the frame keeps its size through the whole session.
+-- Idempotent -- a frame already carrying two points is left alone.
+local function KeepMainChatSizeCorner()
+    local cfg = ECHAT.DB()
+    local size = cfg and cfg.chatSize
+    if not (size and size.w and size.h) then return end
+    local cf1 = _G.ChatFrame1
+    if not cf1 or cf1:GetNumPoints() ~= 1 then return end
+    local point, rel, relPoint, x, y = cf1:GetPoint(1)
+    if rel ~= UIParent then return end
+    local issecret = _G.issecretvalue
+    if issecret and (issecret(x) or issecret(y)) then return end
+    if type(x) ~= "number" or type(y) ~= "number" then return end
+    relPoint = relPoint or point
+    local w, h = size.w, size.h
+    if point == "TOPLEFT" then
+        cf1:SetPoint("BOTTOMRIGHT", UIParent, relPoint, x + w, y - h)
+    elseif point == "BOTTOMLEFT" then
+        cf1:SetPoint("TOPRIGHT", UIParent, relPoint, x + w, y + h)
+    elseif point == "TOPRIGHT" then
+        cf1:SetPoint("BOTTOMLEFT", UIParent, relPoint, x - w, y + h)
+    elseif point == "BOTTOMRIGHT" then
+        cf1:SetPoint("TOPLEFT", UIParent, relPoint, x - w, y - h)
+    elseif point == "CENTER" then
+        cf1:ClearAllPoints()
+        cf1:SetPoint("TOPLEFT", UIParent, relPoint, x - w / 2, y + h / 2)
+        cf1:SetPoint("BOTTOMRIGHT", UIParent, relPoint, x + w / 2, y - h / 2)
+    end
+end
+ns._KeepMainChatSizeCorner = KeepMainChatSizeCorner
 
 -- Lock Main Chat Size: hides OUR grip (main chat's sole resize surface).
 -- Blizzard's ChatFrame1ResizeButton stays permanently dead -- alpha + mouse
@@ -3226,7 +3291,7 @@ local function _ApplyAlpha(alpha)
                     eb:SetAlpha(alpha)
                 end
             end
-            if af.resizeGrip then af.resizeGrip:SetAlpha(alpha * 0.2) end
+            if af.resizeGrip then af.resizeGrip:SetAlpha(alpha * 0.4) end
         end
     end
     -- Behind-tabs extension is UIParent-parented: fade it directly.
@@ -3741,9 +3806,20 @@ local function OnHyperlinkLeave(self)
     end
 end
 
--- Open the copy popup when a wrapped URL link is clicked.
+-- Open the copy popup when a wrapped URL link is clicked. Also the mirror
+-- for the censored-message links ("[Show Message]" and its send/rewrite
+-- siblings): their handlers rewrite or remove the stored line IN PLACE on
+-- every chat frame (TransformMessages / RemoveMessagesByPredicate -- no
+-- AddMessage, no event), so the engine window would keep showing the
+-- placeholder; this post-hook runs after the handler and queues the same
+-- deferred rebuild the CAUTIONARY_CHAT_MESSAGE mirror uses.
 hooksecurefunc("SetItemRef", function(link)
     if not link then return end
+    if _G.issecretvalue and _G.issecretvalue(link) then return end
+    if link:find("^censoredmessage") then
+        if ECHAT.EngineQueueRebuildAll then ECHAT.EngineQueueRebuildAll() end
+        return
+    end
     local url = link:match("^" .. addonName .. "url:(.+)$")
     if url then
         ShowUrlPopup(url)
@@ -4602,15 +4678,15 @@ local function SkinChatFrame(cf)
                     end
                 end
             end
-            resizeBtn:SetAlpha(0.2)
+            resizeBtn:SetAlpha(0.4)
             -- Arms the interaction follower: a resize drag starts and stays on
             -- this button, and the panel must follow it live.
             resizeBtn:HookScript("OnEnter", function(self)
-                self:SetAlpha(0.7)
+                self:SetAlpha(0.75)
                 if ECHAT.FollowArm then ECHAT.FollowArm() end
             end)
             resizeBtn:HookScript("OnLeave", function(self)
-                self:SetAlpha(0.2)
+                self:SetAlpha(0.4)
                 if ECHAT.FollowRelease then ECHAT.FollowRelease() end
             end)
         end)
@@ -5619,6 +5695,12 @@ initFrame:SetScript("OnEvent", function(self)
                     return cf1:GetWidth(), cf1:GetHeight()
                 end,
                 isHidden = function() return false end,
+                -- The mover places ChatFrame1 with one anchor per drag tick /
+                -- nudge; our size rides a second corner (SetSize is banned on
+                -- the main window), so restore it after every placement.
+                onLiveMove = function()
+                    if ns._KeepMainChatSizeCorner then ns._KeepMainChatSizeCorner() end
+                end,
                 savePos = function(_, point, relPoint, x, y)
                     local cfg = ECHAT.DB()
                     if not cfg then return end
@@ -5647,9 +5729,16 @@ initFrame:SetScript("OnEvent", function(self)
     end
     -- The geometry follower runs for the whole unlock session so the panel
     -- and text track the Chat mover per-frame instead of snapping after.
+    -- Both session edges re-assert the saved rect from the DB: on open, so
+    -- the mover measures the true (size-composed) rect even if a one-anchor
+    -- placement elsewhere left the frame on its explicit size; on close, so
+    -- the committed or reverted position lands composed in the same
+    -- execution (the drift heal is suspended for the session and would
+    -- otherwise be the first thing to notice, one tick later).
     if EUI.RegisterUnlockModeListener then
         EUI:RegisterUnlockModeListener("EllesmereUIChat", function(active)
             if ECHAT.FollowArmUnlock then ECHAT.FollowArmUnlock(active) end
+            if ECHAT.ApplyChatPosition then ECHAT.ApplyChatPosition() end
         end)
     end
 

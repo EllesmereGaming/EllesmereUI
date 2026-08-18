@@ -162,6 +162,13 @@ end
 -- shrinks this window to the brief login gap it was written for.
 local _slotKeyNextTry = 0
 local function KeyMatches(ruleKey, frameKey)
+    -- An icon with no resolved identity matches NO rule. fc.spellID is nil for a
+    -- window on every rebuild: BuildAllCDMBars clears it on each live icon, and
+    -- FullCDMRebuild re-arms (which evaluates every rule) before the reanchor
+    -- re-stamps it. Without this guard both lookups below fall through to
+    -- nil == nil, so EVERY user rule claimed EVERY identity-less icon and any
+    -- Hidden (CD Ready / On CD) rule alpha-0'd unrelated potions and trinkets.
+    if ruleKey == nil or frameKey == nil then return false end
     if ruleKey == frameKey then return true end
     if not next(_slotItemKey) then
         local now = GetTime()
@@ -1138,12 +1145,24 @@ ApplyCdState = function(frame, fc, cas, eff, onCD, ready)
         return
     end
     -- Glow modes: glow while the ability is READY (off cooldown). Not a hide.
+    -- Restore the alpha as well as the flag, exactly as the appearance refresh
+    -- does on this transition: once a bar has settled nothing else re-asserts a
+    -- preset frame's alpha, so clearing the flag alone leaves a hide from an
+    -- earlier state painted for good.
+    if fc._cdStateHidden then frame:SetAlpha(FrameBaseAlpha(fc)) end
     fc._cdStateHidden = false
     if ns.SetCdStateShiftHidden then ns.SetCdStateShiftHidden(fc, false) end
     local glow = fd and fd.glowOverlay
     if not glow then return end
     if not onCD then
-        if not fd._presetCdGlowOn then
+        -- Re-assert against the overlay's REAL state (overlay._glowActive), not
+        -- our flag alone. fd.glowOverlay is shared with the proc-glow and
+        -- appearance passes, and twelve of the thirteen sites that stop it never
+        -- tell this engine -- so the flag said "lit" while the overlay was dark
+        -- and a ready preset stayed unglowed until the next re-arm. Only ever
+        -- starts a glow when nothing is running, so it cannot stomp another
+        -- owner's.
+        if not fd._presetCdGlowOn or not glow._glowActive then
             local gr, gg, gb = ns.ResolveGlowColor and ns.ResolveGlowColor(cas or {})
             ns.StartNativeGlow(glow, eff == "pixelGlowReady" and 1 or 3, gr or 1, gg or 1, gb or 1)
             fd._presetCdGlowOn = true
@@ -1181,6 +1200,19 @@ RestoreAllCdState = function()
     end
 end
 
+-- Is this frame one WE inject? customActiveStates is only editable from the
+-- per-icon menu's "Custom Active State" section, offered for exactly these
+-- frames (EUI_CooldownManager_Options.lua isCustomInjected). A Blizzard viewer
+-- frame carries none of the flags, so a user rule reaching one is an orphan:
+-- removing a custom spell clears customSpellIDs but not the profile-level
+-- active state, and no menu can then show or clear it -- which hid a plainly
+-- tracked spell with nothing to explain why.
+local function IsInjectedFrame(f)
+    return (f._isCustomSpellFrame or f._isRacialFrame or f._isPresetFrame
+            or f._isItemPresetFrame or f._isTrinketFrame) and true or false
+end
+ns.CdmIsInjectedFrame = IsInjectedFrame
+
 -- One full evaluation pass. Driven by the ticker (continuous) AND called
 -- synchronously at the end of a re-arm, so a settings change does not leave the
 -- icon shown for a tick before the next poll re-hides it.
@@ -1209,7 +1241,11 @@ EvalCdStateNow = function()
                 for i = 1, #list do
                     local f = list[i]
                     local fc = f and FCt[f]
-                    if fc and KeyMatches(sid, fc.spellID) then
+                    -- rule.user rules come from the profile store; built-in rules
+                    -- (FAKE_ACTIVE_RULES) deliberately decorate Blizzard icons and
+                    -- keep their reach.
+                    if fc and KeyMatches(sid, fc.spellID)
+                       and (not rule.user or IsInjectedFrame(f)) then
                         hasIcon = true
                         if eff then ApplyCdState(f, fc, cas, eff, onCD, ready) end
                     end
