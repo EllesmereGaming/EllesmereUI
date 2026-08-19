@@ -797,6 +797,16 @@ initFrame:SetScript("OnEvent", function(self)
                         if EllesmereUI._applyGroupDeathAlert then EllesmereUI._applyGroupDeathAlert() end
                         if EllesmereUI._groupDeathShowVisual then EllesmereUI._groupDeathShowVisual() end
                       end },
+                    { type="toggle", label="Role Icon",
+                      tooltip="Shows the dead player's role icon if assigned, instead of the skull icon.",
+                      get=function()
+                        return (EllesmereUIDB and EllesmereUIDB.groupDeathRoleIcon) or false
+                      end,
+                      set=function(v)
+                        if not EllesmereUIDB then EllesmereUIDB = {} end
+                        EllesmereUIDB.groupDeathRoleIcon = v
+                        if EllesmereUI._groupDeathShowVisual then EllesmereUI._groupDeathShowVisual() end
+                      end },
                     { type="dropdown", label="Sound",
                       values=gdSoundValues, order=gdSoundOrder,
                       get=function()
@@ -2809,6 +2819,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if EllesmereUI._applyHideLootHistory then EllesmereUI._applyHideLootHistory() end
                 EllesmereUIDB.announceGroupDeaths = false
                 EllesmereUIDB.groupDeathTextSize = nil
+                EllesmereUIDB.groupDeathRoleIcon = false
                 EllesmereUIDB.groupDeathAlertPos = nil
                 EllesmereUIDB.groupDeathSound = nil      -- legacy boolean (pre-dropdown)
                 EllesmereUIDB.groupDeathSoundKey = nil
