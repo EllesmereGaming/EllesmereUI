@@ -2780,12 +2780,31 @@ ns.ApplyTBBBarSettings = ApplyTrackedBuffBarSettings
 --  Matches by cooldownID first (cached on cfg), then by spell ID variants from
 --  cooldownInfo. No external caches, no stale data in combat.
 -------------------------------------------------------------------------------
+-- cfg -> {sid=...} pending base-spell capture, awaiting a second confirming read.
+-- Separate table for the same serialization reason as sticky bindings.
+local _tbbBaseCapturePending = {}
+
+-- True if two ids are forms of the same ability, not just linked in the same group.
+local function SameBaseSpell(a, b)
+    if type(a) ~= "number" or type(b) ~= "number" then return false end
+    if issecretvalue and (issecretvalue(a) or issecretvalue(b)) then return false end
+    if a == b then return true end
+    if not (C_Spell and C_Spell.GetBaseSpell) then return false end
+    local ba = C_Spell.GetBaseSpell(a)
+    local bb = C_Spell.GetBaseSpell(b)
+    return (ba or a) == (bb or b)
+end
+
 local function MatchesSID(info, sid)
-    if info.overrideSpellID == sid then return true end
-    if info.spellID == sid then return true end
+    local isSec = issecretvalue
+    if not (isSec and isSec(info.overrideSpellID)) and info.overrideSpellID == sid then return true end
+    if not (isSec and isSec(info.spellID)) and info.spellID == sid then return true end
     if info.linkedSpellIDs then
         for _, lid in ipairs(info.linkedSpellIDs) do
-            if lid == sid then return true end
+            if not (isSec and isSec(lid)) and lid == sid
+               and (SameBaseSpell(sid, info.spellID) or SameBaseSpell(sid, info.overrideSpellID)) then
+                return true
+            end
         end
     end
     return false
@@ -2807,10 +2826,22 @@ local function MatchFrameToConfig(frame, cfg)
     -- cooldownInfo carries the override id ONLY while talented, so without the
     -- stored base the bar goes dark when untalented (the cast becomes the base
     -- spell). Also backfills bars saved without a pick-time baseSpellID.
+    local isSec = issecretvalue
     if cfg.spellID and cfg.spellID > 0 and not cfg.baseSpellID
+       and not (isSec and isSec(info.overrideSpellID))
+       and not (isSec and isSec(info.spellID))
        and info.overrideSpellID == cfg.spellID
        and info.spellID and info.spellID > 0 and info.spellID ~= cfg.spellID then
-        cfg.baseSpellID = info.spellID
+        -- Require the same reading twice before committing: a frame mid-reuse
+        -- (e.g. recycled from an unrelated spell) can transiently echo stale
+        -- values for one tick, and this write is permanent once made.
+        local pending = _tbbBaseCapturePending[cfg]
+        if pending and pending.sid == info.spellID then
+            cfg.baseSpellID = info.spellID
+            _tbbBaseCapturePending[cfg] = nil
+        else
+            _tbbBaseCapturePending[cfg] = { sid = info.spellID }
+        end
     end
     -- Fast path: match via cooldownInfo struct fields.
     if cfg.spellIDs then
@@ -2863,6 +2894,7 @@ function ns.InvalidateTBBFrameCache()
     wipe(_findChildCache)
     wipe(_tbbStickyFrame)
     wipe(_tbbStickyCdID)
+    wipe(_tbbBaseCapturePending)
     -- Every structural edge funnels here (pool Acquire, spec swap, rebuilds), so the assignment memo retires with the caches.
     _tbbAssignDirty = true
 end
@@ -2924,6 +2956,7 @@ local function CfgWantsSID(cfg, sid)
     -- Cooldown-tracking bars NEVER match buff-viewer frames or buff coverage.
     if cfg.trackType == "cooldown" then return false end
     if not sid then return false end
+    if issecretvalue and issecretvalue(sid) then return false end
     if cfg.spellIDs then
         for _, s in ipairs(cfg.spellIDs) do if s == sid then return true end end
         return false
@@ -3374,16 +3407,53 @@ end
 -- restriction, and both feed StatusBar:SetValue/FontString:SetText natively. The
 -- instance-id query is the fallback for an unpopulated cache and HARD-ERRORS on 12.1
 -- restricted units, hence the pcall and the secret-iid guard.
-local function ReadStackApplications(blzChild)
+-- Aura spellId behind a Blizzard child, for identity checks. nil if unreadable.
+local function BlzChildAuraSID(blzChild)
     local ad = blzChild.auraDataCached
-    if ad and ad.applications then return ad.applications end
+    if ad and ad.spellId and not (issecretvalue and issecretvalue(ad.spellId)) then
+        return ad.spellId
+    end
     local auraInstID = blzChild.auraInstanceID
     local auraUnit = blzChild.auraDataUnit
     if auraInstID and auraUnit and not issecretvalue(auraInstID) then
         local ok, d = pcall(C_UnitAuras.GetAuraDataByAuraInstanceID, auraUnit, auraInstID)
-        if ok and d and d.applications then return d.applications end
+        if ok and d and d.spellId and not (issecretvalue and issecretvalue(d.spellId)) then
+            return d.spellId
+        end
     end
     return nil
+end
+
+local function ReadStackApplications(blzChild, cfg)
+    local ad = blzChild.auraDataCached
+    if ad and ad.applications then
+        if CfgWantsSID(cfg, ad.spellId) then return ad.applications end
+        if issecretvalue and issecretvalue(ad.spellId) then return nil end
+        return nil, true
+    end
+    local auraInstID = blzChild.auraInstanceID
+    local auraUnit = blzChild.auraDataUnit
+    if auraInstID and auraUnit and not issecretvalue(auraInstID) then
+        local ok, d = pcall(C_UnitAuras.GetAuraDataByAuraInstanceID, auraUnit, auraInstID)
+        if ok and d and d.applications then
+            if CfgWantsSID(cfg, d.spellId) then return d.applications end
+            if issecretvalue and issecretvalue(d.spellId) then return nil end
+            return nil, true
+        end
+    end
+    return nil
+end
+
+-- Current/max charges for a spell, independent of bar trackType. A buff-type bar
+-- tracking a charge-based spell still wants "charges remaining", not the tracked
+-- buff's own applications field, which is often unrelated to the spell's charges.
+local function TBBSpellChargesInfo(cfg)
+    local sid = cfg and (cfg.spellID or cfg.baseSpellID)
+    local ch = sid and C_Spell and C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(sid)
+    local maxCh = ch and ch.maxCharges
+    local cleanMax = type(maxCh) == "number" and not (issecretvalue and issecretvalue(maxCh))
+    if not (cleanMax and maxCh > 1) then return nil end
+    return ch, maxCh
 end
 
 local function UpdateStacks(bar, blzChild, cfg)
@@ -3392,11 +3462,50 @@ local function UpdateStacks(bar, blzChild, cfg)
     local stackFill = cfg and cfg.stackBasedBar and cfg.trackType ~= "cooldown"
         and cfg.stackThresholdMaxEnabled
     bar._stackUnreadable = nil
+    -- The bound frame just changed (a pool reuse just happened): Blizzard's own
+    -- aura cache can be transiently stale for exactly one tick right after this,
+    -- so the validated path below waits one tick before trusting what it reads.
+    local justRebound = bar._lastStacksBlzChild ~= blzChild
+    bar._lastStacksBlzChild = blzChild
+    if cfg and cfg.trackType ~= "cooldown" then
+        local ch, maxCh = TBBSpellChargesInfo(cfg)
+        if ch then
+            local chActive = ch.isActive
+            local secActive = issecretvalue and issecretvalue(chActive)
+            local display
+            if secActive then
+                display = ch.currentCharges
+            elseif not chActive then
+                display = maxCh
+            else
+                display = ch.currentCharges
+            end
+            if display ~= nil then
+                local secDisplay = issecretvalue and issecretvalue(display)
+                bar._stackCount = secDisplay and (bar._stackCount or 0) or display
+                -- 0 charges is redundant with the cooldown swipe already showing
+                -- "not ready"; only 1+ is worth a number on the bar. A secret
+                -- count can't be compared to 0 in any form (numeric or string),
+                -- so it's shown as-is -- confirmed no safe way to hide it here.
+                if not secDisplay and display < 1 then
+                    if bar._stacksText then bar._stacksText:Hide() end
+                    return
+                end
+                if bar._stacksText and not bar._stacksHidden then
+                    bar._stacksText:SetFormattedText("%d", display)
+                    bar._stacksText:Show()
+                elseif bar._stacksText then
+                    bar._stacksText:Hide()
+                end
+                return
+            end
+        end
+    end
     if stackFill and blzChild then
         -- Stack-based bar: skip the Blizzard text mirror (blank below 2 stacks) and drive
         -- fill/text from the aura data. This helper only runs for active frames, so the aura is
         -- up and a readable count floors at 1; a secret count passes through to SetValue/SetText untouched.
-        local apps = ReadStackApplications(blzChild)
+        local apps = ReadStackApplications(blzChild, cfg)
         if apps then
             if not issecretvalue(apps) and apps < 1 then apps = 1 end
             bar._stackCount = apps
@@ -3416,7 +3525,42 @@ local function UpdateStacks(bar, blzChild, cfg)
         end
         return
     end
-    -- Read stacks from blzChild.Icon.Applications FontString.
+    -- Prefer a validated count over Blizzard's raw text mirror.
+    local rejected
+    if blzChild and not justRebound then
+        local apps
+        apps, rejected = ReadStackApplications(blzChild, cfg)
+        if apps then
+            local secApps = issecretvalue(apps)
+            -- Only genuine stacks (2+) get a number; a non-stacking buff's
+            -- applications field is often 0 or 1 and isn't meaningful to show.
+            if not secApps and apps < 2 then
+                if bar._stacksText then bar._stacksText:Hide() end
+                bar._stackCount = apps
+                return
+            end
+            if bar._stacksText and not bar._stacksHidden then
+                bar._stacksText:SetText(apps)
+                bar._stacksText:Show()
+            elseif bar._stacksText then
+                bar._stacksText:Hide()
+            end
+            bar._stackCount = apps
+            return
+        end
+    elseif blzChild and justRebound then
+        if bar._stacksText then bar._stacksText:Hide() end
+        bar._stackCount = 0
+        return
+    end
+    -- Already know this frame's aura isn't ours -- raw text would be the same wrong data.
+    if rejected then
+        if bar._stacksText then bar._stacksText:Hide() end
+        bar._stackCount = 0
+        return
+    end
+    -- Fallback: Blizzard's own rendered text, only when a validated read
+    -- above wasn't available (e.g. secret instance id in combat).
     if blzChild and blzChild.Icon and blzChild.Icon.Applications then
         -- NEVER compare the text (it may be secret); SetText takes it natively.
         local ok, txt = pcall(blzChild.Icon.Applications.GetText, blzChild.Icon.Applications)
@@ -3431,9 +3575,7 @@ local function UpdateStacks(bar, blzChild, cfg)
             elseif bar._stacksText then
                 bar._stacksText:Hide()
             end
-            -- Stack count for the threshold overlay: applications can be a secret number we
-            -- cannot compare, but the overlay consumes it via SetValue (FeedTBBThresholdOverlay), which accepts secrets.
-            bar._stackCount = ReadStackApplications(blzChild) or 0
+            bar._stackCount = 0
             return
         end
     end
@@ -3447,7 +3589,7 @@ local function UpdateStacks(bar, blzChild, cfg)
                     bar._stacksText:SetText(txt)
                     bar._stacksText:Show()
                 end
-                bar._stackCount = ReadStackApplications(blzChild) or 0
+                bar._stackCount = 0
                 return
             end
         end
@@ -4373,16 +4515,17 @@ local function _UpdateCooldownBar(bar, cfg)
             -- flag is the same CLEAN combat signal Max Stacks Glow uses: false only at max
             -- charges, and readable while the count/timing fields are secret.
             local chActive = ch.isActive
-            if issecretvalue and issecretvalue(chActive) then
-                unreadable = true
-            elseif not chActive then
+            local chActiveSecret = issecretvalue and issecretvalue(chActive)
+            if chActiveSecret then unreadable = true end
+            if not chActiveSecret and not chActive then
                 -- At max charges: ready, and the count is KNOWN without ever touching the secret currentCharges field.
                 charges = maxCh
                 chargesDisplay = maxCh
                 chargeCountValue = maxCh
                 hasCharges = true
             else
-                -- Recharging (below max).
+                -- Recharging (below max), or isActive itself unreadable -- still show
+                -- a best-effort count rather than hiding the bar's number outright.
                 wantHandle = "charge"
                 local cur = ch.currentCharges
                 if _tbbCleanNum(cur) then
@@ -4648,8 +4791,14 @@ local function _UpdateCooldownBar(bar, cfg)
         bar._stackCount = charges or 0
         if bar._stacksText then
             if (cfg.stacksPosition or "center") ~= "none" then
-                bar._stacksText:SetFormattedText("%d", chargesDisplay)
-                bar._stacksText:Show()
+                if charges ~= nil and charges < 1 then
+                    -- Known-clean 0: redundant with the cooldown swipe already
+                    -- showing "not ready", so skip the number entirely.
+                    bar._stacksText:Hide()
+                else
+                    bar._stacksText:SetFormattedText("%d", chargesDisplay)
+                    bar._stacksText:Show()
+                end
             else
                 bar._stacksText:Hide()
             end
@@ -4850,6 +4999,12 @@ function ns.UpdateTrackedBuffBarTimers()
                 elseif blzChild.IsShown then
                     isActive = blzChild:IsShown() or false
                 end
+                if isActive then
+                    local seenSID = BlzChildAuraSID(blzChild)
+                    if seenSID and not CfgWantsSID(cfg, seenSID) then
+                        isActive = false
+                    end
+                end
             end
 
             -- Blizzard viewer bind-miss / not-tracked-at-all fallback: covers (1) the
@@ -4972,31 +5127,21 @@ function ns.UpdateTrackedBuffBarTimers()
                     --  3. The configured spell's name (deterministic).
                     if bar._nameText and bar._nameText:IsShown() then
                         local nameStr
-                        -- auraInstanceID may itself be SECRET on the active frame
-                        -- (probe-confirmed): type() reads the tag without touching
-                        -- the value -- the taint-safe presence test for secrets.
-                        -- SLOT CHECK (the Wardead class, 2+ bars in one group in
-                        -- combat): the frame's label is right for its CURRENT
-                        -- occupant, so it is wrong only when OUR binding is stale
-                        -- -- a pool re-acquire that moved this frame to another
-                        -- slot before the next re-pair. cooldownID stays a plain
-                        -- readable number in secret windows, so comparing it to
-                        -- the slot we bound under catches that same-tick window
-                        -- (the sticky pass applies the identical test on its own
-                        -- schedule); a mismatch skips the label and falls through.
-                        if blzChild and blzChild:IsShown() and blizzBar
-                           and type(blzChild.auraInstanceID) ~= "nil"
-                           and (_tbbStickyCdID[cfg] == nil
-                                or blzChild.cooldownID == _tbbStickyCdID[cfg]) then
-                            local blizzNameFS = GetBlizzBarFontStrings(blizzBar)
-                            if blizzNameFS then
-                                local ok, txt = pcall(blizzNameFS.GetText, blizzNameFS)
-                                if ok and txt ~= nil
-                                   and ((issecretvalue and issecretvalue(txt)) or txt ~= "") then
-                                    nameStr = txt
-                                end
+                        -- Name comes from the bar's spellID, not Blizzard's label
+                        -- text, which can lag the icon within the same slot.
+                        if cfg.spellID and cfg.spellID > 0 then
+                            local spInfo = C_Spell.GetSpellInfo(cfg.spellID)
+                            if spInfo then
+                                nameStr = spInfo.name
+                            elseif C_Spell.RequestLoadSpellData then
+                                C_Spell.RequestLoadSpellData(cfg.spellID)
                             end
                         end
+                        if not nameStr and cfg.baseSpellID and cfg.baseSpellID > 0 then
+                            local spInfo = C_Spell.GetSpellInfo(cfg.baseSpellID)
+                            if spInfo then nameStr = spInfo.name end
+                        end
+                        -- Live aura data, only if spell data isn't loaded yet and validated as ours.
                         if not nameStr and blzChild and blzChild.auraInstanceID and blzChild.auraDataUnit
                            and not (issecretvalue and issecretvalue(blzChild.auraInstanceID)) then
                             local ok, ad = pcall(C_UnitAuras.GetAuraDataByAuraInstanceID,
@@ -5017,18 +5162,6 @@ function ns.UpdateTrackedBuffBarTimers()
                                     if mine then nameStr = ad.name end
                                 end
                             end
-                        end
-                        if not nameStr and cfg.spellID and cfg.spellID > 0 then
-                            local spInfo = C_Spell.GetSpellInfo(cfg.spellID)
-                            if spInfo then
-                                nameStr = spInfo.name
-                            elseif C_Spell.RequestLoadSpellData then
-                                C_Spell.RequestLoadSpellData(cfg.spellID)
-                            end
-                        end
-                        if not nameStr and cfg.baseSpellID and cfg.baseSpellID > 0 then
-                            local spInfo = C_Spell.GetSpellInfo(cfg.baseSpellID)
-                            if spInfo then nameStr = spInfo.name end
                         end
                         if nameStr then
                             bar._nameText:SetText(nameStr)
