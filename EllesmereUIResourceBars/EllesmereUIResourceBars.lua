@@ -5315,6 +5315,9 @@ local function UpdateSecondaryResource()
                         end
                     elseif _tsEntry and powerType == "SOUL_FRAGMENTS_DEVOURER" then
                         local threshVal = _tsThreshCount or 30
+                        if _tsEntry.thresholdMode ~= "value" and maxC and maxC > 0 then
+                            threshVal = maxC * threshVal / 100
+                        end
                         if _spTextInstead then
                             -- Fill at base; tint the count text when at/over the threshold.
                             ft:SetVertexColor(r, g, b, a)

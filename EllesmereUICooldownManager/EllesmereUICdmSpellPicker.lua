@@ -97,6 +97,14 @@ end
 local function IsVariantOf(spellIDA, spellIDB)
     if not _IsUsableSID(spellIDA) or not _IsUsableSID(spellIDB) then return false end
     if spellIDA == spellIDB then return true end
+    -- Some rotating viewer spells expose no reversible relationship through
+    -- GetBaseSpell/GetOverrideSpell in one of their live states.  The hook
+    -- layer persists the clean, spec-scoped pairing when the viewer does expose
+    -- it; consult that ledger so moving/re-adding Sacred Weapon also removes a
+    -- stale Holy Bulwark/base entry from the old bar or ghost list.
+    if ns.IsLearnedVariantOf and ns.IsLearnedVariantOf(spellIDA, spellIDB) then
+        return true
+    end
     if _GetBase(spellIDA) == spellIDB or _GetBase(spellIDB) == spellIDA then return true end
     if _GetOverride(spellIDA) == spellIDB or _GetOverride(spellIDB) == spellIDA then return true end
     local baseA = _GetBase(spellIDA)

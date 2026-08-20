@@ -812,6 +812,20 @@ local function GetWeaponCategory(slotID)
     return "NEUTRAL"
 end
 
+-- Off-hand slot holds a shield. Gates the shield-only imbue reminders
+-- (requireShield rows); on EABR, not a local, since this file sits at the
+-- 200-local cap. UNIT_INVENTORY_CHANGED already refreshes, so no new event.
+function EABR.HasShieldEquipped()
+    local itemID = GetInventoryItemID("player", 17)
+    if not itemID then return false end
+    local _, _, _, equipLoc
+    if C_Item and C_Item.GetItemInfoInstant then
+        _, _, _, equipLoc = C_Item.GetItemInfoInstant(itemID)
+    else
+        _, _, _, equipLoc = GetItemInfoInstant(itemID)
+    end
+    return equipLoc == "INVTYPE_SHIELD"
+end
 
 -------------------------------------------------------------------------------
 --  Raid buff beneficiaries (class-level). Only Intellect/Attack Power are stat-restricted (versatility/stamina/
@@ -1098,8 +1112,8 @@ local SHAMAN_IMBUES = {
     { key="flametongue", name="Flametongue Weapon", castSpell=318038, buffIDs={319778}, wepEnchID={5400} },
     { key="windfury",    name="Windfury Weapon",    castSpell=33757,  buffIDs={319773},  wepEnchID={5401} },
     { key="earthliving", name="Earthliving Weapon", castSpell=382021, buffIDs={382021, 382022}, wepEnchID={6498} },
-    { key="tidecaller",  name="Tidecaller's Guard", castSpell=457496, buffIDs={457496, 457481}, wepEnchID={7528} },
-    { key="tstrike",     name="Thunderstrike Ward", castSpell=462757, buffIDs={462757, 462742}, wepEnchID={7587} },
+    { key="tidecaller",  name="Tidecaller's Guard", castSpell=457481, buffIDs={457496, 457481}, wepEnchID={7528}, requireShield=true },
+    { key="tstrike",     name="Thunderstrike Ward", castSpell=462757, buffIDs={462757, 462742}, wepEnchID={7587}, requireShield=true },
 }
 
 -- Shaman Shields: 3 entries gated on Elemental Orbit (383010). With Orbit: Earth Shield self-buff (383648) + Lightning/Water Shield both required; without, any of the three. Cast spell by spec: Resto (264) -> Water Shield (52127), else Lightning Shield (192106).
@@ -2839,9 +2853,20 @@ local pendingOOCRefresh = false
 
 local function HideAllIcons()
     if InCombat() then return end  -- cannot hide SecureActionButtons in combat
-    for i = 1, #activeIcons do
-        local btn = activeIcons[i]
-        if btn then RemoveGlow(btn); EABR.ClearEatingVisual(btn); btn._text:SetText(""); btn._icon:SetDesaturated(false); btn:Hide() end
+    -- Sweep the WHOLE pool, never just activeIcons: a combat fade leaves icons
+    -- shown at alpha 0, and any window where the list rebuilds without those
+    -- frames orphans them -- shown, invisible, still hover/tooltip-live (field:
+    -- an invisible stuck Augment Rune). The pool is a dozen frames and this
+    -- runs on OOC edges only, so the sweep costs nothing; alpha resets here so
+    -- a swept frame can never carry a stale fade into its next show.
+    for _, btn in pairs(iconPool) do
+        if btn then
+            RemoveGlow(btn); EABR.ClearEatingVisual(btn)
+            btn._text:SetText(""); btn._text:SetAlpha(1)
+            btn._icon:SetDesaturated(false)
+            btn:SetAlpha(1)
+            btn:Hide()
+        end
     end
     wipe(activeIcons)
 end
@@ -3253,7 +3278,8 @@ local specialsActive = EABR.SectionShows(co.specialsWhereToShow, inInstance)
             if playerClass == "SHAMAN" then
                 local hasMH, mhExpire, _, mhEnchID, hasOH, ohExpire, _, ohEnchID = EABR.WeaponEnchants()
                 for _, imbue in ipairs(SHAMAN_IMBUES) do
-                    if co.enabled[imbue.key] and Known(imbue.castSpell) then
+                    if co.enabled[imbue.key] and Known(imbue.castSpell)
+                       and (not imbue.requireShield or EABR.HasShieldEquipped()) then
                         local found = false
                         if imbue.wepEnchID then
                             for _, eid in ipairs(imbue.wepEnchID) do
@@ -3731,7 +3757,17 @@ local function Refresh()
                     -- cursor instead of the secure button (a cursor-chasing
                     -- icon could never be clicked anyway, and a protected
                     -- frame could not chase the cursor in combat at all).
-                    if m.cat == "raidbuff" and m.mode == "spell" and not useCursor then
+                    -- Peel to the secure button ONLY while it holds its combat
+                    -- slot (visible at pull, or shown earlier this combat). A
+                    -- button that entered combat PARKED sits at -10000 and its
+                    -- SetPoint is lockdown-protected, so a mid-combat first
+                    -- show there is invisible (die -> combat res -> own buff
+                    -- missing was the field case); fall through to a normal
+                    -- pooled icon instead -- visual-only, like every other
+                    -- combat entry. The button resumes ownership at the OOC
+                    -- refresh.
+                    if m.cat == "raidbuff" and m.mode == "spell" and not useCursor
+                       and (EABR._providerCastVisible or EABR._providerCastCombatReserved) then
                         providerEntry = m
                     else
                         local f
@@ -4766,8 +4802,9 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
         wipe(_dismissedUntilLoad)
         EABR.ScanEatingState()
         if not InCombatLockdown() then EABR.SyncProviderCastSpell() end
-        RequestRefresh()
-        -- Deferred refresh: GetInstanceInfo() can return stale data on the first frame after a loading screen; a second refresh at 0.5s picks up the correct zone.
+        -- GetInstanceInfo() can return stale data on the first frame after a loading screen (e.g. still
+        -- reporting the previous zone on delve entry), which would show a reminder that "Where to Show"
+        -- disables for the new location. Skip the immediate refresh and wait for the corrected one.
         C_Timer.After(0.5, RequestRefresh)
         return
     end

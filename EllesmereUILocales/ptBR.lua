@@ -1265,7 +1265,6 @@ L["Hide without Target"] = "Ocultar sem alvo"
 L["Hide without Enemy Target"] = "Ocultar sem alvo inimigo"
 L["*Blizzard's auto targeting (soft target) setting can cause brief flickering when your actual target dies but a soft-target is still active."] = "*A configuração de mira automática da Blizzard (alvo suave) pode causar uma breve cintilação quando seu alvo real morre, mas um alvo suave ainda está ativo."
 L["This bar will only show if you have an enemy targeted"] = "Esta barra só será exibida se você tiver um alvo inimigo selecionado"
-L["Hide when Dragonriding"] = "Esconder na Pilotagem Aérea"
 L["Hides this element while you are on a skyriding (glide-capable) mount, where Blizzard shows its vigor HUD."] = "Oculta este elemento enquanto você estiver montado em uma montaria de Pilotagem Aérea (com capacidade de planar), onde a Blizzard exibe seu HUD de vigor."
 L["Line Color"] = "Cor da linha"
 
@@ -3891,7 +3890,6 @@ L["Hide Rotation Helper"] = "Ocultar Ajuda de Rotação"
 L["Hide Swipe (Charges)"] = "Ocultar Varredura (Cargas)"
 L["Hide the brief GCD swipe that flashes when you cast any spell. The actual ability cooldown swipe still shows."] = "Oculta a breve varredura do GCD que pisca quando você lança qualquer feitiço. A varredura de recarga da habilidade em si continua sendo exibida."
 L["Hide the charge number while a spell has no charges left, instead of showing a 0. The number returns as soon as a charge comes back."] = "Oculta o número de cargas enquanto um feitiço não tem cargas restantes, em vez de mostrar 0. O número retorna assim que uma carga é recuperada."
-L["Hide this bar completely while out of combat, even when the tracked buff/cooldown is active."] = "Oculta esta barra completamente enquanto fora de combate, mesmo quando o buff/recarga rastreado está ativo."
 L["Hide this bar's icon art, cooldown swipe, recharge edge and cooldown text, leaving only the charge or stack count."] = "Oculta a arte do ícone, a varredura de recarga, a borda de recarga e o texto de recarga desta barra, deixando apenas a contagem de cargas ou pilhas."
 L["Horizontal Gradient"] = "Gradiente Horizontal"
 L["How many icons to show on the base row (the row that fills first and that Row Growth keeps in place). The rest go on the second row."] = "Quantos ícones mostrar na fileira base (a fileira que preenche primeiro e que o Crescimento de Fileira mantém no lugar). O restante vai para a segunda fileira."
@@ -3925,7 +3923,6 @@ L["Offsets the base row's icon size in pixels from Icon Scale. The second row ke
 L["Offsets the second row's icon size in pixels from Icon Scale. The base row keeps the base size."] = "Ajusta o tamanho do ícone da segunda fileira em pixels a partir da Escala do Ícone. A fileira base mantém o tamanho base."
 L["Only In Combat"] = "Somente em Combate"
 L["Only preset or custom buff bars can be added to all specs"] = "Somente barras de buff predefinidas ou personalizadas podem ser adicionadas a todas as especializações"
-L["Only show this bar while the tracked buff/cooldown is active. Turn off to keep an empty bar on screen at all times."] = "Mostra esta barra somente enquanto o buff/recarga rastreado está ativo. Desative para manter uma barra vazia na tela o tempo todo."
 L["Open Blizzard CDM"] = "Abrir CDM da Blizzard"
 L["Pandemic Glow"] = "Brilho de Pandemia"
 L["Pandemic Glow Color"] = "Cor do Brilho de Pandemia"
@@ -5894,7 +5891,6 @@ L["ready check"] = "confirmação de pronto"
 L["Reskin Extra Action Buttons"] = "Aplicar Skin nos Botões de Ação Extra"
 L["Reskins the dungeon and battleground queue accept popups with the EUI dark style, and adds an accept countdown timer bar to the dungeon one."] = "Aplica o skin escuro da EUI aos pop-ups de aceitar fila de masmorra e de campo de batalha, e adiciona uma barra de contagem regressiva de aceitação ao pop-up de masmorra."
 L["Reskin Widget Bars"] = "Aplicar Skin nas Barras de Widget"
-L["Restyles Blizzard's on-screen progress bars (event objectives, nameplate counters) to the EUI look. Requires reload to apply.\n\nThese bars are drawn over rather than modified, so if the game ever reports their contents as protected the original bar is shown instead."] = "Reestiliza as barras de progresso na tela da Blizzard (objetivos de evento, contadores de placa de nome) para o visual da EUI. Requer recarregamento para aplicar.\n\nEssas barras são desenhadas por cima em vez de modificadas, então se o jogo alguma vez reportar seu conteúdo como protegido, a barra original é exibida no lugar."
 L["Robot Blip"] = "Bipe de Robô"
 L["role"] = "função"
 L["role check"] = "confirmação de função"
@@ -6047,3 +6043,118 @@ L["Shows the Role Check button. Turn it off and the remaining buttons close the 
 
 -- == Quality of Life / Movement Alerts =======================================
 L["Text: Duration"] = "Texto: Duração"
+
+-- == Spec Overrides =============================================================
+L["This page is excluded from overrides."] = "Esta página está excluída de substituições."
+L["A spec override owns this setting, so this conditional value never applies outside an editing session. Remove the spec override to let it through."] = "Uma substituição de especialização controla esta configuração, então este valor condicional nunca se aplica fora de uma sessão de edição. Remova a substituição de especialização para permitir que ele passe."
+L["Changes here edit the shared default; overrides keep their own values."] = "Alterações aqui editam o padrão compartilhado; substituições mantêm seus próprios valores."
+L["Overridden by:"] = "Substituído por:"
+L["conditional"] = "condicional"
+
+-- == Spec Overrides / Buff Manager Creation ===================================
+L["Copy from %1$s Buff Manager"] = "Copiar do Gerenciador de Buffs de %1$s"
+L["Copy from main Buff Manager"] = "Copiar do Gerenciador de Buffs principal"
+L["Create Custom Buff Manager"] = "Criar Gerenciador de Buffs Personalizado"
+L["Default Preset"] = "Predefinição padrão"
+L["Empty Preset"] = "Predefinição vazia"
+L["Start From"] = "Iniciar a Partir de"
+L["This override has no indicators for this spec, so nothing shows here until you add some."] = "Esta substituição não tem indicadores para esta especialização, então nada aparece aqui até que você adicione alguns."
+L["This will create a fully unique Buff Manager for this conditional group. Changes made to your default Buff Manager will no longer affect it."] = "Isso criará um Gerenciador de Buffs totalmente exclusivo para este grupo condicional. Alterações feitas no seu Gerenciador de Buffs padrão não afetarão mais isso."
+L["This will create a fully unique Buff Manager for this override group. Changes made to your default Buff Manager will no longer affect these specs."] = "Isso criará um Gerenciador de Buffs totalmente exclusivo para este grupo de substituição. Alterações feitas no seu Gerenciador de Buffs padrão não afetarão mais essas especializações."
+
+-- == Raid Frames / Buff Manager Indicators ====================================
+L["All Buffs or Has Duration is selected, so every buff already shows. Use the red Hide box to exclude these instead."] = "Todos os Buffs ou Tem Duração está selecionado, então todo buff já é exibido. Use a caixa vermelha Ocultar para excluir estes."
+L["Indicators added here show on every spec in this group. The Base Icons grid lives in %1$s."] = "Indicadores adicionados aqui aparecem em todas as especializações deste grupo. A grade de Ícones Base fica em %1$s."
+L["No indicator selected"] = "Nenhum indicador selecionado"
+
+-- == Player Aura Bars ==========================================================
+L["Delete this buff bar?"] = "Excluir esta barra de buffs?"
+L["Delete this debuff bar?"] = "Excluir esta barra de debuffs?"
+L["Delete this filter? It is removed from every bar using it."] = "Excluir este filtro? Ele será removido de todas as barras que o utilizam."
+L["Enable Player Aura Bars"] = "Ativar Auras do Jogador"
+L["Enter the spell ID to track."] = "Insira o ID do feitiço para rastrear."
+L["One-time copy of the Raid Frames Buff Manager filters into these filters. Same-named filters are OVERWRITTEN; the two lists stay separate afterwards."] = "Cópia única dos filtros do Gerenciador de Buffs dos Quadros de Raide para estes filtros. Filtros com o mesmo nome são SOBRESCRITOS; as duas listas permanecem separadas depois."
+L["Replaces Blizzard's default buff and debuff display with fully customizable bars."] = "Substitui a exibição padrão de buffs e debuffs da Blizzard por barras totalmente personalizáveis."
+L["class"] = "classe"
+L["classes"] = "classes"
+
+-- == General Options / Donor Wall ==============================================
+L["ALL DONORS"] = "TODOS OS DOADORES"
+L["EUI STAFF"] = "EQUIPE EUI"
+L["Monthly Top Donors"] = "Principais Doadores do Mês"
+L["Thank you for making EllesmereUI possible."] = "Obrigado por tornar a EllesmereUI possível."
+L["Thank you to all who support EllesmereUI and its incredible support team!"] = "Obrigado a todos que apoiam a EllesmereUI e sua incrível equipe de suporte!"
+
+-- == Unit Frames / Health Fill Color ===========================================
+L["Color the health bar by how much health is left, instead of a flat color. Classic runs green at full health through yellow to red at empty. Custom Colors blends between the three stop swatches on this row -- full (100%), half (50%) and empty (0%). Class Reactive shows the class color at full health, bleeding into the 50% and 0% colors as the unit takes damage. Off leaves the flat Fill Color swatches in charge; either way the Gradient below still applies, running from whichever color this picks."] = "Colore a barra de vida de acordo com quanto de vida resta, em vez de uma cor fixa. Clássico vai do verde na vida cheia, passando por amarelo, até vermelho na vida vazia. Cores Personalizadas mescla entre as três amostras de parada desta linha -- cheia (100%), metade (50%) e vazia (0%). Reativo à Classe mostra a cor da classe na vida cheia, misturando-se às cores de 50% e 0% conforme a unidade sofre dano. Desligado deixa as amostras fixas de Cor de Preenchimento no comando; de qualquer forma, o Gradiente abaixo ainda se aplica, partindo da cor escolhida aqui."
+
+-- == Bags / Armory Slot Grouping ================================================
+L["Armory Slot Group Options"] = "Opções de Grupos de Espaço do Arsenal"
+L["Compact Slot Groups"] = "Compactar Grupos de Espaço"
+L["Place smaller Armory slot groups beside each other and fill the unused end of each row with empty-slot blocks. Large groups still use full rows."] = "Coloca grupos de espaço menores do Arsenal lado a lado, preenchendo a extremidade não utilizada de cada linha com blocos de espaço vazio. Grupos grandes continuam usando linhas completas."
+
+-- == BlizzardSkin / Character Sheet Durability =================================
+L["Above Model"] = "Acima do Modelo"
+L["Frame Footer"] = "Rodapé do Quadro"
+L["Prefix the durability percent with \"Durability:\"."] = "Prefixa a porcentagem de durabilidade com \"Durabilidade:\"."
+L["Show Item Durability"] = "Mostrar Durabilidade do Item"
+L["Show Label"] = "Mostrar Rótulo"
+L["Show total equipped durability above the character model, colored from green to red."] = "Mostra a durabilidade total equipada acima do modelo do personagem, colorida de verde a vermelho."
+L["Stats Header"] = "Cabeçalho de Estatísticas"
+
+-- == BlizzardSkin / Weekly Choice Windows ======================================
+L["Weekly and event choice windows such as Abundance harvests and \"how will you aid...\" pickers: option plates, headers, reward icons and buttons. Option artwork stays."] = "Janelas de escolha semanais e de eventos, como colheitas de Abundância e seletores de \"como você vai ajudar...\": placas de opção, cabeçalhos, ícones de recompensa e botões. A arte das opções permanece."
+
+-- == Cooldown Manager / Tracking Bars Visibility ===============================
+L["Hide when Skyriding Mounted"] = "Ocultar quando montado em Pilotagem Aérea"
+L["Only show this bar while the tracked buff/cooldown is active. Unchecked keeps an empty bar on screen at all times."] = "Mostra esta barra somente enquanto o buff/recarga rastreado está ativo. Desmarcado mantém uma barra vazia na tela o tempo todo."
+L["Precise Below (minutes, 0 = off)"] = "Precisão Abaixo de (minutos, 0 = desativado)"
+
+-- == Unlock Mode / Composite Mover Labels ======================================
+L["Deselect a grow direction to return to centered"] = "Desmarque uma direção de crescimento para retornar ao centralizado"
+L["CDM: Buffs"] = "CDM: Buffs"
+L["CDM: Cooldowns"] = "CDM: Recargas"
+L["CDM: Utility"] = "CDM: Utilidade"
+L["PAB: Buff Bar"] = "PAB: Barra de Buffs"
+L["PAB: Debuff Bar"] = "PAB: Barra de Debuffs"
+L["PAB: External Defensives"] = "PAB: Defensivas Externas"
+L["PAB: New Buff Bar"] = "PAB: Nova Barra de Buffs"
+L["PAB: New Debuff Bar"] = "PAB: Nova Barra de Debuffs"
+
+-- == Quality of Life / Loot Rolls Window =======================================
+L["Hides Blizzard's \"Loot Rolls\" window -- the running list of dropped items showing who rolled what and who won. Use the cog to let it appear briefly and close itself instead. The Need/Greed roll popups themselves are not affected."] = "Oculta a janela \"Rolagens de Saque\" da Blizzard -- a lista contínua de itens dropados mostrando quem rolou o quê e quem ganhou. Use a engrenagem para deixá-la aparecer brevemente e se fechar sozinha. Os popups de rolagem de Precisar/Ganancioso em si não são afetados."
+
+-- == Resource Bars ==============================================================
+L["Shows Sweeping Strikes charges on the resource bar; Unit Frames and the personal Nameplate show them regardless."] = "Mostra as cargas de Golpes a Esmo na barra de recurso; Quadros de Unidade e a Placa de Nome pessoal os mostram independentemente."
+L["Stagger Full %"] = "Cambaleio Cheio %"
+L["This option requires Dark Mode Class Resource to be disabled. Dark Mode colors can be adjusted in Global Settings -> Fonts & Colors."] = "Esta opção requer que o Recurso de Classe em Modo Escuro esteja desativado. As cores do Modo Escuro podem ser ajustadas em Configurações Globais -> Fontes e Cores."
+
+-- == Quickdraw ===================================================================
+L["%1$s Specialization Ability"] = "Habilidade de Especialização de %1$s"
+L["profession specialization ability, by position on this character"] = "habilidade de especialização da profissão, por posição neste personagem"
+
+-- == Aura & Buff Reminders =======================================================
+L["Pick which content these consumable reminders appear in.\nRested areas (cities and inns) always stay hidden."] = "Escolha em qual conteúdo estes lembretes de consumíveis aparecem.\nÁreas de descanso (cidades e estalagens) sempre ficam ocultas."
+
+-- == General Options / Profile Import & What's New =============================
+L["This profile string does not carry any global settings."] = "Esta string de perfil não contém nenhuma configuração global."
+L["SPECIAL UPDATE"] = "ATUALIZAÇÃO ESPECIAL"
+
+-- == Blizzard Skin / Widget Bars =================================================
+L["Widget Bar Size"] = "Tamanho da Barra de Widget"
+L["Minimum"] = "Mínimo"
+L["Restyles Blizzard's on-screen progress bars (event objectives, nameplate counters) to the EUI look. Requires reload to apply.\n\nThese bars are drawn over rather than modified, so if the game ever reports their contents as protected the original bar is shown instead.\n\nUse the cog to set a minimum size, so bars on shrunken nameplates stay readable."] = "Reestiliza as barras de progresso na tela da Blizzard (objetivos de evento, contadores de placa de nome) para o visual da EUI. Requer recarregamento para aplicar.\n\nEssas barras são desenhadas por cima em vez de modificadas, então se o jogo alguma vez reportar seu conteúdo como protegido, a barra original é exibida no lugar.\n\nUse a engrenagem para definir um tamanho mínimo, para que as barras em placas de nome encolhidas continuem legíveis."
+L["Smallest on-screen size a reskinned bar is drawn at.\n\nWidget bars on a nameplate inherit that nameplate's scale, so they come out tiny on small units. Below this size the bar is scaled up instead, text and all.\n\nSet to 0 to mirror Blizzard's size exactly."] = "Menor tamanho na tela em que uma barra reestilizada é desenhada.\n\nBarras de widget em uma placa de nome herdam a escala dessa placa, então elas ficam minúsculas em unidades pequenas. Abaixo deste tamanho, a barra é ampliada, incluindo o texto.\n\nDefina como 0 para corresponder exatamente ao tamanho da Blizzard."
+
+-- == Raid Frames / Buff Manager border styles ====================================
+L["Dashed"] = "Tracejada"
+
+-- == M+ Season Portals ===========================================================
+L["BV"] = true
+L["VA"] = true
+L["DoN"] = true
+L["MR"] = true
+L["AoF"] = true
+L["RLP"] = true
+L["ToS"] = true
+L["KR"] = true

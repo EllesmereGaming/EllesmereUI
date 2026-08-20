@@ -2101,7 +2101,7 @@ local function UpdateAllCDMBorders()
                     border:Show()
                     if slot.__ECMEIcon then slot.__ECMEIcon:SetTexCoord(crop, 1 - crop, crop, 1 - crop) end
                     if slot.__ECMECooldown then
-                        slot.__ECMECooldown:SetSwipeTexture("Interface\\Buttons\\WHITE8x8")
+                        slot.__ECMECooldown:SetSwipeTexture("Interface\\AddOns\\EllesmereUI\\media\\white-square.png")
                     end
                     for _, h in ipairs(slot.__ECMEHidden) do
                         if h and h.Hide then h:Hide() end
@@ -4909,7 +4909,7 @@ ApplyShapeToCDMIcon = function(icon, shape, barData, ssb)
         if cd then
             cd:ClearAllPoints()
             cd:SetAllPoints(icon)
-            pcall(cd.SetSwipeTexture, cd, "Interface\\Buttons\\WHITE8x8")
+            pcall(cd.SetSwipeTexture, cd, "Interface\\AddOns\\EllesmereUI\\media\\white-square.png")
             if cd.SetUseCircularEdge then pcall(cd.SetUseCircularEdge, cd, false) end
         end
 
@@ -5055,7 +5055,7 @@ function ns.ApplyShapeToOverlay(icon, oIcon, oCd, barData)
         -- Square overlay. IconTexture already copied the underlying texcoords.
         if oIcon then oIcon:ClearAllPoints(); oIcon:SetAllPoints(oIcon:GetParent()) end
         if oCd then
-            pcall(oCd.SetSwipeTexture, oCd, "Interface\\Buttons\\WHITE8x8")
+            pcall(oCd.SetSwipeTexture, oCd, "Interface\\AddOns\\EllesmereUI\\media\\white-square.png")
             if oCd.SetUseCircularEdge then pcall(oCd.SetUseCircularEdge, oCd, false) end
         end
         return
@@ -5360,6 +5360,9 @@ local function RefreshCDMIconAppearance(barKey)
         -- Glow + Duration Text + Charge/Stack below; nil = inherit the bar's value. Variant-aware:
         -- a setting stored under any spell in the icon's family (base/talent-override) resolves here -- options keys off the live/canonical id, which may differ from fc.spellID.
         local ssb
+        -- Canonical id for buff-family icons, hoisted so the Threshold Text block below can
+        -- reuse it instead of re-walking GetCanonicalSpellIDForFrame a second time this pass.
+        local sidb
         local isBuffFamilyBar = (barData.barType == "buffs" or barKey == "buffs")
         -- Login/refresh coverage for Max Stacks Glow: a charge spell at max never fires the swipe hook, so register here too. Gated on the feature flag so non-users skip the call entirely.
         if ns._cdmAnyMaxStacksGlow and not isBuffFamilyBar and ns.WatchMaxStacksIfEnabled then
@@ -5398,7 +5401,7 @@ local function RefreshCDMIconAppearance(barKey)
             -- whose base is a generic spec spell shared across icons (Consecration's standing-in
             -- aura -> Prot Paladin 137028), keying off the base misses the real buff AND lets one
             -- icon's setting shadow another's. canon as primary makes settings[canon] the fast path. Own placeholder/custom frames have no live spell -> fc.spellID.
-            local sidb = (ns.GetCanonicalSpellIDForFrame and ns.GetCanonicalSpellIDForFrame(icon))
+            sidb = (ns.GetCanonicalSpellIDForFrame and ns.GetCanonicalSpellIDForFrame(icon))
                 or (fcb and fcb.spellID)
             if sidb then
                 local sdb = ns.GetBarSpellData(barKey)
@@ -5510,9 +5513,15 @@ local function RefreshCDMIconAppearance(barKey)
             -- decimals/a color change below the spell's Threshold Seconds. Gated by the session
             -- flag, so zero cost/zero behavior change unless at least one spell arms it. Resolution
             -- order matches Reverse Swipe above: family store (variant-aware via the frame) first, then the preset/custom customActiveStates entry.
+            -- sid resolves canon-first like sidb above -- fc.spellID alone is the cooldownInfo
+            -- BASE, which for a hosted buff/debuff can be a generic id shared across icons (or
+            -- simply not the id the options menu wrote the entry under), so it misses the armed
+            -- per-spell entry entirely. Reuse sidb when the buff block above already computed it.
             if ns._cdmAnyThresholdText and ns.ApplyThresholdFormatter then
                 local ttFc = _ecmeFC[icon]
-                local ttSid = ttFc and ttFc.spellID
+                local ttSid = sidb
+                    or (ns.GetCanonicalSpellIDForFrame and ns.GetCanonicalSpellIDForFrame(icon))
+                    or (ttFc and ttFc.spellID)
                 local tt
                 if ttSid and ns.ResolveThresholdTextSettings then
                     tt = ns.ResolveThresholdTextSettings(icon, ttSid, ns.GetBarSpellData(barKey), barKey)

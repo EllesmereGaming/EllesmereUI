@@ -3363,17 +3363,6 @@ do
         if root.GetChildren then pcall(ScanFrame, root) end
     end
 
-    -- One-time full walk (no allocation, no timer) to catch panels already open when the feature is switched on.
-    local function SweepAll()
-        local fp = GetFingerprint()
-        if not fp then return end
-        local frame = EnumerateFrames()
-        while frame do
-            if frame.ShowTooltip == fp then HideButton(frame) end
-            frame = EnumerateFrames(frame)
-        end
-    end
-
     local function RestoreButtons()
         for btn in pairs(hiddenByUs) do
             btn:SetAlpha(1)
@@ -3426,7 +3415,8 @@ do
             pcall(SetCVar, "hideHelptips", "1")
             pcall(SetCVar, "showTutorials", "0")
             weSetCVar = true
-            SweepAll()
+            -- No global EnumerateFrames walk here (runs inside PLAYER_LOGIN): already-open
+            -- panels pick up their "i" buttons on the next ShowUIPanel.
             HideOpenTips()
         else
             if weSetCVar then

@@ -22,6 +22,7 @@ initFrame:SetScript("OnEvent", function(self)
 
     if not EllesmereUI or not EllesmereUI.RegisterModule then return end
     local PP = EllesmereUI.PanelPP
+    local THR_BORDER_WHITE = { 1, 1, 1 }  -- Threshold Settings buttons: default (unconfigured) border tint
 
     local db
     C_Timer.After(0, function() db = _G._ERB_AceDB end)
@@ -1214,7 +1215,7 @@ initFrame:SetScript("OnEvent", function(self)
             height    = 22,
             getChecked = function(key)
                 local ent = CurrentBandEntry()
-                local isPercent = (_bandLockPercent or (ent and ent.bandMode == "percent")) or false
+                local isPercent = _bandLockPercent or not (ent and ent.bandMode == "value")
                 if key == "percent" then return isPercent else return not isPercent end
             end,
             isDisabled = function() return _bandLockPercent and true or false end,
@@ -1921,11 +1922,17 @@ initFrame:SetScript("OnEvent", function(self)
         btnLbl:SetText(EllesmereUI.L("Settings"))
         settingsBtn:SetScript("OnEnter", function(self)
             btnBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
-            if self._border and self._border.SetColor then self._border:SetColor(1, 1, 1, 0.3) end
+            if self._border and self._border.SetColor then
+                local t = self._borderTint or THR_BORDER_WHITE
+                self._border:SetColor(t[1], t[2], t[3], 0.3)
+            end
         end)
         settingsBtn:SetScript("OnLeave", function(self)
             btnBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
-            if self._border and self._border.SetColor then self._border:SetColor(1, 1, 1, EllesmereUI.DD_BRD_A) end
+            if self._border and self._border.SetColor then
+                local t = self._borderTint or THR_BORDER_WHITE
+                self._border:SetColor(t[1], t[2], t[3], EllesmereUI.DD_BRD_A)
+            end
         end)
         -- disabled overlay
         local btnDis = CreateFrame("Frame", nil, parentRgn)
@@ -2844,6 +2851,9 @@ initFrame:SetScript("OnEvent", function(self)
             scrollH = math.max(scrollH, POPUP_PAD)
             popup._scrollFrame:SetHeight(scrollH)
             PP.Size(popup, POPUP_W, headerH + scrollH + POPUP_PAD)
+
+            -- Entry list just changed: refresh the button's threshold notice badge.
+            if cfg.noticeFn then cfg.noticeFn() end
         end
 
         local function TogglePopup_L(anchor)
@@ -2869,6 +2879,78 @@ initFrame:SetScript("OnEvent", function(self)
 
         return settingsBtn
     end -- BuildThresholdSettingsButton
+
+    -- Threshold notice badge: an info bubble in the Settings button's top-left corner
+    -- naming every spec that has a threshold configured, so a spec's setup stays visible
+    -- from a page that doesn't list it. Green while none of them applies to the spec being
+    -- played, orange while one does. Motion-only and click-through (same recipe as the
+    -- Spec Overrides badge) so the button keeps its own hover and click.
+    local THR_NOTE_IDLE   = { 0x0c/255, 0xd2/255, 0x9d/255, "0cd29d" }
+    local THR_NOTE_ACTIVE = { 1, 0x8c/255, 0x26/255, "ff8c26" }
+    -- getBarData: fn() -> bar table. pageSpecID: the Advanced page's spec, else nil.
+    -- Returns the updater so callers can re-run it after an edit.
+    local function AttachThresholdNotice(anchorBtn, getBarData, pageSpecID)
+        if not anchorBtn then return end
+        local badge = CreateFrame("Frame", nil, anchorBtn)
+        badge:SetSize(14, 14)
+        badge:SetPoint("TOPLEFT", anchorBtn, "TOPLEFT", 2, -2)
+        -- Below the button's disabled overlay (level + 5), so a disabled bar dims and
+        -- covers the badge along with everything else on the button.
+        badge:SetFrameLevel(anchorBtn:GetFrameLevel() + 3)
+        badge:SetMouseClickEnabled(false)
+        local ico = badge:CreateTexture(nil, "OVERLAY")
+        ico:SetAllPoints()
+        if ico.SetSnapToPixelGrid then ico:SetSnapToPixelGrid(false); ico:SetTexelSnappingBias(0) end
+        ico:SetTexture([[Interface\AddOns\EllesmereUI\media\icons\eui-info.png]])
+        badge._color = THR_NOTE_IDLE
+        badge:SetScript("OnEnter", function(self)
+            local c = self._color
+            ico:SetVertexColor(c[1], c[2], c[3], 1)
+            if self._tip and EllesmereUI.ShowWidgetTooltip then
+                EllesmereUI.ShowWidgetTooltip(self, self._tip)
+            end
+        end)
+        badge:SetScript("OnLeave", function(self)
+            local c = self._color
+            ico:SetVertexColor(c[1], c[2], c[3], 0.85)
+            if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
+        end)
+        badge:Hide()
+
+        -- Recolors the button's own border to match (white when nothing is configured); its
+        -- OnEnter/OnLeave read anchorBtn._borderTint instead of hardcoding white, so the tint
+        -- survives hover. Alpha still follows the existing hover/idle levels.
+        local function ApplyBorderTint(rgb)
+            anchorBtn._borderTint = rgb
+            if anchorBtn._border and anchorBtn._border.SetColor then
+                local a = anchorBtn:IsMouseOver() and 0.3 or EllesmereUI.DD_BRD_A
+                anchorBtn._border:SetColor(rgb[1], rgb[2], rgb[3], a)
+            end
+        end
+
+        local function Update()
+            local list, active = ns.ThresholdNoticeInfo(getBarData(), pageSpecID)
+            if not list then
+                if EllesmereUI.HideWidgetTooltip and badge:IsMouseOver() then EllesmereUI.HideWidgetTooltip() end
+                badge:Hide()
+                ApplyBorderTint(THR_BORDER_WHITE)
+                return
+            end
+            local c = active and THR_NOTE_ACTIVE or THR_NOTE_IDLE
+            badge._color = c
+            ico:SetVertexColor(c[1], c[2], c[3], badge:IsMouseOver() and 1 or 0.85)
+            local tip = "|cff" .. c[4] .. EllesmereUI.L("Thresholds configured for:") .. "|r " .. list
+            local lead = active and EllesmereUI.L("Current Spec is affected by Threshold Settings.")
+                or EllesmereUI.L("Current Spec is not affected by Threshold Settings.")
+            badge._tip = "|cff" .. c[4] .. lead .. "|r\n\n" .. tip
+            badge:Show()
+            ApplyBorderTint(c)
+        end
+        anchorBtn:HookScript("OnShow", Update)
+        EllesmereUI.RegisterWidgetRefresh(Update)
+        Update()
+        return Update
+    end
 
     local VALID_ANCHOR_TARGETS = EllesmereUI.RESOURCE_BAR_ANCHOR_KEYS or {}
 
@@ -3596,9 +3678,11 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         if not EllesmereUI._prebuilding then
+        local _thrNoticeH   -- assigned below: the notice badge lives on the button itself
         local healthSettingsBtn = BuildThresholdSettingsButton({
             parentRgn = healthColorRow._rightRegion,
             getBarData = function() return cfg() end,
+            noticeFn = function() if _thrNoticeH then _thrNoticeH() end end,
             singleSpec = ctx.advanced or nil,
             refreshFn = function() RefreshHealth(); SmoothRefresh() end,
             rebuildFn = function() RebuildHealth() end,
@@ -3611,6 +3695,7 @@ initFrame:SetScript("OnEvent", function(self)
             popupTitle = "Health Bar Threshold",
             defaultR = 1.0, defaultG = 0.2, defaultB = 0.2, defaultA = 1,
         })
+        _thrNoticeH = AttachThresholdNotice(healthSettingsBtn, cfg, ctx.advanced and ctx.specID or nil)
 
         BuildHashCog({
             parentRgn = healthColorRow._rightRegion,
@@ -4371,9 +4456,11 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
         if not EllesmereUI._prebuilding then
+        local _thrNoticeP   -- assigned below: the notice badge lives on the button itself
         local powerSettingsBtn = BuildThresholdSettingsButton({
             parentRgn = powerColorRow._rightRegion,
             getBarData = function() return cfg() end,
+            noticeFn = function() if _thrNoticeP then _thrNoticeP() end end,
             singleSpec = ctx.advanced or nil,
             refreshFn = function() RefreshPower(); SmoothRefresh() end,
             rebuildFn = function() RebuildPower() end,
@@ -4387,6 +4474,7 @@ initFrame:SetScript("OnEvent", function(self)
             defaultR = 1.0, defaultG = 0.2, defaultB = 0.2, defaultA = 1,
             formCapable = true,
         })
+        _thrNoticeP = AttachThresholdNotice(powerSettingsBtn, cfg, ctx.advanced and ctx.specID or nil)
 
         BuildHashCog({
             parentRgn = powerColorRow._rightRegion,
@@ -5497,11 +5585,17 @@ initFrame:SetScript("OnEvent", function(self)
             btnLbl:SetText(EllesmereUI.L("Settings"))
             settingsBtn:SetScript("OnEnter", function(self)
                 btnBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
-                if self._border and self._border.SetColor then self._border:SetColor(1, 1, 1, 0.3) end
+                if self._border and self._border.SetColor then
+                    local t = self._borderTint or THR_BORDER_WHITE
+                    self._border:SetColor(t[1], t[2], t[3], 0.3)
+                end
             end)
             settingsBtn:SetScript("OnLeave", function(self)
                 btnBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
-                if self._border and self._border.SetColor then self._border:SetColor(1, 1, 1, EllesmereUI.DD_BRD_A) end
+                if self._border and self._border.SetColor then
+                    local t = self._borderTint or THR_BORDER_WHITE
+                    self._border:SetColor(t[1], t[2], t[3], EllesmereUI.DD_BRD_A)
+                end
             end)
             local btnDis = CreateFrame("Frame", nil, settingsRgn)
             btnDis:SetAllPoints(settingsBtn)
@@ -5519,6 +5613,11 @@ initFrame:SetScript("OnEvent", function(self)
             settingsBtn:HookScript("OnShow", UpdateBtnDis)
             EllesmereUI.RegisterWidgetRefresh(UpdateBtnDis)
             UpdateBtnDis()
+
+            -- Threshold notice badge; re-run from the popup's two refreshers below,
+            -- which cover every card edit (RefreshDetail) and every add/delete/spec
+            -- change (RefreshSpecEntries).
+            local _thrNoticeC = AttachThresholdNotice(settingsBtn, cfg, advSingle and ctx.specID or nil)
 
             -- Popup Frame (lazy-created)
 			local thrPage
@@ -6473,6 +6572,7 @@ initFrame:SetScript("OnEvent", function(self)
 
 				-- RefreshDetail: repaint the pane for the selected entry
 				RefreshDetail = function()
+					if _thrNoticeC then _thrNoticeC() end
 					local ent = CurEntry()
 					if not ent then
 						for _, rf in ipairs(_allRows) do rf:Hide() end
@@ -6646,6 +6746,7 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- Build/Refresh dynamic entry frames
             RefreshSpecEntries = function(scrollToSel)
+                if _thrNoticeC then _thrNoticeC() end
                 local p = DB(); if not p then return end
                 local sp = p.secondary
                 if not sp.thresholdSpecs then sp.thresholdSpecs = {} end
@@ -7619,7 +7720,7 @@ initFrame:SetScript("OnEvent", function(self)
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Shift Offset",
                 rows = {
-                    { type = "slider", label = "Extra Y Offset", min = -50, max = 50, step = 1,
+                    { type = "slider", pixel = true, label = "Extra Y Offset", min = -50, max = 50, step = 1,
                       get = function() local p = DB(); return (p and p.secondary.shiftElementsIfNoResourceExtraY) or 0 end,
                       set = function(v)
                           local p = DB(); if not p then return end
@@ -7664,7 +7765,7 @@ initFrame:SetScript("OnEvent", function(self)
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Shift Offset",
                 rows = {
-                    { type = "slider", label = "Extra Y Offset", min = -50, max = 50, step = 1,
+                    { type = "slider", pixel = true, label = "Extra Y Offset", min = -50, max = 50, step = 1,
                       get = function() local p = DB(); return (p and p.primary.shiftElementsIfNoPowerExtraY) or 0 end,
                       set = function(v)
                           local p = DB(); if not p then return end

@@ -691,7 +691,14 @@ initFrame:SetScript("OnEvent", function(self)
                 -- Bottom padding so the last row is fully visible when scrolled down
                 local paddedH = Snap(gridH + 20 + bgTopInset + bgBottomInset + scaledBtnH)
                 self:SetHeight(paddedH)
-                self._wrapper:SetHeight(maxH)
+                -- Snap the viewport to a whole number of rows so the cap never slices
+                -- a row in half; topInset is the space above row 1 (matches gridStartY).
+                local topInset = Snap(10) + bgTopInset
+                local rowStep = scaledBtnH + scaledPad
+                local visibleRows = math.max(1, math.floor((maxH / self._previewScale - topInset + scaledPad) / rowStep + 0.001))
+                visibleRows = math.min(visibleRows, gridRows)
+                local cappedLocalH = Snap(topInset + visibleRows * scaledBtnH + (visibleRows - 1) * scaledPad)
+                self._wrapper:SetHeight(math.min(maxH, cappedLocalH * self._previewScale))
             else
                 self._wrapper:SetHeight(parentH)
                 -- Reset scroll when content fits without scrolling

@@ -15352,7 +15352,21 @@ initFrame:SetScript("OnEvent", function(self)
             if parentH > maxH then
                 -- Add bottom padding so info text is fully visible when scrolled down
                 self:SetHeight(self:GetHeight() + 30)
-                self._wrapper:SetHeight(maxH)
+                -- If the cap would slice into the icon grid itself, snap the viewport to
+                -- a whole row instead -- cropping into the hint text below is harmless,
+                -- cropping an icon row in half isn't.
+                local stackRows = isVert and stride or numRows
+                local topInset = 5
+                local rowStep = iconH + spacing
+                local gridBottomLocal = topInset + stackRows * iconH + (stackRows - 1) * spacing
+                if gridBottomLocal * self._previewScale > maxH then
+                    local visibleRows = math.max(1, math.floor((maxH / self._previewScale - topInset + spacing) / rowStep + 0.001))
+                    visibleRows = math.min(visibleRows, stackRows)
+                    local cappedLocalH = topInset + visibleRows * iconH + (visibleRows - 1) * spacing
+                    self._wrapper:SetHeight(math.min(maxH, cappedLocalH * self._previewScale))
+                else
+                    self._wrapper:SetHeight(maxH)
+                end
             else
                 self._wrapper:SetHeight(parentH)
                 if self._scrollFrame then self._scrollFrame:SetVerticalScroll(0) end

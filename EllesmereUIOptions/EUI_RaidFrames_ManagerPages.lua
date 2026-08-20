@@ -2282,6 +2282,13 @@ function ns.DMP_RefreshPreview()
     if baseShown then
         local sel = (dmSel == "base" and not dmInhSel)
             or (dmInhSel and dmInhSel.id == "base") or false
+        local basePos = p.debuffPosition or "bottomright"
+        local baseCenterEdge
+        if (p.debuffGrowDirection or "LEFT") == "CENTER" then
+            baseCenterEdge = (string.find(basePos, "top", 1, true) and "TOP")
+                or (string.find(basePos, "bottom", 1, true) and "BOTTOM")
+                or nil
+        end
         RenderRun({
             selKey = "base",
             count = math.min(p.debuffCap or 3, (sel or allVis) and 4 or 2),
@@ -2289,16 +2296,16 @@ function ns.DMP_RefreshPreview()
             spacing = p.debuffSpacing or 1,
             pos = p.debuffPosition or "bottomright",
             grow = p.debuffGrowDirection or "LEFT",
-            -- CENTER-growth vertical seat: live pins the container's TOP or
-            -- BOTTOM edge midpoint at the corner per wrap direction, so the
-            -- first row hangs off the point (tiles sit flush with their
-            -- anchored edge instead).
-            vAlign = (p.debuffWrapDirection == "DOWN") and "TOP" or "BOTTOM",
+            -- CENTER-growth vertical seat: live seats the edge from POSITION
+            -- (ResolveFlowAnchor), falling back to wrap only when the position
+            -- names neither side. Other growth modes keep wrap as the cross-axis.
+            vAlign = baseCenterEdge or ((p.debuffWrapDirection == "DOWN") and "TOP" or "BOTTOM"),
             -- Base wrap: rows follow the stored debuffWrapDirection (the
             -- runtime's cross-axis source); vertical growth wraps columns
             -- by its LEFT/RIGHT reading.
             perRow = p.debuffPerRow or 5,
-            wrapV = (p.debuffWrapDirection == "DOWN") and "DOWN" or "UP",
+            wrapV = (baseCenterEdge and ((baseCenterEdge == "TOP") and "DOWN" or "UP"))
+                or ((p.debuffWrapDirection == "DOWN") and "DOWN" or "UP"),
             wrapH = (p.debuffWrapDirection == "LEFT") and "LEFT" or "RIGHT",
             offX = p.debuffOffsetX or 0,
             offY = p.debuffOffsetY or 0,

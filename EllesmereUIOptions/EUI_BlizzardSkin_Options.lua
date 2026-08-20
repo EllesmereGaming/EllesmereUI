@@ -757,9 +757,10 @@ initFrame:SetScript("OnEvent", function(self)
         -----------------------------------------------------------------------
         _, h = W:SectionHeader(parent, "BLIZZARD HUD", y);  y = y - h
 
-        _, h = W:DualRow(parent, y,
+        local hudRow
+        hudRow, h = W:DualRow(parent, y,
             { type="toggle", text="Reskin Widget Bars",
-              tooltip="Restyles Blizzard's on-screen progress bars (event objectives, nameplate counters) to the EUI look. Requires reload to apply.\n\nThese bars are drawn over rather than modified, so if the game ever reports their contents as protected the original bar is shown instead.",
+              tooltip="Restyles Blizzard's on-screen progress bars (event objectives, nameplate counters) to the EUI look. Requires reload to apply.\n\nThese bars are drawn over rather than modified, so if the game ever reports their contents as protected the original bar is shown instead.\n\nUse the cog to set a minimum size, so bars on shrunken nameplates stay readable.",
               getValue=function()
                   return not EllesmereUIDB or EllesmereUIDB.reskinWidgetBars ~= false
               end,
@@ -790,6 +791,77 @@ initFrame:SetScript("OnEvent", function(self)
                   EllesmereUIDB.reskinExtraActionButton = v and true or false
               end })
         y = y - h
+
+        -- Minimum widget bar size (plate-hosted covers), a cog on "Reskin Widget
+        -- Bars": the floor below which a shrunken nameplate's bar scales itself
+        -- up. 0 = off (default, mirror Blizzard's rect exactly).
+        if hudRow and hudRow._leftRegion and not EllesmereUI._prebuilding then
+            local PP    = EllesmereUI.PanelPP
+            local lrgn  = hudRow._leftRegion
+            local _, showMinSize = EllesmereUI.BuildCogPopup({
+                title = "Widget Bar Size",
+                rows  = {
+                    { type="slider", label="Minimum", min=0, max=24, step=1,
+                      get=function()
+                          local v = EllesmereUIDB and EllesmereUIDB.widgetBarMinSize
+                          if type(v) == "number" then return v end
+                          return 0
+                      end,
+                      set=function(v)
+                          if not EllesmereUIDB then EllesmereUIDB = {} end
+                          EllesmereUIDB.widgetBarMinSize = v
+                          -- Live: the seam re-reads and books one refresh; nil
+                          -- only while the reskin is off (cog greyed then).
+                          if EllesmereUI._HUDWidgetSetMinSize then
+                              EllesmereUI._HUDWidgetSetMinSize()
+                          end
+                      end },
+                },
+            })
+
+            local cog = CreateFrame("Button", nil, lrgn)
+            cog:SetSize(26, 26)
+            PP.Point(cog, "RIGHT", lrgn._control or lrgn, "LEFT", -8, 0)
+            cog:SetFrameLevel(lrgn:GetFrameLevel() + 5)
+            local cogTex = cog:CreateTexture(nil, "OVERLAY")
+            cogTex:SetAllPoints()
+            cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
+
+            local function CogOff()
+                -- Same default-on test the toggle itself uses: nil means on.
+                return not (not EllesmereUIDB or EllesmereUIDB.reskinWidgetBars ~= false)
+            end
+            -- Canonical cog alphas: .15 disabled, .4 idle, .75 hover. Applied
+            -- at build time as well as on refresh -- widget refresh only fires
+            -- on LATER changes, so without the call every cog opens lit.
+            local function UpdCogState()
+                local off = CogOff()
+                cog:SetAlpha(off and 0.15 or 0.4)
+                cog:EnableMouse(not off)
+            end
+            EllesmereUI.RegisterWidgetRefresh(UpdCogState)
+            UpdCogState()
+
+            cog:SetScript("OnClick", function(self)
+                if not CogOff() then showMinSize(self) end
+            end)
+            cog:SetScript("OnEnter", function(self)
+                if not CogOff() then self:SetAlpha(0.75) end
+                if EllesmereUI.ShowWidgetTooltip then
+                    EllesmereUI.ShowWidgetTooltip(self,
+                        "Smallest on-screen size a reskinned bar is drawn at.\n\n" ..
+                        "Widget bars on a nameplate inherit that nameplate's scale, so " ..
+                        "they come out tiny on small units. Below this size the bar is " ..
+                        "scaled up instead, text and all.\n\nSet to 0 to mirror " ..
+                        "Blizzard's size exactly.")
+                end
+            end)
+            cog:SetScript("OnLeave", function()
+                UpdCogState()
+                if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
+            end)
+            lrgn._lastInline = cog
+        end
 
         return math.abs(y)
     end
@@ -3098,6 +3170,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.reskinPlayerChoice = nil
                 EllesmereUIDB.reskinTrade = nil
                 EllesmereUIDB.reskinWidgetBars = nil
+                EllesmereUIDB.widgetBarMinSize = nil
                 EllesmereUIDB.reskinExtraActionButton = nil
                 EllesmereUIDB.lfgRememberRoles = nil
                 EllesmereUIDB.lfgSavedRoles = nil

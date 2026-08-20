@@ -1052,9 +1052,152 @@ local function Skin_RaidFinder()
     if rfSB then SkinScrollBar(rfSB) end
 end
 
+-------------------------------------------------------------------------------
+--  Reward tiles (Dungeon Finder + Raid Finder) and the M+ dungeon icon row.
+-------------------------------------------------------------------------------
+
+-- Rings and plates stacked on a LargeItemButtonTemplate icon. The same list the
+-- quest reward tiles use, and for the same reason: IconBorder is a ROUNDED
+-- quality ring drawn OVER the icon, so it defeats the square crop underneath
+-- it, and NameFrame is the parchment plate behind the label.
+local REWARD_ART = { "IconBorder", "IconOverlay", "IconOverlay2", "IconBorder2", "NameFrame" }
+
+-- Rarity color for one reward tile, or nil for "no rarity" (border draws black).
+-- Derived from the LFG reward API rather than the IconBorder ring: these tiles
+-- never get SetItemButtonQuality, so the ring carries no color; the tile's
+-- SetID(rewardIndex) + .dungeonID / .shortageIndex identify the reward.
+local function RewardQualityColor(btn)
+    local did, si = btn.dungeonID, btn.shortageIndex
+    local id = btn.GetID and btn:GetID()
+    if type(did) ~= "number" or type(id) ~= "number" or id <= 0 then return end
+    -- `_` is declared LOCAL rather than left to fall through to the global of
+    -- that name: this runs inside Blizzard's own call stack from a hook, and a
+    -- stray global write from there is exactly the kind of thing this file's
+    -- taint rules exist to avoid.
+    local ok, _, numItems, rewardType, rewardID, quality
+    if si ~= nil then
+        if type(GetLFGDungeonShortageRewardInfo) ~= "function" then return end
+        ok, _, _, numItems, _, rewardType, rewardID, quality =
+            pcall(GetLFGDungeonShortageRewardInfo, did, si, id)
+    else
+        if type(GetLFGDungeonRewardInfo) ~= "function" then return end
+        ok, _, _, numItems, _, rewardType, rewardID, quality =
+            pcall(GetLFGDungeonRewardInfo, did, id)
+    end
+    if not ok then return end
+    -- Currency CONTAINERS carry their own quality, not the raw currency's.
+    -- Blizzard remaps it one line before it fills the tile, so a skin that
+    -- skips this paints a bag of gold with the wrong rarity.
+    if rewardType == "currency" and rewardID ~= nil and C_CurrencyInfo
+       and C_CurrencyInfo.IsCurrencyContainer and CurrencyContainerUtil then
+        local okC, isC = pcall(C_CurrencyInfo.IsCurrencyContainer, rewardID, numItems)
+        if okC and isC then
+            local okQ, _, _, _, q = pcall(CurrencyContainerUtil.GetCurrencyContainerInfo,
+                                          rewardID, numItems, nil, nil, quality)
+            if okQ then quality = q end
+        end
+    end
+    if quality == nil or issecretvalue(quality) or type(quality) ~= "number" then return end
+    local col = ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[quality]
+    if not (col and col.r) then return end
+    -- Achromatic qualities (poor grey, common white) are not a cue -- they read
+    -- as a colored border that happens to be grey. Same chroma test the engine
+    -- applies when it reads a ring, so the two surfaces agree on what counts.
+    local hi = math.max(col.r, col.g, col.b)
+    local lo = math.min(col.r, col.g, col.b)
+    if (hi - lo) <= 0.1 then return end
+    return col.r, col.g, col.b
+end
+
+-- One reward tile, treated exactly like a quest reward: strip the rings and the
+-- parchment plate, square the icon, put the rarity back as a SQUARE border.
+local function SkinRewardTile(btn)
+    if not btn or btn:IsForbidden() then return end
+    for i = 1, #REWARD_ART do
+        local t = btn[REWARD_ART[i]]
+        if t and t.SetAlpha and t.IsObjectType and t:IsObjectType("Texture") then
+            t:SetAlpha(0)
+        end
+    end
+    if btn.Name and btn.Name.SetTextColor then btn.Name:SetTextColor(1, 1, 1) end
+    local wsk = ns.WSkin
+    if not (wsk and wsk.SquareIcon and btn.Icon) then return end
+    local r, g, b = RewardQualityColor(btn)
+    if r then
+        -- Crop first, and only border what actually cropped: SquareIcon leaves a
+        -- masked icon fully native, and a square border round something the mask
+        -- renders as a different shape is worse than no border.
+        if wsk.SquareIcon(btn.Icon, nil) and wsk.QualityBorder then
+            wsk.QualityBorder(btn, btn.Icon, r, g, b)
+        end
+    else
+        -- No rarity worth showing: let the engine draw its black edge.
+        wsk.SquareIcon(btn.Icon, btn, true)
+    end
+end
+
+-- Every tile in one rewards panel. Shared by the Dungeon Finder and the Raid
+-- Finder: RaidFinderQueueFrameRewards_UpdateFrame delegates to
+-- LFGRewardsFrame_UpdateFrame with its own child frame, so hooking the shared
+-- updater covers both panels in one place.
+--
+-- The item rows are GLOBALS ($parentItem1..n), created on demand and counted by
+-- parentFrame.numRewardFrames; MoneyReward is a parentKey. Both inherit
+-- LargeItemButtonTemplate, so both take the same treatment -- the gold row is
+-- the one in the screenshot.
+local function SkinRewardsFrame(parentFrame)
+    if not parentFrame or parentFrame:IsForbidden() then return end
+    local name = parentFrame.GetName and parentFrame:GetName()
+    local n = parentFrame.numRewardFrames
+    if name and type(n) == "number" then
+        for i = 1, n do
+            SkinRewardTile(_G[name .. "Item" .. i])
+        end
+    end
+    SkinRewardTile(parentFrame.MoneyReward)
+end
+
+-- The M+ dungeon icon row. The template draws a ROUNDED DungeonIconFrame atlas
+-- over the icon as an unnamed BORDER-layer region, so cropping alone shows no
+-- change: FadeRegions (icon kept) is the only way to reach it.
+local _iconKeep = {}
+local function SquareDungeonIcons()
+    local cf = _G.ChallengesFrame
+    local icons = cf and cf.DungeonIcons
+    if type(icons) ~= "table" then return end
+    for i = 1, #icons do
+        local f = icons[i]
+        if f and not f:IsForbidden() and f.Icon then
+            wipe(_iconKeep); _iconKeep[f.Icon] = true
+            FadeRegions(f, _iconKeep)
+            f.Icon:ClearAllPoints()
+            f.Icon:SetAllPoints(f)
+            local wsk = ns.WSkin
+            if wsk and wsk.SquareIcon then
+                if wsk.SquareIcon(f.Icon, nil) and wsk.QualityBorder then
+                    wsk.QualityBorder(f, f.Icon, 0, 0, 0)
+                end
+            elseif f.Icon.SetTexCoord then
+                f.Icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            end
+        end
+    end
+end
+
+local _challengesHooked = false
+
 local function Skin_Challenges()
     if not _G.ChallengesFrame then return end
     local cf = _G.ChallengesFrame
+    -- ChallengesFrameMixin:Update rebuilds the icon row on show and on every
+    -- C_MythicPlus data refresh (icons created after the panel-skin pass would
+    -- otherwise stay round), so square from the updater.
+    if not _challengesHooked and type(cf.Update) == "function" then
+        _challengesHooked = true
+        hooksecurefunc(cf, "Update", function()
+            if SkinEnabled() then SquareDungeonIcons() end
+        end)
+    end
     SkinPanel(cf, { noBg = true, noBorder = true })
     -- The M+ main-area scenic backdrop (ChallengesFrame.Background + an anon
     -- BG texture) defeated every ALPHA approach we tried -- Blizzard re-raises
@@ -1070,6 +1213,7 @@ local function Skin_Challenges()
         if kf.StartButton then SkinButton(kf.StartButton) end
         if kf.CloseButton then SkinCloseButton(kf.CloseButton) end
     end
+    SquareDungeonIcons()
 end
 
 -- PvP tab (PVPUIFrame, Blizzard_PVPUI -- separate LoD addon): the D&R
@@ -1222,10 +1366,15 @@ local function InstallHooks()
     -- rewards/role/raid update; one-shot fades never stick against them, so
     -- re-fade from the updaters themselves.
     if LFGRewardsFrame_UpdateFrame then
-        hooksecurefunc("LFGRewardsFrame_UpdateFrame", function(_, _, background)
+        hooksecurefunc("LFGRewardsFrame_UpdateFrame", function(parentFrame, _, background)
             if background and not issecretvalue(background) and background.SetAlpha then
                 background:SetAlpha(0)
             end
+            -- Reward tiles are re-filled from scratch on every one of these
+            -- passes (SetItemButtonTexture re-shows the rings), so the skin has
+            -- to ride the updater rather than being applied once when the panel
+            -- is built.
+            SkinRewardsFrame(parentFrame)
         end)
     end
     if RaidFinderQueueFrameRewards_UpdateFrame then

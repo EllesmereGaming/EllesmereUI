@@ -5431,7 +5431,28 @@ end
 -- state after its reload paths (which Show() the parents as a side effect).
 -- Restoring (hidden = false) honors each bar's OWN enable toggle -- a
 -- vehicle exit must never re-show a disabled bar's fully-populated grid.
+-- Probe-verified self-assist state (the RF AssistProbe self-branch, ported):
+-- the engine's spell-ID filter degradation tracks ASSISTABILITY, not any event's
+-- timing. A clean false = degraded (hide, never render the full-set parse);
+-- unreadable answers fail OPEN (the historical self-exemption -- never
+-- retry-loop against secrecy).
+local pabDegraded = false
+local pabSettleTicker
+local function PabAssistProbe()
+    local probe = UnitUsingVehicle or UnitInVehicle
+    if probe("player") then return false end
+    local ok, canSelf = pcall(UnitCanAssist, "player", "player")
+    if ok and not (issecretvalue and issecretvalue(canSelf)) and canSelf == false then
+        return false
+    end
+    return true
+end
+
 local function ApplyVehicleHidden(hidden)
+    -- One suppression state, two causes: a vehicle ride and a probe-degraded
+    -- window (cinematic / faction flip) hide the same parents -- degraded
+    -- filter output must never render, exactly like the RF assist gate.
+    hidden = hidden or pabDegraded
     local s = PAB()
     -- Regen replay re-derives from the LIVE vehicle state, not the argument.
     local function recompute() ApplyVehicleHidden(vehicleHidden) end
@@ -5494,12 +5515,63 @@ local function ReapplyAllAfterCinematic()
             ApplyVehicleHidden(true)
             return
         end
+        -- Probe before acting (the RF regain model): a re-drive that lands
+        -- while the player is STILL non-assistable re-bakes the degraded
+        -- full-set parse, and if that was the last UNIT_FACTION edge nothing
+        -- ever repairs it (field: full buff set stuck after cinematics).
+        -- Degraded at this tick: hide the parents and wait. No event marks
+        -- "assistability restored" when the restore lags the event, so a
+        -- settle watcher exists ONLY while degraded; it self-cancels on the
+        -- first clean probe (or gives up watching after 15s -- the hide
+        -- stays, and any later trigger edge re-arms it).
+        if not PabAssistProbe() then
+            if not pabDegraded then
+                pabDegraded = true
+                ApplyVehicleHidden(vehicleHidden)
+            end
+            if not pabSettleTicker then
+                local ticks = 0
+                pabSettleTicker = C_Timer.NewTicker(0.25, function()
+                    ticks = ticks + 1
+                    if PabAssistProbe() then
+                        pabSettleTicker:Cancel()
+                        pabSettleTicker = nil
+                        ReapplyAllAfterCinematic()
+                    elseif ticks >= 60 then
+                        pabSettleTicker:Cancel()
+                        pabSettleTicker = nil
+                    end
+                end)
+            end
+            return
+        end
+        if pabSettleTicker then pabSettleTicker:Cancel(); pabSettleTicker = nil end
+        if pabDegraded then
+            -- Verified regain: un-hide first so the re-drives below act on
+            -- shown parents (their Show also retakes engine-side, the same
+            -- free re-parse the vehicle exit always had).
+            pabDegraded = false
+            ApplyVehicleHidden(vehicleHidden)
+        end
         ApplyLiveConfig(true)
         ApplyLiveConfig(false)
         -- Every custom bar, editing-spec buckets included: the recovery
         -- exists to repair engine-degraded candidate filters, and an active
         -- bucket bar degrades exactly like a legacy one.
         ReloadAllCustomBars()
+        -- Force the re-parse outright. The config re-drive above cannot: a
+        -- live group's candidate payload does not retake (see CandFP), and the
+        -- engine caches membership per aura instance -- UNIT_AURA re-parses only
+        -- what changed, so a spell-ID group parsed while the player was
+        -- non-assistable keeps serving the full buff set until something marks a
+        -- full rebuild. UpdateAllAuras is that lever (the same one the RF assist
+        -- regain, UF player lane and CDM FakeActive use); the vehicle path only
+        -- got it for free through the parents' Hide/Show. Bounded to this
+        -- coalesced edge: one full parse per live container per cinematic edge.
+        if buffsContainer then buffsContainer:UpdateAllAuras() end
+        if debuffsContainer then debuffsContainer:UpdateAllAuras() end
+        for _, c in pairs(customBuffContainers) do c:UpdateAllAuras() end
+        for _, c in pairs(customDebuffContainers) do c:UpdateAllAuras() end
     end)
 end
 

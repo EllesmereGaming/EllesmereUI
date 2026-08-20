@@ -4485,6 +4485,8 @@ local function SkinCharacterSheet()
         [INVSLOT_FINGER1] = true,
         [INVSLOT_FINGER2] = true,
         [INVSLOT_MAINHAND] = true,
+        -- INVSLOT_OFFHAND deliberately absent: whether it can be enchanted depends on
+        -- what's equipped there (weapon vs. shield/held item), checked dynamically below.
     }
 
     -- Update one slot's item level, enchant and upgrade-track labels.
@@ -4505,6 +4507,10 @@ local function SkinCharacterSheet()
         local itemQuality = nil
         local slotID = slot:GetID()
         local canHaveEnchant = ENCHANT_SLOTS[slotID]
+        if slotID == INVSLOT_OFFHAND and itemLink then
+            local _, _, _, _, _, classID = GetItemInfoInstant(itemLink)
+            canHaveEnchant = (classID == Enum.ItemClass.Weapon)
+        end
 
         if itemLink then
             local _, _, quality, ilvl = GetItemInfo(itemLink)

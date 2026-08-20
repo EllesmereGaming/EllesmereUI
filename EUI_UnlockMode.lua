@@ -7483,7 +7483,17 @@ local function CreateMover(barKey)
                 if type(pos) == "table" and pos.point == "CENTER"
                    and (pos.relPoint or "CENTER") == "CENTER"
                    and pos.x and pos.y then
-                    fs:SetText(format("%.0f, %.0f", toPx(pos.x), toPx(pos.y)))
+                    -- Parity-aware like the live branch below (odd dims store a half-pixel center).
+                    local sb = GetBarFrame(bk)
+                    local c2pS = PPi and PPi.CenterToPixels
+                    local px, py
+                    if c2pS and sb then
+                        px = c2pS(pos.x, sb:GetWidth(), sb:GetEffectiveScale())
+                        py = c2pS(pos.y, sb:GetHeight(), sb:GetEffectiveScale())
+                    else
+                        px, py = toPx(pos.x), toPx(pos.y)
+                    end
+                    fs:SetText(format("%.0f, %.0f", px, py))
                     fs:Show()
                     return
                 end
@@ -9455,7 +9465,14 @@ local function CreateMover(barKey)
                         if type(pos) == "table" and pos.point == "CENTER"
                            and (pos.relPoint or "CENTER") == "CENTER"
                            and pos.x and pos.y then
-                            if ax == "X" then return PPi.ToPixels(pos.x) end
+                            -- Parity-aware like the live conversion below (odd dims store a half-pixel center).
+                            local sb = GetBarFrame(barKey)
+                            local c2pS = PPi.CenterToPixels
+                            if ax == "X" then
+                                if c2pS and sb then return c2pS(pos.x, sb:GetWidth(), sb:GetEffectiveScale()) end
+                                return PPi.ToPixels(pos.x)
+                            end
+                            if c2pS and sb then return c2pS(pos.y, sb:GetHeight(), sb:GetEffectiveScale()) end
                             return PPi.ToPixels(pos.y)
                         end
                     end
@@ -9692,7 +9709,9 @@ local function CreateMover(barKey)
                 if type(pos) == "table" and pos.point == "CENTER"
                    and (pos.relPoint or "CENTER") == "CENTER"
                    and pos.x and pos.y then
-                    curPx = PPc.ToPixels(pos.x)
+                    -- Parity-aware like the cog X box and readout (odd dims store a half-pixel center).
+                    local c2pC = PPc.CenterToPixels
+                    curPx = (c2pC and c2pC(pos.x, b:GetWidth(), b:GetEffectiveScale())) or PPc.ToPixels(pos.x)
                 end
             end
             if curPx == nil then
@@ -10447,16 +10466,28 @@ local function CreateHUD(parent)
     ---------------------------------------------------------------
     --  Exit (left) and Save & Exit (right) buttons
     --  Vertically centered in the 58px visible banner area.
-    --  Positioned ~50px from left/right edges of the banner.
+    --  Positioned ~50px from left/right edges of the banner, but pulled in
+    --  further when localized toggle labels run wide enough to reach them
+    --  (German especially runs longer than English and used to overlap them).
     ---------------------------------------------------------------
     local BTN_H = 26
     local BTN_FONT = 10
     local btnCenterY = iconCenterY  -- same vertical center as icons
+    local CHAIN_GAP = 15  -- minimum clearance from the icon-toggle chain
 
-    -- Exit button (left side, 90px from left edge)
+    -- Outer edges of the left (grid/darkOverlay/flash) and right
+    -- (magnet/coord/hover) toggle chains, center-relative -- re-derives the
+    -- same offsets used to anchor them above, so keep these in sync with
+    -- those SetPoint calls if the chain spacing ever changes.
+    local flashLeftEdge = (-80 + iconSz / 2) - gridBtn:GetWidth() - 20 - darkOverlayBtn:GetWidth() - 20 - flashBtn:GetWidth()
+    local hoverRightEdge = (76 - iconSz / 2) + magnetBtn:GetWidth() + 7 + coordBtn:GetWidth() + 2 + hoverBtn:GetWidth()
+
+    -- Exit button (left side, 85px from left edge by default)
     local exitBtn = CreateFrame("Button", nil, hudFrame)
-    exitBtn:SetSize(60, BTN_H)
-    exitBtn:SetPoint("LEFT", hudFrame, "TOPLEFT", 85, btnCenterY)
+    local EXIT_BTN_W = 60
+    exitBtn:SetSize(EXIT_BTN_W, BTN_H)
+    local exitLeftEdge = min(-BANNER_PX_W / 2 + 85, flashLeftEdge - CHAIN_GAP - EXIT_BTN_W)
+    exitBtn:SetPoint("LEFT", hudFrame, "TOPLEFT", exitLeftEdge + BANNER_PX_W / 2, btnCenterY)
     EllesmereUI.MakeStyledButton(exitBtn, "Exit", BTN_FONT,
         EllesmereUI.RB_COLOURS, function() ns.RequestClose(false) end)
     hudFrame._exitBtn = exitBtn
@@ -10464,8 +10495,10 @@ local function CreateHUD(parent)
     -- Save & Exit button (right side, 50px from right edge, green "Done" style)
     do
         local btn = CreateFrame("Button", nil, hudFrame)
-        btn:SetSize(90, BTN_H)
-        btn:SetPoint("RIGHT", hudFrame, "TOPRIGHT", -85, btnCenterY)
+        local SAVE_BTN_W = 90
+        btn:SetSize(SAVE_BTN_W, BTN_H)
+        local saveRightEdge = max(BANNER_PX_W / 2 - 85, hoverRightEdge + CHAIN_GAP + SAVE_BTN_W)
+        btn:SetPoint("RIGHT", hudFrame, "TOPRIGHT", saveRightEdge - BANNER_PX_W / 2, btnCenterY)
         btn:SetFrameLevel(hudFrame:GetFrameLevel() + 2)
 
         local eg = EllesmereUI.ELLESMERE_GREEN or { r = 12/255, g = 210/255, b = 157/255 }

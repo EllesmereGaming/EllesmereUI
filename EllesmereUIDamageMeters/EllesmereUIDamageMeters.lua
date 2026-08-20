@@ -2041,7 +2041,7 @@ local function CreateDMWindow(winIdx)
     W.isHovered    = false
     W.resizing     = false
     W.windowLocked = wdb.locked or false
-    W.snapDisabled = false
+    W.snapDisabled = wdb.snapDisabled or false
     W.sourceOpen   = false
     W.sourceGUID   = nil
     W.sourceCreatureID = nil
@@ -2503,6 +2503,7 @@ local function CreateDMWindow(winIdx)
               min = MIN_H },
             { text = W.snapDisabled and L("Enable Snapping") or L("Disable Snapping"), onClick = function()
                 W.snapDisabled = not W.snapDisabled
+                wdb.snapDisabled = W.snapDisabled
             end },
             { text = L("Hide Timer"), isActive = wdb.hideTimer, onClick = function()
                 wdb.hideTimer = not wdb.hideTimer

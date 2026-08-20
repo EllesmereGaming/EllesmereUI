@@ -205,7 +205,7 @@ GetOverlay = function(iconFrame)
     cd:SetDrawEdge(false)
     cd:SetDrawBling(false)
     cd:SetHideCountdownNumbers(false)
-    cd:SetSwipeTexture("Interface\\Buttons\\WHITE8x8")
+    cd:SetSwipeTexture("Interface\\AddOns\\EllesmereUI\\media\\white-square.png")
     o.cd = cd
 
     -- Own glow frame for ns.ApplyActiveOverlays (never collides with the real
@@ -613,7 +613,7 @@ end
                 cd:SetDrawEdge(false)
                 cd:SetDrawBling(false)
                 cd:SetHideCountdownNumbers(false)
-                cd:SetSwipeTexture("Interface\\Buttons\\WHITE8x8")
+                cd:SetSwipeTexture("Interface\\AddOns\\EllesmereUI\\media\\white-square.png")
                 cd:SetFrameLevel(button:GetFrameLevel() + 1)
                 local cr, cg, cb, ca = ResolveSwipeColor(ss)
                 cd:SetSwipeColor(cr, cg, cb, ca)

@@ -1829,7 +1829,7 @@ do
         "showItemMaxStacks", "itemStackModifier",
         "reskinPopupsMenus", "reskinGameMenu", "reskinQueuePopup",
         "showQueueTimer", "resurrectAcceptGlow",
-        "reskinWidgetBars", "reskinExtraActionButton",
+        "reskinWidgetBars", "widgetBarMinSize", "reskinExtraActionButton",
         "popupMenuButtonBackgroundColor", "popupMenuButtonTextColorMode",
         "popupMenuButtonTextColor",
         "accentReskinElements",

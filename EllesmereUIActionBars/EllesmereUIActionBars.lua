@@ -6493,6 +6493,22 @@ local function MakeButtonSquare(btn)
             fd.intHooked = true
         end
     end
+    -- The cast-on-button anim's OnHide resets the swipe to opaque black on the
+    -- button that hard-cast, clobbering the CD Swipe color/opacity setting there
+    -- (cast-time spells only; instants never play the anim, and the suppression
+    -- hook above trips the same OnHide at cast START). HookScript runs after the
+    -- reset, so re-assert ours on the same edge -- fires only when a cast anim
+    -- frame hides, nothing at idle.
+    if btn.SpellCastAnimFrame and not fd.castSwipeHooked then
+        fd.castSwipeHooked = true
+        btn.SpellCastAnimFrame:HookScript("OnHide", function()
+            local pdb = EAB.db and EAB.db.profile
+            local cd = btn.cooldown
+            if not pdb or not (cd and cd.SetSwipeColor) then return end
+            local c = pdb.cdSwipeColor or { r = 0, g = 0, b = 0 }
+            pcall(cd.SetSwipeColor, cd, c.r or 0, c.g or 0, c.b or 0, (pdb.cdSwipeAlpha or 80) / 100)
+        end)
+    end
     if btn.SlotBackground then
         btn.SlotBackground:SetAlpha(0)
         if not fd.slotBgHooked then
@@ -12974,12 +12990,25 @@ function EAB:FinishSetup()
 
     DoSetupSecure()
 
-    -- Set override keybindings immediately at load time, before combat
-    -- state is restored. This ensures keybinds work on /reload in combat.
-    UpdateKeybinds()
-
-    -- Re-apply saved "Toggle Action Bar" visibility keybinds.
-    EAB:RebuildVisToggleBindings()
+    -- Override keybinds (custom-paged/flyout click routes) + saved "Toggle
+    -- Action Bar" keys: engine binding-table rebuilds, protected. On a combat
+    -- /reload InCombatLockdown() is already true here and this loading-screen
+    -- execution is the ONLY place the rebuild is legal, so it stays in-window.
+    -- Out of combat there is no window to protect, and the whole suite's
+    -- OnEnable chain shares this one watchdog budget (AB is first in it):
+    -- move the rebuild to its own execution so it neither dies at the tail
+    -- of the bar build nor starves the modules behind it. If a pull starts
+    -- in the one-frame gap, both callees bail and re-arm on regen -- the
+    -- same contract the combat path already lives on.
+    if InCombatLockdown() then
+        UpdateKeybinds()
+        EAB:RebuildVisToggleBindings()
+    else
+        C_Timer_After(0, function()
+            UpdateKeybinds()
+            EAB:RebuildVisToggleBindings()
+        end)
+    end
 
     -- Initialize the showgrid monitor on ActionButton1 so that when
     -- Blizzard changes its showgrid attribute (e.g. during combat spell

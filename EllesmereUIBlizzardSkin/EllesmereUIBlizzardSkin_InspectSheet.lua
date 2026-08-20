@@ -73,6 +73,8 @@ local INSPECT_ENCHANT_SLOTS = {
     [INVSLOT_FINGER1] = true,
     [INVSLOT_FINGER2] = true,
     [INVSLOT_MAINHAND] = true,
+    -- INVSLOT_OFFHAND deliberately absent: checked dynamically below (weapon vs.
+    -- shield/held item), like CharacterSheet.
 }
 
 -- Drop every label a previous styling pass left on this slot. The widgets
@@ -173,6 +175,10 @@ local function EUI_UpdateSlotStyle(slotName, slotID, textOverlayFrame, isRightCo
         local enchantSize = EllesmereUIDB and EllesmereUIDB.charSheetEnchantSize or 9
         local enchantText = EllesmereUI.GetEnchantText(slotID, inspectUnit)
         local canHaveEnchant = INSPECT_ENCHANT_SLOTS[slotID]
+        if slotID == INVSLOT_OFFHAND then
+            local _, _, _, _, _, classID = GetItemInfoInstant(itemLink)
+            canHaveEnchant = (classID == Enum.ItemClass.Weapon)
+        end
         local inspLvl = UnitLevel(inspectUnit)
         local atEnchantLevel = inspLvl and not (issecretvalue and issecretvalue(inspLvl)) and inspLvl >= 90 or false
         local isMissing = atEnchantLevel and canHaveEnchant and itemLink and (enchantText == "" or not enchantText)

@@ -398,32 +398,36 @@ local function FlowDir(token)
     return FD.Right
 end
 
+-- Shared by AnchorDebuffContainer/AnchorDispLocContainer. CENTER growth pins
+-- the container's top/bottom edge to match the position's OWN vertical side
+-- (not wrap direction -- pinning by wrap put every CENTER-grown container's
+-- edge on the bottom whenever Position was "top", since wrap defaults to "UP"
+-- and isn't exposed on either options pane) so rows grow away from the
+-- anchored edge; other growth directions anchor directly at the corner.
+local function ResolveFlowAnchor(pos, corner, grow, wrap)
+    if grow == "CENTER" then
+        local edge = (pos:find("top", 1, true) and "TOP")
+            or (pos:find("bottom", 1, true) and "BOTTOM")
+            or ((wrap == "DOWN") and "TOP" or "BOTTOM")
+        return edge, edge .. "LEFT", "RIGHT", (edge == "TOP") and "DOWN" or "UP"
+    elseif grow == "UP" or grow == "DOWN" then
+        -- Vertical primary growth renders as a single column per row-width;
+        -- multi-column vertical fill order differs from legacy (row-major).
+        return corner, corner, (wrap == "LEFT") and "LEFT" or "RIGHT", grow
+    end
+    return corner, corner, grow, wrap
+end
+
 local function AnchorDebuffContainer(container, health, s)
     health = ns.RF_AnchorHost and ns.RF_AnchorHost(health, s) or health   -- Uniform Icon Anchoring
-    local corner = CORNERS[s.debuffPosition or "bottomright"] or "BOTTOMRIGHT"
+    local pos = s.debuffPosition or "bottomright"
+    local corner = CORNERS[pos] or "BOTTOMRIGHT"
     local grow = s.debuffGrowDirection or "LEFT"
     local wrap = s.debuffWrapDirection or "UP"
     local offX = s.debuffOffsetX or 0
     local offY = s.debuffOffsetY or 0
 
-    local point, anchorPoint, gH, gV
-    if grow == "CENTER" then
-        -- Rows center on the anchor corner: pin the horizontal midpoint (top/bottom
-        -- edge matching wrap direction) at it.
-        point = (wrap == "DOWN") and "TOP" or "BOTTOM"
-        anchorPoint = (wrap == "DOWN") and "TOPLEFT" or "BOTTOMLEFT"
-        gH, gV = "RIGHT", wrap
-    elseif grow == "UP" or grow == "DOWN" then
-        -- Vertical primary growth renders as a single column per row-width;
-        -- multi-column vertical fill order differs from legacy (row-major).
-        point = corner
-        anchorPoint = corner
-        gH, gV = (wrap == "LEFT") and "LEFT" or "RIGHT", grow
-    else
-        point = corner
-        anchorPoint = corner
-        gH, gV = grow, wrap
-    end
+    local point, anchorPoint, gH, gV = ResolveFlowAnchor(pos, corner, grow, wrap)
 
     container:ClearAllPoints()
     container:SetPoint(point, health, corner, offX, offY)
@@ -458,26 +462,14 @@ end
 -- settings (spacing/wrap/per-row stay shared with the debuff display).
 local function AnchorDispLocContainer(container, health, s)
     health = ns.RF_AnchorHost and ns.RF_AnchorHost(health, s) or health   -- Uniform Icon Anchoring
-    local corner = CORNERS[s.dispellableDebuffLocation] or "BOTTOMRIGHT"
+    local pos = s.dispellableDebuffLocation or "bottomright"
+    local corner = CORNERS[pos] or "BOTTOMRIGHT"
     local grow = s.dispellableDebuffGrowDirection or "RIGHT"
     local wrap = s.debuffWrapDirection or "UP"
     local offX = s.dispellableDebuffOffsetX or 0
     local offY = s.dispellableDebuffOffsetY or 0
 
-    local point, anchorPoint, gH, gV
-    if grow == "CENTER" then
-        point = (wrap == "DOWN") and "TOP" or "BOTTOM"
-        anchorPoint = (wrap == "DOWN") and "TOPLEFT" or "BOTTOMLEFT"
-        gH, gV = "RIGHT", wrap
-    elseif grow == "UP" or grow == "DOWN" then
-        point = corner
-        anchorPoint = corner
-        gH, gV = (wrap == "LEFT") and "LEFT" or "RIGHT", grow
-    else
-        point = corner
-        anchorPoint = corner
-        gH, gV = grow, wrap
-    end
+    local point, anchorPoint, gH, gV = ResolveFlowAnchor(pos, corner, grow, wrap)
 
     container:ClearAllPoints()
     container:SetPoint(point, health, corner, offX, offY)

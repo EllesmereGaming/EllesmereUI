@@ -12776,6 +12776,7 @@ function InitializeFrames()
         if classPowerStyle == "blizzard" then
             if savedClassPowerBar then
                 _blizzCPActive = true
+                savedClassPowerBar.ignoreFramePositionManager = true
                 HookBlizzardClassPower(savedClassPowerBar)
                 PositionClassPowerBar(savedClassPowerBar)
                 frames._classPowerBar = savedClassPowerBar
@@ -12818,6 +12819,7 @@ function InitializeFrames()
         elseif frames._classPowerBar then
             frames._classPowerBar:Hide()
             frames._classPowerBar:ClearAllPoints()
+            frames._classPowerBar.ignoreFramePositionManager = nil
             local origParent = _blizzCPState.origParent or PlayerFrame or UIParent
             frames._classPowerBar:SetParent(origParent)
             frames._classPowerBar = nil
@@ -12846,6 +12848,7 @@ function InitializeFrames()
             if cpFrame then
                 _blizzCPState.origParent = cpFrame:GetParent()
                 _blizzCPActive = true
+                cpFrame.ignoreFramePositionManager = true
                 HookBlizzardClassPower(cpFrame)
                 cpFrame:SetParent(UIParent)
                 frames._classPowerBar = cpFrame
@@ -12882,6 +12885,9 @@ function InitializeFrames()
         if unit ~= "player" then return end
         if not cpSpecInitDone then return end
         DestroyCustomClassPower()
+        if frames._classPowerBar then
+            frames._classPowerBar.ignoreFramePositionManager = nil
+        end
         frames._classPowerBar = nil
         C_Timer.After(0.1, function()
             if ns.ReloadFrames then ns.ReloadFrames() end

@@ -7007,41 +7007,51 @@ local function StartAddon()
     local RECENT_MAX = 12
     EUI_Bags._recentItems = {}      -- itemID -> true (set of recent item IDs)
     EUI_Bags._recentOrder = {}      -- ordered list of itemIDs (oldest first)
-    local _knownItemIDs = {}    -- itemID -> true (all item IDs present in bags)
+    local _knownItemCounts = {} -- itemID -> highest stack count seen this session
     local _snapshotReady = false
 
-    local function SnapshotKnownIDs()
+    -- Track the highest count ever seen per itemID, not current presence: a stack
+    -- merge (already have 3, loot 1 more) must register as a new pickup, and a
+    -- plain presence set can't see that. Tracking the max instead of the live
+    -- count (and never lowering it) also means unequipping/re-equipping, banking,
+    -- or mailing an item back to yourself doesn't re-flag it as new.
+    local function TallyItemCounts()
+        local counts, order = {}, {}
         for bag = 0, 5 do
             local numSlots = C_Container.GetContainerNumSlots(bag)
             for slot = 1, numSlots do
                 local info = C_Container.GetContainerItemInfo(bag, slot)
                 if info and info.itemID then
-                    _knownItemIDs[info.itemID] = true
+                    if not counts[info.itemID] then order[#order + 1] = info.itemID end
+                    counts[info.itemID] = (counts[info.itemID] or 0) + (info.stackCount or 0)
                 end
             end
         end
+        return counts, order
+    end
+
+    local function SnapshotKnownIDs()
+        _knownItemCounts = TallyItemCounts()
         _snapshotReady = true
     end
 
     local function DetectNewItems()
         if not _snapshotReady then return end
-        for bag = 0, 5 do
-            local numSlots = C_Container.GetContainerNumSlots(bag)
-            for slot = 1, numSlots do
-                local info = C_Container.GetContainerItemInfo(bag, slot)
-                if info and info.itemID then
-                    if not _knownItemIDs[info.itemID] and not EUI_Bags._recentItems[info.itemID] then
-                        EUI_Bags._recentItems[info.itemID] = true
-                        EUI_Bags._recentOrder[#EUI_Bags._recentOrder + 1] = info.itemID
-                        while #EUI_Bags._recentOrder > RECENT_MAX do
-                            local old = table.remove(EUI_Bags._recentOrder, 1)
-                            EUI_Bags._recentItems[old] = nil
-                        end
+        local counts, order = TallyItemCounts()
+        for _, itemID in ipairs(order) do
+            local count = counts[itemID]
+            if count > (_knownItemCounts[itemID] or 0) then
+                _knownItemCounts[itemID] = count
+                if not EUI_Bags._recentItems[itemID] then
+                    EUI_Bags._recentItems[itemID] = true
+                    EUI_Bags._recentOrder[#EUI_Bags._recentOrder + 1] = itemID
+                    while #EUI_Bags._recentOrder > RECENT_MAX do
+                        local old = table.remove(EUI_Bags._recentOrder, 1)
+                        EUI_Bags._recentItems[old] = nil
                     end
                 end
             end
         end
-        SnapshotKnownIDs()
     end
 
     C_Timer.After(1, function() SnapshotKnownIDs() end)
