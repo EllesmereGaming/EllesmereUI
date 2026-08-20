@@ -3962,3 +3962,62 @@ EllesmereUI.RegisterMigration({
         end
     end,
 })
+
+--------------------------------------------------------------------------------
+--  Power Bar / Health Bar hash lines were bar-wide (one config for the whole
+--  bar, all specs); Class Resource Bar's Threshold & Hash Lines system stores
+--  hash lines per-spec on each thresholdSpecs entry instead. Unifying the
+--  three bars onto that per-spec system means copying each bar's existing
+--  bar-wide hash config onto every thresholdSpecs entry it already has (or a
+--  single universal specIDs={0} entry if it has none yet), then clearing the
+--  old bar-wide fields so the per-spec copy is the only source of truth going
+--  forward. Existing Threshold %/Multi-band data on those same entries is left
+--  completely untouched -- this only ever adds/overwrites the hash-* fields.
+--
+--  Detecting "untouched" is exact here: raw stored profiles are sparse (Lite
+--  merges defaults at NewDB, not persisted), so a bar that has never had hash
+--  lines configured simply has no hashEnabled key at all -- confirmed directly
+--  against a live SavedVariables file (a never-touched Health Bar had no
+--  hashEnabled key; a configured Power Bar had hashEnabled=true sitting
+--  directly on the bar-wide table). An explicit false is still migrated
+--  forward (copied as false), since that reflects a real prior interaction
+--  even though it produces no visual change either way.
+--------------------------------------------------------------------------------
+EllesmereUI.RegisterMigration({
+    id          = "resourcebars_power_health_hash_perspec_v1",
+    scope       = "profile",
+    description = "Move Power Bar / Health Bar bar-wide hash-line settings onto per-spec thresholdSpecs entries, matching Class Resource Bar's model",
+    body        = function(ctx)
+        local rb = ctx.profile.addons and ctx.profile.addons.EllesmereUIResourceBars
+        if type(rb) ~= "table" then return end
+
+        local function migrateBar(bar)
+            if type(bar) ~= "table" then return end
+            if bar.hashEnabled == nil then return end -- never touched hash lines, nothing to migrate
+
+            local snapshot = {
+                hashEnabled = bar.hashEnabled, hashValues = bar.hashValues,
+                hashMode = bar.hashMode, hashWidth = bar.hashWidth,
+                hashColorR = bar.hashColorR, hashColorG = bar.hashColorG,
+                hashColorB = bar.hashColorB, hashColorA = bar.hashColorA,
+            }
+
+            bar.thresholdSpecs = bar.thresholdSpecs or {}
+            if #bar.thresholdSpecs == 0 then
+                local entry = { specIDs = {0} }
+                for k, v in pairs(snapshot) do entry[k] = v end
+                bar.thresholdSpecs[1] = entry
+            else
+                for _, entry in ipairs(bar.thresholdSpecs) do
+                    for k, v in pairs(snapshot) do entry[k] = v end
+                end
+            end
+
+            bar.hashEnabled, bar.hashValues, bar.hashMode, bar.hashWidth = nil, nil, nil, nil
+            bar.hashColorR, bar.hashColorG, bar.hashColorB, bar.hashColorA = nil, nil, nil, nil
+        end
+
+        migrateBar(rb.primary)
+        migrateBar(rb.health)
+    end,
+})
