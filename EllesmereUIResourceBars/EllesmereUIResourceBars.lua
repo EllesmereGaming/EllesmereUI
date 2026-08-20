@@ -3884,6 +3884,13 @@ end
 
 
 -- Update functions (event-driven)
+-- ActiveBuffColor/ActiveSpenderColor are defined further below (also used by
+-- UpdateIronfurBar/UpdateSecondaryResource), but UpdateHealthBar and
+-- UpdatePrimaryBar -- which also need them -- are both defined earlier in the
+-- file. Forward-declared here so both can call them; same idiom already used
+-- above for ResolveThresholdSpecEntry.
+local ActiveBuffColor, ActiveSpenderColor
+
 local function UpdateHealthBar()
     if not healthBar or not healthBar:IsShown() then return end
     local hp = _G._ERB_ResolveHealthCfg()
@@ -3915,15 +3922,48 @@ local function UpdateHealthBar()
     if not _hpTsEnabled then _hpTsEntry = nil end
     local ft = healthBar:GetStatusBarTexture()
     local _hpTextInstead = _hpTsEntry and _hpTsEntry.thresholdTextInstead and hp.textFormat ~= "none"
-    if (_hpTsEntry or _hpBandOn) and ft and UnitHealthPercent then
-        local curve
-        local baseR, baseG, baseB
-        if hp.customColored then
-            baseR, baseG, baseB = hp.fillR, hp.fillG, hp.fillB
+
+    -- Base fill color: needed by the buff/spender override below, the
+    -- threshold curve's fill-stays-base case, and the plain default branch --
+    -- computed once here instead of three times.
+    local baseR, baseG, baseB
+    if hp.customColored then
+        baseR, baseG, baseB = hp.fillR, hp.fillG, hp.fillB
+    else
+        local cc = CLASS_COLORS[cachedClass]
+        if cc then baseR, baseG, baseB = cc[1], cc[2], cc[3] else baseR, baseG, baseB = 0.15, 0.75, 0.30 end
+    end
+
+    -- A tracked buff overrides the fill (buff wins over threshold/band).
+    -- Spenders is checked only when no buff is active, so it can never
+    -- override Buff Colors -- same _buffEntry = _tsEntry coupling Class
+    -- Resource Bar and Power Bar both already use. Spenders on a health bar is
+    -- an unusual pairing (recoloring health based on spell castability), but
+    -- deliberately wired in the same way as the other two bars rather than
+    -- special-cased out at the render level -- the plan is to hide the option
+    -- from the UI for Health Bar specifically (step 4), not to fork the
+    -- render logic per bar. Both return plain, non-secret colors, so unlike
+    -- the threshold/band path below they never need the ColorCurve.
+    local _bfr, _bfg, _bfb, _bfa = ActiveBuffColor(_hpTsEntry)
+    if not _bfr then
+        _bfr, _bfg, _bfb, _bfa = ActiveSpenderColor(_hpTsEntry)
+    end
+    local _buffActive = _bfr ~= nil
+
+    if _buffActive then
+        if _hpTextInstead then
+            if healthBar._text then healthBar._text:SetTextColor(_bfr, _bfg, _bfb, _bfa or 1) end
+            if hp.gradientEnabled then
+                ApplyBarGradient(ft, hp.gradientDir or "HORIZONTAL", baseR, baseG, baseB, 1,
+                    hp.gradientR, hp.gradientG, hp.gradientB, hp.gradientA)
+            else
+                ApplyBarFlat(ft, baseR, baseG, baseB, 1)
+            end
         else
-            local cc = CLASS_COLORS[cachedClass]
-            if cc then baseR, baseG, baseB = cc[1], cc[2], cc[3] else baseR, baseG, baseB = 0.15, 0.75, 0.30 end
+            ft:SetVertexColor(_bfr, _bfg, _bfb, _bfa or 1)
         end
+    elseif (_hpTsEntry or _hpBandOn) and ft and UnitHealthPercent then
+        local curve
         local _bandOn, _bands, _bandMode, _bandRev = _hpBandOn, _hpBands, _hpBandMode, _hpBandRev
 		-- Recolor text instead of bar
         if _hpTextInstead then
@@ -3973,15 +4013,12 @@ local function UpdateHealthBar()
             end
         end
     elseif ft and not hp.customColored then
-        local r, g, b
-        local cc = CLASS_COLORS[cachedClass]
-        if cc then r, g, b = cc[1], cc[2], cc[3] else r, g, b = 0.15, 0.75, 0.30 end
         if hp.gradientEnabled then
             ApplyBarGradient(ft, hp.gradientDir or "HORIZONTAL",
-                r, g, b, 1,
+                baseR, baseG, baseB, 1,
                 hp.gradientR, hp.gradientG, hp.gradientB, hp.gradientA)
         else
-            ApplyBarFlat(ft, r, g, b, 1)
+            ApplyBarFlat(ft, baseR, baseG, baseB, 1)
         end
     end
 
@@ -4017,12 +4054,6 @@ local function UpdateHealthBar()
         healthBar._text:Hide()
     end
 end
-
--- ActiveBuffColor/ActiveSpenderColor are defined further below (also used by
--- UpdateIronfurBar/UpdateSecondaryResource), but UpdatePrimaryBar -- which also
--- needs them -- is defined earlier in the file. Forward-declared here so it can
--- call them; same idiom already used above for ResolveThresholdSpecEntry.
-local ActiveBuffColor, ActiveSpenderColor
 
 local function UpdatePrimaryBar()
     if not primaryBar or not primaryBar:IsShown() then return end
